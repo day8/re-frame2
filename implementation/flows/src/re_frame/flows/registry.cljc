@@ -57,7 +57,7 @@
 
 ;; ---- per-frame flow introspection ----------------------------------------
 ;;
-;; ONE FRAME SPELLING (rf2-kuky.84). Both per-frame reads take a single opts
+;; ONE FRAME SPELLING. Both per-frame reads take a single opts
 ;; MAP whose `:frame` is REQUIRED — the same accepted target shapes
 ;; `rf/registrations` takes (a frame-id keyword or a frame value), resolved to
 ;; the frame id that keys this side table. There is deliberately NO ambient
@@ -111,7 +111,7 @@
 
   The `:flows/frame-has-flows?` late-bind hook: core's `:fx` walk asks it
   before settling a frame whose state the walk changed, so a frame with no
-  flows pays no settle (rf2-3x7nj.9.7). Takes a resolved frame id — no
+  flows pays no settle. Takes a resolved frame id — no
   ambient fallback, no validation — because its one caller already holds it."
   [frame-id]
   (boolean (seq (get @flows-by-frame frame-id))))
@@ -227,7 +227,7 @@
         state))))
 
 (defn ^:no-doc legacy-flow-pass-state
-  "Capture flow-pass state without an exact-owner fence (legacy/test arity)."
+  "Capture flow-pass state without an exact-owner fence (the tokenless/test arity)."
   [frame-id]
   {:flow-map        (get @flows-by-frame frame-id)
    :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
@@ -382,7 +382,7 @@
     :extras   (fn [flow] {:bad-key     :large
                           :bad-entries (vec (remove valid-output-subpath? (:large flow)))})}
 
-   ;; Reject legacy spellings rather than silently ignoring a safety mark.
+   ;; Reject these spellings rather than silently ignoring a safety mark.
    {:pred     (fn [flow] (not (contains? flow :sensitive?)))
     :error-kw :rf.error/flow-bad-marks
     :reason   (str "the boolean :sensitive? spelling is rejected on a flow output "
@@ -482,7 +482,7 @@
   sensitive / large absolute output paths, delegating to the core multi-owner
   op (`elision/replace-owner-claims`). A foreign owner (effect / route /
   machine / resource) — or a sibling flow — on the same absolute path survives
-  untouched, and the flow's claim unions with theirs (rf2-wdm1vg)."
+  untouched, and the flow's claim unions with theirs."
   [reg flow]
   (let [owner (flow-owner (:id flow))
         [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)]
@@ -493,7 +493,7 @@
 (defn- write-flow-output-marks!
   "Install or refresh one flow's output declarations in its frame.
 
-  rf2-vxgfnd.155 — `owner-token` is threaded through the exact-incarnation
+  `owner-token` is threaded through the exact-incarnation
   elision write so a synchronous container watch that destroys A mid-write
   cannot bump same-id B's commit epoch or write B's runtime-db."
   [frame-id owner-token flow]
@@ -508,7 +508,7 @@
   Frame teardown needs no per-flow scrub because the elision registry belongs
   to the frame-state container that destruction removes.
 
-  rf2-vxgfnd.155 — `owner-token` is threaded through the exact-incarnation
+  `owner-token` is threaded through the exact-incarnation
   elision write so a synchronous container watch that destroys A mid-write
   cannot bump same-id B's commit epoch or write B's runtime-db."
   [frame-id owner-token flow-id]
@@ -537,7 +537,7 @@
              :rf.error/invalid-flow-metadata
              'rf/reg-flow
              (str "flow " flow-id "'s metadata (the MIDDLE slot) must be a map, "
-                  "got " (pr-str (type metadata)) ". Per rf2-bqstzr the grammar "
+                  "got " (pr-str (type metadata)) ". The grammar "
                   "is (reg-flow " flow-id " {…} derive-fn): the :inputs / "
                   ":output-path / :doc / :schema reflection-config metadata map "
                   "is the SECOND slot, the pure :derive fn is the THIRD.")
@@ -548,7 +548,7 @@
              :rf.error/invalid-flow-metadata
              'rf/reg-flow
              (str "flow " flow-id " declares :derive inside its metadata map — "
-                  "per rf2-bqstzr the pure derivation is the THIRD slot: "
+                  "the pure derivation is the THIRD slot: "
                   "(reg-flow " flow-id " {…} derive-fn). Move the derive fn out "
                   "of the metadata map into the value slot.")
              {:recovery :fix-registration
@@ -560,7 +560,7 @@
   "The observable shape of a stored flow definition, for deciding whether a
   re-registration is a genuine hot-reload edit or an idempotent replay.
 
-  rf2-soyqfn: flow replacement evidence must be deduped from THIS frame's
+  Flow replacement evidence must be deduped from THIS frame's
   authoritative slot — the prior/new stored flow values — NOT the generic
   process-global `[:flow flow-id]` registrar dedup table, which is frame-blind.
   Two live frames replacing the same flow-id are two independent definitions
@@ -682,15 +682,15 @@
                         (assoc by-frame frame-id prospective-frame-flows)))))
            ;; A moved output must vacate the old path. Queue the vacation during
            ;; a drain so it is applied to the pending db; otherwise write now.
-           ;; rf2-vxgfnd.155: the direct-path vacation is a callback-bearing
+           ;; The direct-path vacation is a callback-bearing
            ;; app-db write — thread A's pinned incarnation so a watch that loses
            ;; A cannot bump same-id B's commit epoch or write B's app-db.
            ;;
-           ;; rf2-3x7nj.18.3: called from an effect, the in-drain call runs
+           ;; Called from an effect, the in-drain call runs
            ;; AFTER the event's flow pass, so no pending pass remains to apply
            ;; the queued vacation; ask the `:fx` walk to settle the frame when
            ;; it ends. From a handler body the request is a no-op and the
-           ;; pending pass applies it, as before.
+           ;; pending pass applies it.
            (when-let [prior @prior-frame-flow]
              (let [old-path (:output-path prior)]
                (when (not= old-path (:output-path flow))
@@ -698,18 +698,15 @@
                    (do (record-abandoned-output-path! frame-id old-path)
                        (rf.fx/request-flow-settle!))
                    (vacate-output-path! frame-id pinned-incarnation old-path)))))
-           ;; rf2-rxsldx: the output-mark write below is itself exact-
+           ;; The output-mark write below is itself exact-
            ;; incarnation — it threads `pinned-incarnation` through
            ;; `swap-elision-slot!` → `swap-runtime-db-exact!`, whose
            ;; `identical? owner-token` guard makes it a TRUE no-op once A is
-           ;; lost (the transform is never called, no epoch bump). A bare
-           ;; post-vacation liveness pre-check guarding it therefore had NO
-           ;; call-boundary effect the exact-owner postcheck below does not
-           ;; already provide (the merged loss fixtures stay green with it
-           ;; removed — the later exact mark and second check stop every visible
-           ;; write), so the redundant check and its claim are dropped. The
-           ;; downstream exact fences stay explicit: the mark write's internal
-           ;; owner-token guard, and the postcheck below.
+           ;; lost (the transform is never called, no epoch bump). So no bare
+           ;; post-vacation liveness pre-check guards it: such a check would add
+           ;; NO call-boundary effect the exact-owner postcheck below does not
+           ;; already provide. The downstream exact fences are explicit: the
+           ;; mark write's internal owner-token guard, and the postcheck below.
            (when (or (flow-declares-marks? flow)
                      (some? @prior-frame-flow))
              (write-flow-output-marks! frame-id pinned-incarnation flow))
@@ -720,10 +717,10 @@
            (when (rf.frame/event-continuation-live? frame-id pinned-incarnation)
              ;; A replacement invalidates the cache even when inputs are equal.
              ;; Hot-reload trace dedup compares the prior and new stored flow
-             ;; shapes of THIS frame slot (`flow-reload-shape`, rf2-soyqfn).
+             ;; shapes of THIS frame slot (`flow-reload-shape`).
              (when (some? @prior-frame-flow)
                (drop-frame-flow-last-inputs! frame-id flow-id)
-               ;; rf2-rxsldx: the replacement dedup consultation and the
+               ;; The replacement dedup consultation and the
                ;; :rf.registry/handler-replaced emit form ONE synchronous,
                ;; callback-bearing pipeline — dedup-by-shape projection, then,
                ;; inside `emit!`, classification projection → epoch capture →
@@ -739,7 +736,7 @@
                ;; still receive A's incarnation-less :rf.registry/handler-replaced
                ;; after B owns the id (and later policy/capture could observe B).
                ;; Wrap the whole dedup+emit in the pinned incarnation's exact-owner
-               ;; continuation, mirroring the first-registration fence (rf2-pwum1g):
+               ;; continuation, mirroring the first-registration fence:
                ;; already-entered delivery may stand once, every later framework-
                ;; owned trace stage is fenced. AND-composes with any parent (router)
                ;; predicate.
@@ -749,21 +746,21 @@
                    (fn []
                      (let [prior              @prior-frame-flow
                            derive-fn-changed? (not= (:derive prior) (:derive flow))
-                           ;; rf2-soyqfn: decide replacement suppression from THIS
+                           ;; Decide replacement suppression from THIS
                            ;; frame's authoritative slot — the prior/new stored
                            ;; values — not the generic process-global
                            ;; `[:flow flow-id]` dedup table. The generic table is
                            ;; frame-blind: two live frames replacing the same
-                           ;; flow-id to the same shape collide on one key, so the
-                           ;; second frame's genuine replacement was suppressed and
-                           ;; left unattributable, and a same-id frame
-                           ;; reincarnation could inherit its predecessor's recorded
-                           ;; shape. A per-frame prior/new shape compare suppresses
-                           ;; only a true idempotent hot reload WITHIN this frame,
-                           ;; and lets each frame emit its own event (Spec 013
-                           ;; §independent frame ownership). Generic registrar dedup
-                           ;; for process-scoped kinds is untouched; no parallel
-                           ;; flow registry is introduced.
+                           ;; flow-id to the same shape would collide on one key,
+                           ;; so the second frame's genuine replacement would be
+                           ;; suppressed and left unattributable, and a same-id
+                           ;; frame reincarnation could inherit its predecessor's
+                           ;; recorded shape. A per-frame prior/new shape compare
+                           ;; suppresses only a true idempotent hot reload WITHIN
+                           ;; this frame, and lets each frame emit its own event
+                           ;; (Spec 013 §independent frame ownership). Generic
+                           ;; registrar dedup serves process-scoped kinds; there is
+                           ;; no parallel flow registry.
                            shape-changed? (not= (flow-reload-shape prior)
                                                 (flow-reload-shape flow))]
                         (when shape-changed?
@@ -772,7 +769,7 @@
                                        :id            flow-id
                                        :frame         frame-id
                                        :different-fn? derive-fn-changed?})))))))
-             ;; rf2-ytpeqf: first-registration evidence, kept INSIDE the exact-
+             ;; First-registration evidence, kept INSIDE the exact-
              ;; owner postcheck. Registration is first-time per frame; replacements
              ;; use the hot-reload dedup trace above. A first-time flow with output
              ;; marks reaches a callback-bearing runtime-db write
@@ -780,9 +777,9 @@
              ;; can destroy A there and publish a same-id B. Because the postcheck
              ;; guarding this block then fails, A's :rf.flow/registered is never
              ;; delivered against B and B's trace policy is never consulted for A.
-             ;; (`clear-flow` fences its :rf.flow/cleared the same way — rf2-rxsldx.)
+             ;; (`clear-flow` fences its :rf.flow/cleared the same way.)
              ;;
-             ;; rf2-pwum1g: the postcheck above only proves A is live at the instant
+             ;; The postcheck above only proves A is live at the instant
              ;; emission STARTS. `trace/emit!` is itself a synchronous, callback-
              ;; bearing pipeline — classification projection, then epoch capture,
              ;; then the ordered tooling listeners — and each stage rechecks
@@ -796,8 +793,8 @@
              ;; continuation so every trace-internal stage is fenced: already-entered
              ;; delivery may stand once, but no later framework-owned trace stage
              ;; starts after A's exact ownership is lost. AND-composes with any parent
-             ;; predicate, so the reserved-effect route's router predicate is
-             ;; preserved.
+             ;; predicate, so the reserved-effect route's router predicate
+             ;; holds too.
              (when (and rf.interop/debug-enabled? (nil? @prior-frame-flow))
                (rf.trace/call-with-continuation-predicate
                  #(rf.frame/event-continuation-live? frame-id pinned-incarnation)
@@ -817,7 +814,7 @@
   sibling outputs). Integer segments are valid path elements
   (`re-frame.path/segment?`), and `evaluate-flow!` writes a vector-index output
   via `assoc-in`, so vacation must be symmetric with that write — matching
-  `re-frame.path/container-for`'s vector-index semantics (rf2-vx1ps6). Returns
+  `re-frame.path/container-for`'s vector-index semantics. Returns
   `db` unchanged when the path is absent or the parent is a scalar / set / seq
   (or an out-of-range vector index) that cannot hold the leaf."
   [db path]
@@ -844,7 +841,7 @@
 (defn- vacate-output-path!
   "Remove an output path from a frame's app-db, skipping no-op writes.
 
-  rf2-vxgfnd.155 — `owner-token` is threaded through the exact-incarnation
+  `owner-token` is threaded through the exact-incarnation
   app-db write so a synchronous container watch that destroys A mid-vacation
   cannot bump same-id B's commit epoch or write B's app-db."
   [frame-id owner-token path]
@@ -863,9 +860,9 @@
 ;;
 ;; That engine (`re-frame.flows/run-flows-on-db`) lives in the facade, which
 ;; `:require`s THIS namespace, so the call cannot be a direct one. The facade
-;; installs it here at load, mirroring the shape core already uses to reach
+;; installs it here at load, mirroring the shape core uses to reach
 ;; this optional artefact through `re-frame.late-bind`. An uninstalled seam is
-;; inert: `clear-flow` keeps its pre-settle behaviour rather than failing.
+;; inert: `clear-flow` skips the settle rather than failing.
 
 (defonce ^:private settle-frame-flows-fn (atom nil))
 
@@ -881,11 +878,9 @@
   already-validated frame TARGET (a frame-id keyword or a live frame value)
   or nil; nil means the AMBIENT frame, which is then required.
 
-  Split out by rf2-kuky.80 so the public 1-arity reaches the ambient path
-  DIRECTLY. It used to call `(clear-flow id {})`, which was harmless while the
-  2-arity destructured tolerantly and fatal the moment it stopped: the exact
-  validator rejects `{}`, so the old delegation would have made every
-  ambient clear throw."
+  Shared so the public 1-arity reaches the ambient path DIRECTLY:
+  delegating to `(clear-flow id {})` would make every ambient clear throw,
+  because the exact validator rejects `{}`."
   [id frame]
    (let [;; Normalize frame values before registry access.
          frame-id (or (some-> frame rf.frame/frame-target->id)
@@ -895,15 +890,15 @@
                          :event-id id}))]
      ;; Read the path, deregister, and EMIT the :rf.flow/cleared evidence all
      ;; INSIDE the drain lock: a concurrent replacement cannot make us vacate
-     ;; stale metadata while clearing the new row, and — rf2-rxsldx — the clear
+     ;; stale metadata while clearing the new row, and the clear
      ;; trace is initiated while the pinned incarnation is still authoritative
-     ;; (previously it emitted after the serialized section released, carrying no
+     ;; (not after the serialized section releases, where it would carry no
      ;; token). A no-op clear (no flow / lost owner) emits nothing.
      (rf.frame/call-serialized-with-drain!
        frame-id
        (fn []
          (when-let [flow (get-in @flows-by-frame [frame-id id])]
-           ;; rf2-vxgfnd.155: PIN A's incarnation so the callback-bearing
+           ;; PIN A's incarnation so the callback-bearing
            ;; output-mark / path-vacation writes below cannot let a stale A
            ;; tail dissociate a same-id B's flow row, drop B's dirty-check
            ;; cache, or bump B's commit epoch. A synchronous container watch
@@ -924,15 +919,14 @@
              (if in-drain?
                (record-abandoned-output-path! frame-id path)
                (vacate-output-path! frame-id pinned path))
-             ;; rf2-rxsldx: the output-mark clear below is itself exact-
+             ;; The output-mark clear below is itself exact-
              ;; incarnation (it threads `pinned` through `swap-elision-slot!` →
              ;; `swap-runtime-db-exact!`, a TRUE no-op once A is lost — the
-             ;; transform is never called, no epoch bump). A bare post-vacation
-             ;; liveness pre-check guarding it added no call-boundary effect the
-             ;; exact-owner postcheck below does not already provide (the merged
-             ;; loss fixtures stay green with it removed), so the redundant check
-             ;; and its claim are dropped; the downstream exact fences (the mark
-             ;; clear's internal owner-token guard, and the postcheck below) stay
+             ;; transform is never called, no epoch bump). So no bare
+             ;; post-vacation liveness pre-check guards it: such a check would
+             ;; add no call-boundary effect the exact-owner postcheck below does
+             ;; not already provide. The downstream exact fences (the mark
+             ;; clear's internal owner-token guard, and the postcheck below) are
              ;; explicit.
              (clear-flow-output-marks! frame-id pinned id)
              ;; Exact-owner postcheck after the (callback-bearing) output-mark
@@ -945,7 +939,7 @@
                                 (cond-> m'
                                   (empty? (get m' frame-id)) (dissoc frame-id)))))
                (drop-frame-flow-last-inputs! frame-id id)
-               ;; rf2-rxsldx: emit :rf.flow/cleared HERE — inside the exact-owner
+               ;; Emit :rf.flow/cleared HERE — inside the exact-owner
                ;; serialization, while `pinned` is authoritative. `trace/emit!` is
                ;; a synchronous, callback-bearing pipeline (classification
                ;; projection → epoch capture → ordered tooling listeners) whose
@@ -955,8 +949,8 @@
                ;; same-id B lets later listeners receive A's incarnation-less
                ;; :rf.flow/cleared after B owns the id (and later policy/capture
                ;; could observe B). Wrap the emit in the pinned incarnation's
-               ;; exact-owner continuation, mirroring the first-registration fence
-               ;; (rf2-pwum1g): already-entered delivery may stand once, every
+               ;; exact-owner continuation, mirroring the first-registration fence:
+               ;; already-entered delivery may stand once, every
                ;; later framework-owned trace stage is fenced. AND-composes with
                ;; any parent (router) predicate.
                (when rf.interop/debug-enabled?
@@ -993,11 +987,11 @@
                ;; pending flow pass has not run yet and settles it. From ANY
                ;; effect — the reserved `:rf.fx/clear-flow` or a user fx —
                ;; that pass has ALREADY run, so the request below asks the
-               ;; `:fx` walk to enqueue its one settle when it ends
-               ;; (rf2-3x7nj.18.3; before it, only the reserved body asked,
-               ;; and a user-fx clear left the row gone and its value present).
-               ;; The request is a no-op outside a walk, which is what keeps
-               ;; the handler-body case unchanged.
+               ;; `:fx` walk to enqueue its one settle when it ends,
+               ;; whichever effect made the call (were only the reserved body to
+               ;; ask, a user-fx clear would leave the row gone and its value
+               ;; present). The request is a no-op outside a walk, which leaves
+               ;; the handler-body case to the pending pass.
                (if in-drain?
                  (rf.fx/request-flow-settle!)
                  (when-let [settle! @settle-frame-flows-fn]
@@ -1015,7 +1009,7 @@
   the slot just removed (Spec 013 §Sequencing). The settle re-evaluates only
   flows that have evaluated since they were (re-)registered: a flow registered
   or re-registered since the last drain is left untouched for that drain to
-  evaluate, exactly as a direct `reg-flow` promises (rf2-3x7nj.18.2), and
+  evaluate, exactly as a direct `reg-flow` promises, and
   anything established downstream of it keeps deriving from its current value
   until then. A remaining flow whose
   `:derive` throws during that settle propagates the ordinary
@@ -1025,20 +1019,19 @@
 
   Called INSIDE a drain, the vacation is queued for the event's pending flow
   pass; from an effect, which runs after that pass, the call also asks the
-  `:fx` walk to settle the frame when it ends (rf2-3x7nj.18.3).
+  `:fx` walk to settle the frame when it ends.
 
   NOT a public NAME: the public door is `(rf/clear :flow id)` /
   `(rf/clear :flow id {:frame f})`. This fn is the `:flows/clear-flow`
   late-bind hook target, which `rf/clear` and the `:rf.fx/clear-flow` effect
   both reach.
 
-  THE OPTS MAP IS EXACT (rf2-kuky.80): `{:frame f}`, sole key, value a
-  frame-id keyword or a live frame value. It used to destructure
-  `{:keys [frame]}` TOLERANTLY, so `(clear-flow :cart/total {:fram :session})`
-  bound `frame` to nil, fell through to `require-current-frame!`, and cleared
-  the AMBIENT frame's flow with no signal — the exact silent mis-clear
-  rf2-s32bf had already closed for `clear-http-interceptor`, still live on the
-  identically-shaped door beside it. `rf.frame/frame-opts?` is the ONE shared
+  THE OPTS MAP IS EXACT: `{:frame f}`, sole key, value a
+  frame-id keyword or a live frame value. A tolerant `{:keys [frame]}`
+  destructure would bind `frame` to nil for
+  `(clear-flow :cart/total {:fram :session})`, fall through to
+  `require-current-frame!`, and clear the AMBIENT frame's flow with no
+  signal. `rf.frame/frame-opts?` is the ONE shared
   validator (`rf/clear` and the http arm use the same one), and it runs BEFORE
   any frame is resolved. Per Principles §No silent swallow."
   ([id] (clear-flow* id nil))
