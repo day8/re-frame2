@@ -2,7 +2,7 @@
   "THE HMR CONTRACT, PART 1 — what a save does to the head, and what the
   stale generation leaves behind.
 
-  Two files carry this bead. This one takes the **structural** half: a
+  Two files carry the HMR contract. This one takes the **structural** half: a
   reload re-mints the boundary head, so React's reconciler meets a new
   element *type* at that position and replaces the subtree outright, and
   the question that leaves is whether the retired generation lets go of
@@ -10,14 +10,13 @@
   **registry** half — what a save's re-registrations do to the number
   React re-reads, and when an edited subscription's value arrives.
 
-  ## The contract already existed as folklore, in a docstring
+  ## The contract, as a docstring states it
 
   [[re-frame.fresco.impl.codec/memoize-boundary!]]'s comparator declines
   Reagent's `*always-update*` escape on the grounds that *re-evaluating a
   `defview` here re-mints the head and its wrapper — a new React element
   type, which HMR replaces outright*. That sentence is the whole HMR
-  contract, and until this file nothing measured it. The bead exists to
-  turn it into a witness.
+  contract, and this file turns it into a witness.
 
   ## What a reload IS, mechanically, and why the node lane can model it
 
@@ -55,7 +54,7 @@
 
   ## What this file does NOT witness, and why
 
-  The bead's matrix names a focused controlled input, child hook state
+  The HMR matrix also names a focused controlled input, child hook state
   inside a host, and an active imperative host. All three are facts
   React keeps on the fiber, and the node lane has no committing renderer
   — no DOM, no jsdom, and `react-dom/server` never commits — so none of
@@ -63,8 +62,8 @@
   single common cause, exactly: the element type at the position changes
   on every save. Their loss is then React's own documented consequence
   of that, which invariant I6 says is React's to own and not this
-  runtime's to simulate. The DOM rows remain owed to a browser suite;
-  the recorded contract says so rather than implying they were measured."
+  runtime's to simulate. The DOM rows are owed to a browser suite; the
+  recorded contract says so rather than implying they are measured."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -183,8 +182,8 @@
   a registration object holds a cyclic reference — so a bare
   `(is (identical? reg2 …))` that FAILS reports
   `RangeError: Maximum call stack size exceeded` instead of a diagnosis.
-  Measured while proving these witnesses can go red: sabotaging the
-  runtime's `release-cell!` turned four of them into stack overflows. A
+  Sabotaging the runtime's `release-cell!` turns four of them into stack
+  overflows. A
   witness whose failure message is unreadable is most of the way to not
   being a witness, so the identity is compared here and the boolean is
   what the assertion prints."
@@ -233,7 +232,7 @@
       (is (false? (same-object? (element-type-of g1) (element-type-of g2)))))
 
     (testing "the address survives the transition and the identity does not
-              — the frame-incarnation rule rf2-hic-013 recorded, one level up
+              — the frame-incarnation rule, one level up
               and on the view rather than on the frame"
       (is (= view-name (.-displayName ^js g1)))
       (is (= view-name (.-displayName ^js g2))))))
@@ -358,11 +357,11 @@
             (settled (fn [_] (is (= nothing (retention))) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. The sabotage the bead names: a leaked old-generation registration
+;; 3. The sabotage: a leaked old-generation registration
 ;; ---------------------------------------------------------------------------
 
 (deftest a-leaked-stale-registration-turns-the-cleanup-witness-red
-  ;; The bead's acceptance criterion, run as a real perturbation rather than
+  ;; The cleanup witness, run against a real perturbation rather than
   ;; described. The leak modelled is the plausible one: a runtime that
   ;; re-mints the head but loses React's cleanup for the deleted fiber — a
   ;; `defonce` reader list, a subscription registered outside the effect, an
