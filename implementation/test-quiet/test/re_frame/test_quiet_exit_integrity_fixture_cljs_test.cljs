@@ -3,9 +3,8 @@
   `re-frame.test-quiet.shadow-node` (see the comment above its
   `:end-run-tests` defmethod).  Both exist so a red or torn-down run can
   never drain to exit 0, and NEITHER is reachable from an ordinary red run —
-  an ordinary red already exited 1 before either safeguard existed.  So each
-  needs a run that deliberately enters the failure mode it guards
-  (rf2-6r9j.89).
+  an ordinary red exits 1 without either safeguard.  So each needs a run
+  that deliberately enters the failure mode it guards.
 
   Like the warning-replay fixture beside it, each fault is GATED on its own
   env var.  Unset — the default for the consolidated whole-suite run — both
