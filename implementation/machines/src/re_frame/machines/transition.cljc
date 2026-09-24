@@ -1679,6 +1679,29 @@
            (not (history-node? node))))
     (catch #?(:clj Throwable :cljs :default) _ false)))
 
+(defn- require-occupiable-state!
+  "Throw unless the snapshot's `state` is an occupiable configuration of the
+  flat / compound `machine` — the programmer-input check at the pure
+  `machine-transition` entry. A malformed shape throws
+  `:rf.error/machine-bad-state-form` (from `state-path`); a well-formed
+  `:state` naming no declared state (or a history pseudo-state) throws
+  `:rf.error/machine-state-not-in-definition`, the category the runtime's
+  snapshot reconcile emits for the same snapshot. Driving such a snapshot
+  would otherwise answer every event with a benign no-op."
+  [machine state]
+  (state-path state)
+  (when-not (state-occupiable? machine state)
+    (throw (machine-error
+             :rf.error/machine-state-not-in-definition
+             (str "Machine `" (:id machine) "` was handed a snapshot whose :state "
+                  (pr-str state) " is not a state its definition declares — a "
+                  ":state must name an occupiable node under :states (a leaf "
+                  "keyword or a vector path). Check what produced the snapshot.")
+             {:state       state
+              :slot        :state
+              :machine-id  (:id machine)
+              :rf/recovery :no-recovery}))))
+
 (defn- history-child
   "Return `[hist-key hist-node]` for the (single) history pseudo-state
   declared directly under compound at `compound-path`, or nil if the
@@ -4357,6 +4380,7 @@
   directly instead, because its parent must apply the complete regional set
   before running any eventless stabilization."
   ([machine snapshot event]
+   (require-occupiable-state! machine (:state snapshot))
    (machine-transition-single machine snapshot event 0 false))
   ([machine snapshot event raise-depth]
    (machine-transition-single machine snapshot event raise-depth false))

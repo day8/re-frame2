@@ -910,20 +910,32 @@
   without this gate a malformed spec would defer to a late actor-id
   allocation failure (neither) or a silent type mismatch on restore (both).
   An inline `:definition` must also carry `:id-prefix` or `:fixed-actor-id`
-  (`inline-spawn-address-error`), refused with the same id.
+  (`inline-spawn-address-error`), refused with the same id. A `:spawn` that
+  is not a map — a vector of specs, XState's multi-`invoke` spelling — is
+  refused with the same id too: a state spawns at most one child, and N
+  children is `:spawn-all`.
   `:spawn-all` children are checked by `validate-spawn-all!`
   (the `:spawn` / `:spawn-all` mutual exclusion means at most one runs here).
   Absent `:spawn` is fine."
   [state-key state-node]
   (when-let [spawn (:spawn state-node)]
-    (when (map? spawn)
-      (when-let [reason (or (spawn-id-xor-definition-error spawn)
-                            (inline-spawn-address-error spawn))]
-        (throw (validation-error
-                 :rf.error/machine-spawn-bad-shape
-                 (str ":spawn spec " reason ".")
-                 {:state state-key
-                  :spawn spawn}))))))
+    (when-not (map? spawn)
+      (throw (validation-error
+               :rf.error/machine-spawn-bad-shape
+               (str ":spawn on state " state-key " must be ONE spawn-spec map, got "
+                    (pr-str spawn) ". A state spawns at most one child through "
+                    ":spawn; to spawn several, declare them as the :children of a "
+                    ":spawn-all block ({:spawn-all {:children [{:id :a …} {:id :b …}] "
+                    ":on-all-complete [...]}}).")
+               {:state state-key
+                :spawn spawn})))
+    (when-let [reason (or (spawn-id-xor-definition-error spawn)
+                          (inline-spawn-address-error spawn))]
+      (throw (validation-error
+               :rf.error/machine-spawn-bad-shape
+               (str ":spawn spec " reason ".")
+               {:state state-key
+                :spawn spawn})))))
 
 (defn- validate-spawn-on-error!
   "Per Spec 005 §Final states §`:on-error`: a `:spawn`-bearing
@@ -977,6 +989,34 @@
                   "must name the substate to enter when control reaches it "
                   "without a deeper target.")
              {:state state-key}))))
+
+(defn- validate-initial-resolves!
+  "Per Spec 005 §Initial-state cascading: an `:initial` names the child the
+  cascade enters, so it MUST be the key of a state declared in the SAME
+  node's `:states`. An `:initial` naming nothing would boot the machine into
+  a phantom state that handles no event. `node` is the machine root, a
+  parallel region body, or a state node; `extras` is the per-site ex-data
+  (`:state`, and `:region` for a region body). A node without `:initial` is
+  not checked here — a compound's missing `:initial` is
+  `validate-compound-initial!`'s.
+
+  Emits `:rf.error/machine-unresolved-target` with `:slot :initial`."
+  [node extras]
+  (when (contains? node :initial)
+    (let [initial (:initial node)
+          states  (:states node)]
+      (when-not (and (keyword? initial)
+                     (map? states)
+                     (contains? states initial))
+        (throw (validation-error
+                 :rf.error/machine-unresolved-target
+                 (str "the :initial " (pr-str initial) " on state "
+                      (key-label (:state extras)) " names no state declared in "
+                      "its :states — :initial must be the key of a direct child "
+                      "(declared: " (key-labels (when (map? states) (keys states)))
+                      "). An undeclared "
+                      ":initial would boot a phantom state that handles no event.")
+                 (assoc extras :slot :initial :target initial)))))))
 
 (defn- always-entries
   "Normalise a state-node's `:always` slot to a vector of entry maps through
@@ -1041,6 +1081,31 @@
                     "is a no-op. Use :after for a re-arming timer, or target a "
                     "distinct state.")
                {:state state-key})))))
+
+(defn- validate-always-unguarded-targetless!
+  "Per Spec 005 §Self-loop forbidden at registration: an `:always` entry with
+  neither a `:guard` nor a `:target` is enabled on every settle and changes no
+  state, so the microstep loop re-selects it until the depth limit aborts the
+  macrostep. It is refused at registration. Run-once-on-entry is `:entry`;
+  the fixed-point loop is the GUARDED targetless form
+  (`{:guard :more? :action :bump}`), whose action flips the guard false.
+
+  Emits `:rf.error/machine-always-unguarded-targetless`."
+  [state-key state-node]
+  (doseq [entry (always-entries state-node)]
+    (when (and (nil? (:guard entry))
+               (nil? (:target entry)))
+      (throw (validation-error
+               :rf.error/machine-always-unguarded-targetless
+               (str "state " state-key " declares an :always entry with no "
+                    ":guard and no :target (" (pr-str entry) ") — it is enabled "
+                    "on every settle and changes no state, so the microstep loop "
+                    "re-runs it until the depth limit aborts the macrostep. To "
+                    "run an action once on entering the state, use :entry; to "
+                    "loop until a condition holds, add a :guard the action "
+                    "flips false; to move on, add a :target.")
+               {:state state-key
+                :entry entry})))))
 
 (defn- walk-state-nodes-with-path
   "Like `walk-state-nodes` but yields `[absolute-path state-node]` pairs —
@@ -1564,6 +1629,10 @@
   open extension carve-out). The MACHINE ROOT (`at-root?`) additionally accepts
   the root-only registration-metadata keys (`:doc` / `:sensitive` / `:large` /
   `:schema`) that fold onto the machine body — those are typos on a child node.
+
+  `:on-done` is placement-checked with the same id: it fires when a node's
+  children complete, so it belongs on a compound (`:states`) or parallel
+  (`:regions`) node, and on a leaf it could never fire.
   Per Conventions §No silent swallow + §Reserved state-node keys."
   [state-key state-node at-root?]
   (when (and (map? state-node)
@@ -1585,7 +1654,21 @@
                       (pr-str (vec (sort known))) ".")
                  {:state          state-key
                   :offending-keys offending
-                  :valid-keys     known}))))))
+                  :valid-keys     known})))
+      (when (and (contains? state-node :on-done)
+                 (not (seq (:states state-node)))
+                 (not (seq (:regions state-node))))
+        (throw (validation-error
+                 :rf.error/machine-unknown-node-key
+                 (str "state " (key-label state-key) " declares :on-done but is "
+                      "a LEAF — :on-done fires when a compound state reaches its "
+                      ":final? child (or a parallel root reaches all-regions-final), "
+                      "so on a node with no :states it can never fire. Declare it "
+                      "on the enclosing compound; for a spawned child's "
+                      "completion use the :spawn spec's own :on-done.")
+                 {:state          state-key
+                  :offending-keys [:on-done]
+                  :valid-keys     (disj known :on-done)}))))))
 
 (defn- validate-spawn-spec-keys!
   "Reject any unknown BARE key on a `:spawn` spec or a `:spawn-all` child spec at
@@ -1635,7 +1718,9 @@
   set would violate naming rule 2 (\"never a silently-normalised alias\") and
   be inconsistent with `:internal-events`, which HARD-REJECTS exactly that
   non-set shape. A set with a
-  non-keyword member is likewise rejected. Absent `:tags` is fine (elided slot)."
+  non-keyword member is likewise rejected, and so is a member in a RESERVED
+  framework namespace (`:rf/*`, `:rf.*/*`) — the same namespaces
+  `:internal-events` refuses. Absent `:tags` is fine (elided slot)."
   [state-key state-node]
   (when (contains? state-node :tags)
     (let [tags (:tags state-node)]
@@ -1648,7 +1733,19 @@
                       "slot is a strict set, mirroring :internal-events. Per "
                       "Spec 005 §State tags + Spec-Schemas :rf/state-node.")
                  {:state state-key
-                  :tags  tags}))))))
+                  :tags  tags})))
+      (let [reserved (filterv rf.machines.internal-events/reserved-rf-keyword? tags)]
+        (when (seq reserved)
+          (throw (validation-error
+                   :rf.error/machine-bad-tags
+                   (str ":tags on state " state-key " declares " (pr-str reserved)
+                        " in a RESERVED framework namespace — :rf/* and :rf.*/* "
+                        "belong to the framework, and a tag lands in the "
+                        "user-visible snapshot :tags. Use your own namespace, "
+                        "e.g. :ui.state/loading. Per Spec 005 §State tags.")
+                   {:state    state-key
+                    :tags     tags
+                    :reserved reserved})))))))
 
 (defn validate-machine!
   "Run every registration-time check the machine grammar requires.
@@ -1822,11 +1919,20 @@
     (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
     (validate-spawn-on-error! s n)
-    (validate-compound-initial! s n))
+    (validate-compound-initial! s n)
+    (validate-initial-resolves! n {:state s}))
+  ;; The machine root's and each region body's own `:initial` — the entry
+  ;; points `walk-state-nodes` does not yield. A parallel root carries no
+  ;; `:initial` (`validate-parallel!` refuses one).
+  (if (rf.machines.parallel/parallel? machine)
+    (doseq [[rn body] (:regions machine)]
+      (validate-initial-resolves! body {:state :rf/region-root :region rn}))
+    (validate-initial-resolves! machine {:state :rf/root}))
   ;; The self-loop check needs each declaring node's absolute path to
   ;; resolve vector `:target`s, so it drives off the path-aware walker.
   (doseq [[path n] (walk-state-nodes-with-path machine)]
-    (validate-always-self-loop! path (peek path) n))
+    (validate-always-self-loop! path (peek path) n)
+    (validate-always-unguarded-targetless! (peek path) n))
   ;; Every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
   ;; Every `:after` delay KEY must be a positive integer, a
@@ -1843,20 +1949,53 @@
         ;; terminal hop is missing, or a cyclic indirection, is rejected
         ;; here at registration rather than throwing the same unresolved
         ;; error at runtime when the timer/guard/action fires.
+        ;; A `:guard` / action slot holds ONE fn, ONE keyword ref, or nil —
+        ;; the same closed form the engine's `resolve-guard` /
+        ;; `resolve-action` accept. Any other value (a vector of actions, a
+        ;; `{:type …}` / `{:and …}` / `{:id … :params …}` map) is refused here
+        ;; with the engine's own form ids, rather than at the first drain that
+        ;; reaches it.
         check-guard! (fn [g s]
-                       (when (and (keyword? g)
-                                  (not (ref-resolves? guards-map g)))
+                       (cond
+                         (keyword? g)
+                         (when-not (ref-resolves? guards-map g)
+                           (throw (validation-error
+                                    :rf.error/machine-unresolved-guard
+                                    (str "guard ref " g " does not resolve against the machine's :guards map")
+                                    {:guard g :state s})))
+
+                         (and (some? g) (not (fn? g)))
                          (throw (validation-error
-                                  :rf.error/machine-unresolved-guard
-                                  (str "guard ref " g " does not resolve against the machine's :guards map")
-                                  {:guard g :state s}))))
-        check-action! (fn [a s]
-                        (when (and (keyword? a)
-                                   (not (ref-resolves? actions-map a)))
+                                  :rf.error/machine-bad-guard-form
+                                  (str "the :guard " (pr-str g) " on state " s
+                                       " is not a guard — a :guard is ONE fn or "
+                                       "ONE keyword naming an entry in the "
+                                       "machine's :guards map. There is no data "
+                                       "form: compose predicates inside one fn "
+                                       "(for XState's and/or/not), or name the "
+                                       "parameterised guard in :guards (for "
+                                       "{:id … :params …}).")
+                                  {:guard g :state s :slot :guard}))))
+        check-action! (fn [a s slot]
+                        (cond
+                          (keyword? a)
+                          (when-not (ref-resolves? actions-map a)
+                            (throw (validation-error
+                                     :rf.error/machine-unresolved-action
+                                     (str "action ref " a " does not resolve against the machine's :actions map")
+                                     {:action a :state s})))
+
+                          (and (some? a) (not (fn? a)))
                           (throw (validation-error
-                                   :rf.error/machine-unresolved-action
-                                   (str "action ref " a " does not resolve against the machine's :actions map")
-                                   {:action a :state s}))))
+                                   :rf.error/machine-bad-action-form
+                                   (str "the " slot " " (pr-str a) " on state " s
+                                        " is not an action — " slot " is ONE fn "
+                                        "or ONE keyword naming an entry in the "
+                                        "machine's :actions map, never a vector "
+                                        "or an XState {:type …} object. To run "
+                                        "several, call them in order from one fn, "
+                                        "or name that fn in :actions.")
+                                   {:action a :state s :slot slot}))))
         ;; A transition slot's value (an `:on` entry, an `:after` entry)
         ;; may be a keyword target, a vector of state-ids (absolute
         ;; target), a vector of guarded transition maps, or a single
@@ -1867,7 +2006,7 @@
         check-transition! (fn [t s]
                             (doseq [tt (if (vector? t) t [t])]
                               (check-guard!  (:guard tt)  s)
-                              (check-action! (:action tt) s)))]
+                              (check-action! (:action tt) s :action)))]
     (doseq [[s state-node] (walk-state-nodes machine)]
       (doseq [[_ t] (:on state-node)]
         (check-transition! t s))
@@ -1885,7 +2024,7 @@
       ;; dangling ref would slip past fail-fast registration).
       (doseq [t (always-entries state-node)]
         (check-guard!  (:guard t)  s)
-        (check-action! (:action t) s))
+        (check-action! (:action t) s :action))
       ;; Per Spec 005 §Final states §The done-state signal: an `:on-done` on
       ;; a compound node is an `:on`-shaped transition (fired when the
       ;; compound reaches a `:final?` child); its guard / action refs must
@@ -1896,8 +2035,8 @@
       ;; spawned child fails; its guard / action refs resolve at registration
       ;; like `:on-done`. (Shape is checked separately by `validate-spawn-on-error!`.)
       (check-transition! (get-in state-node [:spawn :on-error]) s)
-      (check-action! (:entry state-node) s)
-      (check-action! (:exit  state-node) s))
+      (check-action! (:entry state-node) s :entry)
+      (check-action! (:exit  state-node) s :exit))
     ;; Per Spec 005 §Transition resolution: the machine root's own `:on`
     ;; fallback (consulted at runtime) carries `:guard` / `:action` refs that
     ;; must resolve at registration too. `walk-state-nodes` yields the nodes

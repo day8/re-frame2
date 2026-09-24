@@ -59,6 +59,10 @@
       (the rejected XState array form), a non-set collection, or a set with
       a non-keyword member fails loud
       (`:rf.error/machine-bad-internal-events`).
+    - a member MUST NOT be spelt like an `:on`-key wildcard (`:ns/*`, `:*`):
+      membership is exact, so a wildcard member would fence only its literal
+      self and leave the family it names public
+      (`:rf.error/machine-bad-internal-events`).
     - a declared internal event MUST NOT be a RESERVED `:rf/*` framework
       event (the single-root reserved namespace per Conventions.md — the
       synthetic creation marker `:rf.machine/start`, the `:rf.machine/done`
@@ -121,15 +125,22 @@
   (rf.error/thrown-ex-info error-id 'rf/reg-machine reason
                         {:recovery :fix-registration :extra extra}))
 
-(defn- reserved-rf-event?
-  "True iff `event-id` is a RESERVED `:rf/*` framework event — its keyword
-  namespace is `rf` or begins with `rf.` (the single-root reserved scheme
-  per Conventions.md). Restated here (rather than required from `transition`)
-  so this leaf ns needs no require on the runtime engine — mirrors the
-  inverse of `transition/unhandled-event-no-op?`'s reserved-namespace test."
-  [event-id]
-  (let [ns (when (keyword? event-id) (namespace event-id))]
+(defn reserved-rf-keyword?
+  "True iff `k` is a keyword in a RESERVED framework namespace — `rf` or one
+  beginning with `rf.` (the single-root reserved scheme per Conventions.md).
+  Restated here (rather than required from `transition`) so this leaf ns
+  needs no require on the runtime engine — mirrors the inverse of
+  `transition/unhandled-event-no-op?`'s reserved-namespace test. Shared with
+  the `:tags` validator, which refuses the same namespaces."
+  [k]
+  (let [ns (when (keyword? k) (namespace k))]
     (boolean (and ns (or (= ns "rf") (str/starts-with? ns "rf."))))))
+
+(defn- wildcard-keyword?
+  "True iff `k` is spelt like an `:on`-key wildcard — a keyword whose name is
+  `*` (`:ns/*` or `:*`)."
+  [k]
+  (and (keyword? k) (= "*" (name k))))
 
 (defn validate-internal-events!
   "Validate the machine's `:internal-events` declaration at registration.
@@ -139,6 +150,9 @@
     - `:internal-events` MUST be a SET of keywords (the re-frame2 set-form
       divergence from XState's array) — a vector / non-set / non-keyword
       member fails with `:rf.error/machine-bad-internal-events`;
+    - no member may be spelt like an `:on`-key wildcard (`:ns/*`, `:*`) —
+      membership is exact, so such a member fences nothing but its literal
+      self (`:rf.error/machine-bad-internal-events`);
     - no declared internal event may be a RESERVED `:rf/*` framework event —
       a framework-owned lifecycle event is inherently public and cannot be
       repurposed as a machine's private event
@@ -159,12 +173,29 @@
                       " set: membership is the natural shape, order is"
                       " irrelevant, duplicates are impossible).")
                  {:internal-events ie})))
+      ;; Membership is exact: a member spelt like an `:on`-key wildcard
+      ;; (`:ns/*`, `:*`) would fence only the literal keyword, so it is
+      ;; refused rather than read as a family.
+      (let [wildcards (filterv wildcard-keyword? ie)]
+        (when (seq wildcards)
+          (throw (internal-events-error
+                   :rf.error/machine-bad-internal-events
+                   (str "the machine's :internal-events declares "
+                        (pr-str wildcards) " — a member is matched EXACTLY"
+                        " against the dispatched event id, so a wildcard"
+                        " spelling fences only the literal keyword and every"
+                        " real event of that family stays PUBLIC. :internal-events"
+                        " has no wildcard (unlike an :on key, where :ns/* is"
+                        " one); enumerate each private event, e.g."
+                        " #{:change/start :change/commit}.")
+                   {:internal-events ie
+                    :wildcards       wildcards}))))
       ;; Public / private split: a declared internal event must NOT be a
       ;; RESERVED `:rf/*` framework event — those are framework-owned public
       ;; lifecycle traffic (the synthetic creation marker, the `:on-done`
       ;; completion signal, the `:after` timer event, the spawn kick-off)
       ;; and can never be a machine's PRIVATE event.
-      (let [reserved (filterv reserved-rf-event? ie)]
+      (let [reserved (filterv reserved-rf-keyword? ie)]
         (when (seq reserved)
           (throw (internal-events-error
                    :rf.error/machine-internal-event-reserved
