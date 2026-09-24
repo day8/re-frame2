@@ -1,6 +1,6 @@
 (ns re-frame.source-coord-parity-cljs-test
-  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) + §View
-  tagging contract (rf2-01il5): the CLJS-side Reagent adapter's
+  "Per Spec 006 §Source-coord annotation + §View
+  tagging contract: the CLJS-side Reagent adapter's
   `format-source-coord` / `format-view-id` and the JVM-side
   registration-boundary formatters (in
   `re-frame.views.jvm-source-coord-annotation`) MUST produce byte-
@@ -10,10 +10,10 @@
   side rendering or client-side Reagent — divergent formats would
   silently break the source-mapping contract.
 
-  rf2-8vi4q moved server-side annotation to the reg-view registration
-  boundary and added `data-rf-view` to the SSR side, so both hosts now
-  emit BOTH attributes. This file pins BOTH formatters from the CLJS side
-  (rf2-d4v7 sub-gap 3 / rf2-o423 audit); the JVM-side counterpart lives at
+  Server-side annotation happens at the reg-view registration boundary
+  and the SSR side emits `data-rf-view` too, so both hosts emit BOTH
+  attributes. This file pins BOTH formatters from the CLJS side; the
+  JVM-side counterpart lives at
   `implementation/ssr/test/re_frame/source_coord_parity_test.clj` and pins
   the same canonical literals.
 
@@ -77,9 +77,9 @@
 ;; ---- CLJS side: format-view-id pins the canonical data-rf-view value -----
 
 (deftest cljs-format-view-id-byte-identical-to-canonical
-  (testing "rf2-8vi4q — CLJS `format-view-id` produces `(str id)`, the same
-            `data-rf-view` value the JVM host now stamps. Both hosts emit
-            this attribute; before rf2-8vi4q only the client did."
+  (testing "CLJS `format-view-id` produces `(str id)`, the same
+            `data-rf-view` value the JVM host stamps. Both hosts emit
+            this attribute."
     (is (= expected-view-id (rf.views.source-coord-annotation/format-view-id fixture-id))
         (str "CLJS `format-view-id` MUST produce `(str id)`. Expected: "
              (pr-str expected-view-id) " — got: "
@@ -103,18 +103,18 @@
                (pr-str expected-attr-no-line-no-col)
                " — got: " (pr-str cljs-output))))))
 
-;; ---- convergence: source-coords is the single cross-host owner (rf2-5q0jv) -
+;; ---- convergence: source-coords is the single cross-host owner -
 ;;
-;; Before rf2-5q0jv the CLJS formatters (in `re-frame.adapter.context`) and the
-;; JVM formatters (in `re-frame.views.jvm-source-coord-annotation`) were two
-;; hand-kept copies; a canonical-literal test could only catch a drift AFTER it
-;; shipped. They now alias one `.cljc` implementation in `re-frame.source-coords`,
-;; so a CLJS copy can no longer drift from the JVM host. Prove it: the neutral
+;; The CLJS formatters (in `re-frame.adapter.context`) and the JVM formatters
+;; (in `re-frame.views.jvm-source-coord-annotation`) alias one `.cljc`
+;; implementation in `re-frame.source-coords`, so a CLJS copy cannot drift from
+;; the JVM host — with two hand-kept copies, a canonical-literal test could only
+;; catch a drift AFTER it shipped. Prove it: the neutral
 ;; owner emits the canonical literals directly, and the adapter.context vars ARE
 ;; that same fn object (`identical?` on fn references, not a keyword literal).
 
 (deftest neutral-owner-is-the-single-cljs-formatter-implementation
-  (testing "rf2-5q0jv — the CLJS adapter.context vars (and the re-frame.views /
+  (testing "the CLJS adapter.context vars (and the re-frame.views /
             spine re-exports built on them) alias the one cross-host
             implementation in re-frame.source-coords; the neutral owner emits
             the canonical literals and the adapter.context var is the identical
