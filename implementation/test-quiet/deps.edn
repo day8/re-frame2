@@ -31,9 +31,9 @@
 ;;     suites stay quiet on green WITHOUT ad-hoc local `*err*` sinks. The
 ;;     narrower CLJS scope keeps real error channels visible even on green.
 ;;
-;; Failures are unchanged: a failing namespace's banner, the failure
-;; lines + the failure stack reach stdout exactly as before, and a red
-;; run additionally replays the buffered stderr context.
+;; Failures are reported in full: a failing namespace's banner, the
+;; failure lines + the failure stack reach stdout, and a red run
+;; additionally replays the buffered stderr context.
 ;;
 ;; Wired into per-artefact `:test` aliases by using
 ;; `:main-opts ["-m" "re-frame.test-quiet.runner"]` and adding this
