@@ -1,21 +1,22 @@
 (ns re-frame.substrate.spine-construction-atomic-cljs-test
-  "rf2-vxgfnd.292 — `make-derived-value` on the React-hook spine must be
-  INTERNALLY failure-atomic.
+  "`make-derived-value` on the React-hook spine must be INTERNALLY
+  failure-atomic.
 
-  THE DEFECT. The spine wires one input wire per source in a loop: a raw atom
+  THE HAZARD. The spine wires one input wire per source in a loop: a raw atom
   source joins that source's fan-out coordinator (creating the coordinator, and
   its single real watch, on first use); any other source takes a direct
-  `add-watch`. The loop was unguarded. If a LATER source's installation threw,
-  every EARLIER wire stayed installed while the constructor returned nothing —
-  so the caller held no derived value, there was no `-dispose` to call, and no
-  verb anywhere could reach those watches. An unreachable derived value went on
-  marking itself dirty for the lifetime of its sources, and each retry added
-  another set.
+  `add-watch`. Were the loop unguarded, a LATER source's installation throwing
+  would leave every EARLIER wire installed while the constructor returned
+  nothing — so the caller would hold no derived value, there would be no
+  `-dispose` to call, and no verb anywhere could reach those watches. An
+  unreachable derived value would go on marking itself dirty for the lifetime
+  of its sources, and each retry would add another set.
 
   THE CONTRACT (Spec 006 §`make-derived-value`): a `make-derived-value` that
-  throws before returning has removed whatever it installed. The repair unwinds
-  the acquired wires in REVERSE acquisition order, attempts every release even
-  if one of them throws, and re-raises the PRIMARY construction error.
+  throws before returning has removed whatever it installed. The constructor
+  unwinds the acquired wires in REVERSE acquisition order, attempts every
+  release even if one of them throws, and re-raises the PRIMARY construction
+  error.
 
   These fixtures drive `make-derived-value-fn` directly over a mixed source
   vector — a real atom (the coordinator path) plus `reify` sources (the direct
@@ -24,8 +25,9 @@
   `.-watches` map and the scheduler's `:source-coordinators` registry, not a
   mirror the fixture maintains.
 
-  Pre-fix, `partial-installation-unwinds-every-earlier-wire` finds the first two
-  sources still wired and the coordinator still registered, and FAILS.
+  Without the unwind, `partial-installation-unwinds-every-earlier-wire` finds
+  the first two sources still wired and the coordinator still registered, and
+  FAILS.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -96,15 +98,15 @@
           "the PRIMARY construction error surfaces with its identity intact")
       (is (zero? (atom-watch-count src-a))
           "the raw atom source holds no watch — its fan-out coordinator lost its
-           last dependent and tore down its single real watch. PRE-FIX the
-           coordinator's watch survives and this is 1")
+           last dependent and tore down its single real watch. Without the
+           unwind the coordinator's watch survives and this is 1")
       (is (zero? (coordinator-count scheduler))
           "the coordinator REGISTRY entry is gone too — a stranded entry would
            keep the source (and its coordinator closure) reachable for the
-           scheduler's lifetime. PRE-FIX this is 1")
+           scheduler's lifetime. Without the unwind this is 1")
       (is (empty? (installed-keys src-b))
-          "the healthy reify source's direct watch was removed. PRE-FIX it is
-           still held")
+          "the healthy reify source's direct watch was removed. Without the
+           unwind it is still held")
       (is (empty? (installed-keys src-c))
           "the refusing source never recorded a watch to begin with"))))
 
@@ -169,7 +171,7 @@
 ;; ===========================================================================
 ;; Duplicate sources — `source-containers` carries no uniqueness precondition
 ;; (Spec 006 §154-170), so the same source may appear twice and take two wires.
-;; The unwind must release BOTH, not just the last (the rf2-he7se hazard).
+;; The unwind must release BOTH, not just the last.
 ;; ===========================================================================
 
 (deftest unwind-releases-every-wire-of-a-repeated-source
@@ -193,7 +195,7 @@
 
 (deftest successful-construction-and-disposal-are-unchanged
   (testing "no fault: every wire installs, the derived value computes, and
-            `-dispose` still releases everything through the shared release path"
+            `-dispose` releases everything through the shared release path"
     (let [scheduler    (rf.substrate.spine/make-scheduler)
           make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
