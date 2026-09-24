@@ -268,9 +268,9 @@
         ;; it runs on the POST-`:before` args — `validate-retry!` and
         ;; `validate-reply-target!` fire before the chain, so a `:before` that
         ;; SET `:decode` would be checked there against a decode the transport
-        ;; never uses. The result is discarded: the walker is memoised
-        ;; (`late-bind/get-fn-cached`) and the response-time call recomputes it,
-        ;; which is a schema walk against a network round trip.
+        ;; never uses. The result is discarded, and the response-time call
+        ;; walks the schema again: the walk is unmemoised (rf2-3x7nj.19.4),
+        ;; and a second schema walk is cheap next to a network round trip.
         _            (rf.http.privacy-body/decode-schema-marks decode)
         ;; rf2-wu1n5 — keyword-interning DoS guard. The reserved
         ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
