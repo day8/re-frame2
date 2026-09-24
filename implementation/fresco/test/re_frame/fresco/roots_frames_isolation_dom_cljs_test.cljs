@@ -1,10 +1,9 @@
 (ns re-frame.fresco.roots-frames-isolation-dom-cljs-test
   "TWO LIVE ROOTS, TWO FRAMES — and nothing crosses between them.
 
-  The bead's first and fourth deliverables: two roots dispatching,
-  subscribing and unmounting independently with zero cross-frame reads or
-  dispatches, and a root whose teardown FAILS unable to strand the other
-  root's state.
+  Two roots dispatching, subscribing and unmounting independently with
+  zero cross-frame reads or dispatches, and a root whose teardown FAILS
+  unable to strand the other root's state.
 
   ## What is actually at risk
 
@@ -115,7 +114,7 @@
   (react/useEffect
     (fn arm-the-charge []
       (fn detonate []
-        (throw (js/Error. "rf2-hic-012 manufactured teardown failure"))))
+        (throw (js/Error. "manufactured teardown failure"))))
     #js [])
   nil)
 
@@ -202,10 +201,9 @@
                           % (:incarnation (rf.fresco.roots-frames-support/frame-memo-row %)))
                        [frame-a frame-b]))
               "and each row is pinned to the incarnation that is LIVE under its
-               id (rf2-x874) — the reading that replaced 'the bundle memo is
-               still empty'. Since the row is acquired during render, one row
-               per rendered frame is the reading of RENDER, and pinning is what
-               a dispatch could otherwise have left behind wrongly"))
+               id. Since the row is acquired during render, one row per
+               rendered frame is the reading of RENDER, and pinning is what a
+               dispatch could otherwise have left behind wrongly"))
 
         (testing "the markup corroborates, and it corroborates on BOTH frames
                   — a constant would satisfy either one alone"
