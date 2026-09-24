@@ -1,7 +1,7 @@
 (ns re-frame.test-support
   "Test fixture helpers shared between JVM and CLJS test suites.
 
-  ## See also — `re-frame.test-helpers` (rf2-v7kjq)
+  ## See also — `re-frame.test-helpers`
 
   Sibling namespace covering the **view-tree assertion axis** — hiccup
   walkers (`find-by-testid`, `text-content`, `extract-handler`), handler
@@ -16,18 +16,18 @@
   A test that exercises events / subs / machines reaches here. A test
   that asserts on rendered view content reaches `re-frame.test-helpers`.
   A test doing both `:require`s both. See [Spec 008 §Audience-split]
-  (../../../../../spec/008-Testing.md#audience-split--re-frametest-support-vs-re-frametest-helpers-rf2-v7kjq)
+  (../../../../../spec/008-Testing.md#audience-split--re-frametest-support-vs-re-frametest-helpers)
   for the axis rationale.
 
-  ## Why this namespace exists (rf2-am9d, follow-up to rf2-coks / rf2-p8g8)
+  ## Why this namespace exists
 
   Tests need per-test isolation of *user-test-registered* handlers, subs,
   views, machines, fx, etc. — without wiping *framework-shipped*
   registrations that landed at namespace-load time and (under CLJS)
   cannot be re-loaded at runtime.
 
-  Earlier fixtures in the CLJS test suite reached for `rf.registrar/clear-all!`,
-  which is fundamentally hostile to CLJS isolation:
+  A fixture that reaches for `rf.registrar/clear-all!` is fundamentally
+  hostile to CLJS isolation:
 
     - `re-frame.routing` registers `:rf.route/handle-url-change`, `:rf.route/navigate`,
       `:rf.nav/scroll`, the `:rf/route` and `:rf.route/{id,params,query,
@@ -37,8 +37,8 @@
       subs / views / machines at ns-load.
 
   CLJS has no `(require ... :reload)` analogue, so once those slots are
-  wiped they cannot be reinstated for downstream tests in the same run.
-  rf2-coks documented the resulting cross-test pollution.
+  wiped they cannot be reinstated for downstream tests in the same run,
+  and every later test sees the pollution.
 
   The right pattern is **snapshot/restore**: capture
   `@rf.registrar/kind->id->metadata` before the test, allow the test to
@@ -59,38 +59,36 @@
   - [[make-reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows (when the flows artefact
-    is loaded, rf2-tfw3) / adapter / machine counters / trace
+    is loaded) / adapter / machine counters / trace
     listeners. Pins a STABLE ns-load baseline (captured at fixture-build
     time) and reinstates it before each test's snapshot, so example /
     framework tests are run-order-independent inside the shared
-    `:node-test` bundle (rf2-7hwnu).
+    `:node-test` bundle.
 
-  ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5 / rf2-8j9m6)
+  ### Test-flavoured helpers
   - [[assert-path-equals]] — assert `(= expected (get-in app-db path))`
     against the resolved frame; failure reports via `clojure.test/is`.
     Mirrors the `:rf.assert/path-equals` event (Story `:play` blocks);
     same name root so a reader who knows one surface navigates the other.
 
-  ### Trace-recorder bracket (rf2-64iuw)
+  ### Trace-recorder bracket
   - [[with-trace-recorder!]] — register a trace-tooling listener for the
     bracketed body, accumulate matching events into a recording atom
-    bound by name, unregister on exit. Supersedes the per-file
+    bound by name, unregister on exit. One bracket in place of per-file
     `collect-traces` / `record-traces!` / `record-by-op!` / etc.
-    boilerplate that nine adapter test files used to carry (rf2-5r7eh
-    audit + rf2-64iuw consolidation).
+    boilerplate.
 
-  ### Always-on emit-recorder bracket (rf2-kuky.69)
+  ### Always-on emit-recorder bracket
   - [[with-emit-recorder!]] — the sibling of [[with-trace-recorder!]] over
     the two always-on substrates. `:errors` brackets
     `re-frame.error-emit`, `:events` brackets `re-frame.event-emit`;
     both are IMPLEMENTATION-tier registries with no public facade
-    spelling since rf2-kuky.69 retired the `register-listener!`
-    `:events` / `:errors` streams, and a test is one of the two
-    consumers that ruling kept them for. ONE bracket rather than a
-    hand-rolled register/unregister pair per file — the finding
-    rf2-64iuw recorded for the trace side.
+    spelling (`register-listener!` has no `:events` / `:errors`
+    streams), and a test is one of their two consumers. ONE bracket
+    rather than a hand-rolled register/unregister pair per file, as for
+    the trace side.
 
-  ### Deterministic-wait helpers (rf2-ka3n6 / rf2-fun38)
+  ### Deterministic-wait helpers
   - [[poll-until]] — bounded-deadline poll for `(pred)` to return
     truthy. JVM returns the truthy value synchronously (throws on
     timeout); CLJS returns a `js/Promise` that resolves with the
@@ -104,14 +102,14 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.error :as rf.error]
             ;; The runtime fixture resets the ONE `rf.frame/frames` registry, which
-            ;; (EP-0024 — the second live-frame registry dissolved into it) clears
+            ;; (EP-0024 — there is no second live-frame registry) clears
             ;; every record AND its `:generation`. A frame seated via
             ;; `rf/make-frame {:id …}` registers there, and a stale entry leaking
             ;; across tests would make the next `make-frame`/`seat-*` treat the id
             ;; as already-seated (or fail loud on the duplicate id) — the single
-            ;; reset is the whole clear (rf2-32siq3.32 / rf2-rjml45 / rf2-ji3tvy).
+            ;; reset is the whole clear.
             [re-frame.frame :as rf.frame]
-            ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db`
+            ;; EP-0027: re-seed the framework-standard `:rf/set-db`
             ;; event into BOTH the regular registrar AND the EP-0023 image
             ;; standard registry on each reset (mirroring how `init!` re-seeds
             ;; it after a `rf.registrar/clear-all!`). A sibling test ns whose
@@ -122,7 +120,7 @@
             ;; …]]` could not resolve `:rf/set-db` through its sealed generation.
             ;; (`events` is already in the dep graph via `router`; no new cycle.)
             [re-frame.events :as rf.events]
-            ;; EP-0026 §Default Image: `make-frame {}` now projects the DEFAULT
+            ;; EP-0026 §Default Image: `make-frame {}` projects the DEFAULT
             ;; image over the active SOURCE STORE. Every `reg-*` writes a
             ;; provenance-tagged descriptor into `source-store` (in lockstep with
             ;; the registrar resolver map — `rf.registrar/register!`), so the source
@@ -143,12 +141,11 @@
             ;; epoch artefacts ship in separate Maven coordinates and are
             ;; reached only through late-bind hooks — see the
             ;; `reset-hook-table` var docstring below for the per-artefact
-            ;; rationale (rf2-tfw3 / rf2-p7va / rf2-xbtj / rf2-k682 /
-            ;; rf2-5kpd / rf2-lt4e). This ns must not statically require
+            ;; rationale. This ns must not statically require
             ;; any of them.
             [re-frame.late-bind :as rf.late-bind]
-            ;; Per rf2-qwm0a: the public-tooling listener + buffer
-            ;; surface lives in `re-frame.trace.tooling` (split off
+            ;; The public-tooling listener + buffer
+            ;; surface lives in `re-frame.trace.tooling` (separate
             ;; from `re-frame.trace` for production CLJS bundle DCE).
             ;; Test fixtures need `clear-listeners!` between scenarios;
             ;; we reach it through the tooling sibling directly.
@@ -156,9 +153,9 @@
             ;; Clear the always-on event-emit listener registry on each
             ;; reset so a forwarder registered in one test doesn't see
             ;; events fired by a sibling test. Both always-on registries are
-            ;; also what `with-emit-recorder!` brackets (rf2-kuky.69): they
+            ;; also what `with-emit-recorder!` brackets: they
             ;; are IMPLEMENTATION tier — no public facade spelling — and a
-            ;; test is one of the two consumers the ruling kept them for.
+            ;; test is one of their two consumers.
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -171,8 +168,8 @@
 
 (defn- restore-source-store!
   "Reset the live source store to the suite's ns-load `baseline` (EP-0026
-  source-store isolation; the store leg of the per-test rollback). NOTE
-  (rf2-h1vqa4): a suite registering top-level state AFTER its
+  source-store isolation; the store leg of the per-test rollback). NOTE:
+  a suite registering top-level state AFTER its
   `use-fixtures` form places those rows outside this baseline — register
   above the fixture form, or re-seed in the suite's :init-fn (frames
   resolve through the STORE: the default image is assembled from it)."
@@ -217,7 +214,7 @@
   Used by [[make-reset-runtime-fixture]] to fold a stable ns-load baseline
   back over whatever the registrar currently holds, so a test ns's own
   ns-load registrations are present regardless of what a sibling ns's
-  `:each` fixture last restored the registrar to (rf2-7hwnu)."
+  `:each` fixture last restored the registrar to."
   [base overlay]
   (merge-with merge base overlay))
 
@@ -263,8 +260,7 @@
 ;; loud rather than silent: that suite's `make-frame {}` raises
 ;; `:rf.error/image-duplicate-id`. Its repair is the same one — name the app on
 ;; the suite that loaded it — and never to name a SIBLING from somewhere else,
-;; which is the capture-before-the-app-finished-loading shape that broke the
-;; predecessor.
+;; which risks capturing an app before it has finished loading.
 
 (defonce ^:private app-ns-rows
   ;; prefix string → {[kind id provenance-ns] → source-store descriptor}
@@ -277,10 +273,10 @@
   ;; a part of an app that loads LATE is captured by whichever fixture builds
   ;; after it, so a suite built earlier has to see that too.
   ;;
-  ;; UNION, NOT MEMO. The predecessor this option replaces kept a
-  ;; first-capture-WINS memo, so a capture taken before an app had finished
-  ;; loading pinned an incomplete set for every later suite — measured, with a
-  ;; route row left live and a sibling suite's frame creation failing.
+  ;; UNION, NOT MEMO. A first-capture-WINS memo would let a capture taken
+  ;; before an app had finished loading pin an incomplete set for every later
+  ;; suite — leaving a route row live and a sibling suite's frame creation
+  ;; failing.
   (atom {}))
 
 (defn- capture-app-ns-rows!
@@ -339,8 +335,8 @@
 (def ^:private reset-hook-table
   "Late-bind hook keys fired by `make-reset-runtime-fixture` to drop per-process
   test state — one row per optional artefact. Each entry pairs the hook key
-  with a `:phase` (when it fires relative to `rf.substrate.adapter/dispose-adapter!`) and
-  the design bead that introduced the artefact. The driver
+  with a `:phase` (when it fires relative to
+  `rf.substrate.adapter/dispose-adapter!`). The driver
   `run-reset-hooks!` walks the table in registration order and no-ops a row
   when its hook is unregistered (artefact absent from the classpath).
 
@@ -367,7 +363,7 @@
                                        sibling test can't survive.
     :fx/reset-dispatch-later-timers! — cancel every frame's pending
                                        `:dispatch-later` host timers
-                                       (rf2-uxz52g) so a stale armed timer
+                                       so a stale armed timer
                                        from a sibling test can't fire mid-
                                        next-test. Host-side transient state
                                        the `frames` reset above does not
@@ -375,23 +371,23 @@
                                        timers!`); always bound (re-frame.fx
                                        ships in core).
     :machines/reset-spawn-order!     — drop the per-frame spawn-order
-                                       channel (rf2-vsigt) so a stale
+                                       channel so a stale
                                        entry from a sibling test can't
                                        contaminate a frame-destroy walk.
     :routing/reset-counters!         — reset the route-registration counter
                                        so reg-index is deterministic across
                                        fixture runs.
     :routing/reset-nav-counters!     — reset the host-side nav-token /
-                                       pending-nav counter high-water marks
-                                       (rf2-oosjmh). They are host-side
-                                       transient state now, so the
-                                       `frames` reset above no longer clears
+                                       pending-nav counter high-water marks.
+                                       They are host-side
+                                       transient state, so the
+                                       `frames` reset above does not clear
                                        them; without this a prior test's
                                        counter leaks and the nav-N / pn-N
                                        id assertions drift.
     :routing/reset-url-claims!       — reset the process-global URL-ownership
-                                       claim-order vector (rf2-3l7xxz,
-                                       re-frame.routing.nav-fx/url-claim-order).
+                                       claim-order vector
+                                       (re-frame.routing.nav-fx/url-claim-order).
                                        Like the nav-counters it is process-
                                        global state the `frames` reset does not
                                        touch; without this a prior test's
@@ -400,7 +396,7 @@
                                        resolution drifts across tests.
     :routing/reset-url-listener!     — tear down the browser URL-change
                                        listener a `:url-bound? true` frame's
-                                       lifecycle installed (rf2-g8pbwg). The
+                                       lifecycle installed. The
                                        listener is module-level host state
                                        (`re-frame.routing.history/history-
                                        listener-atom`), NOT torn down by the
@@ -416,12 +412,11 @@
                                        high-water cache
                                        (re-frame.resources.state/generation-cache),
                                        and the host work-ledger / timer /
-                                       revalidation-listener handles
-                                       (rf2-afpdkn / rf2-nbjewi / rf2-vtblcq).
+                                       revalidation-listener handles.
                                        Like the routing nav-counters, the
                                        generation cache is host-side transient
-                                       state now, so the `frames` reset above
-                                       no longer clears it; without this a
+                                       state, so the `frames` reset above
+                                       does not clear it; without this a
                                        prior test's generation high-water mark
                                        leaks across tests. Published from
                                        `re-frame.resources.test-support`, so the
@@ -437,7 +432,7 @@
                                        `:after` interceptor registered in one
                                        test would otherwise mutate every
                                        subsequent test's outgoing request /
-                                       reply payload (rf2-q14tde). Published
+                                       reply payload. Published
                                        for test isolation alongside
                                        `:http/clear-all-in-flight!`; the row
                                        no-ops when the http artefact is absent.
@@ -445,7 +440,7 @@
     :epoch/clear-epoch-listeners!          — drop the epoch-settled callback
                                        registry.
     :epoch/reset-config!             — restore epoch-history config to the
-                                       shipped default baseline (rf2-yw1w1u).
+                                       shipped default baseline.
                                        `(rf/configure! {:epoch-history ...})`
                                        MERGES, so without this a prior test's
                                        `:depth` / `:trace-events-keep`
@@ -460,7 +455,7 @@
                                        and the uix adapter each
                                        register a clear-step.
 
-  Adding a new artefact's reset becomes a one-row addition here."
+  Adding a new artefact's reset is a one-row addition here."
   [{:hook :flows/reset-flows!              :phase :pre-dispose}
    {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
    {:hook :machines/reset-timers!          :phase :post-dispose}
@@ -494,7 +489,7 @@
 ;; fn-form fixture (`(fn [test-fn] …)`) or split across an async map-form
 ;; fixture's `:before` / `:after`. Both shapes share these three halves so the
 ;; hairy EP-0026 (source-store isolation) / EP-0027 (`:rf/set-db` re-seed) /
-;; rf2-7hwnu (stable ns-load baseline) sequencing lives in ONE place. The
+;; stable ns-load baseline sequencing lives in ONE place. The
 ;; halves are split at the boundaries the fn-form's try/finally already drew:
 ;;
 ;;   1. `reinstate-and-snapshot!`  — the pre-try work: fold the ns-load
@@ -519,8 +514,8 @@
 
 (defn- reinstate-and-snapshot!
   "Pre-reset half (the fn-form's pre-try block). Fold the stable ns-load
-  registrar baseline back over whatever the live registrar holds (rf2-7hwnu —
-  run-order independence), restore the source store to its ns-load baseline and
+  registrar baseline back over whatever the live registrar holds (run-order
+  independence), restore the source store to its ns-load baseline and
   clear the resolved-generation cache (EP-0026 source-store isolation), then
   capture and return the restore context the reset + finish halves consume:
 
@@ -555,10 +550,9 @@
 
   The `:app-ns` reinstatement is last so it lands after `:clear-kinds` (rows
   the suite declared as its OWN app are not what `:clear-kinds` is clearing)
-  and before the caller's `:init-fn`, which both shapes run next — the setup
-  ordering an app's `init!` depends on is therefore unchanged: it still
-  registers its plans and stubs against a live registrar before it makes any
-  frame."
+  and before the caller's `:init-fn`, which both shapes run next — so an app's
+  `init!` registers its plans and stubs against a live registrar before it
+  makes any frame."
   [{:keys [adapter clear-kinds clear-app-schemas? app-ns]} clear-fn]
   (reset! rf.frame/frames {})
   (run-reset-hooks! :pre-dispose)
@@ -598,7 +592,7 @@
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
 
-  ## Run-order independence (rf2-7hwnu)
+  ## Run-order independence
 
   ## Source-store isolation (EP-0026 §Default Image)
 
@@ -627,9 +621,8 @@
   Before each test, the fixture folds the stable ns-load baseline back
   over the live registrar (via [[merge-registrar-snapshots]]) and only
   THEN snapshots — so the snapshot it restores to is always populated with
-  this ns's own registrations, regardless of run order. This subsumes the
-  bespoke outer-fixture workarounds the todomvc and conformance-corpus
-  tests previously carried.
+  this ns's own registrations, regardless of run order, and no test needs a
+  bespoke outer fixture to work around it.
 
   Per call (i.e. per test), the fixture:
 
@@ -641,10 +634,10 @@
        registrations can be rolled back without losing ns-load-time
        framework / example registrations).
     2. Resets `rf.frame/frames` to `{}`, plus the flows registry (via
-       `flows/reset-flows!` per rf2-4gvb4 — atoms are private behind
+       `flows/reset-flows!` — atoms are private behind
        an accessor seam) and the schemas per-frame registry (via the
        encapsulated `:schemas/clear-by-frame!` hook → `clear-schemas-
-       by-frame!` per rf2-l5r974 — the raw `schemas-by-frame` atom is
+       by-frame!` — the raw `schemas-by-frame` atom is
        not re-exported) (when those artefacts are loaded — reset is
        late-bound so JVM tests that don't pull them in are unaffected).
     3. Disposes the currently-installed substrate adapter.
@@ -730,15 +723,15 @@
                   — boolean. When true, clear the schemas artefact's
                     per-frame side-table (`schemas/schemas-by-frame`)
                     AFTER the snapshot capture and BEFORE the test body
-                    runs. App-db schemas live OUTSIDE the registrar
-                    (rf2-cq1ak), so this is a separate hook from
+                    runs. App-db schemas live OUTSIDE the registrar,
+                    so this is a separate hook from
                     `:clear-kinds`. The snapshot still includes the
                     per-frame schemas, so they're restored on the way
                     out — they only disappear for the duration of the
                     test.
     :async?       — boolean (default false). Declare the suite ASYNC-CAPABLE.
-                    The RETURN SHAPE that delivers that is PLATFORM-DECIDED
-                    (rf2-e8ea), not something the caller picks:
+                    The RETURN SHAPE that delivers that is PLATFORM-DECIDED,
+                    not something the caller picks:
                       • `:cljs` → the map-form fixture `{:before … :after …}`,
                         the only shape `cljs.test` will run an `(async done …)`
                         row under (§Async map-form variant below).
@@ -863,7 +856,7 @@
    ;; §bundle co-load hygiene section comment above for the invariant.
    (when app-ns
      (capture-app-ns-rows! app-ns))
-   ;; `:ambient-frame` (EP-0002, rf2-9o48ih): the frame the fixture establishes
+   ;; `:ambient-frame` (EP-0002): the frame the fixture establishes
    ;; as the ambient scope when an adapter is installed. Default `:rf/default`
    ;; when the key is OMITTED; an explicit `:ambient-frame nil` OPTS OUT.
    ;; Resolved via `contains?` (not an `:or {… :rf/default}` destructure
@@ -872,7 +865,7 @@
    ;; option default, not the runtime synthesising a frame from absence
    ;; (the no-rf-default-floor lint keys off the `:or`/`(or …)` shapes).
    ;;
-   ;; Stable ns-load baseline (rf2-7hwnu). `make-reset-runtime-fixture` is
+   ;; Stable ns-load baseline. `make-reset-runtime-fixture` is
    ;; called when the test ns's `(use-fixtures :each ...)` form is evaluated —
    ;; i.e. AT THIS TEST NS'S LOAD, after its `:require` chain has registered
    ;; its framework + example handlers / subs / views / machines / fx.
@@ -892,10 +885,10 @@
          ;; was not opted out to nil. Adapter-less / opted-out fixtures run the
          ;; body frameless — those tests own their own frame creation, so a
          ;; synthetic ambient `:rf/default` would make a top-level `make-frame`
-         ;; look mid-cascade (the in-flight-cascade heuristic, rf2-cufbh) and
+         ;; look mid-cascade (the in-flight-cascade heuristic) and
          ;; async-queue its `:initial-events`.
          scope?                (boolean (and adapter ambient-frame))
-         ;; rf2-4775uc — `:init-fn` (per-suite setup that needs the registrar /
+         ;; `:init-fn` (per-suite setup that needs the registrar /
          ;; adapter live, e.g. an app's `register-all!`) runs UNDER the same
          ;; ambient scope as the body, so a frame-local op in setup
          ;; (`reg-app-schema` / a bare `dispatch`) does not throw
@@ -903,7 +896,7 @@
          ;; enclosing `binding`; for the async map-form it is the persistent
          ;; `set!` already in effect when this runs.
          run-init!             (fn [] (when init-fn (init-fn)))
-         ;; rf2-e8ea — `:async?` declares the suite ASYNC-CAPABLE; the SHAPE
+         ;; `:async?` declares the suite ASYNC-CAPABLE; the SHAPE
          ;; that delivers that is decided HERE, per host, because the two
          ;; runners disagree about what a fixture even is:
          ;;
@@ -918,9 +911,7 @@
          ;;     `compose-fixtures` INVOKES each fixture (`(f1 (fn [] (f2 g)))`)
          ;;     and a Clojure map is `IFn`, so a `{:before …}` fixture composes
          ;;     to a key lookup returning nil and the test body NEVER RUNS: the
-         ;;     namespace reports "Ran 0 tests" and reads GREEN. (Hit in-tree
-         ;;     while implementation/ssr/test/re_frame/ssr/streaming_component_
-         ;;     cljs_test.cljc was being written — see its comment.) And
+         ;;     namespace reports "Ran 0 tests" and reads GREEN. And
          ;;     `clojure.test` has no async tests to be capable OF, so the
          ;;     fn-form IS the correct async-capable JVM shape.
          ;;
@@ -961,7 +952,7 @@
             (finish-runtime-reset! @ctx-atom (source-store-baseline))
             (reset! ctx-atom nil))})
        ;; ---- sync fn-form (default; clojure.test + non-async cljs.test) ----
-       ;; EP-0002 (rf2-nn0jqa): when an adapter is installed the fixture
+       ;; EP-0002: when an adapter is installed the fixture
        ;; ensured `:rf/default` and binds it as the body's ambient scope — the
        ;; carried-invariant equivalent of wrapping every test in
        ;; `(with-frame :rf/default …)`, so a bare `dispatch-sync` lands. An
@@ -981,7 +972,7 @@
              (finally
                (finish-runtime-reset! ctx (source-store-baseline))))))))))
 
-;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
+;; ---- test-flavoured helpers ----------------------------------------------
 ;;
 ;; A thin wrapper over `frame-app-db-value` for ergonomic test code. The
 ;; fixture machinery above carries the heavy lifting; this helper is
@@ -995,8 +986,8 @@
 (defn- resolve-frame
   "Frame-resolution chain shared by the helpers below:
      1. `:frame` key in opts when supplied;
-     2. `(rf.frame/current-frame)` — picks up `with-frame` bindings,
-        defaults to `:rf/default`."
+     2. `(rf.frame/current-frame)` — picks up `with-frame` bindings and
+        the fixture's ambient scope; nil when no scope is established."
   [opts]
   (or (:frame opts) (rf.frame/current-frame)))
 
@@ -1010,7 +1001,8 @@
     (assert-path-equals path expected-val)
     (assert-path-equals path expected-val {:frame :test/foo})
 
-  Frame resolution: `:frame` opt → `(current-frame)` → `:rf/default`.
+  Frame resolution: `:frame` opt → `(current-frame)` (the fixture's ambient
+  scope — `:rf/default` unless `:ambient-frame` names another frame).
 
   Returns `true` when the assertion passes, `false` otherwise — the
   `clojure.test` failure has already been reported in either case, so
@@ -1021,8 +1013,7 @@
   share the same name root so a reader navigating between the two
   surfaces does not need a translation table.
 
-  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s / rf2-8j9m6
-  decisions."
+  Per Spec 008 §Normative surface."
   ([path expected-val]
    (assert-path-equals path expected-val nil))
   ([path expected-val opts]
@@ -1038,7 +1029,7 @@
         :actual   actual})
      pass?)))
 
-;; ---- deterministic wait helper (rf2-ka3n6 / rf2-fun38) -------------------
+;; ---- deterministic wait helper -------------------------------------------
 ;;
 ;; Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` waits that
 ;; exist to let an *observable* event (router drain, cascade settle, sub
@@ -1049,7 +1040,7 @@
 ;; grace-period elapse, throttle/debounce window, host-clock advancement,
 ;; "prove a thing did NOT happen within window N").
 ;;
-;; Per-platform shape (rf2-fun38):
+;; Per-platform shape:
 ;;   JVM:  synchronous — returns the truthy value, throws on timeout.
 ;;   CLJS: async       — returns a `js/Promise`. Resolves with the truthy
 ;;                       value on success, rejects with an `ex-info`-style
@@ -1094,7 +1085,7 @@
        :interval-ms  default 5    — sleep between probes.
        :label        string/keyword used in the timeout message.
 
-     Use this in JVM tests that previously called `(Thread/sleep N)` to
+     Use this in JVM tests in place of `(Thread/sleep N)` to
      wait for the async router to drain, a pipeline run to settle, or
      a sub to re-fire. The deadline is generous; tests fail fast on a
      truly stuck condition, not on CI scheduler jitter."
@@ -1136,14 +1127,14 @@
      resolved value drives the truthy check — so `pred` can be either
      synchronous (the common case) or `async`/Promise-returning.
 
-     Use this in CLJS tests under `cljs.test/async` that previously
+     Use this in CLJS tests under `cljs.test/async` in place of
      chained nested `js/setTimeout` calls to wait for a router drain,
      pipeline run, or sub re-fire. The Promise composes with `.then` /
      `.catch` and integrates cleanly with `async done`.
 
      Put the rejection handler UPSTREAM of the single trailing step that
-     calls `done`, and call `done` exactly once with nothing after it
-     (rf2-d3tc / rf2-qpns / rf2-fyba). `cljs.test/run-block` hands `done` a
+     calls `done`, and call `done` exactly once with nothing after it.
+     `cljs.test/run-block` hands `done` a
      continuation that runs the WHOLE REMAINDER of the run synchronously, so
      a `.catch` sitting downstream of `done` claims whatever a later
      namespace throws as this row's failure — printing it against this row's
@@ -1186,17 +1177,16 @@
                           (settle raw))))]
               (tick))))))))
 
-;; ---- trace-recorder bracket (rf2-64iuw) ----------------------------------
+;; ---- trace-recorder bracket -----------------------------------------------
 ;;
-;; Every adapter test ns that wants to capture a stream of trace events
-;; used to define its own `defn- <verb>-traces[!]` wrapper around
-;; `rf.trace.tooling/register-listener!` plus an atom. The verb
-;; (collect-/record-), the `!` suffix, the return shape (bare atom vs
-;; `{:traces a :stop! f}`), and the cleanup convention (manual key-keyed
-;; `unregister-listener!` vs no cleanup at all) all diverged file-by-file
-;; for the same underlying pattern. rf2-64iuw folds them into a single
-;; bracket macro: register-on-entry, unregister-on-exit (try/finally),
-;; with-redefs-shaped body.
+;; A test that captures a stream of trace events uses this single bracket
+;; macro rather than its own `defn- <verb>-traces[!]` wrapper around
+;; `rf.trace.tooling/register-listener!` plus an atom. Hand-rolled wrappers
+;; diverge file-by-file in verb (collect-/record-), `!` suffix, return shape
+;; (bare atom vs `{:traces a :stop! f}`), and cleanup convention (manual
+;; key-keyed `unregister-listener!` vs no cleanup at all) for the same
+;; underlying pattern. The bracket is register-on-entry, unregister-on-exit
+;; (try/finally), with-redefs-shaped body.
 ;;
 ;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
 ;; `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`
@@ -1227,7 +1217,7 @@
                appended via `(swap! a conj ev)`.
                `:by-op` — atom holds a map keyed by `(:operation ev)`,
                each value a vector of matching events. Equivalent to
-               the prior `record-by-op!` / `record-op!` per-file helpers.
+               hand-rolled `record-by-op!` / `record-op!` helpers.
        :key    listener key (any value). Default: a freshly-gensym'd
                keyword unique to this expansion site, so two
                `with-trace-recorder!` brackets in the same deftest do
@@ -1235,10 +1225,10 @@
 
      Returns the value of `body`'s final form.
 
-     Replaces the per-file `collect-traces` / `collect-warnings` /
+     Use it in place of per-file `collect-traces` / `collect-warnings` /
      `collect-dispose-traces!` / `record-render-traces!` / `record-traces!`
-     / `record-op!` / `record-by-op!` / `collect-traces!` helpers (rf2-5r7eh
-     audit / rf2-64iuw consolidation). See [Spec 008 §Test-flavoured
+     / `record-op!` / `record-by-op!` / `collect-traces!` helpers. See
+     [Spec 008 §Test-flavoured
      helpers](../../../../../spec/008-Testing.md) for the broader
      test-support surface.
 
@@ -1290,22 +1280,22 @@
             (finally
               (rf.trace.tooling/unregister-listener! listener-key#)))))))
 
-;; ---- always-on emit-recorder bracket (rf2-kuky.69) -------------------------
+;; ---- always-on emit-recorder bracket --------------------------------------
 ;;
 ;; The sibling of `with-trace-recorder!` above, over the two ALWAYS-ON
 ;; substrates rather than the dev-only trace bus.
 ;;
-;; rf2-kuky.69 retired `:events` / `:errors` from the public
-;; `register-listener!` vocabulary: they were a second, fail-open production
+;; The public `register-listener!` vocabulary has no `:events` / `:errors`:
+;; as public streams they would be a second, fail-open production
 ;; door — unprojected, raw `:exception`, no frame policy, fanned across every
 ;; frame — beside the projected door Spec 015 calls normal, and independent
-;; corpus observation regardless of a frame's policy is WITHDRAWN as a public
-;; primitive. `re-frame.event-emit` / `re-frame.error-emit` SURVIVE as
+;; corpus observation regardless of a frame's policy is not a public
+;; primitive. `re-frame.event-emit` / `re-frame.error-emit` are
 ;; implementation-tier registries for the framework's own synchronous-window
 ;; capture sites and for TESTS. This bracket is the test half of that: ONE
 ;; capture verb over both registries, so the tree does not grow a hand-rolled
-;; register/try/finally/unregister wrapper per file — which is exactly the
-;; divergence rf2-64iuw measured on the trace side.
+;; register/try/finally/unregister wrapper per file — the same divergence the
+;; trace-side bracket avoids.
 ;;
 ;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
 ;; `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
