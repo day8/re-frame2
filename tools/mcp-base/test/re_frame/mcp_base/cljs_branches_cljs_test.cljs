@@ -39,7 +39,7 @@
 ;; ---------------------------------------------------------------------------
 ;; 1. The .cljc library loads and the diff algorithm round-trips in CLJS.
 ;;    This is the load-bearing 'it runs on CLJS at all' pin — the JVM
-;;    suite proved the algorithm; this proves the CLJS compile + runtime.
+;;    suite proves the algorithm; this proves the CLJS compile + runtime.
 ;; ---------------------------------------------------------------------------
 
 (deftest diff-algorithm-round-trips-under-cljs
@@ -226,7 +226,7 @@
 
 (deftest parse-int-strict-cross-host-cljs
   (testing "trailing garbage falls back to default on CLJS too"
-    (is (= 50 (rf.mcp-base.args/parse-positive-int "12abc" 50)) "was 12 on CLJS before the fix")
+    (is (= 50 (rf.mcp-base.args/parse-positive-int "12abc" 50)) "a raw js/parseInt would read 12")
     (is (= 50 (rf.mcp-base.args/parse-positive-int "5xyz" 50)))
     (is (= 50 (rf.mcp-base.args/parse-positive-int "1.5" 50)))
     (is (= 50 (rf.mcp-base.args/parse-positive-int "1e3" 50))))
@@ -261,9 +261,9 @@
         "safe-integer ceiling is in-domain"))
   (testing "string threshold aligns to the safe-integer window on both hosts"
     (is (= 50 (rf.mcp-base.args/parse-positive-int "9007199254740992" 50))
-        "one past the ceiling defaults on CLJS AND JVM (JVM no longer parses it)")
+        "one past the ceiling defaults on CLJS AND JVM")
     (is (= 9007199254740991 (rf.mcp-base.args/parse-positive-int "9007199254740991" 50))
-        "exactly the ceiling still parses on both hosts")))
+        "exactly the ceiling parses on both hosts")))
 
 (deftest max-tokens-finite-range-guard-cljs
   ;; Non-finite and out-of-range `:max-tokens` rejects with an
@@ -406,9 +406,8 @@
       (is (= :re-frame.mcp-base.cursor/malformed
              (rf.mcp-base.cursor/decode-cursor token (fn [_] false))))))
   (testing "the size cap is CHARACTERS on CLJS too - the same ruler the JVM applies"
-    ;; rf2-2rtt6.132 - this const was named `max-cursor-bytes` while its
-    ;; guard was, and remains, `(> (count s) ...)`: UTF-16 CODE UNITS on
-    ;; BOTH hosts. It was RELABELLED rather than converted, and this is
+    ;; The const's guard is `(> (count s) ...)`: UTF-16 CODE UNITS on
+    ;; BOTH hosts, as its name says. This is
     ;; the CLJS half of the cross-host pin (`cursor_test/decode-cursor-
     ;; cap-is-characters-and-the-unit-is-unobservable` carries the JVM
     ;; half). Fixtures are \uXXXX escapes so the source stays pure ASCII:
@@ -427,7 +426,7 @@
       ;; bytes, so a byte cap would refuse them at the guard where the
       ;; character cap lets them through. Both are `::malformed` anyway -
       ;; refused by `decode-canonical-b64` for a reason independent of the
-      ;; cap. The unit is therefore unobservable and the relabel complete.
+      ;; cap. The unit is therefore unobservable.
       (is (<= (count dashes) rf.mcp-base.cursor/max-cursor-chars))
       (is (> (utf8-len dashes) rf.mcp-base.cursor/max-cursor-chars))
       (is (= :re-frame.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor dashes any?)))
@@ -534,10 +533,10 @@
          (rf.mcp-base.envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))
 
 ;; ---------------------------------------------------------------------------
-;; 7b. marker-text? requires a CLOSED single-key wrapper on CLJS too
-;;     (rf2-j538f7.20). pair-mcp is a CLJS Node script and delegates
+;; 7b. marker-text? requires a CLOSED single-key wrapper on CLJS too.
+;;     pair-mcp is a CLJS Node script and delegates
 ;;     `wire/marker?` → `rf.mcp-base.envelope/marker-text?`, then SKIPS both cache and cap
-;;     work for a marker-like result. A prefix-only recogniser let a
+;;     work for a marker-like result. A prefix-only recogniser would let a
 ;;     reserved-key-shaped payload with an unexpected top-level sibling bypass
 ;;     the cap. The structural read (cursor's wrap-and-sentinel technique)
 ;;     runs identically on `cljs.reader`, so the closed-wrapper gate must bite
@@ -555,7 +554,7 @@
                  (pr-str {rf.mcp-base.vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))
     (is (true? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}"))
         "additive body fields are allowed — only the OUTER wrapper must be closed"))
-  (testing "RED-then-GREEN: an over-budget mixed wrapper with a top-level sibling is NOT a marker"
+  (testing "an over-budget mixed wrapper with a top-level sibling is NOT a marker"
     (let [big (apply str (repeat 8000 "x"))]
       (is (false? (rf.mcp-base.envelope/marker-text?
                     (pr-str (array-map rf.mcp-base.vocab/overflow-key {:limit :reached}
@@ -580,11 +579,11 @@
     (is (false? (rf.mcp-base.envelope/marker-text? nil)))))
 
 ;; ---------------------------------------------------------------------------
-;; 7c. marker-text? bounds the marker BODY size on CLJS too (rf2-vd1uyn).
+;; 7c. marker-text? bounds the marker BODY size on CLJS too.
 ;;     Closure alone does NOT bound the marker's SIZE: a CLOSED single-key
-;;     {:rf.mcp/overflow {…huge…}} is over-budget by construction, yet the
-;;     pre-fix recogniser returned true and let the pair-mcp fast-path skip
-;;     egress it un-capped. The size gate bounds the rendered text at the
+;;     {:rf.mcp/overflow {…huge…}} is over-budget by construction, yet a
+;;     closure-only recogniser would return true and let the pair-mcp
+;;     fast-path skip egress it un-capped. The size gate bounds the rendered text at the
 ;;     documented default cap, so an over-default-cap single-key marker is
 ;;     NOT skip-eligible and continues through cap enforcement. This runs on
 ;;     the CLJS runtime the pair server actually executes (FLAT print form).
@@ -594,7 +593,7 @@
   (let [over-budget (apply str (repeat (* 8 rf.mcp-base.overflow/default-max-tokens) "x"))] ;; ~2× the default cap
     (is (> (rf.mcp-base.overflow/token-estimate over-budget) rf.mcp-base.overflow/default-max-tokens)
         "precondition: the injected body estimates over the default cap")
-    (testing "RED-then-GREEN: an over-budget single-key marker is NOT a marker on CLJS"
+    (testing "an over-budget single-key marker is NOT a marker on CLJS"
       (is (false? (rf.mcp-base.envelope/marker-text?
                     (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached :blob over-budget}})))
           "an over-default-cap overflow BODY must be capped on CLJS, not skipped")
@@ -613,18 +612,18 @@
 ;;    filter every MCP forwarder routes trace-like data through. Its `:cljs`
 ;;    arms — the `(atom 0)` malformed-counter, the 11-branch `stamp-type-tag`
 ;;    cond, and the `js/console.warn` egress in `log-malformed!` — run in
-;;    PRODUCTION inside re-frame2-pair-mcp (a CLJS Node bundle). Yet no CLJS
-;;    test pinned them: the JVM suite (sensitive_test.clj) proves the log-egress
-;;    redaction (`malformed-warning-redacts-raw-stamp-value`, using `*err*`) but
-;;    the CLJS runtime path — the one the MCP servers actually run — had no
-;;    counterpart. pair-mcp's own CLJS suite wraps every call in
+;;    PRODUCTION inside re-frame2-pair-mcp (a CLJS Node bundle). The JVM suite
+;;    (sensitive_test.clj) proves the log-egress redaction
+;;    (`malformed-warning-redacts-raw-stamp-value`, using `*err*`) on the JVM
+;;    only, not on the CLJS runtime path the MCP servers actually run.
+;;    pair-mcp's own CLJS suite wraps every call in
 ;;    `(with-redefs [js/console (clj->js {:warn (fn [& _])})] …)`, ABSORBING the
 ;;    warning and asserting nothing about its content; the security-tier CLJS
 ;;    property test asserts the counter + that a VALUE-slot secret never
 ;;    survives egress, but never captures the `console.warn` bytes to prove the
 ;;    STAMP value (the log-boundary leak surface) is redacted.
 ;;
-;;    This block closes that gap on CLJS: (a) the malformed warning is
+;;    This block pins the CLJS path: (a) the malformed warning is
 ;;    value-free (raw stamp absent, `:rf/redacted` + reason present); (b) the
 ;;    malformed counter is exactly-once-per-event through `strip-sensitive` and
 ;;    resets to zero; (c) representative `stamp-type-tag` branches.
