@@ -1,19 +1,19 @@
 (ns re-frame.frame-classification-cljs-test
-  "EP-0015 §9 (observability sink policy) — the surviving frame-owned policy
-  on `make-frame`. EP-0025 REMOVED the durable `:sensitive` / `:large {:app-db
-  …}` app-db classification annotation (a frame is not app-db's definition
-  site; durable app-db classification now rides the commit-plane
-  classification effects — `re-frame.elision`, `:source :effect`) AND the
-  `:sensitive {:http …}` HTTP carrier block (it moved onto the
-  `:rf.http/managed` `reg-fx` registration `:carriers` block — the
-  transient-payload case). This suite pins what `re-frame.frame-classification`
-  still owns:
+  "EP-0015 §9 (observability sink policy) — the frame-owned policy on
+  `make-frame`. Under EP-0025 a frame carries no durable `:sensitive` /
+  `:large {:app-db …}` app-db classification annotation (a frame is not
+  app-db's definition site; durable app-db classification rides the
+  commit-plane classification effects — `re-frame.elision`, `:source
+  :effect`) and no `:sensitive {:http …}` HTTP carrier block (HTTP carriers
+  ride the `:rf.http/managed` `reg-fx` registration `:carriers` block — the
+  transient-payload case). This suite pins what
+  `re-frame.frame-classification` owns:
 
     (a) the retired `:sensitive` and `:large` frame keys FAIL LOUD with
-        `:rf.error/bad-frame-classification` at `make-frame` time — the
-        clean-break guard against the removed annotations;
+        `:rf.error/bad-frame-classification` at `make-frame` time, so a
+        frame carrying one cannot silently install nothing;
     (b) `:observability` sink policy validates (shape-only) and rides the
-        frame's `:config` verbatim for the later observability slice;
+        frame's `:config` verbatim for sink routing;
     (c) fail-loud — unknown observability keys, malformed observability
         entries, and unknown egress profiles throw
         `:rf.error/bad-frame-classification` at `make-frame` time, before any
@@ -21,7 +21,7 @@
 
   HTTP carrier classification (the `:carriers` block on `:rf.http/managed`)
   is covered in `re-frame.http-privacy-test` (the http artefact owns the
-  resolver + validation now).
+  resolver + validation).
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
@@ -48,16 +48,16 @@
          (ex-data e))))
 
 ;; ---------------------------------------------------------------------------
-;; (a) EP-0025 clean break — the retired durable app-db annotation fails loud
+;; (a) EP-0025 — the retired durable app-db annotation fails loud
 ;; ---------------------------------------------------------------------------
 
 (deftest retired-sensitive-frame-key-fails-loud
   (testing "EP-0025: the whole retired `:sensitive` frame key fails loud at
-            make-frame — durable app-db classification moved to the
-            commit-plane classification effects AND the `:sensitive {:http …}`
-            HTTP carrier block moved onto the `:rf.http/managed` `reg-fx`
-            registration (`:carriers`). With no valid content left, a frame
-            carrying ANY `:sensitive` block is rejected."
+            make-frame — durable app-db classification rides the
+            commit-plane classification effects AND HTTP carriers ride the
+            `:rf.http/managed` `reg-fx` registration (`:carriers`). With no
+            valid content, a frame carrying ANY `:sensitive` block is
+            rejected."
     ;; The retired durable `:app-db` block.
     (let [data (bad-classification-ex
                  #(rf/make-frame {:id :app/retired-sens-appdb :sensitive {:app-db [[:auth :token]]}}))]
@@ -66,7 +66,7 @@
           "the retired :sensitive frame key is the offending slot"))
     (is (nil? (rf.frame/frame :app/retired-sens-appdb))
         "the retired annotation threw before any frame state mutated")
-    ;; The retired `:http` carrier block (now lives on :rf.http/managed).
+    ;; The retired `:http` carrier block (carriers live on :rf.http/managed).
     (let [data (bad-classification-ex
                  #(rf/make-frame {:id :app/retired-sens-http :sensitive {:http {:headers ["X-Honeycomb-Team"]}}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
@@ -78,10 +78,10 @@
 (deftest retired-large-frame-key-fails-loud
   (testing "EP-0025: the retired top-level `:large {:app-db …}` frame
             annotation fails loud at make-frame — durable app-db classification
-            moved to the commit-plane classification effects, so `:large` is
-            no longer a frame key. This is the SYMMETRIC guard to the
+            rides the commit-plane classification effects, so `:large` is
+            not a frame key. This is the SYMMETRIC guard to the
             `:sensitive {:app-db …}` rejection: a frame carrying `:large` must
-            not silently register and install nothing (a removed-annotation
+            not silently register and install nothing (a retired-annotation
             footgun)."
     (let [data (bad-classification-ex
                  #(rf/make-frame {:id :app/retired-large :large {:app-db [[:documents :csv-upload]]}}))]
@@ -96,9 +96,9 @@
     (is (empty? (rf.elision/sensitive-declarations :app/retired-large)))))
 
 ;; ---------------------------------------------------------------------------
-;; (b) :observability rides the frame config (the surviving surface).
+;; (b) :observability rides the frame config.
 ;;     Durable app-db classification is asserted via the commit-plane effect
-;;     path (`rf.elision/apply-classification-effects`); HTTP carriers now ride
+;;     path (`rf.elision/apply-classification-effects`); HTTP carriers ride
 ;;     the :rf.http/managed registration (covered in the http artefact).
 ;; ---------------------------------------------------------------------------
 
@@ -114,9 +114,8 @@
 
 (deftest commit-plane-effect-classifies-app-db-path
   (testing "EP-0025: durable app-db classification rides the commit-plane
-            `:sensitive` / `:large` effects (the replacement for the removed
-            frame annotation), written into the elision registry under
-            `:source :effect`"
+            `:sensitive` / `:large` effects, written into the elision
+            registry under `:source :effect`"
     (rf/make-frame {:id :app/effects})
     ;; The same registry write a reg-event returning `:sensitive` / `:large`
     ;; alongside `:db` performs.
@@ -157,7 +156,7 @@
       (is (= [:observability :handled-events :sink] (:bad-key data))))))
 
 (deftest fail-loud-on-unknown-observability-profile
-  ;; rf2-t55hxg.13 — `:rf.egress/profile` is a member of the closed EP-0015
+  ;; `:rf.egress/profile` is a member of the closed EP-0015
   ;; §10 profile enum. A typo'd / unknown profile must fail loudly at
   ;; make-frame (the seam that owns the policy), not silently install and
   ;; only blow up downstream when the sink first fires.
@@ -186,7 +185,7 @@
                    [:observability :handled-events 0 :sink])))))
 
 (deftest fail-loud-on-unknown-sink-entry-key
-  ;; rf2-kuky.17 — the sink entry is a CLOSED map: `:sink` plus the optional
+  ;; The sink entry is a CLOSED map: `:sink` plus the optional
   ;; `:rf.egress/profile`, and nothing else. `route-stream!` reads exactly
   ;; those two keys, so any other key would be accept-and-drop. Fail at
   ;; make-frame with the offending key named, exactly as an unknown profile
