@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 'use strict';
-// THE OPTIONAL-MODULE ENTRY SOURCE, PINNED — rf2-okhdf.
+// THE OPTIONAL-MODULE ENTRY SOURCE, PINNED.
 //
 //     node fresco/scripts/check_modules_compile.test.cjs
 //
 // `check_modules_compile.cjs` compiles the Fresco optional modules because
 // nothing else in this repository compiles them anywhere warnings are fatal,
 // and it learns which namespaces those are by asking
-// `check_optional_module_reachability.py --module-namespaces`. (It was the
-// bench lane's `compile_gate.cjs` until rf2-6c12m.1 moved the lane out of the
-// package and left this product half behind.)
+// `check_optional_module_reachability.py --module-namespaces`.
 //
 // An entry source that quietly contributed NOTHING would leave that gate
-// green over exactly the code it was widened to cover — the defect rf2-okhdf
+// green over exactly the code it exists to cover — the defect the gate
 // exists to close, reproduced one level up in the instrument that closes it.
 // So each of the four refusals is driven here, against
 // [[decideModuleNamespaces]], which is pure for this reason. The live arm at
@@ -23,9 +21,8 @@
 // It shares the bench lane's `lane_build.test.cjs` shape deliberately: spawn
 // nothing, decide from a captured result, and pin both directions.
 
-// rf2-peorl added a SECOND entry source — the two `re-frame.bench.*` core
-// attribution instruments, re-homed here when `implementation/freehand/` took
-// their own gate with it. Its refusals are pinned at the bottom for the same
+// The SECOND entry source — the two `re-frame.bench.*` core attribution
+// instruments — has its refusals pinned at the bottom for the same
 // reason: a stated roster that stopped naming real namespaces would leave the
 // gate compiling a set it had silently dropped them out of, and the two rows
 // are here precisely because nothing else in the repository would notice.
@@ -47,7 +44,7 @@ const {
 
 const IMPL = path.resolve(__dirname, '../..');
 
-/** A clean emitter result, over the shape the real roster prints today. */
+/** A clean emitter result, over the shape the real roster prints. */
 function emitted(namespaces) {
   return { error: null, status: 0, stdout: namespaces.join('\n') + '\n', stderr: '' };
 }
@@ -184,17 +181,18 @@ test('the real roster still answers, and answers namespaces', () => {
   for (const ns of d.namespaces) {
     assert.match(ns, /^re-frame\.fresco\./, ns);
   }
-  // The overlay module is the one rf2-okhdf was filed off. Naming it pins the
-  // live arm to a subject rather than to a count.
+  // The overlay module carries the `(.. el -style -anchorName)` shape this
+  // gate exists for. Naming it pins the live arm to a subject rather than to
+  // a count.
   assert.ok(d.namespaces.includes('re-frame.fresco.impl.overlay'), d.namespaces.join(', '));
 });
 
 // ---------------------------------------------------------------------------
-// THE RE-HOMED CORE INSTRUMENTS — rf2-peorl.
+// THE CORE ATTRIBUTION INSTRUMENTS (`REHOMED_BENCH_ENTRIES`).
 //
-// These two rows are the whole of the coverage the deleted `test:bspine-compile`
-// gate used to give `core/test/re_frame/bench/{read_attribution_cljs,
-// write_attribution}.cljs`. A row that has stopped naming a real namespace is
+// These two rows are the whole of the compile coverage
+// `core/test/re_frame/bench/{read_attribution_cljs,
+// write_attribution}.cljs` get. A row that has stopped naming a real namespace is
 // the one way this entry source can go quiet while the gate stays green, so
 // both directions are pinned: the live rows resolve, and a row that lies is
 // refused.
