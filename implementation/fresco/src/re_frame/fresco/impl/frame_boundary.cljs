@@ -1,7 +1,7 @@
 (ns re-frame.fresco.impl.frame-boundary
   "`h/frame-root` and `h/frame-provider` — Fresco's two IN-TREE frame
   boundaries, and the shape every other React-shaped substrate already
-  spells (spec/002 §`frame-root`, §`frame-provider`; the rf2-nyea0r split
+  spells (spec/002 §`frame-root`, §`frame-provider`
   — *roots ensure; providers scope*).
 
       [h/frame-root {:id :app/main :initial-events [[:app/init]]}
@@ -38,12 +38,13 @@
 
   Everything lowered below either head — an inline intent, an `h/event`
   or render callback, a wrapper's children — acts on the frame the head
-  names, at a root exactly as inside a body (rf2-3x7nj.7.2). So each head
+  names, at a root exactly as inside a body. So each head
   lowers its children under that frame's WHOLE render context: `*frame*`,
   its frame-locked `*dispatch*` and the refusal tier's `:extent-frame`,
-  together, through `intent/with-frame`. Binding `*frame*` alone left a
-  body's own dispatch in scope, and the same button wrote the body's
-  frame directly under the head and the head's frame one wrapper deeper.
+  together, through `intent/with-frame`. Binding `*frame*` alone would
+  leave a body's own dispatch in scope, and the same button would write
+  the body's frame directly under the head and the head's frame one
+  wrapper deeper.
 
   ## Why an ENSURE boundary lowers in its READY pass
 
@@ -58,14 +59,13 @@
   only in its READY pass, after the layout effect has made the frame;
   the children are lowered there, under the incarnation ENSURE just made.
 
-  ## The first paint is still the seeded one
+  ## The first paint is the seeded one
 
   `frame-root`'s ENSURE runs in a `useLayoutEffect` and flips a `useState`
   in the same layout phase, so React re-renders synchronously BEFORE the
   browser paints; and `h/render!` renders inside `flushSync`, which does
-  not return until that layout work has run. So a root door still returns
-  with the seeded markup on the page — the property `impl.mount/root!`
-  used to hold by ensuring before `createRoot`, now held by React's own
+  not return until that layout work has run. So a root door returns
+  with the seeded markup on the page — a property held by React's own
   layout phase. Witnessed in
   `re-frame.fresco.frame-boundary-heads-dom-cljs-test`."
   (:require [re-frame.frame :as rf.frame]
