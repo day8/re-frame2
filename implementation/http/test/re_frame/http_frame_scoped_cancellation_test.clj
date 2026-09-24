@@ -1,28 +1,29 @@
 (ns re-frame.http-frame-scoped-cancellation-test
-  "rf2-o8ek — managed-request cancellation and supersession are FRAME-SCOPED.
+  "Managed-request cancellation and supersession are FRAME-SCOPED.
 
   Frames are isolated contexts (Spec 002; `docs/core/frames.md`), and Spec 014
   §Frame awareness promises multi-frame apps \"work without extra ceremony\".
-  But the in-flight registry keyed both of its cancellation indexes on the RAW
-  caller-supplied id — `request-id -> handle` and `actor-id -> handles` — while
-  the frame rode along only as a stamp on the VALUE. Reusable app code
-  naturally reuses an ordinary stable id (`:request-id :articles/load`), so two
-  isolated frames running the same code cross-cancelled at the lifetime
-  boundary:
+  Reusable app code naturally reuses an ordinary stable id (`:request-id
+  :articles/load`), so the in-flight registry keys both of its cancellation
+  indexes — `request-id -> handle` and `actor-id -> handles` — on the ISSUING
+  FRAME as well as the caller-supplied id (`[frame-id id]`). Keyed on the RAW
+  id alone, with the frame riding only as a stamp on the VALUE, two isolated
+  frames running the same code would cross-cancel at the lifetime boundary:
 
-   - frame B's issuance SUPERSEDED frame A's live request and suppressed its
-     reply;
-   - `[:rf.http/managed-abort :articles/load]` dispatched in B aborted A's
+   - frame B's issuance would SUPERSEDE frame A's live request and suppress
+     its reply;
+   - `[:rf.http/managed-abort :articles/load]` dispatched in B would abort A's
      request even when B owned none;
-   - frame B's FIRST issuance number was allocated from frame A's counter,
-     perturbing B's `:work/id` for a supersession that never happened to it;
-   - destroying an actor in one frame walked the same actor-id slot holding a
-     sibling frame's handles.
+   - frame B's FIRST issuance number would be allocated from frame A's
+     counter, perturbing B's `:work/id` for a supersession that never
+     happened to it;
+   - destroying an actor in one frame would walk the same actor-id slot
+     holding a sibling frame's handles.
 
-  The repair makes the ISSUING FRAME part of the internal key (`[frame-id id]`)
-  while the caller's raw `:request-id` stays the public correlation value
-  echoed in replies and traces. The public `:rf.http/managed` args map and the
-  `:rf.http/managed-abort` effect shape are unchanged.
+  The compound key is internal: the caller's raw `:request-id` stays the
+  public correlation value echoed in replies and traces, and neither the
+  `:rf.http/managed` args map nor the `:rf.http/managed-abort` effect shape
+  carries a frame.
 
   Determinism: the end-to-end cases hold every request open with a latched
   localhost `HttpServer`, so \"still live\" and \"aborted\" are decided by the
@@ -35,7 +36,7 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.late-bind :as rf.late-bind]
-            ;; rf2-wjfm — the destroy-cascade cases below drive the REAL
+            ;; The destroy-cascade cases below drive the REAL
             ;; machines teardown. machines is a test-only dep of this artefact
             ;; (see deps.edn) precisely so cancellation-cascade tests can.
             [re-frame.machines]
@@ -49,8 +50,8 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; The one raw id BOTH frames use — the whole point of the bead is that an app
-;; may write this once in reusable code and mount it in N isolated frames.
+;; The one raw id BOTH frames use — the whole point is that an app may write
+;; this once in reusable code and mount it in N isolated frames.
 (def ^:private shared-id :articles/load)
 
 ;; ---- harness ---------------------------------------------------------------
@@ -91,7 +92,7 @@
 
 (defn- register-two-frame-app!
   "Register ONE set of handlers and mount it in two isolated frames — the exact
-  shape the bead names (documented per-request SSR frames, Story/test variants,
+  shape reusable app code takes (documented per-request SSR frames, Story/test variants,
   side-by-side mounts). `replies` collects every reply envelope; each carries
   `:rf.frame/id`, so one shared recorder never loses which frame it landed in."
   [port replies]
@@ -117,10 +118,10 @@
 (defn- stale-rows [traces]
   (filter #(= :rf.http/stale-suppressed (:operation %)) traces))
 
-;; ---- AC 1 — two frames, one raw id, both stay live -------------------------
+;; ---- two frames, one raw id, both stay live --------------------------------
 
 (deftest same-request-id-in-two-frames-does-not-cross-supersede
-  (testing "rf2-o8ek — two isolated frames issuing overlapping requests under
+  (testing "two isolated frames issuing overlapping requests under
             the SAME raw :request-id both remain live; neither is superseded
             merely because the sibling reused the id, no stale-suppressed row
             fires, and each eventually completes into ITS OWN frame echoing the
@@ -136,8 +137,8 @@
         (await-condition! #(live-in? :frame/a))
         (rf/dispatch-sync [:articles/fetch] {:frame :frame/b})
         (await-condition! #(live-in? :frame/b))
-        ;; THE regression: pre-fix, frame B's issuance superseded frame A's
-        ;; handle out of the one raw-id slot, so this read was nil.
+        ;; THE crux: keyed on the raw id alone, frame B's issuance would supersede
+        ;; frame A's handle out of the one slot, and this read would be nil.
         (is (live-in? :frame/a)
             "frame A's request is STILL live after frame B issued the same raw id")
         (is (live-in? :frame/b)
@@ -165,10 +166,10 @@
           (stop-server! srv)
           (rf.http.managed/clear-all-in-flight!))))))
 
-;; ---- AC 2 — reissue supersedes exactly the issuing frame's prior attempt ---
+;; ---- reissue supersedes exactly the issuing frame's prior attempt ----------
 
 (deftest reissue-supersedes-only-the-issuing-frames-prior-attempt
-  (testing "rf2-o8ek — reissuing the id inside frame A still supersedes exactly
+  (testing "reissuing the id inside frame A still supersedes exactly
             A's prior attempt and emits ONE stale-suppressed row for A carrying
             distinct carried/current work-ids, while frame B's handle — holding
             the identical raw id — is untouched and completes normally"
@@ -217,13 +218,13 @@
           (stop-server! srv)
           (rf.http.managed/clear-all-in-flight!))))))
 
-;; ---- AC 3 — :rf.http/managed-abort is frame-scoped -------------------------
+;; ---- :rf.http/managed-abort is frame-scoped --------------------------------
 
 (deftest managed-abort-aborts-only-the-dispatching-frames-request
-  (testing "rf2-o8ek — [:rf.http/managed-abort id] dispatched in frame A aborts
+  (testing "[:rf.http/managed-abort id] dispatched in frame A aborts
             ONLY A's request; the identical id in frame B stays live and
-            completes into B. Pre-fix the abort resolved the raw id globally, so
-            a frame owning no request could cancel its sibling's"
+            completes into B. An abort that resolved the raw id globally would
+            let a frame owning no request cancel its sibling's"
     (let [latch   (CountDownLatch. 1)
           {:keys [port] :as srv} (start-blocking-server! latch "{\"ok\":true}")
           replies (atom [])]
@@ -254,7 +255,7 @@
           (rf.http.managed/clear-all-in-flight!))))))
 
 (deftest managed-abort-frame-scoping-is-symmetric
-  (testing "rf2-o8ek — the symmetric case: aborting in frame B leaves frame A's
+  (testing "the symmetric case: aborting in frame B leaves frame A's
             identically-named request live"
     (let [latch   (CountDownLatch. 1)
           {:keys [port] :as srv} (start-blocking-server! latch "{\"ok\":true}")
@@ -274,13 +275,13 @@
           (stop-server! srv)
           (rf.http.managed/clear-all-in-flight!))))))
 
-;; ---- AC 7 — the bead's two reproduction probes, at their production seams --
+;; ---- two cross-frame probes, at their production seams ---------------------
 
 (deftest reproduction-probes-no-longer-reach-across-frames
-  (testing "rf2-o8ek — the two probes the bead recorded (a frame-B supersede
-            selector, and managed-abort-handler carrying frame B's context) no
-            longer resolve or abort frame A's registered handle, while the
-            SAME-frame selector still does. This is the registry/handler-level
+  (testing "two cross-frame probes (a frame-B supersede
+            selector, and managed-abort-handler carrying frame B's context) do
+            not resolve or abort frame A's registered handle, while the
+            SAME-frame selector does. This is the registry/handler-level
             statement of the end-to-end cases above"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])]
@@ -304,10 +305,10 @@
           "frame A's OWN managed-abort aborts frame A's request with :reason :user"))
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- AC 4 — actor-destroy cancellation -------------------------------------
+;; ---- actor-destroy cancellation --------------------------------------------
 
 (deftest actor-destroy-is-frame-scoped-when-the-frame-is-known
-  (testing "rf2-o8ek — the same generated/fixed actor-id in two frames keeps
+  (testing "the same generated/fixed actor-id in two frames keeps
             INDEPENDENT registry slots, and the frame-bearing arity of
             abort-on-actor-destroy aborts only the named frame's HTTP. This is
             structural (the frame is part of the key) rather than dependent on
@@ -334,11 +335,10 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest actor-destroy-any-frame-arity-preserves-the-hook-contract
-  (testing "rf2-o8ek — the 1-arg arity is the ANY-FRAME sweep: it matches the
-            raw actor-id in EVERY frame, keeping the pre-rf2-o8ek behaviour
-            byte-for-byte. rf2-wjfm threaded the frame at both destroy-cascade
-            callers, so NO in-repo destroy path takes this arity any more; it
-            remains the documented seam for a caller that genuinely holds an
+  (testing "the 1-arg arity is the ANY-FRAME sweep: it matches the
+            raw actor-id in EVERY frame. Both destroy-cascade callers pass
+            the frame, so NO in-repo destroy path takes this arity; it
+            is the documented seam for a caller that genuinely holds an
             address and no frame. Pinned here because the behaviour is a
             contract, not an accident — the cases below prove the cascade does
             not use it"
@@ -357,18 +357,19 @@
           "and clears both slots"))
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- AC 5 — frame-lifecycle sweeps still reap every handle they own --------
+;; ---- frame-lifecycle sweeps reap every handle they own ---------------------
 
 (deftest frame-lifecycle-sweeps-reap-siblings-that-reused-one-id
-  (testing "rf2-o8ek — frame destroy and epoch restore still abort EVERY handle
+  (testing "frame destroy and epoch restore abort EVERY handle
             owned by the selected frame, including two sibling frames that
             reused a request id. The sweeps filter on the handle's :frame stamp,
             so frame-scoped keying neither hides a handle from them nor lets one
             sweep reach a sibling"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])
-          ;; Production abort-fns clear their OWN slot through the 2-arg,
-          ;; identity-conditional `clear-in-flight!`, reading the handle back
+          ;; Production abort-fns clear their OWN slot through the frame-bearing
+          ;; `clear-in-flight!`, which with a published handle is the 2-arg,
+          ;; identity-conditional form, reading the handle back
           ;; out of a cell published just after registration (the transport's
           ;; `@handle-cell` / `@handle-holder` idiom). Model that exactly: the
           ;; 1-arg clear is the ANY-FRAME seam and would take the sibling
@@ -403,10 +404,10 @@
       (is (nil? (rf.http.registry/lookup-in-flight :frame/b shared-id))))
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- the any-frame seam resources reaches through is unchanged -------------
+;; ---- the any-frame seam resources reaches through --------------------------
 
 (deftest resources-abort-by-frame-qualified-token-still-works
-  (testing "rf2-o8ek — resources aborts a managed request through the
+  (testing "resources aborts a managed request through the
             :http/abort-in-flight! late-bind hook using its already-frame-
             qualified token ([:rf.req frame-id work-id], Spec 016). That seam
             carries no frame argument, so it stays ANY-FRAME — and because the
@@ -417,25 +418,24 @@
       (rf.http.registry/record-in-flight!
         token nil {:frame :frame/a :abort-fn #(swap! seen conj %)})
       (is (true? (rf.http.registry/abort-in-flight! token :resource-superseded))
-          "the any-frame seam still resolves a frame-qualified token")
+          "the any-frame seam resolves a frame-qualified token")
       (is (= [:resource-superseded] @seen)))
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- rf2-o8ek AUDIT — the CLEANUP half of the same isolation ---------------
+;; ---- the CLEANUP half of the same isolation --------------------------------
 ;;
-;; The merged repair frame-scoped the registry KEYS, which isolated the abort
-;; and supersede paths. The post-merge audit found two CLEANUP paths that still
-;; escaped that scope, and both looked migrated:
+;; Frame-scoped registry KEYS isolate the abort and supersede paths. Two
+;; CLEANUP paths can still escape that scope while looking frame-aware:
 ;;
-;;  1. a seeded-handle demo that gained a `:frame` stamp but kept the ANY-FRAME
-;;     one-arg `clear-in-flight!` in its abort closure;
+;;  1. a seeded-handle demo carrying a `:frame` stamp whose abort closure makes
+;;     the ANY-FRAME one-arg `clear-in-flight!` call;
 ;;  2. `clear-in-flight!`'s nil-handle fallback, taken inside the publication
 ;;     window between `record-in-flight!` and the `reset!` of the cell the
 ;;     abort-fn reads. Both live-fetch hosts acknowledge that window; on the JVM
 ;;     another thread can fire the just-published abort-fn while it is open.
 ;;
-;; Neither is an abort path, which is why frame-scoped keys did not cover them.
-;; The standing law they now witness: A CLEANUP PATH THAT POSSESSES AN ISSUING
+;; Neither is an abort path, which is why frame-scoped keys do not cover them.
+;; The standing law they witness: A CLEANUP PATH THAT POSSESSES AN ISSUING
 ;; FRAME MUST BE FRAME-EXACT. Cleaning a sibling's slot is not a lesser fault
 ;; than aborting it — it leaves a LIVE request unregistered, so nothing can
 ;; abort it afterwards and its UI can sit loading forever.
@@ -456,7 +456,7 @@
     seen))
 
 (deftest seeded-demo-abort-closure-clears-only-its-own-frames-slot
-  (testing "rf2-o8ek audit (1) — a seeded-handle demo's abort closure holds the
+  (testing "cleanup path (1) — a seeded-handle demo's abort closure holds the
             frame it carried in, but not the handle (the closure is built as
             part of the map `record-in-flight!` is still consuming). It must
             clean through `clear-in-flight-in-frame!`. The one-arg form it
@@ -486,20 +486,20 @@
       (is (nil? (rf.http.registry/lookup-in-flight :frame/a shared-id))
           "frame A's slot is cleaned up by its own closure")
       (is (some? (rf.http.registry/lookup-in-flight :frame/b shared-id))
-          "frame B's identically-named LIVE request is still registered — the audit's failure was here, and it is silent: no abort fires in B, its slot simply vanishes and nothing can cancel it afterwards")
+          "frame B's identically-named LIVE request is still registered — a failure here is silent: no abort fires in B, its slot simply vanishes and nothing can cancel it afterwards")
       (is (true? (rf.http.registry/abort-in-flight-in-frame! :frame/b shared-id :user))
-          "and B remains abortable, which is the consequence that was lost")
+          "and B remains abortable, which is the consequence an ANY-FRAME clear would lose")
       (is (= [[:frame/a :user] [:frame/b :user]] @seen)))
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest pre-publication-clear-cannot-reach-a-sibling-frame
-  (testing "rf2-o8ek audit (2) — the transport's cleanup runs with a nil handle
+  (testing "cleanup path (2) — the transport's cleanup runs with a nil handle
             for as long as the publication window is open. The two-arg form has
             no frame to be exact about and falls back to the ANY-FRAME sweep, so
             every transport site passes the ctx frame through the three-arity.
             A nil handle from frame A must clear frame A's own slot and leave an
-            already-live sibling's alone. The original reasoning — that the
-            window precedes any successor — covers same-frame succession only"
+            already-live sibling's alone. That the window precedes any
+            successor holds for same-frame succession only"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (seed-two-frames-under-one-id!)]
       ;; Frame A's abort-fn fires while its cell is still nil.
@@ -512,7 +512,7 @@
           "and no abort-fn fired in either frame — a clear is not an abort"))
     (rf.http.managed/clear-all-in-flight!))
 
-  (testing "the same call with a PUBLISHED handle is unchanged: identity-conditional, so a same-id successor within the frame is not evicted"
+  (testing "the same call with a PUBLISHED handle is identity-conditional, so a same-id successor within the frame is not evicted"
     (rf.http.managed/clear-all-in-flight!)
     (let [old (rf.http.registry/record-in-flight!
                 shared-id nil {:frame :frame/a :abort-fn (fn [_] nil) :url "old"})
@@ -524,12 +524,12 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest frame-exact-clear-walks-the-actor-index-too
-  (testing "rf2-o8ek audit — `clear-in-flight-in-frame!` is a full cleanup, not
+  (testing "`clear-in-flight-in-frame!` is a full cleanup, not
             a request-index-only one: it recovers the handle it just removed and
             drops it from that frame's actor slot by identity, leaving a
             same-named actor in a sibling frame untouched. A half-cleanup here
             would strand an actor-index entry, which is the leak class
-            rf2-lz7se / rf2-meq28 closed on the handle-bearing paths"
+            the handle-bearing paths close too"
     (rf.http.managed/clear-all-in-flight!)
     (let [actor-id :worker/proc]
       (doseq [frame-id [:frame/a :frame/b]]
@@ -555,24 +555,25 @@
       (is (nil? (get (rf.http.registry/actor-in-flight-snapshot :frame/a) :worker/anon))))
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- rf2-wjfm — the DESTROY CASCADE threads the destroying frame ----------
+;; ---- the DESTROY CASCADE threads the destroying frame ----------------------
 ;;
-;; rf2-o8ek keyed the actor index on `[frame-id actor-id]` and gave
-;; `abort-on-actor-destroy` a frame-bearing 2-arity, but left the hook's CALLERS
-;; passing an address alone, so every destroy still took the ANY-FRAME arity.
+;; The actor index is keyed on `[frame-id actor-id]` and
+;; `abort-on-actor-destroy` has a frame-bearing 2-arity, but only a CALLER that
+;; passes the frame reaches it — one passing an address alone takes the
+;; ANY-FRAME arity.
 ;;
 ;; A spawned actor's address is frame-LOCAL. One machine spec mounted in two
 ;; isolated frames — reusable app code, documented per-request SSR frames, Story
 ;; variants, side-by-side mounts — spawns actors under the SAME address in both.
-;; Destroying frame A's actor therefore swept frame B's live requests: the exact
-;; isolation failure this campaign exists to close, reached through the DESTROY
-;; path instead of the abort path. Every pre-existing actor-destroy test uses one
-;; frame, which is why a green suite never saw it.
+;; An any-frame destroy of frame A's actor would therefore sweep frame B's live
+;; requests: the same isolation failure, reached through the DESTROY path
+;; instead of the abort path. A single-frame actor-destroy test cannot see it,
+;; which is why every case here mounts two.
 ;;
 ;; These cases drive the REAL destroy entry points against the REAL registry:
 ;; the machines cascade (imperative `[:rf.machine/destroy …]`, and `destroy-frame!`
 ;; through `teardown-on-frame-destroy!`), and core's machines-ABSENT
-;; `destroy-frame!` fallback — the two call sites the bead named, plus the
+;; `destroy-frame!` fallback — the two destroy-cascade call sites, plus the
 ;; final-state/singleton paths that funnel through the same helper.
 
 (def ^:private actor-address
@@ -619,14 +620,14 @@
       "frame A spawned the actor")
   (is (some? (actor-snapshot :frame/b actor-address))
       "frame B spawned an actor at the SAME address from the SAME spec — the
-       frame-local-address collision the bead names. If this fails the rest of
+       frame-local-address collision under test. If this fails the rest of
        the case proves nothing, so it is asserted rather than assumed"))
 
 (deftest imperative-actor-destroy-aborts-only-the-destroying-frames-http
-  (testing "rf2-wjfm — `[:rf.machine/destroy <addr>]` dispatched in frame A
+  (testing "`[:rf.machine/destroy <addr>]` dispatched in frame A
             aborts only A's actor-owned HTTP. The identically-addressed actor in
-            frame B keeps its in-flight request. Before the cascade threaded the
-            frame, this aborted BOTH — the hook took its ANY-FRAME arity"
+            frame B keeps its in-flight request. A cascade that did not thread the
+            frame would abort BOTH — the hook would take its ANY-FRAME arity"
     (rf.http.managed/clear-all-in-flight!)
     (register-two-frame-actor-app!)
     (assert-same-address-in-both-frames!)
@@ -644,7 +645,7 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest frame-destroy-cascade-aborts-only-the-destroyed-frames-actor-http
-  (testing "rf2-wjfm — `destroy-frame!` with the machines artefact loaded walks
+  (testing "`destroy-frame!` with the machines artefact loaded walks
             the frame's actors through the same helper. Destroying frame A must
             leave frame B's same-named actor's in-flight request alone"
     (rf.http.managed/clear-all-in-flight!)
@@ -662,14 +663,14 @@
       (is (actor-live? :frame/b actor-address)
           "frame B's identically-addressed actor keeps its in-flight request")
       (is (empty? (get (rf.http.registry/actor-in-flight-snapshot :frame/a) actor-address))
-          "and frame A's own slot is reaped, so the narrowing did not under-abort"))
+          "and frame A's own slot is reaped, so frame-scoping does not under-abort"))
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest machines-absent-frame-destroy-fallback-is-frame-exact
-  (testing "rf2-wjfm — core's `destroy-frame!` fallback, taken when the machines
+  (testing "core's `destroy-frame!` fallback, taken when the machines
             artefact is absent, fires the same hook per snapshot key. It holds
             the frame under destruction, so it must pass it: this is the second
-            of the two call sites the bead named, and an app with no machines
+            of the two destroy-cascade call sites, and an app with no machines
             artefact runs only this one"
     (rf.http.managed/clear-all-in-flight!)
     (register-two-frame-actor-app!)
@@ -692,10 +693,10 @@
           "frame B's identically-addressed actor keeps its in-flight request"))
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- the two-index publication window (rf2-o8ek audit) ---------------------
+;; ---- the two-index publication window --------------------------------------
 ;;
 ;; The frame-scoped keys above settle WHO a cancellation may reach. These cases
-;; settle WHEN a handle is reachable at all, which those keys did not touch.
+;; settle WHEN a handle is reachable at all, which those keys do not touch.
 ;;
 ;; `record-in-flight!` publishes an actor-originated request to the request
 ;; index and the actor index in TWO separate `swap!`s over two atoms, so
@@ -704,14 +705,15 @@
 ;; firing the just-published `:abort-fn`; the same pre-publication window the
 ;; transport's `@handle-cell` / `@handle-holder` forward references exist for —
 ;; drops the request slot and then tries to drop an actor slot THAT DOES NOT
-;; EXIST YET. Publication then resumed and conj'd the already-aborted handle
-;; into the actor index: a GHOST that outlived its own abort and stayed visible
-;; in `actor-in-flight-snapshot` until a later actor or frame teardown.
+;; EXIST YET. Publication then resumes and conj's the already-aborted handle
+;; into the actor index; without publication's reconcile that handle would be a
+;; GHOST that outlives its own abort and stays visible in
+;; `actor-in-flight-snapshot` until a later actor or frame teardown.
 ;;
 ;; Determinism without threads: an atom's watches run on the swapping thread
 ;; BEFORE `swap!` returns, so a watch that fires the abort the instant the
 ;; request slot appears executes strictly between the two publications. The
-;; interleaving is decided rather than raced — and the landed cases above
+;; interleaving is decided rather than raced — and the cases above
 ;; cannot see this gap at all, because every one of them calls cleanup only
 ;; after `record-in-flight!` has already returned.
 
@@ -757,13 +759,13 @@
         (remove-watch rf.http.registry/in-flight ::publication-midpoint)))))
 
 (deftest abort-inside-the-publication-window-leaves-no-ghost-in-the-actor-index
-  (testing "rf2-o8ek audit — an abort reaching the handle between its two
+  (testing "an abort reaching the handle between its two
             publications aborts it, and BOTH indexes are empty afterwards.
-            Before the publication reconcile the request slot went while the
+            Without the publication reconcile the request slot would go while the
             actor slot arrived AFTER the abort had already passed, so the app
-            had been told this request was cancelled while
+            would be told this request was cancelled while
             `actor-in-flight-snapshot` still reported one in flight for the
-            actor: measured `{:abort-fired? true, :request-slot nil,
+            actor: `{:abort-fired? true, :request-slot nil,
             :actor-slot-count 1}`"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])]
@@ -774,14 +776,14 @@
           "precondition: the abort really did fire INSIDE the window. If this is
            empty the interleaving never happened and the rest proves nothing")
       (is (nil? (get (rf.http.registry/in-flight-snapshot :frame/a) shared-id))
-          "the request index is empty — it already was before the fix")
+          "the request index is empty — the abort-fn's own cleanup empties it, reconcile or not")
       (is (zero? (actor-slot-count :frame/a))
           "and so is the actor index: nothing may still report an aborted
            request as in flight"))
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest supersede-inside-the-publication-window-leaves-no-ghost-either
-  (testing "rf2-o8ek audit — the same window reached through the OTHER
+  (testing "the same window reached through the OTHER
             request-index door. `supersede!` clears by identity and THEN fires
             the abort-fn, so its own actor-index removal finds no slot at the
             midpoint just as the abort cascade's does. Publication owning the
@@ -799,11 +801,11 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest the-publication-window-reconcile-is-frame-exact
-  (testing "rf2-o8ek — the retraction matches on handle IDENTITY, so a sibling
+  (testing "the retraction matches on handle IDENTITY, so a sibling
             frame already live under the SAME raw request-id AND the same actor
             address keeps both of its slots and stays abortable. A reconcile
             that swept by raw id would reintroduce, inside publication, exactly
-            the cross-frame reach the compound keys removed"
+            the cross-frame reach the compound keys exclude"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])]
       ;; Frame B goes live FIRST, under both of the same ordinary raw ids.
@@ -826,7 +828,7 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest an-undisturbed-publication-is-never-retracted
-  (testing "rf2-o8ek audit — the reconcile is CONDITIONAL on the handle having
+  (testing "the reconcile is CONDITIONAL on the handle having
             lost its request slot. With no interleaving at all an
             actor-originated request must end up registered in both indexes.
             Without this control a reconcile that retracted unconditionally
@@ -844,20 +846,21 @@
         "and so does the actor index — publication completed untouched")
     (rf.http.managed/clear-all-in-flight!)))
 
-;; ---- the OTHER door into the same window (rf2-ni74) ------------------------
+;; ---- the OTHER door into the same window -----------------------------------
 ;;
 ;; The two cases above enter the publication window through the REQUEST index —
 ;; an abort or a supersession resolving the just-published request slot. The
 ;; actor-destroy cascade enters through the ACTOR index, which at the midpoint
-;; is the one that does not exist yet, so it selected nothing and fired nothing:
-;; measured `{:case :actor-destroy-at-midpoint, :abort-fired? false,
-;; :request-slot-present? true, :actor-slot-count 1}` — publication then
-;; completed and left the handle fully live in BOTH indexes despite its actor
-;; having been destroyed.
+;; is the one that does not exist yet, so a destroy reading the actor index
+;; alone would select nothing and fire nothing — `{:case
+;; :actor-destroy-at-midpoint, :abort-fired? false, :request-slot-present?
+;; true, :actor-slot-count 1}` — and publication would then complete and leave
+;; the handle fully live in BOTH indexes despite its actor having been
+;; destroyed.
 ;;
-;; A missed abort rather than an incoherent index, which is why rf2-o8ek's
-;; reconcile did not cover it: publication cannot retract a handle nobody told
-;; it to retract. The destroy side is what had to change.
+;; A missed abort rather than an incoherent index, which is why publication's
+;; reconcile cannot cover it: publication cannot retract a handle nobody told
+;; it to retract. The destroy side reads the request index too.
 
 (defn- seed-named-actor-handle!
   "A NAMED (request-id-bearing) actor-owned handle in `frame-id` — the shape
@@ -873,10 +876,10 @@
      :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))}))
 
 (deftest actor-destroy-inside-the-publication-window-still-aborts
-  (testing "rf2-ni74 — an actor destroy landing between the two publications
-            aborts the handle it was published to abort. Before the fix the
-            actor-index lookup was the whole of the destroy's reach, so at the
-            midpoint it selected nothing, fired nothing, and publication went
+  (testing "an actor destroy landing between the two publications
+            aborts the handle it was published to abort. Were the
+            actor-index lookup the whole of the destroy's reach, at the
+            midpoint it would select nothing, fire nothing, and publication would go
             on to leave the request live under a destroyed actor"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])]
@@ -885,7 +888,7 @@
         #(rf.http.registry/abort-on-actor-destroy :frame/a publication-actor))
       (is (= [[:frame/a :actor-destroyed]] @seen)
           "the destroy fired the handle's abort-fn with the actor-destroy reason.
-           This is the assertion the bead is about; empty here is the defect")
+           This is the central assertion; empty here is the defect")
       (is (nil? (get (rf.http.registry/in-flight-snapshot :frame/a) shared-id))
           "the request index is clear — the abort-fn's own cleanup ran")
       (is (zero? (actor-slot-count :frame/a))
@@ -895,13 +898,13 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 (deftest actor-destroy-inside-the-publication-window-is-frame-exact
-  (testing "rf2-ni74 — reaching the midpoint handle means reading the REQUEST
+  (testing "reaching the midpoint handle means reading the REQUEST
             index, which is keyed by request-id and holds every frame's work.
             A destroy that swept it by actor address alone would abort a sibling
             frame's identically-addressed actor — reintroducing, through the
-            repair, exactly the cross-frame reach rf2-o8ek removed. So the
-            sibling here is NAMED, and therefore visible in the index the
-            destroy now consults"
+            request-index read, exactly the cross-frame reach the compound keys
+            exclude. So the sibling here is NAMED, and therefore visible in the
+            index the destroy consults"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])]
       ;; Frame B goes live first, same raw request-id AND same actor address.
