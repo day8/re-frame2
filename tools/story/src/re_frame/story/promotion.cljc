@@ -170,13 +170,6 @@
            nil
            (throw e)))))
 
-(defn- recorded-run-opts
-  "The run inputs a Test-mode capture recorded on `artifact` under
-  `[:source :run-opts]` (see `re-frame.story.ui.promotion/result->artifact`):
-  the `:active-modes` / `:cell-overrides` its source ran with, or nil."
-  [artifact]
-  (get-in artifact [:source :run-opts]))
-
 (defn- source-steps
   "The step program `source-id` executes under `run-opts`
   (`rf.story.play/variant-play-steps`, the program Test mode projects its
@@ -194,8 +187,29 @@
     #(rf.story.plan/variant-plan
        source-id {:run-args (rf.story.args/run-arg-layers source-id run-opts)})))
 
+(defn- recorded-run-opts
+  "The run inputs `artifact` records for `source-id`, as `run-variant` opts, or
+  nil.
+
+  A Test-mode capture records the `:active-modes` / `:cell-overrides` its
+  source ran with under `[:source :run-opts]` (see
+  `re-frame.story.ui.promotion/result->artifact`). An API artifact
+  (`re-frame.story.determinism/->artifact` of a compiled plan) cannot name its
+  plan's run inputs, so it records the args the plan resolved under
+  `[:source :args]` (rf2-30a8k). The inputs supplied the keys whose value
+  differs from what `source-id` resolves with none, or every key when the
+  source does not compile without them. They stand in as cell overrides, the
+  top layer, so the source compiles to the values that ran."
+  [artifact source-id]
+  (or (get-in artifact [:source :run-opts])
+      (when-let [resolved (and source-id (get-in artifact [:source :args]))]
+        (let [default  (get-in (source-plan source-id nil) [:world :args])
+              supplied (into {} (remove (fn [[k v]] (= v (get default k ::absent))))
+                             resolved)]
+          (when (seq supplied) {:cell-overrides supplied})))))
+
 (defn- run-input-args
-  "The args the run inputs recorded on a capture supplied to `source-id`, at
+  "The args the run inputs recorded on an artifact supplied to `source-id`, at
   the values the run resolved (rf2-rky08): each top-level key an active mode
   or a cell override names, read off `plan`, the source compiled with those
   inputs (`source-plan`). nil when nothing was recorded or `plan` is nil.
@@ -230,7 +244,7 @@
   [artifact source-id]
   (let [program (vec (:event-program artifact))]
     (or (when (and source-id (every? dispatch-step? program))
-          (let [steps (source-steps source-id (recorded-run-opts artifact))]
+          (let [steps (source-steps source-id (recorded-run-opts artifact source-id))]
             (when (and (some (complement dispatch-step?) steps)
                        (= (step-events program) (step-events steps)))
               (vec steps))))
@@ -434,9 +448,11 @@
   - a dispatch-only capture is replaced by the source's full step program,
     so clicks, typing, waits and `[:assert …]` checkpoints survive
     (`retained-program`).
-  Both compile the source with the run inputs a Test-mode capture recorded
-  (`[:source :run-opts]`), so an `[:arg]` a mode or cell override supplied
-  resolves to the value that ran (rf2-cml0h). Those inputs also ride the
+  Both compile the source with the run inputs the artifact records
+  (`recorded-run-opts`: a Test-mode capture's `[:source :run-opts]`, or those
+  an API artifact's `[:source :args]` show its plan compiled with), so an
+  `[:arg]` a mode or cell override supplied resolves to the value that ran
+  (rf2-cml0h, rf2-30a8k). Those inputs also ride the
   body's `:args`, at the values the run resolved (`run-input-args`), so the
   context a promotion inherits by `:extends`-ing its source — its `:setup`
   above all — substitutes the input that ran rather than the source's
@@ -472,7 +488,7 @@
          ;; A registered source supplies setup and world through :extends,
          ;; as the Test-mode dialog's default draft does (rf2-hyheo).
          extends       (or (:extends opts) (when source-body source-id))
-         run-opts      (recorded-run-opts artifact)
+         run-opts      (recorded-run-opts artifact (when source-body source-id))
          plan          (when source-body (source-plan source-id run-opts))
          program       (retained-program artifact (when source-body source-id))
          {:keys [setup script]} (partition-program

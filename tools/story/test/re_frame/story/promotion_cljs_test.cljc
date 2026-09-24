@@ -1086,14 +1086,16 @@
 #?(:clj
    (defn- api-recipe-promote!
      "Promote `source-id` by the documented API recipe (spec/017 §Promotion,
-     the re-frame2 skill's story-mcp-loop §Promote a failing run), merging
-     `opts` into the promotion opts."
-     [source-id promoted-id opts]
-     (rf.story/promote-run-artifact!
-       (rf.story.determinism/->artifact
-         (rf.story/variant-plan source-id
-                                {:run-args (rf.story.args/run-arg-layers source-id)}))
-       (merge {:variant/id promoted-id} opts))))
+     the re-frame2 skill's story-mcp-loop §Promote a failing run), compiling
+     its plan with the run inputs in `run-opts` when given and merging `opts`
+     into the promotion opts."
+     ([source-id promoted-id opts] (api-recipe-promote! source-id promoted-id opts nil))
+     ([source-id promoted-id opts run-opts]
+      (rf.story/promote-run-artifact!
+        (rf.story.determinism/->artifact
+          (rf.story/variant-plan source-id
+                                 {:run-args (rf.story.args/run-arg-layers source-id run-opts)}))
+        (merge {:variant/id promoted-id} opts)))))
 
 #?(:clj
    (defn- world-verdict
@@ -1144,4 +1146,122 @@
                                               :script [[:dispatch [:promo/inc]]]}))
           body (rf.story.promotion/artifact->variant-body art)]
       (is (= [[:dispatch [:promo/seed 1]] [:dispatch [:promo/inc]]] (:script body)))
-      (is (not (contains? body :extends))))))
+      (is (not (contains? body :extends)))))
+  (testing "compiled with a run input, the folded setup already holds the value
+            that ran, so the body carries no :args (rf2-30a8k)"
+    (let [art  (rf.story.determinism/->artifact
+                 (rf.story.plan/variant-plan
+                   {:args   {:qty 1}
+                    :setup  [[:dispatch [:promo/seed [:arg :qty]]]]
+                    :script [[:dispatch [:promo/inc]]]}
+                   {:run-args (rf.story.args/run-arg-layers nil {:cell-overrides {:qty 9}})}))
+          body (rf.story.promotion/artifact->variant-body art)]
+      (is (= [[:dispatch [:promo/seed 9]] [:dispatch [:promo/inc]]] (:script body)))
+      (is (not (contains? body :extends)))
+      (is (not (contains? body :args))))))
+
+;; ===========================================================================
+;; rf2-30a8k — the API route keeps the run inputs its source's setup reads
+;; ===========================================================================
+;;
+;; The API route leaves a registered source's `[:world :setup]` out of the
+;; promoted program, and `:extends` supplies it (rf2-hyheo). That setup
+;; re-substitutes its `[:arg]` placeholders when the promoted variant compiles,
+;; so a plan compiled with a cell override or an active mode used to promote
+;; into a variant whose inherited setup read the source's default instead. The
+;; artifact now records the args its plan resolved, and promotion carries the
+;; ones the run inputs changed as the body's own `:args`, as it does for a
+;; Test-mode capture (rf2-rky08).
+
+(deftest api-route-carries-the-run-inputs-at-the-values-that-ran
+  (testing "promoted by the API route, the body's :args carry exactly the keys
+            the plan's run inputs changed, at the values the plan resolved, so
+            the setup the body inherits through :extends is the setup the plan
+            compiled (rf2-30a8k)"
+    (rf.story.registrar/reg-story* :story.promo-input {:args {:tone "story"}})
+    (rf.story.registrar/reg-mode* :Mode.promo-input/loud {:args {:qty 3 :tone "loud"}})
+    (rf.story.registrar/reg-variant* :story.promo-input/seeded
+      {:args   {:qty 1 :label "default"}
+       :setup  [[:promo/seed [:arg :qty]]]
+       :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]})
+    (let [src     :story.promo-input/seeded
+          plan-of (fn [run-opts]
+                    (rf.story.plan/variant-plan
+                      src {:run-args (rf.story.args/run-arg-layers src run-opts)}))
+          body-of (fn [plan opts]
+                    (rf.story.promotion/artifact->variant-body
+                      (rf.story.determinism/->artifact plan) opts))
+          ran     (plan-of {:active-modes [:Mode.promo-input/loud] :cell-overrides {:qty 9}})]
+      (is (= [[:dispatch [:promo/seed 9]]] (get-in ran [:world :setup]))
+          "precondition: the source plan compiled its setup with the override")
+      (is (= {:qty 9 :tone "loud"} (:args (body-of ran nil)))
+          "the cell override beats the variant's :qty, the mode beats the
+           story's :tone, and :label, which no input changed, is not carried")
+      (doseq [opts [nil {:extends src}]]
+        (is (= (get-in ran [:world :setup])
+               (get-in (rf.story.promotion/materialize-variant-plan
+                         (rf.story.determinism/->artifact ran) opts)
+                       [:world :setup]))
+            "the promoted plan's inherited setup is the setup the source plan compiled"))
+      (is (= {:qty 5 :tone "loud"} (:args (body-of ran {:args {:qty 5}})))
+          "an explicit :args opt still wins over a carried input")
+      (testing "default-input control: a plan compiled with no run inputs, with
+                or without the ambient layers, carries no :args"
+        (is (not (contains? (body-of (plan-of nil) nil) :args)))
+        (is (not (contains? (body-of (rf.story.plan/variant-plan src) nil) :args)))))))
+
+#?(:clj
+   (defn- assert-api-input-promotion-fail-pass-fail
+     "Run `source-body` under `source-id` with `run-opts`, whose input only the
+     source's `:setup` reads, then promote it by the documented API recipe with
+     those opts, with no `:extends` and with `:extends` of the source. Each
+     promoted body must carry the 9 that ran, and, run with no opts, fail as
+     its source did, pass once the app is fixed and fail when the fault
+     returns, with its inherited setup running once per run."
+     [source-id source-body run-opts]
+     (rf.story/install-canonical-vocabulary!)
+     (reg-seed! false)
+     (rf.story.registrar/reg-variant* source-id source-body)
+     (let [failing {:status :fail :assertions 1 :checks 0}]
+       (is (= failing (verdict (rf.story.async/deref-blocking
+                                 (rf.story/run source-id run-opts) 10000)))
+           "the source fails under the run's input")
+       (doseq [[suffix opts] [["-api" nil] ["-api-extends" {:extends source-id}]]]
+         (let [promoted (keyword (namespace source-id) (str (name source-id) suffix))]
+           (api-recipe-promote! source-id promoted opts run-opts)
+           (is (= {:qty 9} (:args (rf.story.registrar/handler-meta :variant promoted)))
+               (str promoted " carries the input that ran"))
+           (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
+                  (fault-fix-fault promoted reg-seed!))
+               (str promoted ", run with no opts, runs fail / pass / fail with its source's one assertion"))
+           (reset! seeds 0)
+           (is (= failing (run-verdict promoted)))
+           (is (= 1 @seeds) (str promoted "'s inherited setup runs once per run")))))))
+
+#?(:clj
+   (deftest api-route-keeps-an-overridden-input-its-setup-reads
+     (testing "the audit's shape: the source's :setup reads [:arg :qty], which
+               defaults to 1, and its plan is compiled with :cell-overrides
+               {:qty 9}. Promoted by the API recipe with no :extends and with
+               :extends of the source, the variant inherits that setup and must
+               run it with the 9, once (rf2-30a8k)"
+       (assert-api-input-promotion-fail-pass-fail
+         :story.promo-input/overridden
+         {:tags   #{:test}
+          :args   {:qty 1}
+          :setup  [[:promo/seed [:arg :qty]]]
+          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
+         {:cell-overrides {:qty 9}}))))
+
+#?(:clj
+   (deftest api-route-keeps-a-mode-supplied-input-its-setup-reads
+     (testing "the source's :setup reads [:arg :qty], supplied only by an active
+               mode, so the source does not compile without it. The promoted
+               variant runs with no modes, so it must carry the 9 (rf2-30a8k)"
+       (rf.story.registrar/reg-mode* :Mode.promo-input/qty-nine {:args {:qty 9}})
+       (assert-api-input-promotion-fail-pass-fail
+         :story.promo-input/mode
+         {:tags   #{:test}
+          :setup  [[:promo/seed [:arg :qty]]]
+          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
+         {:active-modes [:Mode.promo-input/qty-nine]}))))
