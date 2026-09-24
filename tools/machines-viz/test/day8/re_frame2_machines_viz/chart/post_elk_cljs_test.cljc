@@ -1,11 +1,11 @@
 (ns day8.re-frame2-machines-viz.chart.post-elk-cljs-test
-  "Pure-data tests for the post-ELK layout subsystem (rf2-lamdfl +
-  rf2-gnrkke) — the OPT-IN adaptive-aspect rebalance + back-edge return-route
-  detour that close `001-Topology-Parity.md` §4.3.1 + §4.3.2.
+  "Pure-data tests for the post-ELK layout subsystem — the OPT-IN
+  adaptive-aspect rebalance + back-edge return-route detour that close
+  `001-Topology-Parity.md` §4.3.1 + §4.3.2.
 
-  The #1 acceptance criterion of the redo (after the reverted #3453 made the
-  pass auto-default) is that the DEFAULT path does NOT invoke the post-ELK
-  subsystem. `adaptive?-is-opt-in-only` + `resolve-direction-only-resolves-
+  The #1 acceptance criterion is that the DEFAULT path does NOT invoke the
+  post-ELK subsystem — the pass is opt-in, never auto-default.
+  `adaptive?-is-opt-in-only` + `resolve-direction-only-resolves-
   on-opt-in` pin that gate.
 
   Four groups, each pinned at the JVM layer (mirroring the `chart.layout` /
@@ -24,7 +24,7 @@
   not a particular id-string scheme — a stub layout result keyed off the
   real ids the live ELK pass would produce.
 
-  Also covers rf2-olie1s: `region-touch?`'s transitive-ancestor-walk (a
+  Also covers `region-touch?`'s transitive-ancestor-walk (a
   nested-compound-in-region edge is region-touched, not just a one-hop
   region child) and `reroute-back-edges`' same-parent candidate filter (a
   cross-hierarchy/nested-vs-root back-edge is excluded, never mis-detected)."
@@ -99,11 +99,11 @@
                                :shown  {:on {:hide :hidden}}}}}})
 
 (def nested-compound-in-region-machine
-  "rf2-olie1s — a parallel machine whose `:audio` region nests a COMPOUND
+  "A parallel machine whose `:audio` region nests a COMPOUND
   state (`:playing`, with its own `:low`/`:high` substates) so `:low`/`:high`
   sit TWO hops from the region container: their DIRECT `:parent-id` is
   `:playing`'s own (region-scoped) id, NOT the region container id. Exercises
-  `region-touch?`'s transitive-ancestor-walk fix — an edge between the two
+  `region-touch?`'s transitive-ancestor-walk — an edge between the two
   nested leaves must still have its stale ELK route cleared when the region
   transposes/re-stacks, even though neither leaf's direct parent is the
   region."
@@ -119,7 +119,7 @@
                                :shown  {:on {:hide :hidden}}}}}})
 
 (def nested-back-edge-machine
-  "rf2-olie1s — a compound (non-parallel) machine whose nested leaf `:step2`
+  "A compound (non-parallel) machine whose nested leaf `:step2`
   (inside the `:working` compound) transitions back to `:idle`, a TOP-LEVEL
   sibling of `:working` — a genuine back-edge shape, but one whose source
   (`:working__step2`, parented to `:working`) and target (`:idle`, parented
@@ -188,7 +188,7 @@
      :edge-labels {}}))
 
 (defn- row-positions
-  "rf2-hpe9ws — the `:lr` mirror of `col-positions`: lay every REAL state node
+  "The `:lr` mirror of `col-positions`: lay every REAL state node
   out in a single horizontal ROW (x = layer index × step) in parse order,
   with each transition's synthetic event-node placed at the layer to the
   RIGHT of its source. A back-edge's source is the rightmost state, so its
@@ -229,17 +229,17 @@
      :edge-labels {}}))
 
 ;; ====================================================================
-;; Step 0 — the OPT-IN gate (rf2-lamdfl + rf2-gnrkke redo)
+;; Step 0 — the OPT-IN gate
 ;; ====================================================================
 ;; The #1 acceptance criterion: the default path does NOT invoke the
-;; post-ELK pass. These guards lock the opt-in surface against a
-;; re-regression to the reverted #3453 auto-default.
+;; post-ELK pass. These guards lock the opt-in surface against an
+;; auto-default.
 
 (deftest adaptive?-is-opt-in-only
   (testing "ONLY :auto opts a machine in to the adaptive pass"
     (is (true? (post-elk/adaptive? :auto))))
 
-  (testing "the DEFAULT :tb is NON-adaptive (byte-identical-to-main path)"
+  (testing "the DEFAULT :tb is NON-adaptive (the post-ELK pass never runs)"
     (is (false? (post-elk/adaptive? :tb))))
 
   (testing "an explicit :lr is NON-adaptive (forced, not adaptive)"
@@ -273,7 +273,7 @@
       (is (nil? (post-elk/resolve-direction nil branchy))))))
 
 ;; ====================================================================
-;; Step 1 — aspect heuristic (rf2-lamdfl)
+;; Step 1 — aspect heuristic
 ;; ====================================================================
 
 (deftest max-out-degree-counts-distinct-outward-targets
@@ -316,7 +316,7 @@
                  (layout/project-definition parallel-machine))))))
 
 ;; ====================================================================
-;; Step 2 — parallel-region stacking-axis transpose (rf2-lamdfl)
+;; Step 2 — parallel-region stacking-axis transpose
 ;; ====================================================================
 
 (deftest transpose-is-noop-for-flat-machines
@@ -391,11 +391,12 @@
         (is (not (apply = xs)) "transposed children spread on x")))))
 
 (deftest transpose-preserves-positive-region-origin
-  ;; rf2-qp613a — for a root-container-wrapped chart the region containers are
+  ;; for a root-container-wrapped chart the region containers are
   ;; positioned relative to the root frame's padding/header, so every region
   ;; origin is POSITIVE. The column origin must be computed from the ACTUAL
-  ;; region positions, NOT `(reduce min 0 …)` which clamped a positive origin
-  ;; to zero and slid the stacked column up/left into the reserved root chrome.
+  ;; region positions, NOT `(reduce min 0 …)`, which would clamp a positive
+  ;; origin to zero and slide the stacked column up/left into the reserved
+  ;; root chrome.
   (let [parsed (layout/project-definition parallel-machine)
         desc   (post-elk/region-descendant-ids parsed)
         audio-rid (layout/region-node-id :audio)
@@ -435,7 +436,7 @@
       (is (>= (:y (get np audio-rid)) root-y)))))
 
 (deftest transpose-grows-the-frame-to-enclose-the-stacked-column
-  ;; rf2-fzbj.13 — the region containers are the ROOT-CONTAINER frame's
+  ;; the region containers are the ROOT-CONTAINER frame's
   ;; `parentId` children (xyflow `:extent "parent"`), so after the re-stack
   ;; the frame must enclose every band, or xyflow clamps them back inside the
   ;; box ELK sized for the side-by-side layout. Region positions are
@@ -482,12 +483,12 @@
        (< (:x b) (+ (:x a) (:width a)))))
 
 (deftest transpose-event-chips-clear-state-boxes
-  ;; rf2-vb359s — after the transpose, intra-region event-node chips must NOT
+  ;; after the transpose, intra-region event-node chips must NOT
   ;; overlap the state boxes. A bare coordinate swap inherits the flow spacing
   ;; ELK sized for node HEIGHTS (state 58 / chip 34), far too tight once boxes
   ;; occupy their WIDTHS along the new x-axis (state 152 / chip 96), so the
-  ;; chips buried into the state boxes. The re-pack must space the ranks by
-  ;; their actual widths.
+  ;; chips would bury into the state boxes. The re-pack must space the ranks
+  ;; by their actual widths.
   (let [parsed (layout/project-definition parallel-machine)
         desc   (post-elk/region-descendant-ids parsed)
         audio-rid (layout/region-node-id :audio)
@@ -495,7 +496,7 @@
         ;; an ELK-shaped column inside each region: states at REALISTIC widths
         ;; (152×58) stacked vertically with an event chip (96×34) between
         ;; consecutive states (the +0.5 inter-rank events-as-nodes shape). The
-        ;; vertical pitch (108px) is sized for the heights the bug inherits.
+        ;; vertical pitch (108px) is sized for the heights a bare swap inherits.
         state-ids  (fn [rid] (->> (get desc rid)
                                   (remove #(str/starts-with? % "__rf2_event_"))
                                   sort))
@@ -562,13 +563,13 @@
       (is (not (contains? (:edge-points out) (str (:id an-edge) "__out")))))))
 
 (deftest transpose-clears-nested-compound-region-edge-routes
-  ;; rf2-olie1s — region-touch? must walk the FULL ancestor chain, not just
+  ;; region-touch? must walk the FULL ancestor chain, not just
   ;; one :parent-id hop. :low/:high sit inside :playing, a compound state
   ;; nested INSIDE the :audio region — their DIRECT :parent-id is
   ;; :playing's own id, not the region id, so a one-hop region-touch? test
-  ;; misses this edge entirely and its stale absolute ELK route would
+  ;; would miss this edge entirely and its stale absolute ELK route would
   ;; survive the transpose untouched even though :playing (and the region)
-  ;; were just repositioned.
+  ;; move.
   (let [parsed (layout/project-definition nested-compound-in-region-machine)
         low->high (first (filter
                             (fn [e]
@@ -590,7 +591,7 @@
       (is (not (contains? (:edge-points out) (str (:id low->high) "__out")))))))
 
 ;; ====================================================================
-;; Step 3 — back-edge return-route detour (rf2-gnrkke)
+;; Step 3 — back-edge return-route detour
 ;; ====================================================================
 
 (deftest back-edge-detection-finds-the-sunk-event-node
@@ -646,7 +647,7 @@
       (is (>= (count out-points) 3)))))
 
 (deftest back-edge-detour-lr-mirrors-the-elbow
-  ;; rf2-hpe9ws — on an :lr layout the back-edge detour must MIRROR the elbow:
+  ;; on an :lr layout the back-edge detour must MIRROR the elbow:
   ;; leave the source VERTICALLY to the side lane (above the row), then run
   ;; horizontally to the lifted chip — NOT run along the flow row first (the
   ;; :tb elbow shape, which would cross the forward edges).
@@ -682,8 +683,8 @@
         (is (<= (min (:x sc) (:x tc)) chip-cx (max (:x sc) (:x tc)))))
 
       (testing "the __in elbow leaves the source VERTICALLY (keeps source x, drops to the lane y)"
-        ;; the bug used {:x detour-x :y (:y sc)} — running along the flow row
-        ;; first. The :lr mirror keeps the source's x and moves to the lane y.
+        ;; {:x detour-x :y (:y sc)} — the :tb shape — would run along the flow
+        ;; row first. The :lr mirror keeps the source's x and moves to the lane y.
         (is (= (:x sc) (:x in-elbow))
             "the in-elbow shares the source's x (leaves vertically, not along the row)")
         (is (= chip-cy (:y in-elbow))
@@ -696,9 +697,9 @@
             "the out-elbow stays at the lane y until it is above the target")))))
 
 (deftest back-edge-detour-tb-keeps-its-elbow
-  ;; rf2-hpe9ws — guard the :tb branch is UNCHANGED by the mirror: the :tb
-  ;; elbow still leaves the source SIDEWAYS (to the side lane x) keeping the
-  ;; source's y, the historical shape.
+  ;; guard that the :lr mirror leaves the :tb branch alone: the :tb
+  ;; elbow leaves the source SIDEWAYS (to the side lane x) keeping the
+  ;; source's y.
   (let [parsed (layout/project-definition door-cyclic-machine)
         stub   (col-positions parsed)
         positions (:positions stub)
@@ -755,7 +756,7 @@
       (is (= stub (post-elk/reroute-back-edges stub parsed :tb))))))
 
 (deftest reroute-back-edges-excludes-cross-hierarchy-candidates
-  ;; rf2-olie1s — node-center's centre read is only valid within one
+  ;; node-center's centre read is only valid within one
   ;; coordinate frame (same :parent-id). :step2 (parented to :working) and
   ;; :idle (parented to the synthetic root-container, a DIFFERENT parent)
   ;; sit in DIFFERENT frames; a bare geometric comparison of their positions
@@ -793,7 +794,7 @@
       (is (not (contains? (:edge-points out) (str (:id back-e) "__out")))))))
 
 (def compound-same-parent-back-edge-machine
-  "rf2-qb452y — a compound `:grouped` holding `:a → :b` (forward) and
+  "A compound `:grouped` holding `:a → :b` (forward) and
   `:b → :a` (a SAME-PARENT back-edge — both leaves parented to `:grouped`).
   `:grouped` nests under the synthetic root-container, so the shared parent's
   origin is non-(0,0): the reroute must write the detour in ROOT-ABSOLUTE
@@ -806,12 +807,12 @@
                                  :b {:on {:back :a}}}}}})
 
 (deftest reroute-back-edges-nested-same-parent-writes-absolute-edge-points
-  ;; rf2-qb452y — a same-parent back-edge whose endpoints are NESTED inside a
+  ;; a same-parent back-edge whose endpoints are NESTED inside a
   ;; compound (`:grouped`) whose origin ≠ (0,0). `back-edge-detour` computes in
   ;; the shared-parent (`:grouped`) frame; `:edge-points` is ROOT-ABSOLUTE, so
   ;; `reroute-back-edges` must REBASE the written __in/__out by the container
-  ;; origin. Before the fix the parent-relative points were written straight
-  ;; through, floating the detour ~(:grouped origin) away from its endpoints.
+  ;; origin. Writing the parent-relative points straight through would float
+  ;; the detour ~(:grouped origin) away from its endpoints.
   (let [parsed      (layout/project-definition compound-same-parent-back-edge-machine)
         node-parent (#'post-elk/node-parent-map (:nodes parsed))
         grouped-id  (layout/node-id [:grouped])
@@ -835,7 +836,7 @@
         stub        {:positions positions :edge-points {} :edge-labels {}}
         out         (post-elk/reroute-back-edges stub parsed :tb)
         origin      (#'post-elk/container-origin positions node-parent grouped-id)
-        ;; parent-relative detour — the pure geometry, unchanged by the fix.
+        ;; parent-relative detour — the pure geometry, before the rebase.
         {:keys [in-points out-points]} (post-elk/back-edge-detour back-e positions :tb)
         written-in  (get (:edge-points out) (str (:id back-e) "__in"))
         written-out (get (:edge-points out) (str (:id back-e) "__out"))]
@@ -856,7 +857,7 @@
       (is (= (#'post-elk/rebase-points out-points origin) written-out)))
 
     (testing "the written detour is SHIFTED off the raw parent-relative points
-              (the pre-fix bug wrote the un-rebased values)"
+              (writing the un-rebased values would leave them equal)"
       (is (not= in-points  written-in))
       (is (not= out-points written-out)))
 
