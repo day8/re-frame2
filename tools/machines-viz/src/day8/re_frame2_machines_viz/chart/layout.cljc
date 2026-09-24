@@ -629,7 +629,7 @@
   "An `:after` delay key in milliseconds when it is a static duration — a
   positive integer, or an ISO-8601 string (`\"PT1S\"` → 1000) read by the
   engine's own duration grammar (`grammar/resolve-timeout-ms`). Any other key
-  (a subscription vector, a fn) has no static value and returns unchanged."
+  (a subscription vector, a fn) has no static value and is returned as-is."
   [after]
   (or (g/resolve-timeout-ms after) after))
 
