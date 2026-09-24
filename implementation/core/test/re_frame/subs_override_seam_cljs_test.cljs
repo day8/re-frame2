@@ -1,6 +1,6 @@
 (ns re-frame.subs-override-seam-cljs-test
   "Core sub-override subscribe seam — mechanics, honesty boundary, and the
-  schema-validation fold-in (rf2-7pgiz).
+  schema-validation fold-in.
 
   The carriage that makes an override SURVIVE into a view's deferred React
   render is a React context, exercised end-to-end by the real-React render
@@ -48,16 +48,15 @@
         (when (and (map? ovr) (contains? ovr query-v))
           [(get ovr query-v)])))))
 
-;; EP-0002 (rf2-jue6sp): the override-seam tests exercise the ambient
-;; 1-arity subscribe read path, which now requires a carried frame stamp.
+;; EP-0002: the override-seam tests exercise the ambient
+;; 1-arity subscribe read path, which requires a carried frame stamp.
 ;;
-;; rf2-8966iy: use the canonical `make-reset-runtime-fixture` instead of a
-;; bespoke `(rf/init! …)`-in-a-try fixture. The bespoke shape swallowed
+;; The canonical `make-reset-runtime-fixture`, not a bespoke
+;; `(rf/init! …)`-in-a-try fixture: a bespoke shape would swallow
 ;; `init!`'s `install-once` throw (`install-adapter!` raises on a second
 ;; install), so in the consolidated `:node-test` bundle — where a sibling
-;; ns may have left a reagent/uix adapter installed — `init!` threw, the
-;; throw was swallowed, and these subs ran against the WRONG substrate,
-;; masked by suite ordering. The canonical fixture force-DISPOSES the
+;; ns may have left a reagent/uix adapter installed — these subs would run
+;; against the WRONG substrate, masked by suite ordering. The canonical fixture force-DISPOSES the
 ;; currently-installed adapter before installing `plain-atom`, ensures
 ;; `:rf/default`, and binds it as the ambient scope for the whole body
 ;; (the carried-invariant equivalent of `(with-frame :rf/default …)`), so
@@ -180,26 +179,25 @@
       (is (not-any? #{:rf.error/schema-validation-failure} errors)
           "no validation runs when the sub has no :schema"))))
 
-;; ---- 4 · rf2-7w1im — the override seam sits INSIDE the incarnation fence ---
+;; ---- 4 · the override seam sits INSIDE the incarnation fence ---------------
 ;;
-;; The resolve-sub-override consult is CLJS-dev-specific and, pre-fix, ran BEFORE
-;; the frame-record / expected-incarnation fence — so a HIT short-circuited
-;; build-and-cache and ESCAPED the fence entirely. A stale captured subscribe
+;; The resolve-sub-override consult is CLJS-dev-specific. Consulted BEFORE the
+;; frame-record / expected-incarnation fence, a HIT would short-circuit
+;; build-and-cache and ESCAPE the fence entirely, so a stale captured subscribe
 ;; (its pinned `:rf.frame/expected-incarnation` superseded by a same-id
-;; successor) would therefore surface an override value for a torn-down
-;; incarnation. rf2-7w1im gates the consult on `(not superseded?)`, so a
-;; superseded captured read recover-but-emits before the override can return.
+;; successor) would surface an override value for a torn-down incarnation. The
+;; consult is gated on `(not superseded?)`, so a superseded captured read
+;; recover-but-emits before the override can return.
 
 (deftest stale-captured-subscribe-is-fenced-before-override-resolution
-  (testing "rf2-7w1im — a stale captured subscribe (pinned
+  (testing "a stale captured subscribe (pinned
             :rf.frame/expected-incarnation superseded by a same-id successor) is
             FENCED before resolve-sub-override can return a value: it recovers to
             nil and emits :rf.error/frame-destroyed, and the pinned override is
             NOT surfaced for the superseded incarnation. A LIVE captured subscribe
-            (matching incarnation) still surfaces the override — existing
-            behaviour retained. MUTATION TOOTH: with the pre-fix ordering (override
-            ahead of the fence) the stale subscribe returns :override-value and
-            the nil assertion fails."
+            (matching incarnation) surfaces the override. MUTATION TOOTH: with
+            the override consulted ahead of the fence the stale subscribe
+            returns :override-value and the nil assertion fails."
     (rf/reg-sub :fh/ovr (fn [db _] (:v db)))
     (rf/make-frame {:id :fh/ovr-frame :doc "incarnation A"})
     (let [a-token (rf.frame/frame-incarnation-token :fh/ovr-frame)]
@@ -226,10 +224,10 @@
                                      "the superseded incarnation's override must never surface")))))]
               (is (some #{:rf.error/frame-destroyed} errors)
                   "the fenced stale subscribe emits :rf.error/frame-destroyed"))
-            ;; LIVE captured subscribe (pinned to B): override behaviour retained.
+            ;; LIVE captured subscribe (pinned to B): the override surfaces.
             (let [r (rf.subs/subscribe
                       [:fh/ovr]
                       {:frame :fh/ovr-frame
                        :rf.frame/expected-incarnation b-token})]
               (is (= :override-value @r)
-                  "a LIVE captured subscribe still surfaces the override (existing behaviour retained)"))))))))
+                  "a LIVE captured subscribe surfaces the override"))))))))
