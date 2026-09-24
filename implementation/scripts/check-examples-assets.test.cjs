@@ -33,6 +33,7 @@ const {
   REQUIRED_SHARED_ASSETS,
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
+  STAGED_DESTS,
   EXTERNAL_IMPORT_ALLOWLIST,
   EXTERNAL_HTML_REF_ALLOWLIST,
   isExampleHostPage,
@@ -69,7 +70,8 @@ const {
 // the scanner-consumer tests can inject a SYNTHETIC manifest and pin the real
 // manifest's cross-consistency, rather than hand-writing allowlist literals.
 const manifest = require('../../examples/scripts/examples-asset-manifest.cjs');
-const { pageExemptions, stagedAssetsByBuild, EXAMPLE_ASSET_MANIFEST } = manifest;
+const { pageExemptions, stagedAssetsByBuild, stagedDestsByPage, EXAMPLE_ASSET_MANIFEST } =
+  manifest;
 
 // A SYNTHETIC manifest with a vendored-CSS page (both assets html-linked, so the
 // scanner must accept them as page-local refs) and a staging-only fixture entry
@@ -936,6 +938,95 @@ it('resolveRef maps _shared/* to the canonical examples/_shared tree', () => {
 it('resolveRef maps a sibling ref relative to the page dir', () => {
   const target = resolveRef('base.css', path.dirname(PAGE));
   assert.strictEqual(target, path.join(path.dirname(PAGE), 'base.css'));
+});
+
+// ---- TEETH rf2-3x7nj.44.2: a loaded page-local asset must be STAGED ---------
+//
+// Resolving a page-local ref in the SOURCE folder proves only that the file
+// exists there. `npm run dev:example` serves a freshly cleaned output dir that
+// holds index.html, _shared/ and the manifest's declared dests, and nothing
+// else, so an undeclared colocated stylesheet or image 404s while the gate read
+// green. The staging rule reads the tagged load-time view, so navigation refs
+// stay exempt.
+
+const PAGE_DIR = path.dirname(PAGE);
+const NOTEBOOK_CSS = path.join(PAGE_DIR, 'notebook.css');
+const DIAGRAM_PNG = path.join(PAGE_DIR, 'img', 'diagram.png');
+
+// The bead's probe shape: a colocated stylesheet and a colocated image, both
+// linked by the page and both present beside it in source.
+function colocatedHtml(cssHref = 'notebook.css') {
+  return goodHtml().replace(
+    '</head>',
+    `<link rel="stylesheet" href="${cssHref}">\n<img src="img/diagram.png">\n</head>`,
+  );
+}
+
+it('stagedDestsByPage projects every staged dest per page, staging-only entries included (rf2-3x7nj.44.2)', () => {
+  assert.deepStrictEqual(stagedDestsByPage(SYNTHETIC_MANIFEST), {
+    'examples/reagent/todomvc/index.html': ['base.css', 'index.css'],
+    'examples/reagent/fixture/index.html': ['api/data.json'],
+  });
+});
+
+it('LIVE: the scanner STAGED_DESTS IS the real manifest projection (rf2-3x7nj.44.2)', () => {
+  assert.deepStrictEqual(STAGED_DESTS, stagedDestsByPage(EXAMPLE_ASSET_MANIFEST));
+});
+
+it('TEETH: a colocated page-local asset present in source but never staged is reported (rf2-3x7nj.44.2)', () => {
+  const io = fullIo({ [PAGE]: colocatedHtml(), [NOTEBOOK_CSS]: 'body {}', [DIAGRAM_PNG]: 'PNGDATA' });
+  const { errors } = scanPage(io, PAGE);
+  for (const ref of ['notebook.css', 'img/diagram.png']) {
+    assert.ok(
+      errors.some((e) => e.includes(`page-local asset '${ref}'`) && e.includes('never stages it')),
+      `an unstaged colocated '${ref}' must be reported, got: ${errors.join(' | ')}`,
+    );
+  }
+  assert.strictEqual(
+    errors.length,
+    2,
+    `exactly the two unstaged assets must be reported, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a colocated page-local asset DECLARED in the manifest scans clean (rf2-3x7nj.44.2)', () => {
+  // The default ALLOWLIST has no entry for PAGE, so the html-linked skip does
+  // not apply and the verdict comes from the staged-dest lookup. `./notebook.css`
+  // pins that the lookup compares normalised paths.
+  const declared = stagedDestsByPage([
+    {
+      build: 'examples/synth-notebook',
+      page: 'examples/reagent/demo/index.html',
+      reason: 'synthetic: colocated stylesheet + image',
+      assetExemptions: [],
+      assets: [
+        { from: 'src', src: 'notebook.css', dest: 'notebook.css', htmlLinked: true },
+        { from: 'src', src: 'img/diagram.png', dest: 'img/diagram.png', htmlLinked: true },
+      ],
+    },
+  ]);
+  const io = fullIo({
+    [PAGE]: colocatedHtml('./notebook.css'),
+    [NOTEBOOK_CSS]: 'body {}',
+    [DIAGRAM_PNG]: 'PNGDATA',
+  });
+  const { errors } = scanPage(io, PAGE, { stagedDests: declared });
+  assert.deepStrictEqual(errors, [], `declared assets should scan clean, got: ${errors.join(' | ')}`);
+});
+
+it('navigation refs (<a href>, <base href>) are exempt from the staging rule (rf2-3x7nj.44.2)', () => {
+  const ABOUT = path.join(PAGE_DIR, 'about.html');
+  const html = goodHtml().replace(
+    '</head>',
+    '<base href="/">\n</head>',
+  ).replace('<body>', '<body><a href="about.html">About</a>');
+  const io = fullIo({
+    [PAGE]: html,
+    [ABOUT]: '<!doctype html>',
+    [path.resolve(PAGE_DIR, '/')]: '',
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.deepStrictEqual(errors, [], `navigation refs must stay exempt, got: ${errors.join(' | ')}`);
 });
 
 // ---- the happy path is clean --------------------------------------------
@@ -2522,6 +2613,77 @@ it('TEETH: the responsive stacked-shell media query scans clean', () => {
     [],
     `the stacked-shell media query should scan clean, got: ${errors.join(' | ')}`,
   );
+});
+
+// ---- TEETH rf2-3x7nj.44.3: a COMMENTED-OUT rule does not satisfy a contract --
+//
+// Commenting a rule out is the other common way to remove CSS, and the browser
+// treats it as gone. The focus-ring, cells-grid and responsive-shell presence
+// checks used to read the raw text, so each passed on a commented-out rule.
+// Each fixture keeps the rule's text and only wraps it in a comment, and says
+// so, so a red here cannot come from a deletion.
+
+const commentOut = (rule) => `/* ${rule} */`;
+
+function sharedTreeIo({ style = GOOD_SHARED_STYLE, structure = CASCADE_BASELINE + '\n' + RESPONSIVE_SHELL } = {}) {
+  return makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: style,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]: structure,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+}
+
+it('TEETH: a commented-out :focus-visible ring reads red (rf2-3x7nj.44.3)', () => {
+  const style = GOOD_SHARED_STYLE.replace(/input:focus-visible[^]*$/m, commentOut);
+  assert.ok(
+    style.includes('/* input:focus-visible') &&
+      style.includes('box-shadow: 0 0 0 3px var(--ex-accent-deep); } */'),
+    'fixture: the ring must still be present, inside a comment',
+  );
+  const errors = checkSharedTree(sharedTreeIo({ style }), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes(':focus-visible') && e.includes('rf2-mon7tz')),
+    `a commented-out focus ring must read red, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a commented-out .cells-grid input width:56px reads red (rf2-3x7nj.44.3)', () => {
+  const structure = SCOPED_SENDFORM + '\n' + commentOut(CELLS_INPUT) + '\n' + RESPONSIVE_SHELL;
+  assert.ok(structure.includes(CELLS_INPUT), 'fixture: the rule text must still be present');
+  const errors = checkSharedTree(sharedTreeIo({ structure }), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('width: 56px') && e.includes('rf2-gv5xd')),
+    `a commented-out cells-grid width must read red, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a commented-out responsive-shell media query reads red (rf2-3x7nj.44.3)', () => {
+  const structure = CASCADE_BASELINE + '\n' + commentOut(RESPONSIVE_SHELL);
+  assert.ok(structure.includes(RESPONSIVE_SHELL), 'fixture: the rule text must still be present');
+  const errors = checkSharedTree(sharedTreeIo({ structure }), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes("'.rf2-testbed-shell'") && e.includes('rf2-y82dk9')),
+    `a commented-out responsive shell must read red, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a comment merely NAMING a banned rule does not trip the absence checks (rf2-3x7nj.44.3)', () => {
+  // The two absence checks (global input[type="text"], low-alpha amber ring)
+  // read the same comment-stripped text, so a note citing them is not a rule.
+  const structure =
+    CASCADE_BASELINE +
+    '\n' +
+    commentOut('was:\ninput[type="text"] { min-width: 240px; }') +
+    '\n' +
+    RESPONSIVE_SHELL;
+  const style =
+    GOOD_SHARED_STYLE +
+    '\n' +
+    commentOut('old ring: box-shadow: 0 0 0 3px rgba(200,116,26,0.18);');
+  const errors = checkSharedTree(sharedTreeIo({ style, structure }), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(errors, [], `a comment naming a banned rule must scan clean, got: ${errors.join(' | ')}`);
 });
 
 // ---- TEETH: OG source-art palette conformance (rf2-y82dk9) --------------

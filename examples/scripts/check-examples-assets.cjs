@@ -93,6 +93,13 @@
  *      non-_shared sibling reference (e.g. TodoMVC's base.css) is resolved
  *      relative to the page's own directory.
  *
+ *      Resolving in the source folder is not the whole of it for a page-local
+ *      asset the page LOADS (rf2-3x7nj.44.2). `npm run dev:example` serves a
+ *      freshly cleaned output dir holding only index.html, _shared/ and the
+ *      dests examples-asset-manifest.cjs declares for the page, so such a ref
+ *      must also be one of those dests. An undeclared colocated stylesheet or
+ *      image fails the gate. Navigation refs (<a href>, <base href>) are exempt.
+ *
  *   2. Asserts the REQUIRED _shared asset contract: every example must
  *      reference _shared/img/favicon.svg, _shared/img/og.png, and
  *      _shared/css/style.css — UNLESS the page is exempt from a specific
@@ -153,6 +160,10 @@
  *          on the AA-safe --ex-accent-deep token, and the pre-fix low-alpha
  *          amber ring (≈1.5:1) is banned from returning (rf2-mon7tz).
  *
+ *   Steps 5(b) and 6 read the CSS with its comments stripped, so a
+ *   commented-out rule does not satisfy a presence check and a comment naming a
+ *   banned rule does not trip an absence check (rf2-3x7nj.44.3).
+ *
  *   6. Asserts the shared CSS-CASCADE + RESPONSIVE contracts on structure.css
  *      (static, since the gate cannot observe layout):
  *      (a) CASCADE SCOPING: the WebSocket send-form text-input baseline stays
@@ -186,7 +197,7 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { pageExemptions } = require('./examples-asset-manifest.cjs');
+const { pageExemptions, stagedDestsByPage } = require('./examples-asset-manifest.cjs');
 const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
@@ -231,6 +242,12 @@ const SOCIAL_PREVIEW_REQUIRED = '_shared/img/og.png';
 // destinations and the scanner's accepted page-local refs cannot drift.
 // ---------------------------------------------------------------------------
 const ALLOWLIST = pageExemptions();
+
+// Every dest the manifest stages, keyed by page relIndex (rf2-3x7nj.44.2). The
+// served output dir holds only index.html, _shared/ and these, so a page-local
+// asset a page LOADS must be one of them. Staging-only entries count too: what
+// matters is that the file reaches the output dir, not how it is referenced.
+const STAGED_DESTS = stagedDestsByPage();
 
 // ---------------------------------------------------------------------------
 // External CSS network allowlist (rf2-vou5mm + rf2-o18ava) — the ONE encoded
@@ -1376,8 +1393,12 @@ function sharedContrastContract(tokens) {
 // output dir at the same relative path), so it resolves against
 // `sharedParent` (examples/), NOT relative to the page. Every other relative
 // reference is a true page-local sibling and resolves relative to `pageDir`.
+function isSharedRef(ref) {
+  return ref === '_shared' || ref.startsWith('_shared/');
+}
+
 function resolveRef(ref, pageDir, sharedParent = EXAMPLES_ROOT) {
-  if (ref === '_shared' || ref.startsWith('_shared/')) {
+  if (isSharedRef(ref)) {
     return path.resolve(sharedParent, ref);
   }
   return path.resolve(pageDir, ref);
@@ -1497,6 +1518,9 @@ function scanPage(io, indexAbsPath, opts = {}) {
   const exempt = allowlist[relIndex] || {};
   const exemptAssets = new Set(exempt.assetExemptions || []);
   const allowedLocal = new Set(exempt.localAssets || []);
+  const stagedDests = new Set(
+    ((opts.stagedDests || STAGED_DESTS)[relIndex] || []).map((d) => path.posix.normalize(d)),
+  );
 
   const html = readFileSafe(io, indexAbsPath);
   if (html == null) {
@@ -1509,6 +1533,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
   // load-time asset refs (step 0 network policy), and the og:image refs (step 3
   // raster contract) — so the page's HTML is tokenized exactly once.
   const { localRefs: refs, assets, ogImages } = extractHtmlReferenceInventory(html);
+  const loadTimeRefs = new Set(assets.map((a) => a.ref));
   const pageDir = path.dirname(indexAbsPath);
   const seenCss = new Set();
 
@@ -1547,6 +1572,25 @@ function scanPage(io, indexAbsPath, opts = {}) {
           `(looked for ${path.relative(REPO_ROOT, target).split(path.sep).join('/')})`,
       );
       continue;
+    }
+    // Existing in the SOURCE folder is not enough for a page-local asset the
+    // page LOADS (rf2-3x7nj.44.2): `npm run dev:example` serves a freshly
+    // cleaned output dir holding only index.html, _shared/ and the manifest's
+    // declared dests, so an undeclared colocated asset 404s there. Only the
+    // tagged load-time view is held to this; an <a href> or <base href> is
+    // navigation, not a fetch.
+    if (
+      loadTimeRefs.has(ref) &&
+      !isSharedRef(ref) &&
+      !stagedDests.has(path.posix.normalize(ref))
+    ) {
+      errors.push(
+        `${relIndex}: page-local asset '${ref}' exists in source but ` +
+          `dev:example never stages it — declare it in ` +
+          `examples-asset-manifest.cjs (the served output dir holds only ` +
+          `index.html, _shared/ and the manifest's declared assets) ` +
+          `(rf2-3x7nj.44.2)`,
+      );
     }
     // Transitively check @import targets inside any referenced local CSS.
     if (target.toLowerCase().endsWith('.css')) {
@@ -1806,9 +1850,14 @@ function checkSharedTree(io, opts = {}) {
   const structurePath = path.join(sharedRoot, 'css', 'structure.css');
   const structure = readFileSafe(io, structurePath);
   if (structure != null) {
+    // Every structure.css contract below reads the LIVE rules only
+    // (rf2-3x7nj.44.3). A commented-out rule is inert in the browser, so it must
+    // not satisfy a presence check, and a comment that merely names a banned
+    // rule must not trip an absence check (the rf2-lvw3z9 posture).
+    const liveStructure = stripCssComments(structure);
     // A bare `input[type="text"]` selector (no class/id/attribute qualifier
     // to its LEFT) is global; the send-form baseline must be qualified.
-    if (/(^|[},;])\s*input\[type=(["'])text\2\]\s*\{/m.test(structure)) {
+    if (/(^|[},;])\s*input\[type=(["'])text\2\]\s*\{/m.test(liveStructure)) {
       errors.push(
         `examples/_shared/css/structure.css: the WebSocket text-input ` +
           `baseline is a GLOBAL 'input[type="text"]' rule. It sets ` +
@@ -1819,7 +1868,7 @@ function checkSharedTree(io, opts = {}) {
       );
     }
     // The Cells grid editor must keep its compact width.
-    if (!/\.cells-grid\s+input\s*\{[^}]*width:\s*56px/m.test(structure)) {
+    if (!/\.cells-grid\s+input\s*\{[^}]*width:\s*56px/m.test(liveStructure)) {
       errors.push(
         `examples/_shared/css/structure.css: the '.cells-grid input' rule ` +
           `must pin the compact 'width: 56px' cell-editor size (rf2-gv5xd).`,
@@ -1836,7 +1885,7 @@ function checkSharedTree(io, opts = {}) {
     // media query that flips the shell to a stacked (column) flow.
     const stacksUnderBreakpoint =
       /@media[^{]*max-width[\s\S]*?\.rf2-testbed-shell\s*\{[^}]*flex-direction:\s*column/m.test(
-        structure,
+        liveStructure,
       );
     if (!stacksUnderBreakpoint) {
       errors.push(
@@ -1921,9 +1970,11 @@ function checkSharedTree(io, opts = {}) {
     //     The old rule paired `outline: none` with a ≈1.5:1 low-alpha amber
     //     ring (rgba(200,116,26,0.18)) — keyboard users lost the indicator.
     //     Require a :focus-visible treatment whose ring uses the AA-safe accent
-    //     token, and forbid the low-alpha amber ring from coming back.
+    //     token, and forbid the low-alpha amber ring from coming back. Both read
+    //     the LIVE rules only, as the structure.css contracts do (rf2-3x7nj.44.3).
+    const liveStyle = stripCssComments(style);
     const hasFocusVisible = /input:focus-visible[^{]*\{[^}]*box-shadow:[^}]*--ex-accent-deep/m.test(
-      style,
+      liveStyle,
     );
     if (!hasFocusVisible) {
       errors.push(
@@ -1935,7 +1986,7 @@ function checkSharedTree(io, opts = {}) {
       );
     }
     // The low-alpha amber ring (the pre-fix ≈1.5:1 indicator) must not return.
-    if (/box-shadow:[^;}]*rgba\(\s*200\s*,\s*116\s*,\s*26\s*,\s*0?\.\d+\s*\)/m.test(style)) {
+    if (/box-shadow:[^;}]*rgba\(\s*200\s*,\s*116\s*,\s*26\s*,\s*0?\.\d+\s*\)/m.test(liveStyle)) {
       errors.push(
         `examples/_shared/css/style.css: the low-alpha amber focus ring ` +
           `'rgba(200,116,26,0.18)' is below the 3:1 focus-indicator bar and ` +
@@ -1965,6 +2016,7 @@ module.exports = {
   SOCIAL_PREVIEW_RASTER_EXTS,
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
+  STAGED_DESTS,
   EXTERNAL_IMPORT_ALLOWLIST,
   EXTERNAL_HTML_REF_ALLOWLIST,
   ASSET_LINK_RELS,
@@ -2061,7 +2113,8 @@ if (require.main === module) {
     console.error(
       `\nA missing/renamed _shared asset, a broken @import, an unallowlisted ` +
         `EXTERNAL CSS @import, an unallowlisted direct-HTML remote asset ref ` +
-        `(remote <script>/<link>/<img>), a page that drops a required ` +
+        `(remote <script>/<link>/<img>), a page-local asset the manifest ` +
+        `never stages, a page that drops a required ` +
         `shared asset without an encoded exemption, or a host page that no ` +
         `longer loads its compiled main.js entrypoint fails this gate. ` +
         `Fix the reference, restore the asset, restore the boot script, ` +
