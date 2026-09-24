@@ -71,8 +71,8 @@
   (threaded from the nav handler's `:rf.frame/id` cofx via
   `commit-navigation`). Both lifecycle traces stamp it under `:tags
   :frame` so they enter the emitting frame's epoch (epoch-capture buffers
-  only frame-tagged traces — `re-frame.epoch.capture` §168-221) and obey
-  the frame-level trace-disable gate (`re-frame.trace/emit!` §397-398).
+  only frame-tagged traces — `re-frame.epoch.capture`) and obey
+  the frame-level trace-disable gate (`re-frame.trace/emit!`).
   A nil stamp simply omits
   the tag rather than synthesising `:rf/default`."
   [frame prev-id next-id]
