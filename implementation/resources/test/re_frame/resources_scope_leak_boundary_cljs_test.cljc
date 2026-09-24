@@ -1,7 +1,6 @@
 (ns re-frame.resources-scope-leak-boundary-cljs-test
   "The scoped-cache LEAK BOUNDARY as an executable security guarantee
-  (rf2-wwhedk, spun from rf2-s6rviz; guide §\"Scope — the leak boundary other
-  libraries do not have\").
+  (guide §\"Scope — the leak boundary other libraries do not have\").
 
   re-frame2's differentiating proposition: cache SCOPE is a first-class,
   fail-closed isolation axis. The benchmarked class (TanStack Query, RTK
@@ -25,7 +24,7 @@
   can ever observe ANOTHER principal's cached data, across logout, a wrong
   scope, and a multi-scope invalidation. It asserts at the live `rf/subscribe`
   read (the seam a real leak would be visible at), not only at the durable
-  entry. The bead's Part-2 leak-boundary scenarios 1/2/3:
+  entry. The leak-boundary scenarios:
 
     1. LOGOUT clear-scope — after principal A logs out and the session scope is
        cleared, principal B's next session structurally cannot read A's
@@ -96,9 +95,9 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; return a vector-keyed
+;; `:entries` is keyed on the byte `key-id`; return a vector-keyed
 ;; VIEW (re-keyed from each entry's `:resource/key`) so the scope-isolation
-;; assertions speak scoped-key vectors. Semantics unchanged.
+;; assertions speak scoped-key vectors.
 (defn- entries []
   (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
         (get-in (runtime-db) (rf.resources.state/entries-path))))
@@ -247,7 +246,7 @@
                         [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {}))))))
 
 (deftest two-explicit-scope-subs-keep-distinct-cache-entries
-  ;; rf2-kuky.81 — THE CACHE-WITNESS PATTERN at the suite level. Two live
+  ;; THE CACHE-WITNESS PATTERN at the suite level. Two live
   ;; subscriptions over ONE resource with IDENTICAL params, separated only by
   ;; an explicit `:scope` override on each query, each read their OWN loaded
   ;; value at the same time.
@@ -262,7 +261,7 @@
   ;; `acquire-two-scopes-are-independent-owners` does) does not reach this
   ;; property either — the seam is the sub's own key resolution.
   ;;
-  ;; The BROWSER witness for the same property already exists and stays:
+  ;; The BROWSER witness for the same property is
   ;; `testbeds/tenant_switcher/core.cljs` (the cache-witness panel) with step 3
   ;; of its `spec.cjs`, where two explicit queries render two tenants' mottos
   ;; side by side. This is the focused suite-level regression BESIDE it — it
