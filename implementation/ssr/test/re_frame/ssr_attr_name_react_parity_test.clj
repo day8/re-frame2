@@ -162,3 +162,15 @@
           "emitter follows react-dom 19.3 for the corrected name")
       (is (= "maskUnits" (emitted-name "mask-units"))
           "emitter leaves the control where react-dom leaves it"))))
+
+(deftest the-panose1-prop-is-written-verbatim
+  (testing "rf2-u0xpc — react-dom 19.3.0 keys its `panose-1` alias on the
+            HYPHENATED name (an identity row, `[\"panose-1\", \"panose-1\"]`)
+            and has no `panose1` key, so it writes the prop `panose1` verbatim.
+            `dom-attr-aliases` inverted `standard-names`' `panose-1 -> panose1`
+            into `panose1 -> panose-1`, the one row of its 90 that react-dom
+            does not write. Stated by hand because the mask-family fixture does
+            not reach this name"
+    (doseq [author-form ["panose-1" "panose1"]]
+      (is (= "panose1" (emitted-name author-form))
+          (str "attribute panose1 written as :" author-form)))))

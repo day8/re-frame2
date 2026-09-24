@@ -422,10 +422,18 @@
   contributed nothing here: the hyphen-collapsed key is not a kebab spelling.
   `maskType` therefore needs an explicit row, and `react_dom_probe/
   attr_name_mask_family.cjs` + `re-frame.ssr-attr-name-react-parity-test`
-  pin that row against the installed package rather than against this prose."
+  pin that row against the installed package rather than against this prose.
+
+  The inversion is not quite react-dom's rule, and one row shows it:
+  react-dom 19.3.0 keys its `panose-1` alias on the HYPHENATED name (an
+  identity row) and has no `panose1` key, so it writes the prop `panose1`
+  verbatim. The `keep` therefore skips `panose-1` (rf2-u0xpc), which also
+  measured the other 89 rows against 19.3.0 and found each byte-identical —
+  a one-off probe; no test pins the whole table."
   (merge (into {}
                (keep (fn [[attribute-key attribute-value]]
-                       (when (str/includes? attribute-key "-")
+                       (when (and (str/includes? attribute-key "-")
+                                  (not= "panose-1" attribute-key))
                          [attribute-value attribute-key])))
                standard-names)
          {"className"    "class"
