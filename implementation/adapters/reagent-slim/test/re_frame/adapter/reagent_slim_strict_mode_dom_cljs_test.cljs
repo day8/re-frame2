@@ -1,21 +1,10 @@
 (ns re-frame.adapter.reagent-slim-strict-mode-dom-cljs-test
-  "rf2-a07937 — the reagent-slim React.StrictMode double-mount DOM proof for
+  "The reagent-slim React.StrictMode double-mount DOM proof for
   the bespoke class lifecycle + per-component render Reaction, under a React 19
   `createRoot`.
 
   STATUS: a required GREEN regression. Both assertions below must pass; a
   failure here is a real regression, not expected output.
-
-  HISTORY (this header used to say the opposite — corrected under rf2-6r9j.32).
-  This file was written under rf2-a07937 as the ACCEPTANCE GATE for a genuine
-  slim production bug it surfaced, and until the repair landed its assertions
-  (a) and (b) failed BY DESIGN: they encoded the correct contract, which the
-  substrate did not yet honour. That state ended on 2026-07-12, when
-  `2c4a87e3df` — fix(adapters/reagent-slim): re-establish render Reaction
-  after StrictMode remount (rf2-6b6pex) — landed the production repair, the
-  same day as this file's own commit `66e9e2af0e`. The FORMER-BUG block below
-  is kept as the diagnosis that motivated the remount marker; it describes
-  behaviour that no longer occurs.
 
   WHY THIS FILE EXISTS. reagent-slim hand-rolls the entire class lifecycle
   (`reagent2.impl.component`), the microtask render scheduler
@@ -24,20 +13,14 @@
   (`install-lifecycle-methods!`), and the render method lazily RECREATES it on
   the next render (`make-render-method`). React.StrictMode's development simulated
   unmount→remount stresses exactly that dispose/recreate + subscription re-wire.
-  Stock reagent / uix all carry a StrictMode DOM scenario; slim did not
-  (Finding 1 of the rf2-x76af2.37 clarity-nit review, deferred here). The
-  sibling `reagent2/dom/client_cljs_test` proves the dispose by CALLING the
+  Stock reagent / uix each carry a StrictMode DOM scenario; this is slim's.
+  The sibling `reagent2/dom/client_cljs_test` proves the dispose by CALLING the
   prototype `componentWillUnmount` directly — but that never drives React's real
   reconciler, so the StrictMode reuse-state remount is unexercised. This file is
   the load-bearing real-DOM regression.
 
   ─────────────────────────────────────────────────────────────────────────────
-  FORMER BUG (rf2-a07937 — a real slim bug this test surfaced; FIXED
-  2026-07-12 by `2c4a87e3df`, rf2-6b6pex. Past tense throughout: this is the
-  diagnosis the fix was built from, not current behaviour):
-
-    Under React.StrictMode a slim component rendered ONCE and then went
-    reactively DEAD. StrictMode's dev sequence for a slim class is:
+  THE HAZARD. StrictMode's dev sequence for a slim class is:
 
         render ×2  →  componentDidMount  →  componentWillUnmount
                    →  componentDidMount  (NO intervening render)
@@ -45,21 +28,17 @@
     The transient `componentWillUnmount` disposes + nils the per-component
     render Reaction. The remount's second `componentDidMount` fires WITHOUT React
     calling `render()` again (StrictMode reuses the committed fiber output), so
-    slim — which recreates the render Reaction only lazily inside `render()` —
-    never re-established it. The remounted instance was left with
-    `cljsRenderRea = nil` and NO subscription watches: it never re-rendered on an
-    app-db change. A/B empirically confirmed at the time (same view, same
-    harness): WITHOUT StrictMode the component was fully reactive (dispatch →
-    DOM updates); WITH StrictMode a post-mount dispatch left the DOM stale.
+    a class that recreated the render Reaction only lazily inside `render()`
+    would never re-establish it. The remounted instance would be left with
+    `cljsRenderRea = nil` and NO subscription watches: it would render ONCE and
+    then go reactively DEAD, never re-rendering on an app-db change — in any
+    slim app wrapped in `<React.StrictMode>` (the React-recommended dev
+    default, scaffolded by CRA / Next.js).
 
-    Impact, while it lasted: any slim app wrapped in `<React.StrictMode>` (the
-    React-recommended dev default, scaffolded by CRA / Next.js) had components
-    that stopped responding to state changes after mount.
-
-  THE FIX, and what this file now guards (`reagent2.impl.component`):
+  THE MECHANISM this file guards (`reagent2.impl.component`):
 
     `componentWillUnmount` sets a `cljsRemountReattach` marker on the instance
-    when it disposes a LIVE render Reaction, and `componentDidMount` is now
+    when it disposes a LIVE render Reaction, and `componentDidMount` is
     installed UNCONDITIONALLY (even with no user `:component-did-mount`) so it
     can read that marker: seeing it, it clears it and queues a render via
     `reagent2.impl.batching/queue-render!`. `make-render-method` then recreates
@@ -70,7 +49,7 @@
 
     The two assertions below are the regression: (a) fails if the reattach is
     removed or the marker stops being set — the remounted instance goes
-    reactively dead again and the DOM never advances past the seeded value;
+    reactively dead and the DOM never advances past the seeded value;
     (b) fails if the transient Reaction leaks instead (watch count 2) or the
     surviving one is never re-established (watch count 0).
   ─────────────────────────────────────────────────────────────────────────────
@@ -113,7 +92,7 @@
 ;; before the async body's `done` fires). The deftest below is act-driven across
 ;; a real React StrictMode lifecycle, so it is async.
 ;;
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; EP-0002: `:ambient-frame nil` opts out of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. The probe is a reg-view whose
 ;; `subscribe` resolves its frame from the enclosing `frame-provider` via the
 ;; React-context tier — an ambient :rf/default scope would shadow that tier and
@@ -136,7 +115,7 @@
 
 (defn- get-act
   "Return React's `act()` if available, else nil. React 19 promotes `act` to
-  the React namespace proper (the test infra pins react/react-dom 19.2.0). Used
+  the React namespace proper (the test infra pins react/react-dom 19.3.0). Used
   to drive StrictMode's mount→unmount→remount double-invoke deterministically —
   `flushSync` does NOT run the StrictMode remount synchronously."
   []
@@ -165,9 +144,9 @@
 (deftest strict-mode-double-mount-rerenders-and-returns-watch-to-baseline
   "reagent-slim — a subscribing reg-view mounted under `<React.StrictMode>`
    re-renders with the dispatched value across the strict double-mount, and the
-   upstream RAtom's watch count returns to baseline across the lifecycle
-   (rf2-a07937). ACCEPTANCE GATE — see the ns FINDING block: (a)/(b) fail until
-   the slim StrictMode-remount reactivity bug is fixed in production."
+   upstream RAtom's watch count returns to baseline across the lifecycle.
+   A required GREEN regression — see the ns docstring's HAZARD and MECHANISM
+   blocks for what (a)/(b) guard."
   (if-not (browser?)
     (is true ":node-test: no DOM — :browser-test runner exercises the assertions")
     (async done
@@ -239,9 +218,9 @@
                         "committed DOM shows the seeded value n=1 after the strict double-mount")
                     ;; (b) after the strict double-mount, EXACTLY ONE live render
                     ;; Reaction watches the upstream RAtom — the remounted
-                    ;; instance is reactive and no transient watch leaked. (Reads
-                    ;; 0 today: the remount leaves the render Reaction nil — the
-                    ;; FINDING bug. A leak would read 2.)
+                    ;; instance is reactive and no transient watch leaked. (A
+                    ;; dead remount, render Reaction left nil, would read 0; a
+                    ;; leak would read 2.)
                     (is (= 1 (watch-count upstream))
                         (str "exactly one live render Reaction watches the upstream RAtom "
                              "after the strict double-mount (remounted instance reactive, "
@@ -272,7 +251,7 @@
                 ;; remainder of the run synchronously, so a rejection handler
                 ;; downstream of the step that finished the row claims whatever
                 ;; a LATER namespace throws, prints it against this row's
-                ;; label, and fires `done` a second time (rf2-e8kc).
+                ;; label, and fires `done` a second time.
                 (.catch
                   (fn [err]
                     (is false (str "StrictMode double-mount scenario threw: " (pr-str err)))
