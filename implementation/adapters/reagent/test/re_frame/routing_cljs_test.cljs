@@ -29,7 +29,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]))
 
-;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
+;; Snapshot/restore the registrar around each test. We do NOT
 ;; call (registrar/clear-all!): it would wipe routing's framework events
 ;; (:rf.route/navigate, :rf.route/handle-url-change, …) registered at routing.cljc's
 ;; ns-load, and CLJS cannot re-load namespaces at runtime to restore
@@ -60,7 +60,7 @@
                      :on-match [[:cljs/article-load]]} "/cljs/articles/:id")
       (rf/reg-event :cljs/article-load
                        (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
-      ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+      ;; EP-0001: the route slice is durable routing runtime-db
       ;; state — these custom subs read the runtime-db partition.
       (rf.subs/reg-runtime-sub :rf.cljs.route/id
                   (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
