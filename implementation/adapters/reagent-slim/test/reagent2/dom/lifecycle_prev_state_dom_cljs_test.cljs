@@ -1,5 +1,5 @@
 (ns reagent2.dom.lifecycle-prev-state-dom-cljs-test
-  "rf2-08hx1 — the mounted React update proof for the Form-3 paired
+  "The mounted React update proof for the Form-3 paired
   update lifecycles, under a React 19 `createRoot`.
 
   WHAT IT PROVES. `reagent2.core/create-class`'s two paired update
@@ -46,7 +46,7 @@
     (.createElement js/document "div")))
 
 (deftest mounted-update-forwards-prev-argv-prev-state-and-snapshot
-  (testing "reagent-slim — a real createRoot update feeds fixed-arity gSBU/cDU the documented (this prev-argv prev-state snapshot) shape (rf2-08hx1)"
+  (testing "reagent-slim — a real createRoot update feeds fixed-arity gSBU/cDU the documented (this prev-argv prev-state snapshot) shape"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [gsbu-calls (atom [])
