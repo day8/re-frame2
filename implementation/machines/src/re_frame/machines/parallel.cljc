@@ -200,6 +200,35 @@
                     region-state))
                 state)))))
 
+(defn- require-occupiable-regions!
+  "Throw unless every region value in the snapshot's `state` names a
+  declared state of that region — the parallel counterpart of the flat /
+  compound check at the pure `machine-transition` entry. Per region, a
+  value of the wrong shape throws `:rf.error/machine-bad-state-form` (from
+  `state-path`), and a value naming no state the region declares (or a
+  history pseudo-state, or a region the machine does not declare) throws
+  `:rf.error/machine-state-not-in-definition` with the region in `ex-data`.
+  A region absent from `state` is not checked: the broadcast skips it."
+  [machine state]
+  (when (map? state)
+    (doseq [[region region-state] state]
+      (rf.machines.transition/state-path region-state)
+      (when-not (rf.machines.transition/state-occupiable?
+                  (get-in machine [:regions region]) region-state)
+        (rf.error/throw-error!
+          :rf.error/machine-state-not-in-definition
+          'rf/reg-machine
+          (str "Machine `" (:id machine) "` was handed a snapshot whose region "
+               (pr-str region) " is at " (pr-str region-state) ", which is not "
+               "a state declared under that region — each region's value must "
+               "name an occupiable node under the region's :states (a leaf "
+               "keyword or a vector path). Check what produced the snapshot.")
+          {:recovery :no-recovery
+           :extra    {:state      region-state
+                      :region     region
+                      :slot       :state
+                      :machine-id (:id machine)}})))))
+
 (defn all-regions-final?
   "Per Spec 005 §Parallel regions + §Final states §The done-state signal:
   a parallel-region machine has reached its done configuration
@@ -843,11 +872,13 @@
   within one broadcast, which is the order regions surfaced them. `real-fx`
   is every non-`:raise` fx entry, preserved in order, to flow on to `do-fx`.
   `:raise` entries are never region-prefixed (`prefix-region-invoke-id` only
-  touches `:rf/invoke-id`), so they arrive here verbatim."
+  touches `:rf/invoke-id`), so they arrive here verbatim. A malformed `:raise`
+  entry throws (`rf.machines.transition/require-raise-entry!`)."
   [fx]
   (reduce (fn [[raises real] [fx-id args :as entry]]
             (if (= :raise fx-id)
-              [(conj raises args) real]
+              (do (rf.machines.transition/require-raise-entry! entry)
+                  [(conj raises args) real])
               [raises (conj real entry)]))
           [[] []]
           fx))
@@ -1712,7 +1743,8 @@
                   (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine)))]
     (try
       (if (parallel? machine)
-        (parallel-machine-transition machine snapshot event)
+        (do (require-occupiable-regions! machine (:state snapshot))
+            (parallel-machine-transition machine snapshot event))
         (rf.machines.transition/machine-transition-single machine snapshot event))
       (catch #?(:clj Throwable :cljs :default) e
         (if (rf.machines.transition/guard-threw-signal? e)

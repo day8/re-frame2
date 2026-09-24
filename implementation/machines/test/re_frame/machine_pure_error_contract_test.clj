@@ -38,6 +38,11 @@
       registration validation). Distinct from the registration-time
       throw the `nested-validation` suite covers.
 
+    - `:rf.error/machine-bad-raise` — a `:raise` fx entry an action returns
+      carrying anything besides its event vector throws where the flat and
+      the parallel drains route fx. It is an action's OUTPUT, so no
+      registration check can see it.
+
     - `chase-ref` one-level indirection — a `{:short-name :registered-id}`
       binding map resolves the short-name to the registered fn through
       one hop (transition.cljc:30-42). The indirection + dangling-tail
@@ -359,6 +364,57 @@
       (is (= 42 (:value (ex-data e)))
           "ex-data carries the offending transition value"))))
 
+;; ---------------------------------------------------------------------------
+;; :rf.error/machine-bad-raise — a `:raise` fx entry is exactly
+;; `[:raise <event-vec>]`. An action returning XState's
+;; `raise(event, {delay, id})` spelling throws where the drain routes its fx,
+;; in the flat drain and in the parallel drain, instead of raising the event
+;; at once without its options.
+;; ---------------------------------------------------------------------------
+
+(def ^:private raise-with-options [:raise [:search] {:delay 300 :id :deb}])
+
+(defn- raising-machine
+  "A machine whose `:go` action returns the one fx `entry`, verbatim, and
+  whose `:search` moves to `:b` — flat, or as region `:r1` of a parallel
+  machine beside a region `:r2` that moves on `:search` too."
+  [entry parallel?]
+  (let [actions {:go (fn [_] {:fx [entry]})}
+        r1      {:initial :a
+                 :states  {:a {:on {:go {:action :go} :search :b}} :b {}}}]
+    (if parallel?
+      {:id :probe/bad-raise-parallel :type :parallel :data {} :actions actions
+       :regions {:r1 r1
+                 :r2 {:initial :x :states {:x {:on {:search :y}} :y {}}}}}
+      (merge {:id :probe/bad-raise :data {} :actions actions} r1))))
+
+(defn- transition-or-throw
+  "The pure transition's result, or the `ex-info` it threw."
+  [definition state]
+  (try (rf.machines/machine-transition definition {:state state :data {}} [:go])
+       (catch clojure.lang.ExceptionInfo ex ex)))
+
+(deftest raise-with-options-throws-bad-raise-in-the-flat-drain
+  (testing "a three-element :raise throws :rf.error/machine-bad-raise"
+    (let [e (transition-or-throw (raising-machine raise-with-options false) :a)]
+      (is (= :rf.error/machine-bad-raise (:rf.error/id (ex-data e))))
+      (is (= raise-with-options (:value (ex-data e)))
+          "ex-data carries the offending entry")))
+  (testing "control: the two-element [:raise <event-vec>] raises"
+    (is (= :b (get-in (transition-or-throw (raising-machine [:raise [:search]] false) :a)
+                      [:snapshot :state])))))
+
+(deftest raise-with-options-throws-bad-raise-in-the-parallel-drain
+  (testing "a region action's three-element :raise throws :rf.error/machine-bad-raise"
+    (let [e (transition-or-throw (raising-machine raise-with-options true) {:r1 :a :r2 :x})]
+      (is (= :rf.error/machine-bad-raise (:rf.error/id (ex-data e))))
+      (is (= raise-with-options (:value (ex-data e)))
+          "ex-data carries the offending entry")))
+  (testing "control: the two-element [:raise <event-vec>] is broadcast to every region"
+    (is (= {:r1 :b :r2 :y}
+           (get-in (transition-or-throw (raising-machine [:raise [:search]] true) {:r1 :a :r2 :x})
+                   [:snapshot :state])))))
+
 (deftest transition-throws-carry-canonical-spec009-shape
   (testing "every transition runtime throw exposes a human message (not a bare
    keyword) carrying the [:rf.error/<id>] token, plus :reason / :where /
@@ -375,7 +431,11 @@
                :states {:a {:on {:go 99}} :b {}}}]
              ["malformed :always value"
               {:id :probe/s4 :initial :a :data {}
-               :states {:a {:on {:go {:target :b}}} :b {:always 99}}}]]]
+               :states {:a {:on {:go {:target :b}}} :b {:always 99}}}]
+             ["malformed :raise entry"
+              {:id :probe/s5 :initial :a :data {}
+               :actions {:go (fn [_] {:fx [[:raise [:search] {:delay 300}]]})}
+               :states {:a {:on {:go {:action :go}}}}}]]]
       (let [e   (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                      nil
                      (catch clojure.lang.ExceptionInfo ex ex))

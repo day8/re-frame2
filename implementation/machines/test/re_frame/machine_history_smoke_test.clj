@@ -411,12 +411,12 @@
 
 ;; ---- a history target declared inside its owning compound -----------------
 ;;
-;; The exit set is computed against the incoming recording; the entered leaf
-;; restores the recording that same exit set writes (the SCXML
-;; exitStates-then-enterStates order). A restore follows the geometry of the
-;; leaf it resolves to, exactly as a literal `:target` would, except when the
-;; restored configuration contains the declaring state — then the declaring
-;; state exits and re-enters.
+;; The exit set is taken at the pseudo-state's own position, a child of the
+;; owning compound; the entered leaf restores the recording that same exit
+;; set writes (the SCXML exitStates-then-enterStates order). So a restore
+;; declared on the owning compound leaves it standing unless `:reenter?`
+;; asks for its restart, and a restore declared below it exits every active
+;; state below it — a declaring state the restore re-enters included.
 ;;
 ;; `:p` owns the history and declares `:restore` (no `:reenter?`) and
 ;; `:restart` (`:reenter? true`) to it; `:b` declares `:back` to it.
@@ -478,3 +478,73 @@
       (is (= [:p :b :b1] (:state after)))
       (is (= [:exit/b :enter/b :enter/b1] (get-in after [:data :log]))
           ":b exits and re-enters, so its children are torn down and rebuilt"))))
+
+;; ---- a history target declared below its owning compound -------------------
+;;
+;; `:go` is declared on the leaf `[:p :b :b2]` and targets `[:p :hist]`. The
+;; domain is `:p` — the pseudo-state is `:p`'s child — so `:b` exits and
+;; re-enters on the way to the restored configuration, whether that
+;; configuration is recorded (shallow or deep) or the default. `:enter`
+;; restores from outside `:p`, where the domain lies above `:p` either way.
+
+(defn- child-declared-chart [deep?]
+  {:initial :q
+   :actions {:act      (log-action :act)
+             :exit-q   (log-action :exit/q)   :enter-p  (log-action :enter/p)
+             :enter-b  (log-action :enter/b)  :exit-b   (log-action :exit/b)
+             :enter-b1 (log-action :enter/b1) :exit-b2  (log-action :exit/b2)}
+   :states  {:q {:exit :exit-q
+                 :on   {:enter {:target [:p :hist]}}}
+             :p {:entry :enter-p :initial :b
+                 :states {:b    {:entry :enter-b :exit :exit-b :initial :b1
+                                 :states {:b1 {:entry :enter-b1}
+                                          :b2 {:exit :exit-b2
+                                               :on   {:go {:target [:p :hist] :action :act}}}}}
+                          :hist {:type :history :deep? deep?}}}}})
+
+(deftest child-declared-history-restore-exits-and-re-enters-the-recorded-child
+  (testing "shallow, recording {[:p] :b}: :b exits and re-enters"
+    (let [before (assoc (logged-at [:p :b :b2]) :rf/history {[:p] :b})
+          after  (step (child-declared-chart false) before [:go])]
+      (is (= [:p :b :b1] (:state after)))
+      (is (= [:exit/b2 :exit/b :act :enter/b :enter/b1] (get-in after [:data :log])))))
+  (testing "shallow, nothing recorded: the :initial fallback takes the same domain"
+    (let [after (step (child-declared-chart false) (logged-at [:p :b :b2]) [:go])]
+      (is (= [:p :b :b1] (:state after)))
+      (is (= [:exit/b2 :exit/b :act :enter/b :enter/b1] (get-in after [:data :log])))))
+  (testing "deep, recording {[:p] [:p :b :b1]}: the domain is :p as well"
+    (let [before (assoc (logged-at [:p :b :b2]) :rf/history {[:p] [:p :b :b1]})
+          after  (step (child-declared-chart true) before [:go])]
+      (is (= [:p :b :b1] (:state after)))
+      (is (= [:exit/b2 :exit/b :act :enter/b :enter/b1] (get-in after [:data :log]))))))
+
+(deftest history-restore-from-outside-the-owning-compound-enters-it
+  (testing "control: from :q, shallow and deep restores enter :p and the recorded configuration"
+    (doseq [[deep? recorded] [[false :b] [true [:p :b :b1]]]]
+      (let [before (assoc (logged-at :q) :rf/history {[:p] recorded})
+            after  (step (child-declared-chart deep?) before [:enter])]
+        (is (= [:p :b :b1] (:state after)))
+        (is (= [:exit/q :enter/p :enter/b :enter/b1] (get-in after [:data :log])))))))
+
+(def ^:private region-child-declared
+  {:type    :parallel
+   :actions {:enter-b  (log-action :enter/b)  :exit-b (log-action :exit/b)
+             :enter-b1 (log-action :enter/b1)}
+   :regions {:r1 {:initial :p
+                  :states  {:p {:initial :b
+                                :states  {:b    {:entry :enter-b :exit :exit-b :initial :b1
+                                                 :states {:b1 {:entry :enter-b1}
+                                                          :b2 {:on {:go {:target [:p :hist]}}}}}
+                                          :hist {:type :history}}}}}
+             :r2 {:initial :x
+                  :states  {:x {} :y {}}}}})
+
+(deftest region-child-declared-history-restore-exits-and-re-enters-the-recorded-child
+  (testing "inside a region the domain is the pseudo-state's parent in that region; the sibling region stays put"
+    (let [before {:state            {:r1 [:p :b :b2] :r2 :x}
+                  :data             {:log []}
+                  :rf/spawn-counter {}
+                  :rf/history       {[:r1 :p] :b}}
+          after  (step region-child-declared before [:go])]
+      (is (= {:r1 [:p :b :b1] :r2 :x} (:state after)))
+      (is (= [:exit/b :enter/b :enter/b1] (get-in after [:data :log]))))))

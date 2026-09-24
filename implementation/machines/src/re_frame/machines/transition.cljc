@@ -1639,11 +1639,11 @@
 ;; a TARGETABLE PSEUDO-STATE: never occupied, it resolves a transition to
 ;; the compound's recorded (or default) configuration. The engine:
 ;;
-;;   - RESTORES on re-entry — `compute-transition-geometry` swaps the pseudo-state
-;;     target for the resolved leaf, so the standard exit/action/entry
-;;     cascade applies unchanged. In SCXML order: the exit set is computed
-;;     against the incoming recording, and the entered leaf against the
-;;     recording that exit set writes;
+;;   - RESTORES on re-entry — `compute-transition-geometry` takes the exit
+;;     set at the pseudo-state's own position (a child of the compound) and
+;;     enters the resolved leaf, so the standard exit/action/entry cascade
+;;     applies unchanged. In SCXML order: the entered leaf is resolved
+;;     against the recording that exit set writes;
 ;;   - RECORDS on exit — `apply-transition-once` writes the exited compound's
 ;;     last-active configuration into the snapshot `:rf/history` slot as part
 ;;     of the exit-cascade commit;
@@ -3018,8 +3018,8 @@
                       restored` tag bag `{:compound-path :resolved-leaf
                       :source :kind (+:restored-config|+:fallback)}`
                       (`:source` is `:recorded` | `:default`). The exit set
-                      (`:lca-len`) is computed against the incoming
-                      snapshot's recording; `:resolved-leaf` is resolved
+                      (`:lca-len`) is taken at the pseudo-state's own
+                      position; `:resolved-leaf` is resolved
                       against the recording that exit set writes, so
                       `:target-leaf` / `:entered-pairs` reflect the restored
                       path.
@@ -3076,40 +3076,38 @@
         ;; a `:target` that resolves onto the active path (e.g. the
         ;; `:same-state` sentinel, a keyword naming the declaring state's own
         ;; key, or a vector naming one of its ancestors).
-        target-base0  (target-path decl-path raw-target)
+        target-base   (target-path decl-path raw-target)
         ;; Per Spec 005 §Restoring — on transition to the pseudo-state: when
-        ;; `target-base0` lands on a history pseudo-state it resolves to a
-        ;; real leaf, in SCXML order. The DOMAIN (the exit set below) is
-        ;; computed against the incoming snapshot's recording; the ENTRY
-        ;; target (`history-restore`, after `lca-len`) is resolved against the
-        ;; recording this transition's own exit set writes, so a transition
-        ;; that exits the owning compound restores the configuration that same
-        ;; exit records. The resolved leaf is what the entry cascade enters and
-        ;; what the snapshot's `:state` records — the pseudo-state is never a
-        ;; configuration member.
-        hist-node     (when (and (not targetless?) target-base0)
-                        (let [n (node-at machine target-base0)]
+        ;; `target-base` lands on a history pseudo-state, the DOMAIN (the exit
+        ;; set below) is taken at the pseudo-state's own path — a child of its
+        ;; owning compound — exactly as for a literal target at that position,
+        ;; so no recording is read for it. A transition declared inside the
+        ;; owning compound therefore exits every active state below the
+        ;; compound, even one the restored configuration passes through. The
+        ;; ENTRY target (`history-restore`, after `lca-len`) is resolved
+        ;; against the recording this transition's own exit set writes, so a
+        ;; transition that exits the owning compound restores the
+        ;; configuration that same exit records. The resolved leaf is what the
+        ;; entry cascade enters and what the snapshot's `:state` records — the
+        ;; pseudo-state is never a configuration member.
+        hist-node     (when (and (not targetless?) target-base)
+                        (let [n (node-at machine target-base)]
                           (when (history-node? n) n)))
         restore-from  (fn [snap]
                         (let [{:keys [leaf source restored-config fallback]}
                               (resolve-history-target machine snap
-                                                      target-base0 hist-node)]
+                                                      target-base hist-node)]
                           ;; The spec/009 `:rf.machine.history/restored` tag
                           ;; bag, threaded to `apply-transition-once`'s emit.
                           ;; `:restored-config` rides only on `:recorded`;
                           ;; `:fallback` only on `:default` (mirrors the emit's
                           ;; cond->). `:kind` maps the grammar `:deep?`.
-                          (cond-> {:compound-path (history-key machine (vec (drop-last target-base0)))
+                          (cond-> {:compound-path (history-key machine (vec (drop-last target-base)))
                                    :resolved-leaf leaf
                                    :source        source
                                    :kind          (if (true? (:deep? hist-node)) :deep :shallow)}
                             (= :recorded source) (assoc :restored-config restored-config)
                             (= :default source)  (assoc :fallback fallback))))
-        domain-restore (when hist-node (restore-from snapshot))
-        ;; The effective base after history resolution: the resolved leaf
-        ;; (already fully cascaded to a leaf) when restoring, else the
-        ;; declared target.
-        target-base   (if domain-restore (:resolved-leaf domain-restore) target-base0)
         domain-leaf   (some->> target-base (initial-cascade machine))
         ;; ---- Exit-set boundary: the true LCCA ----------------------------
         ;; Per Spec 005 §Entry/exit cascading and SCXML §3.13: the exit set
@@ -3121,7 +3119,7 @@
         ;; enters. `lca-len` is the depth of that LCCA (= the count of the
         ;; common-ancestor prefix that survives the transition).
         ;;
-        ;; The LCCA is computed against `target-base` (the resolved target
+        ;; The LCCA is computed against `target-base` (the declared target
         ;; BEFORE its own `:initial` re-descent), NOT `target-leaf` — the
         ;; initial cascade is part of ENTERING the target, not of locating
         ;; the common ancestor. Computing it against `target-leaf` is the
@@ -3184,35 +3182,29 @@
                                         (> (count target-base) (count decl-path))
                                         (= (count decl-path)
                                            (common-prefix-length decl-path target-base)))
-        ;; A HISTORY target is an external re-entry when the configuration it
-        ;; restores CONTAINS the declaring state (XState's
-        ;; `restoresSourceViaHistory`): the enter set rebuilds the declaring
-        ;; state from outside it, so the exit set must take the declaring state
-        ;; down too, or its `:spawn` children would respawn without being torn
-        ;; down. The never-entered fallback that lands back on the current
-        ;; leaf is this case. Every other history target follows the geometry
-        ;; of the leaf it resolves to, exactly as a literal `:target` would —
-        ;; so a restore declared on the owning compound itself leaves that
-        ;; compound standing unless `:reenter?` asks for its restart.
-        restores-decl? (and (some? domain-restore)
-                            (> (count decl-path) (dec (count target-base0)))
-                            (= (count decl-path)
-                               (common-prefix-length decl-path target-base)))
+        ;; A HISTORY target needs no arm of its own. Its path is never on the
+        ;; active path, so it is either a proper descendant of D (D is the
+        ;; owning compound or above it — D stands unless `:reenter?` asks
+        ;; for its restart) or it takes the disjoint arm, whose boundary is
+        ;; the owning compound: every active state below the compound exits.
+        ;; That includes a declaring state the restore re-enters, so its
+        ;; `:spawn` children are torn down before they respawn (XState's
+        ;; `restoresSourceViaHistory`).
+        ;;
         ;; T is a PROPER ANCESTOR of the declaring state D: T and D both lie
         ;; on the active path and T is the shorter. The transition is
         ;; declared BELOW its target, so the LCCA of {source, T} is T's
         ;; parent and T is in the exit set — the SCXML rule, which XState's
         ;; `getTransitionDomain` implements and on which its `reenter` is a
-        ;; no-op. A history target never matches: it resolves to a leaf,
-        ;; which is never a proper ancestor of D.
+        ;; no-op. A history target never matches: its path is never on the
+        ;; active path.
         target-ancestor-of-decl? (and target-on-active-path?
                                       (< (count target-base) (count decl-path)))
-        external-re-entry?     (or reenter? restores-decl?)
         ;; The pull-up arm: the active-path target T exits and re-enters
         ;; (the boundary moves to T's parent) when T is a proper ancestor of
         ;; D, always, or when T is D and re-entry is asked for.
         reenter-active-path?   (and target-on-active-path?
-                                    (or target-ancestor-of-decl? external-re-entry?))
+                                    (or target-ancestor-of-decl? reenter?))
         ;; The EFFECTIVE internal flag threaded to every downstream phase
         ;; (cascade-steps, `commit-snapshot` state preservation, after-fx /
         ;; after-cancel / destroy / done-raise / history-record). ONLY a
@@ -3287,13 +3279,14 @@
         ;;        timers/spawns) then re-descends. boundary = (count target-base) - 1.
         ;;  • DISJOINT-subtree target (not a descendant of D, not on the active
         ;;    path) — the LCCA is the plain common-prefix node; `:reenter?` is a
-        ;;    no-op. boundary = common-prefix-length(src-path, target-leaf).
+        ;;    no-op. boundary = common-prefix-length(src-path, target-leaf),
+        ;;    taken against the pseudo-state's own path for a history target.
         lca-len       (cond
                         internal?
                         (count src-path)
 
                         target-descendant-of-decl?
-                        (if external-re-entry?
+                        (if reenter?
                           (max 0 (dec (count decl-path)))
                           (count decl-path))
 
@@ -3307,9 +3300,9 @@
                         (common-prefix-length src-path domain-leaf))
         ;; Per Spec 005 §Recording, the exit set above writes the owning
         ;; compound's configuration as part of the exit cascade's commit, and
-        ;; the entry target restores THAT recording. It differs from
-        ;; `domain-restore` only when this transition exits the owning
-        ;; compound; `apply-transition-once` commits the same recording.
+        ;; the entry target restores THAT recording — the incoming recording
+        ;; when this transition leaves the owning compound standing.
+        ;; `apply-transition-once` commits the same recording.
         history-restore (when hist-node
                           (restore-from (first (record-exit-history machine snapshot
                                                                     src-path lca-len))))
@@ -3735,6 +3728,27 @@
 ;; single-machine drain.
 (declare machine-transition-single)
 
+(defn require-raise-entry!
+  "Throw unless `entry`, a `:raise` fx entry, is exactly
+  `[:raise <event-vec>]`. A raise takes no options: XState's
+  `raise(event, {delay, id})` spelling has no counterpart, because a delayed
+  event is an `:after` on a state. An entry carrying anything else throws
+  `:rf.error/machine-bad-raise` rather than dropping the extra elements and
+  raising the event at once. Public so the parallel drain
+  (`re-frame.machines.parallel`) applies the same check where it harvests
+  raises."
+  [entry]
+  (when-not (= 2 (count entry))
+    (throw (machine-error
+             :rf.error/machine-bad-raise
+             (str "An action returned the fx entry " (pr-str entry) ", but a "
+                  ":raise entry is exactly [:raise <event-vec>] — a raise takes "
+                  "no options. To raise an event after a delay, declare :after "
+                  "on a state. Fix the action's :fx.")
+             {:value       entry
+              :slot        :raise
+              :rf/recovery :no-recovery}))))
+
 (defn- split-raise-fx
   "Partition `fx-vec` into `{:raises [...] :rest [...]}` — `:raises` is the
   subvector of `[:raise <event-vec>]` entries (kept verbatim so they re-enter
@@ -3742,11 +3756,13 @@
   preserving source order. Used by `drain-to-fixed-point` to peel a deferred
   nested macrostep's surfaced raises (and an `:always` step's own raises) off
   its real (do-fx-bound) fx so the raises append to the BACK of the FIFO
-  queue while the real fx accumulate (FIFO + SCXML microstep ordering)."
+  queue while the real fx accumulate (FIFO + SCXML microstep ordering). A
+  malformed `:raise` entry throws (`require-raise-entry!`)."
   [fx-vec]
   (reduce (fn [acc [fx-id :as entry]]
             (if (= :raise fx-id)
-              (update acc :raises conj entry)
+              (do (require-raise-entry! entry)
+                  (update acc :raises conj entry))
               (update acc :rest conj entry)))
           {:raises [] :rest []}
           fx-vec))

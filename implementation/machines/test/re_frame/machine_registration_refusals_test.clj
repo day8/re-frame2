@@ -5,7 +5,8 @@
     - an `:initial` naming no declared child (root, compound, region) —
       `:rf.error/machine-unresolved-target` with `:slot :initial`; and the pure
       `machine-transition` refuses a snapshot `:state` naming no declared state
-      with `:rf.error/machine-state-not-in-definition`;
+      (a parallel region's value included) with
+      `:rf.error/machine-state-not-in-definition`;
     - a `:guard` / `:entry` / `:exit` / `:action` that is neither ONE fn nor
       ONE keyword — the engine's own `:rf.error/machine-bad-guard-form` /
       `:rf.error/machine-bad-action-form`;
@@ -93,6 +94,34 @@
     (testing "control: a declared :state transitions"
       (is (= {:status :ok :state :b}
              (-> (rf.machines/machine-transition definition {:state :a :data {}} [:go])
+                 (as-> r {:status (:status r) :state (get-in r [:snapshot :state])})))))))
+
+(deftest pure-transition-refuses-an-undeclared-region-state
+  (let [definition {:id      :refusal/pure-parallel
+                    :type    :parallel
+                    :regions {:r1 {:initial :a
+                                   :states  {:a {:on {:go :b}} :b {}}}
+                              :r2 {:initial :p
+                                   :states  {:p {:initial :p1
+                                                 :states  {:p1 {} :p2 {}}}
+                                             :q {}}}}}
+        refusal    (fn [state]
+                     (try (rf.machines/machine-transition definition {:state state :data {}} [:go])
+                          nil
+                          (catch clojure.lang.ExceptionInfo ex (ex-data ex))))]
+    (testing "a region value naming no state of that region throws, naming the region"
+      (let [d (refusal {:r1 :zzz :r2 :q})]
+        (is (= :rf.error/machine-state-not-in-definition (:rf.error/id d)))
+        (is (= [:r1 :zzz] [(:region d) (:state d)]))))
+
+    (testing "a nested compound value naming no declared node throws the same id"
+      (let [d (refusal {:r1 :a :r2 [:p :zzz]})]
+        (is (= :rf.error/machine-state-not-in-definition (:rf.error/id d)))
+        (is (= [:r2 [:p :zzz]] [(:region d) (:state d)]))))
+
+    (testing "control: a declared parallel configuration transitions"
+      (is (= {:status :ok :state {:r1 :b :r2 [:p :p1]}}
+             (-> (rf.machines/machine-transition definition {:state {:r1 :a :r2 [:p :p1]} :data {}} [:go])
                  (as-> r {:status (:status r) :state (get-in r [:snapshot :state])})))))))
 
 ;; ---- :guard / action slots hold one fn or one keyword ------------------------
