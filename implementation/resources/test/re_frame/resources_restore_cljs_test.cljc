@@ -1,7 +1,6 @@
 (ns re-frame.resources-restore-cljs-test
-  "Epoch-restore reconcile for the Resources artefact (rf2-7r5mc2, Spec 016
-  §Restore and replay parts 2/4/5 — EP-0003 slice 8 / §9 restore conformance
-  fixtures).
+  "Epoch-restore reconcile for the Resources artefact (Spec 016 §Restore and
+  replay parts 2/4/5 — EP-0003 §9 restore conformance fixtures).
 
   Epoch restore installs the UNPROJECTED captured frame-state snapshot
   WHOLESALE — unlike SSR hydration, which installs the server PROJECTION
@@ -84,7 +83,7 @@
 
 (defn- runtime-db-with
   "A runtime-db carrying a `:rf.runtime/resources :entries` map (and optional
-  `:rf.runtime/work-ledger`). rf2-9e0tyq: re-keys the natural
+  `:rf.runtime/work-ledger`). Re-keys the natural
   `{scoped-key-vector entry}` form into the runtime's byte-`key-id` shape
   (stamping each entry's `:resource/key`), and re-keys the ledger from
   `{work-id-vector record}` to the byte `work-id-id` shape."
@@ -159,7 +158,7 @@
           kc (rf.resources.state/scoped-resource-key :rf.scope/global :c {})
           out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {ka loaded kb errd kc idle}) :app/main)
           es  (get-in out [rf.resources.state/resources-key :entries])]
-      ;; rf2-9e0tyq — entries are keyed on the byte key-id.
+      ;; Entries are keyed on the byte key-id.
       (is (= :loaded (:status (es (rf.resources.state/key-id ka)))))
       (is (= :error  (:status (es (rf.resources.state/key-id kb)))))
       (is (= :idle   (:status (es (rf.resources.state/key-id kc))))))))
@@ -179,7 +178,7 @@
                               (entry {:resource-id :a :status :loaded :data {:x 1}})))))))
 
 (deftest restore-does-not-re-read-the-live-clock-for-durable-entry-timestamps
-  ;; rf2-wshzsp — ADVERSARIAL guard for EP-0010 §Restore/Replay: "Restore
+  ;; ADVERSARIAL guard for EP-0010 §Restore/Replay: "Restore
   ;; installs a durable frame-state value. It MUST NOT re-read ambient world
   ;; facts to freshen that state during install ... restored resource entries do
   ;; not re-read the live clock during install." The structural restore tests
@@ -188,7 +187,7 @@
   ;; read in the reconcile (`rf.interop/epoch-now-ms`) to a sentinel NOTHING durable
   ;; should ever stamp, then asserts every restored entry's :loaded-at /
   ;; :stale-at / :invalidated-at is the SNAPSHOT's value, untouched by the
-  ;; sentinel. A regression that freshened any durable timestamp from the live
+  ;; sentinel. A reconcile that freshened any durable timestamp from the live
   ;; install clock would stamp the sentinel and fail loudly here.
   (testing "the live install clock (rf.interop/epoch-now-ms) does NOT freshen any durable restored
             entry timestamp — they ride through equal to the snapshot's"
@@ -205,7 +204,7 @@
       (with-redefs [rf.interop/epoch-now-ms (constantly sentinel)]
         (let [out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {ka loaded kb invalidated}) :app/main)
               es  (get-in out [rf.resources.state/resources-key :entries])
-              ;; rf2-9e0tyq — entries are keyed on the byte key-id.
+              ;; Entries are keyed on the byte key-id.
               ea (es (rf.resources.state/key-id ka))
               eb (es (rf.resources.state/key-id kb))]
           (is (= 1000 (:loaded-at ea)) ":loaded-at is the snapshot's, NOT the install clock")
@@ -244,7 +243,7 @@
           out (rf.resources.ssr/reconcile-on-restore rdb :app/main)
           out-ledger (get out rf.resources.state/work-ledger-key)]
       (doseq [wid [w-running w-queued w-abort]]
-        ;; rf2-9e0tyq — the ledger is keyed on the byte work-id-id.
+        ;; The ledger is keyed on the byte work-id-id.
         (let [row (get out-ledger (rf.resources.work-ledger/work-id-id wid))]
           (is (= :suppressed (:status row))
               (str wid " settled to terminal :suppressed"))
@@ -280,7 +279,7 @@
       (is (= :completed (get-in rdb' [rf.resources.state/work-ledger-key w2 :status]))))))
 
 ;; ===========================================================================
-;; 2b. Dangle PENDING mutation instances on restore (rf2-o3d1uf, part 2)
+;; 2b. Dangle PENDING mutation instances on restore (part 2)
 ;; ===========================================================================
 ;;
 ;; A restored :pending mutation instance retains :current-work + :generation.
@@ -303,7 +302,7 @@
 
 (defn- mutations-map
   "Build a `:rf.runtime/mutations` map keyed the runtime way — on the CEDN-1
-  byte `key-id` of each instance id (rf2-8iciw8), each instance carrying its
+  byte `key-id` of each instance id, each instance carrying its
   own kind-preserving `:instance/id`. Takes `{<instance-id> <instance>}` pairs
   (instance ids as the LOGICAL key) and rekeys to the byte storage key."
   [m]
@@ -337,7 +336,7 @@
       (is (= :success (get-in rdb' [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-s) :status]))
           "the terminal instance is untouched")))
   (testing "no mutation instances → no-op"
-    ;; EP-0019 Q3 — the return is now `[rdb dangled rolled-back-keys]`.
+    ;; EP-0019 Q3 — the return is `[rdb dangled rolled-back-keys]`.
     (is (= [{} [] []] (rf.resources.ssr/dangle-pending-mutations! {} 9999)))))
 
 (deftest reconcile-on-restore-dangles-pending-mutation-instances
@@ -350,8 +349,8 @@
       (is (nil? (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1) :current-work]))))))
 
 (deftest dangled-instance-settled-at-is-the-restore-causal-time-not-the-live-clock
-  ;; rf2-wshzsp (the option-1 CORRECTNESS fix) — a dangled-on-restore mutation
-  ;; instance's durable :settled-at is a frame-state field, so per EP-0010 §Time
+  ;; A dangled-on-restore mutation instance's durable :settled-at is a
+  ;; frame-state field, so per EP-0010 §Time
   ;; + §Restore/Replay it MUST be sourced from the restore's CAUSAL time (the
   ;; restored epoch's :committed-at, threaded as :restore-time-ms) — NOT the live
   ;; install clock (`now-ms`). Sourcing a durable write from an ambient read at
@@ -373,7 +372,7 @@
           (is (not= live-sentinel (:settled-at inst))
               ":settled-at is NOT the live install clock (now-ms)")))))
   (testing "fallback: with NO :restore-time-ms (the pure-unit 2-arity, no token)
-            the dangle stamps the live clock — the no-causal-time path is intact"
+            the dangle stamps the live clock on the no-causal-time path"
     (let [live-sentinel 9999999999999
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
@@ -384,11 +383,11 @@
               "no causal time supplied → the unit path falls back to the live clock"))))))
 
 (deftest dangling-mutation-without-restore-time-warns-loudly
-  ;; rf2-nftz2s §4 — when a PENDING mutation instance is terminally dangled on
-  ;; restore but NO causal :restore-time-ms was supplied, its durable :settled-at
+  ;; When a PENDING mutation instance is terminally dangled on restore but
+  ;; NO causal :restore-time-ms was supplied, its durable :settled-at
   ;; is stamped from the live install clock — a replay-determinism hazard. The
-  ;; live-clock fallback is KEPT (the pure-unit path has no causal time), but it
-  ;; is no longer SILENT: a :rf.resource/restore-settled-at-from-live-clock
+  ;; live-clock fallback exists because the pure-unit path has no causal time,
+  ;; but it is not SILENT: a :rf.resource/restore-settled-at-from-live-clock
   ;; warning fires so a production restore that forgot to thread :restore-time-ms
   ;; is loud, not a quiet footgun (no-silent-swallow).
   (let [pending (mutation-instance {:instance-id :inst-1
@@ -431,7 +430,7 @@
      :params-schema [:map [:slug :string]]
      :tags    (fn [{:keys [slug]} _] #{[:article slug]})}
     (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (testing "ADVERSARIAL acceptance (rf2-o3d1uf): a pre-restore mutation success
+  (testing "ADVERSARIAL acceptance: a pre-restore mutation success
             reply that lands AFTER restore is SUPPRESSED — it does NOT patch /
             populate / invalidate the post-restore resource entry"
     (let [fid       :restore/mutation-frame
@@ -533,14 +532,14 @@
       (is (contains? (get-in out [rf.resources.state/resources-key :owner-index]) live)
           "the surviving live-nav route owner is present in the owner-index"))))
 
-;; rf2-64bdnk — on RESTORE, a missing/nil live nav-token means NO route owner
+;; On RESTORE, a missing/nil live nav-token means NO route owner
 ;; is live (the OPPOSITE of hydration, where a nil token is "can't compare
 ;; yet"). Spec 016 §Restore part 4: route owners revive ONLY IF the restored
 ;; routing names the same live nav-token; absent routing slice / no :current /
 ;; nil nav-token → every route owner orphans.
 
 (deftest restore-orphans-route-owners-when-no-live-nav-token
-  (testing "rf2-64bdnk — restore with no live nav-token orphans ALL route
+  (testing "restore with no live nav-token orphans ALL route
             owners across the three absent-token shapes; machine/app owners
             survive; the owner-index is recomputed without the orphans"
     (doseq [[label rdb-fn]
@@ -569,7 +568,7 @@
               "the orphaned route owner is absent from the recomputed owner-index"))))))
 
 (deftest restore-no-live-token-emits-owner-release-trace
-  (testing "rf2-64bdnk — a route owner released because no live nav-token names
+  (testing "a route owner released because no live nav-token names
             it emits a :rf.resource/owner-released trace row (Spec 016 part 4)"
     (let [route-owner [:route :route/article "nav-X"]
           e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
@@ -588,7 +587,7 @@
           "the release reason is the stale-nav/no-live-token orphan"))))
 
 ;; ===========================================================================
-;; 3c. Defer restore trace rows until install succeeds (rf2-obi8rr)
+;; 3c. Defer restore trace rows until install succeeds
 ;; ===========================================================================
 ;;
 ;; `reconcile-on-restore` runs INSIDE perform-restore! BEFORE the atomic
@@ -596,8 +595,8 @@
 ;; under `:defer-traces? true` the reconcile must NOT emit its
 ;; :rf.resource/restored / :rf.resource/owner-released success rows inline —
 ;; they ride back as metadata and are emitted by commit-restore-reconcile-
-;; traces! only after the install succeeds. The inline (2-arity) path keeps
-;; emitting (the pure unit path has no install to gate against). The
+;; traces! only after the install succeeds. The inline (2-arity) path emits
+;; inline (the pure unit path has no install to gate against). The
 ;; end-to-end "failed install emits nothing" assertion lives in the epoch
 ;; artefact's epoch_test.clj (it needs a real destroyed-frame restore).
 
@@ -614,7 +613,7 @@
     [seen (fn [] (rf.trace.tooling/unregister-listener! k))]))
 
 (deftest defer-traces-does-not-emit-inline
-  (testing "rf2-obi8rr — reconcile-on-restore with :defer-traces? true emits NO
+  (testing "reconcile-on-restore with :defer-traces? true emits NO
             :rf.resource/restored / :rf.resource/owner-released rows inline; they
             ride back as metadata for the post-install commit"
     (let [stale [:route :route/article "nav-OLD"]
@@ -633,7 +632,7 @@
           "the stale-nav owner is still reconciled (only the TRACE is deferred)"))))
 
 (deftest commit-restore-reconcile-traces-emits-deferred-rows
-  (testing "rf2-obi8rr — commit-restore-reconcile-traces! emits the deferred
+  (testing "commit-restore-reconcile-traces! emits the deferred
             :rf.resource/restored + :rf.resource/owner-released rows from the
             reconciled runtime-db's metadata"
     (let [stale [:route :route/article "nav-OLD"]
@@ -651,7 +650,7 @@
           "the deferred per-owner :rf.resource/owner-released row is emitted on commit"))))
 
 (deftest commit-restore-reconcile-traces-noop-without-intents
-  (testing "rf2-obi8rr — commit-restore-reconcile-traces! is a no-op on a value
+  (testing "commit-restore-reconcile-traces! is a no-op on a value
             carrying no deferred intents (an inline reconcile, or resource-free)"
     (let [[seen unregister!] (restore-trace-recorder)]
       (try
@@ -662,7 +661,7 @@
       (is (empty? @seen) "no intents → no trace rows"))))
 
 (deftest inline-reconcile-still-emits-restored-trace
-  (testing "rf2-obi8rr — the 1-/2-arity (direct unit) path still emits inline:
+  (testing "the 1-/2-arity (direct unit) path emits inline:
             no install to gate against"
     (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15})
@@ -673,14 +672,14 @@
           "the inline path emits the :rf.resource/restored summary immediately"))))
 
 (deftest commit-hook-published
-  (testing "rf2-obi8rr — the :resources/commit-restore-reconcile! hook is published"
+  (testing "the :resources/commit-restore-reconcile! hook is published"
     (is (some? (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))
     (is (= rf.resources.ssr/commit-restore-reconcile-traces!
            (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))))
 
 (deftest hydration-parity-route-owners-ride-through-without-routing
-  (testing "rf2-64bdnk parity — HYDRATION (the no-comparison-yet case) still
-            rides route owners through unchanged when there is no client routing
+  (testing "parity — HYDRATION (the no-comparison-yet case) rides route
+            owners through unchanged when there is no client routing
             slice (the split: nil-token-on-hydrate ≠ nil-token-on-restore)"
     (let [route-owner [:route :route/article "nav-anything"]
           e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
@@ -704,10 +703,10 @@
                       :loaded-at 1 :stale-at 9.0e15
                       :tags #{[:article "x"]}
                       :owners #{[:route :route/article "nav-1"]}})
-          ;; name nav-1 live so the route owner SURVIVES (rf2-64bdnk) — this
+          ;; name nav-1 live so the route owner SURVIVES — this
           ;; test pins the index RECOMPUTE, not owner orphaning; without a live
-          ;; token the route owner would now correctly orphan.
-          ;; rf2-9e0tyq — build via runtime-db-with (byte-keyed + :resource/key
+          ;; token the route owner would orphan.
+          ;; Build via runtime-db-with (byte-keyed + :resource/key
           ;; stamped), then overwrite the indexes with deliberately-wrong
           ;; snapshot values to prove they are discarded + recomputed.
           rdb (-> (runtime-db-with {gkey e})
@@ -716,14 +715,14 @@
                   (with-live-nav-token "nav-1"))
           out (rf.resources.ssr/reconcile-on-restore rdb :app/main)
           sub (get out rf.resources.state/resources-key)]
-      ;; rf2-9e0tyq — index MEMBERS are the byte key-id, not the scoped-key vector.
+      ;; Index MEMBERS are the byte key-id, not the scoped-key vector.
       (is (= {[:article "x"] #{(rf.resources.state/key-id gkey)}} (:tag-index sub))
           "tag-index recomputed from the entry's :tags; bogus snapshot index discarded")
       (is (= {[:route :route/article "nav-1"] #{(rf.resources.state/key-id gkey)}} (:owner-index sub))
           "owner-index recomputed from the entry's owners; bogus snapshot index discarded"))))
 
 ;; ===========================================================================
-;; 4b. Clear host transients on restore (rf2-nd1r9q, part 5)
+;; 4b. Clear host transients on restore (part 5)
 ;; ===========================================================================
 ;;
 ;; Host side tables (stale/GC timer handles + work-ledger host handles) belong
@@ -744,7 +743,7 @@
   (filter (fn [[fid _]] (= fid frame-id)) (keys @rf.resources.work-ledger/handle-table)))
 
 (deftest clear-host-transients-on-restore-clears-timers-and-handles
-  (testing "rf2-nd1r9q — restore clears the frame's armed stale/GC timer handles
+  (testing "restore clears the frame's armed stale/GC timer handles
             and work-ledger host handles (host transients, not frame-state)"
     (let [fid :restore/transients
           rkey gkey
@@ -767,7 +766,7 @@
       (rf.resources.timers/cancel-for-key! fid rkey))))
 
 (deftest restore-host-clear-preserves-generation-high-water
-  (testing "rf2-nd1r9q — clearing host transients on restore does NOT rewind the
+  (testing "clearing host transients on restore does NOT rewind the
             generation high-water mark (part 1 — it must stay monotonic)"
     (let [fid :restore/gen-preserve]
       (rf.resources.state/commit-generation! fid 11)
@@ -780,7 +779,7 @@
       (rf.resources.timers/cancel-for-key! fid gkey))))
 
 (deftest restore-host-clear-triggers-no-eager-refetch
-  (testing "rf2-nd1r9q — restore clears transients but arms NO eager refetch /
+  (testing "restore clears transients but arms NO eager refetch /
             timer (scheduling re-arms lazily on the next live-owner touch)"
     (let [fid :restore/no-eager
           e   (entry {:resource-id :article/by-slug :status :loaded
@@ -792,18 +791,18 @@
           "no work handle is created by restore (no eager refetch)"))))
 
 (deftest clear-host-transients-on-restore-is-pure-subset
-  (testing "rf2-nd1r9q — clear-host-transients-on-restore! clears timers + work
+  (testing "clear-host-transients-on-restore! clears timers + work
             handles but is a no-op on an unarmed frame (idempotent)"
     (is (nil? (rf.resources.ssr/clear-host-transients-on-restore! :restore/unarmed)))))
 
 (deftest reconcile-host-transient-clear-fenced-to-exact-incarnation
-  (testing "rf2-qfrh4 seam 2 — the pre-write host-transient clear fires only when
+  (testing "the pre-write host-transient clear fires only when
             the threaded :owner-token still names the live incarnation. A STALE
             token (a churned / destroyed incarnation) SKIPS the clear so a same-id
             successor's armed host handles are spared — the reconcile runs BEFORE
             the atomic write and addresses the frame by bare id, so without this
             fence a callback that churned A to B mid-reconcile would release B's
-            live handles. A LIVE token clears as before; a nil token (the
+            live handles. A LIVE token clears; a nil token (the
             pure-unit path) clears unconditionally."
     (let [fid  :restore/fence
           rkey gkey
@@ -829,35 +828,35 @@
             "a stale incarnation token SKIPS the timer clear (successor's handle spared)")
         (is (seq (work-handle-keys fid))
             "a stale incarnation token SKIPS the work-handle clear")
-        ;; LIVE token — clears as before.
+        ;; LIVE token — the clear runs.
         (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token live-token})
         (is (empty? (frame-timer-keys fid)) "the live incarnation token clears the timer")
         (is (empty? (work-handle-keys fid)) "the live incarnation token clears the work handle")
-        ;; nil token (pure-unit path) — clears unconditionally, as before.
+        ;; nil token (pure-unit path) — clears unconditionally.
         (arm!)
         (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token nil})
         (is (empty? (frame-timer-keys fid)) "nil token clears the timer unconditionally")
         (is (empty? (work-handle-keys fid)) "nil token clears the work handle unconditionally")
         (rf.resources.timers/cancel-for-key! fid rkey)))))
 
-;; ---- rf2-sdeae — the clear itself is a CALLBACK-BEARING fan-out ------------
+;; ---- the clear itself is a CALLBACK-BEARING fan-out ------------------------
 ;;
-;; The seam-2 fence above answers "may this clear run at all?" ONCE, before the
-;; fan-out. But the fan-out is not callback-free: `rf.resources.work-ledger/release-frame!`
+;; The incarnation fence above answers "may this clear run at all?" ONCE,
+;; before the fan-out. But the fan-out is not callback-free: `rf.resources.work-ledger/release-frame!`
 ;; best-effort ABORTS each slot on the way out, and an abort callback is app /
 ;; transport code that can churn incarnation A to a same-id successor B and let
 ;; B record a handle in the SAME `[frame-id work-id]` slot. Read-abort-dissoc
-;; therefore dissociates a slot the callback has already re-seated: A's returning
-;; cleanup deletes B's live handle.
+;; would therefore dissociate a slot the callback has already re-seated: A's
+;; returning cleanup would delete B's live handle.
 ;;
-;; The fix is ordering, not another gate — DETACH the frame's slots atomically
+;; The guard is ordering, not another gate — DETACH the frame's slots atomically
 ;; FIRST (one `swap-vals!`, no callback window before it), then abort the
 ;; DETACHED handle values. Callbacks then act on detached attempt identities and
 ;; can neither be re-read nor dissociated by A's tail. This is the discipline
-;; `rf.resources.timers/release-frame!` already uses for the sibling timer table.
+;; `rf.resources.timers/release-frame!` uses for the sibling timer table.
 
 (deftest work-ledger-release-frame-detaches-before-abort-callbacks
-  (testing "rf2-sdeae — an abort callback that seats a same-id successor B in the
+  (testing "an abort callback that seats a same-id successor B in the
             SAME [frame-id work-id] slot must not have B's handle deleted by A's
             returning cleanup. The abort runs on the DETACHED A handle; the slot
             B re-seats survives byte-for-byte."
@@ -882,7 +881,7 @@
       (rf.resources.work-ledger/clear-handle! fid wid))))
 
 (deftest work-ledger-release-frame-abort-callback-reentrancy
-  (testing "rf2-sdeae adversarial (nested fan-out) — an abort callback that
+  (testing "adversarial (nested fan-out) — an abort callback that
             RE-ENTERS release-frame! for the same frame terminates, aborts each
             A slot exactly once (the outer pass already detached them), and still
             spares a successor handle seated by the nested pass."
@@ -909,7 +908,7 @@
       (rf.resources.work-ledger/clear-handle! fid wid-2))))
 
 (deftest work-ledger-abort-callback-may-drop-its-own-slot
-  (testing "rf2-sdeae adversarial (callback drops its own listener mid-cleanup) —
+  (testing "adversarial (callback drops its own listener mid-cleanup) —
             an abort callback that clears its OWN slot and then seats a successor
             handle under the same key leaves the successor intact; the detached
             identity the callback ran against is never written back."
@@ -926,7 +925,7 @@
       (rf.resources.work-ledger/clear-handle! fid wid))))
 
 (deftest opportunistic-abort-detaches-before-abort-callback
-  (testing "rf2-sdeae — the single-slot public abort has the same seam: the abort
+  (testing "the single-slot public abort has the same seam: the abort
             callback runs BEFORE the drop, so a successor handle re-seated under
             the same key must not be deleted by the returning clear."
     (let [fid      :restore/one-slot
@@ -940,10 +939,10 @@
           "successor B's re-seated handle survives the returning clear")
       (rf.resources.work-ledger/clear-handle! fid wid))))
 
-;; ---- rf2-sdeae — the deferred trace commit is a callback fan-out too -------
+;; ---- the deferred trace commit is a callback fan-out too -------------------
 
 (deftest commit-restore-reconcile-traces-fenced-per-intent
-  (testing "rf2-sdeae — committing the deferred restore intents fans out to trace
+  (testing "committing the deferred restore intents fans out to trace
             listeners, each a callback boundary that can destroy A and seat a
             same-id successor B. With the captured :owner-token carried in, the
             commit STOPS at the first intent whose listener lost the incarnation
@@ -980,8 +979,8 @@
             "the remaining A-owned intents are STOPPED once the incarnation is lost")))))
 
 (deftest commit-restore-reconcile-traces-unfenced-arities-emit-all
-  (testing "rf2-sdeae control — with no token (the pure-unit path) or a LIVE
-            incarnation, every deferred intent still commits, as before."
+  (testing "control — with no token (the pure-unit path) or a LIVE
+            incarnation, every deferred intent commits."
     (let [fid   :restore/commit-live
           stale [:route :route/article "nav-OLD"]
           e     (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
@@ -1003,7 +1002,7 @@
         (let [[seen unregister!] (restore-trace-recorder)]
           (try (rf.resources.ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token nil})
                (finally (unregister!)))
-          (is (= n (count @seen)) "a nil token commits every intent, as before"))))))
+          (is (= n (count @seen)) "a nil token commits every intent"))))))
 
 ;; ===========================================================================
 ;; 5. The generation allocator is monotonic across restore (part 1)
@@ -1064,7 +1063,7 @@
                      :loaded-at 1 :stale-at 9.0e15 :tags #{[:article "x"]}})
           out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {ka ea kb eb}) :app/main)
           es  (get-in out [rf.resources.state/resources-key :entries])]
-      ;; rf2-9e0tyq — entries + tag-index members are keyed on the byte key-id.
+      ;; Entries + tag-index members are keyed on the byte key-id.
       (is (= {:owner "a"} (:data (es (rf.resources.state/key-id ka)))) "scope-a data stays under scope-a's key")
       (is (= :loaded (:status (es (rf.resources.state/key-id ka)))) "scope-a fetching → loaded (kept data)")
       (is (= {:owner "b"} (:data (es (rf.resources.state/key-id kb)))) "scope-b data stays under scope-b's key")
