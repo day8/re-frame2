@@ -1,22 +1,23 @@
 (ns re-frame.resources-hydrated-gc-arming-cljs-test
-  "rf2-omahf — a hydrated resource entry stays GC-collectable when its route
+  "A hydrated resource entry stays GC-collectable when its route
   owner rides through hydration.
 
-  THE DEFECT. Hydration installed entries and armed no timer, and on the
-  client the only paths that arm GC on a settled entry are a load settle, a
+  THE HAZARD. Besides hydration itself, the only client paths that arm GC on
+  a settled entry are a load settle, a
   mutation write, and a fresh-skip ONTO AN OWNER-FREE entry. A hydrated entry
   whose route owner rode the wire is already owned, so the client's ensure is
   a fresh-skip onto an owned entry (it arms nothing), and releasing that owner
-  arms nothing either (a release never starts a timer). No GC re-check ever
-  ran, so the entry lived for the session. S4 is the ordinary SSR boot: the
+  arms nothing either (a release never starts a timer). Were hydration to arm
+  no timer, no GC re-check would ever run and the entry would live for the
+  session. S4 is the ordinary SSR boot: the
   route and its nav-token ride the payload, the client's initial URL sync is
-  an exact no-op, and no client ensure runs at all — so no fix on the
-  fresh-skip path can reach it.
+  an exact no-op, and no client ensure runs at all — so arming on the
+  fresh-skip path could not reach it.
 
   THE RULE (Spec 016 §Freshness clock contract). After the client commits
   `:rf/hydrate`, the resources artefact arms the GC timer of each hydrated
   entry — no stale timer; the poll timer an OWNED entry of a polling resource
-  also gets is pinned by `resources-hydrated-poll-arming-cljs-test` (rf2-2ojds)
+  also gets is pinned by `resources-hydrated-poll-arming-cljs-test`
   — through the late-bound
   `:rf.resource/hydrate-rearm` fx, on the `:rf.machine/hydrate-rearm`
   precedent. The GC re-check does the rest: a fire while the entry is owned
