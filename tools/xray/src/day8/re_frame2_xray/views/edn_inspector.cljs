@@ -4963,10 +4963,20 @@
               (resolve-zoom-into value zoom-map panel-id
                                  (or site-id mount-id))
               value)
+            ;; rf2-pmux4 — the before side walks the same path, but a
+            ;; path that does not resolve there is a node ADDED this
+            ;; epoch, so it re-roots to the missing sentinel (the same
+            ;; before the `:added?` path synthesises) and the subtree
+            ;; reads as added. `resolve-zoom-into`'s whole-value fallback
+            ;; diffed it against the whole before-root instead. A zoom is
+            ;; never active on a path that does not resolve in `value`,
+            ;; so the removed-this-epoch mirror never reaches here.
             displayed-before
             (if (and diff? zoom-active?)
-              (resolve-zoom-into before zoom-map panel-id
-                                 (or site-id mount-id))
+              (let [b (zoom-walk before zoom-path)]
+                (if (keyword-identical? ::no-resolve b)
+                  engine/missing-sentinel
+                  b))
               before)
             ;; The effective zoom-path-prefix is `[]` when not zoomed;
             ;; otherwise the stored zoom-path. Threaded into every
