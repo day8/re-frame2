@@ -1,11 +1,9 @@
 (ns re-frame.frame-destroy-incarnation-facade-cljs-test
-  "BLACK-BOX facade-only regression for frame-value EXACT-INCARNATION teardown
-  (rf2-clgup — u5jgq AC5/AC6, the shipped semantics from rf2-dlld6 #6186 +
-  rf2-kvpmr #6197).
+  "BLACK-BOX facade-only test of frame-value EXACT-INCARNATION teardown.
 
   `frame_destroy_incarnation_jvm_test.clj` proves the same contract by reading
   PRIVATE incarnation state — `frame/frame-incarnation-token`, `epoch-state/*`,
-  `late-bind/*` — under JVM latches. This regression proves the SAME shipped
+  `late-bind/*` — under JVM latches. This ns proves the SAME
   behaviour observed ONLY through the PUBLIC re-frame.core facade: the frame
   constructors/destructors (`make-frame` / `destroy-frame!`), the seed event
   `:rf/set-db`, and the public value read `app-db-value`. It reaches into NO
@@ -13,7 +11,7 @@
   purely as `app-db-value` (a map for a live frame, nil for a destroyed/absent
   one, per Spec 002 §The public registrar query API).
 
-  The headline contract (EP-0024 §Operation target grammar / rf2-moftbs; the
+  The headline contract (EP-0024 §Operation target grammar; the
   `make-frame` / `destroy-frame!` docstrings):
 
     * `make-frame`'s returned VALUE is an EXACT-INCARNATION token — destroying it
@@ -29,7 +27,7 @@
   incarnation survives, with no token peek.
 
   `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`
-  — the JVM + CLJS coverage the bead asks for in one artefact."
+  — JVM + CLJS coverage in one artefact."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
@@ -56,7 +54,7 @@
   (rf/make-frame {:id id :initial-events [[:rf/set-db db]]}))
 
 ;; ===========================================================================
-;; The headline regression — a stale frame VALUE is an exact-incarnation no-op
+;; The headline case — a stale frame VALUE is an exact-incarnation no-op
 ;; against a same-id successor, while the id KEYWORD is address-directed. The
 ;; whole scenario is observed through `app-db-value` only.
 ;; ===========================================================================
