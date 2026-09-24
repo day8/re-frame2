@@ -348,6 +348,12 @@
                          identity rather than asking every caller to
                          remember it (rf2-323z).
       :version           :schema-digest   passed to `build-payload`.
+      :payload-include-sensitive
+                         optional: a vector of app-db PATHS the frame
+                         classifies `:sensitive` whose raw value may ride the
+                         payload (a CSRF token, say) — `payload-policy`'s
+                         permit (rf2-hjz4r). Absent, every classified value
+                         arrives as `:rf/redacted`.
 
   The first eight are the spellings `18-ssr-and-hydration.md` teaches
   (naming-ledger row 22, which settles them as a set).
@@ -363,8 +369,9 @@
   render; the listener is unregistered, the window closed and the frame
   destroyed in a `finally`, in that order, so a render that threw leaks no
   more than one that returned."
-  [{:keys [hiccup snapshot initial-events payload frame-opts client-frame-id
-           identifier-prefix version schema-digest app-element-id script-src title]}]
+  [{:keys [hiccup snapshot initial-events payload payload-include-sensitive frame-opts
+           client-frame-id identifier-prefix version schema-digest app-element-id
+           script-src title]}]
   (let [frame-id  (fresh-frame-id)
         ;; Per REQUEST and reachable from nothing else — never a
         ;; module-level flag, which would let one request's throw leave
@@ -425,7 +432,11 @@
                             (rf.ssr.payload-policy/project-app-db-egress
                               (rf.ssr.payload-policy/apply-policy (rf/app-db-value frame-id) policy-opts)
                               ;; PROJECTION frame — the real per-request one.
-                              frame-id)
+                              frame-id
+                              ;; rf2-hjz4r — the markup above printed the LIVE
+                              ;; frame, so a permitted value must reach the
+                              ;; payload raw too, or the two halves disagree.
+                              payload-include-sensitive)
                             ;; NO RENDER HASH — nil, and `build-payload`
                             ;; omits the key.
                             nil

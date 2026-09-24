@@ -169,6 +169,24 @@ Forget to set `:payload` at all and you get a loud error at boot (`:rf.error/ssr
 
 The same constructor accepts the rest of the lifecycle opts: the two error opts (`:error-view`, `:on-error`, [covered below](#when-the-server-throws)) and the caller-trusted shell hooks for bespoke head/body fragments (`:head`, `:body-end`, `:script-src`, `:app-element-id`).
 
+#### Classified values inside the allowlist
+
+`:payload` decides *which keys* cross; your [classification](../core/how-to/keep-secrets-out-of-traces.md) still applies *inside* them. A path you classify `:sensitive` reaches the browser as `:rf/redacted`, while a `:large` one rides whole — the payload becomes the client's live state, so it isn't size-trimmed the way a tool feed is.
+
+Usually that's right. Sometimes, though, the user's own browser is entitled to a classified value: a CSRF token the page must send back, the signed-in user's email. Name those paths with `:payload-include-sensitive`:
+
+```clojure
+(ssr-ring/ssr-handler
+  {:initial-events            [[:app/boot]]
+   :root-view                 (fn [] ((rf/view :app/root)))
+   :payload                   [:session :articles]
+   :payload-include-sensitive [[:session :csrf]]})   ;; app-db PATHS, not keys
+```
+
+The raw value is taken from the allowlisted slice, so a permit off the allowlist does nothing. A permit never reaches through a classified ancestor: if all of `:session` is sensitive, permit `[:session]` or classify at the leaves. Permitting a whole map releases everything under it, so prefer leaves, and never permit a long-lived bearer token. The same permit reaches the streaming payload, a Fresco render and a Node renderer's render state, so the HTML and the payload agree. Written unwrapped — `[:session :csrf]` for `[[:session :csrf]]` — it fails at boot with `:rf.error/ssr-malformed-payload-allowlist`.
+
+A value the *browser* originated — a password the user is typing — is the other case. It isn't permitted; it's re-seeded on the client after hydration. On the hiccup tier, call `hydrate!` without `:render-tree-fn`, re-seed, then call `verify-hydration!` yourself, so the check sees the re-seeded state.
+
 ## The client side: hydrate, then verify
 
 The client's job is to land in the state the server finished in, without redoing the work. What it has to work with is the **payload** — the last thing the server shipped, sitting in the page as a `<script id="__rf_payload">` of EDN:

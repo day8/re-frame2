@@ -252,7 +252,8 @@
   browser would read back as a different value throws
   `:rf.error/ssr-hydration-payload-invalid`. `policy-opts` carries the
   `:payload` policy (validated at handler-construction time, so a malformed
-  policy never reaches here). A nil / empty delta returns `{}` (nothing to
+  policy never reaches here) and the optional `:payload-include-sensitive`
+  permit, applied exactly as the final payload applies it (rf2-hjz4r). A nil / empty delta returns `{}` (nothing to
   hydrate). Pure."
   [delta frame-id {:as policy-opts}]
   (if-not (seq delta)
@@ -264,7 +265,10 @@
       ;; `:rf/redacted` sentinel, which the host's `(seq …)` emit guard cannot
       ;; walk). Short-circuit to `{}` so the host emits no delta script.
       (if (seq allowed)
-        (let [projected (rf.ssr.payload-policy/project-app-db-egress allowed frame-id)]
+        (let [;; rf2-hjz4r — the same host permit the final payload honours,
+              ;; so a delta and the final payload agree on a permitted value.
+              projected (rf.ssr.payload-policy/project-app-db-egress
+                          allowed frame-id (:payload-include-sensitive policy-opts))]
           ;; rf2-3x7nj.13.3 — a delta is hydration state too, so on a JVM
           ;; host it obeys the final payload's numeric crossing rule.
           #?(:clj (rf.ssr.payload-policy/check-portable-numbers! :rf/app-db projected))
@@ -841,7 +845,10 @@
        ;; `__rf_payload` raw.
        (rf.ssr.payload-policy/project-app-db-egress
         (rf.ssr.payload-policy/apply-policy app-db policy-opts)
-        frame-id)
+        frame-id
+        ;; rf2-hjz4r — the host's permit. The incoherent-frame branch below
+        ;; redacts whole and applies none.
+        (:payload-include-sensitive policy-opts))
        render-hash
        ;; rf2-3fc89f.15 — project the runtime-db under the EXPLICIT carried
        ;; `frame-id` (the same target the app-db projection above uses), NOT an

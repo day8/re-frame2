@@ -20,6 +20,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.payload :as rf.ssr.ring.payload]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
@@ -188,3 +190,122 @@
       (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data)))
       (is (= [:catalog :items 1] (:path data)))
       (is (= :rf/app-db (:partition data))))))
+
+;; ---- rf2-hjz4r: the :payload-include-sensitive permit -----------------------
+;;
+;; A CSRF synchronizer token is the counterexample to "sensitive means
+;; server-only": the app keeps it out of its logs and tools, yet the page must
+;; send it back. The host names it; everything else classified stays redacted.
+;; These drive the REAL handlers end to end, so the pipeline's policy opts and
+;; the streaming writer are what carry the permit.
+
+(defn- reg-session-app! []
+  (rf/reg-event :rf.hjz4r/seed-session
+    (fn [_ _]
+      {:db        {:session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}
+                   :secrets {:api-key "internal-only"}}
+       :sensitive [[:session :csrf] [:session :upstream-key]]}))
+  (rf/reg-sub :rf.hjz4r/csrf (fn [db _] (get-in db [:session :csrf])))
+  (rf/reg-sub :rf.hjz4r/user (fn [db _] (get-in db [:session :user])))
+  ;; A hiccup-tier login form: the token in a hidden input, the user's name in
+  ;; a paragraph. It never renders the upstream key.
+  (rf/reg-view* :rf.hjz4r/root
+    (fn []
+      [:form {:method "post"}
+       [:input {:type "hidden" :name "csrf" :value (rf/subscribe-once [:rf.hjz4r/csrf])}]
+       [:p (rf/subscribe-once [:rf.hjz4r/user])]])))
+
+(def ^:private permit {:payload-include-sensitive [[:session :csrf]]})
+
+(defn- payload-of [body]
+  (some-> (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)
+          second
+          edn/read-string))
+
+(defn- serve-session!
+  "One request through the real `ssr-handler`: the body and the wire payload
+  read back as EDN."
+  [extra-opts]
+  (let [handler (rf.ssr.ring/ssr-handler
+                  (merge {:initial-events [[:rf.hjz4r/seed-session]]
+                          :root-view      (fn [] ((rf/view :rf.hjz4r/root)))
+                          :payload        [:session]}
+                         extra-opts))
+        body    (:body (handler {:uri "/login" :request-method :get}))]
+    {:body body :payload (payload-of body)}))
+
+(deftest a-permitted-sensitive-value-rides-the-payload-raw
+  (reg-session-app!)
+  (let [{:keys [payload]} (serve-session! permit)
+        db                (:rf/app-db payload)]
+    (is (= "csrf-abc-123" (get-in db [:session :csrf]))
+        "the permitted token rides raw (it was :rf/redacted)")
+    (is (= rf.privacy/redacted-sentinel (get-in db [:session :upstream-key]))
+        "control: the classified sibling the host did not permit stays redacted")
+    (is (= "alice" (get-in db [:session :user]))
+        "control: the unclassified sibling is unchanged")
+    (is (not (contains? db :secrets))
+        "control: the unallowlisted key is absent")
+    (is (not (.contains (pr-str payload) "sk-server-only"))
+        "control: the withheld value survives nowhere in the payload"))
+  (testing "control: with no permit the token is redacted, as before"
+    (is (= rf.privacy/redacted-sentinel
+           (get-in (:payload (serve-session! {})) [:rf/app-db :session :csrf])))))
+
+(deftest a-permitted-value-is-live-client-state-after-a-real-hydrate
+  (reg-session-app!)
+  (let [{:keys [payload]} (serve-session! permit)
+        client            (rf.frame/make-anon-frame-record! {:doc      "rf2-hjz4r permit client"
+                                                             :platform :client})]
+    (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
+    (is (= "csrf-abc-123" (get-in (rf/app-db-value client) [:session :csrf]))
+        "the client holds the token it must send back, not :rf/redacted")
+    (is (= rf.privacy/redacted-sentinel
+           (get-in (rf/app-db-value client) [:session :upstream-key]))
+        "control: the withheld sibling is still the sentinel on the client")))
+
+(deftest a-permitted-rendered-value-hydrates-without-a-mismatch
+  (testing "the hiccup tier renders the LIVE frame, so the server HTML carries
+            the raw token; with the permit the client's first render hashes the
+            same (it hashed :rf/redacted, a mismatch on a correct app)"
+    (reg-session-app!)
+    (let [{:keys [body payload]} (serve-session! permit)
+          client (rf.frame/make-anon-frame-record! {:doc      "rf2-hjz4r hash client"
+                                                    :platform :client
+                                                    :ssr      {:on-mismatch :hard-error}})]
+      (is (.contains ^String body "value=\"csrf-abc-123\"")
+          "control: the server HTML carries the raw token")
+      (is (some? (:rf/render-hash payload))
+          "control: the resolving root carries the hash channel")
+      (is (= payload (rf.ssr/hydrate! {:frame          client
+                                       :payload        payload
+                                       :render-tree-fn #((rf/view :rf.hjz4r/root))}))
+          "no :rf.ssr/hydration-mismatch: the client's first render matches the server's"))))
+
+(deftest the-streaming-final-payload-honours-the-permit
+  (reg-session-app!)
+  (let [handler (rf.ssr.ring/stream-handler
+                  (merge {:initial-events [[:rf.hjz4r/seed-session]]
+                          :root-view      [(rf/view :rf.hjz4r/root)]
+                          :payload        [:session]}
+                         permit))
+        body    (with-open [in ^java.io.InputStream (:body (handler {:uri "/login" :request-method :get}))]
+                  (slurp in))
+        db      (:rf/app-db (payload-of body))]
+    (is (= "csrf-abc-123" (get-in db [:session :csrf]))
+        "the streamed final payload carries the permitted token raw")
+    (is (= rf.privacy/redacted-sentinel (get-in db [:session :upstream-key]))
+        "control: the unpermitted sibling stays redacted")))
+
+(deftest a-malformed-permit-fails-at-handler-construction
+  (let [data (try (rf.ssr.ring/ssr-handler
+                    {:initial-events            [[:rf.hjz4r/seed-session]]
+                     :root-view                 (fn [] [:p "x"])
+                     :payload                   [:session]
+                     :payload-include-sensitive [:session :csrf]})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+    (is (= :rf.error/ssr-malformed-payload-allowlist (:rf.error/id data))
+        "one path written unwrapped fails at boot, not at first request")
+    (is (= :payload-include-sensitive (:opt data)))
+    (is (= [:session :csrf] (:bad-entries data)))))

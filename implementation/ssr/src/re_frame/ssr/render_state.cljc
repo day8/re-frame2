@@ -60,7 +60,11 @@
   construction; rf2-ybn1yb). The rendered markup goes to the browser, so a
   value the app classifies `:sensitive` is a value the render should not
   be able to print in the first place — projecting it here keeps the
-  sidecar unable to.
+  sidecar unable to — unless the host permits it, with the same
+  `:payload-include-sensitive` permit the payload honours, so both halves
+  agree (rf2-hjz4r). The permit applies inside this policy's own app-db
+  allowlist; the fn escape hatch applies no classification and gets no
+  permit (a projector wanting one calls the 3-arity itself).
 
   Runtime-db keys the projector has NO vocabulary for ride verbatim: the
   operator named them, top-level, explicitly, and the alternative — a key
@@ -316,14 +320,16 @@
 ;; ---- project (server side) ------------------------------------------------
 
 (defn- allowlist-project
-  [frame-id {app-keys :app-db rt-keys :runtime-db}]
+  [frame-id {app-keys :app-db rt-keys :runtime-db} permits]
   (let [app-db     (rf.frame/frame-app-db-value frame-id)
         runtime-db (rf.frame/frame-runtime-db-value frame-id)
         app-slice  (if (seq app-keys)
                      ;; Allowlist FIRST, then the frame-scoped egress walk over
-                     ;; the survivors, exactly as the payload builder orders it.
+                     ;; the survivors, exactly as the payload builder orders it
+                     ;; — the host's permit included, inside THIS allowlist
+                     ;; (rf2-hjz4r), so the render and the payload agree.
                      (rf.ssr.payload-policy/project-app-db-egress
-                       (select-keys app-db app-keys) frame-id)
+                       (select-keys app-db app-keys) frame-id permits)
                      {})
         rt-slice   (if (seq rt-keys)
                      (let [selected (select-keys runtime-db rt-keys)]
@@ -354,12 +360,12 @@
   `:rf.error/ssr-render-state-invalid` when a top-level entry of
   either partition cannot ride the EDN wire — at projection, never as a
   silent nil."
-  [frame-id {:keys [render-state] :as opts}]
+  [frame-id {:keys [render-state payload-include-sensitive] :as opts}]
   (validate-policy-opts! opts)
   (require-live-frame! frame-id)
   (let [partitions (if (fn? render-state)
                      (render-state frame-id)
-                     (allowlist-project frame-id render-state))
+                     (allowlist-project frame-id render-state payload-include-sensitive))
         partitions (normalise-partitions! partitions)]
     (check-wire-domain! partitions)
     partitions))

@@ -31,6 +31,7 @@
   the `:once` fixture's `finally`. The untagged construction-contract
   tests at the bottom need no sidecar and run in the default lane."
   (:require [clojure.data.json :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -499,3 +500,56 @@
       (is (= :render-state (:opt data)))))
   (testing "the escape-hatch projector constructs"
     (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :render-state (fn [_] {:rf/app-db {}})))))))
+
+;; ===========================================================================
+;; rf2-hjz4r — the handler's `:payload-include-sensitive` reaches the render
+;; state, so the markup the renderer prints and the payload agree on a
+;; permitted value. No sidecar: a capturing stub stands in for it, so this
+;; runs in the default lane.
+;; ===========================================================================
+
+(defn- with-capturing-stub-sidecar
+  "Run `f` with the URL of a JDK HttpServer that records each request body in
+  `seen` and answers 200 as build `build-id`."
+  [seen build-id f]
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
+        bytes  (.getBytes "<main>stub</main>" "UTF-8")]
+    (.createContext server "/render"
+                    (proxy [HttpHandler] []
+                      (handle [^HttpExchange ex]
+                        (reset! seen (slurp (.getRequestBody ex) :encoding "UTF-8"))
+                        (.add (.getResponseHeaders ex) "x-rf-ssr-build" build-id)
+                        (.sendResponseHeaders ex 200 (alength bytes))
+                        (with-open [out (.getResponseBody ex)] (.write out bytes))
+                        nil)))
+    (.start server)
+    (try
+      (f (str "http://127.0.0.1:" (.getPort (.getAddress server))))
+      (finally (.stop server 0)))))
+
+(deftest the-handlers-sensitive-permit-reaches-the-render-state
+  (rf/reg-event :rf.test.crossing/seed-session
+    {:platforms #{:server}}
+    (fn [_ _]
+      {:db        {:heading "Crossing"
+                   :session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}}
+       :sensitive [[:session :csrf] [:session :upstream-key]]}))
+  (let [seen (atom nil)]
+    (with-capturing-stub-sidecar seen "crossing-build-1"
+      (fn [url]
+        (let [response ((rf.ssr.ring/ssr-handler
+                          {:initial-events            [[:rf.test.crossing/seed-session]]
+                           :payload                   [:heading :session]
+                           :payload-include-sensitive [[:session :csrf]]
+                           :renderer                  (node-renderer url :render-state {:app-db [:session]})})
+                        request)
+              session  (some-> @seen json/read-str (get "state") (get ":session") edn/read-string)]
+          (is (= 200 (:status response)) "the stub's page is accepted")
+          (is (= "csrf-abc-123" (:csrf session))
+              (str "the permitted value reaches the renderer raw; got " (pr-str session)))
+          (is (= :rf/redacted (:upstream-key session))
+              "control: the classified sibling the host did not permit stays redacted")
+          (is (= "alice" (:user session))
+              "control: the unclassified sibling rides")
+          (is (not (str/includes? (str @seen) "sk-server-only"))
+              "control: the withheld value crosses to the renderer by no route"))))))

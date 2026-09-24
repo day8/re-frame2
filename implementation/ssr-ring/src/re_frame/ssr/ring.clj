@@ -139,6 +139,15 @@
 
   Optional opts:
 
+    :payload-include-sensitive
+                    — a vector of app-db PATHS the frame classifies
+                      `:sensitive` whose raw value may ride the payload
+                      anyway, e.g. `[[:session :csrf]]` for a CSRF token the
+                      page sends back (rf2-hjz4r). Paths inside the
+                      `:payload` allowlist only; a permit never reaches
+                      through a classified ancestor. Absent, every
+                      classified value arrives as `:rf/redacted`. A
+                      malformed value fails at handler construction.
     :fx-overrides   — per-frame `:fx-overrides` map, passed through
                       verbatim to `(rf/make-frame ...)`. Useful for
                       stubbing `:rf.http/managed` during tests.

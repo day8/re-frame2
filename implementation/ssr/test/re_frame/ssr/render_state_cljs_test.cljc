@@ -215,6 +215,31 @@
                out)
             "an absent :rf/runtime-db normalises to {} — both keys are always present")))))
 
+(deftest project-honours-the-hosts-sensitive-permit-inside-its-own-allowlist
+  ;; rf2-hjz4r — the renderer prints what the render state carries, so the
+  ;; host's `:payload-include-sensitive` must reach it too, or the markup and
+  ;; the payload disagree on a permitted value.
+  (let [mid      (fresh-id "auth")
+        sfid     (settled-server-frame! mid)
+        classify (fresh-id "classify-user")]
+    ;; A second classified leaf beside `[:session :token]`, to be withheld.
+    (rf/reg-event classify (fn [_ _] {:sensitive [[:session :user]]}))
+    (rf/dispatch-sync [classify] {:frame sfid})
+    (let [app (:rf/app-db (rf.ssr.render-state/project
+                            sfid {:render-state              {:app-db [:session :todos]}
+                                  :payload-include-sensitive [[:session :token]]}))]
+      (is (= "secret-session-token" (get-in app [:session :token]))
+          "the permitted value reaches the renderer raw")
+      (is (= :rf/redacted (get-in app [:session :user]))
+          "control: the classified sibling the host did not permit stays redacted")
+      (is (= (:todos corpus-app-db) (:todos app))
+          "control: an unclassified key rides"))
+    (testing "the permit applies only inside :render-state's own allowlist"
+      (is (not (contains? (:rf/app-db (rf.ssr.render-state/project
+                                        sfid {:render-state              {:app-db [:todos]}
+                                              :payload-include-sensitive [[:session :token]]}))
+                          :session))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Acceptance 1 — the round-trip corpus, both partitions, restore! identical
 ;; ---------------------------------------------------------------------------

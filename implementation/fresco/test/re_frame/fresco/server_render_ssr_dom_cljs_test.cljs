@@ -99,6 +99,10 @@
 (rf/reg-sub ::label (fn [db _] (:label db)))
 (rf/reg-sub ::secret (fn [db _] (:secret db)))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
+;; rf2-hjz4r — the permit row's classification, run by the request frame's
+;; setup vector after the snapshot seeds `:session`.
+(rf/reg-event ::classify-session
+  (fn [_ _] {:sensitive [[:session :csrf] [:session :upstream-key]]}))
 
 ;; rf2-323z — the platform PAIR. Two effects that differ in exactly one
 ;; thing, their `:platforms` metadata, dispatched together from one event,
@@ -376,6 +380,27 @@
             anonymous-server-frame shape, not a nil stamped on the wire"
     (let [{:keys [payload]} (rf.fresco.server/render (dissoc (request) :client-frame-id))]
       (is (not (contains? payload :rf/frame-id))))))
+
+(deftest a-permitted-sensitive-value-rides-the-payload-raw
+  ;; rf2-hjz4r. This door renders the LIVE frame into the HTML and projects
+  ;; the payload separately, so the host's `:payload-include-sensitive` must
+  ;; reach the payload for the two halves to agree.
+  (let [session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}
+        {:keys [payload document]}
+        (rf.fresco.server/render
+          (request :snapshot                  (assoc snapshot :session session)
+                   :initial-events            [[::classify-session]]
+                   :payload                   [:label :session]
+                   :payload-include-sensitive [[:session :csrf]]))
+        db (:rf/app-db payload)]
+    (is (= "csrf-abc-123" (get-in db [:session :csrf]))
+        (str "the permitted value rides the payload raw; got " (pr-str (:session db))))
+    (is (= :rf/redacted (get-in db [:session :upstream-key]))
+        "control: the classified sibling the host did not permit stays redacted")
+    (is (= "alice" (get-in db [:session :user]))
+        "control: the unclassified sibling rides")
+    (is (not (str/includes? document "sk-server-only"))
+        "control: the withheld value reaches the document by no route")))
 
 (deftest the-document-carries-the-pinned-payload-script
   (let [{:keys [document payload-edn]}

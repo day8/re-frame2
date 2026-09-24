@@ -175,6 +175,46 @@
   [x]
   (= x whole-app-db-policy))
 
+;; ---- the sensitive permit (rf2-hjz4r) ------------------------------------
+;;
+;; `:payload-include-sensitive` — an optional vector of concrete app-db PATHS
+;; whose RAW value may cross to the hydrating browser although the frame
+;; classifies it `:sensitive` (a CSRF synchronizer token the page sends back,
+;; the user's own email). Classification answers "keep it out of the logs and
+;; the tools"; the permit answers "may this user's browser hold it", which only
+;; the host knows. Absent or `[]` means no permits, so the default stays redact.
+
+(defn- permit-bad-entries
+  "The entries of `permits` that are not a non-empty path vector, or nil when
+  `permits` is a well-formed permit list (nil, or a sequential of non-empty
+  vectors). A non-sequential `permits` is bad as a whole."
+  [permits]
+  (cond
+    (nil? permits)              nil
+    (not (sequential? permits)) [permits]
+    :else (seq (remove #(and (vector? %) (seq %)) permits))))
+
+(defn- check-include-sensitive!
+  "Throw `:rf.error/ssr-malformed-payload-allowlist` (`:opt
+  :payload-include-sensitive` in ex-data) when `permits` is not a vector of
+  non-empty path vectors; return `permits`. The commonest slip is one path
+  written unwrapped, `[:session :csrf]` for `[[:session :csrf]]`."
+  [permits]
+  (when-let [bad (permit-bad-entries permits)]
+    (rf.error/throw-error!
+      :rf.error/ssr-malformed-payload-allowlist
+      're-frame.ssr.payload-policy
+      (str "ssr-handler :payload-include-sensitive must be a vector of app-db "
+           "PATHS, each a non-empty vector — e.g. [[:session :csrf]]; got "
+           (pr-str permits) " — these entries are not paths: " (pr-str (vec bad))
+           " (a single path is still wrapped: [[:session :csrf]], not "
+           "[:session :csrf]).")
+      {:recovery :declare-payload-policy
+       :extra    {:opt         :payload-include-sensitive
+                  :got         permits
+                  :bad-entries (vec bad)}}))
+  permits)
+
 (defn validate-policy-opts!
   "Throw a structured error when the caller's `:payload` opt is absent or
   malformed. Called at handler-construction time by the Ring host adapter
@@ -197,15 +237,20 @@
       (fail-closed; the selector is collection-vs-keyword, so a SET is
       rejected — the allowlist is an ORDERED key selection)
 
+  With a valid `:payload`, the optional `:payload-include-sensitive` permit
+  must be a vector of non-empty path vectors, or
+  `:rf.error/ssr-malformed-payload-allowlist` names it (`:opt
+  :payload-include-sensitive`, rf2-hjz4r).
+
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
-  [{:keys [payload] :as opts}]
+  [{:keys [payload payload-include-sensitive] :as opts}]
   (cond
     (valid-allowlist? payload)
-    opts
+    (do (check-include-sensitive! payload-include-sensitive) opts)
 
     (valid-policy-keyword? payload)
-    opts
+    (do (check-include-sensitive! payload-include-sensitive) opts)
 
     ;; Caller passed a non-empty sequential coll that ISN'T an all-keyword
     ;; allowlist — a clear allowlist attempt with a malformed element
@@ -309,12 +354,37 @@
 ;; frame policy fails CLOSED here too (a server render always carries the live
 ;; request frame, so the projection runs against real declarations).
 
+(defn- descendable?
+  "Both nodes can be stepped into at coordinate `k`: each is a map or a vector
+  holding `k`. `map?` / `vector?` come BEFORE `contains?`, which throws on a
+  list."
+  [projected raw k]
+  (and (or (map? projected) (vector? projected))
+       (or (map? raw) (vector? raw))
+       (contains? projected k)
+       (contains? raw k)))
+
+(defn- restore-permitted
+  "Put the RAW value at `path` back into the `projected` slice, descending only
+  while both the projected node and the raw node hold the next coordinate.
+  Anything else — an absent coordinate, a scalar in the way, a `:rf/redacted`
+  ancestor, a dead frame's whole-slice sentinel — leaves the projection
+  untouched: a permit never creates a key or a container, and never pierces a
+  classified ancestor (rf2-hjz4r)."
+  [projected raw [k & more]]
+  (if (descendable? projected raw k)
+    (assoc projected k (if more
+                         (restore-permitted (get projected k) (get raw k) more)
+                         (get raw k)))
+    projected))
+
 (defn project-app-db-egress
   "Run the already-allowlisted `db-slice` through the centralized
   `:rf.egress/ssr-hydration` egress projection seeded at `frame-id`, so a
-  frame-classified `:sensitive` / `:large` path inside an allowlisted (or
-  whole-app-db) slice redacts / elides as defense-in-depth before it serializes
-  into the hydration `:rf/app-db` (EP-0015 §14). Defers to
+  frame-classified `:sensitive` path inside an allowlisted (or whole-app-db)
+  slice redacts as defense-in-depth before it serializes into the hydration
+  `:rf/app-db` (EP-0015 §14). The profile applies no size elision: the payload
+  is the browser's live state (rf2-hjz4r). Defers to
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
@@ -322,12 +392,30 @@
   `frame-id` redacts the whole slice to `:rf/redacted` rather than ship it under
   no policy. A server render carries the live request frame, so the projection
   runs against that frame's real declarations; a nil `frame-id` is the same
-  fail-closed case (no frame policy ⇒ whole-value redaction)."
-  [db-slice frame-id]
-  (rf.projection/project-egress
-    db-slice
-    {:frame             frame-id
-     :rf.egress/profile :rf.egress/ssr-hydration}))
+  fail-closed case (no frame policy ⇒ whole-value redaction).
+
+  The 3-arity also takes the host's `:payload-include-sensitive` `permits` — a
+  vector of concrete app-db paths whose raw value may cross (rf2-hjz4r). After
+  the projection, each permitted path gets its raw value back from `db-slice`
+  (the allowlisted slice, never the frame, so a permit off the allowlist does
+  nothing), per `restore-permitted`: it never pierces a classified ancestor, and
+  permitting a collection releases its whole subtree. A dead frame's
+  whole-slice `:rf/redacted` has nothing to descend, so every permit is inert
+  there. nil / `[]` permits give the 2-arity result. This is the ONE rule every
+  hydration site shares — both payload builders, the streaming delta, Fresco's
+  server render and the node render state — so the restored values still pass
+  each caller's numeric / wire-domain checks. A malformed `permits` throws
+  `:rf.error/ssr-malformed-payload-allowlist` (the runtime arm of
+  `validate-policy-opts!`'s check)."
+  ([db-slice frame-id]
+   (rf.projection/project-egress
+     db-slice
+     {:frame             frame-id
+      :rf.egress/profile :rf.egress/ssr-hydration}))
+  ([db-slice frame-id permits]
+   (reduce (fn [projected path] (restore-permitted projected db-slice path))
+           (project-app-db-egress db-slice frame-id)
+           (check-include-sensitive! permits))))
 
 ;; ---- routing hydration egress projection ----------------------------------
 ;;
