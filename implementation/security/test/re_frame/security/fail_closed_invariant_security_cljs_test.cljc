@@ -144,7 +144,7 @@
 (deftest legitimate-in-app-urls-still-pass
   (testing "the URL gate is precise, not a blanket reject: a
             genuine rooted same-origin path / pure query / pure fragment
-            still classifies in-app, so fail-closed didn't break real nav."
+            still classifies in-app, so failing closed does not break real nav."
     (doseq [ok-url ["/" "/dashboard" "/users/42" "/a/b/c" "?q=1" "#frag"
                     "/search?sort=asc#top"]]
       (is (true? (rf.routing.url/safe-in-app-url? ok-url))
@@ -236,7 +236,7 @@
         ;; Fidelity: the rejection diagnostic carries the DISPATCH frame
         ;; (:rf/default), proving this test drove the FRAMED handler path
         ;; via the :rf.frame/id coeffect the handler destructures — not the
-        ;; frameless frame=nil path a mis-keyed coeffect silently produced.
+        ;; frameless frame=nil path a mis-keyed coeffect would silently produce.
         (is (every? #(= :rf/default (:frame (:tags %)))
                     (ops traces :rf.error/malformed-hydration-payload))
             (str "payload " (pr-str payload)
@@ -245,8 +245,8 @@
 (deftest wellformed-hydration-payload-still-installs
   (testing "the guard is precise: a well-formed payload (a map
             with a map app-db slice, OR a map with NO slice — the documented
-            client-only fallback) still hydrates. Fail-closed didn't break
-            the real path."
+            client-only fallback) still hydrates. Failing closed does not
+            break the real path."
     ;; A full server slice installs.
     (let [{:keys [result traces]} (hydrate-with {:rf/app-db {:count 7 :title "seeded"}})]
       (is (= 7 (get-in result [:db :count])) "server app-db slice installed")
