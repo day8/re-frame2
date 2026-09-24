@@ -57,7 +57,7 @@
   (vec (sort-by (fn [item] (pr-str (key-fn item))) xs)))
 
 ;; ---------------------------------------------------------------------------
-;; Privacy — the existing projectors, at this door
+;; Privacy — the framework's projectors, at this door
 ;; ---------------------------------------------------------------------------
 
 (defn- projected-query
@@ -219,7 +219,7 @@
                       ;; Did the fold merge entries that read DIFFERENT
                       ;; cells, or only different ORDERS of the same ones?
                       ;; Carried as METADATA rather than as a field: it is
-                      ;; the explanation's business (rf2-h9lt) and not the
+                      ;; the explanation's business and not the
                       ;; mounted roster's, and this row IS the envelope's
                       ;; `:boundaries` element, so a field here would widen
                       ;; a published schema to say something no consumer of
@@ -486,14 +486,14 @@
   moved most recently, and `:snapshot` is the sum React itself compares.
 
   **`:snapshot` is `evidence/unknown` where the privacy fold merged
-  DISTINCT raw read sets** (rf2-h9lt). `make-snapshot` sums ONE entry's
+  DISTINCT raw read sets**. `make-snapshot` sums ONE entry's
   keys; this row can hold several, because an egress policy that elides a
   query whole projects `[:row \"secret-a\"]` and `[:row \"secret-b\"]` onto
   one identity. Summing across that group produces a number no boundary
   ever compares — `(+ eA eB)` where React held `eA` at one and `eB` at
   the other — and reporting it as *the* snapshot is a fabricated answer
-  given to someone debugging. The fold itself is correct and stays; only
-  the claim about it is withdrawn. A group of two READ ORDERS of one raw
+  given to someone debugging. The fold itself is correct; what is
+  declined is the claim about it. A group of two READ ORDERS of one raw
   set is not this case: every entry in it holds the same cells, so the
   sum is that boundary's real snapshot and is reported exactly.
 
