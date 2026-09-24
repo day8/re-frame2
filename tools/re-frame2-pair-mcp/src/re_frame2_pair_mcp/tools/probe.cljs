@@ -30,7 +30,7 @@
   lets a freshly-added preload land without a server restart (e.g.
   the user edits `shadow-cljs.edn` and shadow-cljs hot-reloads).
 
-  ## Re-validating a cached positive (rf2-dk6bv5)
+  ## Re-validating a cached positive
 
   A cached positive marker is scoped to the nREPL SOCKET, which stays
   open independently of the browser tab's own WebSocket. If the tab
@@ -57,12 +57,11 @@
   precise reason (almost always `:no-runtime-connected`) instead of a
   misleading `:ok? true`.
 
-  This was picked over the two alternatives noted in the bead: a TTL
-  reopens the same footgun for the length of the window (and adds a
-  clock dependency to a synchronous cache check); a browser-side teardown
-  signal needs a live WebSocket at the exact moment of teardown, which is
-  precisely the mechanism that's failing. A cheap, JVM-side, every-call
-  re-check trades a small constant cost (already paid by `discover-app`'s
+  Neither obvious alternative closes the hole: a TTL would reopen the
+  same footgun for the length of the window (and add a clock dependency
+  to a synchronous cache check); a browser-side teardown signal needs a
+  live WebSocket at the exact moment of teardown, which is precisely the
+  mechanism that's failing. A cheap, JVM-side, every-call re-check trades a small constant cost (already paid by `discover-app`'s
   freshness token, reusing the same primitive) for closing the hole
   outright.
 
@@ -119,8 +118,7 @@
 ;; them. The ladder below distinguishes the failure modes:
 ;;
 ;;   :nrepl-unreachable             - JVM eval round-trip fails. The
-;;                                    socket may be dead even though
-;;                                    the bash side of the world is up.
+;;                                    socket may be dead.
 ;;   :build-not-running             - shadow's active-builds doesn't
 ;;                                    include the build the tool is
 ;;                                    targeting. Almost always a
@@ -217,7 +215,7 @@
 
 (defn- unmark-conn-probed!
   "Drop a previously-recorded positive probe for `build-id` from the
-  conn-atom's cache (rf2-dk6bv5). Called when `confirmed-live?`'s
+  conn-atom's cache. Called when `confirmed-live?`'s
   liveness re-check proves a cached positive is now stale — the browser
   tab closed/crashed/navigated away sometime after the marker was
   cached. The next `runtime-preloaded?` call for this build must re-probe
@@ -249,7 +247,7 @@
         (.catch (fn [_] false)))))
 
 ;; ---------------------------------------------------------------------------
-;; Liveness re-validation (rf2-dk6bv5) — see the ns docstring's
+;; Liveness re-validation — see the ns docstring's
 ;; "Re-validating a cached positive" section for the full rationale.
 ;; ---------------------------------------------------------------------------
 
@@ -265,7 +263,7 @@
 
 (defn confirmed-live?
   "The re-validated liveness check every eval-path guard uses in place
-  of a bare `runtime-preloaded?` call (rf2-dk6bv5). Resolves to true only
+  of a bare `runtime-preloaded?` call. Resolves to true only
   when BOTH hold:
 
     1. the marker probe (`runtime-preloaded?`, itself cache-accelerated)
@@ -316,7 +314,7 @@
                                              connected, or its ws is dead).
     :runtime-loaded-but-preload-missing    - a CLJS runtime is alive but
                                              the preload marker is absent.
-                                             The original hint applies here.
+                                             The preload hint applies here.
 
   The ladder runs one extra `jvm-eval` (active-builds enumeration) plus
   one `cljs-eval` (blank-vs-false discriminator) — ~50ms on the failure
@@ -408,7 +406,7 @@
   connected. Resolves to nil on success, rejects with a structured error
   otherwise. Tools that need the runtime call this first.
 
-  Routes through `confirmed-live?`, not the bare marker probe (rf2-dk6bv5):
+  Routes through `confirmed-live?`, not the bare marker probe:
   a cached-positive marker still pays one cheap JVM-side liveness
   re-check on every call (a different round-trip from the browser marker
   eval — the marker cache's own round-trip savings are untouched), so a
@@ -536,7 +534,7 @@
 ;; build sits right there in the error's own `:running-builds` list.
 ;;
 ;; Match rule (deterministic, no most-recent / fuzzy heuristics — those
-;; are the silent-wrong-build footguns Mike rejected for `auto-select`):
+;; are silent-wrong-build footguns):
 ;;
 ;;   1. EXACT keyword match            ⇒ that build (the common case).
 ;;   2. UNIQUE name-suffix match       ⇒ that build. The requested
@@ -544,7 +542,7 @@
 ;;      (`:machine-epochs` ⇒ `:examples/machine-epochs`). The requested
 ;;      id is itself bare (no namespace) so it can only be a tail.
 ;;   3. no / ambiguous match           ⇒ the requested id UNCHANGED, so
-;;      the existing diagnostic ladder fires `:build-not-running` with
+;;      the diagnostic ladder fires `:build-not-running` with
 ;;      the round-trippable running list. Two builds sharing a tail stays
 ;;      ambiguous — never silently pick one.
 ;; ---------------------------------------------------------------------------
@@ -617,13 +615,13 @@
 
   Unlike `resolve-build!` (the eval-path resolver, which REJECTS on
   zero/many), this is the soft probe `discover-app` uses to fill an
-  omitted `:build` arg without losing the existing multi-build error
-  path: on zero/many the caller keeps its default build-id and lets the
+  omitted `:build` arg while keeping the multi-build error path: on
+  zero/many the caller keeps its default build-id and lets the
   diagnostic ladder surface `:build-not-running` with the running list.
 
   Deliberately does NOT pick a most-recently-active build when several
-  run — that's a silent wrong-build footgun Mike explicitly rejected.
-  Two running builds stays ambiguous."
+  run — that's a silent wrong-build footgun. Two running builds stays
+  ambiguous."
   [conn]
   (-> (running-builds conn)
       (.then (fn [running]
@@ -699,11 +697,11 @@
     - (`:runtime-not-preloaded` is folded into `:no-runtime-for-build`
       here — both mean \"this build can't be eval'd\"; the enriched
       reason carries the running-build enumeration the bare preload
-      error lacked.)
+      error lacks.)
 
   NEVER resolves for a runtime-absent build, so the caller can never
   emit `:ok? true :value nil` for an eval that didn't actually run —
-  including the rf2-dk6bv5 case where the marker cache is stale (the
+  including the case where the marker cache is stale (the
   browser tab closed/crashed/navigated away since it was cached):
   `confirmed-live?` re-validates via a cheap JVM-side liveness read on
   EVERY call, not just the raw marker probe."
@@ -752,8 +750,8 @@
   (API §Result shape; 001-Wire-Protocol §JSON-RPC error codes). Using
   `wire/err-text` (not `wire/ok-text`) is what makes that true: the host
   surfaces the failure to the LLM as an error rather than a success-shaped
-  value, AND the response cache (which bypasses `:isError` results) can no
-  longer cache a transient failure and mask a later successful read.
+  value, AND the response cache (which bypasses `:isError` results) cannot
+  cache a transient failure and mask a later successful read.
 
   ## RELAY 2 of two — and it carries BOTH halves of the exception
 
@@ -768,20 +766,19 @@
       `on-value` callback, i.e. ALL response shaping, after the
       round-trip.
 
-  Both now carry the message AND the ex-data; they differ only in
+  Both carry the message AND the ex-data; they differ only in
   PRECEDENCE, and deliberately. Here the ex-data's `:reason` is the
   payload's own discriminator so it wins; at relay 1 `:reason` is the
   envelope's `:handler-threw` discriminator so the relay's wins and the
-  site's rides in `:rf.error/id` (rf2-qoih4).
+  site's rides in `:rf.error/id`.
 
-  Relay 2 used to keep only the ex-data, dropping `(ex-message err)`
-  entirely — so a Spec 009 canonical message composed at a
-  response-shaping throw site (`wire-pipeline`'s unknown-`:kind` being
-  the live example) reached NO consumer, and any future author writing
-  one there would silently waste it (rf2-6tzm5). It now merges the
-  message in alongside, matching `result_envelope/envelope->result`,
-  which already ships `:reason` + `:message` + `:ex-data` together on
-  this same eval-path error surface.
+  Keeping only the ex-data would drop `(ex-message err)` entirely — so a
+  Spec 009 canonical message composed at a response-shaping throw site
+  (`wire-pipeline`'s unknown-`:kind` is the live example) would reach NO
+  consumer, and any author writing one there would silently waste it.
+  So the message merges in alongside, matching
+  `result_envelope/envelope->result`, which ships `:reason` + `:message`
+  + `:ex-data` together on this same eval-path error surface.
 
   `data` merges OVER the derived `:message`, so an ex-data map that
   deliberately carries its own `:message` still wins. A blank/absent
@@ -802,9 +799,9 @@
 ;; shape the resolved value into an MCP envelope, and translate any
 ;; rejection through `err->result`. Only the middle `.then` (how the
 ;; resolved value becomes an envelope) and the `:fail-reason` keyword
-;; differ per tool. `eval-after-runtime!` factors out the invariant
+;; differ per tool. `eval-after-runtime!` holds the invariant
 ;; prelude/postlude so each tool body reads as just "what form do I
-;; send, and how do I shape the response" — the prelude stops obscuring
+;; send, and how do I shape the response" — the prelude never obscures
 ;; the per-tool logic.
 ;;
 ;; State-emitting tools wear the SAME chain plus ONE extra step: a
@@ -835,8 +832,7 @@
 
   `nrepl/cljs-eval-value` is resolved per-call (a plain var reference),
   so the `set!`-based test seam — every per-tool test stubs that var —
-  keeps working through this helper exactly as it did at the inline
-  call-sites."
+  works through this helper."
   [conn build-id form fail-reason on-value]
   (-> (ensure-runtime! conn build-id)
       (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
@@ -860,8 +856,8 @@
   re-runs on every call rather than caching a per-build flag — the
   runtime's posture resets on reload. As with
   `eval-after-runtime!`, `nrepl/cljs-eval-value` is resolved per-call (a
-  plain var reference) so the per-tool `set!`-based test seam keeps
-  working through this helper."
+  plain var reference) so the per-tool `set!`-based test seam works
+  through this helper."
   [conn build-id form fail-reason on-value]
   (-> (ensure-runtime! conn build-id)
       (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
