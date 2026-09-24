@@ -15,7 +15,7 @@
   Dual-target (`.cljc`): the JVM runner picks it up via the `.*-test$` ns regex;
   Shadow's `:node-test` via `cljs-test$` — the warm plan is host-neutral. The
   `-cljs-test` suffix is load-bearing: a dual-target file whose ns ends in a
-  plain `-test` compiles nowhere but the JVM and reads as covered (rf2-dn6v7)."
+  plain `-test` compiles nowhere but the JVM and reads as covered."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
