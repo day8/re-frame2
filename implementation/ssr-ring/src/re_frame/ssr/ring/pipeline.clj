@@ -615,7 +615,7 @@
   classification."
   [frame-id
    {:keys [renderer emit-hash? version schema-digest payload
-           html-shell content-type client-frame-id]
+           payload-include-sensitive html-shell content-type client-frame-id]
     :as   opts}]
   ;; Blocking route resources settle before rendering; absent resource hooks
   ;; make this a no-op.
@@ -662,6 +662,8 @@
                                        {:version         version
                                         :schema-digest   schema-digest
                                         :payload         payload
+                                        ;; rf2-hjz4r — the host's permit.
+                                        :payload-include-sensitive payload-include-sensitive
                                         :head-hash       head-hash
                                         ;; rf2-lm2yzy — stable WIRE
                                         ;; :rf/frame-id (nil ⇒ omit).

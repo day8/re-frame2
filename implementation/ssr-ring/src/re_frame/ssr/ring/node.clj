@@ -473,8 +473,14 @@
         render-endpoint      (render-uri
                                (endpoint-uri (:endpoint validated-opts)))
         client               (build-client transport-timeout-ms)]
-    (fn node-renderer [{:keys [frame-id]}]
-      (let [partitions   (rf.ssr.render-state/project frame-id validated-opts)
+    (fn node-renderer [{frame-id :frame-id handler-opts :opts}]
+      (let [;; rf2-hjz4r — the HANDLER's `:payload-include-sensitive`, so the
+            ;; markup the sidecar prints and the payload agree on a permitted
+            ;; value.
+            partitions   (rf.ssr.render-state/project
+                           frame-id
+                           (assoc validated-opts :payload-include-sensitive
+                                  (:payload-include-sensitive handler-opts)))
             request-json (json/write-str
                            (request-body validated-opts frame-id partitions)
                            :escape-slash false)

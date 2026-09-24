@@ -382,7 +382,8 @@
         ;; final-payload build several forms below.
         failed-boundaries (volatile! #{})]
    (try
-    (let [{:keys [version schema-digest payload root-view client-frame-id]} opts
+    (let [{:keys [version schema-digest payload payload-include-sensitive
+                  root-view client-frame-id]} opts
           ;; Body and head hashes were computed before the drain. The body may
           ;; be recomputed for final payload state; the head is drain-invariant.
           {:keys [shell-prefix doc-hash head-hash shell-html continuations]} rendered-shell]
@@ -462,7 +463,9 @@
             (let [projected-delta
                   (rf/with-frame frame-id
                     (rf.ssr.streaming/project-delta delta frame-id
-                                             {:payload payload}))]
+                                             {:payload                   payload
+                                              ;; rf2-hjz4r — the host's permit.
+                                              :payload-include-sensitive payload-include-sensitive}))]
               (when (and (not failed?)
                          (map? projected-delta)
                          (seq projected-delta))
@@ -504,6 +507,8 @@
                   {:version         version
                    :schema-digest   schema-digest
                    :payload         payload
+                   ;; rf2-hjz4r — the host's permit, as on the deltas.
+                   :payload-include-sensitive payload-include-sensitive
                    ;; Head state is drain-invariant.
                    :head-hash       head-hash
                    ;; rf2-8v89 — the boundary ids whose continuation threw,

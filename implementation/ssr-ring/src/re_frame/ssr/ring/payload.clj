@@ -76,11 +76,13 @@
     ;; (never the per-request projection gensym). Decoupled per rf2-lm2yzy.
     (:client-frame-id policy-opts)
     ;; Apply the allowlist before the frame-scoped hydration-egress projection,
-    ;; so classified values inside the surviving slice are still elided. The
-    ;; projection target is the REAL per-request frame-id.
+    ;; so classified values inside the surviving slice are still redacted —
+    ;; except the paths the host permits (rf2-hjz4r). The projection target is
+    ;; the REAL per-request frame-id.
     (rf.ssr.payload-policy/project-app-db-egress
      (rf.ssr.payload-policy/apply-policy app-db policy-opts)
-     frame-id)
+     frame-id
+     (:payload-include-sensitive policy-opts))
     render-hash
     ;; rf2-f02diw — project the runtime-db under the EXPLICIT carried `frame-id`
     ;; (the same target the `project-app-db-egress` above uses), NOT an ambient
