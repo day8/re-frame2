@@ -1,5 +1,5 @@
 (ns re-frame.ssr-render-state-jvm-test
-  "rf2-8arzr.3 — the JVM-only half of the render-state contract's tests.
+  "The JVM-only half of the render-state contract's tests.
   The shared corpus, the policy and the restore door are pinned on both
   hosts in `re-frame.ssr.render-state-cljs-test`; this namespace pins what
   only the JVM can:
