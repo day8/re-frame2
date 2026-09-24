@@ -14,7 +14,7 @@
         into the `:on-error` transition's `:event`.
 
   `:on-error` works alongside both observability surfaces: the trace emission
-  and the explicit dispatch-back-to-parent escape hatch both keep working;
+  and the explicit dispatch-back-to-parent escape hatch both work alongside it;
   `:on-error` is the declarative invoke-site control-flow form.
 
   Tests:
@@ -24,8 +24,8 @@
         flow);
     (c) `:on-error` with `:guard` + `:action`;
     (d) child SUCCESS → `:on-done` fires, `:on-error` does NOT;
-    (e) no `:on-error` declared → existing behaviour (trace + escape-hatch)
-        unchanged (regression);
+    (e) no `:on-error` declared → the `:rf.machine/done` trace and
+        auto-destroy, and no framework-driven transition;
     (f) malformed `:on-error` / `:error?`-without-`:final?` rejected at
         registration;
     (g) parallel-PARENT region `:spawn` — a `:spawn` declared
@@ -39,8 +39,7 @@
         handler must NOT catch another region's child failure.
     (i) a parallel-region `:spawn :on-error` GUARD reading the invoke-id off
         `(nth ev 1)` sees the region-RELATIVE path (`[:working]`), NOT the
-        region-prefixed `[:loader :working]`, so it matches (before the
-        region-relative event re-stamp the guard never matched).
+        region-prefixed `[:loader :working]`, so it matches.
 
   Named `*-cljs-test.cljc` so it runs under both cognitect.test-runner (JVM)
   and shadow-cljs (CLJS), matching `final_state_cljs_test.cljc`."
@@ -124,7 +123,7 @@
 ;; ---- (b) uncaught child action exception → parent :on-error fires ----------
 
 (deftest child-action-exception-fires-parent-on-error-transition
-  (testing "an uncaught child action exception routes to the parent's :on-error transition (control flow, was observability-only)"
+  (testing "an uncaught child action exception routes to the parent's :on-error transition (control flow)"
     (let [traces (record-traces! ::action-exc)]
       (rf/reg-machine :rf2-5hlsh-b/child
         {:initial :running
@@ -144,7 +143,7 @@
       (let [child (spawned-id-for :rf2-5hlsh-b/parent [:working])]
         (rf/dispatch-sync [child [:go]])
         (is (some #(= :rf.error/machine-action-exception (:operation %)) @traces)
-            "the action-exception trace STILL fired (observability unchanged — additive)")
+            "the action-exception trace also fired (observability alongside the control flow)")
         (is (= :errored (:state (snapshot :rf2-5hlsh-b/parent)))
             "the uncaught exception drove the parent's :on-error :target")))))
 
@@ -242,10 +241,10 @@
       (is (= :working (:state (snapshot :rf2-5hlsh-d/parent)))
           "the parent did NOT move to :errored — :on-error did not fire on success"))))
 
-;; ---- (e) no :on-error declared → existing behaviour unchanged (regression) ----
+;; ---- (e) no :on-error declared → trace + auto-destroy, no transition ----
 
 (deftest no-on-error-keeps-trace-and-escape-hatch
-  (testing "without :on-error, an error leaf still fires the :rf.machine/done trace + auto-destroy (regression)"
+  (testing "without :on-error, an error leaf fires the :rf.machine/done trace + auto-destroy"
     (let [traces (record-traces! ::no-on-error)]
       (rf/reg-machine :rf2-5hlsh-e/child
         {:initial :running
@@ -255,10 +254,10 @@
           :failed  {:final? true :error? true}}})
       ;; parent declares NO :on-error and no explicit failure handler: the
       ;; child auto-destroys, the :rf.machine/done trace fires, and the failure
-      ;; event reaches the parent, which ignores it — the parent is unmoved
-      ;; (rf2-3x7nj.41.1). The explicit dispatch-back escape hatch (if the child
-      ;; chose it) would still work — exercised by the action emitting a
-      ;; dispatch; here we assert the framework adds NO transition itself.
+      ;; event reaches the parent, which ignores it — the parent is unmoved.
+      ;; The explicit dispatch-back escape hatch (if the child chose it) works
+      ;; alongside — the next test exercises it; here we assert the framework
+      ;; adds NO transition itself.
       (rf/reg-machine :rf2-5hlsh-e/parent
         {:initial :working
          :data    {}
@@ -272,12 +271,12 @@
         (is (= :working (:state (snapshot :rf2-5hlsh-e/parent)))
             "parent unmoved — no :on-error means no framework-driven transition")
         (let [dones (traces-for traces :rf.machine/done)]
-          (is (= 1 (count dones)) "the :rf.machine/done actor-finality trace still fired")
+          (is (= 1 (count dones)) "the :rf.machine/done actor-finality trace fired")
           (is (true? (-> (first dones) :tags :error?))
               ":rf.machine/done carries :error? true for an error leaf"))))))
 
 (deftest escape-hatch-explicit-dispatch-still-works
-  (testing "the lower-level escape hatch ([:fx [[:dispatch [parent [:failed]]]]]) keeps working alongside :on-error"
+  (testing "the lower-level escape hatch ([:fx [[:dispatch [parent [:failed]]]]]) works alongside :on-error"
     (rf/reg-machine :rf2-5hlsh-e2/child
       {:initial :running
        :data    {}
@@ -353,7 +352,7 @@
 ;; the slot keys under the real parent and both hooks fire region-scoped.
 
 (deftest parallel-region-spawn-keys-slot-under-real-parent
-  (testing "a :spawn declared inside a parallel region keys its :spawned slot under the REAL parent id (not :rf/transition-pure) and the child's :data :rf/parent-id is the real parent (rf2-r09fc)"
+  (testing "a :spawn declared inside a parallel region keys its :spawned slot under the REAL parent id (not :rf/transition-pure) and the child's :data :rf/parent-id is the real parent"
     (rf/reg-machine :rf2-r09fc-g0/child
       {:initial :running
        :data    {}
@@ -379,10 +378,10 @@
       (is (some? child)
           "the region-prefixed invoke-id [:loader :working] addresses the spawned child")
       (is (= :rf2-r09fc-g0/parent (get-in (snapshot child) [:data :rf/parent-id]))
-          "the child's :data :rf/parent-id is the real parent (was bogus :rf/transition-pure)"))))
+          "the child's :data :rf/parent-id is the real parent (not :rf/transition-pure)"))))
 
 (deftest parallel-region-spawn-on-done-fires-region-scoped
-  (testing "a region's :spawn :on-done fires region-scoped when the child reaches a success :final? leaf (rf2-r09fc)"
+  (testing "a region's :spawn :on-done fires region-scoped when the child reaches a success :final? leaf"
     (rf/reg-machine :rf2-r09fc-g1/child
       {:initial :running
        :data    {}
@@ -416,7 +415,7 @@
           "the finished child auto-destroyed (reached its success :final? leaf)"))))
 
 (deftest parallel-region-spawn-on-error-fires-region-scoped-error-leaf
-  (testing "a region's :spawn :on-error fires region-scoped when the child reaches an :error? :final? leaf (rf2-r09fc)"
+  (testing "a region's :spawn :on-error fires region-scoped when the child reaches an :error? :final? leaf"
     (rf/reg-machine :rf2-r09fc-g2/child
       {:initial :running
        :data    {}
@@ -454,7 +453,7 @@
           "the failed child auto-destroyed (reached its :error? :final? leaf)"))))
 
 (deftest parallel-region-spawn-on-error-fires-on-uncaught-child-action-exception
-  (testing "an uncaught child action exception drives the region's :spawn :on-error region-scoped (rf2-r09fc)"
+  (testing "an uncaught child action exception drives the region's :spawn :on-error region-scoped"
     (rf/reg-machine :rf2-r09fc-g3/child
       {:initial :running
        :data    {}
@@ -492,7 +491,7 @@
 ;; failure — upholding XState v5 `invoke onError` region scoping.
 
 (deftest parallel-region-explicit-on-spawn-error-is-region-scoped
-  (testing "an explicit :on {:rf.machine.spawn/error …} in a sibling region does NOT catch another region's child failure (rf2-w84jv)"
+  (testing "an explicit :on {:rf.machine.spawn/error …} in a sibling region does NOT catch another region's child failure"
     (rf/reg-machine :rf2-w84jv-h/child
       {:initial :running
        :data    {}
@@ -501,7 +500,7 @@
                            :error?     true
                            :output-key :err}}})
     ;; The synthetic spawn-error event is dispatched whether or not the
-    ;; spawning parent declares `:spawn :on-error` (rf2-3x7nj.41.1). Here
+    ;; spawning parent declares `:spawn :on-error`. Here
     ;; :loader declares one whose GUARD fails, so this also pins the
     ;; guard-fail fall-through: the headline arm misses and the event falls
     ;; through to the explicit-`:on` walk. (The no-`:on-error` route to that
@@ -547,7 +546,7 @@
 ;; fires the transition.
 
 (deftest parallel-region-spawn-on-error-guard-reads-region-relative-invoke-id
-  (testing "a region :spawn :on-error guard reading (nth ev 1) matches on the region-RELATIVE invoke-id (rf2-cttpk4)"
+  (testing "a region :spawn :on-error guard reading (nth ev 1) matches on the region-RELATIVE invoke-id"
     (rf/reg-machine :rf2-cttpk4-i/child
       {:initial :running
        :data    {}
@@ -577,6 +576,6 @@
       (is (some? child) "child spawned under the real parent in the :loader region")
       (rf/dispatch-sync [child [:boom :network-down]])
       (is (= :errored (get-in (snapshot :rf2-cttpk4-i/parent) [:state :loader]))
-          "the :on-error guard matched on the region-RELATIVE invoke-id [:working] → :loader moved to :errored (before the region-relative re-stamp the guard saw the region-prefixed [:loader :working], never matched, and the region stayed :working)")
+          "the :on-error guard matched on the region-RELATIVE invoke-id [:working] → :loader moved to :errored (a guard seeing the region-prefixed [:loader :working] would never match, and the region would stay :working)")
       (is (= :idle (get-in (snapshot :rf2-cttpk4-i/parent) [:state :other]))
           "the sibling :other region is untouched"))))
