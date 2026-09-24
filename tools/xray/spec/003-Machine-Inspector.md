@@ -638,7 +638,9 @@ lazy first-real-event fold, or a `:spawn`. The runtime emits exactly one
 009 §`:op-type` vocabulary; the substrate's `maybe-boot` per Spec 005),
 carrying `:tags {:machine-id :state :data :cause}` where `:state` /
 `:data` are the **initial** snapshot slots and `:cause` is
-`:explicit` / `:lazy` / `:spawned`.
+`:explicit` / `:lazy` / `:spawned` / `:reset` (`:reset` = the runtime
+replaced an out-of-definition or version-mismatched snapshot with a fresh
+initial).
 
 A pure start **does not** emit a `:rf.machine/transition` — the substrate
 deliberately suppresses it because a birth is an entry INTO the initial
