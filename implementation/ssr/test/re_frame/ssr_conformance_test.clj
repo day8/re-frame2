@@ -1,5 +1,5 @@
 (ns re-frame.ssr-conformance-test
-  "Per rf2-i3qc0 (audit rf2-asmj1 §TC4). Drives every
+  "Drives every
   `spec/conformance/fixtures/ssr-*.edn` fixture through the live ssr
   runtime — `render-to-string`, the `:rf/hydrate` event, the `:rf.server/*`
   fx family, the per-request response accumulator, `reg-head` /
@@ -7,17 +7,16 @@
   asserts the conformance-corpus's recorded outcome against what the
   artefact actually produces.
 
-  This is the ssr artefact's own conformance gate. Pre-rf2-i3qc0 the
-  ssr fixtures rode the CORE artefact's `re-frame.conformance-test`
-  (rf2-d0wem patterned for machines; analogous gap for ssr). Two
+  This is the ssr artefact's own conformance gate. Riding the CORE
+  artefact's `re-frame.conformance-test` instead would have two
   drawbacks:
 
     1. Core's runner doesn't implement the SSR-specific assertion
        channels — `:ssr/active-head`, `:ssr/request-result`,
        `:ssr/rendered-head-contains`, `:ssr/html-attr-present`,
-       `:trace-not-emitted`. Fixtures that asserted ONLY through those
-       channels passed silently because the matcher was absent.
-    2. The gate ran at the wrong artefact. An ssr-touching PR could
+       `:trace-not-emitted`. Fixtures that assert ONLY through those
+       channels would pass silently because the matcher is absent.
+    2. The gate would run at the wrong artefact. An ssr-touching PR could
        break a fixture and only surface at core's gate — at which
        point the failure has to be triaged across two artefacts.
 
@@ -34,7 +33,7 @@
        ns-load-time registrations) via `re-frame.ssr.test-fixture`.
     2. Realises the fixture's `:fixture/handlers` (event, sub, fx, view,
        head) into native fns via the `re-frame.conformance` DSL
-       interpreter (a re-use of core's pre-existing helpers; the
+       interpreter (a re-use of core's helpers; the
        interpreter is in `core/src` so the ssr artefact has it on the
        classpath without pulling core's test tree).
     3. Registers routes from `:fixture/registry :route`.
@@ -71,7 +70,7 @@
        - `:ssr/html-attr-present` (the rendered root element carries
          the named data-attribute).
 
-  ## Posture split (rf2-lwtlk / rf2-76gom)
+  ## Posture split
 
   This runner executes under BOTH `clojure -M:test` and the REAL
   production gate `-Dre-frame.debug=false`
@@ -100,31 +99,30 @@
       carries it — dev bus first (a superset in dev), else the always-on
       `:errors` axis, synthesised into the projector's envelope by
       `error-record->trace-event`. Sourcing it from `@traces` ALONE
-      reported `:actual nil` under the gate for every fixture whatever the
-      framework did (rf2-76gom); the always-on axis is the projector's
-      production status source of truth, so under the gate this channel now
+      would report `:actual nil` under the gate for every fixture whatever
+      the framework did; the always-on axis is the projector's
+      production status source of truth, so under the gate this channel
       adjudicates the wire.
 
     - Every other channel — `:final-app-db`, `:sub-values`,
       `:ssr/active-head`, `:ssr/request-result`,
       `:ssr/rendered-head-contains`, `:ssr/html-attr-present`,
       `:fixture/calls`, `:expect-error` — is posture-independent and runs
-      under the gate unchanged.
+      under the gate exactly as in dev.
 
   ONE claim in the corpus has NO production counterpart and is dev-only by
   design: the `:source :ssr-hydration` slot on a `run-start` trace (the
-  always-on event record carries no `:source`). It remains asserted
+  always-on event record carries no `:source`). It is asserted
   verbatim in the dev arm.
 
-  `:rf.ssr/hydration-mismatch` WAS a second such claim and is NOT one any
-  more (rf2-tildz). It is no longer emitted solely through
-  `trace/emit-error!`: `verify-hydration!` now also fans a
-  structural-only always-on record, so the CATEGORY has a production
-  counterpart. What stays dev-only is this corpus's CLAIM SHAPE rather
-  than the category — `spec/conformance/fixtures/ssr-hydration-mismatch.edn`
-  asserts a `:trace-emissions` row, and the trace bus is still DCE'd under
-  `goog.DEBUG=false`, so the claim goes on being asserted in the dev arm
-  alone. Do not read this paragraph as saying the mismatch is invisible in
+  `:rf.ssr/hydration-mismatch` is NOT a second such claim. It is not
+  emitted solely through `trace/emit-error!`: `verify-hydration!` also
+  fans a structural-only always-on record, so the CATEGORY has a
+  production counterpart. What is dev-only is this corpus's CLAIM SHAPE
+  rather than the category —
+  `spec/conformance/fixtures/ssr-hydration-mismatch.edn` asserts a
+  `:trace-emissions` row, and the trace bus is DCE'd under
+  `goog.DEBUG=false`, so the claim is asserted in the dev arm alone. Do not read this paragraph as saying the mismatch is invisible in
   production; it says the conformance corpus watches the dev channel.
 
   ## Capability claim
@@ -175,16 +173,17 @@
   "The conformance corpus lives at the repo root under
   `spec/conformance/fixtures/`.
 
-  Anchored to a CLASSPATH RESOURCE, not the working directory (rf2-ywrwkl,
-  the same fix rf2-55j4s3 applied to 3 sibling core tests). The earlier
-  `(io/file \"../../spec/conformance/fixtures\")` form assumed the JVM cwd
-  was `implementation/ssr/` so that `../../` reached the repo root. That
+  Anchored to a CLASSPATH RESOURCE, not the working directory, as sibling
+  core tests are. A cwd-relative
+  `(io/file \"../../spec/conformance/fixtures\")` form would assume the JVM
+  cwd is `implementation/ssr/` so that `../../` reaches the repo root. That
   holds for the canonical per-artefact gate (`clojure -M:test` run from
   `implementation/ssr/`, which is what CI runs) but SILENTLY MIS-SCOPES
   under the combined `implementation/deps.edn :test` alias: run from
   `implementation/`, `../../` resolves ABOVE the repo root, `file-seq`
-  returns nothing, and the corpus discovers zero fixtures (the rf2-3hamsq
-  floor turns that mis-discovery RED instead of silent-green).
+  returns nothing, and the corpus discovers zero fixtures (the
+  runnable-fixture floor in `run-ssr-conformance-corpus` turns that
+  mis-discovery RED instead of silent-green).
 
   This test namespace's own source file is on the test classpath (the
   artefact's `:test {:extra-paths [\"test\"]}`), so resolving it via
@@ -210,10 +209,10 @@
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
   returns only the FIRST and silently discards the rest, so a fixture whose
-  expectation block closes early passes having verified less than it claims
-  (rf2-5mr6). Throws rather than returning `:fixture/load-error`, which the
+  expectation block closes early passes having verified less than it claims.
+  Throws rather than returning `:fixture/load-error`, which the
   runner classifies as a SKIP — as silent as the defect. Full rationale on
-  `re-frame.conformance-test/read-one-form` (rf2-98ni)."
+  `re-frame.conformance-test/read-one-form`."
   [text fixture-name]
   (let [eof  (Object.)
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
@@ -238,7 +237,7 @@
 (defn- load-fixture
   "Read one EDN fixture, applying the same `::name` rewrite the JVM core
   runner uses so `clojure.edn/read-string` (no reader resolver) accepts
-  auto-resolved keywords. Per rf2-lu3f."
+  auto-resolved keywords."
   [file]
   (let [raw   (slurp file)
         fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
@@ -270,14 +269,14 @@
     :core/fx
     :core/error
     :ssr/render-to-string
-    ;; rf2-5lqar2 — the render-tree canonical-traversal hash pin (011:386).
+    ;; The render-tree canonical-traversal hash pin (011:386).
     :ssr/render-tree-hash
     :ssr/hydration
     :ssr/hydration-payload
     :ssr/response-contract
     :ssr/head-contract
     :ssr/error-projection
-    ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR primitive
+    ;; Streaming SSR primitive
     ;; (:rf/suspense-boundary) + chunked-HTTP wire shape.
     :ssr/suspense-boundary
     :ssr/chunked-response
@@ -285,7 +284,7 @@
 
 (def claimed-spec-versions
   "Conformance corpus spec versions this runner claims to conform
-  against. Matches the core runner's set at rf2-i3qc0 time."
+  against. Matches the core runner's set."
   #{"1.0"})
 
 (defn- runnable-capability-set?
@@ -301,11 +300,11 @@
 ;; ---- handler realisation --------------------------------------------------
 ;;
 ;; The conformance corpus represents handler bodies as data; the
-;; `re-frame.conformance` interpreter (in core/src — already on this
+;; `re-frame.conformance` interpreter (in core/src — on this
 ;; artefact's classpath) lifts the DSL into native fns. The wiring here
 ;; mirrors the relevant slice of `re-frame.conformance-test/realise-handlers`
 ;; minus the surfaces the ssr fixtures never touch (cofx schema /
-;; machines / flows). When a future fixture wants those it lands in
+;; machines / flows). A fixture that wants those belongs in
 ;; core's full-corpus runner; this gate covers the ssr lifecycle only.
 
 (defn- realise-head-handler
@@ -323,8 +322,8 @@
   surface. Mirrors core's runner shape."
   []
   {:read-db!  (fn [frame-id] (rf.frame/frame-app-db-value frame-id))
-   ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db! —
-   ;; app-db-container is now a read-only projection over the one physical
+   ;; EP-0001: write the app-db PARTITION via swap-frame-db! —
+   ;; app-db-container is a read-only projection over the one physical
    ;; frame-state container.
    :write-db! (fn [frame-id new-db]
                 (rf.frame/swap-frame-db! frame-id (constantly new-db)))
@@ -332,8 +331,8 @@
 
 (defn- collect-cofx-keys
   "Walk DSL body steps and collect every cofx-id referenced via
-  `[:cofx-key K]`. Used to auto-wire `:rf.cofx/requires` declarations per
-  rf2-g25p convention (EP-0017 — `inject-cofx` is removed; a handler takes
+  `[:cofx-key K]`. Used to auto-wire `:rf.cofx/requires` declarations
+  (EP-0017 — there is no `inject-cofx`; a handler takes
   delivery by declaring the id, not by an injector interceptor)."
   [steps]
   (let [out (atom #{})]
@@ -353,14 +352,14 @@
   `(cofx-in → effects-map-or-nil)` fn.
 
   `body-shape` is a DSL-INTERNAL interpreter distinction, NOT a public
-  `:event/kind` (EP-0018 removed the public event sub-kind model: a registered
-  event is just kind `:event`). An `:event-db` body is `(fn [db event] new-db)`;
+  `:event/kind` (EP-0018: there is no public event sub-kind model; a
+  registered event is just kind `:event`). An `:event-db` body is `(fn [db event] new-db)`;
   it is lifted to `(fn [cofx event] {:db (handler db event)})` — read db from
   the coeffects, lower the returned db into a `{:db …}` effect (same observable
   behaviour). An `:event-fx` body is already the single form and passes
   through. Registering through this normaliser keeps the registration site free
-  of any kind branch, so the SSR runner can no longer mask fixture drift by
-  accepting a pre-collapse db-kind fixture handler (rf2-hl4bdk)."
+  of any kind branch, so the SSR runner cannot mask fixture drift by
+  accepting a db-kind fixture handler."
   [[body-shape handler]]
   (case body-shape
     :db (fn [{:keys [db]} event] {:db (handler db event)})
@@ -377,8 +376,8 @@
         cofx-registry (get-in fixture [:fixture/registry :cofx] {})
         helpers       (adapter-helpers)]
     ;; ---- cofx -----------------------------------------------------------
-    ;; EP-0017 distinguishes TWO cofx shapes; the SSR runner now exercises
-    ;; both (rf2-sb47ni):
+    ;; EP-0017 distinguishes TWO cofx shapes; the SSR runner exercises
+    ;; both:
     ;;
     ;;   - AMBIENT value-returning cofx — `reg-cofx` takes a supplier
     ;;     `(fn [] value)`; the runtime runs it at context assembly and
@@ -389,9 +388,9 @@
     ;;   - PROVIDED recordable cofx (`{:provided? true …}`, typically
     ;;     `:recordable? true`) — a BOUNDARY-supplied fact with NO supplier;
     ;;     its VALUE rides the dispatch token flat under `:rf.cofx`, not a
-    ;;     generator. Post-#4104 `reg-cofx` REJECTS `provided? true` + a
-    ;;     supplier as `:rf.error/cofx-registration-invalid` (the shape
-    ;;     rf2-xuhdni fixed in the core runner), so register WITHOUT one. A
+    ;;     generator. `reg-cofx` REJECTS `provided? true` + a
+    ;;     supplier as `:rf.error/cofx-registration-invalid`, so register
+    ;;     WITHOUT one. A
     ;;     declared provided fact that is absent from the token throws
     ;;     `:rf.error/missing-required-cofx` at delivery. This mirrors the
     ;;     core runner so an SSR/hydration fixture can exercise the EP-0017
@@ -412,17 +411,17 @@
           (rf/reg-cofx cofx-id meta supplier))))
     ;; ---- events --------------------------------------------------------
     ;; EP-0017: a handler takes delivery of a cofx by DECLARING it in the
-    ;; `:rf.cofx/requires` registration metadata — not via an `inject-cofx`
-    ;; interceptor (removed). Scan the body for `[:cofx-key K]` references and
+    ;; `:rf.cofx/requires` registration metadata — there is no `inject-cofx`
+    ;; interceptor. Scan the body for `[:cofx-key K]` references and
     ;; auto-wire `:rf.cofx/requires [K …]` for every K with a registered cofx.
-    ;; EP-0018 Slice Z: there is ONE public event registration form —
+    ;; EP-0018: there is ONE public event registration form —
     ;; `reg-event`, a `(cofx-in → effects-map-or-nil)` handler. There is no
     ;; public event sub-kind axis. `conformance/realise-event-handler` returns a
     ;; `[body-shape handler]` pair where `body-shape` is a DSL-INTERNAL
     ;; interpreter distinction (event-db vs event-fx body) — NOT a public
     ;; `:event/kind`. `normalize-event-handler` collapses both DSL body-shapes
     ;; to the single effects-map handler so the registration site never branches
-    ;; on a kind (rf2-hl4bdk).
+    ;; on a kind.
     (doseq [[id steps] (:event hmap)]
       (let [handler   (normalize-event-handler
                         (rf.conformance/realise-event-handler steps))
@@ -434,7 +433,7 @@
         (if (seq meta)
           ;; FN form (nil provenance): a fixture overriding a framework
           ;; event id (e.g. :rf/hydrate) must REPLACE its source-store slot,
-          ;; not collide at default-image assembly (rf2-h1vqa4).
+          ;; not collide at default-image assembly.
           (rf.events/reg-event id meta handler)
           (rf.events/reg-event id handler))))
     ;; ---- subs ----------------------------------------------------------
@@ -445,8 +444,8 @@
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
           ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
           ;; is a JVM macro (Spec 001 §Source-coordinate capture).
-          ;; A declared dependency list rides the metadata map
-          ;; (rf2-kuky.50), so the fixture's inputs go in as DATA.
+          ;; A declared dependency list rides the metadata map,
+          ;; so the fixture's inputs go in as DATA.
           :layer-2 (rf.subs/reg-sub id (assoc meta :inputs (vec inputs)) body))))
     ;; ---- fxs -----------------------------------------------------------
     (let [fx-bodies   (:fx hmap)
@@ -472,10 +471,10 @@
     ;; ---- routes (also from :registry :route) ---------------------------
     (doseq [[id meta] (sort-by (comp str key)
                                (get-in fixture [:fixture/registry :route]))]
-      ;; rf2-wvh95f F1: lift the path pattern into the 3-slot VALUE.
+      ;; Lift the path pattern into the 3-slot VALUE.
       (rf/reg-route id (dissoc meta :path) (:path meta)))
     ;; ---- app-schemas (rare on ssr fixtures, but covered) ---------------
-    ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
+    ;; The fixture key is `:app-schemas` (plural) — app-db
     ;; schemas are NOT a registrar kind.
     (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
       (rf/reg-app-schema path schema))))
@@ -497,7 +496,7 @@
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
-;; ---- always-on capture (rf2-76gom) ---------------------------------------
+;; ---- always-on capture ---------------------------------------------------
 ;;
 ;; Surface #4 — the `error-emit` / `event-emit` substrates, which survive
 ;; `-Dre-frame.debug=false` and are what a production JVM SSR host actually
@@ -610,7 +609,7 @@
               (str "trace that should NOT have fired did: " (pr-str nt))))
           not-traces)))
 
-;; ---- the always-on counterpart of :trace-emissions (rf2-lwtlk) ------------
+;; ---- the always-on counterpart of :trace-emissions ------------------------
 
 (defn- expected-event-ids
   "The event-ids a fixture's `:trace-emissions` names on its
@@ -665,7 +664,7 @@
   [call]
   ;; Resolve the fixture's portable `[:view-ref <id> & args]` markers once,
   ;; up front, so every call kind below sees a tree this host's emitter can
-  ;; actually render (rf2-j81hs — a keyword head is a DOM element on every
+  ;; actually render (a keyword head is a DOM element on every
   ;; host, so EDN cannot name a view as a head). Recurses into maps, which
   ;; is what reaches the `:subtree` inside a render-continuation input.
   (let [call (update call :input rf.conformance/realise-view-refs)]
@@ -681,7 +680,7 @@
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})
 
-    ;; rf2-5lqar2 — the render-tree canonical-traversal pin Spec 011:386
+    ;; The render-tree canonical-traversal pin Spec 011:386
     ;; promises. `render-tree-hash` is the FNV-1a 32-bit hash over the
     ;; canonical-EDN traversal (depth-first shape; sorted attribute keys;
     ;; nil pruned). The fixture pins the reference hash VALUE for a small
@@ -698,7 +697,7 @@
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})
 
-    ;; rf2-ojakd / rf2-olb64 (a) — :rf/suspense-boundary streaming SSR.
+    ;; :rf/suspense-boundary streaming SSR.
     ;; Three call kinds; one per Spec 011 §Streaming SSR step.
 
     :ssr.streaming/render-shell
@@ -752,7 +751,7 @@
     (let [payload (try (rf.ssr/streaming-build-final-payload
                          :rf/default
                          (:render-hash (:input call))
-                         ;; rf2-lm2yzy — the WIRE :rf/frame-id is decoupled from
+                         ;; The WIRE :rf/frame-id is decoupled from
                          ;; the projection frame. This fixture's synthetic server
                          ;; frame is the STABLE `:rf/default`, so name it as the
                          ;; `:client-frame-id` wire id — the payload then carries
@@ -792,12 +791,11 @@
   unregistered route-declared `:head`, an absent frame) — the corpus
   channel is an assertion about a model, not about the failure mode.
 
-  rf2-kuky.89 — this and `rendered-head-html` below were `(resolve
-  're-frame.ssr.head/<sym>)` guards, so a rename left them silently
-  answering nil and the `:ssr/active-head` /
-  `:ssr/rendered-head-contains` channels stopped running with nothing on
-  screen. They are DIRECT calls through the required alias now: a future
-  rename fails to compile."
+  This and `rendered-head-html` below are DIRECT calls through the
+  required alias, so a rename fails to compile. A `(resolve
+  're-frame.ssr.head/<sym>)` guard would instead answer nil silently after
+  a rename, and the `:ssr/active-head` / `:ssr/rendered-head-contains`
+  channels would stop running with nothing on screen."
   [frame-id]
   (try
     (rf.ssr/head-model frame-id)
@@ -820,7 +818,7 @@
   (try
     (let [fid          (:fixture/id fixture)
           traces       (collect-traces fid)
-          ;; rf2-76gom — the always-on axes, captured alongside the dev bus.
+          ;; The always-on axes, captured alongside the dev bus.
           ;; Registered BEFORE `realise-handlers` / `make-frame` so the
           ;; `:initial-events` cascade (`:rf/server-init`) is observed.
           ao-errors    (collect-always-on-errors)
@@ -835,11 +833,11 @@
           _            (rf/destroy-frame! :rf/default)
           _            (rf/make-frame (assoc frame-config :id :rf/default))
           dispatches   (or (:fixture/dispatches fixture) [])
-          ;; rf2-sb47ni — accumulate per-dispatch boundary-throw mismatches
+          ;; Accumulate per-dispatch boundary-throw mismatches
           ;; (the `:expect-error` cofx-delivery assertions). Mirrors the core
           ;; runner's `dispatch-error-failures` channel.
           dispatch-error-failures (atom [])]
-      ;; EP-0002 (rf2-9o48ih): a bare `dispatch-sync` with no explicit
+      ;; EP-0002: a bare `dispatch-sync` with no explicit
       ;; `{:frame …}` opt resolves its target from the established frame
       ;; scope, never from an invented `:rf/default` floor (the carried
       ;; invariant). This single-frame SSR runner targets `:rf/default`;
@@ -847,7 +845,7 @@
       (rf/with-frame :rf/default
       (doseq [ev dispatches]
         (cond
-          ;; ---- map-form dispatch (rf2-sb47ni) --------------------------
+          ;; ---- map-form dispatch ---------------------------------------
           ;; A map dispatch carries `:event` plus optional opts. EP-0017
           ;; SSR/hydration fixtures use this to supply a PROVIDED recordable
           ;; fact flat on the token via `:rf.cofx {…}`, and to assert the
@@ -942,7 +940,7 @@
                  :expected expected-val
                  :actual   (rf/subscribe-once query-v {:frame :rf/default})}))
             ;; ---- :trace-emissions / :trace-not-emitted ----------------
-            ;; POSTURE SPLIT (rf2-lwtlk). Both channels read `@traces`, the
+            ;; POSTURE SPLIT. Both channels read `@traces`, the
             ;; DEV trace bus, whose every emit site sits inside the
             ;; load-time `interop/debug-enabled?` gate. Under
             ;; `-Dre-frame.debug=false` the ring is empty for EVERY fixture,
@@ -950,7 +948,7 @@
             ;; framework was never going to emit, and — the quieter half —
             ;; `check-trace-not-emitted` passes AUTOMATICALLY, a negative
             ;; over an empty ring that would hold with the whole runtime
-            ;; ripped out. Kept VERBATIM, adjudicated in dev posture only.
+            ;; ripped out. Both are asserted VERBATIM, in dev posture only.
             ;;
             ;; The production counterpart is `always-on-failures` below; the
             ;; two are complementary, not a substitution.
@@ -960,7 +958,7 @@
             not-emit-failures (when rf.interop/debug-enabled?
                                 (check-trace-not-emitted @traces
                                                          (:trace-not-emitted expect)))
-            ;; ---- the always-on counterpart (rf2-lwtlk) ----------------
+            ;; ---- the always-on counterpart ----------------------------
             ;; POSTURE-INDEPENDENT — runs under both. Every `run-start`
             ;; claim in `:trace-emissions` asserts that an event RAN, and
             ;; that fact survives the gate on the `:events` substrate. So
@@ -971,18 +969,18 @@
             always-on-claims   (count (expected-event-ids (:trace-emissions expect)))
             ;; ---- :ssr/public-error -----------------------------------
             expected-pe   (:ssr/public-error expect)
-            ;; rf2-76gom — SOURCE THE ERROR FROM WHICHEVER AXIS CARRIES IT.
+            ;; SOURCE THE ERROR FROM WHICHEVER AXIS CARRIES IT.
             ;; `@traces` is the DEV bus: under the production gate it is
-            ;; empty, so sourcing the error event from it alone reported
+            ;; empty, so sourcing the error event from it alone would report
             ;; `:actual nil` for BOTH public-error fixtures whatever the
-            ;; framework did — the check adjudicated a dev artefact, not the
-            ;; wire, and no framework fix could have moved it. The ALWAYS-ON
+            ;; framework did — the check would adjudicate a dev artefact, not
+            ;; the wire, and no framework fix could move it. The ALWAYS-ON
             ;; `:errors` axis is the SSR projector's production status
             ;; source of truth (`error-emit-projection-listener` is what
             ;; stamps `:status` on a `-Dre-frame.debug=false` JVM), and
             ;; `error-record->trace-event` hands `project-error` the same
-            ;; envelope that listener builds. Dev posture is unchanged: the
-            ;; dev bus is a superset there and still wins.
+            ;; envelope that listener builds. In dev posture the dev bus is
+            ;; a superset and wins.
             last-error    (or (last (filter #(= :error (:op-type %)) @traces))
                               (last @ao-errors))
             pe-check
@@ -1061,7 +1059,7 @@
        :error      (.getMessage e)
        :exception  e})
     (finally
-      ;; rf2-76gom — the always-on registries are corpus-wide and are NOT
+      ;; The always-on registries are corpus-wide and are NOT
       ;; cleared by `tf/reset-runtime` (the `re-frame.ssr` façade's own
       ;; `::error-projection` listener lives there and must survive). Drop
       ;; ONLY the two stand-ins this run registered, on every exit path.
@@ -1100,29 +1098,28 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
-      ;; rf2-3hamsq — non-empty floor. The lone (zero? (count failed))
+      ;; Non-empty floor. The lone (zero? (count failed))
       ;; below passes GREEN over an empty / fully-skipped / orphaned
       ;; corpus (wrong cwd, fixtures-dir rename, or a capability-vocab
       ;; rename that orphans every ssr-* fixture) — verifying NOTHING.
       ;; Assert that fixtures actually executed:
       ;;   - (pos? (count run)) catches the fully-empty case;
       ;;   - the expected-minimum (>= 10) catches partial mass-orphaning
-      ;;     without pinning an exact count (today's runnable count is 14
-      ;;     ssr-*.edn fixtures; the set grows).
+      ;;     without pinning an exact count (the ssr-*.edn set grows).
       (is (pos? (count run))
           "at least one claim-runnable ssr-*.edn fixture must have executed")
       (is (>= (count run) 10)
           (str "ssr corpus runnable-fixture floor (>= 10): only "
                (count run) " executed — a fixtures-dir/cwd fault or a "
                "capability-vocab rename has orphaned the corpus."))
-      ;; rf2-lwtlk — the ALWAYS-ON claim floor, the same non-empty guard one
+      ;; The ALWAYS-ON claim floor, the same non-empty guard one
       ;; level down. `check-always-on-events` is what keeps the corpus
       ;; load-bearing under `-Dre-frame.debug=false`, where the dev-bus
       ;; channels are (correctly) not adjudicated. A translation that
       ;; silently stopped producing claims — a fixture rewrite that dropped
       ;; its `:trace-emissions`, an `:rf.trace/event-id` rename — would leave
       ;; the production posture asserting nothing on this channel while
-      ;; still reporting green. Today's corpus yields 17.
+      ;; still reporting green.
       (is (>= (reduce + 0 (map #(:always-on-claims % 0) run)) 12)
           (str "always-on event-claim floor (>= 12): the corpus produced "
                (reduce + 0 (map #(:always-on-claims % 0) run))
@@ -1130,7 +1127,7 @@
                "always-on `:events` substrate. Under the production gate "
                "this channel is the one adjudicating :trace-emissions at "
                "all — a collapse here is a silent loss of coverage."))
-      ;; Silent-on-success (rf2-try1x): summary prints only on failure.
+      ;; Silent-on-success: summary prints only on failure.
       (when (seq failed)
         (println)
         (println "SSR conformance corpus (ssr-*.edn fixtures):")
