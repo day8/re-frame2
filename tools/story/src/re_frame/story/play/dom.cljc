@@ -13,9 +13,11 @@
   records `{:passed? false :skipped? true :message \"no DOM\"}` rather
   than throwing.
 
-  Inside the Story shell a selector resolves under the canvas root, not the
+  Inside the Story shell a selector resolves under the canvas root first,
+  and only a non-positional one that matches nothing there reaches the
   whole page (see `search-root`)."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            #?(:cljs [re-frame.story.recorder.selector :as rf.story.recorder.selector])))
 
 ;; ---- environment probe --------------------------------------------------
 
@@ -51,33 +53,61 @@
      Story's own toolbar and sidebar, which precede the canvas — so a
      recorded type into the canvas's first input replayed into the
      sidebar's search box (rf2-3x7nj.30.5). Resolving under the canvas root
-     replays a step where it was captured, and no step can reach Story's
-     chrome — nor, inside the shell, a node the view portals out of the
-     canvas. Outside the shell (a bare test harness, a host page) there is
-     no canvas root and the document is the scope, as before."
+     replays a step where it was captured.
+
+     The canvas is only the FIRST scope. A view can render outside it — a
+     modal, popover or toast portalled into `document.body` — so a selector
+     that matches nothing under the canvas is retried against the document
+     (`document-fallback?`), unless it is positional: that kind is the
+     ambiguous one above, so it never leaves the canvas and cannot reach
+     Story's chrome (rf2-ice81). Outside the shell (a bare test harness, a
+     host page) there is no canvas root and the document is the scope, as
+     before."
      []
      (or (try (.querySelector js/document canvas-selector)
               (catch :default _ nil))
          js/document)))
 
+#?(:cljs
+   (defn- document-fallback?
+     "True iff `selector`, having matched nothing under `root`, should be
+     retried against the whole document: `root` is the canvas rather than
+     the document already, and `selector` is not the recorder's positional
+     `tag:nth-of-type(N)` fallback (`rf.story.recorder.selector/positional?`).
+     A stable hook — `data-test`, `id`, `aria-label` — names one element
+     wherever it renders, so it may follow the view into a portal (rf2-ice81)."
+     [root selector]
+     (and (not (identical? root js/document))
+          (not (rf.story.recorder.selector/positional? selector)))))
+
 (defn query
   "Look up a single element matching `selector` under the search root
-  (the Story canvas when one is mounted, else the document). Returns the
-  DOM node or nil. JVM → nil."
+  (the Story canvas when one is mounted, else the document), falling back
+  to the document for a non-positional selector the canvas does not match
+  (see `search-root`). Returns the DOM node or nil. JVM → nil."
   [selector]
   #?(:clj  nil
      :cljs (when (dom-available?)
-             (try (.querySelector (search-root) selector)
+             (try (let [root (search-root)]
+                    (or (.querySelector root selector)
+                        (when (document-fallback? root selector)
+                          (.querySelector js/document selector))))
                   (catch :default _ nil)))))
 
 (defn query-all
   "Return a JS Array of all elements matching `selector` under the search
-  root (see `query`). JVM → []."
+  root, with `query`'s document fallback when the canvas matches none.
+  JVM → []."
   [selector]
   #?(:clj  []
      :cljs (when (dom-available?)
              (try
-               (let [nl (.querySelectorAll (search-root) selector)]
+               (let [root (search-root)
+                     nl   (.querySelectorAll root selector)
+                     nl   (if (and (or (nil? nl) (zero? (.-length nl)))
+                                   (document-fallback? root selector))
+                            (.querySelectorAll js/document selector)
+                            nl)]
                  (if nl
                    (vec (array-seq nl))
                    []))
