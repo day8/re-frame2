@@ -16,7 +16,7 @@
  *    out/examples/<name>/ directory next to main.js.
  * 3. Resolves a free port (default 8050 — in the examples orchestrator's
  *    owned 805x band, clear of the top-level :dev-http bands; the resolver
- *    still pre-flights + scans forward — see examples-port.cjs for the
+ *    pre-flights + scans forward — see examples-port.cjs for the
  *    policy and the OWNED-RANGE PORT MAP in
  *    implementation/scripts/dev-testbed.cjs) and spawns http-server over
  *    out/examples on 127.0.0.1:<port>.
@@ -32,7 +32,7 @@
  * Cross-platform: compile shadow-cljs shell-free by resolving its JS
  * entry-point and spawning it under THIS node binary (process.execPath),
  * and launch http-server the same way so teardown kills the real server
- * process on Windows too. Never npx/npx.cmd under a shell (rf2-y9o5e3).
+ * process on Windows too. Never npx/npx.cmd under a shell.
  */
 
 const { spawnSync } = require('child_process');
@@ -44,7 +44,7 @@ const path = require('path');
 // them there. This orchestrator imports them across-tree — the same shape it
 // uses for the implementation tree's local-browser-harness below — rather than
 // duplicating either, so all the browser harnesses stage + resolve ports
-// identically. The adapter-specific manifest moves with this runner.
+// identically. The adapter-specific manifest lives beside this runner.
 const { resolveExamplesPort } = require('../../../examples/scripts/examples-port.cjs');
 const { parseFilterPatterns, selectEntries } = require('./adapter-smoke-filter.cjs');
 const { stageShared, cleanStageDirs } = require('../../../examples/scripts/examples-staging.cjs');
@@ -67,7 +67,7 @@ const {
 //      ADAPTER_SMOKE_FILTER=adapters node serve-and-run-adapter-smokes.cjs
 //
 // Multi-pattern filter: comma separates alternatives, OR-matched. The one
-// CI invocation today narrows to its own surface: the
+// CI invocation narrows to its own surface: the
 // adapter-testbed-smokes job passes `adapters/` (exactly the 2 adapter
 // smokes); the nightly sweep + test-rigorous-local.sh run unfiltered and
 // pick up both.
@@ -79,14 +79,13 @@ const {
 // shapes (`adapters/reagent-testbed`, `reagent-testbed`) and path shapes
 // (`adapters/reagent/testbed`, `reagent/testbed`) select the SAME entries
 // in both the compile/stage phase here and the spec-run phase in the
-// runner (rf2-l72e2 — previously a build-id-shaped filter staged the
-// surface then matched zero specs). Per Spec 008-Testing §Test surfaces
+// runner. Per Spec 008-Testing §Test surfaces
 // — this is the changed-surface CI tier for adapter-mount regressions
-// (the nightly / release rigorous gate remains separate).
+// (the nightly / release rigorous gate is separate).
 function parseFilterFromArgs(argv) {
   // Accept `--filter <value>` or `--filter=<value>`. Ignore unknown
   // flags so future additions don't break — the orchestrator has no
-  // other CLI args today.
+  // other CLI args.
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--filter') return (argv[i + 1] || '').trim();
@@ -107,7 +106,8 @@ const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // OWNED-RANGE PORT MAP in implementation/scripts/dev-testbed.cjs).
 // `EXAMPLES_PORT` overrides the default; when unset the resolver scans
 // forward from 8050 to the next free port, and when set-but-busy it throws
-// an actionable message (no raw EACCES stack). No CLI surface is added.
+// an actionable message (no raw EACCES stack). There is no CLI surface for
+// the port.
 // __dirname is <repo>/implementation/adapters/scripts. IMPL_ROOT is
 // <repo>/implementation (where shadow-cljs runs and node_modules lives);
 // REPO_ROOT is <repo>.
@@ -124,7 +124,7 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 // its JS entry-point from there so compileAll() can spawn it shell-free
 // under process.execPath — never `npx`/`npx.cmd` under a shell, which on
 // Windows resolves a workspace-local `.cmd` ahead of PATH from a repo-
-// controlled cwd (the command-hijack accident class). rf2-y9o5e3.
+// controlled cwd (the command-hijack accident class).
 let SHADOW_CLJS_RUNNER;
 try {
   SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
@@ -151,14 +151,14 @@ cleanup.installSignalHandlers();
 // Selection is delegated to the shared `selectEntries`, which matches the
 // filter against each entry's build id AND its spec path in one canonical
 // separator space — so the orchestrator's compile/stage set is identical
-// to the runner's spec set for any filter shape (rf2-l72e2). The same
+// to the runner's spec set for any filter shape. The same
 // selection gates compile and stage so a narrow run never spins up
 // resources for excluded surfaces.
 function selectedSmokes() {
   return selectEntries(FILTER_PATTERNS);
 }
 
-// Clean-stage boundary (rf2-bf4vdy): remove + recreate each SELECTED build's
+// Clean-stage boundary: remove + recreate each SELECTED build's
 // output dir BEFORE shadow-cljs compiles into it, so every served file (the
 // compiled main.js, the staged index.html, the _shared fan-out, the extra
 // static assets) is produced from the CURRENT source this run — no stale file
@@ -183,7 +183,7 @@ function compileAll() {
     );
   }
   // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
-  // shell-free (rf2-y9o5e3). Same hardened posture as story-build.cjs /
+  // shell-free. Same hardened posture as story-build.cjs /
   // dev-testbed.cjs in implementation/scripts.
   const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
@@ -197,8 +197,8 @@ function compileAll() {
 }
 
 // `copyDirRecursive` + `stageShared` (the `examples/_shared/` design-system
-// fan-out) are hoisted into examples-staging.cjs (rf2-pdo5mx) so the
-// standalone-example dev runner reuses the SAME staging. `stageShared` is
+// fan-out) live in examples-staging.cjs so the standalone-example dev
+// runner uses the SAME staging. `stageShared` is
 // imported at the top of this file.
 
 function stageHtml() {
@@ -246,10 +246,10 @@ async function main() {
 
   // Serve out/examples on loopback (127.0.0.1, not 0.0.0.0): the Playwright
   // specs only ever hit localhost, and the loopback-only bind sidesteps the
-  // Windows dual-stack EACCES surprise that made the old 8030 clash cryptic.
+  // Windows dual-stack EACCES surprise that makes a port clash cryptic.
   // The shared harness owns the http-server spawn, teardown tracking,
-  // early-exit abort, and the readiness + unreachable diagnostics
-  // (rf2-slapfs). This runner inherits the server's stdio (no capture).
+  // early-exit abort, and the readiness + unreachable diagnostics.
+  // This runner inherits the server's stdio (no capture).
   const { ready } = await startLocalHttpServer({
     cleanup,
     httpServerBin: HTTP_SERVER_BIN,
