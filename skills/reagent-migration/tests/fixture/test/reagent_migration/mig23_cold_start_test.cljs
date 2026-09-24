@@ -1,13 +1,13 @@
 (ns reagent-migration.mig23-cold-start-test
-  "COLD-START EVIDENCE for the MIG-23 SSR recipe (rf2-vpdrf).
+  "COLD-START EVIDENCE for the MIG-23 SSR recipe.
 
   The skill's MIG-23 recipe stands up a Node rendering service — a
   SEPARATE process from the browser — and both of its halves construct a
   frame. re-frame2 has no default-adapter registry: frame construction
   delegates to the installed adapter's `make-state-container`, which
   raises `:rf.error/no-adapter-installed` in a never-initialized process.
-  This suite proves the pre-correction recipe was non-vacuously red and
-  the corrected recipe's boot precondition is exactly what fixes it.
+  This suite proves a recipe without a boot `rf/init!` is non-vacuously
+  red and that the recipe's boot precondition is exactly what fixes it.
 
   ORDERED PHASES IN ONE DEFTEST BODY, because the never-installed state
   exists only once per process — at genuine cold start, before the first
@@ -29,9 +29,9 @@
        a reload-path `rf/init!` re-run is a no-op (same installed spec),
        so the hydration/HMR path never reinstalls. The browser-side
        hydrate calls themselves need a DOM and are covered by the
-       shipped Fresco/SSR suites — the entry point the cold recipe dies
-       at, per the finding, is `rf/make-frame`, and that is what is
-       proven to advance here.
+       shipped Fresco/SSR suites — the entry point a cold recipe dies
+       at is `rf/make-frame`, and that is what is proven to advance
+       here.
 
   Run from skills/reagent-migration/tests/fixture/:
       npm install && npm run test:cold-start"
@@ -51,7 +51,7 @@
   [:div "mig23 cold-start evidence"])
 
 (def ^:private render-opts
-  "The corrected MIG-23 server half's options: a minimal deterministic
+  "The MIG-23 server half's options: a minimal deterministic
   hiccup root and a valid non-empty fail-closed payload allowlist."
   {:hiccup            [page {}]
    :payload           [:catalog/items]
@@ -105,7 +105,7 @@
   (testing "POSITIVE server control — one (rf/init! rf.ssr/adapter) at process boot, then requests just work"
     (rf/init! rf.ssr/adapter)
     (is (= :rf.adapter/ssr (:kind (rf/current-adapter)))
-        "the corrected server half installs the headless server-side adapter once")
+        "the server half installs the headless server-side adapter once")
     (let [spec-before (rf/current-adapter)
           r1          (rf.fresco.server/render render-opts)
           r2          (rf.fresco.server/render render-opts)]
