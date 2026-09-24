@@ -436,7 +436,7 @@
          #js {:props props :error nil}))
      :reagent-render
      (fn [{:keys [render-fn variant-id substrate view-id eff-args]}]
-       (if-let [error (gobj/get (.-state (r/current-component)) "error")]
+       (if-let [error (gobj/get (.-state ^js (r/current-component)) "error")]
          [:div {:style (:error-cell styles)}
           [:div {:style (:error-head styles)}
            (str (name substrate) " — render error")]
