@@ -124,11 +124,12 @@
   walker elided it for the trace's `:value` slot, so the walker decides: the
   output is size-classified exactly when that walk placed a marker in it.
 
-  A whole-output declaration yields the walker's own marker, reused as is. A
-  narrower one yields a marker for the whole output, since the explanation
-  re-ships all of it: its `:path` and `:handle` name `:output-path`, which the
-  observational write has just filled, and its `:reason` is the declaring
-  source the walker's markers carry."
+  A declaration covering the whole output (at `:output-path` or above it)
+  yields the walker's own marker, reused as is. A narrower one yields a marker
+  for the whole output, since the explanation re-ships all of it: its `:path`
+  and `:handle` name `:output-path`, which the observational write has just
+  filled, and its `:reason` is the declaring source the walker's markers
+  carry."
   [flow output elided]
   (when-let [markers (seq (filter rf.elision/marker? (tree-seq coll? seq elided)))]
     (if (rf.elision/marker? elided)
