@@ -1221,7 +1221,7 @@
                                    r))
                                (subvec qvs 0 cnt))))
                      frames ns-per-frame)
-        ;; rf2-gncxk.1 — the `:frame-state` ladder: one frame per subscription
+        ;; The `:frame-state` ladder: one frame per subscription
         ;; count, each holding `cnt` `:frame-state` subs, wired exactly as the
         ;; `:db` ladder's frames are (one watcher per reaction, one deref to
         ;; establish the memo baseline). Written by `arm-fswrite` with the same
@@ -1244,13 +1244,13 @@
                        fs-frames ns-per-frame)
         db-a  (db-of cells-n 7)
         db-b  (update (db-of cells-n 7) :cells assoc (dec cells-n) 8)
-        ;; rf2-gncxk.1 — a FRESH map `=` to `db-a` but not `identical?` to it:
-        ;; the input at which the `=` walk runs to completion and finds no
-        ;; difference. That is the `:frame-state` flush-path shape PR #7233
-        ;; pins — a value-equal commit that reaches the wrapper and memo-HITS —
-        ;; and `P-EQDBF` / `P-MEMOF` / `P-MEMOFI` are all priced at it.
+        ;; A FRESH map `=` to `db-a` but not `identical?` to it: the input at
+        ;; which the `=` walk runs to completion and finds no difference.
+        ;; That is the `:frame-state` flush-path shape — a value-equal commit
+        ;; that reaches the wrapper and memo-HITS — and `P-EQDBF` / `P-MEMOF`
+        ;; / `P-MEMOFI` are all priced at it.
         db-a2 (db-of cells-n 7)
-        ;; rf2-78ejq — the two frame-state values a commit alternates between,
+        ;; The two frame-state values a commit alternates between,
         ;; PRE-BUILT so the SPINE0B / SPINE0P arms measure the container write
         ;; and the projections alone, with no value construction folded in.
         fs-a  {rf.frame/app-partition-key db-a rf.frame/runtime-partition-key {}}
@@ -1263,7 +1263,7 @@
         proj-fs-container (rf.substrate.adapter/make-state-container fs-a)
         _proj (mapv (fn [k] (rf.substrate.adapter/make-derived-value [proj-fs-container] k))
                     [rf.frame/app-partition-key rf.frame/runtime-partition-key])
-        ;; rf2-gncxk.1 — the movement-witness pair's rigs. TWO structurally
+        ;; The movement-witness pair's rigs. TWO structurally
         ;; identical stacks (a raw container carrying one derived dependent),
         ;; differing only in which of the two the 300 memo wrappers are handed
         ;; as their lone source:
@@ -1314,7 +1314,7 @@
               :qvs      qvs
               :frames   frames
               :holds    holds
-              ;; rf2-gncxk.1 — the `:frame-state` ladder
+              ;; the `:frame-state` ladder
               :fs-frames fs-frames
               :fs-holds  fs-holds
               :db-cell  (atom (db-of cells-n 0))
@@ -1322,7 +1322,7 @@
               :spine-container (rf.substrate.adapter/make-state-container (db-of cells-n 0))
               :db-a     db-a
               :db-b     db-b
-              ;; rf2-gncxk.1 — the movement-witness pair
+              ;; the movement-witness pair
               :db-a2      db-a2
               :w-src      w-src
               :w-derived  w-derived
@@ -1337,8 +1337,8 @@
               :bare-fs-container bare-fs-container
               :proj-fs-container proj-fs-container
               :projections       _proj
-              ;; rf2-zxv06 — one PRE-BUILT scope per sub, the shipped shape
-              ;; (`subs.memo`'s wrappers now close over exactly this), plus a
+              ;; one PRE-BUILT scope per sub, the shipped shape
+              ;; (`subs.memo`'s wrappers close over exactly this), plus a
               ;; parent whose inheritable slots are both nil, which is what a
               ;; production build always presents to `inherit-scope`.
               :sub-scopes   (mapv #(rf.trace/handler-scope-from-meta
@@ -1347,10 +1347,9 @@
               :parent-scope (rf.trace/handler-scope-from-meta
                               :event :wa/parent prod-sub-meta)
               ;; the shipped memo wrapper, one per subscription. The trailing
-              ;; source is the RAW container (rf2-gncxk.1) — a source that
-              ;; publishes no movement witness, so `P-MEMO` keeps measuring
-              ;; exactly the expression it always measured, its published
-              ;; figure intact and comparable.
+              ;; source is the RAW container — a source that publishes no
+              ;; movement witness, so `P-MEMO` measures the unwitnessed
+              ;; expression, comparable with its published figure.
               :memos    (mk-memos f-src)
               ;; distinct fn identities, the way the scheduler's queue holds
               ;; one flush thunk per dirty derived value
@@ -1364,13 +1363,12 @@
 (defn ^:export -main [& _]
   ;; Ahead of everything, because a broken guard makes every figure below
   ;; unpublishable and finding that out after the run is wasteful. The checks
-  ;; are fixtures replayed from `rf2-jr76s`'s recorded readings, so this is
-  ;; deterministic — exactly as `b8_run.cjs` does it.
+  ;; are fixtures replayed from recorded readings, so this is deterministic.
   (when-not (rf.bench.order-guard/print-self-test!)
     (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
-  ;; rf2-l3jv4 — and the SAME discipline for the control calibration, whose
-  ;; refusal is the other half of this run's exit code. Injected ratios,
-  ;; including the recorded 16.11 B/slot this bead was opened on.
+  ;; And the SAME discipline for the control calibration, whose refusal is
+  ;; the other half of this run's exit code. Injected ratios, including the
+  ;; recorded 16.11 B/slot polymorphic-site reading.
   (when-not (rf.bench.calibration/print-self-test!)
     (throw (ex-info "calibration self-test FAILED — nothing may be measured" {})))
   (let [n        (env-int "WA_N" 300)
@@ -1378,7 +1376,7 @@
         warmup   (env-int "WA_WARMUP" 3)
         warm-windows (env-int "WA_WARM_WINDOWS" 6)
         rounds   (max 2 (env-int "WA_ROUNDS" 6))
-        ;; rf2-tmzie — the window-size cap `calibrate` clamps to. Every arm that
+        ;; The window-size cap `calibrate` clamps to. Every arm that
         ;; allocates ~nothing per call pins here, so this is the ONE knob that
         ;; separates a per-CALL cost from a per-WINDOW one without leaving the
         ;; measured plan.
@@ -1386,7 +1384,7 @@
         per-round (max 1 (js/Math.ceil (/ samples rounds)))
         tolerance (env-num "WA_TOLERANCE" 0.25)
         rev?     (= "rev" (env "WA_ORDER" ""))
-        ;; rf2-4k5hs — the coord-carrying registration is the DEFAULT, because
+        ;; The coord-carrying registration is the DEFAULT, because
         ;; that is what a consumer's macro-registered subs give the registrar.
         ;; `WA_COORDS=0` selects the coord-less control.
         coords?  (not= "0" (env "WA_COORDS" "1"))
@@ -1405,7 +1403,7 @@
              (into {} (concat (map (fn [d] [(ctl-key "DBL" d) (packed-doubles d)]) ctl-double-ds)
                               (map (fn [d] [(ctl-key "SMI" d) (packed-smis d)]) ctl-smi-ds))))
     (build-rig! n n ns-per-frame coords?)
-    (println (gstring/format ";; rf2-jr76s WRITE attribution — node V8, :advanced"))
+    (println (gstring/format ";; WRITE attribution — node V8, :advanced"))
     (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
                      rf.interop/debug-enabled?
                      (some? (gobj/get js/globalThis "gc"))))
@@ -1416,13 +1414,13 @@
                      n samples rounds per-round warmup warm-windows reps-max
                      (if rev? "REVERSED" "forward")
                      (pr-str ns-per-frame)))
-    (println (gstring/format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %s"
+    (println (gstring/format ";; arm order ROTATES AND REFLECTS with the round; guard tolerance %s"
                      (.toFixed (* 100.0 tolerance) 0)))
     (println (gstring/format ";; registration = %s"
                      (if coords?
                        "COORD-CARRYING (default — the shape a real application registers)"
                        "COORD-LESS (WA_COORDS=0 — the CONTROL arm; do not quote a figure from this run)")))
-    ;; PROVENANCE, not decoration (rf2-zxv06). `handler-scope-from-meta`'s cost
+    ;; PROVENANCE, not decoration. `handler-scope-from-meta`'s cost
     ;; is dominated by whether the registrar slot carries source coords: with
     ;; `:ns` / `:file` / `:line` it builds a coord map AND a trigger map on top
     ;; of the record; without them `trigger-handler-from-meta` returns nil and
@@ -1435,7 +1433,7 @@
                        (if (rf.trace/trigger-handler-from-meta :sub :probe slot)
                          "BUILT — P-SCOPEM is the predictive arm"
                          "nil — P-SCOPE is the predictive arm"))))
-    ;; rf2-tmzie — the mechanism pair's whole claim is the COLLECTION TYPE, so
+    ;; The mechanism pair's whole claim is the COLLECTION TYPE, so
     ;; the type is read off the process rather than asserted from an entry
     ;; count. `@frames` is printed beside them because `C-FRAMEG`'s 0.0 is only
     ;; evidence about array maps while the registry actually is one.
@@ -1469,19 +1467,19 @@
                        [["MKDB"      arm-mkdb             1]
                         ["BAREATOM"  arm-bareatom         1]
                         ["SPINE0"    arm-spine0           1]
-                        ;; rf2-78ejq — the rungs under RFWRITE-0
+                        ;; the rungs under RFWRITE-0
                         ["SPINE0B"   arm-spine0b          1]
                         ["SPINE0P"   arm-spine0p          1]
-                        ;; rf2-c0awb — the registry lookup, HIT / MISS / the
+                        ;; the registry lookup, HIT / MISS / the
                         ;; `get` on its own, all three in one process
                         ["C-FRAME"   (arm-c-frame)        1]
                         ["C-FRAMEX"  (arm-c-frame-miss)   1]
                         ["C-FRAMEG"  (arm-c-frame-get)    1]
-                        ;; rf2-tmzie — the same work with the CALL removed
+                        ;; the same work with the CALL removed
                         ["C-FRAMEV"  (arm-c-frame-vis)    1]
                         ["C-FRAMEL"  (arm-c-frame-life)   1]
                         ["C-FRAMES"  (arm-c-frame-state)  1]
-                        ;; rf2-tmzie — the mechanism pair, and the measured floor
+                        ;; the mechanism pair, and the measured floor
                         ["C-PHMGET"  arm-c-phm-get        1]
                         ["C-PAMGET"  arm-c-pam-get        1]
                         ["C-NOOP"    arm-c-noop           1]
@@ -1493,7 +1491,7 @@
                               (fn [k cnt]
                                 [(str "RFWRITE-" cnt) (fn [] (arm-rfwrite k)) 1])
                               ns-per-frame))
-                 ;; rf2-gncxk.1 — the same ladder over `:frame-state` subs,
+                 ;; the same ladder over `:frame-state` subs,
                  ;; whose source cannot publish a movement witness. Its slope
                  ;; is the control for `RFWRITE-N`'s.
                  true (into (map-indexed
@@ -1502,14 +1500,14 @@
                               ns-per-frame))
                  true (into [["P-BODY"  arm-p-body  n]
                              ["P-EQDB"  arm-p-eqdb  n]
-                             ;; rf2-gncxk.1 paired controls, both halves
+                             ;; the movement-witness pairs, both halves
                              ["P-EQDBF"   arm-p-eqdb-f   n]
                              ["P-MEMOW"   arm-p-memo-w   n]
                              ["P-MEMOWC"  arm-p-memo-wc  n]
                              ["P-MEMOF"   arm-p-memo-f   n]
                              ["P-MEMOFI"  arm-p-memo-fi  n]
                              ["P-SCOPE" arm-p-scope n]
-                             ;; rf2-zxv06 paired controls
+                             ;; the handler-scope paired controls
                              ["P-SCOPEM"  arm-p-scope-m n]
                              ["P-SCOPEH"  arm-p-scope-h n]
                              ["P-INHER"   arm-p-inher   n]
@@ -1523,7 +1521,7 @@
           plan (if rev? (vec (reverse plan)) plan)
           k    (count plan)
           ;; --- warm-up and calibration, one pass, nothing read ------------
-          ;; rf2-tb345: a site reads 1.26x to 5.3x its settled value until it
+          ;; A site reads 1.26x to 5.3x its settled value until it
           ;; has run several full-size windows. Charged to round 1 that reads
           ;; as allocation, and — worse — it reads as an arm whose figure
           ;; moves with where in the plan it sat, which the guard below
@@ -1569,7 +1567,7 @@
                                          :dropped (get-in run [:dropped label] 0))]))
                        plan))
           b    (fn [l] (:p50 (get res l)))
-          ;; rf2-l3jv4 — the control's own verdict, computed ONCE from the
+          ;; The control's own verdict, computed ONCE from the
           ;; same p50s the CONTROLS block prints, and carried to the exit
           ;; code at the bottom of this function. The bands live in
           ;; `re-frame.bench.calibration` and are expressed nowhere else, so
@@ -1585,14 +1583,14 @@
                            label (:reps r) (fmt (:p50 r)) (fmt (:lo r)) (fmt (:hi r))
                            (fmt (/ (:p50 r) per)) (:accepted r) (:dropped r)
                            (fmt (apply min rnd)) (fmt (apply max rnd))))))
-      ;; rf2-tmzie — THE FLOOR, measured rather than assumed. `C-NOOP` is
+      ;; THE FLOOR, measured rather than assumed. `C-NOOP` is
       ;; `keep!` and nothing else, so whatever it reads is what "allocates
       ;; nothing" reads at THIS window size. The floor is window-size
       ;; dependent — it is a roughly fixed number of bytes per WINDOW, so it
       ;; falls as 1/reps — which is why `WA_REPS_MAX` exists and why an arm
       ;; that sits on it must be reported as an upper bound rather than a
       ;; measurement. Re-run at a smaller `WA_REPS_MAX` and an arm whose figure
-      ;; RISES was never measuring itself.
+      ;; RISES is not measuring itself.
       (println ";;")
       (println ";; THE FLOOR — what an arm that allocates NOTHING reads in this run")
       (let [nreps (:reps (get res "C-NOOP"))
@@ -1607,10 +1605,10 @@
             (println ";;   no arm is at the floor in this run"))))
       (println ";;")
       (println ";; CONTROLS")
-      ;; rf2-l3jv4 — the ABSOLUTE, checked, at every size. The slopes below
-      ;; cancel both headers and so cannot see a constant FACTOR; printing only
-      ;; them is how an arm reading exactly twice its prediction at BOTH sizes
-      ;; went unremarked for as long as it did.
+      ;; The ABSOLUTE, checked, at every size. The slopes below cancel both
+      ;; headers and so cannot see a constant FACTOR; printing only them lets
+      ;; an arm reading exactly twice its prediction at BOTH sizes go
+      ;; unremarked.
       ;;
       ;; The double control is checked against an asserted layout — JSArray
       ;; 32 B + `FixedDoubleArray` (16 B header + 8 B x D) — which is safe
@@ -1647,13 +1645,13 @@
         (println (gstring/format
                    ";;   DBL slope, LARGE pair (1000->10000)  %.4f B/double  predicted 8.0000  %+.2f%%"
                    lg (* 100.0 (/ (- lg 8.0) 8.0))))
-        ;; rf2-l3jv4 — the regime is READ off this pair, so it cannot also be
+        ;; The regime is READ off this pair, so it cannot also be
         ;; predicted from an assumed slot width. What CAN be checked, without
         ;; circularity, is how close the slope sits to the exact width of the
         ;; regime THE RATIOS ABOVE selected: a tagged slot is 8 bytes or 4,
-        ;; never 16.1. Selecting the width from the slope itself — which is
-        ;; what this line used to do — cannot see a doubled slope at all,
-        ;; because 16.1 simply answers "OFF" and is then compared to 8.
+        ;; never 16.1. Selecting the width from the slope itself cannot see a
+        ;; doubled slope at all, because 16.1 simply answers "OFF" and is then
+        ;; compared to 8.
         (println (gstring/format
                    ";;   SMI slope, SMALL pair (100->200)     %.4f B/slot    -> pointer compression %s   %s"
                    si (case (:regime cal)
