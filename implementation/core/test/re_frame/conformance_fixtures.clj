@@ -1,7 +1,7 @@
 (ns re-frame.conformance-fixtures
   "Compile-time loader for the conformance EDN corpus.
 
-  The CLJS conformance runner (rf2-3oi9x) cannot use `clojure.java.io`
+  The CLJS conformance runner cannot use `clojure.java.io`
   / `slurp` / `file-seq` at runtime — there is no fs in CLJS. Instead,
   this `.clj` namespace provides a macro that reads every fixture EDN
   file at *compile time* (when the CLJS file that calls the macro is
@@ -10,8 +10,8 @@
   bytecode. The CLJS test then iterates a plain in-memory map — no
   fs, no async, host-portable to `:node-test` and `:browser-test`.
 
-  THE READS ARE RECORDED, AND THAT IS NOT A DETAIL (rf2-1tlr4, the
-  defect class CLAUDE.md catalogues as item (x)). Inlining a file at
+  THE READS ARE RECORDED, AND THAT IS NOT A DETAIL (the defect class
+  CLAUDE.md catalogues as item (x)). Inlining a file at
   macro-expansion time by itself HIDES it from the build: an `.edn` is
   not an input the ClojureScript compiler tracks, so a cached consumer
   holds no edge back to the bytes this macro froze. Correct a fixture
@@ -29,8 +29,7 @@
   Edit a fixture, the consumer recompiles, no cold rebuild and no
   ritual. [[fixtures-resource-dir]] is therefore a classpath RESOURCE
   name under the `spec` `:source-path` root that
-  `implementation/shadow-cljs.edn` already carries — this macro needed
-  no new root, unlike the sibling repair under rf2-uttbj.
+  `implementation/shadow-cljs.edn` carries.
 
   That reader is SHARED rather than reimplemented here: resolving
   shadow's own reader is a cold-load race that two independent
@@ -54,7 +53,7 @@
   fixtures the conventional way (`slurp` + `clojure.edn/read-string`)
   and needs no such edge: `clojure -M:test` keeps no analyzer cache, so
   every run re-reads the corpus. This macro applies the same `::name`
-  → `:rf.machine.timer/name` rewrite that runner uses (per rf2-lu3f) so
+  → `:rf.machine.timer/name` rewrite that runner uses so
   the CLJS corpus loads the same data without an EDN-reader resolver."
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -71,8 +70,7 @@
 
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. See
-  `re-frame.conformance-test/read-one-form` for the full rationale
-  (rf2-98ni).
+  `re-frame.conformance-test/read-one-form` for the full rationale.
 
   This is the CLJS arm's seam, and it is the loudest of the seven: the
   macro below runs on the JVM at CLJS COMPILE time, so a malformed
@@ -83,7 +81,7 @@
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
         fail (fn [why data]
                (throw (ex-info (str "conformance fixture " fixture-name " " why
-                                    " (rf2-98ni, rf2-5mr6)")
+                                    " (see re-frame.conformance-test/read-one-form)")
                                (assoc data :fixture/file fixture-name))))
         rd   (fn []
                (try (edn/read {:eof eof} rdr)
@@ -141,7 +139,7 @@
         ;; beginning a token — preceded by `(` / `[` / `{` / whitespace).
         ;; The lookbehind keeps the rewrite from corrupting a `::` INSIDE a
         ;; value, e.g. the CEDN-1 keyword token `"k::answer"` in an EP-0012
-        ;; `:expect` string (rf2-qyb9l1). Mirror of the JVM runner's
+        ;; `:expect` string. Mirror of the JVM runner's
         ;; load-fixture rewrite.
         fixed (str/replace raw
                            #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
