@@ -81,7 +81,7 @@
       (is (= 1 (count no-ops))
           "exactly one unhandled-no-op signals the benign no-op")
       (is (= 0 (count trans))
-          "NO redundant no-change :rf.machine/transition (RED before coozg: was 1)"))))
+          "NO redundant no-change :rf.machine/transition"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Guard-blocked event — same single-signal contract.
@@ -99,7 +99,7 @@
       (is (= 1 (count no-ops))
           "exactly one unhandled-no-op for the guard-blocked no-op")
       (is (= 0 (count trans))
-          "NO redundant no-change :rf.machine/transition (RED before coozg: was 1)"))))
+          "NO redundant no-change :rf.machine/transition"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Redundant bootstrap on an already-booted machine — emits NEITHER
@@ -111,7 +111,7 @@
 (deftest redundant-start-emits-no-no-op-signal
   (testing "a redundant `[:rf.machine/start]` on an already-booted machine is
    a no-op that emits neither `unhandled-no-op` (reserved-`:rf/*` carve-out)
-   nor a `:rf.machine/transition` — and, per F‴ (rf2-gl588), no second
+   nor a `:rf.machine/transition` — and no second
    `:rf.machine/started` either (the snapshot is present + not pending, so
    `maybe-boot` does not re-fire and the start marker short-circuits)."
     (reg-tl!)
@@ -122,7 +122,7 @@
           trans   (ops evs :rf.machine/transition)
           started (ops evs :rf.machine/started)]
       (is (= 0 (count no-ops))
-          "reserved-:rf/* lifecycle never emits unhandled-no-op (rf2-t4582)")
+          "reserved-:rf/* lifecycle never emits unhandled-no-op")
       (is (= 0 (count trans))
           "no `:rf.machine/transition` — a pure start never runs the step")
       (is (= 0 (count started))
@@ -138,8 +138,8 @@
 
 (deftest first-start-signals-birth-via-started-trace
   (testing "the machine's BIRTH (first `[:rf.machine/start]`) emits a
-   `:rf.machine/started` trace carrying the installed initial state — and,
-   per F‴, NO `:rf.machine/transition` (pure init-kick: init then stop) and
+   `:rf.machine/started` trace carrying the installed initial state — and
+   NO `:rf.machine/transition` (pure init-kick: init then stop) and
    NO `unhandled-no-op`"
     (reg-tl!)
     (let [evs     (record-traces! boot!)
@@ -147,9 +147,9 @@
           trans   (ops evs :rf.machine/transition)
           started (ops evs :rf.machine/started)]
       (is (= 0 (count no-ops))
-          "start is framework init, never an unhandled-no-op (rf2-t4582)")
+          "start is framework init, never an unhandled-no-op")
       (is (= 0 (count trans))
-          "no `:rf.machine/transition` — F‴ start is a pure init-kick (stops)")
+          "no `:rf.machine/transition` — start is a pure init-kick (stops)")
       (is (= 1 (count started))
           "the birth is signalled by exactly one `:rf.machine/started` trace")
       (let [tr (first started)]
@@ -161,7 +161,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5. Real transition — exactly ONE `:rf.machine/transition`, NO
-;;    `unhandled-no-op`. The headline path is unchanged.
+;;    `unhandled-no-op`.
 ;; ---------------------------------------------------------------------------
 
 (deftest real-transition-emits-one-transition-no-no-op
@@ -245,4 +245,4 @@
       (is (= 1 (count no-ops))
           "exactly one aggregate unhandled-no-op (all regions declined)")
       (is (= 0 (count trans))
-          "NO redundant no-change :rf.machine/transition (RED before coozg: was 1)"))))
+          "NO redundant no-change :rf.machine/transition"))))
