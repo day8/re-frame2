@@ -103,8 +103,11 @@
   We do NOT try to be a real JSON detector — clojure EDN handles maps
   and vectors with the same brackets, but EDN keys are typically
   keywords (`:foo`) while JSON keys are always strings. The presence
-  of `\\\"<word>\\\":` (i.e. a quoted key followed by colon) is the
-  cheap unambiguous discriminator."
+  of `\\\"<word>\\\":` (i.e. a quoted key followed by colon) is a cheap
+  PRE-FILTER, not a verdict: an EDN string value followed by a keyword
+  (`{:email \\\"a@b.c\\\" :password …}`) matches it too, so `parse-payload`
+  reads such a payload as EDN when `JSON.parse` refuses it
+  (rf2-3x7nj.29.5)."
   [s]
   (boolean
     (and (string? s)
@@ -116,15 +119,25 @@
 #?(:cljs
    (defn- parse-json-cljs
      "Parse JSON via `js/JSON.parse` then `js->clj :keywordize-keys
-     true` on CLJS. Returns the parsed value or throws."
+     true` on CLJS. When `JSON.parse` refuses the string it was EDN that
+     only looked like JSON, so read it as EDN. Returns the parsed value or
+     throws EDN's error.
+
+     JSON goes first, not EDN, because compact JSON is often readable EDN
+     too: `{\"id\":7}` reads as `{\"id\" :7}`, a quiet misparse rather than
+     an error."
      [s]
-     (-> s js/JSON.parse (js->clj :keywordize-keys true))))
+     (let [parsed (try (js/JSON.parse s) (catch :default _ ::not-json))]
+       (if (keyword-identical? ::not-json parsed)
+         (edn/read-string s)
+         (js->clj parsed :keywordize-keys true)))))
 
 (defn parse-payload
   "Parse a payload string into a CLJ value. Empty / whitespace strings
-  return nil. Tries JSON when the heuristic matches, otherwise falls
-  back to EDN. Returns `[:ok value]` on success, `[:error message]`
-  on parse failure. Pure data → data; JVM and CLJS branches.
+  return nil. Tries JSON when the heuristic matches (EDN again if
+  `JSON.parse` refuses it), otherwise reads EDN. Returns `[:ok value]`
+  on success, `[:error message]` on parse failure. Pure data → data;
+  JVM and CLJS branches.
 
   Examples:
 
