@@ -1,13 +1,13 @@
 (ns re-frame.schemas-record-type-tag-test
-  "The always-on `:errors` record's type tag is a CLOSED vocabulary
-  (rf2-xpd8, audit of PR #9208).
+  "The always-on `:errors` record's type tag is a CLOSED vocabulary.
 
-  PR1 gave a rejected app-db candidate a structural-only record on the
-  always-on `:errors` stream. Its `:reason` was composed rather than copied
-  precisely so the failing VALUE could not ride it — every other value-bearing
+  A rejected app-db candidate gets a structural-only record on the
+  always-on `:errors` stream. Its `:reason` is composed rather than copied
+  precisely so the failing VALUE cannot ride it — every other value-bearing
   slot (`:value`, `:explain`, `:schema`, `:path`) is omitted outright for that
-  reason. But the reason's type tag was `re-frame.error/type-of-value`, whose
-  fallback arm is `(str (type v))`, and that arm is NOT closed:
+  reason. A type tag taken from `re-frame.error/type-of-value` would reopen
+  that hole: its fallback arm is `(str (type v))`, and that arm is NOT
+  closed:
 
     - On CLJS it is a DISCLOSURE. `cljs.core/type` is defined as
       `(.-constructor x)` — an ordinary writable property — so a foreign JS
@@ -20,17 +20,19 @@
 
     - On BOTH hosts it is UNBOUNDED — host class names are not a vocabulary,
       they are whatever the runtime happens to call the class. That half is
-      what this namespace pins, and it is the structural property the CLJS
-      leak violated: the record's reason carries framework literals ONLY,
+      what this namespace pins, and it is the structural property a CLJS
+      disclosure would violate: the record's reason carries framework
+      literals ONLY,
       never text derived from the value's own class or constructor.
 
-  So these tests are the host-agnostic control. They fail against the
-  pre-fix code: a set-valued failing leaf put `clojure.lang.PersistentHashSet`
-  into a record that is supposed to be closed-shape.
+  So these tests are the host-agnostic control. Against a `type-of-value`
+  tag they would fail: a set-valued failing leaf would put
+  `clojure.lang.PersistentHashSet` into a record that is supposed to be
+  closed-shape.
 
   Deliberately NOT asserted here: the eight named tags' spellings for the
-  ordinary shapes are `error/type-of-value`'s existing documented vocabulary
-  and are pinned by the PR1 tests already (`got string`, `got nil`). This
+  ordinary shapes are `error/type-of-value`'s documented vocabulary
+  (`got string`, `got nil`, …). This
   namespace owns the NINTH arm — the constant fallback — and the guarantee
   that nothing else can appear."
   (:require [clojure.string :as str]
@@ -85,9 +87,9 @@
                " — got " (pr-str (tag v)))))))
 
 (deftest fallback-is-a-constant-never-the-host-class-name
-  (testing "rf2-xpd8 audit — the fallback arm returns the literal \"object\",
-            NOT `(str (type v))`. This is the arm the CLJS `constructor`
-            disclosure came through; on the JVM the same arm is merely
+  (testing "the fallback arm returns the literal \"object\",
+            NOT `(str (type v))`. This is the arm a CLJS `constructor`
+            disclosure would come through; on the JVM the same arm is merely
             unbounded, and both are closed by the same constant."
     (doseq [v [#{:a} '(1) (Object.) (java.util.Date.) (java.net.URI. "x:y")]]
       (is (= "object" (tag v))
@@ -98,8 +100,8 @@
           "the host class name never appears in the tag"))))
 
 (deftest tag-never-throws
-  (testing "a diagnostic that explodes while explaining a rejection is the
-            rf2-9s68n failure one level up. The protocol arms (`map?`,
+  (testing "a diagnostic must not explode while explaining a
+            rejection. The protocol arms (`map?`,
             `vector?`) are property reads, and on CLJS a Proxy get-trap can
             raise there — the cond is wrapped for that. Nothing on the JVM
             reaches the catch, so this pins totality rather than the catch
@@ -111,10 +113,11 @@
 ;; ---- end-to-end: the emitted record carries no host class name ------------
 
 (deftest rejection-record-reason-carries-no-host-class-name
-  (testing "rf2-xpd8 audit, END TO END — a rejected candidate whose failing
+  (testing "END TO END — a rejected candidate whose failing
             leaf is outside the eight-tag vocabulary emits a record whose
-            :reason says `got object`, never the leaf's class name. Pre-fix
-            this reason read `got class clojure.lang.PersistentHashSet`."
+            :reason says `got object`, never the leaf's class name (a
+            `type-of-value` tag would read
+            `got class clojure.lang.PersistentHashSet`)."
     (when rf.interop/debug-enabled?
       (rf/reg-app-schema [:tenant] [:map [:id :int]])
       (let [records (rejection-records
@@ -136,13 +139,13 @@
           (is (not (str/includes? reason "clojure.lang"))
               "no host package name on a closed-shape record")
           (is (str/includes? reason "[:tenant]")
-              "the reason still names its registered path — the tag change
+              "the reason names its registered path — the closed tag
                narrows the vocabulary, it does not drop the locator"))))))
 
 (deftest rejection-record-keeps-the-eight-named-tags
-  (testing "the fix REPLACES the unbounded fallback only — the documented
-            vocabulary the PR1 tests pin (`got nil`, `got string`) is
-            unchanged, so no consumer learns a new word"
+  (testing "only the unbounded fallback differs — the documented
+            vocabulary (`got nil`, `got string`) is `type-of-value`'s own,
+            so no consumer learns a new word"
     (when rf.interop/debug-enabled?
       (rf/reg-app-schema [:acct] [:map [:n :int]])
       (let [reason (fn [db]
