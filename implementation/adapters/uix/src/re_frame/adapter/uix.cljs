@@ -24,8 +24,8 @@
 ;; element-creation time, between plain React and a port of Reagent's
 ;; controlled-input workaround. Left unset, the var below makes that choice by
 ;; asking whether `reagent.impl.util/*non-reactive*` happens to EXIST — so
-;; adding the Reagent adapter to a UIx app silently changed how the UIx app's
-;; controlled inputs behave, with no diagnostic and no opt-in (rf2-heqwo).
+;; adding the Reagent adapter to a UIx app would silently change how the UIx
+;; app's controlled inputs behave, with no diagnostic and no opt-in.
 ;;
 ;; re-frame2 pins it. React's own path keeps the element controlled and
 ;; converges inside the discrete event, before `dispatchEvent` returns, through
@@ -33,14 +33,14 @@
 ;; (deletes `:value`, installs `defaultValue` + a `ref`) and drives the value
 ;; from `reagent.impl.batching/do-after-render` — a requestAnimationFrame
 ;; queue, so one frame late, never in-turn. Both were measured in real Chromium
-;; against react-dom 19.2.0 (rf2-n3dxw); the trade-off and the caret behaviour
+;; against react-dom 19.2.0; the trade-off and the caret behaviour
 ;; consumers will see are documented in `docs/api/re-frame.adapter.uix.md`.
 ;;
 ;; This runs at namespace load — ahead of any render, and therefore ahead of
 ;; any element creation. The var stays `^:dynamic` and public: a consumer who
 ;; genuinely wants the port asks for it EXPLICITLY, by `set!`ing it back to
 ;; `true` after requiring this namespace (or `binding` it around a render).
-;; What is no longer possible is getting either one by accident.
+;; Neither one can be had by accident.
 (set! uix.compiler.input/*use-reagent-input-enabled?* false)
 
 ;; ---- shared spine wiring --------------------------------------------------
@@ -63,18 +63,17 @@
   install the hiccup emitter explicitly (mirroring the Reagent adapter)."
   (:set-hiccup-emitter! spine-fns))
 
-;; The narrow raw `useContext` frame read is INTERNAL (rf2-kuky.57). It stays
-;; the mechanism that keeps a `use-sub` caller subscribed to context-value
-;; changes — the spine calls it at the top of the ambient hook body — but it is
-;; no longer published: it returned the no-provider sentinel
-;; (`:rf.frame/no-provider`) as if it were an answer, consulted neither the
-;; dynamic-var tier nor the sentinel→nil mapping, and had no consumer outside
-;; this namespace and its own tests. `(rf/current-frame-id)` is the reader with
+;; The narrow raw `useContext` frame read is INTERNAL. It is the mechanism
+;; that keeps a `use-sub` caller subscribed to context-value changes — the
+;; spine calls it at the top of the ambient hook body — and it is not
+;; published: it returns the no-provider sentinel (`:rf.frame/no-provider`) as
+;; if it were an answer and consults neither the dynamic-var tier nor the
+;; sentinel→nil mapping. `(rf/current-frame-id)` is the reader with
 ;; the full dynamic-var → context → nil chain, and `use-frame` is the
 ;; hook-shaped way to ask which frame you are in.
 
 (defui frame-provider
-  "SCOPE an existing frame for descendant UIx components (rf2-nyea0r split).
+  "SCOPE an existing frame for descendant UIx components.
 
   `{:frame existing-id}` scopes an ALREADY-CREATED frame and FAILS LOUD when it
   is absent. Creates / refreshes / destroys nothing.
@@ -102,7 +101,7 @@
     (rf.substrate.spine/build-frame-provider-element frame-kw (:children props))))
 
 (defui frame-root
-  "ENSURE a named frame for descendant UIx components (rf2-nyea0r split) — a
+  "ENSURE a named frame for descendant UIx components — a
   COMMIT-OWNED TWO-PASS boundary.
 
   `{:id id ...}` creates the frame if absent and otherwise reuses it without
@@ -184,7 +183,7 @@
   re-renders the caller and yields a map locked to the new frame, and so
   does destroying the resolved frame and creating another under the same
   id — a frame keyword is an address, and the bundle is pinned to the
-  incarnation it was captured against (rf2-40kv). No options map, no
+  incarnation it was captured against. No options map, no
   variants — for an explicit frame call `(rf/capture-frame frame-id)`
   directly."
   rf.adapter.use-frame/use-frame)
@@ -196,12 +195,12 @@
   act() from the React namespace directly (React 19 is the adapter
   floor); a production React bundle omits act, where this is a no-op.
   It publishes a render phase, so do not call it from inside a
-  `dispatch-sync` handler (rf2-0c23j)."
+  `dispatch-sync` handler."
   (:flush-views! spine-fns))
 
 ;; ---- the client root ------------------------------------------------------
 ;;
-;; rf2-kuky.56 (the trio itself: rf2-k5r9t). A browser boot needs one React
+;; A browser boot needs one React
 ;; Root for the life of the page: created (or hydrated) once, re-rendered on
 ;; every hot reload, released on teardown. `client-root` + `render!` +
 ;; `unmount!` give it that without a caller-owned raw Root, a create/hydrate
@@ -265,34 +264,32 @@
   already released the Root, does nothing. Returns nil."
   (:unmount-client-root! spine-fns))
 
-;; Source-coord injection is INTERNAL (rf2-kuky.57). The wrapper that stamps
+;; Source-coord injection is INTERNAL. The wrapper that stamps
 ;; `data-rf2-source-coord` on a view's root DOM element reaches its callers
 ;; through the `:adapter/wrap-view` late-bind hook, which `views/reg-view*`
-;; already consults on every registration — so registering a view is the whole
-;; public story and the hook is the whole mechanism. The var this namespace used
-;; to publish under that name was a second door onto the same fn, with no
-;; consumer outside this repo's own tests. The hook is unchanged; only the door
-;; is gone.
+;; consults on every registration — so registering a view is the whole public
+;; story and the hook is the whole mechanism. This namespace publishes no
+;; `wrap-view` var.
 
-;; ---- registered-view component head — UIx-NATIVE half (rf2-oz7wr) ---------
+;; ---- registered-view component head — UIx-NATIVE half ---------------------
 ;;
 ;; `views/reg-view*` hands its composed wrapper to `:adapter/componentize-view`
 ;; and registers whatever comes back, so `(rf/view id)` is what a caller mounts.
-;; Without this the registered value is a `MetaFn` (the `:contextType` meta
-;; Reagent's class machinery reads), which React rejects as an element type —
-;; the documented `($ (rf/view ::row) props)` form could not mount at all.
+;; Without this the registered value would be a `MetaFn` (the `:contextType`
+;; meta Reagent's class machinery reads), which React rejects as an element
+;; type — the documented `($ (rf/view ::row) props)` form could not mount at all.
 ;;
 ;; The spine builds the mountable shell; the ONE substrate-native step is
 ;; stamping UIx's own component marker on it, and it belongs here for exactly
-;; the rf2-z7hfp reason `frame-provider` does. The marker is what makes
+;; the reason `frame-provider` does. The marker is what makes
 ;; `uix.compiler.alpha/component-element` take the `uix-component-element`
 ;; branch, which stashes the ORIGINAL CLJS props map on `argv` and folds
 ;; trailing `$` children onto `:children` — the lossless channel. Unmarked, `$`
 ;; would fall through to `react-component-element` → `interpret-attrs`, which
-;; is what stringified keyword prop values and dropped their namespaces before
-;; rf2-z7hfp (`:frame` silently becoming `:rf/default`). So stripping the meta
-;; alone would have produced a head React could mount and then mangled its
-;; props; the marker is the half that makes the mount CORRECT.
+;; stringifies keyword prop values and drops their namespaces (`:frame`
+;; silently becoming `:rf/default`). So stripping the meta alone would produce
+;; a head React could mount and then mangle its props; the marker is the half
+;; that makes the mount CORRECT.
 ;;
 ;; Not a `defui`: `defui` glues `argv` into a CLJS map for its own body, and
 ;; this shell must hand the props object DOWN untouched so the registered
