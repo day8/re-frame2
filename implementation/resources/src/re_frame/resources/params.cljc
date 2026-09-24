@@ -11,11 +11,11 @@
   throw. `registry` and `mutation-registry` keep thin wrappers so each public
   surface retains its own error id and data shape.
 
-  LEAF, no new edge: it requires only `state` (the omitted-default /
-  EDN-rejection / canonicalization the two registrars already delegate to),
+  LEAF: it requires only `state` (the omitted-default /
+  EDN-rejection / canonicalization the two registrars also delegate to),
   `classification` (the invalid-param redaction seam), and `late-bind` (the
   pluggable Malli validator/explainer — NO static `schemas` dependency).
-  Hosting the pipeline here introduces no require cycle; `mutation-registry`
+  Hosting the pipeline here keeps the require graph acyclic; `mutation-registry`
   does not depend on `registry`.
 
   PRIVACY: the `rf.resources.classification/redact-invalid-params-error` step is a privacy
