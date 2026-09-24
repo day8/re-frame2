@@ -1,6 +1,6 @@
 (ns re-frame.ssr.ring.node-crossing-test
-  "rf2-8arzr.4 — THE JVM -> Node -> JVM CROSSING WITNESS (slice D of the
-  ssr-node crossing programme; Spec 011 §HTTP response contract).
+  "THE JVM -> Node -> JVM CROSSING WITNESS (Spec 011 §HTTP response
+  contract).
 
   The tests tagged `:crossing` spawn implementation/ssr-node's serve
   launcher on a plain fixture render module (`test/fixtures/node/
@@ -47,7 +47,7 @@
            [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]))
 
 ;; ===========================================================================
-;; The sidecar — slice B's launcher on the fixture module, port 0
+;; The sidecar — the ssr-node launcher on the fixture module, port 0
 ;; ===========================================================================
 
 (def ^:private launcher
@@ -245,7 +245,7 @@
         {:keys [status headers body]} (h request)
         elapsed-ms    (/ (- (System/nanoTime) t0) 1e6)]
     ;; (f) — observational. A number in the job log, not a threshold.
-    (println (format "[rf2-8arzr.4] one complete JVM->Node->JVM crossing: %.1f ms (observational, not a threshold)"
+    (println (format "[node-crossing] one complete JVM->Node->JVM crossing: %.1f ms (observational, not a threshold)"
                      elapsed-ms))
 
     (testing "(a) the JVM drained :initial-events FIRST; the fixture received
@@ -267,7 +267,7 @@
                          "text/html")
           "headers: the JVM's")
       (is (not (str/includes? body "data-rf-render-hash"))
-          "a native root carries no structural hash: no wire marker (S1)")
+          "a native root carries no structural hash: no wire marker")
       (is (not (str/includes? body "render-hash"))
           "…and no payload :rf/render-hash"))
 
@@ -294,7 +294,7 @@
 ;; ===========================================================================
 
 (defn- assert-projected-5xx!
-  "The S5 shape every failure arm shares: a projected 500 through
+  "The shape every failure arm shares: a projected 500 through
   `:error-view`, the JVM's status (never the sidecar's), no hydration
   payload, no partial page, and the request frame gone."
   [{:keys [status body]} frames-before]
@@ -448,7 +448,7 @@
         (is (not (str/includes? (:body response) "impostor"))
             "the unverified body never ships")
         (is (= [:rf.error/ssr-node-build-skew] (render-failure-ids @seen))
-            "the same refusal the wrong build gets — no new error category")
+            "the same refusal the wrong build gets — no separate error category")
         (let [data (render-failure-data @seen)]
           (is (= "crossing-build-1" (:expected data)) "the configured expectation")
           (is (contains? data :serving) "…and an honest missing-serving slot")
@@ -487,7 +487,7 @@
         (is (= :rf.error/ssr-node-renderer-opt-invalid (:rf.error/id data)) (pr-str opt))
         (is (= opt (:opt data)) (pr-str opt))
         (is (keyword? (:recovery data))))))
-  (testing "a non-loopback endpoint is NOT refused (S7 — trust the programmer)"
+  (testing "a non-loopback endpoint is NOT refused (trust the programmer)"
     (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :endpoint "https://render.internal:8148")))))
   (testing ":args is optional; nil is a value and rides"
     (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :args nil)))))
@@ -502,7 +502,7 @@
     (is (fn? (rf.ssr.ring.node/renderer (assoc good-opts :render-state (fn [_] {:rf/app-db {}})))))))
 
 ;; ===========================================================================
-;; rf2-hjz4r — the handler's `:payload-include-sensitive` reaches the render
+;; The handler's `:payload-include-sensitive` reaches the render
 ;; state, so the markup the renderer prints and the payload agree on a
 ;; permitted value. No sidecar: a capturing stub stands in for it, so this
 ;; runs in the default lane.
