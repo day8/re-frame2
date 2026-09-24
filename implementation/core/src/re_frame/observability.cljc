@@ -1,6 +1,6 @@
 (ns re-frame.observability
-  "Frame-owned observability sink routing — the EP-0015 §9 central claim
-  made production-live. Graduated into
+  "Frame-owned observability sink routing — the EP-0015 §9 central claim,
+  live in production. Normative in
   [`spec/015-Data-Classification.md` §Frame-owned observability sink policy]
   (../../../../../spec/015-Data-Classification.md#frame-owned-observability-sink-policy).
 
@@ -138,26 +138,25 @@
   (reset! sinks {})
   nil)
 
-;; ---- process-default sink policy (rf2-kuky.67) ----------------------------
+;; ---- process-default sink policy ------------------------------------------
 ;;
 ;; A frame's `:observability` says who observes THAT frame. The process
 ;; default says who observes the PROCESS — declared once, at boot, beside
 ;; every other `configure!` knob.
 ;;
-;; It exists for two reasons, and the second is the one that made it
+;; It exists for two reasons, and the second is the one that makes it
 ;; structural rather than a convenience:
 ;;
-;;   1. A multi-frame app restated its Sentry policy on every `make-frame`
-;;      call. Policy is a deployment property, not a per-frame one.
+;;   1. Without it a multi-frame app restates its Sentry policy on every
+;;      `make-frame` call. Policy is a deployment property, not a per-frame
+;;      one.
 ;;   2. Three producers emit records with NO resolvable frame owner, so no
 ;;      frame policy can ever route them: `:rf.error/no-frame-context` (by
 ;;      construction there is no frame), the pre-frame SSR hydration-parse
 ;;      arm of `:rf.error/malformed-hydration-payload`, and fresco's
 ;;      compute-sub `:rf.error/sub-exception` (stamped `:frame nil` BY
-;;      CONSTRUCTION). Before this default those records reached only the
-;;      corpus-wide `register-listener!` `:errors` stream — the door
-;;      rf2-kuky.69 retires. The default is where they land instead, so the
-;;      retirement closes a door that is no longer the only one.
+;;      CONSTRUCTION). `register-listener!` carries no `:errors` stream, so
+;;      the default is those records' production door.
 ;;
 ;; `defonce` for the same reason the sink registry is: a hot reload of THIS
 ;; ns must not silently drop the policy a long-lived production process
@@ -256,10 +255,10 @@
 
   With no frame authority — a frameless `:frame nil` record, or a producer
   that revoked it — the process default is the only source and the governing
-  frame is EXPLICITLY nil. `project-egress` reads `:frame` by KEY PRESENCE
-  (rf2-kuky.5), so an explicit nil FAILS CLOSED: tree slots project to
+  frame is EXPLICITLY nil. `project-egress` reads `:frame` by KEY PRESENCE,
+  so an explicit nil FAILS CLOSED: tree slots project to
   `:rf/redacted` and the summary ids stay intact. That is the whole reason
-  `route-frame? false` can now mean *no frame authority — the process default
+  `route-frame? false` can mean *no frame authority — the process default
   still delivers* rather than *no sink route*: the record reaches an operator
   without any frame's classification vouching for its contents."
   [frame-id stream frame-authority?]
@@ -284,7 +283,7 @@
   Invocation is the unit, not outcome: a sink that then threw still counts,
   because the sink author HAS the record and the swallow above must not read
   downstream as nobody-received-it. That count is what `error-emit`'s dev
-  console fallback keys on (rf2-kuky.18) — see [[route-error!]]."
+  console fallback keys on — see [[route-error!]]."
   [sink-id projected]
   (if-let [f (get @sinks sink-id)]
     (do (try
@@ -369,13 +368,12 @@
 (def ^:private attribution-summary-keys
   "The producer's COMPONENT-ATTRIBUTION slots that map onto canonical
   `:rf.observe/error` SUMMARY slots — structural identifiers, passed through
-  the projector unchanged (rf2-kuky.65 / Spec 015 §Frame-owned observability
-  sink policy).
+  the projector unchanged (Spec 015 §Frame-owned observability sink policy).
 
   These are exactly the tight identifiers `error-emit/dispatch-on-error!`
   merges onto its corpus-wide record: `:failing-id` (the interceptor / cofx
   whose id is DISTINCT from `:event-id`), `:flow-id` + `:where` (the flow-eval
-  attribution rf2-z1332c lifted so it SURVIVES an egress profile that drops
+  attribution, lifted so it SURVIVES an egress profile that drops
   `:exception`), and the `:source-coord` `{:ns :file :line}` the always-on
   error-coord registry resolves for Sentry-style shippers. The producer's own
   contract for them is `callers keep these to tight identifiers — this record
@@ -387,8 +385,8 @@
   fail-closed safety property, and the difference matters: the path walker
   deliberately passes an UNCLASSIFIED slot through, and being PATH-based it
   cannot redact a secret a producer interpolated into a scalar `:reason` merely
-  because `[:auth :token]` was classified elsewhere (value-matching / taint is
-  exactly what EP-0025 removed). What `:tags` buys is REACH: a frame that
+  because `[:auth :token]` was classified elsewhere (EP-0025: there is no
+  value-matching / taint). What `:tags` buys is REACH: a frame that
   classifies `[:reason]` redacts that slot WHOLE to `:rf/redacted` while the
   structural identifiers above survive beside it — and a future category's
   attribution slot lands on the walked side by default rather than on the
@@ -417,26 +415,24 @@
   `:observability/route-error` late-bind hook, ALONGSIDE the always-on
   corpus-wide error-listener fan-out.
 
-  `frame-authority?` (trailing, default true — rf2-kuky.67) is the producer's
+  `frame-authority?` (trailing, default true) is the producer's
   statement that `frame-id` MAY be consulted for policy. False for a
   known-dead incarnation, where the bare id must never resolve to a same-id
-  successor's sink. It no longer suppresses the route: the record goes to the
+  successor's sink. It does not suppress the route: the record goes to the
   PROCESS DEFAULT under an explicitly nil governing frame ([[resolve-route]]),
   so a teardown report reaches the operator without any successor's
-  classification vouching for it. Before this, `route-frame? false` meant no
-  sink route at all and the record's only channel was the corpus-wide
-  `:errors` stream rf2-kuky.69 retires.
+  classification vouching for it.
 
   Returns the NUMBER of registered sinks this record was DELIVERED to (0 when
   neither the frame nor the process default names a sink, or when the entries
   name only sinks the app never registered). `error-emit` takes its dev
-  console fallback decision off that count (rf2-kuky.18): a record a policy
+  console fallback decision off that count: a record a policy
   actually handed to a sink is owned — the PROCESS DEFAULT owns it on exactly
-  the same terms as a frame's policy, which is Q7 — and printing it beside
+  the same terms as a frame's policy — and printing it beside
   the sink would be the duplicate the fallback exists to avoid, while a
   policy that routed NOWHERE leaves the console the only channel it has.
 
-  `raw-event?` (trailing, default false — #6441 / rf2-zwgqe) marks `:event` as
+  `raw-event?` (trailing, default false) marks `:event` as
   a subscription QUERY VECTOR: raw IDENTITY that egresses VERBATIM, never
   app-db-elided. When set, the record carries the transient projector-input
   marker `:re-frame.projection/raw-event?` (an internal keyword OUTSIDE the
@@ -444,16 +440,16 @@
   `re-frame.projection/project-error-record` keeps `:event` raw on this sink
   route rather than policy-walking it (a concrete integer app-db path
   coincidentally matching a query-vector coordinate would otherwise mutate
-  identity here, exactly as it did on the corpus-wide record). The 8-arity
-  keeps every dispatched-event caller unchanged (elided as before).
+  identity here). The 8-arity is the dispatched-event callers' form (`:event`
+  elided).
 
-  `attrs` (trailing, rf2-kuky.65) is the producer's COMPONENT-ATTRIBUTION map —
+  `attrs` (trailing) is the producer's COMPONENT-ATTRIBUTION map —
   the same slots `error-emit/dispatch-on-error!` merges onto its corpus-wide
-  record, plus `:source-coord`. Without it a sink learned the CATEGORY but never
-  WHICH interceptor / cofx / flow failed, and no egress profile could restore
-  what the record never carried; once the corpus-wide `:errors` stream retires
-  this route is the ONLY production door, so that is lost diagnosis rather than
-  redundancy. The slots are SPLIT, never blanket-merged (Spec 015 §Frame-owned
+  record, plus `:source-coord`. Without it a sink would learn the CATEGORY but
+  never WHICH interceptor / cofx / flow failed, and no egress profile could
+  restore what the record never carried; this route is the ONLY production
+  door, so that would be lost diagnosis rather than redundancy. The slots are
+  SPLIT, never blanket-merged (Spec 015 §Frame-owned
   observability sink policy): [[attribution-summary-keys]] ride the top level as
   canonical summary slots the projector passes through unchanged, and EVERY
   other slot — `:reason` among them — rides `:tags`, which the projector walks
@@ -541,7 +537,7 @@
   SSR `error-emit-projection-listener` performs — so the projected record the
   sink sees is structurally consistent across the event and non-event paths.
 
-  This is the route the THREE FRAMELESS PRODUCERS reach (rf2-kuky.67):
+  This is the route the THREE FRAMELESS PRODUCERS reach:
   `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of
   `:rf.error/malformed-hydration-payload`, and fresco's compute-sub
   `:rf.error/sub-exception` — all stamped `:frame nil` BY CONSTRUCTION, so no
