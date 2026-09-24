@@ -1,25 +1,24 @@
 (ns re-frame.recipes.async-nav-doc-test
   "The one witness that reads the PROSE beside this application, and the
   only reason it exists is that a code block is the one part of a page a
-  reader actually runs, and it was the one part under no gate at all.
+  reader actually runs, and nothing else gates it.
 
-  ## What went wrong, and why prose could not notice
+  ## Why prose cannot notice
 
   `re-frame.recipes.async-nav` registers an `:optimistic` plan whose
   target is a MAP — `{:resource … :params … :scope …}`. The page that
   reports this application,
-  `docs/design/fresco/product/async-routing-recipes.md`, printed the
-  `[id params]` VECTOR spelling instead. That is not a near-miss.
+  `docs/design/fresco/product/async-routing-recipes.md`, can print the
+  `[id params]` VECTOR spelling instead, and that is not a near-miss.
   Optimistic arms run BEFORE the request lowers, so a target that could
   write the cache under a wrong identity is rejected outright rather
   than dropped-and-warned, and it takes the request with it: a reader
-  who copied the published recipe got no instance, no request, and
+  who copied such a recipe would get no instance, no request, and
   `:idle` afterwards.
 
-  ## What the runtime does about it — corrected
+  ## What the runtime does about it
 
-  An earlier telling here called that refusal SILENT. It is not, and
-  rf2-e4y9 measured the difference. `validate-target-key!` throws the
+  That refusal is not SILENT. `validate-target-key!` throws the
   catalogued `:rf.error/mutation-invalid-target` under the strict
   pre-write policy, carrying `:recovery :fix-mutation-target`, the
   offending `:arm`, and the target the caller actually typed; the router
@@ -28,22 +27,20 @@
   production one. The row that pins this is
   `vector-shaped-optimistic-target-refuses-readably` in
   `re-frame.resources-optimistic-validation-cljs-test`. The absent
-  instance and the `:idle` read are the RULED answer rather than a hole,
-  for rf2-06lp's reason one registrar up: an instance minted and left
-  `:pending` with no request behind it would report itself in flight
-  forever.
+  instance and the `:idle` read are the intended answer rather than a
+  hole, for the reason an unregistered mutation mints no instance
+  either: an instance minted and left `:pending` with no request behind
+  it would report itself in flight forever.
 
   What no channel carries is a CONSOLE byte. re-frame2 ships no default
   console sink and the router captures the throw rather than re-throwing
   it to `dispatch-sync`'s caller, so a reader with no `:errors` listener
   attached still meets a bare no-op. That residual is framework-wide —
-  it swallows an unregistered event id on the same terms — and it is
-  exactly rf2-fu75's; this gate neither touches it nor needs it fixed to
-  be worth having.
+  it swallows an unregistered event id on the same terms — and this gate
+  neither touches it nor needs it fixed to be worth having.
 
-  Both suites beside this one were green throughout, and correctly so:
-  they exercise the APPLICATION, which was right. Nothing anywhere
-  exercised the SNIPPET, which was wrong.
+  Both suites beside this one exercise the APPLICATION, and stay green
+  however wrong the snippet is. Nothing else exercises the SNIPPET.
 
   ## The rule
 
@@ -58,9 +55,9 @@
     as data and compared as data, so the published target is the
     application's target down to the resource symbol and the scope
     keyword. Change either side alone and this reds naming both.
-  - **The shape** catches BORN-WRONG. The defect above was not drift —
-    the snippet was never right, so a rule that only compared the two
-    sides would have been satisfied by making the application wrong
+  - **The shape** catches BORN-WRONG. A snippet can be wrong from the
+    start rather than drift, and a rule that only compared the two
+    sides would be satisfied by making the application wrong
     too. The shape row is what refuses that direction.
 
   This is deliberately NOT a digest-roster mechanism — the shape
@@ -86,8 +83,8 @@
   level up from the one it was built to catch.
 
   It is asked of the blocks that TEACH an optimistic plan, not of every
-  block on the page, and that boundary was measured rather than
-  guessed. Asked page-wide it reds on
+  block on the page, and that boundary is deliberate. Asked page-wide
+  it reds on
   `{:can-leave [::can-leave?] …}` — a map literal with an odd number of
   forms, and a perfectly good thing for a page to print, because `…`
   there means *and the rest of the route*. Elliptical prose-code is how
@@ -103,11 +100,7 @@
   `let` is reported rather than followed, because the report forces a
   look and a clever walker would eventually follow something into a
   false green. Nothing here evaluates a line of the page or of the
-  application; this namespace reads text and compares data.
-
-  Filed under rf2-hic-054, from the merged-PR audit of #8045; its
-  narrative corrected under the same bead from the audit of #8056, after
-  rf2-e4y9 refuted the silence."
+  application; this namespace reads text and compares data."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
@@ -271,7 +264,7 @@
                            " deletes the whole mutation: no instance, no request, :idle"
                            " afterwards. The runtime says why —"
                            " :rf.error/mutation-invalid-target on the always-on :errors"
-                           " axis — but only to a listener, never to a console (rf2-fu75),"
+                           " axis — but only to a listener, never to a console,"
                            " so a reader who copies this meets a bare no-op")
     :not-a-literal-fn (str "UNREADABLE PLAN — " (pr-str form)
                            " is not a literal `(fn …)`; this witness reads the literal shape")
@@ -318,9 +311,9 @@ be elliptical, but not past the reader" page-path (:n b) err))]
       (is (= [] (vec bad)) (str "\n" (str/join "\n" bad) "\n")))))
 
 (deftest every-optimistic-target-is-the-map-the-runtime-accepts
-  (testing "the BORN-WRONG half. The page's snippet was never right, so a
-            rule that only compared the two sides would have been satisfied
-            by making the application wrong too."
+  (testing "the BORN-WRONG half. A snippet can be wrong from the start, and
+            a rule that only compared the two sides would be satisfied by
+            making the application wrong too."
     (doseq [[what targets] [[page-path (optimistic-targets (page-forms))]
                             [app-path  (optimistic-targets (app-forms))]]]
       (is (pos? (count targets))
@@ -363,7 +356,7 @@ be elliptical, but not past the reader" page-path (:n b) err))]
         (is (= [:map] (kinds (str ":optimistic (fn [p] {{:resource r :params {}"
                                   " :scope :rf.scope/global} (fn [xs] …)})")))))
 
-      (testing "the rejected [id params] vector — the exact published defect — reds"
+      (testing "the rejected [id params] vector — the spelling a page is likeliest to print — reds"
         (is (= [:rejected] (kinds ":optimistic (fn [p] {[r {}] (fn [xs] …)})"))))
 
       (testing "so does a PARTIAL identity, which is the near-miss a shape
@@ -397,8 +390,8 @@ be elliptical, but not past the reader" page-path (:n b) err))]
         (is (= ["(inc 1)"] (mapv :body blocks)))))
 
     (testing "and the population is the blocks that TEACH a plan — the page's
-              other fragments stay elliptical, which is the boundary that was
-              measured rather than guessed"
+              other fragments stay elliptical, which is the boundary this
+              gate draws"
       (let [page (str "```clojure\n(routing/reg-route ::editor {:can-leave [::c] …} \"/x\")\n```\n"
                       "```clojure\n:optimistic (fn [p] {{:resource r :params {} :scope :s} f})\n```\n"
                       "```clojure\n[:rf/mutation {:instance i :optimistic? true}]\n```\n")]
