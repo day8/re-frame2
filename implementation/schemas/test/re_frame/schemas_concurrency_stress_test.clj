@@ -88,16 +88,16 @@
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-;; Per-thread iteration count. Kept at the rf2-1gpx8 / rf2-35rgj
-;; standard 5000 so CI stays under ~60s wall-clock with the default
+;; Per-thread iteration count. 5000, the sibling concurrency stress
+;; files' standard, so CI stays under ~60s wall-clock with the default
 ;; thread count. Operators dial up via the env override; CI dials
 ;; down by lowering it (e.g. `RF2_UTDXG_STRESS_ITERS=500` smoke).
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_UTDXG_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — matches rf2-ynk7's `concurrent-dispatch-
-;; stress` (`n-submitters 8`) and rf2-1gpx8 / rf2-35rgj. Higher
+;; Eight parallel threads — matches core's `concurrent-dispatch-
+;; stress` (`n-submitters 8`) and the sibling stress files. Higher
 ;; contention than the typical 4-core CI box; the per-thread
 ;; partitioning of registered paths means N×M distinct entries land
 ;; in the registry without per-path collision (so we can assert the
@@ -119,7 +119,7 @@
 ;; ---- 1. Hot-reload race: N threads × M reg-app-schemas -------------------
 
 (deftest reg-app-schemas-hot-reload-race-stress
-  ;; rf2-utdxg scenario 1.
+  ;; Scenario 1.
   ;;
   ;; Setup: N threads each loop M iterations of `reg-app-schemas` on
   ;; the SAME shared frame, each registering a per-thread-namespaced
@@ -177,8 +177,8 @@
                  "side-table; got " actual-count
                  ". Drop = some swap! retry lost a write under CAS "
                  "contention (would indicate a regression in atom "
-                 "semantics — historically never observed but pinned "
-                 "here as the audit's no-event-dropped invariant)."))
+                 "semantics — pinned "
+                 "here as the no-event-dropped invariant)."))
 
         ;; --- Invariant 2 (per-entry shape): every (path, schema) ---
         ;; pair this run issued is recoverable verbatim, with intact
@@ -210,7 +210,7 @@
 ;; ---- 2. Schema-digest race under concurrent reads + writes ---------------
 
 (deftest schema-digest-race-stress
-  ;; rf2-utdxg scenario 2.
+  ;; Scenario 2.
   ;;
   ;; Setup: One thread is a sustained writer (re-registering schemas
   ;; under varying paths to keep the per-frame entry set churning);
@@ -376,10 +376,10 @@
 ;; ---- 3. Sensitive-path walker under contention ---------------------------
 
 (deftest sensitive-path-walker-contention-stress
-  ;; rf2-utdxg scenario 3.
+  ;; Scenario 3.
   ;;
   ;; The schema walker (`extract-sensitive-paths-from-schema`,
-  ;; rf2-ay2kp's deep walker) is pure recursion through immutable
+  ;; the deep walker) is pure recursion through immutable
   ;; data — every accumulator is local to the call. Under N concurrent
   ;; calls against a shared schema input the result MUST be byte-
   ;; identical across threads. This test pins the purity contract
@@ -489,8 +489,8 @@
       ;; The walker is a pure fn over immutable data; the post-stress
       ;; result MUST equal the pre-stress baseline. A discrepancy
       ;; would indicate the contention exposed a memoisation cache or
-      ;; mutable global the walker reads through (currently neither;
-      ;; this is the future-proof guard).
+      ;; mutable global the walker reads through (it reads through
+      ;; neither; this pins that it stays so).
       (let [post (rf.schemas/extract-sensitive-paths-from-schema schema [])]
         (is (= baseline post)
             (str "Post-stress walker baseline drifted: expected "
@@ -499,8 +499,7 @@
 ;; ---- 4. Same-(path) hot-reload: ordering stability ----------------------
 
 (deftest reg-app-schema-same-path-ordering-stress
-  ;; rf2-utdxg scenario 4 — the ordering-stable invariant from the
-  ;; bead's audit shape.
+  ;; Scenario 4 — the ordering-stable invariant.
   ;;
   ;; Spec 010 §Per-frame schemas / §Hot-reload semantics: re-registering
   ;; the SAME (frame-id, path) overwrites the prior entry atomically
@@ -520,9 +519,9 @@
   ;;     with the issuing thread id, then recovering the winner from
   ;;     the final state).
   ;;
-  ;; Per the bead's audit: 'last-registration-wins per Spec 010'.
-  ;; Spec 010 line 459 codifies this — the per-frame side-table
-  ;; replaces the prior entry atomically; whichever thread's swap!
+  ;; Spec 010 codifies last-registration-wins — re-registering a
+  ;; schema at a path replaces the previous one. The per-frame
+  ;; side-table replaces the prior entry atomically; whichever thread's swap!
   ;; landed last (in linearisation order) is the winner. We can't
   ;; predict WHICH thread that is (depends on scheduler), but we CAN
   ;; assert the winner is a plausible candidate: its schema appears
@@ -578,7 +577,7 @@
 ;; ---- 5. Frame-isolation under cross-frame contention ---------------------
 
 (deftest cross-frame-isolation-under-contention-stress
-  ;; rf2-utdxg scenario 5 — pin Spec 010 §Per-frame schemas isolation
+  ;; Scenario 5 — pin Spec 010 §Per-frame schemas isolation
   ;; under N-thread cross-frame contention.
   ;;
   ;; Per Spec 010 the per-frame side-table is the single source of
@@ -591,7 +590,7 @@
   ;;
   ;; This is the dual of scenario 1 (shared frame, disjoint paths):
   ;; here the paths COLLIDE across frames but the frame partition
-  ;; isolates them. Spec 010 §Per-frame schemas line 9 ("frame-scoped")
+  ;; isolates them. Spec 010 §Per-frame schemas
   ;; is the codified contract; this test pins the runtime invariant
   ;; under contention.
   (testing (str n-threads " frames × " stress-iters
