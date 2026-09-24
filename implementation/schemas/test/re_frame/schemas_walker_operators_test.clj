@@ -1,16 +1,15 @@
 (ns re-frame.schemas-walker-operators-test
   "JVM tests pinning the per-slot flag walker's behaviour across every
-  Malli operator family `re-frame.schemas.walker` claims to support
-  (rf2-yv62u).
+  Malli operator family `re-frame.schemas.walker` claims to support.
 
-  Existing slice-local tests pin `:map`, `:vector`, `:maybe`, `:or`,
+  Other tests pin `:map`, `:vector`, `:maybe`, `:or`,
   `:tuple`, and `:multi` directly. The walker also claims (per its
   docstring) to handle the remaining dispatch-bearing combinators
   `:orn` / `:altn`, the POSITION-bearing combinators `:cat` / `:catn`
-  (rf2-4q681i — each element descends at `(conj base i)`), and the
-  positional containers `:set` / `:sequential` / `:and` / `:not`. The
-  audit (rf2-yv62u) flagged the absence of operator-family pins for these
-  — refactor drift could silently break the un-tested branches.
+  (each element descends at `(conj base i)`), and the
+  positional containers `:set` / `:sequential` / `:and` / `:not`. Without
+  operator-family pins for these, refactor drift could silently break the
+  untested branches.
 
   This file pins one example per claimed operator family for the
   `:sensitive?` flag (the parameterised walker serves both flags so
@@ -24,7 +23,7 @@
 ;; branch's slot-props claim the PARENT path (the op's base-path), not a
 ;; child path; dispatch values aren't path segments.
 ;;
-;; :catn is NOT dispatch-bearing (rf2-4q681i): although its children carry
+;; :catn is NOT dispatch-bearing: although its children carry
 ;; name slots, Malli reports a :catn failure's :in segment as the integer
 ;; POSITION, not the name — so :catn is POSITION-bearing alongside :cat /
 ;; :tuple (see the position-bearing section below).
@@ -67,8 +66,8 @@
 ;; element schema) or their index is not a declarable app-db slot, so they
 ;; don't introduce a new path segment.
 ;;
-;; :tuple / :cat / :catn are POSITION-bearing (:tuple rf2-ss06u.4;
-;; :cat/:catn rf2-4q681i) — element `i` descends at `(conj base i)`; see
+;; :tuple / :cat / :catn are POSITION-bearing — element `i` descends at
+;; `(conj base i)`; see
 ;; the position-bearing section below.
 
 (deftest set-descends-at-parent-path
@@ -91,11 +90,10 @@
 ;; :tuple / :cat / :catn — each element has its OWN schema; element `i`
 ;; descends at `(conj base i)`, the integer index being the discriminating
 ;; segment. Malli reports the integer POSITION in :in for all three.
-;; (:tuple already pinned in the slice-local tests; :cat/:catn added by
-;; rf2-4q681i.)
+;; (:tuple is pinned in the other walker tests.)
 
 (deftest cat-element-is-position-bearing
-  (testing ":cat — POSITION-bearing (rf2-4q681i); element `i`'s inner
+  (testing ":cat — POSITION-bearing; element `i`'s inner
             sensitive claims `(conj base i)`, NOT the shared base-path"
     ;; element 1 is the sensitive :string → claims [:ev 1], not [:ev].
     (is (= {[:ev 1] {:sensitive? true :source :schema}}
@@ -104,7 +102,7 @@
              [:ev])))))
 
 (deftest catn-element-is-position-bearing
-  (testing ":catn — POSITION-bearing (rf2-4q681i); the entry name is
+  (testing ":catn — POSITION-bearing; the entry name is
             decorative (Malli reports the integer position in :in), so an
             entry-level sensitive claims `(conj base i)`, not base"
     ;; entry 0 (:head) is sensitive → claims [:row 0], not [:row].
@@ -116,7 +114,7 @@
              [:row])))))
 
 (deftest variable-width-sequence-descends-index-free
-  (testing "rf2-gwye.11 — a :cat / :catn whose width is not fixed cannot pin a
+  (testing "a :cat / :catn whose width is not fixed cannot pin a
             flag to a position; its elements descend at the SHARED base-path,
             like :sequential"
     (is (= {[:ev :tok] {:sensitive? true :source :schema}}
