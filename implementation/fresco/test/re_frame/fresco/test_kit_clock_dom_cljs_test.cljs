@@ -16,9 +16,8 @@
 
   `h/presence` retains a dismissed child for `:timeout-ms` and drops it when
   the deadline passes. It is the shipped feature whose next step is a
-  `setTimeout`, and it is what Story's presence bridge is blocked on. Two
-  facts about it decide the shape of the whole control, and both are asserted
-  below rather than assumed:
+  `setTimeout`. Two facts about it decide the shape of the whole control,
+  and both are asserted below rather than assumed:
 
   - the retirement is a `setTimeout` the React half arms
     (`impl.presence-react`), so the timer has to be virtual;
@@ -493,14 +492,14 @@
 ;; on the real one, so `clearTimeout` inside the window has to decide which
 ;; of two schedulers an id belongs to — and it decides by looking the number
 ;; up in its own table. That is only honest while the two id domains are
-;; disjoint, which they were not: the platform numbers a fresh page's timers
-;; from 1 and the clock numbered its own from 1 as well.
+;; disjoint: the platform numbers a fresh page's timers from 1 upward, so the
+;; clock numbers its own negative.
 ;;
-;; The failure is silent in BOTH directions from one collision. A
-;; `clearTimeout` meant for the real timer finds the virtual one and kills it
-;; instead, leaving the real one running; and once the virtual timer has
-;; fired, ordinary cleanup of its now-stale id is passed to the platform and
-;; cancels the unrelated real timer.
+;; A collision would be silent in BOTH directions. A `clearTimeout` meant for
+;; the real timer would find the virtual one and kill it instead, leaving the
+;; real one running; and once the virtual timer had fired, ordinary cleanup
+;; of its now-stale id would pass to the platform and cancel the unrelated
+;; real timer.
 ;;
 ;; A row using only virtual timers cannot see any of this. This one arms two
 ;; real timers BEFORE the install, through a captured scheduler that hands
@@ -580,11 +579,11 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `release-clock!` promises every outstanding timer goes back to the real
-;; scheduler "with the time it had left", and for a one-shot it did: `(:due
-;; e) - now`. A repeating one was handed its whole PERIOD, so an interval
-;; released one millisecond before its tick waited another full period for
-;; it and every tick after that was out of phase — for the rest of the
-;; page's life, and invisibly.
+;; scheduler "with the time it had left" — for a one-shot, `(:due e) - now`.
+;; Handing a repeating one its whole PERIOD would make an interval released
+;; one millisecond before its tick wait another full period for it, and put
+;; every tick after that out of phase — for the rest of the page's life, and
+;; invisibly.
 ;;
 ;; Asserting that the interval eventually fires would not see this. The row
 ;; asserts the FIRST post-release deadline, by reading what the captured
@@ -725,9 +724,9 @@
                                                     (= ["tick" 7] (:args e))))
                                        after)]
                   (testing "AND THE CADENCE IS ARMED ANYWAY — this is the row.
-                            Written sequentially the throw left the one-shot
-                            before the `setInterval` under it, and the captured
-                            scheduler was never asked for this at all"
+                            Written sequentially, the throw would leave the
+                            one-shot before the `setInterval` under it, and the
+                            captured scheduler would never be asked for this"
                     (is (= 1 (count cadence))))
 
                   ;; Whatever that found, nothing this row armed is left
