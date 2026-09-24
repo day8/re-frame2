@@ -26,11 +26,11 @@
   There is NO public accessor: the views live in the bundle-isolated
   `re-frame.machines.tooling` sibling and are consumed by Xray + the
   conformance fixtures, which name that sibling directly. There is no
-  `re-frame.core/machine-algebra-view` public facade export and — since
-  rf2-kuky.86 — no `re-frame.machines` JVM convenience alias for the two
+  `re-frame.core/machine-algebra-view` public facade export and no
+  `re-frame.machines` JVM convenience alias for the two
   ALGEBRA VIEWS either; `re-frame.derivation.graph` reaches them by
   `requiring-resolve`. The selector recognizer / extractor
-  (`machine-selector?`, `machine-selector-targets`) keep theirs."
+  (`machine-selector?`, `machine-selector-targets`) do have JVM aliases."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -94,14 +94,14 @@
         (rf.test-support/restore-registrar! snap)))))
 
 (deftest jvm-alias-mirrors-the-tooling-fn
-  ;; rf2-kuky.86 — the two ALGEBRA VIEW aliases are gone; the selector
-  ;; recognizer keeps its JVM alias, so this pin now carries both halves.
+  ;; There is no alias for the two ALGEBRA VIEWS; the selector recognizer
+  ;; has a JVM alias, so this pin carries both halves.
   (testing "`re-frame.machines` re-exports neither machine algebra view"
     (is (nil? (ns-resolve 're-frame.machines 'machine-algebra-view))
         "machine-algebra-view is not a public name on the machines facade")
     (is (nil? (ns-resolve 're-frame.machines 'machine-instance-algebra-view))
         "machine-instance-algebra-view is not a public name on the machines facade"))
-  (testing "the tooling sibling still publishes both algebra views"
+  (testing "the tooling sibling publishes both algebra views"
     (is (some? (ns-resolve 're-frame.machines.tooling 'machine-algebra-view)))
     (is (some? (ns-resolve 're-frame.machines.tooling 'machine-instance-algebra-view))))
   (testing "the JVM `machine-selector?` alias is the tooling fn"
