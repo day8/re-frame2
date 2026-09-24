@@ -1,5 +1,5 @@
 (ns re-frame.db-pending-trace-test
-  "Per rf2-ta0y7 (Mike 2026-05-25): the framework stamps the full
+  "The framework stamps the full
   pending-`:db` value at two endpoints on the per-event trace stream so
   the Xray Handler panel can render the t1 returned-effects sub-block
   AND the t1→t2 flow reshape without a precomputed diff. This file
@@ -22,8 +22,7 @@
 
   Same-shape-as-`:fx` posture: the `:db` value rides under `:tags
   :rf.event/db`, alongside `:frame` — the same slot placement the
-  `:rf.event/fx` tag uses on `:rf.fx/do-fx`. Mike's ruling (rf2-ta0y7
-  notes) supersedes the earlier diff / DEBUG-gate options."
+  `:rf.event/fx` tag uses on `:rf.fx/do-fx`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -39,7 +38,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; `init!` does not synthesise `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
@@ -60,14 +59,14 @@
 
 ;; ---- t1 fires when the handler returns `:db` -----------------------------
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
+;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
-;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
+;; `(when interop/debug-enabled? ...)` split -- the shape mixed-posture suites
+;; use -- would leave EMPTY deftests reporting green.  Every deftest
 ;; below is therefore TAGGED, and the production-gate lane skips the tag rather
-;; than the file: the namespace is still LOADED there, so a load-time failure
-;; under the gate still reddens the job, and an untagged new deftest joins that
+;; than the file: the namespace is LOADED there, so a load-time failure
+;; under the gate reddens the job, and an untagged new deftest joins that
 ;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
 
 (deftest ^:requires-debug t1-emits-when-handler-returns-db
@@ -108,7 +107,7 @@
           (rf/unregister-listener! :trace ::t1-fx-only))))))
 
 (deftest ^:requires-debug t1-value-is-identical-by-reference-no-copy
-  (testing "Mike's ruling: the t1 stamp is the SAME persistent reference
+  (testing "the t1 stamp is the SAME persistent reference
    the handler returned — no `into`, no walk, no copy. Persistent data
    structures + structural sharing make the cost pointer-sized; the
    `day8/de-dupe` wire layer collapses repeated subtrees at egress."
@@ -185,7 +184,7 @@
   (testing "payload-shaped slots (:rf.event/db, :frame) ride under :tags
    — top level is reserved for substrate-hoisted slots
    (:rf.trace/call-site, :rf.trace/trigger-handler, :source, etc.).
-   Mirrors the rf2-twt7m Change 2 placement of :rf.event/fx on :rf.fx/do-fx."
+   Mirrors the placement of :rf.event/fx on :rf.fx/do-fx."
     (rf/reg-event :t1/payload-shape
       (fn [{:keys [db]} _] {:db {:x 9}}))
     (let [acc (collect-traces! ::payload-shape)]
