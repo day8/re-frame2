@@ -8,8 +8,7 @@
   in. It anchors the LCA / exit / entry geometry: a transition's DOMAIN is its
   declaring node (XState `getTransitionDomain`), so for a proper-descendant
   target every active state below the declaring node exits while the
-  declaring node survives. The machine ROOT is such a node (rf2-3x7nj.8.1,
-  rf2-3x7nj.8.3).
+  declaring node survives. The machine ROOT is such a node.
 
   Every in-tree caller stamps `:decl-path` (via `pick-transition` then
   `machine-transition-single`'s `(assoc :decl-path …)`), so the default is
