@@ -40,8 +40,8 @@
   **Focus, third direction: the SCOPE.** Every row here mounts exactly
   one application, and on a page with one root a recipe scoped to the
   document and a recipe scoped to its own root are indistinguishable —
-  which is how the document-wide version survived the audits of #7970 and
-  #8031. So one row,
+  which is how a document-wide version passes every other row here. So
+  one row,
   [[a-deep-link-focuses-inside-the-applications-own-root]], mounts a
   marked DECOY heading ahead of the application and asserts both halves:
   that `document.querySelector` over the shared marker answers the decoy
@@ -74,14 +74,12 @@
   credible-intent positions (`:on-mouse-enter` / `:on-focus` /
   `:on-touch-start`, the closed class `re-frame.routing.link/
   prefetch-intent-keys` holds), and `re-frame.route-link-cljs-test`
-  drives each of them — with a SYNTHETIC event, not a real DOM one: the
-  suite that drove them through the browser retired with the compiled-view
-  substrate (rf2-0yp7w), so no browser-level witness survives it.
-  Fresco's own `h/route-link` honours `:prefetch :intent` too since
-  rf2-kuky.37 (naming-ledger row 36, applied), filling the same three
-  positions with the same routing-minted vector through the
+  drives each of them — with a SYNTHETIC event, not a real DOM one; there
+  is no browser-level witness of prefetch. Fresco's own `h/route-link`
+  honours `:prefetch :intent` too (naming-ledger row 36), filling the
+  same three positions with the same routing-minted vector through the
   `:routing/link-model` seam — but no link in THIS application asks for
-  it, so there is still nothing on this surface to witness. The wired
+  it, so there is nothing on this surface to witness. The wired
   contract is pinned as data and as a dispatch in
   `re-frame.fresco.route-link-cljs-test`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -211,7 +209,7 @@
 (defn- after-the-scroll
   "Resolve once `:rf.nav/scroll` has run. The scroll touches the page after
   the navigation's commit, through the adapter's after-render hook
-  (rf2-3x7nj.12.3) — later than the render `dispatch-and-settle!` commits —
+  — later than the render `dispatch-and-settle!` commits —
   and this queues behind it on that same hook."
   []
   (js/Promise. (fn [resolve] (rf.interop/after-render #(resolve nil)))))
@@ -383,9 +381,9 @@
                                      (.querySelector js/document rf.fresco.examples.navigation.events/heading-selector)))
                     "the decoy precedes the application in document order, so
                      `document.querySelector` over the shared marker answers
-                     something that is not this application's heading. The
-                     recipe as it stood ran exactly that lookup — and would
-                     still have left `activeElement` on a marked heading, which
+                     something that is not this application's heading. A
+                     recipe running exactly that lookup would still leave
+                     `activeElement` on a marked heading, which
                      is why every assertion below is written against the
                      application's OWN node rather than against the marker")))
             (.then (fn [_] (focused-heading m "the deep link's landing focus")))
