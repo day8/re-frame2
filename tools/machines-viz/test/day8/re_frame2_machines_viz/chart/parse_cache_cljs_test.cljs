@@ -1,11 +1,11 @@
 (ns day8.re-frame2-machines-viz.chart.parse-cache-cljs-test
-  "rf2-jl72i — per-chart parsed-topology cache regression.
+  "Per-chart parsed-topology cache regression.
 
   ## What this pins
 
   `MachineChart` is a Reagent Form-2 component: calling
   `(chart/MachineChart props)` returns the inner render fn, which closes
-  over the per-chart state atoms — including the rf2-jl72i `parse-cache`.
+  over the per-chart state atoms — including the `parse-cache`.
   Calling that render fn repeatedly with new prop maps simulates the
   re-render sequence a host drives (a `:current-state` highlight change,
   an overlay `:tick` bump, a `:fit-signal` bump, a bare parent re-render,
@@ -27,8 +27,8 @@
 
   Building the chart's hiccup tree is pure CLJS data — it does NOT render
   React (`[:> ReactFlow …]` is a hiccup tag, not an invocation). The only
-  eager work the render body does is the topology parse (now cached) and
-  the rf2-dnmbs `project+convert!` thunk; both reach the framework only
+  eager work the render body does is the topology parse (cached) and
+  the `project+convert!` thunk; both reach the framework only
   through `set!`-able seams we stub here (same idiom as
   `auto-fit-view-cljs-test`). So the cache contract is fully Node-runnable
   without a real xyflow instance or DOM — it rides the always-on
@@ -69,7 +69,7 @@
   - `goog.global` `clj->js`-adjacent: we count `clj->js` indirectly via the
     project seam, since `project+convert!` only `clj->js`-es on a graph-
     cache MISS (which a re-projection implies). A `:project` increment
-    therefore stands in for the `clj->js` cost the bead names."
+    therefore stands in for the `clj->js` cost the cache avoids."
   [f]
   (let [counts        (atom {:parse 0 :project 0 :layout 0})
         orig-parse    chart/invoke-project-definition!
@@ -89,8 +89,8 @@
             {:nodes [] :edges []}))
     ;; `compute-layout!` is a fixed-MULTI-arity `defn`; the render calls
     ;; the arity-8 form (`parsed direction layout-options machine-id
-    ;; measured-dims chart-vc context-rows done-fn` — rf2-8z1rca added the
-    ;; `context-rows` param). shadow compiles that call to the direct
+    ;; measured-dims chart-vc context-rows done-fn`). shadow compiles that
+    ;; call to the direct
     ;; `.cljs$core$IFn$_invoke$arity$8` dispatch, so the stub must itself be
     ;; a MULTI-arity fn (a single fixed-arity `fn` exposes only the generic
     ;; `call`, not `arity$8`). We mirror the real fn's arity shape and
@@ -127,13 +127,13 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest decoration-only-renders-do-not-reparse-or-reproject-or-relayout
-  (testing "rf2-jl72i — with the SAME `:definition`, a `:current-state` /
+  (testing "with the SAME `:definition`, a `:current-state` /
             `:from-highlight` / `:to-highlight` change, an overlay `:tick`
             bump, a `:fit-signal` bump, and a bare parent re-render MUST
             NOT call the topology parser. They also MUST NOT re-run
             layout. (A highlight change DOES legitimately re-project — it
-            re-tints nodes — but the parse, the O(topology) cost the bead
-            targets, must be reused.)"
+            re-tints nodes — but the parse, the O(topology) cost, must be
+            reused.)"
     (with-seam-spies
       (fn [counts]
         (let [rfn (chart/MachineChart {:machine-id :m :definition machine-a})]
@@ -166,7 +166,7 @@
                  never reparse/relayout")))))))
 
 (deftest new-definition-reparses-once-and-busts-downstream-caches
-  (testing "rf2-jl72i — a CHANGED `:definition` calls the parser exactly
+  (testing "a CHANGED `:definition` calls the parser exactly
             once for the new topology, re-runs layout (new layout-key), and
             re-projects. Switching back to the original definition reparses
             again (the cache holds the LAST definition only — a per-chart
@@ -192,7 +192,7 @@
           (is (= 3 (:layout @counts)) "swapping back re-runs layout"))))))
 
 (deftest density-direction-layout-options-changes-do-not-reparse
-  (testing "rf2-jl72i — density / direction / layout-options are layout
+  (testing "density / direction / layout-options are layout
             props (they re-run ELK), but they MUST NOT reparse: the parse
             is keyed ONLY on `:definition`. This pins the parse-cache key
             against a future regression that folds density/direction into
@@ -203,7 +203,7 @@
           (render! rfn {:machine-id :m :definition machine-a})
           (is (= 1 (:parse @counts)) "first render parses once")
           (let [layouts-after-mount (:layout @counts)]
-            ;; --- density switch (structural for layout, rf2-8q5pt) ---
+            ;; --- density switch (structural for layout) ---
             (render! rfn {:machine-id :m :definition machine-a :density :compact})
             (render! rfn {:machine-id :m :definition machine-a :density :cosy})
             ;; --- direction switch ---
@@ -217,19 +217,19 @@
                 "but they DO re-run layout (the layout-key includes them)")))))))
 
 (deftest prev-next-highlight-deltas-do-not-rerun-elk-rf2-un3gfo
-  (testing "rf2-un3gfo — the chart end of the no-flicker contract. When the
+  (testing "the chart end of the no-flicker contract. When the
             Xray Machine panel's section key is STABLE across Prev/Next (the
-            panel-side fix, pinned in
+            panel side, pinned in
             `machine-inspector-helpers-cljs-test/section-key-is-stable-…`),
             the SAME MachineChart instance receives the per-epoch highlight
             deltas as prop changes — `:from-highlight` / `:to-highlight` /
             `:current-state` / `:fired-edge-ids` — with the `:definition`
             (hence the layout-key) UNCHANGED. Those deltas MUST NOT re-run
             ELK: the topology positions stay put and only the highlights
-            re-paint. (Before the key fix, each Prev/Next REMOUNTED the
-            chart, so ELK re-ran from scratch every navigation → the
-            flicker.) This simulates the exact prop sequence the preserved
-            instance now sees."
+            re-paint. (A section key that changed per Prev/Next would
+            REMOUNT the chart, so ELK would re-run from scratch every
+            navigation → the flicker.) This simulates the exact prop
+            sequence the kept instance sees."
     (with-seam-spies
       (fn [counts]
         ;; Mount on the focused machine's first transition (idle → loading).
