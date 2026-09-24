@@ -350,9 +350,12 @@
   value is the exact string `react-dom/server.renderToStaticMarkup`
   emits (React 19). Covers the case-sensitive SVG attributes (`viewBox`,
   `preserveAspectRatio`, …), the dasherized SVG presentation attributes
-  (`clipPath`→`clip-path`, `strokeWidth`→`stroke-width`, …), and the
-  hyphenated HTML specials (`httpEquiv`→`http-equiv`). Pinned against
-  the live React reference in `parity_cljs_test.cljs` per §8.7."
+  (`clipPath`→`clip-path`, `strokeWidth`→`stroke-width`, …), the
+  hyphenated HTML specials (`httpEquiv`→`http-equiv`), and the
+  XML-namespaced names (`xlinkHref`→`xlink:href`, `xmlLang`→`xml:lang`).
+  Pinned against the live React reference in `parity_cljs_test.cljs` per
+  §8.7, and swept over react-dom's whole `possibleStandardNames` space by
+  `attribute-names-agree-with-installed-react-dom` (rf2-u0xpc)."
   {"accentHeight" "accent-height"
    "acceptCharset" "accept-charset"
    "accessKey" "accessKey"
@@ -493,6 +496,7 @@
    "textDecoration" "text-decoration"
    "textLength" "textLength"
    "textRendering" "text-rendering"
+   "transformOrigin" "transform-origin"
    "underlinePosition" "underline-position"
    "underlineThickness" "underline-thickness"
    "unicodeBidi" "unicode-bidi"
@@ -513,6 +517,22 @@
    "writingMode" "writing-mode"
    "xChannelSelector" "xChannelSelector"
    "xHeight" "x-height"
+   ;; rf2-u0xpc — the XML-namespaced names react-dom writes with a colon:
+   ;; `xmlnsXlink` from its `aliases` Map, the rest from dedicated
+   ;; `pushAttribute` cases. With no row each fell through to the lowercase
+   ;; rule, so `[:use {:xlink-href "#icon"}]` wrote `xlinkhref`, an attribute
+   ;; no browser knows, and the sprite reference did not resolve.
+   "xlinkActuate" "xlink:actuate"
+   "xlinkArcrole" "xlink:arcrole"
+   "xlinkHref" "xlink:href"
+   "xlinkRole" "xlink:role"
+   "xlinkShow" "xlink:show"
+   "xlinkTitle" "xlink:title"
+   "xlinkType" "xlink:type"
+   "xmlBase" "xml:base"
+   "xmlLang" "xml:lang"
+   "xmlSpace" "xml:space"
+   "xmlnsXlink" "xmlns:xlink"
    "yChannelSelector" "yChannelSelector"
    "zoomAndPan" "zoomAndPan"})
 
