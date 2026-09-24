@@ -1,19 +1,19 @@
 (ns re-frame.ssr-request-cofx-test
-  "Coverage for the :rf.server/request cofx + per-frame request slot
-  (rf2-e825b). Per Spec 011 §Server-only `reg-cofx` for request context.
+  "Coverage for the :rf.server/request cofx + per-frame request slot.
+  Per Spec 011 §Server-only `reg-cofx` for request context.
 
   The cofx surfaces the active HTTP request map to event handlers as an
   AMBIENT, host-transient read — for NON-DURABLE request reads (branching on
   `:request-method`, reading a header for a non-durable decision). Durable
   request-derived facts use the recordable boundary pattern instead, covered
-  by `re-frame.ssr-request-durable-fact-test` (rf2-aqwvhh). Mechanism:
+  by `re-frame.ssr-request-durable-fact-test`. Mechanism:
 
-    1. The host adapter (rf2-ny6v7 ships the Ring adapter) populates
+    1. The host adapter (the Ring adapter, for example) populates
        the per-frame request slot via `re-frame.ssr/set-request!`
        before kicking off the drain.
     2. Event handlers declare `:rf.cofx/requires [:rf.server/request]` and
        read the request map FLAT under `:rf.server/request` in their
-       coeffects (EP-0017 — `inject-cofx` is removed; the ambient supplier
+       coeffects (EP-0017 — there is no `inject-cofx`; the ambient supplier
        reads the active frame's slot).
     3. After the response is materialised, the host adapter calls
        `clear-request!` (typically as part of frame teardown).
@@ -24,21 +24,21 @@
   set-request! seam tests/harnesses use to drive the drain without a host
   adapter.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
-  Two dev-only surfaces were asserted inline here and kept the whole
-  namespace out of `scripts/test-ssr-prod-gate.sh`.
+  Two dev-only surfaces are asserted in debug-gated arms here, so the rest
+  of the namespace runs in `scripts/test-ssr-prod-gate.sh`.
 
   `:doc` on the cofx registry slot is a pure-documentation key, dropped by
   `registrar/strip-pure-documentation` when `interop/debug-enabled?` is false
-  (Spec 001 §Production elision contract). Kept verbatim in a
+  (Spec 001 §Production elision contract). Its assertion sits in a
   `(when interop/debug-enabled? …)` arm; the RETAINED half of the same
   registration — the `:handler-fn` and the `:platforms #{:server}` gate that
-  actually decides whether the cofx runs — stays outside and now runs in the
-  lane.
+  actually decides whether the cofx runs — is asserted outside it and runs
+  in the lane.
 
   The `:rf.cofx/skipped-on-platform` trace is emitted through the gated trace
-  bus. Kept verbatim in a dev arm. What it announces is production-real and
+  bus, so its assertions sit in a dev arm. What it announces is production-real and
   is asserted outside it: on a `:platform :client` frame the cofx does not
   run, so `:rf.server/request` is ABSENT from the coeffect map — the
   behaviour the trace merely narrates."
@@ -51,7 +51,7 @@
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
+;; Shared reset fixture lives in `re-frame.ssr.test-fixture`.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- registration -----------------------------------------------------------
@@ -68,13 +68,13 @@
           "the entry carries a :handler-fn")
       (is (= #{:server} (:platforms meta))
           ":platforms #{:server} per Spec 011 §634-642 — server-only")
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). `:doc` is a
+      ;; Dev-instrumentation arm (see ns docstring). `:doc` is a
       ;; pure-documentation key and is stripped in production builds; the
       ;; three RETAINED keys above are the ones the runtime acts on.
       (when rf.interop/debug-enabled?
         (is (string? (:doc meta))
             "the registration carries a :doc string"))
-      ;; rf2-lwtlk — the REAL-gate arm: the elision itself, witnessed on a
+      ;; The REAL-gate arm: the elision itself, witnessed on a
       ;; JVM actually started with `-Dre-frame.debug=false`.
       (when-not rf.interop/debug-enabled?
         (is (nil? (:doc meta))
@@ -172,14 +172,14 @@
             {}))
         (rf/dispatch-sync [:req-test/read-on-client] {:frame client-frame})
 
-        ;; SEMANTIC, posture-independent (rf2-lwtlk): the platform gate really
+        ;; SEMANTIC, posture-independent: the platform gate really
         ;; excluded the cofx. `:absent` (not merely nil-valued) is the
         ;; production-visible witness — the coeffect KEY is missing, which is
         ;; exactly what the trace below narrates.
         (is (= [:absent nil] @observed)
             "the cofx did NOT run — :rf.server/request is absent from coeffects")
 
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring).
+        ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
           (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
                               @traces)]
@@ -216,7 +216,7 @@
       (rf/reg-event :req-test/read-isolated
         {:rf.cofx/requires [:rf.server/request]}
         ;; The running frame's stamp reaches the event context under
-        ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
+        ;; :rf.frame/id (there is no bare :frame coeffect).
         (fn [{:keys [rf.server/request] frame :rf.frame/id} _]
           (cond
             (= frame frame-a) (reset! observed-a request)
@@ -257,15 +257,14 @@
 
 ;; ---- explicit-value seam (set-request! before drain) ----------------------
 ;;
-;; EP-0017 (rf2-oa2dun): the 2-arity `(inject-cofx :rf.server/request {...})`
-;; explicit-value override is RETIRED with `inject-cofx`. Tests and conformance
-;; harnesses that drive the drain without a host adapter use the SAME seam the
+;; EP-0017: there is no `inject-cofx`, so no 2-arity explicit-value override
+;; either. Tests and conformance harnesses that drive the drain without a host adapter use the SAME seam the
 ;; host uses — `re-frame.ssr/set-request!` for the target frame — and the
 ;; declared ambient supplier reads it.
 
 (deftest set-request-is-the-test-seam
   (testing "set-request! supplies the request for a harness-driven drain; the
-            declared cofx reads it (replacing the retired 2-arity override)"
+            declared cofx reads it (there is no 2-arity override)"
     (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
           explicit     {:uri "/explicit" :headers {"x-test" "1"}}
           observed     (atom :unset)]
