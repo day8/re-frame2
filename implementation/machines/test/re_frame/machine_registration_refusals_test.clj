@@ -84,7 +84,7 @@
                   nil
                   (catch clojure.lang.ExceptionInfo ex (:rf.error/id (ex-data ex)))))))
 
-    (testing "a malformed :state still reports its shape, not its membership"
+    (testing "a malformed :state reports its shape, not its membership"
       (is (= :rf.error/machine-bad-state-form
              (try (rf.machines/machine-transition definition {:state "a" :data {}} [:go])
                   nil
