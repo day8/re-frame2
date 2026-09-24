@@ -1,16 +1,16 @@
 ;;;; tests/article_lifecycle_test.clj — the canonical HTTP fix in
-;;;; references/schemaless-events.md must SETTLE its lifecycle (rf2-fzbj.40).
+;;;; references/schemaless-events.md must SETTLE its lifecycle.
 ;;;;
 ;;;; The leaf's "After — schema-validated boundary with a production gate"
 ;;;; block is copyable canonical code: a reader pastes it into a status-driven
-;;;; page. It used to start `[:article :status]` at `:loading` and then never
-;;;; leave it — `:article/loaded` wrote only `[:article :data]` and
-;;;; `:article/load-failed` wrote only `[:article :error]` — so both a
-;;;; successful load and a classified failure left the spinner up for ever.
-;;;; The payload and the error arrived correctly; the lifecycle simply never
-;;;; closed, which is the missing-terminator class the sibling leaf
+;;;; page. A block that starts `[:article :status]` at `:loading` and never
+;;;; leaves it — `:article/loaded` writing only `[:article :data]` and
+;;;; `:article/load-failed` writing only `[:article :error]` — would leave the
+;;;; spinner up for ever after both a successful load and a classified failure.
+;;;; The payload and the error arrive correctly; the lifecycle simply never
+;;;; closes, which is the missing-terminator class the sibling leaf
 ;;;; `manual-loading-flags.md` exists to diagnose. A schema-only reading of the
-;;;; leaf (and of eval 20) could satisfy the stated fix while preserving that
+;;;; leaf (and of eval 20) could satisfy the stated fix while keeping that
 ;;;; bug, which is why it is pinned here rather than left to prose.
 ;;;;
 ;;;; This suite EVALUATES the shipped block rather than grepping it: it
@@ -19,8 +19,8 @@
 ;;;; framework runtime, no HTTP, no schema execution — it validates exactly the
 ;;;; handler bodies a reader would copy, and nothing it does not.
 ;;;;
-;;;; Discriminating in both directions: restoring either original
-;;;; completion expression (`{:db (assoc-in db [:article :data] …)}` /
+;;;; Discriminating in both directions: a completion expression that writes
+;;;; only the payload or only the error (`{:db (assoc-in db [:article :data] …)}` /
 ;;;; `{:db (assoc-in db [:article :error] …)}`) fails the corresponding
 ;;;; settled-status assertion while the payload/error assertions stay green.
 ;;;;
@@ -120,12 +120,12 @@
   (testing "it registers the load and both reply handlers"
     (doseq [id [:article/load :article/loaded :article/load-failed]]
       (is (some? (handler id))
-          (str "the After block no longer registers " id
+          (str "the After block does not register " id
                ". A canonical fix without both reply branches cannot settle its "
                "lifecycle at all.")))))
 
 ;; ---------------------------------------------------------------------------
-;; The always-on gate is still the point of the block
+;; The always-on gate is the point of the block
 ;; ---------------------------------------------------------------------------
 
 (deftest request-keeps-its-always-on-decode-gate-and-both-reply-targets
@@ -134,25 +134,25 @@
                           (filter #(= :rf.http/managed (first %)))
                           first
                           second)]
-    (testing "the managed-HTTP effect is still there"
-      (is (map? opts) "the After block no longer issues an :rf.http/managed request."))
+    (testing "the managed-HTTP effect is present"
+      (is (map? opts) "the After block does not issue an :rf.http/managed request."))
     (testing ":decode is the always-on production gate the leaf is about"
       (is (contains? opts :decode)
-          "the :decode gate is gone — that is the defect this whole leaf teaches against.")
+          "the :decode gate is missing — that is the defect this whole leaf teaches against.")
       (is (vector? (:decode opts))
-          ":decode no longer carries the Article schema value."))
+          ":decode does not carry the Article schema value."))
     (testing "both reply branches are addressed"
       (is (= [:article/loaded] (:on-success opts)))
       (is (= [:article/load-failed] (:on-failure opts))))))
 
 ;; ---------------------------------------------------------------------------
-;; The lifecycle settles on BOTH branches (the finding)
+;; The lifecycle settles on BOTH branches
 ;; ---------------------------------------------------------------------------
 
 (deftest load-starts-the-lifecycle
   (testing ":article/load puts the slice in flight"
     (is (= :loading (get-in @loading-db [:article :status]))
-        ":article/load no longer starts the lifecycle at :loading.")))
+        ":article/load does not start the lifecycle at :loading.")))
 
 (deftest success-settles-the-lifecycle-and-stores-the-validated-payload
   (let [db (:db ((handler :article/loaded) {:db @loading-db} [:article/loaded success-reply]))]
@@ -160,7 +160,7 @@
       (is (not= :loading (get-in db [:article :status]))
           (str "a SUCCESSFUL reply leaves [:article :status] at :loading. A reader "
                "pasting this canonical fix into a status-driven page gets a permanent "
-               "spinner after a perfectly good load (rf2-fzbj.40 F1)."))
+               "spinner after a perfectly good load."))
       (is (= :loaded (get-in db [:article :status]))
           "the settled success status must be :loaded, matching the RemoteData slice."))
     (testing "the validated payload is stored unchanged at the schema'd path"
@@ -176,7 +176,7 @@
     (testing "status leaves :loading"
       (is (not= :loading (get-in db [:article :status]))
           (str "a FAILED reply leaves [:article :status] at :loading. The classified "
-               "error arrived correctly; the lifecycle never closed (rf2-fzbj.40 F1)."))
+               "error arrived correctly; the lifecycle never closed."))
       (is (= :error (get-in db [:article :status]))
           "the settled failure status must be :error."))
     (testing "the classified error is stored unchanged, beside the payload path"
