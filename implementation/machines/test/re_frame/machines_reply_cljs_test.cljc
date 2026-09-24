@@ -56,7 +56,7 @@
     (is (= 1 (rf.machines.reply/actor-generation :explicit/actor)))))
 
 (deftest actor-generation-malformed-suffix-is-one-cross-platform
-  (testing "C4: a # followed by a NON-fully-numeric suffix is generation 1 on
+  (testing "a # followed by a NON-fully-numeric suffix is generation 1 on
             BOTH CLJ and CLJS (no lenient js/parseInt divergence)"
     ;; partially-numeric: a lenient CLJS js/parseInt would yield 3 here, CLJ
     ;; would throw — the `#"\d+"` pre-check defaults both to 1
@@ -165,7 +165,7 @@
           "node exited ⇒ stale"))))
 
 (deftest timer-work-id-head
-  (testing "rf2-niarhz — machine :after timer work-id [:rf.work/timer logical-id epoch]"
+  (testing "machine :after timer work-id [:rf.work/timer logical-id epoch]"
     ;; logical-id = [machine-id decl-path...] when both known
     (is (= [:rf.work/timer [:a/multi :loading] 3]
            (rf.machines.reply/timer-work-id :a/multi [:loading] 3)))
@@ -201,7 +201,7 @@
       (is (rf.reply/valid-reply? r)))))
 
 (deftest after-fired-reply-is-canonical
-  (testing "rf2-niarhz — a FIRED (live) :after timer is a closed :status :ok / :rf.reply/work-status :completed completion carrying the canonical :work/id"
+  (testing "a FIRED (live) :after timer is a closed :status :ok / :rf.reply/work-status :completed completion carrying the canonical :work/id"
     (let [r (rf.machines.reply/after-fired-reply
               {:actor-id   :a/multi
                :state      :loading
@@ -229,7 +229,7 @@
 ;; ---- terminal cancellation replies ----------------------------------------
 
 (deftest cancelled-timer-reply-is-canonical
-  (testing "rf2-sfunt8 — a cancelled :after timer is :status :cancelled DATA"
+  (testing "a cancelled :after timer is :status :cancelled DATA"
     (let [r (rf.machines.reply/cancelled-timer-reply
               {:actor-id :a/multi :state :loading :delay 30000
                :decl-path [:loading] :epoch 1 :frame :rf/default
@@ -252,7 +252,7 @@
         (is (rf.reply/valid-reply? r) (str reason " ⇒ " (rf.reply/validate-reply r)))))))
 
 (deftest on-restore-cancel-reason-in-closed-vocab
-  (testing "rf2-e3ryis — :on-restore (epoch-restore host-timer cleanup) is a
+  (testing ":on-restore (epoch-restore host-timer cleanup) is a
             member of the closed timer-cancel-reasons vocab and produces a valid
             cancelled-timer reply. `timer/cancel-frame-timers-on-restore!` emits
             :reason :on-restore, so the closed set MUST sanction it — otherwise a
@@ -269,7 +269,7 @@
       (is (rf.reply/valid-reply? r) (str "on-restore ⇒ " (rf.reply/validate-reply r))))))
 
 (deftest cancelled-actor-reply-is-canonical
-  (testing "rf2-sfunt8 — a cancelled (destroyed) spawned actor is :status :cancelled"
+  (testing "a cancelled (destroyed) spawned actor is :status :cancelled"
     (let [r (rf.machines.reply/cancelled-actor-reply
               {:actor-id :auth/flow#1 :parent-id :auth/main
                :work-bearing-path [:authenticating] :frame :rf/default
