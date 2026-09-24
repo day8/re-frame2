@@ -1,6 +1,5 @@
 (ns hooks.re-frame.fresco
-  "clj-kondo hooks for the Fresco authoring surface (rf2-hic-022; reduced to
-  macro shapes under rf2-r3r00).
+  "clj-kondo hooks for the Fresco authoring surface.
 
   One job. `defview`, `event` and `defhost` are `defn`-, `fn`- and `def`-shaped
   macros, so the hooks rewrite them into those forms and let kondo's own
@@ -9,11 +8,9 @@
   `Unresolved symbol`. This is the same shape as the repo-root
   `hooks.re-frame.core` hook for `reg-view`, and is deliberately no cleverer.
 
-  No behavioral findings are registered here. The six bespoke
-  `:re-frame.fresco/*` checks this file once carried were retired under
-  rf2-r3r00: behavior is the runtime's law, refused loudly at its execution
-  boundary, and a lint layer that re-derives it is a second grammar to
-  maintain."
+  No behavioral findings are registered here: behavior is the runtime's law,
+  refused loudly at its execution boundary, and a lint layer that re-derives
+  it is a second grammar to maintain."
   (:require [clj-kondo.hooks-api :as api]))
 
 (defn defview
