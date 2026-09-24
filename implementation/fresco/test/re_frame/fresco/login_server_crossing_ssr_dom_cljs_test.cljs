@@ -46,7 +46,7 @@
   §5  the entry's allowlist is the entry's. A host asking for a key the
       table does not name is refused; control, the keys it does name pass.
   §6  (DOM) hydration. The client boots the way `core.cljs` boots — the
-      payload through `ssr/hydrate!`, the DOM through an adopting `h/render!` with the
+      payload through its `hydrate-client!`, the DOM through an adopting `h/render!` with the
       example's own `identifier-prefix` — and adopts the server's bytes
       with NO `:rf.ssr/hydration-mismatch`. Its control is §7.
   §7  (DOM) **the price of a server-only value**, measured rather than
@@ -88,7 +88,6 @@
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.fresco.substrate :as rf.fresco.substrate]
-            [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.render-state :as rf.ssr.render-state]
             [re-frame.test-support :as rf.test-support]
