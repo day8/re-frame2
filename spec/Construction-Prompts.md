@@ -3,7 +3,7 @@
 > **Type:** Construction Prompts
 > Per-kind AI-scaffolding templates for new code in the re-frame2 pattern. Sibling to [MIGRATION.md](../migration/from-re-frame-v1/README.md) (which covers upgrades of existing code).
 
-CP-10 (story / variant / workspace) scaffolds the Story authoring surface — the `re-frame.story` tools artefact ([`tools/story/`](../tools/story/)) has shipped, so its full template lives in the catalogue below; the design sketch lives in [007-Stories.md](007-Stories.md).
+CP-10 (story / variant / workspace) scaffolds the Story authoring surface — the `re-frame.story` tools artefact ([`tools/story/`](../tools/story/)) ships, and its full template lives in the catalogue below; the design sketch lives in [007-Stories.md](007-Stories.md).
 
 ## Purpose
 
@@ -232,11 +232,10 @@ Each entry below is one CP:
     (when-let [on-success (:on-success args)]
       (rf/dispatch (conj on-success {:status 200 :body "test"})))))
 
-;; in a test — :fx-overrides and :initial-events are record-config keys, so they ride
-;; the advanced record-config `re-frame.frame/make-frame`, not the EP-0023 object
-;; constructor `rf/make-frame` (which takes :images and fails loud on a record-only key)
-(rf/with-new-frame [f (re-frame.frame/make-frame {:fx-overrides   {:http :http.canned-200}
-                                                  :initial-events [[:feature/load]]})]
+;; in a test — :fx-overrides and :initial-events are record-config keys, and the one
+;; constructor `rf/make-frame` takes them alongside its image-selection opts
+(rf/with-new-frame [f (rf/make-frame {:fx-overrides   {:http :http.canned-200}
+                                      :initial-events [[:feature/load]]})]
   ...)
 ```
 
@@ -360,7 +359,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 2. **Verify the id is unused.** `(rf/registrations {:source :store :kind :event})` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) Filtering that read on `:rf/machine?` — `(into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:source :store :kind :event}))` — enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
-5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
+5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
 
 **Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf.runtime/machines :snapshots <machine-id>]` in the frame's **runtime-db** partition (not app-db). For id `:auth.login/flow`, the snapshot is at `[:rf.runtime/machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — the machine spec has no `:path` key. Per-frame isolation is automatic: each frame has its own runtime-db and thus its own `[:rf.runtime/machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
@@ -486,7 +485,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ;; ... inside the machine spec:
 :actions
 {:notify-and-audit
- (fn [_ _]
+ (fn [_ctx]
    {:fx [[:raise    [:notify-listeners]]      ;; same machine, atomic, pre-commit
          [:dispatch [:audit/login-ok]]]})}    ;; runtime queue, post-commit
 
@@ -597,7 +596,7 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 - Every input the machine listens to is in some state's `:on` map.
 - **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
 - Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `make-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
-- No `reg-machine-guard` / `reg-machine-action` calls — those APIs are removed; guards and actions are machine-scoped.
+- No `reg-machine-guard` / `reg-machine-action` calls — there are no such APIs; guards and actions are machine-scoped.
 - `:guard` and `:action` are single fns (or single keyword references) — not vectors.
 - No `[:assign ...]`, `[:raise ...]`, `[:fx ...]` data forms in transition slots — actions return `{:data {...} :fx [...]}` directly.
 - No compound-guard `{:and ...}` / `{:or ...}` / `{:not ...}` data forms — composition is fns or named compounds in `:guards`.
@@ -863,7 +862,7 @@ A frame owns the browser URL by carrying `:url-bound? true`, and that declaratio
    [root-view]])
 ```
 
-Nothing else is needed, and nothing else is *permitted*: an app never adds a `popstate` listener, never dispatches an initial `:rf.route/handle-url-change`, and never calls an install / remove pair — those exports are retired (see [012 §popstate drives the URL-owner frame](012-Routing.md#popstate-drives-the-url-owner-frame-both-directions)). A hand-rolled listener would duplicate the framework's, dispatch a second initial sync, and misreport the navigation cause in diagnostics.
+Nothing else is needed, and nothing else is *permitted*: an app never adds a `popstate` listener, never dispatches an initial `:rf.route/handle-url-change`, and never calls an install / remove pair — there are no such exports (see [012 §popstate drives the URL-owner frame](012-Routing.md#popstate-drives-the-url-owner-frame-both-directions)). A hand-rolled listener would duplicate the framework's, dispatch a second initial sync, and misreport the navigation cause in diagnostics.
 
 Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by the `:url-bound?` lifecycle's own listener — for Back/Forward and for the initial sync alike — and by the link door after a `route-link` click's URL is pushed. Which of the four causes it is rides on the `:rf.route/cause` rider (`:link` / `:popstate` / `:initial` / `:ssr`), and the default scroll strategy follows from it: `:top` for `:link`, `:restore` otherwise.
 
@@ -902,7 +901,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 **Templates by site:**
 
 ```clojure
-;; Event-vector schema (attached via :schema on reg-event-*)
+;; Event-vector schema (attached via :schema on reg-event)
 (def CartItemRemoveEvent
   [:tuple [:= :cart.item/remove] :uuid])      ;; [event-id item-id]
 
@@ -983,8 +982,8 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
     (rf/with-new-frame [f (rf/make-frame
                        {:id     frame-id
                         :images [app-image]})]
-      ;; rebound to f. The constructor takes :images; run the per-request
-      ;; setup via a dispatch (or declaratively via :initial-events).
+      ;; The body runs with the current frame bound to f. The constructor takes :images;
+      ;; run the per-request setup via a dispatch (or declaratively via :initial-events).
       (rf/dispatch-sync [:rf/server-init request] {:frame f})
       (let [final-db (rf/app-db-value f)
             hiccup   ((rf/view :app/root))                ;; the registered root view
@@ -1022,7 +1021,7 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
           ]}))
 ```
 
-The drain settles before `with-frame` returns; the final state is captured.
+The drain settles before `with-new-frame` returns; the final state is captured.
 
 **Client-side bootstrap:**
 
@@ -1055,7 +1054,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 **AI-first checklist:**
 
-- Per-request frame is created and destroyed within `with-frame`.
+- Per-request frame is created and destroyed within `with-new-frame`.
 - All setup events have `:platforms` set or are universal (no `:platforms` key, runs everywhere).
 - Render-tree → string is pure; no React, no DOM, no JS APIs on the server.
 - Hydration payload includes `:rf/version`, `:rf/frame-id`, `:rf/app-db`, optional `:rf/render-hash`.
@@ -1117,7 +1116,7 @@ The Story authoring surface lives in the `re-frame.story` tools artefact (`(:req
 
 **Template — Form B (combined; one form per story, desugars to Form A):**
 
-The `:variants` map desugars at macro-expansion time to N independent `reg-variant` calls, so hot-reload-by-variant still works. Choose by ergonomics — both forms are first-class.
+The `:variants` map desugars at macro-expansion time to N independent `reg-variant` calls, so hot-reload-by-variant works. Choose by ergonomics — both forms are first-class.
 
 ```clojure
 (story/reg-story :story.auth.login-form
@@ -1353,9 +1352,9 @@ Override keys are interceptor **references**, matched by exact canonical referen
 **Pattern-level discipline (per [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar)):**
 
 - **Reference-only chains.** Authored behaviour lives in exactly two homes — event metadata and frame metadata — and both carry refs. Dispatch opts do **not** accept an additive `:interceptors` key; per-dispatch variation is `:interceptor-overrides`.
-- **`:before` short-circuits, `:after` always runs.** A `:before` may queue the rest of the chain off (skipping later `:before`s and the handler); every entered interceptor's `:after` still runs, in reverse order. The execution model is unchanged from v1.
+- **`:before` short-circuits, `:after` always runs.** A `:before` may queue the rest of the chain off (skipping later `:before`s and the handler); every entered interceptor's `:after` still runs, in reverse order. The execution model is the same as v1's.
 - **The reference resolves at dispatch time** — re-registering an interceptor id with a new descriptor takes effect on the next dispatch of any event whose chain references it; the event does not have to be re-registered (hot reload).
-- **Migration boundary only:** `reg-interceptor` also accepts an existing interceptor **value** carrying implementation-private slots (an `:id`, if present, must match the registration id). This is confined to the `reg-interceptor` call site; public chains still carry refs.
+- **Migration boundary only:** `reg-interceptor` also accepts an existing interceptor **value** carrying implementation-private slots (an `:id`, if present, must match the registration id). This is confined to the `reg-interceptor` call site; public chains carry refs.
 
 **Smoke test (headless via a test frame):**
 
