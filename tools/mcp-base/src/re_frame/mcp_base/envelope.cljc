@@ -163,7 +163,7 @@
 ;; leads with a real marker key yet carries an arbitrary top-level sibling.
 ;; Classifying it as an already-bounded marker lets a reserved-key-shaped
 ;; or malformed handler result BYPASS cap enforcement (and skip cache
-;; bookkeeping) rather than being measured/replaced — rf2-j538f7.20. So
+;; bookkeeping) rather than being measured/replaced. So
 ;; after the cheap pre-filter matches, we PARSE the whole rendered text and
 ;; require a closed single-key marker map.
 ;;
@@ -234,7 +234,7 @@
   FIRST key, whereas this proves the WHOLE wrapper is closed (no extra
   top-level sibling, no trailing form, no tagged literal, no non-map
   root/body). A reserved-key-shaped or malformed payload therefore cannot
-  inherit the marker exemption and bypass cap enforcement (rf2-j538f7.20).
+  inherit the marker exemption and bypass cap enforcement.
   Additive body fields remain allowed — only the OUTER wrapper must be
   closed."
   [text]
@@ -253,8 +253,8 @@
 ;; (leading token + closed single-key map body) yet its rendered text is
 ;; arbitrarily large. Classifying it as a marker lets the fast-path skip
 ;; egress an over-budget payload un-capped — a reserved-`:rf.mcp/*`-namespace
-;; handler result (the same abnormal precondition rf2-j538f7.20's sibling
-;; case required) bypassing cap enforcement. rf2-vd1uyn.
+;; handler result (the same abnormal precondition the closed-wrapper case
+;; above requires) bypassing cap enforcement.
 ;;
 ;; The invariant the skip actually relies on is "a marker is sub-cap BY
 ;; CONSTRUCTION". We enforce it DIRECTLY against the documented convention
@@ -274,7 +274,7 @@
   i.e. does its rendered-text token estimate stay within the documented
   default cap (`rf.mcp-base.overflow/default-max-tokens`)? A single-key reserved-`:rf.mcp/*`
   wrapper whose BODY pushes the rendered text over the default cap is NOT a
-  marker (rf2-vd1uyn); it continues through cap enforcement like any payload."
+  marker; it continues through cap enforcement like any payload."
   [text]
   (<= (rf.mcp-base.overflow/token-estimate text) rf.mcp-base.overflow/default-max-tokens))
 
@@ -302,7 +302,7 @@
        `{:rf.mcp/overflow {…100 KB…}}` is closed yet over-budget.
        Bounding the body is the BODY dimension of \"sub-cap by
        construction\": an over-budget single-key marker is NOT a marker
-       and continues through cap enforcement (rf2-vd1uyn).
+       and continues through cap enforcement.
     3. A structural CONFIRMATION — the whole `text` must parse to a
        closed single-key map whose sole key is a marker key and whose
        body is a map. The pre-filter proves only the FIRST key; this
@@ -310,7 +310,7 @@
        unexpected top-level sibling
        (`{:rf.mcp/overflow {...} :unexpected \"<big>\"}`), a trailing
        EDN form, a tagged literal, or a non-map root/body is NOT a
-       marker and continues through cap enforcement (rf2-j538f7.20).
+       marker and continues through cap enforcement.
        Additive fields inside the body remain allowed — only the OUTER
        wrapper must be closed.
 
