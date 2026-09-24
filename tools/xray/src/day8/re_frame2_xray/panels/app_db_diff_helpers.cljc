@@ -110,8 +110,18 @@
     - both contain k:
       - `identical?` values → no diff (structural-sharing short-circuit)
       - both maps, not `identical?` → recurse with extended path
-      - otherwise (one or both non-map; not identical) → `:modified`
+      - `=` values (a leaf the handler REBUILT equal) → no diff
+      - otherwise (one or both non-map; not `=`) → `:modified`
         leaf at this path
+
+  rf2-3x7nj.24.5 — the `=` test is what the runtime applies: a handler
+  that rebuilds a leaf to an equal value (`(vec (remove :done todos))`
+  with nothing done, a set re-built with `into`) changes nothing by
+  value, `:rf.event/db-changed` does not fire for it alone, and a
+  value-comparing sub does not propagate from it. `identical?` alone
+  reported it `:modified` with `before` = `after`. The `=` walk is paid
+  only on a leaf that is not already `identical?`, so the diff keeps its
+  O(changed paths) shape.
 
   Non-map sub-trees (e.g., a vector slice that changed from `[a b]`
   to `[a b c]`) are emitted as a single `:modified` triple at the
@@ -166,6 +176,10 @@
                           [(into acc (diff-paths bv av (conj path k)))
                            (conj seen? k)]
 
+                          ;; rf2-3x7nj.24.5 — rebuilt but equal: no change.
+                          (= bv av)
+                          [acc (conj seen? k)]
+
                           :else
                           [(conj acc {:op :modified :path (conj path k)
                                       :before bv :after av})
@@ -189,7 +203,11 @@
      (and (some? before) (nil? after))
      [{:op :removed :path path :before before :after nil}]
 
-     ;; Both non-map, not identical — :modified leaf.
+     ;; rf2-3x7nj.24.5 — both non-map, rebuilt but equal: no change.
+     (= before after)
+     []
+
+     ;; Both non-map, not equal — :modified leaf.
      :else
      [{:op :modified :path path :before before :after after}])))
 
@@ -361,6 +379,23 @@
   added it' claim to make. Pure data."
   ::added)
 
+(def removed
+  "Sentinel `:value` meaning 'diff mode IS on, and this whole instance /
+  singleton slice was present in the focused epoch's pre-image but is
+  ABSENT from its post-image — this epoch removed it'. The mirror of
+  `added`, in the other slot: `added` stands in for a missing `:before`,
+  this stands in for a missing `:value`, and the entry's `:before` carries
+  the real prior value.
+
+  rf2-3x7nj.24.2: the section model was built from the post-state alone,
+  so a destroyed machine, an emptied registry or a cleared
+  pending-navigation left no trace, and the tab answered 'nothing' to
+  'what did this event remove?'. The renderer translates this sentinel to
+  the edn-inspector's absent-value marker, which draws the prior value in
+  place as a struck-through removed ghost (spec/004 §Removed slots render
+  in place). Emitted ONLY in diff mode. Pure data."
+  ::removed)
+
 (defn- instances-of
   "Decompose a map-of-instances reserved-area value into an ordered
   vector of `{:id <instance-id> :value <per-instance-state>
@@ -379,22 +414,40 @@
   id present now but ABSENT in `before-area` is tagged the `added`
   sentinel, NOT `no-diff` — the freshly-created machine / spawn must
   light up `:added` (green) rather than render identically to an
-  unchanged instance. Pure data → data."
+  unchanged instance.
+
+  rf2-3x7nj.24.2: and the other way round, the ids walked are the UNION
+  of `area-value`'s and `before-area`'s, so an instance present in the
+  pre-image and absent now (a destroyed machine) is a row whose `:value`
+  is the `removed` sentinel and whose `:before` is its prior state.
+  Only a real pre-image map contributes ids; the `no-diff` / `added`
+  sentinels carry none. Pure data → data."
   [area-value before-area]
-  (if (and (map? area-value) (seq area-value))
-    (->> area-value
-         (map (fn [[id v]]
-                {:id     id
-                 :value  v
-                 :before (if (= no-diff before-area)
-                           no-diff
-                           ;; Diff mode: a known prior snapshot diffs in
-                           ;; place; an instance absent from `before-area`
-                           ;; is `:added` (rf2-227cz), not `no-diff`.
-                           (get before-area id added))}))
+  (let [now   (if (map? area-value) area-value {})
+        prior (if (map? before-area) before-area {})]
+    (->> (concat
+           (map (fn [[id v]]
+                  {:id     id
+                   :value  v
+                   :before (if (= no-diff before-area)
+                             no-diff
+                             ;; Diff mode: a known prior snapshot diffs in
+                             ;; place; an instance absent from `before-area`
+                             ;; is `:added` (rf2-227cz), not `no-diff`.
+                             (get before-area id added))})
+                now)
+           (keep (fn [[id v]]
+                   (when-not (contains? now id)
+                     {:id id :value removed :before v}))
+                 prior))
          (sort-by (comp pr-str :id))
-         vec)
-    []))
+         vec)))
+
+(defn- blank-slot?
+  "True when a singleton slot carries no state: absent / `nil`, or an
+  empty collection (a `{}` pending-navigation). Pure data → bool."
+  [v]
+  (or (nil? v) (and (coll? v) (empty? v))))
 
 (defn current-state-sections
   "Decompose the frame's TWO partitions — the `app-db` value + the
@@ -437,6 +490,10 @@
     - (for `:rf/machines` / `:rf/spawned`) the registry contains no
       instance ids.
 
+  In diff mode emptiness covers BOTH sides (rf2-3x7nj.24.2): an area
+  that carried state in the pre-image and none now is the removal this
+  epoch made, so it stays, carrying `removed` entries (see below).
+
   The renderer is the only consumer that needs the `:empty?` flag, and
   it never draws an empty section now (the placeholder cards added
   visual noise — six labelled 'No X' cards mostly saying 'nothing
@@ -471,6 +528,12 @@
   user-domain section needs no sentinel — `:before-top` is the whole
   prior user-domain map, so a NEW user-domain key already classifies
   `:added` per-key inside the diff engine.)
+
+  rf2-3x7nj.24.2 — the mirror case: an instance / singleton slice
+  present in the pre-image and ABSENT now carries the `removed` sentinel
+  as its `:value` and its prior state as `:before`, and the renderer
+  draws it struck-through. (The TOP needs none either way: a user-domain
+  db cleared to `{}` still carries its whole prior map on `:before-top`.)
 
   ## Arities (EP-0001 rf2-tj6w9l)
 
@@ -532,18 +595,30 @@
                                             :kind      :instances
                                             :empty?    (empty? instances)
                                             :instances instances})
-                                         {:area   area
-                                          :kind   :singleton
-                                          ;; A singleton is empty when the key is absent, or
-                                          ;; present-but-nil, or present-but-empty-collection
-                                          ;; (e.g. `{}` pending-nav). Scalars / non-empty
-                                          ;; collections are non-empty.
-                                          :empty? (or (not present?)
-                                                      (nil? area-value)
-                                                      (and (coll? area-value)
-                                                           (empty? area-value)))
-                                          :value  area-value
-                                          :before (before-area area)})]
+                                         (let [prior  (before-area area)
+                                               ;; rf2-3x7nj.24.2 — a slot the
+                                               ;; pre-image carried state in.
+                                               ;; Only in diff mode, and never
+                                               ;; the `added` sentinel.
+                                               prior? (and diff?
+                                                           (not= added prior)
+                                                           (not (blank-slot? prior)))]
+                                           {:area   area
+                                            :kind   :singleton
+                                            ;; A singleton is empty when the key is absent, or
+                                            ;; present-but-nil, or present-but-empty-collection
+                                            ;; (e.g. `{}` pending-nav) — AND, in diff mode, it
+                                            ;; carried no state before either (rf2-3x7nj.24.2:
+                                            ;; a slot this epoch emptied stays, so its removal
+                                            ;; shows).
+                                            :empty? (and (blank-slot? area-value)
+                                                         (not prior?))
+                                            ;; An absent slot that had state is `removed`; a
+                                            ;; present one (even `{}` / nil) diffs as itself.
+                                            :value  (if (and prior? (not present?))
+                                                      removed
+                                                      area-value)
+                                            :before prior}))]
                      ;; rf2-jcdvo — empty areas are omitted from :areas;
                      ;; the renderer never draws labelled "No X" placeholder
                      ;; cards. The TOP user-domain section (above) is the

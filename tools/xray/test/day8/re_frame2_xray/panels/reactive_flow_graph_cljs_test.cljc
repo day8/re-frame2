@@ -141,6 +141,75 @@
       (is (every? (fn [e] (every? number? [(:x1 e) (:y1 e) (:x2 e) (:y2 e)]))
                   (:edges out))))))
 
+;; ---- layout: instances (rf2-3x7nj.24.3) -------------------------------
+;;
+;; The canonical list shape: N instances of one view, each reading its own
+;; cell of one parametric sub. Keying nodes by registration id kept only the
+;; LAST instance per id, so every sub→view edge landed on the last view box,
+;; the other N-1 floated with no incoming edge, and React got N siblings with
+;; one key. The fixture is the shape the panel projection produces — one sub
+;; row per `:sub-runs` query-v, one view row per `:rf.view/rendered` op with
+;; its render-key and read-set.
+
+(def ^:private todo-list
+  {:level-1-subs [{:sub-id :todo/by-id :query-v [:todo/by-id 1] :changed? true
+                   :readers [:app/todo-row]}
+                  {:sub-id :todo/by-id :query-v [:todo/by-id 2] :changed? false
+                   :readers [:app/todo-row]}
+                  {:sub-id :todo/by-id :query-v [:todo/by-id 3] :changed? false
+                   :readers [:app/todo-row]}]
+   :view-rows    [{:view-id :app/todo-row :render-key [:app/todo-row 11]
+                   :action :rerender :deref-subs [[:todo/by-id 1]]}
+                  {:view-id :app/todo-row :render-key [:app/todo-row 12]
+                   :action :rerender :deref-subs [[:todo/by-id 2]]}
+                  {:view-id :app/todo-row :render-key [:app/todo-row 13]
+                   :action :rerender :deref-subs [[:todo/by-id 3]]}]})
+
+(deftest layout-instances-carry-distinct-keys
+  (testing "each instance is its own node with its own React key; the
+            registration id still labels, links and slugs it"
+    (let [out   (g/layout todo-list)
+          l1    (-> out :nodes :l1)
+          views (-> out :nodes :view)]
+      (is (= 3 (count (distinct (map :key l1)))) "three sub instances, three keys")
+      (is (= 3 (count (distinct (map :key views)))) "three view instances, three keys")
+      (is (every? #(= :todo/by-id (:id %)) l1) ":id stays the registration id")
+      (is (= ["[:todo/by-id 1]" "[:todo/by-id 2]" "[:todo/by-id 3]"] (mapv :label l1))
+          "a parameterized instance is labelled by its query-v"))))
+
+(deftest layout-routes-each-sub-instance-to-its-own-view-instance
+  (testing "the sub→view edge joins the sub instance to the view instance
+            whose read-set holds its query-v — one edge per view box"
+    (let [out      (g/layout todo-list)
+          sub-view (filter #(= :sub-view (:kind %)) (:edges out))
+          by-key   (into {} (map (juxt :key identity)) (-> out :nodes :view))
+          centre   (fn [n] (+ (:y n) (/ (:h n) 2.0)))]
+      (is (= 3 (count sub-view)))
+      (is (= #{[(pr-str [:todo/by-id 1]) (pr-str [:app/todo-row 11])]
+               [(pr-str [:todo/by-id 2]) (pr-str [:app/todo-row 12])]
+               [(pr-str [:todo/by-id 3]) (pr-str [:app/todo-row 13])]}
+             (set (map (juxt :from-key :to-key) sub-view)))
+          "instance i drives view instance i")
+      (is (= (set (map centre (-> out :nodes :view)))
+             (set (map :y2 sub-view)))
+          "every view box receives an edge — none floats")
+      (is (every? #(= (:y2 %) (centre (get by-key (:to-key %)))) sub-view)
+          "each edge ends on the box it names"))))
+
+(deftest layout-level-2-edge-starts-at-the-declared-input-instance
+  (testing "a Level-2 row carrying its declared input query-vs draws its
+            input edge from THAT instance, not from the last instance of
+            the input's registration"
+    (let [out (g/layout {:level-1-subs [{:sub-id :todo/by-id :query-v [:todo/by-id 1] :changed? true}
+                                        {:sub-id :todo/by-id :query-v [:todo/by-id 2] :changed? false}]
+                         :level-2-subs [{:sub-id :todo/first-title :query-v [:todo/first-title]
+                                         :changed? true :inputs [:todo/by-id]
+                                         :input-query-vs [[:todo/by-id 1]]}]})
+          sub-sub (filter #(= :sub-sub (:kind %)) (:edges out))]
+      (is (= [(pr-str [:todo/by-id 1])] (mapv :from-key sub-sub)))
+      (is (= [:todo/by-id] (mapv :from-id sub-sub))
+          ":from-id stays the registration id"))))
+
 (deftest layout-width-and-height-positive
   (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}]
                        :view-rows    [{:view-id :v :action :rerender}]})]

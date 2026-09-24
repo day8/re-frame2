@@ -25,6 +25,7 @@
   substrate never emits — so it stayed green while the panel showed
   zero subs ran.)"
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.panels.reactive-panel-subs :as subs]))
 
 ;; ---- helpers -----------------------------------------------------------
@@ -685,6 +686,54 @@
           ":destroyed-subs empty (no dispose op in the live build)")
       (is (= 1 (-> p :counts :unmounted-views)))
       (is (= 0 (-> p :counts :destroyed-subs))))))
+
+;; ---- rf2-3x7nj.24.3: list instances reach the graph as instances -------
+;;
+;; Producer-derived: the record is shaped the way the substrate emits it —
+;; one `:sub-runs` row per concrete query-v, one `:rf.view/rendered` op per
+;; component instance with its own render-key and read-set — and the
+;; projection is fed straight to the graph layout the panel renders.
+
+(defn- row-rendered-ev [token id]
+  {:operation :rf.view/rendered
+   :tags {:rf.view/id         :app/todo-row
+          :rf.view/render-key [:app/todo-row token]
+          :rf.view/mount?     false
+          :rf.view/deref-subs [[:todo/by-id id]]}})
+
+(deftest project-record-routes-list-instances-instance-to-instance
+  (testing "three todo rows over one parametric sub: the projection keeps
+            each instance's query-v and read-set, and the graph joins sub
+            instance i to view instance i"
+    (let [record {:sub-runs (vec (for [id [1 2 3]]
+                                   {:sub-id :todo/by-id :query-v [:todo/by-id id]
+                                    :recomputed? true :value-changed? true}))
+                  :trace-events (mapv row-rendered-ev [11 12 13] [1 2 3])}
+          p      (subs/project-record record nil)
+          g      (graph/layout p)
+          edges  (filter #(= :sub-view (:kind %)) (:edges g))]
+      (is (= [[:todo/by-id 1] [:todo/by-id 2] [:todo/by-id 3]]
+             (mapv :query-v (:level-1-subs p)))
+          "each sub row carries its concrete query-v")
+      (is (= [[[:todo/by-id 1]] [[:todo/by-id 2]] [[:todo/by-id 3]]]
+             (mapv :deref-subs (:view-rows p)))
+          "each view row carries its own read-set")
+      (is (= #{[(pr-str [:todo/by-id 1]) (pr-str [:app/todo-row 11])]
+               [(pr-str [:todo/by-id 2]) (pr-str [:app/todo-row 12])]
+               [(pr-str [:todo/by-id 3]) (pr-str [:app/todo-row 13])]}
+             (set (map (juxt :from-key :to-key) edges)))
+          "one edge per instance pair — no edge lands on another row's box"))))
+
+(deftest partition-carries-declared-input-query-vs
+  (testing "rf2-3x7nj.24.3 — a :static Level-2 row carries its declared
+            input query-vs beside the id heads; a :parametric one does not"
+    (let [{:keys [level-2]}
+          (subs/partition-subs-by-level
+            [(sub-run+ :cart/total true true) (sub-run+ :cart/line true true)]
+            topology)]
+      (is (= [[:cart/state] [:cart/items]] (-> level-2 first :input-query-vs)))
+      (is (= [:cart/total] (-> level-2 first :query-v)))
+      (is (not (contains? (second level-2) :input-query-vs))))))
 
 (deftest project-record-degrades-without-topology
   (testing "rf2-8ve8z — nil topology: every sub falls to Level 1; the

@@ -453,6 +453,72 @@
       (is (not-any? #(contains? (:opts %) :before) mounts)
           "an :added slice carries no `:before` opt"))))
 
+;; ---- rf2-3x7nj.24.2: a whole-section removal renders struck-through ------
+;;
+;; The mirror of rf2-227cz. A slice present in the focused epoch's pre-image
+;; and gone now carries the `h/removed` sentinel as its value; the view hands
+;; the inspector its absent-value marker beside the real `:before`, and the
+;; inspector draws the prior value in place as a removed ghost (spec/004
+;; §Removed slots render in place). The last row feeds the panel's OWN mount
+;; to the inspector's renderer, so the removed-root presentation is checked
+;; rather than assumed.
+
+(defn- removed-door-mount []
+  (let [before (runtime-db {:rf/machines {:door/main {:state :open}
+                                          :other     {:state :idle}}})
+        after  (runtime-db {:rf/machines {:other {:state :idle}}})
+        model  (h/current-state-sections {} after {:app {} :runtime before})
+        tree   (state/state-body model)
+        door   (find-by-testid
+                 tree "rf-xray-app-db-state-instance-:rf/machines-:door/main")]
+    (first (find-edn-inspector-mounts door))))
+
+(deftest destroyed-machine-instance-mounts-removed-with-its-before
+  (testing "rf2-3x7nj.24.2 — a machine destroyed this epoch still has its
+            instance section, mounting the inspector's absent-value marker
+            as the value and the prior snapshot as `:before`"
+    (let [mount (removed-door-mount)]
+      (is (some? mount) "the destroyed machine's section still mounts")
+      (is (= ei/missing-sentinel (:value mount))
+          "the value is the inspector's absent-value marker, not the sentinel keyword")
+      (is (= {:state :open} (-> mount :opts :before))
+          "the prior snapshot rides `:before`")
+      (is (not (true? (-> mount :opts :added?)))
+          "a removal is not an addition"))))
+
+(deftest destroyed-machine-instance-renders-a-removed-ghost
+  (testing "rf2-3x7nj.24.2 — the inspector draws that mount as a struck-through
+            removed ghost carrying the prior value"
+    (let [{:keys [value opts]} (removed-door-mount)
+          node (ei/render-node {:value value :before (:before opts) :diff? true
+                                :panel-id :rf.xray/app-db :mount-id "m"
+                                :path [] :depth 0 :expansion-map {}
+                                :opts {:default-expanded-depth 3}})
+          s    (pr-str node)]
+      (is (re-find #":data-rf-removed-ghost \"1\"" s)
+          "the root renders through the removed-ghost path")
+      (is (re-find #":open" s) "the prior value is drawn")
+      (is (not (re-find #"edn-inspector/missing" s))
+          "the absent-value marker never leaks into the render"))))
+
+(deftest cleared-top-renders-its-removed-keys
+  (testing "rf2-3x7nj.24.2 — a user-domain db this epoch cleared to `{}`
+            takes the value path with the prior map as `:before`, not the
+            'no user-domain keys yet' placeholder"
+    (let [model  (h/current-state-sections {} {}
+                                           {:app {:user {:name "a"} :cart [1 2]}
+                                            :runtime {}})
+          top    (find-by-testid (state/state-body model) "rf-xray-app-db-state-top")
+          mounts (find-edn-inspector-mounts top)]
+      (is (not (re-find #"no user-domain keys" (pr-str top)))
+          "no placeholder claiming the db was always empty")
+      (is (= {:user {:name "a"} :cart [1 2]} (-> mounts first :opts :before))
+          "the cleared keys ride `:before`, so they render struck-through")))
+  (testing "control — empty before AND after still shows the placeholder"
+    (let [model (h/current-state-sections {} {} {:app {} :runtime {}})
+          top   (find-by-testid (state/state-body model) "rf-xray-app-db-state-top")]
+      (is (re-find #"no user-domain keys" (pr-str top))))))
+
 (deftest no-diff-model-renders-current-state-no-annotation
   (testing "the no-diff (2-arity, no pre-image) model renders plain
             current-state — every mount is BROWSE mode (no `:before` opt)

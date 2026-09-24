@@ -39,9 +39,12 @@
   1. app-db → Level-1 is a PLAIN fan-out (re-frame subs read app-db
      imperatively; no per-path edges) — one source node, one edge per
      Level-1 sub.
-  2. The sub→view edges come from the `:sub-readers` map (`{sub-id
-     [view-id ...]}`) the substrate's per-view deref-set yields. A sub
-     read by ≥2 views is SHARED — its node carries `:shared-count`.
+  2. The sub→view edges come from the substrate's per-view deref-set:
+     each sub INSTANCE (concrete query-v) routes to the view instances
+     whose `:deref-subs` hold it (rf2-3x7nj.24.3), and a row with no
+     query-v falls back to the registration-level `:sub-readers` map
+     (`{sub-id [view-id ...]}`). A sub read by ≥2 views is SHARED — its
+     node carries `:shared-count`.
   3. `:rf.view/triggered-by` (the per-view cause sub) + `:rf.view/
      elapsed-ms` (render timing) ride each view row (rf2-8wrzz.1); the
      view node carries them through for the renderer's cause + timing
@@ -99,22 +102,50 @@
         top     (- canvas-mid (/ block-h 2.0))]
     (+ top (* i (+ h row-gap)))))
 
+(defn- keyed
+  "Stamp each node's `:key` — its React key — from its `:instance`
+  identity (rf2-3x7nj.24.3). A repeat of one identity in a column (the
+  same query-v run twice in an epoch) is disambiguated by occurrence, so
+  sibling keys are unique by construction."
+  [nodes]
+  (first
+    (reduce (fn [[out seen] node]
+              (let [k (pr-str (:instance node))
+                    c (get seen k 0)]
+                [(conj out (assoc node :key (if (zero? c) k (str k "#" c))))
+                 (assoc seen k (inc c))]))
+            [[] {}]
+            nodes)))
+
 (defn- col-nodes
   "Build the node maps for one sub column (`:l1` / `:l2`). Each row is the
-  panel's sub-row map (`{:sub-id :changed? :inputs? :coord? :readers?}`).
-  `shared` is the set of sub-ids read by ≥2 views (the shared-sub set)."
+  panel's sub-row map (`{:sub-id :query-v? :changed? :inputs?
+  :input-query-vs? :coord? :readers?}`). `shared` is the set of sub-ids
+  read by ≥2 views (the shared-sub set).
+
+  rf2-3x7nj.24.3 — a row is one INSTANCE of a registration: three list
+  rows reading `[:todo/by-id 1]` … `[:todo/by-id 3]` are three rows
+  sharing `:sub-id :todo/by-id`. `:id` stays the registration id (label,
+  testid, source link); `:instance` is the concrete query-v (or the bare
+  `[sub-id]` shape when the row carries none) and keys the node and its
+  edges, and a parameterized instance is labelled by its query-v so the
+  boxes can be told apart."
   [rows kind canvas-mid shared]
   (let [x (get col-x kind)
         n (count rows)]
-    (vec
+    (keyed
       (for [[i row] (map-indexed vector rows)
-            :let [sid (:sub-id row)]]
+            :let [sid (:sub-id row)
+                  qv  (:query-v row)]]
         {:kind        kind
          :id          sid
+         :instance    (or qv [sid])
+         :query-v     qv
          :slug        (slug sid)
-         :label       (id->str sid)
+         :label       (if (and (vector? qv) (next qv)) (pr-str qv) (id->str sid))
          :changed?    (boolean (:changed? row))
          :inputs      (vec (:inputs row))
+         :input-query-vs (:input-query-vs row)
          :readers     (vec (:readers row))
          :coord       (:coord row)
          :shared-count (when (contains? shared sid)
@@ -128,15 +159,22 @@
   "Build the view-column node maps. `view-rows` are render rows
   (`:action` ∈ #{:mount :rerender}; unmounts list separately). Each
   carries `:triggered-by` + `:elapsed-ms` (rf2-8wrzz.1) through for the
-  renderer's cause + timing labels."
+  renderer's cause + timing labels.
+
+  rf2-3x7nj.24.3 — one row per rendered INSTANCE: `:instance` is its
+  `:render-key` (`[view-id token]`, or `[view-id i]` without one) and
+  `:deref-subs` its own read-set, which is what routes each sub
+  instance's edge to the view instance that read it."
   [view-rows canvas-mid]
   (let [x (get col-x :view)
         n (count view-rows)]
-    (vec
+    (keyed
       (for [[i row] (map-indexed vector view-rows)
             :let [vid (:view-id row)]]
         {:kind         :view
          :id           vid
+         :instance     (or (:render-key row) [vid i])
+         :deref-subs   (:deref-subs row)
          :slug         (slug vid)
          :label        (id->str vid)
          :action       (:action row)
@@ -165,9 +203,11 @@
 
   Input is the panel's projected reactive-data slice:
 
-      {:level-1-subs [{:sub-id :changed? :coord? :readers?} ...]
-       :level-2-subs [{:sub-id :changed? :inputs :coord? :readers?} ...]
-       :view-rows    [{:view-id :action :reason :triggered-by? :elapsed-ms?} ...]}
+      {:level-1-subs [{:sub-id :query-v? :changed? :coord? :readers?} ...]
+       :level-2-subs [{:sub-id :query-v? :changed? :inputs :input-query-vs?
+                       :coord? :readers?} ...]
+       :view-rows    [{:view-id :render-key? :deref-subs? :action :reason
+                       :triggered-by? :elapsed-ms?} ...]}
 
   Returns:
 
@@ -175,8 +215,13 @@
        :height  <px>
        :appdb   {:x :y :w :h}
        :nodes   {:l1 [node ...] :l2 [node ...] :view [node ...]}
-       :edges   [{:from-id :to-id :x1 :y1 :x2 :y2 :changed? :kind} ...]
+       :edges   [{:from-id :to-id :from-key :to-key :x1 :y1 :x2 :y2
+                  :changed? :kind} ...]
        :empty?  <bool>}      ; true when no subs ran AND no views rendered
+
+  Nodes are INSTANCES (rf2-3x7nj.24.3): `:id` is the registration id,
+  `:key` the unique instance key the renderer uses as the React key, and
+  an edge's `:from-key` / `:to-key` name the instances it joins.
 
   Edge `:kind` ∈ #{:appdb-l1 :sub-sub :sub-view}; `:changed?` drives the
   solid-accent vs dashed-dim/cut styling. View rows with `:action
@@ -202,10 +247,30 @@
         l1        (col-nodes l1-rows :l1 canvas-mid shared)
         l2        (col-nodes l2-rows :l2 canvas-mid shared)
         views     (view-nodes v-rows canvas-mid)
-        ;; index nodes by id for edge endpoint resolution. l1 + l2 share
-        ;; the sub-id key space; views key on view-id.
-        sub-by-id  (into {} (map (juxt :id identity)) (concat l1 l2))
-        view-by-id (into {} (map (juxt :id identity)) views)
+        ;; rf2-3x7nj.24.3 — edges resolve to INSTANCES. Keying nodes by
+        ;; registration id kept only the LAST instance per id, so every
+        ;; edge into a list of one view landed on its last box. l1 + l2
+        ;; share the sub-id key space; each id maps to all its instances.
+        subs-of    (group-by :id (concat l1 l2))
+        ;; The source instances for one declared input: the instance whose
+        ;; identity IS the declared query-v, or — an input known by id
+        ;; alone — every instance of that registration.
+        sources    (fn [input]
+                     (if (vector? input)
+                       (filter #(= input (:instance %)) (get subs-of (first input)))
+                       (get subs-of input)))
+        ;; The view instances a sub instance drives: those whose own
+        ;; read-set holds its query-v. Only a row with no query-v falls
+        ;; back to the registration-level `:readers` (every instance of a
+        ;; reading view).
+        targets    (fn [{:keys [query-v readers]}]
+                     (if query-v
+                       (filter (fn [v]
+                                 (some #(= query-v (if (vector? %) % [%]))
+                                       (:deref-subs v)))
+                               views)
+                       (let [rdrs (set readers)]
+                         (filter #(contains? rdrs (:id %)) views))))
         ;; right-mid / left-mid anchor of a node (edges run rect→rect).
         rmid      (fn [n] [(+ (:x n) (:w n)) (+ (:y n) (/ (:h n) 2.0))])
         lmid      (fn [n] [(:x n) (+ (:y n) (/ (:h n) 2.0))])
@@ -213,29 +278,30 @@
         appdb-edges
         (for [n l1
               :let [[x1 y1] (rmid appdb) [x2 y2] (lmid n)]]
-          {:from-id :appdb :to-id (:id n)
+          {:from-id :appdb :to-id (:id n) :to-key (:key n)
            :x1 x1 :y1 y1 :x2 x2 :y2 y2
            :changed? (:changed? n) :kind :appdb-l1})
         ;; 2. input-sub → Level-2 sub (the `:inputs` composition chain).
-        ;;    Edge changed when the UPSTREAM input sub changed.
+        ;;    Edge changed when the UPSTREAM input sub changed. The full
+        ;;    declared query-vs name the input INSTANCE; the ids are the
+        ;;    fallback when a row carries only those.
         sub-sub-edges
         (for [n l2
-              input (:inputs n)
-              :let [src (get sub-by-id input)]
-              :when src
+              input (or (:input-query-vs n) (:inputs n))
+              src (sources input)
               :let [[x1 y1] (rmid src) [x2 y2] (lmid n)]]
-          {:from-id input :to-id (:id n)
+          {:from-id (:id src) :to-id (:id n)
+           :from-key (:key src) :to-key (:key n)
            :x1 x1 :y1 y1 :x2 x2 :y2 y2
            :changed? (:changed? src) :kind :sub-sub})
         ;; 3. sub → view (the reader edge; shared subs fan out to N views).
         ;;    Edge changed when the SUB changed (drove the re-render).
         sub-view-edges
         (for [n (concat l1 l2)
-              vid (:readers n)
-              :let [tgt (get view-by-id vid)]
-              :when tgt
+              tgt (targets n)
               :let [[x1 y1] (rmid n) [x2 y2] (lmid tgt)]]
-          {:from-id (:id n) :to-id vid
+          {:from-id (:id n) :to-id (:id tgt)
+           :from-key (:key n) :to-key (:key tgt)
            :x1 x1 :y1 y1 :x2 x2 :y2 y2
            :changed? (:changed? n) :kind :sub-view})
         edges (vec (concat appdb-edges sub-sub-edges sub-view-edges))]

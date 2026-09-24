@@ -327,13 +327,15 @@
   border + bold; unchanged → transparent + dashed dim outline + dim
   label. A shared sub (read by ≥2 views) carries a `×N` annotation.
   Clicking the node jumps to the sub's registration source."
-  [{:keys [id slug label changed? shared-count coord x y w h kind]}]
+  [{:keys [id slug label changed? shared-count coord x y w h kind] :as node}]
   (let [click (when coord (fn [e] (open-source! coord e)))]
     [:g (cond-> {;; rf2-k97c.3 — the sequence key rides in the attribute
                  ;; map. `flow-graph` CALLS this fn (a plain fn in hiccup
                  ;; head position is a loud error under Fresco), and a
                  ;; call form discards reader metadata on return anyway.
-                 :key slug
+                 ;; rf2-3x7nj.24.3 — the INSTANCE key, not the id's slug:
+                 ;; N instances of one sub are N siblings.
+                 :key (:key node)
                  :data-testid (str "rf-xray-reactive-node-" (name kind) "-" slug)
                  :data-node-changed (str (boolean changed?))
                  :data-node-id (str id)}
@@ -370,7 +372,7 @@
   whose own subs all held value (the props channel). A mount carries no
   cause — the `(mounted)` label already conveys the first render.
   Hovering toggles the pink DOM highlight (rf2-8l03l)."
-  [{:keys [id slug label action triggered-by elapsed-ms x y w h]}]
+  [{:keys [id slug label action triggered-by elapsed-ms x y w h] :as node}]
   (let [meta      (when id (rf/handler-meta {:source :store :kind :view :id id}))
         disp-name (view-display-name id meta)
         coord     (when (string? (:file meta))
@@ -387,7 +389,8 @@
         timing    (elapsed-label elapsed-ms)
         meta-line (->> [cause timing] (remove nil?) (string/join " · "))]
     [:g {;; rf2-k97c.3 — attribute-map key; see `sub-node`.
-         :key slug
+         ;; rf2-3x7nj.24.3 — the instance (render-key) key.
+         :key (:key node)
          :data-testid (str "rf-xray-reactive-view-node-" slug)
          :data-node-id (str id)
          :data-rf-xray-view-id (str id)

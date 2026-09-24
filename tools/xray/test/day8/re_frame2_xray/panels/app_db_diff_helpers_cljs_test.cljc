@@ -115,6 +115,36 @@
       (is (= 1 (:before (first diff))))
       (is (= {:b 2} (:after (first diff)))))))
 
+(deftest diff-paths-equal-but-rebuilt-leaf-is-no-change
+  (testing "rf2-3x7nj.24.5 — a leaf the handler REBUILT to an `=` value is
+            no change: `diff-paths` agrees with the runtime's value
+            equality instead of reporting `~ [:todos] X → X`"
+    (let [todos  [{:id 1 :done false} {:id 2 :done false}]
+          before {:loading? true :todos todos :user {:roles #{:admin :ops}}}
+          ;; The two idioms the bead names: a filter that removes nothing,
+          ;; and a set re-built with `into`. Both are `=`, neither is
+          ;; `identical?` — the precondition this row exists for.
+          after  (-> before
+                     (assoc :loading? false)
+                     (update :todos #(vec (remove :done %)))
+                     (update-in [:user :roles] #(into #{} %)))]
+      (is (and (= (:todos before) (:todos after))
+               (not (identical? (:todos before) (:todos after)))
+               (= (get-in before [:user :roles]) (get-in after [:user :roles]))
+               (not (identical? (get-in before [:user :roles])
+                                (get-in after [:user :roles]))))
+          "precondition: both rebuilt leaves are `=` but not `identical?`")
+      (is (= [{:op :modified :path [:loading?] :before true :after false}]
+             (h/diff-paths before after))
+          "only the real change — no phantom `:modified` for the rebuilt leaves")
+      (is (= [] (h/diff-paths (:todos before) (:todos after)))
+          "the top-level non-map arm applies the same `=` test")))
+  (testing "control — a leaf that genuinely changed is still `:modified`"
+    (is (= [{:op :modified :path [:todos] :before [1] :after [1 2]}]
+           (h/diff-paths {:todos [1]} {:todos [1 2]})))
+    (is (= [{:op :modified :path [] :before [1] :after [2]}]
+           (h/diff-paths [1] [2])))))
+
 ;; ---- (2) structural-sharing short-circuit -------------------------------
 
 (deftest diff-paths-structural-sharing-skips-unchanged-subtree
@@ -455,3 +485,71 @@
       (is (= h/added (:before (area-by model :rf/route)))
           "rf2-227cz — an added route slot (absent before) → `added`,
            not `no-diff`"))))
+
+;; ---- rf2-3x7nj.24.2: a whole-section removal stays visible ---------------
+;;
+;; The section model was built from the post-state alone, so anything this
+;; epoch removed at section granularity — a destroyed machine, the last
+;; machine, a cleared pending-navigation — left no row at all. In diff mode
+;; the ids walked are the union of both sides, a before-only instance or
+;; slot carries the `removed` sentinel as its `:value` and its prior state as
+;; `:before`, and an area this epoch emptied survives the empty-area filter.
+
+(defn- instance-by [area id]
+  (some #(when (= id (:id %)) %) (:instances area)))
+
+(deftest current-state-sections-destroyed-instance-reads-removed
+  (testing "a machine destroyed this epoch is a `removed` instance carrying
+            its prior snapshot, beside the survivor that still diffs"
+    (let [rt-before {:rf.runtime/machines {:snapshots {:door/main {:state :open}
+                                                       :other     {:state :idle}}}}
+          rt-after  {:rf.runtime/machines {:snapshots {:other {:state :idle}}}}
+          area      (area-by (h/current-state-sections {} rt-after
+                                                       {:app {} :runtime rt-before})
+                             :rf/machines)
+          door      (instance-by area :door/main)]
+      (is (= [:door/main :other] (mapv :id (:instances area)))
+          "the destroyed id is still a row, in the stable sort order")
+      (is (= h/removed (:value door)) "its value is the `removed` sentinel")
+      (is (= {:state :open} (:before door)) "its before is the prior snapshot")
+      (is (= {:state :idle} (:value (instance-by area :other)))
+          "control — the surviving instance is untouched"))))
+
+(deftest current-state-sections-area-emptied-this-epoch-survives
+  (testing "the ONLY machine destroyed: the area survives the empty-area
+            filter because the pre-image carried state"
+    (let [model (h/current-state-sections
+                  {} {:rf.runtime/machines {:snapshots {}}}
+                  {:app {} :runtime {:rf.runtime/machines {:snapshots {:door/main {:state :open}}}}})
+          area  (area-by model :rf/machines)]
+      (is (some? area) "the machines area is still in :areas")
+      (is (false? (:empty? area)))
+      (is (= [[:door/main h/removed {:state :open}]]
+             (mapv (juxt :id :value :before) (:instances area))))))
+  (testing "a cleared pending-navigation reads as a `removed` singleton"
+    (let [model (h/current-state-sections
+                  {} {:rf.runtime/routing {:current {:id :home}}}
+                  {:app {} :runtime {:rf.runtime/routing {:current            {:id :home}
+                                                          :pending-navigation {:to :app/settings}}}})
+          pending (area-by model :rf/pending-navigation)]
+      (is (some? pending) "the pending-navigation area survives")
+      (is (= h/removed (:value pending)))
+      (is (= {:to :app/settings} (:before pending)))))
+  (testing "a slot emptied to a PRESENT `{}` diffs as itself (member-level),
+            not as a whole-slot removal"
+    (let [model (h/current-state-sections
+                  {} {:rf.runtime/routing {:pending-navigation {}}}
+                  {:app {} :runtime {:rf.runtime/routing {:pending-navigation {:to :x}}}})
+          pending (area-by model :rf/pending-navigation)]
+      (is (= {} (:value pending)))
+      (is (= {:to :x} (:before pending))))))
+
+(deftest current-state-sections-removal-needs-a-pre-image
+  (testing "control — without a pre-image (no-diff mode) nothing reads
+            removed and an empty area is still omitted, and an area empty
+            on BOTH sides stays omitted in diff mode"
+    (is (= [] (:areas (h/current-state-sections {} {:rf.runtime/machines {:snapshots {}}})))
+        "no-diff mode: no removal claim to make")
+    (is (= [] (:areas (h/current-state-sections
+                        {} {} {:app {} :runtime {:rf.runtime/routing {:pending-navigation {}}}})))
+        "empty before AND after: still omitted")))
