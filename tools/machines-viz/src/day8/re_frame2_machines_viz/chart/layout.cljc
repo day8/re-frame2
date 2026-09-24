@@ -625,6 +625,14 @@
   [region-id in-region-path]
   (str (region-node-id region-id) "__" (node-id in-region-path)))
 
+(defn after-delay-ms
+  "An `:after` delay key in milliseconds when it is a static duration — a
+  positive integer, or an ISO-8601 string (`\"PT1S\"` → 1000) read by the
+  engine's own duration grammar (`grammar/resolve-timeout-ms`). Any other key
+  (a subscription vector, a fn) has no static value and returns unchanged."
+  [after]
+  (or (g/resolve-timeout-ms after) after))
+
 (defn event-segment
   "Render the leading event segment of an edge label per the
   xstate / Stately graph view convention.
@@ -638,7 +646,9 @@
                               convention: a clock glyph prefix + `ms`
                               suffix, so an `:after` edge's role reads
                               at a glance against ordinary event
-                              arrows)
+                              arrows). An ISO-8601 delay renders its
+                              milliseconds (`after-delay-ms`), so
+                              `\"PT1S\"` reads `⌚ 1000ms`
     - `:always` transition  → `\"∞\"` (Stately graph view convention:
                               an infinity glyph, so an eventless
                               transition reads as a continuation glyph
@@ -657,7 +667,7 @@
   (cond
     on-done?         "✓ done"
     on-error?        "✗ error"
-    after            (str "⌚ " after "ms")
+    after            (str "⌚ " (after-delay-ms after) "ms")
     always?          "∞"
     (= :* event)     "* (any)"
     (keyword? event) (if-let [n (namespace event)]

@@ -908,7 +908,9 @@
 
   Throws the canonical thrown-error shape with
   `:rf.error/id :scxml/invalid-spec` if `grammar/valid-definition?` rejects
-  the spec (e.g. it is missing required keys).
+  the spec (e.g. it is missing required keys). A defect other than a missing
+  root / region shape is named in the message by its canonical category and
+  depth (`grammar/grammar-defect-phrase`).
 
   Round-trips through `scxml->spec`:
 
@@ -941,20 +943,29 @@
   (let [machine-spec (g/desugar-grammar machine-spec)
         parallel?    (g/parallel-definition? machine-spec)]
     (when-not (g/valid-definition? machine-spec)
-      (rf.error/throw-error!
-        :scxml/invalid-spec
-        'machines-viz/spec->scxml
-        (if parallel?
-          (str "SCXML export: a parallel machine spec requires a non-empty "
-               ":regions map, and each region must carry a keyword :initial + "
-               "a non-empty :states map; fix the parallel spec.")
-          (str "SCXML export: a machine spec must carry a keyword :initial + a "
-               "non-empty :states map, or :type :parallel + :regions. Provide "
-               "one of those shapes."))
-        {:recovery (if parallel? :supply-non-empty-regions :supply-a-valid-machine-spec)
-         ;; Value-FREE; never the raw spec (its :data slot can
-         ;; carry live runtime values).
-         :extra    {:spec-summary (g/definition-summary machine-spec)}}))
+      (let [summary (g/definition-summary machine-spec)
+            defect  (g/grammar-defect-phrase summary)]
+        (rf.error/throw-error!
+          :scxml/invalid-spec
+          'machines-viz/spec->scxml
+          (cond
+            defect
+            (str "SCXML export: the machine spec breaks the machine grammar "
+                 "with " defect "; fix that defect.")
+            parallel?
+            (str "SCXML export: a parallel machine spec requires a non-empty "
+                 ":regions map, and each region must carry a keyword :initial + "
+                 "a non-empty :states map; fix the parallel spec.")
+            :else
+            (str "SCXML export: a machine spec must carry a keyword :initial + a "
+                 "non-empty :states map, or :type :parallel + :regions. Provide "
+                 "one of those shapes."))
+          {:recovery (if (and parallel? (not defect))
+                       :supply-non-empty-regions
+                       :supply-a-valid-machine-spec)
+           ;; Value-FREE; never the raw spec (its :data slot can
+           ;; carry live runtime values).
+           :extra    {:spec-summary summary}})))
     (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
          format-marker "\n"
          (str/join "\n"

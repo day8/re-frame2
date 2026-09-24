@@ -465,6 +465,12 @@
    :valid-spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
                                                            :on-all-complete [:done]}
                                                :on {:go :b}} :b {}}}
+   ;; A single spawn may carry a namespaced extension key and the source
+   ;; metadata the `reg-machine` macro stamps.
+   :valid-spawn-namespaced-source-meta {:initial :a :states {:a {:spawn {:machine-id    :m
+                                                                          :my.app/note   "x"
+                                                                          :source-coords {:line 1 :column 1}
+                                                                          :source-code   "(reg-machine …)"}}}}
    :valid-namespaced {:initial :a :states {:a {:my.app/note "x"}}}
    :valid-tags       {:initial :a :states {:a {:tags #{:busy}}}}
    ;; A transition map may carry the closed transition keys, a namespaced
@@ -511,6 +517,12 @@
    ;; The engine refuses an UNADDRESSED inline :definition (neither
    ;; :id-prefix nor :fixed-actor-id); the viz must too.
    :spawn-inline-unaddressed {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}}
+   ;; A state spawns ONE child: a vector of specs, or any other non-map, is
+   ;; refused. N children is `:spawn-all`.
+   :spawn-vector     {:initial :a :states {:a {:spawn [{:machine-id :child}]}}}
+   :spawn-keyword    {:initial :a :states {:a {:spawn :child}}}
+   ;; A bare `:id` addresses a `:spawn-all` child, never a single spawn.
+   :spawn-bare-id    {:initial :a :states {:a {:spawn {:machine-id :child :id :x}}}}
    :par-nested       {:type :parallel :regions {:r {:initial :a :states {:a {:type :parallel :regions {:x {:initial :y :states {:y {}}}}}}}}}
    :par-no-init      {:type :parallel :regions {:r {:states {:a {}}}}}
    :par-mutex        {:type :parallel :initial :a :regions {:r {:initial :a :states {:a {}}}}}
@@ -594,6 +606,35 @@
           (str label ": the desugar changed the viz answer (engine "
                (engine-answer m) ", viz after desugar "
                (viz-answer (g/desugar-grammar m)) ")")))))
+
+;; The rows above compare accept / reject. A spawn refusal also carries the
+;; engine's own CATEGORY, which every export surface reports in its value-free
+;; summary, so these rows pin the category against the engine's: on the raw
+;; definition, and on the desugared one every boundary validates.
+
+(defn- engine-category
+  "The `:rf.error/id` `validate-machine!` refuses `m` with, or nil."
+  [m]
+  (try (rf.machines.lifecycle-fx.validation/validate-machine! m) nil
+       (catch #?(:clj Throwable :cljs :default) t (:rf.error/id (ex-data t)))))
+
+(def ^:private spawn-refusal-rows
+  "Corpus labels → the category the engine refuses each with."
+  {:spawn-vector  :rf.error/machine-spawn-bad-shape
+   :spawn-keyword :rf.error/machine-spawn-bad-shape
+   :spawn-bare-id :rf.error/machine-unknown-spawn-key})
+
+(deftest spawn-refusal-category-parity
+  (testing "the viz refuses a non-map :spawn and a single-spawn :id with the
+            engine's own category"
+    (doseq [[label category] spawn-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine

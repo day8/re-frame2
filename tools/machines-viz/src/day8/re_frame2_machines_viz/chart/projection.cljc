@@ -1769,7 +1769,7 @@
                            :position  {:x (:x ev-pos) :y (:y ev-pos)}
                            :data      {:eventLabel  (layout/event-segment edge)
                                        :variant     (name variant)
-                                       :afterMs     (:after edge)
+                                       :afterMs     (layout/after-delay-ms (:after edge))
                                        :guard       (layout/name-of (:guard edge))
                                        :action      (layout/name-of (:action edge))
                                        ;; the guard / action consumer's

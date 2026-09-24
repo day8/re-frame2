@@ -409,6 +409,29 @@
     (cond-> base
       defect (assoc :defect (defect-summary defect)))))
 
+(def ^:private root-shape-categories
+  "The defect categories meaning the definition lacks the ROOT shape every
+  emitter needs before it can project anything: not a map, no keyword
+  `:initial`, no non-empty `:states`, or a malformed parallel root / region
+  body. Each emitter's own shape message names that fix."
+  #{:rf.error/machine-bad-definition :rf.error/machine-missing-initial
+    :rf.error/machine-missing-states :rf.error/machine-parallel-bad-shape})
+
+(defn grammar-defect-phrase
+  "A value-free phrase naming the defect a `definition-summary` carries — its
+  canonical category, plus its depth when it sits below the root, e.g.
+  `:rf.error/machine-bad-timeout-duration at depth 1` — for an emitter's
+  human-readable rejection. nil when the summary carries no defect, or a
+  root-shape defect (`root-shape-categories`) the emitter's shape message
+  already explains.
+
+  Built only from the summary's closed category vocabulary and an integer, so
+  the phrase carries nothing from the definition's content."
+  [summary]
+  (let [{:keys [category depth]} (:defect summary)]
+    (when (and category (not (root-shape-categories category)))
+      (str category (when (pos? (or depth 0)) (str " at depth " depth))))))
+
 (defn parent-path
   "The parent path of `path` (its `pop`); `[]` for an empty/top-level
   path."
@@ -514,9 +537,9 @@
 ;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
 ;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
 ;;   - `:tags` set-of-keywords (`machine-bad-tags`);
-;;   - single `:spawn` XOR `:machine-id` / `:definition`, and an inline
-;;     `:definition`'s address — `:id-prefix` or `:fixed-actor-id`
-;;     (`machine-spawn-bad-shape`);
+;;   - a single `:spawn` is ONE map declaring `:machine-id` XOR `:definition`,
+;;     and an inline `:definition`'s address — `:id-prefix` or
+;;     `:fixed-actor-id` (`machine-spawn-bad-shape`);
 ;;   - `:after` delay-key shape (`machine-bad-after-delay`);
 ;;   - no `:timeout-ms` on `:spawn` / `:spawn-all` (`spawn-timeout-ms-removed`);
 ;;   - `:timeout` / `:on-timeout` pairing, duration and `:after` collision
@@ -573,10 +596,11 @@
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
   engine's `validation/known-spawn-spec-keys` (the unsupported `:timeout-ms`
   slot is excluded from the unknown-key scan so its own
-  `:rf.error/spawn-timeout-ms-removed` refusal wins)."
+  `:rf.error/spawn-timeout-ms-removed` refusal wins). A bare `:id` is not a
+  single-spawn key: it is a `:spawn-all` child's join address."
   #{:machine-id :definition :data :id-prefix :on-done :on-error
     :start :fixed-actor-id :timeout :on-timeout
-    :id :source-coords :source-code})
+    :source-coords :source-code})
 
 (def ^:private known-transition-keys
   "Closed BARE key vocabulary a transition map may declare — mirror of the
@@ -721,8 +745,13 @@
     {:category :rf.error/machine-error-flag-without-final :path (vec path)}))
 
 (defn- spawn-defect [path node]
-  (let [spec (:spawn node)]
-    (when (map? spec)
+  (when-let [spec (:spawn node)]
+    (if-not (map? spec)
+      ;; A state spawns at most ONE child, so a `:spawn` that is not a map — a
+      ;; vector of specs, XState's multi-`invoke` spelling — is refused, as the
+      ;; engine's `validation/validate-spawn!` refuses it. N children is
+      ;; `:spawn-all`.
+      {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
       (let [has-id?   (contains? spec :machine-id)
             has-def?  (contains? spec :definition)
             offending (vec (remove #{:timeout-ms}

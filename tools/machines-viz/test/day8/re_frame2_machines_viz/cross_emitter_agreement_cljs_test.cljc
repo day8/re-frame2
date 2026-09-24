@@ -678,6 +678,53 @@
       (is (not (leaks? sd)) "scxml summary omits the :data secret")
       (is (not (leaks? ad)) "ai summary omits the :data secret"))))
 
+;; An export refusal's message names the defect the definition actually
+;; carries: a sound root shape with a malformed `:timeout` is told about the
+;; timeout, while a definition missing its root shape keeps the shape message.
+;; The message is value-free either way.
+
+(deftest export-messages-name-the-actual-defect
+  (let [secret  "export-message-secret-42"
+        refusal (fn [f d]
+                  (try (f d) nil
+                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                         (assoc (ex-data e) :message (ex-message e)))))
+        exports {:mermaid [mermaid/emit :mermaid/invalid-definition]
+                 :scxml   [scxml/spec->scxml :scxml/invalid-spec]}]
+    (testing "a malformed :timeout on a sound root shape is named as a timeout
+              defect, not as a missing :initial / :states"
+      (doseq [[label [f id]] exports
+              d [{:initial :a :data {:token secret}
+                  :states  {:a {:timeout secret :on-timeout :b} :b {}}}
+                 {:type    :parallel
+                  :regions {:r {:initial :a :timeout secret :on-timeout :a :states {:a {}}}}}]]
+        (let [{:keys [message] :as r} (refusal f d)]
+          (is (= id (:rf.error/id r)) (str label ": the surface error id is unchanged"))
+          (is (str/includes? (str message) ":rf.error/machine-bad-timeout-duration at depth 1")
+              (str label ": the message names the timeout defect"))
+          (is (not (str/includes? (str message) ":initial"))
+              (str label ": the message prescribes no root-shape repair"))
+          (is (not (str/includes? (str message) secret))
+              (str label ": the message carries no definition value")))))
+    (testing "a definition missing its root shape keeps the shape explanation"
+      (doseq [[label [f id]] exports
+              d [{:initial :a :states {} :data {:token secret}}
+                 {:type :parallel :regions {}}]]
+        (let [{:keys [message] :as r} (refusal f d)]
+          (is (= id (:rf.error/id r)) (str label ": the surface error id is unchanged"))
+          (is (str/includes? (str message) ":states")
+              (str label ": the message names the missing shape"))
+          (is (not (str/includes? (str message) secret))
+              (str label ": the message carries no definition value")))))
+    (testing "SCXML recommends regions only for a region-shape defect"
+      (is (= :supply-a-valid-machine-spec
+             (:recovery (refusal scxml/spec->scxml
+                                 {:type    :parallel
+                                  :regions {:r {:initial :a :timeout "5s" :on-timeout :a
+                                                :states {:a {}}}}}))))
+      (is (= :supply-non-empty-regions
+             (:recovery (refusal scxml/spec->scxml {:type :parallel :regions {}})))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Every ingestion / export surface REJECTS a RECURSIVELY-
 ;; invalid definition (a shallow gate would bless all three). Each surface
