@@ -2,7 +2,7 @@
   "View-assertion test helpers — walk a hiccup tree by `:data-testid`,
   read out content and event-handlers, invoke an attached handler.
 
-  ## See also — `re-frame.test-support` (rf2-v7kjq)
+  ## See also — `re-frame.test-support`
 
   Sibling namespace covering the **runtime-state assertion axis** —
   registrar snapshot/restore, the `make-reset-runtime-fixture`
@@ -18,10 +18,10 @@
   `re-frame.test-support`. A test that asserts on rendered view content
   reaches here. A test doing both `:require`s both. See [Spec 008
   §Audience-split]
-  (../../../../../spec/008-Testing.md#audience-split--re-frametest-support-vs-re-frametest-helpers-rf2-v7kjq)
+  (../../../../../spec/008-Testing.md#audience-split--re-frametest-support-vs-re-frametest-helpers)
   for the axis rationale.
 
-  ## Why this ns exists (rf2-irp6j)
+  ## Why this ns exists
 
   re-frame2's testing surface (Spec 008, [`re-frame.test-support`]
   (test_support.cljc)) covers events, fxs, subs, machines, and whole
@@ -29,13 +29,13 @@
   proves the **view** shows the right thing. Two classes of bug live
   in the view-vs-state gap:
 
-    1. **State-correct, view-broken** (Xray rf2-70tkv class) — the
+    1. **State-correct, view-broken** — the
        handler updated `app-db`, the sub computes the right value, but
        the view reads from the wrong path / formats it wrong / forgets
        to render one branch. State-only assertions pass; the user sees
        a broken screen.
 
-    2. **Wrong-frame dispatch** (Xray rf2-83d4x class) — the view
+    2. **Wrong-frame dispatch** — the view
        wires `:on-click` to dispatch into the wrong frame (or no
        frame at all). State-assertions in the host frame stay green;
        the click in production fires into a sibling and nothing
@@ -111,9 +111,8 @@
 
   ## Selector convention — `data-testid` vs `data-test` vs custom
 
-  React conventionally uses `:data-testid`; some codebases (notably
-  Story) standardised on `:data-test` before the rename; framework
-  tools may use their own prefix (Xray uses `:data-rf-xray-*`).
+  React conventionally uses `:data-testid`; some codebases key on
+  `:data-test`; framework tools may use their own prefix (Xray uses `:data-rf-xray-*`).
   This ns ships two layers:
 
     - [[find-by-attr]] / [[find-all-by-attr]] — the underlying. Match
@@ -327,7 +326,7 @@
 ;;
 ;; The `find-by-testid` family below is a thin wrapper around these.
 ;; Use `find-by-attr` directly when your codebase keys on `:data-test`
-;; (Story's legacy convention) or a custom prefix (e.g. Xray's
+;; or a custom prefix (e.g. Xray's
 ;; `:data-rf-xray-*`). Cross-framework code that doesn't want to
 ;; commit to a single attr convention talks at this layer.
 ;; ---------------------------------------------------------------------------
