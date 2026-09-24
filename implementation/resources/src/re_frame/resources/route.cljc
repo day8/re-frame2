@@ -11,7 +11,7 @@
      route-metadata keys). Resources publishes the
      `:routing/extra-route-keys` hook (returning `#{:resources}`);
      routing's `accepted-route-keys` unions it in, so `:resources` is
-     accepted exactly like the existing cross-feature `:head` key (owned
+     accepted exactly like the cross-feature `:head` key (owned
      by SSR). An app that loads resources but not routing carries no
      route code; a routing-only app sees no resources behaviour; a route
      containing `:resources` in an app that omits the Resources artefact
@@ -81,7 +81,7 @@
 ;; Blocking route resources are tracked under their nav-token in the
 ;; routing-runtime subtree (a sibling of `:current` / `:pending-navigation`
 ;; under `[:rf.runtime/routing …]`) as a `{<key-id> <scoped-key>}` map — the
-;; same byte-exact carrier shape `:entries` uses (rf2-btdl1), so:
+;; same byte-exact carrier shape `:entries` uses, so:
 ;;   - the slot names the OUTSTANDING blocking requirements for that
 ;;     activation; `reconcile-readiness` below prunes each as it resolves and
 ;;     projects `:transition` / `:error` from what remains (EP-0037 R1: route
@@ -104,7 +104,7 @@
 (defn blocking-path
   "Runtime-db-relative path to the blocking identity map for a nav-token:
   `[:rf.runtime/routing :resource-blocking <nav-token>]`, holding
-  `{<key-id> <scoped-key>}` (rf2-btdl1 — byte-exact membership, no order
+  `{<key-id> <scoped-key>}` (byte-exact membership, no order
   promise). Per Spec 016 §Route integration."
   [nav-token]
   [routing-key :resource-blocking nav-token])
@@ -120,7 +120,7 @@
   "Runtime-db-relative path to the WHOLE per-nav-token blocking-slots map
   (`[:rf.runtime/routing :resource-blocking]`), keyed by nav-token — each
   value is that token's `{<key-id> <scoped-key>}` map. Used to drop a
-  superseded token's slot wholesale (rf2-l2gofj)."
+  superseded token's slot wholesale."
   []
   [routing-key :resource-blocking])
 
@@ -128,7 +128,7 @@
   "Pure: dissoc the ENTIRE blocking slot for a superseded `nav-token`
   (`[:rf.runtime/routing :resource-blocking <nav-token>]`). Returns the
   updated runtime-db (a no-op when no slot exists). Per Spec 016 §Route
-  integration (rf2-l2gofj).
+  integration.
 
   WHY a superseded token's slot needs an explicit clear: `reconcile-readiness`
   projects the LIVE nav-token only, so it never visits a stale slot at all —
@@ -151,7 +151,7 @@
 ;; parent-to-leaf plan owns (blocking AND non-blocking) is recorded under
 ;; `[:rf.runtime/routing :resource-plan <nav-token>]`, a sibling of
 ;; `:resource-blocking` and carried in the same `{<key-id> <scoped-key>}`
-;; shape (rf2-btdl1). The NEXT full activation reads the SUPERSEDED
+;; shape. The NEXT full activation reads the SUPERSEDED
 ;; nav-token's slot to compute the kept/added/removed plan diff for
 ;; attach-before-release owner handoff + the partial-revalidation law (Spec
 ;; 016 §Effective parent-chain resource plans). Like the blocking slot it is
@@ -293,7 +293,7 @@
   `kept` classification. `entry` is its durable cache entry (nil when absent);
   `runtime-db` supplies the work ledger.
 
-  Prior-plan MEMBERSHIP alone is NOT enough (rf2-kqxe6.6). `:rf.resource/adopt-
+  Prior-plan MEMBERSHIP alone is NOT enough. `:rf.resource/adopt-
   owner` attaches an owner and issues no request, so adopting an identity that
   cannot produce data commits a blocking slot nothing can ever drain — a
   permanent `:loading`. An identity is genuinely reusable in exactly two cases:
@@ -324,7 +324,7 @@
   "Build the structured `:rf.error/resource-route-blocking` error for a
   BLOCKING route resource that failed its first load. ONE source of truth
   for both the route-slice `:error` (read by the `:rf/route` sub + Xray)
-  and the error-trace tags (rf2-u5aj91) — they MUST agree. The tags
+  and the error-trace tags — they MUST agree. The tags
   conform to `ResourceRouteBlockingTags` (Spec-Schemas): `:resource-id`,
   `:nav-token`, `:error` (the resource's first-load failure envelope),
   `:reason`; `:category` is stamped from the operation by the trace
@@ -376,7 +376,7 @@
   EDGE-TRIGGERED, on two separate edges. The SLICE is rewritten only when the
   projection actually differs from what it already carries, so re-projecting on
   every resource settle is idle for unrelated resources. The
-  `:rf.error/resource-route-blocking` error TRACE (rf2-u5aj91) fires on the
+  `:rf.error/resource-route-blocking` error TRACE fires on the
   narrower edge — only when the slice was not ALREADY `:error` — so it is one
   trace per transition INTO `:error`, not one per settle. The two edges differ
   because `:error` is a pure function of the CURRENT outstanding set: a second
@@ -384,12 +384,12 @@
   first (the slice value moves, correctly) without the route ever leaving
   `:error` (so nothing new happened to report). Reading the PRE-write
   `:transition` off `db'` is what makes this a pure edge test — no latch, no
-  remembered first failure, no extra state (rf2-kqxe6.17). That trace is the one
+  remembered first failure, no extra state. That trace is the one
   out-of-band observability side effect — the same emit-inside-the-pure-
   transform discipline `route-resource-plan` uses for
   `:rf.error/resource-route-plan`. `:emit-error? false` suppresses it for the
   epoch-restore path, which defers its trace rows until the atomic install
-  succeeds (rf2-obi8rr).
+  succeeds.
 
   Per Spec 016 §Route integration."
   ([runtime-db] (reconcile-readiness runtime-db nil))
@@ -405,7 +405,7 @@
              ;; order, so the pick is ordered by the canonical CEDN-1 byte
              ;; key-id the slot is already keyed on — stable across settles
              ;; that prune siblings, and read off the carrier rather than
-             ;; recomputed (rf2-btdl1).
+             ;; recomputed.
              failed      (->> (sort-by key outstanding)
                               (filter (comp #(= :failed (requirement-state %)) entry-of key))
                               first)
@@ -417,12 +417,12 @@
            db'
            (do
              (when (and err emit-error?
-                        ;; rf2-kqxe6.17 — the EDGE into `:error`. `db'` still
+                        ;; The EDGE into `:error`. `db'` still
                         ;; carries the PREVIOUS transition here, so an already-
                         ;; `:error` route that merely re-picks a canonically
                         ;; earlier failure updates the slice silently.
                         (not= :error (get-in db' (conj slice-path :transition))))
-               ;; rf2-u5aj91: the route slice carries the structured :error AND
+               ;; The route slice carries the structured :error AND
                ;; the trace/error stream sees `:rf.error/resource-route-blocking`
                ;; (tags conform to ResourceRouteBlockingTags).
                (rf.trace/emit-error! :rf.error/resource-route-blocking
@@ -431,14 +431,14 @@
                  (assoc-in (conj slice-path :transition) transition)
                  (assoc-in (conj slice-path :error) err)))))))))
 
-;; ---- plan execution + the route-resource planning ctx seam (rf2-ac71vm) ---
+;; ---- plan execution + the route-resource planning ctx seam ---
 ;;
 ;; A route-resource `:when` predicate is `(fn [route ctx] …)`. The ctx is the
 ;; reserved entry context routing threads through its
 ;; `:routing/on-route-entry` hook (currently `{}`); db-derived viewer scope
 ;; comes from a `{:from-db …}` named-resolver reference, never from the ctx
-;; and never from an anonymous route-scope fn (that tier is RETIRED —
-;; rf2-kuky.83; see `resolve-entry-scope`).
+;; and never from an anonymous route-scope fn (that tier is RETIRED and
+;; rejected; see `resolve-entry-scope`).
 ;; The seam is REAL (not a placeholder): the planner fails CLOSED when a
 ;; resolver needs the ctx but planning was handed no ctx (a `nil`), rather
 ;; than silently feeding the resolver `nil` and letting it collapse to an
@@ -473,7 +473,7 @@
   resource. Per Spec 016 §Route integration (conditional resources use
   `:when`, NOT sentinel nil params). Fails CLOSED: a `:when` predicate that
   THROWS is a planning error surfaced on the route slice, never a silent
-  admit/deny (rf2-ac71vm)."
+  admit/deny."
   [{when-fn :when :keys [resource]} route ctx]
   (if when-fn
     (try
@@ -492,7 +492,7 @@
   takes no params). A PRESENT `:params` resolver that returns `nil` is a
   fail-closed PLANNING error — it INTENDED to compute params and could not,
   which must NOT silently collapse to an empty-param read of a different
-  cache key (rf2-ac71vm). Per Spec 016 §Route integration."
+  cache key. Per Spec 016 §Route integration."
   [{params-fn :params :keys [resource]} route]
   (if params-fn
     (let [resolved-params (params-fn route)]
@@ -515,8 +515,8 @@
   the presence of its resolver: ABSENCE inherits, and a PRESENT value is
   never allowed to fall through silently.
 
-  A present route-resource `:scope` is EXACTLY one of two shapes (rf2-kuky.83
-  — the same two currencies a registration policy has):
+  A present route-resource `:scope` is EXACTLY one of two shapes (the same
+  two currencies a registration policy has):
 
     - a `{:from-db <id>}` named-resolver REFERENCE (EP-0016 D3 slice 3),
       resolved against the route-entry `app-db` at use time — db-derived
@@ -530,16 +530,16 @@
       and no error id of its own.
 
   ANYTHING ELSE PRESENT is a loud PLANNING error. That covers the RETIRED
-  anonymous `(fn [route ctx] …)` resolver tier (rf2-kuky.83 — Spec 016 rules
+  anonymous `(fn [route ctx] …)` resolver tier (Spec 016 rules
   out anonymous route-context functions as a second public scope-resolution
   currency; name the derivation with `reg-resource-scope` and reference it),
   and a literal `nil`. Neither may silently inherit the registration policy:
   the scope IS the tenant / user / leak boundary, so a `:scope` the author
   meant to say something with and got wrong must fail closed rather than read
-  a different cache partition (rf2-ac71vm).
+  a different cache partition.
 
   A `{:from-db …}` reference that resolves to `nil` (its declared inputs are
-  absent) is the same fail-closed planning error it has always been — never a
+  absent) is a fail-closed planning error too — never a
   fallback to the spec policy or a `:rf.scope/global` read (Spec 016
   §Resolver references). Per Spec 016 §Scope resolution (precedence tier 2)."
   [{scope :scope :keys [resource] :as entry} app-db]
@@ -548,7 +548,7 @@
     (not (contains? entry :scope))
     nil
 
-    ;; a {:from-db …} reference — db-derived route-resource scope (slice 3)
+    ;; a {:from-db …} reference — db-derived route-resource scope (EP-0016 slice 3)
     (rf.resources.scope-registry/from-db-reference? scope)
     (let [resolved-scope (rf.resources.scope-registry/resolve-from-db-reference
                            scope (or app-db {}) 'rf.resource/route-entry)]
@@ -582,24 +582,22 @@
     :else
     (rf.resources.state/canonicalize-scope scope 'rf.resource/route-entry resource)))
 
-;; ---- :after — DISPATCH-ORDER waterfall, fail-closed (rf2-xeb4l1) ----------
+;; ---- :after — DISPATCH-ORDER waterfall, fail-closed ----------
 ;;
-;; DECISION (rf2-xeb4l1): `:after` is DISPATCH-ORDER ONLY, not a runtime
+;; `:after` is DISPATCH-ORDER ONLY, not a runtime
 ;; data-waterfall. The route plan is a PURE synchronous planner: it resolves
 ;; every entry's params + scope at route entry, BEFORE any resource can
 ;; settle, so a later entry's params CANNOT depend on an earlier entry's
 ;; loaded DATA (that would require re-running the plan after each settle — a
-;; different architecture, out of scope for this slice). What `:after` DOES
+;; different architecture). What `:after` DOES
 ;; guarantee is ENSURE-DISPATCH ORDER: a dependent entry's
 ;; `:rf.resource/ensure` is dispatched AFTER every entry it names, so the
 ;; dependency's fetch is kicked off first (the params themselves still come
 ;; from the ROUTE, not the dependency's data). Xray reads the declared
 ;; `:after` edges to show the dependency graph.
 ;;
-;; This is NARROWER than the aspirational Spec 016 §Route integration wording
-;; ("when its params depend on the first resource's data"); the spec line is
-;; flagged for reconciliation to "dispatch-order" (a true data-waterfall is a
-;; deferred slice). The validation below is the part both agree on and is now
+;; Spec 016 §Route integration states the same dispatch-order-only contract
+;; (a true data-waterfall is a deferred slice). The validation below is
 ;; FAIL-CLOSED: a missing or cyclic `:after` target is a PLANNING error (the
 ;; route slice's `:error` + Xray), NOT silent degradation to declaration
 ;; order — a typo'd dependency id is a real authoring bug.
@@ -612,7 +610,7 @@
   `:after` keep declaration order; a dependent entry sorts after every
   local id it names.
 
-  FAIL-CLOSED (rf2-xeb4l1): a `:after` target naming an id no entry
+  FAIL-CLOSED: a `:after` target naming an id no entry
   declares, or an `:after` cycle, throws a route-resource `planning-error`
   (surfaced on the route slice + Xray, never silent declaration-order
   degradation). Returns the ordered vector."
@@ -692,11 +690,11 @@
   (and the local declaration id, when the failure is entry-scoped) attached to
   its ex-data under `:contributor`. The caller re-throws it.
 
-  WHY the throw needs enriching (rf2-kqxe6.6): a parent-chain plan resolves
+  WHY the throw needs enriching: a parent-chain plan resolves
   EVERY contributor's declarations against the LEAF target, so the leaf
   `:route-id` the plan error carries cannot say WHICH declaration failed — an
-  ancestor's nil `:params` resolver reported the leaf route and the resource id
-  and nothing else. Spec 016 §Effective parent-chain resource plans rule 3
+  ancestor's nil `:params` resolver would report the leaf route and the
+  resource id and nothing else. Spec 016 §Effective parent-chain resource plans rule 3
   requires the error to identify BOTH the contributor route id and the resource
   declaration, and the planner already knows both here, where the contributor
   context is still in scope. `plan-error` surfaces it on the route slice + the
@@ -765,11 +763,11 @@
                           :scope          scope
                           :cparams        canonical-params
                           :scoped-key     scoped-key
-                          ;; rf2-btdl1 — the CEDN-1 byte identity, computed
+                          ;; The CEDN-1 byte identity, computed
                           ;; ONCE here and used as the grouping / carrier
                           ;; key everywhere downstream. `=` is coarser than
                           ;; this (vector-vs-list params), so grouping on
-                          ;; the scoped key itself collapses a supported
+                          ;; the scoped key itself would collapse a supported
                           ;; pair before any ensure is dispatched.
                           :key-id         (rf.resources.state/key-id scoped-key)
                           :blocking?      (boolean (:blocking? entry))
@@ -834,7 +832,7 @@
                                     (:route-id ancestor-occurrence))]
                     {:resource   (:resource ancestor-occurrence)
                      ;; the advisory names the KIND-PRESERVING scoped key, not
-                     ;; the byte `key-id` the group is keyed on (rf2-btdl1).
+                     ;; the byte `key-id` the group is keyed on.
                      :scoped-key (:scoped-key ancestor-occurrence)
                      :ancestor   {:route-id (:route-id ancestor-occurrence)
                                   :local-id (:local-id ancestor-occurrence)}
@@ -852,12 +850,12 @@
   contributor retained in `:contributors`; the earliest occurrence (min `:seq`)
   fixes the group's position + is the topo tie-breaker.
 
-  rf2-btdl1 — the grouping grain is the CEDN-1 byte `key-id`, NOT Clojure `=`
+  The grouping grain is the CEDN-1 byte `key-id`, NOT Clojure `=`
   over the scoped key. `=` is coarser exactly where resource identity is not
-  (vector-vs-list params — rf2-wgutc2), so grouping on the scoped key made two
+  (vector-vs-list params), so grouping on the scoped key would make two
   route entries requiring genuinely distinct identities collapse into ONE
-  dedup-req: one ensure dispatched, the second byte identity never fetched.
-  That is a DISPATCH defect, not a diagnostic one. The dedup-req still carries
+  dedup-req: one ensure dispatched, the second byte identity never fetched —
+  a DISPATCH defect, not a diagnostic one. The dedup-req carries
   the kind-preserving `:scoped-key` — that is what consumers join on — beside
   the `:key-id` the carriers are keyed on."
   [occurrences]
@@ -974,7 +972,7 @@
   + Xray, NOT a silent cache miss). `ex` is the canonicalization /
   validation throw caught from the resource runtime's fail-closed
   boundary — OR a `route`-side `planning-error` (nil params / nil scope /
-  a throwing `:when`, rf2-ac71vm). The error is recorded on the route
+  a throwing `:when`). The error is recorded on the route
   slice's `:error` by `commit-navigation` (visible to the `:rf/route` sub +
   Xray) and emitted as a `:rf.error/resource-route-plan` error trace.
 
@@ -983,22 +981,22 @@
   nil-params vs invalid-params failure stays self-explaining); otherwise
   the generic params/scope-did-not-resolve message stands.
 
-  rf2-kqxe6.6: `:contributor` names the CONTRIBUTING route + local declaration
+  `:contributor` names the CONTRIBUTING route + local declaration
   (`{:route-id … :local-id …}`, stamped by `materialize-occurrences`), so a
   failure in an ANCESTOR declaration is not reported as if the leaf had
-  declared it. `:route-id` remains the LEAF target — the two together are what
+  declared it. `:route-id` is the LEAF target — the two together are what
   Spec 016 §Effective parent-chain resource plans rule 3 requires. It is absent
   only for a failure that belongs to no single declaration (branch resolution,
   collapse cycle).
 
-  rf2-9g3qzi: this map carries NO `:operation` slot. The canonical
+  This map carries NO `:operation` slot. The canonical
   thrown-error shape (frame.cljc `no-frame-context-payload`) reserves
   `:operation` for the DISTINCT runtime op (`:dispatch` / `:subscribe`) —
   here the only op is the planning step itself, already named by
   `:rf.error/id :rf.error/resource-route-plan`. The error trace's
   `:operation` / `:category` come from the EXPLICIT `:rf.error/resource-
   route-plan` arg `emit-error!` is called with (route.cljc), not this map,
-  so a duplicated `:operation` shadowing `:rf.error/id` carried no
+  so a duplicated `:operation` shadowing `:rf.error/id` would carry no
   information."
   [route-id nav-token resource-id ex]
   (let [data (ex-data ex)]
@@ -1033,9 +1031,9 @@
   facts that decide which blocking requirements still have to resolve —
   `requirement-ready?`). Returns `{:fx [...] :blocking {<key-id> <scoped-key>}
   :identities {<key-id> <scoped-key>} :plan-error err?}` — both identity
-  carriers are byte-keyed maps with NO order promise (rf2-btdl1).
+  carriers are byte-keyed maps with NO order promise.
 
-  FAIL-CLOSED structural inputs (rf2-ac71vm): a `nil` `ctx` or a missing
+  FAIL-CLOSED structural inputs: a `nil` `ctx` or a missing
   `nav-token` is a planning bug, not a silently-defaulted read — the owner
   token (`[:route route-id nav-token]`) IS the route's ownership identity,
   so planning with no nav-token would mint an unreleasable owner. Both
@@ -1062,7 +1060,7 @@
   resource work (EP-0016 D3 slice 3). A reference that resolves nil is a
   fail-closed planning error (route planning MUST NOT substitute global).
 
-  PLAN MODE (rf2-y8jjk). `:plan-cause :replan` (with the caller's non-nil
+  PLAN MODE. `:plan-cause :replan` (with the caller's non-nil
   `:replan-cause`) reruns the plan for the ACTIVE route under its UNCHANGED
   owner — the `:rf.route/replan-resources` command, reached through
   `on-route-replan-fx` / the `:routing/on-route-replan` hook. Every planning
@@ -1088,12 +1086,12 @@
     - the `:rf.resource/route-plan` row and the `:rf.error/resource-route-plan`
       failure carry `:plan-cause :replan` and `:replan-cause` (the failure's
       own `:cause` slot is the ex-data, so the caller cause is not overloaded
-      onto it). No new trace operation.
+      onto it). There is no separate replan trace operation.
 
-  Absent `plan-cause` is the navigation-commit (activation) mode, unchanged."
+  Absent `plan-cause` is the navigation-commit (activation) mode."
   [route ctx {:keys [nav-token prev-id prev-nav-token app-db runtime-db branch
                      branch-error prev-identities plan-cause replan-cause]}]
-  ;; rf2-ac71vm — fail closed on missing/invalid structural planning inputs.
+  ;; Fail closed on missing/invalid structural planning inputs.
   ;; These are seam-contract bugs (routing must thread a ctx + nav-token),
   ;; surfaced loudly rather than collapsing into an empty-ctx / no-owner read.
   (when (nil? ctx)
@@ -1114,7 +1112,7 @@
              {:route-id (:id route) :recovery :fix-route-integration})))
   (let [route-id  (:id route)
         owner     [:route route-id nav-token]
-        ;; rf2-y8jjk — plan MODE (see the docstring). A replan keeps the owner
+        ;; Plan MODE (see the docstring). A replan keeps the owner
         ;; and threads the caller's cause; `stamp` marks the planner's failure
         ;; envelope so the diagnostic says which mode failed.
         replan?   (= :replan plan-cause)
@@ -1165,7 +1163,7 @@
         ;; identities (in prev, not next) are released by the whole-prior-owner
         ;; release-fx. Per Spec 016 §Plan diff and owner handoff.
         ;;
-        ;; rf2-kqxe6.6 — an identity is KEPT when it is in the previous plan AND
+        ;; An identity is KEPT when it is in the previous plan AND
         ;; its entry is genuinely REUSABLE at commit (`adoptable?`: own usable
         ;; data, or genuinely live work). Prior-plan membership alone is not
         ;; enough: `adopt-owner` issues no request, so adopting an identity that
@@ -1177,30 +1175,27 @@
         ;; routing threads into the hook; without it (a direct planner call in a
         ;; unit) nothing reads as adoptable and everything ensures — the
         ;; fail-safe direction, matching the blocking read below.
-        ;; rf2-dlkou (merged-PR audit of #7228) — the identity carriers are keyed
+        ;; The identity carriers are keyed
         ;; by the CEDN-1 BYTE key-id, NOT by Clojure `=`.
         ;;
         ;; Resource identity is `rf.resources.state/key-id`, which is collection-KIND
-        ;; sensitive (rf2-wgutc2): `{:p [1 2]}` and `{:p '(1 2)}` are two
+        ;; sensitive: `{:p [1 2]}` and `{:p '(1 2)}` are two
         ;; entries under two `rf.resources.state/entry-path`s, and yet the two scoped keys
         ;; are `=` to Clojure and hash alike. A raw `set` of scoped keys
-        ;; therefore COLLAPSES a supported pair before anything downstream can
-        ;; canonicalize it — the row's `sort-by rf.resources.state/key-id` runs after the
-        ;; loss, not before it. What that cost: a navigation whose prior plan
-        ;; held `{:p '(1 2)}` and whose next plan holds `{:p [1 2]}` reported
+        ;; would therefore COLLAPSE a supported pair before anything downstream
+        ;; could canonicalize it. A navigation whose prior plan
+        ;; held `{:p '(1 2)}` and whose next plan holds `{:p [1 2]}` would report
         ;; `:removed 0` and an EMPTY `:removed-identities`, because the prior
-        ;; identity tested as still-present against a set that only knows `=`.
-        ;; The dropped identity was real — its entry lives at its own byte path
-        ;; and the prior owner's release did let it go — so the row contradicted
-        ;; the runtime. `adopted?` read the same way, and only avoided adopting
-        ;; across the pair because `adoptable?` looks the ENTRY up by byte path
-        ;; and found none: a fail-safe accident rather than a decision.
+        ;; identity would test as still-present against a set that only knows
+        ;; `=` — while the dropped identity is real (its entry lives at its own
+        ;; byte path and the prior owner's release lets it go), so the row
+        ;; would contradict the runtime. `adopted?` would read the same way.
         ;;
-        ;; Both carriers are consequently maps from `key-id` to the scoped key.
-        ;; Membership is byte-exact; the EMITTED value is still the scoped key,
+        ;; Both carriers are therefore maps from `key-id` to the scoped key.
+        ;; Membership is byte-exact; the EMITTED value is the scoped key,
         ;; because that is what a consumer joins on.
         ;;
-        ;; rf2-btdl1 — and so is the HANDOFF. `prev-identities` arrives as the
+        ;; So is the HANDOFF. `prev-identities` arrives as the
         ;; byte-keyed map routing recorded under `[:rf.runtime/routing
         ;; :resource-plan <token>]`, which needs no keying; a direct planner
         ;; call may hand any collection of scoped keys, which does.
@@ -1248,37 +1243,37 @@
         ;; identity that could not be adopted counts as ensured, so the trace
         ;; reports what actually happened.
         ;;
-        ;; rf2-dlkou (the rf2-9sluz ruling) — the counts stay as the compact
+        ;; The counts are the compact
         ;; headline and the row ALSO carries the exact partition, so one trace
         ;; answers "which identity was ensured / kept / removed on this
         ;; navigation" without diffing two consecutive rows. The vectors are
-        ;; named for what the runtime DID rather than for the diff: since the
-        ;; retained-entry liveness repair a retained-but-unusable identity takes
+        ;; named for what the runtime DID rather than for the diff: a
+        ;; retained-but-unusable identity takes
         ;; the ordinary ensure path, so a vector named `:added` would disagree
         ;; with the `:ensured` count beside it. `:ensured-identities` /
         ;; `:kept-identities` ride `ordered`'s grouped plan order — the same
         ;; order `:identities` carries, and it MEANS something there: it is the
         ;; order the plan executes.
         ;;
-        ;; rf2-dlkou (merged-PR audit) — `:removed-identities` is a MEMBERSHIP
+        ;; `:removed-identities` is a MEMBERSHIP
         ;; answer, not an ordered one. Removal is not an ordered operation: the
         ;; whole prior owner goes in ONE `release-fx`, so there is no order for
         ;; the row to report. Nor is one available — the routing handoff records
-        ;; `(:identities plan)` (an unordered MAP, rf2-btdl1) under
+        ;; `(:identities plan)` (an unordered MAP) under
         ;; `[:rf.runtime/routing :resource-plan <token>]` and hands it straight
         ;; back as the next activation's `prev-identities`, so filtering the
         ;; caller's collection in place would only republish map-iteration order
         ;; while CLAIMING the prior plan's.
         ;;
         ;; Dropping to a de-duplicated prior collection is necessary but NOT
-        ;; sufficient, and the CLJS lane proved it: a small CLJS set is backed by
+        ;; sufficient: a small CLJS set is backed by
         ;; an ARRAY map, so it iterates in INSERTION order and the caller's
-        ;; sequence walks straight back out — `[v a b c]` and its exact reverse
-        ;; produced reversed rows — while a JVM hash set happens to iterate in a
-        ;; content-derived order that hid the leak. The vector is therefore
-        ;; ordered by `key-id`, the CEDN-1 byte identity `:entries` is already
+        ;; sequence would walk straight back out — `[v a b c]` and its exact
+        ;; reverse would produce reversed rows — while a JVM hash set iterates in
+        ;; a content-derived order that would hide the leak. The vector is therefore
+        ;; ordered by `key-id`, the CEDN-1 byte identity `:entries` is
         ;; keyed on: total over canonical scoped keys and identical on both
-        ;; hosts. That is what actually makes the row a pure function of the
+        ;; hosts. That is what makes the row a pure function of the
         ;; removal MEMBERSHIP — the same removal set yields the same vector for
         ;; every caller shape on every host — and `:removed` is its size BY
         ;; CONSTRUCTION rather than a second, separately-derived count that a
@@ -1287,13 +1282,12 @@
         ;; exactly as they do from `:blocking`. Spec 009 §Where trace emission
         ;; lives states it.
         ;;
-        ;; The membership itself is byte-exact now (`prev-by-id` / `next-by-id`
+        ;; The membership itself is byte-exact (`prev-by-id` / `next-by-id`
         ;; above), so the `key-id` ordering is read off the carrier's own keys
         ;; rather than recomputed — one derivation of the identity, used for both
         ;; the difference and the order.
         ;;
-        ;; NOTHING REMAINS UPSTREAM, and that is the point of rf2-btdl1: the
-        ;; byte-distinct `=` pair survives the WHOLE path now. `ordered` comes
+        ;; The byte-distinct `=` pair survives the WHOLE path. `ordered` comes
         ;; from `collapse-and-order`, which groups by `key-id`, so two route
         ;; entries requiring the pair produce two dedup-reqs and two ensures;
         ;; and the routing handoff records a plan's identities as a byte-keyed
@@ -1320,7 +1314,7 @@
         ;; momentarily ownerless (never aborted). Per Spec 016 §Plan diff and
         ;; owner handoff.
         release-fx (cond
-                     ;; rf2-y8jjk — replan: the SAME owner stays. A formed plan
+                     ;; Replan: the SAME owner stays. A formed plan
                      ;; releases it from exactly the byte-keyed identities it
                      ;; dropped (the subset primitive clears NO slot — the
                      ;; routing commit owns them); a FAILED plan releases it
@@ -1351,9 +1345,8 @@
                           :kept               (- (count ordered) added-count)
                           :removed            removed-count
                           ;; an ORDERED TRACE VECTOR of scoped keys, read off
-                          ;; the byte-keyed carrier's values (rf2-btdl1) — a
-                          ;; membership answer with no promised order, exactly
-                          ;; as before.
+                          ;; the byte-keyed carrier's values — a
+                          ;; membership answer with no promised order.
                           :blocking           (vec (vals blocking))
                           ;; the planner's GROUPED PLAN ORDER — `ordered` is
                           ;; post-dedupe (one entry per collapsed identity
@@ -1367,7 +1360,7 @@
                           :removed-identities removed-identities}
                    (seq advisories) (assoc :redundant-children advisories)
                    plan-error       (assoc :plan-error true)
-                   ;; rf2-y8jjk — the replan discriminator: the activation shape
+                   ;; The replan discriminator: the activation shape
                    ;; plus `:plan-cause :replan` and the caller cause.
                    replan?          (assoc :plan-cause :replan :replan-cause replan-cause)))
     ;; The blocking + identity MAPS (`{<key-id> <scoped-key>}`) and plan-error
@@ -1397,16 +1390,16 @@
   `{:route-meta :route-id :params :query :fragment :nav-token :prev-id
   :prev-nav-token :ctx}`. The `:ctx` is passed through to the planner
   UNCHANGED (no silent nil→`{}` default): an absent ctx is a routing↔
-  resources seam bug the planner fails closed on, not a silently-empty read
-  (rf2-ac71vm). Routing's `commit-navigation` always threads an (at-least-
+  resources seam bug the planner fails closed on, not a silently-empty read.
+  Routing's `commit-navigation` always threads an (at-least-
   empty) `:ctx`.
 
   `:app-db` is the route-entry app-db value (EP-0016 D3 slice 3): routing's
   navigation handlers carry the app-db coeffect and thread it through
   `commit-navigation` into this hook, so a `{:from-db <id>}` route-resource
   `:scope` (or the resource's spec `:scope` policy) resolves against the
-  CURRENT db BEFORE the resource work is planned. An absent `:app-db` (a
-  routing build that predates this thread) resolves references against `{}`
+  CURRENT db BEFORE the resource work is planned. An absent `:app-db`
+  resolves references against `{}`
   — fail-closed (a `{:from-db …}` scope then resolves nil and surfaces as a
   route planning error, never a silent global). Per Spec 016 §Route
   integration / §Resolver references.
@@ -1425,9 +1418,9 @@
   descriptor (an unresolved / cyclic `:parent`); `:prev-identities` is the
   byte-keyed `{<key-id> <scoped-key>}` map of resource identities the
   SUPERSEDED nav-token's plan owned (the plan-diff's previous membership; a
-  direct planner call may hand any collection of scoped keys instead). A
-  routing build that predates R2 threads no
-  `:branch`, and the planner falls back to a single-segment (leaf-only) branch."
+  direct planner call may hand any collection of scoped keys instead). With
+  no `:branch` threaded, the planner falls back to a single-segment
+  (leaf-only) branch."
   [{:keys [route-meta route-id params query fragment nav-token
            prev-id prev-nav-token ctx app-db runtime-db branch branch-error
            prev-identities]}]
@@ -1449,7 +1442,7 @@
                               :branch-error    branch-error
                               :prev-identities prev-identities})))))
 
-;; ---- rf2-y8jjk — same-token replan of the active route ---------------------
+;; ---- same-token replan of the active route ---------------------
 ;;
 ;; `:rf.route/replan-resources` (`re-frame.routing.replan`) reruns the ACTIVE
 ;; route's plan under its UNCHANGED nav-token. Same planner, same rules, plan
