@@ -1,11 +1,11 @@
 (ns re-frame.crud-cljs-test
-  "Behavioural regression coverage for the 7GUIs CRUD example (rf2-e4nwdr).
+  "Behavioural regression coverage for the 7GUIs CRUD example.
 
   CRUD is the master/detail screen: a filtered name list, a draft slice behind
-  the two inputs, and Create/Update/Delete. Its demonstrated logic had no
-  event/sub coverage — only `re-frame.example-frame-scoping-cljs-test` touched
-  it, and only to assert its ns-load `[:crud]` app-schema landed on
-  `:rf/default`. The uncovered, silently-breakable behaviour:
+  the two inputs, and Create/Update/Delete. This namespace covers its
+  event/sub logic; `re-frame.example-frame-scoping-cljs-test` asserts only that
+  its ns-load `[:crud]` app-schema lands on `:rf/default`. The
+  silently-breakable behaviour:
 
     - `:crud/can-update?` — Update/Delete are disabled when the selected row is
       HIDDEN by the current prefix filter, and re-enabled when the filter is
@@ -21,7 +21,7 @@
     - `:crud/filtered-people` — case-insensitive SURNAME prefix.
 
   These belong in the framework test tree, NOT under `examples/` (examples stay
-  test-free per rf2-8cevm). They `:require` `seven-guis.crud.core` (a
+  test-free). They `:require` `seven-guis.crud.core` (a
   Reagent-coupled `.cljs`-only ns) so they run under the consolidated
   `:node-test` CLJS build, which has `../examples/core` on its source paths.
   Handlers are driven via `dispatch-sync` on an anon frame; subs are read via
@@ -101,7 +101,7 @@
       (is (= 4 (:selected-id (crud f))) "the new row is selected"))))
 
 (deftest create-ids-are-monotonic-and-never-reissued
-  (testing "rf2-e4nwdr — the id allocator is monotonic: a subsequent create
+  (testing "the id allocator is monotonic: a subsequent create
             never reuses an id, even one freed by an intervening delete. An
             allocator that reissues is a silent, replay-corrupting bug"
     (let [f (crud-frame!)]
@@ -177,7 +177,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest can-update?-tracks-selection-visibility-under-filter
-  (testing "rf2-e4nwdr — can-update? is true only when the selected row is
+  (testing "can-update? is true only when the selected row is
             visible under the current filter. Hiding the selection with a
             filter disables Update/Delete WITHOUT dropping the selection;
             clearing the filter re-enables them. Lighting them on a
