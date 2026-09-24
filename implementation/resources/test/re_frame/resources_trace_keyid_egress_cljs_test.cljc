@@ -1,7 +1,7 @@
 (ns re-frame.resources-trace-keyid-egress-cljs-test
-  "A `key-id` MUST NEVER reach a resource-family trace tag (rf2-5o52l).
+  "A `key-id` MUST NEVER reach a resource-family trace tag.
 
-  ## The leak this suite pins
+  ## The leak this suite guards against
 
   A `rf.resources.state/key-id` is `re-frame.identity/canonical-bytes` of the scoped key —
   CEDN-1, a **reversible plaintext encoding, not a digest**. `encode-string`
@@ -11,45 +11,45 @@
 
     v[k::rf.scope/global k::secret/article m{k::auth-token s:\"topsecret-PII\"}]
 
-  `:rf.resource/owner-released` emitted `:released` as the raw owner-index
-  members, which ARE key-ids, so a `:sensitive?` owner's resolved scope and
-  canonical params egressed off-box **in the clear** — inside a string that
+  Emitting `:rf.resource/owner-released`'s `:released` as the raw owner-index
+  members, which ARE key-ids, would egress a `:sensitive?` owner's resolved
+  scope and canonical params off-box **in the clear** — inside a string that
   looks opaque. `deftest key-id-is-reversible-plaintext-not-a-digest` below is
   the standing statement of that fact; it is the whole reason the emit sites
   must carry scoped keys.
 
-  ## Why no projector rule could have caught it
+  ## Why no projector rule can catch it
 
-  rf2-wd9im made the off-box trace-egress default (`re-frame.resources.trace-
-  egress/project-unknown-slot-value`) read value SHAPE rather than slot name,
+  The off-box trace-egress default (`re-frame.resources.trace-
+  egress/project-unknown-slot-value`) reads value SHAPE rather than slot name,
   which closes every scoped key and every map payload at any depth — including
   the key EMBEDDED at position 1 of a `:rf.work/resource` work-id. To that walk
   a key-id is a STRING, correctly a scalar: tokenizing strings wholesale would
   destroy `:rf.frame/id` / `:cause` / short-id attribution across the whole
-  family. The payload was hidden INSIDE an encoded scalar — a class a shape read
-  cannot and should not try to detect, and one no slot-name roster reaches
-  either. The only layer that can fix it is the EMIT SITE, by carrying the value
-  the projector is built to classify.
+  family. A key-id hides its payload INSIDE an encoded scalar — a class a shape
+  read cannot and should not try to detect, and one no slot-name roster reaches
+  either. The only layer that can prevent it is the EMIT SITE, by carrying the
+  value the projector is built to classify.
 
-  `off-box-released-and-aborted-keys-agree-digest-for-digest` shows the leak's
-  signature directly: BEFORE the fix, one `:rf.resource/owner-released` row
-  carried the SAME resource identity twice — tokenized under `:aborted` (the
-  work-id's embedded scoped key, covered by the shape walk) and verbatim under
-  `:released` (the key-id string) — so the row was even stamped
-  `:sensitive? true` while the secret rode raw beside the stamp.
+  `off-box-released-and-aborted-keys-agree-digest-for-digest` pins the leak's
+  signature directly: one `:rf.resource/owner-released` row carries the SAME
+  resource identity twice — under `:aborted` (the work-id's embedded scoped
+  key, covered by the shape walk) and under `:released` — and a key-id under
+  `:released` would ride raw beside the row's own `:sensitive? true` stamp
+  while `:aborted` tokenized.
 
   ## The sibling emit sites
 
   `ssr.cljc` reconciles `:entries` with `reduce-kv`, so its fold key is a
-  key-id too, and it fed FIVE more trace tags of the same class: the hydrate
+  key-id too, and it names entries in FIVE more trace tags of the same class: the hydrate
   `:rf.resource/hydrated` `:orphaned-owners` + `:rf.resource/hydrate-clock-skew`
   `:resource/key`, and the restore `:rf.resource/restored` `:orphaned-owners` +
   `:rf.resource/owner-released` `:resource/key` + `:rf.resource/restore-clock-
   skew` `:resource/key`. The two `:resource/key` rows are the sharper case: that
   slot is NAMED in the projector's single-scoped-key vocabulary, so a key-id
-  there defeated an arm written specifically to redact it. Spec 009's
-  `:rf.resource/*-clock-skew` rows already document `:resource/key`, which in
-  this family means the scoped-key vector, so those two were spec drift as well.
+  there would defeat an arm written specifically to redact it. Spec 009's
+  `:rf.resource/*-clock-skew` rows document `:resource/key`, which in
+  this family means the scoped-key vector.
 
   ## No over-redaction
 
@@ -108,7 +108,7 @@
     (fn [_p _ctx] {:request {:method :get :url "/public"}}))
   ;; a `:sensitive?` owner whose params admit a SEQUENTIAL value, so §6 can
   ;; build two entries whose scoped keys are Clojure-`=` and whose CEDN
-  ;; key-ids are not (rf2-wgutc2 — collection kind decides resource identity).
+  ;; key-ids are not (collection kind decides resource identity).
   (rf/reg-resource :secret/seq
     {:scope         :rf.scope/global
      :sensitive?    true
@@ -193,13 +193,12 @@
 
 ;; ===========================================================================
 ;; 1. THE PREMISE. A key-id is a reversible plaintext encoding, not a digest.
-;;    This is the standing fact the emit-site rule rests on; it holds
-;;    independently of any fix and must keep holding, because the day a key-id
-;;    becomes a digest is the day this whole suite's reasoning changes.
+;;    This is the standing fact the emit-site rule rests on; if a key-id ever
+;;    becomes a digest, this whole suite's reasoning changes.
 ;; ===========================================================================
 
 (deftest key-id-is-reversible-plaintext-not-a-digest
-  (testing "rf2-5o52l — `rf.resources.state/key-id` is `rf.identity/canonical-bytes`, CEDN-1: a
+  (testing "`rf.resources.state/key-id` is `rf.identity/canonical-bytes`, CEDN-1: a
             REVERSIBLE PLAINTEXT encoding. The key-id for a scoped key whose
             params carry a secret CONTAINS that secret verbatim, wrapped in the
             `s:\"…\"` string token `encode-string` emits. This is why a key-id
@@ -226,11 +225,11 @@
 ;; ===========================================================================
 
 (deftest owner-released-names-released-entries-by-scoped-key
-  (testing "rf2-5o52l — the ON-BOX `:rf.resource/owner-released` row names each
+  (testing "the ON-BOX `:rf.resource/owner-released` row names each
             released entry by its SCOPED KEY, never by its `key-id`. The
             owner-index members ARE key-ids, so the handler resolves each to its
             entry's `:resource/key` — the same move the sibling `now-owner-free`
-            poll-cancel computation two lines above already makes"
+            poll-cancel computation makes"
     (let [tags (release-owner-row)]
       (is (= #{secret-key plain-key} (set (:released tags)))
           "both released entries are named by their canonical scoped-key vectors")
@@ -242,13 +241,13 @@
           "no member is a CEDN-1 byte string"))))
 
 ;; ===========================================================================
-;; 3. THE OFF-BOX GUARANTEE. This is the assertion that reds on the unfixed
+;; 3. THE OFF-BOX GUARANTEE. This is the assertion that reds on a key-id
 ;;    emit site: the secret arrives in the clear when `:released` carries
-;;    key-ids, and is absent once it carries scoped keys.
+;;    key-ids, and is absent when it carries scoped keys.
 ;; ===========================================================================
 
 (deftest off-box-owner-released-never-egresses-the-sensitive-owners-params
-  (testing "rf2-5o52l — off-box, a `:sensitive?` owner's released key has its
+  (testing "off-box, a `:sensitive?` owner's released key has its
             resolved scope + canonical params tokenized to opaque content-
             addressed `{:rf/redacted <digest>}`; the resource-id survives for
             attribution, and NO plaintext — neither the raw secret nor any
@@ -266,10 +265,10 @@
             "no CEDN-1 key-id egresses under ANY tag of the row")))))
 
 (deftest off-box-plain-owners-released-key-rides-verbatim
-  (testing "rf2-5o52l — the over-redaction control. A PLAIN (non-`:sensitive?`,
+  (testing "the over-redaction control. A PLAIN (non-`:sensitive?`,
             non-`:large?`, registered) owner's released key rides VERBATIM in
-            the SAME row that tokenizes the sensitive one, so the fix cannot be
-            satisfied by redacting everything"
+            the SAME row that tokenizes the sensitive one, so the guarantee
+            cannot be satisfied by redacting everything"
     (let [projected (project (release-owner-row))]
       (is (= plain-key (released-member projected :plain/article))
           "the plain owner's scope + params are unchanged off-box")
@@ -277,7 +276,7 @@
           "its params ride as the real map, not a token"))))
 
 (deftest plain-owners-key-is-never-tokenized
-  (testing "rf2-5o52l — the property form of the control, TRUE of the unfixed
+  (testing "the property form of the control, TRUE of a key-id
             emit site too (a key-id string is not a redaction token either), so
             it holds in both directions and isolates over-redaction as a
             distinct failure from the leak"
@@ -289,13 +288,13 @@
           "and nothing about the plain owner's key was redacted"))))
 
 (deftest off-box-released-and-aborted-keys-agree-digest-for-digest
-  (testing "rf2-5o52l — the leak's signature, and the fidelity the fix buys.
+  (testing "the leak's signature, and the fidelity scoped keys buy.
             One `:rf.resource/owner-released` row carries the same resource
             identity TWICE: under `:aborted`, embedded at position 1 of the
             `[:rf.work/resource <scoped-key> <generation>]` work-id (which the
-            rf2-wd9im shape walk redacts), and under `:released`. With `:released`
-            carrying key-ids the two disagreed — one tokenized, one raw, on a row
-            stamped `:sensitive? true`. Now both project through the SAME
+            shape walk redacts), and under `:released`. With `:released`
+            carrying key-ids the two would disagree — one tokenized, one raw, on
+            a row stamped `:sensitive? true`. Both project through the SAME
             classification to the SAME digests, so a tool's per-key joins across
             the row survive redaction"
     (let [projected      (project (release-owner-row))
@@ -318,7 +317,7 @@
 ;; ===========================================================================
 
 (deftest no-owner-released-tag-carries-a-cedn-key-id
-  (testing "rf2-5o52l — the statable invariant, over the WHOLE tag map rather
+  (testing "the statable invariant, over the WHOLE tag map rather
             than one slot: no value under ANY tag of an off-box
             `:rf.resource/owner-released` row is a CEDN-1 byte string. A key-id
             is opaque to the projector by construction, so the only durable
@@ -334,7 +333,8 @@
 
 ;; ===========================================================================
 ;; 5. THE SIBLING EMIT SITES (ssr.cljc). Its `reduce-kv` over `:entries` folds
-;;    on the key-id too, and it fed five more trace tags of this same class.
+;;    on the key-id too, and it names entries in five more trace tags of this
+;;    same class.
 ;; ===========================================================================
 
 (defn- skewed-runtime-db
@@ -359,13 +359,13 @@
                    :stale-after-ms 100000}))))
 
 (deftest hydrate-rows-name-entries-by-scoped-key-not-key-id
-  (testing "rf2-5o52l — the `:rf/hydrate` reconcile's `:rf.resource/hydrate-
+  (testing "the `:rf/hydrate` reconcile's `:rf.resource/hydrate-
             clock-skew` `:resource/key` and `:rf.resource/hydrated`
             `:orphaned-owners` name the entry by its SCOPED KEY. `:resource/key`
             is the sharper case: it is NAMED in the projector's single-scoped-key
-            vocabulary, so a key-id there defeated an arm written specifically to
-            redact it — and Spec 009 already documents this row's
-            `:resource/key`, so it was spec drift too"
+            vocabulary, so a key-id there would defeat an arm written
+            specifically to redact it — and Spec 009 documents this row's
+            `:resource/key` as the scoped key"
     (let [ssr-owner [:ssr "req-1" "nav-1"]
           rows      (capture-op!
                       :rf.resource/hydrate-clock-skew
@@ -395,12 +395,12 @@
         (is (not (leaks-cedn-token? (project tags))) "no CEDN-1 token off-box")))))
 
 (deftest restore-rows-name-entries-by-scoped-key-not-key-id
-  (testing "rf2-5o52l — the restore-reconcile twin. Restore reconciles a LIVE
+  (testing "the restore-reconcile twin. Restore reconciles a LIVE
             (never wire-projected) snapshot, so its key-ids carry the RAW scope +
             params: `:rf.resource/restore-clock-skew` / `:rf.resource/owner-
             released` `:resource/key` and `:rf.resource/restored`
             `:orphaned-owners` all name the entry by its scoped key instead. With
-            no live nav-token every `[:route …]` owner orphans (rf2-64bdnk), which
+            no live nav-token every `[:route …]` owner orphans, which
             is what produces the per-owner released row"
     (let [route-owner [:route :r/reader "tok-stale"]
           rdb         (skewed-runtime-db route-owner)]
@@ -434,24 +434,21 @@
               "no CEDN-1 token off-box — :clock-skews included"))))))
 
 ;; ===========================================================================
-;; 6. THE ACCUMULATOR'S OWN IDENTITY. Naming entries by scoped key was right;
-;;    naming them by scoped key IN A MAP KEY POSITION was not.
+;; 6. THE ACCUMULATOR'S OWN IDENTITY. Entries are named by scoped key, but
+;;    never by scoped key IN A MAP KEY POSITION.
 ;; ===========================================================================
 ;;
-;; Resource identity is the CEDN `key-id`, and it is collection-KIND sensitive
-;; (rf2-wgutc2): params `{:xs ["…"]}` and `{:xs '("…")}` are two DISTINCT
+;; Resource identity is the CEDN `key-id`, and it is collection-KIND sensitive:
+;; params `{:xs ["…"]}` and `{:xs '("…")}` are two DISTINCT
 ;; entries under two distinct key-ids. Their scoped keys, however, are `=` to
-;; Clojure, which considers a list and a vector sequentially equal. So the
-;; moment the reconcile's `:skews` accumulator became a scoped-key-KEYED map,
-;; two live entries collapsed into one and one entry's clock-skew diagnostic
-;; vanished — silently, on both the hydrate and the restore path (the audit of
-;; PR #7018 measured exactly one row and one summary member where two entries
-;; went in).
+;; Clojure, which considers a list and a vector sequentially equal. So a
+;; scoped-key-KEYED `:skews` accumulator would collapse two live entries into
+;; one and silently drop one entry's clock-skew diagnostic, on both the
+;; hydrate and the restore path — one row and one summary member where two
+;; entries went in.
 ;;
-;; `:orphaned` never had the defect: it was a SEQUENCE from the start, and a
-;; sequence has no key to collide on. `:skews` is one now, for the same reason,
-;; and the pair below is the proof — it fails if either accumulator ever
-;; acquires a key again.
+;; `:orphaned` and `:skews` are both SEQUENCES, and a sequence has no key to
+;; collide on. The pair below fails if either accumulator ever acquires a key.
 
 (def ^:private seq-resource-id :secret/seq)
 
@@ -482,7 +479,7 @@
                   (ent (seq-key (list secret)))))))
 
 (deftest reconcile-skew-accumulators-keep-kind-distinct-entries-distinct
-  (testing "rf2-5o52l — the hydrate and restore reconciles must report ONE
+  (testing "the hydrate and restore reconciles must report ONE
             diagnostic per live ENTRY, and entry identity is the CEDN key-id,
             not Clojure equality of the scoped key"
     (let [vk  (seq-key [secret])
@@ -512,8 +509,8 @@
                 "and two summary members, paired `[<scoped-key> <skew-ms>]`
                  exactly as :orphaned-owners pairs beside them")
             (is (= 2 (count (:orphaned-owners tags)))
-                "the sibling accumulator, which never had the defect, still
-                 reports both — so this is not a change in what reconciles")
+                "the sibling sequence accumulator reports both too — so the
+                 reconcile itself sees both entries")
             (let [xs (map #(:xs (nth (first %) 2)) skews)]
               (is (= [1 1] [(count (filter vector? xs)) (count (filter seq? xs))])
                   "one member carries the VECTOR params and the other the LIST
@@ -528,12 +525,12 @@
                 (is (every? #(= seq-resource-id (second (first %))) proj)
                     "each keeps its resource-id for attribution")
                 (is (= 1 (count (set (map #(nth (first %) 2) proj))))
-                    "and the two tokens now AGREE — this owner is `:sensitive?`,
-                     and rf2-hzcv8 settled that a sensitive value gets no
+                    "and the two tokens AGREE — this owner is `:sensitive?`,
+                     and a sensitive value gets no
                      content-derived token at all, so nothing survives
                      projection to tell two sensitive identities apart. That
-                     does not weaken this ratchet: the accumulator's
+                     does not weaken this test: the accumulator's
                      non-collapse is proven by the params-KIND assertion above,
-                     which reads the raw tags and never depended on the token")
+                     which reads the raw tags and does not depend on the token")
                 (is (not (leaks-secret? proj)) "no plaintext off-box")
                 (is (not (leaks-cedn-token? proj)) "no CEDN-1 token off-box")))))))))
