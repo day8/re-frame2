@@ -1,5 +1,5 @@
 (ns re-frame.timer-probe
-  "TEST-ONLY managed-timer CONFORMANCE PROBE (rf2-zqefg3.6).
+  "TEST-ONLY managed-timer CONFORMANCE PROBE.
 
   ## Why this exists
 
@@ -7,19 +7,16 @@
   contract claims that ANY future surface — managed timers, IndexedDB
   transactions, background jobs — can adopt ALL nine managed-effect
   properties, and that property 9 (the uniform reply envelope) is a
-  framework-wide law any new async writer inherits. That claim is
-  UNPROVEN by the four shipped families, because each co-evolved WITH the
-  contract; none is a fresh consumer that walked the settled substrate
-  cold. An unproven plug-in claim either gets conformance-enforced with a
-  test-only instance now, or becomes expensive archaeology later — the
-  precedent the EP-0003 GraphQL ruling set when it mandated a test-only
-  transport rather than blessing an unproven `:partial` claim.
+  framework-wide law any new async writer inherits. The shipped families
+  cannot prove that claim: each shares its shape with the contract, so none
+  is a fresh consumer of the settled substrate. So the plug-in claim is
+  conformance-enforced with a test-only instance.
 
   This namespace is that test-only instance: a MINIMAL managed-timer
   surface that adopts the nine properties by CONSUMING the shared
   `re-frame.reply` substrate (the same substrate HTTP / resources /
-  mutations / machines / route-loaders lower onto). It is the FIRST FRESH
-  consumer of the zqefg3.1 reply substrate — proof that a brand-new writer
+  mutations / machines / route-loaders lower onto). It is a FRESH
+  consumer of the shared reply substrate — proof that a brand-new writer
   inherits the closed status taxonomy, the work-id correlation rule, the
   stale-suppression correctness boundary, and the reply-mapping functor
   law without re-spelling any of them.
@@ -29,8 +26,8 @@
   Nothing here is a `re-frame.core` façade export, a reserved
   `:rf.timer/*` namespace, or a documented public API. The PUBLIC
   `:rf.timer/after` surface — and the `:rf.timer/*` Conventions
-  reservation — are DEFERRED to rf2-5wuikc with named un-defer triggers;
-  building either today would mint a second \"run an event later\" beside
+  reservation — are deliberately not built: either would mint a second
+  \"run an event later\" beside
   `:dispatch-later` and a THIRD debounce mechanism beside machine `:after`
   and HTTP request-id supersession, an EP-0007 hazard with no consumer to
   justify it. The probe proves the inheritance claim; it ships no surface.
@@ -82,8 +79,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Property 9 + work-id correlation (Managed-Effects §Work-id correlation).
 ;;
-;; Timer head: `[:rf.work/timer logical-timer-id generation]` — the row
-;; already acknowledged by the Managed-Effects work-kind table. One ATTEMPT
+;; Timer head: `[:rf.work/timer logical-timer-id generation]` — the Timer
+;; row of the Managed-Effects work-kind table. One ATTEMPT
 ;; has one `:work/id` (EP-0007): a fresh schedule of the same logical timer
 ;; bumps `generation`, so a superseded attempt is discriminated by the
 ;; generation component AND gated by the `:generation` suppression key — the
@@ -379,8 +376,8 @@
     [{:work/id <wid> :released <handle> :reason :rf.timer/frame-destroyed} ...]
 
   Frame-scoped — sibling frames' registry entries are untouched (property 8).
-  `times` supplies the causal `:completed-at` for any reply the caller builds
-  from a record; the records themselves are pure data the trace stream emits."
+  The caller supplies the causal `:completed-at` for any reply it builds from
+  a record; the records themselves are pure data the trace stream emits."
   [frame-id]
   (let [entries (filter (fn [[[fid _] _]] (= fid frame-id)) @registry)
         records (mapv (fn [[[_ wid] entry]]
