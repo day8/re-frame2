@@ -1,16 +1,16 @@
 (ns re-frame.classification-effect-shape-record-cljs-test
-  "rf2-eg61l — what a PRODUCTION build learns when a malformed commit-plane
+  "What a PRODUCTION build learns when a malformed commit-plane
   classification effect aborts an event.
 
   `router/emit-classification-effect-shape!` fans the EP-0025 rejection through
   `rf.error-emit/emit-error-both!`, and axis 1 of that helper —
   `dispatch-on-error!` — is NOT gated on `interop/debug-enabled?`. So the record
   really does reach an off-box shipper (Sentry / Datadog) from a `:advanced` +
-  `goog.DEBUG=false` build. Until this bead it said only that SOME
-  classification payload was malformed: `:offending-key` — the one slot
-  rf2-mz582u added so a malformed `:clear-large` could be told from a malformed
-  `:sensitive` — rode the DCE'd dev trace alone, so the operator holding the
-  error had no route to the cause.
+  `goog.DEBUG=false` build. It names WHICH classification payload was
+  malformed: `:offending-key` — the one slot that tells a malformed
+  `:clear-large` from a malformed `:sensitive` — rides this record and not
+  only the DCE'd dev trace, so the operator holding the error has a route to
+  the cause.
 
   ## What this namespace pins
 
@@ -50,7 +50,7 @@
   `scripts/test-core-prod-gate.sh` (that lane's roster is an EXCLUSION list — a
   new namespace joins by default) and must be green there. Deliberately NOT
   used: `with-redefs` on `interop/debug-enabled?` — the flag is read once at
-  namespace-load time and a rebind cannot reach it (rf2-f7qj4).
+  namespace-load time and a rebind cannot reach it.
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
@@ -83,7 +83,7 @@
   `dispatch-on-error!` builds (`:event` — wire-elided there, `:event-id`,
   `:frame`, `:time`, `:exception` (nil: an in-band rejection is not a throw),
   `:elapsed-ms`, `:source-coord` from the always-on parallel coord registry),
-  plus the one lifted attribution slot `:offending-key` (rf2-eg61l)."
+  plus the one lifted attribution slot `:offending-key`."
   #{:error :event :event-id :frame :time :exception :elapsed-ms :source-coord
     :offending-key})
 
@@ -135,12 +135,11 @@
 ;; ===========================================================================
 
 (deftest the-always-on-record-names-the-offending-key
-  (testing "rf2-eg61l — a malformed classification effect fans exactly ONE
+  (testing "a malformed classification effect fans exactly ONE
             always-on record, and that record says WHICH of the four axes was
-            at fault. Before this the operator learned only that an event had
-            been aborted for a classification defect: `:offending-key` is the
-            sole discriminator between the four (rf2-mz582u) and it rode the
-            DCE'd dev trace alone."
+            at fault. `:offending-key` is the sole discriminator between the
+            four; without it on this record the operator would learn only that
+            an event had been aborted for a classification defect."
     (doseq [[effect-key payload ev-id]
             [[:sensitive       :not-a-vector       :bad/sensitive]
              [:large           :not-a-vector       :bad/large]
@@ -152,7 +151,7 @@
             (str "exactly ONE always-on record for a malformed " effect-key))
         (is (= effect-key (:offending-key rec))
             (str "the always-on record names " effect-key " as the offending "
-                 "key. Red here means production is back to knowing only THAT "
+                 "key. Red here means production knows only THAT "
                  "a classification effect was malformed."))
         (is (= ev-id (:event-id rec))
             "and attributes it to the dispatch, so a shipper can count per-event")
@@ -160,7 +159,7 @@
             "and to the owning frame")))))
 
 (deftest a-malformed-path-entry-names-its-key-too
-  (testing "rf2-eg61l — the OTHER defect arm. A payload that IS a vector but
+  (testing "the OTHER defect arm. A payload that IS a vector but
             whose entry is not a path vector (or carries a non-EDN-identity
             segment, which `path/normalize-concrete` throws on and
             `classification-effect-defect` re-reports as the same defect) also
@@ -178,7 +177,7 @@
 ;; ===========================================================================
 
 (deftest the-always-on-record-key-set-is-closed
-  (testing "rf2-eg61l — whatever this record carries ships to Sentry / Datadog.
+  (testing "whatever this record carries ships to Sentry / Datadog.
             The key set is pinned CLOSED, not sampled: a slot added later
             reaches a shipper whether or not anyone reviewed it, and this
             assertion is the review. Widening it is an EGRESS decision — read
@@ -189,10 +188,10 @@
       (is (= record-keys (set (keys rec)))
           (str "the always-on record's key set is CLOSED. Extra keys are an "
                "unreviewed egress widening; a MISSING `:offending-key` is "
-               "rf2-eg61l reopening.")))))
+               "production losing the cause.")))))
 
 (deftest the-offending-key-domain-is-the-closed-framework-set
-  (testing "rf2-eg61l — the safety argument for shipping this slot depends on
+  (testing "the safety argument for shipping this slot depends on
             its DOMAIN being closed. `classification-effect-defect` stamps
             `:offending-key` by iterating its own private four-key literal, so
             every value the slot can take is a framework-owned keyword: never
@@ -216,7 +215,7 @@
            :sensitive                 :not-a-vector
            :acme.billing/card-numbers :also-not-a-vector}))
       (let [records (record-always-on-errors #(rf/dispatch-sync [:bad/mixed]))]
-        ;; Since rf2-04tx the two keys cannot even reach the classification
+        ;; The two keys cannot even reach the classification
         ;; check together: the ENVELOPE is validated first, and a foreign
         ;; top-level key refuses the whole event. So the app key is not merely
         ;; ineligible for this slot — it never gets as far as the category.
@@ -246,7 +245,7 @@
 ;; ===========================================================================
 
 (deftest the-always-on-record-carries-no-payload-derived-value
-  (testing "rf2-eg61l — the key is program structure; the VALUE is not. A
+  (testing "the key is program structure; the VALUE is not. A
             rejected classification payload is handler- or `:after`-interceptor-
             authored and, on any path fed from a system boundary,
             attacker-controlled or user-private. It is omitted OUTRIGHT rather
@@ -265,7 +264,7 @@
                "sentence, not smuggled through an identifier.")))))
 
 (deftest the-reason-lift-stays-shut-for-this-category
-  (testing "rf2-eg61l — `emit-error-both!` lifts `:reason` out of the dev-trace
+  (testing "`emit-error-both!` lifts `:reason` out of the dev-trace
             tags ONLY alongside a `:failing-id` that differs from `:event-id`.
             This category deliberately passes NO `:failing-id`, so that shared
             rule stays shut here — which matters, because this category's
