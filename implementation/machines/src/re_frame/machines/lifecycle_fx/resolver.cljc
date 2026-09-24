@@ -92,7 +92,7 @@
 ;; `stamp-framework-data`); snapshot compatibility recovery
 ;; (`lifecycle-fx.registration/rebuild-incompatible-snapshot`) carries them
 ;; across. Both sides read this ONE catalogue so they cannot disagree about
-;; which values are durable actor identity (rf2-2dk0).
+;; which values are durable actor identity.
 ;;
 ;; Per Spec 005 §Reserved snapshot-internal keys §Persistence posture the only
 ;; TRANSIENT snapshot-root slot is `:rf/bootstrap-pending?` — every other
@@ -108,7 +108,7 @@
 ;; `:rf/after-epoch`, `:rf/after-epoch-by-region`) and the SPAWNING side's
 ;; `:rf/spawned` map. Those are bookkeeping tied to the definition that
 ;; produced them, and a compatibility reset means restarting the machine —
-;; they reset with the snapshot exactly as before.
+;; they reset with the snapshot.
 
 (def actor-identity-root-keys
   "Framework-owned snapshot-ROOT slots that carry a spawned actor's identity.
@@ -129,11 +129,11 @@
 
   `next` is a freshly-derived initial snapshot; `prev` is the snapshot being
   replaced. A SINGLETON `prev` carries none of these keys, so this is exactly
-  a no-op there and the singleton reset semantics are untouched.
+  a no-op there.
 
   This preserves identity ONLY — authored `:state` / `:data` and the transient
   runtime counters come from `next`, so a compatibility reset still means
-  'restart this machine', not 'patch it' (rf2-2dk0)."
+  'restart this machine', not 'patch it'."
   [prev next]
   (let [carry-root (fn [snap k]
                      (if-some [v (get prev k)]
@@ -192,7 +192,7 @@
   Shared owner for the spawn-spec-at-invoke-id lookup used by the parent
   boundary's `:on-done` routing (`lifecycle-fx.registration`). The `:on-error`
   routing needs no lookup here: the failure carrier is dispatched whatever the
-  parent declares (rf2-3x7nj.41.1), and the parent's engine resolves
+  parent declares, and the parent's engine resolves
   `:on-error` itself (`transition/pick-spawn-error-transition`)."
   [parent-spec invoke-id]
   (when (and parent-spec (vector? invoke-id) (seq invoke-id))

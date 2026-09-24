@@ -46,22 +46,21 @@
   at all — neither for ORDER nor for MEMBERSHIP. No runtime-state install
   clears it, so after a restore that rewinds PAST a spawn it names an actor
   the installed durable value discarded; unioning it into the membership
-  reaped that dead actor, and — the durable segment walking first — placed
+  would reap that dead actor and — the durable segment walking first — place
   it AFTER the older actor durable state kept, inverting the reverse-creation
-  order this walk exists to honour (rf2-1vlyg audit). What the frame holds
+  order this walk exists to honour. What the frame holds
   is what its runtime-db says it holds.
 
-  rf2-1vlyg — this used to be the other way round. The atom was the
-  authority, and a restored actor absent from it was ranked by parsing the
-  `#<n>` suffix off its actor-id. That suffix is allocated by a
+  The order is recorded, never parsed from actor-ids. The `#<n>` suffix of
+  an actor-id is allocated by a
   **per-id-prefix** counter, so it sequences one machine type and cannot
   order two: three actors created `:probe/a#1`, `:probe/a#2`, `:probe/b#1`
-  sorted to `[:probe/a#2 :probe/a#1 :probe/b#1]`, exiting the OLDER
+  would sort to `[:probe/a#2 :probe/a#1 :probe/b#1]`, exiting the OLDER
   `:probe/a#2` ahead of the NEWEST actor and inverting the stack
   discipline Spec 005 §Cross-Spec Interactions §1 pins. An id supplied
-  through `:fixed-actor-id` carries no suffix at all. The parse was
-  attempting to reconstruct information the durable state did not contain,
-  which no cleverer parse could fix — so the order is now recorded.
+  through `:fixed-actor-id` carries no suffix at all. A parse would be
+  reconstructing information the durable state does not contain, which no
+  cleverer parse could fix.
 
   Snapshots can still land by direct `[:rf.runtime/machines :snapshots]`
   assoc, outside any spawn (test fixtures, hand-built payloads); those
@@ -119,7 +118,7 @@
   Sorted by the printed actor-id purely so the walk is REPRODUCIBLE
   (runtime-db map iteration order is not). This is explicitly **not** a
   creation order and makes no reverse-creation claim: nothing recorded one
-  for these actors, and per rf2-1vlyg the id spelling cannot supply it —
+  for these actors, and the id spelling cannot supply it —
   the `#<n>` suffix sequences a single id-prefix, and a `:fixed-actor-id`
   has no suffix at all. Every actor that went through `install-spawn!`
   carries a real durable rank and never reaches this tail."
@@ -164,8 +163,8 @@
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
   late-bind hook via `rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http!` — the same
   best-effort, idempotent helper the spawn-destroy + final-state
-  teardowns use, so the abort contract has one home. It is frame-exact
-  (rf2-wjfm): the frame being torn down is threaded through, so a
+  teardowns use, so the abort contract has one home. It is frame-exact:
+  the frame being torn down is threaded through, so a
   same-named singleton in a sibling frame keeps its in-flight requests.
 
   A machine's `[:schemas :data]` schema is validation-only; it does not produce
@@ -192,7 +191,7 @@
          contract, and it holds identically for a live process and for a
          frame that has been restored, hydrated or wholesale-replaced,
          because the vector is durable runtime-db state rather than
-         process-side bookkeeping (rf2-1vlyg).
+         process-side bookkeeping.
       b. UNSEQUENCED spawned actors — snapshots carrying
          `:rf/machine-type` that the durable vector does not name. Only a
          directly-assoc'd fixture / hand-built payload reaches here.
@@ -215,10 +214,9 @@
          DO NOT unregister the handler — a `reg-machine` registration is a
          shared load-time DEFINITION whose lifetime is the registrar's,
          never any one actor's or frame's (Spec 005 §Liveness is derived
-         from runtime-db). Since rf2-xjee the SPAWNED branch (b) preserves
+         from runtime-db). The SPAWNED branch (b) preserves
          definitions too, so no destroy path deletes one; this branch is
-         about the `:exit` / abort work a straggler still owes, not about
-         being the one exception.
+         about the `:exit` / abort work a straggler still owes.
    4. Clear the frame's spawn-order slot."
   [frame-id]
   (when frame-id
@@ -229,7 +227,7 @@
           ;; pruned by the teardown projection inside the swap that removed
           ;; it, so it names exactly the live spawned actors — and it says so
           ;; identically before and after a restore / hydration /
-          ;; `replace-runtime-db!`, which is the whole point (rf2-1vlyg).
+          ;; `replace-runtime-db!`, which is the whole point.
           durable      (rf.machines.spawn-order/durable-order runtime-db)
           durable-set  (set durable)
           ;; Reverse the durable vector → newest spawn first. THE
@@ -239,15 +237,14 @@
           ;; records itself, so this is the directly-assoc'd fixture /
           ;; hand-built payload case only.
           ;;
-          ;; Membership comes from the DURABLE snapshots alone. The transient
-          ;; `spawn-order` cache used to be unioned in here, which reaped
-          ;; actors the frame no longer holds: no runtime-state install clears
+          ;; Membership comes from the DURABLE snapshots alone, never the
+          ;; transient `spawn-order` cache: no runtime-state install clears
           ;; that cache, so after a `restore-epoch!` / `replace-frame-state!`
           ;; that rewinds PAST a spawn it still names the discarded actor —
-          ;; and because the durable segment walks first, the discarded NEWER
-          ;; actor was torn down AFTER the older one durable state kept,
-          ;; inverting the very reverse-creation order this walk exists to
-          ;; honour (rf2-1vlyg audit). A cache-only id has no snapshot, no
+          ;; and because the durable segment walks first, unioning it in
+          ;; would tear the discarded NEWER actor down AFTER the older one
+          ;; durable state kept, inverting the very reverse-creation order
+          ;; this walk exists to honour. A cache-only id has no snapshot, no
           ;; durable order entry and no state to tear down; it is not a live
           ;; actor of this frame.
           unsequenced  (->> (keys snapshots)

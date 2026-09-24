@@ -12,7 +12,7 @@
   re-materialises actors. `re-frame.ssr.payload-policy/project-runtime-db`
   consults this hook so a snapshot whose frame classifies a `:data` path
   `:sensitive` has that field redacted in the hydration blob (a `:large` one
-  rides whole — no size elision on this wire, rf2-hjz4r) — the frame's
+  rides whole — no size elision on this wire) — the frame's
   classification registry governs machine `:data`
   egress. Like resources (which has `:ssr/extend-runtime-db-projection`),
   machines provides this SSR projection hook.
@@ -40,8 +40,8 @@
   (`:spawned`, `:spawn-counter`, `:spawn-order`) are durable
   bookkeeping (registry slots, counters, and the creation-order vector — no
   user `:data`) and ride unchanged. `:spawn-order` riding the wire verbatim is
-  what lets a HYDRATED frame dispose its actors in true reverse-creation order
-  (rf2-1vlyg): it is a vector of actor-id keywords, so it survives the
+  what lets a HYDRATED frame dispose its actors in true reverse-creation order:
+  it is a vector of actor-id keywords, so it survives the
   hydration payload's EDN round trip like every other bookkeeping sibling.
 
   ## Late-binding
@@ -76,7 +76,7 @@
   the SHARED frame-independent `re-frame.classification/redact-with-paths`
   walker — `:sensitive` slots to
   `:rf/redacted`. `:large` slots ride whole: the hydration wire applies no
-  size elision (rf2-hjz4r). Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
+  size elision. Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; the frame classification registry is the egress source of truth.
 
   The snapshot's NON-`:data` slots (`:state`, `:tags`, `:rf/machine-type`, the
@@ -95,7 +95,7 @@
                                              (map #(subvec (vec %) 1)))
                                     paths))
           s-paths (strip sensitive)]
-      ;; rf2-hjz4r — no large paths: the hydration wire applies no size
+      ;; No large paths: the hydration wire applies no size
       ;; elision (the `:rf.egress/ssr-hydration` profile's rule), because the
       ;; client re-materialises the actor from this `:data`.
       (if (seq s-paths)

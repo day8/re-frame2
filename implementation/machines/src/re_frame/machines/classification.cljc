@@ -131,8 +131,8 @@
   `:source :effect`); DROP removes ONLY this actor's own owner
   (`rf.elision/remove-claims`) at the named absolute paths — a path ALSO claimed
   by another owner is LEFT INTACT, so an actor teardown never silently
-  un-redacts a path another owner still classifies (a privacy fail-open,
-  rf2-wdm1vg). An emptied axis slot is pruned by the core ops. Returns the new
+  un-redacts a path another owner still classifies (a privacy fail-open).
+  An emptied axis slot is pruned by the core ops. Returns the new
   registry value."
   [registry actor-id declarations add?]
   (let [owner (machine-owner actor-id)]
@@ -166,12 +166,12 @@
   time and the existing readers (`frame-snapshot-classification`, the SSR / trace
   boundaries) redact with no change. Returns nil.
 
-  rf2-i4aj9c — the 4-arity threads A's exact-incarnation `owner-token` through
+  The 4-arity threads A's exact-incarnation `owner-token` through
   `swap-elision-slot!`'s EXACT arity (the same exact-write the flow lifecycle
-  ops issue, rf2-vxgfnd.155): a synchronous container watch that destroys A and
+  ops issue): a synchronous container watch that destroys A and
   publishes same-id B DURING this durable-registry write neither redirects the
   write into B nor bumps B's commit epoch — on mid-write loss it writes nothing.
-  The 3-arity is the historical bare-id write (no event owner — conformance /
+  The 3-arity is the bare-id write (no event owner — conformance /
   pure-fn callers)."
   ([frame-id actor-id spec] (lower-at-spawn! frame-id actor-id spec nil))
   ([frame-id actor-id spec owner-token]
@@ -194,11 +194,10 @@
   sub-tree (no leak). A no-op when the spec declared no classification or
   `actor-id` is nil. Returns nil.
 
-  rf2-i4aj9c — the 4-arity threads A's exact-incarnation `owner-token` through
+  The 4-arity threads A's exact-incarnation `owner-token` through
   `swap-elision-slot!`'s EXACT arity so a container watch that destroys A and
   publishes same-id B mid-write cannot re-root the drop onto B's registry or
-  bump B's commit epoch (the drop tail of the incarnation-fence family). The
-  3-arity is the historical bare-id write (no event owner)."
+  bump B's commit epoch. The 3-arity is the bare-id write (no event owner)."
   ([frame-id actor-id spec] (drop-at-destroy! frame-id actor-id spec nil))
   ([frame-id actor-id spec owner-token]
    (when actor-id

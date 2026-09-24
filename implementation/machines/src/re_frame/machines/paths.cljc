@@ -21,7 +21,7 @@
   order two actors of different machine types — and an id supplied
   through `:fixed-actor-id` carries no suffix at all. Deriving disposal
   order from the id spelling is therefore reconstructing information the
-  durable state does not contain; this slot records it instead (rf2-1vlyg).
+  durable state does not contain; this slot records it instead.
 
   It is written by exactly two places, each inside the SAME runtime-db
   swap as the snapshot mutation it accompanies, so the order and the

@@ -19,7 +19,7 @@
   has already finished, so there is nothing to roll back — the post-commit
   asymmetry, parity with the post-completion observation posture).
 
-  Per Spec 010 §Per-step recovery row 7 (rf2-uhk9ko): validation failures
+  Per Spec 010 §Per-step recovery row 7: validation failures
   emit `:rf.error/schema-validation-failure` with `:where :machine-data`
   and REJECT the whole candidate frame transition (the router AND-conjoins
   this validator's result with `validate-app-schema!`'s — a `false` from
@@ -75,7 +75,7 @@
 ;; validator runs against the would-be-merged snapshot and the fx skips the
 ;; `swap-runtime-db!` write on failure. `:macrostep` / `:bootstrap`
 ;; validate the CANDIDATE frame transition at the router's commit boundary
-;; (rf2-uhk9ko — before install), so a `false` rejects the WHOLE event
+;; (before install), so a `false` rejects the WHOLE event
 ;; transaction (`:rollback? true` — the public transaction-REJECTED
 ;; vocabulary).
 (def ^:private local-skip-phases #{:spawn :update-snapshot})
@@ -84,7 +84,7 @@
 ;;
 ;; A machine schema validator is APPLICATION code (the late-bound
 ;; `:schemas/validate-with-registered-fn` adapter running an app-declared
-;; schema). Per the incarnation-fencing family (destroy contract #5818) it can
+;; schema). Like any application callback it can
 ;; synchronously destroy the frame incarnation (A) that owns the in-flight
 ;; event and publish a same-id successor (B) before returning. Every machine
 ;; lifecycle validator therefore threads the router's dequeue-time event-owner
@@ -123,8 +123,7 @@
 (defn- emit-machine-data-rejection-record!
   "Fan ONE structural-only `:rf.error/schema-validation-failure` record onto
   the always-on `:errors` stream for a REJECTED candidate frame transition —
-  the `:where :machine-data`, `:rollback? true` arm (RULED rf2-xpd8, extended
-  to this boundary by rf2-vkn8).
+  the `:where :machine-data`, `:rollback? true` arm.
 
   Sibling of `re-frame.schemas.validate/emit-app-db-rejection-record!`, and a
   SIBLING rather than a shared seam on purpose: the union record is BUILT FROM
@@ -135,11 +134,11 @@
 
   A `:macrostep` / `:bootstrap` violation discards a WHOLE candidate frame
   transition — app-db and runtime-db both keep their pre-event values and `:fx`
-  never walks. Before this, that refusal reached the DEV TRACE and nothing
-  else: no error listener, no frame `:observability :errors` sink, and (since
-  the rf2-fu75 unowned-error console fallback hangs off the `:errors` stream)
-  no console line either. So a machine whose `[:schemas :data]` schema rejects
-  every transition simply stopped transitioning, silently. Spec 009 §The
+  never walks. Reported on the DEV TRACE alone, that refusal would reach no
+  error listener, no frame `:observability :errors` sink, and (since the
+  unowned-error console fallback hangs off the `:errors` stream) no console
+  line either, so a machine whose `[:schemas :data]` schema rejects every
+  transition would simply stop transitioning, silently. Spec 009 §The
   promotion criterion states the rule this instance obeys: failing leg 1 keeps
   a category off the always-on OBLIGATION, not off the stream.
 
@@ -162,13 +161,11 @@
 
   Deliberately OMITTED: `:value` / `:received` (the failing `:data` map),
   `:explain` / `:explain-humanized`, and `:schema` (the registered form,
-  unbounded under `pr-str`). All of them stay on the dev trace, which is
-  BYTE-IDENTICAL to before this change — Xray, Story and the epoch recorder
-  read exactly what they read before, and `tools/xray/spec` needs no edit.
+  unbounded under `pr-str`). All of them stay on the dev trace.
 
   The `:reason` is composed from the machine id and the phase alone: a
   registered keyword and a framework keyword, never the `:data` that failed
-  and never the schema form. It is what the rf2-fu75 console fallback prints
+  and never the schema form. It is what the unowned-error console fallback prints
   when nothing owns the `:errors` stream.
 
   Reached through the `:error-emit/dispatch-error-record` late-bind hook — the
@@ -207,8 +204,8 @@
   surfaces the lifecycle position to operators; `value` is the failing value
   (the `:data` map / the completion-output payload); `reason` is the
   one-sentence diagnostic. `frame-id` names the frame whose candidate
-  transition carried the failing snapshot — it does NOT ride the trace (which
-  stays byte-identical) and exists for the always-on rejection record below,
+  transition carried the failing snapshot — it does NOT ride the trace, and
+  exists for the always-on rejection record below,
   which routes to that frame's `:observability :errors` sink.
 
   The trace tag carries:
@@ -222,7 +219,7 @@
     :schema          the registered schema (verbatim)
     :explain         the registered explainer's output (or nil)
     :rollback?       true (macrostep / bootstrap — the whole candidate
-                     transaction is REJECTED pre-install, rf2-uhk9ko) /
+                     transaction is REJECTED pre-install) /
                      false (spawn / update-snapshot — a local skipped
                      write; completion — the machine already finished)
     :recovery        :no-recovery
@@ -274,7 +271,7 @@
                           (if (continue?) (throw e) nil)))
                       tags)]
      (when (continue?)
-       ;; rf2-vkn8: the always-on `:errors` record FIRST, then the dev trace —
+       ;; The always-on `:errors` record FIRST, then the dev trace —
        ;; mirroring `emit-error-both!`'s axis-1-then-axis-2 ordering
        ;; (error_emit.cljc), so the JVM SSR error-listener's last-write-wins
        ;; buffer keeps the RICHER trace as its final input. Both emits sit
@@ -287,7 +284,7 @@
        ;; The record is promoted for the `:rollback? true` MACHINE-DATA arms
        ;; only (`:phase :macrostep` / `:bootstrap` — a whole discarded event
        ;; transaction). Both conditions are named rather than just `rollback?`:
-       ;; `:machine-output` is `:rollback? false` today, and keying on the
+       ;; `:machine-output` is `:rollback? false`, and keying on the
        ;; boundary too is what stops a future promoted arm reaching the
        ;; always-on axis by default.
        (when (and rollback? (= :machine-data where))
@@ -305,8 +302,7 @@
   Recovery depends on the write boundary:
     - `:phase :macrostep` and `:phase :bootstrap` → rollback? true
       (the snapshot rides the CANDIDATE frame transition; the router
-      REJECTS the whole candidate pre-install on a false return —
-      rf2-uhk9ko).
+      REJECTS the whole candidate pre-install on a false return).
     - `:phase :spawn` → rollback? false (the snapshot has not yet
       installed; the spawn-fx caller skips the install on false).
     - `:phase :update-snapshot` → rollback? false (the escape-hatch fx
@@ -314,8 +310,8 @@
       `swap-runtime-db!` write on false; nothing was committed).
 
   `frame-id` (the 6-arity) names the frame whose CANDIDATE transition carries
-  this snapshot. It never rides the trace — that stays byte-identical — and
-  exists so the `:rollback? true` arms' always-on rejection record (rf2-vkn8)
+  this snapshot. It never rides the trace, and
+  exists so the `:rollback? true` arms' always-on rejection record
   can route to that frame's `:observability :errors` sink. The candidate
   walker (`validate-machine-data!`) passes the frame the ROUTER handed it,
   which is the authoritative one; the shorter arities derive it from the
@@ -357,7 +353,7 @@
   `:machines/spec-from-snapshot`. Returns the `[:data schema]` MAP ENTRY
   (presence-carrying — the entry exists exactly when the spec declares the
   key, so a present nil / false schema token is distinguishable from no
-  declaration, rf2-6eh5h; read the schema with `val`) or nil
+  declaration; read the schema with `val`) or nil
   (no declaration / unresolvable spec).
 
   Both resolvers are consumed through the late-bind table to keep this
@@ -406,8 +402,8 @@
   Machine snapshots are durable runtime-db state, so this validator runs
   against the CANDIDATE runtime-db value (the `:rf.db/runtime` effect a
   machine macrostep produces) — NOT app-db. The router calls it BEFORE the
-  partitioned commit whenever a runtime-db effect rides the candidate
-  (rf2-uhk9ko); on `false` the router REJECTS the whole candidate
+  partitioned commit whenever a runtime-db effect rides the candidate;
+  on `false` the router REJECTS the whole candidate
   pre-install (same mechanism as the `:where :app-db` rejection).
 
   Per Spec 009 §Production builds the body lives inside a
@@ -422,13 +418,11 @@
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
   ;; be invoked uniformly.
   ;;
-  ;; `frame-id` WAS unused too, and rf2-vkn8 is what needed it: the always-on
-  ;; rejection record routes to the frame's `:observability :errors` sink by
+  ;; `frame-id` is threaded for the always-on rejection record only: that
+  ;; record routes to the frame's `:observability :errors` sink by
   ;; its `:frame` slot, so without threading the router's frame down to the
   ;; emit the record could reach corpus listeners but never the frame that
-  ;; owns the rejected transition. It is threaded for the RECORD only — the
-  ;; trace tags are unchanged, so Xray, Story and the epoch recorder read a
-  ;; byte-identical trace.
+  ;; owns the rejected transition. The trace tags do not carry it.
   (if rf.interop/debug-enabled?
     ;; Per the validate-app-schema! pattern: validate EVERY snapshot (no
     ;; short-circuit) so each failing machine surfaces its
@@ -445,7 +439,7 @@
         :else
         (let [[machine-id snapshot] (first entries)
               ;; A presence-carrying [:data schema] map entry, or nil for no
-              ;; declaration (rf2-6eh5h) — so a present nil / false schema
+              ;; declaration — so a present nil / false schema
               ;; token is delegated to the validator rather than skipped.
               schema-entry (resolve-data-schema machine-id snapshot continue?)
               result (if (and (continue?) schema-entry)
@@ -471,7 +465,7 @@
   `:rollback? false`.
 
   The application schema validator is fenced to the exact frame incarnation
-  via `continue?` (rf2-vxgfnd.153): a validator that destroys the owning frame
+  via `continue?`: a validator that destroys the owning frame
   A and publishes same-id B returns `:rf/stale-incarnation` (via
   `validate-snapshot-data!`) rather than a schema verdict, and suppresses the
   failure trace — so the spawn caller (`lifecycle-fx.spawn`) skips the whole
@@ -488,7 +482,7 @@
    (validate-spawn-data! spawned-id spec snapshot (current-owner-continuation)))
   ([spawned-id spec snapshot continue?]
    (if rf.interop/debug-enabled?
-     ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+     ;; KEY-presence, not value truthiness: a present nil /
      ;; false `[:schemas :data]` is a declaration whose exact token is
      ;; delegated to the registered validator; only an ABSENT key means
      ;; no declaration.
@@ -520,8 +514,8 @@
   (`spec-from-registry`) and a spawned actor (`spec-from-snapshot`) so the
   escape hatch is covered uniformly across actor kinds.
 
-  The application schema validator is fenced to the exact frame incarnation
-  (rf2-vxgfnd.153): a validator that destroys the owning frame A and publishes
+  The application schema validator is fenced to the exact frame incarnation:
+  a validator that destroys the owning frame A and publishes
   same-id B returns `:rf/stale-incarnation` from `validate-snapshot-data!`,
   which this fn TRANSLATES to `false` so the escape-hatch fx's
   `(when (validate-update-snapshot-data! ...) (write))` SKIPS the A-derived
@@ -537,7 +531,7 @@
   [machine-id merged-snapshot]
   (if rf.interop/debug-enabled?
     (let [continue? (current-owner-continuation)]
-      ;; Presence-carrying [:data schema] map entry (rf2-6eh5h): the entry
+      ;; Presence-carrying [:data schema] map entry: the entry
       ;; is truthy whenever the spec DECLARES [:schemas :data], so a
       ;; present nil / false schema token is delegated rather than skipped.
       (if-let [schema-entry (resolve-data-schema machine-id merged-snapshot continue?)]
@@ -579,8 +573,8 @@
   :machine-data` boundary uses), so an app with no schema adapter pays zero
   cost.
 
-  The application output validator is fenced to the exact frame incarnation
-  (rf2-vxgfnd.153): if the validator callback destroys the owning frame A and
+  The application output validator is fenced to the exact frame incarnation:
+  if the validator callback destroys the owning frame A and
   publishes same-id B, neither the `:machine-output` failure trace nor the
   `:rf.error/malformed-schema` trace is emitted — the diagnostic would
   otherwise be attributed to B, a frame that never ran this completion. The
@@ -593,7 +587,7 @@
   `goog.DEBUG=false`, parity with the `:where :machine-data` boundaries."
   [machine-id spec result]
   (if rf.interop/debug-enabled?
-    ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+    ;; KEY-presence, not value truthiness: a present nil /
     ;; false `[:schemas :output]` is a declaration whose exact token is
     ;; delegated to the registered validator (default Malli then throws
     ;; → the malformed-schema catch below surfaces it and proceeds,

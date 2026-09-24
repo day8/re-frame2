@@ -316,7 +316,7 @@
 ;;   - the duration is integer-ms OR ISO-8601 only (reject the `"5s"` /
 ;;     `"10ms"` shorthand) — `:rf.error/machine-bad-timeout-duration`;
 ;;   - a `:choice` state must not declare `:timeout` (that constraint is
-;;     owned by the `:choice` wave; not enforced here);
+;;     owned by `re-frame.machines.choice`; not enforced here);
 ;;   - a desugared timeout ms must not collide with an explicit `:after`
 ;;     delay-key on the same node — `:rf.error/machine-timeout-after-collision`
 ;;     (a silent merge-drop would lose one of the two authored intents).

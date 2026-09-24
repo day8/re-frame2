@@ -39,7 +39,7 @@
 
   Idempotent / safe to call when the actor has no live snapshot or no
   registered machine spec — both reduce to a benign no-op (the destroy
-  proceeds as before)."
+  proceeds)."
   (:require [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
@@ -79,7 +79,7 @@
   §Declarative `:spawn` §Composition — `:exit` reads the actor's
   final snapshot before clearing.
 
-  rf2-fzbj.1 — the 3-arity takes the destroy EFFECT's exact-incarnation
+  The 3-arity takes the destroy EFFECT's exact-incarnation
   `fence` (`{:owner-gone? :owner-token}`, captured once at the effect entry by
   `lifecycle-fx.destroy`). The helper crosses three callback-bearing
   boundaries — the pure cascade (each `:exit` action emits a synchronous
@@ -89,7 +89,7 @@
   rides the exact owner token, and the nested `do-fx` walk carries the same
   token, so a loss inside one exit effect stops the rest and the terminal
   marker. Work completed in A while A existed stands. The 2-arity is the
-  eventless frame-destroy entry: no owner, full authority, as before."
+  eventless frame-destroy entry: no owner, full authority."
   ([frame-id actor-id]
    (run-child-exit! frame-id actor-id {:owner-gone? (constantly false) :owner-token nil}))
   ([frame-id actor-id {:keys [owner-gone? owner-token]}]

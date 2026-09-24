@@ -196,8 +196,8 @@
   parallel layer fires that `:on-done` (run action + emit fx) and marks the
   Result so the lifecycle boundary (`commit-or-finalize`) does NOT auto-
   destroy the machine — the transitionable parallel-completion signal keeps
-  the machine alive. Absent / false ⇒ the existing whole-machine finalize
-  runs (singleton auto-destroy / spawning-parent `:on-done`, D7). Internal to
+  the machine alive. Absent / false ⇒ the whole-machine finalize
+  runs (singleton auto-destroy / spawning-parent `:on-done`). Internal to
   the machines engine; namespaced so it never collides with snapshot / fx
   slots."
   [r]

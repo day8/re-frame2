@@ -9,7 +9,7 @@
     1. dissoc snapshot at `[:rf.runtime/machines :snapshots actor-id]`
     1b. drop the actor from the durable spawn-order vector at
        `[:rf.runtime/machines :spawn-order]` — the frame's recorded
-       total creation order (rf2-1vlyg), pruned when it empties. This
+       total creation order, pruned when it empties. This
        is the teardown half of the append `install-spawn!` makes; both
        ride the same swap as the snapshot mutation, so the order can
        never name a dead actor or omit a live one.
@@ -94,7 +94,7 @@
         new-db       (cond-> db
                        actor-id     (update-in (rf.machines.paths/snapshot-path)
                                                dissoc actor-id)
-                       ;; (1b) rf2-1vlyg — drop the actor from the DURABLE
+                       ;; (1b) drop the actor from the DURABLE
                        ;; spawn-order vector in the same swap that dissocs its
                        ;; snapshot, so the recorded creation order tracks the
                        ;; LIVE actors exactly. Every destroy path routes through

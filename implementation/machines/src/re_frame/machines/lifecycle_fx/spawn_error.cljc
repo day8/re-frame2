@@ -6,8 +6,8 @@
   FAILS, the runtime routes the failure to the spawning parent's
   `:spawn :on-error` TRANSITION (control flow — a declarative parent state
   change), symmetric with the `:spawn :on-done` teardown hook. The failure
-  event goes to the parent whether or not it declares `:on-error`
-  (rf2-3x7nj.41.1): the parent's engine falls back to an explicit
+  event goes to the parent whether or not it declares `:on-error`:
+  the parent's engine falls back to an explicit
   `:on {:rf.machine.spawn/error …}`, else ignores it. A failure therefore
   never reaches a success route. Two triggers reach this namespace:
 
@@ -27,12 +27,12 @@
   finalize). Dispatched (not raised) because the parent is a SEPARATE actor —
   symmetric with how the spawn fx dispatches `:start` into the newborn child.
 
-  This is ADDITIVE: the existing trace emission (observability — the
-  `:rf.error/machine-action-exception` / `:rf.machine/done` traces) is
-  unchanged, and the explicit dispatch-back-to-parent
-  (`[:fx [[:dispatch [parent-id [:failed err]]]]]`) escape hatch keeps working.
-  `:on-error` is the declarative invoke-site control-flow form; the escape
-  hatch is the lower-level form.
+  This routing sits alongside the trace emission (observability — the
+  `:rf.error/machine-action-exception` / `:rf.machine/done` traces) and the
+  explicit dispatch-back-to-parent
+  (`[:fx [[:dispatch [parent-id [:failed err]]]]]`) escape hatch; it replaces
+  neither. `:on-error` is the declarative invoke-site control-flow form; the
+  escape hatch is the lower-level form.
 
   This namespace is a LEAF over the helpers it needs (`paths` + `transition`,
   plus core's `frame` / `fx` / `registrar`), so both `finalize` and
@@ -40,7 +40,7 @@
   owns `dispatch-carrier!`, the queueing seam BOTH completion carriers share.
   It resolves no parent spec: whether the parent declares `:on-error` is the
   parent engine's question, answered when the carrier arrives. `transition`
-  is retained only for the reserved event ids."
+  is required only for the reserved event ids."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -53,7 +53,7 @@
   "True iff `parent-id` names a parent with a LIVE INSTANCE in `db` — the ONE
   gate both failure producers consult before delivering into a parent.
 
-  rf2-xjee — A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS. A destroyed
+  A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS. A destroyed
   singleton parent keeps its `reg-machine` DEFINITION (the registration is the
   load-time PROGRAM; the snapshot was the INSTANCE — Spec 005 §Liveness is
   derived from runtime-db, D4/D7), so the parent's spec, its `:spawn` map and
@@ -73,10 +73,10 @@
     - a SNAPSHOT at `[:rf.runtime/machines :snapshots <parent-id>]` — the
       canonical instance signal for singleton and nested-spawn parents alike;
     - a NON-MACHINE registrar entry squatting at the parent's address, which
-      still counts as somebody home, exactly as before.
+      counts as somebody home.
 
-  This fences FRAMEWORK-OWNED delivery only. D5 is untouched: an ordinary
-  AUTHORED event dispatched to an address that still carries a definition
+  This fences FRAMEWORK-OWNED delivery only. D5 applies to authored events:
+  an ordinary AUTHORED event dispatched to an address that still carries a definition
   finds no snapshot and is answered by a fresh instance, exactly as before its
   first start."
   [db parent-id]
@@ -91,7 +91,7 @@
   This is the ONE seam both carriers use: `[:rf.machine.spawn/done …]` from
   `finalize` and `[:rf.machine.spawn/error …]` from `dispatch-spawn-error!`.
 
-  rf2-ix8fd — a carrier is minted while the child's handler is processing the
+  A carrier is minted while the child's handler is processing the
   event that FINISHED it, so it is a child of THAT event (Spec 002 §Run
   propagation). It queues through the reserved-dispatch seam
   `rf.fx/child-dispatch!` with the in-flight envelope core exposes to a handler
@@ -102,7 +102,7 @@
   nothing, because that event carried nothing.
 
   `:source :machine-spawn` is re-stamped, never inherited. `:rf.machine/internal?`
-  is dropped so the carrier keeps its FIFO place, as it always has. Outside a
+  is dropped so the carrier keeps its FIFO place. Outside a
   router pipeline (pure-fn / conformance callers) the envelope is nil and
   `child-dispatch!` falls back to `{:frame frame-id}`; it no-ops when the
   `:router/dispatch!` hook is absent."
@@ -127,7 +127,7 @@
   `:source :machine-spawn`. That makes it the declarative twin of the
   `[:fx [[:dispatch …]]]` escape hatch, which inherits the same way.
 
-  rf2-3x7nj.8.2 — `attempt` is the failing child's `:rf/invoke-attempt`. When
+  `attempt` is the failing child's `:rf/invoke-attempt`. When
   present it rides as a FOURTH element, after the public `(nth ev 2)` error
   payload, so the parent's boundary can drop a carrier from a superseded or
   exited spawn attempt (`transition/spawn-carrier-stale-reason`)."

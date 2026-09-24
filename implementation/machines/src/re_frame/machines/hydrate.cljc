@@ -10,10 +10,11 @@
   pure side emits `:rf.machine.timer/skipped-on-server` in place of
   `/scheduled`). The hydration payload then carries the snapshot — right
   `:state`, right `:data`, right `:rf/after-epoch` — and the client
-  installs it verbatim. Nothing in that path reconstructs the host-side
-  timer table, so a machine hydrated while sitting in an `:after`-bearing
-  state had the correct durable state and NO live timer: it could sit
-  there forever unless some unrelated external event moved it.
+  installs it verbatim. Nothing else in that path reconstructs the host-side
+  timer table, so without this namespace a machine hydrated while sitting in
+  an `:after`-bearing state would have the correct durable state and NO live
+  timer: it could sit there forever unless some unrelated external event
+  moved it.
 
   Spec 011 §`:after` is no-op under SSR names the two admissible
   handoffs — re-fire entry actions on hydration, or \"treat hydration as a
@@ -290,8 +291,8 @@
   cancel half exists to close, arriving from the other direction.
 
   So the reconcile captures the owning incarnation ONCE, before either
-  phase, and every callback-bearing step is fenced by that ONE predicate
-  (rf2-jqvgp): the cancel batch short-circuits on it, the arm loop
+  phase, and every callback-bearing step is fenced by that ONE predicate:
+  the cancel batch short-circuits on it, the arm loop
   rechecks it before each declaration, and each arm carries it down into
   `schedule-after-timer!` in place of a fresh capture — where it fences
   BOTH of that fn's callback boundaries, the leading `:on-supersede`
