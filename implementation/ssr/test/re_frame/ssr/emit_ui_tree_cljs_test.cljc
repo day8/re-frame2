@@ -304,7 +304,7 @@
 ;; ANCHOR: react-dom/server 19.2 emits <script>/<style> text as HTML
 ;; RAW TEXT — the parser decodes no entities inside them, so the content is NOT
 ;; sent through `escape-html`; only an embedded closing-tag sequence is rewritten
-;; to a context-safe spelling (a JS `s` unicode escape for </script, a CSS
+;; to a context-safe spelling (a JS `\u0073` unicode escape for </script, a CSS
 ;; `\73 ` escape for </style) so the raw-text parser cannot terminate early. This
 ;; is the raw-text EXCEPTION to Spec 004B §Children, text, and escaping's blanket
 ;; 5-char escaping row; the expected strings below are byte-pinned against
