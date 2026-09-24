@@ -3951,7 +3951,7 @@
           "documented catalogue == the ops actually emitted out-of-cascade")
       ;; (a) TEETH: skip-ops is a SUPERSET of every out-of-cascade emitted
       ;; op. An op added to an emit site but forgotten in skip-ops fails
-      ;; HERE (this is what missed :rf.epoch/replace-history-disabled).
+      ;; HERE.
       (is (set/subset? out-of-cascade skip-ops)
           "skip-ops covers every out-of-cascade epoch/epoch-cb/warning op the namespace emits")
       ;; No stale entry: every skipped op is one the namespace actually
@@ -3959,21 +3959,21 @@
       (is (set/subset? skip-ops out-of-cascade)
           "skip-ops has no stale entry the namespace no longer emits out-of-cascade"))))
 
-;; ---- rf2-gba3ou: depth-0 reject emit does not leak into next cascade ------
+;; ---- depth-0 reject emit does not leak into next cascade -------------------
 ;;
 ;; Companion behavioural pin to the derived-catalogue test above. The
 ;; depth-0 `replace-frame-state!` reject emits :rf.epoch/replace-history-disabled
-;; OUTSIDE a cascade with a :frame tag (Tool-Pair §Pair-tool writes / rf2-unpldn).
-;; The existing depth-0 tests (`replace-frame-state-app-only-depth-0-rejects-...`,
-;; `four-mutators-all-reject-under-depth-0`) assert reject / false / no-phantom-
+;; OUTSIDE a cascade with a :frame tag (Tool-Pair §Pair-tool writes).
+;; The depth-0 tests above (`replace-frame-state-app-only-depth-0-rejects-...`,
+;; `all-partition-shapes-reject-under-depth-0`) assert reject / false / no-phantom-
 ;; anchor but NOT that the emit stays out of the NEXT cascade's record. Depth 0
 ;; disables the ring, so the next cascade's assembled record is observed via the
-;; epoch listener fan-out (rf2-douii — depth 0 still fires listeners). Skip-ops
+;; epoch listener fan-out (depth 0 still fires listeners). Skip-ops
 ;; is the deliberate defense; the orphan-drop branch backstops the in-namespace
-;; leak so it is benign today (rf2-gba3ou) — this pins the end-to-end no-leak
+;; leak — this pins the end-to-end no-leak
 ;; contract regardless of which layer enforces it.
 (deftest depth-0-replace-reject-emit-does-not-leak-into-next-cascade
-  (testing "rf2-gba3ou — the out-of-cascade :rf.epoch/replace-history-disabled
+  (testing "the out-of-cascade :rf.epoch/replace-history-disabled
             emit from a depth-0 replace-frame-state! reject does NOT surface in
             the NEXT cascade's assembled record for that frame"
     (rf/configure! {:epoch-history {:depth 0 :trace-events-keep 50}})
@@ -4002,20 +4002,20 @@
             "the out-of-drain reject emit does NOT leak into the next cascade's :trace-events"))
       (rf/unregister-listener! :epoch ::watcher))))
 
-;; ---- restore trace-tag :rf.epoch/id golden guard (rf2-5wzfez) ---------------
+;; ---- restore trace-tag :rf.epoch/id golden guard ---------------------------
 ;;
 ;; Spec 009 §Instrumentation and Spec-Schemas reserve the namespaced
 ;; `:rf.epoch/id` key for the epoch-id slot on EVERY `:rf.epoch/*` trace tag
 ;; (Spec-Schemas `Restore{UnknownEpoch,SchemaMismatch,MissingHandler,
-;; VersionMismatch,DuringDrain}Tags` + `DbReplacedTags`). The restore
-;; success (`:rf.epoch/restored`) and the precondition-failure traces had
-;; drifted to an unqualified `:epoch-id` alias, splitting the contract so a
+;; VersionMismatch,DuringDrain}Tags` + `DbReplacedTags`). An unqualified
+;; `:epoch-id` alias on the restore success (`:rf.epoch/restored`) or the
+;; precondition-failure traces would split the contract, so a
 ;; trace consumer keyed off the Spec-Schemas vocabulary could not correlate a
 ;; restore success/failure trace with its epoch record. This golden guard
 ;; drives one restore SUCCESS and two restore FAILURE paths, validates each
 ;; emitted tag map against the Spec-Schemas key-set, and — adversarially —
-;; fails loudly if ANY restore-family trace tag ever carries the unqualified
-;; `:epoch-id` again.
+;; fails loudly if ANY restore-family trace tag carries the unqualified
+;; `:epoch-id`.
 
 (defn- restore-tag-event
   "Find the first listener event whose `:operation` is `op`."
@@ -4100,12 +4100,12 @@
             "restore-during-drain contract keys == Spec-Schemas RestoreDuringDrainTags
              (:recovery hoisted to envelope; :rf.trace/dispatch-id is cascade correlation)")
 
-        ;; --- ADVERSARIAL guard (rf2-ifdsar): NO trace event in the WHOLE
+        ;; --- ADVERSARIAL guard: NO trace event in the WHOLE
         ;;     epoch trace family may carry the unqualified :epoch-id alias
         ;;     as a tag. The canonical epoch-identity TAG is :rf.epoch/id
         ;;     (the bare :epoch-id is the RECORD-field spelling only — the
         ;;     deliberate record/projection vocabulary, never a trace tag).
-        ;;     Generalised from the prior restore-only scan so a future
+        ;;     Scoped to the whole family, not only restore, so a future
         ;;     epoch trace op (restore mode, :rf.epoch.cb/* listener
         ;;     diagnostic, :rf.warning/epoch-* advisory) cannot silently
         ;;     regress the canonical tag. The op-namespace test is
@@ -4121,12 +4121,12 @@
                                        events)]
           (is (empty? leaked)
               (str "no epoch-family trace tag may carry the unqualified "
-                   ":epoch-id alias (canonical is :rf.epoch/id, rf2-ifdsar); "
+                   ":epoch-id alias (canonical is :rf.epoch/id); "
                    "leaked ops: " (mapv :operation leaked))))))))
 
-;; ---- destroyed-frame contract (rf2-d656) -----------------------------------
+;; ---- destroyed-frame contract ----------------------------------------------
 ;;
-;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
+;; Per Tool-Pair §Surface behaviour against destroyed frames:
 ;;   - read-shaped surfaces return empty/nil:
 ;;       (rf/epoch-history destroyed)  → []
 ;;       (rf/app-db-value   destroyed) → nil
@@ -4315,15 +4315,13 @@
         (is (= 1 (count silenced))
             "silencing fires for the observed frame")))))
 
-;; ---- rf2-ronz: on-frame-destroyed! direct unit pin ------------------------
+;; ---- on-frame-destroyed! direct unit pin ----------------------------------
 ;;
-;; Per test-coverage-review-2026-05-12 P3-20. Currently reached only
-;; via destroyed-frame-epoch-history-returns-empty and
-;; destroyed-frame-app-db-value-returns-nil; no direct unit pins the
-;; contract. on-frame-destroyed! is the late-bind hook
+;; on-frame-destroyed! is the late-bind hook
 ;; (`re-frame.frame/destroy-frame!` calls it via `:epoch/on-frame-destroyed`).
-;; Tools and alternate-destroy paths invoke it directly; pin the
-;; seam.
+;; Tools and alternate-destroy paths invoke it directly, so these pin the
+;; seam itself rather than only through destroyed-frame-epoch-history-
+;; returns-empty and destroyed-frame-app-db-value-returns-nil.
 
 (deftest on-frame-destroyed-clears-frame-buffer-directly
   (testing "calling epoch.listeners/on-frame-destroyed! on a frame drops its
@@ -4342,10 +4340,10 @@
 
     ;; Call on-frame-destroyed! DIRECTLY — without going through
     ;; frame/destroy-frame!. The frame record still exists in
-    ;; frames-atom; only the epoch ring is dropped. (rf2-9neiq: the
+    ;; frames-atom; only the epoch ring is dropped. (The
     ;; hook takes (frame-id owner-token db-before db-after committed-at) —
-    ;; exact incarnation ownership plus rf2-bh56rc
-    ;; added the causal :time-ms; this seam tests the ring-drop with no
+    ;; exact incarnation ownership plus
+    ;; the causal :time-ms; this seam tests the ring-drop with no
     ;; in-flight cascade, so nil snapshots + nil committed-at apply.)
     (rf.epoch.listeners/on-frame-destroyed!
       :test/other (rf.frame/frame-incarnation-token :test/other) nil nil nil)
@@ -4367,7 +4365,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/repeat})
     (is (= 1 (count (rf/epoch-history :test/repeat))))
 
-    ;; First call — clears the buffer. (rf2-9neiq / rf2-bh56rc: hook arity
+    ;; First call — clears the buffer. (Hook arity
     ;; is (frame-id owner-token db-before db-after committed-at); nil snapshots + nil
     ;; committed-at for this ring-drop pin.)
     (let [owner-token (rf.frame/frame-incarnation-token :test/repeat)]
@@ -4391,7 +4389,7 @@
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
-;; ---- rf2-vxgfnd.246 — the snapshot/publish SPLIT: nil bundle publishes nothing
+;; ---- the snapshot/publish SPLIT: nil bundle publishes nothing
 ;;
 ;; `frame/destroy-frame!` SPLITS the epoch destroy contract across two late-bind
 ;; hooks: `:epoch/snapshot-frame-destroyed` binds A's terminal evidence BEFORE
@@ -4402,7 +4400,7 @@
 ;; through as the `terminal-evidence` bundle. The publish half must then fabricate
 ;; NOTHING. This pins that honesty at the epoch seam: a lost snapshot yields no
 ;; terminal record — the publish never synthesises evidence the snapshot did not
-;; bind (rf2-vxgfnd.151/.246). The full-destroy peer (a throwing snapshot hook
+;; bind. The full-destroy peer (a throwing snapshot hook
 ;; leaving no residual ring + exactly one diagnostic) lives in
 ;; `frame-destroy-incarnation-jvm-test/snapshot-hook-failure-leaves-no-residual-ring`.
 
@@ -4435,35 +4433,35 @@
       (is (zero? (reduce + 0 (map count (vals (rf.epoch.state/terminal-silence-marks-snapshot)))))
           "a nil bundle opens no deferred-silence window — no mark accreted (bounded)"))))
 
-;; ---- rf2-hclxos — nil terminal-evidence STILL cleans the exact-owner stores ----
+;; ---- nil terminal-evidence STILL cleans the exact-owner stores -------------
 ;;
-;; PR #5939 made a nil terminal-evidence bundle PUBLISH nothing when the pre-dissoc
+;; A nil terminal-evidence bundle PUBLISHES nothing when the pre-dissoc
 ;; `:epoch/snapshot-frame-destroyed` hook throws (frame.cljc converts the throw to
 ;; nil). But cleanup authority comes SEPARATELY from the frame-id + owner-token, so
 ;; `on-frame-destroyed!` must still DROP the destroyed incarnation's id-keyed stores
-;; even when the bundle is nil. Before the fix the exact-owner `cleanup-frame-owner!`
-;; transaction nested INSIDE `(when terminal-evidence ...)`, so a snapshot failure
-;; suppressed cleanup too and a same-id successor B inherited A's history /
+;; even when the bundle is nil. Nesting the exact-owner `cleanup-frame-owner!`
+;; transaction INSIDE `(when terminal-evidence ...)` would let a snapshot failure
+;; suppress cleanup too, and a same-id successor B would inherit A's history /
 ;; observation / buffer / last-settled-epoch / mount attribution.
 ;;
-;; This regression drives the throwing-snapshot repro through the FULL destroy path
+;; This drives the throwing-snapshot repro through the FULL destroy path
 ;; and proves: (1) the destroyed id's public history is [] after destroy; (2) a
 ;; same-id successor B, BEFORE its first epoch, inherits none of A's records (no
-;; `[:audit/seed]`, distinct token); (3) the #5939 non-fabrication invariant still
+;; `[:audit/seed]`, distinct token); (3) the non-fabrication invariant still
 ;; holds — no `:halted-destroy` record, no owed silence, no accreted mark. The
-;; sibling #5939 (`terminal-publish-noops-on-nil-bundle-no-fabrication`) and #5956
+;; sibling `terminal-publish-noops-on-nil-bundle-no-fabrication` and the
 ;; integrated fixtures never READ destroyed / pre-first-epoch successor history; this
-;; one does. Reverting the cleanup beneath the evidence guard fails assertion (1).
+;; one does. Moving the cleanup beneath the evidence guard fails assertion (1).
 
 (deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil
   (testing "a throwing :epoch/snapshot-frame-destroyed hook yields nil terminal-
-            evidence (#5939), but the destroyed incarnation's id-keyed epoch stores
+            evidence, but the destroyed incarnation's id-keyed epoch stores
             are STILL dropped — cleanup authority is the frame-id + owner-token, not
-            the snapshot bundle — so a same-id successor B inherits nothing (rf2-hclxos).
+            the snapshot bundle — so a same-id successor B inherits nothing.
             Directly SEEDS and ASSERTS each of the FIVE exact-owner stores the
             cleanup-fn drops — observation stamps, history, capture buffer,
             last-settled epoch, mount attribution — so neutering ANY single drop
-            fails exactly its assertion (rf2-oh1y8)."
+            fails exactly its assertion."
     (let [id            :test/nil-evidence-cleanup
           cb            ::nil-evidence-cb
           render-key    ::nil-evidence-view   ; mount-attribution key for store #5
