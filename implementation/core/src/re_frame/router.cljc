@@ -974,7 +974,12 @@
                  :effects {}
                  :rf/framework-authority? (rf.events/framework-authority? handler-meta)
                  :rf/fx-overrides fx-overrides}
-          skip-handler? (assoc :rf/skip-handler? true))))))
+          ;; Delivery sets its skip flag only when a supplier / generator
+          ;; threw. `:rf/cofx-failed?` tells `commit-and-flow!` this skip is a
+          ;; FAILURE, so the event settles `:error` with nothing installed; an
+          ;; interceptor's deliberate `:rf/skip-handler?` carries no marker.
+          skip-handler? (assoc :rf/skip-handler? true
+                               :rf/cofx-failed? true))))))
 
 (def ^:private handler-wrapping-interceptor-ids
   "The `:id`(s) the event registrar stamps on the handler-wrapping
@@ -1445,8 +1450,8 @@
 
   nil-coercion: a `:db nil` effect is coerced to `{}` HERE —
   at the `:db` effect → `:rf.db/app` partition mapping, as the candidate is
-  built — so the partition layer never sees a nil app-db (app-db is always
-  a map). The coercion emits a dev-mode `:rf.warning/db-nil-coerced`
+  built — so the partition layer never sees a nil app-db. Only nil is
+  coerced. The coercion emits a dev-mode `:rf.warning/db-nil-coerced`
   diagnostic for accidental-wipe visibility; a deliberate clear
   (`{:db {}}`) does not.
 
@@ -1481,7 +1486,7 @@
         ;; fail-loud pre-commit in `rf.events/commit-fx-effects`; here we only
         ;; APPLY the validated declaration.)
         class-effect? (rf.elision/classification-effect? effects)
-        ;; nil-coercion: app-db is ALWAYS a map, never nil. A
+        ;; nil-coercion: app-db is never nil. A
         ;; `:db nil` effect is coerced to `{}` HERE — at the `:db` effect →
         ;; `:rf.db/app` partition mapping, BEFORE `commit-frame-transition!` —
         ;; so the partition layer never sees a nil app-db. This rules out a
@@ -1501,7 +1506,7 @@
                     :recovery          :warned
                     :reason
                     (str "Event `" (when (vector? event) (first event)) "` returned `{:db nil}`. "
-                         "app-db is always a map, never nil — the nil was coerced to `{}` "
+                         "app-db is never nil — the nil was coerced to `{}` "
                          "at the commit boundary (the v1 nil-footgun is removed structurally). "
                          "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
                          "nil); for a deliberate clear, return `{:db {}}` (which emits no "
@@ -2625,12 +2630,14 @@
   record (Spec 009 §Event-emit listener §Record shape):
 
     :ok          — clean settle (db committed, flows ran, :fx walked).
-    :error       — the interceptor chain threw (event handler, a user
-                   interceptor `:before`/`:after`, or a coeffect
-                   injection); `emit-pipeline-exception!` has already
-                   fired the component-attributed error trace
-                   (`:rf.error/handler-exception` / `interceptor-exception`
-                   / `coeffect-exception`). No install,
+    :error       — the interceptor chain threw (the event handler, or a
+                   user interceptor `:before`/`:after`) and
+                   `emit-pipeline-exception!` fired the component-attributed
+                   error trace (`:rf.error/handler-exception` /
+                   `interceptor-exception`); or a coeffect supplier /
+                   generator threw at context assembly
+                   (`:rf/cofx-failed?`) and `re-frame.cofx` fired
+                   `:rf.error/coeffect-exception`. No install,
                    app-db unchanged, :fx skipped.
     :rolled-back — candidate schema validation REJECTED the transition
                    BEFORE install (Spec 010 row 4): the
@@ -2735,6 +2742,16 @@
               ::stale-incarnation
               (do (restore!)
                   (if (live?) :error ::stale-incarnation))))
+
+          ;; A coeffect supplier or generator threw at context assembly. The
+          ;; handler never ran and `re-frame.cofx` has already emitted the
+          ;; supplier-attributed `:rf.error/coeffect-exception`, so this arm
+          ;; emits nothing: it aborts like a chain throw (no install, no `:fx`)
+          ;; and settles `:error`. It sits below every arm that emits, so a
+          ;; failure the unwind itself produced still reports.
+          (:rf/cofx-failed? final-ctx)
+          (do (restore!)
+              (if (live?) :error ::stale-incarnation))
 
           :else
           (let [commit-result
