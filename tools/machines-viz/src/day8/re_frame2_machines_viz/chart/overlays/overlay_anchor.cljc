@@ -130,8 +130,7 @@
   "Pure resolution check for a `:spawn-all` join given the join
   condition + the set of done child keys + total child count. Mirrors
   Spec 005 §`:spawn-all` join semantics — the CLOSED two-member enum
-  `:all` / `:any` (rf2-w8gxxz cut the `{:n N}` / `{:fn pred}` modes). The
-  host-supplied `:resolved?` is honoured verbatim when present.
+  `:all` / `:any`. The host-supplied `:resolved?` is honoured verbatim when present.
 
   Used by the join inspector to colour the 'Resolved' line + compute
   the 'waiting for K of N' remainder. Pure data → boolean."
