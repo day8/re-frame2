@@ -22,7 +22,7 @@
          ;; unregistered — it never requires an optional artefact itself, so
          ;; classpath presence alone registers nothing. An artefact belongs
          ;; here only when a test namespace requires it: `re-frame.schemas`
-         ;; is required by four of them, and test-quiet is the runner.
+         ;; is required by three of them, and test-quiet is the runner.
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; Keep the contention suite out of the default gate; `:slow-test`
