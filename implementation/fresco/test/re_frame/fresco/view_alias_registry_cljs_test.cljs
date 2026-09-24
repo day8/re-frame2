@@ -22,11 +22,10 @@
   A private slot, with `:executable-key` pointing the registrar at it and
   `:handler-fn` absent, would make `(rf/view id)` answer nil for a Fresco
   view, and every consumer would need a second descriptor shape.
-  `re-frame.views/view-head` returns a `:view`
-  slot it did not itself build EXACTLY AS STORED — no `compose-view`, no
-  `:adapter/wrap-view`, no componentise — so publishing the head under
-  the ordinary key costs the boundary nothing and buys one answer on every
-  substrate. The rows below assert both halves: that `rf/view` answers
+  `re-frame.views/view-head` returns a `:view` slot it did not itself
+  build EXACTLY AS STORED — no `compose-view`, no `:adapter/wrap-view`,
+  no componentise — so publishing the head under the ordinary key costs
+  the boundary nothing and buys one answer on every substrate. The rows below assert both halves: that `rf/view` answers
   the head, and that it is the untouched `def` value.
 
   ## The peer registration is the point of comparison, not decoration
