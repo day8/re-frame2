@@ -49,9 +49,8 @@
 
   So [[::pane-shown]] names this application's own root
   ([[root-selector]], the `<main>` the shell view renders) and
-  [[::focus-heading]] resolves the heading INSIDE it. The scope is the correction the merged-PR audits of
-  #7970 and #8031 asked for, and it is load-bearing rather than
-  decorative: the browser witness mounts a marked DECOY heading ahead of
+  [[::focus-heading]] resolves the heading INSIDE it. The scope is
+  load-bearing rather than decorative: the browser witness mounts a marked DECOY heading ahead of
   the application and asserts both halves — that a document-wide lookup
   answers the decoy, and that focus lands on this application's own
   heading anyway.
