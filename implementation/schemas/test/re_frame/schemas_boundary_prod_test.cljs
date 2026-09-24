@@ -1,6 +1,5 @@
 (ns re-frame.schemas-boundary-prod-test
-  "Production-mode CLJS smoke for `:boundary? true` (rf2-r2uh, rf2-84e9;
-  the flag replaced the retired chain-ref opt-in at rf2-kuky.64).
+  "Production-mode CLJS smoke for `:boundary? true`.
 
   The JVM smoke (`re-frame.schemas-test`) exercises the dev/prod gate by
   rebinding `re-frame.spec/dev-mode?` via `with-redefs`. That proves the
@@ -28,16 +27,15 @@
        exactly what must not egress.
     3. The handler-skip recovery (`:rf/skip-handler?` set on the
        context) is the load-bearing SECURITY surface.
-    4. rf2-mwv4e — and the rejection is now OBSERVABLE here too. The
+    4. The rejection is OBSERVABLE here too. The
        silence in (2) is the trace axis ONLY; the refusal additionally
        fans one always-on STRUCTURAL-ONLY record through
        `register-error-listener!`, which carries no gate and survives
-       `:advanced`. That axis is the whole point: before it, this
-       `:advanced` build was the exact configuration in which a refused
-       untrusted payload told nobody. Pinning both here — trace EMPTY,
-       always-on record PRESENT — is what proves the two axes are
-       genuinely separate rather than one surface everyone assumed
-       survived.
+       `:advanced`. That axis is the whole point: without it, this
+       `:advanced` build would be the exact configuration in which a
+       refused untrusted payload tells nobody. Pinning both here — trace
+       EMPTY, always-on record PRESENT — is what proves the two axes are
+       genuinely separate.
 
   We deliberately use the ns suffix `-prod-test` (not `-cljs-test`) so
   the default `:browser-test` and `:node-test` builds (whose regexes
@@ -49,25 +47,24 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.late-bind :as rf.late-bind]
-            ;; Per rf2-t0hq the CLJS default validator routes through the
+            ;; The CLJS default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, published at load
             ;; time by the `re-frame.schemas.malli` adapter ns — which the
-            ;; facade below `:require`s in its own ns-form (rf2-v96fh,
-            ;; Ruling A). Requiring `re-frame.schemas` is the whole opt-in,
+            ;; facade below `:require`s in its own ns-form. Requiring
+            ;; `re-frame.schemas` is the whole opt-in,
             ;; so the boundary arm sees real Malli verdicts here
             ;; with no second require at app boot.
             [re-frame.schemas :as rf.schemas]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support])
-  ;; rf2-bhh8my: the shared trace recorder supersedes the per-test
-  ;; register-listener!/unregister-listener! capture bracket. The macro
+  ;; The shared trace recorder captures each test's traces. The macro
   ;; ships from the `#?(:clj ...)` arm of re-frame.test-support, so CLJS
   ;; reaches it via :require-macros (mirrors re-frame.core's call-site macros).
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Mirror schemas_cljs_test.cljs's fixture: snapshot/restore the
-;; registrar (rf2-am9d) and clear the schemas artefact's per-frame
-;; side-table between tests (rf2-cq1ak — app-db schemas are NOT a
+;; registrar and clear the schemas artefact's per-frame
+;; side-table between tests (app-db schemas are NOT a
 ;; registrar kind).
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -77,7 +74,7 @@
 ;; ---- boundary interceptor under `:advanced` + `goog.DEBUG=false` ---------
 
 (deftest boundary-skips-handler-on-invalid-event-in-prod
-  (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:advanced`
+  (testing "Per Spec 010 §Production builds: under `:advanced`
             + `goog.DEBUG=false` the boundary interceptor takes its
             production validation branch. A malformed event against the
             handler's `:schema` causes `:rf/skip-handler?` to be set on
@@ -97,7 +94,7 @@
           "handler was skipped — the boundary arm refused at step 1"))))
 
 (deftest boundary-passes-valid-event-through-in-prod
-  (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:advanced`
+  (testing "Per Spec 010 §Production builds: under `:advanced`
             + `goog.DEBUG=false` a valid event against the handler's
             `:schema` flows through the boundary arm unchanged.
             The handler runs exactly once."
@@ -120,8 +117,8 @@
             This pins the dual-elision contract: trace gate AND boundary
             gate both fold under the same closure-define. A registered
             trace callback would never see a boundary emission because
-            the entire emit body has DCE'd. rf2-mwv4e keeps this pin
-            deliberately: the trace is where the rejected VALUE and the
+            the entire emit body has DCE'd. This pin is
+            deliberate: the trace is where the rejected VALUE and the
             validator's `:explain` ride, and those are precisely what a
             production build must not carry. The production REPORT lives
             on the always-on axis instead — see the deftest below."
@@ -142,18 +139,18 @@
             "no traces observed — Spec 009 §Production builds elision contract holds")))))
 
 (deftest boundary-rejection-is-observable-on-the-always-on-axis-in-prod
-  (testing "rf2-mwv4e — the counterpart to the elision pin above, in the ONE
-            configuration where it mattered most. Under `:advanced` +
+  (testing "the counterpart to the elision pin above, in the ONE
+            configuration where it matters most. Under `:advanced` +
             `goog.DEBUG=false` the boundary check runs, the handler is skipped,
-            and the trace surface is gone. Until this bead that was the whole
-            story: a refused untrusted payload emitted nothing anywhere, and
-            the always-on `:events` record for the dispatch read `:outcome
-            :ok` — a shipper saw a dispatch that succeeded.
+            and the trace surface is gone. Without the always-on record a
+            refused untrusted payload would emit nothing anywhere, and an
+            `:events` record reading `:outcome :ok` would show a shipper a
+            dispatch that succeeded.
 
             `register-error-listener!` carries no debug gate, so the structural
-            record below survives the same closure-define that erased the
-            trace. Red here means the promotion did not survive `:advanced`,
-            which is the only build where it was needed."
+            record below survives the same closure-define that erases the
+            trace. Red here means the record did not survive `:advanced`,
+            which is the only build where it is needed."
     (rf/reg-event :api/strict
       {:schema    [:cat [:= :api/strict] :int]
        :boundary? true}
@@ -181,14 +178,14 @@
         (is (not (re-find #"not-an-int" (pr-str rec)))
             "and carries NOTHING from the rejected payload")
         (is (= :rejected (:outcome evt))
-            "the :events record reports :rejected, not the old :ok lie")))))
+            "the :events record reports :rejected, not :ok")))))
 
 (deftest boundary-arm-is-not-removable-by-interceptor-overrides-in-prod
-  (testing "Per rf2-kuky.64 — the check is no longer a chain entry, so under
+  (testing "the check is not a chain entry, so under
             `:advanced` + `goog.DEBUG=false` no `:interceptor-overrides` map
-            can disarm it. The predecessor ref COULD be removed that way, and
-            only in production: dev step-1 kept refusing, so the two builds
-            disagreed about whether the gate existed at all."
+            can disarm it. A chain entry could be removed that way, and
+            only in production: dev step-1 would keep refusing, so the two
+            builds would disagree about whether the gate existed at all."
     (let [calls (atom 0)]
       (rf/reg-event :api/override-probe
         {:schema    [:cat [:= :api/override-probe] :int]
@@ -215,7 +212,7 @@
           "unflagged handler ran on the malformed payload — dev-time validation is elided"))))
 
 (deftest boundary-noop-when-validator-is-nil-in-prod
-  (testing "Per Spec 010 §Non-Malli validators (rf2-froe): even under
+  (testing "Per Spec 010 §Non-Malli validators: even under
             `:advanced` + `goog.DEBUG=false`, setting the validator to
             `nil` disables every validation surface — including the
             boundary arm. The handler runs on a wildly malformed
@@ -233,7 +230,7 @@
       (finally
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
-;; ---- rf2-tiymn — the humanizer is NOT published in production ------------
+;; ---- the humanizer is NOT published in production ------------------------
 ;;
 ;; The adapter publishes `malli.error/humanize` under
 ;; `:schemas/humanize-explain!` inside `(when interop/debug-enabled? ...)`.
@@ -244,26 +241,26 @@
 ;; pins the bundle shape (the keyword never survives into the probe).
 
 (deftest humanizer-unpublished-in-prod-cljs
-  (testing "rf2-tiymn — under `:advanced` + `goog.DEBUG=false` the humanize
+  (testing "under `:advanced` + `goog.DEBUG=false` the humanize
             hook is unbound while the validator hook is bound"
     (is (nil? (rf.late-bind/get-fn :schemas/humanize-explain!))
         "no humanizer in a production build")
     (is (fn? (rf.late-bind/get-fn :schemas/malli-validate))
         "the validator from the same adapter ns-load IS bound — the absence above is the gate, not a missing adapter")))
 
-;; ---- rf2-6eh5h — a present NIL :schema cannot run a boundary handler -----
+;; ---- a present NIL :schema cannot run a boundary handler -----------------
 ;;
 ;; Declaration presence is KEY-presence, not value truthiness. The
 ;; registrar accepts `{:schema nil :boundary? true}` (it checks
-;; `contains?`), and before rf2-6eh5h the production branch treated nil as
-;; impossible and passed the event through — in THIS build configuration
-;; (step-1's dev arm DCE'd, the boundary arm as the only guard) the handler
-;; ran UNGUARDED on the untrusted payload the flag exists to gate. These pins
-;; are the release-resident regression: the boundary arm must delegate the
-;; exact nil token and reject.
+;; `contains?`), so a production branch that treated nil as impossible and
+;; passed the event through would, in THIS build configuration (step-1's dev
+;; arm DCE'd, the boundary arm as the only guard), run the handler UNGUARDED
+;; on the untrusted payload the flag exists to gate. These pins hold the
+;; release build to it: the boundary arm must delegate the exact nil token
+;; and reject.
 
 (deftest boundary-rejects-explicit-nil-schema-in-prod
-  (testing "rf2-6eh5h — under `:advanced` + `goog.DEBUG=false` a handler
+  (testing "under `:advanced` + `goog.DEBUG=false` a handler
             registered with {:schema nil} + `:boundary? true` does
             NOT run on dispatch: the nil delegates to default Malli, which
             fails CLOSED through the seam's malformed-schema isolation"
@@ -277,7 +274,7 @@
           "handler NOT invoked — the present-nil declaration fails closed, never fail-open"))))
 
 (deftest boundary-delegates-nil-token-to-custom-validator-in-prod
-  (testing "rf2-6eh5h — the production path hands the EXACT nil token to a
+  (testing "the production path hands the EXACT nil token to a
             substituted validator (the value is opaque per Spec 010); its
             false verdict rejects the event and the handler is not invoked"
     (let [seen  (atom [])
