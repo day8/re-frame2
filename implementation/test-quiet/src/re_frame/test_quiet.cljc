@@ -10,8 +10,8 @@
       0 failures, 0 errors.
 
   Per-namespace `Testing <ns>` banners are suppressed on the success
-  path; per-`deftest` `Testing <var>` banners were already silent in
-  both reporters by default and stay that way.
+  path; per-`deftest` `Testing <var>` banners are silent in both
+  reporters by default.
 
   This namespace governs only reporter output. The runtime entry points
   (`re-frame.test-quiet.runner` on the JVM and
