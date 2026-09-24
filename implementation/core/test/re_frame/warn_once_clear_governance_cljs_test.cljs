@@ -11,9 +11,8 @@
   the slim hiccup interpreter's `warned-keyword-prop`, and the React-hook
   spine's per-adapter cache.
 
-  Every contributor enrols through the
-  single chokepoint `re-frame.late-bind/register-warn-once-clear-fn!`,
-  which both chains the clear-fn AND records the cache (with `:arm` /
+  Every contributor enrols through the single chokepoint
+  `re-frame.late-bind/register-warn-once-clear-fn!`, which both chains the clear-fn AND records the cache (with `:arm` /
   `:armed?` probes where the cache atom is in scope) in the
   `warn-once-clear-registry`. This test enumerates that registry and
   proves, empirically, that firing the canonical chain ONCE wipes every
