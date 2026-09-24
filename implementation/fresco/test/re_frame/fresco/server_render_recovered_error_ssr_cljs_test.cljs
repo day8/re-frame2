@@ -1,17 +1,16 @@
 (ns re-frame.fresco.server-render-recovered-error-ssr-cljs-test
   "`re-frame.fresco.server/render` — the whole-page DOCUMENT door — FAILS a
-  render the runtime recorded a recovered error during (rf2-ypom, rf2-ct24:
-  one defect reached from two directions).
+  render the runtime recorded a recovered error during.
 
-  ## What was wrong
+  ## What the verdict guards against
 
   A sub that throws mid-render does not take the render down. The
   framework's built-in recovery yields `nil`, the view renders a hole, and
-  the pass returns a string — so `render` assembled a payload and a
-  document around markup the application never meant to produce, and
-  answered it as a success.
+  the pass returns a string — so without the verdict `render` would
+  assemble a payload and a document around markup the application never
+  meant to produce, and answer it as a success.
 
-  The obvious instrument does not see it, which is why the defect survived.
+  The obvious instrument does not see it.
   `re-frame.ssr`'s per-frame buffer is filled by
   `error-emit-projection-listener`, and that listener buffers a record only
   when THREE things hold: the category is outside the
@@ -19,12 +18,11 @@
   and that frame is a registered `:platform :server` frame. Fresco's cold
   reads go through pure `compute-sub`, whose `:rf.error/sub-exception` is
   stamped `:frame nil` BY CONSTRUCTION — a pure fn has no frame in scope to
-  stamp — so the second drops it; and `render` does not set
-  `:platform :server` on its per-request frame, so the third would drop it
-  independently. A per-frame peek reads CLEAN on exactly the failure it was
-  named for. The door therefore watches the ALWAYS-ON error-emit stream,
-  which sits upstream of all three, exactly as `render-body` has since
-  slice E.
+  stamp — so the second drops it, and drops it alone: `render` tags its
+  per-request frame `:platform :server`, so the third holds. A per-frame
+  peek reads CLEAN on exactly the failure it was named for. The door
+  therefore watches the ALWAYS-ON error-emit stream, which sits upstream of
+  all three, exactly as `render-body` does.
 
   ## The four claims
 
@@ -32,7 +30,7 @@
      through `render`, raises `:rf.error/ssr-render-failed` — and names
      `render` as the raiser, not `render-body`.
   2. **The control.** The same door, the same shape of tree, a sub that
-     does not throw: the existing map and document come back UNCHANGED.
+     does not throw: the six-key map and the document come back intact.
      Read the pair together — a refusal row on its own cannot tell 'the
      check fired' from 'the render was broken all along', and a control
      row on its own cannot tell 'the shape is intact' from 'the check
@@ -83,11 +81,11 @@
 ;; §5's boot event, registered HERE for the reason the block comment above
 ;; gives: the reset fixture captures its source-store baseline when
 ;; `use-fixtures` is EVALUATED, so a registration written further down the file
-;; is erased before the first row runs. Written below, this handler was silently
-;; absent and its dispatch became `:rf.error/no-such-handler` — so the outer
-;; render still refused and every assertion but the precondition passed. The row
-;; would have read GREEN while measuring no re-entrancy at all; §5's
-;; precondition is what caught it.
+;; is erased before the first row runs. Written below, this handler would be
+;; silently absent and its dispatch would become `:rf.error/no-such-handler` —
+;; so the outer render would still refuse and every assertion but the
+;; precondition would pass. The row would read GREEN while measuring no
+;; re-entrancy at all; §5's precondition is what catches that.
 ;;
 ;; The inner render takes PLAIN hiccup rather than a view, so this handler
 ;; compiles here without forward-referencing the probes defined below.
@@ -95,12 +93,12 @@
 ;; It re-enters and RETURNS — it must not throw. A boot event whose handler
 ;; throws is not a recovered error at all: `rf/make-frame` raises
 ;; `:rf.error/initial-events-step-failed` and takes the render down before the
-;; verdict is ever reached (measured). The recovered emission is §5's SECOND
-;; boot event instead.
+;; verdict is ever reached. The recovered emission is §5's SECOND boot event
+;; instead.
 (rf/reg-event ::re-enter-then-recover
   (fn [{:keys [db]} _]
-    ;; Re-enter the SAME door. Under the fixed-key form this REPLACED the outer
-    ;; listener, and the inner `finally` then removed it outright.
+    ;; Re-enter the SAME door. Under one fixed key per door this would REPLACE
+    ;; the outer listener, and the inner `finally` would then remove it outright.
     (reset! !inner-outcome
             (try (rf.fresco.server/render {:hiccup   [:div.inner "inner"]
                                  :snapshot {:label "inner"}
@@ -138,9 +136,9 @@
 ;; the intended blast radius, since the rows exist to pin that each door clears
 ;; its own and that nesting does not disarm an outer window.
 ;;
-;; A key is `[tag frame-id]` — PER INVOCATION, not per door (rf2-ypom). The
-;; door tag alone is no longer a registry key, so these rows match on the tag
-;; half and count the windows carrying it.
+;; A key is `[tag frame-id]` — PER INVOCATION, not per door. The door tag
+;; alone is not a registry key, so these rows match on the tag half and count
+;; the windows carrying it.
 
 (def ^:private render-listener-tag      :re-frame.fresco.server/render-recovered-error)
 (def ^:private render-body-listener-tag :re-frame.fresco.server/render-body-recovered-error)
@@ -249,7 +247,7 @@
         (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))))))
 
 ;; ---------------------------------------------------------------------------
-;; §2 — the control: the existing shape, unchanged
+;; §2 — the control: the full shape, intact
 ;; ---------------------------------------------------------------------------
 
 (deftest the-control-a-tree-with-no-recovered-error-returns-the-existing-shape
@@ -257,7 +255,7 @@
         (rf.fresco.server/render (request))]
     (is (= #{:frame-id :html :payload :payload-edn :payload-script :document}
            (set (keys result)))
-        "the response map's keys are exactly the six the door has always answered")
+        "the response map's keys are exactly the door's six")
     (is (keyword? frame-id))
     (is (str/includes? html "alpha")   "the snapshot reached the view")
     (is (str/includes? html "class=\"label\""))
@@ -346,27 +344,27 @@
 ;; §5 — SAME-door re-entrancy: the outer window survives the inner `finally`
 ;; ---------------------------------------------------------------------------
 ;;
-;; The audit of PR #9035 (rf2-ypom). §4 proves the two doors' keys differ, so
-;; a CROSS-door nesting is safe — but that was the whole of it: with one FIXED
-;; key per door, a door re-entering ITSELF reused a single key, the inner
-;; registration REPLACED the outer listener, and the inner `finally`
-;; unregistered it. The outer render then finished BLIND: any recovered error
-;; after that point was recorded by nobody, and the door returned a successful
-;; page over markup the application never meant to produce — the precise
-;; failure this whole suite exists to prevent, reached from the one direction
-;; §4's two-tag argument could not separate.
+;; §4 proves the two doors' keys differ, so a CROSS-door nesting is safe — but
+;; that is not the whole of it: with one FIXED key per door, a door re-entering
+;; ITSELF would reuse a single key, the inner registration would REPLACE the
+;; outer listener, and the inner `finally` would unregister it. The outer
+;; render would then finish BLIND: any recovered error after that point
+;; recorded by nobody, and the door returning a successful page over markup the
+;; application never meant to produce — the precise failure this whole suite
+;; exists to prevent, reached from the one direction §4's two-tag argument
+;; cannot separate.
 ;;
 ;; React rejecting a nested render does not make it safe, and that is why the
 ;; row below CATCHES the inner call rather than requiring it to succeed: the
 ;; inner `finally` runs on the throw too, and it is the `finally` — not the
-;; render — that removed the outer's listener.
+;; render — that would remove the outer's listener.
 ;;
-;; The fix keys each registration on the invocation's own frame id, so nesting
-;; ACCUMULATES windows instead of replacing them. Run this row against the
-;; pre-fix fixed-key form and it fails by the outer render RETURNING.
+;; Each registration is keyed on the invocation's own frame id, so nesting
+;; ACCUMULATES windows instead of replacing them. Against a fixed-key form this
+;; row fails by the outer render RETURNING.
 
 ;; The re-entry happens in a BOOT EVENT rather than in a view, and the reason is
-;; measured rather than stylistic. `render`'s window is armed BEFORE the frame
+;; mechanical rather than stylistic. `render`'s window is armed BEFORE the frame
 ;; is made, so the setup vector runs inside it — the door's own docstring names
 ;; this case: "a boot event that throws and recovers leaves the page rendered
 ;; over state the request never established, which is the same silent wrong page
@@ -374,7 +372,7 @@
 ;; handler itself is registered above `use-fixtures`; see the note there.
 ;;
 ;; Re-entering from a VIEW instead does not work as an instrument, and the way
-;; it fails is worth recording: a nested render tears down the OUTER render's
+;; it fails is worth knowing: a nested render tears down the OUTER render's
 ;; collector extent, so the next `h/sub` in the outer view raises
 ;; `:rf.error/fresco-sub-outside-render` from `impl.collector/read-key!` before
 ;; any recovered error can be emitted. The outer render then fails for a reason
@@ -401,9 +399,10 @@
          the inner door's `finally` has to reach the outer render's listener")
     (let [data (ex-data thrown)]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data))
-          "the recovered error was SEEN — under the fixed-key form the inner
-           `finally` had already removed this render's listener, so nothing
-           recorded it and the door answered a document instead")
+          "the recovered error was SEEN — under one fixed key per door the
+           inner `finally` would already have removed this render's
+           listener, so nothing would record it and the door would answer a
+           document instead")
       (is (= 're-frame.fresco.server/render (:where data))
           "and the refusal is the OUTER invocation's"))
     (testing "the registry baseline is restored — every window opened by the
@@ -414,9 +413,8 @@
           "and neither invocation left a frame behind"))))
 
 (deftest render-body-keeps-its-refusal-and-leaves-no-residue
-  (testing "the sibling door's semantics are unchanged by the whole-page
-            door gaining the same verdict, and running one after the other
-            leaves nothing behind"
+  (testing "the sibling door keeps its own verdict beside the whole-page
+            door's, and running one after the other leaves nothing behind"
     (let [listeners-before (live-error-listener-ids)
           data             (try (rf.fresco.server/render-body
                                   {:hiccup       [detonating {}]
@@ -424,7 +422,7 @@
                                 (catch :default e (ex-data e)))]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data)))
       (is (= 're-frame.fresco.server/render-body (:where data))
-          "still the body-only door's own symbol")
+          "the body-only door's own symbol")
       (is (= listeners-before (live-error-listener-ids)))
       (is (thrown? :default (rf.fresco.server/render (request :hiccup [detonating {}])))
           "and the whole-page door refuses right after it")
