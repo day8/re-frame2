@@ -22,12 +22,12 @@
     :error       — the interceptor chain (handler or interceptor) threw.
     :rolled-back — candidate `:db` schema validation REJECTED the
                    transition BEFORE install (Spec 010 §Per-step
-                   recovery row 4, rf2-uhk9ko): the container was never
+                   recovery row 4): the container was never
                    written and keeps its pre-handler value. This
                    substrate survives the production gate but THIS
                    OUTCOME HAS NO PRODUCER IN A PRODUCTION BUILD —
                    app-db candidate validation is dev-only (Spec 010
-                   §Production builds, rf2-bkvu5), so in a release build
+                   §Production builds), so in a release build
                    a candidate that violates a registered schema simply
                    installs and the dispatch reports `:ok`. An off-box
                    shipper must not read the absence of `:rolled-back`
@@ -36,7 +36,7 @@
                    semantics rule 3); the cascade halted before `:fx`.
     :rejected    — the `:boundary? true` step-1 check REFUSED the
                    event's payload against the handler's `:schema`
-                   (Spec 010 §Production builds, rf2-mwv4e). The handler
+                   (Spec 010 §Production builds). The handler
                    never ran; entered interceptors still unwound in
                    full. This is the exact COMPLEMENT of `:rolled-back`
                    on the production question: boundary validation is
