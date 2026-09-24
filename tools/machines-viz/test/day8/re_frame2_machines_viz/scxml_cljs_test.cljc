@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.scxml-cljs-test
-  "Pure-data tests for SCXML import/export (rf2-6urjd · v1.1).
+  "Pure-data tests for SCXML import/export.
 
   Mirrors the structure of `mermaid_cljs_test.cljc`. Coverage:
 
@@ -16,8 +16,8 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
             [clojure.walk :as walk]
-            ;; rf2-qy8p — the canonical recursive grammar gate. The import
-            ;; regressions below assert the POSTCONDITION `scxml->spec` now
+            ;; The canonical recursive grammar gate. The import
+            ;; tests below assert the POSTCONDITION `scxml->spec`
             ;; carries: a successful import is a definition every emitter,
             ;; the chart projector and `reg-machine` accept.
             [day8.re-frame2-machines-viz.grammar :as g]
@@ -31,13 +31,13 @@
     @acc))
 
 (def ^:private scxml-format-marker
-  "rf2-3x7nj.33.5 — the exact format comment `spec->scxml` writes after the
+  "The exact format comment `spec->scxml` writes after the
   prolog and `scxml->spec` requires. Spelled out literally so a change to the
   marker is a visible format change here too."
   "<!-- re-frame2 machines-viz SCXML v1 -->")
 
 (defn- marked
-  "rf2-3x7nj.33.5 — `str` for a HAND-WRITTEN input, led by the format marker,
+  "`str` for a HAND-WRITTEN input, led by the format marker,
   so the import assertions below keep running against a marked export
   augmented with content the importer does not model (a marked file can be
   hand-edited)."
@@ -100,7 +100,7 @@
              :blocked  {}}})
 
 (def machine-level-on-machine
-  "rf2-ee38b.21 — a flat machine with a top-level (machine-level) :on
+  "A flat machine with a top-level (machine-level) :on
   fallback transition every state inherits (Spec 005 §top-level :on)."
   {:initial :a
    :on      {:logout :a}
@@ -118,12 +118,12 @@
                               :correct {:final? true}}}}})
 
 (def vector-path-target-machine
-  "rf2-csq75 — a compound machine whose transition target is a VECTOR
+  "A compound machine whose transition target is a VECTOR
   PATH `[:authenticated :browsing]` (a deep-target into a compound
   child). The encoder must distinguish this from the namespaced keyword
-  `:authenticated/browsing`: pre-fix both dot-joined to
-  `\"authenticated.browsing\"` and the decoder collapsed the vector to a
-  namespaced keyword, silently changing machine semantics."
+  `:authenticated/browsing`: dot-joining both to
+  `\"authenticated.browsing\"` would let the decoder collapse the vector to
+  a namespaced keyword, silently changing machine semantics."
   {:initial :idle
    :states  {:idle          {:on {:login [:authenticated :browsing]}}
              :authenticated {:initial :browsing
@@ -131,7 +131,7 @@
                                        :paying   {}}}}})
 
 (def vector-path-namespaced-segment-machine
-  "rf2-csq75 — a vector-path target whose FIRST segment is itself a
+  "A vector-path target whose FIRST segment is itself a
   namespaced keyword (`[:auth/region :browsing]`). Exercises the
   `.`-within-segment + `:`-between-segments codec: a namespaced segment
   inside a vector path must survive both separators independently."
@@ -174,7 +174,7 @@
       (is (str/includes? out "target=\"success\"")))))
 
 (deftest emit-compound-machine-nests-states
-  (testing "rf2-mnp93.7 — compound states emit nested <state> blocks with
+  (testing "compound states emit nested <state> blocks with
             FULLY-QUALIFIED unique xsd:IDs (the path root→leaf, `___`-joined)
             so two same-named nested states never collide; `initial` and
             transition targets reference those same unique ids"
@@ -184,25 +184,25 @@
       (is (str/includes? out "<state id=\"authenticated___paying\"")))))
 
 (deftest emit-namespaced-ids-use-ns-name-marker
-  (testing "rf2-mnp93.1 / rf2-t69tdo — :auth/idle → id=\"auth-idle\" (the `-`
+  (testing ":auth/idle → id=\"auth-idle\" (the `-`
             ns/name marker; the keyword name/ns chars are hex-escaped so
             the codec is fully injective and xsd:ID-conformant). The `-`
             marker — which the escaper never emits (a literal `-` → `_2d`)
             — can never grow into a `___` path-run at the ns/name boundary,
-            unlike the pre-fix `__` marker."
+            as a `__` marker could."
     (let [out (scxml/spec->scxml namespaced-machine)]
       (is (str/includes? out "initial=\"auth-idle\""))
       (is (str/includes? out "<state id=\"auth-idle\""))
       (is (str/includes? out "<state id=\"auth-loading\""))
       (is (str/includes? out "event=\"rf-load\""))
-      ;; The old non-injective `.`-as-ns/name form must be gone.
+      ;; The non-injective `.`-as-ns/name form must not appear.
       (is (not (str/includes? out "id=\"auth.idle\"")))
-      ;; rf2-t69tdo — the ns/name boundary must NOT be a `__` run that could
+      ;; The ns/name boundary must NOT be a `__` run that could
       ;; collide with the `___` path separator.
       (is (not (str/includes? out "id=\"auth__idle\""))))))
 
 (deftest emit-guards-render-as-cond-attribute
-  (testing "rf2-mnp93.1 — guarded transitions render with cond= on
+  (testing "guarded transitions render with cond= on
             <transition>; the guard keyword is hex-escaped (`:ready?` →
             `ready_3f`) so the cond attribute is a valid xsd:ID-safe token"
     (let [out (scxml/spec->scxml guarded-machine)]
@@ -215,7 +215,7 @@
       (is (str/includes? out "target=\"timeout\"")))))
 
 (deftest emit-machine-level-on-not-dropped
-  (testing "rf2-ee38b.21 — a top-level (machine-level) :on fallback is
+  (testing "a top-level (machine-level) :on fallback is
             emitted (as a documented <transition> under <scxml>) rather
             than silently dropped (the parser-side P2 mirror). W3C SCXML
             has no clean root-fallback slot so this can't round-trip,
@@ -225,7 +225,7 @@
           "a comment documents the inherited fallback")
       (is (str/includes? out "event=\"logout\"")
           "the machine-level :logout transition is emitted")
-      ;; the per-state :go transition still emits normally
+      ;; The per-state :go transition emits normally too.
       (is (str/includes? out "event=\"go\"")))))
 
 (deftest emit-always-transitions-omit-event-attribute
@@ -235,13 +235,13 @@
       ;; Both attribute orders are equally valid SCXML; assert
       ;; semantic content, not lexical order.
       (is (str/includes? out "target=\"ready\""))
-      ;; rf2-mnp93.1 — guard hex-escaped (`:ready?` → `ready_3f`).
+      ;; Guard hex-escaped (`:ready?` → `ready_3f`).
       (is (str/includes? out "cond=\"ready_3f\""))
-      ;; rf2-0pp6as — a targeted internal-default transition now carries
+      ;; A targeted internal-default transition carries
       ;; the explicit `type="internal"` axis (so the export does not inherit
       ;; SCXML's EXTERNAL targeted-transition default). The `:always`
-      ;; candidate is eventless (no `event=`) but is still a targeted
-      ;; internal-default transition, so it carries `type="internal"`.
+      ;; candidate is eventless (no `event=`) but is a targeted
+      ;; internal-default transition too, so it carries `type="internal"`.
       (is (str/includes? out "<transition target=\"blocked\" type=\"internal\"/>"))
       ;; Eventless transitions must not carry event= — confirm by
       ;; searching for the malformed combination.
@@ -251,7 +251,7 @@
   (testing ":type :parallel emits a <parallel> wrapper with region children"
     (let [out (scxml/spec->scxml parallel-machine)]
       (is (str/includes? out "<parallel id=\"rf2_parallel_root\""))
-      ;; rf2-mnp93.7 — region children carry fully-qualified ids, so the
+      ;; Region children carry fully-qualified ids, so the
       ;; region's `initial` references the qualified child id.
       (is (str/includes? out "<state id=\"data\" initial=\"data___nothing\""))
       (is (str/includes? out "<state id=\"form\" initial=\"form___neutral\""))
@@ -302,9 +302,9 @@
     (is (round-trips? parallel-machine))))
 
 (deftest round-trip-vector-path-target
-  (testing "rf2-csq75 — a vector-path transition target round-trips as
+  (testing "a vector-path transition target round-trips as
             the SAME vector, NOT collapsed to a namespaced keyword"
-    ;; The exact repro from the bead: the target must come back a vector.
+    ;; The target must come back a vector.
     (let [spec {:initial :idle
                 :states  {:idle          {:on {:login [:authenticated :browsing]}}
                           :authenticated {:initial :browsing
@@ -321,8 +321,8 @@
     ;; keyword while the vector path stays a vector.
     (is (round-trips? vector-path-target-machine))
     (is (round-trips? vector-path-namespaced-segment-machine))
-    (testing "rf2-mnp93.1/.7 — the emitted SCXML uses `___` (not `:`)
-              between vector segments (the `:` of csq75 is not a valid
+    (testing "the emitted SCXML uses `___` (not `:`)
+              between vector segments (`:` is not a valid
               xsd:ID char); the dot-joined ambiguous form never appears"
       (let [out (scxml/spec->scxml vector-path-target-machine)]
         (is (str/includes? out "target=\"authenticated___browsing\"")
@@ -342,10 +342,10 @@
         (is (keyword? (get-in back [:states :a :on :go])))))))
 
 (deftest round-trip-non-latin1-ids
-  (testing "rf2-qgtcvy — state ids above U+00FF (CJK) round-trip EXACTLY.
-            The pre-fix `_<var-hex>` encode + `_XX` (2-hex) decode mis-read
+  (testing "state ids above U+00FF (CJK) round-trip EXACTLY.
+            A `_<var-hex>` encode + `_XX` (2-hex) decode would mis-read
             `:开始` (`_5f00_59cb`) as `:_00Ycb`; the fixed-width `_u<4-hex>`
-            codec is now reversible across the whole code-unit range"
+            codec is reversible across the whole code-unit range"
     (let [begin (keyword "开始")            ;; U+5F00 U+59CB
           done  (keyword "结束")            ;; U+7ED3 U+675F
           spec  {:initial begin
@@ -363,12 +363,11 @@
       (is (= spec back))
       (is (keyword? (:initial back)))
       (is (= "结束" (name (:initial back))))))
-  (testing "rf2-t69tdo — a NAMESPACED CJK id (`:开始/名`) round-trips EXACTLY.
-            #5762 (rf2-qgtcvy) had to scope its CJK round-trip down to PLAIN
-            (non-namespaced) CJK because the pre-fix `__` ns/name marker +
-            the escaped (leading `_u…`) name segment minted `___` at the
-            boundary, so the namespaced keyword mis-decoded to a vector.
-            With the `-` ns/name marker the namespaced case round-trips too."
+  (testing "a NAMESPACED CJK id (`:开始/名`) round-trips EXACTLY.
+            A `__` ns/name marker + the escaped (leading `_u…`) name
+            segment would mint `___` at the boundary and mis-decode the
+            namespaced keyword to a vector; with the `-` ns/name marker the
+            namespaced case round-trips like the plain one."
     (let [k    (keyword "开始" "名")          ;; ns 开始 (U+5F00 U+59CB), name 名 (U+540D)
           spec {:initial k
                 :states  {k {:on {(keyword "登录" "成功") :done}}
@@ -382,12 +381,12 @@
           "the namespaced-CJK EVENT key stays a keyword, not a mis-split vector"))))
 
 (deftest round-trip-ns-name-boundary-escaped-leading-char
-  (testing "rf2-t69tdo — a namespaced keyword whose NAME segment begins with
+  (testing "a namespaced keyword whose NAME segment begins with
             an escaped char (leading `_…`) round-trips EXACTLY, not to a
-            vector. Pre-fix the `<ns>` + `__` + `_<name-escape>` boundary
-            minted `___` (the path separator), so `:a/-b` decoded to the
+            vector. An `<ns>` + `__` + `_<name-escape>` boundary would
+            mint `___` (the path separator) and decode `:a/-b` to the
             vector `[:a :2db]` instead of the namespaced keyword."
-    (doseq [k [:a/-b            ;; the bead's exact repro (name -b → _2db)
+    (doseq [k [:a/-b            ;; name -b → _2db
                :auth/-flag      ;; another leading-hyphen name
                :x/?ready        ;; leading `?` name (→ _3f)
                (keyword "登录" "成功")]] ;; namespaced CJK (leading _u…)
@@ -419,9 +418,10 @@
           "the vector target stays a 2-segment vector, not mis-split"))))
 
 (deftest parse-attrs-accepts-single-quoted-attributes
-  (testing "rf2-qgtcvy — `parse-attrs` matched only double-quoted values, so
-            an imported `<state id='idle'>` keyed the state under nil. Every
-            attribute in a single-quoted document must parse identically"
+  (testing "`parse-attrs` reads single-quoted values as well as
+            double-quoted ones (reading only double-quoted would key an
+            imported `<state id='idle'>` under nil). Every attribute in a
+            single-quoted document must parse identically"
     (let [spec   {:initial :idle
                   :states  {:idle {:on {:go :done}}
                             :done {:final? true}}}
@@ -450,7 +450,7 @@
   (testing "parallel without :regions throws"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                  (scxml/spec->scxml {:type :parallel}))))
-  (testing "rf2-bj3sxo — a malformed flat-ROOT `:on` (non-map fallback slot)
+  (testing "a malformed flat-ROOT `:on` (non-map fallback slot)
             is rejected as the clean :scxml/invalid-spec, NOT an uncaught host
             ISeq exception (the emit path first validates via
             grammar/valid-definition?)"
@@ -472,7 +472,7 @@
 
 (deftest scxml->spec-rejects-missing-root
   (testing "input without <scxml> throws :scxml/parse-error"
-    ;; rf2-3x7nj.33.5 — marked, so this still reaches the root check rather
+    ;; Marked, so this reaches the root check rather
     ;; than stopping at the format gate (an unmarked input throws too, but
     ;; with :scxml/unsupported-format).
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
@@ -483,7 +483,7 @@
                   (:rf.error/id (ex-data e))))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 — error ex-data carries NO raw payload (rf2-8nzxib)
+;; EP-0015 — error ex-data carries NO raw payload
 ;;
 ;; A machine spec can carry a `:data` slot of live runtime values; the
 ;; thrown error must keep value-FREE diagnostics (category, key SET,
@@ -529,9 +529,9 @@
 ;;
 ;; These tests don't assert error behaviour — they document, via
 ;; canonical fixtures, which features *don't* survive the round-trip
-;; bit-for-bit. The current list is empty (every fixture above round-
-;; trips) — the comment is the contract. If a future fixture is
-;; added here that doesn't round-trip, name the loss explicitly.
+;; bit-for-bit. Every fixture above round-trips; a fixture here that
+;; doesn't names its loss explicitly, as the machine-level `:on` test
+;; below does — the comment is the contract.
 
 (deftest round-trip-property-pinned-on-supported-subset
   (testing "every fixture in this ns round-trips through SCXML —
@@ -551,8 +551,8 @@
         (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))))))
 
 (deftest round-trip-machine-level-on-is-lossy
-  (testing "rf2-ee38b.21 — a machine-level (top-level) :on fallback is
-            EXPORTED (no longer silently dropped) but does NOT round-trip:
+  (testing "a machine-level (top-level) :on fallback is
+            EXPORTED (not silently dropped) but does NOT round-trip:
             W3C SCXML has no root-fallback-transition slot, and the
             import side drops root-level transitions. Naming the loss
             explicitly per this section's contract."
@@ -564,12 +564,13 @@
           "the per-state topology DOES round-trip"))))
 
 ;; ---------------------------------------------------------------------------
-;; :on-done (XState onDone) — W3C SCXML done.state.<id> (rf2-41goo)
+;; :on-done (XState onDone) — W3C SCXML done.state.<id>
 ;;
 ;; SCXML §3.7: reaching a `<final>` child generates `done.state.<id>` into
 ;; the internal queue, which an enclosing `<transition event="done.state.
-;; <id>">` takes. Pre-rf2-41goo the emitter projected the `<final>` child
-;; but NOT the onDone transition — a silently lossy round-trip.
+;; <id>">` takes. The emitter projects the onDone transition as well as the
+;; `<final>` child; projecting only the child would make the round-trip
+;; silently lossy.
 
 (def compound-on-done-machine
   "Spec 005 example: a compound `:flow` whose `:on-done` advances to the
@@ -593,7 +594,7 @@
              :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
 
 (deftest emit-compound-on-done-renders-done-state-transition
-  (testing "rf2-41goo — a compound `:on-done` emits the W3C SCXML
+  (testing "a compound `:on-done` emits the W3C SCXML
             `<transition event=\"done.state.<compound-id>\" target=...>`
             INSIDE the compound's own <state> (SCXML §3.7)"
     (let [out (scxml/spec->scxml compound-on-done-machine)]
@@ -603,7 +604,7 @@
           "advances to the sibling :next"))))
 
 (deftest emit-parallel-on-done-renders-parallel-done-state
-  (testing "rf2-41goo — a parallel-root `:on-done` emits
+  (testing "a parallel-root `:on-done` emits
             `<transition event=\"done.state.rf2_parallel_root\">` inside
             the <parallel> element (the whole-parallel completion)"
     (let [out (scxml/spec->scxml parallel-on-done-machine)]
@@ -611,7 +612,7 @@
           "the whole-parallel done.state completion event"))))
 
 (deftest round-trip-compound-on-done
-  (testing "rf2-41goo — a compound `:on-done` (sibling target) round-trips
+  (testing "a compound `:on-done` (sibling target) round-trips
             through `done.state.<id>` back to `:on-done`"
     (let [spec compound-on-done-machine
           back (-> spec scxml/spec->scxml scxml/scxml->spec)]
@@ -620,7 +621,7 @@
           ":on-done reconstructs on the compound node"))))
 
 (deftest round-trip-parallel-on-done-topology
-  (testing "rf2-41goo — a parallel-root `:on-done` round-trips its
+  (testing "a parallel-root `:on-done` round-trips its
             COMPLETION topology (the action is named-lossy like every
             action — survives only as a comment, so the spec carries the
             empty completion form `{}`)"
@@ -630,7 +631,7 @@
       (is (contains? back :on-done) "the parallel-root :on-done survives import"))))
 
 (deftest no-on-done-emits-no-done-state-transition
-  (testing "rf2-41goo — a compound with no :on-done emits no done.state
+  (testing "a compound with no :on-done emits no done.state
             transition (no false-positive completion edge)"
     (let [out (scxml/spec->scxml compound-machine)]
       (is (not (str/includes? out "done.state"))))))
@@ -668,7 +669,7 @@
       (is (str/includes? out "<final id=\"boom\" data_rf_error_final=\"true\"")
           "the error final carries the error-terminal carrier attribute")
       (is (str/includes? out "<final id=\"ok\"")
-          "the success final still renders as a plain <final>")
+          "the success final renders as a plain <final>")
       (is (not (str/includes? out "<final id=\"ok\" data_rf_error_final"))
           "the success final carries NO error-terminal attribute"))))
 
@@ -687,15 +688,14 @@
           "the success terminal carries no :error? bit"))))
 
 ;; ---------------------------------------------------------------------------
-;; Parallel-ROOT :on / :after ancestor fallback (rf2-656ivk / rf2-m3otj2)
+;; Parallel-ROOT :on / :after ancestor fallback
 ;;
 ;; A `:type :parallel` ROOT may declare its OWN `:on` (the ancestor fallback,
 ;; Spec 005 §Root parallel :on) and its OWN `:after` (the timer-driven analog,
-;; §Root-level :after). These are DIRECT `<parallel>` children. Pre-fix the
-;; SCXML emitter dropped them entirely (only `:on-done` survived); the import
-;; recovered only `:on-done`. Both now emit + round-trip, including
-;; MULTI-region targets (space-separated W3C `target` id lists) and
-;; action-only (targetless) forms.
+;; §Root-level :after). These are DIRECT `<parallel>` children, beside the
+;; root `:on-done`. Both emit + round-trip, including MULTI-region targets
+;; (space-separated W3C `target` id lists) and action-only (targetless)
+;; forms.
 
 ;; The CANONICAL shorthand for a sole target-only root transition is the bare
 ;; target vector (`[:a :two]` / `[[:a :x] [:b :y]]`) — the SAME canonicalisation
@@ -733,7 +733,7 @@
              :b {:initial :one :states {:one {} :two {}}}}})
 
 (deftest emit-parallel-root-on-single-region-target
-  (testing "rf2-656ivk — a parallel-root :on emits a direct <parallel>
+  (testing "a parallel-root :on emits a direct <parallel>
             <transition> with the region-qualified target id"
     (let [out (scxml/spec->scxml parallel-root-on-single-machine)]
       (is (str/includes? out "event=\"one\"") "the root :on event")
@@ -741,45 +741,45 @@
           "the region-qualified target id (region :a substate :two)"))))
 
 (deftest emit-parallel-root-on-multi-region-target-is-space-separated
-  (testing "rf2-656ivk — a MULTI-region root :on emits a SPACE-SEPARATED
+  (testing "a MULTI-region root :on emits a SPACE-SEPARATED
             target id list (W3C SCXML target grammar)"
     (let [out (scxml/spec->scxml parallel-root-on-multi-machine)]
       (is (str/includes? out "target=\"a___x b___y\"")
           "both region-qualified targets in one space-joined attribute"))))
 
 (deftest emit-parallel-root-after-renders-after-event
-  (testing "rf2-m3otj2 — a parallel-root :after emits an after.<delay> direct
+  (testing "a parallel-root :after emits an after.<delay> direct
             <parallel> transition with the region-qualified target"
     (let [out (scxml/spec->scxml parallel-root-after-single-machine)]
       (is (str/includes? out "event=\"after.500\"") "the delay rides after.<ms>")
       (is (str/includes? out "target=\"a___two\"")))))
 
 (deftest round-trip-parallel-root-on-single
-  (testing "rf2-656ivk — a single-region root :on round-trips exactly"
+  (testing "a single-region root :on round-trips exactly"
     (is (round-trips? parallel-root-on-single-machine))))
 
 (deftest round-trip-parallel-root-on-multi
-  (testing "rf2-656ivk — a multi-region root :on round-trips its
+  (testing "a multi-region root :on round-trips its
             region-qualified target grammar exactly"
     (is (round-trips? parallel-root-on-multi-machine))))
 
 (deftest round-trip-parallel-root-after-single
-  (testing "rf2-m3otj2 — a single-region root :after round-trips exactly"
+  (testing "a single-region root :after round-trips exactly"
     (is (round-trips? parallel-root-after-single-machine))))
 
 (deftest round-trip-parallel-root-after-multi
-  (testing "rf2-m3otj2 — a multi-region root :after round-trips exactly"
+  (testing "a multi-region root :after round-trips exactly"
     (is (round-trips? parallel-root-after-multi-machine))))
 
 (deftest round-trip-parallel-root-on-with-guard
-  (testing "rf2-656ivk — a guarded root :on round-trips its guard via cond="
+  (testing "a guarded root :on round-trips its guard via cond="
     (is (round-trips? {:type    :parallel
                        :on      {:fire {:target [[:a :two] [:b :two]] :guard :armed?}}
                        :regions {:a {:initial :one :states {:one {} :two {}}}
                                  :b {:initial :one :states {:one {} :two {}}}}}))))
 
 (deftest round-trip-parallel-root-on-action-only
-  (testing "rf2-656ivk — a TARGETLESS action-only root :on round-trips its
+  (testing "a TARGETLESS action-only root :on round-trips its
             completion topology (the action is named-lossy — survives only as
             a comment, so it returns the action-bearing internal form)"
     (let [spec {:type    :parallel
@@ -792,7 +792,7 @@
           "the action name is recovered, NOT collapsed to a forbidden {} block"))))
 
 (deftest round-trip-parallel-root-after-action-only
-  (testing "rf2-m3otj2 — a TARGETLESS action-only root :after round-trips"
+  (testing "a TARGETLESS action-only root :after round-trips"
     (let [spec {:type    :parallel
                 :after   {2000 {:action :timeout-log}}
                 :regions {:a {:initial :one :states {:one {}}}
@@ -802,7 +802,7 @@
       (is (= :timeout-log (get-in back [:after 2000 :action]))))))
 
 (deftest round-trip-parallel-root-on-and-after-together
-  (testing "rf2-656ivk / rf2-m3otj2 — a root :on AND a root :after on the same
+  (testing "a root :on AND a root :after on the same
             parallel machine both survive + round-trip independently"
     (is (round-trips? {:type    :parallel
                        :on      {:go [:a :two]}
@@ -811,7 +811,7 @@
                                  :b {:initial :one :states {:one {} :two {}}}}}))))
 
 (deftest parallel-root-on-map-form-canonicalises-to-shorthand
-  (testing "rf2-656ivk — the `{:target …}` map form of a target-only root :on
+  (testing "the `{:target …}` map form of a target-only root :on
             decodes back to the canonical bare-target shorthand (the SAME
             canonicalisation every target-only candidate gets)"
     (let [spec {:type    :parallel
@@ -823,111 +823,111 @@
           "the map form canonicalises to the bare target vector"))))
 
 ;; ---------------------------------------------------------------------------
-;; Injective, xsd:ID-conformant id codec (rf2-mnp93.1/.2/.3/.7/.8)
+;; Injective, xsd:ID-conformant id codec
 ;;
-;; The pre-mnp93.1 codec was NON-INJECTIVE: the `.`-as-ns/name separator
-;; could not recover a keyword whose namespace itself contained dots
-;; (`:my.app.auth/login` → `"my.app.auth.login"` → `:my/app.auth.login`),
-;; and the csq75 `:`-as-path separator emitted ids that are not valid
-;; xsd:ID (NCName) tokens. The codec now hex-escapes every keyword
-;; ns/name char and uses the reserved `__` (ns/name) and `___` (path)
-;; markers the escaper can provably never emit, so the round-trip is
-;; EXACT for ANY keyword and every emitted id is a valid xsd:ID.
+;; The codec hex-escapes every keyword ns/name char and uses the reserved
+;; `-` (ns/name) and `___` (path) markers the escaper can provably never
+;; emit, so the round-trip is EXACT for ANY keyword and every emitted id is
+;; a valid xsd:ID. A `.`-as-ns/name separator would be NON-INJECTIVE — it
+;; cannot recover a keyword whose namespace itself contains dots
+;; (`:my.app.auth/login` → `"my.app.auth.login"` → `:my/app.auth.login`) —
+;; and a `:`-as-path separator would emit ids that are not valid xsd:ID
+;; (NCName) tokens.
 
 (def multi-dot-ns-machine
-  "rf2-mnp93.1 — the P1 repro: a multi-segment-namespace keyword EVENT.
-  Pre-fix `:my.app.auth/login` encoded to `\"my.app.auth.login\"` and
-  decoded to the wrong `:my/app.auth.login` (ns boundary lost)."
+  "A multi-segment-namespace keyword EVENT. A `.`-joined encoding
+  would turn `:my.app.auth/login` into `\"my.app.auth.login\"` and
+  decode it to the wrong `:my/app.auth.login` (ns boundary lost)."
   {:initial :idle
    :states  {:idle   {:on {:my.app.auth/login :active}}
              :active  {:final? true}}})
 
 (def multi-dot-ns-state-machine
-  "rf2-mnp93.1 — a multi-segment-namespace keyword STATE id."
+  "A multi-segment-namespace keyword STATE id."
   {:initial :rf.app/idle
    :states  {:rf.app/idle {:on {:go :done}}
              :done        {:final? true}}})
 
 (def dotted-name-machine
-  "rf2-mnp93.1 — a non-namespaced keyword whose NAME contains dots."
+  "A non-namespaced keyword whose NAME contains dots."
   {:initial :a.b.c
    :states  {:a.b.c {:on {:go :d}}
              :d     {}}})
 
 (def multi-dot-guard-machine
-  "rf2-mnp93.2 — a multi-segment-namespace GUARD keyword. Pre-fix the
-  guard `cond=` decoder never split the namespace at all, so even a
-  single-dot `:auth/valid?` lost its namespace."
+  "A multi-segment-namespace GUARD keyword. A guard `cond=`
+  decoder that did not split the namespace would lose it even on a
+  single-dot `:auth/valid?`."
   {:initial :idle
    :states  {:idle {:on {:go {:target :a :guard :my.app.auth/valid?}}}
              :a    {}}})
 
 (def single-ns-guard-machine
-  "rf2-mnp93.2 — the bead's exact single-dot guard repro: `:auth/valid?`."
+  "A single-dot namespaced guard: `:auth/valid?`."
   {:initial :idle
    :states  {:idle {:on {:go {:target :a :guard :auth/valid?}}}
              :a    {}}})
 
 (def reserved-prefix-after-event-machine
-  "rf2-mnp93.3 — a USER event named `:after.foo` must NOT be reclassified
+  "A USER event named `:after.foo` must NOT be reclassified
   as an `:after` timer. The codec escapes the literal `.` so the encoded
-  event no longer starts with the synthetic `after.` prefix."
+  event never starts with the synthetic `after.` prefix."
   {:initial :idle
    :states  {:idle {:on {:after.foo :done}}
              :done {:final? true}}})
 
 (def reserved-prefix-done-event-machine
-  "rf2-mnp93.3 — a USER event named `:done.state.flow` must NOT be
+  "A USER event named `:done.state.flow` must NOT be
   reclassified as `:on-done`."
   {:initial :idle
    :states  {:idle {:on {:done.state.flow :done}}
              :done {:final? true}}})
 
 (def reserved-prefix-after-ns-machine
-  "rf2-mnp93.3 — `after` is a plausible event NAMESPACE; `:after/foo`
+  "`after` is a plausible event NAMESPACE; `:after/foo`
   must stay an ordinary `:on` event."
   {:initial :idle
    :states  {:idle {:on {:after/foo :done}}
              :done {:final? true}}})
 
 (def nested-same-name-machine
-  "rf2-mnp93.7 — two states share the local name `:idle` under different
-  compound parents. Pre-fix both emitted a BARE `<state id=\"idle\">`
-  (duplicate xsd:ID — invalid SCXML) and `:`-joined path targets (not a
-  valid xsd:ID). The qualified-id codec emits unique ids and resolvable
-  targets, and the round-trip stays exact."
+  "Two states share the local name `:idle` under different
+  compound parents. Bare ids would emit `<state id=\"idle\">` twice
+  (duplicate xsd:ID — invalid SCXML), and `:`-joined path targets are not
+  valid xsd:IDs. The qualified-id codec emits unique ids and resolvable
+  targets, and the round-trip is exact."
   {:initial :a
    :states  {:a {:initial :idle :states {:idle {:on {:go [:b :idle]}}}}
              :b {:initial :idle :states {:idle {:on {:back [:a :idle]}}}}}})
 
 (def mixed-candidate-after-machine
-  "rf2-mnp93.8 — an `:after` vector MIXING a candidate-map with a
-  bare-target. Pre-fix the decoder collapsed `{:target :b}` to `:b`, so
-  the round-trip was value-UNEQUAL to the literal input."
+  "An `:after` vector MIXING a candidate-map with a
+  bare-target. A decoder that collapsed `{:target :b}` to `:b` would make
+  the round-trip value-UNEQUAL to the literal input."
   {:initial :idle
    :states  {:idle {:after {1000 [{:target :a :guard :g1} {:target :b}]}}
              :a    {}
              :b    {}}})
 
 (def mixed-candidate-on-machine
-  "rf2-mnp93.8 — an `:on` vector mixing a candidate-map with a bare-target."
+  "An `:on` vector mixing a candidate-map with a bare-target."
   {:initial :idle
    :states  {:idle {:on {:go [{:target :a :guard :g1} {:target :b}]}}
              :a    {}
              :b    {}}})
 
 (deftest round-trip-multi-dot-ns-keyword
-  (testing "rf2-mnp93.1 — a multi-segment-namespace keyword EVENT
-            round-trips EXACTLY (the P1 corruption is fixed)"
+  (testing "a multi-segment-namespace keyword EVENT
+            round-trips EXACTLY (the namespace boundary is recovered)"
     (is (round-trips? multi-dot-ns-machine))
     (let [back (-> multi-dot-ns-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= :my.app.auth/login
              (-> back :states :idle :on keys first))
           "the multi-dot namespace is recovered, not corrupted to :my/app.auth.login")))
-  (testing "rf2-mnp93.1 — a multi-segment-namespace keyword STATE id
+  (testing "a multi-segment-namespace keyword STATE id
             round-trips exactly"
     (is (round-trips? multi-dot-ns-state-machine)))
-  (testing "rf2-mnp93.1 — a non-namespaced keyword with dots in its NAME
+  (testing "a non-namespaced keyword with dots in its NAME
             round-trips exactly (not split into a namespaced keyword)"
     (is (round-trips? dotted-name-machine))
     (let [back (-> dotted-name-machine scxml/spec->scxml scxml/scxml->spec)]
@@ -935,9 +935,9 @@
           ":a.b.c stays a single keyword, NOT :a/b.c"))))
 
 (deftest injective-distinct-keywords-distinct-ids
-  (testing "rf2-mnp93.1 — two keywords the OLD codec mapped to the SAME
-            id (`:my.app.auth/login` and `:my/app.auth.login` both →
-            \"my.app.auth.login\") now map to DISTINCT ids AND each
+  (testing "two keywords a `.`-joined codec would map to the
+            SAME id (`:my.app.auth/login` and `:my/app.auth.login` both →
+            \"my.app.auth.login\") map to DISTINCT ids AND each
             round-trips back to itself"
     (let [k1 :my.app.auth/login
           k2 :my/app.auth.login
@@ -948,24 +948,24 @@
       (is (not= (id k1) (id k2)) "distinct keywords produce distinct ids")
       (is (round-trips? (m k1)))
       (is (round-trips? (m k2)))))
-  (testing "rf2-mnp93.1 — literal underscores in a keyword name never
+  (testing "literal underscores in a keyword name never
             collide with the `__`/`___` reserved markers (escaped to _5f)"
     (doseq [k [:a__b :a___b :a_b]]
       (is (round-trips? {:initial :s0 :states {:s0 {:on {k :s1}} :s1 {}}})
           (str "round-trip exact for " k)))))
 
 (deftest round-trip-guard-keyword-namespace
-  (testing "rf2-mnp93.2 — a single-dot namespaced GUARD round-trips
-            exactly (the bead's exact repro: `:auth/valid?`)"
+  (testing "a single-dot namespaced GUARD round-trips
+            exactly (`:auth/valid?`)"
     (is (round-trips? single-ns-guard-machine))
     (let [back (-> single-ns-guard-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= :auth/valid? (get-in back [:states :idle :on :go :guard]))
           "the guard keeps its namespace, NOT collapsed to :auth.valid?")))
-  (testing "rf2-mnp93.2 — a multi-segment-namespace guard round-trips exactly"
+  (testing "a multi-segment-namespace guard round-trips exactly"
     (is (round-trips? multi-dot-guard-machine))))
 
 (deftest round-trip-reserved-prefix-user-events
-  (testing "rf2-mnp93.3 — a user event `:after.foo` stays an `:on` event,
+  (testing "a user event `:after.foo` stays an `:on` event,
             NOT reclassified as an `:after` timer"
     (is (round-trips? reserved-prefix-after-event-machine))
     (let [back (-> reserved-prefix-after-event-machine scxml/spec->scxml scxml/scxml->spec)]
@@ -973,7 +973,7 @@
           ":after.foo survives as an :on event")
       (is (nil? (get-in back [:states :idle :after]))
           "no spurious :after timer is synthesised")))
-  (testing "rf2-mnp93.3 — a user event `:done.state.flow` stays an `:on`
+  (testing "a user event `:done.state.flow` stays an `:on`
             event, NOT reclassified as `:on-done`"
     (is (round-trips? reserved-prefix-done-event-machine))
     (let [back (-> reserved-prefix-done-event-machine scxml/spec->scxml scxml/scxml->spec)]
@@ -981,12 +981,12 @@
           ":done.state.flow survives as an :on event")
       (is (not (contains? (get-in back [:states :idle]) :on-done))
           "no spurious :on-done is synthesised")))
-  (testing "rf2-mnp93.3 — `after` as an event NAMESPACE (`:after/foo`)
+  (testing "`after` as an event NAMESPACE (`:after/foo`)
             stays an ordinary :on event"
     (is (round-trips? reserved-prefix-after-ns-machine))))
 
 (deftest round-trip-nested-same-name-states-unique-ids
-  (testing "rf2-mnp93.7 — two same-named nested states emit UNIQUE
+  (testing "two same-named nested states emit UNIQUE
             xsd:IDs (no duplicate `id=\"idle\"`) and the round-trip is exact"
     (is (round-trips? nested-same-name-machine))
     (let [out (scxml/spec->scxml nested-same-name-machine)]
@@ -996,9 +996,9 @@
       (is (str/includes? out "id=\"b___idle\"") "the b-region idle is qualified"))))
 
 (deftest emitted-ids-are-xsd-id-conformant
-  (testing "rf2-mnp93.7 — no emitted id / target / initial attribute
-            contains a `:` (not a valid xsd:ID / NCName char). The csq75
-            `:`-path separator is superseded by the `___` marker."
+  (testing "no emitted id / target / initial attribute
+            contains a `:` (not a valid xsd:ID / NCName char). Vector-path
+            segments join with the `___` marker instead."
     (doseq [[label spec] [["nested-same-name" nested-same-name-machine]
                           ["vector-path"      vector-path-target-machine]
                           ["compound"         compound-machine]
@@ -1011,17 +1011,17 @@
               "no id/target/initial attribute carries a `:`"))))))
 
 (deftest round-trip-mixed-candidate-vectors
-  (testing "rf2-mnp93.8 — an `:after` vector mixing a candidate-map with a
+  (testing "an `:after` vector mixing a candidate-map with a
             bare-target round-trips with VALUE EQUALITY (the bare-target
-            map is no longer collapsed)"
+            map is not collapsed)"
     (is (round-trips? mixed-candidate-after-machine))
     (let [back (-> mixed-candidate-after-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= [{:target :a :guard :g1} {:target :b}]
              (get-in back [:states :idle :after 1000]))
           "{:target :b} survives as a map, not collapsed to :b")))
-  (testing "rf2-mnp93.8 — the same holds for an `:on` mixed vector"
+  (testing "the same holds for an `:on` mixed vector"
     (is (round-trips? mixed-candidate-on-machine)))
-  (testing "rf2-mnp93.8 — a SOLE target-only candidate still collapses to
+  (testing "a SOLE target-only candidate still collapses to
             the bare-keyword shorthand (the canonical `:on {:event :tgt}`)"
     (let [spec {:initial :idle :states {:idle {:on {:go :a}} :a {}}}
           back (-> spec scxml/spec->scxml scxml/scxml->spec)]
@@ -1029,7 +1029,7 @@
           "a single target-only transition stays the bare keyword"))))
 
 (deftest round-trip-property-mnp93-fixtures
-  (testing "rf2-mnp93 — every new codec-faithfulness fixture round-trips
+  (testing "every codec-faithfulness fixture round-trips
             EXACTLY (encode→decode = original)"
     (doseq [[name spec] [["multi-dot-ns-machine"               multi-dot-ns-machine]
                          ["multi-dot-ns-state-machine"         multi-dot-ns-state-machine]
@@ -1046,22 +1046,21 @@
         (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mnp93.5 — an INTERNAL ACTION transition must NOT round-trip into a
+;; An INTERNAL ACTION transition must NOT round-trip into a
 ;; Spec-005 FORBIDDEN BLOCK.
 ;;
 ;; `:on {:tick {:action :log}}` is an internal action transition: it RUNS an
-;; action and leaves the config unchanged (Spec 005 §Transition slots — "omit
-;; for internal"). Pre-fix, the action rode an XML COMMENT that the decoder's
-;; `strip-comments` discarded BEFORE tokenizing, so the candidate decoded to
-;; the EMPTY map `{}` — which Spec 005 §Forbidden transitions (L1335-1346)
-;; defines as a FORBIDDEN BLOCK: an enabled internal no-op that CONSUMES the
-;; event and shadows every coarser descriptor + ancestor (opts OUT of
-;; inheritance). 'Run an action' decoding to 'block the event entirely' is a
-;; SEMANTIC INVERSION, not lossy detail. The distinguishing shape feature is
-;; the PRESENCE of `:action` (L1346: an action-bearing internal transition
-;; halts the walk AND runs the action). The fix lifts the action comment into
-;; the candidate so it round-trips as `{:action :log}` — a VALID internal
-;; action transition.
+;; action and leaves the config as it is (Spec 005 §Transition slots — "omit
+;; for internal"). The action rides an XML COMMENT, which the decoder lifts
+;; into the candidate so it round-trips as `{:action :log}` — a VALID internal
+;; action transition. Discarding the comment BEFORE tokenizing would decode
+;; the candidate to the EMPTY map `{}` — which Spec 005 §Forbidden transitions
+;; (L1335-1346) defines as a FORBIDDEN BLOCK: an enabled internal no-op that
+;; CONSUMES the event and shadows every coarser descriptor + ancestor (opts
+;; OUT of inheritance). 'Run an action' decoding to 'block the event entirely'
+;; is a SEMANTIC INVERSION, not lossy detail. The distinguishing shape feature
+;; is the PRESENCE of `:action` (L1346: an action-bearing internal transition
+;; halts the walk AND runs the action).
 
 (def internal-action-on-machine
   "An INTERNAL action `:on` transition (no `:target`)."
@@ -1090,7 +1089,7 @@
    :states  {:a {:on {:tick {:action :log/append}}}}})
 
 (deftest internal-action-transition-not-forbidden-block
-  (testing "rf2-mnp93.5 — an internal action `:on` round-trips to a VALID
+  (testing "an internal action `:on` round-trips to a VALID
             internal action transition, NOT the `{}` forbidden block"
     (let [back (-> internal-action-on-machine scxml/spec->scxml scxml/scxml->spec)
           cand (get-in back [:states :a :on :tick])]
@@ -1101,33 +1100,33 @@
       (is (contains? cand :action)
           "the distinguishing :action key is present")
       (is (not (contains? cand :target))
-          "still internal — no :target")
+          "internal — no :target")
       (is (= internal-action-on-machine back)
           "exact value round-trip")))
 
-  (testing "rf2-mnp93.5 — internal action `:after` round-trips faithfully"
+  (testing "internal action `:after` round-trips faithfully"
     (let [back (-> internal-action-after-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= internal-action-after-machine back))
       (is (= {:action :timeout-log} (get-in back [:states :a :after 1000])))))
 
-  (testing "rf2-mnp93.5 — internal action `:always` round-trips faithfully"
+  (testing "internal action `:always` round-trips faithfully"
     (let [back (-> internal-action-always-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= internal-action-always-machine back))
       (is (= [{:action :poll}] (get-in back [:states :a :always])))))
 
-  (testing "rf2-mnp93.5 — an internal action transition WITH a guard keeps
-            both :action and :guard (still not a forbidden block)"
+  (testing "an internal action transition WITH a guard keeps
+            both :action and :guard (not a forbidden block either)"
     (let [back (-> internal-guarded-action-machine scxml/spec->scxml scxml/scxml->spec)
           cand (get-in back [:states :a :on :tick])]
       (is (= {:action :log :guard :ready?} cand))
       (is (not= {} cand))))
 
-  (testing "rf2-mnp93.5 — a NAMESPACED action round-trips its namespace"
+  (testing "a NAMESPACED action round-trips its namespace"
     (let [back (-> internal-ns-action-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= internal-ns-action-machine back))
       (is (= :log/append (get-in back [:states :a :on :tick :action])))))
 
-  (testing "rf2-mnp93.5 — a genuine FORBIDDEN block ({} — no action, no
+  (testing "a genuine FORBIDDEN block ({} — no action, no
             target) still round-trips to `{}` (the action lift-pass only
             recovers a PRESENT action; absence stays absent — no false
             action synthesised)"
@@ -1137,7 +1136,7 @@
           "an empty-map forbidden block survives as `{}`, not invented an action"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-m285a — `:type :history` pseudo-states export as W3C `<history>`
+;; `:type :history` pseudo-states export as W3C `<history>`
 ;; (NOT `<state>` / `<final>`), preserving the shallow / deep / default-target
 ;; semantics, and round-trip back to `:type :history` nodes.
 
@@ -1179,7 +1178,7 @@
                       :on      {:power-off :off}}}})
 
 (deftest history-exports-as-w3c-history-element
-  (testing "rf2-m285a — a SHALLOW history pseudo-state emits <history
+  (testing "a SHALLOW history pseudo-state emits <history
             type=\"shallow\">, NOT a <state>/<final>"
     (let [xml (scxml/spec->scxml shallow-history-machine)]
       (is (str/includes? xml "<history ")
@@ -1193,12 +1192,12 @@
       (is (not (re-find #"<final id=\"player___hist\"" xml))
           "the history node is NOT exported as a <final>")))
 
-  (testing "rf2-m285a — a DEEP history pseudo-state emits type=\"deep\""
+  (testing "a DEEP history pseudo-state emits type=\"deep\""
     (let [xml (scxml/spec->scxml deep-history-machine)]
       (is (str/includes? xml "<history "))
       (is (str/includes? xml "type=\"deep\""))))
 
-  (testing "rf2-m285a — a history :default-target rides a default
+  (testing "a history :default-target rides a default
             <transition target=...> inside the <history>"
     (let [xml (scxml/spec->scxml default-target-history-machine)]
       (is (str/includes? xml "<history "))
@@ -1207,7 +1206,7 @@
           "the default transition targets the qualified default-target leaf"))))
 
 (deftest history-round-trips-to-type-history
-  (testing "rf2-m285a — a SHALLOW history pseudo-state round-trips to
+  (testing "a SHALLOW history pseudo-state round-trips to
             `:type :history` (NOT an ordinary state)"
     (let [back (-> shallow-history-machine scxml/spec->scxml scxml/scxml->spec)
           hist (get-in back [:states :player :states :hist])]
@@ -1218,14 +1217,14 @@
       (is (= shallow-history-machine back)
           "exact value round-trip")))
 
-  (testing "rf2-m285a — a DEEP history pseudo-state round-trips with :deep? true"
+  (testing "a DEEP history pseudo-state round-trips with :deep? true"
     (let [back (-> deep-history-machine scxml/spec->scxml scxml/scxml->spec)
           hist (get-in back [:states :player :states :hist])]
       (is (= :history (:type hist)))
       (is (= true (:deep? hist)))
       (is (= deep-history-machine back))))
 
-  (testing "rf2-m285a — a :default-target round-trips to its relative
+  (testing "a :default-target round-trips to its relative
             (sibling-keyword) grammar form"
     (let [back (-> default-target-history-machine scxml/spec->scxml scxml/scxml->spec)
           hist (get-in back [:states :player :states :hist])]
@@ -1234,7 +1233,7 @@
           "the default-target decodes back to the sibling keyword")
       (is (= default-target-history-machine back))))
 
-  (testing "rf2-m285a — an absent `:deep?` exports as shallow and decodes to
+  (testing "an absent `:deep?` exports as shallow and decodes to
             the normalised `:deep? false` (Spec 005: absent ⇒ shallow)"
     (let [spec {:initial :off
                 :states {:off    {:on {:resume [:player :hist]}}
@@ -1252,12 +1251,12 @@
           "decodes to the normalised :deep? false"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-m285a — SCXML export tolerates INLINE-FN guard / action refs
+;; SCXML export tolerates INLINE-FN guard / action refs
 ;; (lossy name/`fn` label), instead of crashing in keyword->id-string.
 
 (deftest inline-fn-guard-action-does-not-crash
-  (testing "rf2-m285a — a NAMED inline-fn guard exports as a lossy name
-            label without throwing (chart/Mermaid already tolerate it)"
+  (testing "a NAMED inline-fn guard exports as a lossy name
+            label without throwing (as chart/Mermaid tolerate it)"
     (let [guard-fn (with-meta (fn [_] true) {:name 'ready?})
           spec     {:initial :a
                     :states  {:a {:on {:go {:target :b :guard guard-fn}}}
@@ -1267,7 +1266,7 @@
       (is (str/includes? xml "cond=\"ready?\"")
           "the named fn surfaces its :name meta as the cond label")))
 
-  (testing "rf2-m285a — an ANONYMOUS inline-fn guard exports as the stable
+  (testing "an ANONYMOUS inline-fn guard exports as the stable
             `fn` fallback label without throwing"
     (let [spec {:initial :a
                 :states  {:a {:on {:go {:target :b :guard (fn [_] true)}}}
@@ -1277,7 +1276,7 @@
       (is (str/includes? xml "cond=\"fn\"")
           "an anonymous fn falls back to the opaque \"fn\" label")))
 
-  (testing "rf2-m285a — an inline-fn ACTION exports as a lossy label
+  (testing "an inline-fn ACTION exports as a lossy label
             (action comment) without throwing"
     (let [action-fn (with-meta (fn [_] {}) {:name 'log!})
           spec      {:initial :a
@@ -1288,7 +1287,7 @@
       (is (str/includes? xml "<!-- action: log! -->")
           "the named fn action surfaces its name in the action comment")))
 
-  (testing "rf2-m285a — guard + action BOTH inline fns on one transition
+  (testing "guard + action BOTH inline fns on one transition
             export without throwing"
     (let [spec {:initial :a
                 :states  {:a {:on {:go {:target :b
@@ -1301,18 +1300,18 @@
       (is (str/includes? xml "<!-- action: fn -->")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-9dj21r — the EXTERNAL restart axis (`:reenter? true`) must be a
+;; The EXTERNAL restart axis (`:reenter? true`) must be a
 ;; DISTINCT, lossless SCXML round-trip.
 ;;
 ;; Spec 005 §Self-transitions / XState v5: a TARGETED transition is INTERNAL
 ;; by default (its own :exit/:entry do NOT re-run); only `:reenter? true`
 ;; makes a self / ancestor / compound-declared-descendant target EXTERNAL —
 ;; re-running :exit+:entry and restarting the target's :after timers + :spawn
-;; children. Pre-fix the SCXML emitter/importer ignored the axis entirely, so
-;; `{:target :same-state}` and `{:target :same-state :reenter? true}` exported
-;; + round-tripped IDENTICALLY, silently dropping `:reenter? true` (which
-;; CHANGES runtime behaviour on import). We map the axis onto W3C SCXML's
-;; native `<transition type="external">`.
+;; children. The axis maps onto W3C SCXML's native
+;; `<transition type="external">`; an emitter/importer that ignored it would
+;; export + round-trip `{:target :same-state}` and
+;; `{:target :same-state :reenter? true}` IDENTICALLY, silently dropping
+;; `:reenter? true` (which CHANGES runtime behaviour on import).
 
 (def reenter-self-machine
   "A self-target transition WITH the external-restart opt-in."
@@ -1335,7 +1334,7 @@
                                :inner2 {}}}}})
 
 (deftest reenter-axis-scxml-round-trip
-  (testing "rf2-9dj21r — a `:reenter? true` self-target emits SCXML
+  (testing "a `:reenter? true` self-target emits SCXML
             `type=\"external\"` and round-trips losslessly"
     (let [xml  (scxml/spec->scxml reenter-self-machine)
           back (scxml/scxml->spec xml)]
@@ -1346,7 +1345,7 @@
       (is (true? (get-in back [:states :a :on :ping :reenter?]))
           "the decoded candidate carries `:reenter? true`")))
 
-  (testing "rf2-9dj21r / rf2-0pp6as — the internal-DEFAULT self-target emits
+  (testing "the internal-DEFAULT self-target emits
             the explicit `type=\"internal\"` (NEVER `type=\"external\"`) and
             round-trips WITHOUT `:reenter?`"
     (let [xml  (scxml/spec->scxml internal-self-machine)
@@ -1354,7 +1353,7 @@
           cand (get-in back [:states :a :on :ping])]
       (is (not (str/includes? xml "type=\"external\""))
           "the internal default does NOT emit the external type attr")
-      ;; rf2-0pp6as — the internal default is EXPLICIT: a target-bearing
+      ;; The internal default is EXPLICIT: a target-bearing
       ;; transition without `:reenter?` emits `type="internal"` so the
       ;; export does not inherit SCXML's EXTERNAL targeted-transition default.
       (is (str/includes? xml "type=\"internal\"")
@@ -1368,13 +1367,13 @@
       (is (not (and (map? cand) (contains? cand :reenter?)))
           "no spurious `:reenter?` synthesised on the internal default")))
 
-  (testing "rf2-9dj21r — the with/without-`:reenter?` SCXML exports DIFFER
-            (the two runtime-distinct machines are no longer identical)"
+  (testing "the with/without-`:reenter?` SCXML exports DIFFER
+            (the two runtime-distinct machines export differently)"
     (is (not= (scxml/spec->scxml reenter-self-machine)
               (scxml/spec->scxml internal-self-machine))
         "external vs internal must produce DISTINCT SCXML"))
 
-  (testing "rf2-9dj21r — a compound-declared `:reenter?` descendant target
+  (testing "a compound-declared `:reenter?` descendant target
             round-trips the axis losslessly"
     (let [xml  (scxml/spec->scxml reenter-ancestor-machine)
           back (scxml/scxml->spec xml)]
@@ -1382,7 +1381,7 @@
       (is (= reenter-ancestor-machine back)
           "exact value round-trip preserves `:reenter? true`")))
 
-  (testing "rf2-9dj21r — `:reenter?` is emitted ONLY with a target
+  (testing "`:reenter?` is emitted ONLY with a target
             (a targetless action-only transition stays internal — no
             `type=\"external\"`, no `:reenter?` synthesised on import)"
     (let [spec {:initial :a
@@ -1393,14 +1392,15 @@
       (is (= spec back)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-0pp6as — SCXML self-target export must reference a DECLARED state id
+;; SCXML self-target export must reference a DECLARED state id
 ;; (never the dangling `same_2dstate` phantom), and must be EXPLICIT about
-;; the XState-v5-internal vs SCXML-external default-inversion. Pre-fix the
-;; SCXML resolver had no `:same-state` arm, so the sentinel exported the
+;; the XState-v5-internal vs SCXML-external default-inversion. Without a
+;; `:same-state` arm in the SCXML resolver, the sentinel would export as the
 ;; absolute path `[:same-state]` → `target="same_2dstate"` — a DANGLING id
-;; the document never declares. The local `scxml->spec` decoded that phantom
-;; back to `:same-state`, so the round-trip oracle FALSE-GREENED over invalid
-;; W3C SCXML. These tests assert the EXTERNAL form (declared-id validity +
+;; the document never declares — and the local `scxml->spec` would decode
+;; that phantom back to `:same-state`, so a round-trip oracle alone would
+;; FALSE-GREEN over invalid W3C SCXML. These tests assert the EXTERNAL form
+;; (declared-id validity +
 ;; internal/external type axis), not just the local round-trip, so the suite
 ;; cannot pass by decoding an invalid export back into the original EDN.
 
@@ -1414,7 +1414,7 @@
 
 (defn- transition-target-ids
   "Every nonempty `target=` id appearing on a `<transition>` in an SCXML
-  document. rf2-3x7nj.33.4 — a W3C `target` is a SPACE-SEPARATED id list
+  document. A W3C `target` is a SPACE-SEPARATED id list
   (the parallel-root multi-region target), so each listed id counts."
   [xml]
   (->> (re-seq #"<transition\b[^>]*\btarget=\"([^\"]+)\"" xml)
@@ -1424,10 +1424,10 @@
        set))
 
 (defn- assert-targets-declared
-  "Validity guard (rf2-0pp6as): EVERY nonempty transition `target=` id must
-  reference a state DECLARED in the same SCXML document. This is the guard
-  the pre-fix dangling `same_2dstate` export would FAIL — the phantom id is
-  not in `declared-state-ids`."
+  "Validity guard: EVERY nonempty transition `target=` id must
+  reference a state DECLARED in the same SCXML document. A dangling
+  `same_2dstate` export FAILS this guard — the phantom id is not in
+  `declared-state-ids`."
   [xml]
   (let [declared (declared-state-ids xml)]
     (doseq [t (transition-target-ids xml)]
@@ -1436,7 +1436,7 @@
                "state id; declared = " (pr-str declared))))))
 
 (deftest scxml-self-target-references-declared-id
-  (testing "rf2-0pp6as — ATOMIC self-target (`:same-state`) exports the
+  (testing "ATOMIC self-target (`:same-state`) exports the
             SOURCE state's real id, NEVER the dangling `same_2dstate`"
     (let [spec {:initial :a
                 :states  {:a {:on {:ping {:target :same-state}}}}}
@@ -1446,12 +1446,12 @@
       (is (str/includes? xml "<transition event=\"ping\" target=\"a\" type=\"internal\"/>")
           "self-target references the source state's own id, internal default")
       (assert-targets-declared xml)
-      ;; supplement the external-form assertions with the local round-trip:
+      ;; Supplement the external-form assertions with the local round-trip:
       ;; the canonical decode of a self-target is `:same-state`.
       (is (= :same-state (get-in (scxml/scxml->spec xml) [:states :a :on :ping]))
           "round-trips to the canonical `:same-state` self-target form")))
 
-  (testing "rf2-0pp6as — a keyword target NAMING the state's own key is the
+  (testing "a keyword target NAMING the state's own key is the
             SAME self-transition; it too references the declared id + decodes
             to the canonical `:same-state`"
     (let [spec {:initial :a
@@ -1463,7 +1463,7 @@
       (is (= :same-state (get-in (scxml/scxml->spec xml) [:states :a :on :ping]))
           "own-keyword self-target canonicalises to `:same-state` (Spec 005)")))
 
-  (testing "rf2-0pp6as — COMPOUND self/ancestor target (`:same-state` declared
+  (testing "COMPOUND self/ancestor target (`:same-state` declared
             on a compound) references the compound's own declared id"
     (let [spec {:initial :outer
                 :states  {:outer {:initial :inner1
@@ -1477,7 +1477,7 @@
       (is (= :same-state (get-in (scxml/scxml->spec xml) [:states :outer :on :reset]))
           "round-trips to the canonical `:same-state` form")))
 
-  (testing "rf2-0pp6as — COMPOUND-declared DESCENDANT target references the
+  (testing "COMPOUND-declared DESCENDANT target references the
             descendant's fully-qualified declared id with `type=\"internal\"`
             (the case where SCXML internal IS the exact equivalent)"
     (let [spec {:initial :outer
@@ -1492,7 +1492,7 @@
       (is (= [:outer :inner2] (get-in back [:states :outer :on :go]))
           "descendant target round-trips to its absolute vector path")))
 
-  (testing "rf2-0pp6as — the EXTERNAL (`:reenter? true`) self-target also
+  (testing "the EXTERNAL (`:reenter? true`) self-target also
             references the declared id and carries `type=\"external\"`"
     (let [spec {:initial :a
                 :states  {:a {:on {:ping {:target :same-state :reenter? true}}}}}
@@ -1505,7 +1505,7 @@
              (get-in (scxml/scxml->spec xml) [:states :a :on :ping]))
           "exact round-trip preserves the external `:reenter?` axis")))
 
-  (testing "rf2-0pp6as — internal vs external self-targets export to DISTINCT,
+  (testing "internal vs external self-targets export to DISTINCT,
             DECLARED-id-valid SCXML (the two are runtime-distinct)"
     (let [internal {:initial :a :states {:a {:on {:ping {:target :same-state}}}}}
           external {:initial :a :states {:a {:on {:ping {:target :same-state :reenter? true}}}}}
@@ -1518,7 +1518,7 @@
       (assert-targets-declared xe))))
 
 (deftest scxml-all-fixtures-targets-declared
-  (testing "rf2-0pp6as — the declared-target validity guard holds for EVERY
+  (testing "the declared-target validity guard holds for EVERY
             non-parallel fixture's export (no dangling `target=` ids anywhere)"
     (doseq [spec [idle-loading-success-error
                   compound-machine
@@ -1528,7 +1528,7 @@
                   reenter-ancestor-machine]]
       (assert-targets-declared (scxml/spec->scxml spec)))))
 
-;; ---- rf2-3x7nj.33.4 — targets declared INSIDE a parallel region ----------
+;; ---- targets declared INSIDE a parallel region ---------------------------
 ;;
 ;; Spec 005 §Cross-region coordination drives each region as a synthetic
 ;; single machine, so every target declared inside a region resolves
@@ -1536,16 +1536,16 @@
 ;; absolute path, and a region body's own root `:on` keyword target names
 ;; one of that region's top-level states. The exporter qualifies every
 ;; region state id with its region (`<region>___<state>`), so the targets
-;; must carry the same prefix. Pre-fix they were resolved from the MACHINE
-;; root: `[:c :d]` emitted the dangling `c___d`, the region-root `:reset
-;; :idle` the dangling `idle` — and an in-region path whose head shadows a
-;; sibling region's name emitted that sibling REGION's id. The local round
-;; trip was green throughout, because `decode-target` inverted the same
-;; mistake, which is why the declared-id guard and exact ids are asserted
-;; here rather than only the round trip.
+;; must carry the same prefix. Resolved from the MACHINE root instead,
+;; `[:c :d]` would emit the dangling `c___d`, the region-root `:reset :idle`
+;; the dangling `idle`, and an in-region path whose head shadows a sibling
+;; region's name would emit that sibling REGION's id — while the local round
+;; trip stayed green, because `decode-target` would invert the same mistake.
+;; That is why the declared-id guard and exact ids are asserted here rather
+;; than only the round trip.
 
 (def region-vector-target-machine
-  "The bead's scenario 1: a region-local vector target into a compound."
+  "A region-local vector target into a compound."
   {:type    :parallel
    :regions {:r {:initial :a
                  :states  {:a {:on {:go [:c :d]}}
@@ -1553,7 +1553,7 @@
              :q {:initial :x :states {:x {}}}}})
 
 (def region-root-on-machine
-  "The bead's scenario 2: a region body's own root `:on` keyword target."
+  "A region body's own root `:on` keyword target."
   {:type    :parallel
    :regions {:a {:initial :idle
                  :on      {:reset :idle}
@@ -1585,32 +1585,32 @@
              :q {:initial :x :states {:x {}}}}})
 
 (deftest region-targets-are-region-scoped
-  (testing "rf2-3x7nj.33.4 — a region-local vector target carries the region
+  (testing "a region-local vector target carries the region
             prefix every region state id carries"
     (let [xml (scxml/spec->scxml region-vector-target-machine)]
       (is (str/includes? xml "<transition event=\"go\" target=\"r___c___d\" type=\"internal\"/>"))
       (assert-targets-declared xml)))
-  (testing "rf2-3x7nj.33.4 — a region body's own `:on` keyword target names a
+  (testing "a region body's own `:on` keyword target names a
             top-level state of THAT region"
     (let [xml (scxml/spec->scxml region-root-on-machine)]
       (is (str/includes? xml "<transition event=\"reset\" target=\"a___idle\" type=\"internal\"/>"))
       (is (str/includes? xml "<transition event=\"go\" target=\"a___b\" type=\"internal\"/>")
-          "control: an in-region sibling keyword was already region-scoped")
+          "control: an in-region sibling keyword is region-scoped too")
       (assert-targets-declared xml)))
-  (testing "rf2-3x7nj.33.4 — a head that shadows a sibling region's name stays
+  (testing "a head that shadows a sibling region's name stays
             in-region rather than naming the sibling REGION (whose id IS
             declared, so only the exact id can see this one)"
     (let [xml (scxml/spec->scxml region-shadowing-target-machine)]
       (is (str/includes? xml "<transition event=\"go\" target=\"r___q___y\" type=\"internal\"/>"))
       (assert-targets-declared xml)))
-  (testing "rf2-3x7nj.33.4 — a vector history `:default-target` inside a region
+  (testing "a vector history `:default-target` inside a region
             is region-scoped too"
     (let [xml (scxml/spec->scxml region-history-vector-default-machine)]
       (is (str/includes? xml "<transition target=\"r___c___f___g\"/>"))
       (assert-targets-declared xml))))
 
 (deftest region-scoped-targets-round-trip
-  (testing "rf2-3x7nj.33.4 — `decode-target` strips the region prefix back off,
+  (testing "`decode-target` strips the region prefix back off,
             so each region-scoped export round-trips exactly"
     (doseq [spec [region-vector-target-machine
                   region-root-on-machine
@@ -1620,7 +1620,7 @@
           (pr-str spec)))))
 
 (deftest scxml-parallel-fixtures-targets-declared
-  (testing "rf2-3x7nj.33.4 — the declared-target guard holds for the PARALLEL
+  (testing "the declared-target guard holds for the PARALLEL
             fixtures too, root multi-region targets included"
     (doseq [spec [parallel-machine
                   parallel-on-done-machine
@@ -1636,11 +1636,11 @@
 
 ;; ---- consumer-attachment :rf.cofx/requires — intentional omission ------
 ;;
-;; rf2-skhlw2.1 — SCXML INTENTIONALLY omits EP-0017 consumer-attachment
+;; SCXML INTENTIONALLY omits EP-0017 consumer-attachment
 ;; `:rf.cofx/requires` (W3C SCXML has no attribute for it; a re-frame2 import
 ;; re-attaches it from its own registry, and the chart is the "which
-;; transitions consume which facts" surface). Lock the omission + the bead's
-;; negative regression (no `:rf.world/inputs` / `inject-cofx` vocabulary).
+;; transitions consume which facts" surface). Lock the omission + a negative
+;; check (no `:rf.world/inputs` / `inject-cofx` vocabulary).
 
 (def scxml-cofx-bearing-machine
   {:initial :idle
@@ -1654,10 +1654,10 @@
              :busy {}}})
 
 (deftest scxml-omits-cofx-requires-vocabulary
-  (testing "rf2-skhlw2.1 — SCXML surfaces the guard `cond=` NAME + the action
+  (testing "SCXML surfaces the guard `cond=` NAME + the action
             comment NAME but omits the consumer-attachment requires diet"
     (let [out (scxml/spec->scxml scxml-cofx-bearing-machine)]
-      ;; the guard `cond=` + the action comment still render (XML-mangled
+      ;; The guard `cond=` + the action comment render (XML-mangled
       ;; names — SCXML escapes `-` / `?` to `_2d` / `_3f`); a transition
       ;; carries both so the topology survives.
       (is (str/includes? out "cond="))
@@ -1667,12 +1667,12 @@
       (is (not (str/includes? out "requires")))
       (is (not (str/includes? out "time-ms")))
       (is (not (str/includes? out "retry-jitter-ms")))
-      ;; the bead's negative regression: NO retired/foreign cofx vocabulary
+      ;; NO foreign cofx vocabulary.
       (is (not (str/includes? out "rf.world/inputs")))
       (is (not (str/includes? out "inject-cofx"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-qy8p — SCXML executable / data-model content is IGNORED, never
+;; SCXML executable / data-model content is IGNORED, never
 ;; reinterpreted as topology
 ;;
 ;; W3C SCXML §3.3 lets a conforming `<state>` carry `<onentry>`, `<onexit>`,
@@ -1681,13 +1681,13 @@
 ;; those bodies are LOSSY BY DESIGN, exactly as the ns docstring's
 ;; "Not supported" list says.
 ;;
-;; What is NOT acceptable is inventing topology out of them. Pre-fix the
-;; direct-child collector accepted EVERY non-transition tag, so an
-;; `<onentry/>` became an id-less `:states` entry keyed by `nil`, and the
-;; import returned a definition `grammar/valid-definition?` — and therefore
-;; `reg-machine`, `MachineChart` and every sibling emitter — rejects. The
-;; failure surfaced far downstream as a compound-state error naming a state
-;; the programmer never authored.
+;; What is NOT acceptable is inventing topology out of them. A direct-child
+;; collector that accepted EVERY non-transition tag would turn an
+;; `<onentry/>` into an id-less `:states` entry keyed by `nil`, and the
+;; import would return a definition `grammar/valid-definition?` — and
+;; therefore `reg-machine`, `MachineChart` and every sibling emitter —
+;; rejects, surfacing far downstream as a compound-state error naming a
+;; state the programmer never authored.
 ;;
 ;; Two invariants are pinned here:
 ;;   1. only recognised topology tags are collected as child states;
@@ -1695,14 +1695,14 @@
 ;;      grammar gate (the postcondition the public docstring promises).
 
 (def onentry-only-scxml
-  "The minimal reproduction: a conforming `<state>` whose only child is an
+  "The minimal case: a conforming `<state>` whose only child is an
   empty `<onentry/>`."
   (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
        "<state id='idle'><onentry/></state>"
        "</scxml>"))
 
 (deftest import-ignores-empty-onentry-executable-content
-  (testing "rf2-qy8p — an empty <onentry/> is ignored, not promoted to a nil-keyed state"
+  (testing "an empty <onentry/> is ignored, not promoted to a nil-keyed state"
     (let [spec (scxml/scxml->spec onentry-only-scxml)]
       (is (= {:initial :idle :states {:idle {}}} spec)
           "the state imports bare; the executable body leaves no trace")
@@ -1715,7 +1715,7 @@
       (is (nil? (g/definition-defect spec))))))
 
 (def executable-and-datamodel-scxml
-  "Every unsupported family the bead names — `<datamodel>`/`<data>` at the
+  "The unsupported families — `<datamodel>`/`<data>` at the
   root, `<onentry>` with a `<log>` body, `<invoke>` with a `<param>`, and
   `<onexit>` with an `<assign>` — wrapped around otherwise supported states
   and transitions."
@@ -1734,7 +1734,7 @@
        "</scxml>"))
 
 (deftest import-ignores-executable-and-datamodel-subtrees-wholesale
-  (testing "rf2-qy8p — <datamodel>/<onentry>/<onexit>/<invoke> subtrees are dropped
+  (testing "<datamodel>/<onentry>/<onexit>/<invoke> subtrees are dropped
             wholesale while the real ids and transitions import exactly"
     (let [spec (scxml/scxml->spec executable-and-datamodel-scxml)]
       (is (= {:initial :go
@@ -1764,7 +1764,7 @@
        "</scxml>"))
 
 (deftest import-does-not-promote-a-state-nested-in-an-unsupported-element
-  (testing "rf2-qy8p — only DIRECT recognised children are collected; an
+  (testing "only DIRECT recognised children are collected; an
             unsupported element is skipped together with its whole subtree"
     (let [spec (scxml/scxml->spec nested-state-inside-unsupported-scxml)]
       (is (= {:initial :a
@@ -1778,7 +1778,7 @@
       (is (g/valid-definition? spec)))))
 
 (deftest import-tolerates-unsupported-content-around-history-and-compounds
-  (testing "rf2-qy8p — the allowlist keeps <history> and nested compounds; only
+  (testing "the allowlist keeps <history> and nested compounds; only
             the unsupported families are dropped"
     (let [spec (scxml/scxml->spec
                  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='outer'>"
@@ -1804,19 +1804,19 @@
       (is (g/valid-definition? spec)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-qy8p — the import POSTCONDITION: success implies a projectable
+;; The import POSTCONDITION: success implies a projectable
 ;; definition. Parser output that cannot be represented as a valid re-frame2
 ;; definition throws the documented `:scxml/invalid-spec`, value-free.
 
 (def missing-initial-scxml
   "No root `initial` — the machine contract wants a keyword `:initial`.
-  Pre-fix this returned `{:states {:a {}}}` silently, contradicting the
-  public docstring's stated error boundary."
+  Returning `{:states {:a {}}}` silently would contradict the public
+  docstring's stated error boundary."
   (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
        "<state id='a'/></scxml>"))
 
 (deftest import-throws-invalid-spec-rather-than-returning-a-malformed-definition
-  (testing "rf2-qy8p — a document whose topology cannot be a valid re-frame2
+  (testing "a document whose topology cannot be a valid re-frame2
             definition throws :scxml/invalid-spec instead of returning it"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                  (scxml/scxml->spec missing-initial-scxml)))
@@ -1826,7 +1826,7 @@
       (is (= :scxml/invalid-spec (:rf.error/id d)) "the documented discriminator"))))
 
 (deftest import-invalid-spec-error-is-value-free
-  (testing "rf2-qy8p — the import-side invalid-spec ex-data carries only the
+  (testing "the import-side invalid-spec ex-data carries only the
             shared value-free summary: no raw XML, no parsed definition"
     (let [secret "patientrecordsecret42"
           xml    (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
@@ -1841,7 +1841,7 @@
           "the id must not survive anywhere in ex-data"))))
 
 (deftest every-supported-fixture-imports-to-a-valid-definition
-  (testing "rf2-qy8p — the postcondition holds across the whole supported
+  (testing "the postcondition holds across the whole supported
             round-trip corpus (the guard against a gate that rejects real imports)"
     (doseq [spec [idle-loading-success-error
                   compound-machine
@@ -1856,27 +1856,27 @@
         (is (= spec imported) "and the round-trip stays value-equal")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-qy8p — "ignored wholesale" has to hold for the ROOT topology too.
+;; "ignored wholesale" has to hold for the ROOT topology too.
 ;;
 ;; The allowlist above stops an unsupported subtree contributing a `:states`
 ;; entry. It says nothing about the earlier decision `scxml->spec` makes
-;; BEFORE any collector runs: parallel-root or flat? That scan used to search
-;; EVERY token in the root body for the first open `<parallel>`, so markup the
-;; importer had already declared unreachable could still choose — and wholly
-;; define — the imported machine.
+;; BEFORE any collector runs: parallel-root or flat? A scan of EVERY token in
+;; the root body for the first open `<parallel>` would let markup the importer
+;; has already declared unreachable choose — and wholly define — the imported
+;; machine.
 ;;
 ;; W3C SCXML §6.4 makes this reachable from a CONFORMING document: `<invoke>`
 ;; carries a whole nested `<scxml>` inline through `<content>`. That is a real
 ;; SCXML feature, so the answer is not to reject it; the answer is that the
-;; outer parser must not read into it. Pre-fix the inner document's
-;; `<parallel>` REPLACED the outer machine outright and
-;; `grammar/valid-definition?` still returned true — the substitute is itself
-;; well-formed, so the importer produced a confidently wrong machine with no
-;; diagnostic anywhere.
+;; outer parser must not read into it. Read that way, the inner document's
+;; `<parallel>` would REPLACE the outer machine outright while
+;; `grammar/valid-definition?` returned true — the substitute is itself
+;; well-formed — so the importer would produce a confidently wrong machine
+;; with no diagnostic anywhere.
 ;;
-;; `<invoke>` is not special here, and the fix does not name it: a nested
-;; `<parallel>` inside an ordinary `<state>` (unsupported by design — see
-;; `topology-child-tags`) reached the same selector by the same route.
+;; `<invoke>` is not special here, and the importer does not name it: a
+;; nested `<parallel>` inside an ordinary `<state>` (unsupported by design —
+;; see `topology-child-tags`) would reach the same selector by the same route.
 
 (def invoked-inner-parallel
   "The payload document: a two-region parallel machine, emitted by our own
@@ -1909,7 +1909,7 @@
        "</scxml>"))
 
 (deftest import-does-not-adopt-a-parallel-root-from-an-invoked-document
-  (testing "rf2-qy8p — an inline <invoke><content><scxml> payload cannot
+  (testing "an inline <invoke><content><scxml> payload cannot
             replace the outer machine's topology"
     (let [spec (scxml/scxml->spec
                  (inline-invoked-scxml (scxml/spec->scxml invoked-inner-parallel)))]
@@ -1924,7 +1924,7 @@
       (is (g/valid-definition? spec)))))
 
 (deftest import-does-not-adopt-a-parallel-root-nested-in-a-state
-  (testing "rf2-qy8p — the same holds for a <parallel> nested in an ordinary
+  (testing "the same holds for a <parallel> nested in an ordinary
             <state> (unsupported by design): <invoke> is not a special case"
     (let [spec (scxml/scxml->spec
                  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
@@ -1945,7 +1945,7 @@
       (is (g/valid-definition? spec)))))
 
 (deftest import-still-reads-a-real-root-parallel-and-a-flat-invoked-payload
-  (testing "rf2-qy8p — the controls: a DIRECT root <parallel> still imports,
+  (testing "the controls: a DIRECT root <parallel> still imports,
             and an invoked FLAT payload leaves the outer definition exact"
     ;; Control 1 — the supported location. A `<parallel>` that really is a
     ;; direct child of `<scxml>` must still select the parallel branch.
@@ -1953,17 +1953,18 @@
            (scxml/scxml->spec (scxml/spec->scxml parallel-machine)))
         "a genuine root <parallel> still round-trips value-equal")
     ;; Control 2 — the same invoked-payload shape carrying a FLAT document.
-    ;; This passed before the fix too: that is what makes it a control on the
-    ;; subtree drop rather than on the parallel selector.
+    ;; The payload carries no `<parallel>`, so the root selector cannot affect
+    ;; it: that is what makes it a control on the subtree drop rather than on
+    ;; the parallel selector.
     (is (= outer-flat-machine
            (scxml/scxml->spec
              (inline-invoked-scxml (scxml/spec->scxml idle-loading-success-error))))
         "an invoked flat payload contributes nothing either")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.33.5 — import reads ONLY this library's own marked exports
+;; Import reads ONLY this library's own marked exports
 ;;
-;; Ruling (option B): `scxml->spec` is round-trip-only. The export codec is
+;; `scxml->spec` is round-trip-only. The export codec is
 ;; injective for our own output but mis-decodes foreign ids (`logged-out` →
 ;; `:logged/out`, `step_1a` → a control char) and a W3C space-separated event
 ;; list becomes ONE keyword, while `grammar/valid-definition?` still passes —
@@ -1972,7 +1973,7 @@
 ;; document without exactly that marker, BEFORE any export convention runs.
 
 (def ^:private reviewer-foreign-scxml
-  "The review wave's third-party document, unmarked."
+  "A third-party document, unmarked."
   (str "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\" version=\"1.0\" initial=\"logged-out\">"
        "<state id=\"logged-out\"><transition event=\"login-ok\" target=\"step_1a\"/></state>"
        "<state id=\"step_1a\"><transition event=\"logout session.expired\" target=\"logged-out\"/></state>"
@@ -1989,7 +1990,7 @@
       (:rf.error/id (ex-data e)))))
 
 (deftest import-refuses-an-unmarked-foreign-document
-  (testing "rf2-3x7nj.33.5 — a document spec->scxml did not write throws
+  (testing "a document spec->scxml did not write throws
             :scxml/unsupported-format instead of importing silently renamed"
     (is (= :scxml/unsupported-format (thrown-scxml-id reviewer-foreign-scxml)))
     (testing "the refusal is value-free: no raw XML and no document id rides the error"
@@ -2004,7 +2005,7 @@
             "the raw document does not ride the error")))))
 
 (deftest import-accepts-the-same-bytes-once-marked
-  (testing "rf2-3x7nj.33.5 — control on the SAME bytes: prepending the marker is
+  (testing "control on the SAME bytes: prepending the marker is
             the whole difference between refused and imported"
     (let [spec (scxml/scxml->spec (str scxml-format-marker "\n" reviewer-foreign-scxml))]
       (is (map? spec) "the marked document imports")
@@ -2015,7 +2016,7 @@
                        scxml-format-marker "\n\n" reviewer-foreign-scxml)))))))
 
 (deftest import-refuses-a-different-marker-version
-  (testing "rf2-3x7nj.33.5 — only the EXACT marker is accepted; a v2 marker, or the
+  (testing "only the EXACT marker is accepted; a v2 marker, or the
             marker anywhere but first, throws the same id"
     (is (= :scxml/unsupported-format
            (thrown-scxml-id (str "<!-- re-frame2 machines-viz SCXML v2 -->\n"
@@ -2025,7 +2026,7 @@
                                  reviewer-foreign-scxml))))))
 
 (deftest export-writes-the-marker-right-after-the-prolog
-  (testing "rf2-3x7nj.33.5 — every export's line after the prolog is the marker,
+  (testing "every export's line after the prolog is the marker,
             flat and parallel alike, so our own exports keep round-tripping"
     (doseq [[label machine] [["flat" idle-loading-success-error]
                              ["parallel" parallel-machine]]]
