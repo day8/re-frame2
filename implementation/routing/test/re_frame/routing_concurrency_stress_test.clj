@@ -1,13 +1,13 @@
 (ns re-frame.routing-concurrency-stress-test
-  "Per rf2-ksbur — JVM concurrency stress coverage for the routing
-  surface. Mirrors rf2-1gpx8 (machine actor) and rf2-35rgj (cross-frame
-  router) patterns: 5000-iter, 8-thread default, env-overridable, with
+  "JVM concurrency stress coverage for the routing
+  surface. Mirrors the machine-actor and cross-frame
+  router stress patterns: 5000-iter, 8-thread default, env-overridable, with
   invariants pinned per scenario.
 
   The deterministic routing-test suite covers correctness single-shot;
-  this namespace pins the routing surface under contention. Per the
-  rf2-q4twq decomposition, routing has three concurrency-shaped
-  surfaces never exercised under load by the deterministic suite:
+  this namespace pins the routing surface under contention. Routing has
+  three concurrency-shaped
+  surfaces the deterministic suite never exercises under load:
 
     1. **N concurrent `:rf.route/handle-url-change` from N frames.** Each frame
        drains independently (Spec 002 §Rules rule 1 — frames are
@@ -23,8 +23,8 @@
        through this event, and so does a link click, on `:rf.route/cause :link`).
        Each thread alternates the two causes on its own frame.
        Invariant: total on-match count = iters per frame; ordering is
-       stable per-thread (last URL pushed wins the slice). The two
-       event handlers share `url-change-fx` — the race window is the
+       stable per-thread (last URL pushed wins the slice). Both causes
+       run through `url-change-fx` — the race window is the
        drain interleaving on a single frame. Per-frame partitioning
        means each frame's drain-lock serialises its own work; we're
        pinning that serialisation under sustained churn.
@@ -32,8 +32,8 @@
     3. **`reg-route` / `unregister!` race during dispatch.** Thread A
        drives a sustained URL-change stream against a stable route.
        Thread B re-registers (and occasionally unregisters) routes on
-       a tight loop. The route-table cache (`route-table-cache` —
-       rf2-9ihwx) invalidates by registrar map identity; identity
+       a tight loop. The route-table cache (`route-table-cache`)
+       invalidates by registrar map identity; identity
        equality is racy under concurrent `register!` calls. Invariant:
        no exceptions surface from `match-url` and the stable-route
        slice still settles correctly across all `iters` dispatches.
@@ -44,21 +44,21 @@
   visible failure rather than a stuck CI run.
 
   CLJS is single-threaded; route registry mutation + URL-driven nav
-  cannot race there. The CLJS browser-history mock pattern landed
-  recently as part of rf2-wp0w4's PR #1176; this JVM stress is
+  cannot race there. The CLJS suites cover browser history through a
+  mock; this JVM stress is
   complementary, not redundant.
 
-  Tagged `^:stress` per the rf2-q4twq convention. The default `:test`
+  Tagged `^:stress`. The default `:test`
   alias in deps.edn passes `-e :slow -e :stress` to the runner, so
   cognitect-test-runner drops these vars on the PR/local gate; the
   `:slow-test` alias passes `-i :slow -i :stress` to run them, and the
   nightly `.github/workflows/expensive-tests.yml` job +
-  `scripts/test-rigorous-local.sh` invoke that alias so coverage is kept
-  (rf2-bv2qqm wired the exclude — it was previously inert)."
+  `scripts/test-rigorous-local.sh` invoke that alias, so the stress
+  scenarios run there."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as rf.registrar]
-            ;; rf2-k682: this test lives in the routing artefact's test
+            ;; This test lives in the routing artefact's test
             ;; classpath, so requiring re-frame.routing here is the
             ;; primary trigger that loads the namespace, fires its
             ;; late-bind hook registrations + framework `:rf.route/*`
@@ -71,8 +71,8 @@
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
-;; rf2-6qclsc: wrap the shared `reset-runtime` fixture rather than keeping a
-;; drifting local copy. This suite's only extra is clearing trace listeners
+;; Wrap the shared `reset-runtime` fixture rather than keep a local copy
+;; that could drift. This suite's only extra is clearing trace listeners
 ;; (the stress invariants register/deref listeners), so layer that on top of
 ;; the shared rf.registrar/runtime/cache reset.
 (defn- reset-runtime [test-fn]
@@ -81,8 +81,8 @@
 
 (use-fixtures :each reset-runtime)
 
-;; Per-thread iteration count. Kept at the rf2-ynk7 / rf2-35rgj /
-;; rf2-1gpx8 standard 5000 so CI stays under ~60s wall-clock at the
+;; Per-thread iteration count. The stress suites'
+;; standard 5000, so CI stays under ~60s wall-clock at the
 ;; default thread count. Operators dial up via the env override; CI
 ;; dials down by lowering it (e.g. RF2_KSBUR_STRESS_ITERS=500 for a
 ;; smoke-test pass).
@@ -90,8 +90,8 @@
   (or (some-> (System/getenv "RF2_KSBUR_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — matches rf2-ynk7's `concurrent-dispatch-stress`
-;; (`n-submitters 8`) and rf2-1gpx8. Higher contention than the typical
+;; Eight parallel threads — matches core's `concurrent-dispatch-stress`
+;; (`n-submitters 8`) and the machine-actor stress. Higher contention than the typical
 ;; 4-core CI box; the per-frame partitioning means we're not
 ;; over-saturating any one drain-lock, we're driving N independent
 ;; URL-change cycles in parallel and asserting the registrar lookup +
@@ -102,8 +102,6 @@
 ;; ---- Scenario 1: N concurrent :rf.route/handle-url-change from N frames --------
 
 (deftest ^:stress transitioned-cross-frame-stress
-  ;; rf2-ksbur scenario 1.
-  ;;
   ;; Each thread owns its own frame and fires `stress-iters` `:rf.route/handle-url-change`
   ;; events at it. Per Spec 012 §Multi-frame routing each non-default
   ;; frame may opt in to its own `:rf/route` slice without owning the
@@ -213,7 +211,7 @@
                    "action); got " global-actual)))
 
         ;; --- Invariant 3: per-frame slice converged on the LAST URL
-        ;;     pushed by that thread. Pre-existing routing semantics:
+        ;;     pushed by that thread. Routing semantics:
         ;;     each thread's serial dispatch-sync sequence settles the
         ;;     slice to the final URL it pushed. Cross-frame parallelism
         ;;     does not perturb that: each frame's own drain serialises
@@ -235,25 +233,23 @@
 ;; ---- Scenario 2: popstate firing mid-push -------------------------------
 
 (deftest ^:stress popstate-mid-push-stress
-  ;; rf2-ksbur scenario 2.
-  ;;
   ;; Per Spec 012 §URL changes are events forward navigation
   ;; (cause `:link`) and popstate / initial load
   ;; (cause `:popstate` / `:initial`) share `url-change-fx`. The race
   ;; window is the drain interleaving when both arrive at the same
-  ;; frame in tight succession — pre-fix this could double-process the
+  ;; frame in tight succession — a race there would double-process the
   ;; popstate's slice rewrite under sustained churn.
   ;;
   ;; Each thread owns its own frame and alternates the two event types
   ;; on a tight loop. Per-frame partitioning means each frame's
   ;; drain-lock serialises ITS own work — same-frame dispatch-sync
   ;; from a single thread cannot race itself, but the test pins the
-  ;; cross-event-type behaviour: the `:on-match` cascade must fire
-  ;; exactly once per dispatched URL change regardless of which event
-  ;; ID drove it, with no popstate-vs-push reordering visible at the
+  ;; cross-cause behaviour: the `:on-match` cascade must fire
+  ;; exactly once per dispatched URL change regardless of which cause
+  ;; drove it, with no popstate-vs-push reordering visible at the
   ;; counter level.
   (testing (str n-threads " threads × " stress-iters
-                " iters mixed transitioned/handle-url-change "
+                " iters handle-url-change, mixed :link/:popstate "
                 "— exact on-match count, no double-process")
     (let [global-counter      (AtomicLong. 0)
           per-thread-counters (vec (repeatedly n-threads #(atom 0)))
@@ -309,8 +305,8 @@
                    ". Per-thread breakdown: " per-thread-totals))
           (is (every? #(= stress-iters %) per-thread-totals)
               (str "Each thread must have processed exactly "
-                   stress-iters " on-match events (mixed transitioned "
-                   "+ handle-url-change); got " per-thread-totals)))
+                   stress-iters " on-match events (mixed :link "
+                   "+ :popstate causes); got " per-thread-totals)))
 
         ;; --- Invariant 2: global atomic exact ---------------------
         (let [global-actual   (.get global-counter)
@@ -334,10 +330,8 @@
 ;; ---- Scenario 3: reg-route / unregister race during dispatch ------------
 
 (deftest ^:stress reg-route-race-during-dispatch-stress
-  ;; rf2-ksbur scenario 3.
-  ;;
   ;; The `route-table-cache` invalidates by registrar map identity
-  ;; (rf2-9ihwx — `(identical? source (:source-id cache))`). Identity
+  ;; (`(identical? source (:source-id cache))`). Identity
   ;; equality on a CAS-swapped registrar is racy: under sustained
   ;; concurrent `register!` (which `swap!`s the registrar map) the
   ;; cache may be rebuilt many times, but `match-url` must NEVER see a
