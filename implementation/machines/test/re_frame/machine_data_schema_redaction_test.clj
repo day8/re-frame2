@@ -34,15 +34,14 @@
       does NOT, by itself, redact durable `:data` at snapshot egress — only
       a declared path (frame OR machine) does.
 
-   4. **EP-0025 §subsystems (rf2-h3d8tf) — the rf2-398kql REVERSAL.** A
+   4. **Machine declaration (EP-0025 §subsystems).** A
       top-level projection-relative `:sensitive` / `:large` key on a
       `reg-machine` spec IS the canonical classification route: it travels
       with the machine def and is LOWERED per actor instance at spawn /
       first-boot into the per-frame elision registry, redacts at snapshot
       egress through the SAME registry read path the frame mechanism uses, and
-      is DROPPED at the instance's destroy (no leak). This supersedes the prior
-      rf2-0k5ubx \"top-level key is not honoured\" disposition. The frame-owned
-      absolute-path mechanism (tests 1-2) still functions — the registry read
+      is DROPPED at the instance's destroy (no leak). The frame-owned
+      absolute-path mechanism (tests 1-2) functions too — the registry read
       unions every source — but the machine declaration is the projection-
       relative, per-instance-applied canonical surface."
   (:require [clojure.string]
@@ -92,9 +91,9 @@
 (defn- declare-frame-marks!
   "Classify the machine snapshot's `:data` token slot SENSITIVE and the blob
   slot LARGE on `:rf/default`, keyed by the absolute runtime-db snapshot path.
-  EP-0025: the durable frame annotation and the imperative add-marks API are
-  both removed, so we install the classification directly into the frame's
-  elision registry under `:source :effect` — the kept substrate the
+  There is no durable frame annotation or imperative add-marks API, so this
+  installs the classification directly into the frame's
+  elision registry under `:source :effect` — the substrate the
   commit-plane `:sensitive` / `:large` effects write through — that
   `frame-snapshot-classification` reads at trace egress."
   ([] (declare-frame-marks! auth-id))
@@ -129,7 +128,7 @@
   [machine-id]
   (machine-transition-event* :machine-id machine-id))
 
-;; ---- (1) frame-snapshot-marks re-rooting ----------------------------------
+;; ---- (1) frame-snapshot-classification re-rooting -------------------------
 
 (deftest frame-snapshot-marks-rooted-under-data
   (testing "the frame's absolute snapshot-path declarations re-root snapshot-
@@ -344,10 +343,11 @@
 ;;          at snapshot egress.
 
 (deftest schema-sensitive-prop-does-not-classify-durable-data
-  (testing "EP-0025 reversal — a [:schemas :data] :sensitive? / :large? slot prop
+  (testing "a [:schemas :data] :sensitive? / :large? slot prop
             does NOT, by itself, redact durable :data at snapshot egress; with
-            NO frame declaration the marked slot rides RAW (the schema→marks
-            bridge is removed; frame-declared paths are the sole mechanism)"
+            NO frame declaration the marked slot rides RAW (there is no
+            schema→marks bridge; only a declared path — frame or machine —
+            classifies)"
     ;; auth-schema carries :token {:sensitive? true} + :blob {:large? true},
     ;; but we declare NOTHING on the frame.
     (reg-auth-machine!)
@@ -358,20 +358,18 @@
       (is (= "huge-after" (get-in tags [:after :data :blob]))
           "a :large? [:schemas :data] slot does NOT elide without a frame declaration"))))
 
-;; ---- (4) EP-0025 §subsystems (rf2-h3d8tf) — the rf2-398kql REVERSAL: -------
+;; ---- (4) EP-0025 §subsystems — the machine declaration: ------------------
 ;;          a top-level projection-relative `:sensitive` / `:large` key on
 ;;          `reg-machine` IS the canonical classification route, lowered per
 ;;          actor instance into the per-frame elision registry at spawn /
-;;          first-boot and dropped at destroy. This SUPERSEDES the prior
-;;          rf2-0k5ubx "top-level key is not honoured" disposition (authorised
-;;          by Mike's B0 ruling).
+;;          first-boot and dropped at destroy.
 ;;
 ;; These tests drive LIVE machines (singleton + spawned) through the runtime so
 ;; the spawn / first-boot lowering + the destroy drop are exercised end-to-end:
 ;; the declaration travels with the machine def, the registry entry is added at
 ;; the instance's birth + DROPPED at its death (no leak), and the egress
 ;; chokepoint redacts the declared slot via the SAME registry read path the
-;; frame-declared mechanism uses (`frame-snapshot-marks`).
+;; frame-declared mechanism uses (`frame-snapshot-classification`).
 
 (defn- snapshot-elision-reg
   "The `:rf/default` frame's elision registry, read off runtime-db. A nil
@@ -380,7 +378,7 @@
   (or (get (:rf.db/runtime (rf/frame-state-value :rf/default)) :rf.runtime/elision) {}))
 
 (deftest machine-declared-classification-lowers-at-singleton-boot
-  (testing "EP-0025 reversal — a SINGLETON's projection-relative :sensitive /
+  (testing "a SINGLETON's projection-relative :sensitive /
             :large `:data` declaration lowers into the per-frame elision registry
             at first-boot, redacts at snapshot egress, and is DROPPED at destroy"
     (let [mid :rf.machine-redaction/declared-singleton
@@ -405,7 +403,7 @@
         (is (contains? (:declarations reg) abs-blob)
             "large `:data` path lowered at boot"))
       ;; the lowered registry entry redacts at the egress chokepoint, via the
-      ;; SAME read path (frame-snapshot-marks) the frame-declared mechanism uses
+      ;; SAME read path (frame-snapshot-classification) the frame-declared mechanism uses
       (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
         (is (= :rf/redacted (get-in tags [:after :data :token]))
@@ -437,7 +435,7 @@
        (filter #(clojure.string/starts-with? (name %) prefix))))
 
 (deftest machine-declared-classification-lowers-per-spawned-instance
-  (testing "EP-0025 reversal — a SPAWNED actor's :data declaration travels with
+  (testing "a SPAWNED actor's :data declaration travels with
             the machine def and lowers PER INSTANCE at spawn (the generated
             <type>#n is classified with no per-instance author code), dropped at
             the actor's destroy"
@@ -489,7 +487,7 @@
              :states    {:idle {}}}))
         "a non-vector :sensitive axis is rejected at registration")))
 
-;; ---- (5) SOURCE-SCOPED teardown (rf2-7bsyza) ------------------------------
+;; ---- (5) SOURCE-SCOPED teardown -------------------------------------------
 ;; The machine destroy drop must be source-scoped, like the effect clear
 ;; (`re-frame.elision/apply-classification-effects`) and the route lowering
 ;; (`re-frame.routing.classification/without-route-sourced`). Spec 015 L149
@@ -500,7 +498,7 @@
 ;; `:source :machine` contribution.
 
 (deftest machine-destroy-is-source-scoped-does-not-un-redact-app-effect-claim
-  (testing "rf2-7bsyza — when an app ALSO classifies a machine's absolute
+  (testing "when an app ALSO classifies a machine's absolute
             snapshot path via a handler effect (:source :effect), destroying
             the actor drops only the machine's own :source :machine entry; the
             app's :source :effect claim SURVIVES and the value stays REDACTED
@@ -524,7 +522,7 @@
           "precondition: the app's :source :effect classification is standing")
       ;; Booting the singleton runs the machine lowering at the SAME path. The
       ;; machine's own claim never CLOBBERS the app's effect claim — the effect
-      ;; owner survives the boot (multi-owner registry, rf2-wdm1vg).
+      ;; owner survives the boot (multi-owner registry).
       (rf/dispatch-sync [mid [:rf.machine/noop]])
       (is (contains? (get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])
                      {:source :effect})
@@ -539,7 +537,7 @@
             "the path is STILL classified after destroy — the app's claim survives")
         (is (contains? (get-in reg [:sensitive-declarations abs-token]) {:source :effect})
             "the app's :source :effect owner survives the actor teardown"))
-      ;; And egress still redacts — the fail-open is sealed.
+      ;; And egress still redacts — no fail-open.
       (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
         (is (= :rf/redacted (get-in tags [:after :data :token]))
@@ -548,7 +546,7 @@
             "no secret leaks through the post-destroy egress")))))
 
 (deftest machine-and-effect-claims-union-and-remove-independently
-  (testing "rf2-wdm1vg — a machine's lowered :data claim and an app effect claim
+  (testing "a machine's lowered :data claim and an app effect claim
             on the SAME absolute snapshot path UNION (both owners retained), and
             each removes INDEPENDENTLY: the effect clear leaves the machine claim
             standing; the actor destroy leaves the effect claim standing. Both
@@ -594,24 +592,24 @@
           "the machine's own owner is dropped by the source-scoped teardown"))))
 
 ;; ---- (6) EFFECT-FIRST boot: the machine's own claim must land DURABLY ------
-;; rf2-dr0pfi — when an effect PRE-classifies a machine's absolute snapshot
+;; When an effect PRE-classifies a machine's absolute snapshot
 ;; path BEFORE the singleton boots, the machine's own `:source :machine` claim
 ;; (lowered LIVE by `rf.classification/lower-at-spawn!` at first-boot) must SURVIVE
-;; the boot snapshot `:rf.db/runtime` commit. Before the fix, that commit was
-;; built from the STALE `:rf.db/runtime` coeffect — which already carried the
-;; effect's `[:rf.runtime/elision]` sub-tree — so the returned effect value
-;; INCLUDED `:rf.runtime/elision` (effect-owner only). At commit,
+;; the boot snapshot `:rf.db/runtime` commit. A commit built from the STALE
+;; `:rf.db/runtime` coeffect — which already carries the effect's
+;; `[:rf.runtime/elision]` sub-tree — would return an effect value that
+;; INCLUDES `:rf.runtime/elision` (effect-owner only). At commit,
 ;; `rf.elision/reconcile-runtime-db-effect` reads an effect-carried
 ;; `:rf.runtime/elision` as an explicit full-frame install and honours it
-;; VERBATIM, clobbering the machine owner the live swap had just unioned in.
-;; The effect owner survived (so the path stayed redacted — BENIGN, no leak),
-;; but the machine was NOT itself a durable owner, breaking the multi-owner
-;; union contract (rf2-wdm1vg): the machine and the effect are INDEPENDENT
+;; VERBATIM, which would clobber the machine owner the live swap had just
+;; unioned in. The effect owner would survive (so the path would stay
+;; redacted — no leak), but the machine would NOT itself be a durable owner,
+;; breaking the multi-owner union contract: the machine and the effect are INDEPENDENT
 ;; owners and BOTH must persist, so removing the effect's claim must leave the
 ;; path redacted by the machine's surviving claim.
 
 (deftest machine-boot-claim-survives-when-effect-pre-classified
-  (testing "rf2-dr0pfi — an effect that PRE-classifies a machine's absolute
+  (testing "an effect that PRE-classifies a machine's absolute
             snapshot path does NOT prevent the machine's own :source :machine
             claim from landing durably at first-boot; both owners union, and
             the machine claim keeps the path redacted after the effect clears"
@@ -624,7 +622,7 @@
          :data      {:token nil :retries 0}
          :states    {:anon {:on {:login :authed}} :authed {}}})
       ;; (1) The EFFECT classifies the absolute snapshot path FIRST — BEFORE the
-      ;; singleton is ever booted (the effect-first order, the bug's trigger:
+      ;; singleton is ever booted (the effect-first order:
       ;; this is what seeds `:rf.runtime/elision` into the coeffect the boot
       ;; handler later reads).
       (rf/reg-event :rf.machine-redaction/ef-classify
@@ -635,18 +633,17 @@
       (is (not (some #(= :machine (:source %)) (owners)))
           "precondition: no machine owner yet (the singleton has not booted)")
       ;; (2) Boot the singleton. `lower-at-spawn!` unions the machine owner into
-      ;; the LIVE registry; the fix keeps that claim through the boot commit.
+      ;; the LIVE registry; the boot commit keeps that claim.
       (rf/dispatch-sync [mid [:rf.machine/noop]])
-      ;; THE KEY ASSERTION — FAILS on the pre-fix code: the machine owner was
-      ;; wiped by the stale-registry verbatim honour at the boot commit, leaving
-      ;; only the effect owner.
+      ;; THE KEY ASSERTION — a boot commit that honoured the stale registry
+      ;; verbatim would wipe the machine owner, leaving only the effect owner.
       (is (some #(= :machine (:source %)) (owners))
           "the machine IS a durable claim owner after boot (not only the effect)")
       (is (contains? (owners) {:source :effect})
           "the effect's claim UNIONS alongside — both owners retained")
       ;; (3) Remove the EFFECT's claim. The machine's surviving claim must keep
-      ;; the path classified (independent removal — rf2-wdm1vg). On pre-fix code
-      ;; the path would go UNCLASSIFIED here (the only owner was the effect).
+      ;; the path classified (independent removal). Were the effect the only
+      ;; owner, the path would go UNCLASSIFIED here.
       (rf/reg-event :rf.machine-redaction/ef-clear
         (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
       (rf/dispatch-sync [:rf.machine-redaction/ef-clear])
