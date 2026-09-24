@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An optional module must be ABSENT when unused (rf2-hic-053).
+"""An optional module must be ABSENT when unused.
 
 The product invariant is one line — *optional libraries: named consumer
 required; zero reachable production code when absent*
@@ -39,8 +39,8 @@ over prose: a docstring that names a namespace is provenance, and this
 gate follows `frozen-sources.edn`'s rule of parsing the ns form rather
 than grepping the file.
 
-THE ROSTER ALSO DRIVES THE COMPILE (rf2-okhdf)
-----------------------------------------------
+THE ROSTER ALSO DRIVES THE COMPILE
+----------------------------------
 `--module-namespaces` prints [[MODULES]]'s doors and engines, one per
 line, and `fresco/scripts/check_modules_compile.cjs` reads
 that list to decide what it compiles.  The two arms are the SAME roster
@@ -49,27 +49,26 @@ than as a second list over there: this file forbids anything outside a
 module from requiring it, and the compile gate then compiles it anyway,
 by name, because nothing else will.
 
-That second consumer exists because the first one's success created the
+That second consumer exists because the first one's success leaves a
 hole.  An optional module is unreachable from the public door BY
 CONSTRUCTION — that is the invariant above, and it holds — so the
 `:fresco-release` bundle contains none of this code, and neither does
 any other compile that starts from the door.  Measured on the produced
 bundle: `anchorName`, `positionAnchor`, `showPopover`, `rf-overlay-` and
-`buffered-field` all answer ZERO, against `fresco` at 75.  Nothing was
-wrong with that; what was wrong is that no compile which treats warnings
-as failures ever reached the code either, so four `:infer-warning`s on
-`(.. el -style -anchorName)` sat in `impl/overlay.cljs` until a worker
-read them off a browser build by hand (rf2-9zz0y).  Under `:advanced`
-that property would have been renamed and the trigger claim would have
-broken silently.
+`buffered-field` all answer ZERO, against `fresco` at 75.  That is
+correct; the hole is that no other compile which treats warnings as
+failures reaches the code either, so an `:infer-warning` on
+`(.. el -style -anchorName)` in `impl/overlay.cljs` would go unjudged.
+Under `:advanced` that property would be renamed and the trigger claim
+would break silently.
 
 A NEW MODULE IS THEREFORE COVERED BY CONSTRUCTION, which is the whole
 point of emitting rather than restating.  Adding a row below puts the
 module under the compile gate in the same edit that puts it under this
 one; there is no second place to remember.  What neither arm can do is
-notice a module that was never rowed at all — but that is already true
-of the reachability check, so the roster is not one more thing to keep
-in step, it is the one thing, and it has always been.
+notice a module that was never rowed at all — but that is true of the
+reachability check too, so the roster is not one more thing to keep
+in step, it is the one thing.
 
 WHAT THIS GATE IS NOT
 ---------------------
@@ -79,12 +78,12 @@ the property needs: the module is unreachable or it is not, and
 reachability is decided in the source.  What a byte count would add is
 confidence about the COMPILER, which is not what regresses here.
 
-The `native` row has NO bundle companion, and since rf2-6c12m.3 that is
-by construction rather than by omission: `re-frame.fresco.native` is two
+The `native` row has NO bundle companion, by construction rather than
+by omission: `re-frame.fresco.native` is two
 plain hook functions with no marker property and no refusal family, so
 there is no string a bundle carries if and only if the namespace is
-reachable, and `scripts/check_bundle_isolation.cjs` dropped its two
-native rows with the tier.  THIS gate is the one that decides the
+reachable, and `scripts/check_bundle_isolation.cjs` rows nothing for
+it.  THIS gate is the one that decides the
 property, and it decides it exhaustively, because a `:require` is a
 `:require` whether or not Closure keeps anything from it.
 
@@ -99,20 +98,12 @@ contain neither native-tier runtime **nor UIx code***
 not a Fresco module that must stay unreached; it is a library this
 package must never require AT ALL, from anywhere in `src/`.
 
-That clause fell through the seam between two honest artefacts
-(rf2-b3gy).  `check_bundle_isolation.cjs` declines it in terms and says
+`check_bundle_isolation.cjs` declines that clause in terms and says
 why — the measured `:fresco-release` bundle CONTAINS UIx and that is
-correct, because Fresco ships no reactive adapter and the exemplar
-consumer picks one — and it refers the clause here, to "the source-side
-gate's kind of question".  This file's `native` row then quoted the law
-in full and called itself "the DEPENDENCY-GRAPH half of that sentence"
-while asking only the module question.  Each file was right about
-itself; the clause was measured by neither.  So it is measured here
-now, in TWO ARMS, which is the shape
-`implementation/scripts/check-ui-adapter-isolation.cjs` used for the
-same claim about `re-frame2-ui`.  That gate is gone -- it retired with
-the compiled-view substrate it guarded (rf2-0yp7w.4), so do not go
-looking for it; what survives it is the two-arm shape itself:
+correct, because Fresco's public door installs no reactive adapter and
+the exemplar consumer picks UIx — and it refers the clause here, to "the
+source-side gate's kind of question".  So it is measured here, in TWO
+ARMS:
 
   1. **SOURCE** — no namespace under `src/` requires UIx.  Read off
      `:require` forms by the same parser the module rows use, so the
@@ -126,15 +117,15 @@ looking for it; what survives it is the two-arm shape itself:
      `day8/re-frame2-uix`, legally and necessarily — the Node lane's
      suites need a reactive substrate, and plain-atom has none — so the
      property is not "the file never says uix" but "the PRODUCTION map
-     never does".  A gate that grepped the file would be red today, and
+     never does".  A gate that grepped the file would be red, and
      promoting that test dependency into `:deps` is the realistic way
      this clause breaks.
 
-WHAT THE SECOND CLAUSE NEEDED, AND WHY IT DID NOT NEED A BUNDLE
----------------------------------------------------------------
+WHAT THE SECOND CLAUSE NEEDS, AND WHY IT NEEDS NO BUNDLE
+--------------------------------------------------------
 Row 6 of the conformance matrix carries a second clause — *native
-bundles contain no UIx unless the application imports it* — and it was
-read as owing a native-tier release build, which does not exist: there
+bundles contain no UIx unless the application imports it* — and it can
+be read as owing a native-tier release build, which does not exist: there
 is exactly one release build, `:fresco-release`, and it is the
 interpreted-only one.
 
@@ -163,7 +154,7 @@ compiles any more.
 
 The forbidden-import arms are pinned the same way, and arm 2 carries a
 PRESENT control of its own: the real `deps.edn`'s `:test` alias must
-still declare the UIx coordinate.  Without that row a green arm 2 could
+declare the UIx coordinate.  Without that row a green arm 2 could
 mean "the production map is clean" or "nobody mentions uix anywhere any
 more", and only the first is the claim.
 """
@@ -176,14 +167,13 @@ PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SRC = PACKAGE_ROOT / "src"
 DEPS_EDN = PACKAGE_ROOT / "deps.edn"
 
-# rf2-b3gy.  The libraries no `src/` namespace may require and no production
-# coordinate may name.  Two entries; the list shape is what keeps the second
-# from being a rewrite, and a row with no `coordinate_marker` takes arm 1 only.
+# The libraries no `src/` namespace may require and no production
+# coordinate may name.  A row with no `coordinate_marker` takes arm 1 only.
 #
 # `prefixes` are matched as NAMESPACE SEGMENTS rather than as substrings, so
 # `uix` catches `uix.core` and `uix.dom.server` and does NOT catch a namespace
 # that merely begins with those letters.  There is no such namespace in this
-# tree today; the segment rule is what stops one from being a silent hole
+# tree; the segment rule is what stops one from being a silent hole
 # later, and it costs a `split(".")`.
 FORBIDDEN_IMPORTS = [
     {
@@ -207,8 +197,8 @@ FORBIDDEN_IMPORTS = [
         ),
     },
     {
-        # rf2-6c12m.1.  The bench lane is the measured prototype the package
-        # was copied out of, and since the move it is off this package's
+        # The bench lane is the measured prototype the package
+        # was copied out of, and it is off this package's
         # classpath entirely (bench/fresco/, a hand-run project) -- so a
         # `:require` of it is a compile error in every build as well as a
         # finding here.  This row is what says so in the package's own terms,
@@ -245,7 +235,7 @@ MODULES = [
         ],
     },
     {
-        # rf2-hic-052.  The overlay module's shape is `motion`'s exactly:
+        # The overlay module's shape is `motion`'s exactly:
         # a thin door onto one private namespace that carries its weight,
         # so both edges have something to guard and the door-only check
         # would be the hole it was written to close.
@@ -260,7 +250,7 @@ MODULES = [
         ],
     },
     {
-        # rf2-hic-034.  The native tier is the module the native-boundary
+        # The native tier is the module the native-boundary
         # law names in terms: *the native namespace is separately
         # reachable; an interpreted-only production dependency graph and
         # bundle contain neither native-tier runtime nor UIx code*
@@ -268,9 +258,7 @@ MODULES = [
         # is the NATIVE-TIER half of that sentence's dependency graph; the
         # *nor UIx* half is [[FORBIDDEN_IMPORTS]] below, and it is a
         # different shape rather than another roster entry — see the
-        # module docstring.  The row used to claim the whole sentence and
-        # ask only this much of it, which is how the clause came to fall
-        # between this file and `check_bundle_isolation.cjs` (rf2-b3gy).
+        # module docstring.
         #
         # NO ENGINE, and the emptiness is the design rather than an
         # omission.  `motion`'s weight is in two private namespaces it
@@ -287,7 +275,7 @@ MODULES = [
         # collector's own doors, and neither embedding bridge names the
         # namespace — `h/as-component` outward, `h/defhost` and `[:>]`
         # inward, both of which cross to a foreign React component without
-        # caring what wrote it (rf2-hic-032).  A require appearing here
+        # caring what wrote it.  A require appearing here
         # would therefore be a genuine architectural change and not a
         # convenience.
         "name": "native",
@@ -298,10 +286,9 @@ MODULES = [
         ],
     },
     {
-        # rf2-sh56.  The forms module — `forms/buffered-field` and the
-        # three events its commit protocol is made of — shipped into v0
-        # by operator ruling because `docs/core/fresco/05-forms.md`
-        # documents it and the code owed the chapter a namespace.
+        # The forms module — `forms/buffered-field` and the
+        # three events its commit protocol is made of — which
+        # `docs/core/fresco/05-forms.md` documents.
         #
         # NO ENGINE, for the `native` row's reason and not for a
         # different one.  This module owns exactly one file; everything
@@ -326,12 +313,10 @@ MODULES = [
         ],
     },
     {
-        # rf2-2a0ju.  The server module — `server/render`, the one-request-in
-        # one-document-out SSR door (rf2-b6jkj) — shipped WITHOUT a row, and
-        # its own docstring already named this file as what keeps it out of a
-        # browser build.  That sentence was false for as long as this row was
-        # missing, which is a sharper defect than a plain gap: a reader who
-        # goes looking is steered to a roster that never mentioned the module.
+        # The server module — `server/render`, the one-request-in
+        # one-document-out SSR door.  Its own docstring names this file as
+        # what keeps it out of a browser build, and this row is what makes
+        # that sentence true.
         #
         # NO ENGINE, for the `forms` row's reason and not for a different one.
         # The module owns exactly one file, and everything it reaches is
@@ -355,7 +340,7 @@ MODULES = [
         ],
     },
     {
-        # rf2-hvr5h.  The artefact's own reactive-substrate adapter, so a
+        # The artefact's own reactive-substrate adapter, so a
         # Fresco application depends on core plus Fresco and nothing else
         # rather than adding a second coordinate purely to obtain a state
         # container.  It is a MODULE and not a door the package leads to, for
@@ -390,11 +375,11 @@ def ns_of(text):
     with `(ns my.app …)` as its usage example.
 
     The FIRST `(ns …)` in the live text, which is only the file's own because
-    [[code_only]] has already dropped the forms the reader discards.  Before
-    it did, a `#_(ns re-frame.fresco.motion)` sitting above the real form won
-    the search and [[scan]] then exempted the file as the module's own engine
-    — the whole reachability check switched off for it, silently and green
-    (rf2-df9b).
+    [[code_only]] has already dropped the forms the reader discards.  Without
+    that, a `#_(ns re-frame.fresco.motion)` sitting above the real form would
+    win the search and [[scan]] would then exempt the file as the module's own
+    engine — the whole reachability check switched off for it, silently and
+    green.
     """
     m = NS_FORM.search(code_only(text))
     return m.group(1) if m else None
@@ -438,7 +423,7 @@ COMMENT_FORM_RE = re.compile(r"\(\s*comment(?![\w.*+!?<>=$%&|:'/-])")
 
 
 def strip_inert(text):
-    """`text` with the three INERT form shapes blanked out (rf2-df9b).
+    """`text` with the three INERT form shapes blanked out.
 
     A form the reader discards is not a claim about anything, and this gate
     decides two questions from claims — which namespace a file DECLARES, and
@@ -461,7 +446,7 @@ def strip_inert(text):
     this narrowing from becoming a false RED of its own.
 
     This function and [[form_end]] are local to this script and DELIBERATELY
-    not shared with its sibling checkers (rf2-t9t0): [[code_only]] has
+    not shared with its sibling checkers: [[code_only]] has
     already blanked every character literal before these run, so the pair
     here carries no `\\` branch, and sharing would mean a flag argument on a
     twenty-line pure function.  The checkers are self-contained single files
@@ -499,17 +484,15 @@ def code_only(text):
     distinction is made.  It has teeth: this package's namespaces document
     themselves at length, and both the public door and the motion module
     carry a worked `(:require …)` EXAMPLE inside their docstrings.  A scanner
-    that looked for `:require` in the raw text found those examples and
-    reported the door as importing the module it had just been changed to
-    stop importing — a false red that was caught only because the live scan
-    was run against a tree already known to be clean.
+    that looked for `:require` in the raw text would find those examples and
+    report the door as importing the module — a false red.
 
     `\\"` is a character literal in Clojure, not a string, so a backslash
     outside a string consumes the character after it; inside a string it is
     the escape it looks like.
 
-    Prose is only half of what is not code, though, and the other half read
-    green for longer: a form the reader DISCARDS is not a claim either, so
+    Prose is only half of what is not code, though: a form the reader
+    DISCARDS is not a claim either, so
     [[strip_inert]] runs last over what survives.  It runs last because the
     passes above are what make its walk safe — a `)` inside a string or a
     line comment would otherwise unbalance it — and because by then every
@@ -595,10 +578,10 @@ def owned_namespaces(module):
 
 
 def module_namespaces():
-    """Every namespace the optional modules own, sorted (rf2-okhdf).
+    """Every namespace the optional modules own, sorted.
 
     Printed one per line by `--module-namespaces` and read by
-    `compile_gate.cjs`, which compiles them under `:infer-externs :auto` with
+    `check_modules_compile.cjs`, which compiles them under `:infer-externs :auto` with
     warnings treated as failures. See the module docstring for why that
     consumer exists and why it reads the roster rather than restating it.
     """
@@ -685,7 +668,7 @@ def names_library(namespace, prefixes):
 
 
 def scan_forbidden_imports(sources):
-    """ARM 1 (rf2-b3gy). `sources` is `{path: text}`; answer the violations.
+    """ARM 1. `sources` is `{path: text}`; answer the violations.
 
     Reuses [[required_namespaces]] rather than grepping, which is the whole
     reason this arm belongs in this file: seventeen docstrings across `src/`
@@ -717,7 +700,7 @@ def scan_forbidden_imports(sources):
 
 
 def scan_forbidden_coordinates(deps_text):
-    """ARM 2 (rf2-b3gy): the production `:deps` map names no forbidden library.
+    """ARM 2: the production `:deps` map names no forbidden library.
 
     Only the top-level `:deps` map. The `:test` alias's `:extra-deps` names
     `day8/re-frame2-uix` and MUST go on naming it — the Node lane's suites
@@ -767,12 +750,13 @@ def read_src():
 
 
 def self_test():
-    # THIS SELF-TEST'S OWN CLAIMS MUST NOT BE DELETABLE (rf2-uyhh). `python -O`
+    # THIS SELF-TEST'S OWN CLAIMS MUST NOT BE DELETABLE. `python -O`
     # — and `PYTHONOPTIMIZE` in the environment, which needs no flag at the
     # call site — strips every `assert` below, leaving a function that runs to
     # its success line having verified nothing. That is a control failing
-    # GREEN, which is this gate's own subject: rf2-df9b below is the same
-    # shape one level down, a form the reader drops still counted as a claim.
+    # GREEN, which is this gate's own subject: the inert-form rows below are
+    # the same shape one level down, a form the reader drops still counted as
+    # a claim.
     # The check is empirical rather than a reading of `__debug__`, so it also
     # catches a `.pyc` compiled under `-O` and run without it.
     try:
@@ -821,10 +805,9 @@ def self_test():
 
     # And prose is not a require even when the prose IS a require: both real
     # namespaces carry a worked `(:require …)` example in their docstrings,
-    # and the first draft of this gate reported the door as importing the
-    # module on the strength of one. The fixture that missed it had a
-    # docstring without a `:require` in it, which is exactly the fixture a
-    # green would have been meaningless against.
+    # and a scanner reading raw text would report the door as importing the
+    # module on the strength of one. A fixture whose docstring carries no
+    # `:require` is exactly the fixture a green would be meaningless against.
     clean = scan(
         {
             "src/q.cljs": '(ns re-frame.fresco\n'
@@ -855,11 +838,11 @@ def self_test():
     )
     assert clean == [], clean
 
-    # AN INERT FORM IS NOT A DECLARATION (rf2-df9b), and the exemption above
-    # is what gave that teeth: `scan` skips any file whose declared ns the
-    # module owns, so a file that could pass itself off as the engine escaped
-    # the reachability check entirely. `ns_of` took the FIRST `(ns …)` in the
-    # file, and a discarded one sits happily above the real one.
+    # AN INERT FORM IS NOT A DECLARATION, and the exemption above
+    # is what gives that teeth: `scan` skips any file whose declared ns the
+    # module owns, so a file that could pass itself off as the engine would
+    # escape the reachability check entirely. `ns_of` takes the FIRST
+    # `(ns …)` in the file, and a discarded one sits happily above the real one.
     #
     # The rows below share one body and differ only in what precedes it, so
     # what they compare is the DISGUISE and nothing else.
@@ -873,8 +856,8 @@ def self_test():
     assert door in flagged[0], flagged
 
     # None of these three declares anything, so none may claim the exemption.
-    # Each was reproduced GREEN — the whole file exempted — against the
-    # landed scanner.
+    # A scanner that read inert forms as declarations would exempt the whole
+    # file for each of them, GREEN.
     for disguise in (
         "#_(ns {})\n".format(door),
         "(comment (ns {}))\n".format(door),
@@ -923,7 +906,7 @@ def self_test():
     )
     assert clean == [], clean
 
-    # rf2-hic-034 — the native tier's door, required from a `src/`
+    # The native tier's door, required from a `src/`
     # namespace that is not it.  Driven as its own case rather than left
     # to the generic loop above: that row has an engine and this one does
     # not, so the fixtures written for `motion` exercise a shape the
@@ -939,7 +922,7 @@ def self_test():
     assert "re-frame.fresco.native" in flagged[0], flagged
     assert "`native` module" in flagged[0], flagged
 
-    # rf2-sh56 — the forms module's door, required from a `src/`
+    # The forms module's door, required from a `src/`
     # namespace that is not it.  Driven as its own case for the reason
     # the native one is: a roster entry nothing drives is an entry that
     # can stop working in silence.  The fixture is the exact shape the
@@ -979,7 +962,7 @@ def self_test():
     )
     assert clean == [], clean
 
-    # rf2-hic-052 — the overlay row, driven for a different reason than
+    # The overlay row, driven for a different reason than
     # the native one above.  Its SHAPE is `motion`'s, so the fixtures at
     # the top already exercise the code path; what they cannot exercise is
     # whether THIS row names the namespaces the tree actually declares. A
@@ -1012,14 +995,14 @@ def self_test():
             assert path.exists(), "roster names a missing file: {}".format(path)
 
     # -----------------------------------------------------------------------
-    # rf2-okhdf — the emission the compile gate reads
+    # The emission the compile gate reads
     # -----------------------------------------------------------------------
 
     # It is the roster and nothing but the roster. Both directions are pinned
     # because both are silent when they break: a MISSING namespace leaves the
     # compile gate green over code it no longer compiles, which is the exact
-    # defect this emission was added to close, and an EXTRA one names a
-    # namespace `compile_gate.cjs` would then fail to resolve — a red that
+    # defect this emission exists to close, and an EXTRA one names a
+    # namespace `check_modules_compile.cjs` would then fail to resolve — a red that
     # would send its reader to the wrong file.
     emitted = module_namespaces()
     assert emitted == sorted(set(emitted)), emitted
@@ -1045,7 +1028,7 @@ def self_test():
         )
 
     # -----------------------------------------------------------------------
-    # rf2-b3gy — the forbidden-import arms
+    # The forbidden-import arms
     # -----------------------------------------------------------------------
 
     # ARM 1, the direction that must RED: a require of UIx from `src/`, by
@@ -1066,7 +1049,7 @@ def self_test():
         assert "re-frame.fresco.impl.collector" in flagged[0], (spelling, flagged)
 
     # ARM 1, the direction that must stay GREEN, and it is the one with teeth:
-    # `src/` names UIx in seventeen docstrings today. This fixture is the
+    # `src/` names UIx in seventeen docstrings. This fixture is the
     # sharpest of them, `impl/controlled.cljs`'s citation of the UIx port by
     # file and line — a grep-based arm dies on it.
     clean = scan_forbidden_imports(
@@ -1100,9 +1083,9 @@ def self_test():
     )
     assert clean == [], clean
 
-    # THE BENCH-TREE ROW (rf2-6c12m.1), both directions.  RED: a require of
-    # the lane by the spelling the old freeze gate's SEALED arm scanned for,
-    # and by the rider spelling that sits one segment shallower.
+    # THE BENCH-TREE ROW, both directions.  RED: a require of the lane by
+    # its own namespace, and by the rider spelling that sits one segment
+    # shallower.
     for spelling in ("re-frame.bench.fresco.lane", "re-frame.bench.p0-app"):
         flagged = scan_forbidden_imports(
             {
@@ -1112,7 +1095,7 @@ def self_test():
         )
         assert len(flagged) == 1, (spelling, flagged)
         assert spelling in flagged[0] and "bench tree" in flagged[0], (spelling, flagged)
-    # GREEN: the provenance citations `src/` carries today -- a docstring
+    # GREEN: the provenance citations `src/` carries -- a docstring
     # naming a bench suite by namespace, and a `[[wikilink]]` into one.
     clean = scan_forbidden_imports(
         {
@@ -1158,7 +1141,7 @@ def self_test():
     assert len(unreadable) == 1, unreadable
     assert "no top-level `:deps` map" in unreadable[0], unreadable
 
-    # THE PRESENT CONTROL for arm 2, read off the REAL file (rf2-b3gy). The
+    # THE PRESENT CONTROL for arm 2, read off the REAL file. The
     # live arm is an absence check, and an absence check whose subject has
     # quietly left the building is a green that means nothing. This asserts
     # the coordinate is still there to be kept out of production, so the
@@ -1186,7 +1169,7 @@ def main(argv):
     if "--self-test" in argv:
         return self_test()
 
-    # rf2-okhdf. Machine-readable and side-effect free: the ONLY thing on
+    # Machine-readable and side-effect free: the ONLY thing on
     # stdout is the namespaces, one per line, so a consumer can read the
     # stream without parsing around a banner.
     if "--module-namespaces" in argv:
