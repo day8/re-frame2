@@ -278,7 +278,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
       {:fx [[:rf.machine/destroy :logger]]}))
   ```
 
-**Final states and `:on-done`.** Completion is finality: a child reports back by entering a `:final?` leaf, whatever spawn form its parent used, and dispatches nothing to its parent. Leaf states marked `:final?` auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot, and the completion event then flows into the parent's ordinary macrostep, so the parent can also **advance** on it (`:always`, or an explicit `:on {:rf.machine.spawn/done …}`). So a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child. No manual `:rf.machine/destroy` is needed.
+**Final states and `:on-done`.** Completion is finality: a child reports back by entering a `:final?` leaf, whatever spawn form its parent used, and dispatches nothing to its parent. Leaf states marked `:final?` auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot, and the completion event then flows into the parent's ordinary macrostep, so the parent can also **advance** on it (`:always`, or an explicit `:on {:rf.machine.spawn/done …}`). Both are success routes: a child that fails arrives as `:rf.machine.spawn/error` instead. So a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child. No manual `:rf.machine/destroy` is needed.
 
 | State-node key | What it does |
 |---|---|
