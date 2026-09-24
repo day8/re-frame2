@@ -8,7 +8,7 @@
   never wholesale-read a tool frame — a single read of the `:rf/xray`
   frame's entire working set (epoch ring + trace buffer + panel state)
   can blow well past 100K tokens. The skill STEERS; this guard ENFORCES
-  — a stray `path: []` of `:rf/xray` can no longer blow the context
+  — a stray `path: []` of `:rf/xray` cannot blow the context
   window regardless of agent judgment. Skill steers, MCP guards.
 
   ## What is refused
