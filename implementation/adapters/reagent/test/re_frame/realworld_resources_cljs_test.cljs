@@ -992,7 +992,7 @@
 
 (deftest editor-delete-clears-slice-releases-route-owner-and-navigates-home
   (testing "examples/real-apps/realworld_resources — :editor/delete fires the delete
-            mutation under the shared save instance with :reply-to [:editor/replied];
+            mutation under the session's save instance with :reply-to [:editor/replied];
             the delete branch clears the slice and navigates home, and that
             navigate-home leaves the edit route, so the runtime releases the
             route-owned article read on the way out (rf2-y4mgw)"
@@ -1914,6 +1914,46 @@
 (defn- alpha-delete-status [f]
   (:status (rf/compute-sub [:rf/mutation {:instance [:delete-article "alpha"]}] (state-value f))))
 
+;; The editor's writes run under a per-session instance (rf2-3x7nj.42.5), so the
+;; tests below read it the way the view does: the session instance off
+;; `:editor/save-instance`, then that instance's `:rf/mutation` state.
+
+(defn- editor-instance [f]
+  (rf/compute-sub [:editor/save-instance] (state-value f)))
+
+(defn- mutation-at [f instance]
+  (rf/compute-sub [:rf/mutation {:instance instance}] (state-value f)))
+
+(defn- editor-save [f]
+  (mutation-at f (editor-instance f)))
+
+(defn- cache-home-list!
+  "Cache the home article list under alice's viewer scope — fresh for a minute,
+   so a revisit is a cache HIT — and return its key. The editor's writes stale
+   it through `[:article-list]`."
+  [f]
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/articles
+                                         :params   {:tag nil :page 1}
+                                         :cause    :test}]
+                    {:frame f})
+  (reply-success! @last-managed-args {:articles [] :articlesCount 0} f)
+  (articles-list-key (viewer-scope "alice")))
+
+(defn- stale? [e]
+  (or (contains? #{:loading :fetching} (:status e)) (some? (:invalidated-at e))))
+
+(defn- open-doomed-editor!
+  "Open /editor/doomed and settle its article read."
+  [f]
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}]
+                    {:frame f})
+  (reply-success! @last-managed-args
+                  {:article {:slug "doomed" :title "Doomed" :description "d"
+                             :body "b" :tagList []}}
+                  f))
+
 (deftest delete-article-continuation-navigates-home
   (testing "examples/real-apps/realworld_resources — :ui/delete-article fires the
             :realworld/delete-article mutation with :reply-to [:ui/article-deleted slug];
@@ -2018,26 +2058,114 @@
             "a LATE save continuation does not drag the reader to the saved article")
         (is (nil? (rf/compute-sub [:editor/slug] (state-value f)))
             "…nor re-seed the editor slice with the saved article"))))
-  (testing "control: entering a NEW editor clears the shared instance, so the old
-            delete's reply never lands and the new session's controls are usable"
+  (testing "entering a NEW editor cancels nothing: the old delete's late reply
+            lands, runs its :invalidates, and is refused by the nav-token gate,
+            which retires that delete's own instance (rf2-3x7nj.42.5). Clearing
+            it on entry used to ABORT the delete and suppress its reply, so a
+            list cached before the delete kept serving the deleted article"
     (with-new-frame [f (guarded-frame!)]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}]
-                        {:frame f})
-      (reply-success! @last-managed-args
-                      {:article {:slug "doomed" :title "Doomed" :description "d"
-                                 :body "b" :tagList []}}
-                      f)
-      (reset! last-managed-args nil)
-      (rf/dispatch-sync [:editor/delete] {:frame f})
-      (let [del  @last-managed-args
-            save #(rf/compute-sub [:rf/mutation {:instance :editor/save}] (state-value f))]
-        (is (true? (:pending? (save))) "the delete is in flight")
-        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
-        (is (not (:pending? (save))) "the new session's save control is not busy")
-        (reply-success! del {} f)
-        (is (= :realworld.editor/new (route-id f))
-            "the late delete does not take the new draft's reader home")))))
+      (let [list-key (cache-home-list! f)]
+        (is (= :loaded (:status (entry f list-key))) "the home list is cached")
+        (is (not (stale? (entry f list-key))) "…and fresh, so a revisit would be a cache hit")
+        (open-doomed-editor! f)
+        (let [old-instance (editor-instance f)]
+          (reset! last-managed-args nil)
+          (rf/dispatch-sync [:editor/delete] {:frame f})
+          (let [del @last-managed-args]
+            (is (= :delete (get-in del [:request :method])) "the delete write went out and is held")
+            (is (true? (:pending? (mutation-at f old-instance)))
+                "the delete is in flight under its session's instance")
+            (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
+            (is (not (:pending? (editor-save f))) "the new session's save control is not busy")
+            (reply-success! del {} f)
+            (is (= :realworld.editor/new (route-id f))
+                "the late delete does not take the new draft's reader home")
+            (is (stale? (entry f list-key))
+                "the late delete's :invalidates ran, so the cached list stops serving the deleted article")
+            (is (= :idle (:status (mutation-at f old-instance)))
+                "the refused reply retired its own instance rather than leaving it settled")))))))
+
+(deftest editor-same-slug-return-is-a-new-session-an-old-write-cannot-touch
+  (testing "examples/real-apps/realworld_resources — returning to the SAME article's
+            editor is a new form session under the same slug. The old delete
+            still in flight neither busies the new form nor, answering :ok or
+            :error, touches the new session's pending save — the case a
+            slug-keyed instance gets wrong (rf2-3x7nj.42.5)"
+    (doseq [[label answer! invalidates?]
+            [[":ok" (fn [f del] (reply-success! del {} f)) true]
+             [":error" (fn [f del]
+                         (rf/dispatch-sync (conj (:on-failure del)
+                                                 {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                                           {:frame f}))
+              false]]]
+      (testing (str "the old delete answers " label)
+        (with-new-frame [f (guarded-frame!)]
+          (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+          (rf/dispatch-sync [:editor/register-flow] {:frame f})
+          (let [list-key (cache-home-list! f)]
+            (is (= :loaded (:status (entry f list-key))) "the home list is cached")
+            (open-doomed-editor! f)
+            (let [old-instance (editor-instance f)]
+              (reset! last-managed-args nil)
+              (rf/dispatch-sync [:editor/delete] {:frame f})
+              (let [del @last-managed-args]
+                (is (= :delete (get-in del [:request :method])) "the delete write went out and is held")
+                ;; Away and back: an identical re-navigation is a no-op, so the
+                ;; detour is what makes the return a new navigation.
+                (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show
+                                                       :params {:username "eve"}}]
+                                  {:frame f})
+                (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit
+                                                       :params {:slug "doomed"}}]
+                                  {:frame f})
+                (is (= "doomed" (rf/compute-sub [:editor/slug] (state-value f)))
+                    "back on the same article's editor")
+                (is (not (:pending? (editor-save f)))
+                    "the new session's form is not busy with the old session's delete")
+                (rf/dispatch-sync [:editor/edit-field :title "Doomed, revised"] {:frame f})
+                (rf/dispatch-sync [:editor/edit-field :description "d2"] {:frame f})
+                (rf/dispatch-sync [:editor/edit-field :body "b2"] {:frame f})
+                (reset! last-managed-args nil)
+                (rf/dispatch-sync [:editor/submit] {:frame f})
+                (is (= :put (get-in @last-managed-args [:request :method]))
+                    "the new session's save went out and is held")
+                (is (true? (:pending? (editor-save f))) "the new session's save is pending")
+                (answer! f del)
+                (is (true? (:pending? (editor-save f)))
+                    "the old delete's reply leaves the new session's pending save alone")
+                (is (= :idle (:status (mutation-at f old-instance)))
+                    "…and retires only its own instance")
+                (is (= invalidates? (stale? (entry f list-key)))
+                    (if invalidates?
+                      "the old delete's :invalidates ran"
+                      "a failed delete invalidates nothing"))))))))))
+
+(deftest editor-current-page-save-failure-stays-on-its-instance
+  (testing "examples/real-apps/realworld_resources — a save that fails while the
+            reader is still on the page that issued it stays on the session's
+            instance, where the form shows it and a retry re-executes under it:
+            the gate-first :editor/replied clears only a reply it refuses
+            (rf2-3x7nj.42.5)"
+    (with-new-frame [f (guarded-frame!)]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:editor/register-flow] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
+      (let [instance (editor-instance f)]
+        (rf/dispatch-sync [:editor/edit-field :title "New Title"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :description "A desc"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :body "Some body"] {:frame f})
+        (reset! last-managed-args nil)
+        (rf/dispatch-sync [:editor/submit] {:frame f})
+        (let [save @last-managed-args]
+          (is (= :post (get-in save [:request :method])) "the create write went out and is held")
+          (rf/dispatch-sync (conj (:on-failure save)
+                                  {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                            {:frame f})
+          (is (= :realworld.editor/new (route-id f)) "a failed save navigates nowhere")
+          (is (true? (:error? (editor-save f))) "the form shows the failure")
+          (is (= :error (:status (mutation-at f instance)))
+              "…because it stays on the session's instance for a retry"))))))
 
 (defn- feed-requests
   "Every logged managed-HTTP request for the session feed, in order."

@@ -38,9 +38,9 @@
    runtime dispatches `[:editor/replied nav-token reply]` once, AFTER
    `:invalidates` staled the lists and feed and the instance settled, and the
    continuation branches save-vs-delete on the reply value (save and delete share
-   one instance, so they share one continuation). The nav-token names the
-   navigation the write was issued under, so a reply that lands after the reader
-   has left the editor is refused rather than dragging them back. The
+   one instance per form session, so they share one continuation). The nav-token
+   names the navigation the write was issued under, so a reply that lands after
+   the reader has left the editor is refused rather than dragging them back. The
    seed-on-load continuation is the `:realworld/article` ensure's `:reply-to [:editor/article-loaded slug]`, the resource-read
    counterpart of a mutation completion continuation: a cache-hit fires it
    immediately, a fetch fires it on settle. The reply carries the slug it was for,
@@ -93,7 +93,7 @@
 (defn- editor-slice
   "The form's app-db slice: the draft, the baseline (for dirty-detection), and the
    per-field validation bookkeeping. The submission lifecycle is deliberately not
-   here — that's the `:editor/save` mutation instance."
+   here — that's the session's `[:editor/save nav-token]` mutation instance."
   ([] (editor-slice nil blank-draft))
   ([slug baseline]
    {:slug              slug
@@ -149,9 +149,13 @@
   [params]
   {:article (select-keys params [:title :description :body :tagList])})
 
-(def save-instance
-  "The one stable instance id the editor form watches for the save write."
-  :editor/save)
+(defn save-instance
+  "The instance id the save and delete writes run under, and the form watches.
+   Each editor navigation is its own form session, keyed by its nav-token, so a
+   new session never inherits — or cancels — an earlier one's write (WRITE
+   OWNERSHIP below)."
+  [nav-token]
+  [:editor/save nav-token])
 
 ;; ============================================================================
 ;; THE FLOW — :editor/can-submit?
@@ -278,7 +282,9 @@
 
 (rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Resets the editor
-         slice to a blank draft and clears any leftover save instance. Reaching
+         slice to a blank draft. It clears no save instance: this navigation's
+         token names a fresh one, so a write still in flight from an earlier
+         session runs to completion (WRITE OWNERSHIP below). Reaching
          `/editor` from an edit route is a real navigation, so the runtime has
          already released the outgoing edit article owner — the ROUTE owns the
          edit read (`:realworld.editor/edit` `:resources`, routing.cljs) and drops
@@ -286,8 +292,7 @@
          `:editor/can-submit?` flow is registered ONCE at boot by
          `:editor/register-flow`, not per entry."}
   (fn [{:keys [db]} _]
-    {:db (assoc db :editor (editor-slice))
-     :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]]}))
+    {:db (assoc db :editor (editor-slice))}))
 
 (rf/reg-event :editor/load-article
   {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`). Resets the editor
@@ -313,8 +318,7 @@
   (fn [{rt :rf.db/runtime :keys [db]} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
-       :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-            ;; Join the route-owned read to seed the baseline — no owner, so this
+       :fx [;; Join the route-owned read to seed the baseline — no owner, so this
             ;; ensure adds no owner and there is nothing to release. The route's
             ;; own `:resources` ownership handles the read's whole lifecycle. The
             ;; slug rides in the reply target so the seed continuation can confirm
@@ -394,13 +398,17 @@
 ;; A slug would not do — a `/editor` create draft has none, and returning to an
 ;; article is a new session under the same slug.
 ;;
-;; Entering another editor already covers the other half: `:editor/initialise`
-;; and `:editor/load-article` clear the shared `save-instance`, and the runtime
-;; suppresses a late result for a cleared instance, so the new session starts
-;; with usable controls and no continuation ever arrives for it. What remains is
-;; the detour to a page with no editor on it, and that is what the gate refuses.
-;; A refused reply touches nothing — not even the instance, which the next
-;; editor entry clears.
+;; The same token names the write's instance: every editor navigation is its
+;; own form session, `(save-instance nav-token)`, so entering another editor
+;; starts with usable controls and cancels nothing. Nothing is cleared on entry
+;; because `:rf.mutation/clear` is a cancellation, not a forget: it aborts the
+;; request — which is no proof the server declined the write — and suppresses
+;; the late reply, so the write's `:invalidates` would never run and the lists
+;; would keep serving pre-write rows. Left alone, the old write finishes and
+;; runs its `:invalidates`; its continuation is refused by the gate, and the
+;; refusal retires that write's own instance. A failure on the current page
+;; stays on the instance, where the form shows it and a retry re-executes under
+;; it; one the reader abandons after it settled keeps its settled row.
 
 (defn- current-nav-token
   "The committed navigation's token, read off RUNTIME-db. Nil before the first
@@ -417,7 +425,8 @@
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug draft]} (:editor db)
           can-submit? (get-in db [:editor :can-submit?])
-          errors      (validate-draft draft)]
+          errors      (validate-draft draft)
+          nav-token   (current-nav-token rt)]
       (cond
         ;; Valid but unchanged → nothing to save. The button is already disabled in
         ;; this state; this is just the belt-and-braces no-op for a programmatic
@@ -442,51 +451,55 @@
                            :params   (cond-> (-> (select-keys draft [:title :description :body])
                                                  (assoc :tagList (parse-tag-list (:tagList draft))))
                                        slug (assoc :slug slug))
-                           :instance save-instance
+                           :instance (save-instance nav-token)
                            ;; The save-success continuation is the call-site
                            ;; `:reply-to`, not an off-render reaction. Save and
-                           ;; delete share one instance, so they share one
-                           ;; continuation that branches on the reply — `:value`
+                           ;; delete share the session's instance, so they share
+                           ;; one continuation that branches on the reply — `:value`
                            ;; carries the saved Article for a save; a delete comes
                            ;; back with no body. The target also carries the
-                           ;; issuing navigation's token (WRITE OWNERSHIP below).
-                           :reply-to [:editor/replied (current-nav-token rt)]
+                           ;; issuing navigation's token (WRITE OWNERSHIP above).
+                           :reply-to [:editor/replied nav-token]
                            :cause    [:submit :editor/save]}]]]}))))
 
 (rf/reg-event :editor/replied
   {:doc "The save / delete completion continuation (the `:reply-to` target). It
          receives the nav-token the write was issued under, then the canonical
          reply map as its final arg, observed AFTER the mutation's
-         `:invalidates` staled the lists and feed and the instance settled. A
-         reply for a navigation the reader has since left is refused whole
-         (WRITE OWNERSHIP above). On a successful SAVE (`:value` carries the
-         saved `{:article …}`), re-seed the editor from the saved article so the
-         draft reads as clean —
-         that way the `:can-leave` guard won't block — clear the instance, and
-         navigate to the article detail. On a successful DELETE (no `:article` in
-         the reply value), clear the slice and instance and head home. Both
-         continuations NAVIGATE away from the edit route, so the runtime releases
-         the route-owned article read on the way out — neither branch releases an
-         owner by hand (there is none; the route owns the read, routing.cljs). On
-         `:error` there's nothing to do here; the form already shows it off the
-         instance state."}
-  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [status value]}]]
+         `:invalidates` staled the lists and feed and the instance settled. It
+         asks the nav-token FIRST: a reply for a navigation the reader has since
+         left is refused whole, success or failure, and only retires the write's
+         own instance — the reply's `:instance` (WRITE OWNERSHIP above). On
+         `:error` for the current page there's nothing to do here; the form
+         already shows it off the instance, which stays for a retry. On a
+         successful SAVE (`:value` carries the saved `{:article …}`), re-seed the
+         editor from the saved article so the draft reads as clean — that way
+         the `:can-leave` guard won't block — clear the instance, and navigate to
+         the article detail. On a successful DELETE (no `:article` in the reply
+         value), clear the slice and instance and head home. Both continuations
+         NAVIGATE away from the edit route, so the runtime releases the
+         route-owned article read on the way out — neither branch releases an
+         owner by hand (there is none; the route owns the read, routing.cljs)."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [status value instance]}]]
     (cond
-      (not= :ok status) {}
-
       ;; Issued under a navigation the reader has since left: not this page's
-      ;; to act on (WRITE OWNERSHIP above).
-      (not= nav-token (current-nav-token rt)) {}
+      ;; to act on, whatever it says — but the instance is this write's own, so
+      ;; retire it (WRITE OWNERSHIP above).
+      (not= nav-token (current-nav-token rt))
+      {:fx [[:dispatch [:rf.mutation/clear {:instance instance}]]]}
+
+      ;; A failure on the current page stays on the instance for a retry.
+      (not= :ok status) {}
 
       (:article value)
       (let [article (:article value)]
         {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
-         :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+         :fx [[:dispatch [:rf.mutation/clear {:instance instance}]]
               [:dispatch [:rf.route/navigate {:to :realworld.article/show :params {:slug (:slug article)}}]]]})
 
       :else
       {:db (assoc db :editor (editor-slice))
-       :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+       :fx [[:dispatch [:rf.mutation/clear {:instance instance}]]
             ;; Navigating home leaves the edit route, so the runtime releases the
             ;; route-owned `:realworld/article` read; the delete's `[:article slug]`
             ;; invalidation then reaches an unowned entry that GC reclaims — no
@@ -495,17 +508,18 @@
 
 (rf/reg-event :editor/delete
   {:doc "Delete the article (edit mode only). Fires the delete mutation under the
-         same instance the save uses, with the same
+         session's instance, the one the save uses, with the same
          `:reply-to [:editor/replied nav-token]` continuation — which branches
          save-vs-delete on the reply value."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (when-let [slug (get-in db [:editor :slug])]
-      {:fx [[:dispatch [:rf.mutation/execute
-                        {:mutation :realworld/delete-article
-                         :params   {:slug slug}
-                         :instance save-instance
-                         :reply-to [:editor/replied (current-nav-token rt)]
-                         :cause    [:click :editor/delete slug]}]]]})))
+      (let [nav-token (current-nav-token rt)]
+        {:fx [[:dispatch [:rf.mutation/execute
+                          {:mutation :realworld/delete-article
+                           :params   {:slug slug}
+                           :instance (save-instance nav-token)
+                           :reply-to [:editor/replied nav-token]
+                           :cause    [:click :editor/delete slug]}]]]}))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -514,6 +528,14 @@
 (rf/reg-sub :editor/slice (fn [db _] (:editor db)))
 (rf/reg-sub :editor/draft {:inputs [[:editor/slice]]} (fn [[e] _] (:draft e)))
 (rf/reg-sub :editor/slug  {:inputs [[:editor/slice]]} (fn [[e] _] (:slug e)))
+
+(rf/reg-sub :editor/save-instance
+  {:doc "This form session's write instance: `save-instance` of the committed
+         navigation's `:nav-token`, read off the public `:rf/route` sub — the
+         token the submit and delete handlers read, so the form watches the
+         instance its own writes run under (WRITE OWNERSHIP)."
+   :inputs [[:rf/route]]}
+  (fn [[route] _] (save-instance (:nav-token route))))
 
 (rf/reg-sub :editor/field-error
   {:doc "Per-field validation error — held back until either the first submit
@@ -570,7 +592,8 @@
         title-err   @(subscribe [:editor/field-error :title])
         desc-err    @(subscribe [:editor/field-error :description])
         body-err    @(subscribe [:editor/field-error :body])
-        save        @(subscribe [:rf/mutation {:instance save-instance}])
+        instance    @(subscribe [:editor/save-instance])
+        save        @(subscribe [:rf/mutation {:instance instance}])
         editing?    (some? slug)
         busy?       (:pending? save)]
     [:div.editor-page
