@@ -1,20 +1,21 @@
 (ns re-frame.adapter.reagent-slim-source-coord-form3-cljs-test
-  "reagent-slim Form-3 coverage for the shared source-coordinate wrapper
-  (rf2-e6hsn). The sibling slim suites cover Form-1, Form-2, fragments, and
-  elision; NONE covered a real reagent-slim `create-class` (Form-3) flowing
+  "reagent-slim Form-3 coverage for the shared source-coordinate wrapper.
+  The sibling slim suites cover Form-1, Form-2, fragments, and
+  elision; this one covers a real reagent-slim `create-class` (Form-3) flowing
   through `re-frame.views.source-coord-annotation/inject-source-coord-attr`.
 
-  THE DEFECT this closes. `inject-source-coord-attr` recognises a Reagent-family
+  THE HAZARD. `inject-source-coord-attr` recognises a Reagent-family
   Form-3 class structurally so it can pass it through UNCHANGED (a class root has
   no concrete DOM node to annotate — it must reach React as a class so its
-  lifecycle methods install). Before rf2-e6hsn the `reagent-class?` predicate
-  recognised ONLY the stock-Reagent marker (`prototype.reagentRender`). A real
+  lifecycle methods install). A real
   slim class carries the constructor tag `cljsReagentClass = true` plus
   `prototype.render` + `cljsReagentRender` — NEVER `prototype.reagentRender` — so
-  it fell to the plain `fn?` Form-2 branch, was returned as an
-  `inject-source-coord-attr$form-2-wrapper`, and was later invoked as an ordinary
+  a `reagent-class?` predicate keyed ONLY on the stock-Reagent marker
+  (`prototype.reagentRender`) would send it down the plain `fn?` Form-2 branch:
+  it would be returned as an
+  `inject-source-coord-attr$form-2-wrapper` and later invoked as an ordinary
   function rather than mounted as a class, LOSING its React lifecycle. slim is a
-  first-class supported adapter (rf2-ukq8qt / PR #6087), so the wrapper must
+  first-class supported adapter, so the wrapper must
   recognise its Form-3 shape.
 
   The wrapper is shared by BOTH debug annotations (`data-rf2-source-coord` and
@@ -64,9 +65,9 @@
 (deftest slim-form-3-class-passes-through-unwrapped
   (testing "a real reagent-slim `create-class` result flows through the shared
             source-coordinate wrapper UNCHANGED — same class identity, never
-            re-wrapped as a Form-2 render fn (rf2-e6hsn). Pre-fix this returned
-            an `inject-source-coord-attr$form-2-wrapper` fn and the class
-            identity was lost."
+            re-wrapped as a Form-2 render fn (an
+            `inject-source-coord-attr$form-2-wrapper` fn would lose the class
+            identity)."
     (let [slim-class (r2/create-class {:reagent-render (fn [] [:div "form-3 body"])
                                        :display-name   "SlimForm3"})
           out        (rf.views.source-coord-annotation/inject-source-coord-attr
@@ -82,11 +83,11 @@
       (is (some? (some-> (gobj/get out "prototype") (gobj/get "render")))
           "returned value still has its React `prototype.render` (lifecycle site)"))))
 
-;; ---- stock-shape structural parity (additive, not a replacement) ----------
+;; ---- stock-shape structural parity (both shapes recognised) ---------------
 
 (deftest stock-reagent-shape-still-classified-form-3
-  (testing "the stock-Reagent Form-3 marker (`prototype.reagentRender`) is STILL
-            recognised — the slim branch is ADDITIVE. Stock Reagent is not on
+  (testing "the stock-Reagent Form-3 marker (`prototype.reagentRender`) is
+            recognised too — the slim branch sits beside it. Stock Reagent is not on
             slim's classpath, so this uses the exact structural marker the
             predicate keys off as a faithful stand-in (a real stock class is
             exercised on the Reagent-bridge classpath); both supported class
@@ -105,8 +106,7 @@
 (deftest slim-form-3-preserved-through-registered-view
   (testing "end-to-end: a Form-3 slim view registered via reg-view* renders to
             the class itself under debug/source annotation — the wrapper never
-            invokes or re-wraps it (rf2-e6hsn acceptance). Pre-fix the rendered
-            value was a Form-2 wrapper, not the class."
+            invokes or re-wraps it."
     (let [slim-class (r2/create-class {:reagent-render (fn [] [:div "rv-form-3"])})]
       (rf/reg-view* :rf.slim-src-coord/rv-form-3 (fn [] slim-class))
       (let [render (rf/view :rf.slim-src-coord/rv-form-3)
@@ -141,8 +141,8 @@
 (deftest slim-form-3-survivor-retains-react-lifecycle
   (testing "the class that survives the wrapper still mounts as a React class:
             its `render` produces a React element and its `componentDidMount`
-            lifecycle fires — the representative behaviour the pre-fix Form-2
-            wrapping destroyed (rf2-e6hsn)."
+            lifecycle fires — the representative behaviour Form-2
+            wrapping would destroy."
     (let [mounted?   (atom false)
           slim-class (r2/create-class
                        {:reagent-render      (fn [] [:p "lifecycle-intact"])
