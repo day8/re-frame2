@@ -1,15 +1,13 @@
 (ns re-frame.spawn-all-schema-extract
   "Compile-time extraction of the CANONICAL `:spawn-all` runtime-db schema
   forms from `spec/Spec-Schemas.md`, and narrow reads of the authoritative
-  `spec/009-Instrumentation.md` catalogue rows (rf2-2ai15g).
+  `spec/009-Instrumentation.md` catalogue rows.
 
   The `:spawn-all` exact-attempt proof must validate runtime-produced
   records against the EXECUTABLE canonical schema — not a hand-copied mirror
-  that can silently drift from the markdown (the precursor rf2-p53o47 proof
-  carried a `^:private` handwritten `InvokeAllJoinState` copy; this replaces
-  it). Mirrors the `re-frame.observation-schema-extract` pattern (rf2-qyvyes):
-  read the markdown on the JVM, find exactly the NAMED `def` forms, and return
-  the parsed EDN `[…]` forms as data. It reads exactly these enumerated forms
+  that can silently drift from the markdown. This namespace reads the markdown
+  on the JVM, finds exactly the NAMED `def` forms, and returns the parsed EDN
+  `[…]` forms as data. It reads exactly these enumerated forms
   and fails loudly if any is absent or is not a vector form (removing a schema
   from the markdown is then a test-build error, so the two surfaces cannot
   drift silently). This is NOT a general markdown/schema generator — it names
@@ -37,7 +35,7 @@
 
 (defn- locate ^java.io.File [candidates what]
   (or (some (fn [p] (let [f (io/file p)] (when (.exists f) f))) candidates)
-      (throw (ex-info (str "rf2-2ai15g: cannot locate " what) {:candidates candidates}))))
+      (throw (ex-info (str "spawn-all-schema-extract: cannot locate " what) {:candidates candidates}))))
 
 (def ^:private spec-schemas-candidates
   ["../../spec/Spec-Schemas.md" "../spec/Spec-Schemas.md" "spec/Spec-Schemas.md"])
@@ -59,10 +57,10 @@
   [text sym]
   (let [start (str/index-of text (str "(def " sym))]
     (when (nil? start)
-      (throw (ex-info (str "rf2-2ai15g: (def " sym " …) not found in Spec-Schemas.md") {:sym sym})))
+      (throw (ex-info (str "spawn-all-schema-extract: (def " sym " …) not found in Spec-Schemas.md") {:sym sym})))
     (let [schema (nth (edn/read-string (subs text start)) 2 nil)]
       (when-not (vector? schema)
-        (throw (ex-info (str "rf2-2ai15g: " sym " is not a schema vector form") {:sym sym :read schema})))
+        (throw (ex-info (str "spawn-all-schema-extract: " sym " is not a schema vector form") {:sym sym :read schema})))
       schema)))
 
 (defn canonical-invoke-all-join-schema
@@ -71,7 +69,7 @@
   document): `:rf/attempt` (a token-less child-bearing join is not a valid live
   shape) and the `:cancelled` explicit-teardown TOMBSTONE set (a tombstone-less
   live join cannot honour a cancellation, so a late coordinate could resurrect a
-  cancelled child — rf2-y7venl)."
+  cancelled child)."
   []
   (extract-def-form (spec-schemas-text) 'InvokeAllJoinState))
 
