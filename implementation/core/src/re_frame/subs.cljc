@@ -45,7 +45,7 @@
             [re-frame.subs.cache :as rf.subs.cache]
             [re-frame.subs.memo :as rf.subs.memo]
             ;; The ONE Story-override schema-validation primitive
-            ;; (rf2-vxgfnd.21), so a schema-invalid override is rejected here
+            ;; so a schema-invalid override is rejected here
             ;; rather than through a second mechanism. Reached ONLY inside the
             ;; CLJS `rf.interop/debug-enabled?` gate below, so it DCEs in
             ;; production.
@@ -90,7 +90,7 @@
 ;; `:parametric`) receives a VECTOR at every realized count. There is no
 ;; third case and nothing records one.
 ;;
-;; The user writes ONE key — `:inputs` in the metadata map (rf2-kuky.45) —
+;; The user writes ONE key — `:inputs` in the metadata map —
 ;; and the parser LIFTS it into the runtime-owned slots above. `:inputs` is
 ;; never stored a second time on the registration, so `handler-meta` and
 ;; every tool keep reading exactly the slots they already read.
@@ -121,7 +121,7 @@
     fn-or-Var        → {:input-kind :parametric :input-fn <producer>}
 
   Either way the body receives its inputs as a VECTOR, at every realized
-  count (Spec 006 §Subscription input producers; ruled on rf2-kuky.45).
+  count (Spec 006 §Subscription input producers).
   Nothing records that: `:static` / `:parametric` ARE the declared kinds,
   so the delivery shape follows from `:input-kind` alone.
 
@@ -188,8 +188,8 @@
   `:inputs` is read from the metadata map and lifted into the runtime-owned
   slots by `declared-inputs->slots`, so it never rides the registration.
 
-  The v1 declared-input chain and the two-trailing-fn `input-fn` tail are DELETED
-  (rf2-kuky.50). A `:<-` anywhere in the args, or two trailing fns, raises
+  There is no v1 declared-input chain and no two-trailing-fn `input-fn` tail.
+  A `:<-` anywhere in the args, or two trailing fns, raises
   `:rf.error/reg-sub-bad-args` naming `:inputs` and MIGRATION §M-75 — so a
   missed migration site fails LOUDLY at namespace load rather than
   registering something with the wrong delivery shape.
@@ -280,7 +280,7 @@
   A subscription declares its dependencies ONCE, under `:inputs` in the
   metadata map, and a declared dependency list ALWAYS arrives at the body
   as a VECTOR — at zero, one or many inputs (Spec 006 §Subscription input
-  producers; ruled on rf2-kuky.45). Moving a dependency between a literal
+  producers). Moving a dependency between a literal
   and a computed producer never changes the body's shape, and adding a
   second input never flips a scalar argument into a vector.
 
@@ -310,7 +310,7 @@
   receives is the full `[sub-id & args]` subscription vector the caller
   passed to `subscribe`.
 
-  The v1 declared-input chain and the two-trailing-fn `input-fn` tail are GONE. A
+  There is no v1 declared-input chain and no two-trailing-fn `input-fn` tail. A
   `:<-` anywhere in the args, or two trailing fns, raises
   `:rf.error/reg-sub-bad-args` naming `:inputs` and MIGRATION §M-75, so a
   missed migration site fails loudly at namespace load.
@@ -328,7 +328,7 @@
           (clojure.string/join (map first (clojure.string/split name #\"\\s+\")))))
 
   See also: `subscribe` (reactive form), `subscribe-once` (one-shot
-  read), `compute-sub` (pure compute against a db value), `clear-sub`."
+  read), `compute-sub` (pure compute against a db value), `(rf/clear :sub id)`."
   [id & args]
   (let [parsed (try
                  (parse-reg-sub-args id args)
@@ -349,8 +349,8 @@
                                          :recovery  :no-recovery}))
                    (throw e)))
         {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
-    ;; rf2-vxgfnd.219 — one shared normalization seam validates the retired /
-    ;; unknown registration KEYS (rf2-x68lzo — a retired `:spec` hard-errors,
+    ;; One shared normalization seam validates the retired /
+    ;; unknown registration KEYS (a retired `:spec` hard-errors,
     ;; unknown bare keys warn) AND the EP-0025 `:sensitive` / `:large`
     ;; classification declarations (fail-loud) AND strips production-only `:doc`,
     ;; so public `reg-sub` and inline-image `lower-inline-sub` accept, reject,
@@ -444,12 +444,11 @@
   ([id meta handler-fn]
    (register-single-source-sub! id meta handler-fn :frame-state)))
 
-;; rf2-kuky.80: no `clear-sub` fn here. `:sub` owns no tear-down lifecycle of
+;; There is no `clear-sub` fn here. `:sub` owns no tear-down lifecycle of
 ;; its own — removal IS `rf.registrar/unregister!`, which forgets provenance,
 ;; marks the live-frame projection dirty and emits `:rf.registry/handler-cleared`
-;; — so the kind-keyed `(rf/clear :sub id)` calls the registrar directly and this
-;; one-line indirection is gone. The nilary clear-all went with it: its only
-;; callers were fixtures, which use `rf.registrar/clear-kind!`.
+;; — so the kind-keyed `(rf/clear :sub id)` calls the registrar directly. There
+;; is no nilary clear-all either: fixtures use `rf.registrar/clear-kind!`.
 
 ;; ---- parametric input production ------------------------------------------
 ;;
@@ -572,7 +571,7 @@
   "`input-kind → frame-RECORD slot` for the single-source container. Mirrors
   `single-source-container-for`, whose fns re-resolve `frame-id` through the
   registry (`(k (frame id))`) — this reads the slot off an ALREADY-resolved
-  record instead. A CAPTURED build (rf2-7w1im) reads its lone signal source off
+  record instead. A CAPTURED build reads its lone signal source off
   the exact incarnation record the outer fence validated, never a same-id
   successor re-resolved by bare id in the post-comparison window."
   {:db          :app-db
@@ -582,8 +581,8 @@
 ;; ---- the cache ------------------------------------------------------------
 
 (defn- cache-key
-  "Identity now; reserved as the chokepoint if cache-key shape changes
-  (per Spec 006 §Cache shape — currently the query-vector itself)."
+  "Identity; reserved as the chokepoint for the cache-key shape
+  (per Spec 006 §Cache shape — the query-vector itself)."
   [query-v]
   query-v)
 
@@ -603,7 +602,7 @@
   On single-threaded CLJS the re-check always succeeds; the rebuild branch is
   concurrency-host-only. PURE: safe to re-run, as a `swap!` fn must be.
 
-  rf2-j8ls2: the two-level update is written out rather than spelled
+  The two-level update is written out rather than spelled
   `(update-in m [k :ref-count] (fnil inc 0))`. Same result, and it reuses the
   `get` the identity guard already performed instead of walking to the slot
   twice. `update-in` costs 224 - 248 B/call more than this form on the JVM
@@ -626,7 +625,7 @@
 (declare subscribe subscribe-in-frame unsubscribe unsubscribe-if-reaction
          compute-and-cache!)
 
-;; ---- acquire recovery channel (rf2-vxgfnd.27) ----------------------------
+;; ---- acquire recovery channel ---------------------------------------------
 ;;
 ;; [[acquire-cache-reaction!]] is the cache's ref-count ATTACH for a
 ;; re-frame-native view substrate's commit. Three build outcomes hand back a
@@ -643,10 +642,10 @@
 ;; short-circuits, so those paths are byte-identical.
 ;;
 ;; It is retained at zero callers alongside `acquire-cache-reaction!` itself
-;; (rf2-63t1i) — see that fn's section comment.
+;; — see that fn's section comment.
 
 (def ^:dynamic ^:no-doc *acquire-recovery*
-  "Acquire-path recovery out-channel (rf2-vxgfnd.27) — a `volatile!` bound by
+  "Acquire-path recovery out-channel — a `volatile!` bound by
   `acquire-cache-reaction!` around the reactive build, or nil on the public
   subscribe / compute-sub paths. The never-cached recovery sites record their
   classification into it via [[record-acquire-recovery!]]; the acquiring caller
@@ -659,8 +658,7 @@
   [[acquire-cache-reaction!]] path — `kind` ∈ `:cycle` /
   `:input-fn-exception` / `:input-fn-bad-return`; `data` carries the typed
   error id + context the caller re-throws with. A no-op (channel nil-bound) on
-  the public subscribe / compute-sub paths, so this is invisible there.
-  rf2-vxgfnd.27."
+  the public subscribe / compute-sub paths, so this is invisible there."
   [kind data]
   (when-some [sink *acquire-recovery*]
     (vreset! sink (assoc data :recovery kind)))
@@ -764,7 +762,7 @@
                           :rf.error/sub-input-fn-bad-return
                           :rf.error/sub-input-fn-exception)]
         (emit-sub-input-fn-error! error-kw query-id query-v frame-id e where)
-        ;; `acquire-cache-reaction!` path only (rf2-vxgfnd.27): record the
+        ;; `acquire-cache-reaction!` path only: record the
         ;; parametric-failure classification so the acquire throws the matching
         ;; typed error instead of acquiring this never-cached recovery reaction.
         ;; `emit-sub-input-fn-error!` ALREADY fanned the always-on record above,
@@ -787,33 +785,33 @@
   acquired — surfacing a throw as a dev breadcrumb instead of discarding it
   silently.
 
-  RELEASE WHAT YOU ACQUIRED (rf2-1frc). This was an address-only
-  `unsubscribe`, on the reading that the slot at `input-q` could not be
-  replaced between a parent's build and its disposal. It can, and the two
-  eviction primitives make it ORDINARY rather than exotic: both
+  RELEASE WHAT YOU ACQUIRED. The slot at `input-q` CAN be replaced between a
+  parent's build and its disposal, and the two eviction primitives make that
+  ORDINARY rather than exotic: both
   `rf.subs.cache/invalidate-frame-subs!` and `clear-sub-cache!` remove the
   whole condemned batch from the cache atom BEFORE they dispose any member of
-  it, and since PR #9373 a mounted React hook whose reaction is disposed
+  it, and a mounted React hook whose reaction is disposed
   REACQUIRES eagerly from inside that walk. So a later member's teardown runs
-  against a cache an earlier member has already repopulated: two mounted
-  parents over one shared child ended with the second parent's release
-  decrementing — and disposing — the SUCCESSOR child the first parent was
-  holding, leaving one counted ref where two were owed.
+  against a cache an earlier member has already repopulated: with an
+  address-only `unsubscribe`, two mounted parents over one shared child would
+  end with the second parent's release decrementing — and disposing — the
+  SUCCESSOR child the first parent was holding, leaving one counted ref where
+  two were owed.
 
   So the release is identity-guarded through `unsubscribe-if-reaction`,
   matching the cache-dissoc step of the very same on-dispose callback (which
-  was `identical?`-guarded all along — the asymmetry WAS the defect). A
+  is `identical?`-guarded too). A
   release whose reaction is no longer the cache's no-ops, its reference having
   died with the eviction; a release whose reaction IS the cache's takes the
-  ordinary 1 → 0 in-tick disposal, exactly as `unsubscribe` did.
+  ordinary 1 → 0 in-tick disposal, exactly as `unsubscribe` does.
 
   A layer-2+ reaction's disposal walks `input-signals` and releases
   each — symmetric with the per-input `subscribe` bumps taken at build
   time. The walk is BEST-EFFORT: one input's release throwing must
   NOT skip the remaining inputs (a leaked sibling ref-count would compound),
-  so the caller keeps looping. Before rf2-is8ov5 the throw was caught and
-  dropped (`(catch … _ nil)`), leaving no trace — a ref-count leak from a
-  buggy custom-substrate `-dispose` was invisible.
+  so the caller keeps looping. Dropping the throw silently
+  (`(catch … _ nil)`) would leave no trace — a ref-count leak from a
+  buggy custom-substrate `-dispose` would be invisible.
 
   Per Spec 009 §Observability channels (the `:rf.warning/teardown-hook-
   exception` precedent in `rf.frame/safe-call-hook!`): the throw is swallowed
@@ -829,8 +827,8 @@
   `where` distinguishes the release sites (`:on-dispose` for the cached
   reaction's on-dispose callback, `:not-cached-release` for the symmetric
   release on the escaped-caching path, `:sub-cycle-unwind` for the earlier
-  inputs released when a declared-input cycle in a non-first input abandons the build —
-  rf2-t3cpn3). Returns nil."
+  inputs released when a declared-input cycle in a non-first input abandons the
+  build). Returns nil."
   [frame-id input-q input-reaction where]
   (try
     (unsubscribe-if-reaction frame-id input-q input-reaction)
@@ -844,13 +842,13 @@
                           :recovery         :ignored})
       nil)))
 
-;; ---- declared-input dependency-cycle guard (rf2-x76af2.24) --------------------------
+;; ---- declared-input dependency-cycle guard --------------------------------
 ;;
 ;; A declared input graph that closes a cycle (`:a` over `:b`, `:b` over `:a`, or a
-;; self-edge `:self` over itself) recurses `compute-and-cache!` →
-;; `subscribe-in-frame` (input) → `compute-and-cache!` … with no build-in-
+;; self-edge `:self` over itself) would recurse `compute-and-cache!` →
+;; `subscribe-in-frame` (input) → `compute-and-cache!` … without a build-in-
 ;; progress marker, and each reaction is cached only AFTER its inputs resolve,
-;; so the first subscribe/compute blew the host stack with a RAW
+;; so the first subscribe/compute would blow the host stack with a RAW
 ;; StackOverflowError instead of a structured `:rf.error/*` — a fail-loud
 ;; violation (`subs/cache.cljc`'s `transitive-dependent-closure` already treats
 ;; cyclic declared-input graphs as an acknowledged input class, and flows ship a typed
@@ -864,8 +862,8 @@
 
 (def ^:dynamic *subs-under-construction*
   "Per-thread stack of `[frame-id query-v]` build keys currently resolving their
-  declared inputs in `build-and-cache!*` — the reactive declared-input cycle guard
-  (rf2-x76af2.24). A re-entry for a key already on the stack is a dependency
+  declared inputs in `build-and-cache!*` — the reactive declared-input cycle
+  guard. A re-entry for a key already on the stack is a dependency
   cycle. Bound only across input resolution, so it is empty at the outermost
   subscribe entry AND during the cache-install phase (the collision-retry
   rebuild therefore never trips the guard)."
@@ -927,7 +925,7 @@
   "Fan the always-on + dev-trace `:rf.error/frame-destroyed` recovery signal for a
   subscribe that resolved a missing/destroyed frame — or, for a CAPTURED read, a
   same-id successor whose incarnation differs from the pinned
-  `expected-incarnation` (rf2-dlld6 / rf2-7w1im). No exception (an invalid op);
+  `expected-incarnation`. No exception (an invalid op);
   recovery is `:replaced-with-default` (nil), `elapsed-ms 0`. Reached via the
   `:error-emit/emit-error-both` late-bind hook (subs cannot static-require
   error-emit — load cycle). Shared by BOTH seams of the one exact-incarnation
@@ -938,22 +936,22 @@
   This fn is SUBSCRIBE-realm by construction — every call site is a subscribe
   operation (the captured/superseded `build-and-cache!*` fence and the ordinary
   address-directed subscribe to a missing/destroyed frame), so it stamps
-  `:op :subscribe` UNCONDITIONALLY (rf2-a2x2w / rf2-alk8a). Two upgrades ride the
+  `:op :subscribe` UNCONDITIONALLY. Two consequences ride the
   stamp: `error-emit/error-source-coord` resolves the `:source-coord` under the
   EXACT `[:sub id]` realm and NEVER the realm-ambiguous `[:sub]`-then-`[:event]`
   fallback (which, for a sub-id registered only as a same-keyword EVENT, would
-  steal that event's coord instead of OMITTING the slot — the mechanism 7xlvt
-  fixed for the pre-check seam, extended here to every subscribe fence); and
+  steal that event's coord instead of OMITTING the slot — the same mechanism
+  the pre-check seam uses, applied at every subscribe fence); and
   `error-emit/raw-identity-query-vector-event?` routes the attempted query vector
-  on the `:event` slot VERBATIM as raw IDENTITY (rf2-zwgqe / rf2-alk8a — a query
+  on the `:event` slot VERBATIM as raw IDENTITY (a query
   vector is identity, not payload) instead of failing closed to `:rf/redacted`
-  under the unresolvable frame (rf2-t55hxg.18's fail-closed guards policy-walked
+  under the unresolvable frame (the fail-closed guards policy-walk
   VALUE slots, which identity slots never consult). `:op` rides BOTH the
   dev-trace tags (axis 2) and the ratified-public always-on record-attrs
   (axis 1), exactly like `router/emit-frame-destroyed!`.
 
-  `route-frame?` (rf2-qjfrw) gates ONLY the EP-0015 frame-owned sink route (the
-  capture-realm extension of the rf2-bf0io UI seam). A CAPTURED subscribe whose
+  `route-frame?` gates ONLY the EP-0015 frame-owned sink route. A CAPTURED
+  subscribe whose
   pinned incarnation was SUPERSEDED passes false: its bare `frame-id` may now
   name a live same-id SUCCESSOR B, and A's dead-incarnation failure must not
   land in B's OWN `:observability :errors` sink (frame isolation;
@@ -978,7 +976,7 @@
        :recovery :replaced-with-default
        :op       :subscribe}        ;; dev-trace tags (axis 2)
       {:op :subscribe}              ;; always-on record realm attribution (axis 1)
-      route-frame?))                ;; suppress the frame-owned route for a dead captured incarnation (rf2-qjfrw)
+      route-frame?))                ;; suppress the frame-owned route for a dead captured incarnation
   ;; RECOVER to nil (the `:replaced-with-default` value the subscribe surfaces),
   ;; independent of the emit hook's own return.
   nil)
@@ -991,7 +989,7 @@
   cache slot.
 
   The materialisation worker behind the cycle-guarding `compute-and-cache!`
-  entry (rf2-x76af2.24): it pushes the per-thread under-construction marker
+  entry: it pushes the per-thread under-construction marker
   ONLY across its input resolution, so a re-entrant declared-input cycle is detected by
   the entry while the legitimate collision-retry rebuild (which runs after the
   marker is popped) is not.
@@ -1018,7 +1016,7 @@
   next subscribe build a fresh reaction against the real body. We
   achieve this by branching here on nil meta.
 
-  `expected-incarnation` (rf2-7w1im) is the EXACT incarnation token a captured
+  `expected-incarnation` is the EXACT incarnation token a captured
   subscribe pinned, threaded through from `subscribe-in-frame`. It makes the
   DURABLE build one exact-incarnation operation: the frame record is resolved
   ONCE here and, when the token is non-nil, VALIDATED against it up front — a
@@ -1028,30 +1026,29 @@
   resolving inputs in it, or installing/adopting a reaction in its sub-cache. The
   validated record then feeds the container read, the recursive input subscribes,
   and the cache write — so nothing re-resolves the bare id back to the successor.
-  A nil `expected-incarnation` (ambient / address-directed) re-resolves by id
-  exactly as before — unchanged."
+  A nil `expected-incarnation` (ambient / address-directed) re-resolves by id."
   [frame-id query-v expected-incarnation]
   (let [frame-record (rf.frame/frame frame-id)]
    (if (and (some? expected-incarnation)
             (or (nil? frame-record)
                 (not (identical? expected-incarnation
                                  (:drain-lock frame-record)))))
-     ;; rf2-7w1im: the captured incarnation was superseded between the outer
+     ;; The captured incarnation was superseded between the outer
      ;; subscribe-in-frame comparison and this durable build — recover-but-emit
      ;; and DO NOT read/build/cache into the same-id successor (identical posture
-     ;; to the outer fence; one exact-incarnation operation). rf2-a2x2w /
-     ;; rf2-alk8a: `emit-frame-destroyed-recovery!` is subscribe-realm by
+     ;; to the outer fence; one exact-incarnation operation).
+     ;; `emit-frame-destroyed-recovery!` is subscribe-realm by
      ;; construction and stamps `:op :subscribe`, so the resolved `:source-coord`
      ;; names the EXACT `[:sub id]` realm, never the realm-ambiguous fallback.
-     ;; rf2-qjfrw: this branch is reached ONLY for a CAPTURED subscribe (guarded
+     ;; This branch is reached ONLY for a CAPTURED subscribe (guarded
      ;; by `some? expected-incarnation`) whose pinned incarnation is dead, so the
      ;; bare `frame-id` may name a live same-id successor B — pass `route-frame?`
      ;; false to keep A's failure out of B's frame-owned `:observability :errors`
      ;; sink (corpus record + dev trace still fire).
      (do (emit-frame-destroyed-recovery! frame-id query-v false) nil)
-     ;; else — the existing build, against the validated `frame-record` for a
+     ;; else — the build, against the validated `frame-record` for a
      ;; captured read (never a bare-id re-resolve), or re-resolved by id for the
-     ;; unchanged ambient/address-directed path.
+     ;; ambient/address-directed path.
   (let [query-id      (first query-v)
         sub-meta      (rf.registrar/lookup :sub query-id)
         _             (when (nil? sub-meta)
@@ -1143,17 +1140,17 @@
         ;; `:frame-state` container propagates on a change to EITHER partition.
         ;; Layer-2+ subscribes each realized input.
         inputs        (cond
-                        ;; rf2-7w1im: a CAPTURED build reads its lone single-source
+                        ;; A CAPTURED build reads its lone single-source
                         ;; signal off the VALIDATED record (never a bare-id
                         ;; re-resolve that could land on a same-id successor); the
-                        ;; ambient/address-directed build re-resolves by id as before.
+                        ;; ambient/address-directed build re-resolves by id.
                         container-fn [(if (some? expected-incarnation)
                                         (get frame-record
                                              (single-source-container-slot-for input-kind))
                                         (container-fn frame-id))]
                         input-error? []
                         ;; Push this query-v onto the per-thread build stack for
-                        ;; the duration of input resolution ONLY (rf2-x76af2.24):
+                        ;; the duration of input resolution ONLY:
                         ;; a nested input `subscribe-in-frame` that recurses back
                         ;; to this query-v re-enters `compute-and-cache!` with the
                         ;; key still on the stack → the cycle is detected there.
@@ -1163,8 +1160,8 @@
                                        ;; Track the inputs successfully subscribed
                                        ;; so far so a declared-input cycle detected in a
                                        ;; NON-FIRST input can release the earlier
-                                       ;; inputs it already ref-bumped
-                                       ;; (rf2-t3cpn3). On a cycle, `subscribe-
+                                       ;; inputs it already ref-bumped.
+                                       ;; On a cycle, `subscribe-
                                        ;; in-frame` for input N throws the
                                        ;; sub-cycle sentinel and the WHOLE partial
                                        ;; build unwinds to the outermost
@@ -1178,23 +1175,22 @@
                                        ;; whose ref must be undone; the cyclic
                                        ;; input threw before its own bump, so it
                                        ;; is (correctly) absent. Release is
-                                       ;; scoped to the sub-cycle sentinel only —
-                                       ;; the minimal precise fix; any other
-                                       ;; (theoretical) throw re-propagates
-                                       ;; unchanged.
+                                       ;; scoped to the sub-cycle sentinel only;
+                                       ;; any other (theoretical) throw
+                                       ;; re-propagates unchanged.
                                        ;; `acquired` holds `[input-q reaction]`
                                        ;; pairs, not bare addresses: the unwind
                                        ;; releases the CONCRETE reaction it
-                                       ;; took (rf2-1frc).
+                                       ;; took.
                                        (let [acquired (volatile! [])]
                                          (try
-                                           ;; rf2-7w1im: fence the recursive input
+                                           ;; Fence the recursive input
                                            ;; subscribes to the SAME captured
                                            ;; incarnation — a same-id successor
                                            ;; installed mid-build cannot have this
                                            ;; layer-2+ sub recursively resolve its
                                            ;; inputs in it. nil (ambient) is the
-                                           ;; unchanged 2-arity input read.
+                                           ;; plain 2-arity input read.
                                            (mapv (fn [input-q]
                                                    (let [r (subscribe-in-frame
                                                              frame-id input-q
@@ -1226,8 +1222,8 @@
                         ;;
                         ;; The trailing `(first inputs)` is the reaction's
                         ;; LONE signal source, handed over so the wrapper can
-                        ;; resolve its MOVEMENT WITNESS once at construction
-                        ;; (rf2-gncxk.1). For `:db` / `:runtime-db` that is an
+                        ;; resolve its MOVEMENT WITNESS once at construction.
+                        ;; For `:db` / `:runtime-db` that is an
                         ;; `rf=`-gated partition projection, which publishes
                         ;; one; for `:frame-state` it is the raw physical
                         ;; container, which cannot — so that kind keeps its
@@ -1257,8 +1253,7 @@
                         ;; declared list; only the memo cell is specialised,
                         ;; comparing the upstream value rather than a seq.
                         ;; `(first inputs)` — the lone upstream reaction, for
-                        ;; the same movement-witness resolution as layer-1
-                        ;; (rf2-gncxk.1).
+                        ;; the same movement-witness resolution as layer-1.
                         (= 1 (count input-qs))
                         (rf.subs.memo/make-layer-n-single-input-memoised-body
                           body-fn query-id query-v frame-id input-qs sub-meta
@@ -1273,18 +1268,18 @@
         ;; re-materializes cleanly on the next subscribe.
         sub-meta      (when-not input-error? sub-meta)
         input-signals input-qs
-        ;; rf2-7w1im: a CAPTURED build installs/adopts into the VALIDATED
+        ;; A CAPTURED build installs/adopts into the VALIDATED
         ;; incarnation's sub-cache (never a bare-id re-resolve that could adopt a
         ;; same-id successor's cache); the ambient/address-directed build
-        ;; re-resolves by id as before (nil when the frame was torn down mid-build,
-        ;; driving the not-cached symmetric-release branch unchanged).
+        ;; re-resolves by id (nil when the frame was torn down mid-build,
+        ;; driving the not-cached symmetric-release branch).
         cache         (if (some? expected-incarnation)
                         (:sub-cache frame-record)
                         (:sub-cache (rf.frame/frame frame-id)))
         k             (cache-key query-v)]
-    ;; EP-0025 — sub-output sensitivity PROPAGATION is removed. A sub no longer
-    ;; inherits its inputs' (or its layer-1 app-db's) sensitivity; there is no
-    ;; propagation table and the build no longer resolves/records one. A sub's
+    ;; EP-0025 — there is no sub-output sensitivity PROPAGATION. A sub does not
+    ;; inherit its inputs' (or its layer-1 app-db's) sensitivity; there is no
+    ;; propagation table and the build resolves/records none. A sub's
     ;; trace output is redacted ONLY against its own registration's declared
     ;; `:sensitive` / `:large` paths (`rf.classification/project-sub-tags`). If you
     ;; derive a secret into a sub's output, classify that sub's output path.
@@ -1294,7 +1289,7 @@
     ;; :replaced-with-default), but the cache slot stays empty so a later
     ;; registration is observed by the next subscribe.
     (if (and cache sub-meta)
-      ;; Per rf2-x76af2.23: the cache-miss install must be ATOMIC / idempotent.
+      ;; The cache-miss install must be ATOMIC / idempotent.
       ;; Two threads that both observed a miss for the SAME query-v both reach
       ;; here and build a reaction; a plain `(swap! cache assoc k …)` lets the
       ;; second STOMP the first — the first reaction is orphaned (its on-dispose
@@ -1323,29 +1318,28 @@
             ;; parent slot so the cache invariant ("ref-count reflects
             ;; live refs") holds at every observable moment.
             ;; Best-effort per-input release: a throw from one input's
-            ;; release surfaces a dev breadcrumb (rf2-is8ov5) and the
+            ;; release surfaces a dev breadcrumb and the
             ;; loop continues so the remaining inputs still release.
-            ;; rf2-1frc — hand each release the CONCRETE input reaction this
+            ;; Hand each release the CONCRETE input reaction this
             ;; build acquired (`inputs` is `mapv`'d from `input-signals`, so
             ;; the two are positionally parallel by construction). An
-            ;; address-only release stole a successor entry's ref whenever an
-            ;; eviction batch was repopulated mid-walk by an eagerly
+            ;; address-only release would steal a successor entry's ref whenever
+            ;; an eviction batch is repopulated mid-walk by an eagerly
             ;; reacquiring holder; the identity guard makes it a no-op
             ;; instead, symmetric with the `identical?`-guarded cache-dissoc
             ;; immediately below.
             (doseq [[input-q input-r] (map vector input-signals inputs)]
               (release-input-ref! frame-id input-q input-r :on-dispose))
-            ;; rf2-ty246 — EMIT AT THE EVICTION SITE WHEN THE EVICTION IS OURS.
+            ;; EMIT AT THE EVICTION SITE WHEN THE EVICTION IS OURS.
             ;;
-            ;; This removal used to be a bare `swap!` and therefore SILENT, and
-            ;; on the ratom family it is the removal that a real view unmount
+            ;; On the ratom family this is the removal that a real view unmount
             ;; actually takes: the render Reaction drops its watch, the sub
             ;; Reaction auto-disposes (last watcher gone, no `auto-run`), and
             ;; this callback clears the slot. Spec 006 §Reference counting and
             ;; disposal promises a `:rf.sub/dispose` `:no-more-derefers` at the
             ;; eviction site, and §`unsubscribe` says the automatic case fires
-            ;; the underlying release from exactly this hook — so a view unmount
-            ;; emitting nothing was a contract violation, not a design choice.
+            ;; the underlying release from exactly this hook — so a silent
+            ;; removal here would be a contract violation.
             ;;
             ;; Read from the `swap-vals!` snapshots rather than from a flag set
             ;; inside the swap-fn, the same CAS-after-snapshot discipline the
@@ -1385,7 +1379,7 @@
                     (swap-vals! cache (bump-ref-count-fn k winner-reaction))]
                 (if (identical? winner-reaction (:reaction (get post k)))
                   winner-reaction
-                  ;; rf2-7w1im: the collision-retry rebuild stays fenced to the
+                  ;; The collision-retry rebuild stays fenced to the
                   ;; SAME captured incarnation.
                   (compute-and-cache! frame-id query-v expected-incarnation)))))))
       ;; Not cached (frame torn down mid-build, or no-such-sub miss).
@@ -1405,7 +1399,7 @@
       (do
         (when (and (not layer-1?)
                    (seq input-signals))
-          ;; rf2-1frc — same identity-guarded release as the on-dispose walk:
+          ;; Same identity-guarded release as the on-dispose walk:
           ;; a frame torn down mid-build can have a SAME-ID successor whose
           ;; cache an address-only release would decrement.
           (doseq [[input-q input-r] (map vector input-signals inputs)]
@@ -1413,7 +1407,7 @@
         reaction))))))
 
 (defn- compute-and-cache!
-  "Cycle-guarding entry to the reactive sub build (rf2-x76af2.24). Detects a
+  "Cycle-guarding entry to the reactive sub build. Detects a
   declared-input dependency cycle — a re-entry for a query-v already mid-build on this
   thread's `*subs-under-construction*` stack — and, at the OUTERMOST build,
   recovers it to a structured `:rf.error/sub-cycle` + nil-yielding reaction
@@ -1421,10 +1415,10 @@
   materialisation to `build-and-cache!*`, which pushes the per-thread marker
   across its input resolution.
 
-  `expected-incarnation` (rf2-7w1im, 3-arity) is the captured incarnation token
+  `expected-incarnation` (3-arity) is the captured incarnation token
   threaded straight through to `build-and-cache!*`'s exact-incarnation fence; nil
   (the [[acquire-cache-reaction!]] path + the ambient/address-directed miss) is
-  the unchanged bare-id build."
+  the bare-id build."
   ([frame-id query-v] (compute-and-cache! frame-id query-v nil))
   ([frame-id query-v expected-incarnation]
    (let [construction-key [frame-id (cache-key query-v)]
@@ -1447,7 +1441,7 @@
            (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
              (do
                (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
-               ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
+               ;; Observation-port acquire path only: record the
                ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
                ;; (fail-loud → the ViewCell error boundary) rather than acquire
                ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
@@ -1474,7 +1468,7 @@
 ;; that violates the sub's own declared `:schema` is the 'pin a state the
 ;; real derivation could never produce' anti-pattern) lives in the ONE
 ;; shared `re-frame.subs.override-schema/validate-sub-override!` primitive
-;; (rf2-vxgfnd.21) so the compiled-view path applies byte-identical
+;; so the compiled-view path applies byte-identical
 ;; validation + `:replaced-with-default` recovery.
 
 #?(:cljs
@@ -1502,19 +1496,19 @@
                v*       (rf.subs.override-schema/validate-sub-override! v query-v sub-meta frame-id)]
            (rf.substrate.adapter/make-derived-value [] (constantly v*)))))))
 
-;; ---- render-owned references on the ratom family (rf2-ty246) --------------
+;; ---- render-owned references on the ratom family ---------------------------
 ;;
-;; THE DEFECT THIS CLOSES. A Reagent / reagent-slim view reads a subscription
+;; WHY THIS EXISTS. A Reagent / reagent-slim view reads a subscription
 ;; as `@(subscribe q)` inside its render, and `subscribe` bumps `:ref-count`
-;; EVERY TIME. Nothing paired those bumps, because on the ratom family nothing
-;; calls `unsubscribe`: the slot was removed by the substrate instead, when the
-;; component's render Reaction dropped its watch and the sub Reaction
-;; auto-disposed. So `:ref-count` counted RENDERS, not readers — it rose
-;; monotonically while a component re-rendered and never reached the 1 → 0 edge
-;; Spec 006 describes — while `re-frame.subs.tooling` documents it, and Xray
-;; displays it, as the live consumer count. The React-hook spine never had this
-;; problem: `use-subscribe`'s commit takes ONE durable reference and releases it
-;; from its own cleanup, identity-guarded.
+;; EVERY TIME. On the ratom family nothing calls `unsubscribe`: the slot is
+;; removed by the substrate instead, when the component's render Reaction drops
+;; its watch and the sub Reaction auto-disposes. Unpaired, `:ref-count` would
+;; count RENDERS, not readers — rising monotonically while a component
+;; re-renders and never reaching the 1 → 0 edge Spec 006 describes — while
+;; `re-frame.subs.tooling` documents it, and Xray displays it, as the live
+;; consumer count. The React-hook spine does not have this problem:
+;; `use-subscribe`'s commit takes ONE durable reference and releases it from
+;; its own cleanup, identity-guarded.
 ;;
 ;; WHAT THIS IS. The same mechanism, extended to the ratom path: ONE reference
 ;; per (owning reaction, slot), taken the first time an owner reads that slot
@@ -1534,11 +1528,11 @@
 ;;
 ;; TOTAL AND OPT-IN. `:adapter/reactive-owner` is published by the ratom family
 ;; alone. UIx, plain-atom and test-react publish nothing, the hook resolves nil,
-;; and every line below is skipped — their paths are byte-identical to before.
+;; and every line below is skipped on their paths.
 
 (def ^:dynamic ^:no-doc *render-owned-acquisition?*
   "False while a subscribe is one half of a balanced pair that releases its own
-  reference — today, `subscribe-once`.
+  reference — `subscribe-once`.
 
   Without this, a `subscribe-once` evaluated inside a render would have its
   reference claimed by the in-flight owner AND released by `subscribe-once`
@@ -1560,14 +1554,14 @@
      (when-let [hook (rf.late-bind/get-fn-cached :adapter/reactive-owner)]
        (hook))))
 
-;; WHY A HOLDING DIES WITH EITHER END (rf2-3x7nj.3.1). A holding joins two
+;; WHY A HOLDING DIES WITH EITHER END. A holding joins two
 ;; lifetimes, the owner's and the claimed reaction's, and it has to end with
-;; whichever ends first. Keyed to the owner alone, it did not: every claim pushed
-;; a release closure onto the owner and recorded the reaction in its map, and
-;; nothing removed either when the CLAIMED reaction died. A mounted component
-;; whose conditional read was toggled, or whose parametric query changed per
-;; keystroke, kept every disposed reaction it had ever read, each still closing
-;; over its memo's last app-db. So each side carries exactly ONE callback and
+;; whichever ends first. Keyed to the owner alone, it would not: every claim
+;; would push a release closure onto the owner and record the reaction in its
+;; map, and nothing would remove either when the CLAIMED reaction died. A mounted
+;; component whose conditional read toggles, or whose parametric query changes
+;; per keystroke, would keep every disposed reaction it had ever read, each still
+;; closing over its memo's last app-db. So each side carries exactly ONE callback and
 ;; drops its half of the holding: the owner's releases what it still holds, and
 ;; the claimed reaction's removes itself from every owner still holding it. Both
 ;; records then name only live holdings, and neither grows with renders, claims
@@ -1634,7 +1628,7 @@
 
      First read of a given SLOT by this owner: keep the bump `subscribe` just
      took and record it, on the owner (released by its dispose) and on the
-     claimed reaction (dropped by ITS dispose, rf2-3x7nj.3.1). Any later
+     claimed reaction (dropped by ITS dispose). Any later
      read of the SAME slot by the SAME owner: release the duplicate bump
      immediately, so a re-rendering component holds exactly one reference no
      matter how many times it renders. The release order is bump-then-release
@@ -1655,21 +1649,20 @@
      different holding and recorded afresh; the holding it replaces is
      dropped, never released, so it cannot decrement the successor.
 
-     WHY THE FRAME HALF IS LOAD-BEARING (rf2-kk986). `subscribe` takes an
+     WHY THE FRAME HALF IS LOAD-BEARING. `subscribe` takes an
      explicit `{:frame target}`, so ONE render may legitimately read the same
      query from two frames — `@(subscribe [:n] {:frame :a})` then
      `@(subscribe [:n] {:frame :b})`. Those are two different cached reactions
-     under an IDENTICAL `k`. Keyed by `k` alone, the second claim OVERWROTE the
-     first, and on every re-render each frame's reaction failed the identity
-     guard against the other's: neither duplicate bump was released, so both
-     `:ref-count`s climbed with RENDERS rather than readers — the very defect
-     the section comment above says this mechanism closes — and one more
-     release callback piled onto the owner per render per frame. The pair is
-     what makes the-SAME-slot-by-the-SAME-owner mean what Spec 006
-     §Ratom-family lifetime means by it: ONE reference per (owning reaction,
-     slot). The single-frame path every existing caller is on is unchanged —
-     with one frame the pair is injective in `k`, so every lookup, overwrite
-     and release lands exactly where it did before.
+     under an IDENTICAL `k`. Keyed by `k` alone, the second claim would
+     OVERWRITE the first, and on every re-render each frame's reaction would
+     fail the identity guard against the other's: neither duplicate bump would
+     be released, so both `:ref-count`s would climb with RENDERS rather than
+     readers — the very problem the section comment above says this mechanism
+     addresses — and one more release callback would pile onto the owner per
+     render per frame. The pair is what makes the-SAME-slot-by-the-SAME-owner
+     mean what Spec 006 §Ratom-family lifetime means by it: ONE reference per
+     (owning reaction, slot). With one frame the pair is injective in `k`, so
+     the single-frame path behaves exactly as a `k`-keyed record would.
 
      Returns nil."
      [frame-id k query-v reaction]
@@ -1715,7 +1708,7 @@
   `compute-sub` — so `:rf.assert/sub-equals` stays unsatisfiable by an
   override.
 
-  `expected-incarnation` (rf2-dlld6, 3-arity) is the EXACT incarnation token a
+  `expected-incarnation` (3-arity) is the EXACT incarnation token a
   `capture-frame` `:subscribe` op pinned at capture. When non-nil the read is
   FENCED to that incarnation: a same-id successor resolved here (the capture's
   frame was destroyed and a successor reseated under the id after the capture's
@@ -1794,58 +1787,57 @@
      frame-id
      (fn []
    (let [frame-record (rf.frame/frame frame-id)
-         ;; rf2-7w1im: resolve the record ONCE and decide supersession up front,
+         ;; Resolve the record ONCE and decide supersession up front,
          ;; so a CAPTURED read consumes EXACTLY the validated incarnation across
          ;; the override, hit, and miss seams — one exact-incarnation operation.
          ;; `expected-incarnation` nil (the ambient / explicit address-directed
          ;; read, and every layer-2+ recursive input resolution) → never
-         ;; superseded, so every clause below stays byte-identical to the
-         ;; pre-fence behaviour.
+         ;; superseded, so every clause below behaves as an unfenced read.
          superseded? (and (some? expected-incarnation)
                           (not (identical? expected-incarnation
                                            (:drain-lock frame-record))))]
      (or
-       ;; rf2-7w1im: the CLJS dev sub-override seam now sits INSIDE the
+       ;; The CLJS dev sub-override seam sits INSIDE the
        ;; incarnation fence — a stale captured subscribe must NOT surface an
        ;; override for a superseded incarnation (the override short-circuits
        ;; build-and-cache, so consulted ahead of the fence it would escape it
        ;; entirely). An UNFENCED read (`superseded?` is false whenever
-       ;; `expected-incarnation` is nil) still consults it exactly as before —
+       ;; `expected-incarnation` is nil) consults it —
        ;; INCLUDING ahead of the missing-frame branch — and a LIVE captured read
        ;; (incarnation still valid) keeps its override too.
        #?(:cljs
           (when (and rf.interop/debug-enabled? (not superseded?))
             (resolve-sub-override frame-id query-v)))
        (cond
-         ;; Missing or destroyed frame, OR a superseded captured read (rf2-dlld6 /
-         ;; rf2-7w1im): recover-but-emit `:rf.error/frame-destroyed` and return
+         ;; Missing or destroyed frame, OR a superseded captured read:
+         ;; recover-but-emit `:rf.error/frame-destroyed` and return
          ;; nil rather than deref-ing nil, reading a same-id successor's app-db,
          ;; or caching a reaction in its sub-cache. Production-survivable
          ;; (surface #4) so a subscribe during a teardown / hot-reload race
          ;; recovers safely while a real use-after-destroy bug stays observable on
          ;; the production-watched stream.
          ;;
-         ;; rf2-dlld6: the `expected-incarnation` comparison (folded into
+         ;; The `expected-incarnation` comparison (folded into
          ;; `superseded?`) is made against the record we JUST resolved for the
          ;; read — A destroyed + a same-id successor B installed after the
          ;; capture's liveness pre-check resolves B here, whose `:drain-lock`
          ;; differs from the pinned token — so validation and consumption are one
-         ;; exact-incarnation operation. rf2-7w1im: the DURABLE build/read past
+         ;; exact-incarnation operation. The DURABLE build/read past
          ;; this cond (a miss, or a hit's concurrent-eviction rebuild) carries the
          ;; SAME token into `build-and-cache!*`, which re-fences it, so a
          ;; supersession in the post-comparison window cannot retarget B either. A
          ;; nil `expected-incarnation` leaves the clause a pure
          ;; `(nil? frame-record)` test.
          (or (nil? frame-record) superseded?)
-         ;; rf2-a2x2w / rf2-alk8a: `emit-frame-destroyed-recovery!` is
+         ;; `emit-frame-destroyed-recovery!` is
          ;; subscribe-realm by construction and stamps `:op :subscribe`
          ;; UNCONDITIONALLY — for a CAPTURED subscribe (superseded or a captured
          ;; pin whose frame is now missing) AND for an ORDINARY address-directed
          ;; subscribe to a missing frame alike. The resolved `:source-coord` names
          ;; the EXACT `[:sub id]` realm (omitting when the sub-id is genuinely
          ;; unregistered), and the attempted query vector egresses on the `:event`
-         ;; slot as raw IDENTITY (rf2-zwgqe) rather than fail-closed to redacted.
-         ;; rf2-qjfrw: suppress the EP-0015 frame-owned sink route ONLY for a dead
+         ;; slot as raw IDENTITY rather than fail-closed to redacted.
+         ;; Suppress the EP-0015 frame-owned sink route ONLY for a dead
          ;; CAPTURED incarnation (`superseded?` — a captured pin whose frame was
          ;; destroyed/reseated, so the bare `frame-id` may name a live same-id
          ;; successor B). An ORDINARY address-directed subscribe (`superseded?`
@@ -1869,13 +1861,13 @@
                        (swap-vals! cache (bump-ref-count-fn k reaction))]
                    (if (identical? reaction (:reaction (get new k)))
                      reaction
-                     ;; rf2-7w1im: the hit's concurrent-eviction rebuild carries the
+                     ;; The hit's concurrent-eviction rebuild carries the
                      ;; captured token so the rebuild is fenced to the SAME
                      ;; incarnation (never a bare-id retarget to a same-id successor).
                      (compute-and-cache! frame-id query-v expected-incarnation)))
-                 ;; Miss: the durable build carries the captured token (rf2-7w1im).
+                 ;; Miss: the durable build carries the captured token.
                  (compute-and-cache! frame-id query-v expected-incarnation))]
-           ;; rf2-ty246 — turn a ratom render's bump into ONE reference owned by
+           ;; Turn a ratom render's bump into ONE reference owned by
            ;; the in-flight reaction and released on its dispose, so `:ref-count`
            ;; is the live reader count Spec 006 says it is rather than a render
            ;; tally. No-op off the ratom family, and off the render path.
@@ -1886,8 +1878,8 @@
 
 (defn- subscribe-with-opts
   "INTERNAL body of `subscribe`'s 2-arity, factored out so the
-  `rf.trace/with-call-site` scope push can be applied CONDITIONALLY around it
-  (rf2-i3dvj). `with-call-site` sets `:call-site` unconditionally, so
+  `rf.trace/with-call-site` scope push can be applied CONDITIONALLY around
+  it. `with-call-site` sets `:call-site` unconditionally, so
   pushing it with a nil coord would CLOBBER an inherited one — exactly what
   `make-capture-frame`'s `:subscribe` op relies on, since it wraps its own
   view coord around a call that carries no `:rf.trace/call-site` in `opts`."
@@ -1920,14 +1912,14 @@
 
   This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and calls straight
-  through to THIS fn (rf2-m90brg — no `re-frame.core/subscribe*` facade
+  through to THIS fn (there is no `re-frame.core/subscribe*` facade
   indirection), stamping the coord onto `opts` as `:rf.trace/call-site`.
   THIS BODY then establishes the `rf.trace/with-call-site` scope from it, so
   any error emitted inside the synchronous miss path
   (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries the
   invocation coord.
 
-  Per rf2-i3dvj the scope push lives HERE, in the callee, and not in the
+  The scope push lives HERE, in the callee, and not in the
   macro expansion: `with-call-site` expands to a `binding`, and a `binding`
   spliced into the CALLER's context compiles to `await (async
   function(){...})()` inside a CLJS async context — a hidden microtask yield
@@ -1947,15 +1939,16 @@
    ;; the sub-id into the error payload's `:event-id` slot so a frameless
    ;; subscribe's error is attributed to the query it carried.
    ;;
-   ;; rf2-a8bw0: the reader FIRST, then the require — which is what
+   ;; The reader FIRST, then the require — which is what
    ;; `require-current-frame!` does internally, written out here so the
    ;; `extra` payload is built only on the path that reads it. The error is
-   ;; unchanged: when the reader finds nothing, `require-current-frame!`
+   ;; the same: when the reader finds nothing, `require-current-frame!`
    ;; runs with the same `extra` and emits + throws the same
    ;; `:rf.error/no-frame-context`. `subscribe`'s 1-arity is the framework's
    ;; per-read path — one call per reactive read per render — and it is the
    ;; only 1-arity spelled this way; `subscribe-once` / `unsubscribe` run
-   ;; once per slot and keep the plain call. Do NOT collapse this back.
+   ;; once per slot and keep the plain call. Do NOT collapse this into the
+   ;; plain call.
    (subscribe-in-frame (or (rf.frame/resolve-current-frame)
                            (rf.frame/require-current-frame!
                              :subscribe
@@ -1963,18 +1956,18 @@
                               :event-id (first query-v)}))
                        query-v))
   ([query-v opts]
-   ;; API-shrink #1 (rf2-csbbwu): the 2-arity is `[query-v opts]` ONLY — no
+   ;; The 2-arity is `[query-v opts]` ONLY — no
    ;; `vector?` shape-discrimination on the first arg, no internal frame-first
    ;; reach. `opts` may carry `{:frame target}` (a frame-id keyword or a live
    ;; frame value) — the explicit OVERRIDE intent; ambient (the carried
    ;; scope/hold stamp) when absent.
    ;;
-   ;; rf2-dlld6: `:rf.frame/expected-incarnation` (a `capture-frame`
+   ;; `:rf.frame/expected-incarnation` (a `capture-frame`
    ;; `:subscribe` op's pinned token — INTERNAL, reserved `:rf.frame/` ns)
    ;; rides alongside `:frame` so the read is fenced to the exact captured
    ;; incarnation. nil for every ordinary explicit-frame read.
    ;;
-   ;; rf2-i3dvj: `:rf.trace/call-site` is the macro-stamped invocation coord
+   ;; `:rf.trace/call-site` is the macro-stamped invocation coord
    ;; (dev-only — the whole stamped branch DCEs under `:advanced` +
    ;; `goog.DEBUG=false`, so this reads nil in production). The scope push is
    ;; INSIDE this body by contract; see the docstring. Conditional, because a
@@ -1990,7 +1983,7 @@
   subscribe-then-release here target the same frame for every supported
   spelling.
 
-  The release is IDENTITY-GUARDED (rf2-gwye.3): it returns the reference this
+  The release is IDENTITY-GUARDED: it returns the reference this
   read took on `reaction`, never whatever sits at the address once the deref
   returns. On the JVM an eviction (`clear-sub-cache!`, hot reload, a
   generation change) can land mid-deref and another consumer can rebuild the
@@ -1998,7 +1991,7 @@
   release would decrement, and dispose, the successor under its owner. A nil
   `reaction` (missing-frame recovery) acquired nothing and releases nothing."
   [target query-v]
-  ;; rf2-ty246: this read releases its OWN reference, so the in-flight reactive
+  ;; This read releases its OWN reference, so the in-flight reactive
   ;; owner must not also claim it. Were it claimed, the owner's dispose would
   ;; later release a reference `subscribe-once` had already given back — and on
   ;; a slot another reader still holds, that second release drives it to 0 and
@@ -2051,7 +2044,7 @@
         :event-id (first query-v)})
      query-v))
   ([query-v opts]
-   ;; API-shrink #1 (rf2-csbbwu): `[query-v opts]` ONLY — no `vector?`
+   ;; `[query-v opts]` ONLY — no `vector?`
    ;; shape-discrimination, no internal frame-first reach. `opts` may carry
    ;; `{:frame target}` (a frame-id keyword or a live frame value); ambient
    ;; when absent.
@@ -2092,11 +2085,10 @@
 (def ^:no-doc observation-opts-key
   "INTERNAL (re-frame-native view substrate). Memo-atom slot key an
   OWNERSHIP-FREE READ path seeds before handing the memo to
-  [[compute-sub-with-memo]]. Value shape: `{:frame <frame-id>}`. Named for the
-  internal observation port, which seeded it and was retired on 2026-08-21
-  (rf2-63t1i); the key spelling is deliberately unchanged, because
-  `:where :observation-cold-probe` below is a catalogued error-record value
-  (Spec 009) and the two must keep reading as one mechanism.
+  [[compute-sub-with-memo]]. Value shape: `{:frame <frame-id>}`. Named for an
+  internal observation port; the key spelling is paired with
+  `:where :observation-cold-probe` below, a catalogued error-record value
+  (Spec 009), so the two read as one mechanism.
 
   When present, an UNREGISTERED sub encountered MID-GRAPH during the pure
   compute (a declared / parametric input naming a sub that has no
@@ -2105,8 +2097,8 @@
   reactive graph gives (Spec 006 §What happens when a sub references an
   unknown sub) — so a cold probe and a live probe report the unknown
   mid-graph input IDENTICALLY. The public `compute-sub` never sets this
-  key, so the pure testing form's documented silent-nil behaviour is
-  byte-for-byte unchanged."
+  key, so the pure testing form keeps its documented silent-nil
+  behaviour."
   ::observation-opts)
 
 (defn- maybe-emit-cold-probe-no-such-sub!
@@ -2138,14 +2130,14 @@
   "Recursive worker for `compute-sub`. Threads a per-call `memo` atom
   (`{query-v -> value}`) through the declared-input recursion so each DISTINCT
   sub in the dependency graph computes — and emits its `:rf.sub/run`
-  trace — at most once per top-level `compute-sub` call (rf2-gyxm3).
+  trace — at most once per top-level `compute-sub` call.
 
   A memo HIT short-circuits to the pinned value: no body re-run, no
   duplicate `:rf.sub/run` emission. Memoising by the full `query-v`
   (id + args) is value-identical to re-computing because, for a fixed
   `db`, a sub's value is a pure function of `db` + its inputs.
 
-  EP-0001 (rf2-vzld77): `db` may be a bare app-db map OR a full frame-state
+  EP-0001: `db` may be a bare app-db map OR a full frame-state
   value. A `:runtime-db` sub's body receives the runtime-db partition (Spec
   002 §Subscriptions read the partition they belong to); the partition is
   resolved per-sub via `partition-value-for-sub`."
@@ -2155,7 +2147,7 @@
   ;; memoise nil, and a keyword sentinel is not reliably reference-equal
   ;; under `identical?` on CLJS.
   (cond
-    ;; declared-input dependency cycle (rf2-x76af2.24): query-v is already mid-computation
+    ;; declared-input dependency cycle: query-v is already mid-computation
     ;; on THIS call's recursion — a re-entry while it sits on the per-call
     ;; `::building` stack. Emit the structured `:rf.error/sub-cycle`
     ;; (diagnostic) and recover to nil, memoising the recovery so the rest of
@@ -2188,13 +2180,13 @@
             nil)
         (do
           ;; Mark query-v mid-computation for the cycle guard above; popped
-          ;; after its inputs resolve + its body runs (rf2-x76af2.24).
+          ;; after its inputs resolve + its body runs.
           (swap! memo update ::building (fnil conj []) query-v)
           ;; Per Spec 009 §:op-type vocabulary: :rf.sub/run marks a sub recompute.
           ;; The pure compute-sub form fires the same op-type as the reactive
           ;; recompute path so tools can observe both call sites uniformly.
           ;;
-          ;; Per rf2-l1jz8 — the reactive recompute path (subs.memo/validate-
+          ;; The reactive recompute path (subs.memo/validate-
           ;; and-trace) enriches its `:rf.sub/run` tag with value-change +
           ;; cascade attribution (`:value-changed?` / `:prev-value` /
           ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
@@ -2212,7 +2204,7 @@
                         :rf.sub/query-v query-v})
           (let [body-fn    (:handler-fn meta)
                 input-kind (:input-kind meta)
-                ;; EP-0001 (rf2-vzld77): `:db` and `:runtime-db` are both
+                ;; EP-0001: `:db` and `:runtime-db` are both
                 ;; single-source readers — `compute-sub` passes the supplied
                 ;; value straight to the body for either. For a `:runtime-db`
                 ;; sub the caller supplies the runtime-db value (or a
@@ -2240,7 +2232,7 @@
                 ;; `compute-sub` get the same debuggable signal the reactive
                 ;; path produces. The `:where :compute-sub` tag distinguishes
                 ;; this emission site from the reactive memo path; the rest of
-                ;; the envelope mirrors the sibling exactly (rf2-cos61).
+                ;; the envelope mirrors the sibling exactly.
                 v       (if input-error?
                           ;; Parametric input production failed — recover the
                           ;; whole sub to nil (already emitted above).
@@ -2256,7 +2248,7 @@
                                       ;; partitions, EP-0016 D3).
                                       ;; `partition-value-for-sub` extracts the
                                       ;; right slice when `db` is a frame-state
-                                      ;; value (rf2-vzld77).
+                                      ;; value.
                                       (body-fn (partition-value-for-sub db input-kind) query-v)
 
                                       ;; DECLARED dependencies (`{:inputs …}`,
@@ -2268,7 +2260,7 @@
                                       ;; `subscribe-once` and the reactive path
                                       ;; cannot disagree about the argument.
                                       (body-fn (mapv #(compute-sub* % db memo) input-qs) query-v))]
-                            ;; rf2-9cm27 — `compute-sub` is the pure testing form
+                            ;; `compute-sub` is the pure testing form
                             ;; (Spec 008 §Testing): a compute against a SUPPLIED db,
                             ;; outside any reactive cascade. No in-flight reaction
                             ;; frame to attribute to, so `frame-id` is nil — the
@@ -2277,7 +2269,7 @@
                             ;; 4-arity contract).
                             (rf.subs.memo/maybe-validate-sub! raw query-v query-id meta nil))
                           (catch #?(:clj Throwable :cljs :default) e
-                            (let [msg (rf.error/ex-message-safe e) ; rf2-vzrxp3: nil-safe
+                            (let [msg (rf.error/ex-message-safe e) ; nil-safe
                                   reason (str "Subscription `" query-id
                                               "` threw while computing: "
                                               msg ". Returning nil.")
@@ -2288,7 +2280,7 @@
                                   ;; nil. A `compute-sub`-driven SSR harness that
                                   ;; wants the per-frame 500 projection must use
                                   ;; the reactive `subscribe` path (which knows
-                                  ;; its frame) — see rf2-kjf3m.3 notes.
+                                  ;; its frame).
                                   tags  {:failing-id        query-id
                                          :rf.sub/id         query-id
                                          :sub-query         query-v
@@ -2298,21 +2290,20 @@
                                          :exception-message msg
                                          :reason            reason
                                          :recovery          :replaced-with-default}]
-                              ;; Per rf2-2hvga (= B / widen) — SETTLES rf2-kjf3m.3.
-                              ;; The pure `compute-sub` path was previously
-                              ;; trace-ONLY: under `rf.interop/debug-enabled? = false`
+                              ;; The pure `compute-sub` path fans the always-on
+                              ;; listener too. Trace-ONLY, under
+                              ;; `rf.interop/debug-enabled? = false`
                               ;; (CLJS `:advanced` + `goog.DEBUG=false`; JVM
                               ;; `-Dre-frame.debug=false`) the `rf.trace/emit-error!`
                               ;; below DCEs / no-ops, so a sub that threw via
-                              ;; `compute-sub` recovered to nil with NO always-on
-                              ;; emission — the exact fail-open class rf2-vvwmi
-                              ;; closed for the REACTIVE path, still open for the
-                              ;; compute-sub path. A head fn / JVM render harness
-                              ;; that resolves subs via `compute-sub` during SSR
-                              ;; could ship a silent 200 with recovered-to-nil
-                              ;; broken HTML. Routing through the always-on
-                              ;; listener (axis 1 / surface #4) — corpus-wide
-                              ;; shippers (Sentry / Datadog) now see the
+                              ;; `compute-sub` would recover to nil with NO
+                              ;; always-on emission — the fail-open class the
+                              ;; REACTIVE path closes too. A head fn / JVM render
+                              ;; harness that resolves subs via `compute-sub`
+                              ;; during SSR could then ship a silent 200 with
+                              ;; recovered-to-nil broken HTML. Routed through the
+                              ;; always-on listener (axis 1 / surface #4),
+                              ;; corpus-wide shippers (Sentry / Datadog) see the
                               ;; compute-sub throw under production hardening,
                               ;; symmetric with `subs/memo.cljc`'s reactive
                               ;; sibling. NOTE: the per-frame epoch capture +
@@ -2327,18 +2318,18 @@
                               ;;
                               ;; A sub-exception's recovery is the framework's
                               ;; built-in 'return nil'; there is no app-steering
-                              ;; recovery policy (rf2-hiqtk8). Reached via the
+                              ;; recovery policy. Reached via the
                               ;; `:error-emit/dispatch-on-error` late-bind hook
                               ;; (subs cannot static-require `re-frame.error-emit`
                               ;; — load cycle). A pure `compute-sub` has no
                               ;; triggering event vector OR reactive frame, so
-                              ;; `:frame` is nil; per rf2-bxud9v the failing sub's
+                              ;; `:frame` is nil; the failing sub's
                               ;; `query-v` / `query-id` ride `:event` / `:event-id`
                               ;; (mirroring the sub-input-fn path) so the kind-aware
                               ;; error-emit lookup resolves the sub's `:source-coord`
                               ;; under `[:sub query-id]` for off-box shippers.
-                              ;; Both channels via the shared helper
-                              ;; (rf2-c4oycd): axis 1 the always-on listener
+                              ;; Both channels via the shared helper:
+                              ;; axis 1 the always-on listener
                               ;; (survives prod elision), axis 2 the dev trace
                               ;; (DCEs under `:advanced` + `goog.DEBUG=false`).
                               ;; Reached via the `:error-emit/emit-error-both`
@@ -2357,7 +2348,7 @@
                                   tags)))
                             nil)))]
             ;; Pop the under-construction marker now that this sub's inputs +
-            ;; body have resolved (LIFO — our own query-v is last; rf2-x76af2.24).
+            ;; body have resolved (LIFO — our own query-v is last).
             (swap! memo update ::building pop)
             (swap! memo assoc query-v v)
             v))))))
@@ -2368,12 +2359,12 @@
   WOULD compute given a snapshot of state without going through the
   per-frame cache. Supports the same declared-input chain shape as subscribe.
 
-  Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6
-  (rf2-wcam): the return value is validated against any :schema on the
+  Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6:
+  the return value is validated against any :schema on the
   sub's meta — failures emit :rf.error/schema-validation-failure and
   yield nil (default :replaced-with-default recovery).
 
-  EP-0001 (rf2-vzld77): `db` may be a bare app-db map (the historical form)
+  EP-0001: `db` may be a bare app-db map
   OR a full frame-state value (`{:rf.db/app … :rf.db/runtime …}`). When a
   frame-state value is supplied, a `:db` sub reads the `:rf.db/app`
   partition and a framework `:runtime-db` sub (e.g. `:rf/machine`) reads the
@@ -2381,17 +2372,17 @@
   coherently in one call. To compute a framework runtime-db sub on its own,
   pass either the runtime-db value or the frame-state value (use
   `rf/frame-state-value`, or `(:rf.db/runtime (rf/frame-state-value id))`
-  for the runtime-db value alone — rf2-t3lftq API-shrink #3 retired the
-  dedicated `rf/runtime-db-value` reader).
+  for the runtime-db value alone — there is no dedicated
+  `rf/runtime-db-value` reader).
 
-  ## Cost — linear in distinct subs per call (rf2-gyxm3 / rf2-r0zf2)
+  ## Cost — linear in distinct subs per call
 
   A per-call memo `{query-v -> value}` is threaded through the declared-input
   recursion (see `compute-sub*`) so each DISTINCT sub in the dependency
   graph computes at most ONCE per top-level `compute-sub` call. A
   diamond dependency (`:c` depends on `:a` and `:b`; both depend on
-  `:root`) computes `:root` exactly once; a reused-leaf chain no longer
-  compounds multiplicatively. The memo is sound because for a fixed
+  `:root`) computes `:root` exactly once; a reused-leaf chain does not
+  compound multiplicatively. The memo is sound because for a fixed
   `db` a sub's value is a pure function of `db` + its inputs, so
   memoising by the full `query-v` (id + args) is value-identical to
   re-computing.
@@ -2399,7 +2390,7 @@
   This stays cache-free at the frame level — the memo is a per-call
   internal accumulator scoped to one top-level `compute-sub`, NOT the
   reactive per-frame sub-cache `subscribe` uses. The pure-snapshot
-  contract is unchanged: still purely a function of the supplied `db`,
+  contract holds: purely a function of the supplied `db`,
   no cross-call state, no reactive context.
 
   Trace note: the memo elides duplicate `:rf.sub/run` emissions for a
@@ -2407,24 +2398,22 @@
   second reference is a memo hit. This matches the reactive path, where
   the per-frame cache likewise computes a shared layer-2 input once."
   [query-v db]
-  ;; Seed a fresh per-call memo for the recursion. The public arity is
-  ;; unchanged; the memo is purely an internal accumulator.
+  ;; Seed a fresh per-call memo for the recursion. The memo is purely an
+  ;; internal accumulator.
   (compute-sub* query-v db (atom {})))
 
 ;; ---- re-frame-native view-substrate entry points -------------------------
 ;;
 ;; Two `^:no-doc` seams for a re-frame-native view runtime's commit path; NOT
-;; public API and NOT for adapters or apps. They were written for the internal
-;; observation port (Spec 006 §The internal observation port), which was
-;; retired on 2026-08-21 (rf2-63t1i).
+;; public API and NOT for adapters or apps.
 ;;
 ;; [[compute-sub-with-memo]] has a live caller — `day8/re-frame2-fresco`'s
 ;; collector reaches it directly. [[acquire-cache-reaction!]] has NONE, and is
 ;; RETAINED for the reason Spec 009 gives for `rf.frame/guard-open-drain!` at zero
 ;; call sites: the law is CORE's. A commit that takes ownership of a cache node
 ;; without re-resolving render context (invariant 2) is what the ref-count
-;; attach owes any such substrate; the port was the only thing that has needed
-;; it yet, not its owner. Do not delete it as residue.
+;; attach owes any such substrate, whether or not one is present. Do not
+;; delete it as residue.
 
 (defn ^:no-doc compute-sub-with-memo
   "INTERNAL (re-frame-native view substrate). [[compute-sub]] with a
@@ -2444,7 +2433,7 @@
   — an identical cached node, so a real ref-count attach happened. False for a
   never-cached recovery reaction (nothing at `k`, or a different node), and for
   the single-thread-unreachable case of a node evicted in the build→check
-  window. rf2-vxgfnd.27."
+  window."
   [frame-id k reaction]
   (boolean
     (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
@@ -2452,12 +2441,12 @@
 
 (defn- build-and-classify!
   "Drive `compute-and-cache!` for [[acquire-cache-reaction!]] and
-  DISCRIMINATE its result (rf2-vxgfnd.27). Returns `{:reaction r}` for a
+  DISCRIMINATE its result. Returns `{:reaction r}` for a
   CANONICAL cached node (a real ref-count attach) or `{:recovery kind …}` for a
   never-cached, zero-ref recovery reaction:
 
     - `:frame-destroyed` — the frame's cache vanished DURING the build (the race
-      that used to slip through the caller's nil→guard).
+      a caller's nil→guard alone would miss).
     - `:cycle` / `:input-fn-exception` / `:input-fn-bad-return` — the entry
       node's OWN build recovered, recording its classification through
       `*acquire-recovery*`.
@@ -2472,7 +2461,8 @@
     (cond
       ;; Frame torn down during the build — the reaction escaped caching (the
       ;; `build-and-cache!*` else-branch). Map it to the typed
-      ;; `:rf.error/frame-destroyed`, closing the nil→guard bypass the race used.
+      ;; `:rf.error/frame-destroyed`, closing the nil→guard bypass that race
+      ;; would otherwise take.
       (nil? (:sub-cache (rf.frame/frame frame-id)))
       {:recovery :frame-destroyed}
 
@@ -2489,9 +2479,8 @@
       (or @sink {:recovery :frame-destroyed}))))
 
 (defn ^:no-doc acquire-cache-reaction!
-  "INTERNAL (re-frame-native view substrate). ZERO CALLERS TODAY — see the
-  section comment above for why it is retained rather than deleted
-  (rf2-63t1i).
+  "INTERNAL (re-frame-native view substrate). ZERO CALLERS — see the
+  section comment above for why it is retained rather than deleted.
 
   Resolve-or-build the canonical sub-cache node for `query-v` in `frame-id`
   and take ONE reference on it — the ref-count attach of Spec 006 §Lookup
@@ -2505,7 +2494,7 @@
   seam so an image-loaded frame's build resolves the sub through its own
   generation, byte-identical to `subscribe`.
 
-  Returns a DISCRIMINATED result (rf2-vxgfnd.27):
+  Returns a DISCRIMINATED result:
 
     {:reaction <r>}          — a CANONICAL cached node holding a real +1
                                reference: the ONLY result the caller wraps in an
@@ -2550,14 +2539,14 @@
   evict the cache slot, run the reaction's on-dispose callback (which
   releases input refs symmetrically), and emit `:rf.sub/dispose` with
   reason `:no-more-derefers`. Per Spec 006 §Reference counting and
-  disposal (rf2-cmfln).
+  disposal.
 
   Reagent views auto-dispose via the reaction lifecycle and don't
   need to call this explicitly. Tests, REPL sessions, and tools that
   subscribe imperatively should call unsubscribe when they're done
   to release the cache slot.
 
-  Per rf2-0ytl4 seam S-A: ref-counting and synchronous dispose live in
+  Ref-counting and synchronous dispose live in
   `re-frame.subs.cache`; this facade fn holds the public API shape and
   delegates to `rf.subs.cache/unsubscribe!` after resolving the cache + key.
 
@@ -2573,35 +2562,35 @@
                    :event-id (first query-v)})
                 query-v))
   ([frame-id query-v]
-   ;; EP-0023 (rf2-32siq3.32) / rf2-ts3fuk — frame-target SYMMETRY: the
+   ;; EP-0023 — frame-target SYMMETRY: the
    ;; 2-arity target may be a frame-id KEYWORD or a live frame OBJECT
    ;; (`rf/make-frame`'s return value), exactly as `subscribe` accepts. A
    ;; subscribe with an object target normalizes through
    ;; `rf.frame/frame-target->id` before keying the sub-cache, so the matching
    ;; teardown MUST normalize through the SAME path or the cache lookup keys
    ;; an unregistered object instead of the runnable-id ADDRESS, silently
-   ;; misses the live entry, and the ref-count is never released (the
-   ;; asymmetric-targeting bug). Normalizing here makes subscribe-then-
+   ;; misses the live entry, and the ref-count is never released.
+   ;; Normalizing here makes subscribe-then-
    ;; unsubscribe target the same frame for every supported spelling; a
-   ;; keyword passes through unchanged (byte-identical for keyword callers).
+   ;; keyword passes through unchanged.
    ;; Mirrors `subscribe` (this ns) and `re-frame.router/build-envelope`.
    (let [frame-id (rf.frame/frame-target->id frame-id)]
      (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-       ;; rf2-mrnur — thread `frame-id` through so the `:rf.sub/dispose`
+       ;; Thread `frame-id` through so the `:rf.sub/dispose`
        ;; trace emit at the eviction site carries the canonical `:frame`
        ;; tag.
        (rf.subs.cache/unsubscribe! cache (cache-key query-v) frame-id)))))
 
 (defn ^:no-doc unsubscribe-if-reaction
-  "INTERNAL (rf2-2rtt6.25) — `unsubscribe` under an IDENTITY GUARD: release
+  "INTERNAL — `unsubscribe` under an IDENTITY GUARD: release
   one reference to `query-v` in `frame-id` **only while the frame's sub-cache
   still holds `reaction`**, then take the ordinary 1 → 0 in-tick disposal.
 
   Not public API and not an alternative teardown: it exists for holders
   whose reference can outlive its slot. Two of the four are the React-hook
-  spine's; `subscribe-once`'s release is another (rf2-gwye.3: an eviction can
+  spine's; `subscribe-once`'s release is another (an eviction can
   land while it derefs); the fourth is this namespace's own layer-2+ input release
-  (`release-input-ref!`, rf2-1frc), which outlives its slot for the same
+  (`release-input-ref!`), which outlives its slot for the same
   reason case 2 does — an eviction batch is removed from the cache before it
   is disposed, so an eagerly reacquiring holder can repopulate a slot mid-walk
   and a later member's address-only release would decrement the successor.
@@ -2611,15 +2600,14 @@
        in which hot reload, `clear-sub-cache!` or `destroy-frame!` may have
        evicted the entry (Spec 006 §Render-phase provisional acquisition and
        commit adoption).
-    2. The COMMITTED acquisition a mounted hook holds (rf2-1frc). This was
-       an address-only `unsubscribe`, on the reading that a cache slot could
-       never be replaced under a live holder. It can: hot reload, an explicit
-       `clear-sub-cache!` and a frame generation change (rf2-4lp1) all evict
-       and rebuild, and the hook now REACQUIRES across such an eviction — so
+    2. The COMMITTED acquisition a mounted hook holds. A cache slot CAN be
+       replaced under a live holder: hot reload, an explicit
+       `clear-sub-cache!` and a frame generation change all evict
+       and rebuild, and the hook REACQUIRES across such an eviction — so
        what it releases on unmount is the reaction it ended up holding, which
        need not be the one it first took. After an independent consumer has
        rebuilt the same (frame, query), an address-only release from a stale
-       holder decremented that SUCCESSOR's reference; the identity guard
+       holder would decrement that SUCCESSOR's reference; the identity guard
        makes it no-op instead of stealing.
 
   In both cases a release whose reaction is no longer the cache's no-ops
@@ -2640,11 +2628,11 @@
 
 ;; ---- tooling sibling --------------------------------------------------
 ;;
-;; Per rf2-bmzq0: the static-topology query (`sub-topology`) and the
-;; reactive-cache snapshot (`sub-cache-snapshot`) moved to
+;; The static-topology query (`sub-topology`) and the
+;; reactive-cache snapshot (`sub-cache-snapshot`) live in
 ;; `re-frame.subs.tooling` so production counter bundles DCE their
 ;; bodies. CLJS consumers needing the introspection surface load the
-;; tooling sibling explicitly; JVM consumers reach the legacy
+;; tooling sibling explicitly; JVM consumers reach the
 ;; `re-frame.subs/<name>` shape via the convenience aliases in the
 ;; JVM-only block at the bottom of this file.
 
@@ -2656,7 +2644,7 @@
 
 (rf.late-bind/set-fn! :subs/subscribe-once subscribe-once)
 
-;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;; ---- EP-0023 inline-registration lowering ---------------------------------
 ;;
 ;; An image's inline `:registrations` `:reg-sub` entry carries the raw
 ;; computation fn under `:impl`. For the inline sub to COMPUTE through a
@@ -2664,10 +2652,10 @@
 ;; must carry the SAME runnable slots `reg-sub` installs — `:handler-fn` +
 ;; the `:input-kind` / `:input-signals` / `:input-fn` discriminators the
 ;; sub-cache reads. The inline tuple `[id metadata body]` carries exactly ONE
-;; body fn, and dependencies are now DECLARED IN THE METADATA (`:inputs`)
+;; body fn, and dependencies are DECLARED IN THE METADATA (`:inputs`)
 ;; rather than positionally — so a DERIVED sub is expressible inline, lowered
 ;; through `declared-inputs->slots`, the same seam public `reg-sub` uses.
-;; Omitting `:inputs` still lowers to the layer-1 app-db reader (`:input-kind
+;; Omitting `:inputs` lowers to the layer-1 app-db reader (`:input-kind
 ;; :db`). Closes the EP-0023 §Image Fragments "same runtime descriptor
 ;; shape" contract for subs. Published via late-bind (image-assembly cannot
 ;; static-require this ns — subs requires live-frame requires image-assembly).
@@ -2676,8 +2664,8 @@
   "Lower an inline `:reg-sub` descriptor's raw computation fn into the runnable
   sub slots `reg-sub` installs (`:handler-fn` + `:input-kind` /
   `:input-signals` / `:input-fn`). `metadata` is NORMALIZED ONCE
-  through the SAME `normalize-sub-metadata` seam public `reg-sub` runs
-  (rf2-vxgfnd.219), so an inline registration accepts, rejects, and elides
+  through the SAME `normalize-sub-metadata` seam public `reg-sub` runs,
+  so an inline registration accepts, rejects, and elides
   identical metadata: a retired bare `:spec` hard-errors with
   `:rf.error/retired-registration-key`, a malformed `:sensitive` / `:large`
   declaration raises `:rf.error/bad-classification`, and production strips
@@ -2694,7 +2682,7 @@
   never retained: the runtime-owned slots are the ONE representation.
 
   `id` is the AUTHORED descriptor id (e.g. `:counter/value`) threaded from the
-  image-assembly lowering boundary (rf2-vxgfnd.257), so a retired/unknown-key or
+  image-assembly lowering boundary, so a retired/unknown-key or
   bad-classification diagnostic names the author's subscription — never a
   synthetic fallback.
 
@@ -2720,22 +2708,21 @@
 
 (rf.late-bind/set-fn! :image/lower-inline-sub lower-inline-sub)
 
-;; ---- JVM-side convenience aliases (rf2-bmzq0) ----------------------------
+;; ---- JVM-side convenience aliases -----------------------------------------
 ;;
-;; On the JVM we preserve the legacy `re-frame.subs/<name>` shape for
-;; the tooling surface so the cascade of `.clj` test fixtures stays
-;; unchanged. The aliases are gated under `#?(:clj ...)` so they never
-;; appear in CLJS compilation — production counter bundles still DCE
+;; On the JVM the `re-frame.subs/<name>` shape is kept for
+;; the tooling surface so `.clj` test fixtures can use it.
+;; The aliases are gated under `#?(:clj ...)` so they never
+;; appear in CLJS compilation — production counter bundles DCE
 ;; the tooling sibling wholesale because `re-frame.subs` on CLJS has
-;; no static reference to it. Mirror of the rf.trace/tooling pattern
-;; per rf2-qwm0a.
+;; no static reference to it. Mirror of the rf.trace/tooling pattern.
 
 #?(:clj
    (do
      (def sub-topology       rf.subs.tooling/sub-topology)
      (def sub-cache-snapshot rf.subs.tooling/sub-cache-snapshot)))
-;; rf2-kuky.86: no `sub-algebra-view` / `sub-cache-algebra-view` facade
-;; aliases. The EP-0014 slice-2 derivation/process algebra views ship NO
+;; There are no `sub-algebra-view` / `sub-cache-algebra-view` facade
+;; aliases. The EP-0014 derivation/process algebra views ship NO
 ;; public accessor (Derivations §Subscriptions expose algebra views) — both
 ;; live in `re-frame.subs.tooling` so production CLJS bundles DCE the bodies,
 ;; and every consumer names that sibling directly (Xray and the conformance
