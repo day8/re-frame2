@@ -10,7 +10,7 @@ Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map'
 
 Most concepts map cleanly. The slots re-frame2 **renames or omits** — where xstate-trained intuition steers you wrong — are: **`context` → `:data`**; **`assign({…})` → an action returning `{:data …}`** (and/or `{:fx […]}`), never an `[:assign …]` form; **`invoke` → `:spawn`** (one per state, `:spawn-all` for fan-out, `invoke onError` → `:on-error` — see [`spawn.md`](spawn.md)); **no action-vectors and no `{and: […]}` compound-guard data** — one fn or one named registered compound per `:action` / `:guard` slot; **`setup({actors, guards, actions})` → per-machine `:guards` / `:actions` maps**, machine-scoped rather than globally registered, reused across machines via plain Clojure vars; and **timeouts are integer-ms or ISO-8601 (`"PT5S"`), never the `"5s"` shorthand**, with `:internal-events` a **set** (`#{:tick}`) rather than an array.
 
-The full 28-row translation key — every concept, convergence and divergence, plus history / tags / choice / typed-context / wildcard / `:reenter?` / `stateIn` rows — is the sole carrier at [`xstate-translation.md`](xstate-translation.md). When you reach for an xstate slot that isn't flagged above, check that catalogue rather than assume parity.
+The full 32-row translation key — every concept, convergence and divergence, plus history / tags / choice / typed-context / wildcard / `:reenter?` / `stateIn` rows — is the sole carrier at [`xstate-translation.md`](xstate-translation.md). When you reach for an xstate slot that isn't flagged above, check that catalogue rather than assume parity.
 
 ## Canonical signature
 
