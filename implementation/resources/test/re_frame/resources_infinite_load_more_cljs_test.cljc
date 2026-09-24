@@ -1,11 +1,11 @@
 (ns re-frame.resources-infinite-load-more-cljs-test
   "Runtime behaviour for the infinite-feed `:rf.resource/load-more` event +
-  page reply handlers + the R6 refetch reset (EP-0021 wave 3, Spec 016
+  page reply handlers + the R6 refetch reset (EP-0021, Spec 016
   §Infinite resources and load-more feeds).
 
-  Wave 2 landed the PURE entry transitions (`empty-infinite-entry` /
-  `next-param-for` / `entry-append-page` / `entry-page-failed` / …); this
-  slice wires them to the EVENT layer:
+  These tests drive the PURE entry transitions (`empty-infinite-entry` /
+  `next-param-for` / `entry-append-page` / `entry-page-failed` / …) through
+  the EVENT layer:
 
     1. `:rf.resource/ensure` on an infinite resource fetches PAGE 0 only
        (page ctx `{:rf.resource/page-param nil :rf.resource/page-index 0}`),
@@ -21,14 +21,15 @@
        pages + records `:page-error` (NOT `:error` / `:refresh-error`);
     7. `:rf.resource/refetch` preserves the visible window by default (R6 —
        refresh page 0 in place); the `:refetch-all-pages?` / `:refetch-window`
-       opt-ins refresh a MULTI-PAGE window IN SEQUENCE (rf2-byl7bk.3.3 — a
-       chained sweep, one leg at a time, replacing each page in place; the
-       accumulation is never truncated).
+       opt-ins refresh a MULTI-PAGE window IN SEQUENCE (a chained sweep, one
+       leg at a time, replacing each page in place; the accumulation is never
+       truncated).
 
   The capturing transport REPLAYS the real reply-append shape (Spec 014 §Reply
   addressing — the live transport conj's its result as the LAST arg of the
   internal reply event), so the page reply handlers run against the genuine
-  3-element event. The subscription family is wave 4 (out of scope)."
+  3-element event. The subscription family is tested in
+  `resources-infinite-subs-cljs-test`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -51,13 +52,13 @@
 
 (def ^:private last-managed-args (atom nil))
 
-;; rf2-s54uzc — captures the `:rf.resource/schedule-timers` fx (real host
-;; timer scheduling is tested elsewhere) so the page-0 abort/failure timer-
-;; arming fix can be asserted deterministically, without a wall clock —
-;; mirrors `resources-invalidation-gc-cljs-test`'s capturing pattern.
+;; Captures the `:rf.resource/schedule-timers` fx (real host timer
+;; scheduling is tested elsewhere) so the page-0 abort/failure timer arming
+;; can be asserted deterministically, without a wall clock — mirrors
+;; `resources-invalidation-gc-cljs-test`'s capturing pattern.
 (def ^:private scheduled-timers (atom []))
 
-;; rf2-gwye.15 — captures the opportunistic `:rf.http/managed-abort` fx (the
+;; Captures the opportunistic `:rf.http/managed-abort` fx (the
 ;; frame-qualified request-id) so an owner release can be asserted not to
 ;; abort a page attempt another held owner still needs.
 (def ^:private aborts (atom []))
@@ -103,7 +104,7 @@
 
 (defn- reply-aborted!
   "Feed the captured `:on-failure` reply an `:rf.http/aborted` envelope (an
-  intentional cancellation, not a failure — rf2-z70ujl) — `page-failed-
+  intentional cancellation, not a failure) — `page-failed-
   handler` branches this into the ABORT / cancellation settle."
   ([] (reply-aborted! @last-managed-args))
   ([args] (reply-failure! args {:kind :rf.http/aborted :reason :user})))
@@ -153,7 +154,7 @@
                       :params {:filter :recent} :owner [:test :w]}]))
 
 (defn- load-more! [resource]
-  ;; The supported idiom (rf2-bi8vg1): a load-more is OWNERLESS — the feed's
+  ;; The supported idiom: a load-more is OWNERLESS — the feed's
   ;; liveness is the route/ensure owner's, never a per-page owner.
   (rf/dispatch-sync [:rf.resource/load-more
                      {:resource resource :scope :rf.scope/global
@@ -161,8 +162,8 @@
                       :cause [:user :feed/load-more]}]))
 
 (defn- load-more-with-owner!
-  "A load-more carrying a MISTAKEN `owner` (rf2-bi8vg1 — the unsupported,
-  warn-and-ignored input). The feed identity (scope + resource + canonical
+  "A load-more carrying a MISTAKEN `owner` (the unsupported, warn-and-ignored
+  input). The feed identity (scope + resource + canonical
   params) is unchanged — only the stray owner differs from the route/ensure
   owner. A load-more is OWNERLESS by contract, so this dispatch is expected to
   emit `:rf.warning/resource-load-more-owner-ignored` and drop the owner."
@@ -369,14 +370,14 @@
         (is (= 2 (rf.resources.state/page-count e)) "the retried page appended")))))
 
 ;; ===========================================================================
-;; 6b. per-page VALIDATION rides the request :decode (rf2-x76af2.12) — the
-;;     WIRED replacement for the retired :page-data-schema.
+;; 6b. per-page VALIDATION rides the request :decode
 ;; ===========================================================================
 ;;
-;; The retired :page-data-schema purported to validate one page but was dead.
-;; The real per-page validation surface is the managed-HTTP request's :decode:
-;; a Malli page schema JSON-decodes + validates each page BEFORE a success
-;; reply exists. A page whose body fails that schema surfaces as the transport's
+;; There is no resource-level page schema (registration rejects
+;; :page-data-schema). The per-page validation surface is the managed-HTTP
+;; request's :decode: a Malli page schema JSON-decodes + validates each page
+;; BEFORE a success reply exists. A page whose body fails that schema surfaces
+;; as the transport's
 ;; {:kind :rf.http/decode-failure :schema-validation-failure? true} envelope
 ;; (Spec 014 — re-frame.http.transport §decode). It is a NON-abort failure, so
 ;; the page reply handlers route it with the correct page-0-vs-page-N semantics:
@@ -387,7 +388,7 @@
 
 (def ^:private PageSchema
   "A Malli page schema supplied on the request :decode — the per-page validation
-  surface that REPLACES the retired :page-data-schema (rf2-x76af2.12)."
+  surface."
   [:map
    [:items [:vector :keyword]]
    [:page-info [:map [:next-cursor {:optional true} [:maybe :string]]]]])
@@ -403,8 +404,8 @@
    :schema-validation-failure? true})
 
 (def ^:private decoding-feed-request
-  "A feed :request that supplies the per-page schema on :decode — the wired
-  per-page validation surface (rf2-x76af2.12)."
+  "A feed :request that supplies the per-page schema on :decode — the
+  per-page validation surface."
   (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
     {:request {:method :get :url "/api/feed"
                :params (cond-> {:filter filter :page-index page-index}
@@ -412,16 +413,16 @@
      :decode  PageSchema}))
 
 (deftest page-schema-rides-request-decode
-  (testing "rf2-x76af2.12 — the per-page schema is supplied on the request
-            :decode (the wired validation surface replacing :page-data-schema);
-            it rides the lowered managed-HTTP args UNCHANGED"
+  (testing "the per-page schema is supplied on the request :decode (the
+            per-page validation surface); it rides the lowered managed-HTTP
+            args UNCHANGED"
     (rf/reg-resource :dec/feed (feed-spec) decoding-feed-request)
     (ensure! :dec/feed)
     (is (= PageSchema (:decode @last-managed-args))
         "the page schema rides the managed-HTTP request :decode")))
 
 (deftest page-0-decode-failure-settles-first-load-error
-  (testing "rf2-x76af2.12 — a PAGE-0 body that fails the :decode schema surfaces
+  (testing "a PAGE-0 body that fails the :decode schema surfaces
             as :rf.http/decode-failure and settles first-load :error (no pages),
             with a terminal :failed work row"
     (rf/reg-resource :dec0/feed (feed-spec) decoding-feed-request)
@@ -443,7 +444,7 @@
           "the work row settles terminal :failed"))))
 
 (deftest load-more-decode-failure-keeps-pages-records-page-error
-  (testing "rf2-x76af2.12 — a LOAD-MORE page that fails the :decode schema
+  (testing "a LOAD-MORE page that fails the :decode schema
             preserves the prior pages + records :page-error (never :error /
             :refresh-error), with a terminal :failed work row"
     (rf/reg-resource :decn/feed (feed-spec) decoding-feed-request)
@@ -482,7 +483,7 @@
   (feed-key resource))
 
 (deftest refetch-preserves-window-by-default
-  (testing "the ruled R6 DEFAULT preserves the visible window — a refetch keeps
+  (testing "the R6 DEFAULT preserves the visible window — a refetch keeps
             the accumulated pages visible (does NOT collapse to page 0) and
             replaces page-0 in place on success"
     (let [k (accumulate-3! :rw/feed {})]
@@ -506,10 +507,10 @@
         (is (= (page [:c] "c3") (nth (:data e) 2)) "tail preserved")))))
 
 (deftest refetch-all-pages-opt-in-refreshes-every-page-in-sequence
-  ;; rf2-byl7bk.3.3 — :refetch-all-pages? re-fetches EVERY accumulated page
-  ;; param IN SEQUENCE (TanStack parity), replacing each in place. The feed
-  ;; never collapses — its length is preserved; one fetch is in flight at a
-  ;; time (the chained sweep). This INVERTS the prior truncate-to-page-0 test.
+  ;; :refetch-all-pages? re-fetches EVERY accumulated page param IN SEQUENCE
+  ;; (TanStack parity), replacing each in place. The feed never collapses to
+  ;; page 0 — its length is preserved; one fetch is in flight at a time (the
+  ;; chained sweep).
   (testing ":refetch-all-pages? sweeps page 0, then page 1, then page 2 in order"
     (let [k (accumulate-3! :ra/feed {:refetch {:refetch-all-pages? true}})]
       (rf/dispatch-sync [:rf.resource/refetch
@@ -547,7 +548,7 @@
         (is (= :loaded (:status e)) "feed settled :loaded")))))
 
 (deftest refetch-window-opt-in-refreshes-the-bounded-window-in-sequence
-  ;; rf2-byl7bk.3.3 — :refetch-window n refreshes the first n pages in place
+  ;; :refetch-window n refreshes the first n pages in place
   ;; (page 0 + the chained legs up to n-1), keeping pages beyond n untouched.
   (testing ":refetch-window 2 refreshes pages 0 and 1, leaves page 2 alone"
     (let [k (accumulate-3! :rwn/feed {:refetch {:refetch-window 2}})]
@@ -568,7 +569,7 @@
         (is (not (contains? e :refetch-sweep)) "sweep cleared (window exhausted)")))))
 
 (deftest refetch-sweep-failure-stops-the-sweep-keeps-pages
-  ;; rf2-byl7bk.3.3 — a page failure DURING a sweep stops the chain (clears the
+  ;; A page failure DURING a sweep stops the chain (clears the
   ;; cursor) and records :page-error, keeping all accumulated pages.
   (testing "a page-1 sweep-leg failure stops the sweep + records :page-error"
     (let [k (accumulate-3! :rsf/feed {:refetch {:refetch-all-pages? true}})]
@@ -585,12 +586,12 @@
         (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared — chain stopped")))))
 
 (deftest ensure-of-an-invalidated-feed-sweeps-per-its-refetch-policy
-  ;; rf2-3x7nj.10.3 — Spec 016 §Refetch and invalidation of an infinite feed:
-  ;; tag invalidation marks the feed stale and "the feed refetches per the
-  ;; refetch rule above on the next ensure". An OWNER-FREE feed is only marked
-  ;; stale, so that next ensure is the re-entry path — and it used to refresh
-  ;; page 0 alone while page 0's settle cleared `:invalidated-at` for the whole
-  ;; feed, leaving the tail pre-invalidation and reading fresh.
+  ;; Spec 016 §Refetch and invalidation of an infinite feed: tag invalidation
+  ;; marks the feed stale and "the feed refetches per the refetch rule above on
+  ;; the next ensure". An OWNER-FREE feed is only marked stale, so that next
+  ;; ensure is the re-entry path — refreshing page 0 alone there, with page 0's
+  ;; settle clearing `:invalidated-at` for the whole feed, would leave the tail
+  ;; pre-invalidation and reading fresh.
   (testing ":refetch-all-pages? sweeps every page on the ensure that follows an
             owner-free invalidation"
     (let [k (accumulate-3! :ris/feed {:refetch {:refetch-all-pages? true}})]
@@ -621,12 +622,12 @@
         (is (= :loaded (:status e)))))))
 
 ;; ===========================================================================
-;; 8. ensure dedupe / fresh-skip still applies to an infinite feed's page-0
+;; 8. ensure dedupe / fresh-skip applies to an infinite feed's page-0
 ;; ===========================================================================
 
 (deftest ensure-infinite-fresh-skip-serves-cache
   (testing "a second ensure of a fresh loaded infinite feed serves cache (no
-            new page-0 fetch) — the scalar fresh-skip applies unchanged"
+            new page-0 fetch) — the scalar fresh-skip applies"
     (let [k (load-page-0! :fs/feed (page [:a] "c1"))
           gen0 (:generation (entry k))]
       (reset! last-managed-args nil)
@@ -636,27 +637,24 @@
       (is (= 1 (rf.resources.state/page-count (entry k))) "feed untouched"))))
 
 ;; ===========================================================================
-;; 8b. rf2-s54uzc — page-0 abort/failure uses FIRST-LOAD cleanup, not the
+;; 8b. page-0 abort/failure uses FIRST-LOAD cleanup, not the
 ;;     load-more / kept-feed cleanup — an infinite feed's first page never
 ;;     landed, so there is no feed to keep.
 ;; ===========================================================================
 ;;
-;; BEFORE this fix, an ABORTED page-0 fetch (no accumulated pages) settled
-;; through the SAME branch as a load-more abort — unconditionally `:status
-;; :loaded` — even though the feed had ZERO pages. A `:loaded` empty feed is
-;; indistinguishable from a genuinely loaded feed to the fresh-skip check
-;; (`ensure-infinite-fresh-skip-serves-cache`, above), so a later
-;; `:rf.resource/ensure` served the (permanently empty) "cache" forever — the
-;; reported infinite-feed hang. The fix settles a first-load (page-0, no
-;; accumulated pages) abort to `:idle` (mirrors the scalar `entry-abort-
-;; settled` first-load branch), so a later ensure re-fetches. The non-abort
-;; first-load `:error` settle ALSO gained GC/stale timer arming (it silently
-;; omitted this, unlike the scalar first-load failure path).
+;; A first-load (page-0, no accumulated pages) abort settles to `:idle`
+;; (mirroring the scalar `entry-abort-settled` first-load branch), so a later
+;; ensure re-fetches. Settling it through the load-more abort branch —
+;; unconditionally `:status :loaded` — would leave a `:loaded` feed with ZERO
+;; pages, which the fresh-skip check (`ensure-infinite-fresh-skip-serves-cache`,
+;; above) cannot tell from a genuinely loaded feed, so every later
+;; `:rf.resource/ensure` would serve the permanently empty "cache" and the feed
+;; would hang. The non-abort first-load `:error` settle arms the GC/stale
+;; timers, as the scalar first-load failure path does.
 
 (deftest page-0-abort-settles-idle-not-loaded
-  (testing "rf2-s54uzc — an ABORTED page-0 fetch with NO accumulated pages
-            settles :idle (first-load cleanup), NEVER :loaded (the load-more
-            cleanup) — the pre-fix bug settled :loaded on an empty feed"
+  (testing "an ABORTED page-0 fetch with NO accumulated pages settles :idle
+            (first-load cleanup), NEVER :loaded (the load-more cleanup)"
     (rf/reg-resource :ab0/feed (feed-spec) feed-spec-request)
     (ensure! :ab0/feed)
     (let [k   (feed-key :ab0/feed)
@@ -671,10 +669,9 @@
           "the work row settles terminal :cancelled"))))
 
 (deftest page-0-abort-does-not-fresh-skip-future-ensure
-  (testing "rf2-s54uzc — RED against the pre-fix behaviour: because the abort
-            settles :idle (not :loaded), a later ensure of the SAME feed
-            re-fetches page 0 rather than fresh-skipping a permanently-empty
-            'cache' (the reported infinite-feed hang)"
+  (testing "because the abort settles :idle (not :loaded), a later ensure of
+            the SAME feed re-fetches page 0 rather than fresh-skipping a
+            permanently-empty 'cache' (which would hang the feed)"
     (rf/reg-resource :ab1/feed (feed-spec) feed-spec-request)
     (ensure! :ab1/feed)
     (reply-aborted!)
@@ -689,11 +686,9 @@
         "the re-issued first load is :loading")))
 
 (deftest page-0-abort-arms-gc-and-stale-timers
-  (testing "rf2-s54uzc — a page-0 ABORT (first-load cleanup) arms the GC (+
-            stale) timer exactly like the scalar first-load abort (rf2-
-            kz5op1) — before this fix the infinite page-0 abort branch never
-            emitted :rf.resource/schedule-timers, leaking an owner-free empty
-            feed"
+  (testing "a page-0 ABORT (first-load cleanup) arms the GC (+ stale) timer
+            exactly like the scalar first-load abort; without it an
+            owner-free empty feed would leak"
     (rf/reg-resource :ab2/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000})
                      feed-spec-request)
     (ensure! :ab2/feed)
@@ -707,11 +702,9 @@
         (is (nil? (get-in args [:timers :poll])) "no poll timer for an aborted entry")))))
 
 (deftest page-0-failure-arms-gc-and-stale-timers
-  (testing "rf2-s54uzc — a page-0 FAILURE (non-abort) with no accumulated
-            pages also arms the GC (+ stale) timer, mirroring the scalar
-            first-load :error arming (rf2-ar9pcx) — before this fix the
-            infinite first-load failure branch omitted timer scheduling
-            entirely"
+  (testing "a page-0 FAILURE (non-abort) with no accumulated pages also arms
+            the GC (+ stale) timer, mirroring the scalar first-load :error
+            arming"
     (rf/reg-resource :fl0/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000})
                      feed-spec-request)
     (ensure! :fl0/feed)
@@ -728,11 +721,9 @@
         (is (nil? (get-in args [:timers :poll])) "no poll timer for an errored entry")))))
 
 (deftest load-more-abort-keeps-loaded-no-rearm
-  (testing "rf2-s54uzc guard — an ABORTED load-more (page N>0, feed already
-            has pages) is NOT a first load: it keeps its pages, stays
-            :loaded, and re-arms NO timer (already armed on the prior page-0
-            success) — confirms the first-load split didn't change this
-            sibling path"
+  (testing "an ABORTED load-more (page N>0, feed already has pages) is NOT a
+            first load: it keeps its pages, stays :loaded, and re-arms NO
+            timer (already armed on the prior page-0 success)"
     (rf/reg-resource :lma/feed (feed-spec {:gc-after-ms 5000}) feed-spec-request)
     (ensure! :lma/feed)
     (reply-success! (page [:a] "c1"))
@@ -750,24 +741,22 @@
            prior page-0 success)"))))
 
 ;; ===========================================================================
-;; 9. rf2-bi8vg1 — a load-more given a MISTAKEN (non-route) owner is
-;;    WARN-AND-IGNORED (the ruled guard, NOT the earlier characterization).
+;; 9. a load-more given a MISTAKEN (non-route) owner is WARN-AND-IGNORED
 ;; ===========================================================================
 ;;
 ;; A `:rf.resource/load-more` is OWNERLESS by contract (EP-0021): the feed's
 ;; liveness is the ROUTE owner's (the route that ensured page 0), and a
 ;; load-more is a user-caused page extension during that route's lifetime, NOT
-;; a new owner. rf2-d095i1 first proved the page reply is NOT dropped (the
-;; scoped key / work-id / reply payload never carry the owner; live-entry-for-
-;; reply matches on :rf.frame/id + :work/id + :generation) — but characterized
-;; a REAL failure mode: a stray owner attached a SECOND durable owner to the
-;; feed (:active-owners + the derived :owner-index), silently extending its
-;; liveness / GC lifetime until an explicit :rf.resource/release-owner.
+;; a new owner. The page reply never depends on the owner (the scoped key /
+;; work-id / reply payload never carry it; live-entry-for-reply matches on
+;; :rf.frame/id + :work/id + :generation), but honouring a stray owner would
+;; attach a SECOND durable owner to the feed (:active-owners + the derived
+;; :owner-index), silently extending its liveness / GC lifetime until an
+;; explicit :rf.resource/release-owner.
 ;;
-;; rf2-bi8vg1 RULED that footgun WARN-AND-IGNORE (Option 1a — reject ANY owner,
-;; not a conflict predicate): a non-nil :owner on a load-more is recognised-
-;; but-unhonourable input, so the runtime emits a loud, recoverable WARNING
-;; (:rf.warning/resource-load-more-owner-ignored, per Conventions §No silent
+;; So a non-nil :owner on a load-more (ANY owner, not only a conflicting one)
+;; is recognised-but-unhonourable input: the runtime emits a loud, recoverable
+;; WARNING (:rf.warning/resource-load-more-owner-ignored, per Conventions §No silent
 ;; swallow — a WARNING, not an error, because the cascade continues safely),
 ;; NORMALIZES the owner to nil (it reaches NEITHER :active-owners, the
 ;; :owner-index, NOR the work record), and STILL fetches + appends the page.
@@ -814,7 +803,7 @@
          set)))
 
 (deftest load-more-mistaken-owner-WARNS-but-STILL-APPENDS-the-page
-  ;; rf2-bi8vg1 (ruled WARN-AND-IGNORE) — a load-more carrying an owner DIFFERENT
+  ;; A load-more carrying an owner DIFFERENT
   ;; from ensure's ([:wrong :owner] vs ensure's [:test :w]) emits a loud, RECOVER-
   ;; ABLE warning and STILL issues the request + appends: the owner is absent from
   ;; the scoped key, the work-id, and the reply verification (live-entry-for-reply),
@@ -850,8 +839,8 @@
           (is (= "c2" (:next-page-param e)) "cursor advanced from the appended page"))))))
 
 (deftest load-more-mistaken-owner-DROPS-the-stray-owner-NO-leak
-  ;; rf2-bi8vg1 (ruled WARN-AND-IGNORE) — the guard that prevents the
-  ;; rf2-d095i1 owner leak: a stray non-route owner is IGNORED. It is NORMALIZED
+  ;; The guard against the owner leak: a stray non-route owner is IGNORED.
+  ;; It is NORMALIZED
   ;; to nil before the entry update, so it reaches NEITHER :active-owners NOR the
   ;; derived :owner-index NOR the work record — :active-owners is UNCHANGED, no
   ;; second owner pins the feed, and the page still appends. :cause survives.
@@ -881,7 +870,7 @@
         (let [e' (entry k)
               rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e'))]
           (is (some? rec) "a work record exists for the in-flight load-more page")
-          ;; rf2-gwye.15 — a new page attempt inherits the feed's :active-owners
+          ;; A new page attempt inherits the feed's :active-owners
           ;; (it mints none), so the row holds exactly ensure's owner.
           (is (= #{[:test :w]} (:owners rec))
               "the work record's :owners is the held owner — the ignored owner never joined it")))
@@ -894,7 +883,7 @@
               "still exactly one owner after settle — no durable leak to release"))))))
 
 (deftest load-more-mistaken-owner-PRESERVES-cause
-  ;; rf2-bi8vg1 — :cause is UNTOUCHED by the owner-drop (attribution preserved):
+  ;; :cause is UNTOUCHED by the owner-drop (attribution preserved):
   ;; the dropped owner does not strip the load-more's cause from the work record.
   (testing "the load-more's :cause survives the owner normalization"
     (let [k (load-page-0! :mc/feed (page [:a] "c1"))]
@@ -905,7 +894,7 @@
             "the load-more's :cause is recorded on the work record (owner dropped, cause kept)")))))
 
 (deftest load-more-ownerless-emits-no-owner-ignored-warning
-  ;; rf2-bi8vg1 — the bright-line guard fires ONLY on a supplied owner: a
+  ;; The bright-line guard fires ONLY on a supplied owner: a
   ;; correct, OWNERLESS load-more (the documented idiom) emits no warning.
   (testing "an ownerless load-more (the supported idiom) does NOT warn"
     (let [k (load-page-0! :ok/feed (page [:a] "c1"))
@@ -923,7 +912,7 @@
             "still exactly the route/ensure owner — load-more added no owner")))))
 
 ;; ===========================================================================
-;; 11. rf2-gwye.15 — new page attempts inherit the feed's held owners
+;; 11. new page attempts inherit the feed's held owners
 ;; ===========================================================================
 
 (deftest page-attempts-inherit-the-feeds-held-owners
@@ -959,7 +948,7 @@
       (is (= #{b} (:owners (rec))) "the sweep leg row carries the held owner"))))
 
 ;; ===========================================================================
-;; 12. rf2-gwye.16 — an accepted page success produces + indexes the feed :tags
+;; 12. an accepted page success produces + indexes the feed :tags
 ;; ===========================================================================
 
 (defn- tag-members [tag]
@@ -1025,7 +1014,7 @@
             "the obsolete tag no longer indexes this feed; the other feed still holds it")))))
 
 ;; ===========================================================================
-;; 13. rf2-gwye.17 — a failed page-0 refresh of a LOADED feed is :refresh-error
+;; 13. a failed page-0 refresh of a LOADED feed is :refresh-error
 ;; ===========================================================================
 
 (deftest loaded-feed-page-0-refresh-failure-is-a-refresh-error
@@ -1064,10 +1053,11 @@
         (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared")))))
 
 ;; ===========================================================================
-;; 14. rf2-wcsjy — a page settle clears only a stale mark its attempt COVERS
+;; 14. a page settle clears only a stale mark its attempt COVERS
 ;; ===========================================================================
 ;;
-;; rf2-3x7nj.10.1 keeps a mark written DURING the settling attempt. A feed page
+;; A settle keeps a stale mark written DURING the settling attempt (an
+;; invalidation landing during a read survives that read's success). A feed page
 ;; covers less than a scalar reply: an appended page refreshes none of the pages
 ;; the feed already held, and one sweep leg refreshes one page of the window. So
 ;; a load-more never clears the mark, and a sweep clears one only when it
@@ -1105,7 +1095,7 @@
     (refetch-feed! :wb/feed)
     (invalidate-feed!)
     (reply-success! (page [:a*] "c1"))
-    (is (some? (:invalidated-at (entry k))) "10.1 — page 0 keeps the mark written during it")
+    (is (some? (:invalidated-at (entry k))) "page 0 keeps the mark written during it")
     (reply-success! (page [:b*] "c2"))
     (is (some? (:invalidated-at (entry k))) "page 1 does not refresh page 0's pre-write data")
     (reply-success! (page [:c*] "c3"))
@@ -1145,11 +1135,11 @@
       (is (nil? (:invalidated-at (entry k)))))))
 
 ;; ===========================================================================
-;; 15. rf2-w5p2p — an authoritative write drops the superseded read's sweep
+;; 15. an authoritative write drops the superseded read's sweep
 ;; ===========================================================================
 ;;
-;; A `:populates` / `:patches` write supersedes a read in flight
-;; (rf2-3x7nj.11.3). The sweep that read would have chained goes with it, or the
+;; A `:populates` / `:patches` write supersedes a read in flight. The sweep
+;; that read would have chained goes with it, or the
 ;; next load-more's settle picks its obsolete cursor up and re-fetches pages the
 ;; write just installed.
 
@@ -1179,7 +1169,7 @@
                                                :instance :w5p2p}])
       (reply-success! written-pages)
       (let [e (entry k)]
-        (testing "the write lands and supersedes the read in flight (11.3 controls)"
+        (testing "the write lands and supersedes the read in flight (controls)"
           (is (= written-pages (:data e)))
           (is (nil? (:current-work e))))
         (is (not (contains? e :refetch-sweep)) "the superseded read's sweep goes with it"))
