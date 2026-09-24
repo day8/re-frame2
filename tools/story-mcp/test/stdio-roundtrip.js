@@ -28,16 +28,16 @@
 //                                 handlers println after the server is up
 //                                 (expect every stdout line to parse as JSON,
 //                                  each marker on stderr only, the run
-//                                  verdicts intact — rf2-gwye.57)
+//                                  verdicts intact)
 //   - ping                        (empty result, liveness probe)
 //   - close stdin                 (expect the server to exit 0 ON ITS OWN
 //                                  within a short bound — no kill on the
-//                                  success path, rf2-gwye.59)
+//                                  success path)
 //
 // The representative agent-loop workflow against a running server with
 // --allow-writes enabled lives in the SDK-driven conformance harness
-// tools/mcp-conformance/test/end-to-end-story.cjs (rf2-2mx0q absorbed
-// the former live-server.js smokes there to drop a redundant JVM boot).
+// tools/mcp-conformance/test/end-to-end-story.cjs, which saves this suite
+// a second JVM boot.
 //
 // Run with: `node test/stdio-roundtrip.js` from tools/story-mcp/. Exits 0 on
 // success, 1 with a FAIL marker on the failing assertion.
@@ -48,7 +48,7 @@ const path = require('node:path');
 
 const CWD = path.join(__dirname, '..');
 
-// Canonical tool-name list (rf2-36upq TE7) — single source of truth shared
+// Canonical tool-name list — single source of truth shared
 // with the JVM test corpus (tools_test.clj `tool-names-fixture`). Both
 // consumers parse this JSON; a drift in the registry surfaces in one
 // place rather than two.
@@ -65,7 +65,7 @@ const CLOJURE = process.env.STORY_MCP_CMD || 'clojure';
 const ARGS = ['-M', '-i', 'test/fixtures/stdio_prelude.clj', '-m', 're-frame.story-mcp.server'];
 
 // Application output markers the prelude's handlers print under the server's
-// own dispatch (rf2-gwye.57). Each must reach stderr and never stdout.
+// own dispatch. Each must reach stderr and never stdout.
 const APP_OUTPUT_MARKERS = [
   'STDIO-FIXTURE-SETUP-PRINT',
   'STDIO-FIXTURE-SCRIPT-PRINT',
@@ -73,8 +73,8 @@ const APP_OUTPUT_MARKERS = [
 ];
 
 // After the last reply the harness CLOSES stdin and waits for the server to
-// exit on its own (rf2-gwye.59). A JVM that has released its executors exits
-// in well under a second; before that fix a session that ran a variant idled
+// exit on its own. A JVM that has released its executors exits in well under
+// a second; one that has not would, after a session that ran a variant, idle
 // out Clojure's 60 s executor keep-alive, so this bound separates the two
 // with room to spare on a slow runner.
 const EXIT_AFTER_EOF_BOUND_MS = 10000;
@@ -156,11 +156,10 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect the full registry per spec/002-Tool-Registry.md
-      // (rf2-mqp1u list-decorators,
-      //  rf2-i0kyy get-docs-markdown). The canonical name list is shared
-      // with the JVM test corpus via test/fixtures/tool-names.json
-      // (rf2-36upq TE7) — a registry change updates one file, not two.
+      // 2. tools/list — expect the full registry per spec/002-Tool-Registry.md.
+      // The canonical name list is shared with the JVM test corpus via
+      // test/fixtures/tool-names.json — a registry change updates one file,
+      // not two.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
       if (JSON.stringify(names) !== JSON.stringify(TOOL_NAMES)) {
@@ -201,14 +200,14 @@ function run() {
       }
       console.log('OK   register-variant descriptor -> variant-id + body required');
 
-      // 2d. record-as-variant is RETIRED (rf2-5saz7): the blocking recorder
-      // bridge advertised a capture window no stdio client could drive (the
-      // single dispatch loop slept through it). The fixture-equality check
-      // above already excludes it; this explicit probe keeps the absence
-      // loud if the fixture and registry ever drift back in lockstep.
+      // 2d. There is no record-as-variant tool: a blocking recorder bridge
+      // would advertise a capture window no stdio client could drive (the
+      // single dispatch loop would sleep through it). The fixture-equality
+      // check above already excludes it; this explicit probe keeps the
+      // absence loud if the fixture and registry ever gain it in lockstep.
       const recDesc = (list.result?.tools || []).find((t) => t.name === 'record-as-variant');
-      if (recDesc) throw new Error('record-as-variant was retired (rf2-5saz7) but is advertised in tools/list');
-      console.log('OK   record-as-variant -> retired, absent from tools/list (rf2-5saz7)');
+      if (recDesc) throw new Error('record-as-variant is advertised in tools/list, but no stdio client can drive it');
+      console.log('OK   record-as-variant -> absent from tools/list');
 
       // 3. tools/call list-tags — read-side smoke; the seven inclusion
       // tags must be present among the 12-entry canonical set (7 inclusion
@@ -232,9 +231,9 @@ function run() {
       // 3b. tools/call list-substrates — the substrate registry is CLJS-only
       // and UNREACHABLE from this JVM stdio host (no browser bridge), so the
       // truthful result is a machine-readable capability-unavailable ERROR,
-      // NOT a false-empty `{:substrates []}` success (rf2-3fc89f.21). Pin
-      // the isError verdict + the stable error id so a regression to the old
-      // false-empty behaviour turns this round-trip RED.
+      // NOT a false-empty `{:substrates []}` success. Pin the isError
+      // verdict + the stable error id so a regression to a false-empty
+      // answer turns this round-trip RED.
       const subsResp = await call('tools/call', { name: 'list-substrates', arguments: {} });
       if (!subsResp.result?.isError) {
         throw new Error(
@@ -260,7 +259,7 @@ function run() {
 
       // 3c. tools/call get-story-instructions — returns the agent-onboarding
       // text. Smoke-check key authoring vocab is present AND that the
-      // result carries structuredContent (rf2-vyacl): the descriptor
+      // result carries structuredContent: the descriptor
       // declares an :outputSchema, so an SDK-driven consumer rejects a
       // text-only result with -32600. Pinning the structured slot here
       // catches a regression to the text-only shape at the wire.
@@ -333,7 +332,7 @@ function run() {
       console.log('OK   tools/call no-such-tool -> -32601 method-not-found');
 
       // 6b. tools/call run-variant on REGISTERED variants whose handlers
-      // println (rf2-gwye.57). stdout is the protocol stream, so application
+      // println. stdout is the protocol stream, so application
       // output emitted under the server's dispatch must go to stderr. The line
       // parser above fails the run on any non-JSON stdout line; these calls are
       // what give it something to catch. `quiet` is the control, and the
@@ -385,7 +384,7 @@ function run() {
       console.log('OK   application output -> stderr only; every stdout line parsed as JSON');
 
       // 8. Close stdin and let the server exit ON ITS OWN — no kill on this
-      // path (rf2-gwye.59). The session above ran variants on Clojure's
+      // path. The session above ran variants on Clojure's
       // future executor; the CLI must release it at EOF rather than idle out
       // its keep-alive.
       clearTimeout(watchdog);
