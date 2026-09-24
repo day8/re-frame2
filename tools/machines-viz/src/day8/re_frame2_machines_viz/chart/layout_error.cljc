@@ -36,9 +36,8 @@
             :layout-error {:error <error-data>
                            :input-summary <summary>}}`
         The callback result-map handed to `done-fn` on failure. The
-        existing `(when result ...)` guard at the chart callsite still
-        gates on truthiness (the map is non-nil, so the reset! still
-        runs); the projector reads `:layout-error` to paint the in-
+        `(when result ...)` guard at the chart callsite gates on
+        truthiness (the map is non-nil, so the reset! runs); the projector reads `:layout-error` to paint the in-
         panel indicator banner.
 
   Every fn here is pure, JVM-runnable through `.cljc`, and free of
