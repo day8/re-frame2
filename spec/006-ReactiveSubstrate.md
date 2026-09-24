@@ -1571,11 +1571,11 @@ candidate rendered against the superseded revision reachable at all — abandoni
 fence's whole job.
 
 A reload sidesteps the fence only when the redefinition is **incompatible** — when it
-moves the boundary's hook skeleton, as a mode promotion (adding `{:compiled true}` and
-reloading) does. That mints a new boundary, so the host remounts once, cleanly, and the
-old cell's teardown releases exactly what the old body owned.
-[Spec 004C §Compatible shell versus clean remount](004C-Roots-and-Mount.md#compatible-shell-versus-clean-remount)
-owns that compatible/incompatible boundary law.
+moves the boundary's hook skeleton, the ordered set of host hooks its shell owns. Host
+hook state is positional, so reusing the boundary across a moved skeleton would let the
+new shell read the old occurrence's slots; the redefinition mints a new boundary
+instead, so the host remounts once, cleanly, and the old cell's teardown releases
+exactly what the old body owned.
 
 ### Frame binding and retarget
 
