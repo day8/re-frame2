@@ -468,10 +468,13 @@
   is meaningless with no state to re-enter; this also keeps the action-only
   shapes' round-trip exact.
 
-  SCXML's `type=\"internal\"` is strictly equivalent to `external` for a
-  COMPOUND source whose target is a PROPER DESCENDANT (the only case where
-  W3C `getTransitionDomain` differs); a proper-ancestor target restarts the
-  ancestor under either `type`, in SCXML and in re-frame2 alike; for a
+  SCXML's `type=\"internal\"` differs from `external` ONLY for a COMPOUND
+  source whose target is a PROPER DESCENDANT (the one case where W3C
+  `getTransitionDomain` differs), and there it is the exact equivalent of
+  re-frame2's internal default: the source is not exited, while
+  `type=\"external\"` exits and re-enters it as `:reenter? true` does. A
+  proper-ancestor target restarts the ancestor under either `type`, in SCXML
+  and in re-frame2 alike; for a
   self-target it is an irreducible LOSS — SCXML re-enters the source on a
   self-target regardless of `type`, whereas re-frame2's internal default
   does NOT re-run the source's own exit/entry. `type=\"internal\"` records
