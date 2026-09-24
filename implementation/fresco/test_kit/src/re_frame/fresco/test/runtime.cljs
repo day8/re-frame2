@@ -1,17 +1,17 @@
 (ns re-frame.fresco.test.runtime
   "THE TEST KIT'S DOOR ONTO THE RUNTIME — what a witness reads off the
-  collector's tables, and the one seam it drives (rf2-6c12m.17).
+  collector's tables, and the one seam it drives.
 
   Every reader here is a pure read of state `re-frame.fresco.impl.collector`
   owns and exposes for exactly this purpose — `!cells`, `!entries`,
   `rstate` and its reap horizon — plus `re-frame.fresco.impl.frames`'s op
-  table and the codec's cache sizes. They used to live beside the tables
-  they count, on production namespaces; a consumer's bundle never ran
-  one, and a witness reading the runtime should reach it through the
-  kit, as `re-frame.fresco.test` and `re-frame.fresco.test.mounted`
-  already do. This namespace lives in the kit's own source root
-  (`fresco/test_kit/src`), outside the artefact's published `:paths`,
-  so nothing a shipped page runs can require it.
+  table and the codec's cache sizes. A consumer's bundle never runs one,
+  so they live in the kit rather than beside the tables they count, and a
+  witness reading the runtime reaches it through the kit, as
+  `re-frame.fresco.test` and `re-frame.fresco.test.mounted` do. This
+  namespace lives in the kit's own source root (`fresco/test_kit/src`),
+  outside the artefact's `:paths`, so nothing a shipped page runs can
+  require it.
 
   Three kinds of door:
 
@@ -26,9 +26,9 @@
 
   The commit seam itself — `collector/render-body`, `collector/last-reads`
   and `collector/commit-boundary!`, the three calls that take React's
-  place — stays on the collector: it is the runtime's own seam rather
+  place — lives on the collector: it is the runtime's own seam rather
   than an instrument, and Xray's suites drive it through the artefact's
-  published paths, which this source root is outside of."
+  `:paths`, which this source root is outside of."
   (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
