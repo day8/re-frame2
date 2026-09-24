@@ -7,10 +7,8 @@
 ;; pass on one commit. The public door is `re-frame.fresco`; everything
 ;; else is `re-frame.fresco.impl.*` and is not a consumer surface.
 ;;
-;; rf2-hic-001 established this artefact by copying the measured
-;; prototype out of the benchmark tree with namespaces renamed and nothing
-;; else changed. That tree is kept as evidence at bench/fresco/ (repo
-;; root), its own hand-run project off this classpath (rf2-6c12m.1);
+;; The measured prototype this artefact is derived from is evidence at
+;; bench/fresco/ (repo root), its own hand-run project off this classpath;
 ;; nothing here may require it, and
 ;; `scripts/check_optional_module_reachability.py` is what checks that.
 ;;
@@ -23,8 +21,8 @@
 ;; <- routing` with no cycle (Conventions §Packaging). React itself is an
 ;; npm dependency, declared in implementation/package.json, not here.
 ;;
-;; `day8/re-frame2-ssr` arrived with `re-frame.fresco.server` (rf2-b6jkj)
-;; and is reached by ONE namespace, which the public door names nowhere.
+;; `day8/re-frame2-ssr` is reached by ONE namespace, `re-frame.fresco.server`,
+;; which the public door names nowhere.
 ;; The module hands `:payload` to `re-frame.ssr.payload-policy`'s
 ;; fail-closed validator and its app-db to that namespace's own egress
 ;; projection, so R0 — *nothing Fresco-specific touches the payload path*
@@ -39,7 +37,7 @@
 ;; `.overlay` and `.motion` have and which
 ;; `scripts/check_optional_module_reachability.py` checks at the door.
 ;;
-;; PUBLISHED, as of rf2-gra70. The `:clein/build` alias below carries the
+;; PUBLISHED. The `:clein/build` alias below carries the
 ;; Maven coordinate `day8/re-frame2-fresco`, and the artefact is enrolled in
 ;; `.github/scripts/verify-version-lockstep.sh`'s inventory and in
 ;; `.github/workflows/release.yml`'s deploy DAG. It is NOT a `deploy-leaf`
@@ -56,32 +54,32 @@
 ;; does: the clj-kondo export reaches a consumer over the CLASSPATH, so a jar
 ;; without it silently ships no lint layer at all.
 ;;
-;; IT ALSO CARRIES `test_kit/src`, WHICH `:paths` DOES NOT (rf2-rxf49). The two
+;; IT ALSO CARRIES `test_kit/src`, WHICH `:paths` DOES NOT. The two
 ;; keys are not the same lever and this artefact is the one place they diverge:
 ;; `:paths` is the classpath a `:local/root` consumer inherits, while `:src-dirs`
 ;; is the ONLY thing that decides jar content — clein's `create-jar` is
 ;; `copy-src` then `b/jar`, and `copy-src` is `b/copy-dir` over
 ;; `(concat :src-dirs :resource-dirs)` into `:class-dir`, so a root that is off
-;; `:src-dirs` is off the jar and nothing else puts it back. Left as it was, the
-;; first `v*` tag would publish a `day8/re-frame2-fresco` containing no
+;; `:src-dirs` is off the jar and nothing else puts it back. Were the kit off
+;; `:src-dirs`, a `v*` tag would publish a `day8/re-frame2-fresco` containing no
 ;; `re-frame.fresco.test` and no `re-frame.fresco.test.mounted` — the supported
 ;; testing surface, absent from the artefact that documents it, with no second
 ;; coordinate to get it from.
 ;;
-;; This does NOT weaken the kit's dev-only property, because that property was
-;; never the separate root's to give. `re-frame.fresco.evidence` and
+;; This does NOT weaken the kit's dev-only property, because that property is
+;; not the separate root's to give. `re-frame.fresco.evidence` and
 ;; `re-frame.fresco.tool` ship from `src/` and are dev-only by REACHABILITY —
 ;; no `src/` namespace requires them, so a consumer who never asks for the
 ;; projection never bundles a byte of it — and `scripts/check_production_erasure.cjs`
 ;; is what checks that, by scanning the release bundle for each surface's
 ;; sentinel. The kit is on that same roster, under the sentinel
-;; `rf.error/fresco-test-`, and its entry already states the real rule: no
+;; `rf.error/fresco-test-`, and its entry states the real rule: no
 ;; `src/` namespace may require the kit. A classpath entry costs no bundle bytes;
-;; a `:require` does. Off `:paths` it stays, so the in-repo lane and the
-;; `:local/root` route keep asking for the kit explicitly.
+;; a `:require` does. The kit is off `:paths`, so the in-repo lane and the
+;; `:local/root` route ask for it explicitly.
 ;;
 ;; `resources` is on :paths for ONE reason: the clj-kondo export
-;; (rf2-hic-022) reaches a consumer over the CLASSPATH. `clj-kondo --lint
+;; reaches a consumer over the CLASSPATH. `clj-kondo --lint
 ;; "$(clojure -Spath)" --dependencies --copy-configs` scans the classpath for
 ;; `clj-kondo.exports/<group>/<artifact>/`, so an export directory that is not
 ;; on :paths is simply invisible — and the failure mode is silence rather than
@@ -94,43 +92,32 @@
          day8/re-frame2-ssr {:local/root "../ssr"}}
 
  :aliases
- ;; This lane was CLASSPATH-PROBE-ONLY until rf2-0yp7w P0, and the paragraph
- ;; below is kept because it still explains everything the artefact OWNS: the
- ;; runtime requires React, so every suite `re-frame.fresco.*` writes is CLJS
- ;; and runs on the Node lane (`re-frame.fresco.*-cljs-test`, compiled by the
- ;; `:node-test-fresco` shadow-cljs build). Zero JVM tests was the CORRECT
- ;; outcome, and `--probe` declared it — waiving the runner's test-count floor
- ;; as a stated exemption rather than an accident. The rule attached to it was
- ;; "if a JVM-runnable suite ever lands in `test/`, drop `--probe` and take the
- ;; floor".
+ ;; The runtime requires React, so nearly every suite `re-frame.fresco.*`
+ ;; writes is CLJS and runs on the Node lane (`re-frame.fresco.*-cljs-test`,
+ ;; compiled by the `:node-test-fresco` shadow-cljs build). The one exception
+ ;; is what this lane runs: `test/re_frame/fresco/slot_cljs_test.cljc` is the
+ ;; `.cljc` equivalence pin for the canonical slot rule, asserted once in Node
+ ;; and once on the JVM against ONE implementation (`impl/slot.cljc`). So the
+ ;; lane takes the runner's test-count floor rather than a `--probe`
+ ;; exemption: 3 tests, and the runner refuses if that ever becomes 0.
  ;;
- ;; ONE HAS. `test/re_frame/fresco/slot_cljs_test.cljc` is the `.cljc`
- ;; equivalence pin for the canonical slot rule, asserted once in Node and
- ;; once on the JVM against ONE implementation (`impl/slot.cljc`). It arrived
- ;; with the benchmark harness under rf2-0yp7w P0 and stayed in the package
- ;; when rf2-6c12m.1 moved the harness out. So `--probe` is gone and the
- ;; floor applies: 3 tests, and the runner refuses if that ever becomes 0.
+ ;; THE JVM ARM IS GATED, ON EVERY PR. The artefact is on
+ ;; `scripts/test-jvm-implementation.sh`'s roster, and
+ ;; `.github/workflows/test.yml` runs `jvm-fresco` unconditionally, in
+ ;; `all-required-passed`'s `needs:`. `check_jvm_lane_rosters.py` holds the
+ ;; two together: R1 refuses a roster entry with no CI job and R2 a gated
+ ;; job with no roster entry, so an entry and its job land in one change.
  ;;
- ;; THE JVM ARM IS GATED, ON EVERY PR. It was not, for one hour and forty-two
- ;; minutes: this alias landed ungated because `check_jvm_lane_rosters.py` R1
- ;; refuses a roster entry with no CI job, so the artefact could not join
- ;; `scripts/test-jvm-implementation.sh` until `.github/workflows/test.yml` —
- ;; hot-zone and sequential — carried a job to match. `f4c3c53d04` landed both
- ;; halves together, which is the only way R1/R2 accept either. The artefact is
- ;; now on that roster and `test.yml` runs `jvm-fresco` unconditionally, in
- ;; `all-required-passed`'s `needs:`, so the slot-rule pin's JVM arm no longer
- ;; waits for somebody to type `clojure -M:test` here (rf2-h2h25).
- ;;
- ;; The lint export's witness (rf2-hic-022) is still NOT a JVM suite. It is
- ;; `scripts/check_lint_export.py`, run by `npm run test:fresco-lint`, for the
- ;; same reason `check_freeze.py` is a checker.
+ ;; The lint export's witness is NOT a JVM suite. It is
+ ;; `scripts/check_lint_export.py`, run by `npm run test:fresco-lint` — a
+ ;; checker over the package, the same shape as `check_guide_samples.py`.
  {:test {:extra-paths ["test"
-                       ;; rf2-hic-020 — `re-frame.fresco.test`, the supported
+                       ;; `re-frame.fresco.test`, the supported
                        ;; L0–L2 testing surface. Its own root, and NOT in
                        ;; `:paths` above, so the in-repo lane and any
                        ;; `:local/root` consumer ask for it by name. It IS on
                        ;; `:clein/build`'s `:src-dirs`, so the published jar
-                       ;; carries it (rf2-rxf49) — see the `:src-dirs` paragraph
+                       ;; carries it — see the `:src-dirs` paragraph
                        ;; in the header for why those are different levers and
                        ;; why a classpath entry is not a bundle byte. Listed
                        ;; here so the classpath probe sees it; the CLJS lane
@@ -138,7 +125,7 @@
                        ;; :source-paths entry in implementation/shadow-cljs.edn.
                        "test_kit/src"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       ;; The Node lane's substrate. The prototype's own
+                       ;; The Node lane's substrate. The package's
                        ;; node-lane suites run on the UIx adapter and not on
                        ;; plain-atom, because plain-atom has no reactivity
                        ;; layer — a subscription under it never notifies, so
@@ -158,7 +145,7 @@
   {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.04.15"}}
    :main-opts  ["-m" "clj-kondo.main"]}
 
-  ;; Clojars deploy (rf2-gra70). The release workflow swaps both
+  ;; Clojars deploy. The release workflow swaps both
   ;; :local/root coordinates above for :mvn/version before invoking clein,
   ;; on the throwaway runner checkout.
   :clein {:extra-deps {io.github.noahtheduke/clein
