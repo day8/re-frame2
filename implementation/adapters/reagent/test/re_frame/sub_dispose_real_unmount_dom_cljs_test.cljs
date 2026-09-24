@@ -1,5 +1,5 @@
 (ns re-frame.sub-dispose-real-unmount-dom-cljs-test
-  "rf2-ty246 — does a REAL React unmount of a subscribing `reg-view` emit
+  "Does a REAL React unmount of a subscribing `reg-view` emit
   `:rf.sub/dispose` for the view's OWN query, on the stock Reagent (ratom)
   adapter?
 
@@ -8,34 +8,27 @@
   `:rf.sub/dispose` with `:rf.sub/reason :no-more-derefers` is emitted AT THE
   EVICTION SITE, and §`unsubscribe` (\"Why explicit teardown exists alongside
   auto-disposal\") says the automatic case fires the underlying `unsubscribe`
-  from the reaction's on-dispose hook. Every existing `:rf.sub/dispose`
-  assertion in this repo drives that edge with an explicit `rf/unsubscribe` or a
-  direct `rf.interop/dispose!` — NONE of them mounts a component and unmounts it
-  for real. That is exactly the gap this file closes: the defect under test is
-  invisible to every gate precisely because no test takes the real path.
+  from the reaction's on-dispose hook. An explicit `rf/unsubscribe` or a direct
+  `rf.interop/dispose!` does not take the path a real view unmount takes, so
+  this file mounts a component and unmounts it for real.
 
-  THE DEFECT, as traced at the source. On the ratom adapters a view's
-  `@(subscribe q)` bumps `:ref-count` on EVERY render and nothing ever
-  decrements it. The slot is removed by a different route entirely: when the
+  THE MECHANISM. On the ratom adapters a view's `@(subscribe q)` claims ONE
+  render-owned reference per mounted reader, so `:ref-count` counts live
+  readers, not renders. The slot is removed by Reaction auto-dispose: when the
   component's render Reaction disposes it drops its watch on the sub Reaction,
   the sub Reaction auto-disposes (`-remove-watch` → last watcher gone and no
-  `auto-run` → `dispose!`), and the on-dispose closure re-frame wired in
-  `build-and-cache!*` releases the layer-2 INPUT refs and then `dissoc`s the
-  slot SILENTLY — no decrement of its own slot, no `emit-dispose!`. So the slot
-  really is evicted, and the 1 → 0 edge the spec describes is never taken.
+  `auto-run` → `dispose!`), and the on-dispose closure re-frame wires in
+  `build-and-cache!*` releases the layer-2 INPUT refs and evicts the slot.
+  That eviction site is therefore where the `:rf.sub/dispose` must fire; a
+  silent `dissoc` there fails both tests below.
 
   READ THE ASSERTION PAIRING THAT WAY. Each test asserts BOTH that the slot is
-  gone after the unmount (true today — the eviction happens) AND that a
-  `:rf.sub/dispose` fired for it (false today — the eviction is silent). The
+  gone after the unmount AND that a `:rf.sub/dispose` fired for it. The
   first is what stops the second from being a vacuous \"nothing here\" pass: an
   absent dispose event beside a slot that never existed would prove nothing, so
   every negative claim here stands behind a precondition that must bite — the
   slot is asserted PRESENT, with a positive ref-count, while the view is
   mounted.
-
-  STATUS ON ARRIVAL: both tests below FAIL against the unfixed tree, by design.
-  That is the point of the item — a test written after the fix that merely
-  passed would reproduce the defect inside the suite.
 
   TEST-ONLY. The ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
   build discovers it for the real-DOM assertions; the `:node-test` runner also
@@ -51,7 +44,7 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.views]
-            ;; rf2-ty246: reuse the ONE proven teardown idiom (real `flushSync`
+            ;; Reuse the ONE proven teardown idiom (real `flushSync`
             ;; unmount + the settled macrotask window) rather than minting a
             ;; second one. Both helpers were made public for this.
             ;;
@@ -118,13 +111,13 @@
 ;; ===========================================================================
 
 (deftest real-unmount-emits-sub-dispose-for-the-views-own-query
-  "rf2-ty246 — mount a subscribing `reg-view` for real, unmount it for real
+  "Mount a subscribing `reg-view` for real, unmount it for real
    under `flushSync`, await the settled macrotask window, and require that the
    view's OWN query emitted exactly one `:rf.sub/dispose` with
    `:rf.sub/reason :no-more-derefers`, alongside its one `:rf.view/unmounted`.
 
-   FAILS against the unfixed tree: the slot is evicted by Reaction auto-dispose
-   and dissoc'd silently, so the dispose event never fires."
+   A silent `dissoc` at the auto-dispose eviction site fails it: the dispose
+   event would never fire."
   (if-not (browser?)
     (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
     (async done
@@ -135,7 +128,7 @@
             unmounts (atom [])
             done?    (atom false)
             done!    (fn [] (when (compare-and-set! done? false true) (done)))]
-        (rf/make-frame {:id frame-kw :doc "rf2-ty246 plain real-unmount probe frame"})
+        (rf/make-frame {:id frame-kw :doc "plain real-unmount probe frame"})
         (rf/reg-event :rf.ty246.reagent/seed (fn [_ _] {:db {:n 1}}))
         (rf/reg-event :rf.ty246.reagent/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
         (rf/dispatch-sync [:rf.ty246.reagent/seed] {:frame frame-kw})
@@ -189,10 +182,9 @@
             ;; The other half of the contract, and the half a dispose assertion
             ;; cannot reach. One mounted reader is one reference NO MATTER HOW
             ;; MANY TIMES IT RENDERS, so re-render the same component over the
-            ;; same slot and require the count to stand still. Against the
-            ;; unfixed tree this reads 2 — each render bumped and nothing ever
-            ;; paired the bump — which is exactly the "cumulative render
-            ;; counter" defect.
+            ;; same slot and require the count to stand still. Were each render
+            ;; to bump with nothing pairing the bump, this would read 2 — a
+            ;; cumulative render counter.
             (is (= 1 (:ref-count (slot frame-kw query-v)))
                 (str "one mounted reader is one reference; got "
                      (pr-str (:ref-count (slot frame-kw query-v)))))
@@ -214,7 +206,7 @@
                     ;; event is a missing EMIT, not a missing eviction.
                     (is (nil? (slot frame-kw query-v))
                         "the view's slot was evicted from the sub-cache by the real unmount")
-                    ;; THE DEFECT. Spec 006 promises this emit at the eviction site.
+                    ;; THE CONTRACT. Spec 006 promises this emit at the eviction site.
                     (let [ours (dispose-events-for @disposes query-v)]
                       (is (= 1 (count ours))
                           (str "exactly one :rf.sub/dispose fired for the view's own query "
@@ -245,7 +237,7 @@
 ;; the edge under test.
 
 (deftest strict-mode-real-unmount-emits-sub-dispose-and-view-unmounted
-  "rf2-ty246 — the same real-unmount contract with the tree wrapped in
+  "The same real-unmount contract with the tree wrapped in
    `React.StrictMode`, driven by `act` (the only thing that runs StrictMode's
    simulated unmount → remount deterministically).
 
@@ -265,7 +257,7 @@
             done?        (atom false)
             done!        (fn [] (when (compare-and-set! done? false true) (done)))
             act-fn       (get-act)]
-        (rf/make-frame {:id frame-kw :doc "rf2-ty246 StrictMode real-unmount probe frame"})
+        (rf/make-frame {:id frame-kw :doc "StrictMode real-unmount probe frame"})
         (rf/reg-event :rf.ty246.reagent/sseed (fn [_ _] {:db {:n 1}}))
         (rf/dispatch-sync [:rf.ty246.reagent/sseed] {:frame frame-kw})
         (rf/reg-sub :rf.ty246.reagent/sn (fn [db _] (:n db)))
