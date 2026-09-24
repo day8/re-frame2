@@ -107,7 +107,7 @@
            selected option whose value is empty"))))
 
 (deftest a-single-select-is-untouched
-  (testing "no :multiple means `.value`, exactly as before"
+  (testing "no :multiple means `.value`, as for every other control"
     (let [target (select-stand-in false ["a"])]
       (is (= [:tb/pick "a"]
              (rf.fresco.impl.intent/materialize [:tb/pick :re-frame.fresco/value] (ev target)))
@@ -116,10 +116,9 @@
 (deftest an-input-carrying-multiple-is-not-a-select
   (testing "`<input type=email multiple>` carries `.multiple` and has no
             selection. So does `<input type=file multiple>`, which is why
-            `.multiple` alone would have been the wrong test — but the file
-            input never reaches this branch at all now: it is refused one
-            step earlier, and `file_input_value_dom_cljs_test` owns that
-            row (rf2-lhsvs)."
+            `.multiple` alone would be the wrong test — but the file input
+            never reaches this branch at all: it is refused one step
+            earlier, and `file_input_value_dom_cljs_test` owns that row."
     (let [target #js {:files nil :multiple true :value "a@b.com,c@d.com"}]
       (is (= [:tb/pick "a@b.com,c@d.com"]
              (rf.fresco.impl.intent/materialize [:tb/pick :re-frame.fresco/value] (ev target)))
