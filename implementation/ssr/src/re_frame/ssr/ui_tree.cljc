@@ -1,8 +1,7 @@
 (ns re-frame.ssr.ui-tree
   "The S5 structural-tree -> HTML serialiser (`re-frame.ssr/emit-ui-tree`).
   Owning contract: [Spec 004B §The SSR consumption boundary]
-  (../../../spec/004B-UI-Tree-and-Conversion.md). Filed by rf2-3omxp
-  (item 2, the code half); the spec half shipped as rf2-vxgfnd.97.2.
+  (../../../spec/004B-UI-Tree-and-Conversion.md).
 
   ## What this is, and what it is NOT
 
@@ -31,32 +30,28 @@
   code-bug `:rf.error/ui-tree-malformed` a malformed node past the gate
   throws. Two ids, one per failure class: version = the new id;
   structural = the shared tree-consumer id (004B §The SSR consumption
-  boundary; ruling on rf2-vxgfnd.97, Fable 2026-07-19). A Tier-1 normalize
-  gate REUSES the shared id deliberately — a different boundary, unchanged.
+  boundary). A Tier-1 normalize gate REUSES the shared id deliberately — a
+  different boundary.
 
   ## One table, carried by the seam
 
   Emission applies the SERIALISATION HALF of [the DOM conversion table]
   (../../../spec/004B-UI-Tree-and-Conversion.md#the-dom-conversion-table--normative-rows)
-  and adds nothing to it. The rows below were once a deliberate verbatim
-  COPY of `re-frame.ui.rules` / `re-frame.ui.semantic`, carried because the
-  Independence rule forbids `re-frame.ssr` requiring `re-frame.ui`, and
-  pinned byte-for-byte against that source by a sibling test. **That
-  substrate has been retired (rf2-0yp7w), so these tables are now the
-  ORIGINALS and the pin is gone.** Nothing is duplicated any more and
-  nothing upstream can drift from them.
+  and adds nothing to it. **The rows below are the ORIGINALS.** There is
+  no other copy of them to pin against, and nothing upstream for them to
+  drift from.
 
   What keeps them honest without a second copy to compare against: the
   react-dom parity corpus (004B §Emission is pure), which tests the rows
-  against react-dom's documented behaviour — the authority both copies
-  were always transcribing — plus the row-level assertions in
+  against react-dom's documented behaviour — the authority the rows
+  transcribe — plus the row-level assertions in
   `re-frame.ssr.emit-ui-tree-cljs-test`. The react-dom version these rows
   track is named per-table below; that version string is the thing to
   check a row against, not another namespace.
 
-  Scope note (rf2-3omxp): this seam is the tree->HTML CODE. The FULL
-  react-dom byte-parity corpus (004B §Emission is pure) is a separate S5
-  leaf; only the conversion-table rows the seam actually needs ship here."
+  Scope note: this seam is the tree->HTML CODE. The FULL react-dom
+  byte-parity corpus (004B §Emission is pure) lives outside this namespace;
+  only the conversion-table rows the seam actually needs live here."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
             [re-frame.ssr.hash :as rf.ssr.hash]
@@ -97,15 +92,14 @@
              "fix deploy skew) or fall back to client render — nothing is wrong with "
              "the view code.")
         {:recovery :no-recovery
-         ;; rf2-9s68n — `tree-version` is read straight off a caller-supplied tree, so
+         ;; `tree-version` is read straight off a caller-supplied tree, so
          ;; it crosses `error/safe-form` on the ex-data side exactly as
          ;; it crosses `error/pr-form` on the message side above.
          :extra    {:got (rf.error/safe-form tree-version)
                     :supported supported-tree-versions}}))))
 
 ;; ---------------------------------------------------------------------------
-;; Conversion table — the ORIGINAL rows (rf2-0yp7w retired the substrate
-;; these were once copied from and pinned against). Authority: react-dom.
+;; Conversion table — the ORIGINAL rows. Authority: react-dom.
 ;; ---------------------------------------------------------------------------
 
 (def standard-names
@@ -408,18 +402,18 @@
 
 (def dom-attr-aliases
   "React prop name -> the DOM attribute name react-dom/server writes when
-  the two differ — the serialiser half of the conversion table. Seeded from
-  react-dom 19.2.0; `maskType` was corrected against 19.3.0 under rf2-4ale,
-  the only emitted-name move that bead measured across the two versions (the
-  table as a whole has not been re-derived, and `standard-names` above is the
-  OTHER half — author name to React prop name — which #9576 did re-derive).
+  the two differ — the serialiser half of the conversion table. Transcribed
+  from react-dom 19.2.0, with `maskType` carrying its 19.3.0 spelling — the
+  one emitted-name move measured across the two versions. The table as a
+  whole is not re-derived against 19.3.0; `standard-names` above, the OTHER
+  half — author name to React prop name — is.
   Everything NOT in this map serialises as the prop name verbatim
   (react-dom 19.2.0 emits e.g. `readOnly` verbatim — HTML attribute names
   are ASCII case-insensitive).
 
   The `keep` below inverts only `standard-names` entries whose KEY carries a
-  hyphen, which is why `masktype -> maskType` landing in `standard-names`
-  contributed nothing here: the hyphen-collapsed key is not a kebab spelling.
+  hyphen, which is why the `masktype -> maskType` entry in `standard-names`
+  contributes nothing here: the hyphen-collapsed key is not a kebab spelling.
   `maskType` therefore needs an explicit row, and `react_dom_probe/
   attr_name_mask_family.cjs` + `re-frame.ssr-attr-name-react-parity-test`
   pin that row against the installed package rather than against this prose.
@@ -427,9 +421,9 @@
   The inversion is not quite react-dom's rule, and one row shows it:
   react-dom 19.3.0 keys its `panose-1` alias on the HYPHENATED name (an
   identity row) and has no `panose1` key, so it writes the prop `panose1`
-  verbatim. The `keep` therefore skips `panose-1` (rf2-u0xpc), which also
-  measured the other 89 rows against 19.3.0 and found each byte-identical —
-  a one-off probe; no test pins the whole table."
+  verbatim. The `keep` therefore skips `panose-1`. The other 89 rows are
+  byte-identical against 19.3.0 by a one-off probe; no test pins the whole
+  table."
   (merge (into {}
                (keep (fn [[attribute-key attribute-value]]
                        (when (and (str/includes? attribute-key "-")
@@ -490,8 +484,8 @@
 
 ;; The three boolean-value rosters live in `re-frame.ssr.html-helpers` —
 ;; ONE roster read by both SSR serialisers, so this one and the hiccup
-;; emitter cannot drift apart on which names are which class (rf2-r9kf).
-;; The two PIPELINES stay separate per 004B: only the rosters travel, and
+;; emitter cannot drift apart on which names are which class.
+;; The two PIPELINES are separate per 004B: only the rosters travel, and
 ;; each serialiser keeps its own attribute-name handling and escape.
 (def boolean-attrs
   "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
@@ -517,9 +511,8 @@
 (defn escape-html
   "Full 5-char escaping (& < > \" ') for text and attribute values —
   trusted-HTML (`:html`) nodes are the single bypass. Matches React's
-  escapeTextForBrowser (
-  `'` -> `&#x27;`, NOT the `&#39;` `re-frame.ssr.html-helpers` uses for the
-  hiccup tier)."
+  escapeTextForBrowser (`'` -> `&#x27;`, NOT the `&#39;`
+  `re-frame.ssr.html-helpers` uses for the hiccup tier)."
   [text]
   (-> (str text)
       (str/replace "&" "&amp;")
@@ -528,24 +521,24 @@
       (str/replace "\"" "&quot;")
       (str/replace "'" "&#x27;")))
 
-;; Raw-text elements — <script>/<style> content is HTML RAW TEXT (rf2-2dh3b).
+;; Raw-text elements — <script>/<style> content is HTML RAW TEXT.
 ;; The serialisation rule (`html/raw-text-tags` + `html/escape-raw-text`) is
 ;; the ONE shared implementation in `re-frame.ssr.html-helpers`, called
 ;; identically by this serialiser and both hiccup emitters so every SSR path
-;; emits byte-identical raw text for the same author content (rf2-xbvzh).
+;; emits byte-identical raw text for the same author content.
 
 ;; ---------------------------------------------------------------------------
-;; Newline-eating elements — leading-LF compensation (rf2-z05di)
+;; Newline-eating elements — leading-LF compensation
 ;; ---------------------------------------------------------------------------
 
 (def newline-eating-tags
   "The HTML elements whose parser DROPS one leading LF immediately after the
   start tag — `<pre>`, `<listing>`, `<textarea>`.
 
-  rf2-s7l5 — the roster itself now lives ONCE, in
-  `re-frame.ssr.html-helpers`, alongside the rule that reads it: both hiccup
-  emitters need the same set, and a second copy here is how the raw-text rule
-  drifted before rf2-xbvzh hoisted it. This is the alias, not a copy."
+  The roster itself lives ONCE, in `re-frame.ssr.html-helpers`, alongside the
+  rule that reads it: both hiccup emitters need the same set, and a second
+  copy here would drift from it the way any duplicated rule does. This is the
+  alias, not a copy."
   rf.ssr.html-helpers/newline-eating-tags)
 
 (def trusted-html-newline-eating-tags
@@ -554,7 +547,7 @@
   deliberately absent: react-dom/server 19.2 rejects a trusted-markup child on a
   textarea outright (its content is `value`/`defaultValue` or a text child), so
   a `{:html …}` child never survives to be compensated there — the seam rejects
-  it through `:rf.error/ui-tree-malformed` (rf2-ib4fd). A textarea's STRING
+  it through `:rf.error/ui-tree-malformed`. A textarea's STRING
   `:value` beginning with LF is still compensated via `newline-eating-tags`."
   #{"pre" "listing"})
 
@@ -563,10 +556,10 @@
   compensates only when a newline-eating element's body is ONE string: a lone
   text child, OR a lone `{:html s}` trusted-markup child — React's
   `dangerouslySetInnerHTML.__html`, likewise a `typeof … === 'string'` body it
-  doctors the same way (rf2-0spji). A multi-child, element, or non-string-`:html`
+  doctors the same way. A multi-child, element, or non-string-`:html`
   body is left untouched. The `{:html s}` arm applies only under the
   trusted-html newline-eating tags (`<pre>`/`<listing>`); a textarea's
-  trusted-markup child is rejected upstream and never reaches here (rf2-ib4fd).
+  trusted-markup child is rejected upstream and never reaches here.
   `content` is the element's content as a seq — one entry means a single
   (already text-coalesced) string child, a textarea's `:value`, or a sole
   trusted-markup child."
@@ -591,9 +584,9 @@
   `<pre>`/`<listing>` — a sole trusted-markup `{:html s}` child, React's
   `dangerouslySetInnerHTML.__html`), and the decision itself is
   `re-frame.ssr.html-helpers/leading-newline-compensation`, shared with both
-  hiccup emitters (rf2-s7l5). The hiccup paths carry their own, simpler lever
+  hiccup emitters. The hiccup paths carry their own, simpler lever
   (`html/sole-string-child`) because hiccup has no `{:html s}` child and no
-  textarea `:value` node — the tree-space distinction stays here."
+  textarea `:value` node — the tree-space distinction lives here."
   [tag-lc content]
   (rf.ssr.html-helpers/leading-newline-compensation
     tag-lc
@@ -618,17 +611,15 @@
     :else                                    (str value)))
 
 ;; The presence test over TREE-SPACE values is `html/presence-value-truthy?`
-;; — react-dom's own JS truthiness — and it is REACHED rather than restated
-;; (rf2-u82a).
+;; — react-dom's own JS truthiness — and it is REACHED rather than restated.
 ;;
-;; This ns carried its own near-miss copy until then, and it disagreed with
-;; react-dom on two values in OPPOSITE directions: `(some? value)` made the
-;; NUMBER `0` present where react-dom omits it, and `str/blank?` made a
-;; whitespace string absent where react-dom emits it. Neither was reachable
-;; by any test, because every parity row drove booleans only. Sharing the
-;; rule is the move rf2-r9kf already made for the rosters: the hiccup
-;; emitter and this serialiser answer one input one way, or the two SSR
-;; pipelines drift again — and the drift is silent, because each is
+;; A near-miss local copy would disagree with react-dom on two values in
+;; OPPOSITE directions: `(some? value)` would make the NUMBER `0` present
+;; where react-dom omits it, and `str/blank?` would make a whitespace string
+;; absent where react-dom emits it. A parity row that drives booleans only
+;; reaches neither. Sharing the rule is the move the rosters make too: the
+;; hiccup emitter and this serialiser answer one input one way, or the two
+;; SSR pipelines drift — and the drift is silent, because each is
 ;; self-consistent.
 
 (defn- serialise-attr
@@ -753,7 +744,7 @@
   tree consumer throws (004B §The node schema). `path` is the root-relative
   `get-in` position that LOCATES the offending node.
 
-  rf2-9s68n — `extra` crosses `error/safe-form` HERE, once, for every
+  `extra` crosses `error/safe-form` HERE, once, for every
   arm: its slots (`:value`, `:got`) carry runtime tree values, and a cyclic
   foreign value riding out in ex-data explodes at a DOWNSTREAM logger /
   error projector / trace sink that `pr-str`s it, which is someone else's
@@ -782,13 +773,13 @@
 
 (defn- emit-raw-text-children
   "Emit the children of a raw-text element (`<script>`/`<style>`) — the raw-text
-  half of the child grammar (rf2-0spji). React's model: a raw-text element's body
+  half of the child grammar. React's model: a raw-text element's body
   is EITHER HTML raw text (string children) OR a single trusted-markup bypass
-  (`ui/html` → `dangerouslySetInnerHTML`), never both.
+  (a `{:html s}` node → `dangerouslySetInnerHTML`), never both.
 
     - all-string content → HTML raw text: emitted verbatim but for the
       context-safe closing-sequence rewrite (`escape-raw-text`), matching
-      react-dom/server's string-`children` path (rf2-2dh3b).
+      react-dom/server's string-`children` path.
     - a sole `{:html s}` child → the trusted-markup bypass: `s` VERBATIM, no
       rewrite — react-dom/server pushes `dangerouslySetInnerHTML.__html` raw. This
       REUSES `emit-node`'s general `:html` row, so the body is byte-identical to a
@@ -797,8 +788,8 @@
 
   Any other shape — an element/view-boundary/fragment child, string content mixed
   with a structural child, or several structural children — is NOT raw text and
-  must not be stringified (the pre-fix fast path `(str/join (:children el))`
-  printed such a child's EDN literally into the script/style body). It fails loud
+  must not be stringified (a fast path `(str/join (:children el))` would
+  print such a child's EDN literally into the script/style body). It fails loud
   through the shared `:rf.error/ui-tree-malformed` path, locating the element."
   [tag-lc children path]
   (cond
@@ -839,7 +830,7 @@
   `[node real-path]`, the root-relative `get-in` path that LOCATES the
   (possibly spliced) leaf for a precise diagnostic. Used to validate a
   `<textarea>`'s content against its host child contract at the ACTUAL offending
-  path, not merely its immediate children (rf2-ib4fd)."
+  path, not merely its immediate children."
   [children parent-path]
   (vec
     (mapcat
@@ -852,7 +843,7 @@
       children)))
 
 (defn- reject-textarea-content!
-  "rf2-ib4fd — a `<textarea>`'s content is host-divergent unless it is a single
+  "A `<textarea>`'s content is host-divergent unless it is a single
   text child OR its `:value`/`:default-value`. Validate the EFFECTIVE child
   stream (after transparent fragment / view-boundary splicing) so a nested
   trusted-markup (`:html`) leaf, a structural element child, several children,
@@ -939,7 +930,7 @@
         ;; textarea/select :value never serialises as a `value` attribute.
         attrs     (cond-> attrs (or textarea? select?) (dissoc :value))
         open-tag  (str "<" tag-name (attrs->string attrs property-props))]
-    ;; rf2-ib4fd — a <textarea>'s content is host-divergent unless it is a single
+    ;; A <textarea>'s content is host-divergent unless it is a single
     ;; text child or its :value/:default-value. Validate the EFFECTIVE child
     ;; stream (after transparent fragment / view-boundary splicing), not merely
     ;; the immediate children: a nested trusted-markup leaf, a structural child,
@@ -949,16 +940,16 @@
       (reject-textarea-content! textarea-value (:children element) path))
     (cond
       void?          (str open-tag ">")
-      ;; rf2-2dh3b — <script>/<style> content is HTML raw text: emit it
+      ;; <script>/<style> content is HTML raw text: emit it
       ;; unescaped (only the closing-sequence escape), matching react-dom/server.
-      ;; rf2-0spji — but honor a sole `{:html s}` child (the ui/html trusted
+      ;; But honor a sole `{:html s}` child (the trusted-markup
       ;; bypass) verbatim, and fail loud on any other structural child instead of
       ;; stringifying it.
       raw-text?      (str open-tag ">"
                           (emit-raw-text-children normalised-tag-name
                                                   (:children element) path)
                           "</" tag-name ">")
-      ;; rf2-z05di — a textarea :value beginning with LF needs the compensating
+      ;; A textarea :value beginning with LF needs the compensating
       ;; leading LF the parser will eat back off (single-string content).
       (some? textarea-value)
       (let [coerced-textarea-value (coerce-value textarea-value)]
@@ -971,7 +962,7 @@
                        (mark-selected (:children element)
                                       (selected-values select-value))
                        (:children element))]
-        ;; rf2-z05di — <pre>/<listing>/<textarea> with a single string child
+        ;; <pre>/<listing>/<textarea> with a single string child
         ;; beginning with LF get the one compensating LF react-dom/server emits.
         (str open-tag ">"
              (leading-newline-compensation normalised-tag-name children)
@@ -1091,7 +1082,7 @@
   throws the shared `:rf.error/ui-tree-malformed`.
 
   Calls NOTHING — no view, no subscription, no frame. Pure, deterministic
-  to the byte, JVM-runnable. `opts` carries a single current option,
+  to the byte, JVM-runnable. `opts` carries a single option,
   `:doctype?` (default off), which prefixes `<!DOCTYPE html>`; other keys are
   ignored (the `render-to-string` option set does not transfer to this seam)."
   ([tree] (emit-ui-tree tree nil))
