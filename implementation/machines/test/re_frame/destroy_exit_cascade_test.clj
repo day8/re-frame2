@@ -164,14 +164,14 @@
           ":exit saw the final state's :data (post-transition snapshot)")
       ;; :on-done received the :output-key slot computed PRE-:exit
       ;; (per Spec 005 — :exit reads, doesn't write, the output slot).
-      ;; Our :exit doesn't mutate :counter so this is just a sanity
-      ;; check that the existing :on-done contract still holds.
+      ;; Our :exit doesn't mutate :counter so this is a sanity check on
+      ;; the :on-done contract.
       (is (= 8 (get-in (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :snapshots :ne/final-parent])
                        [:data :received]))
-          ":on-done still received the :output-key slot — contract preserved"))))
+          ":on-done received the :output-key slot"))))
 
-;; ---- regression: :exit fx surfaces ---------------------------------------
+;; ---- :exit fx surfaces ---------------------------------------------------
 
 (deftest exit-fx-fires-on-destroy
   (testing ":exit-emitted :fx fires through the standard fx interpreter on destroy"
@@ -189,7 +189,7 @@
       (rf/dispatch-sync [:ne/fx-emitter [:rf.machine/noop]])
       (rf/dispatch-sync [:ne/fx-killer [:fire]])
       (is (= 1 @fx-fired)
-          ":exit-emitted :fx fired through the fx interpreter (rf2-nahfm — destroy path uses do-fx)"))))
+          ":exit-emitted :fx fired through the fx interpreter (the destroy path uses do-fx)"))))
 
 ;; ---- :rf.machine/action-ran attribution on the destroy path --------------
 ;;
