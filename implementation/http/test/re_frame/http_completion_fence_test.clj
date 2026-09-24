@@ -1,56 +1,56 @@
 (ns re-frame.http-completion-fence-test
-  "rf2-1eng8 seams 2 and 3 — the platform completion callback is fenced, and
-  the resulting error is observable in PRODUCTION.
+  "The platform completion callback is fenced, and the resulting error is
+  observable in PRODUCTION.
 
-  ## Seam 2 — the fence
+  ## The fence
 
-  `dispatch-reply!`'s reply-tail fence (rf2-ln85eg) covers the BOTTOM of the
+  `dispatch-reply!`'s reply-tail fence covers the BOTTOM of the
   completion callback: the `:after` chain and the late-bind reply dispatch.
-  Everything ABOVE it — the 4xx/5xx/2xx cascade, response-body schema
-  classification, the retry decision, the finalise + teardown — was unfenced,
-  and a throw there failed differently and badly on each host:
+  The completion fence covers everything ABOVE it — the 4xx/5xx/2xx cascade,
+  response-body schema classification, the retry decision, the finalise +
+  teardown. Unfenced, a throw there would fail differently and badly on each
+  host:
 
-  - JVM — the throw escaped into the `whenComplete` stage nobody holds, which
-    completes that discarded future exceptionally and swallows it. No reply, no
-    registry clear: the request hangs in flight for ever, silently.
-  - CLJS — the throw rejected the promise `.then` returns, so the `.catch`
-    reclassified it as `:rf.http/transport` and `maybe-retry!` RE-SENT a
-    request whose 2xx had already landed. That half is pinned in
+  - JVM — the throw would escape into the `whenComplete` stage nobody holds,
+    which completes that discarded future exceptionally and swallows it. No
+    reply, no registry clear: the request would hang in flight for ever,
+    silently.
+  - CLJS — the throw would reject the promise `.then` returns, so the `.catch`
+    would reclassify it as `:rf.http/transport` and `maybe-retry!` would
+    RE-SEND a request whose 2xx had already landed. That half is pinned in
     `re-frame.http-completion-fence-cljs-test`, because the double-send is only
     reachable on the Fetch path; this namespace carries the JVM half, where the
     load-bearing symptom is the silent hang.
 
-  ## Seam 3 — production observability
+  ## Production observability
 
-  `emit-reply-tail-error!` was wrapped in an outer `interop/debug-enabled?`
-  gate and reached the dev trace ONLY, so in a production CLJS bundle — the one
-  place a throwing `:after` cannot be caught by running the tests — the reply
-  vanished with nothing left behind, although Spec 014 §Failure mode promises
-  the throw is surfaced \"observably\". It now fans out through BOTH error
-  substrates via the `:error-emit/emit-error-both` hook.
+  `emit-reply-tail-error!` fans out through BOTH error substrates via the
+  `:error-emit/emit-error-both` hook. Behind an outer `interop/debug-enabled?`
+  gate it would reach the dev trace ONLY, so in a production CLJS bundle — the
+  one place a throwing `:after` cannot be caught by running the tests — the
+  reply would vanish with nothing left behind, although Spec 014 §Failure mode
+  promises the throw is surfaced \"observably\".
 
-  That promotion is what the last test pins, and it pins it on the axis that
+  The last test pins that on the axis that
   actually carries the promise: `register-error-listener!`, the ALWAYS-ON
   registry (surface #4), NOT `trace.tooling/register-listener!`. The dev-trace
-  assertion cannot tell the two apart — it was already green before the fix —
-  so a pin written against the trace bus would pass against the unfixed tree
-  while proving nothing about production.
+  assertion cannot tell the two apart — it is green either way — so a pin
+  written against the trace bus would prove nothing about production.
 
   ## On planting the throw
 
-  Seam 2's reachable case named on the item — a `:decode` schema declaring a
-  per-slot mark while the shared walker hook is unbound, throwing
-  `:rf.error/schemas-artefact-missing` out of `classify-decoded` — is no longer
-  reachable HERE, because the same change forces that check at dispatch time in
-  `handlers/normalise-args` (the request is refused before it is issued). So
-  the fence is exercised by redefining `classify-decoded` to throw, which lands
-  the throw at exactly the site that case used to reach: `handle-response!`'s
+  A `:decode` schema declaring a per-slot mark while the shared walker hook is
+  unbound, throwing `:rf.error/schemas-artefact-missing` out of
+  `classify-decoded`, is not reachable HERE, because `handlers/normalise-args`
+  forces that check at dispatch time (the request is refused before it is
+  issued). So the fence is exercised by redefining `classify-decoded` to throw,
+  which lands the throw at `handle-response!`'s
   2xx accept phase, ABOVE `finalise-success!` and therefore above the registry
   clear and above the reply-tail fence.
 
   Each test asserts that PRECONDITION rather than assuming it — that the
   planted throw was actually reached, and that it landed above the reply tail
-  rather than inside the fence that already existed. A pin that threw below the
+  rather than inside the reply-tail fence. A pin that threw below the
   fence would pass while exercising nothing."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -115,14 +115,14 @@
     (catch Exception _ false)))
 
 ;; ===========================================================================
-;; Seam 2 (JVM) — a throw above the reply tail is fenced, not swallowed
+;; The fence (JVM) — a throw above the reply tail is fenced, not swallowed
 ;; ===========================================================================
 
 (deftest completion-throw-is-fenced-and-torn-down-not-swallowed
-  (testing "rf2-1eng8 (JVM) — a throw in the completion cascade ABOVE the reply
+  (testing "(JVM) a throw in the completion cascade ABOVE the reply
             tail is caught at the completion boundary, surfaced once as
             :rf.error/http-reply-tail-failed, and the in-flight registry is
-            cleared; pre-fix it vanished into the unobserved whenComplete
+            cleared; unfenced it would vanish into the unobserved whenComplete
             future, leaving the request in flight for ever with nothing on any
             surface"
     (let [hits  (AtomicInteger. 0)
@@ -165,7 +165,7 @@
                 ;; (2) It landed ABOVE the reply tail. `:rf.http/replied` is
                 ;; emitted from `dispatch-success!`, below `finalise-success!`;
                 ;; its absence is what says this is the COMPLETION fence and
-                ;; not `dispatch-reply!`'s pre-existing one. If the throw ever
+                ;; not `dispatch-reply!`'s reply-tail one. If the throw ever
                 ;; drifts below, this reds.
                 (is (empty? (ops captured :rf.http/replied))
                     "PRECONDITION: the throw landed ABOVE the reply tail — no reply envelope was built")
@@ -173,7 +173,7 @@
                 ;; ---- VERDICT ------------------------------------------
                 (is surfaced?
                     "the completion throw was OBSERVED, not swallowed into the
-                     unheld whenComplete future (a timeout here is the pre-fix
+                     unheld whenComplete future (a timeout here is the unfenced
                      silent hang)")
                 (is (= 1 (count (ops captured :rf.error/http-reply-tail-failed)))
                     "surfaced exactly once")
@@ -198,22 +198,22 @@
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; Seam 3 — the reply-tail error is observable in PRODUCTION
+;; The reply-tail error is observable in PRODUCTION
 ;; ===========================================================================
 
 (deftest reply-tail-error-rides-the-always-on-axis
-  (testing "rf2-1eng8 — :rf.error/http-reply-tail-failed reaches the ALWAYS-ON
+  (testing ":rf.error/http-reply-tail-failed reaches the ALWAYS-ON
             error-listener registry, not just the dev trace. Spec 014 §Failure
-            mode promises a response-side throw is surfaced observably; before
-            this the emit sat behind an outer interop/debug-enabled? gate, so a
-            production CLJS bundle lost the reply silently"
+            mode promises a response-side throw is surfaced observably; an emit
+            behind an outer interop/debug-enabled? gate would let a
+            production CLJS bundle lose the reply silently"
     (let [hits     (AtomicInteger. 0)
           records  (atom [])
           srv      (start-counting-200-server! hits)]
       (try
         ;; The ALWAYS-ON axis — deliberately NOT trace.tooling/register-listener!.
-        ;; The dev-trace assertion was already green before the fix, so a pin
-        ;; written against the trace bus proves nothing about production.
+        ;; The dev-trace assertion is green even with a dev-gated emit, so a
+        ;; pin written against the trace bus proves nothing about production.
         (rf.error-emit/register-error-listener!
           ::recorder (fn [record] (swap! records conj record)))
         (rf/reg-http-interceptor :boom-after
@@ -243,7 +243,7 @@
           ;; ---- VERDICT -------------------------------------------------
           (is surfaced?
               "the reply-tail failure reached the ALWAYS-ON error-listener registry
-               — pre-fix the emit was dev-gated and this axis saw nothing")
+               — a dev-gated emit would leave this axis seeing nothing")
           (let [recs (filter (fn [r] (= :rf.error/http-reply-tail-failed (:error r))) @records)]
             (is (= 1 (count recs))
                 "exactly one always-on record (no doubled emission)")))
