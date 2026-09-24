@@ -88,7 +88,7 @@
         (rf/dispatch-sync [:sup/entry-quiet [:start]])
         (is (= :ran @seen) "the :entry action ran on the happy path")
         (is (= :working (:state (snapshot :sup/entry-quiet)))
-            "the transition committed — the success path is unchanged")
+            "the transition committed on the success path")
         (is (zero? (count (action-exceptions @traces)))
             "no machine-action-exception when the :entry action does not throw")
         (is (zero? (count (handler-exceptions @traces)))
