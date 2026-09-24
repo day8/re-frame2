@@ -3434,6 +3434,18 @@ computed from the PROJECTED evidence, the per-step settle outcomes and the
 step results, never a sibling accumulator, so a replay cannot read green
 while the tape or an assertion is red.
 
+The program's tape-evaluated checkpoints — `[:assert
+[:rf.assert/schema-error …]]` and the causal / cascade family
+(`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`) — carry no handler,
+so the step executor skips them and replay judges them against its own
+projected tape with the SAME matchers the live run's result boundary uses
+(§Schema rule, §Causal and cascade assertions), never a second evaluator.
+Their records join `:assertions`: an expected violation that never happened
+fails; a matched one passes and is exactly consumed, its selector landing on
+the result's `:consumed-selectors`, so it does not trip the floor; and a
+causal checkpoint the replay's tape cannot prove refuses `:cannot-run`
+(rf2-0viz4).
+
 `opts` MAY carry `:frame` (replay into a caller-owned frame),
 `:hooks` (richer settled-boundary flush-hooks — a `:dom` adapter declares
 `:provides :dom`; the fx decisions still wrap its `:dispatch!`), and
