@@ -28,8 +28,8 @@
   construction; the app must load the HTTP artefact to register the emitted
   `:rf.http/managed` effect.
 
-  The lowering ships here: `lower` mints the request-id and stamps the
-  work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
+  The lowering lives here: `lower` stamps the caller-supplied request-id and
+  the work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
   (:require [re-frame.error :as rf.error]
             [re-frame.late-bind :as rf.late-bind]))
@@ -151,7 +151,7 @@
   resource read gets a structured artefact-missing error rather than an
   opaque no-handler.
 
-  `ensure-ctx` is the live ensure-context the runtime slice assembles:
+  `ensure-ctx` is the live ensure-context the resource runtime assembles:
   `:http-args` (the app `:request` return — a Spec 014 managed-HTTP args
   map), `:request-id`, `:work-id`, `:resource/key`, `:scope`, `:frame-id`,
   `:generation`, and `:where` (the dispatch surface for diagnostics). The
