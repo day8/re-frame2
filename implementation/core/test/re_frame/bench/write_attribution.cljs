@@ -1680,7 +1680,7 @@
             slope (/ (- (b (str "RFWRITE-" hi)) (b (str "RFWRITE-" lo))) (- hi lo))
             fs-slope (/ (- (b (str "FSWRITE-" hi)) (b (str "FSWRITE-" lo))) (- hi lo))]
         (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write   (:db subs)" (fmt slope)))
-        (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write   (:frame-state subs — rf2-gncxk.1 control)"
+        (println (gstring/format ";;   PER-SUBSCRIPTION SLOPE  %s B / sub / write   (:frame-state subs — the witness control)"
                          (fmt fs-slope)))
         (println ";;")
         (println ";; WHERE THE PER-SUBSCRIPTION BYTES GO (each arm × n, reported per sub)")
@@ -1695,7 +1695,7 @@
                          "RESIDUAL" (fmt (- slope (/ (b "P-MEMO") n)
                                             (/ (b "Q-SCHEDJS") n) (/ (b "P-RKV") n)))))
         (println ";;")
-        (println ";; rf2-zxv06 — THE HANDLER-SCOPE BRACKET, PAIRED")
+        (println ";; THE HANDLER-SCOPE BRACKET, PAIRED")
         (println (gstring/format
                    ";;   P-SCOPEM (retired, prod meta)   %10s B/sub" (fmt (/ (b "P-SCOPEM") n))))
         (println (gstring/format
@@ -1710,13 +1710,13 @@
         (println (gstring/format
                    ";;   -> inherit predicts             %10s B/sub saved  (ONLY under a bound parent — a real app's write; NOT visible in the ladder above)"
                    (fmt (/ (- (b "P-INHER") (b "P-INHERH")) n))))
-        ;; rf2-gncxk.1 — BOTH halves, quoted as the two paired differences the
-        ;; change stands or falls on. Neither is optional: the first says the
-        ;; `=` term is GONE where the source publishes a movement witness, the
-        ;; second says it is STILL PAID where it does not — which is the
-        ;; `:frame-state` shape PR #7233 pins.
+        ;; BOTH halves, quoted as the two paired differences the witness
+        ;; stands or falls on. Neither is optional: the first says the `=`
+        ;; term is GONE where the source publishes a movement witness, the
+        ;; second says it is PAID where it does not — which is the
+        ;; `:frame-state` shape.
         (println ";;")
-        (println ";; rf2-gncxk.1 — THE MOVEMENT WITNESS, PAIRED, BOTH HALVES")
+        (println ";; THE MOVEMENT WITNESS, PAIRED, BOTH HALVES")
         (println ";;   [:db half] same wrapper, same inputs, same scaffolding; witnessing vs not")
         (println (gstring/format
                    ";;   P-MEMOWC (raw-atom source, no witness) %10s B/sub" (fmt (/ (b "P-MEMOWC") n))))
@@ -1738,12 +1738,12 @@
                    ";;   -> = walk STILL PAID                   %10s B/sub   (must equal P-EQDBF %s)"
                    (fmt (/ (- (b "P-MEMOF") (b "P-MEMOFI")) n)) (fmt (/ (b "P-EQDBF") n)))))
       (println ";;")
-      (println ";; rf2-78ejq — WHERE RFWRITE-0's CONSTANT GOES")
+      (println ";; WHERE RFWRITE-0's CONSTANT GOES")
       (let [rf0    (b "RFWRITE-0")
             sp0    (b "SPINE0")
             delta  (- rf0 sp0)
             proj   (- (b "SPINE0P") (b "SPINE0B"))
-            comps  [["C-FRAME    (frame id) lookup, HIT  [<= — rf2-tmzie]" (b "C-FRAME")]
+            comps  [["C-FRAME    (frame id) lookup, HIT  [<= — an UPPER BOUND]" (b "C-FRAME")]
                     ["C-PARTS    partition bookkeeping"      (b "C-PARTS")]
                     ["C-TAGPAIR  two [::ok v] pairs"         (b "C-TAGPAIR")]
                     ["C-PROJ     the two projections"        proj]
@@ -1762,22 +1762,22 @@
         (println (gstring/format ";;   C-BUMP %s B vs C-BUMPH %s B  -> hoisting (fnil inc 0) predicts %s B/write"
                          (fmt (b "C-BUMP")) (fmt (b "C-BUMPH"))
                          (fmt (- (b "C-BUMP") (b "C-BUMPH")))))
-        ;; rf2-c0awb — the lookup, paired. Only C-FRAME (the HIT) is a component
-        ;; of the delta above; C-FRAMEX is here to say what the hit costs OVER
-        ;; the miss rather than leaving it assumed, and to make it visible if
-        ;; this arm ever reverts to pricing the short-circuit again.
+        ;; The lookup, paired. Only C-FRAME (the HIT) is a component of the
+        ;; delta above; C-FRAMEX is here to say what the hit costs OVER the
+        ;; miss rather than leaving it assumed, and to make it visible if this
+        ;; arm ever prices the short-circuit.
         (println (gstring/format ";;   C-FRAME (registry HIT) %s B vs C-FRAMEX (MISS) %s B  -> a HIT costs %s B/lookup more than a miss"
                          (fmt (b "C-FRAME")) (fmt (b "C-FRAMEX"))
                          (fmt (- (b "C-FRAME") (b "C-FRAMEX")))))
         (println (gstring/format ";;   C-FRAMEG (the registry `get` alone, same hit) %s B  -> the record walk is the remaining %s B"
                          (fmt (b "C-FRAMEG"))
                          (fmt (- (b "C-FRAME") (b "C-FRAMEG")))))
-        ;; rf2-tmzie — WHAT THAT NON-ZERO IS. It was published as "the
-        ;; visibility walk" and disputed against `-diagnose`, which reads a
-        ;; constant 32 B per WINDOW for the same closure. Both readings stand;
-        ;; they are of different things, and these arms say which is which.
+        ;; WHAT THAT NON-ZERO IS. It reads like "the visibility walk", and
+        ;; `-diagnose` reads a constant 32 B per WINDOW for the same closure.
+        ;; Both readings stand; they are of different things, and these arms
+        ;; say which is which.
         (println ";;")
-        (println ";;   rf2-tmzie — WHAT THE 32 B IS, bisected")
+        (println ";;   WHAT THE 32 B IS, bisected")
         (doseq [[lbl v note]
                 [["C-FRAME   rf.frame/frame, the shipped call" (b "C-FRAME")
                   "the whole hit"]
@@ -1804,7 +1804,7 @@
                            (count pam-probe) (fmt pam)))
           (println (str ";;     So the 32 B is TWO boxed hash values, one per PersistentHashMap lookup on"))
           (println (str ";;     the frame record — NOT the visibility test, which is a `not`, a `not=` and"))
-          (println (str ";;     nothing else. `-diagnose` PROBE 4/5 read ~0 B/call for the same closure"))
+          (println (str ";;     nothing else. `-diagnose` PROBE 4/5 reads ~0 B/call for the same closure"))
           (println (str ";;     because a process whose only work is that one arm lets V8 keep the shift"))
           (println (str ";;     result in a register; PROBE 5 shows a second live caller does NOT restore"))
           (println (str ";;     it. So this figure is an UPPER BOUND — the cost this plan pays and a"))
@@ -1814,11 +1814,10 @@
       ;; QUOTED, not about throwing the measurement away — so the exit code
       ;; carries it rather than an exception.
       ;;
-      ;; rf2-l3jv4 — there are TWO of them and they are independent. The arm
-      ;; order asks whether an arm's figure moved with where in the plan it
-      ;; sat; the calibration asks whether the instrument was measuring a
-      ;; tagged-slot copy at all. A run that fails either is not reportable,
-      ;; and until this bead the second one only ever printed.
+      ;; There are TWO of them and they are independent. The arm order asks
+      ;; whether an arm's figure moved with where in the plan it sat; the
+      ;; calibration asks whether the instrument was measuring a tagged-slot
+      ;; copy at all. A run that fails either is not reportable.
       (println ";;")
       (let [v (rf.bench.order-guard/verdict (:order run) {:tolerance tolerance})]
         (doseq [line (rf.bench.order-guard/report-lines v "the per-arm figure, one p50 per round")]
@@ -1828,7 +1827,7 @@
           (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
           (println (str ";;   at least one arm reads differently for what preceded it, or for where "
                         "in the run"))
-          (println (str ";;   it was measured (rf2-88pie). The table above stands as raw data; "
+          (println (str ";;   it was measured. The table above stands as raw data; "
                         "nothing in it"))
           (println ";;   may be quoted."))
         (doseq [line (rf.bench.calibration/report-lines cal)]
@@ -1838,35 +1837,37 @@
     (println (gstring/format ";; sink %s %s" @sink (some? @sink2)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-xu0ma — the sink-typing probe
+;; the sink-typing probe
 ;;
-;; `-main` above refuses on `P-SCOPEH`, `P-INHERH` and `P-RKV`, whose figures
-;; step by ~4800 B/call with the round's PARITY. This entry point prices the
-;; mechanism directly rather than inferring it, and it is the same instrument:
-;; the same `collect!`, the same `used-heap`, the same `measure`, the same rig.
+;; This entry point prices the sink-typing mechanism directly rather than
+;; inferring it, and it is the same instrument: the same `collect!`, the same
+;; `used-heap`, the same `measure`, the same rig.
 ;;
 ;; The claim under test, in one line: `keep!` increments a SHARED counter whose
-;; TYPE the control arms decide, and an increment of a double allocates.
+;; TYPE decides what an increment costs, and an increment of a double
+;; allocates.
 ;;
 ;;   - `keep!` is `(vreset! sink (if v (inc @sink) @sink))` — type-PRESERVING.
-;;   - `arm-ctl` is `(vreset! sink (aget c 0))` — it CLOBBERS the same slot with
-;;     an element of the control template.
+;;   - a control spelled `(vreset! sink (aget c 0))` would CLOBBER the same slot
+;;     with an element of the control template.
 ;;   - `packed-doubles` element 0 is `0.5`; `packed-smis` element 0 is `1`.
 ;;
-;; So after any `DBL-*` arm the counter is a double and every subsequent `keep!`
-;; boxes a fresh `HeapNumber` — 8 B map word + 8 B payload = 16 B with pointer
-;; compression OFF — until an `SMI-*` arm puts an Smi back. `slot-order` runs
-;; the plan ASCENDING on even rounds (so `SMI-200` resets the counter before the
-;; body) and DESCENDING on odd ones (so a `DBL-*` arm is the last control the
-;; body sees). An arm with a 300-iteration inner loop therefore carries
-;; 300 x 16 = 4800 B/call on odd rounds and 0 on even ones.
+;; So with that spelling, after any `DBL-*` arm the counter would be a double
+;; and every subsequent `keep!` would box a fresh `HeapNumber` — 8 B map word +
+;; 8 B payload = 16 B with pointer compression OFF — until an `SMI-*` arm put
+;; an Smi back. `slot-order` runs the plan ASCENDING on even rounds (so
+;; `SMI-200` resets the counter before the body) and DESCENDING on odd ones (so
+;; a `DBL-*` arm is the last control the body sees). An arm with a
+;; 300-iteration inner loop would therefore carry 300 x 16 = 4800 B/call on odd
+;; rounds and 0 on even ones — a ~4800 B/call step with the round's PARITY,
+;; which the guard refuses on `P-SCOPEH`, `P-INHERH` and `P-RKV`.
 ;;
 ;; PREDICTION, stated before the measurement: seeding the counter with `0.5`
 ;; rather than `1` costs `16 x iters` B/call, and nothing else about the loop
-;; changes. `WA_PROBE_REPS` sweeps the window size, because the second half of
-;; the bead — the step reading 606 B/call in one run and 4800 in another — is
-;; predicted to be this same 4800 TRUNCATED by scavenges once `reps x 4800`
-;; outgrows the nursery, and a sweep is what tells linear from truncated.
+;; changes. `WA_PROBE_REPS` sweeps the window size, because a step reading
+;; 606 B/call in one run and 4800 in another is predicted to be this same 4800
+;; TRUNCATED by scavenges once `reps x 4800` outgrows the nursery, and a sweep
+;; is what tells linear from truncated.
 
 (defn- sink-loop
   "`iters` bare `keep!` calls and nothing else — the inner loop every refusing
@@ -1934,7 +1935,7 @@
              (into {} (concat (map (fn [d] [(ctl-key "DBL" d) (packed-doubles d)]) ctl-double-ds)
                               (map (fn [d] [(ctl-key "SMI" d) (packed-smis d)]) ctl-smi-ds))))
     (build-rig! iters iters [0 (js/Math.round (/ iters 4)) (js/Math.round (/ iters 2)) iters] true)
-    (println ";; rf2-xu0ma — SINK-TYPING PROBE for write-attribution's refusing arms")
+    (println ";; SINK-TYPING PROBE for write-attribution's refusing arms")
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s  debug-enabled?=%s  gc-exposed?=%s"
                      (.-node js/process.versions) (.-v8 js/process.versions)
                      (if pc-off? "OFF" "ON") rf.interop/debug-enabled?
@@ -1984,10 +1985,10 @@
               ;; element. A window where the copy was optimised away fails it.
               ctl-arm (arm-ctl kind d)
               _    (do (dotimes [_ 3] (ctl-arm)) (dotimes [_ 6] (measure ctl-arm 64 1)))
-              ;; The control is the ONE arm whose counter spelling this bead
-              ;; changes, so the read-back accepts either: the RETIRED spelling
-              ;; leaves the counter HOLDING elt0, the shipped one ADVANCES it
-              ;; once per call. Neither is satisfied if the copy did not run.
+              ;; The control is the ONE arm with two counter spellings, so
+              ;; the read-back accepts either: the RETIRED spelling leaves
+              ;; the counter HOLDING elt0, the shipped one ADVANCES it once
+              ;; per call. Neither is satisfied if the copy did not run.
               r    (probe ctl-arm reps windows 0.5
                           (fn [before after reps]
                             (or (== after elt0) (== (- after before) reps))))
@@ -2020,8 +2021,8 @@
                            (fmt (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps)))
                            (fmt (/ (- (/ (:p50 dbl) reps) (/ (:p50 smi) reps)) iters))))))
       ;; ---- PROBE 4 — is C-FRAME's step real, or the instrument's floor? ----
-      ;; rf2-c0awb pointed `C-FRAME` at a frame the rig actually registers and
-      ;; the arm went from 0.0 to 32.0 B/call. 32.0 B/call at reps=4000 is
+      ;; Pointed at a frame the rig actually registers, `C-FRAME` reads
+      ;; 32.0 B/call where the miss reads 0.0. 32.0 B/call at reps=4000 is
       ;; exactly what `P-SCOPEH` — an arm that allocates essentially nothing —
       ;; also reads, so the figure has to be separated from the floor before it
       ;; is quoted. A REAL per-call allocation is rep-INDEPENDENT; a floor is a
@@ -2034,8 +2035,8 @@
       (doseq [[label f* seed verify]
               [["C-FRAME  HIT s=1"     (arm-c-frame)      1         (advanced-by 1)]
                ;; `-main` never resets the counter — it stands near 1.2e8 by the
-               ;; time C-FRAME is measured there. That is still an Smi with
-               ;; pointer compression off, but rf2-xu0ma WAS a counter-state
+               ;; time C-FRAME is measured there. That is an Smi with pointer
+               ;; compression off, but the sink-typing fault is a counter-state
                ;; effect, so the magnitude is swept rather than assumed away.
                ["C-FRAME  HIT s=1.2e8" (arm-c-frame)      120000000 (advanced-by 1)]
                ["C-FRAMEG get-only"    (arm-c-frame-get)  1         (advanced-by 1)]
@@ -2050,7 +2051,7 @@
             (probe-line label reps r reps))))
       ;; ---- PROBE 5 — the SAME sweep, once `rf.frame/frame` has a SECOND caller --
       ;;
-      ;; rf2-tmzie. PROBE 4 above and the measured plan disagree about the same
+      ;; PROBE 4 above and the measured plan disagree about the same
       ;; closure by a factor of the rep count, and the sweep says which is which:
       ;; PROBE 4 is flat in B/WINDOW (so ~0 B/call), the plan is flat in B/CALL
       ;; across a 62x range of window sizes. Both are stable, so this is not
