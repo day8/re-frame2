@@ -1,11 +1,11 @@
 (ns re-frame.fresco.roots-frames-shared-frame-dom-cljs-test
   "TWO ROOTS, ONE FRAME — the other axis.
 
-  The bead's goal sentence has two nouns in it: independent roots *and*
-  frames cannot observe or corrupt one another. Its sibling suites take
-  the second noun. `roots-frames-isolation-dom-cljs-test` and
+  The property has two nouns in it: independent roots *and* frames
+  cannot observe or corrupt one another. Its sibling suites take the
+  second noun. `roots-frames-isolation-dom-cljs-test` and
   `roots-frames-hydration-dom-cljs-test` both mount root A under frame A
-  and root B under frame B, every row, so across all ten of them the root
+  and root B under frame B, every row, so across both suites the root
   axis and the frame axis are the SAME axis and nothing separates them. A
   runtime in which roots were not independent at all — in which everything
   root-shaped were really frame-shaped — passes every one of those rows.
@@ -15,21 +15,21 @@
   frame-keyed window registry in its own docstring, on the grounds that
   **several roots may intentionally share a frame**. That sentence is a
   design decision with real consequences (it is why the window is a bare
-  ref reachable only from its root's handle) and nothing anywhere
-  exercised the situation it names.
+  ref reachable only from its root's handle) and nothing else exercises
+  the situation it names.
 
   ## Sharing a frame is the case where the kernel's arithmetic is load-bearing
 
   A sub-key is `[frame-kw query-v]` and nothing about it mentions a root.
   So one root per frame means every cell has exactly ONE reader, which
   means `impl.collector/release-cell!`'s `(zero? (alength readers))`
-  branch is the only branch any existing row has ever taken: every
+  branch is the only branch a one-root-per-frame row ever takes: every
   unmount is a last-reader unmount and the reaper always fires. Put two
   roots on one frame and the same key has two readers, and the arithmetic
   starts mattering. Root A's teardown must DECREMENT that key and leave
   it alive, because root B is still reading it.
 
-  The failure if it does not is silent in the way this bead exists to
+  The failure if it does not is silent in the way this file exists to
   catch. Root B keeps its DOM, keeps its markup, keeps rendering — it
   simply never hears another commit, because the cell it subscribed
   through was disposed out from under it by a sibling's teardown. No
@@ -174,7 +174,7 @@
 
         (testing "and each shared key carries TWO readers — the fan-out that
                   makes `release-cell!`'s arithmetic load-bearing, and that
-                  every existing row pins at one"
+                  every two-frame row pins at one"
           (is (= [2 2] [(rf.fresco.roots-frames-support/readers-of [shared-frame label-q])
                         (rf.fresco.roots-frames-support/readers-of [shared-frame count-q])])
               (str "reader counts: " (pr-str (rf.fresco.test.runtime/residue)))))
@@ -226,9 +226,9 @@
 ;; `impl.collector/release-cell!` splices the departing reader out and arms
 ;; the reaper only `(when (zero? (alength readers)))`. With one root per
 ;; frame that guard is unconditional in practice — the fan-out is always
-;; one, so every teardown is a last-reader teardown — and no landed row has
-;; ever taken the other branch. Here root A leaves a reader behind, and the
-;; guard has to hold.
+;; one, so every teardown is a last-reader teardown — and no two-frame row
+;; takes the other branch. Here root A leaves a reader behind, and the guard
+;; has to hold.
 ;;
 ;; The failure it prevents is silent, which is why the row does not stop at
 ;; the counts. A disposed cell does not throw and does not clear the screen:
@@ -314,15 +314,14 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The witness for the sentence `impl.roots/open-adoption-window!` argues
-;; from and nothing tested: "A registry keyed by frame cannot work — several
-;; roots may intentionally share a frame."
+;; from, which no two-frame row tests: "A registry keyed by frame cannot work
+;; — several roots may intentionally share a frame."
 ;;
 ;; Under such a registry these two roots would look up ONE window, so root A's
 ;; closer would shut the window root B is still adopting in — the exact
-;; page-global defect the per-root window closes, reintroduced at frame
-;; granularity and invisible to every landed row, because every landed row
-;; gives each root a frame of its own and a frame-keyed registry is per-root
-;; there.
+;; page-global defect the per-root window closes, at frame granularity, and
+;; invisible to every two-frame row, because each of those gives each root a
+;; frame of its own and a frame-keyed registry is per-root there.
 ;;
 ;; The two readings that discriminate are both taken by CONSTRUCTION rather
 ;; than on a timer. `hydrate-root!` returns before its tree is adopted, so
@@ -330,17 +329,13 @@
 ;; the windows are compared by IDENTITY, which a registry keyed by anything
 ;; these two roots share cannot satisfy however it is implemented.
 ;;
-;; MUTATION, and where its record can be REACHED: key the window
-;; off the frame in
-;; `hydrate-root!` — mint into a `defonce` map on first use per frame and
-;; hand both roots the same object — and this row reds on `identical?` and
-;; again on root B still adopting after root A's window is shut. Run by hand
-;; for **PR #7800**, landed on main as commit `00fb33b57c`; "the PR body
-;; records it" named neither, and this repository rebase-merges, so a branch
-;; head is not the commit that landed. Both roots here name ONE frame, so
+;; MUTATION: key the window off the frame in `hydrate-root!` — mint into a
+;; `defonce` map on first use per frame and hand both roots the same object —
+;; and this row reds on `identical?` and again on root B still adopting after
+;; root A's window is shut. Both roots here name ONE frame, so
 ;; `sup/with-page-global-adoption` — the executing form of the page-global
 ;; mutation — would arm an observationally identical defect against this row
-;; if a second control for this axis is ever wanted. The kernel family's
+;; if a second control for this axis is wanted. The kernel family's
 ;; executing control is the sibling suite's
 ;; `a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition`.
 (deftest two-hydrating-roots-on-one-frame-hold-windows-of-their-own
@@ -370,9 +365,9 @@
                   "two roots sharing a frame must not share a window"))
 
             (testing "so one root's closer shuts one root's window. This is
-                      the page-global defect rf2-6tmu repaired, asked again at
-                      frame granularity — where every existing row happens to
-                      be immune because no two of its roots share a frame"
+                      the page-global defect asked again at frame granularity
+                      — where every two-frame row is immune because no two of
+                      its roots share a frame"
               (rf.fresco.impl.roots/close-adoption-window! (:adoption ha))
               (is (false? (rf.fresco.impl.roots/adopting? (:adoption ha))))
               (is (true? (rf.fresco.impl.roots/adopting? (:adoption hb)))
@@ -430,7 +425,7 @@
 ;;
 ;; So the row is read against React's own count rather than against a
 ;; literal, and then against the literal too. The equality catches a
-;; diagnostic going missing; the absolute `2` catches the opposite repair,
+;; diagnostic going missing; the absolute `2` catches the opposite mistake,
 ;; a window never shut at all.
 (deftest two-divergent-hydrating-roots-on-one-frame-complain-independently
   (async done
