@@ -1,11 +1,8 @@
 (ns re-frame.ssr.payload-policy-cljs-test
-  "Per-leaf smoke tests for `re-frame.ssr.payload-policy` (rf2-gtgf9,
-  rf2-pffil single-opt consolidation).
+  "Per-leaf smoke tests for `re-frame.ssr.payload-policy`.
 
-  Pins the explicit, fail-closed hydration-payload policy contract, now
-  carried by a SINGLE `:payload` opt (rf2-pffil folded the prior two-opt
-  `:payload-keys` + `:payload-policy` surface into one — pre-alpha, no
-  back-compat shim):
+  Pins the explicit, fail-closed hydration-payload policy contract,
+  carried by a SINGLE `:payload` opt:
 
     - `apply-policy` returns a `select-keys` slice when the caller
       passes `:payload [<kws>]` (a non-empty SEQUENTIAL of keywords —
@@ -20,36 +17,30 @@
     - `validate-policy-opts!` mirrors the same throw contract at
       construction time + returns opts unchanged on success.
 
-  The two-opt surface's precedence rule (allowlist wins over whole-app-db)
-  and silent-ignore branch are GONE: one opt holds exactly one value, so
-  there is nothing to arbitrate — the allowlist-vs-whole choice is the
-  value's SHAPE (sequential collection vs keyword).
+  One opt holds exactly one value, so there is no precedence rule to
+  arbitrate — the allowlist-vs-whole choice is the value's SHAPE
+  (sequential collection vs keyword).
 
   These tests run on both JVM and Node — the policy logic is
   platform-neutral .cljc.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
-  This namespace RUNS in `scripts/test-ssr-prod-gate.sh` and is green
-  there: rf2-lwtlk's known-red roster reached zero, the `-n` selector went
-  with it, and the lane is now the whole suite with no exclusions. The
-  split below is what let this namespace join, and because it guards
-  `project-routing-egress` — what leaves the server inside a hydration
-  payload — which assertion moved behind the posture guard was checked
-  rather than assumed. The one assertion that was red under
-  `-Dre-frame.debug=false` is the
-  `:rf.ssr/invalid-version` WARNING trace in
-  `resolve-version-coerces-and-rejects-to-integer`: the dev half. The
+  This namespace runs in `scripts/test-ssr-prod-gate.sh`, under
+  `-Dre-frame.debug=false`, as well as in the dev posture. Because it
+  guards `project-routing-egress` — what leaves the server inside a
+  hydration payload — which assertion sits behind the posture guard
+  matters. Exactly one does: the `:rf.ssr/invalid-version` WARNING trace in
+  `resolve-version-coerces-and-rejects-to-integer`, the dev half. The
   REJECTION it accompanies — a semver string never reaches `:rf/version`,
   which falls back to the integer v1 — is asserted immediately above it and
-  passes in both postures, so nothing that decides what egresses was
-  affected. The always-on privacy witness for the egress itself is
-  `re-frame.ssr-routing-egress-production-test` (rf2-u2x6w), which has been
-  in the lane and green throughout.
+  passes in both postures, so nothing that decides what egresses is
+  posture-gated. The always-on privacy witness for the egress itself is
+  `re-frame.ssr-routing-egress-production-test`.
 
-  The trace assertions are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm. Everything else in this namespace
-  is pure policy logic and was always posture-independent."
+  The trace assertions sit inside a `(when interop/debug-enabled? …)` arm.
+  Everything else in this namespace is pure policy logic and
+  posture-independent."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
@@ -93,8 +84,8 @@
           "missing keys silently absent; matches `select-keys` semantics"))))
 
 (deftest apply-policy-allowlist-as-vector
-  (testing "rf2-d8vs9x — the allowlist is a VECTOR; the vector shape
-            produces the expected slice"
+  (testing "the allowlist as a VECTOR (the documented canonical
+            spelling) produces the expected slice"
     (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload [:public/articles]})]
@@ -109,7 +100,8 @@
             computed (keep ...) / (filterv ...) / (mapv ...) result (a list
             or lazy-seq) projects the same slice a vector does. Vectors stay
             the documented canonical spelling; the (every? keyword?) element
-            guard and the empty-allowlist fail-closed are unchanged."
+            guard and the empty-allowlist fail-closed apply to every
+            sequential spelling."
     (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload '(:public/articles)})]
@@ -127,8 +119,8 @@
           "validate-policy-opts! returns opts unchanged for a list allowlist"))))
 
 (deftest apply-policy-set-payload-fails-closed
-  (testing "a SET :payload is not a vector → fails closed (the contract
-            is a narrow vector allowlist; a set is rejected rather than
+  (testing "a SET :payload is not sequential → fails closed (the contract
+            is an ORDERED key selection; a set is rejected rather than
             silently accepted)"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
@@ -137,15 +129,15 @@
             sample-app-db
             {:payload #{:public/articles}})))))
 
-;; ---- apply-policy: malformed allowlist (rf2-hzttr finding 2) -------------
+;; ---- apply-policy: malformed allowlist ------------------------------------
 
 (deftest apply-policy-rejects-string-allowlist-entries
-  (testing "rf2-hzttr finding 2 — a non-empty sequential :payload carrying a
+  (testing "a non-empty sequential :payload carrying a
             STRING element (the classic typo `[\"public/articles\"]` for the
-            keyword `[:public/articles]`) is a malformed allowlist. The
-            prior `(and sequential? seq)` check accepted it and `select-keys`
-            then shipped an empty/wrong slice silently. It now fails loud
-            with `:rf.error/ssr-malformed-payload-allowlist`."
+            keyword `[:public/articles]`) is a malformed allowlist. An
+            outer-shape `(and sequential? seq)` check alone would accept it
+            and `select-keys` would then ship an empty/wrong slice silently,
+            so it fails loud with `:rf.error/ssr-malformed-payload-allowlist`."
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
@@ -164,8 +156,8 @@
 (deftest apply-policy-rejects-string-list-allowlist-entries
   (testing "the (every? keyword?) footgun-catcher applies to LISTS too — a
             list `'(\"public/articles\")` string-typo is malformed, not
-            silently a missing-policy: widening the outer shape to sequential
-            must not let a list typo slip into the generic bucket"
+            silently a missing-policy: a sequential outer shape must not
+            let a list typo slip into the generic bucket"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
@@ -174,7 +166,7 @@
             {:payload '("public/articles")})))))
 
 (deftest apply-policy-rejects-nil-allowlist-entries
-  (testing "rf2-hzttr finding 2 — a stray `nil` element is malformed"
+  (testing "a stray `nil` element is malformed"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-malformed-payload-allowlist"
@@ -189,7 +181,7 @@
             {:payload [:public/articles nil]})))))
 
 (deftest apply-policy-rejects-nested-allowlist-entries
-  (testing "rf2-hzttr finding 2 — a nested coll element is malformed
+  (testing "a nested coll element is malformed
             (`[[:a :b]]` is not an allowlist of top-level keys)"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
@@ -199,7 +191,7 @@
             {:payload [[:public/articles :public/user-id]]})))))
 
 (deftest malformed-allowlist-error-names-bad-entries
-  (testing "rf2-hzttr finding 2 — the structured error carries the offending
+  (testing "the structured error carries the offending
             non-keyword entries under `:bad-entries` so the developer can
             see exactly what to fix"
     (try
@@ -215,10 +207,9 @@
           (is (= :declare-payload-policy (:recovery data))))))))
 
 (deftest valid-keyword-allowlist-still-accepted
-  (testing "rf2-hzttr finding 2 — the tightened validator does NOT regress
-            valid all-keyword VECTOR allowlists (rf2-d8vs9x — the vector is
-            the one accepted allowlist shape; a list spelling fails closed,
-            asserted by apply-policy-list-payload-fails-closed)"
+  (testing "the element validator accepts valid all-keyword VECTOR
+            allowlists (the canonical spelling; the list spelling is
+            asserted by apply-policy-list-payload-is-a-valid-allowlist)"
     (let [slice (rf.ssr.payload-policy/apply-policy
                   sample-app-db
                   {:payload [:public/articles :public/user-id]})]
@@ -245,10 +236,10 @@
         "`whole-app-db-policy` constant matches the literal keyword
          documented in the contract")))
 
-;; ---- apply-policy: fail-closed (the rf2-gtgf9 lock) ----------------------
+;; ---- apply-policy: fail-closed --------------------------------------------
 
 (deftest apply-policy-throws-when-no-payload-supplied
-  (testing "rf2-gtgf9 fail-closed: absence of :payload throws
+  (testing "fail-closed: absence of :payload throws
             :rf.error/ssr-missing-payload-policy"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
@@ -261,7 +252,7 @@
         "nil opts also throws — same contract")))
 
 (deftest apply-policy-throws-when-allowlist-empty
-  (testing "rf2-gtgf9: an empty :payload vector is treated as no-allowlist
+  (testing "an empty :payload vector is treated as no-allowlist
             (shipping zero keys is almost certainly a programmer error,
             not intent) — fail-closed still fires"
     (is (thrown-with-msg?
@@ -274,7 +265,7 @@
           (rf.ssr.payload-policy/apply-policy sample-app-db {:payload nil})))))
 
 (deftest apply-policy-throws-on-unknown-policy-keyword
-  (testing "rf2-gtgf9: a typo'd :payload keyword surfaces as
+  (testing "a typo'd :payload keyword surfaces as
             :rf.error/ssr-unknown-payload-policy — distinct from the
             missing-policy bucket so a typo doesn't silently land in
             the `nothing-supplied` arm"
@@ -307,7 +298,7 @@
       (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts))))))
 
 (deftest validate-policy-opts-fails-closed
-  (testing "rf2-gtgf9 fail-closed: validation throws on absence —
+  (testing "fail-closed: validation throws on absence —
             handler-construction time arm of the same contract as
             apply-policy"
     (is (thrown-with-msg?
@@ -324,7 +315,7 @@
             {:initial-events [[:init]] :payload :rf.ssr.payload/whole-db})))))
 
 (deftest error-ex-data-carries-recovery-tag
-  (testing "rf2-gtgf9: the structured error carries `:recovery
+  (testing "the structured error carries `:recovery
             :declare-payload-policy` so trace tooling can suggest the
             fix — Spec 009 error catalogue convention"
     (try
@@ -335,7 +326,7 @@
                (:recovery (ex-data e)))
             "error ex-data names the recovery action")))))
 
-;; ---- runtime-db projection (EP-0001 rf2-30kzz2) --------------------------
+;; ---- runtime-db projection (EP-0001) --------------------------------------
 
 (def sample-runtime-db
   {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated}}}
@@ -344,13 +335,13 @@
                          ;; runtime-db key but MUST NOT ride the SSR wire
                          ;; (fail-closed allowlist ships only :current).
                          :pending-navigation {:id "pn-1" :reason :can-leave}
-                         ;; rf2-oosjmh: the nav-token / pending-nav counters
-                         ;; are NOT runtime-db keys any more (host-side
-                         ;; transient cache). A stale v1-shaped snapshot might
-                         ;; still carry one — the fail-closed allowlist strips
-                         ;; it regardless, which this sample proves.
+                         ;; The nav-token / pending-nav counters are NOT
+                         ;; runtime-db keys (host-side transient cache). A
+                         ;; snapshot that carries one anyway has it stripped
+                         ;; by the fail-closed allowlist, which this sample
+                         ;; proves.
                          :nav-token-counter  7}
-   ;; rf2-ybn1yb — the per-frame elision DECLARATION registry. Its keys are
+   ;; The per-frame elision DECLARATION registry. Its keys are
    ;; classified PATHS, and a key can embed a sensitive id
    ;; (`[:by-id "user-secret-id" :token]`) — so shipping it raw leaks both the
    ;; sensitive path STRUCTURE and the embedded id off-box. The SSR projection
@@ -362,7 +353,7 @@
 
 (deftest project-runtime-db-ships-durable-omits-transient
   (testing "project-runtime-db ships machines / route :current / ssr, OMITS the
-            elision declaration registry (rf2-ybn1yb), and drops the non-durable
+            elision declaration registry, and drops the non-durable
             routing keys (:pending-navigation + any stale counter)"
     (let [slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)]
       (is (= {:snapshots {:auth.session/abc {:state :authenticated}}}
@@ -375,21 +366,21 @@
       (is (not (contains? (:rf.runtime/routing slice) :pending-navigation)))
       (is (not (contains? (:rf.runtime/routing slice) :nav-token-counter))))))
 
-;; ---- rf2-ybn1yb: the elision declaration registry is OMITTED off-box --------
+;; ---- the elision declaration registry is OMITTED off-box ------------------
 ;;
 ;; EP-0025 / Spec 015 §SSR: "the per-frame registry is itself projected before
 ;; any view of it crosses the hydration wire (a classified path can embed a
-;; sensitive id)". The prior `project-runtime-db` shipped the registry RAW —
-;; leaking both the sensitive PATH STRUCTURE (which app-db paths the app
-;; classifies sensitive / large, and where) and any sensitive id embedded in a
-;; declaration key. The safe fix is to OMIT the registry: the client rebuilds
-;; its own identical registry from its registrations on mount, and the egress
-;; walk reads the LIVE registry, never the wire copy. Confirm-by-revert: restore
-;; the `(contains? … :rf.runtime/elision) (assoc :rf.runtime/elision …)` clause
-;; in `project-runtime-db` and these turn red.
+;; sensitive id)". Shipping the registry RAW would leak both the sensitive PATH
+;; STRUCTURE (which app-db paths the app classifies sensitive / large, and
+;; where) and any sensitive id embedded in a declaration key. So
+;; `project-runtime-db` OMITS the registry: the client rebuilds its own
+;; identical registry from its registrations on mount, and the egress walk
+;; reads the LIVE registry, never the wire copy. Confirm-by-mutation: add a
+;; `(contains? … :rf.runtime/elision) (assoc :rf.runtime/elision …)` clause to
+;; `project-runtime-db` and these turn red.
 
 (deftest project-runtime-db-omits-elision-registry
-  (testing "rf2-ybn1yb — the :rf.runtime/elision declaration registry is NOT in
+  (testing "the :rf.runtime/elision declaration registry is NOT in
             the projected runtime-db slice (the raw registry never crosses the
             hydration wire — its keys are classified paths)"
     (let [slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)]
@@ -404,7 +395,7 @@
            leak — the classified PATH STRUCTURE never crosses the wire"))))
 
 (deftest full-hydration-payload-omits-elision-registry
-  (testing "rf2-ybn1yb — the full :rf/hydration-payload the client receives
+  (testing "the full :rf/hydration-payload the client receives
             carries no :rf.runtime/elision registry and no classified path
             structure / embedded sensitive id"
     (let [rt-slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)
@@ -419,7 +410,7 @@
           "the registry's sensitive-declaration STRUCTURE never crosses the wire"))))
 
 (deftest project-runtime-db-elision-only-projects-to-nil
-  (testing "rf2-ybn1yb — a runtime-db carrying ONLY the elision registry (no
+  (testing "a runtime-db carrying ONLY the elision registry (no
             other durable subsystem fact) projects to nil, so build-payload
             omits the optional :rf/runtime-db key entirely (the registry can
             never be the sole reason a runtime-db slice rides)"
@@ -454,7 +445,7 @@
           "a nil runtime-db omits the optional key"))))
 
 (deftest build-payload-wire-frame-id-decoupled
-  (testing "rf2-lm2yzy — the first arg is the WIRE :rf/frame-id, decoupled from
+  (testing "the first arg is the WIRE :rf/frame-id, decoupled from
             the projection frame. A non-nil stable id is stamped; a nil id
             OMITS :rf/frame-id (the documented no-conflict shape for an
             anonymous per-request server frame — never a per-request gensym)"
@@ -471,7 +462,7 @@
       (is (= "h1" (:rf/render-hash omitted)))
       (is (= 1 (:rf/version omitted))))))
 
-;; ---- :rf/version is canonically an INTEGER (rf2-g00l2t) -------------------
+;; ---- :rf/version is canonically an INTEGER --------------------------------
 ;;
 ;; Per Spec-Schemas §:rf/hydration-payload `:rf/version` is `:int` (a
 ;; pattern-protocol version; v1 = 1), EXPLICITLY not a semver-style string.
@@ -490,7 +481,7 @@
                (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version "7"})))))
 
   (testing "a SEMVER-string :version is rejected → falls back to the v1 = 1 default,
-            emitting exactly one :rf.ssr/invalid-version warning (rf2-latm0)"
+            emitting exactly one :rf.ssr/invalid-version warning"
     (with-trace-recorder! [traces]
       (let [v (:rf/version
                 (rf.ssr.payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"}))]
@@ -500,7 +491,7 @@
         ;; :rf.ssr/invalid-version warning carrying the rejected source value and
         ;; a top-level :recovery :rejected-and-fell-back, so a stray non-integer
         ;; :version surfaces in dev/CI rather than defaulting quietly.
-        ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). The
+        ;; Dev-instrumentation arm (see ns docstring). The
         ;; REJECTION is pinned above and is what governs the wire; this is
         ;; the developer-facing announcement of it.
         (when rf.interop/debug-enabled?
@@ -517,7 +508,7 @@
                     ":recovery rides at top-level per Spec 009"))))))))
 
   (testing "no :version → the SSR-owned pattern-protocol constant (v1 = 1)"
-    ;; rf2-qfb1i: the late-bind version hook was removed — with no explicit
+    ;; There is no late-bind version hook — with no explicit
     ;; :version opt, resolve-version falls back to the SSR artefact's
     ;; compiled-in constant (the SAME value the client reads).
     (let [v (:rf/version (rf.ssr.payload-policy/build-payload :rf/default {} "h" {}))]
@@ -533,7 +524,7 @@
 ;; a missing required key) turns this test red. The schema is an OPEN map
 ;; (additive optional keys are tolerated per the v1 contract).
 ;;
-;; rf2-cc7c6 — this def is the ONLY place in the corpus that types the
+;; This def is the ONLY place in the corpus that types the
 ;; payload's slots: `build-payload`'s emitted shape is otherwise unvalidated
 ;; (the spec section's `> Conformance:` pointer, `ssr_hydration_test.clj`,
 ;; exercises the CONSUMER — `:rf/hydrate` installing / failing closed — never
@@ -542,50 +533,51 @@
 ;; spells it, with ONE documented deviation: Spec-Schemas types
 ;; `:rf/runtime-db` as the registry ref `:rf/runtime-db` (resolving to
 ;; `RuntimeDb`, a map of optional `:rf.runtime/*` sub-containers), and
-;; resolving a registry ref here would need a malli registry in this test ns
-;; — the payload-schema rewrite rf2-2rtt6.91's audit fenced. The base type
-;; `:map` is carried instead: weaker than the ref, but it holds the
-;; cardinality the ref holds, which is what the fail-open below was about.
+;; resolving a registry ref here would need a malli registry in this test ns.
+;; The base type `:map` is carried instead: weaker than the ref, but it holds
+;; the cardinality the ref holds — a present-and-nil key is not a spelling of
+;; absence.
 
 (def HydrationPayload
   [:map
    [:rf/version         :int]
-   ;; rf2-lm2yzy — `:rf/frame-id` is OPTIONAL: an anonymous per-request server
+   ;; `:rf/frame-id` is OPTIONAL: an anonymous per-request server
    ;; frame omits it (the documented no-conflict shape), and it is stamped only
    ;; when the deployment names a stable wire id.
    [:rf/frame-id        {:optional true} :keyword]
    [:rf/app-db          :any]
-   ;; rf2-cc7c6 — `:map`, NOT `[:maybe :map]` (see the deviation note above for
+   ;; `:map`, NOT `[:maybe :map]` (see the deviation note above for
    ;; why the base type rather than the `:rf/runtime-db` ref). `build-payload`
    ;; guards this arm with `(some? runtime-db)`, so a frame that hydrates no
    ;; framework runtime state OMITS the key — the shape Spec-Schemas describes
    ;; as "absent on a frame that hydrates no framework runtime state". A
-   ;; `[:maybe :map]` slot also admitted a present-and-nil key, which is a
+   ;; `[:maybe :map]` slot would also admit a present-and-nil key, which is a
    ;; second spelling of absence the canonical schema does not have.
    [:rf/runtime-db      {:optional true} :map]
    [:rf/ssr-rendered-at {:optional true} :int]
-   ;; rf2-2rtt6.91 — `:string`, NOT `[:maybe :string]`. Spec-Schemas types the
+   ;; `:string`, NOT `[:maybe :string]`. Spec-Schemas types the
    ;; slot `{:optional true} :string`, so a present-and-nil `:rf/render-hash`
    ;; is not a legal spelling of absence: an ADOPTION-TIER root (compiled
    ;; native UIx, Fresco) carries no hash at either end and
-   ;; needs the key OMITTED. A `[:maybe :string]` slot admitted the forbidden
-   ;; shape, so this schema could not prove the contract it calls canonical.
+   ;; needs the key OMITTED. A `[:maybe :string]` slot would admit the
+   ;; forbidden shape, and this schema could not then prove the contract it
+   ;; calls canonical.
    [:rf/render-hash     {:optional true} :string]
-   ;; rf2-cc7c6 — `:rf/head-hash` was ABSENT from this def while `build-payload`
-   ;; emits it. The map is OPEN, so the emitted key validated by never being
-   ;; looked at: not loose, SILENT. It is the SEPARATE head-model channel
-   ;; (rf2-1oxjxk) — `:string` like its `:rf/render-hash` sibling, and omitted
+   ;; `build-payload` emits `:rf/head-hash`, and the map is OPEN, so a key
+   ;; missing from this def would validate by never being looked at: not
+   ;; loose, SILENT. It is the SEPARATE head-model channel —
+   ;; `:string` like its `:rf/render-hash` sibling, and omitted
    ;; on nil for the explicit-`:head`-STRING shape where the server knows the
    ;; head is not client-reconstructible.
    [:rf/head-hash       {:optional true} :string]
-   ;; rf2-cc7c6 — `:string`, NOT `[:maybe :string]`, for the same reason as
+   ;; `:string`, NOT `[:maybe :string]`, for the same reason as
    ;; `:rf/render-hash`: `build-payload` omits the key when the caller's app
    ;; does not participate in the schema-digest check, so present-and-nil is
    ;; not a shape the builder can produce and not one Spec-Schemas admits.
    [:rf/schema-digest   {:optional true} :string]])
 
 (deftest build-payload-conforms-to-hydration-payload-schema
-  (testing "rf2-g00l2t — build-payload output validates against the canonical
+  (testing "build-payload output validates against the canonical
             HydrationPayload schema, with :rf/version as a true integer"
     (let [rt-slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)]
       (testing "full two-partition payload (integer version)"
@@ -615,7 +607,7 @@
               (str "minimal payload must conform; explain: "
                    (pr-str (m/explain HydrationPayload payload)))))))))
 
-;; ---- the hash channel is OPTIONAL at the shared builder (rf2-2rtt6.91) ----
+;; ---- the hash channel is OPTIONAL at the shared builder -------------------
 ;;
 ;; `build-payload` is shared verbatim by the non-streaming and streaming SSR
 ;; paths, so the adoption-tier contract belongs here and not only at the one
@@ -654,22 +646,21 @@
                                 :rf/render-hash nil)))
         "a hand-stamped nil :rf/render-hash must not validate")))
 
-;; ---- the other three optional slots, same contract (rf2-cc7c6) ------------
+;; ---- the other three optional slots, same contract ------------------------
 ;;
-;; `:rf/render-hash` above was one of four optional slots `build-payload`
-;; assembles through `cond->` arms, and it was the only one this schema could
-;; prove anything about. The three below each get the same three-part case the
-;; hash channel gets — real value preserved, nil OMITS the key, hand-stamped
-;; nil REJECTED — because a tightened slot with no assertion against it is a
-;; claim, not a guard.
+;; `:rf/render-hash` above is one of four optional slots `build-payload`
+;; assembles through `cond->` arms. The three below each get the same
+;; three-part case the hash channel gets — real value preserved, nil OMITS the
+;; key, hand-stamped nil REJECTED — because a typed slot with no assertion
+;; against it is a claim, not a guard.
 
 (deftest build-payload-head-hash-is-optional
-  ;; The slot the schema did not carry at all. `build-payload` emits
-  ;; `:rf/head-hash` (rf2-1oxjxk — the SEPARATE client-reconstructible
+  ;; `build-payload` emits
+  ;; `:rf/head-hash` (the SEPARATE client-reconstructible
   ;; head-model channel, not covered by `:rf/render-hash`), and because the
-  ;; schema is an OPEN map the emitted key validated by never being examined:
-  ;; any value — nil, an int, a map — rode through. These are the first
-  ;; assertions in the corpus that look at it.
+  ;; schema is an OPEN map an untyped key would validate by never being
+  ;; examined: any value — nil, an int, a map — would ride through. These
+  ;; assertions look at it.
   (testing "a real head hash is preserved verbatim"
     (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "body-h"
@@ -702,7 +693,7 @@
         "a hand-stamped nil :rf/head-hash must not validate"))
 
   (testing "a non-string :rf/head-hash is REJECTED — the point of typing a slot
-            the OPEN map previously let through unexamined"
+            the OPEN map would otherwise let through unexamined"
     (is (not (m/validate HydrationPayload
                          (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/head-hash 42)))
@@ -737,11 +728,11 @@
         "a hand-stamped nil :rf/schema-digest must not validate")))
 
 (deftest build-payload-runtime-db-slot-is-typed
-  ;; `build-payload-emits-runtime-db-when-present` above already pins the VALUE
-  ;; contract (the projected slice rides; nil omits the key). What it could not
-  ;; pin, while the slot read `[:maybe :map]`, is that the omission is the only
-  ;; legal spelling of absence — so these are the schema-side arms.
-  (testing "a projected slice conforms under the tightened :map slot"
+  ;; `build-payload-emits-runtime-db-when-present` above pins the VALUE
+  ;; contract (the projected slice rides; nil omits the key). What it cannot
+  ;; pin is that the omission is the only legal spelling of absence — so
+  ;; these are the schema-side arms.
+  (testing "a projected slice conforms under the :map slot"
     (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "h"
                     {:runtime-db (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)})]
@@ -751,7 +742,7 @@
                (pr-str (m/explain HydrationPayload payload))))))
 
   (testing "a present-and-nil :rf/runtime-db is REJECTED by the schema — the
-            fail-open `[:maybe :map]` admitted a second spelling of absence"
+            fail-open `[:maybe :map]` would admit a second spelling of absence"
     (is (not (m/validate HydrationPayload
                          (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/runtime-db nil)))
