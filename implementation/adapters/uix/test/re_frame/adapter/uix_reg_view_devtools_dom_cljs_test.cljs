@@ -1,7 +1,7 @@
 (ns re-frame.adapter.uix-reg-view-devtools-dom-cljs-test
   "UIx DOM/browser entry-point for the React-DevTools display-name
   assertion of the parameterised React-adapter suite
-  (`re-frame.adapter.react-shared-suite`) — rf2-976bw.
+  (`re-frame.adapter.react-shared-suite`).
 
   The headless half (`display-name-matches-render-measure`) is generated
   into `uix_react_shared_cljs_test.cljs` from the suite's `test-specs`
@@ -29,8 +29,8 @@
   {:adapter      rf.adapter.uix/adapter
    :substrate-kw :uix
    :name         "UIx"
-   ;; rf2-kuky.57: reached through the `:adapter/wrap-view` late-bind hook —
-   ;; the door `reg-view*` uses — now that the adapter publishes no such var.
+   ;; Reached through the `:adapter/wrap-view` late-bind hook — the door
+   ;; `reg-view*` uses — as the adapter publishes no such var.
    :wrap-view    rf.adapter.react-test-support/adapter-wrap-view})
 
 (deftest mounted-display-name-is-devtools-visible-uix
