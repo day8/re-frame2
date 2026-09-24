@@ -15,6 +15,15 @@
   frame's hook removed the same selectors resolve document-wide again, so
   it is the canvas root, not the fixture, that keeps the steps in the form.
 
+  rf2-ice81: the canvas is the FIRST scope, not the only one. A view can
+  render outside it — a modal or popover portalled into `document.body` —
+  so a selector that matches nothing under the canvas is retried against
+  the document, unless it is positional. The last three tests pin the three
+  edges: a stable hook reaches a portalled node; a positional selector with
+  no canvas match stays unresolved rather than reaching Story's chrome; and
+  a stable hook that matches in the canvas resolves there, though an
+  identical one precedes it in the chrome.
+
   `-dom-cljs-test` opts the file into `:browser-test`; `:node-test` loads it
   too and each test states its skip, as the sibling DOM suites do."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -86,5 +95,80 @@
           (is (some? (rf.story.play.dom/query "input:nth-of-type(1)")))
           (is (not (identical? (:canvas-input page)
                                (rf.story.play.dom/query "input:nth-of-type(1)")))))
+        (finally
+          (teardown! page))))))
+
+;; ---- rf2-ice81: the document fallback ----------------------------------------
+
+(defn- button!
+  "Append a `type=button` carrying `data-test` `hook` to `parent`, counting
+  its clicks under `k` in `clicks`. Returns the button."
+  [parent hook clicks k]
+  (let [b (el! parent "button")]
+    (.setAttribute b "type" "button")
+    (.setAttribute b "data-test" hook)
+    (.addEventListener b "click" #(swap! clicks update k (fnil inc 0)))
+    b))
+
+(defn- detach! [n]
+  (when (.-parentNode n) (.removeChild (.-parentNode n) n)))
+
+(deftest a-stable-selector-reaches-a-portalled-node
+  (if-not (browser?)
+    (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
+    (let [page   (page!)
+          ;; The modal's own root, straight under `document.body`, as a
+          ;; portalling dialog component renders it — outside the canvas.
+          portal (el! js/document.body "div")
+          clicks (atom {})
+          ok     (button! portal "modal-ok" clicks :portal)]
+      (try
+        (is (nil? (.querySelector (:frame page) "[data-test=\"modal-ok\"]"))
+            "control: nothing under the canvas root matches")
+        (testing "a stable hook the canvas does not match falls back to the document"
+          (is (identical? ok (rf.story.play.dom/query "[data-test=\"modal-ok\"]")))
+          (is (= [ok] (rf.story.play.dom/query-all "[data-test=\"modal-ok\"]"))))
+        (testing "so a recorded :click on the modal's button replays in the shell"
+          (is (true? (rf.story.play.dom/click! "[data-test=\"modal-ok\"]")))
+          (is (= {:portal 1} @clicks)))
+        (finally
+          (detach! portal)
+          (teardown! page))))))
+
+(deftest a-positional-selector-never-leaves-the-canvas
+  (if-not (browser?)
+    (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
+    (let [page (page!)
+          ;; Story's chrome carries a textarea; the variant's form has none.
+          area (el! (:chrome page) "textarea")]
+      (try
+        (testing "a positional selector with no canvas match is NOT retried
+                  against the document, so it cannot reach Story's chrome"
+          (is (nil? (rf.story.play.dom/query "textarea:nth-of-type(1)")))
+          (is (= [] (rf.story.play.dom/query-all "textarea:nth-of-type(1)")))
+          (is (false? (rf.story.play.dom/type! "textarea:nth-of-type(1)" "bob")))
+          (is (= "" (.-value area)) "the chrome textarea is untouched"))
+        (testing "control: the same node IS reachable through the fallback by a
+                  stable hook, so it is the selector's kind that stops it here"
+          (.setAttribute area "data-test" "chrome-note")
+          (is (identical? area (rf.story.play.dom/query "[data-test=\"chrome-note\"]"))))
+        (finally
+          (teardown! page))))))
+
+(deftest a-stable-selector-prefers-the-canvas-copy
+  (if-not (browser?)
+    (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
+    (let [page        (page!)
+          clicks      (atom {})
+          ;; The chrome's copy comes first in document order.
+          _chrome     (button! (:chrome page) "save" clicks :chrome)
+          canvas-save (button! (:frame page) "save" clicks :canvas)]
+      (try
+        (testing "the fallback is for a canvas MISS only: a hook the canvas
+                  matches resolves there, not to the chrome's identical one"
+          (is (identical? canvas-save (rf.story.play.dom/query "[data-test=\"save\"]")))
+          (is (= [canvas-save] (rf.story.play.dom/query-all "[data-test=\"save\"]")))
+          (is (true? (rf.story.play.dom/click! "[data-test=\"save\"]")))
+          (is (= {:canvas 1} @clicks)))
         (finally
           (teardown! page))))))

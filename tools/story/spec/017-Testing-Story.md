@@ -1032,9 +1032,13 @@ not every step is legal in both positions:
 
 Inside the Story shell a DOM step's selector (and a `:rf.assert/dom-*`
 assertion's) resolves under the canvas root, `[data-test="story-canvas-frame"]`
-— the root the recorder captures on — so a recorded positional selector
-replays where it was captured and no step reaches Story's own chrome.
-Outside the shell, with no canvas root, it resolves against the document.
+— the root the recorder captures on — first. A selector that matches nothing
+there falls back to the whole document, so a step can reach an element the
+view portals out of the canvas (a modal or popover in `document.body`),
+unless it is the recorder's positional `tag:nth-of-type(N)` fallback: that
+never leaves the canvas, so it replays where it was captured and never
+reaches Story's own chrome. Outside the shell, with no canvas root, every
+selector resolves against the document.
 
 Future steps MAY add drag, keypress, pointer, file, route, or agent/MCP
 operations. Every step MUST declare its runner requirement.
