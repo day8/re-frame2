@@ -1,17 +1,17 @@
 (ns re-frame.ssr.ring.node-body-deadline-test
-  "rf2-fzbj.24 — THE DERIVED HTTP DEADLINE BOUNDS THE WHOLE EXCHANGE,
+  "THE DERIVED HTTP DEADLINE BOUNDS THE WHOLE EXCHANGE,
   INCLUDING THE BODY.
 
   `re-frame.ssr.ring.node/renderer` derives one explicit HTTP budget per
   request (`http-timeout-ms` — `:timeout-ms` + `:admission-ms` +
-  `wire-margin-ms`, S6) and an operator sizes a deployment by it. The JDK's
+  `wire-margin-ms`) and an operator sizes a deployment by it. The JDK's
   own `HttpRequest.Builder.timeout` bounds the phase BEFORE the response
-  headers arrive and nothing after it, so a peer that answers 200 promptly
-  and then stalls mid-body held the synchronous Ring request — and its
-  request frame — open indefinitely, and eventually returned SUCCESS past
-  the stated budget.
+  headers arrive and nothing after it, so on that timeout alone a peer that
+  answers 200 promptly and then stalls mid-body would hold the synchronous
+  Ring request — and its request frame — open indefinitely, and eventually
+  return SUCCESS past the stated budget.
 
-  The existing deadline coverage cannot see this. `node-crossing-test`'s
+  The other deadline coverage cannot see this. `node-crossing-test`'s
   `(d)` arm proves the SIDECAR's 504 arrives first (`:observed-by
   :sidecar`); a healthy in-process fake returns a completed body. Both need
   the answer to complete.
@@ -23,7 +23,8 @@
   releases it (with a finite backstop, so a regression stalls the row
   rather than the run).
 
-  Three things are asserted, and the first is the defect:
+  Three things are asserted, and the first is the one a body-blind timeout
+  gets wrong:
 
     1. the handler returns the projected, fail-closed 5xx WELL INSIDE the
        backstop, carrying `:rf.error/ssr-node-deadline` / `:observed-by
@@ -55,7 +56,7 @@
 
 (def ^:private backstop-ms
   "How long the peer withholds its second body byte before giving up and
-  sending it anyway. It exists so the UNREPAIRED code fails this row
+  sending it anyway. It exists so a body-blind timeout fails this row
   instead of hanging the lane; every assertion below is sized well under
   it, so a pass can never be the backstop firing."
   4000)
