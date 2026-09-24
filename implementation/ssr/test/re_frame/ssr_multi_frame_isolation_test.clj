@@ -1,11 +1,8 @@
 (ns re-frame.ssr-multi-frame-isolation-test
-  "Per rf2-pxb7t · Wave 3 of rf2-tglku (Migration-Audit §ssr_multi_frame).
-
-  The pre-migration Playwright spec at
-  `testbeds/ssr_multi_frame/spec.cjs` walked the per-frame hydration
-  isolation contract: three frames (`:counter/a`, `:counter/b`,
-  `:log`), one payload bundle carrying per-frame slices, three
-  independent `:rf/hydrate` dispatches, three independent app-dbs,
+  "The per-frame hydration isolation contract, on the
+  `testbeds/ssr_multi_frame` shape: three frames (`:counter/a`,
+  `:counter/b`, `:log`), one payload bundle carrying per-frame slices,
+  three independent `:rf/hydrate` dispatches, three independent app-dbs,
   three independent `:rf/render-hash` values stashed on each
   frame's `[:rf.runtime/ssr :hydration]` metadata block.
 
@@ -24,28 +21,8 @@
       against `:counter/b`) mutate their own frame only — no cross-
       frame bleed.
 
-  ## Migration map (Migration-Audit.md §ssr_multi_frame)
-
-    spec.cjs assertions #2 (n-A=10, n-B=99) + #3 (entries-count=2)
-      → multi-frame-hydrate-seeds-each-frame-from-its-own-payload-slice
-    spec.cjs #4 (hyd-A/B/log = true)
-      → multi-frame-hydrate-stashes-per-frame-hydration-metadata
-    spec.cjs #5 (hash-A/B/log = aaaa1111/bbbb2222/cccc3333)
-      → multi-frame-hydrate-stashes-per-frame-server-hash
-    spec.cjs #6 (summary-{a,b,log}-hash via cross-frame subscribe-once)
-      → multi-frame-subscribe-once-resolves-against-explicit-frame-id
-    spec.cjs #7 (summary-all-distinct = true)
-      → multi-frame-subscribe-once-resolves-against-explicit-frame-id
-    spec.cjs #8 (post-inc-A: n-A=11, n-B=99)
-      → multi-frame-dispatch-isolation-per-frame
-    spec.cjs #9 (post-2x inc-B: n-B=101, n-A=11)
-      → multi-frame-dispatch-isolation-per-frame
-
-  Assertion #1 (`expectVisible(panel-A/B/log)`) is a pure DOM-mount
-  probe — the Migration-Audit classifies it (C); per the rf2-pxb7t
-  bead the whole `spec.cjs` is dropped and the mount assertion
-  retires alongside (substrate mount is covered by the 3 adapter
-  smokes per the audit's §Drop-or-keep recommendation)."
+  There is no DOM-mount assertion here: substrate mount is covered by
+  the adapter smokes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as rf.subs]
@@ -53,13 +30,13 @@
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
-;; Frame ids mirror testbeds/ssr_multi_frame/core.cljs lines 48-50.
+;; Frame ids mirror testbeds/ssr_multi_frame/core.cljs.
 (def ^:private frame-a   :counter/a)
 (def ^:private frame-b   :counter/b)
 (def ^:private frame-log :log)
 
 ;; The per-frame payload bundle the testbed's `<script id=\"__rf_payload\">`
-;; bakes verbatim (testbeds/ssr_multi_frame/index.html lines 44-58).
+;; bakes verbatim (testbeds/ssr_multi_frame/index.html).
 (def ^:private per-frame-payload
   {frame-a   {:rf/version     1
               :rf/render-hash "aaaa1111"
@@ -74,7 +51,6 @@
 
 ;; ----------------------------------------------------------------------------
 ;; Shared registrations — mirrors testbeds/ssr_multi_frame/core.cljs
-;; lines 56-78
 ;; ----------------------------------------------------------------------------
 
 (defn- register-handlers! []
@@ -83,7 +59,7 @@
   (rf/reg-event ::inc          (fn [{:keys [db]} _ev] {:db (update db :n (fnil inc 0))}))
   (rf/reg-sub :n         (fn [db _] (:n db)))
   (rf/reg-sub :entries   (fn [db _] (:entries db)))
-  ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
+  ;; EP-0001: the SSR hydration metadata is durable runtime-db
   ;; state, so :hydration is a runtime-db sub (reads the runtime-db projection).
   (rf.subs/reg-runtime-sub :hydration (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration]))))
 
@@ -93,7 +69,7 @@
   (rf/make-frame {:id frame-log :initial-events [[::log-init]]}))
 
 (defn- hydrate-each-frame! [payload-map]
-  ;; Mirror of testbeds/ssr_multi_frame/core.cljs `run` lines 198-199.
+  ;; Mirror of testbeds/ssr_multi_frame/core.cljs `run`.
   (doseq [[fid slice] payload-map]
     (rf/dispatch-sync [:rf/hydrate slice] {:frame fid})))
 
@@ -103,12 +79,11 @@
   (hydrate-each-frame! per-frame-payload))
 
 ;; ===========================================================================
-;; spec.cjs §(1) → three panels render the seeded per-frame values
+;; each frame seeds from its own payload slice
 ;; ===========================================================================
 
 (deftest multi-frame-hydrate-seeds-each-frame-from-its-own-payload-slice
-  (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertions
-            #2-#3. Each frame's :rf/hydrate dispatch carries its own
+  (testing "Each frame's :rf/hydrate dispatch carries its own
             :rf/app-db slice; the replace-app-db policy lands the
             slice on that frame's app-db ONLY. Per-frame subs
             (subscribe-once 2-arg form) read the post-drain state."
@@ -121,12 +96,11 @@
         ":log's app-db carries the 2 seeded entries from its payload slice")))
 
 ;; ===========================================================================
-;; spec.cjs §(2) → per-frame [:rf.runtime/ssr :hydration] metadata landed
+;; per-frame [:rf.runtime/ssr :hydration] metadata lands
 ;; ===========================================================================
 
 (deftest multi-frame-hydrate-stashes-per-frame-hydration-metadata
-  (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertion #4.
-            Each frame's :rf/hydrate stashes a [:rf.runtime/ssr :hydration] metadata
+  (testing "Each frame's :rf/hydrate stashes a [:rf.runtime/ssr :hydration] metadata
             block on that frame's app-db (not on the surrounding
             default frame, not on a global atom)."
     (bootstrap-and-hydrate!)
@@ -142,12 +116,11 @@
         "the default frame was never hydrated — no metadata block")))
 
 ;; ===========================================================================
-;; spec.cjs §(2 cont.) → per-frame :server-hash distinct
+;; per-frame :server-hash is distinct
 ;; ===========================================================================
 
 (deftest multi-frame-hydrate-stashes-per-frame-server-hash
-  (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertion
-            #5. Each frame's [:rf.runtime/ssr :hydration :server-hash] equals its
+  (testing "Each frame's [:rf.runtime/ssr :hydration :server-hash] equals its
             payload slice's :rf/render-hash verbatim — no cross-
             frame bleed (the runtime writes to one frame's app-db
             per dispatch, never to siblings)."
@@ -166,19 +139,16 @@
                (pr-str hashes))))))
 
 ;; ===========================================================================
-;; spec.cjs §(3) → cross-frame readout via subscribe-once {:frame fid}
+;; cross-frame readout via subscribe-once {:frame fid}
 ;; ===========================================================================
 
 (deftest multi-frame-subscribe-once-resolves-against-explicit-frame-id
-  (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertions
-            #6-#7. The testbed's `hydration-summary` view called
-            `rf/subscribe-once [:hydration] {:frame frame-id}` against three
-            different frames — same query-v, different frame-id —
-            and each call resolved the matching frame's server-hash.
+  (testing "`rf/subscribe-once [:hydration] {:frame frame-id}` against
+            three different frames — same query-v, different frame-id —
+            resolves each frame's own server-hash.
             This locks the subscribe-once opts-map form's contract: the
             explicit frame-id selects the signal-graph cache to
-            resolve against (the prereq verified by rf2-2mtl3 — see
-            `re-frame.subs/subscribe-once` at
+            resolve against (see `re-frame.subs/subscribe-once` at
             implementation/core/src/re_frame/subs.cljc)."
     (bootstrap-and-hydrate!)
     ;; SAME query-v `[:hydration]`, THREE different frame-ids.
@@ -199,12 +169,11 @@
            (per-frame signal-graph isolation per Spec 002)"))))
 
 ;; ===========================================================================
-;; spec.cjs §(4) → per-frame post-hydration dispatch isolation
+;; per-frame post-hydration dispatch isolation
 ;; ===========================================================================
 
 (deftest multi-frame-dispatch-isolation-per-frame
-  (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertions
-            #8-#9. The post-hydrate dispatch path stays frame-
+  (testing "The post-hydrate dispatch path stays frame-
             isolated: `dispatch-sync [::inc] {:frame :counter/a}`
             bumps :counter/a's :n only; :counter/b's :n is
             untouched. Two `[::inc]` against :counter/b bump :n
