@@ -1,5 +1,5 @@
 (ns re-frame.frame-construction-transaction-jvm-test
-  "rf2-vxgfnd.197 — deterministic JVM admission proofs for per-frame-id
+  "Deterministic JVM admission proofs for per-frame-id
   construction transactions.
 
   Same-id competitors fail fast, unrelated ids proceed while an adapter
@@ -120,7 +120,7 @@
 (deftest ensure-default-does-not-adopt-a-foreign-provisional-row
   ;; The fixture has already made `:rf/default`; remove it so the foreign row
   ;; below is a FIRST construction. (A re-registration of a live `:rf/default`
-  ;; is visible to every actor, rf2-3x7nj.2.1, and is correctly "established".)
+  ;; is visible to every actor, and is correctly "established".)
   (rf.frame/destroy-frame! :rf/default)
   (let [id      :rf/default
         reached (CountDownLatch. 1)
