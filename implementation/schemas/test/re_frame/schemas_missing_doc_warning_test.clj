@@ -9,6 +9,8 @@
 
     * only the public macro path warns: its captured source coordinates
       carry `:ns`, while the programmatic fn path carries none;
+    * the bulk `reg-app-schemas` form is exempt too, because its entries have
+      no per-path `:doc` slot;
     * it fires at most once per `(:app-schema, path)`, so a re-registration
       does not re-fire it;
     * a usable `:doc` in the metadata map silences it.
@@ -82,19 +84,19 @@
       (when rf.interop/debug-enabled?
         (is (= 1 (count (missing-doc-warnings recorded))))))))
 
-(deftest missing-doc-fires-once-per-path-from-the-bulk-form
-  (testing "reg-app-schemas routes each entry through reg-app-schema, so each
-            undocumented path warns once"
+(deftest missing-doc-silent-for-the-bulk-form
+  (testing "a reg-app-schemas entry has no per-path :doc slot, so the bulk
+            form is exempt, like the programmatic path"
     (with-trace-recorder! [recorded]
       (rf/reg-app-schemas {[:auth] :map
                            [:cart] :map})
       (assert-registered [:auth])
       (assert-registered [:cart])
       (when rf.interop/debug-enabled?
-        (let [warns (missing-doc-warnings recorded)]
-          (is (= 2 (count warns)))
-          (is (= #{[:auth] [:cart]} (set (map #(get-in % [:tags :id]) warns))))
-          (is (every? #(= :app-schema (get-in % [:tags :kind])) warns)))))))
+        (is (empty? (missing-doc-warnings recorded)))
+        (is (= 're-frame.schemas-missing-doc-warning-test
+               (:ns (rf.schemas/app-schema-meta {:frame :rf/default :path [:auth]})))
+            "each entry still carries the bulk call site's source coords")))))
 
 (deftest missing-doc-silent-on-the-programmatic-path
   (testing "the fn form called without macro-captured coords is out of scope"

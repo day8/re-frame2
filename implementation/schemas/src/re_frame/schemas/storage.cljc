@@ -570,6 +570,12 @@
 
 ;; ---- app-db schema registration -------------------------------------------
 
+(def ^:private ^:dynamic *bulk-entry?*
+  "True while `reg-app-schemas` registers its entries. A bulk entry is a
+  `path -> schema` pair with no slot for a per-path `:doc`, so it is exempt
+  from `:rf.warning/missing-doc`, as a programmatic registration is."
+  false)
+
 (defn reg-app-schema
   "Register a Malli schema at a path inside app-db. Validation runs in
   dev whenever an event handler returns a new app-db; failures emit
@@ -642,8 +648,9 @@
        ;; Spec 001 §`:doc` is dev-warned when absent covers app-db schemas.
        ;; The registrar's shared emitter keeps the macro-path carve-out
        ;; (`schema-meta` carries `:ns` only when a macro captured coords)
-       ;; and the once-per-`(kind, id)` suppression.
-       (rf.registrar/maybe-emit-missing-doc! :app-schema path schema-meta))
+       ;; and the once-per-`(kind, id)` suppression. Bulk entries are exempt.
+       (when-not *bulk-entry?*
+         (rf.registrar/maybe-emit-missing-doc! :app-schema path schema-meta)))
      path))))
 
 (defn reg-app-schemas
@@ -672,6 +679,10 @@
   internally for each entry — every entry stamps its own per-frame side-
   table entry with source-coords captured from this call site.
 
+  A bulk entry has no slot for a per-path `:doc`, so this form never emits
+  `:rf.warning/missing-doc`. To document a path, register it with
+  `reg-app-schema` and a `:doc` in its metadata map.
+
   DEVELOPMENT-BUILD ASSERTION, exactly as for the singular form: every
   entry in the batch registers in a production build but is never checked
   there, so a violating candidate installs silently. Your app-db schemas
@@ -688,11 +699,12 @@
      (run! #(assert-app-schema-path! % batch-frame-id) (keys path->schema)))
    ;; Delegate each map value through the singular positional schema slot.
    (let [frame-target (:frame (coerce-opts opts-or-frame-id))]
-     (mapv (fn [[path schema]]
-             (if (some? frame-target)
-               (reg-app-schema path {:frame frame-target} schema)
-               (reg-app-schema path schema)))
-           path->schema))))
+     (binding [*bulk-entry?* true]
+       (mapv (fn [[path schema]]
+               (if (some? frame-target)
+                 (reg-app-schema path {:frame frame-target} schema)
+                 (reg-app-schema path schema)))
+             path->schema)))))
 
 (defn ^:no-doc frame-schema-entries
   "Cross-artefact seam — consumed by `re-frame.elision`, `re-frame.epoch` and
