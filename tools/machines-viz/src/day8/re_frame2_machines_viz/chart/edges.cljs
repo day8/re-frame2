@@ -29,8 +29,9 @@
 
   ## Substrate posture
 
-  Reagent-only Phase 1; UIx follow-on. xyflow consumes
-  these components via the `edgeTypes` prop.
+  Reagent components; xyflow consumes them via the `edgeTypes` prop,
+  and a UIx host reaches them through the React bridge
+  (`adapters.react-chart`).
 
   ## Implementation notes
 
@@ -199,7 +200,7 @@
        a smooth poly-path THROUGH the bends so the edge goes AROUND
        nested containers (`:routed? true`).
        The LABEL anchor is elk's COMPUTED label position (`label-pos`
-       `{:x :y}`, fed from `chart.edges`'s `elk.edgeLabels.placement`)
+       `{:x :y}`, fed from `chart.cljs`'s `elk.edgeLabels.placement`)
        when elk placed one — so a labelled edge's text sits in the
        collision-free channel elk reserved, NOT at a renderer-side
        heuristic. When elk placed NO label (the events-as-nodes default
