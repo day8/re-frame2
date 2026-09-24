@@ -4,8 +4,8 @@
   Tools that surface a `{:file :line :column :ns}` source-coord — Story's
   variant canvas, Story's per-test failure detail, Xray's event-detail
   hero, etc. — wrap the coord in a clickable affordance that launches the
-  user's editor at that file:line. The de-facto protocol in 2026 is a
-  custom URI scheme per editor:
+  user's editor at that file:line. The de-facto protocol is a custom URI
+  scheme per editor:
 
       vscode://file/<path>:<line>:<column>
       cursor://file/<path>:<line>:<column>
@@ -36,8 +36,8 @@
 
   ## Why custom-template support
 
-  Editor schemes evolve. The 2026 set is vscode/cursor/idea/sublime/
-  zed; by 2027 a new editor will ship its own scheme. The custom slot
+  Editor schemes evolve: the built-in set is vscode/cursor/windsurf/zed/
+  idea, and each new editor ships its own scheme. The custom slot
   means a host doesn't have to wait for an upstream PR to support its
   editor — set `{:custom \"my-editor://open?path={path}&row={line}\"}`
   and tooling picks it up.
@@ -63,8 +63,8 @@
   on-disk path. Tools (Story, Xray) carry their own project-root knob
   (set once at boot by the host) and pass it through on every call.
   When `:project-root` is absent or blank, the file string ships
-  verbatim and falls back to v1 semantics — useful for tests and for
-  legacy hosts that haven't plumbed the knob yet. Absolute paths
+  verbatim — useful for tests and for hosts that do not plumb the
+  knob. Absolute paths
   (leading `/`, leading drive letter like `C:`, or a `file:` URI) are
   passed through unchanged regardless of the project-root setting so a
   caller that already has an absolute coord isn't double-prefixed.
@@ -78,8 +78,7 @@
   - No async / Promise — pure data → data, JVM + CLJS portable.
   - No dispatch / re-frame plumbing — the UI layer attaches the URI to
     a DOM node and lets the browser fire it. Keeps this helper tool-
-    agnostic so Story + Xray + future tools (Pair? a Helix DevTool?)
-    consume it identically.
+    agnostic so Story, Xray and any other tool consume it identically.
 
   ## Source-coord shape
 
@@ -102,10 +101,10 @@
   not a member — `editor-uri` matches it via map-shape detection."
   #{:vscode :cursor :windsurf :zed :idea})
 
-;; ---- forbidden schemes (rf2-vwcsq) ---------------------------------------
+;; ---- forbidden schemes ---------------------------------------------------
 ;;
-;; Per rf2-vwcsq (pragmatic stance, 2026-05-14): the `{:custom ...}` editor
-;; template surface stays — devs legitimately point it at JetBrains URI
+;; The `{:custom ...}` editor template surface is deliberately open — devs
+;; legitimately point it at JetBrains URI
 ;; handlers, sublime, org-tooling deep-links, etc. The minimum gate is a
 ;; reject-list for the three schemes that turn a "launch the editor"
 ;; affordance into in-tab script execution via `set! window.location`:
@@ -120,13 +119,13 @@
 ;; Detection is leading-token-only and case-insensitive so a template
 ;; whose scheme casing has been munged (`JavaScript:`, `DATA:`, leading
 ;; whitespace) still trips the gate. A rejected URI causes `editor-uri`
-;; to return `nil`; the UI layer's existing `(when uri ...)` wrapper then
+;; to return `nil`; the UI layer's `(when uri ...)` wrapper then
 ;; hides the chip rather than rendering a no-op link.
 
 (def ^:const forbidden-uri-schemes
   "Leading URI schemes the launcher refuses. Matched case-insensitively
   against the URI's leading token (everything up to and including the
-  first `:`). Per rf2-vwcsq."
+  first `:`)."
   #{"javascript:" "data:" "vbscript:"})
 
 (defn forbidden-scheme?
@@ -134,7 +133,7 @@
   its leading scheme. Tolerates leading whitespace and arbitrary scheme
   casing. Pure data → boolean.
 
-  Per rf2-vwcsq: gates the `:custom` template surface against the three
+  Gates the `:custom` template surface against the three
   schemes that would turn the editor-launch affordance into in-tab
   script execution. Everything else — `vscode:`, `cursor:`, `vim:`,
   `idea:`, `subl:`, and any future editor scheme — passes through; this
@@ -142,7 +141,7 @@
   (Security.md §Editor URI scheme allowlist, Tool-Pair.md §Editor URI
   scheme allowlist).
 
-  Public (rf2-ox357n) so the tool `open!` seams can re-apply the cheap
+  Public so the tool `open!` seams can re-apply the cheap
   denylist at every handoff — including the pre-resolved `{:uri ...}`
   open path that bypasses `editor-uri`'s build-time gating."
   [uri]
@@ -178,7 +177,7 @@
 
 ;; ---- pure: project-root prefix --------------------------------------------
 ;;
-;; Per rf2-zfy1e: source-coord `:file` is the macro's compile-time capture
+;; Source-coord `:file` is the macro's compile-time capture
 ;; (form-meta's `:file`, typically classpath-relative — e.g.
 ;; `\"panel_gallery/event_detail_stories.cljs\"`). Editor scheme handlers
 ;; resolve `<path>` against the filesystem, so a relative path is rejected
@@ -196,7 +195,7 @@
     - explicit `file:` URI
 
   Public so the JVM-side `re-frame.source-coords/absolutise-file` reuses
-  the same predicate (rf2-20w3s) — the `.cljc` ns is JVM-loadable."
+  the same predicate — the `.cljc` ns is JVM-loadable."
   [^String path]
   (or (str/starts-with? path "/")
       (str/starts-with? path "\\")
@@ -205,7 +204,7 @@
       ;; `c:/...`). Matched with a regex rather than per-char arithmetic so
       ;; CLJS doesn't emit `:invalid-arithmetic` warnings — under CLJS a char
       ;; literal / `.charAt` result is a single-char string, and `(int <char>)`
-      ;; fed to the comparison's `bit-or` trips `[string number]` (rf2-ltedz).
+      ;; fed to the comparison's `bit-or` trips `[string number]`.
       (boolean (re-find #"(?i)^[a-z]:" path))))
 
 (defn- compose-path
@@ -308,7 +307,7 @@
   map:
 
     `:project-root` — string prepended to the source-coord's `:file`
-        slot. Per rf2-zfy1e: source-coords are captured classpath-
+        slot. Source-coords are captured classpath-
         relative; editors resolve the URI against the filesystem and
         reject relative paths, so tools that own the launch surface
         pass the on-disk root through here. Blank / nil leaves the
@@ -322,7 +321,7 @@
   edge case (rare in a Clojure project; absent from re-frame2 + its
   examples).
 
-  Per rf2-vwcsq: returns `nil` when a `{:custom <template>}` resolves to
+  Returns `nil` when a `{:custom <template>}` resolves to
   a URI whose leading scheme is `javascript:`, `data:`, or `vbscript:` —
   the three schemes that turn `window.location =` into in-tab script
   execution. The built-in scheme builders cannot produce any of these,
