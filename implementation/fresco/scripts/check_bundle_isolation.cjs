@@ -88,11 +88,10 @@
  *
  * The native-boundary law's clause 6 says an interpreted-only bundle
  * contains no UIx code. THE
- * MEASURED BUNDLE CONTAINS UIx, and it is not a defect: Fresco ships no
- * reactive adapter of its own — `consumer_app.cljs`'s docstring says so
- * where the consumer is standing — and the three adapters a consumer may
- * pick from are Reagent, reagent-slim and UIx. Every one of them is a
- * view library. The exemplar picks UIx, so `re-frame.adapter.uix` is on
+ * MEASURED BUNDLE CONTAINS UIx, and it is not a defect: Fresco's public
+ * door installs no reactive adapter, so a consumer picks one — Reagent,
+ * reagent-slim, UIx, or Fresco's own optional `re-frame.fresco.substrate`.
+ * The exemplar picks UIx, so `re-frame.adapter.uix` is on
  * the entry's require list and `uix.core` comes with it.
  *
  * A row asserting `no uix` here would be red on a correct build, and a
