@@ -16,8 +16,7 @@
       machine inspector) projects its trace buffer into these specs
       and supplies the scrubber-aware `:fraction` / `:color`, so the
       retro-replay behaviour (ring frozen at the scrubbed instant)
-      lives host-side in Xray's helpers — unchanged by this
-      migration.
+      lives host-side in Xray's helpers.
     - It walks the chart's node DOM by `data-testid`
       (`rf-mv-chart-node-<node-id>`, the `chart.nodes/state-node`
       contract) with `getBoundingClientRect`, computes each ring's
@@ -60,8 +59,7 @@
 
   Ring colours resolve through `theme/tokens/css-var`
   (`var(--rf-xray-<key>, <hex>)`) so light + dark both flow through
-  the host's CSS custom-property surface (per the bead's `var(--*)`
-  requirement). The overlay chrome adds no opaque colours of its own."
+  the host's CSS custom-property surface. The overlay chrome adds no opaque colours of its own."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.primitives :as prim]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings-geometry
@@ -114,7 +112,7 @@
   "Paint one positioned ring. `spec` carries `:cx :cy :r` (from the
   DOM measurement) + the `countdown-ring` presentation payload. The
   optional `:on-hover` / `:on-leave` callbacks (host-supplied) wire
-  the ring's pointer-events for a side-rail tooltip; v1 also exposes
+  the ring's pointer-events for a side-rail tooltip; the ring also exposes
   the native SVG `<title>` so the tooltip works without JS wiring."
   [{:keys [cx cy r fraction color cancelled? tooltip testid node-id
            on-hover on-leave]}]
