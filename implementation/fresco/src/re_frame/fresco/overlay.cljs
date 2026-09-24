@@ -50,11 +50,11 @@
   focus-trap loop, no `document` key listener, no outside-click listener,
   no z-index policy, no scroll or resize listener, no `ResizeObserver`, no
   measurement of any kind, and no positioning engine. Each of those is a
-  reimplementation of something the platform now does better, and every
+  reimplementation of something the platform does better, and every
   one of them is a failure mode the corpus actually shipped. This is not a
   floating-UI library and is not on its way to becoming one.
 
-  **The one exception is two presses wide, and it was measured rather
+  **The one exception is two presses wide, and it is measured rather
   than assumed.** The engine's inertness is complete — no Tab reaches a
   control behind an open modal — but its WRAP is not: off the panel's
   last control, one Tab parks focus on `<body>`, which is `activeElement`
@@ -63,8 +63,8 @@
   `onKeyDown` that sends Tab off the last stop to the first and Shift+Tab
   off the first to the last, and does nothing on any other press. It is
   not a focus-trap loop: it holds no state, computes no traversal, and
-  between those two edges the engine moves focus exactly as it always
-  did. `overlay/popover` has none of it, because a popover is not a trap.
+  between those two edges the engine moves focus exactly as it would
+  without it. `overlay/popover` has none of it, because a popover is not a trap.
 
   ## What follows from the posture, and is witnessed
 
@@ -126,8 +126,8 @@
   focus first — in a destructive confirmation that is the safe answer,
   and it is worth arranging deliberately rather than inheriting.
 
-  NEITHER autofocus spelling reaches the platform, and the witness is what
-  settled it. Fresco's attribute grammar camelCases a hyphenated key, so
+  NEITHER autofocus spelling reaches the platform. Fresco's attribute
+  grammar camelCases a hyphenated key, so
   `:auto-focus` reaches React as `autoFocus`, which React applies by
   calling `.focus()` during the commit and WITHOUT emitting the attribute
   — one child-first commit before this module's ref attaches and calls
@@ -175,7 +175,7 @@
   `:rf.error/fresco-overlay-anchor-missing` is raised from
   `re-frame.fresco.impl.overlay/claim-anchor!` — the ref callback, the
   first moment the id can honestly be resolved. **Omitting `:anchor`
-  remains legal and silent**: a modal takes none, and a popover without
+  is legal and silent**: a modal takes none, and a popover without
   one is asking for the default position rather than failing to find a
   trigger.
 
