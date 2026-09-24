@@ -1,18 +1,19 @@
 (ns re-frame.spawn-all-stale-parent-cljs-test
-  "rf2-3x7nj.9.1 — a `:spawn-all` join child finishing AFTER its parent was
-  destroyed is a STALE completion, exactly as a single-`:spawn` child's is.
+  "A `:spawn-all` join child reaching `:final?` while its parent is not live
+  is a STALE completion, exactly as a single-`:spawn` child's is.
 
-  An explicit destroy of a parent resting in a `:spawn-all` state leaves its
-  children (and their join slot) alive, per Spec 005's explicit-destroy
-  cascade. When one of those children later reaches `:final?`, the finalize
-  cascade must classify the completion `:status :stale` and mint NO carrier
-  into the dead parent's address. Before the fix the stale gate keyed on the
-  child's public `:rf/invoke-id`, which a join child never carries (its
-  coordinate lives on its `:rf/join-child` membership record), so the carrier
-  was dispatched at the dead address: a `reg-machine` singleton parent's
-  surviving DEFINITION answered it with D5 lazy re-creation, RESURRECTING the
-  destroyed parent from its initial snapshot (its initial `:entry` ran again),
-  and a spawned parent raised a spurious `:rf.error/no-such-handler`.
+  A parent's destroy ends the children its `:spawn-all` join tracks, so an
+  ordinary destroy never leaves one to finish later. A frame value can still
+  hold a join child whose parent is not live — a restored value that carries
+  the child but not the parent — and there the finalize cascade must classify
+  the completion `:status :stale` and mint NO carrier into the dead parent's
+  address. The stale gate reads the child's `:rf/join-child` membership
+  record, because a join child carries no public `:rf/invoke-id`. A carrier
+  dispatched at the dead address would meet a `reg-machine` singleton
+  parent's surviving DEFINITION, whose D5 lazy re-creation would RESURRECT
+  the parent from its initial snapshot (its initial `:entry` running again),
+  and would raise a spurious `:rf.error/no-such-handler` at a spawned parent's
+  address.
 
   The single-`:spawn` analogue is pinned in `machine_reply_lowering_test.clj`.
 
@@ -22,6 +23,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.frame :as rf.frame]
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -47,9 +49,16 @@
   (some #(when (= actor-id (get-in % [:tags :actor-id])) (:tags %))
         (rf.machines.test-support/events-of :rf.machine/done)))
 
-(deftest join-child-finishing-after-singleton-parent-destroy-is-stale
-  (testing "a :spawn-all child reaching :final? after its SINGLETON parent was
-            destroyed does not resurrect the parent: no lazy re-creation, no
+(defn- drop-instance!
+  "Remove `actor-id`'s snapshot from the frame value and nothing else, as
+  installing a restored value that holds its children but not it would."
+  [actor-id]
+  (rf.frame/swap-runtime-db! :rf/default
+                             #(update-in % [:rf.runtime/machines :snapshots] dissoc actor-id)))
+
+(deftest join-child-finishing-without-a-live-singleton-parent-is-stale
+  (testing "a :spawn-all child reaching :final? while its SINGLETON parent is
+            not live does not resurrect the parent: no lazy re-creation, no
             second :entry, and the completion is recorded :stale/:suppressed"
     (reg-child! :sap/child)
     (rf/reg-machine :sap/parent
@@ -64,8 +73,6 @@
                                          :on-some-complete [:hydrate/done]}
                              :on        {:hydrate/done :ready}}
                  :ready     {}}})
-    (rf/reg-event :sap/kill-parent
-      (fn [_ _] {:fx [[:rf.machine/destroy :sap/parent]]}))
 
     (rf/dispatch-sync [:sap/parent [:start]])
     (is (= :hydrating (:state (snapshot :sap/parent))))
@@ -73,10 +80,9 @@
     (is (some? (snapshot :sap/child#1)))
     (is (some? (snapshot :sap/child#2)))
 
-    (rf/dispatch-sync [:sap/kill-parent])
+    (drop-instance! :sap/parent)
     (is (nil? (snapshot :sap/parent)) "the parent INSTANCE is gone")
-    (is (some? (snapshot :sap/child#1))
-        "an explicit destroy leaves the :spawn-all children alive")
+    (is (some? (snapshot :sap/child#1)) "its :spawn-all child is still in the frame value")
 
     (rf.machines.test-support/reset-captured!)
     (rf/dispatch-sync [:sap/child#1 [:go :a-result]])
@@ -93,8 +99,8 @@
       (is (= :suppressed (:rf.reply/work-status tags)))
       (is (= :rf.machine/actor-not-live (:rf.reply/stale-reason tags))))))
 
-(deftest join-child-finishing-after-spawned-parent-destroy-raises-nothing
-  (testing "a :spawn-all child finishing after its SPAWNED parent was destroyed
+(deftest join-child-finishing-without-a-live-spawned-parent-raises-nothing
+  (testing "a :spawn-all child finishing while its SPAWNED parent is not live
             mints no carrier, so no :rf.error/no-such-handler is raised at the
             dead address"
     (reg-child! :sap2/child)
@@ -108,14 +114,13 @@
     (rf/reg-event :sap2/spawn-parent
       (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :sap2/parent
                                           :fixed-actor-id :sap2/p1}]]}))
-    (rf/reg-event :sap2/kill-parent
-      (fn [_ _] {:fx [[:rf.machine/destroy :sap2/p1]]}))
 
     (rf/dispatch-sync [:sap2/spawn-parent])
     (rf/dispatch-sync [:sap2/p1 [:start]])
     (is (= :hydrating (:state (snapshot :sap2/p1))))
-    (rf/dispatch-sync [:sap2/kill-parent])
+    (drop-instance! :sap2/p1)
     (is (nil? (snapshot :sap2/p1)))
+    (is (some? (snapshot :sap2/child#1)) "its :spawn-all child is still in the frame value")
 
     (rf.machines.test-support/reset-captured!)
     (rf/dispatch-sync [:sap2/child#1 [:go :x]])

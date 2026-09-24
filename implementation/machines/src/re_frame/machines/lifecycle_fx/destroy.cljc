@@ -177,6 +177,8 @@
            (and (some #(= actor-id %) (rf.machines.spawn-order/frame-order frame-id))
                 (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id)))))
 
+(declare reap-tracked-children!)
+
 (defn- teardown-live-actor!
   "The shared ordered teardown pipeline for a LIVE actor (the caller has
   already confirmed liveness). Both destroy entry-points — the per-actor
@@ -191,6 +193,9 @@
     1. run the active configuration's `:exit` cascade BEFORE
        any teardown work — fires `:exit`-emitted fx via do-fx and writes
        any `:data` updates back to the (about-to-be-dissoc'd) snapshot;
+    1b. destroy the children the actor's own `:spawn` / `:spawn-all` slots
+       track (`reap-tracked-children!`), after its `:exit` and while its
+       snapshot is still present;
     2. abort in-flight `:rf.http/managed` requests;
     3. a machine's `[:schemas :data]` schema is validation-only and produces no
        per-instance marks table, so there is no marks-table residue to drop;
@@ -237,6 +242,11 @@
   ;; helper takes the same `fence`, so its own post-exit snapshot write and
   ;; nested exit-effect walk stop at A's loss instead of landing in B.
   (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id fence)
+  ;; (1b) destroy the children this actor's `:spawn` / `:spawn-all` slots
+  ;; track. Each child's teardown is callback-bearing; the reap rechecks
+  ;; ownership between slots and every step below rechecks after it.
+  (when-not (owner-gone?)
+    (reap-tracked-children! frame-id actor-id fence))
   ;; (2) abort in-flight HTTP — the late-bound `:http/abort-on-actor-destroy`
   ;; hook is callback-bearing. Frame-exact: an actor address is
   ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
@@ -722,6 +732,47 @@
 
       :else
       (prune-tracked-slot! frame-id parent-id invoke-id owner-token))))
+
+(defn- reap-tracked-children!
+  "Destroy every child that one of `actor-id`'s own `:spawn` / `:spawn-all`
+  slots at `[:rf.runtime/machines :spawned actor-id]` tracks — the children
+  whose lifetime the author bound to a state of `actor-id`, and which
+  therefore end with `actor-id` whatever ends it (Spec 005 §Declarative
+  `:spawn`). An actor no slot tracks (a hand-emitted spawn) is untouched.
+
+  Each slot goes through the entry `destroy-machine-fx` dispatches
+  `build-destroy-fx`'s map forms to, so a reaped child is treated exactly
+  as one its parent's transition exits: a keyword slot through
+  `destroy-tracked!` (a live owned child is destroyed `:explicit`; a dead
+  or replaced occupant only has its slot pruned), a join map through
+  `destroy-spawn-all-children!`. Each child's own teardown runs this step
+  for its own slots, so nested children end with it.
+
+  Slots are taken deepest invoke-id first, mirroring the leaf-to-root exit
+  order, and each is re-read from the live runtime-db because an `:exit`
+  or an earlier child's teardown may already have destroyed a child or
+  pruned a slot. Ownership is rechecked before every slot."
+  [frame-id actor-id {:keys [owner-gone?] :as fence}]
+  (let [invoke-ids (->> (get-in (rf.frame/frame-runtime-db-value frame-id)
+                                (rf.machines.paths/spawned-path actor-id))
+                        keys
+                        (sort-by (juxt (comp - count) identity)))]
+    (doseq [invoke-id invoke-ids
+            :while (not (owner-gone?))]
+      (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
+            slot       (get-in runtime-db (rf.machines.paths/spawned-path actor-id invoke-id))]
+        (cond
+          (keyword? slot)
+          (destroy-tracked! frame-id
+                            {:rf/parent-id actor-id :rf/invoke-id invoke-id}
+                            runtime-db fence)
+
+          (map? slot)
+          (destroy-spawn-all-children! frame-id actor-id invoke-id
+                                       {:rf/spawn-all  true
+                                        :rf/parent-id  actor-id
+                                        :rf/invoke-id  invoke-id}
+                                       fence))))))
 
 (defn destroy-machine-fx
   "fx handler for `:rf.machine/destroy`. Parses the CLOSED destroy grammar
