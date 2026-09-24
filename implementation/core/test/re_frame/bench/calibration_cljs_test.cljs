@@ -1,18 +1,16 @@
 (ns re-frame.bench.calibration-cljs-test
-  "rf2-l3jv4 — the calibration refusal, adjudicated by a GATED suite.
+  "The calibration refusal, adjudicated by a GATED suite.
 
   `re-frame.bench.calibration/self-test` runs inside each harness before it
   measures anything, which is the right place for it but not a place CI ever
   reaches: the allocation harnesses are `:advanced` release builds driven by
-  hand. The audit that reopened this owner said so plainly — every listed
-  gate exercised values inside the expected bands, so the newly introduced
-  failure branch was never adjudicated.
+  hand, and a gate that only exercises values inside the expected bands never
+  adjudicates the failure branch.
 
   This runs the same injected fixtures under `npm run test:cljs`, and adds
   the two properties the self-test cannot state about itself: that the
-  refusal is REACHABLE from the numbers actually recorded against this bead,
-  and that the healthy numbers actually recorded after the fix do NOT reach
-  it."
+  refusal is REACHABLE from the recorded polymorphic-site numbers, and that
+  the healthy numbers recorded with the site split do NOT reach it."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.calibration :as rf.bench.calibration]))
 
@@ -26,10 +24,10 @@
       (is (:ok? st)))))
 
 (deftest the-recorded-fault-refuses
-  (testing "the 16.11 B/slot polymorphic-.slice() run this bead was opened on"
-    ;; The measured figures from the bead: SMI D=100 1681.7 B/copy against a
-    ;; predicted (and DBL-measured) 848, SMI D=200 3293.5 against 1648,
-    ;; printed slope 16.1146 B/slot. That run exited 0.
+  (testing "the recorded 16.11 B/slot polymorphic-.slice() run"
+    ;; The measured figures: SMI D=100 1681.7 B/copy against a predicted (and
+    ;; DBL-measured) 848, SMI D=200 3293.5 against 1648, printed slope
+    ;; 16.1146 B/slot. Unguarded, that run exits 0.
     (let [v (rf.bench.calibration/verdict [(pair 100 1681.7 848.0) (pair 200 3293.5 1648.0)] 16.1146)]
       (is (:refuse? v))
       (is (= :neither (:regime v)))
@@ -103,7 +101,7 @@
 (deftest the-documented-large-object-deviation-is-not-gated
   (testing "V8's page-tail filler must not refuse a healthy run"
     ;; Both arms 9% over the asserted layout, tracking each other, with the
-    ;; +9% step to match. The bead's bounded repair ruled this out by name.
+    ;; +9% step to match. The calibration namespace excludes it by name.
     (let [v (rf.bench.calibration/verdict [(pair 100 924.3 924.3) (pair 200 1796.3 1796.3)] 8.72)]
       (is (not (:refuse? v)))
       (is (= :off (:regime v))))))
