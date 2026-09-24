@@ -1,13 +1,12 @@
 (ns re-frame.routing-sub-egress-production-test
-  "rf2-u2x6w — route sub-classification egresses in PRODUCTION, and this is the
+  "Route sub-classification egresses in PRODUCTION, and this is the
   namespace that says so under the real gate.
 
   ## Why this exists beside `routing-egress-test`
 
-  rf2-7vk3z established that \"no cross-frame classification bleed\" is a
-  PRODUCTION-real privacy invariant and built a production-visible witness for
-  it inside `implementation/core`. It also found the boundary of what core can
-  witness: the PROJECTION half of sub classification has no production egress
+  \"No cross-frame classification bleed\" is a PRODUCTION-real privacy
+  invariant, and `implementation/core` carries a production-visible witness
+  for it. Core's witness has a boundary: the PROJECTION half of sub classification has no production egress
   there at all, because `classification/project-sub-tags` is reached only from
   `trace/build-event` inside `trace/emit!`'s `interop/debug-enabled?` gate.
   Under `-Dre-frame.debug=false` no `:rf.sub/run` event is built, so there is
@@ -25,31 +24,27 @@
   a production build exactly as it does in a dev one. This namespace is the
   proof of that sentence.
 
-  `re-frame.routing-egress-test` already covers the mechanism, but it CANNOT
-  carry this claim: run under the gate it is 36 failures / 7 errors, because it
-  interleaves the always-on egress legs with `:rf.fx/handled` /
+  `re-frame.routing-egress-test` covers the mechanism too, but it interleaves
+  the always-on egress legs with `:rf.fx/handled` /
   `:rf.route/navigation-blocked` TRACE assertions that a production build does
-  not emit. A lane would have to exclude the whole namespace, and — exactly as
-  `scripts/test-core-prod-gate.sh` warns of `conformance-test` — excluding it
-  for the trace legs takes the always-on legs with it. So the production-real
-  half lives here, in a namespace that is green in BOTH postures and can join a
-  gate lane by default.
+  not emit, and holds those behind its own posture split. This namespace
+  carries no trace leg at all, so the production-real claim has a home that is
+  green in BOTH postures by construction — a namespace excluded from a lane
+  for its trace legs would take its always-on legs with it, exactly as
+  `scripts/test-core-prod-gate.sh` warns of `conformance-test`.
 
   ## Posture
 
   Every assertion below holds in dev AND under `-Dre-frame.debug=false`.
   Nothing here rebinds `interop/debug-enabled?`: the flag is read once at
-  namespace-load time and a `with-redefs` cannot reach it (rf2-f7qj4), so a
+  namespace-load time and a `with-redefs` cannot reach it, so a
   rebind would prove nothing about the gate. The posture is supplied by the
   JVM:
 
       clojure -J-Dre-frame.debug=false -M:test -n re-frame.routing-sub-egress-production-test
 
-  Measured both ways at rf2-u2x6w: 7 tests / 16 assertions, 0 failures, exit 0.
-
-  There is no `jvm-routing-prod-gate` job today — `jvm-core-prod-gate` covers
-  `implementation/core` only, so neither this artefact nor `ssr` is in its
-  reach. The lane recommendation is recorded on rf2-u2x6w."
+  The `jvm-routing-prod-gate` CI job runs this namespace under that posture,
+  through `scripts/test-routing-prod-gate.sh`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -94,7 +89,7 @@
 ;; ===========================================================================
 
 (deftest route-activation-lowers-its-classification-in-this-posture
-  (testing "rf2-u2x6w — every redaction below is downstream of ONE always-on
+  (testing "every redaction below is downstream of ONE always-on
             fact: navigating to a classified route re-roots its
             projection-relative declarations to absolute runtime-db paths and
             writes them into the live frame's per-frame elision registry. If a
@@ -121,7 +116,7 @@
 ;; ===========================================================================
 
 (deftest route-sub-egress-redacts-the-classified-slice-off-box
-  (testing "rf2-u2x6w — the Pair MCP `read-sub` server-side call shape:
+  (testing "the Pair MCP `read-sub` server-side call shape:
             `elide-wire-value` naming the sub through `:query-v` consults the
             routing-owned seed table and walks the BARE slice at the slice's
             runtime-db storage position, so the registry's re-rooted absolute
@@ -141,7 +136,7 @@
           "GUARD: the raw token appears NOWHERE on the wire value"))))
 
 (deftest the-re-seed-is-what-does-it
-  (testing "rf2-u2x6w — the counterfactual, and the reason the assertion above
+  (testing "the counterfactual, and the reason the assertion above
             is not passing for some unrelated reason. The SAME value walked
             WITHOUT `:query-v` gets no route seed, so the whole-value root never
             meets the re-rooted absolute declaration and the token rides raw.
@@ -153,7 +148,7 @@
           "no `:query-v` ⇒ no re-seed ⇒ the bare slice walks at the root"))))
 
 (deftest the-other-two-seed-table-entries-redact-too
-  (testing "rf2-u2x6w — `:rf.route/query` and `:rf.route/params` return
+  (testing "`:rf.route/query` and `:rf.route/params` return
             SUB-projections of the same durable slice, each with its own storage
             position. A seed table that covered only `:rf/route` would leave
             both shipping raw, so both are driven here rather than asserted from
@@ -175,7 +170,7 @@
 ;; ===========================================================================
 
 (deftest the-in-process-read-stays-raw-in-production
-  (testing "rf2-u2x6w — classification is read ONLY at egress. The durable
+  (testing "classification is read ONLY at egress. The durable
             slice the handler, the views and the app's own subs see keeps the
             real values, in a production build as in a dev one; a redaction that
             reached in-process would be a correctness bug wearing a privacy
@@ -186,7 +181,7 @@
       (is (= "blobdata" (get-in slice [:query :payload]))))))
 
 (deftest a-non-route-sub-is-untouched
-  (testing "rf2-u2x6w — NARROW, and deliberately so: this is not generic
+  (testing "NARROW, and deliberately so: this is not generic
             sub-output propagation. Only the framework-owned route read surfaces
             are treated as alternate projections of the route-owned durable
             fact; an app sub whose value happens to wear the same shape gets no
@@ -200,7 +195,7 @@
         "and a route sub OUTSIDE the classification contract resolves no seed")))
 
 (deftest frameless-route-sub-egress-fails-closed-in-production
-  (testing "rf2-u2x6w — the fail-closed posture is the half of this that a
+  (testing "the fail-closed posture is the half of this that a
             production build most needs, because it is the half that runs when
             something has gone wrong. With no LIVE frame the per-frame registry
             is unreachable, so there is no policy to walk under; the value
