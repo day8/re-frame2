@@ -1,20 +1,17 @@
 #!/usr/bin/env node
 /**
- * Stage the read-only viewer page and prove the two halves fit (rf2-8m344).
+ * Stage the read-only viewer page and prove the two halves fit.
  *
  * WHY THIS EXISTS.  The viewer ships as a PAGE — `public/viewer.html` plus the
  * compiled `viewer.js` beside it — and per DESIGN-RATIONALE Lock #7 the
  * CONSUMER hosts it: there is no Day8 instance, `share/encode-share-url` has no
  * default `:host`, and `release-machines-viz.yml` publishes the jar and nothing
- * else.  All of that is now true and documented.
+ * else.
  *
- * What was still only a claim is that the documented recipe WORKS.  The
- * `:machines-viz-viewer` shadow build was compiled by no workflow, no npm
- * script and no gate, so README.md §Building and hosting the viewer page and
- * spec/API.md §Hosting were telling consumers to run two commands nothing had
- * run since the build was declared.  "The page is buildable" was the same shape
- * of promise as the 404 host it replaced: plausible, unverified, and load-
- * bearing for anyone trying to self-host.
+ * README.md §Building and hosting the viewer page and spec/API.md §Hosting
+ * tell consumers to run two commands.  Unless something runs them, "the page is
+ * buildable" is a promise that is plausible, unverified, and load-bearing for
+ * anyone trying to self-host.
  *
  * This script IS those two commands' second half, plus the assertions that make
  * the pair meaningful.  It stages the checked-in HTML beside the freshly
@@ -38,13 +35,13 @@
  * artefacts, so a rename that keeps them in step passes and a rename that
  * breaks the page fails — which is the only useful behaviour.
  *
- * WHY A2 EVALUATES RATHER THAN GREPS.  It used to search the bundle text for
- * the export-path literal, and a substring search cannot tell an export from a
- * coincidence: `var x=["day8","re_frame2_machines_viz","viewer","run"];`
- * installs nothing and matched, so the job could report the page's boot global
- * present in a bundle that installed no global at all.  A gate whose green is
- * unearned is worse than no gate, because it is the reason nobody looks.  So
- * A2 now runs the bundle in an isolated `vm` context holding the few globals a
+ * WHY A2 EVALUATES RATHER THAN GREPS.  A substring search of the bundle text
+ * for the export-path literal cannot tell an export from a coincidence:
+ * `var x=["day8","re_frame2_machines_viz","viewer","run"];` installs nothing and
+ * matches, so such a job would report the page's boot global present in a
+ * bundle that installed no global at all.  A gate whose green is unearned is
+ * worse than no gate, because it is the reason nobody looks.  So A2 runs the
+ * bundle in an isolated `vm` context holding the few globals a
  * module-init path touches, and asks the only question that matters: after
  * evaluation, is `window.<the path the page calls>` a callable function?  That
  * is not a proxy for the coupling, it IS the coupling.
@@ -252,8 +249,8 @@ function selfTest() {
     installs('window.a={b:{viewer:{run:function(){}}}};')
   );
 
-  // Negative: the false positives a substring search accepted. Each contains
-  // the exact text the old check looked for and installs nothing.
+  // Negative: the false positives a substring search accepts. Each contains
+  // the export-path text such a search looks for and installs nothing.
   expect(
     'REJECTS a decoy array literal that installs nothing',
     !installs('var x=["a","b","viewer","run"],y=1;')
