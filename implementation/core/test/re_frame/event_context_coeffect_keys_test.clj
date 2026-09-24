@@ -1,16 +1,17 @@
 (ns re-frame.event-context-coeffect-keys-test
-  "rf2-1m6rf1 — the EXACT event-context coeffect key set.
+  "The EXACT event-context coeffect key set.
 
-  EP-0002 R3 (one carrier, one name) retired the bare `:frame` coeffect:
-  the frame stamp travels in the event context under `:rf.frame/id` ONLY
-  (per Spec 002 §Event context threads both partitions). The duplicate
-  `:frame` injection that `assemble-initial-ctx` used to add is gone.
+  EP-0002 R3 (one carrier, one name): there is no bare `:frame` coeffect.
+  The frame stamp travels in the event context under `:rf.frame/id` ONLY
+  (per Spec 002 §Event context threads both partitions), and
+  `assemble-initial-ctx` injects no duplicate `:frame`.
 
   This is the framework-must-not-violate-its-own-contract guard: it pins
   the framework-injected coeffect key set EXACTLY so a stray parallel
-  `:frame` (or any other key) cannot silently ride back in. It is the
-  coeffect-key sibling of the rf2-o4dmp8 framework-conformance test —
-  held in a DISTINCT file to keep the two assertions independent.
+  `:frame` (or any other key) cannot silently ride in. It is the
+  coeffect-key sibling of the framework-conformance test
+  `re-frame.framework-zero-ownership-diagnostics-test` (in the ssr artefact)
+  — held in a DISTINCT file to keep the two assertions independent.
 
   Sanctioned `:frame` survivors (NOT coeffects, NOT covered by this set):
     - the public `:frame` dispatch / subscribe opt;
@@ -66,18 +67,18 @@
   (testing "a vanilla event with no user cofx sees EXACTLY the framework keys"
     (rf/make-frame {:id :ck/exact :doc "ctx"})
     (let [cofx (capture-coeffects :ck/exact)]
-      ;; rf2-n0myjq — `:rf.cofx/mint-policy` (the resolved effective mint policy)
-      ;; is a framework coeffect stamped by `assemble-initial-ctx` so the machine
-      ;; ensure path can read it; it joins the framework default key set.
+      ;; `:rf.cofx/mint-policy` (the resolved effective mint policy) is a
+      ;; framework coeffect stamped by `assemble-initial-ctx` so the machine
+      ;; ensure path can read it; it is part of the framework default key set.
       (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source}
              (set (keys cofx)))
           "the coeffect key set is exactly the framework defaults — no bare :frame")
       (is (not (contains? cofx :frame))
-          "the retired bare :frame coeffect is absent (one carrier, one name)")
+          "the bare :frame coeffect is absent (one carrier, one name)")
       (is (= :ck/exact (:rf.frame/id cofx))
           ":rf.frame/id carries the running frame's id")
       (is (number? (get-in cofx [:rf.cofx :rf/time-ms]))
-          ":rf.cofx carries a stamped :rf/time-ms (EP-0010 rf2-s9ss0t)"))))
+          ":rf.cofx carries a stamped :rf/time-ms (EP-0010)"))))
 
 (deftest no-frame-coeffect-even-with-trace-id
   (testing "threading a :trace-id adds :trace-id but never re-introduces :frame"
@@ -90,7 +91,7 @@
           ":frame is absent regardless of envelope keys"))))
 
 (deftest user-injected-cofx-do-not-mask-the-absence-of-frame
-  (testing "a declared cofx adds its own key but :frame stays gone"
+  (testing "a declared cofx adds its own key but :frame stays absent"
     (rf/make-frame {:id :ck/user :doc "ctx"})
     (rf/reg-cofx :ck/now (fn [] 42))
     (let [captured (atom nil)]
@@ -106,24 +107,24 @@
             "the user-injected coeffect is present")
         (is (= 42 (:ck/now cofx)))
         (is (not (contains? cofx :frame))
-            "user cofx do not bring the bare :frame coeffect back")
+            "user cofx do not bring in a bare :frame coeffect")
         (is (= :ck/user (:rf.frame/id cofx))
-            "the frame stamp is still :rf.frame/id only")))))
+            "the frame stamp is :rf.frame/id only")))))
 
 ;; ===========================================================================
-;; framework-coeffect-keys (the filter set) excludes the retired :frame
+;; framework-coeffect-keys (the filter set) excludes a bare :frame
 ;; ===========================================================================
 
 (deftest framework-coeffect-keys-excludes-frame
-  (testing "rf.fx/framework-coeffect-keys no longer codifies the bare :frame duplicate"
+  (testing "rf.fx/framework-coeffect-keys does not codify a bare :frame duplicate"
     (is (not (contains? rf.fx/framework-coeffect-keys :frame))
-        ":frame is not a framework coeffect key (it was the retired duplicate)")
+        ":frame is not a framework coeffect key (:rf.frame/id is the one carrier)")
     (is (contains? rf.fx/framework-coeffect-keys :rf.frame/id)
-        ":rf.frame/id is the retained frame-stamp coeffect key")
+        ":rf.frame/id is the frame-stamp coeffect key")
     (is (contains? rf.fx/framework-coeffect-keys :rf.cofx)
-        ":rf.cofx is a framework coeffect key (EP-0010 rf2-s9ss0t)")
+        ":rf.cofx is a framework coeffect key (EP-0010)")
     (is (contains? rf.fx/framework-coeffect-keys :rf.cofx/mint-policy)
-        ":rf.cofx/mint-policy is a framework coeffect key (rf2-n0myjq)")
+        ":rf.cofx/mint-policy is a framework coeffect key")
     (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
              :rf.cofx/mint-policy}
            rf.fx/framework-coeffect-keys)
