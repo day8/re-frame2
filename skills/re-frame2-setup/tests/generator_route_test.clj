@@ -1,9 +1,9 @@
 ;;;; tests/generator_route_test.clj — command-level fixture for the setup
-;;;; skill's pre-publish GENERATOR route (rf2-h4q82).
+;;;; skill's pre-publish GENERATOR route.
 ;;;;
-;;;; THE DEFECT THIS PINS. The skill runs the deps-new generator itself when
-;;;; the author asks for that route. Its only documented pre-publish command
-;;;; passed a RELATIVE local root:
+;;;; WHAT THIS PINS. The skill runs the deps-new generator itself when the
+;;;; author asks for that route, so its documented pre-publish command must
+;;;; pass an ABSOLUTE local root. A RELATIVE one fails:
 ;;;;
 ;;;;     clojure -Sdeps '{:deps {day8/re-frame2-template
 ;;;;                             {:local/root "tools/template"}}}' \
@@ -18,24 +18,24 @@
 ;;;;     found: <target>\tools\template
 ;;;;
 ;;;; Running the same literal from the re-frame2 checkout makes the dependency
-;;;; resolve but relocates the emitted project into the checkout. So the route
-;;;; had NO command that both found the template and wrote where the author
-;;;; asked.
+;;;; resolve but relocates the emitted project into the checkout. So a
+;;;; relative root leaves the route NO command that both finds the template
+;;;; and writes where the author asked.
 ;;;;
 ;;;; WHY THIS IS NOT A STRING-COMPARISON TEST. A test asserting the README
-;;;; contains some expected command text would have passed throughout the
-;;;; defect's entire life — the broken command was exactly the command the
-;;;; docs prescribed. Both arms below therefore make a REAL observation:
+;;;; contains some expected command text passes whenever the docs prescribe a
+;;;; broken command, because that is exactly the command they contain. Both
+;;;; arms below therefore make a REAL observation:
 ;;;;
 ;;;;   * The resolution arm (always runs, needs nothing but bb) takes the
 ;;;;     `:local/root` value out of the skill's own documented command, resolves
 ;;;;     it the way tools.deps would — against a freshly created directory used
 ;;;;     as the command's cwd — and asserts the result is a real directory
-;;;;     holding the template's own `deps.edn` + hooks namespace. Reinstating
-;;;;     the relative form makes that resolve under the temp target, where no
-;;;;     such directory exists, and the arm goes red. The same arm runs the
-;;;;     resolution ONCE against the old relative form as a control, so a green
-;;;;     is never the "no matches" kind of green.
+;;;;     holding the template's own `deps.edn` + hooks namespace. A relative
+;;;;     form resolves under the temp target, where no such directory exists,
+;;;;     and the arm goes red. The same arm runs the resolution ONCE against
+;;;;     the relative form as a control, so a green is never the "no
+;;;;     matches" kind of green.
 ;;;;
 ;;;;   * The live arm (opt-in, `RF2_SETUP_RUN_GENERATOR=1`) shells the actual
 ;;;;     `clojure -Sdeps … -Tnew create …` command out of a clean directory
@@ -101,7 +101,7 @@
 ;; The generator route is documented in README.md §Running the generator
 ;; pre-publish. `local-root-form` is the literal `:local/root` VALUE that
 ;; section prescribes; every assertion below is made against that value rather
-;; than against a copy of it kept here, so a doc edit that reinstates a
+;; than against a copy of it kept here, so a doc edit that introduces a
 ;; cwd-relative root is what goes red.
 
 (def ^:private generator-section
@@ -159,48 +159,48 @@
 ;; filesystem whether the answer is the reviewed template.
 
 (deftest documented-command-is-present-and-shaped-for-an-absolute-root
-  (testing "README.md still carries the pre-publish generator command (premise of this suite)"
+  (testing "README.md carries the pre-publish generator command (premise of this suite)"
     (is (some? @generator-section)
-        (str "README.md no longer has a '### Running the generator pre-publish' "
-             "section. If the generator route was removed deliberately, revisit "
-             "this suite; otherwise the command the skill executes has lost its "
-             "documented home (rf2-h4q82)."))
+        (str "README.md has no '### Running the generator pre-publish' "
+             "section. If the generator route is gone deliberately, revisit "
+             "this suite; otherwise the command the skill executes has no "
+             "documented home."))
     (let [section (or @generator-section "")]
       (is (str/includes? section "-Tnew create :template day8/re-frame2-template")
-          (str "The generator section no longer shows the deps-new invocation "
-               "the skill runs (rf2-h4q82)."))
+          (str "The generator section does not show the deps-new invocation "
+               "the skill runs."))
       (is (some? @local-root-form)
-          (str "The generator section no longer passes a :local/root at all. "
-               "Pre-publish that is the only route that resolves the template "
-               "(rf2-h4q82)."))))
+          (str "The generator section passes no :local/root at all. "
+               "Pre-publish that is the only route that resolves the "
+               "template."))))
   (testing "the documented :local/root is anchored to the checkout, not to the command's cwd"
     (let [root (or @local-root-form "")]
       (is (str/includes? root checkout-placeholder)
           (str "The documented :local/root is \"" root "\" — it does not name the "
                "re-frame2 checkout. A root that is not anchored to the checkout "
-               "resolves against the author's own directory (rf2-h4q82)."))
+               "resolves against the author's own directory."))
       (is (str/ends-with? root "/tools/template")
           (str "The documented :local/root is \"" root "\" — it must end in "
-               "/tools/template, the reviewed deps-new template directory "
-               "(rf2-h4q82)."))
+               "/tools/template, the reviewed deps-new template "
+               "directory."))
       (is (not (str/includes? root "\\"))
           (str "The documented :local/root carries a backslash. Render the path "
                "with forward slashes: Java accepts them on Windows, and it keeps "
-               "the EDN string free of hand-authored escaping (rf2-h4q82)."))))
+               "the EDN string free of hand-authored escaping."))))
   (testing "SKILL.md states the two coordinates so the executing agent cannot conflate them"
     (let [skill @skill-md]
       (is (str/includes? skill "README.md#running-the-generator-pre-publish")
-          (str "SKILL.md's generator rule no longer points at the section "
-               "carrying the working command (rf2-h4q82)."))
+          (str "SKILL.md's generator rule does not point at the section "
+               "carrying the working command."))
       (is (str/includes? skill "absolute")
-          (str "SKILL.md's generator rule no longer requires an ABSOLUTE "
+          (str "SKILL.md's generator rule does not require an ABSOLUTE "
                ":local/root. The relative form fails from the author's "
-               "directory (rf2-h4q82).")))))
+               "directory.")))))
 
 (deftest documented-local-root-resolves-to-the-template-from-a-fresh-target
   (let [target (fresh-dir! "rf2-setup-resolve-")]
     (try
-      (testing "CONTROL: the OLD relative form does NOT resolve from the fresh target"
+      (testing "CONTROL: the relative form does NOT resolve from the fresh target"
         ;; Exercise the instrument against an input it must flag. Without this,
         ;; a green below could equally mean "the check is inert".
         (let [resolved (resolve-local-root "tools/template" target)]
@@ -208,7 +208,7 @@
               (str "CONTROL FAILED: the relative \"tools/template\" resolved to a "
                    "real template directory from a freshly created target. The "
                    "resolution check below therefore proves nothing — investigate "
-                   "before trusting it (rf2-h4q82).")))
+                   "before trusting it.")))
         (let [resolved (resolve-local-root "tools/template" target)]
           (is (= (.getName resolved) "template")
               "CONTROL sanity: the relative form should resolve under the target.")))
@@ -218,16 +218,16 @@
           (is (template-dir? resolved)
               (str "The :local/root the skill documents does not resolve to the "
                    "reviewed deps-new template when the command runs from a fresh "
-                   "target directory. Resolved to: " (.getPath resolved) ". This is "
-                   "the rf2-h4q82 defect — tools.deps resolves a relative "
+                   "target directory. Resolved to: " (.getPath resolved) ". "
+                   "tools.deps resolves a relative "
                    ":local/root against the COMMAND'S cwd, so from the directory "
                    "being scaffolded it means <target>/tools/template and the "
                    "command dies with 'Local lib day8/re-frame2-template not "
                    "found' before deps-new loads the template."))
           (is (not (str/starts-with? (fwd resolved) (str (fwd target) "/")))
               (str "The documented :local/root resolved UNDER the fresh target ("
-                   (.getPath resolved) "). It must name the reviewed checkout "
-                   "(rf2-h4q82)."))))
+                   (.getPath resolved) "). It must name the reviewed "
+                   "checkout."))))
       (finally (delete-tree! target)))))
 
 ;; ---------------------------------------------------------------------------
@@ -273,20 +273,20 @@
             (is (.isDirectory project)
                 (str "The generator did not create my-app/ under the requested "
                      "target " (.getPath target) ". deps-new emits into a child "
-                     "named after :name's artefact (rf2-h4q82)."))
+                     "named after :name's artefact."))
             (doseq [rel emitted-manifest]
               (let [f (io/file project rel)]
                 (is (and (.isFile f) (pos? (.length f)))
                     (str "Emitted manifest is missing or empty: " rel
                          " under " (.getPath project) ". A skipped or "
-                         "half-run generator must not pass (rf2-h4q82)."))))))
+                         "half-run generator must not pass."))))))
         (testing "CONTROL: no generated project or manifest lands in the re-frame2 checkout"
           (doseq [stray ["my-app" "tools/template/my-app"]]
             (is (not (.exists (io/file repo-root stray)))
                 (str "The generator wrote " stray " into the re-frame2 checkout. "
                      "The command's cwd, not the template's location, decides "
-                     "where the project lands (rf2-h4q82)."))))
-        (testing "NON-VACUITY: the old relative :local/root fails before emission, in the same target"
+                     "where the project lands."))))
+        (testing "NON-VACUITY: the relative :local/root fails before emission, in the same target"
           (let [before (fresh-dir! "rf2-setup-negative-")]
             (try
               (let [{:keys [exit out err]} (run-generator! before "tools/template")
@@ -294,7 +294,7 @@
                 (is (not (zero? exit))
                     (str "The relative :local/root \"tools/template\" exited 0 from "
                          "a clean target. It must fail — otherwise the positive arm "
-                         "above proves nothing (rf2-h4q82).\nSTDOUT:\n" out
+                         "above proves nothing.\nSTDOUT:\n" out
                          "\nSTDERR:\n" err))
                 (is (str/includes? combined "day8/re-frame2-template not found")
                     (str "Expected tools.deps to report the local lib missing. "
