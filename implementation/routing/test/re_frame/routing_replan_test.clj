@@ -1,11 +1,11 @@
 (ns re-frame.routing-replan-test
-  "rf2-y8jjk — `[:rf.route/replan-resources {:cause …}]`, the ROUTING half.
+  "`[:rf.route/replan-resources {:cause …}]`, the ROUTING half.
 
   The Resources artefact is not on the routing test classpath, so the
   `:routing/on-route-replan` hook is unbound by default; every planning
   assertion here drives the event against a STUB hook that records what it was
-  handed and returns a plan of the documented shape. That is exactly the seam
-  the ruling fixes: routing owns the request gate, the slice read, the branch
+  handed and returns a plan of the documented shape. That is exactly the
+  ownership seam: routing owns the request gate, the slice read, the branch
   walk, the unconditional slot replacement and the readiness re-projection;
   Resources owns the plan. The Resources-side semantics (the same-owner subset
   release, the caller cause on every ensure, the fail-closed whole-owner
@@ -13,7 +13,7 @@
   hosts) and the RealWorld acceptance test; the end-to-end row is the
   `ep-0037-replan-*` conformance fixtures.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   The request GATE (`rf.routing.replan/replan-request-error`), the hook consultation
   (`@calls` — a late-bound fn, not a trace), the slice / slot writes and the
@@ -196,7 +196,8 @@
               (let [entry (first @calls)]
                 (is (= :route/docs (:route-id entry)))
                 (is (= {:page "routing"} (:params entry)))
-                ;; rf2-3x7nj.12.1: `:route/docs` declares no query vocabulary.
+                ;; `:route/docs` declares no query vocabulary, so `tab` stays a
+                ;; string key.
                 (is (= {"tab" "a"} (:query entry)))
                 (is (= "top" (:fragment entry)))
                 (is (= token (:nav-token entry)) "the UNCHANGED token — no allocation")
@@ -296,7 +297,7 @@
           (is (= rdb (runtime-db))))))))
 
 (deftest replan-keeps-the-fragment-only-law-and-mirrors-it
-  (testing "rf2-k4exp1's mirror: a fragment-only navigation never consults the replan
+  (testing "the fragment-only law's mirror: a fragment-only navigation never consults the replan
             hook, and a replan after it keeps the fragment and the token it left"
     (rf/reg-route :route/docs {} "/docs/:page")
     (reg-nav-fxs-capturing!)
