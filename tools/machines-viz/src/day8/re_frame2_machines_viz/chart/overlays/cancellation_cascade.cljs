@@ -32,8 +32,7 @@
   ## Theming
 
   Colours resolve through `theme/tokens/css-var` so light + dark both
-  flow through the host's CSS custom-property surface (per the
-  `var(--*)` requirement)."
+  flow through the host's CSS custom-property surface."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
