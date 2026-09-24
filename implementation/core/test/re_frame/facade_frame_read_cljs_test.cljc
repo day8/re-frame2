@@ -1,23 +1,21 @@
 (ns re-frame.facade-frame-read-cljs-test
-  "EP-0023 (rf2-wkw8na) — the FACADE frame-image-generation READ API.
+  "EP-0023 — the FACADE frame-image-generation READ API.
 
-  The EP-0023 model promised a public READ over a frame's resolved image
+  The EP-0023 model promises a public READ over a frame's resolved image
   generation (\"target frame -> resolved image generation -> registration
-  resolution\"), but the graduated facade exported only the constructors /
-  mutators (`rf/image`, `rf/make-frame`). This errata-class
-  forward-extension ships the read:
+  resolution\") beside the constructors / mutators (`rf/image`,
+  `rf/make-frame`). The facade's read is:
 
     * a `{:frame f :kind k …}` QUERY on each of the two public registrar reads
       — `rf/registrations` / `rf/handler-meta` — resolving the (kind, id) set
       through the target frame's OWN sealed image generation (NOT the process
-      source store). rf2-kuky.30 later retired the positional arity these
-      shared the fn with, so `{:frame f …}` is now one of the TWO query forms
-      rather than an addition to a keyword read;
+      source store). `{:frame f …}` is one of the TWO query forms, beside
+      `{:source :store …}`;
     * a dedicated raw read `rf/frame-generation` returning the sealed generation
       map with the documented stable public keys (:rf.gen/resolver,
-      :rf.gen/images, :rf.gen/kinds).
+      :rf.gen/images, :rf.gen/kinds, :rf.gen/shadows).
 
-  Pins the bead's enumerated coverage:
+  Pins:
 
     * arity resolution through a 2-image / SAME-ID frame pair — two frames
       running different images each resolve the same `[kind id]` to their OWN
@@ -27,7 +25,7 @@
     * the fail-loud cases — an unresolvable `:frame`
       (`:rf.error/frame-no-generation`, NO default fallback) and a query naming
       NO source, BOTH sources, or a bad `:source`
-      (`:rf.error/registrar-query-needs-source`, rf2-kuky.30);
+      (`:rf.error/registrar-query-needs-source`);
     * the `{:source :store …}` read reaches the process source store.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
@@ -52,10 +50,9 @@
 ;; runtime fixture (registrar snapshot/restore + plain-atom adapter, which
 ;; `make-frame`'s backing runnable record needs; the fixture also resets
 ;; `frame/frames`, so image-loaded frame records do not leak across cases).
-;; EP-0024 (rf2-tu2vr7): the second live-frame registry dissolved into the ONE
-;; `frames` registry, so the runtime fixture's `(reset! frame/frames {})` clears
-;; every record AND its generation — no separate live-frame index to clear
-;; (rf2-ji3tvy). Mirrors live_frame_reload_cljs_test.
+;; EP-0024: there is ONE `frames` registry, so the runtime fixture's
+;; `(reset! frame/frames {})` clears every record AND its generation — no
+;; separate live-frame index to clear. Mirrors live_frame_reload_cljs_test.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
@@ -87,8 +84,7 @@
 
 (defn- public-id?
   "True when `id` is a PUBLIC frame id (not a no-id frame's private
-  `:rf.frame/<gensym>` id). EP-0024 (rf2-tu2vr7): the registries collapsed; a
-  no-id frame's record is keyed under a private `:rf.frame/<gensym>` id and is
+  `:rf.frame/<gensym>` id). EP-0024: a no-id frame's record is keyed under a private `:rf.frame/<gensym>` id and is
   EXCLUDED from `live-frame-ids` (which enumerates only public image-loaded
   frame ids), so a no-id frame contributes no PUBLIC id; assert that by filtering
   the reserved namespace."
@@ -97,7 +93,7 @@
 
 ;; Two images selecting two DISJOINT namespaces, each authoring the SAME
 ;; `[:event :counter/inc]` + `[:sub :counter/value]` ids with DIFFERENT impls
-;; and DIFFERENT provenance. That is the bead's headline case: two frames
+;; and DIFFERENT provenance. That is the headline case: two frames
 ;; running different images each resolve the SAME [kind id] to their OWN image's
 ;; descriptor (with provenance).
 (def ^:private blue-pool
@@ -152,7 +148,7 @@
         (is (= #{:counter/inc :counter/reset} (set (keys green-events))))
         (is (= ::green-inc (:handler-fn (get green-events :counter/inc)))))
       (testing "narrowing a frame-targeted result is `filter` over it — there is
-                no :pred key (rf2-kuky.30)"
+                no :pred key"
         (let [only-reset (into {}
                                (filter (fn [[id _m]] (= :counter/reset id)))
                                (rf/registrations {:frame :green/main :kind :event}))]
@@ -189,7 +185,7 @@
 (deftest frame-generation-returns-the-sealed-generation-key-shape
   (testing "frame-generation returns the sealed image generation map with the
             documented stable public keys (EP-0023 §Specification Summary;
-            EP-0026 retired :rf.gen/requires with the image-capability feature)"
+            EP-0026: no :rf.gen/requires)"
     (let [_blue (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
           gen   (rf/frame-generation :blue/main)]
       (testing "the :rf.gen/* keys are present"
@@ -198,9 +194,8 @@
         (is (contains? gen :rf.gen/kinds))
         (is (contains? gen :rf.gen/shadows)
             "the sealed generation carries the cross-image shadow report key
-             (the read path that replaced the removed rf/frame-shadows accessor,
-             rf2-i4hk4b)"))
-      (testing "the retired :rf.gen/requires key is absent (EP-0026)"
+             (the shadow report's read path)"))
+      (testing "the :rf.gen/requires key is absent (EP-0026)"
         (is (not (contains? gen :rf.gen/requires))))
       (testing "the resolver is the id-disjoint [kind id] -> descriptor map"
         (is (= ::blue-inc (:handler-fn (get (:rf.gen/resolver gen) [:event :counter/inc])))))
@@ -220,9 +215,8 @@
 
 ;; ===========================================================================
 ;; 3b. The cross-image SHADOW REPORT — read off the frame's sealed generation
-;;     at :rf.gen/shadows (EP-0026 §Shadow Report, rf2-ke7w5j). The dedicated
-;;     rf/frame-shadows accessor was REMOVED (rf2-i4hk4b, API-shrink #5 —
-;;     avoidable single-key surface); the report is the flat
+;;     at :rf.gen/shadows (EP-0026 §Shadow Report). There is no dedicated
+;;     accessor — a single-key surface is avoidable; the report is the flat
 ;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]
 ;;     list read via (:rf.gen/shadows (rf/frame-generation f)).
 ;; ===========================================================================
@@ -236,7 +230,7 @@
 (deftest generation-shadows-reports-the-override
   (testing "the frame generation's :rf.gen/shadows carries the cross-image SHADOW
             REPORT — one flat entry per override, naming the loser image + the
-            FINAL winner (rf2-ke7w5j)"
+            FINAL winner"
     (let [_frame (rf/make-frame {:id :blue/main :images [blue-img blue-override]} blue-pool)]
       (is (= [{:registration [:event :counter/inc]
                :image        :blue/img
@@ -261,7 +255,7 @@
           "the shadow report reads off a direct frame value's generation too"))))
 
 ;; ===========================================================================
-;; 4. FAIL-LOUD — both ruled cases
+;; 4. FAIL-LOUD cases
 ;; ===========================================================================
 
 (deftest frame-target-not-resolving-fails-loud
@@ -285,7 +279,7 @@
 
 (deftest query-naming-no-single-source-fails-loud
   (testing "a registrar query names EXACTLY ONE source
-            (:rf.error/registrar-query-needs-source, rf2-kuky.30). NEITHER
+            (:rf.error/registrar-query-needs-source). NEITHER
             selector is an error rather than a default read — the word
             'default' is precisely the ambiguity this grammar exists to
             remove — and BOTH is an error because a read has one source,
@@ -313,14 +307,13 @@
            (err-id #(rf/registrations {:realm nil :kind :event}))))))
 
 (deftest non-map-argument-fails-loud
-  (testing "rf2-wa38hs / rf2-kuky.30: a registrar query is a MAP. A non-map
-            argument — most often a leftover positional call, `(handler-meta
-            :event)` or `(registrations :event)` — raises the SAME catalogued
+  (testing "a registrar query is a MAP. A non-map argument — most often a
+            leftover positional call, `(handler-meta :event)` or
+            `(registrations :event)` — raises the SAME catalogued
             :rf.error/registrar-query-needs-source a sourceless map does, on
-            EITHER runtime. Before rf2-wa38hs this class CRASHED:
-            `(contains? arg :frame)` threw on CLJ (`contains?` doesn't support
-            a keyword), and on CLJS `contains?` returned false but the shared
-            assert helper's `(keys arg)` then threw a raw, unclear error."
+            EITHER runtime, rather than a raw host error from inside the query
+            parse (`(contains? arg :frame)` throws on CLJ, where `contains?`
+            doesn't support a keyword, and on CLJS `(keys arg)` would throw)."
     (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/handler-meta :event))))
     (is (= :rf.error/registrar-query-needs-source
@@ -333,7 +326,7 @@
            (err-id #(rf/handler-meta [:event :ff/inc]))))))
 
 ;; ===========================================================================
-;; 5. NO REGRESSION — the existing keyword arity stays byte-identical
+;; 5. The {:source :store …} query reads the process source store
 ;; ===========================================================================
 
 (deftest store-query-reaches-the-source-store
