@@ -1,23 +1,21 @@
 (ns re-frame.ssr-emitter-reinit-lifecycle-jvm-test
-  "rf2-vxgfnd.204 — the JVM SSR emitter lifecycle expectation, the host twin of
-  the CLJS lifecycle suite the retired compiled tier carried.
+  "The JVM SSR emitter lifecycle expectation.
 
-  On the JVM a compiled-view adapter IS the plain-atom adapter (`(assoc
-  plain-atom/adapter :kind :rf.adapter/ui)`), and its `:render-to-string` reads
-  plain-atom's `hiccup-emitter` atom. That atom is armed once by `re-frame.ssr`
-  ns-load and, crucially, plain-atom's `dispose-adapter!` is a NO-OP — it does
+  On the JVM the SSR render path runs through the plain-atom adapter, whose
+  `:render-to-string` reads plain-atom's `hiccup-emitter` atom. That atom is
+  armed once by `re-frame.ssr` ns-load and, crucially, plain-atom's `dispose-adapter!` is a NO-OP — it does
   NOT clear the emitter. So the JVM lifecycle is repeatable by RETENTION, where
   the React-shaped CLJS spine is repeatable by disposal-clears + install-replay.
   This test pins that host-divergent expectation explicitly: the emitter stays
   bound across destroy → re-init on the JVM.
 
-  The rf2-vxgfnd.204 install-time replay (`install-adapter!` →
-  `rearm-hiccup-emitter!`) is a harmless no-op here: plain-atom publishes no
-  `:adapter/arm-hiccup-emitter-if-unarmed!` routed arm (rf2-h9szm — the replay is
-  routed to the installed adapter's own arm hook, not the broadcast
-  `:reagent/set-hiccup-emitter!` chain), so the durable `:ssr/current-hiccup-
-  emitter` slot has no per-adapter arm to run — retention alone keeps the JVM
-  path armed."
+  The install-time replay (`install-adapter!` → `rearm-hiccup-emitter!`) is
+  a harmless no-op here: plain-atom publishes no
+  `:adapter/arm-hiccup-emitter-if-unarmed!` routed arm (the replay is routed
+  to the installed adapter's own arm hook, not the broadcast
+  `:reagent/set-hiccup-emitter!` chain), so the durable
+  `:ssr/current-hiccup-emitter` slot has no per-adapter arm to run —
+  retention alone keeps the JVM path armed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
