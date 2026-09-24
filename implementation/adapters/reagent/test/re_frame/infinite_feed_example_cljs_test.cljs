@@ -5,7 +5,7 @@
    infinite resource, the view reads the merged feed view-model passively via
    `[:rf.resource/infinite-state …]`, and accumulation is driven by the causal
    `:rf.resource/load-more` event. Closes the false-green gap the test-free
-   examples policy (rf2-8cevm) leaves: `test:examples-compile` catches a missing
+   examples policy leaves: `test:examples-compile` catches a missing
    namespace / init-fn and the resources artefact suites catch the generic
    infinite-resource runtime contract, but neither pins the EXAMPLE-SPECIFIC
    composition — its route `:resources` page-0 ensure, its enveloped
@@ -14,7 +14,7 @@
 
    The fixture fns + the deterministic transport stub live HERE (the adapter
    test tree), not under examples/capabilities/resources/infinite_feed/ — the example source
-   stays test-free per the locked policy. The ns requires the example's
+   stays test-free per the test-free-examples policy. The ns requires the example's
    production source (`infinite-feed.core`) so its resource, routes, and views
    register at ns-load, then exercises them against a per-test `:rf/default`
    frame.
@@ -93,8 +93,8 @@
    routing integration, and stub the managed-HTTP + url-push fx so route entry's
    page-0 ensure + navigation are deterministic without a fetch / browser.
 
-   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-djqm, prophylactic —
-   the shape rf2-k4oe repaired in the LinearLite suite). A `:url-bound?` frame
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (prophylactic —
+   the same shape as the LinearLite suite). A `:url-bound?` frame
    performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
    `frame/upsert-frame!`'s post-create hook -> routing's
    `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under
@@ -105,15 +105,16 @@
    / `:rf.error/resource-route-plan` on the routing slice, and — because the
    suite's own navigation never re-plans — the error is STICKY.
 
-   This suite is green either way TODAY only because its `\"/\"` route declares
-   no BLOCKING resource; add one and it reproduces rf2-k4oe exactly, silently.
+   With the frame made first this suite would still pass, but only because its
+   `\"/\"` route declares no BLOCKING resource; add one and the error sticks,
+   silently.
    Registering everything first and making the frame last removes the
    dependence entirely, and matches the committed pilot baseline
    (`docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs`,
    which documents \"the frame is made last\")."
   []
   (reset! last-managed-args nil)
-  ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
+  ;; Reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
   ;; STORE (the default image is assembled from it), and the reset hook's
   ;; clear-kind! forgot the store rows too; register! writes registrar +
@@ -153,7 +154,7 @@
     ;; assembly loud for any suite whose baseline is captured after the second
     ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
     ;; keeps its rows out of every suite's baseline and reinstates them for
-    ;; this suite's own tests (rf2-kuky.27).
+    ;; this suite's own tests.
     {:adapter rf.adapter.reagent/adapter
      :app-ns  "infinite-feed."
      :init-fn init!}))
@@ -327,7 +328,7 @@
 
 ;; ============================================================================
 ;; 5. A PAGE 0 first-load failure with no data surfaces via the FIRST-LOAD
-;;    :error channel (the full error screen) — NOT :page-error (rf2-byl7bk.3.1)
+;;    :error channel (the full error screen) — NOT :page-error
 ;; ============================================================================
 
 (deftest page-0-first-load-failure-surfaces-via-scalar-error-channel
