@@ -1,6 +1,5 @@
 (ns re-frame.managed-timer
-  "Framework-internal shared kernel for the advisory managed-timer skeleton
-  (rf2-7x2lky).
+  "Framework-internal shared kernel for the advisory managed-timer skeleton.
 
   ## What this is
 
@@ -26,12 +25,12 @@
   it lives here once so the two call sites can never drift on the
   positive-delay rule or the `interop` plumbing.
 
-  ## What deliberately stayed split (rf2-7x2lky)
+  ## What deliberately stays split
 
-  The bead asked whether the whole advisory-timer skeleton could collapse
-  into one helper. It cannot — and forcing it would lose load-bearing
-  behaviour AND break the two test suites that assert the exact table
-  shapes. The pieces that stayed in each artefact, with why:
+  The whole advisory-timer skeleton does not collapse into one helper:
+  forcing it would lose load-bearing behaviour AND break the two test
+  suites that assert the exact table shapes. The pieces that stay in each
+  artefact, with why:
 
   - **The side-table itself.** The machines table is per-frame-NESTED
     (`{frame-id {inner-key entry}}`) with a RICH entry map; the resources
@@ -72,9 +71,9 @@
   This is framework-internal plumbing under `re-frame.*`, allowed in core
   and bundle-isolated like the rest of core. It is NOT a `re-frame.core`
   façade export, and it is NOT the DEFERRED public `:rf.timer/after` surface
-  (rf2-5wuikc) nor the test-only `re-frame.timer-probe` managed-effect
-  conformance instance. Those are distinct things; this just de-duplicates
-  the host-clock arm step the two shipped timer side-tables share."
+  nor the test-only `re-frame.timer-probe` managed-effect conformance
+  instance. Those are distinct things; this is only the host-clock arm step
+  the two shipped timer side-tables share."
   (:require [re-frame.interop :as rf.interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -96,11 +95,11 @@
   timer is created — the caller arms nothing for that kind).
 
   This is the genuinely-common, divergence-free kernel the machines `:after`
-  and the resources stale / GC / poll timers share (rf2-7x2lky). It owns the
+  and the resources stale / GC / poll timers share. It owns the
   positive-delay rule and the `interop` plumbing once; each caller keeps its
   own side-table bookkeeping, cancel-then-arm orchestration, cancellation
   tracing, and advisory re-check (see the namespace docstring for what
-  stayed split and why)."
+  stays split and why)."
   [thunk delay-ms]
   (when (positive-delay? delay-ms)
     (rf.interop/schedule-after! thunk delay-ms)))
