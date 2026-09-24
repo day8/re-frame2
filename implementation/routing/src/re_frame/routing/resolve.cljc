@@ -1,6 +1,6 @@
 (ns re-frame.routing.resolve
   "The ONE resolved-target / route-plan seam every navigation door lowers to
-  (EP-0037 R0b).
+  (EP-0037 R0).
 
   Per Spec 012 §Resolved target and the plan diagnostic projection: planning
   turns a caller's address into resolved **facts** — a `ResolvedTarget` — and
@@ -13,8 +13,8 @@
   ResolvedTarget shape or the plan projection.
 
   Guard coverage (`re-frame.routing.decisions/decide`) and
-  leaf-only planning + commit (`re-frame.routing.events/commit-navigation`) are
-  each already ONE definition every door calls; this namespace adds the third:
+  planning + commit (`re-frame.routing.events/commit-navigation`) are
+  each ONE definition every door calls; this namespace is the third:
   the ResolvedTarget fact shape and the plan's diagnostic projection.
 
     - `resolved-target` — the `ResolvedTarget` facts `{:route-id :params
@@ -22,11 +22,11 @@
       say `:route-id`; intent says `:to`. It is the value the door commits (it
       feeds `commit-navigation`'s slice) — so the seam is load-bearing, not a
       parallel diagnostic copy, and it is where the route's declared
-      `:query-defaults` are filled for EVERY door (rf2-kqxe6.23).
+      `:query-defaults` are filled for EVERY door.
     - `route-plan` — the internal route plan the door executes, carrying the
-      R0 diagnostic projection: the source address / raw-URL request, the
+      plan diagnostic projection: the source address / raw-URL request, the
       cause, the resolved target, the parent-to-leaf branch, and the
-      behaviour-preserving leaf resource plan.
+      leaf resource plan.
     - `plan-trace-tags` — the projection as `:rf.route/planned` TRACE tags, the
       ONE mapping both door commit branches emit through so the projection is
       reachable from an executed navigation without the trace becoming a
@@ -41,10 +41,10 @@
             [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.registry :as rf.routing.registry]))
 
-;; ---- the R0 causes --------------------------------------------------------
+;; ---- the navigation causes ------------------------------------------------
 
 (def causes
-  "The closed set of navigation CAUSES an R0 route plan may carry (Spec 012
+  "The closed set of navigation CAUSES a route plan may carry (Spec 012
   §Resolved target and the plan diagnostic projection): a `route-link` click
   (`:link`), programmatic `:rf.route/navigate` (`:navigate`), Back / Forward
   (`:popstate`), initial load (`:initial`), and SSR (`:ssr`). Doors differ in
@@ -57,7 +57,7 @@
 (defn- without-nil-query-values
   "Drop every query key whose value is nil.
 
-  `route-url` ELIDES a nil-valued query key when it builds the URL (rf2-gxq7z1),
+  `route-url` ELIDES a nil-valued query key when it builds the URL,
   so a target that KEEPS one describes a place its own canonical URL cannot
   spell: the slice says `{:drop nil}` while the address bar says `/probe/7`, and
   the same destination reached by URL resolves `{}`. A nil value is the caller
@@ -99,59 +99,56 @@
       step Spec 012's own definition of a `ResolvedTarget` names; nil-valued
       keys are dropped first (`without-nil-query-values`), because `route-url`
       elides them from the URL; and between the two every entry is SPELLED the
-      way the URL spells it (`rf.routing.registry/canonical-query`,
-      rf2-3x7nj.12.1) — an undeclared key as a string key with a string value, a
+      way the URL spells it (`rf.routing.registry/canonical-query`)
+      — an undeclared key as a string key with a string value, a
       string key naming a declared token as that keyword — because `match-url`
       resolves the URL doors that way, and a `{:to …}` that kept the caller's
-      `{:q \"x\"}` committed a different slice from the same URL's `{\"q\" \"x\"}`.
-      Stripping BEFORE filling is what the programmatic door already did
-      inline, preserved exactly: a route that declares a nil DEFAULT still gets
-      it.
+      `{:q \"x\"}` would commit a different slice from the same URL's `{\"q\" \"x\"}`.
+      Stripping happens BEFORE filling, so a route that declares a nil DEFAULT
+      gets it.
     - `:fragment` — an empty-string fragment collapses to nil
       (`rf.routing.plan/normalize-fragment`), because `route-url` emits no trailing `#` for
-      it. `\"\"` is truthy, so an un-normalised one made the slice say
-      `:fragment \"\"` while the address bar said `/docs`.
+      it. `\"\"` is truthy, so an un-normalised one would make the slice say
+      `:fragment \"\"` while the address bar says `/docs`.
 
   This is the ONE place every door's target is shaped, so this is where those
   rules belong.
 
-  The defaults fill is what makes the doors agree (rf2-kqxe6.23). `match-url`
-  fills defaults, so the three URL-bearing doors always had them; the
+  The defaults fill is what makes the doors agree. `match-url`
+  fills defaults, so the three URL-bearing doors have them; the
   named-address doors — `[:rf.route/navigate {:to …}]`, `route-url`,
   `rf/route-link`'s href projection and `[:rf.route/prefetch …]` — never go
-  through `match-url` and so never did. For a route declaring
-  `:query-defaults {:tab :overview}` the same destination therefore committed
+  through `match-url`. Without the fill here, for a route declaring
+  `:query-defaults {:tab :overview}` the same destination would commit
   `:query {}` through `{:to …}` and `{:tab :overview}` through every URL door:
   a different slice, a different derived URL (a different history entry), and a
   different resource cache identity depending on which door the user came
   through — the exact split Spec 012 §The one planning pipeline forbids (\"Doors
   differ in cause and history / scroll policy, not in target, entry, resource,
-  or readiness semantics\"), and the reason R3's intent prefetch was silently
-  inert for such routes (the warm entry and the click's entry landed on two
-  different identities, so hovering then clicking one link produced TWO cache
+  or readiness semantics\"), and it would leave intent prefetch silently
+  inert for such routes (the warm entry and the click's entry would land on two
+  different identities, so hovering then clicking one link would produce TWO cache
   entries with the warm one orphaned).
 
   Filling HERE rather than per-door is the point: `route-url`'s emission
   inverse (`rf.routing.registry/query-without-defaults`) keeps the URL free of a key
-  already at its default, so no href changes and each target still has exactly
+  already at its default, so each target has exactly
   one canonical URL. The fill is idempotent, so a door whose query `match-url`
   already filled lowers through unchanged, and it is membership-only — no
   second normalisation pass, no per-door defaults hook, no public
   defaults-resolution API.
 
-  The nil-query and empty-fragment rules moved here for the same reason and by
-  the same evidence (rf2-kqxe6.7). Both were written down and applied at ONE
-  door: the programmatic handler stripped nil query values inline and called
-  `rf.routing.plan/normalize-fragment` itself, and `normalize-fragment`'s own docstring
-  says the rule exists to \"keep the programmatic and URL-driven paths in
-  agreement\". `[:rf.route/prefetch …]` reaches this seam directly, so it got
-  neither: prefetching `{:to :probe :params {:id \"7\"} :query {:drop nil}}`
-  warmed `{:drop nil :tab :overview}` while clicking the same address committed
-  `{:tab :overview}`, and `:fragment \"\"` warmed `\"\"` against a committed nil
-  — two resource identities for one destination, the R3 failure mode over
-  again. A door-local normalisation is a normalisation the next door forgets.
+  The nil-query and empty-fragment rules live here for the same reason:
+  `rf.routing.plan/normalize-fragment` exists to keep the programmatic and
+  URL-driven paths in agreement, and `[:rf.route/prefetch …]` reaches this seam
+  directly. Applied at one door only, prefetching
+  `{:to :probe :params {:id \"7\"} :query {:drop nil}}` would warm
+  `{:drop nil :tab :overview}` while clicking the same address commits
+  `{:tab :overview}`, and `:fragment \"\"` would warm `\"\"` against a committed
+  nil — two resource identities for one destination. A door-local
+  normalisation is a normalisation the next door forgets.
   Both are idempotent, so the programmatic door's own earlier
-  `normalize-fragment` (which it still needs, to rebuild an unmatched raw URL
+  `normalize-fragment` (which it needs, to rebuild an unmatched raw URL
   before this seam runs) lowers through unchanged."
   [{:keys [route-id params query fragment url]}]
   (let [route-meta (rf.registrar/lookup :route route-id)]
@@ -170,18 +167,18 @@
   URL-bearing door commits, together with the fallback discriminators a
   caller's telemetry branches on.
 
-  This is the shared URL half of the R0b seam. A URL is the representation
+  This is the shared URL half of this seam. A URL is the representation
   every door shares, so the `:rf.route/not-found` **fallback normalisation** —
   the reserved `route-id`, the `{:url … :reason …}` params vocabulary, the
   emptied query, and the fragment a malformed URL cannot carry — has to be ONE
-  definition. When the link door normalised a miss differently from the door
-  that later committed it, the two disagreed about what the URL meant: the link
-  door decided against an incomplete target with a `nil` `:route-id`, so the
-  reserved `:rf.route/not-found` route's `:can-enter` guard was never consulted
-  and a click on a dead link committed a route the equivalent programmatic
-  `:rf.route/navigate` denied. The same mismatch hid the exact-no-op rule from
-  the link door, which pushed a history entry for the already-active not-found
-  URL. Deriving the target here — before stage 3 and the guards, and again at
+  definition. If the link door normalised a miss differently from the door
+  that later commits it, the two would disagree about what the URL means: the
+  link door would decide against an incomplete target with a `nil` `:route-id`,
+  so the reserved `:rf.route/not-found` route's `:can-enter` guard would never
+  be consulted and a click on a dead link would commit a route the equivalent
+  programmatic `:rf.route/navigate` denies. The same mismatch would hide the
+  exact-no-op rule from the link door, which would push a history entry for the
+  already-active not-found URL. Deriving the target here — before stage 3 and the guards, and again at
   the commit hop — is what makes those three answers the same answer.
 
   Returns
@@ -249,7 +246,7 @@
 
 ;; ---- the parent-to-leaf branch + the leaf resource plan -------------------
 
-;; rf2-cqyq2 — the plan's branch is the FAIL-LOUD walk, resolved ONCE.
+;; The plan's branch is the FAIL-LOUD walk, resolved ONCE.
 ;;
 ;; Two `:parent` walks exist deliberately. The DISPLAY walk behind the
 ;; `:rf.route/chain` sub (`re-frame.routing.subs/chain-from-meta`) is defensive:
@@ -259,34 +256,31 @@
 ;; silently-truncated branch — and `events.cljc` says so in as many words, that
 ;; the display sub "is not a substitute here".
 ;;
-;; The plan's `:branch` used to delegate to the display walk (its docstring
-;; correctly claimed it "can never disagree" with the chain sub) while
-;; `commit-navigation` independently called `resolve-branch` for the resource
-;; composition. So the plan REPORTED one branch and EXECUTED another, and they
-;; disagreed exactly on the malformed-registration cases where a diagnostic
-;; earns its keep: `:rf.route/planned` named `:route/nowhere` as a branch
-;; segment — no such route — while the very same activation aborted with
-;; `:branch-error :unknown-parent` and landed `:transition :error`. R0 exposed
-;; the branch as a reflection of the chain sub; R2 then needed a fail-loud walk
-;; and ADDED a second one rather than promoting the first.
+;; A plan `:branch` delegated to the display walk, while `commit-navigation`
+;; called `resolve-branch` for the resource composition, would REPORT one branch
+;; and EXECUTE another, and the two would disagree exactly on the
+;; malformed-registration cases where a diagnostic earns its keep:
+;; `:rf.route/planned` would name `:route/nowhere` as a branch segment — no such
+;; route — while the very same activation aborts with `:branch-error
+;; :unknown-parent` and lands `:transition :error`.
 ;;
-;; Resolving it here, once, is both the fix and a walk removed per navigation:
-;; the plan carries the ids (the R0 diagnostic `:branch`), the error, and the
-;; per-segment contributors `commit-navigation` hands the resource plan, so the
-;; commit hop reads the branch off the plan the door already built instead of
-;; re-walking it. `chain-from-meta` stays exactly as it is — it is correct for
+;; Resolving it here, once, keeps the reported and executed branch one value
+;; and saves a walk per navigation: the plan carries the ids (the diagnostic
+;; `:branch`), the error, and the per-segment contributors `commit-navigation`
+;; hands the resource plan, so the commit hop reads the branch off the plan the
+;; door already built instead of re-walking it. `chain-from-meta` is correct for
 ;; what it does; it is just not the plan branch.
 
 (defn leaf-plan-of
-  "The behaviour-preserving LEAF resource plan for a resolved target's
+  "The LEAF resource plan for a resolved target's
   `route-id` — the route's declarative `:on-match` loader vector (Spec 012
   §Per-route data loading), the events the runtime dispatches when the route
-  becomes active. This is the leaf plan `commit-navigation` already executes;
-  exposing it on the route plan is the R0 diagnostic projection of it (Spec
-  012 §Resolved target and the plan diagnostic projection — 'the
-  behaviour-preserving leaf resource plan'). The honest resource-derived
-  readiness projection graduates in EP-0037 R1; R0 reflects the loaders that
-  already fire, unchanged. Empty vector when the route declares no `:on-match`."
+  becomes active. This is the leaf plan `commit-navigation` executes;
+  exposing it on the route plan is its diagnostic projection (Spec
+  012 §Resolved target and the plan diagnostic projection). It reflects the
+  loaders that fire and does not drive readiness, which is the separate
+  resource-derived projection (`re-frame.routing.readiness`). Empty vector
+  when the route declares no `:on-match`."
   [route-id]
   (vec (or (:on-match (rf.registrar/lookup :route route-id)) [])))
 
@@ -297,11 +291,11 @@
   and the plan diagnostic projection). `source` is the caller's source address
   or raw-URL request (`{:to ...}` / `{:url ...}`); `cause` is one of `causes`;
   `target` is the `resolved-target` facts. The plan derives the parent-to-leaf
-  `:branch` and the behaviour-preserving `:leaf-plan` from the resolved
+  `:branch` and the `:leaf-plan` from the resolved
   `route-id`, so a door constructs the plan from just its source, cause, and
   resolved target — the ONE place the branch + leaf plan are derived.
 
-  Plain data — this contract adds no public `RoutePlan` constructor or
+  Plain data — there is no public `RoutePlan` constructor or
   promise-returning router object; its observable projection is
   `plan-trace-tags`, the `:rf.route/planned` trace both door commit branches
   emit through.
@@ -309,7 +303,7 @@
   The parent-to-leaf `:branch` is the FAIL-LOUD walk
   (`rf.routing.events/resolve-branch`), resolved ONCE per navigation here:
 
-    - `:branch` — `[parent-most … leaf]` route ids, the R0 diagnostic field.
+    - `:branch` — `[parent-most … leaf]` route ids, the diagnostic field.
       EMPTY when the chain does not resolve, so the plan can never name a route
       the registry does not carry;
     - `:branch-error` — `{:kind :unknown-parent|:parent-cycle :route-id* …}`
@@ -333,16 +327,13 @@
 
 ;; ---- the projection as trace tags -----------------------------------------
 ;;
-;; An on-demand `plan-projection` helper and its `r0-projection-keys` list used
-;; to sit here (rf2-6r9j.4). Nothing read them: no runtime, Xray, trace tool,
-;; example or conformance path called the helper, and its only caller was the
-;; unit test that pinned it. `plan-trace-tags` below is the ONE projection an
-;; executed navigation actually exposes — deliberately bounded and redacted
-;; where the raw plan carries the carriers — so the helper was a second,
-;; unreachable spelling of "the plan projection" that future plan-field changes
-;; would have had to keep in step for no reader. Should a tool ever need an
-;; on-demand view, land the concrete consumer and a supported access boundary
-;; with it rather than re-planting a speculative internal helper.
+;; There is no on-demand plan-projection helper. `plan-trace-tags` below is the
+;; ONE projection an executed navigation exposes — deliberately bounded and
+;; redacted where the raw plan carries the carriers — so a second spelling of
+;; "the plan projection" would have to be kept in step with every plan-field
+;; change for no reader. A tool that needs an on-demand view lands its concrete
+;; consumer and a supported access boundary with it, rather than a speculative
+;; internal helper.
 
 (defn- bound-keys
   "The KEY SET of a resolved `:params` / `:query` map, as a vector in the total
@@ -354,7 +345,7 @@
 
 (defn plan-trace-tags
   "Project a route `plan` into the `:rf.route/planned` trace tags. ONE
-  definition, called from every door commit branch, so the R0 diagnostic
+  definition, called from every door commit branch, so the plan diagnostic
   projection is REACHABLE from an executed navigation (Spec 012 §Resolved target
   and the plan diagnostic projection).
 
@@ -374,8 +365,8 @@
   That is local emit-site hygiene, not a boundary the route classification
   enforces on the trace bus. It is lossy in exactly two ways, and only those two:
 
-    - the URL rides the EXISTING `rf.privacy.url/redact-url-tag` path — the ONE
-      URL-carrier redactor routing already sends its route-miss and
+    - the URL rides the `rf.privacy.url/redact-url-tag` path — the ONE
+      URL-carrier redactor routing sends its route-miss and
       blocked-navigation URL slots through. It keeps the structured PATH (what a
       consumer branches on) and redacts the query-string and `#fragment` carrier
       values. No second redaction route for the same datum.
@@ -389,16 +380,16 @@
   vector of route ids and `:leaf-plan-ids` the leaf plan's event ids, both
   registration-time identifiers rather than runtime values, so both ride whole.
 
-  rf2-cqyq2 — `:branch-error` rides only when the `:parent` chain FAILED to
+  `:branch-error` rides only when the `:parent` chain FAILED to
   resolve, and only as its `:kind` + offending `:route-id*`. Both are
   registration-time identifiers, so neither is a carrier; a `:parent-cycle`'s
   `:chain` is deliberately left off the bus because `resolve-branch` builds it
   out of route-META maps, and route metadata on a trace tag is bulk no consumer
-  branches on. The tag is a FAILURE SIGNAL, absent on every healthy navigation —
-  which is what makes `:branch` honest: before this, `:branch` came from the
-  display `:parent` walk while the activation composed over the fail-loud one, so
-  a malformed registration produced a plausible branch naming an unregistered
-  route with no indication that planning had failed on that very chain.
+  branches on. The tag is a FAILURE SIGNAL, absent on every healthy navigation,
+  and with the fail-loud walk it keeps `:branch` honest: a malformed
+  registration yields an empty `:branch` plus this signal, never a plausible
+  branch naming an unregistered route with no indication that planning failed
+  on that very chain.
 
   Callers add the `:frame` stamp (the in-flight drain's frame), which is
   load-bearing rather than cosmetic: epoch capture admits only frame-tagged
