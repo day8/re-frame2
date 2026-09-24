@@ -1,5 +1,5 @@
 (ns re-frame.machine-hydration-reconcile-incarnation-fence-cljs-test
-  "rf2-jqvgp (audit of PR #8930) — the SSR hydration reconcile is bound to ONE
+  "The SSR hydration reconcile is bound to ONE
   frame incarnation, across BOTH phases and EVERY iteration.
 
   `machine_after_hydration_reconcile_cljs_test` pins the reconcile's shape:
@@ -8,38 +8,39 @@
   stays put, so the one thing it cannot see is the frame moving underneath the
   reconcile.
 
-  ## The gap
+  ## The hazard
 
   Both phases emit CALLBACK-BEARING traces. Phase 1 emits one
   `:rf.machine.timer/cancelled` per released entry; phase 2 emits another from
   each arm's leading `:on-supersede` whenever it supersedes a live entry. A
   listener on either can `destroy-frame!` this frame and publish a same-id
   successor B — the very sequence `machine_timer_incarnation_fence_cljs_test`
-  pins for the cancellation batches (rf2-ijlhj).
+  pins for the cancellation batches.
 
-  The declarations being reconciled are A's: they were enumerated once, from
-  the runtime-db A held. Each individual step was already fenced — the cancel
+  The declarations being reconciled are A's: they are enumerated once, from
+  the runtime-db A held. Each individual step is fenced on its own — the cancel
   batch short-circuits on the owner it captured, and each arm rechecks the
-  owner IT captured before touching anything durable — but nothing bound the
-  two phases, or successive iterations, to the SAME owner:
+  owner IT captured before touching anything durable — but per-step fences
+  alone do not bind the two phases, or successive iterations, to the SAME owner:
 
-    - CANCEL → ARM. `cancel-timers-absent-from!` captured its guard inside its
-      own loop and returned nil. A `:cancelled` listener that replaced A with B
-      stopped that loop and nothing else; the caller then walked the old live
-      vector regardless, and each arm captured B as its current owner and
-      installed A-derived work into it.
+    - CANCEL → ARM. Were `cancel-timers-absent-from!` to capture its guard
+      inside its own loop and return nil, a `:cancelled` listener that replaced
+      A with B would stop that loop and nothing else; the caller would then walk
+      the old live vector regardless, and each arm would capture B as its
+      current owner and install A-derived work into it.
     - ARM → ARM. The first live declaration's `:on-supersede` can publish B.
-      That arm aborts correctly on its own captured owner — and the NEXT
-      iteration captures B and arms another A-derived declaration into it.
+      That arm aborts correctly on its own captured owner — and under a
+      per-step capture the NEXT iteration would capture B and arm another
+      A-derived declaration into it.
 
-    - INSIDE ONE ARM (audit of PR #8942). `/cancelled` is not the only
+    - INSIDE ONE ARM. `/cancelled` is not the only
       callback-bearing trace the reconcile emits. A hydration arm passes
       `:emit-scheduled-trace? true`, so `schedule-after-timer!` emits
       `:rf.machine.timer/scheduled` ITSELF — synchronously, after its
       post-supersede recheck and BEFORE it reserves the timer-table slot. A
-      listener on THAT row could destroy A and publish B, and the arm went on
-      to reserve the A-derived slot under the bare frame id (which now denotes
-      B), arm the host clock and attach the change-watcher. This is the one
+      listener on THAT row can destroy A and publish B, and an arm that carried
+      on would reserve the A-derived slot under the bare frame id (which now
+      denotes B), arm the host clock and attach the change-watcher. This is the one
       boundary a `/cancelled` tooth cannot reach: on a frame holding no prior
       timer there is no cancellation anywhere in the reconcile, and the
       `/scheduled` row is the FIRST callback-bearing trace of the whole
@@ -63,7 +64,7 @@
   around the sub-vec resources alone would leave the literal arm installing a
   host handle into B.
 
-  Each `/scheduled` tooth also reads the TRACE stream (audit of PR #8955). The
+  Each `/scheduled` tooth also reads the TRACE stream. The
   four host-work readings say nothing about what the abort left behind for
   tooling, and an abort placed after an observable success-shaped row leaves a
   `/scheduled` that can never be followed by `/fired` or `/cancelled` —
@@ -72,8 +73,8 @@
   `assert-no-orphan-scheduled-row!` pins the closed pair.
 
   The last test is the control the fence must not break: with no successor
-  published, a multi-live reconcile arms every declaration, so the loop that
-  replaced the `doseq` still runs to completion.
+  published, a multi-live reconcile arms every declaration, so the arm loop
+  runs to completion.
 
   Both hosts: a `.cljc` named `*-cljs-test`, so it runs under `clojure -M:test`
   from `implementation/machines` (JVM) and under the node runner
@@ -143,10 +144,10 @@
 (defn- republish-frame-once!
   "Register a `:rf.machine.timer/cancelled` listener under `listener-id` that,
   on the FIRST cancellation only, destroys `frame-id` and publishes a same-id
-  successor B — the audit's mutation tooth, on the trace's own stack.
+  successor B — the mutation tooth, on the trace's own stack.
 
   `fired?` records that the seam was actually exercised (a test whose tooth
-  never bit would pass on the broken code); `token-b` receives B's incarnation
+  never bit would pass on unfenced code); `token-b` receives B's incarnation
   token so the test can prove B is a genuinely distinct incarnation rather than
   the same frame under a new name."
   [listener-id frame-id fired? token-b]
@@ -165,8 +166,8 @@
   [frame-id reaction subscribes]
   (is (empty? (inner frame-id))
       (str "successor B holds NO timer. Under a per-step capture the arm phase "
-           "reads B as its current owner and installs A-derived host work into "
-           "a frame that never enumerated it."))
+           "would read B as its current owner and install A-derived host work "
+           "into a frame that never enumerated it."))
   (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
       (str "and no `:rf.machine.timer/scheduled` row was emitted for B — a "
            "hydrated-timer trace naming a frame that hydrated nothing"))
@@ -334,7 +335,7 @@
         (zero!)))))
 
 (defn- assert-no-orphan-scheduled-row!
-  "The abort's TRACE obligation (audit of PR #8955). The four readings above are
+  "The abort's TRACE obligation. The four readings above are
   about HOST work; this one is about what tooling is left holding.
 
   Spec 005 §Trace event catalogue mirrors `:rf.machine.timer/cancelled` on
@@ -377,8 +378,8 @@
         (str "stamped with an EXISTING member of the closed `:reason` set. "
              "`owner-gone?` flips only through `destroy-frame!` + same-id "
              "reconstruction, so the bearing frame incarnation really was "
-             "destroyed; the repair owes no new trace vocabulary and no spec "
-             "change"))))
+             "destroyed; closing the pair needs no new trace vocabulary and no "
+             "spec change"))))
 
 (deftest a-scheduled-trace-callback-that-republishes-the-frame-arms-nothing-into-b
   (testing "SUB-VEC delay: the arm's own `/scheduled` destroys frame A and
@@ -436,8 +437,8 @@
                    "`destroy-frame!` disposed wholesale on this very stack, "
                    "while `rf.subs/unsubscribe` addresses the frame by bare id — "
                    "which now denotes B. There is nothing of A's left to "
-                   "release, and releasing would drop a count B holds "
-                   "(rf2-i4aj9c)"))
+                   "release, and releasing would drop a count "
+                   "B holds"))
           (assert-no-orphan-scheduled-row!)
 
           (rf.machines.test-support/reset-captured!)
@@ -491,9 +492,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-live-owner-reconcile-arms-every-live-declaration
-  (testing "with no successor published, a multi-live reconcile still walks the
-            whole live set — the recheck must not truncate an ordinary
-            hydration the way the `doseq` it replaced never could"
+  (testing "with no successor published, a multi-live reconcile walks the
+            whole live set — the owner recheck must not truncate an ordinary
+            hydration"
     (rf/reg-machine :hydfence/live two-delay-machine)
     (let [reaction   (atom 2500)
           subscribes (atom 0)]
