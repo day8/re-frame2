@@ -1,27 +1,26 @@
 (ns re-frame.region-order-cljs-test
-  "Acceptance coverage for rf2-3fc89f.8 — parallel-region declaration order is
-  an EXPLICIT registration contract (`:region-order`), normalised once, and is
-  preserved across EVERY order-sensitive parallel operation once the region
-  map crosses the PersistentArrayMap→PersistentHashMap threshold (>8 regions).
+  "Acceptance coverage for parallel-region declaration order as an EXPLICIT
+  registration contract (`:region-order`), normalised once, and held across
+  EVERY order-sensitive parallel operation once the region map crosses the
+  PersistentArrayMap→PersistentHashMap threshold (>8 regions).
 
-  Before the fix, a >8-region machine recovered order from `(keys (:regions
-  …))` — hash order (e.g. r7,r6,r8,r2,r9,r3,r1,r0,r4,r5 in CLJ, a DIFFERENT
+  Recovering order from `(keys (:regions …))` on a >8-region machine would
+  give hash order (e.g. r7,r6,r8,r2,r9,r3,r1,r0,r4,r5 in CLJ, a DIFFERENT
   order in CLJS). Every test here uses TEN regions (therefore a
-  PersistentHashMap `:regions`), so it FAILS on the old code (the committed
-  order was hash order) and passes on the fixed code (authored order r0..r9).
+  PersistentHashMap `:regions`), so it fails on hash order and passes only
+  on authored order r0..r9.
 
-  Runs in both CLJ and CLJS (pure engine — no runtime/fixture), so it pins the
-  CLJ/CLJS parity the fix guarantees. Covers literal AND computed `:regions`
+  Runs in both CLJ and CLJS (pure engine — no runtime/fixture), so it pins
+  CLJ/CLJS parity. Covers literal AND computed `:regions`
   input, and asserts authored action-data, fx, cascade and spawn order, the
   birth entry cascade, the destroy exit cascade, and the root multi-target
   apply — plus the documented registration outcomes for missing/mismatched
   order and the ≤8 small-map convenience derivation.
 
   The `-cljs-test` suffix is what MAKES that parity claim true. Shadow's
-  `:node-test` build selects on `cljs-test$`, so the original
-  `-cljc-test` ns — chosen to advertise dual-target — matched neither
-  lane's CLJS filter, and the CLJ/CLJS parity this file exists to pin had
-  never once been checked on CLJS (rf2-lgozq)."
+  `:node-test` build selects on `cljs-test$`, so a `-cljc-test` ns — named
+  to advertise dual-target — would match neither lane's CLJS filter, and the
+  CLJ/CLJS parity this file exists to pin would never be checked on CLJS."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.result :as rf.machines.result]))
@@ -221,7 +220,7 @@
       (is (= order (get-in (:snapshot r) [:data :entered]))
           "targeted-region :entry order is authored r0..r9"))))
 
-;; ---- 8. selection semantics unchanged -------------------------------------
+;; ---- 8. selection semantics are order-independent -------------------------
 
 (deftest selection-unchanged-only-apply-order-varies
   (testing "reordering :region-order changes the APPLY order (data
