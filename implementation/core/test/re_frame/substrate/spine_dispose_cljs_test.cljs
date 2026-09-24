@@ -1,6 +1,6 @@
 (ns re-frame.substrate.spine-dispose-cljs-test
   "Unit coverage for the substrate-spine's `dispose-adapter!` factory and
-  the active-roots tracking (rf2-9fdkb).
+  the active-roots tracking.
 
   The spine builds a `dispose-adapter!` that drains the active-roots
   set by calling `.unmount` on every tracked React root, and clears
@@ -54,7 +54,7 @@
 (deftest dispose-drains-every-root-then-rethrows-the-unmount-throw
   (testing "one misbehaving root's unmount throw does not strand the rest of
   the drain, and the identical failure is rethrown once the drain finished
-  (rf2-ss8x — Spec 006 §Adapter disposal lifecycle: attempt all remaining
+  (Spec 006 §Adapter disposal lifecycle: attempt all remaining
   cleanup, then preserve and rethrow the first failure)"
     (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
           warn-cache        (rf.substrate.spine/make-warn-once-cache)
@@ -87,7 +87,7 @@
             "active-roots cell drained even when an unmount threw")
         (is (identical? sentinel thrown)
             "the identical unmount failure was rethrown after the drain — a
-            swallowed throw here is what let rf/destroy-adapter! report success
+            swallowed throw here would let rf/destroy-adapter! report success
             over a failed teardown")
         ;; The React-hook spine's extra teardown runs in a `finally`, so the
         ;; rethrow cannot strand the warn cache or the after-render driver
@@ -97,16 +97,16 @@
         (is (nil? @set-tick-ref)
             "the after-render set-tick slot still cleared past the rethrow")))))
 
-;; ---- layered React-hook teardown: the singleton driver root (rf2-ss8x) ----
+;; ---- layered React-hook teardown: the singleton driver root ---------------
 ;;
 ;; `make-dispose-adapter!` layers warn-cache + singleton after-render DRIVER
 ;; ROOT + set-tick teardown on top of the shared drain. The driver root is a
 ;; host-specific resource this spine owns ALONE — it lives outside
-;; `active-roots-cell` — and its unmount used to sit under a bare
-;; `(catch :default _ nil)`, so a failure there was discarded outright.
+;; `active-roots-cell` — so a bare `(catch :default _ nil)` around its unmount
+;; would discard a failure there outright.
 ;;
-;; The fix threads ONE accumulator across both layers, which makes the primacy
-;; rule ASYMMETRIC, and the asymmetry is the substance:
+;; ONE accumulator spans both layers, which makes the primacy rule
+;; ASYMMETRIC, and the asymmetry is the substance:
 ;;
 ;;   * driver-root failure is the ONLY failure  -> it is the PRIMARY and must
 ;;     surface, or `destroy-adapter!` reports a clean nil over a React root
@@ -115,7 +115,7 @@
 ;;     primary's `rfAdapterTeardownSecondaryErrors`, because the earlier
 ;;     failure names the real fault and attachment never replaces it.
 ;;
-;; The old catch got the second case right by accident and the first wrong
+;; A bare catch gets the second case right by accident and the first wrong
 ;; every time. The two tests below pin the two cases, and within each one the
 ;; DRAIN assertions and the RETHROW assertions are separated deliberately: a
 ;; swallow regression fails only the RETHROW group, a throw-early regression
@@ -129,7 +129,7 @@
 (deftest dispose-surfaces-a-driver-root-only-unmount-failure-as-the-primary
   (testing "when the singleton after-render driver root's unmount is the ONLY
   teardown failure it becomes the PRIMARY and reaches the caller, after every
-  other layer has been attempted and finalized (rf2-ss8x; Spec 006 §Adapter
+  other layer has been attempted and finalized (Spec 006 §Adapter
   disposal lifecycle MUST 2 + the first-failure rule)"
     (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
           warn-cache        (rf.substrate.spine/make-warn-once-cache)
@@ -167,17 +167,17 @@
             "after-render set-tick slot cleared so a fresh init! re-arms
             against the new adapter rather than bumping a stale setter")
         ;; ---- RETHROW half. The ONLY half a swallow regression fails, and the
-        ;; half the pre-fix `(catch :default _ nil)` failed every time.
+        ;; half a bare `(catch :default _ nil)` fails every time.
         (is (identical? sentinel thrown)
             "the identical driver-root unmount failure reached the caller as
-            the primary; ::returned-normally here is the silent success over a
-            failed teardown that rf2-ss8x exists to close")))))
+            the primary; ::returned-normally here is a silent success over a
+            failed teardown")))))
 
 (deftest dispose-attaches-a-driver-root-failure-behind-an-earlier-primary
   (testing "when the shared drain ALREADY failed, the later driver-root
   unmount failure rides the rethrown primary as secondary evidence instead of
   displacing it or being discarded — one accumulator spanning the shared drain
-  and the layered React-hook teardown (rf2-ss8x)"
+  and the layered React-hook teardown"
     (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
           warn-cache        (rf.substrate.spine/make-warn-once-cache)
           emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
@@ -225,10 +225,9 @@
               accumulator through the layered teardown buys"))))))
 
 (deftest dispose-captures-a-falsey-driver-root-throw-by-presence
-  (testing "a driver root that throws `false` still surfaces: the layered
+  (testing "a driver root that throws `false` surfaces: the layered
   teardown records by PRESENCE against `capture-none`, never by truthiness, so
-  the legal-but-falsey CLJS throw is not re-swallowed by the fix's own
-  accumulator (rf2-ss8x)"
+  the legal-but-falsey CLJS throw is not swallowed by the accumulator itself"
     (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
           warn-cache        (rf.substrate.spine/make-warn-once-cache)
           emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
@@ -248,7 +247,7 @@
       (is (false? thrown)
           "the falsey driver-root throw reached the caller instead of being
           read as 'nothing failed' — a truthiness accumulator here would
-          rebuild the exact silent hole the bare catch had"))))
+          swallow it as silently as a bare catch"))))
 
 (deftest dispose-clears-warn-cache-and-emitter
   (testing "dispose-adapter! also empties the warn-once cache and the hiccup-emitter cell"
@@ -271,13 +270,12 @@
       (is (nil? @emitter-cell)
           "hiccup-emitter cell cleared so a fresh install starts from no emitter"))))
 
-;; ---- dispose-frame-sub-caches! (rf2-jcjul) -------------------------------
+;; ---- dispose-frame-sub-caches! --------------------------------------------
 ;;
-;; The shared sub-cache walk lifted out of the Reagent adapter into the
-;; spine so all three React-shaped adapters (Reagent / reagent-slim /
-;; UIx) drive the same implementation of Spec 006 §Adapter
-;; disposal lifecycle MUST (1): cancel all in-flight reactive
-;; subscriptions.
+;; The shared sub-cache walk lives in the spine so all three React-shaped
+;; adapters (Reagent / reagent-slim / UIx) drive the same implementation of
+;; Spec 006 §Adapter disposal lifecycle MUST (1): cancel all in-flight
+;; reactive subscriptions.
 ;;
 ;; These tests exercise the helper in isolation by populating
 ;; `rf.frame/frames` directly with fake sub-cache entries — no adapter
@@ -398,7 +396,7 @@
 (deftest make-dispose-adapter-invokes-sub-cache-walk
   (testing "the spine's `make-dispose-adapter!` factory drives the
   sub-cache walk as part of its build of MUST-1 + MUST-2 + MUST-3.
-  Pinning this through the factory protects the rf2-jcjul lockstep:
+  Pinning this through the factory keeps the adapters in lockstep:
   the UIx adapter wires its dispose-adapter! slot through
   this factory only — if the factory ever stopped invoking the walk,
   that adapter's dispose path would silently regress."
@@ -418,16 +416,16 @@
       (is (= {} @(:sub-cache frm))
           "factory-built dispose-adapter! cleared the sub-cache atom"))))
 
-;; ---- spine derived-value -dispose idempotence + re-entrancy (rf2-1bzlai) --
+;; ---- spine derived-value -dispose idempotence + re-entrancy ---------------
 ;;
 ;; The earlier tests above drive the cache-walk through reified toy
 ;; disposables. These pin the ACTUAL spine-produced derived value's
 ;; `rf.disposable/IDisposable` `-dispose` — the concrete reify returned by
-;; `make-derived-value-fn` — against repeated and re-entrant disposal. The
-;; bug rf2-1bzlai: the impl fired `@on-dispose-fns` and only then cleared
-;; the vector, with no disposed guard, so a second `-dispose` re-fired the
-;; whole callback set and a callback that re-entered `-dispose` could recurse
-;; / double-fire. A real spine derived value is buildable node-side with no
+;; `make-derived-value-fn` — against repeated and re-entrant disposal. An
+;; impl with no disposed guard that fires `@on-dispose-fns` and only then
+;; clears the vector re-fires the whole callback set on a second `-dispose`,
+;; and a callback that re-enters `-dispose` can recurse / double-fire. A real
+;; spine derived value is buildable node-side with no
 ;; DOM: `make-derived-value-fn` takes `[gensym-prefix scheduler]` and returns
 ;; the `make-derived-value` fn `[source-containers compute-fn]`.
 
@@ -463,7 +461,7 @@
     (let [{:keys [dv]} (spine-derived-value)
           fire-log     (atom [])]
       ;; This callback defensively re-disposes the same object — the exact
-      ;; re-entrant shape the bead calls out. With the guard flipped first
+      ;; re-entrant shape that could recurse. With the guard flipped first
       ;; and callbacks snapshot-and-cleared, the re-entrant call is a no-op.
       (rf.disposable/-add-on-dispose dv
         (fn []
