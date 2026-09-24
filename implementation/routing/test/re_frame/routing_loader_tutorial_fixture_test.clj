@@ -2,17 +2,18 @@
   "Pins the routing tutorial's loader program (docs/routing/tutorial.md Steps 4 + 7)
   and its race-safety story (docs/routing/concepts.md §A hand-rolled async loader).
 
-  rf2-1lu666 — two regressions in the progressive tutorial:
+  Two properties of the progressive tutorial:
 
-  1. Step 7 re-registered `:app/article` with only `:parent` + `:params`, dropping the
-     Step 4 `:on-match` loader. `reg-route` → `registrar/register!` is FULL replacement
-     (re_frame/registrar.cljc:586 — `assoc-in [kind id] metadata`), so the final program
-     silently had no loader. `tutorial-step7-reregistration-*` pins the cumulative
+  1. Step 7 re-registers `:app/article` with `:parent` + `:params`. `reg-route` →
+     `registrar/register!` is FULL replacement
+     (re_frame/registrar.cljc:586 — `assoc-in [kind id] metadata`), so a Step 7 that
+     dropped the Step 4 `:on-match` loader would leave the final program silently
+     without one. `tutorial-step7-reregistration-*` pins the cumulative
      program: the loader survives the Step 7 re-registration only when `:on-match` is
      carried forward.
 
-  2. The tutorial recommends real HTTP but the hand-rolled-loader race lesson (capture the
-     nav-token, gate delivery) had been removed. `tutorial-loader-is-race-safe-*` is the
+  2. The tutorial recommends real HTTP, and the hand-rolled-loader race lesson (capture
+     the nav-token, gate delivery) is part of its concepts page. `tutorial-loader-is-race-safe-*` is the
      deterministic A-load → navigate-B → late-A fixture proving A's stale reply cannot
      reach app delivery or app-db when the documented nav-token pattern is followed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -23,7 +24,7 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- rf2-1lu666 (1): reg-route is full replacement — Step 7 keeps the loader ----
+;; ---- (1) reg-route is full replacement — Step 7 keeps the loader -------------
 
 (deftest tutorial-step7-reregistration-keeps-the-loader
   (testing "the cumulative tutorial: Step 7 must carry :on-match forward or the
@@ -34,15 +35,15 @@
     (is (= [[:app/load-article]] (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
         "Step 4 registered the loader")
 
-    ;; The BUG shape — Step 7 re-registers with :parent + :params but NO :on-match.
+    ;; The BROKEN shape — Step 7 re-registers with :parent + :params but NO :on-match.
     ;; Full replacement drops the loader. This assertion documents WHY the tutorial
-    ;; must repeat :on-match; it is the regression rf2-1lu666 guards.
+    ;; must repeat :on-match.
     (rf/reg-route :app/article
       {:parent :app/articles :params [:map [:id :string]]} "/articles/:id")
     (is (nil? (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
         "re-registration without :on-match deletes the loader — full replacement")
 
-    ;; The FIXED Step 7 — carries :on-match forward alongside :parent.
+    ;; The CORRECT Step 7 — carries :on-match forward alongside :parent.
     (rf/reg-route :app/article
       {:parent   :app/articles
        :params   [:map [:id :string]]
@@ -53,7 +54,7 @@
       (is (= [[:app/load-article]] (:on-match meta))
           "final registration keeps the Step 4 loader"))))
 
-;; ---- rf2-1lu666 (2): the hand-rolled nav-token loader is race-safe ----
+;; ---- (2) the hand-rolled nav-token loader is race-safe ----
 
 (deftest tutorial-loader-is-race-safe-late-A-cannot-overwrite-B
   (testing "A-load → navigate B → late-A: the documented nav-token loader suppresses
