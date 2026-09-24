@@ -15,7 +15,7 @@
   and then never write a line of that substrate's notation.
 
   This is an OPTION, not a replacement. Reagent, reagent-slim and UIx
-  remain first-class, independently supported adapters, and installing one
+  are first-class, independently supported adapters, and installing one
   of them under a Fresco tree is supported — a Fresco subtree and a UIx
   subtree resolve the same frame, because every React-shaped adapter reads
   the one shared context object
@@ -110,8 +110,8 @@
   function component writing the shared frame context.
 
   This is the LOWER-LEVEL contract slot rather than an authoring verb.
-  Fresco scopes a root's frame on the way in
-  (`re-frame.fresco.impl.mount/provider`, from `h/render!`), so a Fresco
+  Fresco scopes a frame with its own in-tree heads (`h/frame-root` /
+  `h/frame-provider`, `re-frame.fresco.impl.frame-boundary`), so a Fresco
   application never writes this head; the slot exists because the contract has
   it, because core's own provider tier reaches for it, and because writing the
   same one context every React-shaped adapter reads is what lets a mixed
@@ -156,7 +156,7 @@
   frame-provider stays here because the spine carries no substrate's own
   element machinery.
 
-  ## The client-root drain is NOT here (rf2-kuky.59)
+  ## The client-root drain is NOT here
 
   `dispose-adapter!` is exactly the spine's. The drain that releases every
   Root a `h/client-root` handle still holds — Spec 006 §Adapter disposal
@@ -166,15 +166,14 @@
   `re-frame.substrate.adapter/dispose-adapter!` invokes it before the
   installed adapter's own disposer.
 
-  It was chained here first, and the merged-PR audit of #9459 found what
-  that misses. Fresco's roots are not the spine's — `h/render!` calls
+  Fresco's roots are not the spine's — `h/render!` calls
   `createRoot` / `hydrateRoot` through `re-frame.fresco.impl.mount`,
   never through the substrate contract's `render` slot — but they are not
   THIS ADAPTER's either, and an application may install UIx or Reagent and
-  still mount Fresco roots. A drain reached only through this map is
+  mount Fresco roots. A drain reached only through this map would be
   reached only when this map is the installed one, so that supported
-  composition leaked a Root on every `rf/destroy-adapter!`. The guarantee
-  belongs where it holds for all of them."
+  composition would leak a Root on every `rf/destroy-adapter!`. The
+  guarantee belongs where it holds for all of them."
   (rf.substrate.spine/make-react-adapter
     spine-fns
     {:kind           :rf.adapter/fresco
