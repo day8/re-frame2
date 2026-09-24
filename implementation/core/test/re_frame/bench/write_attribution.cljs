@@ -1,11 +1,11 @@
 (ns re-frame.bench.write-attribution
-  "rf2-jr76s — WHERE do the bytes of a NARROW WRITE go?
+  "WHERE do the bytes of a NARROW WRITE go?
 
-  B8 (rf2-lcsjg) measured, in a browser, that changing ONE cell of a
-  300-cell grid costs 478,787 bytes, of which **457,181 — 95.5% — is the
+  The B8 browser measurement puts the cost of changing ONE cell of a
+  300-cell grid at 478,787 bytes, of which **457,181 — 95.5% — is the
   WRITE LEG**: `rf.frame/replace-app-db!` plus the subscription graph
   re-evaluating all 300 `:b6/cell` subscriptions to discover that 299 of
-  them did not change. That figure is on record; nothing decomposes it.
+  them did not change. That figure alone does not say where the bytes go.
 
   A number you cannot decompose you cannot attack, so this namespace
   decomposes it.
@@ -22,10 +22,10 @@
   Node also gives one thing the browser cannot: `process.memoryUsage()`
   reports V8's used-heap counter UNQUANTISED. Chrome's `performance.memory`
   is bucketed to 100 KB unless `--enable-precise-memory-info` is passed,
-  which is why B8 needed that flag; here there is no flag and no bucket.
+  which is why B8 needs that flag; here there is no flag and no bucket.
 
   What does NOT transfer is the HOST: no React, no DOM, no commit. That is
-  deliberate — the write leg B8 isolated is exactly the part that happens
+  deliberate — the write leg B8 isolates is exactly the part that happens
   BEFORE React is involved (B8's `hc → h1` step, `((:write! arm) i val)`),
   and that is all this namespace measures.
 
@@ -44,16 +44,15 @@
 
   ## The arm order is a MEASURED property of this run, not an assumption
 
-  This harness is where `rf2-88pie`'s fault was FOUND: the SMI control read
+  A figure can move with the arm order alone — an SMI control reading
   16.1052 B/slot with the plan run forwards and 8.0027 with it run
-  backwards, and it was caught only because somebody happened to run both.
-  Running one order and reporting the answer is exactly the thing that
-  cannot be checked, and until `rf2-om73r` that is what this file did — a
-  single pass over the plan, each arm measured once, in one place, after one
-  predecessor. `WA_ORDER=rev` gave a second reading in a SECOND PROCESS
-  whose numbers nothing here ever joined up.
+  backwards — and only a run in both orders sees it. Running one order and
+  reporting the answer is exactly the thing that cannot be checked: a
+  single pass over the plan measures each arm once, in one place, after one
+  predecessor, and a second order run in a SECOND PROCESS gives numbers
+  nothing joins up.
 
-  So the plan now runs in `WA_ROUNDS` rounds and the arm order ROTATES AND
+  So the plan runs in `WA_ROUNDS` rounds and the arm order ROTATES AND
   REFLECTS with the round (`order-guard/slot-order`). A bare cyclic rotation
   would not do: arm `a` sits at slot `(a - r) mod n`, so its predecessor is
   `(a - 1) mod n` in every round and only the round seam differs. Reflecting
@@ -67,17 +66,17 @@
   (exit code 2) if either factor separates an arm. It is the same rule as
   `implementation/core/test/re_frame/bench/order_guard.cjs`,
   expressed twice because a JVM harness and a `core` CLJS harness both run
-  where that driver-side CommonJS module cannot be loaded — a sibling in
-  this directory since rf2-it4y5, and still out of reach from inside the
-  page; both copies replay the same recorded fixtures in their self-tests,
-  which is what keeps them honest.
+  where that driver-side CommonJS module cannot be loaded — it is a sibling
+  in this directory, and out of reach from inside the page; both copies
+  replay the same recorded fixtures in their self-tests, which is what
+  keeps them honest.
 
   ## Warm-up, because position beats adjacency
 
-  The same study measured one control in plain node over sixteen
-  consecutive windows, nothing else varying: `42.32` then six windows at
-  `10.3` then `8.12` for ever. The FIRST window read 5.3x the settled value
-  and the next six read +27%. So `WA_WARM_WINDOWS` full-size windows per arm
+  One control, measured in plain node over sixteen consecutive windows with
+  nothing else varying, reads `42.32`, then six windows at `10.3`, then
+  `8.12` for ever. The FIRST window reads 5.3x the settled value and the
+  next six read +27%. So `WA_WARM_WINDOWS` full-size windows per arm
   are run and thrown away before any round is measured, on top of
   `WA_WARMUP` bare calls and the calibration probe. Under-warming does not
   produce a slightly-off number; it produces a number that moves with where
@@ -85,52 +84,49 @@
 
   ## The control
 
-  A control whose size is asserted rather than checked has already been
-  wrong twice on this surface (B7's `'x'.repeat(n)` string that read as six
-  kilobytes; B8's `8 B/double` prediction that measured 16.002). So the
-  control here is read as a SLOPE across sizes, which cancels every constant
-  and every header:
+  A control whose size is asserted rather than checked goes wrong silently
+  (an `'x'.repeat(n)` string can read as six kilobytes; an `8 B/double`
+  prediction can measure 16.002). So the control here is read as a SLOPE
+  across sizes, which cancels every constant and every header:
 
     `.slice()` of a PACKED double-element JS array of D elements allocates a
     `FixedDoubleArray` of D unboxed 8-byte slots plus a fixed header. V8
     never pointer-compresses a double, so the slope is **8.000 B/element
     exactly**, independent of the pointer-compression regime the node build
-    happens to use — which a `FixedArray`-of-SMI control would NOT have been
-    (4 B/slot compressed, 8 uncompressed).
+    happens to use — which a `FixedArray`-of-SMI control is NOT (4 B/slot
+    compressed, 8 uncompressed).
 
   Predicted and measured are both printed, for EVERY size and not merely
   as a slope. If they disagree, suspect the control first, and report the
-  miss either way. Two misses are on record:
+  miss either way. Two effects decide what the controls read:
 
     * The SMALL double pair (D 100->200) lands, at +0.5%. The LARGE pair
       (1000->10000) reads +9%, because the 8 B/element model omits V8's
       page-tail filler — an 87 KB object wastes ~7% of a 256 KB page and
       that filler is genuine used-heap. It is a LARGE-object effect and
       every arm here allocates small ones, so the instrument is calibrated
-      in the regime it is used in. STILL OPEN, and correctly so.
-    * The SMI control used to read 16.1 B/slot — twice its own prediction,
-      at both sizes. RESOLVED (rf2-l3jv4), and the fault was the
-      instrument's, not the prediction's: `arm-ctl` was ONE function body
-      closed over both kinds of template, so the harness had ONE
-      `.slice()` call site that saw both PACKED_SMI_ELEMENTS and
-      PACKED_DOUBLE_ELEMENTS receivers, and at that polymorphic site the
-      SMI receiver loses `.slice()`'s clone fast path and allocates its
-      elements store TWICE. Splitting the site per elements kind returns
-      the arm to 8.0 B/slot. See `arm-ctl-smi`. The effect is
-      order-INDEPENDENT — it does not depend on which kind the site saw
-      first — so it does not account for the reversed-order reading of
-      8.0027 recorded against this arm under rf2-88pie, which predates
-      several rebuilds of it and is not re-litigated here. Both orders are
-      still run, and both must now meet the prediction.
+      in the regime it is used in. That miss is understood rather than
+      repaired, and correctly so.
+    * The SMI control's `.slice()` site is split per elements kind (see
+      `arm-ctl-smi`). ONE `arm-ctl` body closed over both kinds of
+      template would give the harness ONE `.slice()` call site seeing both
+      PACKED_SMI_ELEMENTS and PACKED_DOUBLE_ELEMENTS receivers, and at that
+      polymorphic site the SMI receiver loses `.slice()`'s clone fast path
+      and allocates its elements store TWICE — 16.1 B/slot, twice its own
+      prediction, at both sizes, a fault of the instrument and not of the
+      prediction. Split, the arm reads 8.0 B/slot. The effect is
+      order-INDEPENDENT — it does not depend on which kind the site sees
+      first — so it does not by itself explain an order split like the one
+      above. Both orders run, and both must meet the prediction.
 
   ## The control REFUSES, it does not merely comment
 
-  Finding that fault and fixing it left the instrument able to find it again
-  and carry on anyway: the SMI/DBL ratio printed `*** NEITHER — the SMI arm
-  is not measuring a tagged-slot copy ***` and nothing consumed it, so the
-  run exited 0 and the arm-order guard beside it printed `VERDICT:
-  reportable`. `re-frame.bench.calibration` turns that evidence into a
-  boolean, and this harness's exit code is now the OR of two independent
+  A control that only prints its verdict can meet that fault again and
+  carry on anyway: the SMI/DBL ratio would print `*** NEITHER — the SMI arm
+  is not measuring a tagged-slot copy ***`, nothing would consume it, the
+  run would exit 0 and the arm-order guard beside it would print `VERDICT:
+  reportable`. So `re-frame.bench.calibration` turns that evidence into a
+  boolean, and this harness's exit code is the OR of two independent
   refusals — the arm order's and the control's. Its bands are expressed
   there and nowhere else, so what is printed below and what refuses cannot
   drift apart, and its [[re-frame.bench.calibration/self-test]] injects the
@@ -160,12 +156,11 @@
               instead — the same fixed-arity-1 memo wrapper, but reading the
               frame's RAW physical container rather than the `rf=`-gated
               app-db projection. It is the control for `RFWRITE-N`
-              (rf2-gncxk.1)
 
   `RFWRITE-N` is measured at four values of N and the SLOPE between them is
-  the per-subscription cost — the number the bead is about. A slope cancels
-  every constant in the ladder above it, so it is the one figure that does
-  not depend on any of this attribution being right.
+  the per-subscription cost — the number this harness is about. A slope
+  cancels every constant in the ladder above it, so it is the one figure
+  that does not depend on any of this attribution being right.
 
   ## The per-subscription pieces
 
@@ -179,7 +174,7 @@
               app-db value, which is what decides whether the body runs
     P-EQDBF   the same guard at the OTHER input that reaches it — two
               `=`-but-not-`identical?` app-db values, where the walk runs to
-              completion and finds no difference (rf2-gncxk.1)
+              completion and finds no difference
     P-SCOPE   `rf.trace/with-handler-scope` + `handler-scope-from-meta`, which
               bracket every recompute and are NOT dev-gated
     P-EMIT    `rf.trace/emit!` on its production path with the tag map the
@@ -189,7 +184,7 @@
               CHANGED db — the sum of the four above plus its own frame
     P-MEMOW   the same wrapper over a source that publishes a MOVEMENT
               WITNESS, driven in the flush-path shape, so the guard's `=`
-              walk is proved unnecessary and skipped (rf2-gncxk.1)
+              walk is proved unnecessary and skipped
     P-MEMOWC  its matched control — identical scaffolding, identical inputs,
               a source that publishes nothing. `P-MEMOWC − P-MEMOW` is the
               `=` term and nothing else
@@ -203,18 +198,18 @@
               spelling — N `conj` onto a PersistentHashSet + a
               PersistentVector, then N `disj` as the drain consumes them
     Q-SCHEDJS the same bookkeeping in the SHIPPED spelling — a `js/Set`
-              and a JS array, mutated in place (rf2-jr76s)
+              and a JS array, mutated in place
     P-VALS    the app-db projection's fan-out in its RETIRED spelling —
               `run!` over `(vals ws)` of an N-entry watcher map
     P-RKV     the same fan-out in the SHIPPED spelling — `reduce-kv` over
-              the map, no seq (rf2-jr76s)
+              the map, no seq
 
   The last four are TWO PAIRED CONTROLS, both live in one process on the
-  same objects — the `RC-ATTACH` / `RC-CAND` discipline `read-attribution`
-  established. Keeping the retired expression measurable beside the shipped
-  one is what turns a rewrite's saving into a falsifiable prediction:
-  retired-minus-shipped must equal the drop in the per-subscription slope,
-  and when this landed it did, to 0.3%.
+  same objects — the `RC-ATTACH` / `RC-CAND` discipline of
+  `read-attribution`. Holding the retired expression measurable beside the
+  shipped one is what turns a rewrite's saving into a falsifiable
+  prediction: retired-minus-shipped must equal the drop in the
+  per-subscription slope, and measured, it does, to 0.3%.
 
   Run it:
 
@@ -230,15 +225,13 @@
   trigger map on top of the `HandlerScope` record. Without them
   `trigger-handler-from-meta` returns nil and the record is all there is.
   The same ladder reads **120.1 B/sub coord-less against 744.2 B/sub
-  coord-carrying — a factor of six** — and the coord-less arm was the
-  default the first published per-subscription figures came off, which is
-  why they understate a real application (rf2-4k5hs).
+  coord-carrying — a factor of six** — so a coord-less figure understates a
+  real application.
 
-  So the default is now the coord-carrying shape and every figure quoted
-  from this harness comes off it. `WA_COORDS=0` still runs the coord-less
-  ladder, and it is worth keeping: it is the cleanest way to isolate what
-  the coords themselves cost. It is a labelled CONTROL, not a figure to
-  publish.
+  So the default is the coord-carrying shape and every figure quoted from
+  this harness comes off it. `WA_COORDS=0` runs the coord-less ladder: it is
+  the cleanest way to isolate what the coords themselves cost. It is a
+  labelled CONTROL, not a figure to publish.
 
   ## What a byte count here is, and is not
 
@@ -247,11 +240,10 @@
   bytes here and 4 there — which is why the SMI control reads the regime off
   the process rather than assuming it. An absolute from this harness can
   therefore mis-rank for the browser, and any per-call absolute quoted from
-  it elsewhere should carry its runtime and say so plainly. rf2-x0fe2 tracks
-  the missing browser figures. Ratios between two arms measured the same way
-  are unaffected by any of this.
+  it elsewhere should carry its runtime and say so plainly. Ratios between
+  two arms measured the same way are unaffected by any of this.
 
-  ## A near-zero arm is bounded, not measured (rf2-tmzie)
+  ## A near-zero arm is bounded, not measured
 
   `C-NOOP` is `keep!` and nothing else, so whatever it reads is what an arm
   that allocates NOTHING reads — the instrument's FLOOR, measured rather
@@ -261,31 +253,31 @@
 
   `WA_REPS_MAX` is the sweep that tells the two apart without leaving the
   measured plan: a REAL per-call cost is cap-independent in B/call, a floor
-  is cap-independent in B/WINDOW. That distinction is what settled rf2-tmzie
+  is cap-independent in B/WINDOW. That distinction is what separates them
   — `C-FRAME` holds 32.0 B/call from `WA_REPS_MAX=64` to `4000`, a 62x range,
   so it is a real per-call cost here and not the floor.
 
-  What it is NOT is the visibility walk it was published as. The bisection
+  What it is NOT is the visibility walk it looks like. The bisection
   (`C-FRAMEV` / `C-FRAMEL` / `C-FRAMES`) puts all 32 B in TWO
   `PersistentHashMap` lookups on the frame record, 16 B each and additive,
   and the `C-PHMGET` / `C-PAMGET` pair reproduces exactly that on maps built
   for the purpose: a `get` on a 17-entry map costs 16 B, the same `get` on a
   4-entry map costs 0. The registry itself holds four entries, which is why
-  `C-FRAMEG` is free. And `-diagnose` PROBE 4/5 read ~0 for the SAME closure
+  `C-FRAMEG` is free. And `-diagnose` PROBE 4/5 reads ~0 for the SAME closure
   — a process whose only work is that one arm lets V8 elide the box, and a
   second live caller does not restore it. So 32.0 B/call is an UPPER BOUND:
   the cost this plan pays, and one a differently-optimised process does not.
 
   Environment: WA_N (subscriptions, default 300), WA_SAMPLES (samples per
   arm across ALL rounds, default 40), WA_REPS_MAX (the window-size cap
-  `calibrate` clamps to, default 4000 — the rf2-tmzie sweep),
+  `calibrate` clamps to, default 4000 — the floor sweep),
   WA_ROUNDS (default 6 — at least six,
   so the guard's phase thirds are ranges rather than single samples),
   WA_WARM_WINDOWS (full-size discarded windows per arm before the first
   measured round, default 6), WA_WARMUP (bare calls before calibration,
   default 3), WA_TOLERANCE (the guard's relative-median tolerance, default
-  0.25), WA_ORDER=rev (reverse the base plan before scheduling — a knob
-  now, not the mitigation), WA_COORDS=0 (register the ladder's subs WITHOUT
+  0.25), WA_ORDER=rev (reverse the base plan before scheduling — a knob,
+  not the mitigation), WA_COORDS=0 (register the ladder's subs WITHOUT
   source coords — the control arm, not the default)."
   (:require [goog.object :as gobj]
             [goog.string :as gstring]
