@@ -1,7 +1,7 @@
 (ns re-frame.substrate.spine-build-recompute-fn-cljs-test
   "Unit coverage for the substrate-spine's `build-recompute-fn` helper
-  (rf2-eoy63 — arity-specialised recompute closure lifted into the
-  spine so all four adapters share one implementation).
+  (the arity-specialised recompute closure, which lives in the spine so
+  every adapter shares one implementation).
 
   Pins:
 
@@ -123,9 +123,8 @@
     ;; Integration probe: drive `make-derived-value-fn` end-to-end and
     ;; confirm the spine's derived container exposes the same value the
     ;; bare arity-spec recompute closure would have produced. Pins the
-    ;; rf2-eoy63 wiring: spine's IDeref body MUST route through
-    ;; build-recompute-fn, not its old naive (apply compute-fn (map
-    ;; deref ...)) shape.
+    ;; wiring: spine's IDeref body MUST route through build-recompute-fn,
+    ;; not a naive (apply compute-fn (map deref ...)) shape.
     (let [make-derived (rf.substrate.spine/make-derived-value-fn "rf-test-" (rf.substrate.spine/make-scheduler))
           s0           (atom 5)
           derived      (make-derived [s0] (fn [a] (* a 10)))]
