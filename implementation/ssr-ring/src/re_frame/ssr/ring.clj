@@ -91,8 +91,8 @@
   app's own `:rf.server/set-header \"content-type\"` on every request; an
   absent (nil) opt instead leaves the runtime's default-seeded
   `text/html; charset=utf-8` (Spec 011 §Status defaults) — or the app's
-  explicit Content-Type — in control. So the on-the-wire default is
-  unchanged."
+  explicit Content-Type — in control. So the handler leaves the
+  on-the-wire default alone."
   {:emit-hash? true
    :html-shell rf.ssr.ring.shell/default-html-shell})
 
@@ -111,13 +111,13 @@
     :root-view      — hiccup vector or 0-arity fn returning hiccup, rendered
                       (head must be a CALLABLE — the Var reg-view defs, or
                       (rf/view :id); a keyword head is an HTML element, never
-                      a view — rf2-j81hs)
+                      a view)
                       against the settled request frame. Required iff no
                       `:renderer` is supplied — only the default JVM-local
                       renderer reads it; with a custom `:renderer` it is
                       optional and ignored.
                       Two spellings emit byte-identical HTML but differ on
-                      the hydration hash channel (rf2-q1b96):
+                      the hydration hash channel:
 
                         (fn [] ((rf/view :app/root)))  ;; resolves → hashed
                         [(rf/view :app/root)]          ;; a reference → no hash
@@ -143,7 +143,7 @@
                     — a vector of app-db PATHS the frame classifies
                       `:sensitive` whose raw value may ride the payload
                       anyway, e.g. `[[:session :csrf]]` for a CSRF token the
-                      page sends back (rf2-hjz4r). Paths inside the
+                      page sends back. Paths inside the
                       `:payload` allowlist only; a permit never reaches
                       through a classified ancestor. Absent, every
                       classified value arrives as `:rf/redacted`. A
@@ -202,7 +202,7 @@
                       and frame teardown. The renderer owns its body bytes,
                       hash marker included; a nil `:render-hash` omits the
                       payload's `:rf/render-hash` (the unresolved-root
-                      behaviour, rf2-q1b96). A throw is projected exactly
+                      behaviour). A throw is projected exactly
                       like a `:root-view` render throw. Default:
                       `re-frame.ssr.ring.pipeline/local-renderer`, the
                       JVM-local `:root-view` render — the only renderer
@@ -210,7 +210,7 @@
                       required exactly when this opt is absent.
                       `stream-handler` refuses a non-nil `:renderer` at
                       construction (`:rf.error/ssr-streaming-unsupported-
-                      opt`, the `:html-shell` precedent): streaming over a
+                      opt`, as it refuses `:html-shell`): streaming over a
                       non-local renderer is unsupported.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       (absent or nil) to `default-html-shell`. Replace to
@@ -332,7 +332,7 @@
                 ;; exception, a custom 5xx projection) — the app-db is in an
                 ;; arbitrary partial state, so DISCARD the root body + payload
                 ;; and ship the projected-error arm (Spec 011 §Drain-time error
-                ;; classification, rf2-oytx7j).
+                ;; classification).
                 (rf.ssr.ring.pipeline/projected-5xx? public-error)
                 (rf.ssr.ring.pipeline/materialise-projected-error frame-id response public-error opts)
 
@@ -348,7 +348,7 @@
               (rf.ssr.ring.lifecycle/safe-on-error on-error request t))
             (finally
               ;; Frame teardown also clears its per-request side channels.
-              ;; Destroy the VALUE (incarnation-EXACT, rf2-moftbs); the keyword
+              ;; Destroy the VALUE (incarnation-EXACT); the keyword
               ;; `frame-id` names the frame on any failure trace.
               (rf.ssr.ring.lifecycle/destroy-frame-quietly! frame frame-id))))))))
 
