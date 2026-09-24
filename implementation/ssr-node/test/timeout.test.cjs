@@ -23,8 +23,8 @@ const { CODE, RENDER_THREW_REFUSAL } = require('../src/protocol.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
 const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
-// rf2-kirm — the same runaway loop, but with two chunks already emitted, so
-// the deadline lands on a TORN response rather than a clean one.
+// The same runaway loop, but with two chunks already emitted, so the
+// deadline lands on a TORN response rather than a clean one.
 const torn = (extra = {}) => ({ protocol: 1, entry: 'app/torn', state: {}, ...extra });
 
 test('a render that never returns is refused inside its budget', async () => {
@@ -91,17 +91,18 @@ test('the service ceiling binds a caller that asks for longer', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// rf2-kirm — THE TORN-RESPONSE COUNT SURVIVES A TIMEOUT.
+// THE TORN-RESPONSE COUNT SURVIVES A TIMEOUT.
 //
 // `README.md` §refusals and `service.cjs`'s own header both promise that a
 // failure arriving AFTER chunks is a torn response carrying
 // `detail.afterChunks`, and name "the isolate dying under a render" as one of
-// the two ways it happens. The isolate counted chunks on `pendingRender` and
-// attached the count for worker-REPORTED errors — but the deadline rejection
-// and `_failPendingRender` built their refusals without it, so a transport or
-// consumer branching on the advertised discriminator saw `undefined` while
-// body bytes had already left. The throw rows below this block are the shape
-// that always worked; these are the same claim on the paths that dropped it.
+// the two ways it happens. The worker reports the count on the errors it
+// posts, but the deadline rejection and `_failPendingRender` build their
+// refusals themselves, from the count the isolate keeps on `pendingRender` —
+// and a transport or consumer branching on the advertised discriminator must
+// not see `undefined` while body bytes have already left. The throw rows
+// below this block pin the worker-reported shape; these are the same claim on
+// the paths the worker cannot report on.
 // ---------------------------------------------------------------------------
 
 test('a TIMEOUT before any chunk carries afterChunks 0', async () => {
@@ -109,7 +110,7 @@ test('a TIMEOUT before any chunk carries afterChunks 0', async () => {
     const err = await refusalOf(() => collect(service, hang({ timeoutMs: 200 })));
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-    // The distinctions the repair must not cost.
+    // The distinctions the count must not cost.
     assert.strictEqual(err.detail.timeoutMs, 200);
     assert.strictEqual(err.detail.entry, 'app/root');
     assert.strictEqual(typeof err.detail.isolate, 'number');
@@ -127,7 +128,7 @@ test('a TIMEOUT after chunks is a TORN response, and names the exact count', asy
     assert.strictEqual(chunks.length, 2, 'both chunks really did reach the caller');
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT, 'still a timeout, not reclassified');
     assert.strictEqual(err.detail.afterChunks, 2, 'the tear is named, with its exact count');
-    assert.strictEqual(err.detail.timeoutMs, 400, 'the existing detail is intact');
+    assert.strictEqual(err.detail.timeoutMs, 400, 'the rest of the detail is intact');
     assert.strictEqual(
       err.detail.entry,
       'app/torn',
@@ -157,16 +158,15 @@ test('a render that throws BEFORE emitting is a clean refusal', async () => {
       collect(service, { protocol: 1, entry: 'app/before', state: {} }),
     );
     assert.strictEqual(err.code, CODE.RENDER_THREW);
-    // The wording is the CONTRACT'S, not the module's. This row asserted
-    // `/fell over immediately/` — the exact string authored at
-    // `fixtures/throws.cjs:20` — which made it a standing witness that the
-    // module's own message crossed into the public refusal. That was the
-    // leak rather than a feature of it: an exception's message is built
-    // from the value being processed in any real renderer, so the string
-    // this row was pinning is the shape request state travels in. The
-    // operator still gets the original, with its stack, on the sidecar's
-    // stderr; `egress.test.cjs` §4 is where the absence is measured with
-    // planted sentinels.
+    // The wording is the CONTRACT'S, not the module's. Pinning
+    // `/fell over immediately/` — the exact string authored in
+    // `fixtures/throws.cjs` — would make this row a standing witness that
+    // the module's own message crosses into the public refusal, which is
+    // the leak: an exception's message is built from the value being
+    // processed in any real renderer, so that string is the shape request
+    // state travels in. The operator gets the original, with its stack, on
+    // the sidecar's stderr; `egress.test.cjs` §4 is where the absence is
+    // measured with planted sentinels.
     assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
     assert.ok(!err.message.includes('fell over immediately'), 'the authored string must not cross');
     assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
@@ -242,7 +242,7 @@ test('CONTROL — with no deadline in reach, the fault really does run forever',
   await service.close();
   const err = await inFlight;
   assert.strictEqual(err.code, CODE.SERVICE_CLOSED, 'closing must refuse what is in flight');
-  // rf2-kirm — the third terminal path that clears `pendingRender`. Nothing
+  // The third terminal path that clears `pendingRender`. Nothing
   // was emitted here, so the count is 0; what matters is that the field is
   // PRESENT, since a consumer branching on `detail.afterChunks` cannot tell an
   // untorn response from a path that forgot to say.
@@ -250,13 +250,13 @@ test('CONTROL — with no deadline in reach, the fault really does run forever',
 });
 
 // ---------------------------------------------------------------------------
-// A worker that EXITS before it is ready (rf2-gwye.23)
+// A worker that EXITS before it is ready
 //
-// The boot deadline had a hole. A module that calls `process.exit()` while it
-// is evaluated, or from its `boot` hook, raises no `error` and posts no
-// `boot-error` — and the exit CLEARED the boot timer, the only other thing
-// that could settle startup. So startup stayed pending for ever, and a pool
-// start and a replacement both inherited that. `bootTimeoutMs` is left at its
+// A module that calls `process.exit()` while it is evaluated, or from its
+// `boot` hook, raises no `error` and posts no `boot-error` — and the exit
+// CLEARS the boot timer, the only other thing that could settle startup.
+// Unless the exit itself settles startup, startup stays pending for ever, and
+// a pool start and a replacement both inherit that. `bootTimeoutMs` is left at its
 // 30 s default, far past every bound below, so a green row is the EXIT
 // settling startup rather than the boot timer standing in for it — and a red
 // one reads as a failed assertion, never as a hung file.
@@ -373,7 +373,7 @@ test('a REPLACEMENT that exits before it is ready refuses its waiter, tells the 
     // construction, so this reaches the replacement and nothing else.
     process.env[EXIT_AT_FLAG] = 'boot';
 
-    assert.strictEqual((await dying).code, CODE.ISOLATE_LOST, 'the render-time exit is unchanged');
+    assert.strictEqual((await dying).code, CODE.ISOLATE_LOST, 'the render-time exit is refused as isolate-lost');
     const waiter = await settledWithin(queued);
     assert.strictEqual(waiter.state, 'resolved', 'the waiter must be answered, not left to its admission timer');
     assert.strictEqual(waiter.value?.code, CODE.ISOLATE_LOST);
