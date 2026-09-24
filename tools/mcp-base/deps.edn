@@ -10,16 +10,15 @@
 ;; construction. The library ships independently as
 ;; `day8/re-frame2-mcp-base`.
 ;;
-;; rf2-2ii52 — it used to carry one: `day8/de-dupe`, by `:git/url`. That
-;; is a coordinate `clein pom` cannot express, so it was DROPPED silently
-;; from the generated pom and both this artefact and story-mcp would have
-;; published a jar missing a runtime dependency (Clojars has no yank).
+;; There is no `day8/de-dupe` dependency. Its only coordinate is a
+;; `:git/url`, which `clein pom` cannot express, so it would be DROPPED
+;; silently from the generated pom and both this artefact and story-mcp
+;; would publish a jar missing a runtime dependency (Clojars has no yank).
 ;; The library is not on Clojars and cannot be put there under the `day8`
 ;; group — Clojars refuses NEW projects in unverified, non-reverse-domain
-;; groups — so there was no `:mvn/version` to rewrite to. Mike ruled
-;; route (b): the codec is now VENDORED into
-;; `re-frame.mcp-base.dedup`, which carries the upstream MIT notice and
-;; the list of changes made while absorbing it.
+;; groups — so there is no `:mvn/version` to use. The codec is VENDORED
+;; into `re-frame.mcp-base.dedup`, which carries the upstream MIT notice
+;; and the list of changes made while absorbing it.
 {:paths ["src"]
  :deps  {org.clojure/clojure {:mvn/version "1.12.0"}}
 
@@ -62,18 +61,17 @@
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
 
-  ;; rf2-2ii52 — `:main` is REQUIRED by the day8 clein fork's
+  ;; `:main` is REQUIRED by the day8 clein fork's
   ;; `:noahtheduke.clein.specs/build-opts` spec. Without it every clein
   ;; invocation in this directory aborts before doing any work:
   ;;
   ;;   Error in the :clein/build map: {…} - failed: (contains? % :main)
   ;;
-  ;; So `day8/re-frame2-mcp-base` was not merely un-deployed — it was
-  ;; un-BUILDABLE, the same defect rf2-4u3t1 found in machines-viz. The
-  ;; lockstep gate could not see it: it read `:version` and the
-  ;; `:local/root` coordinates, never whether clein would accept the map.
-  ;; `verify-version-lockstep.sh` now asserts `:main` on every publishable
-  ;; `:clein/build`, so this class cannot recur silently.
+  ;; so without `:main` `day8/re-frame2-mcp-base` is not merely
+  ;; un-deployed but un-BUILDABLE. `verify-version-lockstep.sh` asserts
+  ;; `:main` on every publishable `:clein/build`, because reading
+  ;; `:version` and the `:local/root` coordinates cannot tell whether
+  ;; clein would accept the map.
   ;;
   ;; `vocab` is the artefact's primary public surface — the shared wire
   ;; vocabulary every consumer reaches for first, per the header above.
