@@ -1,26 +1,23 @@
 (ns re-frame.http-json-test
   "Unit tests for `re-frame.http.json` on JVM (Cheshire path).
 
-  Beads:
-   - rf2-wu1n5 — JSON keyword-interning DoS: cap on unique keys decoded
-                 (configurable via `:max-decoded-keys` option per call).
-                 Overflow throws `:rf.error/id :rf.error/malformed-json`
-                 with `:cause :too-many-keys`, which the
-                 `:rf.http/managed` cascade classifies as
-                 `:rf.http/decode-failure`.
-   - rf2-dgsu1 — Cheshire is a hard JVM dep (no fallback reader). Native
-                 Cheshire `JsonParseException`s propagate to the transport
-                 catch site, which classifies them as
-                 `:rf.http/decode-failure`. Earlier `rf2-263km` covered
-                 the hand-rolled fallback reader's bounds-checking; with
-                 the fallback removed those manual-parser regressions
-                 are moot — Cheshire is RFC-8259-conforming and bulletproof
-                 around `\\uXXXX` escapes by construction."
+   - JSON keyword-interning DoS: cap on unique keys decoded
+     (configurable via `:max-decoded-keys` option per call).
+     Overflow throws `:rf.error/id :rf.error/malformed-json`
+     with `:cause :too-many-keys`, which the
+     `:rf.http/managed` cascade classifies as
+     `:rf.http/decode-failure`.
+   - Cheshire is a hard JVM dep (no fallback reader). Native
+     Cheshire `JsonParseException`s propagate to the transport
+     catch site, which classifies them as
+     `:rf.http/decode-failure`. Cheshire is RFC-8259-conforming and
+     bulletproof around `\\uXXXX` escapes by construction, so no
+     hand-rolled parser bounds-checking is needed."
   (:require [cheshire.core :as cheshire]
             [clojure.test :refer [deftest is testing]]
             [re-frame.http.json :as rf.http.json]))
 
-;; ---- rf2-wu1n5 — keyword-interning cap -----------------------------------
+;; ---- keyword-interning cap -----------------------------------------------
 
 (defn- big-json [n-keys]
   ;; Build `{"k0": 0, "k1": 1, ..., "kN-1": N-1}` — N unique keys exactly.
@@ -32,7 +29,7 @@
        "}"))
 
 (deftest cheshire-branch-respects-keyword-cap
-  (testing "rf2-wu1n5 — Cheshire branch caps unique-key cardinality"
+  (testing "Cheshire branch caps unique-key cardinality"
     (let [s (big-json 50)]
       ;; Under the cap → success.
       (is (map? (rf.http.json/json-parse s {:max-decoded-keys 100}))
@@ -54,7 +51,7 @@
         (is (= 10 (:limit data)))))))
 
 (deftest default-cap-enforced-at-default-max
-  (testing "rf2-wu1n5 — default cap (`default-max-decoded-keys`) fires
+  (testing "default cap (`default-max-decoded-keys`) fires
   when no opts supplied."
     ;; Sanity: the documented constant is what we say it is.
     (is (= 10000 rf.http.json/default-max-decoded-keys))
@@ -72,33 +69,30 @@
       (is (= rf.http.json/default-max-decoded-keys (:limit data))))))
 
 (deftest cap-counts-unique-not-total
-  (testing "rf2-wu1n5 — repeated keys don't multiply the count"
+  (testing "repeated keys don't multiply the count"
     ;; 1000 entries but only 5 unique key strings: {\"a\":1,\"a\":2,...}
     (let [pairs (clojure.string/join "," (repeat 200 "\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5"))
           s     (str "{" pairs "}")]
       (is (map? (rf.http.json/json-parse s {:max-decoded-keys 10}))
           "5 unique keys under cap=10 should succeed even with 1000 entries"))))
 
-;; ---- rf2-dgsu1 — Cheshire is mandatory; malformed JSON propagates --------
+;; ---- Cheshire is mandatory; malformed JSON propagates --------------------
 
 (deftest cheshire-handles-well-formed-unicode-escape
-  (testing "rf2-dgsu1 — Cheshire (the now-mandatory JVM JSON dep) parses
-  `\\uXXXX` escapes correctly. The previous hand-rolled fallback's
-  `\\uXXXX` bounds-checking (rf2-263km) is moot — Cheshire is
-  RFC-8259-conforming."
+  (testing "Cheshire (the mandatory JVM JSON dep) parses
+  `\\uXXXX` escapes correctly. It is RFC-8259-conforming, so no
+  hand-rolled `\\uXXXX` bounds-checking is needed."
     (is (= "A"   (rf.http.json/json-parse "\"\\u0041\"")))
     (is (= "AB"  (rf.http.json/json-parse "\"\\u0041\\u0042\"")))
     (is (= "café" (rf.http.json/json-parse "\"caf\\u00e9\"")))))
 
 (deftest cheshire-rejects-malformed-input-cleanly
-  (testing "rf2-dgsu1 — malformed JSON (truncated escape, unterminated
+  (testing "malformed JSON (truncated escape, unterminated
   string, invalid token) raises a Cheshire/Jackson `JsonParseException`.
   The `:rf.http/managed` cascade's `decode-response-body` catch site
   surfaces this as `:rf.http/decode-failure` with the parser message at
   `:cause` — no per-test fixture needed; the contract is simply 'parse
-  errors throw'. Earlier the hand-rolled fallback masked malformed
-  input behind a custom `:rf.error/malformed-json` ex-info; that
-  layering is no longer necessary."
+  errors throw'."
     ;; Inputs Cheshire/Jackson rejects with a parse exception. (Jackson
     ;; is tolerant of some shapes by design — trailing-comma arrays and
     ;; missing-close-brace objects fall through to its end-of-stream
@@ -118,9 +112,8 @@
                  " — got " thrown))))))
 
 (deftest json-stringify-uses-cheshire
-  (testing "rf2-dgsu1 — `json-stringify` produces real JSON via Cheshire
-  (not `pr-str`). The earlier shape fell back to `pr-str` when
-  Cheshire was absent; with Cheshire mandatory the output is always
+  (testing "`json-stringify` produces real JSON via Cheshire
+  (not `pr-str`); with Cheshire mandatory the output is always
   valid JSON."
     ;; Cheshire emits standard JSON: keys quoted, strings double-quoted,
     ;; no edn-isms.
@@ -130,10 +123,10 @@
     (is (= "true" (rf.http.json/json-stringify true)))
     (is (= "null" (rf.http.json/json-stringify nil)))))
 
-;; rf2-3x7nj.16.2 — the same body writes the same JSON on both hosts. The CLJS
+;; The same body writes the same JSON on both hosts. The CLJS
 ;; twin (`cljs-json-stringify-matches-across-hosts` in
-;; http_json_cljs_test.cljs) pins the identical expectations; this JVM half is a
-;; regression pin, because Cheshire already wrote them. Parsed JSON is compared,
+;; http_json_cljs_test.cljs) pins the identical expectations; this JVM half
+;; pins what Cheshire writes. Parsed JSON is compared,
 ;; because key order is not part of the contract.
 (def ^:private uuid-a #uuid "6f1c2b3a-0000-4000-8000-000000000001")
 
@@ -141,7 +134,7 @@
   (cheshire/parse-string (rf.http.json/json-stringify v)))
 
 (deftest json-stringify-matches-across-hosts
-  (testing "rf2-3x7nj.16.2 — keywords keep their namespace, keys and values
+  (testing "keywords keep their namespace, keys and values
   alike, and a UUID goes out as its canonical string wherever it sits"
     (is (= {"order/id" 1 "customer/id" 7} (wire {:order/id 1 :customer/id 7}))
         "two qualified keys sharing a local name stay two members")
@@ -159,13 +152,13 @@
     (is (= "{\"a\":1,\"b\":\"hello\"}" (rf.http.json/json-stringify {:a 1 :b "hello"}))
         "control: an unqualified body is unchanged")))
 
-;; ---- rf2-mih7n — non-string / empty input coverage -----------------------
+;; ---- non-string / empty input coverage -----------------------------------
 ;;
 ;; The JVM `json-parse` body opens with `(when (string? s) ...)`. That
 ;; guard means a non-string `s` (nil, keyword, number, map, vector)
 ;; returns nil cleanly rather than throwing — protecting the
 ;; `:rf.http/managed` decode pipeline from a programmer error in the
-;; transport layer. Per rf2-x1uhu the CLJS branch now carries the same
+;; transport layer. The CLJS branch carries the same
 ;; guard, so the two hosts agree on non-string input (see the CLJS
 ;; counterpart `cljs-json-parse-non-string-input-returns-nil`).
 ;;
@@ -180,7 +173,7 @@
 ;; "input simply has no JSON value to surface → return nil" path.
 
 (deftest jvm-json-parse-non-string-and-empty-return-nil
-  (testing "rf2-mih7n — `json-parse` returns nil (not a throw) for
+  (testing "`json-parse` returns nil (not a throw) for
   non-string inputs and the empty string. The JVM body's `(when
   (string? s) ...)` guard protects the managed-HTTP decode pipeline
   from a programmer error in transport — a malformed input throws
@@ -200,7 +193,7 @@
         "vector input → nil (same)")))
 
 (deftest jvm-json-parse-whitespace-only-returns-nil
-  (testing "rf2-mih7n — whitespace-only inputs (\" \", \"\\n\", \"\\t\")
+  (testing "whitespace-only inputs (\" \", \"\\n\", \"\\t\")
   are not valid JSON documents per RFC 8259, but Cheshire/Jackson
   surfaces them as end-of-stream → nil (same as the empty-string
   case). Pin the contract."
