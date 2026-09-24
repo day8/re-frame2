@@ -1,14 +1,14 @@
 (ns re-frame.cofx-router-stamp-clock-cljs-test
-  "rf2-qz0uog (EP-0010 §Dispatch Envelope Stamping) — CLJS LIVE-path
-  regression for the router's `:rf.cofx` `:rf/time-ms` stamp.
+  "CLJS LIVE-path regression for the router's `:rf.cofx` `:rf/time-ms`
+  stamp (EP-0010 §Dispatch Envelope Stamping).
 
-  WHY A NEW CLJS SUITE. The existing core `:rf.cofx` envelope tests
+  WHY A CLJS SUITE. The core `:rf.cofx` envelope tests
   (`re-frame.cofx-envelope-test`) are JVM-ONLY and assert only that an
   omitted `:time-ms` is stamped to a NUMBER. On the JVM `rf.interop/now-ms`
   (elapsed) and `rf.interop/epoch-now-ms` (wall-clock) are BOTH
   `System.currentTimeMillis`-ish, so a regression swapping the router's
-  stamp source from `epoch-now-ms` -> `now-ms` (rf2-n1rh0f names
-  `epoch-now-ms` as THE durable wall-clock source) stays GREEN on every
+  stamp source from `epoch-now-ms` -> `now-ms` (`epoch-now-ms` is THE
+  durable wall-clock source) stays GREEN on every
   JVM suite. On CLJS the two clocks are DISTINCT CLASSES:
 
     - `rf.interop/now-ms`       = `performance.now()` — origin-relative,
@@ -21,10 +21,9 @@
   A durable timestamp folded from `performance.now()` would be ~12 orders
   of magnitude too small and incomparable with the `js/Date`-based
   freshness / invalidation / staleness readers (resources `:stale-at`,
-  `:invalidated-at`, epoch `:committed-at`). This is the EXACT clock-class
-  bug the resources `:completed-at` perf-clock regression (rf2-2elcw3) and
-  the epoch `:committed-at` regression (rf2-1t30y7) each needed a dedicated
-  CLJS suite to catch. This suite closes it for the ROUTER ENVELOPE STAMP
+  `:invalidated-at`, epoch `:committed-at`). The resources `:completed-at`
+  and epoch `:committed-at` stamps carry the same clock-class risk, and each
+  has its own CLJS suite; this suite covers the ROUTER ENVELOPE STAMP
   itself — the single causal-boundary read every durable write folds.
 
   It drives the REAL router: it dispatches an UNSCRIPTED event (NO
@@ -32,7 +31,7 @@
   causal `:time-ms` from the host clock, and reads the stamped map back two
   ways — (a) off the handler's `:rf.cofx` COEFFECT (the public
   handler-visible path, Spec 002 §Event Context And Coeffects), and (b) off
-  the `:rf.event/dispatched` TRACE (the Xray-visible path, rf2-jt854w). Both
+  the `:rf.event/dispatched` TRACE (the Xray-visible path). Both
   must carry a WALL-CLOCK epoch ms (> 1e12, within seconds of
   `js/Date.now()`), NOT a perf-clock origin-relative value.
 
@@ -57,7 +56,7 @@
 (def ^:private wall-clock-floor 1e12)
 
 (deftest router-stamps-omitted-time-ms-as-wall-clock-epoch-on-the-coeffect
-  (testing "rf2-qz0uog — an UNSCRIPTED dispatch (no :rf.cofx) flows
+  (testing "an UNSCRIPTED dispatch (no :rf.cofx) flows
             through the live router, which stamps the causal :time-ms from the
             host clock; the handler reads :rf.cofx off its coeffect and
             the stamped :time-ms MUST be a WALL-CLOCK epoch ms (close to
@@ -87,8 +86,8 @@
           (is (map? rf-cofx) ":rf.cofx is a map")
           (is (number? time-ms) ":rf/time-ms is a stamped number")
           ;; The CLASS assertion: wall-clock epoch ms, not a perf origin time.
-          ;; Pre-swap ~1.78e12; a now-ms swap lands ~1e4 (performance.now) on
-          ;; the CLJS runtime — far below the floor.
+          ;; A wall-clock stamp reads ~1.78e12; a now-ms swap lands ~1e4
+          ;; (performance.now) on the CLJS runtime — far below the floor.
           (is (> time-ms wall-clock-floor)
               ":time-ms is a WALL-CLOCK epoch ms (> 1e12) — sourced from
                rf.interop/epoch-now-ms (js/Date.now), NOT rf.interop/now-ms
@@ -104,9 +103,9 @@
                read"))))))
 
 (deftest router-stamps-omitted-time-ms-as-wall-clock-epoch-on-the-dispatched-trace
-  (testing "rf2-qz0uog — the SAME omitted-time-ms stamp rides the
+  (testing "the SAME omitted-time-ms stamp rides the
             :rf.event/dispatched trace (the Xray Event-lens :rf.cofx
-            surface, rf2-jt854w): the trace-side :rf.cofx :time-ms is
+            surface): the trace-side :rf.cofx :time-ms is
             ALSO a wall-clock epoch ms (> 1e12), not a perf-clock value. Covers
             the router envelope-stamp path as seen by the trace stream, not
             just the handler coeffect."
@@ -122,7 +121,7 @@
                              (filter #(= :rf.event/dispatched (:operation %)))
                              first)
               ;; the op-type-specific payload slots ride under :tags;
-              ;; build-event hoists only :source to top-level (rf2-jt854w).
+              ;; build-event hoists only :source to top-level.
               rf-cofx   (get-in enqueue [:tags :rf.cofx])
               time-ms   (:rf/time-ms rf-cofx)]
           (is (some? enqueue) ":rf.event/dispatched fired")
@@ -138,7 +137,7 @@
                band — the same live wall clock"))))))
 
 (deftest clock-class-discriminator-sanity-cljs
-  (testing "rf2-qz0uog — corroborate the discriminator the regression
+  (testing "corroborate the discriminator the regression
             assertions lean on: on the CLJS runtime epoch-now-ms is a
             wall-clock epoch ms (> 1e12) while now-ms (performance.now) is an
             origin-relative elapsed value BELOW the wall-clock floor. Pins that
