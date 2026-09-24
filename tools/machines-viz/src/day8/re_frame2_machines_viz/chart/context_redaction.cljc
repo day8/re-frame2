@@ -4,7 +4,7 @@
   ## Why this exists
 
   The Context band paints a `(key, value)` map the host feeds as
-  `:context-band`. The SOLE production feeder today is the static context
+  `:context-band`. The SOLE production feeder is the static context
   SHAPE (key → type-caption — value-free; see `context-shape`). But the
   contract also lets a host feed the LIVE machine `:data` VALUES
   (`:context-band-inferred? false`). Those values land in the rendered
@@ -20,11 +20,10 @@
   explicit trusted-local opt-in. Spec 015 §Subsystem projection-relative
   classification / Spec 005: a machine's durable `:data` classification
   is **declared on the machine definition** as projection-relative
-  `:sensitive` / `:large` paths (`{:sensitive [[:data :token]]}`). EP-0025
-  reversed the EP-0005 bridge: the `[:schemas :data]` schema still
-  validates `:data`, and its `:sensitive?` / `:large?` props drive only
-  validation-failure-trace redaction, so they do not classify the band
-  (rf2-3x7nj.33.3).
+  `:sensitive` / `:large` paths (`{:sensitive [[:data :token]]}`). The
+  `[:schemas :data]` schema validates `:data`, and its `:sensitive?` /
+  `:large?` props drive only validation-failure-trace redaction, so they do
+  not classify the band.
 
   ## What this does
 
@@ -55,8 +54,8 @@
 (def ^:private whole-data
   "The WHOLE-`:data` marker. A classification set carrying it classifies
   EVERY band key — including a key the live `:data` first gains at runtime,
-  which no expansion over the definition's initial `:data` could name
-  (rf2-k7i6y). It rides INSIDE the key set, so the set still flows through
+  which no expansion over the definition's initial `:data` could name.
+  It rides INSIDE the key set, so the set still flows through
   the documented recipe and the `:context-band-sensitive` /
   `:context-band-large` props unchanged."
   ::whole-data)
@@ -64,7 +63,7 @@
 (defn derive-classification
   "Extract `{:sensitive #{k …} :large #{k …}}` — sets of Context-band KEYS —
   from a machine DEFINITION's own projection-relative `:sensitive` / `:large`
-  declaration (rf2-3x7nj.33.3; Spec 015 §Subsystem projection-relative
+  declaration (Spec 015 §Subsystem projection-relative
   classification, Spec 005 — e.g. `{:sensitive [[:data :payment :token]]}`).
   Pure.
 
@@ -73,12 +72,11 @@
       slot (`[:data :payment :token]` redacts `:payment`).
     - A bare `[:data]` (or the whole-snapshot `[]`) keeps WHOLE-data scope:
       the set carries the whole-data marker, which classifies every band
-      key, runtime-only keys included (rf2-k7i6y).
+      key, runtime-only keys included.
     - Any other path not rooted at `:data` names no band key and is ignored.
 
   The `[:schemas :data]` schema's `:sensitive?` / `:large?` props are NOT
-  read: EP-0025 reversed that bridge, and they drive only validation-failure-
-  trace redaction. Returns `{:sensitive #{} :large #{}}` when nothing is
+  read: they drive only validation-failure-trace redaction. Returns `{:sensitive #{} :large #{}}` when nothing is
   declared."
   [definition]
   (let [band-keys (fn [paths]
@@ -110,10 +108,7 @@
 
   Two units live side by side here, on purpose: this CAP is characters
   (what the band paints), while the `:rf.size/large-elided` marker's
-  `:bytes` slot is UTF-8 bytes (the framework's wire vocabulary). The
-  cap's threshold therefore does not move under rf2-2rtt6.132 — nothing
-  that rendered inline before is elided now, and nothing that was elided
-  is admitted."
+  `:bytes` slot is UTF-8 bytes (the framework's wire vocabulary)."
   512)
 
 (defn- printed-size
@@ -125,7 +120,7 @@
   Characters, deliberately: the cap guards how much a chart band paints,
   which is a count of glyphs on screen, not of octets on a wire. It is
   the `:bytes` MARKER slot that must speak the framework's unit — see
-  `utf8-bytes` below (rf2-2rtt6.132)."
+  `utf8-bytes` below."
   [v]
   (count (pr-str v)))
 
@@ -135,19 +130,18 @@
   `:bytes` so a machines-viz chip and a framework one report the same
   quantity.
 
-  Until rf2-2rtt6.132 the marker's `:bytes` slot carried `printed-size`,
-  i.e. UTF-16 CODE UNITS under a byte name. That fails OPEN: the two
-  rulers agree exactly on ASCII, so the wrong expression printed the
-  right number and a green suite never noticed — until a context value
-  grew an em-dash or an emoji, at which point the published figure
-  under-reported by up to 3x (4x for astral code points).
+  Carrying `printed-size` in the `:bytes` slot — UTF-16 CODE UNITS under a
+  byte name — would fail OPEN: the two rulers agree exactly on ASCII, so
+  the wrong expression prints the right number and a green suite never
+  notices, while a context value carrying an em-dash or an emoji
+  under-reports by up to 3x (4x for astral code points).
 
   `TextEncoder` and not `Buffer.byteLength`: this ns compiles into the
   BROWSER viewer bundle (`:machines-viz-viewer`, and under `:advanced`),
   where `Buffer` is not there; `^js` hints so `:advanced` cannot rename
   the call. TextEncoder is UTF-8 BY DEFINITION and carries no encoding
   argument a later edit could silently drop. Same helper shape as
-  `day8.re-frame2-xray.panels.epoch.format/pr-str-bytes` (rf2-2rtt6.131)."
+  `day8.re-frame2-xray.panels.epoch.format/pr-str-bytes`."
   [v]
   (let [s (pr-str v)]
     #?(:clj  (alength (.getBytes ^String s "UTF-8"))
@@ -183,9 +177,9 @@
 
   `:bytes` is UTF-8 bytes (`utf8-bytes`), NOT the `printed-size`
   characters the cap is measured in — the slot is the framework's wire
-  vocabulary and must mean what the framework means by it
-  (rf2-2rtt6.132). The two agree on ASCII and diverge on everything
-  else, which is precisely why the mismatch went unnoticed."
+  vocabulary and must mean what the framework means by it. The two agree
+  on ASCII and diverge on everything else, so an ASCII-only suite cannot
+  tell them apart."
   [k v]
   {:rf.size/large-elided
    {:path   [k]
@@ -235,8 +229,7 @@
   "The display TEXT the band paints for a (possibly redacted) value `v`.
   `:rf/redacted` and the canonical `:rf.size/large-elided` marker render
   as stable, content-FREE sentinels so they read clearly in the chart AND
-  in any serialised export. Everything else renders via `pr-str` (the
-  prior behaviour)."
+  in any serialised export. Everything else renders via `pr-str`."
   [v]
   (cond
     (= :rf/redacted v) "🔒 :rf/redacted"
