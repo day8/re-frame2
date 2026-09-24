@@ -155,7 +155,7 @@
       join child (`:error? true`) skips that fold and reaches the parent only
       through `:on-any-failed` and the join's `:failed` set.
 
-  A single-`:spawn` child's failure never rides this event (rf2-3x7nj.41.1).
+  A single-`:spawn` child's failure never rides this event.
   Its ERROR leaf, like an uncaught child action exception, goes out as
   `spawn-error-event-id` whether or not the parent declares `:on-error`, and
   the parent resolves it through `:on-error`, else an explicit
@@ -453,7 +453,7 @@
   via `rf.machines.result/fail`. The shape mirrors `run-action`'s failure info
   (`:exception` is the key `trace-action-failure!` reads) so a guard throw
   routes through the SAME `:rf.error/machine-action-exception` handler
-  surface as an action throw, per the XState-v5 alignment ruling."
+  surface as an action throw, per the XState-v5 alignment."
   [e]
   (let [d (ex-data e)]
     {:exception  (:exception d)
@@ -470,8 +470,8 @@
   evaluation) and return true.
 
   When the guard fn body throws, emit `:rf.machine/guard-evaluated` with
-  `:outcome :threw` and the `:exception` slot (the observability trace is
-  preserved), then RETHROW a tagged guard-throw signal (`ex-data` carries
+  `:outcome :threw` and the `:exception` slot (so the observability trace
+  fires on the throw path too), then RETHROW a tagged guard-throw signal (`ex-data` carries
   `guard-threw-key`, the `:guard-ref`, the original `:exception`, and the
   active `:state`). Per Spec 005 §`:rf.machine/guard-evaluated`
   XState v5 surfaces a guard error and aborts transition
@@ -482,8 +482,8 @@
   atomic-rollback surface a throwing ACTION takes (and the bounded-depth
   abort takes for the XState-v5-throws runaway cycle). This makes a guard
   throw, an action throw, and a depth abort converge on one failure
-  semantic rather than the old asymmetry (guard throw → silent `:fail`
-  demotion; action throw → halt)."
+  semantic: a guard throw is never demoted to a silent `:fail` while an
+  action throw halts."
   [machine guard-ref snapshot event]
   (if (nil? guard-ref)
     true
@@ -625,7 +625,7 @@
 ;;
 ;; Per Spec 005 §State paths and §Entry/exit cascading along the LCA, the
 ;; snapshot's :state is a vector path from root to leaf (e.g.
-;; [:authenticated :cart :paying]). Flat machines used :state :foo for
+;; [:authenticated :cart :paying]). Flat machines use :state :foo for
 ;; compactness; we accept both and normalise internally.
 
 (defn classify-delay-source
@@ -716,8 +716,8 @@
 
   An EMPTY path names the machine (or region body) root, whose `:initial`
   chain is the one to descend — a root `:same-state` target re-resolves the
-  whole configuration to the machine's `:initial`, never to `:state []`
-  (rf2-gdne8). A root with no `:initial` (a parallel root) stays `[]`."
+  whole configuration to the machine's `:initial`, never to `:state []`.
+  A root with no `:initial` (a parallel root) stays `[]`."
   [machine path]
   (loop [p path]
     (let [n (if (empty? p) machine (node-at machine p))]
@@ -738,8 +738,7 @@
   (`validation/validate-tags!`) rejects any non-set value with
   `:rf.error/machine-bad-tags`, so by the time the runtime reads a node here the
   slot IS a set (or absent). No coercion: a vector / single keyword is a
-  registration error, not a silently-normalised alias (per the 2026-07-03
-  self-consistency review + naming rule 2)."
+  registration error, not a silently-normalised alias (per naming rule 2)."
   [node]
   (:tags node))
 
@@ -1110,7 +1109,7 @@
           ;; the declaring path + per-path epoch ARE the data-only
           ;; suppression gate. Carry `:decl-path` so the lifecycle's
           ;; `:rf.machine.timer/stale-after` trace can express the
-          ;; carried/current gate the reply-envelope way (m-reply).
+          ;; carried/current gate the reply-envelope way.
           :else
           {:stale?          true
            :actor-id        actor-id
@@ -1358,7 +1357,7 @@
             {:transition hit :decl-path []}))))))
 
 (defn spawn-carrier-stale-reason
-  "rf2-3x7nj.9.3 / .8.2 — is a single-`:spawn` completion carrier from attempt
+  "Is a single-`:spawn` completion carrier from attempt
   `carried-attempt` at `invoke-id` still CURRENT against the parent's
   `snapshot`? Returns nil when it is, else the stale reason:
 
@@ -1414,7 +1413,7 @@
       still occupied — the common case, since the child failing is what should
       move the parent out of it).
    2. **An enclosing explicit `:on {:rf.machine.spawn/error …}`** — the
-      lower-level escape hatch (kept additive). When no `:spawn :on-error` is
+      lower-level escape hatch. When no `:spawn :on-error` is
       declared (or its candidates all guard-fail), the raised event walks the
       active path leaf→root like any event, so an ancestor handling the
       reserved id explicitly can take it. A guard reads the invoke-id /error off
@@ -1422,8 +1421,8 @@
 
   Returns `{:transition t :decl-path p}` or nil (no `:on-error` and no
   enclosing handler — the failure signal is then a benign no-op, exactly like
-  an unhandled reserved-`:rf/*` event; the existing trace emission + the
-  explicit dispatch-back-to-parent escape hatch remain the lower-level forms)."
+  an unhandled reserved-`:rf/*` event; the trace emission and the
+  explicit dispatch-back-to-parent escape hatch are the lower-level forms)."
   [machine path event snapshot]
   (let [[_ raw-invoke-id] event
         region         (:rf/region machine)
@@ -1816,8 +1815,8 @@
   `:rf.machine.history/recorded` trace, per spec/009). `:compound-path` is
   the region-qualified declaration path (the `:rf/history` key); `:kind` is
   `:deep`/`:shallow`; `:prev-config` is the value the slot held BEFORE this
-  write (omitted on the first-ever recording for the compound — the slot was
-  previously unallocated). The slot is allocated lazily — a transition
+  write (omitted on the first-ever recording for the compound — the slot is
+  unallocated until that write). The slot is allocated lazily — a transition
   leaving no history-bearing compound's child subtree leaves the snapshot
   untouched."
   [machine snapshot src-path lca-len]
@@ -2030,7 +2029,7 @@
 ;;                                             ;;   added/changed (empty when no
 ;;                                             ;;   action, or the action wrote no
 ;;                                             ;;   :data)
-;;    :source :recorded | :default}            ;; ADDITIVE, history-only: present
+;;    :source :recorded | :default}            ;; OPTIONAL, history-only: present
 ;;                                             ;;   on an :entry step produced by a
 ;;                                             ;;   history restore (spec/009 line
 ;;                                             ;;   291), matching the
@@ -2100,7 +2099,7 @@
                   (let [before-data (:data snap)
                         emit-phase  (or phase kind)
                         ;; Per spec/009 §History trace events (line 291): a
-                        ;; history-driven `:entry` step additively carries
+                        ;; history-driven `:entry` step also carries
                         ;; `:source` (set in `compute-transition-geometry`); a
                         ;; non-history step has none, so only stamp it when
                         ;; the input step supplied it.
@@ -2408,14 +2407,11 @@
 
   Per Spec 005 §Spawn-spec keys, `:id-prefix` is `optional; defaults to
   :machine-id`, and §Spawn-id allocator — counter location keys the
-  declarative counter at `[:rf/spawn-counter <id-prefix>]`. rf2-r9ey: the
-  declarative allocator previously read `:machine-id` unconditionally, so an
-  author who supplied the documented `:id-prefix` was silently ignored — the
-  key was accepted by the spawn-args validator, documented in three places,
-  and had no effect at all. That mattered beyond tidiness once rf2-1sip
-  shipped option (f) alone: a generated address held by a live actor now
-  fails closed, and `:id-prefix` is the author's only namespacing escape from
-  the collision it refuses.
+  declarative counter at `[:rf/spawn-counter <id-prefix>]`. Reading
+  `:machine-id` unconditionally would silently ignore an author's documented
+  `:id-prefix`, and that matters beyond tidiness: a generated address held by
+  a live actor fails closed, and `:id-prefix` is the author's only
+  namespacing escape from the collision it refuses.
 
   PREFIX AND COUNTER KEY MOVE TOGETHER, deliberately. Sequencing under one key
   while minting from another would re-mint `<prefix>#1` for every distinct
@@ -2472,7 +2468,7 @@
   exception contract rather than letting it escape as a generic handler
   exception.
 
-  rf2-3x7nj.9.3 / .8.2 — every entry also bumps this invoke's ATTEMPT token
+  Every entry also bumps this invoke's ATTEMPT token
   at `[:rf/spawn-attempts <attempt-key>]` and stamps it on the spawn args as
   `:rf/invoke-attempt`. The child carries it back on both completion
   carriers, and the parent delivers a carrier only while the carried attempt
@@ -2577,7 +2573,7 @@
           children-with-ids)]
     (if (rf.machines.result/fail? spawn-fxs-r)
       (reduced spawn-fxs-r)
-      (let [;; (2) The `:rf.machine/spawn-all-init` fx — built HERE, after the
+      (let [;; (4) The `:rf.machine/spawn-all-init` fx — built HERE, after the
             ;; per-child fxs, so it can carry them. `spawn-one` emits exactly
             ;; one `[:rf.machine/spawn args]` per child, so `spawn-fxs-r`'s
             ;; seconds ARE the prepared per-child args in declaration order.
@@ -2586,7 +2582,7 @@
             ;; PREFLIGHT decide child admission — unregistered TYPE and
             ;; spawn-time `[:schemas :data]` validity alike — against the very
             ;; payloads the per-child fxs will run, BEFORE it publishes a live
-            ;; join or any child effect executes (rf2-7u8gen). The raw invoke
+            ;; join or any child effect executes. The raw invoke
             ;; specs riding `[:join-state :spec :children]` cannot serve: they
             ;; carry neither the materialised `:data` nor the pre-allocated
             ;; id, so the child's real schema verdict is not derivable from
@@ -2720,8 +2716,7 @@
   active child of a grandparent is a compound, not a `:final?` leaf). So this
   returns at most one path — the final leaf's parent compound — but is shaped
   as a vector for symmetry with the parallel done-paths and to stay robust if
-  the grammar later admits compound `:final?` (today rejected at
-  registration).
+  the grammar ever admits compound `:final?` (registration rejects it).
 
   Returns `[]` when the leaf is not final, or is final at the root (top-level
   finality). For a region of a parallel machine `machine` is the region body
@@ -3106,14 +3101,13 @@
         ;; the common ancestor. Computing it against `target-leaf` is the
         ;; classic "LCCA trap": a target whose `:initial` chain re-descends to
         ;; the source would yield a FULL-length common prefix, both cascades
-        ;; would come out empty, and the transition would be a SILENT no-op
-        ;; (the emz8l shape).
+        ;; would come out empty, and the transition would be a SILENT no-op.
         ;;
         ;; The two predicates below CLASSIFY the target; the `lca-len` case
         ;; table is the SINGLE statement of the resulting geometry and of the
         ;; branch precedence between them. Deliberately not restated here —
-        ;; a second copy of the case analysis is what drifted out of sync with
-        ;; the executable `cond` before (rf2-xkr5r3).
+        ;; a second copy of the case analysis would drift out of sync with
+        ;; the executable `cond`.
         ;;
         ;; `target-on-active-path?` is the GEOMETRIC predicate: the literal
         ;; target lands on the active path (`target-base` is a prefix of
@@ -3137,7 +3131,7 @@
         ;; child down to T (then T's `:initial` chain) enters — UNLESS
         ;; `:reenter?` forces D's own restart. So T re-enters even when it is
         ;; already active, and an already-active intermediate between D and T
-        ;; restarts too (rf2-3x7nj.8.1).
+        ;; restarts too.
         ;; Note T need NOT be on the active branch: D may target a
         ;; DISJOINT descendant (e.g. a sibling of the active child) — the
         ;; `:editor`→`[:editor :preview]` shape while `:draft` is
@@ -3149,7 +3143,7 @@
         ;;       to exit. The machine ROOT (`:decl-path []`) is an ordinary
         ;;       declaring node: its own `:on`, its done / spawn-error
         ;;       fallbacks, a parallel root's per-region targets and a region
-        ;;       body's root-level `:on` all follow this rule (rf2-3x7nj.8.3);
+        ;;       body's root-level `:on` all follow this rule;
         ;;   (b) D is an ACTIVE ancestor of the current leaf (D is a prefix of
         ;;       `src-path`) — the firing node is on the active path, the
         ;;       leaf→root walk that selected the transition guarantees it for a
@@ -3201,10 +3195,10 @@
         ;;      WITHOUT `:reenter?` — every active state below D exits, D
         ;;        survives, and D's path down to T enters. boundary =
         ;;        (count decl-path): it depends only on WHERE the transition is
-        ;;        written, never on which child of D happens to be active
-        ;;        (rf2-3x7nj.8.1). So a T whose `:initial` re-descends to the
-        ;;        active leaf still re-enters rather than collapsing to the
-        ;;        emz8l silent no-op, and this holds EVEN WHEN T IS ALREADY
+        ;;        written, never on which child of D happens to be active.
+        ;;        So a T whose `:initial` re-descends to the
+        ;;        active leaf still re-enters rather than collapsing to a
+        ;;        silent no-op, and this holds EVEN WHEN T IS ALREADY
         ;;        ACTIVE AND EVEN WHEN T IS A LEAF — that case is NOT
         ;;        equivalent to a targetless transition: declared on :parent
         ;;        while at [:parent :leaf], target [:parent :leaf] gives
@@ -3316,7 +3310,7 @@
                            (:rf/transition-slot transition)
                            (assoc :transition-slot (:rf/transition-slot transition)))])
         ;; Per spec/009 §History trace events (line 291): each `:entry` step
-        ;; produced by a history restore additively carries `:source`
+        ;; produced by a history restore also carries `:source`
         ;; (`:recorded`|`:default`) matching the `:rf.machine.history/restored`
         ;; event's `:source`; a step with no `:source` key was not
         ;; history-driven. All entry steps of a history-driven transition came
@@ -3537,7 +3531,7 @@
                                 (record-exit-history machine snap-committed
                                                      (:src-path geometry)
                                                      (:lca-len geometry)))
-              ;; Per Spec 005 §Restoring + Spec 009 (mle6e.2): emit the
+              ;; Per Spec 005 §Restoring + Spec 009: emit the
               ;; history traces. `restored` when this transition resolved a
               ;; history pseudo-state; `recorded` once per history-bearing
               ;; compound exited.
@@ -3609,10 +3603,10 @@
   value is the meaningful forbidden-transition / internal no-op form
   (it BLOCKS an ancestor's inherited transition for that event); `:always`
   has no ancestor-blocking use for an unconditional, unguarded, targetless
-  microstep that would otherwise fire every settle. Both branches already
-  read `(:always n)` as nil (a state-node map can't distinguish 'no key'
-  from 'key present, value nil' without `contains?`), so this preserves
-  today's behaviour for both cases.
+  microstep that would otherwise fire every settle. Both cases read
+  `(:always n)` as nil (a state-node map can't distinguish 'no key'
+  from 'key present, value nil' without `contains?`), so they behave
+  identically.
 
   Returns `{:transition t :decl-path p}` or nil."
   [machine path snapshot]
@@ -3715,7 +3709,7 @@
   spawned-machine `:rf.machine/done` reply does (Managed-Effects §Causal
   completion metadata). nil when the firing dispatch supplied no cofx
   (a pure-fn / hand-dispatched test path) — then omitted, not nil-filled.
-  The 2-arity is retained for callers with no causal token in scope."
+  The 2-arity serves callers with no causal token in scope."
   ([frame-id match] (emit-pick-traces! frame-id match nil))
   ([frame-id match completed-at]
   (when match
@@ -3727,10 +3721,10 @@
       ;; declaring path + per-path epoch ARE the data-only suppression gate —
       ;; and the reply-shaped facts (`:rf.reply/status :stale`,
       ;; `:rf.reply/work-status :suppressed`, the carried/current gate) ride
-      ;; ADDITIVELY on the trace, preserving its public shape (`:state` /
+      ;; on the trace alongside its public shape (`:state` /
       ;; `:delay` / `:scheduled-epoch` / `:current-epoch` / `:recovery`)
       ;; so the trace stream classifies the drop the same way HTTP /
-      ;; resources / routing do (m-reply). The timer's transition does not
+      ;; resources / routing do. The timer's transition does not
       ;; fire.
       (let [stale-reply (rf.machines.reply/after-stale-reply
                           {:actor-id        (:actor-id match)
@@ -4173,16 +4167,15 @@
                           ;; raised events (append to the BACK, behind pending
                           ;; siblings — FIFO) and the real do-fx-bound fx.
                           (let [{new-raises :raises real-fx :rest} (split-raise-fx fx2)
-                                ;; rf2-nb8nj — append one
+                                ;; Append one
                                 ;; `:kind :raised-transition` boundary carrying
                                 ;; the nested result's OWN cascade, so the
-                                ;; macrostep record stays lossless. Previously
-                                ;; this `recur` passed `cascade` unchanged, which
-                                ;; DISCARDED the raised transition's exit /
-                                ;; action / entry rows outright: the outer trace
-                                ;; could report `:before :idle` / `:after :done`
-                                ;; while its `:cascade` explained only
-                                ;; `:idle → :working`.
+                                ;; macrostep record stays lossless. Passing
+                                ;; `cascade` unchanged would DISCARD the raised
+                                ;; transition's exit / action / entry rows: the
+                                ;; outer trace could report `:before :idle` /
+                                ;; `:after :done` while its `:cascade` explained
+                                ;; only `:idle → :working`.
                                 ;;
                                 ;; The wrapper mirrors the `:microstep` step's
                                 ;; shape (`:region` / `:from` / `:to` / `:steps`)
@@ -4263,7 +4256,7 @@
   Result carries `::handled?`, but always has zero `::microsteps`: the queue
   owner counts a co-selected eventless SET as one parent round.
 
-  Flat and compound machines continue to call `machine-transition-single`,
+  Flat and compound machines call `machine-transition-single`,
   which composes this seam with `drain-to-fixed-point`."
   [machine snapshot event match transition-phase]
   (let [handled? (boolean (and match
@@ -4374,14 +4367,14 @@
    ;; against one frozen view and calls the APPLY-only seam directly, so the
    ;; parent can run eventless rounds only after the full set. Flat/compound
    ;; machines and the flat raise-drain re-entry
-   ;; (`drain-to-fixed-point`) still select-then-apply in one call here.
+   ;; (`drain-to-fixed-point`) select-then-apply in one call here.
    (machine-transition-single
      machine snapshot event raise-depth defer-raises?
      (pick-transition machine (state-path (:state snapshot)) event snapshot)))
   ([machine snapshot event raise-depth defer-raises? match]
    (let [defer? (or defer-raises? (some? (:rf/region machine)))
          seed   (apply-preselected-transition machine snapshot event match nil)]
-     ;; Steps 3-5: flat/compound ownership remains here. The parallel parent
+     ;; Steps 3-5: flat/compound machines settle here. The parallel parent
      ;; calls `apply-preselected-transition` directly and owns settling across
      ;; the complete regional configuration.
      (rf.machines.result/with-handled
