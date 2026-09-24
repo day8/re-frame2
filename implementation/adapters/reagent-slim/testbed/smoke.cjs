@@ -1,14 +1,13 @@
 /*
- * reagent-slim adapter testbed — CLIENT-RUNTIME browser smoke (rf2-xsgu8a).
+ * reagent-slim adapter testbed — CLIENT-RUNTIME browser smoke.
  *
  * Proves the day8/reagent-slim substrate wires up end-to-end in a real
  * browser: mount through `reagent2.dom.client`, the `rf/frame-provider`
  * + injected `dispatch`/`subscribe` seam, and click-driven counter
- * updates. This is the client-runtime layer the rf2-xsgu8a review found
- * uncovered — the slim example's prior browser coverage was compile-only
- * (check-examples-compile.cjs) plus the release-bundle sentinel grep
- * (check-reagent-slim-bundle-isolation.cjs); neither exercises the live
- * mount/inject/click path.
+ * updates. This is the client-runtime layer that compile
+ * (check-examples-compile.cjs) and the release-bundle sentinel grep
+ * (check-reagent-slim-bundle-isolation.cjs) leave uncovered — neither
+ * exercises the live mount/inject/click path.
  *
  * Deliberately a DEDICATED slim smoke, NOT an entry in the shared
  * adapter-smoke manifest (implementation/adapters/scripts/adapter-smoke-filter.cjs,
