@@ -1,6 +1,6 @@
 (ns re-frame.adapter.reagent-slim-source-coord-dom-cljs-test
-  "reagent-slim parity for the source-coord stamping contract (rf2-yrb8r;
-  mirrors `re-frame.source-coord-dom-cljs-test` for the Reagent bridge).
+  "reagent-slim parity for the source-coord stamping contract (mirrors
+  `re-frame.source-coord-dom-cljs-test` for the Reagent bridge).
 
   Per Spec 006 §Source-coord annotation: when `interop/debug-enabled?`
   is true, a registered view's rendered root DOM element MUST carry
@@ -8,8 +8,8 @@
   driven through `re-frame.views` under the *installed* adapter — so this
   file installs the slim adapter via the reset-runtime fixture and proves
   slim participates in the same stamping contract the bridge does. slim
-  is positioned as a drop-in Reagent replacement; the cross-substrate
-  matrix gap (zero stamping coverage under slim) is the gap this closes.
+  is positioned as a drop-in Reagent replacement, so the cross-substrate
+  matrix needs stamping coverage under slim as well.
 
   Coverage mirrors the bridge's shape where it applies to slim:
 
