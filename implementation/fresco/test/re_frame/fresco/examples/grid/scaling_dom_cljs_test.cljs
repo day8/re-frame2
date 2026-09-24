@@ -8,10 +8,10 @@
   > budgets
 
   That is a claim about a COUNT AT TWO SIZES, and this file is where it
-  is measured rather than reasoned about. The
-  same application is mounted at 5x5 and at 10x10, one cell is typed
-  into, and the boundary bodies that ran are counted. If the number is
-  the same at both sizes the shape scales; if it grows, it does not.
+  is measured rather than reasoned about. The same application is
+  mounted at 5x5 and at 10x10, one cell is typed into, and the boundary
+  bodies that ran are counted. If the number is the same at both sizes
+  the shape scales; if it grows, it does not.
 
   ## The instrument, and what it can and cannot see
 
