@@ -3,8 +3,8 @@
 
   `mint-view!` attaches the body function to the minted head so the L0–L2
   test kit can render `[some-view …]` without React
-  (`re-frame.fresco.impl.codec/retain-body!`). The operator's ruling makes
-  that retention **dev only** and non-negotiably so: the write sits inside
+  (`re-frame.fresco.impl.codec/retain-body!`). That retention is **dev
+  only**, non-negotiably: the write sits inside
   `(when ^boolean js/goog.DEBUG …)`, and under `:advanced` +
   `goog.DEBUG=false` the Closure compiler removes it — the call, the slot
   and `retain-body!` behind it.
@@ -31,8 +31,8 @@
 
   ## The declarations are next door, and that is not tidiness
 
-  `re-frame.fresco.coord-sentinel-source` carries them, for a recorded
-  reason: `cljs.test` stamps `:file` into the report map of
+  `re-frame.fresco.coord-sentinel-source` carries them, for a reason:
+  `cljs.test` stamps `:file` into the report map of
   every `deftest` and every `is`, so a test namespace names itself in a
   release bundle before anything else does. That namespace carries no
   `deftest`, and its `sentinel-row` is minted by the same `h/defview` door
