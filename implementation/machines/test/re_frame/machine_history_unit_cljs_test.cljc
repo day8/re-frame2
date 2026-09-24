@@ -472,7 +472,7 @@
                                                     :mid-track {}}}}}}})
 
 (deftest within-compound-sibling-move-records-nothing
-  (testing "a within-compound sibling move (surviving LCCA — the old <= trigger) records NOTHING"
+  (testing "a within-compound sibling move (surviving LCCA, which a <= gate would record) records NOTHING"
     (reset-capture!)
     ;; :swap from [:player :playing :mid-track] → [:player :stopped] keeps
     ;; :player as the surviving LCA: it is NOT exited, so nothing records.
