@@ -1,5 +1,4 @@
-;; clj-kondo export for day8/re-frame2-fresco (rf2-hic-022; reduced to
-;; macro-shape analysis under rf2-r3r00).
+;; clj-kondo export for day8/re-frame2-fresco: macro-shape analysis only.
 ;;
 ;; A consumer picks this up with clj-kondo's ordinary dependency import —
 ;; nothing here is re-frame2-specific plumbing:
@@ -16,7 +15,7 @@
 ;; its execution boundary, not re-derived in a lint layer.
 {;; `re-frame.fresco.native` is two React hooks, `use-sub` and
  ;; `use-frame` — ordinary functions, so they need neither a `:lint-as`
- ;; nor a hook (rf2-6c12m.3).
+ ;; nor a hook.
  :hooks
  {:analyze-call
   {re-frame.fresco/defview hooks.re-frame.fresco/defview
