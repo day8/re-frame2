@@ -1,6 +1,6 @@
 (ns re-frame.schemas-walker-large-test
   "JVM tests pinning the `:large?` arm of the per-slot flag walker, plus
-  the `:hint` propagation contract (rf2-ynjts.12 coverage pass).
+  the `:hint` propagation contract.
 
   The walker (`re-frame.schemas.walker/walk-flagged-schema`) is
   parameterised on the per-slot flag key and serves both `:sensitive?`
@@ -10,10 +10,9 @@
   `:large?` public entry point — `extract-large-paths-from-schema`,
   re-exported from `re-frame.schemas` and published as the
   `:schemas/extract-large-paths-from-schema` late-bind hook that the
-  machines / resources / http artefacts consume (EP-0015 §8 removed the
-  former `re-frame.elision` registry-population feed; durable egress
-  classification is now frame-owned) — had no direct slice-local unit
-  coverage.
+  machines / resources / http artefacts consume (durable egress
+  classification is frame-owned, per EP-0015 §8) — is a separate public
+  entry point and needs its own unit coverage.
 
   A regression in the `:large?` wiring (a wrong flag-key threaded
   through the shared walker, or a structural-recognition break that the
@@ -26,8 +25,7 @@
   `:hint` propagation (declaration-from-properties): the per-slot props may carry an
   optional `:hint` that the walker propagates verbatim into the
   declaration and omits when absent (Spec 009 §Size elision marker
-  shape). Only one integration test touched `:hint` (and only for
-  `:large?`); these pin the propagate / omit behaviour at the walker
+  shape). These pin the propagate / omit behaviour at the walker
   level for both flags."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.schemas :as rf.schemas]))
