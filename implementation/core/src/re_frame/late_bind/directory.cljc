@@ -745,7 +745,7 @@
    {:key         :epoch/record-sub-run!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-wi900"
-    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. Fixes the one-epoch :sub-runs lag visible in Xray's per-cascade Views subs table."}
+    :description "Subs sibling of :epoch/record-render!. Attribute a post-settle sub-run emit (a :sub/run / :rf.sub/skip op firing at React deref time, after the causing cascade settled, because reactions recompute lazily) back to the cascade that caused it — the frame's most-recently-settled epoch. Called by re-frame.epoch.capture/capture-event! when a sub-run op arrives with no in-flight cascade; back-fills the sub-run (and its :value-changed? / :prev-value / :value attribution) into the causing epoch record and re-fans it to epoch listeners. It also carries a :rf.error/schema-validation-failure whose :where is :sub-return or :sub-override: that failure comes from the same post-settle recompute, so it follows its run into the same epoch, riding only :trace-events because it projects no :sub-runs row (rf2-3x7nj.17.4). Fixes the one-epoch :sub-runs lag visible in Xray's per-cascade Views subs table."}
    {:key         :epoch/record-unmount!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-59hx3"
