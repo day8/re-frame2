@@ -1,7 +1,7 @@
 (ns re-frame.http-swallowed-failure-test
-  "rf2-rl5tt — `:on-failure nil` silences the failure reply (fire-and-forget),
+  "`:on-failure nil` silences the failure reply (fire-and-forget),
   but a REAL (non-aborted) failure routed into that silence is an error the
-  app never sees. Per the committed no-silent-swallow principle, the transport
+  app never sees. Per the no-silent-swallow principle, the transport
   emits a ONE-SHOT `:rf.warning/failure-swallowed` dev trace the first time a
   non-aborted failure is dropped by `:on-failure nil`. Aborts are legitimately
   silent and MUST NOT warn.
@@ -53,7 +53,7 @@
    :sensitive?          false})
 
 (defn- ctx-on-failure-present []
-  ;; EP-0002 (rf2-nn0jqa): the present-:on-failure path actually dispatches
+  ;; EP-0002: the present-:on-failure path actually dispatches
   ;; the reply event, so the synthetic ctx must carry the frame stamp the
   ;; reply dispatch reads (the `:on-failure nil` siblings are silenced and
   ;; never dispatch, so they need none). `:rf/default` need not be a live
@@ -65,20 +65,20 @@
    :sensitive?          false})
 
 (deftest on-failure-silenced?-detects-both-nil-producing-shapes
-  (testing "rf2-rl5tt + rf2-et4c1s — the silence predicate mirrors
+  (testing "the silence predicate mirrors
             build-reply-event's two nil-producing branches: an explicit
-            `:on-failure nil` (supplied? true + nil value), and — now the
-            co-located default is retired — an UNADDRESSED failure branch
+            `:on-failure nil` (supplied? true + nil value), and — there
+            being no co-located default — an UNADDRESSED failure branch
             (supplied? false)"
     (is (true?  (on-failure-silenced? (ctx-on-failure-nil)))
         "explicit :on-failure nil is silenced")
     (is (false? (on-failure-silenced? (ctx-on-failure-present)))
         "an explicit event-vector target is not silenced")
     (is (true? (on-failure-silenced? {:explicit-on-failure {:supplied? false :value nil}}))
-        "an unaddressed failure branch is now silenced (co-located default retired)")))
+        "an unaddressed failure branch is silenced (there is no co-located default)")))
 
 (deftest swallowed-non-aborted-failure-emits-exactly-one-trace
-  (testing "rf2-rl5tt — a NON-aborted failure dropped by :on-failure nil
+  (testing "a NON-aborted failure dropped by :on-failure nil
             emits exactly one :rf.warning/failure-swallowed trace carrying
             the failure + a human :reason"
     (with-trace-capture
@@ -99,7 +99,7 @@
                 "a human-readable :reason explains the swallow")))))))
 
 (deftest aborted-failure-emits-no-swallow-trace
-  (testing "rf2-rl5tt — an aborted failure dropped by :on-failure nil emits
+  (testing "an aborted failure dropped by :on-failure nil emits
             NO swallow warning: a cancelled request that no longer wants its
             reply is correct-by-design silence, not a swallowed error. Holds
             for every abort reason."
@@ -112,7 +112,7 @@
             "no swallowed-failure warning fires for aborts")))))
 
 (deftest present-on-failure-emits-no-swallow-trace
-  (testing "rf2-rl5tt — a failure routed to a PRESENT :on-failure target is
+  (testing "a failure routed to a PRESENT :on-failure target is
             not swallowed, so no warning fires (the reply has a home)"
     (with-trace-capture
       (fn [captured]
@@ -122,7 +122,7 @@
             "a present :on-failure target suppresses the swallow warning")))))
 
 (deftest swallow-warning-is-one-shot-per-runtime
-  (testing "rf2-rl5tt — repeated swallowed non-aborted failures collapse to a
+  (testing "repeated swallowed non-aborted failures collapse to a
             single warning (the per-runtime latch); fire-and-forget telemetry
             beacons that knowingly opt out must not flood the trace surface"
     (with-trace-capture
