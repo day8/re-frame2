@@ -11,7 +11,7 @@
   (spec/017 §Run result): the top-level `:status` ∈
   `#{:pass :fail :cannot-run :error}` verdict, the unified assertion
   records (each carrying a derived `:status`), the `:checks` groups, the
-  `:consumed-selectors` agreement-floor set, and the `.4` evidence-slot
+  `:consumed-selectors` agreement-floor set, and the evidence-slot
   projections (`:schema-violations` / `:warnings` / `:effects` /
   `:sub-runs` / `:renders` / `:narrative`). There is NO agent-only result
   vocabulary — the agent reads off the same verdict a human reads.
@@ -63,7 +63,7 @@
     :consumed-selectors the agreement-floor's exactly-consumed
                         schema-violation selectors (single source of truth)
     :schema-violations / :warnings / :effects / :sub-runs / :renders /
-    :narrative          the .4 evidence-slot projections (one tape, one
+    :narrative          the evidence-slot projections (one tape, one
                         projection); ALL value-bearing — each is
                         PATH-projected at egress (EP-0025 fail-open: a value
                         AT a classified path redacts; a value re-keyed into
@@ -100,7 +100,7 @@
     (fn [vk _body]
       (or (rf.story-mcp.tools.args/run-opts-shape-error arguments)
           (rf.story-mcp.tools.args/substrate-arg-error arguments "run-variant")
-          ;; SEMANTIC run-option guard (rf2-sw1d), after the shape +
+          ;; SEMANTIC run-option guard, after the shape +
           ;; substrate guards and before any lifecycle work: an unknown
           ;; `:active-modes` id or `:cell-overrides` key is REFUSED
           ;; rather than silently dropped by `read-run-opts`'s
@@ -110,20 +110,19 @@
           (rf.story-mcp.tools.args/run-opts-semantic-error arguments vk)
           ;; Host PREREQUISITE, checked last among the guards and before any
           ;; lifecycle work: with no adapter installed the frame never obtains
-          ;; its state substrate, and an inert run settles the ordinary
-          ;; `:status :pass` over `{}` / `[]` — a success-shaped non-run
-          ;; (rf2-c9t52). Story's vacuous-`:pass` rule for an EXECUTED
-          ;; assertion-free variant is untouched; this refuses the state where
-          ;; nothing executed at all.
+          ;; its state substrate, and an inert run would settle the ordinary
+          ;; `:status :pass` over `{}` / `[]` — a success-shaped non-run.
+          ;; Story's vacuous-`:pass` rule covers an EXECUTED assertion-free
+          ;; variant; this refuses the state where nothing executed at all.
           (rf.story-mcp.tools.lifecycle/no-adapter-error "run-variant")
           (let [opts     (rf.story-mcp.tools.args/read-run-opts vk arguments)
                 ;; Blocking invocation + timeout + canonical exception
                 ;; normalization are owned by `tools.lifecycle` — the ONE
                 ;; execution owner `preview-variant` shares, so their catch
                 ;; paths cannot drift (the error outcome always routes through
-                ;; `rf.story/run-result`, filling the six `.4` evidence slots to
+                ;; `rf.story/run-result`, filling the six evidence slots to
                 ;; `[]` so the wire projection never ships a bare nil for an
-                ;; absent slot, rf2-5r6j96). Everything AFTER the outcome —
+                ;; absent slot). Everything AFTER the outcome —
                 ;; projection, egress, indicator counts, wire shaping — stays
                 ;; run-variant-specific, below.
                 outcome  (rf.story-mcp.tools.lifecycle/run-variant-blocking
@@ -139,10 +138,10 @@
                                   ;; `:assertions` above, so they take the same
                                   ;; sensitive-record filter — otherwise a named
                                   ;; check ships back the record this response
-                                  ;; reports as dropped (rf2-gwye.60).
+                                  ;; reports as dropped.
                                   :checks             (rf.story-mcp.tools.egress/scrub-checks (:checks outcome) incl?)
                                   :consumed-selectors (:consumed-selectors outcome #{})
-                                  ;; Evidence-slot projections (.4 — one tape, one
+                                  ;; Evidence-slot projections (one tape, one
                                   ;; projection). Every value-bearing slot is
                                   ;; PATH-projected against the frame's
                                   ;; classification, same as :snapshot.
@@ -151,18 +150,17 @@
                                   ;; :warnings are trace-event records, :sub-runs
                                   ;; carry subscription :value — a secret re-keyed
                                   ;; into any of these non-app-db positions ships
-                                  ;; RAW (value-match removed; classify the app-db
-                                  ;; PATH to redact at the source). scrub-rendered
-                                  ;; recurses the nested trees and the gate stays
-                                  ;; symmetric (incl? true forwards raw).
+                                  ;; RAW (there is no value-match; classify the
+                                  ;; app-db PATH to redact at the source).
+                                  ;; scrub-rendered recurses the nested trees and
+                                  ;; the gate stays symmetric (incl? true forwards
+                                  ;; raw).
                                   ;; Every slot is `(vec ...)`-wrapped BEFORE the
-                                  ;; projection (not just the two that used to be)
-                                  ;; — `scrub-rendered` has no nil short-circuit of
-                                  ;; its own reaching `project-egress`, so a bare
-                                  ;; absent-key nil would walk through as nil
-                                  ;; (live frame) rather than the `[]` the frozen
-                                  ;; `[:sequential :any]` schema requires
-                                  ;; (rf2-5r6j96). `run-result` above already
+                                  ;; projection — `scrub-rendered` returns nil for
+                                  ;; a nil tree, so a bare absent-key nil would
+                                  ;; reach the wire as nil rather than the `[]`
+                                  ;; the frozen `[:sequential :any]` schema
+                                  ;; requires. `run-result` above already
                                   ;; fills every slot with `[]`; the `vec` here is
                                   ;; the belt-and-suspenders guard at the
                                   ;; projection call site itself, independent of
@@ -177,7 +175,7 @@
                                   ;; classified path redacts; a re-keyed copy ships
                                   ;; raw (EP-0025 fail-open). `run-variant` produces
                                   ;; no rendered output — rendering is
-                                  ;; `rf.story/render-variant`'s (rf2-6r9j.13).
+                                  ;; `rf.story/render-variant`'s.
                                   :elapsed-ms         (:elapsed-ms outcome)
                                   :snapshot           (rf.story-mcp.tools.egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
                            ;; Surface the :cannot-run refusals only when present —
@@ -209,7 +207,7 @@
     (fn [vk _body]
       (or (rf.story-mcp.tools.args/run-opts-shape-error arguments)
           (rf.story-mcp.tools.args/substrate-arg-error arguments "snapshot-identity")
-          ;; SEMANTIC run-option guard (rf2-sw1d), after the shape +
+          ;; SEMANTIC run-option guard, after the shape +
           ;; substrate guards and before the hash: an unknown
           ;; `:active-modes` id or `:cell-overrides` key is REFUSED
           ;; rather than silently dropped by `read-run-opts`'s
@@ -234,7 +232,7 @@
   cannot read that browser atom), this returns a machine-readable
   capability-unavailable error via the `cljs-resolve` host-capability
   boundary — NOT a false-empty `{:violations []}` success an agent could
-  mistake for 'zero accessibility violations' (rf2-3fc89f.21). Ordinary
+  mistake for 'zero accessibility violations'. Ordinary
   success with a (possibly empty) `:violations` vec is reserved for a
   REACHED provider (a browser-local consumer of this `.cljc` helper whose
   panel actually answered).
@@ -246,9 +244,9 @@
   compute, say), read from `incomplete-by-frame` through the sibling
   provider seam. They are shown, never failed — and never absorbed into a
   clean bill, so `:violations []` beside a non-empty `:incomplete` does
-  not mean accessible. The slot is additive: `:violations` keeps its shape,
-  and a reached provider that cannot supply the incomplete bag omits the
-  key rather than answering a false-empty `[]`.
+  not mean accessible. The slot sits beside `:violations` without changing
+  its shape, and a reached provider that cannot supply the incomplete bag
+  omits the key rather than answering a false-empty `[]`.
 
   ## Wire-egress posture
 
@@ -260,11 +258,11 @@
   attribute, a PII text node) lands verbatim in node `:html`. axe DOM nodes
   are an inherently RE-KEYED runtime payload class (the secret rides node
   `:html`, a non-app-db position), so `:violations` route through the NAMED
-  `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception (rf2-jwggld);
+  `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception;
   `:incomplete` nodes are the same class and take the same route. Under a LIVE variant frame
   EP-0025 FAIL-OPEN holds: a value rendered into a node `:html` is a RE-KEYED
   DOM position the classification path cannot reach, so it ships RAW
-  (value-match removed; classify the app-db PATH to redact a value before it
+  (there is no value-match; classify the app-db PATH to redact a value before it
   reaches the DOM). Under a NON-LIVE frame the nodes ship raw under the
   documented carve-out — path-scrub is a no-op even live, so fail-closing
   would destroy the tool with zero leak-delta. Pass `:include-sensitive true`
@@ -356,7 +354,7 @@
   "Testing-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would settle an ordinary `:status :pass` over a DIFFERENT scenario than the one requested. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, `:elapsed-ms`, and the snapshot-identity strings `:plan-hash` (the plan that ran) and `:run-hash` (its behavioural evidence) — equal across reruns of a deterministic scenario, so compare them to tell a changed plan from changed behaviour. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would settle an ordinary `:status :pass` over a DIFFERENT scenario than the one requested. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, `:elapsed-ms`, and the snapshot-identity strings `:plan-hash` (the plan that ran) and `:run-hash` (its behavioural evidence) — equal across reruns of a deterministic scenario, so compare them to tell a changed plan from changed behaviour. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — there is no value-match; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
@@ -407,7 +405,7 @@
 
    {:name           "read-a11y-violations"
     :category       :testing
-    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). Beside `:violations` it returns `:incomplete`, axe-core's checks it could not decide (from `incomplete-by-frame`): shown, never a failure, and never a clean bill, so `:violations []` beside a non-empty `:incomplete` does NOT mean accessible; a provider that cannot supply them omits the key rather than answering `[]`. The `:violations` vec (and `:incomplete`, same class) is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception (rf2-jwggld): a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). Beside `:violations` it returns `:incomplete`, axe-core's checks it could not decide (from `incomplete-by-frame`): shown, never a failure, and never a clean bill, so `:violations []` beside a non-empty `:incomplete` does NOT mean accessible; a provider that cannot supply them omits the key rather than answering `[]`. The `:violations` vec (and `:incomplete`, same class) is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception: a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Host boundary: the shipped JVM stdio server cannot read the CLJS panel atom, so it returns a machine-readable capability-unavailable error (`isError true`, `:rf.error :rf.error/story-mcp-capability-unavailable`) rather than a false-empty `{:violations []}` — an empty vec is reserved for a REACHED provider that reported no findings. "
                          "Examples: "
                          "1. JVM stdio server (no browser bridge): {:variant-id \":story.cart/full\"} -> {:isError true :content [{:text \"Capability unavailable: `read-a11y-violations` needs the a11y-panel-state provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"a11y-panel-state\" :tool \"read-a11y-violations\" :recovery :read-from-a-browser-local-story-host}}. "
