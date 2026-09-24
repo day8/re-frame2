@@ -1,7 +1,7 @@
 (ns re-frame.fresco.login-server-crossing-ssr-dom-cljs-test
-  "THE PRODUCT WITNESS for the ssr-node crossing (rf2-8arzr.5, slice E) — the
-  real Fresco login example, rendered on Node from a projection of a real
-  settled JVM-shaped frame, through the real sidecar module contract.
+  "THE PRODUCT WITNESS for the ssr-node crossing — the real Fresco login
+  example, rendered on Node from a projection of a real settled
+  JVM-shaped frame, through the real sidecar module contract.
 
   Nothing here is a fixture standing in for the product. The views are
   `examples/substrates/fresco/login/core.cljs`'s, the registrations are the
@@ -17,8 +17,8 @@
   ONE thing is simulated: the transport. The JVM half runs here in CLJS
   because `re-frame.ssr.render-state` is `.cljc` and `project` / `serialize`
   are the same code on both hosts, and the sidecar's HTTP/worker layer is
-  already witnessed by `implementation/ssr-node`'s own suites and by
-  `re-frame.ssr.ring.node-crossing-test` (slice D). What this file adds is
+  witnessed by `implementation/ssr-node`'s own suites and by
+  `re-frame.ssr.ring.node-crossing-test`. What this file adds is
   the half neither of those can reach: an APPLICATION on the other side of
   the wire.
 
@@ -55,7 +55,7 @@
       recovers and the framework emits the mismatch §6 proves absent. This
       row is why the shipped `host.clj` puts no notice in app-db, and why
       the rule is written beside the sub in `core.cljs`.
-  §8  the classified draft password on a HYDRATED page (rf2-3x7nj.43.1),
+  §8  the classified draft password on a HYDRATED page,
       two rows, each the red of one of the example's two edits. STATE: the
       payload carries the password as `:rf/redacted`, and the client that
       boots through the example's own `hydrate-client!` holds `\"\"` there,
@@ -102,10 +102,10 @@
 ;; Registered ABOVE `use-fixtures`, and that is load-bearing rather than
 ;; stylistic: the reset fixture captures its registrar baseline when the
 ;; `use-fixtures` form is EVALUATED and restores to it before every row, so a
-;; registration written below it is erased before the first one runs. Measured
-;; here rather than taken on trust — with this `reg-event` below the fixture
-;; the seeding dispatch hit no handler, recovered silently, and §3 reported a
-;; page with no notice in it.
+;; registration written below it is erased before the first one runs. With
+;; this `reg-event` below the fixture the seeding dispatch would hit no
+;; handler, recover silently, and §3 would report a page with no notice in
+;; it.
 (rf/reg-event ::seed-server-only
   {:doc "Stand in for whatever a host does to resolve a per-request
          server-side value — a session lookup, a feature-flag read — and put
@@ -183,7 +183,7 @@
     ;; BOTH, and `__dirname` is the one that matters: shadow's browser
     ;; output carries a `require` shim, so a `require`-only guard reads TRUE
     ;; in a lane with no CommonJS behind it and the row then dereferences
-    ;; null. Measured — that is exactly how the browser lane first went red.
+    ;; null.
     (when (and (exists? js/require) (exists? js/__dirname))
       (js/require (str js/__dirname "/../ssr-node/src/protocol.cjs")))))
 
@@ -197,11 +197,11 @@
   refusal — and reading the constant pins exactly that while leaving the
   spelling where it belongs. The service's code vocabulary is the
   service's: `implementation/ssr-node`'s absence witness holds that no file
-  outside that package spells it, and a literal here was a second spelling
-  with nothing keeping it in step with the first (rf2-8arzr.9, which is how
-  the witness went red on main). It is the same rule the JVM adapter
-  already keeps — see `re-frame.ssr.ring.node`, which carries the code as
-  an opaque value and classifies by the transport's status contract.
+  outside that package spells it, and a literal here would be a second
+  spelling with nothing keeping it in step with the first. It is the same
+  rule the JVM adapter keeps — see `re-frame.ssr.ring.node`, which
+  carries the code as an opaque value and classifies by the transport's
+  status contract.
 
   A key this table does not carry answers `nil`, so a renamed constant
   fails the row loudly rather than comparing two absences."
@@ -447,8 +447,7 @@
   `:adopted-html` and `:password-value` are read BEFORE `unmount!`, which is
   not tidiness: React empties the container on unmount, so a row reading them
   afterwards asserts against an empty container and fails whatever the
-  adoption did. Measured — that is how §6 first went red on a run whose
-  adoption was clean. `:password-value` is the password input's live `.value`
+  adoption did. `:password-value` is the password input's live `.value`
   PROPERTY, which `innerHTML` does not show (it carries the attribute), or nil
   on a page with no password input.
 
@@ -527,7 +526,7 @@
            :done done})))))
 
 ;; ---------------------------------------------------------------------------
-;; §8 / §9 — the classified draft password on a hydrated page (rf2-3x7nj.43.1)
+;; §8 / §9 — the classified draft password on a hydrated page
 ;; ---------------------------------------------------------------------------
 
 (def ^:private draft-password-path [:auth :login-form :draft :password])
