@@ -27,7 +27,7 @@
   the declarative-`:spawn-all` exit-cascade form. The slot at
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` holds a join-state map whose
   `:children` sub-map has every spawned child id. The handler iterates
-  `:children` and tears each one down, then clears the slot.
+  `:children`, tears down each child the join owns, then clears the slot.
 
   A `:spawn-all` join needs no teardown shape for a COMPLETED child: under
   the child-completion protocol completion IS finality, so a child that
@@ -416,6 +416,23 @@
        :invoke-id  invoke-id
        :child-id   child-id})))
 
+(defn- owned-join-child?
+  "True iff the actor at `actor-id` is logical child `child-id` of the join at
+  `[:spawned parent-id invoke-id]`: its membership authenticates against the
+  CURRENT durable join state and attempt (`authenticated-join-child`) and names
+  exactly this parent, invoke path and logical child.
+
+  A join's `:children` entry records the address the join spawned a child at,
+  never who occupies it: a spawn at a supplied `:fixed-actor-id` replaces the
+  child with an actor carrying no membership, or another join's. So an entry
+  alone never authorises a teardown."
+  [runtime-db actor-id parent-id invoke-id child-id]
+  (let [current (authenticated-join-child runtime-db actor-id)]
+    (and (some? current)
+         (= parent-id (:parent-id current))
+         (= invoke-id (:invoke-id current))
+         (= child-id  (:child-id current)))))
+
 (defn- prepare-join-child-teardown!
   "Classify one teardown from authenticated runtime state before teardown.
 
@@ -474,9 +491,10 @@
 (defn- destroy-spawn-all-children!
   "The declarative-`:spawn-all` exit-cascade form.
   Resolves the children map from `[:rf.runtime/machines :spawned parent-id invoke-id]`,
-  tears each child down via `destroy-single-actor!`, then clears the
-  join-state slot via the unified teardown projection (slot-prune only:
-  nil actor-id).
+  tears down via `destroy-single-actor!` each child whose current occupant
+  is this join's own (`owned-join-child?`), then clears the join-state slot
+  via the unified teardown projection (slot-prune only: nil actor-id). A
+  replacement occupying a child's address is left live and untraced.
 
   Slot-shape fence (the mirror of the tracked-form fence): the
   addressed slot must hold a `:spawn-all` JOIN-STATE MAP (or nothing — a
@@ -510,32 +528,40 @@
       ;; so the trace lands after `:exit` — the same exit-then-destroyed
       ;; ordering `destroy-single!` and `finalize-machine` use.
       ;;
+      ;; Only an occupant that is this join's own child is torn down
+      ;; (`owned-join-child?`). Anything else at the address — a same-id
+      ;; replacement the join does not own, or nothing — is left alone and
+      ;; untraced; the slot clear below prunes its stale `:children` entry.
+      ;;
       ;; Silent-idempotent destroy contract:
       ;; join resolution (join.cljc/build-resolution-fx)
       ;; already tore down surviving children via the guarded
       ;; `destroy-single!` keyword form (one `:destroyed` each) BEFORE the
       ;; parent's exit cascade re-reads the still-uncleared join-state here.
-      ;; `destroy-single-actor!` returns falsey for those
-      ;; already-destroyed survivors (its liveness guard short-circuits), so
-      ;; gating the emit on its return value keeps each survivor's
-      ;; `:rf.machine/destroyed` to EXACTLY ONE — no phantom double-destroy.
+      ;; Those already-destroyed survivors have no snapshot, so their
+      ;; membership fails `owned-join-child?` and they are skipped, keeping each
+      ;; survivor's `:rf.machine/destroyed` to EXACTLY ONE — no phantom
+      ;; double-destroy. The emit is also gated on `destroy-single-actor!`'s
+      ;; return, so a child whose teardown aborts on owner loss gets none.
       ;;
       ;; A child already present
       ;; in `:done ∪ :failed` has published its terminal reply, so parent exit
       ;; tears it down with the post-terminal cleanup reason; only an
       ;; in-progress sibling is an explicit cancellation.
-      (when-let [{:keys [reason join-child]}
-                 (prepare-join-child-teardown!
-                   frame-id spawned-id :explicit fence)]
-        (when (destroy-single-actor! frame-id spawned-id fence)
-          (rf.machines.lifecycle-fx.traces/emit-destroyed!
-            {:frame           frame-id
-             :actor-id        spawned-id
-             :parent-id       parent-id
-             :invoke-id       invoke-id
-             :work-generation (:work-generation join-child)
-             :child-id        child-id
-             :reason          reason}))))
+      (when (owned-join-child? (rf.frame/frame-runtime-db-value frame-id)
+                               spawned-id parent-id invoke-id child-id)
+        (when-let [{:keys [reason join-child]}
+                   (prepare-join-child-teardown!
+                     frame-id spawned-id :explicit fence)]
+          (when (destroy-single-actor! frame-id spawned-id fence)
+            (rf.machines.lifecycle-fx.traces/emit-destroyed!
+              {:frame           frame-id
+               :actor-id        spawned-id
+               :parent-id       parent-id
+               :invoke-id       invoke-id
+               :work-generation (:work-generation join-child)
+               :child-id        child-id
+               :reason          reason})))))
     ;; Clear the join-state slot via the unified projection (slot-only),
     ;; fenced on live ownership and routed through the EXACT durable write, so a
     ;; child-`:rf.machine/destroyed` listener that published same-id B cannot have
@@ -745,7 +771,8 @@
   as one its parent's transition exits: a keyword slot through
   `destroy-tracked!` (a live owned child is destroyed `:explicit`; a dead
   or replaced occupant only has its slot pruned), a join map through
-  `destroy-spawn-all-children!`. Each child's own teardown runs this step
+  `destroy-spawn-all-children!` (the same split, per child, on the child's
+  join membership). Each child's own teardown runs this step
   for its own slots, so nested children end with it.
 
   Slots are taken deepest invoke-id first, mirroring the leaf-to-root exit
