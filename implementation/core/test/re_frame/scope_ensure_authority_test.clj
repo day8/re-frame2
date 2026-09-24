@@ -1,19 +1,18 @@
 (ns re-frame.scope-ensure-authority-test
-  "rf2-kk2uf — the SCOPE/ENSURE authority guard.
+  "The SCOPE/ENSURE authority guard.
 
-  A BOUNDED, CLASSIFIED check over an ENUMERATED table of the exact stale
-  forms this bead retired. It is deliberately NOT a prose-lint framework:
-  there is no fence parser, no allow-list, no repo-wide sweep, and no
-  general grammar. Each row names ONE file and the LITERAL forms that were
-  wrong in it, so the table reads as the changelog it is.
+  A BOUNDED, CLASSIFIED check over an ENUMERATED table of exact stale forms.
+  It is deliberately NOT a prose-lint framework: there is no fence parser, no
+  allow-list, no repo-wide sweep, and no general grammar. Each row names ONE
+  file and the LITERAL forms that are wrong in it.
 
   Two contracts are pinned:
 
-    1. `subscribe` has ONE coherent no-default contract. The retired
-       `:rf.warning/plain-fn-under-non-default-frame-once` fall-through
-       paragraph (which claimed a 1-arity `subscribe` lands on
-       `:rf/default`) must not come back — it contradicted the very
-       docstring it sat in.
+    1. `subscribe` has ONE coherent no-default contract. There is no
+       `:rf.warning/plain-fn-under-non-default-frame-once` fall-through,
+       and a paragraph claiming a 1-arity `subscribe` lands on
+       `:rf/default` must not appear — it would contradict the very
+       docstring it sits in.
 
     2. `frame-provider` is SCOPE-only and `frame-root` is ENSURE. An
        EXHAUSTIVE frame-resolution inventory must name BOTH boundaries, and
@@ -27,12 +26,11 @@
   empty. Every row therefore also asserts the TRUTHFUL form is present, and
   every row asserts its file EXISTS. A row cannot pass by finding nothing.
 
-  WHY THE TEXT IS WHITESPACE-NORMALIZED. Several of these claims were
-  WRAPPED across source lines (`router.cljc` wrapped
-  `` `with-frame` / frame-provider `` mid-phrase). A per-line scan is blind
-  to exactly that, and returned a false-empty during this bead's own
-  investigation. Each file is flattened to single-spaced text before
-  matching, so a reintroduced claim is caught however it wraps.
+  WHY THE TEXT IS WHITESPACE-NORMALIZED. A claim can be WRAPPED across
+  source lines (`` `with-frame` / frame-provider `` split mid-phrase). A
+  per-line scan is blind to exactly that and returns a false-empty. Each
+  file is flattened to single-spaced text before matching, so a
+  reintroduced claim is caught however it wraps.
 
   PER-ROW, NEVER A UNION. Every row emits its OWN assertion naming its own
   file and form. A union-shaped check (`some hit anywhere`) would stay
@@ -49,8 +47,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Core's JVM tests run from `implementation/core/`, so the repo root is
-;; `../../`. The legacy single-nesting layout is tolerated as a fallback, and
-;; an unresolvable root FAILS (never silently skips) — per the sibling
+;; `../../`. A single-nesting layout is tolerated as a fallback, and an
+;; unresolvable root FAILS (never silently skips) — per the sibling
 ;; `error_catalogue_channel_conformance_test`.
 
 (defn- repo-root
@@ -80,13 +78,13 @@
 
 (def ^:private authority-table
   [{:file      "implementation/core/src/re_frame/subs.cljc"
-    :why       "subscribe's no-default contract — the retired fall-through"
+    :why       "subscribe's no-default contract — no fall-through"
     :forbidden [[#"fallen through to :rf/default"
-                 "the retired `:rf/default` fall-through claim"]
+                 "the false `:rf/default` fall-through claim"]
                 [#"Plain-fn-under-non-default-frame warning"
-                 "a citation to the deleted Spec 006 warning section"]
+                 "a citation to a Spec 006 warning section that does not exist"]
                 [#"plain-fn detection check"
-                 "the retired plain-fn detection paragraph"]]
+                 "the false plain-fn detection paragraph"]]
     :required  [[#"There is NO `:rf/default` floor"
                  "the no-default contract"]
                 [#"`frame-provider`\s*\(SCOPE\) or a `frame-root` \(ENSURE\)"
@@ -187,7 +185,7 @@
                 (str "STALE FORM REINTRODUCED in " file ": " label
                      " (pattern " (pr-str (str re)) "). "
                      "`frame-provider` SCOPEs an already-live frame; "
-                     "`frame-root` ENSUREs one. Per rf2-kk2uf."))))))))
+                     "`frame-root` ENSUREs one."))))))))
 
 (deftest truthful-scope-ensure-forms-are-present
   (let [root (repo-root)]
@@ -200,4 +198,4 @@
                      " (pattern " (pr-str (str re)) "). "
                      "If this region moved, update this row — do NOT delete it; "
                      "a row that finds nothing is how this guard goes "
-                     "vacuously green. Per rf2-kk2uf."))))))))
+                     "vacuously green."))))))))
