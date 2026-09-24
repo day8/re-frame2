@@ -304,7 +304,7 @@
         (:order state)))
 
 (defn check-timeout!
-  "`:timeout-ms` is MANDATORY and positive, inherited unchanged. It is the
+  "`:timeout-ms` is MANDATORY and positive. It is the
   retention length AND the hard terminal bound, so a boundary without one
   is a boundary whose children can be stuck on screen forever if CSS
   fails or is disabled."
