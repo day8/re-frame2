@@ -76,8 +76,8 @@
       ;; only for the adapter ALREADY SEATED — handed a DIFFERENT one
       ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
       ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-      ;; and the SSR adapter, so a bare `init!` here would meet another suite's
-      ;; adapter whenever one of them ran first.
+      ;; and the SSR adapter, so a bare `init!` here would raise whenever a
+      ;; suite seating UIx or the SSR adapter ran first.
       (rf/destroy-adapter!)
       (rf/init! rf.adapter.reagent/adapter)
       ;; EP-0002: `init!` does not synthesise a `:rf/default`
@@ -102,7 +102,7 @@
             "the ensure lowered to the real transport and is in flight")
         (-> (rf.test-support/poll-until
               #(= :loaded (:status (entry)))
-              {:timeout-ms 2000 :label "rf2-2elcw3 live load settles :loaded"})
+              {:timeout-ms 2000 :label "live load settles :loaded"})
             (.then
               (fn [_]
                 (let [e         (entry)
