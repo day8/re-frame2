@@ -5145,8 +5145,7 @@
 ;; ---- ring-eviction interaction with restore -----------------------------
 ;;
 ;; Ring-buffer eviction and
-;; restore preconditions were each covered in isolation but never
-;; together. A restore against an epoch-id that the ring has since evicted
+;; restore preconditions, pinned together. A restore against an epoch-id that the ring has since evicted
 ;; must deterministically fail as :rf.epoch/restore-unknown-epoch with the
 ;; current (post-eviction) history-size in its tags, and must leave app-db
 ;; unchanged.
@@ -5196,7 +5195,7 @@
 ;; `configure!`'s docstring
 ;; documents that depth 0 'disables recording (assembled records can
 ;; still fire on listeners but nothing lands in the ring buffer)'. The
-;; pre-existing `depth-zero-disables-recording` test covers only the
+;; `depth-zero-disables-recording` test covers the
 ;; ring side; this test pins the listener-fanout half of the contract.
 
 (deftest depth-zero-still-fires-listeners
@@ -5227,7 +5226,7 @@
 ;; ---- rejected restore/reset paths do not mutate history or notify listeners
 ;;
 ;; The rejection tests verify the trace
-;; emission and app-db stability but do NOT explicitly pin the related
+;; emission and app-db stability; these pin the related
 ;; bookkeeping contracts:
 ;;
 ;;   1. A rejected restore does not append a new record to history.
@@ -5236,8 +5235,8 @@
 ;;   4. A rejected replacement does not fire registered listeners.
 ;;
 ;; A regression that swapped emission-on-failure for fanout-on-failure
-;; (or appended a synthetic failure record) would slip through the
-;; existing suite. Pin both halves explicitly.
+;; (or appended a synthetic failure record) would pass the emission and
+;; app-db checks alone. Pin both halves explicitly.
 
 (deftest rejected-restore-does-not-touch-history-or-listeners
   (testing "a rejected restore-epoch! (unknown-epoch, the simplest
@@ -5301,12 +5300,12 @@
            a synthetic reset-rejection record"))))
 
 (deftest shipped-trace-events-keep-default-is-50
-  (testing "rf2-wmki8 — the SHIPPED runtime default :trace-events-keep is
-            50 (= :depth, so every retained epoch keeps its trace; Mike
-            pair-debug 2026-05-27). Asserted against the source-of-truth
+  (testing "the SHIPPED runtime default :trace-events-keep is
+            50 (= :depth, so every retained epoch keeps its trace).
+            Asserted against the source-of-truth
             private `default-trace-events-keep` var, bypassing the
             fixture's keep<depth override. Pins the default consistently
-            with docs/core/api/01-core.md and `re-frame.epoch.state`."
+            with docs/api/re-frame.core.md and `re-frame.epoch.state`."
     (is (= 50 @#'rf.epoch.state/default-trace-events-keep)
         "the source-of-truth default var ships 50")
     ;; The accessor is wired to fall back to that var when the slot is
@@ -5315,7 +5314,7 @@
     ;; confirm the accessor reports the shipped 50 — proving the var is the
     ;; live default, not just a declared constant.
     ;;
-    ;; rf2-yw1w1u — KEEPS direct private-var access: `configure!` /
+    ;; Uses direct private-var access: `configure!` /
     ;; `merge-config!` MERGES, so it cannot produce a config map MISSING
     ;; the `:trace-events-keep` slot (the exact shape this test needs to
     ;; exercise the accessor's fallback). Only a raw `reset!` of the
@@ -5349,7 +5348,7 @@
 ;;       restore-epoch! and replace-frame-state! honour the write-boundary guard.
 
 (deftest restore-epoch-validate-then-destroy-reports-honest-failure-seam
-  (testing "rf2-7i872 — perform-restore! against a frame destroyed AFTER a
+  (testing "perform-restore! against a frame destroyed AFTER a
             live precondition pass returns false, emits
             :rf.error/no-such-handler (kind :frame), and does NOT emit
             :rf.epoch/restored. The drop is the no-op write
@@ -5386,7 +5385,7 @@
             "no :rf.epoch/restored success trace for the destroyed frame")))))
 
 (deftest restore-epoch-public-validate-then-destroy-returns-false
-  (testing "rf2-7i872 — the PUBLIC restore-epoch! returns false (not a false
+  (testing "the PUBLIC restore-epoch! returns false (not a false
             success) when the frame is destroyed AFTER a live precondition
             pass but BEFORE the container write. The precondition check is
             real; the destroy is injected into the validate→write window."
@@ -5415,7 +5414,7 @@
               "no :rf.epoch/restored success trace"))))))
 
 (deftest replace-frame-state-app-only-validate-then-destroy-reports-honest-failure-seam
-  (testing "rf2-7i872 — perform-replace-frame-state! against a frame destroyed
+  (testing "perform-replace-frame-state! against a frame destroyed
             AFTER a live precondition pass returns false, emits
             :rf.error/no-such-handler (kind :frame), and does NOT record a
             synthetic epoch, emit :rf.epoch/db-replaced, or fan a record to
@@ -5425,7 +5424,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     ;; (1) Validate against the LIVE frame — passes, yields the exact
-    ;; incarnation token the checks resolved against (rf2-gj2bo).
+    ;; incarnation token the checks resolved against.
     (let [{:keys [outcome incarnation-token]}
           (rf.epoch.tool-pair/check-replace-frame-state-preconditions!
             :test/short-lived {:rf.db/app {:n 999}})]
@@ -5466,7 +5465,7 @@
                destroyed frame"))))))
 
 (deftest replace-frame-state-app-only-public-validate-then-destroy-returns-false
-  (testing "rf2-7i872 — the PUBLIC replace-frame-state! returns false when the
+  (testing "the PUBLIC replace-frame-state! returns false when the
             frame is destroyed AFTER a live precondition pass but BEFORE the
             container write."
     (rf/make-frame {:id :test/short-lived})
@@ -5490,31 +5489,30 @@
               "no :rf.epoch/db-replaced success trace"))))))
 
 ;; ============================================================================
-;;  rf2-s93722 — POST-LIVENESS teardown race (the second half of the window)
+;;  POST-LIVENESS teardown race (the second half of the window)
 ;; ============================================================================
 ;;
-;; rf2-7i872 closed the validate→write window by re-resolving the container
-;; via `live-container-or-fail` at the write boundary. But that liveness check
-;; closes only HALF the window: a frame destroyed AFTER `live-container-or-
-;; fail` passes (it resolved a LIVE container) but BEFORE the actual
-;; `frame/replace-*` write returns STILL slips through — the liveness check
-;; said "live", yet the physical write lands against a now-destroyed frame and
-;; the choke-point `commit-frame-transition!` returns `nil` (the nil-container
-;; guard). The four perform helpers (rf2-s93722) capture that return: `nil` is
+;; The write-boundary liveness gate (`event-continuation-live?` on the exact
+;; incarnation token) closes only HALF the validate→write window: a frame
+;; destroyed AFTER the gate passes (it saw a LIVE incarnation) but BEFORE the
+;; actual `frame/replace-frame-state!` write returns would otherwise slip
+;; through — the gate said "live", yet the physical write lands against a
+;; now-destroyed frame and the choke-point `commit-frame-transition!` returns
+;; `nil`. The perform helpers capture that return: `nil` is
 ;; the destroyed-frame signal (a non-nil — possibly EMPTY — changed-key-set
 ;; means the write landed, even a no-op), so they surface the canonical
 ;; `:rf.error/no-such-handler` (kind :frame) / `false` BEFORE any success
 ;; telemetry, synthetic epoch, or listener fanout. Ignoring the return would
 ;; emit success telemetry and a fanned-out synthetic epoch for a write that
-;; never happened. Empty-set / no-op writes stay successful.
+;; never happened. Empty-set / no-op writes are successful.
 ;;
-;; The race is reproduced by redefining the boundary `frame/replace-*` write
+;; The race is reproduced by redefining the boundary `frame/replace-frame-state!` write
 ;; to DESTROY the frame and then delegate to the real fn — so liveness has
 ;; already passed (it ran before the redef'd write) and the real write returns
 ;; nil against the now-destroyed frame, exactly the post-liveness window.
 
 (deftest restore-epoch-post-liveness-teardown-returns-false
-  (testing "rf2-s93722 — perform-restore! returns false (NOT a synthetic
+  (testing "perform-restore! returns false (NOT a synthetic
             success), emits :rf.error/no-such-handler (kind :frame), and does
             NOT emit :rf.epoch/restored when the frame is destroyed AFTER the
             write-boundary liveness check passes but BEFORE replace-frame-state!
@@ -5554,20 +5552,21 @@
         (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
             "no :rf.epoch/restored success trace for the post-liveness drop")))))
 
-;; rf2-bjh6y — the write boundary is fenced to the EXACT frame incarnation the
+;; The write boundary is fenced to the EXACT frame incarnation the
 ;; preconditions resolved against, not the bare id. If incarnation A is
 ;; destroyed and a same-id SUCCESSOR B is seated BETWEEN precondition resolution
 ;; and the physical write, the restore MUST refuse — installing A's captured
-;; state into B (reported as success) is the defect. The reproduction drives the
+;; state into B (reported as success) would be the defect. The reproduction drives the
 ;; two phases directly with the successor interposed, exactly as the public
 ;; restore-epoch! sequences them: validate (live A) → destroy A + create B →
-;; perform! with A's now-stale token. Before the fence: {:restore-result true,
-;; :b-db-after {:owner :A :n 1}} — A's state overwrote B. After: the stale write
+;; perform! with A's now-stale token. Without the fence the result would be
+;; {:restore-result true, :b-db-after {:owner :A :n 1}} — A's state overwriting B.
+;; With it, the stale write
 ;; is rejected via the SAME :rf.error/no-such-handler path a destroyed-frame race
 ;; uses, and B is left byte-for-byte untouched.
 
 (deftest restore-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
-  (testing "rf2-bjh6y — a restore whose preconditions resolve against incarnation
+  (testing "a restore whose preconditions resolve against incarnation
             A, then A is destroyed and a same-id SUCCESSOR B is created BEFORE the
             write, REJECTS the stale install: returns false, leaves B's app-db
             byte-for-byte unchanged (A's state is NOT installed into B), emits
@@ -5618,7 +5617,7 @@
             "no :rf.epoch/restored success trace for the rejected stale restore")))))
 
 (deftest restore-within-incarnation-through-fence-still-succeeds
-  (testing "rf2-bjh6y control — with the SAME precheck → token → perform seam but
+  (testing "control — with the SAME precheck → token → perform seam but
             NO incarnation churn, the restore installs and returns true: the
             exact-incarnation fence rejects only a lost incarnation, never an
             ordinary live one."
@@ -5639,12 +5638,13 @@
         (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
             ":rf.epoch/restored success trace fired for the live-incarnation restore")))))
 
-;; rf2-qfrh4 — bjh6y fenced only the PHYSICAL write. Three further seams could
-;; still cross from incarnation A into a same-id successor B across the rest of
-;; the restore transaction. Each test below interposes a deterministic churn at
-;; ONE seam and asserts the exact-incarnation fence now holds end to end:
+;; The exact-incarnation fence covers the whole restore transaction, not only
+;; the PHYSICAL write. Three further seams could otherwise cross from
+;; incarnation A into a same-id successor B across the rest of the restore
+;; transaction. Each test below interposes a deterministic churn at ONE seam
+;; and asserts the exact-incarnation fence holds end to end:
 ;;
-;;   seam 1 — precondition sampling re-resolves history (and, pre-fix, the token)
+;;   seam 1 — precondition sampling re-resolves history
 ;;            by bare id;
 ;;   seam 2 — the pre-write reconcile does a bare-id host-table clear;
 ;;   seam 3 — the post-write bare-id tail (anchor / trace commit / quiesce) runs
@@ -5654,14 +5654,14 @@
 ;; token-threaded seams with NO churn and confirms an ordinary restore succeeds.
 
 (deftest restore-preconditions-refuse-successor-seated-during-history-sampling
-  (testing "rf2-qfrh4 seam 1 — a same-id successor B seated DURING precondition
+  (testing "seam 1 — a same-id successor B seated DURING precondition
             sampling (interposed on the bare-id history re-resolve) must NOT
             yield an :ok ticket that pairs A's retained epoch with a stale
             incarnation. `check-restore-preconditions!` exact-owner-gates the
             history/validation snapshot and refuses with :rf.error/no-such-handler
-            (kind :frame); B is byte-for-byte unchanged. Before the fix the
-            checks resolved history / re-resolved the token independently by bare
-            id and returned :ok."
+            (kind :frame); B is byte-for-byte unchanged. Checks that resolved
+            history / re-resolved the token independently by bare id would
+            return :ok."
     (rf/make-frame {:id :test/seam1})
     (rf/reg-event :set-owner (fn [_ [_ o n]] {:db {:owner o :n n}}))
     (rf/dispatch-sync [:set-owner :A 1] {:frame :test/seam1})
@@ -5692,7 +5692,7 @@
         (is (= :fail (:outcome result))
             "the checks refuse rather than pair A's epoch against the seated successor")
         (is (= :rf.error/no-such-handler (:op result))
-            "the refusal is the canonical no-such-handler typed failure (reused, not new)")
+            "the refusal is the canonical no-such-handler typed failure")
         (is (= :frame (:kind (:tags result))) "the typed failure carries :kind :frame")
         (is (nil? (:incarnation-token result))
             "no :ok ticket — so no A epoch is ever paired with the successor's token")
@@ -5702,13 +5702,13 @@
             "successor B is byte-for-byte unchanged")))))
 
 (deftest restore-reconcile-fenced-to-exact-incarnation-spares-successor
-  (testing "rf2-qfrh4 seam 2 — perform-restore! threads the EXACT incarnation
+  (testing "seam 2 — perform-restore! threads the EXACT incarnation
             token into the pre-write reconcile so its bare-id host-table clear is
             fenced. A reconcile that churns A to B mid-pass then gates its side
             effect on the threaded token performs NO B-addressed effect; the exact
             write then rejects the lost incarnation, restore returns false, and B
-            is byte-for-byte unchanged. Before the fix the reconcile received no
-            token and its bare-id clear landed on B."
+            is byte-for-byte unchanged. A reconcile receiving no token would
+            land its bare-id clear on B."
     (rf/make-frame {:id :test/seam2})
     ;; seed a non-nil runtime-db partition so the reconcile hook is consulted
     ;; (`reconcile-runtime-db-on-restore` skips a nil runtime-db).
@@ -5737,7 +5737,7 @@
             (rf/make-frame {:id :test/seam2})
             (rf/dispatch-sync [:seed2 :B 99] {:frame :test/seam2})
             ;; The real resources host-transient clear addresses the frame by BARE
-            ;; id; fence it on the threaded token exactly as ssr.cljc now does. A
+            ;; id; fence it on the threaded token exactly as ssr.cljc does. A
             ;; true here would mean a bare-id host-table touch landing on B.
             (when (and frame-id (or (nil? owner-token)
                                     (rf.frame/frame-incarnation-live? frame-id owner-token)))
@@ -5745,7 +5745,7 @@
             rdb))
         (let [result (rf.epoch.tool-pair/perform-restore! :test/seam2 incarnation-token epoch)]
           (is (identical? incarnation-token @seen-token)
-              "the reconcile received the EXACT incarnation token (was absent before the fix)")
+              "the reconcile received the EXACT incarnation token")
           (is (false? @b-effect?)
               "the token-fenced bare-id host-table effect did NOT fire against successor B")
           (is (false? result) "the exact write rejects the lost incarnation")
@@ -5754,13 +5754,13 @@
         (finally (rf.late-bind/set-fn! rk r0))))))
 
 (deftest restore-tail-anchoring-fenced-to-exact-incarnation
-  (testing "rf2-qfrh4 seam 3 — after the exact install commits, a synchronous
+  (testing "seam 3 — after the exact install commits, a synchronous
             :rf.epoch/restored trace listener that destroys A and seats a same-id
             successor B must not let the bare-id post-write tail (last-settled
             anchor, resource-trace commit, host-work quiesce) RETARGET onto B.
             restore returns TRUE (the install committed on A) but B's last-settled
-            anchor is NOT stamped with A's restored epoch-id. Before the fix the
-            tail ran unconditionally by bare id and stamped B."
+            anchor is NOT stamped with A's restored epoch-id. A tail run
+            unconditionally by bare id would stamp B."
     (rf/make-frame {:id :test/seam3})
     (rf/reg-event :set-owner3 (fn [_ [_ o n]] {:db {:owner o :n n}}))
     (rf/dispatch-sync [:set-owner3 :A 1] {:frame :test/seam3})
@@ -5792,7 +5792,7 @@
         (finally (rf/unregister-listener! :trace lk))))))
 
 (deftest restore-through-all-fences-still-succeeds
-  (testing "rf2-qfrh4 control — the same token-threaded seams (record-derived
+  (testing "control — the same token-threaded seams (record-derived
             token, exact-owner history gate, token-carrying reconcile, fenced
             post-write tail) with NO incarnation churn install and return true:
             the fences reject only a lost incarnation, never an ordinary live one.
@@ -5832,15 +5832,15 @@
               ":rf.epoch/restored success trace fired"))
         (finally (rf.late-bind/set-fn! rk r0))))))
 
-;; ---- rf2-gj2bo — state INJECTION is the same exact-incarnation transaction -
+;; ---- state INJECTION is the same exact-incarnation transaction -------------
 ;;
-;; rf2-bjh6y/rf2-qfrh4 fenced RESTORE end to end, but the sibling Tool-Pair
+;; RESTORE is fenced end to end, and so is the sibling Tool-Pair
 ;; write — replace-frame-state!, the dev-only state injection Xray / Pair-MCP
-;; drive — still validated a bare frame id, returned no incarnation token, and
-;; wrote through the non-exact two-arity core write. If validated incarnation A
-;; was destroyed and a same-id successor B seated before the write, the stale
-;; gesture overwrote B and recorded the transition in B's history while
-;; returning true. The fix mirrors the shipped restore transaction exactly: the
+;; drive. Were it to validate a bare frame id, return no incarnation token, and
+;; write through the non-exact two-arity core write, then if validated
+;; incarnation A were destroyed and a same-id successor B seated before the
+;; write, the stale gesture would overwrite B and record the transition in B's
+;; history while returning true. So it mirrors the restore transaction exactly: the
 ;; preconditions derive the EXACT token from the same captured record and
 ;; return it on :ok; the public fn threads it to the write boundary; the
 ;; serialized region gates on `event-continuation-live?` and installs through
@@ -5854,7 +5854,7 @@
 ;; deterministic validate→write window, no timing sleeps.
 
 (deftest replace-frame-state-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
-  (testing "rf2-gj2bo — an app-only injection (the Xray/Pair-MCP shape) whose
+  (testing "an app-only injection (the Xray/Pair-MCP shape) whose
             preconditions resolve against incarnation A, then A is destroyed
             and a same-id SUCCESSOR B is seated + seeded BEFORE the write,
             REJECTS the stale install through the PUBLIC surface: returns
@@ -5916,7 +5916,7 @@
               "no synthetic epoch fanned out to listeners after the churn"))))))
 
 (deftest replace-frame-state-both-partition-fenced-to-exact-incarnation
-  (testing "rf2-gj2bo — the same validate→churn→write window with a
+  (testing "the same validate→churn→write window with a
             BOTH-partition patch: the stale injection is rejected, B's two
             partitions and history stay exactly at their captured baselines."
     (rf/make-frame {:id :test/inj2})
@@ -5954,11 +5954,11 @@
               "no :rf.epoch/db-replaced success trace"))))))
 
 (deftest replace-frame-state-post-write-tail-fenced-to-exact-incarnation
-  (testing "rf2-gj2bo — A-to-B churn interposed AFTER the exact A physical
+  (testing "A-to-B churn interposed AFTER the exact A physical
             write but BEFORE the synthetic bookkeeping: the write demonstrably
             ran against A (the arm cannot pass by skipping it), the public
-            result stays TRUE (the exact-incarnation install committed on A —
-            the restore-tail precedent), and NO A synthetic record, ring
+            result stays TRUE (the exact-incarnation install committed on A,
+            as in the restore tail), and NO A synthetic record, ring
             entry, last-settled anchor, :rf.epoch/db-replaced trace, or
             listener delivery appears in B; B remains unchanged."
     (rf/make-frame {:id :test/inj3})
@@ -6001,7 +6001,7 @@
             "no synthetic record was delivered to epoch listeners")))))
 
 (deftest replace-frame-state-within-incarnation-through-fence-still-succeeds
-  (testing "rf2-gj2bo control — the identical app-only patch with NO churn
+  (testing "control — the identical app-only patch with NO churn
             still succeeds through every fence: true return, the intended
             frame changes, the omitted runtime partition is PRESERVED, exactly
             one matching synthetic record is appended, and the success
@@ -6049,9 +6049,9 @@
         (is (= 1 (count (filter #(= :rf.epoch/db-replaced (:event-id %)) @fanned)))
             "the success notification fanned exactly one synthetic record to listeners")))))
 
-;; ---- rf2-sdeae — the fenced tail ops are themselves FAN-OUTS ---------------
+;; ---- the fenced tail ops are themselves FAN-OUTS ---------------------------
 ;;
-;; rf2-qfrh4 seam 3 re-checks `event-continuation-live?` before each post-write
+;; Seam 3 above re-checks `event-continuation-live?` before each post-write
 ;; tail op. But two of those ops are not single actions: the host-work quiesce
 ;; walks a CHAIN of late-bound subsystem hooks, and the deferred resource-trace
 ;; commit walks a LIST of trace intents. Each element of each fan-out is another
@@ -6078,7 +6078,7 @@
         (rf.late-bind/set-fn! hk h0)))))
 
 (deftest restore-quiesce-chain-fenced-per-hook
-  (testing "rf2-sdeae — the host-work quiesce CHAIN is a callback fan-out. The
+  (testing "the host-work quiesce CHAIN is a callback fan-out. The
             FIRST hook (machines timer cancellation) destroys A and seats a
             same-id successor B; the SECOND hook (HTTP abort-in-flight) addresses
             the frame by BARE id, so without a per-hook fence it aborts B's live
@@ -6110,12 +6110,12 @@
             (is (= [:test/sdeae-quiesce] @machines-saw)
                 "the FIRST quiesce hook ran under the live incarnation A")
             (is (empty? @http-saw)
-                "ACCEPTANCE — the later hook does NOT quiesce successor B (chain stopped)")
+                "the later hook does NOT quiesce successor B (chain stopped)")
             (is (= {:owner :B :n 99} (rf/app-db-value :test/sdeae-quiesce))
                 "successor B's state is untouched by A's quiesce tail")))))))
 
 (deftest restore-quiesce-chain-runs-whole-chain-without-churn
-  (testing "rf2-sdeae control — with NO incarnation churn every hook in the
+  (testing "control — with NO incarnation churn every hook in the
             quiesce chain still fires, in order; the per-hook fence rejects only
             a LOST incarnation, never an ordinary live one."
     (rf/make-frame {:id :test/sdeae-quiesce-ok})
@@ -6150,7 +6150,7 @@
          (finally (rf/unregister-listener! :trace k)))))
 
 (deftest restore-quiesce-hook-exception-fenced-after-ownership-lost
-  (testing "rf2-vy2hj — a quiesce hook is itself the callback boundary the
+  (testing "a quiesce hook is itself the callback boundary the
             per-hook token fence exists to police, so the THROWING path needs
             the same fence as the loop's `:while`. Hook 1 destroys incarnation
             A, seats a same-id successor B, and only THEN throws. The catch runs
@@ -6189,11 +6189,11 @@
                      documented TRUE return — the throwing tail is best-effort")
                 (is (= [:test/vy2hj-quiesce] @machines-saw)
                     "the FIRST quiesce hook ran under the live incarnation A")
-                ;; NOTE: the unfenced defect does NOT throw — it silently
-                ;; RESURRECTS A's diagnostic as B's, so absence of the row is
+                ;; NOTE: an unfenced emit would NOT throw — it would silently
+                ;; RESURRECT A's diagnostic as B's, so absence of the row is
                 ;; the only sound assertion. Never assert an exception here.
                 (is (empty? @warnings)
-                    "ACCEPTANCE — A's quiesce-hook-exception warning is NOT
+                    "A's quiesce-hook-exception warning is NOT
                      delivered once the incarnation it describes is lost")
                 (is (empty? @http-saw)
                     "no later quiesce hook runs after ownership is lost")
@@ -6201,9 +6201,9 @@
                     "successor B's state is untouched by A's throwing tail")))))))))
 
 (deftest restore-quiesce-hook-exception-still-emits-while-incarnation-live
-  (testing "rf2-vy2hj control — the fence rejects only a LOST incarnation. A
+  (testing "control — the fence rejects only a LOST incarnation. A
             hook that throws while the captured incarnation is STILL LIVE emits
-            exactly one existing warning under the existing category, and the
+            exactly one :rf.warning/restore-quiesce-hook-exception warning, and the
             best-effort chain continues to the next hook."
     (rf/make-frame {:id :test/vy2hj-quiesce-live})
     (rf/reg-event :set-vq2 (fn [_ [_ n]] {:db {:n n}}))
@@ -6228,13 +6228,13 @@
                   "exactly one warning for the one live-incarnation failure")
               (is (= :rf.warning/restore-quiesce-hook-exception
                      (:operation (first @warnings)))
-                  "the EXISTING category is reused — no new diagnostic id")
+                  "the warning carries the :rf.warning/restore-quiesce-hook-exception category")
               (is (= :machines/on-frame-restored!
                      (:hook (:tags (first @warnings))))
                   "the warning names the hook that actually threw"))))))))
 
 (deftest quiesce-warning-fence-admits-and-refuses-repeatedly
-  (testing "rf2-vy2hj sequence — the settled-path fence LATCHES NOTHING. Driving
+  (testing "sequence — the settled-path fence LATCHES NOTHING. Driving
             ADMIT (throw while live) -> REFUSE (throw after churn) -> ADMIT ->
             REFUSE inside ONE process proves the guard re-reads the live slot on
             every announcement rather than tripping once and staying tripped (or
