@@ -5,9 +5,9 @@
   validation, snapshot/restore, hot reload, and the private
   `frame-schema-entries` seam consumed by tools and sibling artefacts.
 
-  ONE FRAME SPELLING (rf2-kuky.84): every READ entry point takes a single
-  opts MAP with a REQUIRED `:frame`. The keyword / bare-frame-value sugar
-  and the ambient arities are gone, and their refusal is pinned below."
+  ONE FRAME SPELLING: every READ entry point takes a single
+  opts MAP with a REQUIRED `:frame`. There is no keyword / bare-frame-value
+  sugar and no ambient arity; their refusal is pinned below."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -81,7 +81,7 @@
 
 ;; ---- one frame spelling: the read lane refuses everything but the map ----
 ;;
-;; rf2-kuky.84. `:frame` is REQUIRED on every side-table read — there is no
+;; `:frame` is REQUIRED on every side-table read — there is no
 ;; ambient default (a schema read is a tooling question about a NAMED frame,
 ;; not an operation inside one) and no trailing frame-target sniffing, which
 ;; could never be read locally because a live frame VALUE is itself a map.
@@ -93,7 +93,7 @@
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest reads-require-an-explicit-frame-map
-  (testing "rf2-kuky.84 — a frameless or non-map read raises the catalogued
+  (testing "a frameless or non-map read raises the catalogued
             :rf.error/no-frame-context, naming the {:frame f} spelling"
     (rf/reg-app-schema [:user] [:map])
     (doseq [[label f]
@@ -116,8 +116,8 @@
 
 ;; ---- frame-schema-entries (the PRIVATE cross-artefact seam) --------------
 ;;
-;; rf2-kuky.84 deleted the PUBLIC `re-frame.schemas/frame-schema-entries`
-;; var — its fact IS `app-schemas`. The storage-level fn stays as the
+;; There is no PUBLIC `re-frame.schemas/frame-schema-entries`
+;; var — its fact IS `app-schemas`. The storage-level fn is the
 ;; `:schemas/frame-schema-entries` late-bind hook's target (elision, epoch,
 ;; and the validation hot path), so it is pinned here on the OWNING ns.
 
@@ -168,16 +168,16 @@
     (is (= {} (rf.schemas.storage/coerce-opts {})))))
 
 (deftest coerce-opts-accepts-nil-as-empty-opts
-  (testing "rf2-iszpyg — nil coerces to {} (the empty-opts shape), identical
+  (testing "nil coerces to {} (the empty-opts shape), identical
             to the no-arg arity: it means 'no override, resolve the frame
             from scope'. A nil OPTS has no analogue to the nil-PATH hazard,
             so accepting it removes a footgun for a trusted in-process caller."
     (is (= {} (rf.schemas.storage/coerce-opts nil)))))
 
 (deftest coerce-opts-throws-on-bad-arg
-  (testing "Per rf2-yv62u — a non-keyword, non-map argument throws
+  (testing "a non-keyword, non-map argument throws
             :rf.error/app-schemas-bad-arg. numbers, strings, vectors all
-            fail. (rf2-iszpyg — nil is now accepted as {}; see
+            fail. (nil is accepted as {}; see
             coerce-opts-accepts-nil-as-empty-opts.)"
     (doseq [bad-arg [42 "frame-a" [:a :b] :well/-actually-keyword-is-ok]]
       (cond
@@ -193,7 +193,7 @@
           (is (instance? clojure.lang.ExceptionInfo thrown)
               (str "bad-arg " (pr-str bad-arg) " throws ex-info"))
           (when (instance? clojure.lang.ExceptionInfo thrown)
-            ;; rf2-vvixub — the human message leads with the :reason sentence
+            ;; The human message leads with the :reason sentence
             ;; and trails the [:rf.error/<id>] token; branch on the canonical
             ;; :rf.error/id, never on the (non-normative) message bytes.
             (let [data (ex-data thrown)]
@@ -202,34 +202,31 @@
               (is (= bad-arg (:received data))
                   ":received slot carries the bad input verbatim"))))))))
 
-;; ---- reg-app-schema opts contract symmetry (rf2-52dfy) -------------------
+;; ---- reg-app-schema opts contract symmetry ------------------------------
 ;;
-;; Pre-rf2-52dfy `reg-app-schema` plucked `(:frame opts)` directly off
-;; whatever was passed as `opts`. A bare keyword (`(reg-app-schema path
-;; schema :tenant/a)`) returned nil for `(:frame …)` and SILENTLY fell
-;; back to the DEFAULT frame — yet every read entry point (`app-schemas`
-;; / `app-schema-meta`) routed its opts through
-;; `coerce-opts`, which treats a bare keyword as the `{:frame kw}` sugar.
-;; Write and read disagreed on the same shape: read targeted `:tenant/a`,
-;; write targeted `:rf/default`. rf2-52dfy routes write through the SAME
-;; `coerce-opts` contract so the two agree, and a genuinely bad shape
-;; (string / number / vector) fails loud instead of silently mis-routing.
+;; Registration resolves its frame target through the SAME coercion the
+;; read surface uses (`coerce-opts` / `frame-target->opts`), so write and
+;; read agree on where a schema lives. Plucking `(:frame opts)` straight
+;; off a bare keyword would return nil and SILENTLY fall back to the
+;; DEFAULT frame, so write and read would disagree on the same shape. A
+;; genuinely bad shape (string / number / vector) fails loud instead of
+;; silently mis-routing.
 
 (deftest reg-app-schema-keyword-opts-matches-read-frame
-  (testing "rf2-52dfy — a bare-keyword opts registers against THAT frame
-            (the read API's `{:frame kw}` sugar), NOT silently against
+  (testing "a keyword `:frame` target registers against THAT frame
+            (the read API's `{:frame kw}` spelling), NOT silently against
             the DEFAULT frame. Write and read agree."
     (rf/reg-app-schema [:user] {:frame :tenant/a} [:map [:id :int]])
     ;; Read the same way — both target :tenant/a.
     (is (= [:map [:id :int]] (:schema (rf.schemas/app-schema-meta {:frame :tenant/a :path [:user]})))
         "schema landed in :tenant/a, matching the read sugar")
     (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
-        "the DEFAULT frame is untouched — the silent-DEFAULT footgun is gone")
+        "the DEFAULT frame is untouched — no silent-DEFAULT fallback")
     (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
         "explicit DEFAULT-frame read also empty")))
 
 (deftest reg-app-schema-bad-opts-shape-fails-loud
-  (testing "rf2-52dfy — a non-keyword, non-map opts shape throws
+  (testing "a non-keyword, non-map opts shape throws
             :rf.error/app-schemas-bad-arg, matching coerce-opts (the read
             surface's contract). No silent mis-registration."
     (doseq [bad-arg ["tenant-a" 42 [:tenant :a]]]
@@ -238,12 +235,12 @@
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "bad opts " (pr-str bad-arg) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
-          ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+          ;; Branch on the canonical :rf.error/id, not the message.
           (is (= :rf.error/app-schemas-bad-arg (:rf.error/id (ex-data thrown)))
               "ex-data names the same error category the read surface uses"))))))
 
 (deftest reg-app-schema-valid-opts-map-registers-fine
-  (testing "rf2-52dfy — a valid {:frame ...} opts map still registers
+  (testing "a valid {:frame ...} opts map registers
             against the named frame; the coercion is transparent for the
             common shape."
     (rf/reg-app-schema [:user] {:frame :tenant/b} [:map])
@@ -254,7 +251,7 @@
         "two-arg arity registers against the current (default) frame")))
 
 (deftest reg-app-schemas-keyword-opts-matches-read-frame
-  (testing "rf2-52dfy — the bulk form coerces opts identically: a bare
+  (testing "the bulk form coerces opts identically: a bare
             keyword registers every entry against THAT frame, not the
             DEFAULT frame; a bad shape fails loud."
     (rf/reg-app-schemas {[:user] [:map] [:auth] [:string]} :tenant/c)
@@ -265,35 +262,35 @@
     (let [thrown (try (rf/reg-app-schemas {[:user] [:map]} "tenant-c")
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown))
-      ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+      ;; Branch on the canonical :rf.error/id, not the message.
       (is (= :rf.error/app-schemas-bad-arg (:rf.error/id (ex-data thrown)))))))
 
-;; ---- EP-0024 frame-value targeting (rf2-7pllal) --------------------------
+;; ---- EP-0024 frame-value targeting ---------------------------------------
 ;;
-;; EP-0024 made frame VALUES (rf/make-frame's return token) first-class
+;; Under EP-0024 frame VALUES (rf/make-frame's return token) are first-class
 ;; frame targets alongside frame-id keywords. The schema opts surface must
 ;; route a frame VALUE — passed bare OR as the `:frame` opt — to the SAME
 ;; frame id a read-by-id resolves, the same way `re-frame.core/dispatch`
 ;; normalizes its `:frame` opt through `frame/frame-target->id`.
 ;;
-;; Pre-fix two misroutes:
+;; Two misroutes this rules out:
 ;;   (1) `{:frame frame-value}` stored / read under the frame-VALUE MAP
-;;       itself (resolve-frame returned `(:frame opts)` unchanged), so a
-;;       read-by-id silently MISSED the schema — register-by-value /
-;;       read-by-id disagreed.
-;;   (2) a BARE frame value is itself a map, so coerce-opts classified it as
-;;       an opts map with no `:frame` key and silently fell back to the
-;;       ambient frame (or threw :rf.error/no-frame-context outside a scope).
+;;       itself, so a read-by-id would silently MISS the schema —
+;;       register-by-value / read-by-id would disagree.
+;;   (2) a BARE frame value is itself a map, so a coerce-opts that classified
+;;       it as an opts map with no `:frame` key would silently fall back to
+;;       the ambient frame (or throw :rf.error/no-frame-context outside a
+;;       scope).
 ;;
-;; The fix discriminates `frame/frame-value?` BEFORE the generic map? branch
-;; in coerce-opts, normalizes the `:frame` override through
-;; `frame/frame-target->id` in resolve-frame, and asserts the resolved
-;; target is a keyword frame-id so an arbitrary non-keyword `:frame` (a
+;; So coerce-opts discriminates `frame/frame-value?` BEFORE the generic map?
+;; branch, resolve-frame normalizes the `:frame` override through
+;; `frame/frame-target->id`, and the resolved target must be a keyword
+;; frame-id so an arbitrary non-keyword `:frame` (a
 ;; string / non-frame map / vector) fails loud rather than silently becoming
 ;; a registry key no keyword-id read can reach.
 
 (deftest reg-app-schema-frame-value-opt-routes-to-resolved-frame-id
-  (testing "rf2-7pllal — registering with `{:frame frame-value}` stores under
+  (testing "registering with `{:frame frame-value}` stores under
             the frame's RESOLVED ID (frame-target->id), so a read-by-id finds
             it — NOT under the frame-value map itself"
     (let [fv (frame-value :tenant/fv-a)]
@@ -311,7 +308,7 @@
           "read via {:frame frame-value} and via the frame-id agree"))))
 
 (deftest reg-app-schema-bare-frame-value-routes-to-its-frame
-  (testing "rf2-7pllal — a BARE frame value passed as the opts arg routes to
+  (testing "a BARE frame value passed as the opts arg routes to
             its own frame (discriminated before the generic map? branch), NOT
             silently to the ambient/default frame"
     (let [fv (frame-value :tenant/fv-b)]
@@ -325,10 +322,10 @@
           "coerce-opts wraps a bare frame value as {:frame value}"))))
 
 (deftest read-surface-accepts-frame-value-targets
-  (testing "rf2-7pllal — every read entry point (app-schemas /
+  (testing "every read entry point (app-schemas /
             app-schema-meta / app-schemas-digest) accepts a frame VALUE in
             its `:frame` slot and resolves it to the same frame-id a keyword
-            read uses. rf2-kuky.84 deleted the BARE positional spelling —
+            read uses. There is no BARE positional spelling —
             `:frame` is the one place a frame target is written."
     (let [fv (frame-value :tenant/fv-c)]
       (rf/reg-app-schema [:user] {:frame :tenant/fv-c} [:map])
@@ -348,7 +345,7 @@
           "digest via a frame value equals digest via its frame-id"))))
 
 (deftest reg-app-schemas-bulk-frame-value-routes-to-its-frame
-  (testing "rf2-7pllal — the bulk form routes a frame VALUE the same way: a
+  (testing "the bulk form routes a frame VALUE the same way: a
             bare value registers every entry against its frame, and a
             `{:frame value}` opts map does too"
     (let [fv (frame-value :tenant/fv-d)]
@@ -359,7 +356,7 @@
           "DEFAULT frame untouched for the bulk-by-value form too"))))
 
 (deftest coerce-opts-discriminates-frame-value-before-opts-map
-  (testing "rf2-7pllal — coerce-opts checks frame/frame-value? BEFORE the
+  (testing "coerce-opts checks frame/frame-value? BEFORE the
             generic map? branch, so a bare frame value lifts to {:frame value}
             while an ordinary opts map still passes through verbatim"
     (let [fv (frame-value :tenant/fv-e)]
@@ -371,18 +368,19 @@
           "an ordinary opts map is untouched"))))
 
 (deftest resolve-frame-rejects-non-keyword-frame-target-loud
-  (testing "rf2-7pllal / rf2-5429ec — an explicit `:frame` that resolves to a
+  (testing "an explicit `:frame` that resolves to a
             NON-keyword target (a string, a vector, a number, OR a non-frame
             MAP) fails loud with :rf.error/app-schemas-bad-arg rather than
             silently becoming a registry key no keyword-id read can reach (no
-            silent swallow). Per rf2-wvh95f F2 the `:frame` target rides FLAT in
-            the metadata map (`{:schema … :frame <target>}`); per rf2-5429ec the
+            silent swallow). The `:frame` target rides FLAT in
+            the metadata map (`{:schema … :frame <target>}`); the
             singular registration path lifts that TARGET back into the
             `{:frame target}` opts shape (`frame-target->opts`) so it resolves
             IDENTICALLY to the read surface. A non-frame MAP target (`{:not
             :a-frame}`) is therefore NOT a documented opts-map passthrough — it
             is a bad frame target and MUST throw (Spec 010 §Per-frame schemas /
-            API §Schemas), closing the old silent-ambient-fallback bug."
+            API §Schemas) rather than fall back silently to the ambient
+            frame."
     (doseq [bad-frame ["stringframe" [:a :b] 42 {:not :a-frame}]]
       (let [before (rf.schemas/snapshot-schemas-by-frame)
             thrown (try (rf/reg-app-schema [:user] {:frame bad-frame} [:map])
@@ -390,7 +388,7 @@
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "a non-keyword :frame target " (pr-str bad-frame) " throws"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
-          ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+          ;; Branch on the canonical :rf.error/id, not the message.
           (let [data (ex-data thrown)]
             (is (= :rf.error/app-schemas-bad-arg (:rf.error/id data))
                 "names the canonical bad-arg category")
@@ -400,16 +398,14 @@
             (str "store unchanged after rejecting :frame " (pr-str bad-frame)))))))
 
 (deftest explicit-frame-honoured-not-silently-replaced-by-ambient
-  (testing "rf2-5429ec — LOAD-BEARING: an explicit non-ambient :frame target in
+  (testing "LOAD-BEARING: an explicit non-ambient :frame target in
             reg-app-schema metadata is HONOURED (registers against the declared
             frame), NEVER silently borrowed from the ambient/carried frame. The
             singular path lifts the :frame TARGET into the {:frame target} opts
             shape (frame-target->opts) and resolves it the SAME way the read
             surface does — so a valid keyword target lands on its OWN frame and
-            the ambient frame is untouched. Before rf2-5429ec the bare target
-            was passed through coerce-opts as the whole opts arg; that worked for
-            a keyword but the same flawed plumbing silently dropped a non-frame
-            map target (covered by the bad-target test above). This pins the
+            the ambient frame is untouched. The bad-target test above pins
+            the negative half; this pins the
             POSITIVE half of the contract: the declared frame wins."
     (binding [rf.frame/*current-frame* :review/ambient]
       (rf/reg-app-schema [:user] {:frame :review/explicit} [:map [:id :int]])
@@ -421,15 +417,15 @@
           "exactly one frame entry, keyed by the declared target"))))
 
 (deftest app-schema-meta-preserves-standard-and-open-registration-metadata
-  (testing "rf2-5429ec (Evidence 2) — app-schema-meta returns the FULL
+  (testing "app-schema-meta returns the FULL
             registration-metadata surface: every standard RegistrationMetadata
             key (:doc, :tags, :platforms, …) AND any open/additive :my/* key
             rides onto the stored schema-meta alongside the runtime-stamped
             :schema / :path / :frame. Per Spec-Schemas §AppSchemaMeta ([:merge
             RegistrationMetadata [:map :path :schema :frame]]) and API
-            §app-schema-meta. Before the fix only :doc + :tags were copied, so
-            :platforms and open keys were silently dropped — pair-tools/agents
-            could not rely on the read surface as the full metadata anchor."
+            §app-schema-meta. Copying only :doc + :tags would silently drop
+            :platforms and open keys, and pair-tools/agents could not rely
+            on the read surface as the full metadata anchor."
     (rf/reg-app-schema [:user] {:doc "User schema" :tags #{:auth} :platforms #{:client} :my/tool true} [:map])
     (let [m (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})]
       (is (= [:map] (:schema m))         ":schema overlaid with the extracted form")
@@ -437,18 +433,18 @@
       (is (some? (:frame m))             ":frame runtime-stamped")
       (is (= "User schema" (:doc m))     ":doc preserved")
       (is (= #{:auth} (:tags m))         ":tags preserved")
-      (is (= #{:client} (:platforms m))  ":platforms preserved (was dropped pre-fix)")
-      (is (= true (:my/tool m))          "open :my/* extension key preserved (was dropped pre-fix)"))))
+      (is (= #{:client} (:platforms m))  ":platforms preserved")
+      (is (= true (:my/tool m))          "open :my/* extension key preserved"))))
 
 (deftest reg-app-schema-two-slot-registers-three-slot-rejects-non-map-metadata
-  (testing "rf2-qm7k83 Part A — the schema is the POSITIONAL value slot. The
+  (testing "the schema is the POSITIONAL value slot. The
             2-slot (path schema) form registers the bare schema directly; the
             3-slot (path metadata schema) form fails LOUD with
             :rf.error/app-schema-bad-metadata when the middle metadata arg is
             not a map (the common slip: passing the schema where the metadata
             map goes)."
-    ;; (a) 2-slot: the bare schema IS the value slot (the canonical short form,
-    ;; the exact shape the old :schema-in-metadata grammar used to reject).
+    ;; (a) 2-slot: the bare schema IS the value slot (the canonical short
+    ;; form).
     (rf/reg-app-schema [:user] [:map [:id :int]])
     (is (= [:map [:id :int]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
         "2-slot registers the bare schema as the value slot")
@@ -462,7 +458,7 @@
           "names the bad-metadata category"))))
 
 (deftest frame-value-without-explicit-id-uses-runnable-id
-  (testing "rf2-7pllal — a no-id (direct) frame value routes to its
+  (testing "a no-id (direct) frame value routes to its
             process-unique runnable id (frame-target->id reads
             :rf.frame/runnable-id), so register-by-value / read-by-value agree
             even though no PUBLIC frame-id keyword names it"
@@ -477,7 +473,7 @@
       (is (= [rid] (keys (rf.schemas/snapshot-schemas-by-frame)))
           "stored under the runnable id, not the value map"))))
 
-;; ---- path-shape validation (rf2-sk0ql) -----------------------------------
+;; ---- path-shape validation -----------------------------------------------
 ;;
 ;; A `reg-app-schema` `path` is a `get-in`/`assoc-in`-shaped path: a
 ;; sequential collection of keys, or `[]` for the whole-app-db root
@@ -485,24 +481,22 @@
 ;; `app-db` / §Digest "path is a vector of keywords (or the empty vector
 ;; for the root)").
 ;;
-;; Before rf2-sk0ql a non-sequential scalar path (a bare keyword `:n`,
-;; string, number, nil) registered successfully but made
-;; `validate-app-schema!`'s `(get-in db path)` throw
-;; IllegalArgumentException ("Don't know how to create ISeq from: …").
-;; The live router's `run-post-commit-validation!` wraps that call in a
-;; defensive try/catch and treats the throw as a validation PASS — so an
-;; invalid `:db` commit was installed permanently with no
+;; A non-sequential scalar path (a bare keyword `:n`, string, number, nil),
+;; were it to register, would make `validate-app-schema!`'s
+;; `(get-in db path)` throw IllegalArgumentException ("Don't know how to
+;; create ISeq from: …"). A router that treated that throw as a validation
+;; PASS would install an invalid `:db` commit permanently with no
 ;; `:rf.error/schema-validation-failure` and no rollback (a correctness-
 ;; and privacy-relevant bypass — the redaction-bearing failure traces
-;; never fired). Worse, the poisoned entry persisted and made EVERY
-;; subsequent commit's validation throw, silently disabling post-commit
+;; would never fire). Worse, the poisoned entry would persist and make
+;; EVERY subsequent commit's validation throw, silently disabling
 ;; validation for the whole frame.
 ;;
-;; Fix: fail loud at registration time with `:rf.error/app-schema-bad-path`
-;; BEFORE the store mutation, so the malformed shape can never land.
+;; So registration fails loud with `:rf.error/app-schema-bad-path`
+;; BEFORE the store mutation, and the malformed shape can never land.
 
 (deftest reg-app-schema-rejects-non-sequential-path-shapes
-  (testing "rf2-sk0ql — a non-sequential scalar `path` (bare keyword,
+  (testing "a non-sequential scalar `path` (bare keyword,
             string, number, nil) throws :rf.error/app-schema-bad-path and
             does NOT mutate schemas-by-frame"
     (doseq [bad-path [:n "user" 42 nil {:not :a-path} #{:n}]]
@@ -512,7 +506,7 @@
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "bad path " (pr-str bad-path) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
-          ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+          ;; Branch on the canonical :rf.error/id, not the message.
           (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
               "ex-data names the path-shape error category")
           (let [data (ex-data thrown)]
@@ -525,19 +519,19 @@
                  " — the malformed entry never lands"))))))
 
 (deftest reg-app-schema-accepts-vector-and-root-and-seq-paths
-  (testing "rf2-sk0ql — valid sequential paths register fine: a vector
+  (testing "valid sequential paths register fine: a vector
             key-path, the root `[]`, and a non-vector seq path"
     (rf/reg-app-schema [:n] :int)
     (is (= :int (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:n]}))) "vector key-path registers")
     (rf/reg-app-schema [] [:map [:n :int]])
     (is (= [:map [:n :int]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path []}))) "root [] registers")
-    ;; A non-vector seq is still a valid get-in path shape.
+    ;; A non-vector seq is a valid get-in path shape too.
     (rf/reg-app-schema (list :a :b) :string)
     (is (= :string (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path (list :a :b)})))
         "non-vector seq path registers (get-in accepts any sequential ks)")))
 
 (deftest reg-app-schema-normalizes-seq-path-to-canonical-vector
-  (testing "rf2-94o54l.2 / EP-0012 §Path shape — a list path and the
+  (testing "EP-0012 §Path shape — a list path and the
             equivalent vector path are ONE canonical-vector identity:
             the entry is STORED under the canonical vector key, looked up
             by EITHER spelling, and re-registering via the other spelling
@@ -568,7 +562,7 @@
         "exactly ONE entry for the path — no list-vs-vector key split")))
 
 (deftest app-schemas-digest-list-path-equals-vector-path
-  (testing "rf2-94o54l.2 / EP-0012 §Digest path keys — a frame populated
+  (testing "EP-0012 §Digest path keys — a frame populated
             via a list path digests identically to one populated via the
             equivalent vector path (digest keys derive from the canonical
             vector, not the raw container shape)"
@@ -579,22 +573,22 @@
         "list-keyed and vector-keyed frames produce byte-identical digests")))
 
 ;; ===========================================================================
-;; rf2-ujmc3u — schema paths are full :rf/path citizens (concrete segments)
+;; Schema paths are full :rf/path citizens (concrete segments)
 ;; ===========================================================================
 ;;
 ;; EP-0012 §The :rf/path algebra: schema paths inherit the shared path algebra
-;; and concrete segments are portable EDN identity values. Pre-fix
-;; `reg-app-schema` validated path SHAPE only (`sequential?`), so a sequential
-;; path carrying a COMPOSITE / function / host / float / unsafe-integer
-;; segment registered fine — outside the one `:rf/path` contract EP-0012
-;; centralizes (and a non-portable segment would later poison the canonical
-;; digest key). Registration + lookup now route through the SHARED concrete
-;; boundary (`re-frame.path/normalize-concrete`).
+;; and concrete segments are portable EDN identity values. A SHAPE-only
+;; check (`sequential?`) would let a sequential path carrying a COMPOSITE /
+;; function / host / float / unsafe-integer segment register — outside the
+;; one `:rf/path` contract EP-0012 centralizes (and a non-portable segment
+;; would later poison the canonical digest key). So registration + lookup
+;; route through the SHARED concrete boundary
+;; (`re-frame.path/normalize-concrete`).
 
 (deftest reg-app-schema-rejects-non-concrete-segments
   (testing "a sequential path carrying a composite / function / host / float /
             unsafe-integer SEGMENT is rejected (not just non-sequential
-            shapes) — schema paths are full :rf/path citizens (rf2-ujmc3u)"
+            shapes) — schema paths are full :rf/path citizens"
     (doseq [bad-path [[:a [:nested] :b]          ;; composite (vector) segment
                       [:a {:k 1}]                ;; composite (map) segment
                       [:a #{:s}]                 ;; composite (set) segment
@@ -633,7 +627,7 @@
 (deftest app-schema-lookup-rejects-non-concrete-segment
   (testing "a LOOKUP with a non-concrete segment fails closed loudly rather
             than silently missing (registration AND lookup route through the
-            concrete boundary — rf2-ujmc3u acceptance)"
+            concrete boundary)"
     (is (= :rf.error/bad-path
            (try (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:a [:nested]]})) nil
                 (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
@@ -647,7 +641,7 @@
   (testing "bulk registration fails ATOMICALLY on an invalid-segment path —
             no entry in the batch lands when ANY key carries a non-concrete
             segment (the up-front sweep validates every segment before any
-            store mutation — rf2-ujmc3u acceptance)"
+            store mutation)"
     (let [before (rf.schemas/snapshot-schemas-by-frame)
           thrown (try (rf/reg-app-schemas {[:good]            :int
                                            [:also :good]      :string
@@ -663,7 +657,7 @@
           "the earlier-iterated good key did NOT register before the bad one threw"))))
 
 (deftest reg-app-schemas-rejects-batch-with-bad-path-atomically
-  (testing "rf2-sk0ql — a bulk batch containing a non-sequential path key
+  (testing "a bulk batch containing a non-sequential path key
             is rejected ATOMICALLY: the whole call throws and NO entry
             lands (not even the well-formed siblings iterated first)"
     (let [before (rf.schemas/snapshot-schemas-by-frame)
@@ -674,7 +668,7 @@
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "a batch with a bad path key throws")
       (when (instance? clojure.lang.ExceptionInfo thrown)
-        ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+        ;; Branch on the canonical :rf.error/id, not the message.
         (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
             "names the path-shape error category"))
       (is (= before (rf.schemas/snapshot-schemas-by-frame))
@@ -683,7 +677,7 @@
           "the well-formed sibling did not half-register"))))
 
 (deftest reg-app-schemas-accepts-all-valid-paths
-  (testing "rf2-sk0ql — a batch of valid sequential paths (including the
+  (testing "a batch of valid sequential paths (including the
             root `[]`) registers every entry"
     (rf/reg-app-schemas {[:good]      :int
                          []           [:map]
@@ -692,31 +686,29 @@
     (is (= [:map]  (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path []}))))
     (is (= :int    (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:cart :qty]}))))))
 
-;; ---- runtime-db path hard-reject (rf2-k0ew8n) ----------------------------
+;; ---- runtime-db path hard-reject ----------------------------------------
 ;;
-;; RULING (b): `reg-app-schema` / `reg-app-schemas` HARD-REJECT any path
+;; `reg-app-schema` / `reg-app-schemas` HARD-REJECT any path
 ;; whose FIRST segment reaches into the runtime-db partition — a
 ;; `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the
-;; retired legacy app-db `:rf/runtime` root — with the DISTINCT id
+;; legacy app-db `:rf/runtime` root — with the DISTINCT id
 ;; `:rf.error/app-schema-runtime-path` (not `:rf.error/app-schema-bad-path`).
 ;; App schemas validate ONLY app-db: `validate-app-schema!` reads
 ;; `(get-in app-db path)`, so a runtime path either detonates every dev
 ;; commit (a normal `[:map …]` schema over a `nil` slot) or silently
 ;; installs a validator the author falsely believes guards runtime-db.
 ;; Nothing to soft-land — unlike the `:rf.db/runtime` EFFECT seam, no
-;; legitimate caller exists, so this is a hard reject at the existing
+;; legitimate caller exists, so this is a hard reject at the
 ;; pre-mutation gate. The runtime-db partition is framework-owned (the
 ;; framework validates it; machine `:snapshots` are refined per-machine from
 ;; each machine's `[:schemas :data]` schema) and is NOT a user schema-registration
 ;; surface, so the honest remedy is to drop the runtime path.
 ;;
-;; rf2-sklyam: the prior `:reason` told users to "Use reg-runtime-schema to
-;; validate runtime-db state" — but `reg-runtime-schema` has NO public export
-;; (it is framework-internal boot vocabulary; `git grep` finds only prose),
-;; and runtime-db is framework-owned (Conventions §Reserved runtime-db keys —
-;; "user code MUST NOT register against it"). The error must not direct a user
-;; at a non-callable, framework-owned API. The tests below now FAIL if the
-;; `:reason` names `reg-runtime-schema`, pinning the corrected contract.
+;; `reg-runtime-schema` has NO public export (it is framework-internal boot
+;; vocabulary), and runtime-db is framework-owned (Conventions §Reserved
+;; runtime-db keys — "user code MUST NOT register against it"). So the error
+;; must not direct a user at a non-callable, framework-owned API: the tests
+;; below FAIL if the `:reason` names `reg-runtime-schema`.
 
 (def runtime-paths-rejected
   "Every shape `runtime-app-schema-path?` must reject as a first segment."
@@ -724,10 +716,10 @@
    [:rf.runtime/routing :current]
    [:rf.runtime/elision :decls]
    [:rf.db/runtime :rf.runtime/machines]   ; runtime-db container root
-   [:rf/runtime :legacy :slice]])          ; retired legacy app-db root
+   [:rf/runtime :legacy :slice]])          ; legacy app-db root
 
 (deftest reg-app-schema-rejects-runtime-path-with-distinct-error
-  (testing "rf2-k0ew8n / rf2-sklyam — a singular reg-app-schema against a
+  (testing "a singular reg-app-schema against a
             runtime-db path throws :rf.error/app-schema-runtime-path (distinct
             from the shape error), carries :received + :frame + a :reason that
             states the honest remedy (drop the runtime path; runtime-db is
@@ -742,7 +734,7 @@
         (when (instance? clojure.lang.ExceptionInfo thrown)
           (let [data   (ex-data thrown)
                 reason (:reason data)]
-            ;; rf2-vvixub — branch on the canonical :rf.error/id, not the
+            ;; Branch on the canonical :rf.error/id, not the
             ;; (non-normative) message bytes.
             (is (= :rf.error/app-schema-runtime-path (:rf.error/id data))
                 ":rf.error/id is the distinct runtime-path id")
@@ -750,11 +742,11 @@
                 ":received carries the offending path verbatim")
             (is (= :tenant/rt (:frame data))
                 ":frame carries the resolved registration frame")
-            ;; rf2-sklyam — ADVERSARIAL: the prior bug pointed users at a
-            ;; phantom, framework-owned API. The reason MUST NOT name it.
+            ;; ADVERSARIAL: a reason naming a phantom, framework-owned API
+            ;; would point users at it. The reason MUST NOT name it.
             (is (not (re-find #"reg-runtime-schema" (str reason)))
                 (str ":reason must NOT direct the user at the non-public, "
-                     "framework-owned reg-runtime-schema API (rf2-sklyam)"))
+                     "framework-owned reg-runtime-schema API"))
             ;; ...and MUST state the honest contract: runtime-db is
             ;; framework-owned, so the remedy is to stop using the runtime path.
             (is (re-find #"(?i)framework-owned" (str reason))
@@ -765,7 +757,7 @@
             (str "store unchanged after rejecting " (pr-str bad-path)))))))
 
 (deftest reg-app-schema-runtime-path-distinct-from-shape-error
-  (testing "rf2-k0ew8n — the runtime-path id is NOT the shape-error id; a
+  (testing "the runtime-path id is NOT the shape-error id; a
             runtime path is well-SHAPED (sequential) so it passes the shape
             gate and is rejected by the SEPARATE namespace gate"
     (is (rf.schemas.storage/valid-app-schema-path? [:rf.runtime/machines])
@@ -778,7 +770,7 @@
                                              {:frame :tenant/rt} [:map])))))
 
 (deftest reg-app-schema-accepts-non-runtime-rf-paths
-  (testing "rf2-k0ew8n — the gate keys on the runtime-db FIRST segment only;
+  (testing "the gate keys on the runtime-db FIRST segment only;
             an ordinary app-db path with an `:rf*`-ish key that is NOT a
             runtime root registers fine, and a runtime keyword NOT in head
             position is allowed"
@@ -793,7 +785,7 @@
     (is (not (rf.schemas.storage/runtime-app-schema-path? [:rf/something-else])))))
 
 (deftest reg-app-schemas-rejects-batch-with-runtime-path-atomically
-  (testing "rf2-k0ew8n — a bulk batch containing one runtime-db path key is
+  (testing "a bulk batch containing one runtime-db path key is
             rejected ATOMICALLY with :rf.error/app-schema-runtime-path before
             any mutation: NO entry lands, not even well-formed app-db siblings"
     (let [before (rf.schemas/snapshot-schemas-by-frame)
@@ -805,7 +797,7 @@
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "a batch with a runtime path key throws")
       (when (instance? clojure.lang.ExceptionInfo thrown)
-        ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+        ;; Branch on the canonical :rf.error/id, not the message.
         (is (= :rf.error/app-schema-runtime-path
                (:rf.error/id (ex-data thrown)))
             "names the distinct runtime-path error category"))
@@ -814,54 +806,53 @@
       (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :tenant/rt :path [:good]})))
           "the well-formed app-db sibling did not half-register"))))
 
-;; ---- end-to-end bypass invariant (rf2-sk0ql) -----------------------------
+;; ---- end-to-end bypass invariant ----------------------------------------
 ;;
-;; The load-bearing regression: BEFORE the fix, registering `:n` then
-;; calling validate-app-schema! against a non-conforming app-db threw
-;; IllegalArgumentException (which the router swallowed as a silent pass).
-;; AFTER the fix, the registration is rejected up front, so the toxic
-;; entry never reaches the validation hot path — and a VALID `[:n]`
+;; A registered bare-keyword `:n` path would make validate-app-schema!
+;; against a non-conforming app-db throw IllegalArgumentException (which a
+;; router would swallow as a silent pass). The registration is rejected up
+;; front, so the toxic entry never reaches the validation hot path — and a VALID `[:n]`
 ;; registration validates and signals a mismatch (false → router rolls
 ;; back) exactly as the contract requires.
 
 (deftest validate-app-schema-no-longer-poisoned-by-bad-path
-  (testing "rf2-sk0ql — the previously-bypassing bare-keyword path can no
-            longer poison validate-app-schema!. Rejected at registration;
+  (testing "a bare-keyword path cannot poison
+            validate-app-schema!. Rejected at registration;
             never reaches the hot path. validate-app-schema! returns true
-            (clean) rather than THROWING the IllegalArgumentException the
-            router silently treated as a pass."
-    ;; The bypass input: a bare-keyword path. Registration now throws.
+            (clean) rather than THROWING an IllegalArgumentException a
+            router would silently treat as a pass."
+    ;; The bypass input: a bare-keyword path. Registration throws.
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #":rf.error/app-schema-bad-path"
                           (rf/reg-app-schema :n :int)))
     ;; Nothing landed, so validate-app-schema! is a clean pass — it does
-    ;; NOT throw the ISeq IllegalArgumentException any more.
+    ;; NOT throw the ISeq IllegalArgumentException.
     (is (true? (rf.schemas.validate/validate-app-schema! {:n "bad"} :test))
         "no registered schema → clean pass, no throw to be swallowed")))
 
 (deftest valid-path-validates-and-signals-mismatch
-  (testing "rf2-sk0ql — the VALID counterpart of the bypass case: the
+  (testing "the VALID counterpart of the bypass case: the
             vector path [:n] registers, and validate-app-schema! returns
             false on a non-conforming value (the signal the router uses to
-            roll the commit back) — proving the validation path the bug
-            had silently disabled is live."
+            roll the commit back) — proving the validation path is
+            live."
     (rf/reg-app-schema [:n] :int)
     (is (false? (rf.schemas.validate/validate-app-schema! {:n "bad"} :test))
         "a non-conforming value at the valid path fails validation")
     (is (true? (rf.schemas.validate/validate-app-schema! {:n 0} :test))
         "a conforming value at the valid path passes")))
 
-;; ---- malformed-schema fail-closed invariant (rf2-ss06u.3) ----------------
+;; ---- malformed-schema fail-closed invariant ------------------------------
 ;;
-;; Same fail-OPEN class as the sk0ql PATH bypass, but via a malformed SCHEMA
+;; Same fail-OPEN class as the PATH bypass above, but via a malformed SCHEMA
 ;; value. Malli validates schema FORMS lazily (at validate-time), so a
 ;; childless `[:vector]` / unknown op registers fine and then makes the
-;; validator THROW on the first post-commit validation. Before the fix the
-;; throw aborted the whole validate-app-schema! loop and the router's
-;; `(catch ... true)` swallowed it as a validation PASS — installing an
-;; unvalidated commit with no trace and no rollback, AND disabling validation
-;; (incl. the privacy redaction traces) frame-wide for the bad schema's
-;; lifetime. The fix isolates the throw per-entry: a distinct
+;; validator THROW on the first validation. Were that throw to abort the
+;; whole validate-app-schema! loop, the router's `(catch ... true)` would
+;; swallow it as a validation PASS — installing an unvalidated commit with
+;; no trace and no rollback, AND disabling validation (incl. the privacy
+;; redaction traces) frame-wide for the bad schema's lifetime. So the throw
+;; is isolated per-entry: a distinct
 ;; :rf.error/malformed-schema trace fires, validate-app-schema! returns
 ;; FALSE (fail-closed → router rolls back — does NOT install blind), and the
 ;; frame's sibling schemas are still validated.
@@ -877,7 +868,7 @@
       {:result result :traces @traces})))
 
 (deftest malformed-schema-no-silent-pass-childless-vector
-  (testing "rf2-ss06u.3 — a childless [:vector] registered schema does NOT
+  (testing "a childless [:vector] registered schema does NOT
             yield a silent commit-pass: validate-app-schema! returns false
             (fail-closed → rollback) without THROWING, and a distinct
             :rf.error/malformed-schema trace fires."
@@ -894,7 +885,7 @@
         (is (string? (-> m :tags :reason)))))))
 
 (deftest malformed-schema-no-silent-pass-unknown-op
-  (testing "rf2-ss06u.3 — an unknown-op registered schema also fails closed
+  (testing "an unknown-op registered schema also fails closed
             with a distinct trace, no throw."
     (rf/reg-app-schema [:y] {:frame :ss06u.3/b} [:not-a-real-op :int])
     (let [{:keys [result traces]} (malformed-trace {:y 1} :bad/ev :ss06u.3/b)
@@ -903,7 +894,7 @@
       (is (= 1 (count mal)) "one malformed-schema trace fired"))))
 
 (deftest malformed-schema-does-not-poison-sibling-validation
-  (testing "rf2-ss06u.3 — a malformed schema at one path does NOT silently
+  (testing "a malformed schema at one path does NOT silently
             disable validation for OTHER paths in the same frame. Register a
             good schema + a malformed schema; commit a value that violates
             the GOOD schema; the good schema's rollback/trace STILL fires."
@@ -951,17 +942,16 @@
     (is (= {} (rf.schemas/app-schemas {:frame :rf/default})))
     (is (= {} (rf.schemas/app-schemas {:frame :tenant/a})))))
 
-;; ---- on-frame-destroyed! (Spec 002 §Destroy / rf2-rbbmt) -----------------
+;; ---- on-frame-destroyed! (Spec 002 §Destroy) -----------------------------
 ;;
-;; storage.cljc:361 drops a destroyed frame's schemas so a subsequent
-;; make-frame of the same id starts with a clean slate (prevents spurious
-;; rollbacks against orphan paths — rf2-wkxng / rf2-6m0se). Previously
-;; covered ONLY indirectly via the conformance runner's destroy cycle;
-;; these are the direct slice-local pins for the dissoc + idempotent
-;; no-op the docstring promises.
+;; `storage/on-frame-destroyed!` drops a destroyed frame's schemas so a
+;; subsequent make-frame of the same id starts with a clean slate (prevents
+;; spurious rollbacks against orphan paths). The conformance runner's
+;; destroy cycle covers it indirectly; these are the direct slice-local
+;; pins for the dissoc + idempotent no-op the docstring promises.
 
 (deftest on-frame-destroyed-dissocs-the-frame
-  (testing "rf2-rbbmt — on-frame-destroyed! drops every schema registered
+  (testing "on-frame-destroyed! drops every schema registered
             against the destroyed frame; sibling frames are untouched"
     (rf/reg-app-schema [:user] {:frame :tenant/doomed} [:map [:id :int]])
     (rf/reg-app-schema [:auth] {:frame :tenant/doomed} [:string])
@@ -977,7 +967,7 @@
         "sibling frame's registration survives — destroy is frame-scoped")))
 
 (deftest on-frame-destroyed-is-idempotent-no-op-for-missing-frame
-  (testing "rf2-rbbmt — destroying a frame with no registrations (or one
+  (testing "destroying a frame with no registrations (or one
             already destroyed) is a no-op dissoc — never throws, never
             disturbs other frames"
     (rf/reg-app-schema [:user] {:frame :tenant/keep} [:map])
@@ -997,8 +987,8 @@
     (is (= {} (rf.schemas/app-schemas {:frame :tenant/never})))))
 
 (deftest on-frame-destroyed-allows-clean-re-registration
-  (testing "rf2-rbbmt — after destroy, re-registering the same frame-id
-            starts from a clean slate (the rf2-wkxng rationale: no orphan
+  (testing "after destroy, re-registering the same frame-id
+            starts from a clean slate (no orphan
             schemas re-fire against the re-created frame)"
     (rf/reg-app-schema [:user]   {:frame :tenant/reuse} [:map [:id :int]])
     (rf/reg-app-schema [:orphan] {:frame :tenant/reuse} [:string])
