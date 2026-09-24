@@ -97,6 +97,18 @@ function reportRenderException(entry, err) {
   process.stderr.write(`[rf.ssr-node] render threw in entry ${entry}: ${trace}\n`);
 }
 
+/**
+ * The operator's copy of an exception that stopped this isolate booting —
+ * thrown while the module was loaded or from its `boot` hook. The same
+ * stream under the same prefix as `reportRenderException`, and for the same
+ * reason: the `boot-error` post carries `code` and `message` only, so this
+ * write is the one place the application's stack and call site survive.
+ */
+function reportBootException(modulePath, err) {
+  const trace = err && err.stack ? err.stack : String(err);
+  process.stderr.write(`[rf.ssr-node] the render module failed to boot from ${modulePath}: ${trace}\n`);
+}
+
 let renderModule = null;
 let busy = false;
 
@@ -108,15 +120,17 @@ function boot() {
     renderModule = validateModule(require(workerData.modulePath), workerData.modulePath);
     if (typeof renderModule.boot === 'function') renderModule.boot();
   } catch (err) {
-    // NO `stack`. The parent's boot receiver builds its `Refusal` from
-    // `code` and `message` and names the module path itself; a stack
-    // posted here would be serialised across the thread boundary and
+    // The stack goes to the operator first, on stderr; see
+    // `reportBootException`. A caught exception raises no `error` event on
+    // the parent's `Worker`, so nothing else ever sees it.
+    reportBootException(workerData.modulePath, err);
+    // NO `stack` on the post. The parent's boot receiver builds its
+    // `Refusal` from `code` and `message` and names the module path itself;
+    // a stack posted here would be serialised across the thread boundary and
     // dropped, while reading as though the application's trace survived
-    // into the refusal. The live diagnostic is the parent's
-    // `worker.on('error')` handler, which has the real `Error` and keeps
-    // its stack.
+    // into the refusal.
     //
-    // Nullish-safe for the same reason that handler is: a
+    // Nullish-safe for the same reason the parent's `error` handler is: a
     // module that throws `null` at boot would otherwise be refused with
     // "Cannot read properties of null", which says nothing about the module.
     postMessage({
