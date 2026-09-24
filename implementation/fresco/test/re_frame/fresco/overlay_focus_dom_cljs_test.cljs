@@ -636,10 +636,9 @@
 ;; The two rows below are that population: one panel whose sequential
 ;; order is SHORTER than its document order (a radio group), one whose
 ;; sequential order is a PERMUTATION of it (a positive `tabindex`). Both
-;; drive both edges with trusted input, and
-;; both name `body` explicitly, because `<body>` is where a wrap that did
-;; not fire puts focus, and reading it as merely "some other control"
-;; would let that leak pass.
+;; drive both edges with trusted input, and both name `body` explicitly,
+;; because `<body>` is where a wrap that did not fire puts focus, and
+;; reading it as merely "some other control" would let that leak pass.
 
 (defn- both-edges!
   "Focus `start`, walk `n` trusted Tabs, re-focus `start`, walk `n` trusted
