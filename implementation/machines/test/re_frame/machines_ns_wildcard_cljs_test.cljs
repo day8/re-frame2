@@ -45,7 +45,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ns-wildcard-matches-any-event-in-namespace
-  (testing ":mouse/* catches :mouse/down AND :mouse/up — any event in the ns (rf2-z4t2v)"
+  (testing ":mouse/* catches :mouse/down AND :mouse/up — any event in the ns"
     (let [log (atom [])
           tag (fn [k] (fn [{ev :event}] (swap! log conj [k (first ev)]) {}))
           machine
@@ -69,7 +69,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest exact-beats-ns-wildcard
-  (testing "an enabled exact :mouse/down wins over :mouse/* (priority preserved, rf2-z4t2v)"
+  (testing "an enabled exact :mouse/down wins over :mouse/* (priority)"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -95,7 +95,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ns-wildcard-beats-total-wildcard
-  (testing ":mouse/* wins over the total :* for a :mouse/... event (priority, rf2-z4t2v)"
+  (testing ":mouse/* wins over the total :* for a :mouse/... event (priority)"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -117,11 +117,11 @@
           "the total :* must NOT fire when the namespace-wildcard is enabled"))))
 
 ;; ---------------------------------------------------------------------------
-;; (d) guard-blocked exact :mouse/down falls through to :mouse/* (icj9t)
+;; (d) guard-blocked exact :mouse/down falls through to :mouse/*
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-exact-falls-through-to-ns-wildcard
-  (testing "a guard-blocked exact :mouse/down falls through to :mouse/* (icj9t × z4t2v)"
+  (testing "a guard-blocked exact :mouse/down falls through to :mouse/*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -147,7 +147,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-ns-wildcard-falls-through-to-total-then-parent
-  (testing "guard-blocked :mouse/* falls through to the same-level :* (icj9t × z4t2v)"
+  (testing "guard-blocked :mouse/* falls through to the same-level :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -167,7 +167,7 @@
       (is (not (some #{:ns-any} @log))
           "the guard-blocked namespace-wildcard action must NOT fire")))
 
-  (testing "guard-blocked leaf :mouse/* + no enabled leaf :* → walks to parent :* (icj9t × z4t2v)"
+  (testing "guard-blocked leaf :mouse/* + no enabled leaf :* → walks to parent :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -198,7 +198,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ns-wildcard-isolates-by-namespace
-  (testing ":mouse/* does NOT catch :keyboard/down — namespace isolation (rf2-z4t2v)"
+  (testing ":mouse/* does NOT catch :keyboard/down — namespace isolation"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -222,7 +222,7 @@
           ":keyboard/down was a genuine no-op — snapshot unchanged"))))
 
 (deftest bare-event-id-has-no-namespace-tier
-  (testing "a non-namespaced event :go has no :ns/* tier — only exact + total :* (rf2-z4t2v)"
+  (testing "a non-namespaced event :go has no :ns/* tier — only exact + total :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -244,7 +244,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest compound-ns-wildcard-prefers-leaf-over-parent
-  (testing "compound: leaf :mouse/* fires before a parent :mouse/* (same-level priority, rf2-z4t2v)"
+  (testing "compound: leaf :mouse/* fires before a parent :mouse/* (same-level priority)"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -263,11 +263,11 @@
       (reset! log [])
       (rf/dispatch-sync [:z4t2v/compound [:mouse/down]])
       (is (= [:leaf-ns] @log)
-          "leaf :mouse/* fired before any parent walk — same-level priority preserved")
+          "leaf :mouse/* fired before any parent walk — same-level priority")
       (is (not (some #{:parent-ns} @log))
           "the parent :mouse/* must NOT fire when the leaf handled the event")))
 
-  (testing "compound: blocked leaf exact → leaf :ns/* → walks to parent exact (icj9t × z4t2v)"
+  (testing "compound: blocked leaf exact → leaf :ns/* → walks to parent exact"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -296,7 +296,7 @@
           "neither the blocked leaf exact nor the parent exact fired"))))
 
 (deftest parallel-region-ns-wildcard-resolves-per-region
-  (testing "parallel: each region's :ns/* resolves independently under broadcast (rf2-z4t2v)"
+  (testing "parallel: each region's :ns/* resolves independently under broadcast"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -316,7 +316,7 @@
       (is (= #{:left-ns :right-ns} (set @log))
           "both regions caught :mouse/move via their own :mouse/*")))
 
-  (testing "parallel: exact still beats :ns/* per region; non-matching ns is a region no-op (rf2-z4t2v)"
+  (testing "parallel: exact beats :ns/* per region; non-matching ns is a region no-op"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
