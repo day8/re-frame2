@@ -1,5 +1,5 @@
 (ns re-frame.views-adapter-switch-head-cljs-test
-  "rf2-oz7wr — the head cache across an ADAPTER SWITCH.
+  "The head cache across an ADAPTER SWITCH.
 
   `rf.views/view-head` derives `(rf/view id)` from (registration × installed
   substrate) and memoises it, because both substrate hooks it consults are
@@ -11,33 +11,34 @@
   object the slot still holds — rather than by whatever the latest derivation
   produced.
 
-  The defect this file pins, in the shape the audit recorded it:
+  The hazard this file pins:
 
     A post-init registration under substrate A1 composes wrapper W into
     componentized head H1; the slot stores H1 and the cache stores
     {W, H1, A1}. After dispose/install A2 the FIRST lookup correctly misses,
     derives H2, overwrites the cache with {W, H2, A2} and returns H2 —
     leaving the slot at H1. On the SECOND lookup the slot's H1 is identical
-    to neither W nor the cache's now-current H2, so `view-head` classified
-    its own registration as FOREIGN and handed back the stale H1. Switching
-    a componentizing substrate for a non-componentizing one failed the same
-    way: W once, then the old A1-marked H1.
+    to neither W nor the cache's now-current H2, so a cache that recognised
+    its registration by the latest derivation would classify it as FOREIGN
+    and hand back the stale H1. Switching a componentizing substrate for a
+    non-componentizing one would fail the same way: W once, then the old
+    A1-marked H1.
 
-  Every pre-existing row starts from an UNCOMPONENTIZED registrar seed (the
-  boot-order rows register with no adapter installed, so the slot holds the
-  bare wrapper and the misclassification cannot arise). These rows start from
-  a post-init COMPONENTIZED slot, which is what makes them able to see it.
+  Boot-order rows start from an UNCOMPONENTIZED registrar seed (they register
+  with no adapter installed, so the slot holds the bare wrapper and the
+  misclassification cannot arise). These rows start from a post-init
+  COMPONENTIZED slot, which is what lets them see it.
 
   What each row is for:
 
-    - `post-init-componentized-head-survives-*` — the audit's exact shape.
+    - `post-init-componentized-head-survives-*` — the exact shape above.
       Two consecutive lookups after a componentizing → componentizing switch;
       the second must still answer A2's head, not the stale H1.
     - `switch-to-a-non-componentizing-substrate-*` — the UIx → Reagent half
-      of the same defect. The re-derivation reuses the registration's own
+      of the same hazard. The re-derivation reuses the registration's own
       wrapper, so both lookups must answer W and neither may answer H1.
     - `foreign-view-slot-*` / `foreign-re-registration-*` — the pass-through
-      the repair must NOT trade away. A `:view` slot this ns did not build is
+      the token handling must NOT trade away. A `:view` slot this ns did not build is
       handed back exactly as stored, including when a stale cache entry for
       that id still describes an earlier views-composed registration. These
       two rows never reach the re-derivation branch, so they are also the
@@ -133,10 +134,10 @@
               (rf.substrate.adapter/dispose-adapter!)
               (rf.substrate.adapter/reset-lifecycle-state-for-tests!))))))))
 
-;; ---- the audit's shape: componentizing → componentizing --------------------
+;; ---- componentizing → componentizing ---------------------------------------
 
 (deftest post-init-componentized-head-survives-an-adapter-switch
-  (testing "two consecutive lookups after a switch both answer the NEW substrate's head (rf2-oz7wr)"
+  (testing "two consecutive lookups after a switch both answer the NEW substrate's head"
     (rf.substrate.adapter/install-adapter! adapter-a1)
     (let [h1 (rf.views/reg-view* ::switch-row {} render-fn)]
       ;; Premises. Without these the row could silently decay into the
@@ -160,9 +161,9 @@
         (is (not (identical? h1 first-lookup))
             "the first lookup is not the A1-era head")
 
-        ;; The regression. Pre-fix this answered H1: the slot's H1 matched
-        ;; neither the re-derived wrapper nor the cache's now-current H2, so
-        ;; the entry was classified foreign and the slot was served raw.
+        ;; The hazard: the slot's H1 matches neither the re-derived wrapper
+        ;; nor the cache's now-current H2, so a cache keyed on the latest
+        ;; derivation would classify the entry foreign and serve H1 raw.
         (is (= :a2 (shell-marker second-lookup))
             "the SECOND consecutive lookup still answers A2's head, not the stale A1 head")
         (is (not (identical? h1 second-lookup))
@@ -172,10 +173,10 @@
         (is (identical? first-lookup (rf/view ::switch-row))
             "and stays stable on every further lookup")))))
 
-;; ---- the same defect, componentizing → NON-componentizing ------------------
+;; ---- the same hazard, componentizing → NON-componentizing ------------------
 
 (deftest switch-to-a-non-componentizing-substrate-does-not-fall-back
-  (testing "a componentizing → non-componentizing switch answers the wrapper on BOTH lookups (rf2-oz7wr)"
+  (testing "a componentizing → non-componentizing switch answers the wrapper on BOTH lookups"
     (rf.substrate.adapter/install-adapter! adapter-a1)
     (let [h1 (rf.views/reg-view* ::to-plain-row {} render-fn)]
       (is (= :a1 (shell-marker h1))
@@ -192,8 +193,8 @@
         (is (not (identical? h1 first-lookup))
             "the first lookup is not the A1-marked head")
 
-        ;; Pre-fix this answered H1 — an A1-marked shell served to a substrate
-        ;; that has no idea what that marker means.
+        ;; The hazard would answer H1 here — an A1-marked shell served to a
+        ;; substrate that has no idea what that marker means.
         (is (nil? (shell-marker second-lookup))
             "the SECOND consecutive lookup is still W, not the A1-marked head")
         (is (not (identical? h1 second-lookup))
