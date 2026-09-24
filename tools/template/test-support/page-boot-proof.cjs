@@ -89,7 +89,7 @@
  * is not launchable here. Exit 2 is a REPORT, not a verdict: the caller
  * decides. Under CI it fails the run (every job enabling this tier provisions
  * a browser, so a missing one is a broken job); locally it is a skip under a
- * loud NOT PROVEN banner. A silent skip is how this class of defect stayed
+ * loud NOT PROVEN banner. A silent skip would leave this class of defect
  * invisible.
  */
 
@@ -106,8 +106,8 @@ if (!PUBLIC_ROOT || !IMPL_ROOT) {
 }
 const label = LABEL || 'emitted scaffold';
 
-// Which bundle the caller says it built. Defaults to `dev` — the historical
-// behaviour and the only mode a hand invocation is likely to want — but an
+// Which bundle the caller says it built. Defaults to `dev` — the only mode
+// a hand invocation is likely to want — but an
 // unrecognised value is a harness error and fails closed rather than silently
 // proving the wrong thing.
 const MODE = (process.env.RF2_TEMPLATE_BUNDLE_MODE || 'dev').trim().toLowerCase();
@@ -211,7 +211,7 @@ function diagnose(lines) {
   // CI it is a hard failure — every job that enables this tier runs
   // `npx playwright install --with-deps chromium`, so a job with no browser is
   // broken. Locally it is a skip under a loud NOT PROVEN banner. Keeping the
-  // judgement in the caller is what let the CI half be tightened without
+  // judgement in the caller is what lets the CI half be strict without
   // making a browser-less local checkout unrunnable.
   try {
     browser = await chromium.launch({ headless: true });
