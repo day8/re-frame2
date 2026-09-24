@@ -1,6 +1,5 @@
 (ns day8.re-frame2-machines-viz.mermaid-public-smoke-test
-  "Public-surface smoke per rf2-yamkm (relocated to tools/machines-viz/
-  per rf2-sqhqu) — exercises
+  "Public-surface smoke — exercises
   `day8.re-frame2-machines-viz.mermaid/emit` from an arms-length
   consumer namespace (no internal-ns access).
 
