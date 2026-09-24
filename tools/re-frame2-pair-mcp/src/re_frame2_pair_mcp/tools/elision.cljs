@@ -12,8 +12,7 @@
   carrying a fetch handle (`[:rf.elision/at <path>]`). A declaration
   governs its whole subtree, so a deeper read below it elides too; agents
   fetch the raw value with `get-path` on the marker's `:path` and
-  `elision false` (rf2-ealv5), which reads the CURRENT app-db
-  (rf2-3x7nj.32.5).
+  `elision false`, which reads the CURRENT app-db.
 
   ## Where in the pipeline
 
@@ -73,12 +72,12 @@
   off-box **tool wire** — they hand live frame state to an LLM/MCP
   client. Per EP-0015 §10 the *named* boundary is the choice an egress
   surface makes, not a hand-rolled combination of `:rf.egress/*` booleans.
-  This MCP server's wire is the graduating consumer of
+  This MCP server's wire is a consumer of
   `:rf.egress/off-box-tool`; the trusted-local `--allow-sensitive-reads`
-  opt-in is the graduating consumer of `:rf.egress/local-raw`.
+  opt-in is a consumer of `:rf.egress/local-raw`.
 
-  The server NAMES the profile; the app-side door resolves it
-  (rf2-kuky.88). Every rendered eval form calls
+  The server NAMES the profile; the app-side door resolves it.
+  Every rendered eval form calls
   `re-frame.core/project-egress` with an `:rf.egress/profile` chosen by
   the shared cross-MCP posture mapping
   `re-frame.mcp-base.egress/mcp-tool-profile`, and `project-egress`
@@ -88,8 +87,7 @@
   copy of it: the server ships a keyword, not a policy.
   `:rf.egress/off-box-tool` redacts sensitive and elides large to a marker
   carrying the structural indicators (`:path` / `:bytes` / `:type` /
-  `:handle`) a tool needs to reason about shape, with no `:digest`
-  (rf2-3x7nj.32.6);
+  `:handle`) a tool needs to reason about shape, with no `:digest`;
   `:rf.egress/local-raw` opts both inclusions back in (the operator's
   deliberate raw read). The `:elision` MCP arg composes ON TOP as the
   EP-0015 §10 explicit override (a caller that turns elision off overlays
@@ -105,15 +103,15 @@
 ;; `:include-sensitive` opt-in, already collapsed to a single boolean
 ;; `include-sensitive?` at each tool call site) selects the named
 ;; boundary profile; the framework resolves it to the `:rf.egress/*`
-;; floor. This server is the off-box-tool / local-raw graduating
-;; consumer — it expresses "which boundary is this", not "which booleans".
+;; floor. This server consumes the off-box-tool / local-raw profiles —
+;; it expresses "which boundary is this", not "which booleans".
 ;; ---------------------------------------------------------------------------
 
 (defn egress-opts-edn
   "Render the direct-read egress opts as an EDN string for inlining into a
   CLJS eval form sent over nREPL.
 
-  ## Named-egress profile, resolved app-side (rf2-kuky.88)
+  ## Named-egress profile, resolved app-side
 
   The egress POSTURE (`include-sensitive?`) names an `:rf.egress/*`
   profile via the SHARED cross-MCP mapping
@@ -121,10 +119,9 @@
   server's `--allow-sensitive-reads` gate + per-call opt-in). The NAME is
   what rides the wire; `re-frame.core/project-egress` resolves it to the
   framework's own §10 `:rf.egress/*` floor inside the app runtime. This
-  server neither carries nor consults a resolution table — that mirror was
-  deleted with this bead, because a server that names a boundary has no
-  reason to resolve one, and the mirror was a second place the §10 table
-  could drift.
+  server neither carries nor consults a resolution table: a server that
+  names a boundary has no reason to resolve one, and a mirror would be a
+  second place the §10 table could drift.
 
   The `:elision` MCP arg composes on top as the EP-0015 §10 explicit
   override: when `include-large?` is true it overlays
@@ -187,7 +184,7 @@
   rendered `egress-opts-edn` map naming the `:rf.egress/*` profile the
   `--allow-sensitive-reads` gate resolved to.
 
-  rf2-mtzv5m — the entry's `:query-v` is threaded into the projection as
+  The entry's `:query-v` is threaded into the projection as
   the `:query-v` opt so a framework route read sub (`:rf/route` /
   `:rf.route/query` / `:rf.route/params`) re-seeds the walk at its
   `[:rf.runtime/routing :current …]` storage position (via the
