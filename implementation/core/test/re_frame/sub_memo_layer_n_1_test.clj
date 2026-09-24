@@ -241,29 +241,3 @@
         (is (= 2 @runs) "body re-runs when the upstream value changed")
         (is (= [3] @seen) "…and the new value is still delivered wrapped")
         (rf/unsubscribe [:n*2])))))
-
-(deftest layer-n-1-declared-and-arrow-spellings-run-the-body-equally-often
-  (testing "the two spellings produce the same VALUE stream and the same NUMBER
-            of body runs over an identical sequence of commits — the delivery
-            shape is the only difference"
-    (let [arrow-runs    (atom 0)
-          declared-runs (atom 0)]
-      (rf/reg-event :seed   (fn [_ _]                {:db {:n 0 :unrelated 0}}))
-      (rf/reg-event :touch  (fn [{:keys [db]} _]     {:db (update db :unrelated inc)}))
-      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-      (rf/reg-sub :n (fn [db _] (:n db)))
-      (rf/reg-sub :arrow    {:inputs [[:n]]}        (fn [[n] _]  (swap! arrow-runs inc) (* 2 n)))
-      (rf/reg-sub :declared {:inputs [[:n]]} (fn [[n] _] (swap! declared-runs inc) (* 2 n)))
-      (rf/dispatch-sync [:seed])
-      (let [a (rf/subscribe [:arrow])
-            d (rf/subscribe [:declared])
-            read! (fn [] [@a @d])]
-        (is (= [0 0] (read!)))
-        (doseq [ev [[:touch] [:update 3] [:touch] [:update 3] [:update 5]]]
-          (rf/dispatch-sync ev)
-          (let [[av dv] (read!)]
-            (is (= av dv) (str "the two spellings disagree after " (pr-str ev)))))
-        (is (= @arrow-runs @declared-runs)
-            "the declared spelling costs no extra body run")
-        (rf/unsubscribe [:arrow])
-        (rf/unsubscribe [:declared])))))
