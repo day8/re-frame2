@@ -28,6 +28,7 @@
             [re-frame.subs :as rf.subs]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
             [re-frame.substrate.adapter]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
@@ -462,6 +463,52 @@
           (is (false? (machine-has-tag? f :websocket/reconnecting)))
           (is (false? (machine-has-tag? f :websocket/failed)))
           (is (nil? (socket-id-of s))))))))
+
+(defn- active-disconnect-then-connect-gets-full-budget-test []
+  ;; rf2-3x7nj.41.3 — every manual :ws/connect starts with a full retry
+  ;; budget, the one out of :disconnected included. A clean :ws/disconnect
+  ;; taken mid-reconnect, from [:active :connecting], leaves :retries where
+  ;; the failed opens left it, and :disconnected's :ws/connect used to record
+  ;; the opts without touching the counter — so the new connection inherited
+  ;; the abandoned run's spent budget. Sync delivery races through
+  ;; :connecting inside one dispatch and an async park would strand a real
+  ;; `setTimeout` (see `stale-auth-events-guarded-test`), so walk the
+  ;; registered machine through the pure `machine-transition`: real drops,
+  ;; the real :after backoff key and epoch.
+  (let [m       ws.connection/connection-machine
+        step    (fn [snap event]
+                  (let [r (rf.machines/machine-transition m snap event)]
+                    (is (= :ok (:status r)) (str (first event) " transitioned"))
+                    (:snapshot r)))
+        ;; The runtime binds the spawned socket's id under :rf/spawned; the
+        ;; pure transition only describes the spawn, so stand in for it.
+        spawned (fn [snap sid] (assoc-in snap [:data :rf/spawned [:active]] sid))
+        lose    (fn [snap sid]
+                  (step snap [:ws/closed {:source-socket-id sid :code 1006}]))
+        backoff (fn [snap]
+                  (step snap [:rf.machine.timer/after-elapsed
+                              (first (keys (get-in m [:states :reconnecting :after])))
+                              (get-in snap [:data :rf/after-epoch [:reconnecting]])
+                              [:reconnecting]]))
+        connect [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]
+        s0      {:state (:initial m) :data (:data m)}
+        ;; Connect, then two failed opens, each followed by the backoff re-entry.
+        s1      (spawned (step s0 connect) "sock-1")
+        s2      (spawned (backoff (lose s1 "sock-1")) "sock-2")
+        s3      (spawned (backoff (lose s2 "sock-2")) "sock-3")]
+    (is (= [:active :connecting] (:state s3)))
+    (is (= 2 (get-in s3 [:data :retries]))
+        "two failed opens spent two retries")
+    (let [gave-up (step s3 [:ws/disconnect])
+          again   (step gave-up connect)]
+      (is (= :disconnected (:state gave-up)))
+      (is (= [:active :connecting] (:state again)))
+      (is (= 0 (get-in again [:data :retries]))
+          "the manual :ws/connect out of :disconnected zeroed the retry counter"))
+    ;; Structural mirror: every manual-connect door runs the same action.
+    (doseq [path [[:states :disconnected] [:states :reconnecting] [:states :failed]]]
+      (is (= :record-and-reset (get-in m (conj path :on :ws/connect :action)))
+          (str path " :ws/connect zeroes the retry counter")))))
 
 ;; ----------------------------------------------------------------------------
 ;; ADVERSARIAL / NEGATIVE — WebSocket lifecycle guards + in-flight/queued
@@ -2010,6 +2057,12 @@
 (deftest websocket-disconnect-cleanly
   (testing "clean :ws/disconnect — :connected → :disconnected, socket-id cleared"
     (disconnect-cleanly-test)))
+
+(deftest websocket-manual-connect-after-active-disconnect-gets-full-budget
+  (testing "rf2-3x7nj.41.3 — a clean :ws/disconnect mid-reconnect, from
+            [:active :connecting], then a manual :ws/connect: the new
+            connection starts with :retries 0"
+    (active-disconnect-then-connect-gets-full-budget-test)))
 
 (deftest websocket-stale-lifecycle-events-dropped
   (testing "rf2-3cgvt7 — a stale :ws/closed from a replaced socket is dropped
