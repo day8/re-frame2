@@ -29,9 +29,9 @@
 
   ## `::h/value` cannot ride the canonical event-vector shape
 
-  Confirmed here from a second application, and the finding is the slice
-  authoring report's first
-  (`docs/design/fresco/product/authoring-report-slice.md` §1).
+  This is the slice authoring report's first finding
+  (`docs/design/fresco/product/authoring-report-slice.md` §1), and it
+  holds in this application too.
   `spec/Conventions.md` §Canonical event-vector shape asks for
   `[<id> {<k> <v>}]`; Fresco substitutes its markers with `mapv` over
   the intent vector's **top level**, deliberately and for a stated cost
@@ -47,23 +47,22 @@
   [[::edit]] and [[::set-published]] are therefore POSITIONAL and the
   other three handlers are not, which is the whole shape of the
   collision: a payload map is available to every handler that does not
-  carry a marker, and to none that does. `editor.l1-marker-cljs-test`
+  carry a marker, and to none that does. `editor.l2-cljs-test`
   asserts both spellings through the runtime's own substitution rather
   than describing them.
 
   ## The revision counter is the author's to invent
 
   [[::discard]] bumps `:revision` with `(fnil inc 0)`, which is the
-  slice authoring report's finding 5. What this application adds is the
-  measurement that report could not make.
+  slice authoring report's finding 5.
   `editor.flow-dom-cljs-test/what-the-revision-bump-is-actually-load-bearing-FOR`
   names the one state in which the bump is the only thing that repairs a
   field — a value written onto the glass by something that fired no
   change event, so nothing converged it — and that row REDS BY NAME when
   the `update` below is deleted.
 
-  A keystroke's own divergence is not that state, and the row that
-  assumed it was stayed green with the counter gone: `impl.controlled`
+  A keystroke's own divergence is not that state, and a reset row that
+  assumed it was would stay green with the counter gone: `impl.controlled`
   converges a field in the turn that typed into it, so a reset row built
   on typing re-reads a value that has been on screen since before the
   reset. Which is also the useful sentence for a consumer: `::h/revision`

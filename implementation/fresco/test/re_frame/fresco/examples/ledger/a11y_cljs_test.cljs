@@ -147,7 +147,7 @@
       (is (= "Flag Record 12" (named tree (flag-node tree)))))))
 
 (deftest the-sweep-finds-nothing-in-any-state-a-row-has
-  ;; The bead's accessibility acceptance in the form the application can
+  ;; The accessibility acceptance, in the form the application can
   ;; be held to as it grows: one assertion per rendering, over every state
   ;; a row has. A fourth control added tomorrow without a name reds this,
   ;; and no row has to be written for it.

@@ -12,8 +12,8 @@
   A controlled field re-renders its boundary when a subscription it read
   notifies, so a body that reads more than it needs pays for the
   difference on every keystroke. [[field-row]] reads its OWN field's text
-  and its OWN field's displayable problem; the save button reads the gate
-  and the write's status; the form shell reads nothing at all and so
+  and its OWN field's displayable problem; the save button reads the
+  write's status; the form shell reads nothing at all and so
   never re-renders. The per-keystroke arithmetic is published for the
   four-field editor and the 100-cell grid, and this application follows it
   rather than measuring it again.

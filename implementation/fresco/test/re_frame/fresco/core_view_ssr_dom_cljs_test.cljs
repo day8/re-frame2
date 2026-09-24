@@ -3,10 +3,9 @@
   §2.1 rows HS-01 to HS-09, which is every core view surface an
   application writes before it reaches a host, an escape or a module.
 
-  Those nine rows all carry a **Render** target and all read
-  *Client-only* in the operative column, and they read that for one
-  reason: nothing else server-renders a `h/defview`. This file is that
-  witness. It runs the surfaces through `react-dom/server`'s own
+  Those nine rows all carry a **Render** disposition, and nothing else
+  server-renders a `h/defview`: this file is the witness each of them
+  cites. It runs the surfaces through `react-dom/server`'s own
   `renderToString`, called by hand — the smallest thing that produces
   server bytes, so what these rows read is the surface's own server
   behaviour and nothing else — and then hydrates those same bytes
@@ -164,10 +163,9 @@
   [:form.intents {:on-submit [::rf.fresco/prevent [:fresco.core-ssr/edit]]}
    ;; CONTROLLED, and it has to be: `::h/revision` re-baselines a
    ;; controlled field to its model, so `impl.controlled/install!`
-   ;; refuses it on a field with no `:value` to re-baseline TO. Measured
-   ;; here first as an uncaught refusal, and
-   ;; [[a-revision-on-an-uncontrolled-field-is-refused-at-source]] is
-   ;; that refusal kept as a row rather than merely designed around.
+   ;; refuses it on a field with no `:value` to re-baseline TO;
+   ;; [[a-revision-on-an-uncontrolled-field-is-refused-at-source]] pins
+   ;; that refusal as a row.
    [:input.text {:type        "text"
                  :value       (rf.fresco/sub [:fresco.core-ssr/draft])
                  :on-change   [:fresco.core-ssr/edit ::rf.fresco/value]
@@ -449,7 +447,7 @@
 
 (deftest the-intent-vocabulary-never-reaches-the-bytes
   (testing "HS-03 and HS-07, and the strongest single reason the server
-            half of this tier needed a witness at all. Intents are DATA
+            half of this tier needs a witness at all. Intents are DATA
             — vectors, placeholder keywords and a decorator head — and
             data is exactly the kind of thing a serializer emits. Every
             spelling the grammar has is in [[intents]]; none of them may
@@ -481,13 +479,12 @@
                 from passing on an empty string: " html)))))
 
 (deftest a-revision-on-an-uncontrolled-field-is-refused-at-source
-  (testing "HS-07's refusal arm, and it was found rather than designed:
-            the first draft of [[intents]] put `::h/revision` on a
-            `:defaultValue` field and this refusal is what came back. It
-            is kept as a row because the reserved vocabulary's validation
-            has to run on the SERVER too — one that ran on the client
-            alone would let this page be baked and would fail only at
-            adoption, which is the most expensive place to find it"
+  (testing "HS-07's refusal arm: `::h/revision` on a `:defaultValue`
+            field is refused. It is a row because the reserved
+            vocabulary's validation has to run on the SERVER too — one
+            that ran on the client alone would let this page be baked and
+            would fail only at adoption, which is the most expensive place
+            to find it"
     (fresh!)
     (let [e (try (server-html [bad-revision {}]) nil
                  (catch :default e e))
@@ -669,7 +666,7 @@
                           adopt at once, each under its own stable
                           `identifierPrefix` and its own frame, and
                           neither disturbs the other. The prefixes are
-                          the option rf2-hic-046's pass-through added;
+                          the `:identifier-prefix` pass-through option;
                           the frames are what makes the two responses
                           different in the first place. Narrowing
                           caught: a process-global adoption window or a
@@ -729,7 +726,7 @@
                 a teardown that empties the runtime's tables rather than
                 releasing the subscriptions — it answers zero whether it
                 released anything or not, which is a gate that cannot go
-                red (`impl.mount/unmount!`, rf2-2rtt6.48)"
+                red (`impl.mount/unmount!`)"
         (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
           (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/title]]))
               (str "one reader while mounted; cells: "

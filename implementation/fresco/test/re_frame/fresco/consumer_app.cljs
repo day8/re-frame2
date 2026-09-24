@@ -23,17 +23,16 @@
     selection at boot) and Fresco deliberately ships none of its own —
     a consumer picks one, the way they already do for Reagent or UIx
     views;
-  - `re-frame.fresco`, the public door, for `defview`, `sub` and
-    `root!`.
+  - `re-frame.fresco`, the public door, for `defview`, `sub`,
+    `client-root`, `render!` and `frame-root`.
 
   ## Why it is also the release build's entry
 
   `:fresco-release` compiles this namespace under `:advanced` with
-  `goog.DEBUG` false, and until it existed nothing in the repo had ever
-  compiled Fresco the way a consumer ships it. A namespace that merely
-  REQUIRED the door would be no use for that: Closure keeps what is
-  reachable and an unused require is not, so the bundle would DCE to
-  nearly nothing and report a cost no consumer pays. Everything below is
+  `goog.DEBUG` false — Fresco compiled the way a consumer ships it. A
+  namespace that merely REQUIRED the door would be no use for that:
+  Closure keeps what is reachable and an unused require is not, so the
+  bundle would DCE to nearly nothing and report a cost no consumer pays. Everything below is
   reached from the mount instead — a declared view whose body reads a
   subscription, a controlled field that writes back through an intent,
   and a root that owns its frame.
@@ -48,17 +47,10 @@
   `:node-test-fresco` selects `^re-frame\\.fresco\\..+-cljs-test$`, and
   this namespace does not end in `-cljs-test`.
 
-  ## The reload hook, and why it is here now
+  ## The reload hook
 
-  It was deliberately absent, and its absence was the evidence: writing
-  the hook's body on public namespaces only *could not be done*, because
-  the door exposed no re-render and its `release!` was a fixture door
-  that reset the page-wide runtime and removed the container from the
-  document. Rather than paper over that with a hook this file could not
-  honestly recommend copying, it was reported.
-
-  [[re-frame.fresco/render!]] is that door now, so the hook below is
-  three ordinary lines and every one of them is public. It re-renders the
+  [[re-frame.fresco/render!]] is a public re-render door, so the hook
+  below is three ordinary lines and every one of them is public. It re-renders the
   root React already has, which is what lets the reloaded view code meet
   its own DOM; a fresh handle on reload would `createRoot` again and replace
   the tree, discarding every node and every scrap of component state.
@@ -67,7 +59,7 @@
   holds one: a plain `def` is re-evaluated by the reload, and the handle
   would be replaced by the event it is there to survive.
 
-  This is an exemplar, not a gate. The HMR path is still MEASURED by
+  This is an exemplar, not a gate. The HMR path is MEASURED by
   `fresco/testbed/hmr` under `test:fresco-hmr`, which drives a real
   shadow-cljs watch and a real reload; inventing a second gate here would
   add machinery without adding a witness."

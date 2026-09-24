@@ -171,9 +171,8 @@
   failure mode. `[:rf.mutation/execute {:mutation <unregistered> …}]`
   mints no instance, issues no request, settles nothing and reports
   NOTHING: the instance reads `:idle` afterwards, exactly as it does
-  before any write. Measured in this repository's `:browser-test` build,
-  where a missing registration made every symptom point at the
-  transport."
+  before any write, so a missing registration makes every symptom point
+  at the transport."
   []
   (rf/reg-mutation ::save
     {:params-schema [:map [:assignee :string] [:notes :string]]}

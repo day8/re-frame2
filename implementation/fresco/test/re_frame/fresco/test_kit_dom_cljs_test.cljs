@@ -16,8 +16,8 @@
     their attributes were written, because that order is the serialiser's
     and not the page's — the fairness half; and
   - it must distinguish two pages that differ **at all** otherwise, or it
-    is a constant and every parity claim ever made through it was
-    vacuous — the sensitivity half.
+    is a constant and every parity claim made through it is vacuous —
+    the sensitivity half.
 
   A comparator asserted on only the first is satisfied by
   `(constantly \"\")`. Both rows are here, on the same pair of nodes.
@@ -98,13 +98,13 @@
                  (select-keys refused [:rf.error/id :where]))))))))
 
 (deftest data-cannot-imitate-the-serialisers-own-structure
-  ;; rf2-kovp. The sensitivity half above is asserted on ordinary values —
+  ;; The sensitivity half above is asserted on ordinary values —
   ;; `3` against `4`, `milk` against `bread` — and every one of those
   ;; differs somewhere the serialiser's alphabet is unambiguous. These rows
   ;; are the case where it is NOT: the page's own data is written in the
   ;; characters the serialiser reserves for structure, so a comparator that
   ;; emits data raw declares two visibly different pages equal, and every
-  ;; parity claim taken through it for such a page was vacuous.
+  ;; parity claim taken through it for such a page would be vacuous.
   (if-not (browser?)
     (skip! ":node-test has no document")
     (testing "a container whose TEXT reads like markup is not a container
@@ -123,7 +123,7 @@
              pinned rather than merely differing from something")))))
 
 (deftest a-quote-in-an-attribute-value-cannot-become-a-second-attribute
-  ;; rf2-kovp, the same ambiguity through the attribute door: `"` is the
+  ;; The same ambiguity through the attribute door: `"` is the
   ;; serialiser's own value delimiter, so an unescaped one closes the slot
   ;; and opens what reads as another attribute. A page carrying a handler
   ;; would compare equal to a page carrying none.

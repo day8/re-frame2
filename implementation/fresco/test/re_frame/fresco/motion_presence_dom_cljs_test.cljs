@@ -65,8 +65,7 @@
 
   ## The controls, and what each of them reds on
 
-  Every row was run against a deliberate break and the reds are quoted in
-  the PR body:
+  Each row reds on a deliberate break:
 
   - re-entry ceasing to cancel (`impl.presence/step`'s `:unmounting`
     branch) reds the interruption row;
@@ -317,16 +316,14 @@
         (finally (restore!))))))
 
 ;; ---------------------------------------------------------------------------
-;; The override that leaked, and the attribute it left behind
+;; An override no tray can reach, and the attribute it must not leave
 ;; ---------------------------------------------------------------------------
 ;;
-;; `impl/presence.cljs` used to say, of `with-phase`, that *the two
-;; override keys are always removed, so an override never reaches the DOM
-;; as an attribute*. The first clause was true and the second was scoped
-;; to it: `with-phase` runs on a tray's DIRECT children, and an override
-;; written anywhere else fell through to the ordinary prop walk, which
-;; takes `(name k)` — so `::motion/mounting` was emitted as a `mounting`
-;; ATTRIBUTE onto the element and the animation never ran.
+;; `with-phase` removes the two override keys, but it runs on a tray's
+;; DIRECT children only. An override written anywhere else meets the
+;; ordinary prop walk, which takes `(name k)` — so were the walk not to
+;; skip it, `::motion/mounting` would be emitted as a `mounting` ATTRIBUTE
+;; onto the element and the animation would never run.
 ;;
 ;; **This is a DOM claim and only a DOM lane can settle it.** The node
 ;; lane sees the emitted props OBJECT; whether a name on that object
@@ -342,9 +339,10 @@
       (rf/make-frame {:id frame-kw})
 
       (testing "THE CONTROL: the walk really does put a bare `mounting` on
-                the page, so the namespaced key that shared its emitted
-                name really did leak. Without this row the refusal below
-                could be guarding a route that was never open"
+                the page, so the namespaced key that shares its emitted
+                name would leak if the walk did not skip it. Without this
+                row the refusal below could be guarding a route that was
+                never open"
         (let [container (rf.fresco.impl.mount/fresh-container!)
               handle    (rf.fresco.impl.mount/root! container frame-kw [:div.probe {:mounting "x"}])]
           (try
@@ -353,7 +351,8 @@
               (is (some? node))
               (is (= "x" (.getAttribute node "mounting"))
                   "an author's own `:mounting` attribute — untouched, and
-                   painted, which is exactly the shape `::motion/mounting` took"))
+                   painted, which is exactly the shape a leaked
+                   `::motion/mounting` would take"))
             (finally (rf.fresco.impl.mount/release! handle)))))
 
       (testing "and the override key itself is SKIPPED by the walk, so the

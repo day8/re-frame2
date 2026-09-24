@@ -11,8 +11,8 @@
   **the HMR contract lands on that file** — a reload re-registers `:sub`
   handlers, which is exactly what
   [[re-frame.fresco.impl.generation/registry-epoch]] counts and exactly
-  what the collector's cell-invalidation repair rides. Nothing had ever
-  measured a reload against those numbers.
+  what the collector's cell-invalidation repair rides. This file measures
+  a reload against those numbers.
 
   ## Why a rendered assertion is the wrong instrument for all of this
 
@@ -101,11 +101,11 @@
 
 (def ^:private at-the-checkpoint
   "The wait for the deferred repair. See
-  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]]: rf2-2l17
-  moved the repair from a `setTimeout 0` to a microtask, so the 30 ms
-  timer this used to be is no longer a statement about anything — it was
-  green for either scheduling. The sibling reincarnation suites wait the
-  same way, on the same instrument, for the same reason."
+  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]]: the repair
+  runs at a microtask, and a fixed timer would be green for a microtask
+  and a macrotask alike, so it would be a statement about nothing. The
+  sibling reincarnation suites wait the same way, on the same
+  instrument, for the same reason."
   rf.fresco.checkpoint-support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
@@ -144,8 +144,8 @@
   ;; does not make the whole page thrash". `commit-basis` carries a registry
   ;; term, so this is not free by construction — it is bought by
   ;; `make-snapshot` reading that term ONLY for a key no cell holds, and it
-  ;; is worth a witness because the rejected design put the
-  ;; term in every key's live contribution and would render identically.
+  ;; is worth a witness because a design that put the term in every key's
+  ;; live contribution would render identically.
   (seeded! "A")
   (let [{:keys [entry notified release]} (mount-boundary! label-body)
         snapshot-a (rf.fresco.test.runtime/snapshot-of entry)]
@@ -292,7 +292,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest re-make-frame-is-the-reload-door-and-does-not-reincarnate
-  ;; The bead's frame-routing row. An `^:dev/after-load` hook that re-runs
+  ;; The frame-routing row. An `^:dev/after-load` hook that re-runs
   ;; the application's `(rf/make-frame {:id …})` is the ordinary shape of a
   ;; re-initialising reload, and `make-frame`'s own contract calls that case
   ;; IDEMPOTENT REPLACEMENT — "config + generation refresh, durable state
@@ -325,8 +325,8 @@
           "the reload added no row")
       (is (true? (same-object? row-before (rf.fresco.impl.collector/frame-row frame-id)))
           "and it is the SAME row object — so the bundle captured before the
-           reload is the one still in use, which is the claim this row makes
-           and could not previously check")
+           reload is the one still in use, which is the claim this row
+           makes")
       (is (true? (same-object? token-before (:incarnation (rf.fresco.impl.collector/frame-row frame-id))))
           "pinned to the pre-reload incarnation, by object identity"))
 
@@ -335,12 +335,11 @@
     ;; the one an after-load hook reaches by DESTROYING the frame before
     ;; rebuilding it.
     (testing "destroying and rebuilding, which is what a reload hook that
-              tears the app down does, DOES reincarnate — and that is
-              rf2-x874's territory, where an operation minted before the
-              transition keeps the predecessor's bundle and is refused
-              rather than reaching the successor. rf2-hic-013 owns that
-              measurement; this row only marks the boundary between the two
-              reload shapes"
+              tears the app down does, DOES reincarnate — and that is the
+              reincarnation suites' territory, where an operation minted
+              before the transition keeps the predecessor's bundle and is
+              refused rather than reaching the successor. This row only
+              marks the boundary between the two reload shapes"
       (rf/destroy-frame! frame-id)
       (rf/make-frame {:id frame-id})
       (is (false? (same-object? token-before (rf.frame/frame-incarnation-token frame-id)))

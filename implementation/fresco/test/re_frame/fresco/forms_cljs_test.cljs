@@ -714,8 +714,7 @@
       (is (= 1 (count (filterv #{"useState"} hooks)))))))
 
 (deftest an-untitled-todo-renders-an-empty-field
-  ;; rf2-3x7nj.7.1 — the chapter's own call site for a todo with no
-  ;; `:title` yet: `:todo/title` reads nil, the revision defaults to `0`,
+  ;; The chapter's own call site for a todo with no `:title` yet: `:todo/title` reads nil, the revision defaults to `0`,
   ;; and the module forwards that revision beside the nil it shows. Read
   ;; through the REAL body and the real codec under `renderToString`, so
   ;; the element judged is the one the module emits rather than a

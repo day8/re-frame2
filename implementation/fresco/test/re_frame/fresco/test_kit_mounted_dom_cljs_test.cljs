@@ -13,9 +13,9 @@
   the authoring spelling, lowered through the codec's prop walk, invoked
   as the browser would invoke it, reaches a real re-frame2 event handler
   and moves a real app-db* — through `ht/fire!`, with no element anywhere.
-  That row states plainly what it does NOT prove: \"No element exists, so
-  there is no bubbling, no default action, no focus … and no React event
-  system.\"
+  `ht/fire!`'s own docstring states plainly what that does NOT prove:
+  \"No element exists, so there is no bubbling, no default action, no
+  focus … and no React event system.\"
 
   [[l3-a-real-click-on-a-real-button-moves-the-real-page]] is that same
   claim with every one of those present. The button is a DOM node in
@@ -430,12 +430,12 @@
 ;;
 ;; `assert-clean!` resets the page-wide runtime after the LAST open mount
 ;; is read, and only then — `!open`'s whole account in
-;; `re-frame.fresco.test.mounted` (the rf2-2rtt6.48 shape: a census taken
-;; after a reset answers zero whether the teardown released anything or
-;; not, the gate that cannot go red). Every row above takes its verdicts
-;; in an order an EARLY reset would also satisfy: no row plants a leak
-;; under one mount, takes a sibling's verdict first, and then requires the
-;; leaked mount's reading to still move. This row is that ordering.
+;; `re-frame.fresco.test.mounted` (a census taken after a reset answers zero
+;; whether the teardown released anything or not — the gate that cannot go
+;; red). Every row above takes its verdicts in an order an EARLY reset would
+;; also satisfy: no row plants a leak under one mount, takes a sibling's
+;; verdict first, and then requires the leaked mount's reading to still
+;; move. This row is that ordering.
 ;;
 ;; ORDER IS THE ROW. B mounts first and takes its baseline; the leak is
 ;; planted inside B's window (W3's orphan, verbatim); A mounts AFTER the
@@ -600,12 +600,12 @@
 
         (testing "the refusal reached the CALLER, carrying the runtime's own id,
                   recovery and offending value — not a paraphrase minted here,
-                  and not the handle a mount that rendered nothing used to
-                  answer. React 19 does not re-throw a failed render out of
-                  `flushSync`: it hands the error to the root's
-                  `onUncaughtError`, whose default reports it at the window and
-                  returns — which is exactly how a mount could refuse and
-                  succeed at the same time (PR #7822's audit)"
+                  and not a handle for a mount that rendered nothing. React 19
+                  does not re-throw a failed render out of `flushSync`: it
+                  hands the error to the root's `onUncaughtError`, whose
+                  default reports it at the window and returns — which is
+                  exactly how a mount could refuse and succeed at the same
+                  time"
           (is (instance? ExceptionInfo outcome)
               (str "mount! answered " (pr-str outcome) " instead of refusing"))
           (when (instance? ExceptionInfo outcome)
@@ -710,8 +710,8 @@
             ;; moves into the row instead of being lost, and `preventDefault`
             ;; marks the event handled for the extent of this one rollback and
             ;; nowhere else. The bench lane's hydration witnesses spell the
-            ;; same rule as `:swallow-uncaught?`; naming it is provenance, not
-            ;; a dependency — the freeze gate forbids importing that tree.
+            ;; same rule as `:swallow-uncaught?`; naming it is a pointer, not
+            ;; a dependency — that tree is off this package's classpath.
             reported    (atom [])
             on-error    (fn [^js e]
                           (swap! reported conj (.-message e))
@@ -734,11 +734,11 @@
                            (str "got " (pr-str (ex-message e)))))
 
                      (testing "and the frame it minted is DESTROYED. This is
-                               what a rejection-only row cannot see: before the
-                               repair the timeout branch rejected and did
-                               nothing else — the frame stayed registered, the
-                               container stayed attached, the root stayed up
-                               with its adoption window open"
+                               what a rejection-only row cannot see: a timeout
+                               branch that rejected and did nothing else would
+                               leave the frame registered, the container
+                               attached and the root up with its adoption
+                               window open"
                        (let [frame (:frame (ex-data e))]
                          (is (keyword? frame))
                          (is (not (contains? (set (rf/frame-ids)) frame))
@@ -762,16 +762,16 @@
                            (str "got " (pr-str @reported))))
                      (done))))))))
 
-;; The THIRD way into the promise, and the one that used to escape it. The two
-;; rows above fail after `hydrate!` has allocated something — a root whose
-;; element the codec refuses, an adoption that never completes — so both were
-;; already inside the door's own boundary. A failing `:initial-events` step
-;; fails on the FIRST line instead, in `mint-frame!`, which ran outside every
-;; `try` and outside the `js/Promise.` at the bottom. The throw therefore
-;; landed on the CALLER's stack, past every `.catch` they had attached, and an
-;; ordinary `(-> (hm/hydrate! …) (.catch …) (.then done))` row did not go red:
-;; it TIMED OUT, reporting a budget where the real fault was a seeding
-;; handler (rf2-gwye.2 / rf2-fzbj.4 finding 2).
+;; The THIRD way into the promise. The two rows above fail after `hydrate!`
+;; has allocated something — a root whose element the codec refuses, an
+;; adoption that never completes — so both are already inside the door's own
+;; boundary. A failing `:initial-events` step fails on the FIRST line
+;; instead, in `mint-frame!`. Were that outside every `try` and outside the
+;; `js/Promise.` at the bottom, the throw would land on the CALLER's stack,
+;; past every `.catch` they had attached, and an ordinary
+;; `(-> (hm/hydrate! …) (.catch …) (.then done))` row would not go red: it
+;; would TIME OUT, reporting a budget where the real fault is a seeding
+;; handler.
 ;;
 ;; So the row's first reading is that the call RETURNED, and its last is that
 ;; the chain reached its completion continuation — `done` is called from
@@ -853,9 +853,8 @@
 ;; only way a reader can tell this door from decoration.
 ;;
 ;; What is NOT re-driven here is `poll-until`'s retry, deadline and error
-;; matrix: this door COMPOSES that poll and copies none of it (commit
-;; 88b20f1d22 deleted exactly such a duplicate), and `test_support_test` is
-;; that contract's authority. What W7b asserts is the composition — that the
+;; matrix: this door COMPOSES that poll and copies none of it, and
+;; `test_support_test` is that contract's authority. What W7b asserts is the composition — that the
 ;; canonical rejection reaches THIS door's caller unchanged.
 
 (defn- routed

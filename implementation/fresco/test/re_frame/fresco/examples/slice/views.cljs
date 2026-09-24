@@ -1,17 +1,17 @@
 (ns re-frame.fresco.examples.slice.views
   "THE SLICE'S VIEWS — the whole application's markup, on the public door.
 
-  Thirteen boundaries — the slice's original six, and seven more for
-  pagination, runtime-selected content and a nested error region: a pager, a
-  digest region, its body, and four block renderers. Everything they reach for
-  is `h/…`: `defview`, `sub`, `boundary`, `route-link`, and the
-  `::h/value` / `::h/checked` markers. There is no `impl` namespace anywhere
+  Thirteen boundaries — six for the chrome, the feed, the article and the
+  shell, and seven for pagination, runtime-selected content and a nested
+  error region: a pager, a digest region, its body, and four block
+  renderers. Everything they reach for is `h/…`: `defview`, `sub`,
+  `boundary`, `route-link`, and the `::h/value` / `::h/checked` markers. There is no `impl` namespace anywhere
   in the `:require` list above, and no `re-frame.core` either — a view neither
   dispatches nor subscribes directly, because an intent is a vector and a read
   is `h/sub`.
 
-  The third marker, `::h/revision`, is **not** here, and its absence is a
-  measurement rather than an oversight — see [[editor]] and `db`'s
+  The third marker, `::h/revision`, is **not** here, and its absence is
+  deliberate rather than an oversight — see [[editor]] and `db`'s
   namespace docstring.
 
   ## The one thing an author has to know that is not in a signature
@@ -24,8 +24,7 @@
   are written differently, and the difference is not visible at either
   call site: nothing about `route-link` says *call me*.
 
-  That is the slice authoring report's third finding. It is a
-  ONE-TIME cost — the mistake is loud when made, because a function in
+  It is a ONE-TIME cost — the mistake is loud when made, because a function in
   head position is refused at runtime as `:rf.error/fresco-bad-head` —
   but it is the only place in this application where two things that do
   the same job are spelled in two grammars.
@@ -36,9 +35,7 @@
   recorded where the read happens — `[[editor]]`'s problem string is read
   only when there is a problem, so a branch not taken costs no edge and
   the editor does not re-render when nothing on screen could change.
-  [[article-row]] and [[pager]] used to read through the grouped
-  `h/use-subs` as the control; that door was removed (rf2-6c12m.15) and
-  both bodies now read the same way as the rest."
+  There is no grouped read door beside it."
   (:require [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
             [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]
@@ -322,8 +319,8 @@
 
   The digest and the pager are CHILD boundaries rather than markup
   written here, and that is a read-set decision as much as a layout one:
-  this body still reads exactly the two things it read before pagination
-  existed, so the page it renders is still *the rows, and a heading*."
+  this body reads exactly two things, so the page it renders is *the
+  rows, and a heading*."
   [_]
   (let [rows (rf.fresco/sub [::rf.fresco.examples.slice.subs/feed])]
     [:section.feed
@@ -348,13 +345,11 @@
   local draft, no `onChange` closure and no effect reconciling two copies
   of the text. The model is the only place it lives.
 
-  ## NO `::h/revision`, and that is the finding rather than a gap
+  ## NO `::h/revision`, and that is deliberate rather than a gap
 
-  Neither field carries one, and that is measured rather than assumed:
-  deleting the counter's bump from `::discard` leaves the browser lane at
-  exactly its control. The reset law's trigger is inert here, because the
-  whole of what a revision does is re-run the body, and a discard already
-  moves three of the reads below. The commit that follows re-asserts the
+  Neither field carries one, because the reset law's trigger would be
+  inert here: the whole of what a revision does is re-run the body, and a
+  discard already moves three of the reads below. The commit that follows re-asserts the
   model over the fields on its own.
 
   A consumer needs `::h/revision` where a reset leaves every read its body

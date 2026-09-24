@@ -2,17 +2,14 @@
   "THE MULTI-ROOT WITNESS HARNESS — the observables, and the reasons they
   are these observables.
 
-  It was written for two suites — `roots-frames-isolation-dom-cljs-test`
-  and `roots-frames-hydration-dom-cljs-test` — because both of them have
-  to answer the same awkward question, and answering it twice by hand is
-  how the two answers drift apart. That reason held for the rest of the
-  package's DOM arm too, and this is now the harness the whole of it
-  reads: `git grep -l roots-frames-support` over this directory is the
-  roster, not a list here, and the name has outlived its scope rather
-  than describing it. So a helper belongs here when the DOM suites would
-  otherwise each spell it themselves — [[settle-row!]] is the plainest
-  case, four verbatim copies collapsed into one — and NOT merely because
-  it mentions roots or frames.
+  It is the harness the package's whole DOM arm reads — `git grep -l
+  roots-frames-support` over this directory is the roster, not a list
+  here — because every such suite has to answer the same awkward
+  question, and answering it once per suite by hand is how the answers
+  drift apart. The name is narrower than the scope. A helper belongs here
+  when the DOM suites would otherwise each spell it themselves —
+  [[settle-row!]] is the plainest case — and NOT merely because it
+  mentions roots or frames.
 
   ## The awkward question
 
@@ -24,7 +21,7 @@
   `.-textContent` after the dust settles is therefore not witnessing
   this runtime at all — it is witnessing React's willingness to repair,
   and it would stay green through a fault that deleted every property
-  this bead exists to protect.
+  this harness exists to protect.
 
   So every observable below is one of three kinds, and each kind is
   chosen because **React cannot forge it**:
@@ -53,19 +50,18 @@
      opposites here. This is the only observable in the file that can
      tell adoption from a client render that happens to agree.
 
-  ## Provenance
+  ## Where the techniques come from
 
-  The three techniques are the prototype's. Two of them still live only
-  there, in `re-frame.bench.fresco.arm1.hydration-support`,
-  reimplemented here rather than imported: the package may not
-  `:require` the bench tree (`frozen-sources.edn`
-  `:forbidden-import-prefixes`), and `fresco/scripts/check_freeze.py` is
-  what says so. Naming it in prose is provenance and is explicitly
-  permitted — the gate parses `:require` forms, not docstrings.
+  The three techniques are the bench's. Two of them also live in
+  `re-frame.bench.fresco.arm1.hydration-support`, reimplemented here
+  rather than imported: the bench is its own shadow project off this
+  package's classpath (`bench/fresco/`), so a `:require` of it cannot
+  compile, and `scripts/check_optional_module_reachability.py`'s `bench
+  tree` row states that rule in the package's own terms. Naming it in
+  prose is a pointer and is explicitly permitted — the check parses
+  `:require` forms, not docstrings.
 
-  The third's prototype was `arm1/hframe_dom_cljs_test`, and that suite
-  is no longer in the bench tree to point at: executing a PORT verdict
-  MOVES a suite rather than copying it. Its landed form is the sibling
+  The third also appears in the sibling
   `re-frame.fresco.frame-doors-dom-cljs-test`, a file in this package."
   (:require [cljs.test :refer-macros [is]]
             [clojure.string :as str]
@@ -87,9 +83,8 @@
 
   Set outright rather than imported: the helper that carries this line in
   the prototype (`re-frame.bench.fresco.lane/leave-act-environment!`)
-  lives in the bench tree, which the freeze gate forbids this package
-  from importing. The package smoke carries the same inlining for the
-  same reason."
+  lives in the bench tree, which is off this package's classpath. The
+  package smoke carries the same inlining for the same reason."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   nil)
@@ -108,7 +103,7 @@
 
     :row      names the row in the failure message. A shared settlement
               still has to say WHICH row failed, which is the one thing a
-              hand-written rejection arm gave away for free.
+              hand-written rejection arm gives away for free.
     :done     `cljs.test`'s own, called exactly once.
     :release! this row's teardown, called exactly once. Every primitive it
               reaches for is idempotent and says so — `mount/release!`,
@@ -136,23 +131,17 @@
 
   On the browser lane an unsettled rejection is an UNHANDLED one, so it
   reaches the page as an uncaught error and the runner treats that as
-  terminal (rf2-u0j8). Measured on `identifier-prefix-ssr-dom-cljs-test`:
-  the run stopped at that namespace with 85 announced, no summary line at
-  all, and every namespace scheduled after it silently unrun — `shadow.test`
-  runs the whole lane, and the closing summary, inside one
-  `cljs.test/run-block` with no try/catch. So the cost of a rejection was
+  terminal: the run stops at that namespace with no summary line at all,
+  and every namespace scheduled after it silently goes unrun —
+  `shadow.test` runs the whole lane, and the closing summary, inside one
+  `cljs.test/run-block` with no try/catch. So the cost of a rejection is
   never one row, which is why every async row in the SSR and hydration
   suites ends here rather than in a hand-written `.catch`.
-
-  This definition was four verbatim copies, one per adopting suite, spelled
-  identically on purpose so the lift would be a deletion rather than a
-  reconciliation of designs (rf2-sxhu, rf2-x43z, rf2-8zhr, rf2-z17t;
-  collapsed by rf2-7ucn).
 
   ## Where its own coverage lives, and why it is not here
 
   This namespace holds no `deftest`s, and the rejection arm is on NO green
-  path — a repair to a branch nothing takes is untested by construction. So
+  path — a branch nothing takes is untested by construction. So
   each adopting suite keeps its OWN rejection control, written against that
   suite's row shape and its own releasables: the two rows under
   `server-render-ssr-dom-cljs-test`'s §6, and one apiece in
@@ -222,8 +211,8 @@
   `capture-frame` bundle pinned to it, and the ambient dispatch closure
   over that bundle. Acquiring the dispatch acquires the bundle in the
   same act, which is what stops the two from ever describing different
-  incarnations — and which is why a render, not a dispatch, is now what
-  fills this. `test.runtime/stats`'s `:frames` counts the same rows."
+  incarnations — and which is why a render, not a dispatch, is what fills
+  this. `test.runtime/stats`'s `:frames` counts the same rows."
   []
   (set (keys @rf.fresco.impl.frames/!frame-ops)))
 
@@ -270,8 +259,7 @@
   `collector/reset-runtime!`, which disposes every cell and empties every
   table BY FIAT — so a census taken after it reads zeros whether the
   teardown released anything or not. That is the shape of gate that
-  cannot go red, and this arm has already been bitten by it
-  (`impl.mount/unmount!`'s own docstring).
+  cannot go red (`impl.mount/unmount!`'s own docstring says why).
 
   `:root nil` on the way out so the arm's teardown door does the rest —
   reset the runtime, drop the container — without unmounting a root that
@@ -303,14 +291,11 @@
   that cares about a *particular* string reads it back out of the
   captured markup rather than assuming it.
 
-  **It no longer opens an adoption window**. It used to, on
-  the grounds that an open window is the state a server render is in —
-  but the window was page-global then, so \"opening\" one was a free
-  module write. A window is now minted per root and reaches a subtree
-  only through the provider `impl.mount` installs for a HYDRATING root,
-  and there is no product door that opens one around an ordinary render;
-  giving the harness a private one would be inventing product API for a
-  test. Nothing is lost, because the only reader is presence and the
+  **It opens no adoption window.** A window is minted per root and
+  reaches a subtree only through the provider `impl.mount` installs for a
+  HYDRATING root, and there is no product door that opens one around an
+  ordinary render; giving the harness a private one would be inventing
+  product API for a test. Nothing is lost, because the only reader is presence and the
   trees rendered through this fn carry none — see
   [[settled-server-html!]] for the ones that do."
   [frame-kw hiccup]
@@ -416,7 +401,7 @@
   truthy predicate does not resolve at once but after a 16 ms quiesce,
   putting the reading on the far side of the entry reap horizon exactly as
   [[adopted!]] does. Both would survive as wrapper code around the public
-  poll; whether that layer is worth adding is rf2-kuky.28's to settle.
+  poll.
 
   How a two-root row waits on something that is not a window: the cell
   table, which acquires at COMMIT and therefore cannot mention a frame
@@ -573,7 +558,7 @@
   (str/replace html #"\s+data-rf(?:2-source-coord|-view)=\"[^\"]*\"" ""))
 
 ;; ---------------------------------------------------------------------------
-;; The sabotage — the page-global adoption window, restored and executing
+;; The sabotage — a page-global adoption window, executing
 ;; ---------------------------------------------------------------------------
 
 (defn with-page-global-adoption
@@ -584,8 +569,8 @@
 
   `checkpoint-support/with-macrotask-deferral` is the model, and the
   claim is the same one: the code under test is unmodified and unaware.
-  Two writes, because the defect was ONE FACT IN TWO PLACES and either
-  alone is a different bug:
+  Two writes, because a page-global window is ONE FACT IN TWO PLACES and
+  either alone is a different bug:
 
   - `impl.roots/open-adoption-window!` answers one ref for the whole page
     instead of minting a fresh one per root, so every hydrating root
@@ -597,9 +582,9 @@
   Everything else is the shipped code: the window object has the shipped
   shape, `adopting?`, `close-adoption-window!`, `with-adoption` and
   `impl.mount/adoption-window-closer` are untouched, and `hydrate-root!`
-  mints through the same door it always did. What this moves is the
-  window's SCOPE and nothing else, which is exactly the mutation the
-  hydration suite's rows used to describe in prose.
+  mints through its own shipped door. What this moves is the window's
+  SCOPE and nothing else, which is exactly the mutation the hydration
+  suite's H2 describes in prose.
 
   **Born SHUT**, unlike a real window, and that is what keeps a row using
   it honest: nothing is adopting until a root hydrates, so a row has to
@@ -621,7 +606,7 @@
   is called first, unconditionally and outside the `or`, and its answer
   is widened rather than replaced. For an ordinary root — every row this
   arms — the context answers false and the reading IS the page-global,
-  which is the pre-fix behaviour exactly."
+  which is exactly a page-global window's behaviour."
   [f]
   (let [page-window   #js {"open" false}
         mint-original rf.fresco.impl.roots/open-adoption-window!

@@ -172,7 +172,7 @@
   "The button's ENTIRE read set is the write's instance. There is no
   `::subs/can-submit?` fixture here and that omission is load-bearing:
   `:subs` refuses a read it cannot answer, so the day this button reaches
-  for the gate again, this file reds and says so."
+  for the gate, this file reds and says so."
   [{:keys [save]}]
   (rf.fresco.test/tree [rf.fresco.examples.forms.views/save-button {}]
            {:subs {[:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}] (or save idle)}}))

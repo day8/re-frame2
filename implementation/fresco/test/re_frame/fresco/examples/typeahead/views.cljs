@@ -15,8 +15,7 @@
   change `term` and a different one is wanted, stop rendering it and none
   is. Every OWNERSHIP row of the census in
   [[re-frame.fresco.examples.typeahead.events]] exists to reconstruct
-  that fact from `app-db`, because today nothing carries it out of the
-  commit.
+  that fact from `app-db`, because nothing carries it out of the commit.
 
   ## The one POLICY decision that lives in a view
 

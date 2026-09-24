@@ -144,11 +144,11 @@
     ;; `observeElementOffset` option, and for the same reason: a
     ;; virtualizer wants the platform's own scroll notifications, on the
     ;; element it owns, without React's synthetic event system between it
-    ;; and them. It also happens to be the version a test can drive — the
-    ;; first two runs of `virtualized-dom-cljs-test` set `scrollTop`,
-    ;; dispatched a real `scroll` event, watched the assertion on
-    ;; `scrollTop` pass, and then found the window unmoved, because React
-    ;; never delivered the event to an `onScroll` prop.
+    ;; and them. It also happens to be the version a test can drive: with
+    ;; an `onScroll` prop, a test that set `scrollTop` and dispatched a
+    ;; real `scroll` event would watch its assertion on `scrollTop` pass
+    ;; and then find the window unmoved, because React would never deliver
+    ;; the event to the prop.
     (react/useEffect
       (fn []
         (let [^js node (.-current viewport)

@@ -208,17 +208,18 @@
       (is (= [[:todo/create "milk"]] @!seen)))))
 
 (deftest a-prevented-intent-is-assertable-by-equality
-  ;; THE REASON THE SPELLING CHANGED. HD-021's headless door returns the tree
-  ;; as data and sells itself on "intent vectors assertable by equality" —
-  ;; and metadata does not participate in `=`, so the one axis the retired
-  ;; spelling carried was the one axis a structural test could not see.
-  (testing "the retired spelling, stated as the defect it was"
+  ;; WHY THE SPELLING IS A HEAD AND NOT METADATA. HD-021's headless door
+  ;; returns the tree as data and sells itself on "intent vectors assertable
+  ;; by equality" — and metadata does not participate in `=`, so a metadata
+  ;; spelling would carry prevention on the one axis a structural test
+  ;; cannot see.
+  (testing "a metadata spelling, stated as the defect it would be"
     (is (= [:conduit/show-your-feed]
            (with-meta [:conduit/show-your-feed] {:re-frame.fresco/prevent? true}))
-        "`=` could not tell a prevented intent from a plain one")
+        "`=` cannot tell a prevented intent from a plain one")
     (is (= (hash [:conduit/show-your-feed])
            (hash (with-meta [:conduit/show-your-feed] {:re-frame.fresco/prevent? true})))
-        "and neither could a hash-keyed lookup")
+        "and neither can a hash-keyed lookup")
     (is (= "[:conduit/show-your-feed]"
            (pr-str (with-meta [:conduit/show-your-feed] {:re-frame.fresco/prevent? true})))
         "nor a log line, nor a snapshot — metadata is omitted from printing"))
@@ -244,13 +245,13 @@
     (is (false? (rf.fresco.impl.intent/prevent-head?
                   (with-meta [:conduit/show-your-feed]
                              {:re-frame.fresco/prevent? true})))
-        "the retired metadata is no longer a spelling of anything")))
+        "the `prevent?` metadata is a spelling of nothing")))
 
 (deftest the-retired-metadata-spelling-does-nothing
-  ;; Not a formality. The retirement is real: the annotation is inert, so a
-  ;; port that missed an anchor navigates on the first click rather than
-  ;; quietly keeping the old behaviour. Pinned here so "retired" is a
-  ;; measured fact and not a claim in a docstring.
+  ;; Not a formality. The `prevent?` metadata annotation is inert, so an
+  ;; anchor that carries it navigates on the first click rather than
+  ;; quietly preventing. Pinned here so the inertness is a measured fact and
+  ;; not a claim in a docstring.
   (let [!seen      (recorder)
         !prevented (atom false)
         h (lowered (dispatching !seen) :on-click
@@ -456,15 +457,15 @@
 ;; ONE callback form, and the POSITION selects the contract (HD-024)
 ;; ---------------------------------------------------------------------------
 ;;
-;; One test per position, plus the row that deletes the predecessor's fifth
-;; rule, plus the diagnostic that must name the POSITION rather than the form.
+;; One test per position, plus the row for a position nothing walks, plus
+;; the diagnostic that must name the POSITION rather than the form.
 
 (deftest the-one-form-is-an-ordinary-function
-  (testing "the deletion, stated as an assertion. The predecessor's roster
-            carriers are marker OBJECTS, so the same value handed to a
-            position the library does not walk is not callable and the author
-            gets the engine's own TypeError naming nothing they wrote. There
-            is nothing here that can fail to be callable."
+  (testing "the form is a function, stated as an assertion. A carrier that
+            was a marker OBJECT would not be callable at a position the
+            library does not walk, and the author would get the engine's own
+            TypeError naming nothing they wrote. There is nothing here that
+            can fail to be callable."
     (let [f  (fn [_] :ran)
           cb (rf.fresco.impl.intent/callback f)]
       (is (identical? f cb) "`callback` marks and returns the SAME function")
@@ -475,14 +476,15 @@
       (is (false? (rf.fresco.impl.intent/callback? "on-click"))))))
 
 (deftest at-an-event-position-a-returned-vector-is-dispatched
-  (testing "the contract the predecessor spells `v/event`"
+  (testing "the event contract"
     (let [!seen (recorder)
           h     (lowered (dispatching !seen) :on-change
                          (rf.fresco.impl.intent/callback (fn [e] [:files/picked (.. e -target -value)])))]
       (h (ev {:value "a.png"}))
       (is (= [[:files/picked "a.png"]] @!seen))))
-  (testing "and a return that is not a vector is ignored — which is the
-            contract the predecessor needs a SECOND form (`v/handler`) for"
+  (testing "and a return that is not a vector is ignored — so one form is
+            both the dispatching handler and the plain one, with no SECOND
+            form for the latter"
     (let [!seen (recorder)
           !ran  (atom 0)
           h     (lowered (dispatching !seen) :on-click
@@ -505,7 +507,7 @@
             does not reach in after the body has run to second-guess it.
             One rule: whoever holds the event owns it."
     (let [!seen (recorder)]
-      (testing "the vector at :on-submit prevents, as it always has"
+      (testing "the vector at :on-submit prevents"
         (let [prevented (atom false)
               h (lowered (dispatching !seen) :on-submit [:signup/submit])]
           (h (ev {:prevented prevented}))
@@ -522,10 +524,10 @@
           (is (= [[:signup/submit]] @!seen)))))))
 
 (deftest at-a-render-position-the-return-is-output-and-dispatching-is-a-loud-error
-  (testing "the contract the predecessor spells `v/render-fn`. A slot or a
-            foreign render prop is invoked DURING a render, so its return is
-            markup — which is itself a vector, and is exactly why the shape
-            of the value cannot select the contract and the position must."
+  (testing "the render contract. A slot or a foreign render prop is
+            invoked DURING a render, so its return is markup — which is
+            itself a vector, and is exactly why the shape of the value
+            cannot select the contract and the position must."
     (let [!seen (recorder)
           h     (lowered (dispatching !seen) :row-renderer
                          (rf.fresco.impl.intent/callback (fn [row] [:li (:title row)])))]
@@ -534,7 +536,7 @@
       (is (= [] @!seen)))))
 
 (deftest a-handler-lowered-inside-a-render-body-belongs-to-the-supplying-boundary
-  (testing "rf2-2rtt6.74. A render prop exists to build interactive rows, and
+  (testing "A render prop exists to build interactive rows, and
             a row's `:on-click` is a legitimate event position that merely
             happened to be lowered during a render — so it fires later, into
             the frame of the boundary that SUPPLIED the callback. Nothing else
@@ -660,8 +662,8 @@
         (doseq [carrier [[:host/changed 3] {"Enter" [:host/changed 3]}]]
           (is (identical? carrier (rf.fresco.impl.intent/lower-declared-prop :onRenderRow carrier :render)))))
       (testing "an ordinary unmarked function crosses untouched at both — a
-                plain fn is claimed by no position, which is what the retired
-                :handler contract named"
+                plain fn is claimed by no position, so there is no :handler
+                contract to declare"
         (let [f (fn [_] :whatever)]
           (doseq [contract [:event :render]]
             (is (identical? f (rf.fresco.impl.intent/lower-declared-prop :onValueChange f contract))
@@ -676,8 +678,8 @@
 ;; — but the SAME lowering serves a `defhost` `:event` slot, where a foreign
 ;; invoker calls with its own contract. Without the law the author gets
 ;; `value.preventDefault is not a function`: the engine's TypeError, naming
-;; nothing they wrote, which is exactly the failure class the one-form ruling
-;; deletes.
+;; nothing they wrote, which is exactly the failure class the one callback
+;; form exists to remove.
 
 (deftest the-vector-spelling-reads-the-event-from-argument-one
   (let [d (dispatching (recorder))]
@@ -731,12 +733,11 @@
         (is (= [[:go 1] [:go 1]] @!seen))))))
 
 (deftest outside-every-walked-position-the-form-is-just-a-function
-  (testing "the row that deletes the predecessor's FIFTH rule. There, the
-            roster is site-owned and a carrier handed to a raw #js prop is a
-            marker object, so a native call on it raises the host's own
-            TypeError naming nothing the author wrote. Here the value was
-            never anything but a function, so the position not being walked
-            costs the contract and nothing else."
+  (testing "a position nothing walks. A carrier handed to a raw #js prop is
+            called natively, and a marker object there would raise the
+            host's own TypeError naming nothing the author wrote. Here the
+            value is never anything but a function, so the position not
+            being walked costs the contract and nothing else."
     (let [!ran     (atom 0)
           cb       (rf.fresco.impl.intent/callback (fn [x] (swap! !ran inc) [:would-have-dispatched x]))
           js-props #js {:onPing cb}]
@@ -778,7 +779,7 @@
       (is (identical? cb (rf.fresco.impl.intent/lower-prop "ref" cb))))))
 
 (deftest an-ordinary-function-is-untouched-everywhere
-  (testing "`raw-fn`'s identity passthrough is not v0 because it is already
+  (testing "there is no `raw-fn` identity passthrough, because identity is
             the default: an ordinary function is claimed by no position, and
             the codec hands functions to React by identity so `React.memo`
             and every downstream bail-out that compares handler identity keep

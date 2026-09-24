@@ -110,9 +110,9 @@
 
 (def ^:private at-the-checkpoint
   "Every wait in this file. See
-  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]] — it is the
-  30 ms timer's replacement, and the reason for the replacement is that a
-  duration was green for both schedulings."
+  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]] — a checkpoint
+  rather than a timer, because a duration is green for both
+  schedulings."
   rf.fresco.checkpoint-support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
@@ -208,8 +208,7 @@
           (testing "at the checkpoint, with nothing to rebuild against, the
                     same deferred callback DISPOSES rather than re-wiring — the
                     exact, testable teardown invariant 5 requires, with zero
-                    residue after quiescence, and the rescheduling in rf2-2l17
-                    moved when that happens without changing what happens"
+                    residue after quiescence"
             (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
                    (dissoc (rf.fresco.test.runtime/residue) :entries))
                 "no cell, no reader membership, no dependency edge survives a
@@ -231,11 +230,10 @@
   ;; deferred phase runs.
   ;;
   ;; That window is the current microtask checkpoint rather than a whole
-  ;; macrotask, and the row keeps its meaning either way because it seats
-  ;; the successor SYNCHRONOUSLY. A
-  ;; successor seated in a later task now finds the cell disposed and recovers
+  ;; macrotask, and the row seats the successor SYNCHRONOUSLY, inside it. A
+  ;; successor seated in a later task finds the cell disposed and recovers
   ;; through `cold-read!`'s probe on the next render instead, which is the
-  ;; recovery a key that never had a cell already gets.
+  ;; recovery a key that never had a cell gets.
   (async done
     (incarnate! "A")
     (let [{:keys [entry release]} (render+commit!)]

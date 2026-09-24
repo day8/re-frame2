@@ -1,40 +1,42 @@
 (ns re-frame.fresco.nested-frame-boundary-dom-cljs-test
-  "MARKUP BELOW A FRAME BOUNDARY ACTS ON THAT BOUNDARY'S FRAME
-  (rf2-3x7nj.7.2).
+  "MARKUP BELOW A FRAME BOUNDARY ACTS ON THAT BOUNDARY'S FRAME.
 
-  ## The defect
+  ## The rule
 
-  A frame head written inside a body — `[h/frame-provider {:frame :b} …]`
-  or `[h/frame-root {:id :b} …]` under a view rendering in `:a` — lowered
-  its children with only the frame's NAME rebound. The body's own
-  frame-locked dispatch stayed in scope, so an inline intent, an `h/event`
-  or a render callback directly under the head wrote `:a`, while the
-  identical button one `h/error-boundary` deeper — re-lowered in the
-  wrapper's own render under the frame read from React context — wrote
-  `:b`. Nothing refused and nothing logged. At a ROOT the same inline
-  button was the loud `:rf.error/fresco-intent-outside-boundary`, while
-  the wrapped one dispatched into the head's frame.
-
-  The ruling: everything lowered below an explicit frame head acts on the
-  head's frame, root and body alike. What a body CALLS (`h/sub`,
+  Everything lowered below an explicit frame head acts on the head's
+  frame, root and body alike. What a body CALLS (`h/sub`,
   `h/route-link`, `rf/capture-frame`) runs before any lowering and stays
   in the body's frame; an intent with no frame head above it is still
   the loud refusal.
+
+  ## The misroute it rules out
+
+  A frame head written inside a body — `[h/frame-provider {:frame :b} …]`
+  or `[h/frame-root {:id :b} …]` under a view rendering in `:a` — that
+  lowered its children with only the frame's NAME rebound would leave the
+  body's own frame-locked dispatch in scope, so an inline intent, an
+  `h/event` or a render callback directly under the head would write
+  `:a`, while the identical button one `h/error-boundary` deeper —
+  re-lowered in the wrapper's own render under the frame read from React
+  context — would write `:b`. Nothing would refuse and nothing would log.
+  At a ROOT the same inline button would be the loud
+  `:rf.error/fresco-intent-outside-boundary`, while the wrapped one
+  dispatched into the head's frame.
 
   ## The rows, and what each is red against
 
   1. A nested `h/frame-provider` in a body: four spellings — inline
      intent, inside `h/error-boundary`, `h/event`, and an intent inside a
-     render callback — all land in the provider's frame. Red before the
-     fix on three of the four.
+     render callback — all land in the provider's frame. A name-only
+     rebind reds three of the four.
   2. A nested `h/frame-root` whose frame does not exist yet (a COLD
      ENSURE): an inline intent and an `h/event` land in the ensured frame.
-     Red before the fix: both wrote the body's.
+     A name-only rebind reds both, which write the body's.
   3. THE DISCRIMINATING ROW. After row 2's tree has rendered, the ensured
      frame is destroyed and a same-id successor is made WITHOUT
      re-rendering anything. The retained button refuses — exactly one
      `:rf.error/frame-destroyed` — and the successor is untouched. This
-     is what separates the ruled mechanism (lower in the ready pass,
+     is what separates the head's mechanism (lower in the ready pass,
      after ENSURE) from a naive EAGER bind: under a cold frame-root an
      eager bind captures an address-directed dispatch, and a retained
      callback WRITES the successor. Row 3b builds that naive head out of
@@ -43,11 +45,11 @@
      `reincarnation_routing_cljs_test`'s section 3, so row 3's silence is
      the pin and nothing else.
   4. Roots: the inline button directly under a root `h/frame-provider` or
-     `h/frame-root` dispatches into the named frame. Red before the fix:
-     `:rf.error/fresco-intent-outside-boundary`.
+     `h/frame-root` dispatches into the named frame. A name-only rebind
+     reds with `:rf.error/fresco-intent-outside-boundary`.
 
-  Controls, green before and after: the same four buttons in a body with
-  NO nested head all land in the body's frame; and an intent with no
+  Controls, green under either mechanism: the same four buttons in a body
+  with NO nested head all land in the body's frame; and an intent with no
   frame head above it is still the loud refusal.
 
   ## Why each button carries a TAG

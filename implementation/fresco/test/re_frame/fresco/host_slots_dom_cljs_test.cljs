@@ -9,10 +9,10 @@
   `Suspense`'s `fallback`: React calls the type `ReactNode`, and what
   belongs there is markup.
 
-  Hiccup written at one of those crossed as `clj->js` DATA, and that is
-  the sharpest SILENT trap the door has. `{:title [:h2 \"Tasks\"]}`
-  handed the library the JavaScript array `[\"h2\", \"Tasks\"]`; nothing
-  threw, because a vector is a legal value at a data position and no
+  Hiccup written at one of those, undeclared, crosses as `clj->js` DATA,
+  and that is the sharpest SILENT trap the door has. `{:title [:h2 \"Tasks\"]}`
+  hands the library the JavaScript array `[\"h2\", \"Tasks\"]`; nothing
+  throws, because a vector is a legal value at a data position and no
   rule anywhere can tell the two apart — which prop is markup is a fact
   about the foreign ABI, and only the author holds it.
 
@@ -51,11 +51,11 @@
 
   `panel` / `row-list` / the theme provider below are a vendor family in
   miniature — a provider, two members, two named ReactNode slots and a
-  render prop — because that is the shape the deliverable names and the
-  shape where each mechanism meets the others. `react/Suspense` is here
-  as itself: it is a REAL React compound whose ONE interesting prop is a
-  ReactNode, and the recipe the guide teaches for it —
-  `{:slots #{:fallback}}` — either mints and renders or it does not.
+  render prop — because that is the shape where each mechanism meets the
+  others. `react/Suspense` is here as itself: it is a REAL React compound
+  whose ONE interesting prop is a ReactNode, and the recipe the guide
+  teaches for it — `{:slots #{:fallback}}` — either mints and renders or
+  it does not.
 
   ## The declaration's OTHER roster is refused here too
 
@@ -211,7 +211,7 @@
                                  {:slots #{:constructor-label :prototypes}}))
         "an ordinary prop that merely reads like a reserved emitted name
          mints; the crossing's reserved skip is on the WHOLE emitted slot"))
-  (testing "and it composes with the two options that were already there"
+  (testing "and it composes with the other two options"
     (is (some? (rf.fresco.impl.codec/mint-host! "slots/all" panel
                                  {:callbacks {:on-close :event}
                                   :slots     #{:title}
@@ -305,9 +305,8 @@
   ;; started guessing that a vector is markup, and every foreign ABI that
   ;; legitimately takes a vector of data is broken by the guess.
   (let [^js props (crossing-props [bare-panel {:title [:h2.t "Delete article?"]}])]
-    (testing "at an UNDECLARED prop the vector crosses as data, silently,
-              exactly as it did before slots existed. That is not a defect
-              left standing: which prop is markup is a fact about the
+    (testing "at an UNDECLARED prop the vector crosses as data, silently.
+              That is not a defect: which prop is markup is a fact about the
               foreign ABI, so the runtime never infers it and the author
               declares it"
       (is (not (react/isValidElement (.-title props))))

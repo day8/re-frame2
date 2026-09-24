@@ -3,19 +3,19 @@
 
   [[re-frame.fresco.motion-presence-dom-cljs-test]] proves the retention machine through a
   real DOM: the exit attributes land, re-entry takes them off, the node
-  leaves on the timeout. Every child in that file is **callback-free**,
-  and that was not a stylistic choice — it was the shape of a defect.
+  leaves on the timeout. Every child in that file is **callback-free**;
+  this file is the one that puts intents on them.
 
   A presence child is hiccup **data**, written in the parent boundary's
   body; it is **lowered inside the presence component's own React
   render**, one render later, after the parent body's dynamic extent has
-  unwound. With no ambient frame re-bound there, `intent/*dispatch*` was
-  nil at the moment the codec walked those props, so
+  unwound. With no ambient frame re-bound there, `intent/*dispatch*`
+  would be nil at the moment the codec walks those props, so
 
       [:div.toast {:key id :on-click [:toasts/dismiss id]}]
 
-  raised `:rf.error/fresco-intent-outside-boundary` at render — and an
-  `h/event` at an event position raised the same id at invocation. Loud,
+  would raise `:rf.error/fresco-intent-outside-boundary` at render — and
+  an `h/event` at an event position the same id at invocation. Loud,
   never silent, and never *writable*: the inline tray with no child view
   is the whole of what HD-025 sells, and its dismiss button could not be
   written. This file is that button, clicked.
@@ -31,16 +31,15 @@
   4. the intent lands in the frame the **tray** was mounted under, proved
      against a second live frame on the same page rather than against an
      absence;
-  5. a tray with no frame above it is still legal until a child writes an
-     intent, and that intent is still the loud error, **named**;
+  5. a tray with no frame above it is legal until a child writes an
+     intent, and that intent is the loud error, **named**;
   6. presence's roster is four hooks — three distinct names, with
      `useContext` read twice for the frame and for the root-scoped
-     adoption window — and `collector/shell`'s is still two —
-     counted at React's own dispatcher, so the budget claim is a reading
-     rather than a docstring. It also reads two things off the same log
-     that nothing measured before: presence's body runs exactly **twice**
-     on a mount, which is `step`'s adjust-during-render convergence seen
-     from outside; and a `useEffect` call surfaces more than one
+     adoption window — and `collector/shell`'s is two — counted at
+     React's own dispatcher, so the budget claim is a reading rather than
+     a docstring. It also reads two things off the same log: presence's
+     body runs exactly **twice** on a mount, which is `step`'s
+     adjust-during-render convergence seen from outside; and a `useEffect` call surfaces more than one
      dispatcher read on React 19.2's dev build, which is why a hook
      ROSTER is `distinct` rather than a count.
 
@@ -52,14 +51,11 @@
 
   ## The host child, and why it is not witnessed here
 
-  The bead names native and host children alike. The `defhost` door is
-  HD-011's own surface and does not exist on `main` yet,
-  so there is nothing here to mount one with. The repair does not
-  distinguish them and cannot: **both kinds cross the single
-  `codec/as-element` call** `presence-body` now wraps, so a host child's
-  declared `:callbacks` entry is lowered inside the same binding as a
-  native `:on-click`. The host-hatch suite is where that witness belongs,
-  and this bead is what un-fences its presence-tray children.
+  Native and host children are handled alike, and the binding cannot
+  tell them apart: **both kinds cross the single `codec/as-element`
+  call** `presence-body` wraps, so a host child's declared `:callbacks`
+  entry is lowered inside the same binding as a native `:on-click`. The
+  host-hatch suite is where that witness belongs.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
@@ -124,11 +120,11 @@
 (defn- db [frame-kw] (rf/app-db-value frame-kw))
 
 ;; ---------------------------------------------------------------------------
-;; The screen — the tray HD-025 sells, with the button it could not carry
+;; The screen — the tray HD-025 sells, with a button on every toast
 ;; ---------------------------------------------------------------------------
 
 (rf.fresco/defview toast-tray
-  "The inline tray, with **no child view**, and now with controls on the
+  "The inline tray, with **no child view**, and with controls on the
   toast. `:on-click` carries a bare intent vector on one button and the
   one callback form on the other, so both rows of the position table are
   written at the same position on the same child."
@@ -176,7 +172,7 @@
 (rf.fresco/defview toast-card
   "A BOUNDARY child of presence. It resolves its own frame in its own
   shell and takes any override as ordinary props, so it is the control:
-  presence's new binding must leave this path exactly as it was."
+  presence's binding around the crossing must leave this path alone."
   [{:keys [id]}]
   [:div.card {:data-id id}
    [:button.card-dismiss {:on-click [:fresco.presence-intent/dismissed id]} "dismiss"]])
@@ -212,14 +208,14 @@
       (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [toast-tray {}])]
         (try
           (is (some? (query handle ".toast"))
-              "the tray rendered at all — before this repair the intent on the
-               child raised :rf.error/fresco-intent-outside-boundary during
-               presence's own render and there was no tray to click")
+              "the tray rendered at all — without the frame binding the intent
+               on the child would raise :rf.error/fresco-intent-outside-boundary
+               during presence's own render and there would be no tray to click")
           (is (nil? (:dismissed (db frame-id))))
           (click! (button handle ".dismiss" 2))
           (is (= [2] (:dismissed (db frame-id)))
               "the inline dismiss button dispatched, which is the whole of what
-               the inline tray was sold on")
+               the inline tray is sold on")
           (click! (button handle ".dismiss" 1))
           (is (= [2 1] (:dismissed (db frame-id)))
               "and again, so this is a live handler and not a one-shot")
@@ -428,16 +424,16 @@
           (try
             (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
                 (str "the SHELL's two come first, in the order "
-                     "runtime/shell-hook-ledger declares, and they are still the "
-                     "whole of it — this repair added a hook to presence and "
-                     "to nothing that HD-020(b)'s ≤2 budget governs. Raw: "
+                     "runtime/shell-hook-ledger declares, and they are the "
+                     "whole of it — presence's own hooks add nothing to "
+                     "what HD-020(b)'s ≤2 budget governs. Raw: "
                      (pr-str names)))
             (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count (take 2 names)))
                 "and the declared shell ledger is the measured one")
             (is (= ["useContext" "useState" "useEffect"] (vec (distinct tail)))
                 (str "presence's own roster, in call order: the frame hook, "
                      "the retention state, the ROOT-SCOPED ADOPTION WINDOW "
-                     "(a second useContext, rf2-6tmu) and the clock — four "
+                     "(a second useContext) and the clock — four "
                      "calls over three distinct names. `distinct`, because "
                      "the RAW list is a log of dispatcher reads rather than "
                      "of calls — see the two claims below for why. Raw tail: "
@@ -457,7 +453,7 @@
               (is (>= (get freq "useContext") (* 2 (get freq "useState")))
                   "and AT LEAST two contexts are read per pass, not one —
                    the frame hook and the root-scoped adoption window
-                   (`roots/adopting-here?`, rf2-6tmu), which is the whole
+                   (`roots/adopting-here?`), which is the whole
                    of what this component costs over the prototype's.
                    Stated as a floor rather than an equality for the same
                    reason the roster above is taken with `distinct`: the

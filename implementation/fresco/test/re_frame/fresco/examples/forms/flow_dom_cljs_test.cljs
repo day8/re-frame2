@@ -206,7 +206,7 @@
         (finish m done)))))
 
 (deftest escape-reverts-a-still-mounted-field-and-the-late-blur-commits-nothing
-  ;; The bead's cancel-unmounts-then-blur, in the harder arrangement: this
+  ;; Cancel-then-blur, in the harder arrangement: this
   ;; field STAYS on the page after the cancel, so the blur that follows
   ;; reaches a live handler rather than a torn-down one.
   (async done

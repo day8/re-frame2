@@ -9,7 +9,7 @@
 
   ## The five trap classes, and where each is decided
 
-  The bead names five hand-rolled traps this application must be shown to
+  There are five hand-rolled traps this application must be shown to
   avoid. Three of them are decided here and two are not, and saying which
   is which is the point of the list:
 
@@ -44,8 +44,8 @@
      :ambient-frame nil
      ;; The reset restores the registrar to a baseline and the resources
      ;; artefact clears the mutation kind, so the ns-load registration may
-     ;; not still be there when a row runs. It survived in this lane and
-     ;; not in the browser one, which is exactly the kind of luck a
+     ;; not still be there when a row runs. Whether it is differs between
+     ;; this lane and the browser one, which is exactly the kind of luck a
      ;; witness should not be standing on — see `events/register-save!`
      ;; for what its absence costs.
      :init-fn       (fn [] (rf.fresco.examples.forms.events/register-save!))}))

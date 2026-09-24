@@ -7,7 +7,7 @@
   the half a codec test cannot see, and it is the half the feature is
   for.
 
-  Five claims, each one a caller can get wrong:
+  Six claims, each one a caller can get wrong:
 
   1. **The handle is a `FragmentInstance`, not a DOM node.** A fragment
      has no element of its own, so there is nothing for React to hand
@@ -55,9 +55,9 @@
   ## What is deliberately NOT claimed here
 
   The Activity row says nothing about WHEN the reveal's work lands: the
-  stale-window figure this package carries is preserved at one animation
-  frame and was not re-measured under the current React (rf2-4ale), and
-  a row that timed a reveal would be re-deriving it by accident.
+  stale-window figure this package carries is one animation frame,
+  unmeasured under the current React, and a row that timed a reveal would
+  be re-deriving it by accident.
 
   ## The mutation witnesses
 
@@ -345,10 +345,10 @@
             (is (= 2 @!a) "attached a second time")
             (is (= 1 @!cleanup) "and the reveal ran no further cleanup"))
           (testing "WHAT THIS ROW DOES NOT CLAIM: when the reveal's work lands.
-                    The stale-window figure this package carries is preserved
-                    at one animation frame and was not re-measured under the
-                    current React (rf2-4ale), and a row that timed a reveal
-                    would be re-deriving it by accident"
+                    The stale-window figure this package carries is one
+                    animation frame, unmeasured under the current React, and
+                    a row that timed a reveal would be re-deriving it by
+                    accident"
             (is true "stated, not measured"))
           (finally (.unmount root)))))))
 

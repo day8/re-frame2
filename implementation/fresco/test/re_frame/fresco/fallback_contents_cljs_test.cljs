@@ -19,29 +19,27 @@
   is therefore STRUCTURAL, about the declared form, and not a property of
   the walk.
 
-  ## One measurement decided it, and it is kept below
+  ## Why the declared placeholder has to be a value
 
-  **The declared placeholder was not a value.** `mint-host-gate!`
-  walks once and reuses the element everywhere, and its stated reason
-  is *\"a placeholder that differs per site is not a placeholder\"*.
-  One declaration carrying a boundary head rendered `ALPHA` in one
-  frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
-  justification falsified by what it permitted.
-  [[a-declared-placeholder-is-a-placeholder-again]] keeps that
-  measurement, taken now against an INERT fallback, where all three
-  documents are the same one. The refusal is walk-scoped and asks the
+  `mint-host-gate!` walks once and reuses the element everywhere, and
+  its stated reason is *\"a placeholder that differs per site is not a
+  placeholder\"*. One declaration carrying a boundary head would render
+  `ALPHA` in one frame, `BRAVO` in another and `ALPHA-TWO` after a
+  write — the justification falsified by what it permitted.
+  [[a-declared-placeholder-is-a-placeholder-again]] takes that
+  measurement against an INERT fallback, where all three documents are
+  the same one. The refusal is walk-scoped and asks the
   boundary MARKER rather than the mint, so it holds for every head the
   mint door produces.
 
-  ## The ruling, and the recovery it points at
+  ## The refusal, and the recovery it points at
 
   `:rf.error/fresco-host-fallback-boundary-head`, at the declaration,
   naming the host, the offending head and its position in the declared
-  form. The workaround this deletes — writing a provider's subtree a
-  second time as the declaration's fallback, once the only recovery — is
-  SUPERSEDED rather than merely removed: `:server :render` now
-  renders the real subtree on the server, with the real context value and
-  no duplication ([[re-frame.fresco.host-ssr-dom-cljs-test]]).
+  form. The recovery is not to write a provider's subtree a second time
+  as the declaration's fallback: `:server :render` renders the real
+  subtree on the server, with the real context value and no duplication
+  ([[re-frame.fresco.host-ssr-dom-cljs-test]]).
 
   ## The mutation witnesses — both directions
 
@@ -51,13 +49,11 @@
 
   **Over-refuse** (make `deferring-head-kind` answer a kind for anything
   non-nil, the shape a walk that confused \"an element\" with \"a
-  deferring head\" would have) and every row in §4 goes red — one row per
+  deferring head\" would have) and every row in §3 goes red — one row per
   legitimate fallback position, so the failure names which position was
   taken away. §1 stays green under BOTH mutations, which is why it is
   separate: it is about the walk's own evaluation and not about this
   refusal at all.
-
-  Both were run, `codec.cljs` restored from a byte copy after each.
 
   Runtime: `-cljs-test`, not `-dom-`. Every claim is a declaration or a
   `renderToString`, so there is nothing here a DOM would add."
@@ -106,7 +102,7 @@
 
 (def ^:private theme-context
   "A context PROVIDER is the host used throughout, because it is the shape
-  that makes the fallback matter (rf2-l0wfx): a transparent wrapper
+  that makes the fallback matter: a transparent wrapper
   contributes no markup of its own, so an unadopted crossing renders the
   fallback and nothing else."
   (react/createContext "unset"))
@@ -147,7 +143,7 @@
     (rf.fresco.impl.mount/provider frame (rf.fresco.impl.codec/root-element frame hiccup))))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — what the mint-time WALK can see, it refuses (unchanged by the ruling)
+;; 1 — what the mint-time WALK can see, it refuses
 ;;
 ;; These three rows are about `as-element`'s own evaluation and not about
 ;; the structural refusal beside it. They are green under both mutations
@@ -168,12 +164,12 @@
            (error-id #(host-with-fallback "fb/sub"
                                           [:div (rf.fresco.impl.collector/sub [:fresco.fb/title])])))))
   (testing "and hiccup that is not hiccup, which is the property the walk
-            was moved to the declaration FOR"
+            runs at the declaration FOR"
     (is (= :rf.error/fresco-empty-vector
            (error-id #(host-with-fallback "fb/empty" []))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — and what it CANNOT see is now refused structurally, ahead of it
+;; 2 — and what it CANNOT see is refused structurally, ahead of it
 ;; ---------------------------------------------------------------------------
 
 (deftest a-deferring-head-in-a-fallback-is-refused-at-the-declaration
@@ -240,11 +236,11 @@
 
 (deftest a-declared-placeholder-is-a-placeholder-again
   (fresh!)
-  (testing "THE MEASUREMENT THAT DECIDED IT, kept and inverted. One
+  (testing "THE PLACEHOLDER IS A VALUE. One
             declaration is walked ONCE into ONE element and reused at
             every site, and `mint-host-gate!`'s reason for that is \"a
             placeholder that differs per site is not a placeholder\". A
-            boundary head made it differ per site AND per write — three
+            boundary head would make it differ per site AND per write — three
             different documents from one declaration. With the head
             refused, the reason holds: the SAME document in two isolated
             frames and again after a write"

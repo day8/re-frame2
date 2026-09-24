@@ -89,10 +89,10 @@
   {:doc "The rows THIS PAGE shows, in publication order. Each row is the
   minimum the row view reads, so a body edit does not re-render the feed.
 
-  The name did not change when pagination arrived, and neither did the
-  question the feed page asks: *what rows do I render?* Which is why the
-  page number never reaches a view — the pager reads it to draw itself,
-  and the list reads rows."
+  The name is the question the feed page asks — *what rows do I
+  render?* — and pagination does not change it, which is why the page
+  number never reaches a view: the pager reads it to draw itself, and
+  the list reads rows."
    :inputs [[::listed] [::current-page]]}
   (fn [[rows page] _] (rf.fresco.examples.slice.db/page-rows rows page)))
 
@@ -137,11 +137,10 @@
   a save belonging to another article reads as `:idle` here, so the
   editor's markup asks one question instead of two.
 
-  BOTH keys are always present. `select-keys` was the first spelling and
-  it answered `{:status :saving}` in flight and `{:status :failed
-  :problem …}` on refusal — two shapes for one read, so a caller
-  comparing whole values has to know which branch it is in. A closed
-  shape costs one nil."
+  BOTH keys are always present. `select-keys` would answer `{:status
+  :saving}` in flight and `{:status :failed :problem …}` on refusal — two
+  shapes for one read, so a caller comparing whole values would have to
+  know which branch it is in. A closed shape costs one nil."
    :inputs [[::save]]}
   (fn [[save] [_ slug]]
     (if (= slug (:slug save))

@@ -24,12 +24,10 @@
   this; a test does, on the first row it writes. `reg-route` is
   idempotent for an unchanged registration, so calling both is free.
 
-  That is the slice authoring report's second finding, and it is a
-  TESTING-surface finding rather than an authoring one: nothing in the
-  application had to change, but the shape a consumer copies from a
-  guide (`reg-route` at the top level, once) does not survive the
-  supported test fixture without a second door being exposed for the
-  test's sake."
+  That is a TESTING-surface constraint rather than an authoring one: the
+  shape a consumer copies from a guide (`reg-route` at the top level,
+  once) does not survive the supported test fixture without a second
+  door exposed for the test's sake."
   (:require [re-frame.routing :as rf.routing]))
 
 (def feed
@@ -44,22 +42,22 @@
   "Register the slice's routes. Idempotent; see the namespace docstring
   on why it is a function as well as a load-time effect.
 
-  ## Why every path is under `/slice` (the report's finding 8)
+  ## Why every path is under `/slice`
 
   The route ids are namespaced keywords and cannot collide. **The PATHS
   are strings in a process-global registry**, and this application shares
   that registry with every other example in the repository's node test
   bundle. `/` and `/article/:slug` are the two most natural paths a
-  consumer would write, and they are exactly the two RealWorld already
-  holds — so registering them here made `match-url` answer this app's
-  route for RealWorld's URLs, and twelve of its assertions failed naming
-  `:re-frame.fresco.examples.slice.routes/article` where they expected
+  consumer would write, and they are exactly the two RealWorld holds — so
+  registering them here would make `match-url` answer this app's route
+  for RealWorld's URLs, and RealWorld's assertions would fail naming
+  `:re-frame.fresco.examples.slice.routes/article` where they expect
   `:realworld.article/show`.
 
-  Nothing warned. `reg-route` emits `:rf.warning/route-shadowed-by-equal-
-  score` for a co-matchable equal-rank pattern, and it did not fire — the
-  ranks differ, so the guard had nothing to say while the resolution was
-  wrong anyway.
+  Nothing would warn. `reg-route` emits `:rf.warning/route-shadowed-by-
+  equal-score` for a co-matchable equal-rank pattern, and the ranks
+  differ, so the guard has nothing to say while the resolution is wrong
+  anyway.
 
   A consumer's own application never meets this, because their registry
   holds only their routes. A repository whose test bundle loads a dozen

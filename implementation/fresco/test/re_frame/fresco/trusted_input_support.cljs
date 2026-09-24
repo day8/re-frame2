@@ -1,16 +1,15 @@
 (ns re-frame.fresco.trusted-input-support
   "A REAL KEY PRESS, FROM INSIDE A cljs.test ROW.
 
-  Three suites in this package used to STATE a gap rather than measure
-  it, and they were right to: a page cannot forge a trusted event, and
-  the half of an event a page cannot forge is the DEFAULT ACTION. A
-  synthetic `keydown` reaches every listener — React's included, which
-  is why `combobox-keyboard-dom-cljs-test` drives arrows and Enter for
-  real — and then the engine does nothing with it. Tab moves focus
+  A page cannot forge a trusted event, and the half of an event a page
+  cannot forge is the DEFAULT ACTION. A synthetic `keydown` reaches every
+  listener — React's included, which is why
+  `combobox-keyboard-dom-cljs-test` drives arrows and Enter for real —
+  and then the engine does nothing with it. Tab moves focus
   nowhere. Escape closes no dialog.
 
-  Measured in this repo's own headless Chromium, on a bare page with two
-  buttons and a modal `<dialog>`:
+  In this repo's own headless Chromium, on a bare page with two buttons
+  and a modal `<dialog>`:
 
   | key | synthetic `KeyboardEvent` | `page.keyboard.press` |
   |---|---|---|
@@ -138,7 +137,7 @@
   Not a skip: `:node-test` has no DOM at all and every row in these
   suites already states a skip there, but a BROWSER lane that cannot
   press a key is a misconfiguration, and a stated gap that nobody
-  notices is how a bead like this one gets filed twice."
+  notices stays open."
   [why]
   (is false
       (str "a real key press needs scripts/run-browser-tests.cjs's "

@@ -16,15 +16,14 @@
      the same turn.
   2. **Event position, no intent.** The same form whose body returns
      something that is not a vector: the body runs and nothing is
-     dispatched. In the predecessor this is a SECOND form (`v/handler`)
-     with its own contract; here it is the same form at the same
-     position, and the return value is the only difference.
+     dispatched. It is not a SECOND form with its own contract; it is the
+     same form at the same position, and the return value is the only
+     difference.
   3. **Outside every walked position.** The form handed straight into a
      raw `#js` props object and called the way a JavaScript library calls
-     it. This is the row that deletes the predecessor's fifth rule: there,
-     a roster carrier in that position is a marker OBJECT, so the call
-     raises the engine's own `TypeError` \"naming nothing you wrote\".
-     Here it is a function, so it simply runs.
+     it. A marker OBJECT in that position would make the call raise the
+     engine's own `TypeError` \"naming nothing you wrote\". The one form
+     is a function, so it simply runs.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
@@ -73,16 +72,15 @@
      [:button.toggle
       {:on-click (rf.fresco/event [e]
                    (swap! !ran inc)
-                   ;; A live event: the same form the predecessor would
-                   ;; need `v/event` for, reading the DOM event and
-                   ;; returning ONE intent.
+                   ;; A live event: the one form reads the DOM event and
+                   ;; returns ONE intent.
                    (when (= "toggle" (.. e -target -dataset -role))
                      [:fresco.todo/toggle id]))
        :data-role "toggle"}
       "toggle"]
      [:button.silent
       ;; The same form, same position, whose body returns something that
-      ;; is not a vector. The predecessor spells this `v/handler`.
+      ;; is not a vector.
       {:on-click (rf.fresco/event [_] (swap! !ran inc) :nothing-to-dispatch)}
       "silent"]]))
 
@@ -127,9 +125,9 @@
           (rf.fresco.impl.mount/settle!)
           (is (= 1 @!ran) "the body ran")
           (is (= "false" (.getAttribute (query handle ".row") "data-done"))
-              "and nothing was dispatched — in the predecessor this is a
-               different FORM with a different contract; here it is the same
-               form, and the return value is the whole of the difference")
+              "and nothing was dispatched — not a different FORM with a
+               different contract but the same form, and the return value is
+               the whole of the difference")
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -137,13 +135,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-javascript-library-calling-it-natively-gets-a-real-call
-  (testing "the predecessor's fifth rule, deleted. Its roster forms are
-            site-owned, and a carrier that reaches a raw `#js` prop is a
-            marker object rather than a function — so `props.onPing(…)`
-            raises the engine's own TypeError, worded after whatever
-            expression it tripped on and naming nothing the author wrote.
-            The one form is a function everywhere, so a position Fresco
-            never walks costs the CONTRACT and nothing else."
+  (testing "a raw `#js` prop gets a real function. A site-owned carrier
+            reaching that prop as a marker object rather than a function
+            would make `props.onPing(…)` raise the engine's own TypeError,
+            worded after whatever expression it tripped on and naming
+            nothing the author wrote. The one form is a function everywhere,
+            so a position Fresco never walks costs the CONTRACT and nothing
+            else."
     (let [cb       (rf.fresco/event [x] (swap! !ran inc) [:would-have-dispatched x])
           js-props #js {:onPing cb}]
       (reset! !ran 0)

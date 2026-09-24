@@ -22,8 +22,7 @@
   four envelopes. Without the first row the second would pass against a
   runtime that had never seen the value at all.
 
-  Both arms were shown red by perturbing the producer and restored; the
-  PR body carries the verbatim output.
+  Both arms go red when the producer is perturbed.
 
   ## Determinism, because byte-for-byte is a claim about bytes
 
@@ -31,9 +30,7 @@
   bytes they receive are equal iff the door is deterministic over one
   runtime state. [[every-read-is-deterministic]] pins that: two calls in
   one quiescent turn must `pr-str` identically, which a roster ordered by
-  a hash map's seq would not.
-
-  Nothing under `src/` is changed by this suite."
+  a hash map's seq would not."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -148,10 +145,10 @@
       (is (= [] (:boundaries e)))))
 
   (testing "a rendered-but-not-yet-committed boundary is OUTSIDE the scope
-            — the docstring's own sentence, and until this row nothing
-            discriminated refs-gating from entries-not-existing. A
-            regression to counting unclaimed entries silently inflates
-            the roster `:complete? true` is staked on"
+            — the docstring's own sentence, and the row that discriminates
+            refs-gating from entries-not-existing. Counting unclaimed
+            entries would silently inflate the roster `:complete? true` is
+            staked on"
     (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco/sub [:tr/row 0]) nil) {})
     (is (pos? (:entries (rf.fresco.test.runtime/residue)))
         "the premise: the probe left a REAL entry in the cache")
@@ -190,10 +187,10 @@
   (testing "the runtime's entry compare is ORDERED, so `left,right` and
             `right,left` are two live entries — but their edge SETS are
             equal, and the edge set is this door's identity. The row must
-            collapse them and SAY it did: `:read-orders` was asserted
-            nowhere above 1, so the collapse arm of `entry-rows` could
+            collapse them and SAY it did: without a row asserting
+            `:read-orders` above 1, the collapse arm of `entry-rows` could
             rot into duplicate DOM ids for a panel and an ambiguous join
-            for a consumer with every existing row green"
+            for a consumer with every other row green"
     (let [a (mount! (fn [_] (rf.fresco/sub [:tr/left]) (rf.fresco/sub [:tr/right]) nil))
           b (mount! (fn [_] (rf.fresco/sub [:tr/right]) (rf.fresco/sub [:tr/left]) nil))
           e (rf.fresco.tool/read-mounted-boundaries)]
@@ -277,10 +274,10 @@
           "no coordinate was declared, and the row says so rather than guessing")
       (release))))
 
-;; The two rows the merged-PR audit of #8758 asked for. A row's `:views`
-;; is the roster `entry-rows` claims — the views HOLDING the edge set now —
-;; so the name has to ride on the reference: counted where React commits
-;; it, uncounted where React releases it, and never written by a render.
+;; Who a named row names. A row's `:views` is the roster `entry-rows` claims
+;; — the views HOLDING the edge set now — so the name has to ride on the
+;; reference: counted where React commits it, uncounted where React
+;; releases it, and never written by a render.
 
 (deftest an-unmounted-view-leaves-the-row-its-twin-still-holds
   (seeded!)
@@ -326,7 +323,7 @@
     (b)))
 
 (deftest the-named-subscribe-is-as-stable-as-the-entrys
-  ;; The number that decided the shape of the repair: React re-subscribes
+  ;; Why the name rides a cached wrapper: React re-subscribes
   ;; whenever the `subscribe` it is handed is a new function, so a name
   ;; carried to the commit must not move that identity on any render the
   ;; entry's own would not have moved it on. The wrapper is cached per
@@ -348,7 +345,7 @@
         "it is the wrapper that counts the name, not the entry's own closure")
     (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco/sub [:tr/left]) nil) {})
     (is (identical? (.-subscribe e1) (.-subscribe rf.fresco.impl.collector/rstate))
-        "a body with no name is handed the entry's own closure, as before")
+        "a body with no name is handed the entry's own closure")
     (rf.fresco.impl.collector/render-body frame-id (rf.fresco.impl.codec/retained-body twin-probe) {})
     (is (not (identical? s1 (.-subscribe rf.fresco.impl.collector/rstate)))
         "a different view over the same entry has its own wrapper — no fiber
@@ -502,12 +499,11 @@
       (release))))
 
 (deftest a-sensitive-query-argument-never-reaches-a-key-a-reader-or-an-explanation
-  ;; AUDIT #7789, CORRECTNESS 1. `projected-query` guarded the `:query`
-  ;; FIELD while the boundary KEY was built from raw sub-keys — so the
-  ;; argument the projector had just redacted was re-exported under
-  ;; `:boundary :key`, again under `:readers`, and again through
-  ;; `explain-render`. The shipped witness asserted only `:reads :query`,
-  ;; which is precisely why it did not see this.
+  ;; Guarding only the `:query` FIELD while building the boundary KEY from
+  ;; raw sub-keys would re-export the argument the projector had just
+  ;; redacted under `:boundary :key`, again under `:readers`, and again
+  ;; through `explain-render` — and a witness asserting only `:reads :query`
+  ;; would not see it.
   ;;
   ;; The forcing function is frame destruction, where the door PROMISES to
   ;; fail closed: no policy is reachable, so nothing derived from the query
@@ -540,10 +536,9 @@
           "and explain-render must not carry it onward — keys, scope or leads"))))
 
 (deftest two-parameterizations-of-one-sub-do-not-collapse
-  ;; AUDIT #7789, ERGONOMICS. `:latest-reads` named sub-ids only, so a Why
-  ;; row over `[:tr/row 1]` and `[:tr/row 2]` answered ":tr/row moved" —
-  ;; one name for two different reads whose projected identity the door
-  ;; already held.
+  ;; A `:latest-reads` naming sub-ids only would make a Why row over
+  ;; `[:tr/row 1]` and `[:tr/row 2]` answer ":tr/row moved" — one name for
+  ;; two different reads whose projected identity the door holds.
   (seeded!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:tr/row 1]) (rf.fresco/sub [:tr/row 2]) nil))]
     (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
@@ -568,11 +563,11 @@
   other-frame-id)
 
 (deftest explain-render-scopes-its-window-and-its-leads-to-the-boundarys-own-frames
-  ;; AUDIT #7789, CORRECTNESS 2. `explain-render` summed retained runs
-  ;; GLOBALLY and indexed leads by sub-id ALONE. Two frames registering the
-  ;; same sub id — the ordinary case for two mounted apps — therefore let a
-  ;; run in B report that A's window had been searched (turning A's honest
-  ;; :cap into a false :uncorrelated) and offered B's runs as A's leads.
+  ;; An `explain-render` that summed retained runs GLOBALLY and indexed
+  ;; leads by sub-id ALONE would, with two frames registering the same sub
+  ;; id — the ordinary case for two mounted apps — let a run in B report
+  ;; that A's window had been searched (turning A's honest :cap into a
+  ;; false :uncorrelated) and offer B's runs as A's leads.
   (seeded!)
   (seed-other!)
   (let [in-a (mount-in! frame-id       (fn [_] (rf.fresco/sub [:tr/left]) nil))
@@ -600,12 +595,11 @@
   (rf/destroy-frame! other-frame-id))
 
 (deftest the-intent-stream-is-one-dispatch-ordered-stream
-  ;; AUDIT #7789, CORRECTNESS 2 (second half). The roster concatenated
-  ;; whole per-frame rings in FRAME-ID order while the read promised
-  ;; dispatch order — so with two frames live the stream asserted a
-  ;; sequence that never happened, alphabetically. `:dispatch-id` is
-  ;; allocated process-monotonically at queue time, so the true order is
-  ;; recoverable and is now used.
+  ;; Concatenating whole per-frame rings in FRAME-ID order would break the
+  ;; read's promise of dispatch order — with two frames live the stream
+  ;; would assert a sequence that never happened, alphabetically.
+  ;; `:dispatch-id` is allocated process-monotonically at queue time, so
+  ;; the true order is recoverable, and the stream uses it.
   (seeded!)
   (seed-other!)
   ;; A boundary in each frame, so BOTH rings are ones this runtime
@@ -719,7 +713,7 @@
     (release)))
 
 ;; ---------------------------------------------------------------------------
-;; The privacy fold and what it is allowed to CLAIM — rf2-h9lt
+;; The privacy fold and what it is allowed to CLAIM
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fold-across-distinct-raw-readsets-does-not-claim-an-exact-snapshot
@@ -728,9 +722,9 @@
   ;; identity, so where an egress policy elides a query whole, two
   ;; boundaries reading DIFFERENT cells become one row and their epochs are
   ;; unioned. Summing that union produces `(+ eA eB)`, which no boundary
-  ;; ever compared, and the contract called it the exact React snapshot —
-  ;; a fabricated answer handed to someone debugging, and handed precisely
-  ;; to the applications that correctly protect a sensitive query.
+  ;; ever compared, and calling it the exact React snapshot would hand a
+  ;; fabricated answer to someone debugging — precisely in the applications
+  ;; that correctly protect a sensitive query.
   ;;
   ;; The whole-query fold is reached here through the door the suite
   ;; already proves fails closed: with the frame destroyed no policy is
@@ -739,7 +733,7 @@
   ;; destruction and live in the collector's own cell table, which is what
   ;; keeps this row from passing for the trivial reason.
   ;;
-  ;; The fold stays. Only the claim about it is withdrawn.
+  ;; The fold stands; only the exact-snapshot claim about it is refused.
   (seeded!)
   (mount-in! frame-id (fn [_] (rf.fresco/sub [:tr/row 0]) nil))
   (mount-in! frame-id (fn [_] (rf.fresco/sub [:tr/row 1]) nil))
@@ -760,7 +754,7 @@
           "the row's reads are the UNION of the two boundaries' cells —
            without this the sum below would not have been a sum at all")
       (is (= 2 (count (filter (comp number? :epoch) (:reads (first rows)))))
-          "and BOTH carry a real epoch, so the withdrawal below is about the
+          "and BOTH carry a real epoch, so the `unknown` below is about the
            aggregation and not about a row that had no number to give"))
 
     (testing "so the explanation must not report their sum as the number
@@ -775,11 +769,11 @@
       (is (= 1 (count (:explanations (rf.fresco.tool/explain-render))))))))
 
 (deftest two-read-orders-of-one-raw-readset-keep-their-exact-snapshot
-  ;; The other side of the same line, and the reason the repair is keyed on
-  ;; the RAW read sets rather than on `:read-orders`: a group of two ORDERS
-  ;; of one set is every-entry-identical in cells, so the sum IS that
-  ;; boundary's snapshot and must still be reported exactly. Keying the
-  ;; withdrawal on `(> :read-orders 1)` would have thrown this away.
+  ;; The other side of the same line, and the reason the refusal is keyed
+  ;; on the RAW read sets rather than on `:read-orders`: a group of two
+  ;; ORDERS of one set is every-entry-identical in cells, so the sum IS that
+  ;; boundary's snapshot and must be reported exactly. Keying the refusal
+  ;; on `(> :read-orders 1)` would throw this away.
   (seeded!)
   (let [a (mount! (fn [_] (rf.fresco/sub [:tr/left]) (rf.fresco/sub [:tr/right]) nil))
         b (mount! (fn [_] (rf.fresco/sub [:tr/right]) (rf.fresco/sub [:tr/left]) nil))]

@@ -141,7 +141,7 @@
     ;; The MAP shape, because [[the-screen-leaves-nothing-behind]] is
     ;; `async` and `cljs.test` aborts the WHOLE RUN — every namespace
     ;; after this one included — on an async row under a positional
-    ;; fixture. Observed: one line of `Testing aborted.` and no summary.
+    ;; fixture, leaving one line of `Testing aborted.` and no summary.
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true}))
@@ -211,12 +211,11 @@
 
   2. Dispatch the `scroll` event INSIDE `flushSync`. A scroll is a
      CONTINUOUS-priority event, so the vendor's `setState` lands in a
-     lane that `hm/settle!`'s empty `flushSync` does not flush — and the
-     first run of this file failed exactly there, reading `aria-rowindex`
-     of `1` four hundred and ninety-seven rows into the model with the
-     `scrollTop` assertion above passing. `flushSync` upgrades the
-     update to the sync lane, which is what makes the next line's DOM
-     read honest.
+     lane that `hm/settle!`'s empty `flushSync` does not flush — so a
+     plain dispatch would read `aria-rowindex` of `1` four hundred and
+     ninety-seven rows into the model with the `scrollTop` assertion
+     above passing. `flushSync` upgrades the update to the sync lane,
+     which is what makes the next line's DOM read honest.
 
   3. Settle twice. The window report is a PASSIVE effect: React runs it
      after the commit that scheduled it, so the first settle is what
@@ -234,8 +233,7 @@
     (rf.fresco.test.mounted/settle! m)
     (rf.fresco.test.mounted/settle! m)
     ;; 4. And assert the WINDOW moved, not merely the offset. Steps 1 and
-    ;;    2 can both succeed while the window stands still — that is
-    ;;    exactly what the first two runs of this file did — and the
+    ;;    2 can both succeed while the window stands still, and the
     ;;    resulting failures land three assertions away from the cause,
     ;;    in whichever row happened to read the DOM first.
     (let [total    (js/parseInt (.getAttribute (grid-in m) "aria-rowcount") 10)
@@ -539,7 +537,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-screen-leaves-nothing-behind
-  ;; The bead's *no second state owner or root anywhere*, in the form the
+  ;; *No second state owner or root anywhere*, in the form the
   ;; kit can hold: one root, one frame, and a residue reading against this
   ;; mount's own baseline. The vendor's scroll offset is React state and
   ;; dies with the fiber; the application holds no reactive cell of its

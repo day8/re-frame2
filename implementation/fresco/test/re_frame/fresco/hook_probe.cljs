@@ -40,12 +40,11 @@
 
   The internals slot is a private React implementation detail and its
   name is version-bound. [[install!]] answers `false` when it is not
-  found. The prototype's convention was to record the claim as
-  *unwitnessed* at that point; **this package's suite fails instead**,
-  and deliberately: React is a pinned dependency here, a slot that moved
-  is a fact somebody has to look at, and a gate that quietly stops
-  gating on a version bump is the failure mode this repo has been bitten
-  by. `unwitnessed` is the honest verdict for a benchmark reporting a
+  found. A benchmark records the claim as *unwitnessed* at that point;
+  **this package's suite fails instead**, and deliberately: React is a
+  pinned dependency here, a slot that moved is a fact somebody has to
+  look at, and a gate that quietly stops gating on a version bump is a
+  gate nobody is watching. `unwitnessed` is the honest verdict for a benchmark reporting a
   number; `red` is the honest verdict for a gate."
   (:require ["react" :as react]))
 

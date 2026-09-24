@@ -49,7 +49,7 @@
   SAME effect map with exactly one thing removed — no second copy of a
   handler to drift, and no test-only switch inside the application.
 
-  ## The release that could not be written
+  ## The release that cannot be written
 
   There are three intents in this file that end a suggestion read, and
   each carries its release. There is a fourth way a read ends — the
@@ -65,8 +65,7 @@
 
   [[::typed]] takes a POSITIONAL argument because it carries `::h/value`,
   which `impl.intent/materialize` substitutes at the intent vector's top
-  level only. Everything else takes the canonical trailing map. This is
-  the slice authoring report's first finding, met again here."
+  level only. Everything else takes the canonical trailing map."
   (:require [re-frame.core :as rf]
             [re-frame.fresco.examples.typeahead.db :as rf.fresco.examples.typeahead.db]
             [re-frame.fresco.examples.typeahead.service :as rf.fresco.examples.typeahead.service]))

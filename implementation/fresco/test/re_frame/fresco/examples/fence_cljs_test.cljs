@@ -11,9 +11,8 @@
 
   A fence over a hand-written roster fences a namespace minted tomorrow
   only if somebody remembers to type it, and a fence per package fences a
-  package added tomorrow only if somebody remembers to write one — which
-  is how `navigation` sat unfenced for a day beside four sibling fences
-  (rf2-689l). So nothing here is typed. [[packages]] walks the examples
+  package added tomorrow only if somebody remembers to write one. So
+  nothing here is typed. [[packages]] walks the examples
   roots on disk: every immediate subdirectory holding application code is
   a package; every `.cljs` / `.cljc` under it whose stem does not end in
   `cljs-test` is application code (the build's own suite rule,
@@ -52,18 +51,14 @@
   "Where witness packages live, relative to the runner's working directory
   (`implementation/`, where `npm run test:cljs` runs).
 
-  ONE root, and it exists. A second was listed here until 2026-09-04 —
-  `fresco/test_kit/test/re_frame/fresco/examples`, on the reasoning that
-  `shadow-cljs.edn` puts `fresco/test_kit/test` on `:source-paths` so a
-  witness could be written there while `fresco/test` was held. That
-  source path is real, but no `examples` directory has ever existed under
-  it, so the entry named a root that was not there and the `existsSync`
-  guard below made its absence silent (rf2-60jv). It is dropped rather
-  than kept as a forward declaration: this fence is about what the tree
-  has, and a speculative root is the kind of unpaid-for apparatus
-  `rf2-6c12m` was opened to remove. **If a witness package is ever written
-  under `test_kit/test`, add its root back here in the same commit** —
-  nothing else fences it, which is the `navigation` failure above."
+  ONE root, and it exists. `shadow-cljs.edn` also puts
+  `fresco/test_kit/test` on `:source-paths`, but no `examples` directory
+  exists under it, and a root that is not there would be skipped silently
+  by the `existsSync` guard below. It is not listed as a forward
+  declaration: this fence is about what the tree has, and a speculative
+  root is unpaid-for apparatus. **If a witness package is ever written
+  under `test_kit/test`, add its root here in the same commit** — nothing
+  else fences it."
   ["fresco/test/re_frame/fresco/examples"])
 
 (defn- source-files
@@ -132,7 +127,7 @@
     :why    "the application is evidence about the public door; a reach past it makes the evidence worth nothing"
     :match? #(str/starts-with? % "re-frame.fresco.impl.")}
    {:label  "the benchmark tree"
-    :why    "`re-frame.bench.*` is the measured prototype the package was moved out of; a consumer has no access to it"
+    :why    "`re-frame.bench.*` is the measured prototype the package is derived from; a consumer has no access to it"
     :match? #(str/starts-with? % "re-frame.bench.")}
    {:label  "a development tool"
     :why    "`tools/` is bundle-isolated from production builds; nothing in `implementation/` may require it, and an application is not an exception"
@@ -171,7 +166,7 @@
                   (str/join ", " (keys pop))))))
 
 (deftest every-fence-predicate-fires
-  ;; THE SABOTAGE CONTROL. The fence is green today because the applications
+  ;; THE SABOTAGE CONTROL. The fence is green because the applications
   ;; are clean, and it would be just as green if a predicate had been written
   ;; wrong — `"re-frame.fresco.impl"` without the trailing dot, say. So each
   ;; is shown one name it must catch and two it must not, and the rows that

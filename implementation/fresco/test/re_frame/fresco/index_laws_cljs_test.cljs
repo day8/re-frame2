@@ -7,9 +7,8 @@
   > broad dirty set is the union of all readers of any dirty sub; (6) an
   > unknown dirty sub yields the empty set — no phantom boundaries.
   >
-  > — `docs/design/fresco/architecture.md` §2, restated verbatim across
-  >   the fusion of the reverse edge onto the key cell. *Nothing about the
-  >   laws themselves changed.*
+  > — `docs/design/fresco/architecture.md` §2, verbatim. The reverse edge
+  >   lives on the key cell, and the laws hold over it as stated.
 
   These six are the whole contract of the subscription→boundary index,
   and this file is the package's witness for them.
@@ -57,9 +56,8 @@
 
   ## What is deliberately not restated here
 
-  The bench ancestor carried three obligations beneath the six that the
-  fusion changed the shape of, and all three are now asserted elsewhere
-  in this package: abandoned-render safety is structural and is
+  Three obligations sit beneath the six, and all three are asserted
+  elsewhere in this package: abandoned-render safety is structural and is
   `kernel_commit_owns_cljs_test`'s server-render row; StrictMode's
   double-invoke leaving no residue is that file's two-subscribes row and
   its DOM sibling's; and the registration sharing the entry's key set by
@@ -195,8 +193,8 @@
         bystander     (mount! (reading [[:idxlaw/c]]))]
 
     (testing "the premise: ONE cell, TWO readers. The fan-out lives on the
-              key's own reader list, which since rf2-dabt3 IS the reverse
-              edge — so a law about fan-out is a law about this list"
+              key's own reader list, which IS the reverse edge — so a law
+              about fan-out is a law about this list"
       (is (= 2 (readers-of [:idxlaw/a]))))
 
     (rf.fresco.impl.collector/dispatch! frame-id [:idxlaw/bump :a])

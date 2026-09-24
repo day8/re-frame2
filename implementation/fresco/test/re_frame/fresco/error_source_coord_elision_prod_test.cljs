@@ -48,7 +48,7 @@
   bundle dozens of times over, and a scan for it reds on a build whose
   erasure is perfectly correct. That namespace carries no `deftest`, so
   the only thing that can put its file name in an artefact is the
-  coordinate this bead erases."
+  coordinate production erasure removes."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.fresco.coord-sentinel-source :as rf.fresco.coord-sentinel-source]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -85,7 +85,7 @@
             boundary — a build-wide absence rather than one id's.
 
             The discriminator is the HEAD rather than the slot key. The
-            alias now publishes under `:handler-fn`, the same key every
+            alias publishes under `:handler-fn`, the same key every
             `reg-view` writes, so a filter on the key would answer
             non-empty for the Reagent adapter's views and prove nothing
             about Fresco. `boundary-head?` reads the `frescoBoundary`
@@ -138,10 +138,10 @@
   ;; The row above hands `fail!` an EMPTY payload, so it proves the ledger
   ;; is unwritten and nothing more. The absence contract is a claim about
   ;; every refusal a production build emits, and the payload is the one
-  ;; place a `.cljs` path can still come from — a call site's own map. It
-  ;; used to survive here: `with-origin` folds to its input under
-  ;; `goog.DEBUG=false`, so there was no ambient value to overwrite it with
-  ;; and the forgery merged through untouched.
+  ;; place a `.cljs` path can still come from — a call site's own map.
+  ;; `with-origin` folds to its input under `goog.DEBUG=false`, so there is
+  ;; no ambient value to overwrite a forgery with: the constructor has to
+  ;; drop it, or it would merge through untouched.
   (let [data (try
                (rf.fresco.impl.error/fail! :rf.error/fresco-empty-vector
                             're-frame.fresco.impl.codec/vec->element

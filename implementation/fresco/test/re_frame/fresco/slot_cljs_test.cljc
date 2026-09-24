@@ -1,5 +1,5 @@
 (ns re-frame.fresco.slot-cljs-test
-  "THE EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y).
+  "THE EQUIVALENCE PIN for the canonical slot rule.
 
   This file is `.cljc` on purpose, and that is the whole mechanism. The
   repo's lane bijection (`scripts/check_test_lane_bijection.py` rule B2)
@@ -14,7 +14,7 @@
   unconditional `jvm-fresco` job in `.github/workflows/test.yml`, listed
   under `All required checks passed` — a job absent from that list is
   advisory whatever its own gate says — and the artefact carries a row on
-  `scripts/test-jvm-implementation.sh` (rf2-ipx7h). The Node arm rides
+  `scripts/test-jvm-implementation.sh`. The Node arm rides
   the always-on `:node-test` build. Losing either one leaves the other
   green while the equivalence it exists to assert stops being checked.
 
@@ -22,7 +22,7 @@
 
   The rule has exactly one definition, `re-frame.fresco.impl.slot/prop-name`
   — the package's own; the bench tree's copy of it is evidence under
-  bench/fresco and pins nothing (rf2-6c12m.1) — so the interesting failure
+  bench/fresco and pins nothing — so the interesting failure
   is not \"someone edited one copy\". It is the two ways one definition can
   still answer two things:
 
@@ -41,10 +41,10 @@
      guard would be a guess about which host is right. This suite makes
      the disagreement loud on the host that has it.
 
-  And the codec's own agreement — that its CACHE still answers what the
-  rule answers, seeded entries included — is asserted against this same
-  corpus in `codec-cljs-test`, which is CLJS-only because the caches
-  are."
+  And the codec's own agreement — that its CACHE answers what the rule
+  answers, seeded entries included — is asserted against the same rows in
+  `codec-cljs-test`, which reads them from `re-frame.fresco.slot-corpus`
+  and is CLJS-only because the caches are."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.fresco.impl.slot :as rf.fresco.impl.slot]))
@@ -52,7 +52,8 @@
 (def corpus
   "Authored prop key → the canonical React slot it emits into.
 
-  ONE table, read by both hosts and by the codec's cache suite. Every
+  ONE table, read by both hosts; `re-frame.fresco.slot-corpus` carries
+  the same rows for the codec's CLJS-only cache suite. Every
   branch of the rule is represented, and every spelling the codec accepts
   appears at least once — because a rule written against the spelling is
   a rule the other spellings walk past, and a corpus that only carries

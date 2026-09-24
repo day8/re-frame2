@@ -20,9 +20,7 @@
   the routes: `make-reset-runtime-fixture` restores the registrar to a
   baseline captured when the `use-fixtures` FORM was evaluated, and
   routes registered at namespace load are behind it. `reg-sub` and
-  `reg-event` survive; routes do not. That is the slice authoring
-  report's third finding, met here on this file's first row and confirmed
-  unchanged."
+  `reg-event` survive; routes do not."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]

@@ -1,11 +1,11 @@
 (ns re-frame.fresco.view-annotation-dom-cljs-test
-  "SPEC 006'S TWO DEV-MODE DOM ANNOTATIONS, ON A FRESCO BOUNDARY (rf2-c5w1).
+  "SPEC 006'S TWO DEV-MODE DOM ANNOTATIONS, ON A FRESCO BOUNDARY.
 
   Spec 006 §Source-coord annotation requires `data-rf2-source-coord` on
   the rendered root DOM element of each registered view, §View tagging
   contract requires `data-rf-view` beside it on the same element and the
   same gate, and §Cross-host binds every in-scope React-binding adapter to
-  both. Fresco is one — Mike's 2026-07-31 ruling, and its own
+  both. Fresco is one — with its own
   `re-frame.fresco.substrate/adapter` — and a `rf.fresco/defview` is a registered
   view: `rf.fresco.impl.collector/publish-view-alias!` writes it into re-frame's `:view`
   registrar under the id `rf/reg-view` would have derived from the same
@@ -17,9 +17,9 @@
   (`implementation/adapters/reagent/test/re_frame/view_id_attr_cljs_test.cljs`)
   reads the annotated hiccup straight back out of `(rf/view id)`, because
   there the registered thing IS a hiccup-returning render fn. `(rf/view
-  id)` answers a Fresco view too (rf2-kuky.60), but what it answers is a
-  React component rather than a render fn, so there is still no hiccup to
-  read back without mounting; and the claim worth proving is in any case
+  id)` answers a Fresco view too, but what it answers is a React
+  component rather than a render fn, so there is no hiccup to read back
+  without mounting; and the claim worth proving is in any case
   the consumers' one — Xray's hover-highlight and
   Pair's `ui/read` hold a DOM NODE and ask what view painted it. So the
   assertions here mount and query, which also proves the attributes
@@ -82,11 +82,11 @@
   "A body that writes the STRING spelling of `data-rf-view`, in a map big
   enough to be a PersistentHashMap.
 
-  `merge` cannot collapse two spellings of one React slot, so before
-  rf2-c5w1's audit repair both keys survived and `convert-props` let the
-  map's iteration order pick the emitted value — which an array map hid by
-  iterating in insertion order. The eleven fillers are what make the shape
-  a hash map; nothing else about them matters."
+  `merge` cannot collapse two spellings of one React slot, so without the
+  canonical-slot drop both keys would survive and `convert-props` would
+  let the map's iteration order pick the emitted value — which an array
+  map hides by iterating in insertion order. The eleven fillers are what
+  make the shape a hash map; nothing else about them matters."
   [_]
   [:p {:class          "wins-string"
        "data-rf-view"  "author-string"
@@ -202,7 +202,7 @@
             "a body that wrote the STRING `\"data-rf-view\"` keeps its value
              too — the framework's entry is dropped at the CANONICAL SLOT,
              not at the keyword, so nothing is left for the map's iteration
-             order to choose between (rf2-c5w1, audit of PR #9191)")
+             order to choose between")
         (is (str/starts-with? (coord-attr handle ".wins-string")
                               (str view-ns ":author-wins-in-another-spelling:"))
             "and the annotation it did not write is still stamped — ownership

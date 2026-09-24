@@ -4,10 +4,10 @@
 
   ## Why they are not in the suite that asserts about them
 
-  The first draft put them in
-  `re-frame.fresco.error-source-coord-elision-prod-test` itself, and the
-  bundle scan went red on a build whose erasure was perfectly correct.
-  `cljs.test` stamps `:file` and `:line` into the report map of every
+  Declared in
+  `re-frame.fresco.error-source-coord-elision-prod-test` itself, they
+  would turn the bundle scan red on a build whose erasure is perfectly
+  correct. `cljs.test` stamps `:file` and `:line` into the report map of every
   `deftest` and every `is`, so a test namespace's own file name is in the
   release bundle 38 times over before `defview` captures anything. A
   sentinel that fires on a green build is worse than no sentinel: it

@@ -6,8 +6,8 @@
   `h/defhost`, whose Client-only DEFAULT is what keeps the chunk out of a
   server response — no helper of Fresco's stands between the author and
   React here. **This file is about the BOUNDARY** — the five states a split region
-  moves through, what survives each crossing, and one promise the
-  documentation was making that React cannot keep.
+  moves through, what survives each crossing, and one retry React cannot
+  perform.
 
   ## The rows
 
@@ -16,7 +16,7 @@
   | [[the-module-gate-dedupes-a-hover-and-a-click-into-one-load]] | the route/module split's own dedupe rule, at the state it actually races on | a gate that skips only `:loaded`, so a warm-on-hover followed by a click starts a second load |
   | [[a-lazy-boundary-paints-the-fallback-then-the-component-with-the-props-it-was-written-with]] | load, fallback and arrival, with the props and the one child intact across a crossing that was deferred | a bridge that re-ran the loader on arrival; a `:children` slot that lost the single child |
   | [[a-lazy-suspension-retains-the-committed-subscription-and-the-arrival-leaves-exact-ownership]] | the post-commit suspension result, re-measured across a LAZY boundary specifically | a lazy retry that quietly re-subscribed — the screen is right under it |
-  | [[a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads]] | rejection is TERMINAL at the payload; `:reset-key` clears the boundary and reloads nothing | the claim, made in this repo until this bead, that changing `:reset-key` retries the chunk |
+  | [[a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads]] | rejection is TERMINAL at the payload; `:reset-key` clears the boundary and reloads nothing | the claim that changing `:reset-key` retries the chunk |
   | [[a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton]] | which DECLARATION actually emits server bytes, at the `defhost` crossing | a region documented as sending a skeleton whose declaration sends nothing |
   | [[a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader]] | the host's OWN Client-only policy over a lazy head, with one gate and a bare `react/lazy` control beside it | a gate that renders the head anyway, so the server fetches a chunk it cannot use — and a witness whose zero is really two `defhost` gates |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
@@ -36,17 +36,14 @@
   by `react/lazy`, and nothing in this tier — or in React's public API —
   resets it. So the retry a rejected chunk needs is a NEW HEAD.
 
-  ## The hot-reload half is witnessed ELSEWHERE, and used to be witnessed
-  ## nowhere
+  ## The hot-reload half is witnessed ELSEWHERE
 
-  This file used to add that a new head *is the same allocation a hot
-  reload performs, which is why the HMR fact and the retry fact are one
-  measurement here rather than two*. The reasoning was sound and the
-  measurement did not exist: nothing here reloads anything, and §7's
-  code-splitting row names `HMR` in the same required-proof cell as the
-  load, fallback, error and retry states this file does land.
+  A new head is the same allocation a hot reload performs, but nothing
+  here reloads anything, so this file cannot measure the HMR fact — and
+  §7's code-splitting row names `HMR` in the same required-proof cell as
+  the load, fallback, error and retry states this file does land.
 
-  It is now witnessed where a reload can actually be performed — the
+  It is witnessed where a reload can actually be performed — the
   `native-lazy-island-across-a-save` section of
   `fresco/testbed/hmr_spec.cjs`, driven by
   `implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs` under a
@@ -77,11 +74,11 @@
   They ask different questions and the second is not a widening of the
   first. Row 5 is about a DECLARATION — which `defhost` key puts bytes in
   a server response — and it renders through two Client-only hosts
-  because that is the shape it is describing. Row 7 is about the ONE
+  because that is the shape it is describing. Row 6 is about the ONE
   gate over the lazy head itself, so it must have nothing else in front
   of it: under row 5's shape the loader would stay uncalled even if the
   lazy head's own host were server-active, so row 5 alone cannot decide
-  row 7's subject. A witness dominated by unrelated gates measures the
+  row 6's subject. A witness dominated by unrelated gates measures the
   gates."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -122,7 +119,7 @@
    :platforms #{:client}}
   (fn [_ctx _spec] (swap! !module-loads inc) nil))
 
-;; THE GATE, and the repair the rows below hold it to.
+;; THE GATE, and the rule the rows below hold it to.
 ;;
 ;; The set is `#{:loading :loaded}` and not `#{:loaded}`. Warming a module
 ;; from a hover or focus intent is the documented reason to dispatch this
@@ -229,8 +226,7 @@
   "The same crossing with a declared `:fallback` — `defhost`'s
   Client-only PLACEHOLDER, which is a different key with the same name
   and the only one of the two that can put bytes in a server response.
-  Declared here because the documentation promised those bytes from the
-  host above, which emits none."
+  Declared here because the host above emits none."
   (.-Suspense react)
   {:slots    #{:fallback}
    :fallback [:div {:id "server-skeleton" :aria-busy true} "loading"]})
@@ -259,15 +255,15 @@
 (rf.fresco/defhost reject-host reject-head)
 (rf.fresco/defhost replacement-host replacement-head)
 
-;; --- scenario 6: the server render -----------------------------------------
+;; --- scenario 5: the server render -----------------------------------------
 
 (def ^:private ssr-loader (deferred-loader))
 (def ^:private ssr-head (lazy-head ssr-loader))
 (rf.fresco/defhost ssr-host ssr-head)
 
-;; --- scenario 7: the UNSHADOWED server render ------------------------------
+;; --- scenario 6: the UNSHADOWED server render ------------------------------
 ;;
-;; Scenario 6's row is dominated by two `defhost` declarations, each of
+;; Scenario 5's row is dominated by two `defhost` declarations, each of
 ;; them independently Client-only, so it cannot distinguish the lazy
 ;; head's own gate from an unrelated gate in front of it. Here the head's
 ;; host is the ONLY declaration, under nothing but React's own Suspense.
@@ -285,7 +281,7 @@
 (def ^:private raw-head (lazy-head raw-loader))
 
 (defn- suspense-tree
-  "The shipped shape from the audit's control, written in raw React: a
+  "The control's shape, written in raw React: a
   Suspense with a fallback and one lazy head under it. No `defhost`, no
   provider, no root element — nothing between `renderToString` and the
   head but React."
@@ -496,12 +492,11 @@
                   (is (= "3" (text-at handle ".series"))
                       "…and it is the count the island rendered"))
 
-                (testing "the ONE child crossed. hic-032 repaired exactly
-                          this shape at the outward door — React's
-                          `children` slot is the child itself at one and an
-                          array at several — and a deferred crossing is
-                          where a bridge that got it right on the first
-                          render would still be able to lose it"
+                (testing "the ONE child crossed. React's `children` slot
+                          is the child itself at one and an array at
+                          several, and a deferred crossing is where a
+                          bridge that got it right on the first render
+                          would still be able to lose it"
                   (is (= "child" (painted handle "kid"))))
 
                 (testing "and arrival did not re-run the loader"
@@ -545,7 +540,7 @@
 (deftest a-lazy-suspension-retains-the-committed-subscription-and-the-arrival-leaves-exact-ownership
   ;; `activity_suspense_dom_cljs_test`'s
   ;; `a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership`
-  ;; established the result against a hand-thrown thenable: hiding a
+  ;; establishes the result against a hand-thrown thenable: hiding a
   ;; committed tree for a Suspense FALLBACK leaves its passive effects
   ;; mounted, so the `useSyncExternalStore` subscription survives and the
   ;; retry's registration is `identical?` to the pre-suspension one —
@@ -678,7 +673,7 @@
                   (is (nil? (node handle "chart")))
                   (is (= 1 @(:calls reject-loader))))
 
-                ;; The documented retry: change the boundary's :reset-key.
+                ;; The obvious retry: change the boundary's :reset-key.
                 (reset! !attempts 0)
                 (.render ^js (:root handle) (reject-tree 1 reject-host))
                 (poll #(pos? @!attempts) "the boundary clears and re-renders its children")))
@@ -747,8 +742,8 @@
             SLOT and no declared placeholder — writes NOTHING to the
             server response. The slot is React's fallback, and under
             `:client-only` the whole host region is absent, slot included.
-            Documentation promising a server skeleton from this shape was
-            promising bytes the declaration cannot emit"
+            Documentation promising a server skeleton from this shape would
+            be promising bytes the declaration cannot emit"
     (let [html (server-html [:div
                              [:h1 {:id "title"} "metrics"]
                              [suspense-host {:fallback [:div {:id "react-fallback"} "loading"]}
@@ -764,7 +759,7 @@
            which is what the host's Client-only default buys whatever the
            component inside it would have done")))
 
-  (testing "the repair is `defhost`'s own `:fallback` — inert markup on the
+  (testing "the skeleton is `defhost`'s own `:fallback` — inert markup on the
             declaration, which the Client-only gate renders on the server
             AND on hydration's first client pass, so the skeleton has a
             footprint and the live region replaces it after adoption"
@@ -783,7 +778,7 @@
   (exercised! :lazy/server-render))
 
 ;; ---------------------------------------------------------------------------
-;; 7. The UNSHADOWED server render — the head's own gate, alone
+;; 6. The UNSHADOWED server render — the head's own gate, alone
 ;; ---------------------------------------------------------------------------
 
 (deftest a-client-only-host-over-a-lazy-head-writes-nothing-and-never-calls-its-loader
@@ -804,7 +799,7 @@
       (is (re-find #"Switched to client rendering" html)
           (str "having abandoned the boundary: " html))))
 
-  (testing "and the same head behind its OWN `h/defhost`, under the ruled
+  (testing "and the same head behind its OWN `h/defhost`, under the
             Client-only default, with nothing else in front of it — one
             Suspense and the one declaration. The loader is never called:
             the server does not reach for a chunk it cannot use, and that
@@ -834,7 +829,7 @@
 (deftest the-declared-population-was-actually-exercised
   (if-not (rf.fresco.impl.mount/browser?)
     (is (set/subset? #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised)
-        (str "the two lane-independent rows must run everywhere; missing "
+        (str "the three lane-independent rows must run everywhere; missing "
              (pr-str (set/difference #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised))))
     (is (= declared-population @!exercised)
         (str "every declared mechanism must actually have been reached; missing "

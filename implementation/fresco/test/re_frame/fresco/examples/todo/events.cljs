@@ -25,10 +25,9 @@
 
          (get-in db [:ui db/draft id])
 
-     Both are recorded in the authoring report. Neither is a reach past
-     the door — `re-frame.fresco` is the door — but both are places
-     where the sugar stops one step short of the call site that needed
-     it."
+     Neither is a reach past the door — `re-frame.fresco` is the door —
+     but both are places where the sugar stops one step short of the
+     call site that needs it."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]

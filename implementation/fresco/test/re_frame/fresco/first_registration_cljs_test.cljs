@@ -30,15 +30,15 @@
   This arm has exactly one property that breaks that assumption. A cell
   holds its reaction for the life of every boundary reading the key, and
   never subscribes again — so the recovery the substrate declined to cache
-  is cached anyway, in a cell, where nothing evicts it. Measured before
-  the repair existed: the boundary painted nil for the life of the mount,
-  the first `reg-sub` for the query changed nothing, and no later write
-  ever notified it — on a query that was by then perfectly well
-  registered. That is the shape a lazily loaded module hits, and it is
+  is cached anyway, in a cell, where nothing evicts it. Left there, the
+  boundary would paint nil for the life of the mount, the first `reg-sub`
+  for the query would change nothing, and no later write would ever
+  notify it — on a query that was by then perfectly well registered.
+  That is the shape a lazily loaded module hits, and it is
   the shape of a page that renders correctly, errors nowhere, and is
   simply frozen.
 
-  ## What is asserted, and what already is elsewhere
+  ## What is asserted here, and what elsewhere
 
   The transition has two halves. A boundary inside the render→commit gap
   holds no cell, so the registration scan reaches nothing on its behalf;
@@ -49,7 +49,7 @@
   nothing at all — is that file's
   `an-unrelated-namespaces-save-disturbs-no-mounted-boundary`.
 
-  **The HELD half is what has never been asserted**, in either direction:
+  **The HELD half is asserted nowhere else**, in either direction:
   that a cell holding an unregistered id's recovery is found by the scan,
   invalidated, rewired against the real registration, and notified by
   writes thereafter. That is this file, and it is one row plus the control
@@ -114,7 +114,7 @@
     (seeded!)
     (let [{:keys [value notified release]} (mount-late!)]
 
-      (testing "the premise, and it is the whole defect. The boundary
+      (testing "the premise. The boundary
                 committed against a query nobody had registered, so the
                 cell holds the substrate's nil-recovery — the very thing
                 the substrate declined to cache, cached anyway, where
@@ -162,10 +162,9 @@
               (is (> @notified notified-before)))
 
             (testing "and the property the repair exists for: a LATER write
-                      reaches it. This is the assertion the pre-repair
-                      runtime failed — the cell was deaf for the life of
-                      the mount, so the page rendered, painted, errored
-                      nowhere, and never moved again"
+                      reaches it. Without the repair the cell would be deaf
+                      for the life of the mount, so the page would render,
+                      paint, error nowhere, and never move again"
               (let [before @notified]
                 (rf.fresco.impl.collector/dispatch! frame-id [:firstreg/bump])
                 (is (= (inc before) @notified))))

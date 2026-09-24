@@ -1,14 +1,14 @@
 (ns re-frame.fresco.staged-reincarnation-basis-cljs-test
   "A STAGED KEY ACROSS A SAME-ID REINCARNATION — the one scenario in which
   the generation term of `commit-basis` carries something the frame's
-  install epoch does not (rf2-6c12m.19).
+  install epoch does not.
 
   `commit-basis` is three monotone terms: this runtime's flush
   generation, the frame's own install epoch, and the registry epoch. The
   generation moves only through `flush!`, and every path that reaches
   `flush!` — the cell watch, and the microtask rewire after a disposal —
   is a path on which the frame's install epoch has already moved. So the
-  generation looks redundant, and rf2-6c12m.19 asks whether it is.
+  generation looks redundant, and this row asks whether it is.
 
   ## Where the two terms part company
 
@@ -33,17 +33,16 @@
   Drop the term and that boundary keeps the predecessor's value on screen
   until the next write to its key — on a tenant switch, another tenant's
   data, with no trace left by the time anyone looks. That is the P0 class
-  `generation.cljs` names, and it is why the term stays.
+  `generation.cljs` names, and it is why the term is in the sum.
 
   ## What this row does and does not claim
 
   It claims the term is LOAD-BEARING: with it, the number moves; without
-  it — the control run for rf2-6c12m.19 removed `@!generation` from the
-  sum and this row went red — the number ties. It does not claim the
-  term is a complete repair. A frame holding NO other cell at the
-  reincarnation has nothing to rewire, so no flush bumps the generation
-  and the basis ties with or without the term; that half of the
-  `:node-key` axis is the one `commit-basis`'s docstring already
+  it — removing `@!generation` from the sum turns this row red — the
+  number ties. It does not claim the term is a complete repair. A frame
+  holding NO other cell at the reincarnation has nothing to rewire, so no
+  flush bumps the generation and the basis ties with or without the term;
+  that half of the `:node-key` axis is the one `commit-basis`'s docstring
   concedes and is not this row's to close.
 
   The harness is the commit seam, as in `reincarnation_cells_cljs_test`:

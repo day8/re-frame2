@@ -42,8 +42,7 @@
   constant: UIx's is the eight fns `spec/api-manifest.edn` rows for it, and
   the two sets differ. Neither names the spine's warn-once clear thunk —
   that seam is internal and is driven through the chained
-  `:adapter/clear-warn-once-caches!` hook the reset fixture fires
-  (rf2-6r9j.36).
+  `:adapter/clear-warn-once-caches!` hook the reset fixture fires.
 
   `:frame-provider` is read back through the contract slot rather than off a
   Var, because that is the only route Fresco publishes it by.

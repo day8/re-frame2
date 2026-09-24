@@ -6,13 +6,12 @@
   the top.
 
   Dependencies are DECLARED under `:inputs` in the registration metadata
-  map, and a declared list always reaches the body as a vector. The v1
-  positional forms this file used to be written in — the `:<-` chain and
-  the two-trailing-fn tail — are retired (rf2-kuky.50), and the slice
-  authoring report's complaint about the second one went with them: it put
-  a ONE-argument input fn beside a TWO-argument computation fn in the same
-  form, where the mistake compiled. Under `:inputs` the producer is a
-  metadata VALUE, so there is no adjacency to confuse.
+  map, and a declared list always reaches the body as a vector. There is
+  no v1 `:<-` chain and no two-trailing-fn tail — `reg-sub` refuses both
+  — so there is no ONE-argument input fn beside a TWO-argument
+  computation fn in the same form, where the mistake would compile.
+  Under `:inputs` the producer is a metadata VALUE, so there is no
+  adjacency to confuse.
 
   ## The filter is not stored, so it cannot be stale
 

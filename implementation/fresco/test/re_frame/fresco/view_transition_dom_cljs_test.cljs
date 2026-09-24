@@ -6,9 +6,8 @@
   `docs/design/fresco/product/lanes/react-compatibility-notes.md`
   §\"New host capabilities stay at the host edge\" asks for exactly one
   thing — *prove that a hosted ViewTransition can contain Fresco children
-  without ownership or controlled-input breakage* — and could not ask it
-  while the API was Canary. On 19.3.0 `ViewTransition` is an ordinary
-  export of `react`, so it can be asked now.
+  without ownership or controlled-input breakage*. On 19.3.0
+  `ViewTransition` is an ordinary export of `react`, so it can be asked.
 
   ## The ceiling is the first thing this file establishes, not the last
 
@@ -47,7 +46,7 @@
   a string. An input rebuilt each render defeats the mechanism while
   looking correct.
 
-  ## Why this bead ships no recipe
+  ## Why there is no recipe
 
   [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]] is
   the row that settles it. A click inside a subtree a hosted
@@ -217,12 +216,12 @@
   ninety-namespace `cljs-test-display` report — thousands of pixels below
   the fold.
 
-  Measured on a bare React page, twice in each direction: with the element
-  at the top of the viewport `startViewTransition` was called once,
-  `onUpdate` fired once and five named pseudo-element animations ran; with
-  a 5000-pixel spacer above it, `startViewTransition` was still called
-  once, `onUpdate` fired ZERO times and only two named animations ran — and
-  the DOM committed correctly either way.
+  On a bare React page, with the element at the top of the viewport
+  `startViewTransition` is called once, `onUpdate` fires once and five
+  named pseudo-element animations run; with a 5000-pixel spacer above it,
+  `startViewTransition` is still called once, `onUpdate` fires ZERO times
+  and only two named animations run — and the DOM commits correctly either
+  way.
 
   So a witness that skipped this would read a live mechanism as a dead one,
   and an application whose animating region is scrolled out of view gets
@@ -780,9 +779,9 @@
                 ;; POLL, do not read. React DEFERS a second transition's
                 ;; mutation until the first has finished, and `awaited!`
                 ;; returns on the transitions it had SEEN when it started —
-                ;; so a bare read here is a race the first draft lost, and it
-                ;; lost it in the reassuring direction: `started` was already
-                ;; 2 while the DOM still showed the first value.
+                ;; so a bare read here is a race, and one lost in the
+                ;; reassuring direction: `started` can already be 2 while the
+                ;; DOM still shows the first value.
                 (poll #(= "L2" (text-of handle "vtw-local"))
                       "the tree settles on the LAST update, not a stale one")))
             (.then
@@ -832,7 +831,6 @@
                 ;; THE CONTROL COMES FIRST, and it is not optional: a click
                 ;; that fails to reach app-db DURING an animation says nothing
                 ;; unless the same click reaches it when nothing is animating.
-                ;; The first draft of this row had only the zero.
                 (.click ^js (node handle "vtw-button"))
                 (timed-poll #(= 1 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks])))
                             "CONTROL: the same intent routes with no transition in flight"
@@ -884,7 +882,7 @@
                             app-db in " (pr-str disp-ms) " ms")))
 
                 (testing "AND YET THE INTENT'S OWN WRITE NEVER ARRIVES. This is
-                          the row's finding, and it is why this bead ships no
+                          the row's finding, and it is why there is no
                           recipe: an interaction inside a subtree a hosted
                           `<ViewTransition>` is animating lands on the DOM and
                           produces no app-db write — not late, not queued, not
@@ -892,10 +890,10 @@
 
                           WHERE it is lost is
                           [[the-drop-window-is-reacts-suspended-commit-not-the-animation]],
-                          which was written against this row and narrows it:
+                          which narrows it:
                           the loss is React's, and the window is the SUSPENDED
                           COMMIT rather than the animation. What this row
-                          rules out stands — the browser (the native listener
+                          rules out holds — the browser (the native listener
                           above), task scheduling (setTimeout, MessageChannel,
                           microtasks and rAF all fire within a few ms) and the
                           router (the direct dispatch above) — but read its
@@ -1166,7 +1164,7 @@
                           START of a transition — and not the animation, which
                           is the distinction
                           [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]]
-                          could not draw from one click"
+                          cannot draw from one click"
                   (is (= 1 @!win-inside-hits)
                       "the plain React `onClick` inside the subtree fires again once the commit has flushed")
                   (is (= 1 @!win-outside-hits)
@@ -1180,7 +1178,7 @@
                 ;; does-not-reach-app-db` makes its direct-dispatch reading
                 ;; only after a 3000 ms `within` has run to exhaustion over a
                 ;; 240 ms animation, so that reading is post-transition and
-                ;; eliminates nothing (rf2-hk8c). This one dispatches with
+                ;; eliminates nothing. This one dispatches with
                 ;; view-transition animations demonstrably running and reads
                 ;; the count again at arrival, so the phase is a measurement
                 ;; at both ends.
@@ -1289,11 +1287,11 @@
                           app-db. So what the window stops is React's EVENT
                           DELIVERY and not an app-db write — two candidates
                           [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]]
-                          could not separate, because the direct dispatch it
+                          cannot separate, because the direct dispatch it
                           makes runs only after its own 3000 ms `within` has
                           gone to exhaustion over a 240 ms animation, which
                           puts that reading after the transition rather than
-                          inside it (rf2-hk8c)"
+                          inside it"
                   (is (some? ms)
                       (str "a direct dispatch made inside the commit window reached app-db in "
                            (pr-str ms) " ms; console traffic during the window was "

@@ -1,8 +1,8 @@
 (ns re-frame.fresco.client-root-lifecycle-dom-cljs-test
   "THE CLIENT-ROOT GRAMMAR — Spec 006 §The client root, Fresco's
-  realisation (rf2-kuky.59).
+  realisation.
 
-  What is under test is the SHAPE all four React view adapters now share:
+  What is under test is the SHAPE all four React view adapters share:
   an inert `h/client-root` handle, one `h/render!` whose FIRST call
   creates or adopts and whose later calls update, and an idempotent
   `h/unmount!`. The rows below mirror
@@ -258,9 +258,8 @@
 ;; W4 — `rf/destroy-adapter!` RELEASES a live Fresco root
 ;; ---------------------------------------------------------------------------
 ;;
-;; The behaviour rf2-kuky.59 added rather than moved: before it, Fresco's
-;; `createRoot` sat outside every active-root set and `rf/destroy-adapter!`
-;; released no Fresco root at all. This row reads the guarantee with FRESCO's
+;; A Fresco `createRoot` outside every active-root set would leave
+;; `rf/destroy-adapter!` releasing no Fresco root at all. This row reads the guarantee with FRESCO's
 ;; own adapter installed — the composition an all-Fresco application has — and
 ;; W7 reads the same guarantee under UIx and under Reagent.
 ;;
@@ -292,9 +291,9 @@
         (testing "the adapter teardown released this root: React emptied the
                   container, and the caller's node is still in the document"
           (is (= "" (.-innerHTML ca))
-              "`rf/destroy-adapter!` left a live Fresco root mounted — the
-               defect rf2-kuky.59 fixed, in which Fresco's `createRoot` sat
-               outside every active-root set")
+              "`rf/destroy-adapter!` left a live Fresco root mounted — as it
+               would with Fresco's `createRoot` outside every active-root
+               set")
           (is (true? (.-isConnected ca))))
 
         (testing "and the handle's own `unmount!` finds nothing left to do, so
@@ -450,25 +449,23 @@
 ;; W7 — `rf/destroy-adapter!` releases a Fresco root under a NON-Fresco adapter
 ;; ---------------------------------------------------------------------------
 ;;
-;; The composition W4 cannot cover, and the one the merged-PR audit of #9459
-;; named: `h/render!` reaches `createRoot` through
+;; The composition W4 cannot cover: `h/render!` reaches `createRoot` through
 ;; `re-frame.fresco.impl.mount` whatever adapter is installed, so a Fresco
 ;; root is the PACKAGE's rather than any adapter's. Fresco over UIx or over
-;; Reagent is supported use, not malformed input — the migrated HMR testbed
-;; installs UIx, Story's own-root control installs Reagent, and the migration
-;; skill deliberately preserves an app's existing Reagent adapter.
+;; Reagent is supported use, not malformed input — the HMR testbed installs
+;; UIx, Story's own-root control installs Reagent, and the migration skill
+;; deliberately preserves an app's existing Reagent adapter.
 ;;
-;; The defect this row pins: while the drain hung off the FRESCO adapter's
-;; own `dispose-adapter!`, `rf/destroy-adapter!` under any other adapter
-;; invoked that adapter's disposer alone, the Fresco Root stayed mounted with
-;; its `:live?` closure still true, and a `render!` through the retained handle
-;; UPDATED that never-released Root instead of mounting afresh. The repair
-;; moves the drain to the process teardown boundary — core's
+;; The drain lives at the process teardown boundary — core's
 ;; `:fresco/drain-client-roots!` late-bind hook, invoked by
 ;; `re-frame.substrate.adapter/dispose-adapter!` before the installed
-;; adapter's own disposer — so the guarantee no longer carries an adapter
-;; qualifier, which is what the public `h/client-root` / `h/unmount!` docs
-;; already promise.
+;; adapter's own disposer — so the guarantee carries no adapter qualifier,
+;; which is what the public `h/client-root` / `h/unmount!` docs promise. A
+;; drain hung off the FRESCO adapter's own `dispose-adapter!` would fail
+;; here: `rf/destroy-adapter!` under any other adapter would invoke that
+;; adapter's disposer alone, the Fresco Root would stay mounted with its
+;; `:live?` closure still true, and a `render!` through the retained handle
+;; would UPDATE that never-released Root instead of mounting afresh.
 ;;
 ;; The reading is NODE IDENTITY, for W2's reason: a leaked Root's update and a
 ;; fresh Root's first render both paint the new tag, and only the identity of

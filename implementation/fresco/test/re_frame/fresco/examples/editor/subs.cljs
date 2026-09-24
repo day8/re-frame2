@@ -12,11 +12,11 @@
   `editor.flow-dom-cljs-test` measures it rather than asserting the
   arithmetic.
 
-  **`recompute` is not the same set as `reads that address`**, and this
-  paragraph used to say it was. Every subscription here is a LAYER-1
-  reader, memoised on the whole of `app-db` rather than on the address it
-  goes on to read, so a keystroke re-runs all TEN of this form's cells and
-  the equality gate then stops nine of them from notifying anything.
+  **`recompute` is not the same set as `reads that address`.** Every
+  subscription here is a LAYER-1 reader, memoised on the whole of
+  `app-db` rather than on the address it goes on to read, so a keystroke
+  re-runs all TEN of this form's cells and the equality gate then stops
+  nine of them from notifying anything.
   Measured by the per-keystroke census and published in
   `docs/design/fresco/product/per-keystroke.md`: one changed subscription
   out of ten recomputed, which is a distinction the body count cannot

@@ -169,8 +169,8 @@
   ;; the page mounts with its panel already open over a searchable term,
   ;; so `[::subs/suggestions "ca"]` is a COMMITTED READ from the first
   ;; frame — and the service is never asked. Nothing connects a commit to
-  ;; an acquisition, which is why every OWNERSHIP row of the census had to
-  ;; be written by hand at an intent instead.
+  ;; an acquisition, which is why every OWNERSHIP row of the census is
+  ;; written by hand at an intent instead.
   (if-not (browser?)
     (skip! "the read has to be genuinely committed, which needs a real commit")
     (async done
@@ -242,10 +242,10 @@
 (deftest an-abandoned-render-asks-the-service-for-nothing
   ;; The other half of C3, and the half that decides whether the fence is
   ;; gateable: with every body running twice, the number of requests is
-  ;; unchanged. Today that is true by construction rather than by care —
+  ;; unchanged. That is true by construction rather than by care —
   ;; acquisition happens in a handler and a handler is not a render — and
-  ;; recording it now is what lets the implementation bead inherit a
-  ;; blocking test with a population it can force.
+  ;; pinning it hands any demand mechanism a blocking test with a
+  ;; population it can force.
   (if-not (browser?)
     (skip! "needs a real render to abandon")
     (async done

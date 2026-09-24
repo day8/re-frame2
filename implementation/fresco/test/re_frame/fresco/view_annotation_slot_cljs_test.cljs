@@ -1,6 +1,6 @@
 (ns re-frame.fresco.view-annotation-slot-cljs-test
   "SPEC 006'S TWO ANNOTATIONS AND THE AUTHOR'S OWN VALUE, OWNED AT THE
-  CANONICAL SLOT RATHER THAN AT THE KEYWORD (rf2-c5w1).
+  CANONICAL SLOT RATHER THAN AT THE KEYWORD.
 
   `rf.fresco.impl.collector/annotate-root` merges the framework's two attributes UNDER
   the body's own attrs, and Spec 006 §Cross-host records the consequence
@@ -20,7 +20,7 @@
   through a body that writes the keyword — the one spelling `merge`
   collapses — so they pass whether ownership is held at the key or at the
   slot. A small array map iterates in insertion order and happens to pass
-  too, which is why a bigger map is what exposed this.
+  too, which is why the rows here take a bigger map as well.
 
   So the property is pinned TWICE here. Once STRUCTURALLY: after the merge
   exactly one key in the map canonicalises to each annotation slot. That
@@ -64,9 +64,8 @@
 
 (defn- hashed-attrs
   "The author's attrs as a PersistentHashMap carrying eleven ordinary
-  filler attributes beside the authored one — the shape the audit of
-  PR #9191 reproduced against, and one whose iteration order is not
-  insertion order. `apply hash-map` rather than a map literal so the
+  filler attributes beside the authored one — a shape whose iteration
+  order is not insertion order. `apply hash-map` rather than a map literal so the
   implementation is chosen by construction and not by counting entries."
   [k]
   (apply hash-map

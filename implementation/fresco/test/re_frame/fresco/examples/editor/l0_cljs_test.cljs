@@ -167,7 +167,7 @@
           "ONE, from a key that did not exist. `(fnil inc 0)` is what makes
            the FIRST discard a reset rather than a nil arithmetic error,
            and nothing on the public door says an application needs a
-           counter at all — rf2-hic-025 finding 5, confirmed")
+           counter at all")
       (rf/dispatch-sync [::rf.fresco.examples.editor.events/discard] {:frame frame})
       (is (= 2 (read-sub frame [::rf.fresco.examples.editor.subs/revision]))
           "and a second discard bumps again, so two resets in a row are two

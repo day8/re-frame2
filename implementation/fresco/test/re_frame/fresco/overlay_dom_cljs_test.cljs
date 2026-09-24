@@ -47,25 +47,25 @@
   lane at all, so every row below states a skip there rather than a false
   green — as every DOM claim in this package does.
 
-  **Trusted input is now driven rather than stated.** A page
+  **Trusted input is driven rather than stated.** A page
   cannot forge a trusted event, and the half of an event a page cannot
   forge is the DEFAULT ACTION: a synthetic `keydown` reaches every
-  listener and then the engine does nothing with it. This file used to
-  say so and drive `HTMLDialogElement.requestClose` instead. It still
-  does — that row is about the platform's `cancel` path and wants no
-  keyboard in it — but
+  listener and then the engine does nothing with it.
+  [[a-close-request-on-a-modal-arrives-as-an-intent]] drives
+  `HTMLDialogElement.requestClose` — that row is about the platform's
+  `cancel` path and wants no keyboard in it — and
   [[a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing]]
-  now presses a REAL Escape through the browser gate's trusted-input
+  presses a REAL Escape through the browser gate's trusted-input
   bridge (`re-frame.fresco.trusted-input-support`, whose other half is
   `scripts/run-browser-tests.cjs`), and carries the synthetic arm beside
   it so the difference is measured rather than asserted. A real outside
-  click is still not driven; light dismiss is witnessed through the auto
+  click is not driven; light dismiss is witnessed through the auto
   stack, which is the same engine path and the same event.
 
   ## Both directions, per assertion class
 
-  Every row was run against a deliberate break, and the reds are quoted in
-  the PR body. The two directions are not the same edit:
+  Every row reds on a deliberate break, and the two directions are not
+  the same edit:
 
   - REMOVE the behaviour — `showModal` → `show` (a legal call on the same
     element that opens the same dialog and fires the same events, and
@@ -87,36 +87,28 @@
     reds the out-of-order row with a live panel jumping to the UA default
     position, `trigger.left=0 panel.left=615.21875`.
 
-  **Two sabotages did NOT redden, and both changed something.** They are
-  recorded because a sabotage that stays green is the only kind that
-  tells you something you did not already believe.
-
-  - Marking the node before the module's own `hidePopover()`, so a
-    teardown could not be read as a dismissal, was UNREACHABLE: React
-    does not deliver an event from a fiber it is deleting. The mark is
-    gone from the module and
-    [[the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not]]
-    holds the property in its place.
-  - A `document.addEventListener` left in the module's ref callback
-    reddened nothing, because the CENSUS was broken rather than the
-    module. See [[census-sees-a-global!]]. With the instrument repaired
-    the same sabotage reds with `a global listener appeared: [keydown]`.
+  **One property rests on React rather than on the module.** A mark on
+  the node before the module's own `hidePopover()`, so a teardown could
+  not be read as a dismissal, would be UNREACHABLE: React does not
+  deliver an event from a fiber it is deleting. The module carries no
+  such mark, and
+  [[the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not]]
+  holds the property.
 
   ## What is measured against what
 
   A census row that counts something the module never touches passes
-  vacuously, so each census asserts its own premise first, and one of
-  those premises had to be added after the fact.
+  vacuously, so each census asserts its own premise first.
   [[census-sees-a-global!]] puts a real listener on `document` and
-  requires the census to file it under `:global`, because the first draft
-  of the instrument could not file anything there at all — its patched
-  `addEventListener` was a variadic ClojureScript fn, so `this` was never
-  the EventTarget. A deliberate `document.addEventListener` left in the
-  module's own ref callback reddened nothing, which is how the instrument
-  was caught rather than the module. The listener census also asserts it
-  saw React's element-scoped `cancel`/`toggle` before asserting it saw
-  nothing global, and the hook roster asserts the probe installed before
-  it reads a count."
+  requires the census to file it under `:global`, because an instrument
+  whose patched `addEventListener` is a variadic ClojureScript fn never
+  sees `this` as the EventTarget and can file nothing there at all — a
+  deliberate `document.addEventListener` left in the module's own ref
+  callback would then red nothing. With the census filing correctly, that
+  same break reds with `a global listener appeared: [keydown]`. The
+  listener census also asserts it saw React's element-scoped
+  `cancel`/`toggle` before asserting it saw nothing global, and the hook
+  roster asserts the probe installed before it reads a count."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -227,7 +219,7 @@
      [:li [:button "Unread"]]
      ;; An icon button nobody named — its glyph is a CSS background, so it
      ;; carries no content to be named from. P12, the finding the corpus
-     ;; actually ships, and the one this page exists to have found.
+     ;; actually ships, and the one this page exists to find.
      [:li [:button.icon]]]]])
 
 (deftest an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them
@@ -243,7 +235,7 @@
            element — which is `role`'s own stated answer for a view-boundary"))
 
     (testing "so the accessibility of what an author puts INSIDE an overlay is
-              decidable HEADLESS, on rf2-hic-043's projections, and needs none
+              decidable HEADLESS, on the kit's L2 projections, and needs none
               of this suite's browser lane"
       (is (= ["Filter" "Unread" "Flagged"]
              (mapv #(rf.fresco.test/accessible-name t %)
@@ -256,9 +248,8 @@
     (testing "and the instrument can say otherwise: the same panel with one
               icon-only button reports it. Without this arm the `[]` above is
               an emptiness claim from a projection that might be ranging over
-              nothing at all — which it WAS, on the first draft, because
-              `:menuitem` is outside `interactive-roles` and every control in
-              the panel wore one"
+              nothing at all — as it would be were every control in the panel
+              to wear `:menuitem`, which is outside `interactive-roles`"
       (let [u     (rf.fresco.test/tree [unnamed-menu-page {}] {:subs {[::open? :m] true}})
             found (rf.fresco.test/unnamed-controls u)]
         (is (= 1 (count found)) (str "expected one unnamed control, got " (pr-str found)))
@@ -735,9 +726,8 @@
                     identical `beforetoggle` a light dismiss fires — and no
                     dismissal is reported, because React delivers no event from
                     a fiber it is deleting. This row is the whole of that claim:
-                    a first draft defended it with a per-node closing mark, and
-                    removing the mark reddened nothing, which is how the mark
-                    was found to be unreachable. If React's deletion order ever
+                    a per-node closing mark would be unreachable, so the module
+                    carries none. If React's deletion order ever
                     changes, THIS is what reds — and every close in the
                     application would otherwise dispatch `:on-dismiss` twice"
             (is (.matches ($ "#pop-b") ":popover-open")
@@ -838,9 +828,9 @@
   ;; deliberately: it closes over the intent and the frame dispatch THIS
   ;; render saw, so an overlay whose `:on-dismiss` changed cannot dispatch
   ;; the previous one. React swaps a listener for free; a stale intent
-  ;; would cost a wrong event. That sentence had no witness: every other
-  ;; row keeps one `:on-dismiss` for the life of its overlay, so a handler
-  ;; cached on first render would pass all of them.
+  ;; would cost a wrong event. This row is that sentence's witness: every
+  ;; other row keeps one `:on-dismiss` for the life of its overlay, so a
+  ;; handler cached on first render would pass all of them.
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no popover API and no auto stack")
     (do
@@ -892,10 +882,10 @@
   by WHICH WRAPPER RAN rather than by inspecting `this`. Each global target
   gets an own-property wrapper that closes over the target it belongs to;
   the prototype wrapper underneath it therefore only ever sees the
-  elements. That is not a stylistic preference — the first draft read
-  `this` inside the prototype wrapper, `this` was not the EventTarget, and
-  `:global` could not become non-empty however hard the module tried to
-  make it. [[census-sees-a-global!]] is the premise that keeps it honest."
+  elements. That is not a stylistic preference — read inside a variadic
+  prototype wrapper, `this` is not the EventTarget, and `:global` could
+  not become non-empty however hard the module tried to make it.
+  [[census-sees-a-global!]] is the premise that keeps it honest."
   []
   (let [proto      (.-prototype js/EventTarget)
         orig-add   (.-addEventListener proto)
@@ -966,11 +956,11 @@
 
   Every `:global` assertion below is an emptiness claim, and an emptiness
   claim is worth exactly what the instrument's ability to be non-empty is
-  worth. The first draft of this census could not be non-empty — its
-  patched `addEventListener` was a variadic ClojureScript fn, so `this`
-  was not the EventTarget, every target classified as an element, and a
-  deliberate `document.addEventListener` in the module's own ref callback
-  left the whole suite green."
+  worth. A census whose patched `addEventListener` is a variadic
+  ClojureScript fn cannot be non-empty: `this` is not the EventTarget,
+  every target classifies as an element, and a deliberate
+  `document.addEventListener` in the module's own ref callback leaves the
+  whole suite green."
   [{:keys [log clear!]}]
   (let [probe (fn [_] nil)]
     (.addEventListener js/document "rf-census-probe" probe)
@@ -1246,10 +1236,9 @@
                            " panel.left=" (.-left p)))))
               (go! [::closed :pa])))
 
-          (testing "an `:anchor` naming no element REFUSES (rf2-1ppe0). It was
-                    a no-op for as long as the reservation stood: the panel
-                    opened in the top layer, visibly unanchored, and said
-                    nothing"
+          (testing "an `:anchor` naming no element REFUSES, rather than
+                    opening the panel in the top layer, visibly unanchored,
+                    and saying nothing"
             (reset! !anchor-refusal nil)
 
             ;; THE CONTROL, and the reason the row below is a reading rather
@@ -1312,10 +1301,11 @@
 (deftest an-open-popovers-anchor-follows-the-prop-that-names-it
   ;; `:anchor` is the DOM id of the trigger to position against, and neither
   ;; the door's contract nor the guide makes it initial-only. But the claim
-  ;; is imperative and the module's only commit-phase door used to be the ref
-  ;; callback, which React calls on ATTACHMENT — so a shared menu moved from
-  ;; row A to row B kept the claim on A, and the panel went on resolving
-  ;; `position-anchor` against the row the user had just left (rf2-kx9f).
+  ;; is imperative, and a ref callback alone cannot follow it: React calls
+  ;; a ref on ATTACHMENT, so were the ref the module's only commit-phase
+  ;; door, a shared menu moved from row A to row B would keep the claim on
+  ;; A, and the panel would go on resolving `position-anchor` against the
+  ;; row the user had just left.
   ;;
   ;; Every reading is the ENGINE's: which element carries the name the
   ;; panel's `position-anchor` resolves, and where the engine actually put
@@ -1457,8 +1447,7 @@
                                     tail))
                     "no state, no passive effect, no second store subscription
                      — the show/hide and the anchor claim happen in a ref
-                     callback, which is not a hook, and the one hook that was
+                     callback, which is not a hook, and the one hook that is
                      unavoidable is a LAYOUT effect, because the thing it
-                     corrects is a position (`impl.overlay/reconcile-anchor!`,
-                     rf2-kx9f)")))
+                     corrects is a position (`impl.overlay/reconcile-anchor!`)")))
             (finally (when @handle (rf.fresco.impl.mount/release! @handle)))))))))

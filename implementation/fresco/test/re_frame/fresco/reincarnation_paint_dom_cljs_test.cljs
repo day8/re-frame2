@@ -1,6 +1,6 @@
 (ns re-frame.fresco.reincarnation-paint-dom-cljs-test
   "PAINT ORDER ACROSS A SAME-ID REINCARNATION — the witness design law
-  React 3 was owed, in a real browser, where the paint is.
+  React 3 needs, in a real browser, where the paint is.
 
   > A render/commit tear is detected and corrected **before visible
   > paint**.
@@ -53,11 +53,11 @@
   |---|---|
   | [[the-first-render-opportunity-after-a-reincarnation-observes-the-successor]] | **W1.** A mounted boundary; the tear is real and asserted while it exists; the correction lands inside the checkpoint and the first frame paints the successor. |
   | [[restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail]] | **W1's sabotage** (Evidence law 3). The same row with `queueMicrotask` routed through `setTimeout 0` — red at the checkpoint, and green again a task later, so the perturbation is a delay rather than a break. |
-  | [[a-reincarnation-inside-the-staged-render-to-commit-gap-corrects-the-boundary]] | **W2.** Point 4's cold/staged path: a boundary rendered under A and committed after B seats, forced through the render→commit gap by a sibling's layout effect. |
+  | [[a-reincarnation-inside-the-staged-render-to-commit-gap-corrects-the-boundary]] | **W2.** The cold/staged path: a boundary rendered under A and committed after B seats, forced through the render→commit gap by a sibling's layout effect. |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described. |
 
-  W3 — the no-successor cleanup, proving the new scheduling still
-  disposes exactly — stays where it already is, at the commit seam, in
+  W3 — the no-successor cleanup, proving the microtask scheduling
+  disposes exactly — lives at the commit seam, in
   `reincarnation_cells_cljs_test`'s section 2.
 
   ## The lane
@@ -213,7 +213,7 @@
   ([[release-minted!]]), so this handler reads the DOM for its diagnostic
   and releases nothing. `handle` is therefore a witness here rather than
   a possession: an arm that has one can say what was on screen, and an
-  arm that has none is no longer an arm that strands a root.
+  arm that has none does not strand a root.
 
   **A rejection handler may not sit downstream of the `.then` that calls
   `done`.** `cljs.test/run-block` hands `done` a continuation
@@ -229,8 +229,8 @@
   warn, it re-forces `run-block`'s delay, since a delay whose body threw
   is still unrealized, and runs the offending namespace again.
 
-  So the repair is positional, and it is the shape
-  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]] already
+  So the discipline is positional, and it is the shape
+  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]]
   uses: report here, fall through to ONE `done` at the tail of the
   chain, and leave nothing after that `done` to catch what the rest of
   the run throws. A failure out there is not this row's to report."
@@ -326,7 +326,7 @@
 (deftest restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail
   ;; The same transition as W1, with `queueMicrotask` routed through
   ;; `setTimeout 0` for the width of the transition — a macrotask-deferred
-  ;; `invalidate-cell!`, restored for real rather than simulated: the
+  ;; `invalidate-cell!`, produced for real rather than simulated: the
   ;; collector is unmodified and unaware, and React keeps the original
   ;; function because `react-dom` bound it by value at module evaluation.
   ;;
@@ -336,7 +336,7 @@
   ;; `setTimeout` correction reachable from inside one. The row then shows the
   ;; correction arriving a task later, so what the sabotage removed is the
   ;; ORDERING GUARANTEE and not the repair — which is exactly the finding the
-  ;; bead's ruling rests on.
+  ;; microtask deferral rests on.
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no rendering opportunity") (done))
@@ -350,7 +350,7 @@
                 (-> (rf.fresco.checkpoint-support/drain-checkpoint #(= "B" (text handle)))
                     (.then
                       (fn [turns]
-                        (testing "with the macrotask deferral restored the
+                        (testing "with the macrotask deferral in place the
                                   correction is NOT reachable before the event
                                   loop's next rendering opportunity — the
                                   checkpoint drains to exhaustion with the
@@ -381,15 +381,15 @@
             (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; W2. The staged render→commit gap — the bead's point 4
+;; W2. The staged render→commit gap
 ;; ---------------------------------------------------------------------------
 
 (defn- gap-reincarnator
   "Reincarnates the frame from a LAYOUT effect: after every body in the
   tree has returned, and before React runs the passive effect in which
   `useSyncExternalStore` acquires. That interval is the render→commit
-  gap, and this is a real reincarnation landing inside it — the
-  interleaving point 4 names, reached through nothing but public React.
+  gap, and this is a real reincarnation landing inside it — the staged
+  interleaving, reached through nothing but public React.
 
   Once, on mount: the transition under test is a single A→B switch, and
   a layout effect that re-ran would reincarnate the frame under every
@@ -401,7 +401,7 @@
 (unchecked-set gap-reincarnator "displayName" "fresco/gap-reincarnator")
 
 (deftest a-reincarnation-inside-the-staged-render-to-commit-gap-corrects-the-boundary
-  ;; Point 4's question, asked of the runtime rather than of the design.
+  ;; The staged path's question, asked of the runtime rather than of the design.
   ;;
   ;; The boundary's key is STAGED at render — no cell holds it, so the
   ;; teardown has no cell to invalidate and schedules no repair at all. The
@@ -409,7 +409,7 @@
   ;; contributes a LIVE `commit-basis` read for a key no cell holds: React
   ;; compares the number the fiber captured at render against a fresh
   ;; `getSnapshot` immediately after `subscribe` returns, and re-renders on a
-  ;; difference. The worry point 4 records is that the difference is zero — a
+  ;; difference. The worry is that the difference is zero — a
   ;; reincarnation restarts the frame's install epoch, so basis@render and
   ;; basis@commit can be the same number across it.
   (async done

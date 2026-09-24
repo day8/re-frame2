@@ -13,7 +13,7 @@
   error maps, the reconciliation clause and one declared limit. It states
   in its own docstring what it cannot reach. The package's lane is Node —
   no DOM, and `react-dom/server` never commits — so two of I7's deferral
-  carriers have no witness there, and it named them rather than implying
+  carriers have no witness there, and it names them rather than implying
   measurement:
 
   1. a read deferred into a **React effect**;
@@ -108,7 +108,7 @@
 
   `roots-frames-support` is the multi-root harness and says in its own
   docstring that two named suites read it; a third reader would need an
-  edit to another bead's file to stay true. This file follows
+  edit to that docstring to stay true. This file follows
   `kernel-commit-owns-dom-cljs-test` instead, which is the shape that
   fits: one invariant, one browser suite, its own small harness.
 
@@ -672,7 +672,7 @@
                   (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each revealed boundary holds exactly its own
-                          read, once. Measured: with one boundary here this
+                          read, once. With one boundary here this
                           block could not go red under a defeated scratch
                           reset — a single body's `[painted painted]` still
                           resolves to `#{painted}` — so the reveal carries

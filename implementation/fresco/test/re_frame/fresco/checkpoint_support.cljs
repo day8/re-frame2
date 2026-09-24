@@ -84,8 +84,7 @@
   exhausted.
 
   The turn count is reported for diagnosis, and **is not a vacuity
-  check** — a mistake worth recording, because it was made here first and
-  red four rows. The drain necessarily spends one turn before its first
+  check**. The drain necessarily spends one turn before its first
   probe, and the collector queues its microtask *before* that, so `0`
   turns is the ordinary healthy answer rather than evidence of a row that
   watched nothing. The vacuity check has to be taken SYNCHRONOUSLY,
@@ -104,7 +103,7 @@
   finish the `cljs.test/async` block. The commit-seam form of
   [[drain-checkpoint]], and what the three suites' rows actually call.
 
-  **It replaces a 30 ms timer, and the replacement is the point.** A
+  **It is not a timer, and that is the point.** A
   duration cannot tell a microtask-deferred repair from a
   macrotask-deferred one — 30 ms is green for both — and that difference
   IS the invariant.
@@ -113,7 +112,7 @@
   either side. `ready?` holding **synchronously** means the row watched
   nothing happen, which is the shape a witness silently degrades into.
   The budget running out means the repair is not coming before the
-  rendering opportunity, which is the fault the bead exists for."
+  rendering opportunity, which is the fault these rows exist for."
   [ready? label done f]
   (is (not (ready?))
       (str label " — the condition already held synchronously, before the "
@@ -161,9 +160,9 @@
 (defn leave-act-environment!
   "React's `act` queue is not the browser's scheduler, and a paint-order
   reading taken inside it would be a reading of `act`'s ordering. Set
-  outright rather than imported from the bench tree, which the freeze
-  gate forbids this package to `:require`; `roots-frames-support` carries
-  the same line for the same reason."
+  outright rather than imported from the bench tree, which is off this
+  package's classpath; `roots-frames-support` carries the same line for
+  the same reason."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   nil)

@@ -1,10 +1,10 @@
 (ns re-frame.fresco.revision-dom-cljs-test
-  "THE REVISION PROP ON A CONTROLLED ELEMENT — the shape ruled in
+  "THE REVISION PROP ON A CONTROLLED ELEMENT — the shape specified in
   `docs/design/fresco/studio/revision-prop-spec.md`.
 
   `::h/revision` — `:re-frame.fresco/revision` — re-baselines a controlled
   text field to the model on an EXPLICIT CALLER REVISION change, and never
-  on value equality. That is HD-019's reset law, kept from D016, and the
+  on value equality. That is the reset law of HD-019 and D016, and the
   rows below are written against the law's own wording: a revision must be
   able to change while the value is equal, and a value change under an
   unchanged revision must continue the draft rather than reset it.
@@ -22,19 +22,16 @@
   DESIGN-VALIDATION rows rather than as regression rows. **They hold**:
   the re-assert repairs foreign drift on both tags, without remount.
 
-  §0's hydration row is the one the spec demoted furthest — its claim had
-  no source cite and its failure mode was node loss — and it turns out
-  **not to be a claim about this prop at all.** The revision is consumed
-  at the codec before emission, so React is handed a prop-identical
-  element whether it moved or not, and nothing on React's side can branch
-  on a value it was never given. Two hand-rolled mid-adoption arms
-  disagreed about node identity in opposite directions on consecutive
-  runs, which is React's own adoption race rather than the prop's doing.
-  So the row pins the structural fact, and the timing row it does not
-  attempt is `arm1/hydrate_dom_cljs_test` §6, on the `.84` hydration
-  harness — which measured the conduct as ABSORPTION rather
-  than deferral: the adoption render reads the new revision as the
-  field's FIRST, so the reset never fires and the draft survives.
+  §0's hydration row is **not a claim about this prop at all.** The
+  revision is consumed at the codec before emission, so React is handed a
+  prop-identical element whether it moved or not, and nothing on React's
+  side can branch on a value it was never given; node identity across a
+  mid-adoption revision is React's own adoption race rather than the
+  prop's doing. So the row pins the structural fact, and the timing row it
+  does not attempt is `arm1/hydrate_dom_cljs_test` §6, on the bench's
+  hydration harness — which pins the conduct as ABSORPTION rather than
+  deferral: the adoption render reads the new revision as the field's
+  FIRST, so the reset never fires and the draft survives.
 
   ## What is a proxy, and what is the path
 
@@ -50,12 +47,12 @@
 
   ## The composition rows and their standing limit
 
-  `bench/fresco/ime_run.cjs` drives trusted CDP composition and owns the
-  fence; dispatched `CompositionEvent`s do not exercise React's
-  composition plugin or the browser's composition range. What a dispatched
-  event CAN reach is the half [[shadowed-props]] holds — an `input` event
-  carrying `isComposing`, and the release paths — so §4 witnesses the
-  deferral through those and says so, exactly as
+  `bench/fresco/src/re_frame/bench/fresco/ime_run.cjs` drives trusted CDP
+  composition and owns the fence; dispatched `CompositionEvent`s do not
+  exercise React's composition plugin or the browser's composition range.
+  What a dispatched event CAN reach is the half [[shadowed-props]] holds —
+  an `input` event carrying `isComposing`, and the release paths — so §4
+  witnesses the deferral through those and says so, exactly as
   `arm1_controlled_grid_dom_cljs_test` §7 does. Chromium-only composition
   evidence is the harness's standing limit and covers these rows too.
 
@@ -188,9 +185,9 @@
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
 (deftest the-same-chain-holds-on-a-textarea
-  (testing "R4. `updateTextarea` is a parallel chain to `updateInput` and
-           was unpinned in the design; the reset rides it identically, so
-           it is pinned here rather than assumed from the input's row."
+  (testing "R4. `updateTextarea` is a parallel chain to `updateInput`, and
+           the reset rides it identically, so it is pinned here rather than
+           assumed from the input's row."
     (if-not (browser?)
       (skip! "a textarea's mirror is React's own")
       (let [c    (container!)
@@ -206,32 +203,25 @@
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
 (deftest a-reset-around-hydration-adoption
-  (testing "R3, ADJUDICATED. The design claimed a revision arriving
-           mid-adoption lands on the first post-adoption commit, on the
-           SERVER's node. That claim had no source cite, its failure mode
-           was node loss, and the spec demoted it to witness-gated intent
-           with the fallback pre-committed rather than improvised.
-
-           **The claim is not this prop's to make, and the witness for that
-           is structural rather than temporal.** `::h/revision` is consumed
+  (testing "R3. Where a revision arriving mid-adoption lands — on the
+           first post-adoption commit, on the SERVER's node, or not at all —
+           is not this prop's to decide, and the witness for that is
+           structural rather than temporal. `::h/revision` is consumed
            at the codec, before emission — [[native-element]] reads it off
            the author's own pre-merge map and `install!` deletes the marker
            as it reads it — so React is handed the same element whether the
            revision moved or not. Nothing on React's side, adoption
-           included, can branch on a value it was never given. Two
-           mid-adoption arms run against a live `hydrateRoot` disagreed
-           about node identity in one direction on one run and the other
-           direction on the next, which is exactly what a race looks like
-           and exactly what a prop React cannot see could not have caused.
+           included, can branch on a value it was never given, so node
+           identity across a mid-adoption revision is React's own adoption
+           race, which a prop React cannot see cannot cause.
 
-           So the row that pins adoption TIMING belongs to the `.84`
+           So the row that pins adoption TIMING belongs to the bench's
            hydration harness rather than to a hand-rolled `hydrateRoot`
-           here, and it is `arm1/hydrate_dom_cljs_test` §6 (rf2-ne3ey): it
-           measured ABSORPTION rather than the pre-committed deferral —
-           the adoption render reads the mid-adoption revision as the
-           field's first, so no reset ever fires and the draft survives.
-           What THIS row pins is the fact underneath that: the prop cannot
-           influence adoption at all."
+           here, and it is `arm1/hydrate_dom_cljs_test` §6: it pins
+           ABSORPTION rather than deferral — the adoption render reads the
+           mid-adoption revision as the field's first, so no reset ever
+           fires and the draft survives. What THIS row pins is the fact
+           underneath that: the prop cannot influence adoption at all."
     (let [with-rev    (rf.fresco.impl.codec/as-element (field :input "server" "rev-1"))
           bumped      (rf.fresco.impl.codec/as-element (field :input "server" "rev-2"))
           without-rev (rf.fresco.impl.codec/as-element (field :input "server"))
@@ -322,11 +312,11 @@
 (deftest a-value-change-never-consults-the-revision
   (testing "THE TRIGGER IS THE ONLY THING THE LAW FIXES AT THIS PATH, and
            this row is scoped to that. D016's draft-continuation clause is
-           the BUFFERED CONTROLLER's protocol — unbuilt, deferred past v0
-           by the charter — and HD-019 kept its trigger sentence for the
-           element and nothing else. At a raw element there is no buffered
-           draft to continue: the model IS the field, so a `:value` change
-           re-asserts, as it always did. What this pins is the half that
+           the BUFFERED CONTROLLER's protocol — `forms/buffered-field`'s,
+           one layer up — and HD-019 applies only its trigger sentence to
+           the element. At a raw element there is no buffered draft to
+           continue: the model IS the field, so a `:value` change
+           re-asserts. What this pins is the half that
            does belong here — the value change is delivered as ordinary
            controlled conduct and nothing consults the revision on the way.
            Resets are by explicit caller revision, NEVER by value equality."
@@ -407,7 +397,7 @@
       (is (nil? (errors-of #(rf.fresco.impl.codec/as-element hiccup))) what))))
 
 (deftest a-revision-beside-a-nil-value-re-baselines-to-the-empty-field
-  (testing "rf2-3x7nj.7.1. A nil `:value` on a text field is an UNSET model,
+  (testing "A nil `:value` on a text field is an UNSET model,
            not an absent one — the committed value of a todo with no title
            yet, which is exactly what `forms/buffered-field` hands its
            `<input>` beside the revision it always forwards. The codec makes
@@ -491,7 +481,8 @@
 
 (defn- composing-input!
   "An `input` event carrying `isComposing`, which is exactly what
-  `front.controlled/composing-input?` reads off the NATIVE event."
+  `re-frame.fresco.impl.controlled/composing-input?` reads off the NATIVE
+  event."
   [n v]
   (drift! n v)
   (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true :isComposing true}))
@@ -502,7 +493,7 @@
            philosophical: there is no cancel primitive to build an
            immediate variant from, and the only immediate write available
            — `element.value` — silently ABORTS the composition, which on a
-           normalising field corrupts the commit (the measured SSHSH row).
+           normalising field corrupts the commit (`ime_run.cjs`'s SSHSH row).
            So while the shadow is held the glass keeps showing the
            composition, and the reset lands at the close. Between the bump
            and the close the model is correct throughout; the glass is not.
@@ -533,17 +524,16 @@
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
 (deftest the-deferral-cannot-strand-the-field-and-promises-no-more
-  (testing "R2 — THE OVERCLAIM, STRUCK. 'The reset cannot be lost' is
-           false: on an ACCEPTING field the model keeps taking every
-           composing update while the shadow is held, so a post-bump
-           dispatch — including the composition's own final input event —
-           supersedes the reset by ordinary event order, exactly as it
-           would at rest, and discarded pre-reset content can ride back in
-           through the draft echo. What IS true is that the deferral cannot
-           STRAND the field: every exit converges it to the then-current
-           model. This row pins the honest conduct, with the trajectory
-           recorded, because the row as originally specified reds by
-           construction."
+  (testing "R2 — THE RESET CAN BE LOST. On an ACCEPTING field the model
+           keeps taking every composing update while the shadow is held,
+           so a post-bump dispatch — including the composition's own final
+           input event — supersedes the reset by ordinary event order,
+           exactly as it would at rest, and discarded pre-reset content can
+           ride back in through the draft echo. What IS true is that the
+           deferral cannot STRAND the field: every exit converges it to the
+           then-current model. This row pins that conduct, with the
+           trajectory recorded, because a row asserting that the reset
+           survives reds by construction."
     (if-not (browser?)
       (skip! "the echo needs a real event order")
       (let [c      (container!)
@@ -590,8 +580,7 @@
                  already moved — not the model the reset produced, and
                  discarded pre-reset content rode back in through the draft
                  echo. This is the correct semantics and it is also a real
-                 outcome; R2 exists so the prose says so instead of claiming
-                 the reset cannot be lost.")
+                 outcome: a deferred reset can be lost.")
             (is (= @!model (.-value n))
                 "what IS true: the field is converged to the model rather
                  than stranded against it. Every exit converges."))

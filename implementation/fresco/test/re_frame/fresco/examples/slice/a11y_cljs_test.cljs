@@ -36,7 +36,7 @@
 
   [[every-operable-control-in-the-application-has-a-name]] runs
   `ht/unnamed-controls` over every one of the slice's bodies that carries
-  an operable control — the original six, and the pager, whose three page
+  an operable control — six bodies, and the pager, whose three page
   positions each render a different set of links and end-stops — in every
   state each of them has, in both locales. One assertion per tree, in the
   form the application can be held to as it grows: a seventh control
@@ -112,10 +112,9 @@
 ;; --- the pager -------------------------------------------------------------
 
 (defn- pager-tree
-  "The pager on page `page` of three. Its controls are the extension's
-  only new operable ones — the digest's retry lives on a `:fallback`,
-  which is inert markup this tier reads as data rather than a node the
-  sweep can walk."
+  "The pager on page `page` of three. The digest's retry is not swept
+  beside it: it lives on a `:fallback`, which is inert markup this tier
+  reads as data rather than a node the sweep can walk."
   [locale page]
   (rf.fresco.test/tree [rf.fresco.examples.slice.views/pager {}]
            {:subs (merge {[::rf.fresco.examples.slice.subs/current-page] page
@@ -280,7 +279,7 @@
     (is (= :heading (rf.fresco.test/role (rf.fresco.test/find tree #(= :h2 (:tag %))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The sweep — the bead's acceptance, as one assertion per rendering
+;; The sweep — the accessibility acceptance, as one assertion per rendering
 ;; ---------------------------------------------------------------------------
 
 (defn- states

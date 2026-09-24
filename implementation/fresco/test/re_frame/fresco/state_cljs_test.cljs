@@ -22,8 +22,7 @@
   over a refusal that had been deleted. So [[refusals]] registers a real
   `error-emit` listener, unwraps the fanned exception, and every refusal
   row asserts on the `:rf.error/id` AND on the concern being named. Each
-  one was proved able to go red by deleting the guard it watches; the
-  mutation ledger is in the PR body.
+  one goes red when the guard it watches is deleted.
 
   One consequence of that recovery is worth stating, because it shapes
   how the read rows are written: the recovered `nil` is **cached**, so a
@@ -33,8 +32,7 @@
 
   The DOM half — two mounted instances, the hook ledger, and the memo
   bail-out over fresh-but-equal key vectors — is the sibling
-  [[re-frame.fresco.state-dom-cljs-test]], which is where the
-  prototype's `arm1/state-dom-cljs-test` landed."
+  [[re-frame.fresco.state-dom-cljs-test]]."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.fresco.impl.state :as rf.fresco.impl.state]
             [re-frame.core :as rf]
@@ -110,8 +108,8 @@
       (send! f [::open? :billing true])
       (is (= true  (read* f [::open? :billing])))
       (is (= false (read* f [::open? :shipping]))
-          "the sibling did NOT move — this is the row that was silently
-           false before the ruling")
+          "the sibling did NOT move — the row an unkeyed concern would
+           make silently false")
       (is (= {:ui {::open? {:billing true}}} (db-of f))
           "one entry, at the documented app-space path, concern first"))))
 
@@ -173,10 +171,10 @@
       (is (= false (read* f [::open? :billing]))))))
 
 (deftest a-keyword-valued-concern-survives-being-set-to-any-value
-  (testing "the REJECTED value-sentinel clear would have made this row a
-           silent dissoc: a concern whose values are keywords could be set
-           to the sentinel by legitimate domain data. Clear is an event, so
-           there is no value this concern cannot hold."
+  (testing "a value-sentinel clear would make this row a silent dissoc: a
+           concern whose values are keywords could be set to the sentinel
+           by legitimate domain data. Clear is an event, so there is no
+           value this concern cannot hold."
     (rf.fresco.impl.state/reg-state ::tab {:default :first})
     (let [f (frame! ::sentinel-free)]
       (doseq [v [:second :re-frame.fresco/clear ::anything nil false]]

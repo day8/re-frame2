@@ -12,9 +12,8 @@
   The island is an ORDINARY React function component — and, on two rows,
   a UIx `defui` behind the plain-function shim every crossing into UIx
   needs — mounted through `h/defhost` under `{:server :render}`, which
-  is the spelling the rf2-6c12m.3 ruling leaves an author: a programmer
-  who crosses into React writes React, and reaches Fresco state through
-  these two hooks.
+  is the spelling an author has: a programmer who crosses into React
+  writes React, and reaches Fresco state through these two hooks.
 
   ## What each row is for, and the narrowing it is written against
 
@@ -25,10 +24,10 @@
   | [[a-re-render-that-changed-no-read-performs-no-re-subscribe]] | `subscribe` identity is stable, so React never re-subscribes — both arms | any per-render `subscribe` closure — the screen stays correct throughout |
   | [[strict-modes-double-mount-acquires-once-and-unmount-releases-exactly]] | acquire is commit-owned and teardown is its exact inverse | acquiring during render, or a cleanup that releases a successor's cells |
   | [[two-frames-are-two-cells-and-an-island-cannot-see-across]] | frames are isolated contexts on the far side of the crossing — both arms | resolving the frame anywhere but the island's own context |
-  | [[a-live-with-frame-around-the-mount-does-not-reach-the-island]] | rf2-kuky.62's ONE rule on the SHIPPED path: `mount!` commits inside `flushSync`, so a `with-frame` really is live while the body runs | a dynamic-var tier — which wins only under a synchronous flush, so the same tree would resolve two different frames depending on how it was driven |
+  | [[a-live-with-frame-around-the-mount-does-not-reach-the-island]] | the ONE hook frame-resolution rule on the SHIPPED path: `mount!` commits inside `flushSync`, so a `with-frame` really is live while the body runs | a dynamic-var tier — which wins only under a synchronous flush, so the same tree would resolve two different frames depending on how it was driven |
   | [[two-reads-in-one-island-are-two-cells]] | `n` calls are `n` subscriptions, React's own arithmetic | a hook that folded a component's reads into one cell and lost one of them |
-  | [[use-frame-is-stable-across-renders-and-retargets-across-a-reincarnation]] | the hic-013 incarnation rule, both halves | memoising on the frame KEYWORD, which is `=` across a reincarnation |
-  | [[a-transition-around-a-write-stays-tear-free-and-is-still-blocking]] | React's external-store ceiling, measured rather than advertised | a docstring that claimed transition-awareness |
+  | [[use-frame-is-stable-across-renders-and-retargets-across-a-reincarnation]] | the frame-incarnation rule, both halves | memoising on the frame KEYWORD, which is `=` across a reincarnation |
+  | [[a-transition-around-a-write-stays-tear-free-and-is-still-blocking]] | React's external-store ceiling, measured rather than advertised | a docstring that claims transition-awareness |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## Why the readings are counts and identities, not text
@@ -47,7 +46,7 @@
   React's own schedule, and `activity_suspense_dom_cljs_test` and
   `kernel_commit_owns_dom_cljs_test` make those statements about the
   boundary shell. `n/use-sub` mints from the very entry cache a boundary
-  body uses, so an island inherits them by construction; the ruling
+  body uses, so an island inherits them by construction; this file
   keeps the focused proof — isolation, lifecycle, teardown, Xray — and
   not a second copy of the React-feature rows.
 
@@ -393,7 +392,7 @@
                   (is (= 2 (:entries (rf.fresco.test.runtime/residue)))))
 
                 (testing "and `re-frame.fresco.tool`'s mounted-boundary
-                          projection — hic-023's, the one Xray consumes — NAMES
+                          projection — the one Xray consumes — NAMES
                           the read, without knowing that hooks exist. That is
                           the whole return on routing the hook through the
                           runtime's tables instead of beside them.
@@ -678,7 +677,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- dynamic-scope-row!
-  "rf2-kuky.62 — a hook resolves from the React context the boundary above
+  "A hook resolves from the React context the boundary above
   it installed and from nothing else, asserted where a dynamic-var tier
   could actually have won.
 
@@ -748,11 +747,10 @@
 ;; the calling stack — `flushSync` there, `renderToStaticMarkup` here — which
 ;; is the only shape in which a dynamic-var tier could ever WIN, and so the
 ;; right harness for an adversarial precedence contest. It is the wrong
-;; harness for the other half of what rf2-kuky.61 ruled: *the same component
-;; tree resolves the same frame under either scheduling mode*. The merged-PR
-;; audit of #9427 found that half unwitnessed on both hook families.
+;; harness for the other half of the rule: *the same component tree resolves
+;; the same frame under either scheduling mode*.
 ;;
-;; This row is it, for the NATIVE pair. The island is mounted on a plain
+;; This row witnesses that half, for the NATIVE pair. The island is mounted on a plain
 ;; concurrent root with the act environment off, so `render` SCHEDULES and
 ;; returns; the body runs a host task later, by which time the `with-frame`
 ;; around the mount has unwound. `!island-runs` is the recording: it is still
@@ -842,8 +840,7 @@
                 ;; claim: a reader is a React registration object, and on
                 ;; FAILURE `cljs.test` prints the actual value — which blows
                 ;; the stack on that object's cycles and turns a legible
-                ;; failure into a RangeError. (Measured on the sabotage run
-                ;; that proved this row bites.)
+                ;; failure into a RangeError.
                 (is (zero? (count (readers-of ka)))
                     "alpha has no reader at all, although it is the frame the
                      persistent ambient scope names")
@@ -891,7 +888,7 @@
                      (pr-str (rf.fresco.roots-frames-support/cell-keys))
                      ", island body runs " @!island-runs))
             (let [data (ex-data @sink)]
-              (testing "and it refused with the ruled error, named by the NATIVE
+              (testing "and it refused with the no-frame error, named by the NATIVE
                         hook — a dynamic-var tier would have answered alpha here
                         instead, on a schedule where nobody would see it"
                 (is (= :rf.error/no-frame-context (:rf.error/id data))
@@ -1040,9 +1037,9 @@
                                         once, through the always-on corpus —
                                         rather than silently writing whoever
                                         occupies the address now. That silent
-                                        write is the failure rf2-hic-013
-                                        repaired, and it is the reason the
-                                        memo is keyed on an incarnation"
+                                        write is the failure the incarnation
+                                        rule prevents, and it is the reason
+                                        the memo is keyed on an incarnation"
                                 (let [seen (destroyed-frame-complaints
                                              #((:dispatch-sync ops-1)
                                                [::set-price "AAPL" "from-the-dead"]))]

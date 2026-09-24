@@ -6,7 +6,7 @@
   `h/event` reading `.files` as the whole of its event form, `because the
   platform owns their value`. The same chapter states the posture the two
   rows below enforce: unsupported controlled shapes are REJECTED rather
-  than approximated. Both defects are that sentence not being kept.
+  than approximated.
 
   `value` reaches a file input from two directions, and the two are
   reported differently.
@@ -18,7 +18,7 @@
     throws `InvalidStateError` out of the commit. That engine exception is
     the report, and it is measured here on the engine so a future engine
     that accepted the write would go red.
-  - **The marker.** `::h/value` lowered to `(.-value target)`, and
+  - **The marker.** `::h/value` would lower to `(.-value target)`, and
     `HTMLInputElement.value` is in FILENAME MODE on a file input: the
     literal fiction `C:\\fakepath\\` followed by the FIRST selected file's
     name — a plausible non-empty string naming one file out of however
@@ -54,8 +54,8 @@
 (defn- thrown-by
   "Run `f` and return whatever it threw, or nil. The THING, not its
   ex-data, because half the point of these rows is WHICH kind of object
-  arrives: a `DOMException` from the engine is the defect, an `ex-info`
-  carrying an id is the repair."
+  arrives: a `DOMException` is the engine's report, an `ex-info` carrying
+  an id is Fresco's refusal."
   [f]
   (try (f) nil (catch :default e e)))
 
@@ -170,7 +170,7 @@
              (id-of (thrown-by
                      #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
                                           (ev target)))))
-          "the marker used to lower to that string")))
+          "the string the marker would otherwise lower to")))
   (testing "three files picked: it names the FIRST, and discards the rest"
     (let [target (file-stand-in ["a.csv" "b.csv" "c.csv"])]
       (is (= "C:\\fakepath\\a.csv" (.-value target)))
@@ -237,10 +237,10 @@
             (skip! "this engine declines a programmatic .files plant")
             (do
               (is (= "C:\\fakepath\\budget.csv" (.-value n))
-                  "the string the marker used to hand the author")
+                  "the string the marker would otherwise hand the author")
               (is (= 1 (.-length (.-files n)))
-                  "while the answer they wanted was here all along, on
-                   `.files`, which is what an h/event reads")
+                  "while the answer they want is on `.files`, which is what
+                   an h/event reads")
               (is (= :rf.error/fresco-file-input-value-marker
                      (id-of (thrown-by
                              #(rf.fresco.impl.intent/materialize
@@ -249,9 +249,9 @@
         (finally (drop! n))))))
 
 (deftest the-marker-needed-no-fold-of-its-own
-  (testing "the prop refusal had to be taught the platform's
-           case-insensitive `type` matching (rf2-h6qm7); this one did not,
-           and the difference is WHERE each looks. The prop predicate runs
+  (testing "a predicate over the props has to fold the platform's
+           case-insensitive `type` matching; this one does not, and the
+           difference is WHERE each looks. A prop predicate runs
            against the author's props object before React builds anything,
            so the author's spelling is all it has. The marker runs against
            a LIVE element on an event, by which time the platform has
@@ -274,5 +274,5 @@
                          #(rf.fresco.impl.intent/materialize
                            [:app/upload :re-frame.fresco/value] (ev n)))))
               "and the marker refusal fires at this spelling exactly as at
-               the lowercase one — it always did")
+               the lowercase one")
           (finally (drop! n)))))))

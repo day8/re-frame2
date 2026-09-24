@@ -25,8 +25,8 @@
 
   **One effect with empty deps owns the instance's whole lifetime; every
   other effect only ever TELLS it something.** [[spark-island]] is that
-  sentence as code, and both halves were sabotaged to prove the sentence
-  is load-bearing rather than decorative.
+  sentence as code, and both halves are load-bearing rather than
+  decorative.
 
   Taking the release out of the cleanup reds seven of the eight rows below
   — including [[after-teardown-the-outside-world-reaches-nothing]], where a
@@ -79,7 +79,7 @@
   | the `window` listener | reached by [[fire-external!]] | the external event dispatches an intent while mounted |
   | `runtime/residue` | the runtime's own ownership | non-zero BEFORE the teardown that zeroes it |
 
-  The listener census is the one that had to be built this way. A ledger
+  The listener census is the one that has to be built this way. A ledger
   entry saying *a listener was registered* is a fact about bookkeeping; the
   claim is about a listener that FIRES, and the only honest instrument for
   it is to fire the event and watch an intent land. So no row asserts a
@@ -325,15 +325,15 @@
 ;; EVERY screen reads `[::picks]`, and the read is not decoration — it is
 ;; what makes `runtime/residue` a live instrument here.
 ;;
-;; The first draft of this file had no read anywhere: a chart takes its
-;; data from a prop and the SDK owns everything else, so no body ever
-;; called `h/sub`. Every `(is (= support/released (teardown-census! …)))`
-;; then compared `{:cell-refs 0 :boundaries 0 :edges 0}` against a runtime
-;; that had never owned anything — six assertions that could not fail, and
-;; which a reader would have taken for teardown evidence. The premise
-;; row caught it on the first run, at `(pos? (:boundaries before))`, which
-;; is exactly what a positive control is for. A screen showing a count
-;; beside its chart is also the more realistic screen.
+;; A chart takes its data from a prop and the SDK owns everything else, so
+;; without this read no body would call `h/sub`. Every
+;; `(is (= support/released (teardown-census! …)))` would then compare
+;; `{:cell-refs 0 :boundaries 0 :edges 0}` against a runtime that never
+;; owned anything — six assertions that could not fail, and which a reader
+;; would take for teardown evidence. The premise row reds on exactly that,
+;; at `(pos? (:boundaries before))`, which is what a positive control is
+;; for. A screen showing a count beside its chart is also the more
+;; realistic screen.
 
 (rf.fresco/defview screen
   "One island, in one boundary. `:on-pick` is written FRESH on every
@@ -363,7 +363,7 @@
   warning states in as many words (*a key written as Reagent metadata is
   not read here*). Written the Reagent way here the metadata is inert, the
   crossing keeps its position, and the keyed-remount arm below silently
-  measures nothing — observed, on the first run of this file."
+  measures nothing."
   [{:keys [data show? instance]}]
   [:div
    [:span.picks (str (rf.fresco/sub [::picks]))]
@@ -630,7 +630,7 @@
                             and not merely by count. Narrowing caught: `#js
                             [data]` on the acquire effect, which is balanced,
                             leak-free, correct on screen, and reads 2 acquired
-                            / 1 released / a DIFFERENT id here — measured"
+                            / 1 released / a DIFFERENT id here"
                     (is (= 1 @!acquired))
                     (is (= 0 @!released))
                     (is (= #{@!id-at-mount} (ids))))
@@ -836,15 +836,15 @@
                   ;;
                   ;; The fallback appearing is a MUTATION-phase fact; running
                   ;; a deleted fiber's effect cleanups is a PASSIVE-phase one,
-                  ;; and React flushes that later. Measured: a row that waited
-                  ;; only for `.fell` read `!released` 0 with the instance
-                  ;; still live and still answering external events — it would
-                  ;; have reported a leak that is not there, and a sabotage of
-                  ;; the release would have been indistinguishable from it. The
-                  ;; wait is therefore on the release itself, exactly as the
-                  ;; remount arm waits on `wait-live!`; a release that never
-                  ;; happens times out here and names this label, which is the
-                  ;; red the acceptance criterion asks for.
+                  ;; and React flushes that later. A row that waited only for
+                  ;; `.fell` would read `!released` 0 with the instance still
+                  ;; live and still answering external events — it would
+                  ;; report a leak that is not there, and a sabotage of the
+                  ;; release would be indistinguishable from it. The wait is
+                  ;; therefore on the release itself, exactly as the remount
+                  ;; arm waits on `wait-live!`; a release that never happens
+                  ;; times out here and names this label, which is the red a
+                  ;; missing release must produce.
                   (poll #(and (some? (query-node handle ".fell"))
                               (zero? (count @!live)))
                         "the boundary caught, and the deleted subtree's cleanup ran")))
@@ -960,7 +960,7 @@
   ;; be confused with a change to what every boundary on the page pays.
   ;;
   ;; No fiber needed: the ledger is a declaration, read off the runtime.
-  (testing "the shell still declares exactly its two hooks"
+  (testing "the shell declares exactly its two hooks"
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
            rf.fresco.test.runtime/shell-hook-ledger))
     (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))

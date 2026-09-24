@@ -33,7 +33,7 @@
   seam file's last row says so in terms.
 
   **The painted value, read by event-loop POSITION**, carries the
-  correction row. `reincarnation_paint_dom_cljs_test` established the
+  correction row. `reincarnation_paint_dom_cljs_test` states the
   instrument and the reason: design law React 3 requires a render/commit
   tear to be corrected *before visible paint*, the microtask checkpoint
   drains in full before the same task's rendering update, and a later
@@ -458,23 +458,22 @@
   ;; correction has to arrive before the event loop can paint it — design
   ;; law React 3, which is an ordering and not a duration.
   ;;
-  ;; **MEASURED, and stronger than the law requires.** The first draft of
-  ;; this row waited for the correction at the microtask checkpoint, the
-  ;; instrument `reincarnation_paint_dom_cljs_test` needs, and
-  ;; `at-the-checkpoint`'s own vacuity guard red it: *the condition
-  ;; already held synchronously, before the checkpoint this row is about*.
-  ;; React 19.2 re-renders the revealed subtree as part of the reveal
-  ;; itself, reading `getSnapshot` during that render — so a flushed
-  ;; reveal is corrected before `flushSync` returns and there is no
-  ;; deferral to position at all. The row asserts that, because asserting
-  ;; a weaker ordering than the runtime actually keeps would stop noticing
-  ;; the day it weakened.
+  ;; **Stronger than the law requires.** React 19.2 re-renders the
+  ;; revealed subtree as part of the reveal itself, reading `getSnapshot`
+  ;; during that render — so a flushed reveal is corrected before
+  ;; `flushSync` returns and there is no deferral to position at all.
+  ;; Waiting for the correction at the microtask checkpoint, the
+  ;; instrument `reincarnation_paint_dom_cljs_test` needs, would trip
+  ;; `at-the-checkpoint`'s own vacuity guard: *the condition already held
+  ;; synchronously, before the checkpoint this row is about*. The row
+  ;; asserts the stronger ordering, because asserting a weaker one than
+  ;; the runtime actually keeps would stop noticing the day it weakened.
   ;;
   ;; Two readings, because the flushed one alone would be a reading of a
   ;; schedule this file invented. The second reveals CONCURRENTLY and
   ;; samples every animation frame, so the claim is about the whole
   ;; interval rather than about one convenient moment in it — **and it is
-  ;; where the gap is.** Reading 2 measured one animation frame showing
+  ;; where the gap is.** Reading 2 can see one animation frame showing
   ;; the pre-hide value: React reveals the retained subtree and corrects
   ;; it from the passive effect that re-subscribes, and a rendering
   ;; opportunity can fall between the two. The ceiling assertion at the
@@ -566,8 +565,8 @@
                   ;; the value its fiber held and corrects it from the
                   ;; passive effect that re-subscribes — and React flushes
                   ;; passive effects in a scheduler TASK, so a rendering
-                  ;; opportunity can fall between the two. Measured here:
-                  ;; one animation frame showed `a=5` while app-db held 8.
+                  ;; opportunity can fall between the two: one animation
+                  ;; frame can show `a=5` while app-db holds 8.
                   ;;
                   ;; It is React's scheduling rather than this runtime's:
                   ;; the only signal that the store moved arrives when React
@@ -591,7 +590,7 @@
                     (is (>= 1 stale-frames)
                         (str "the revealed subtree showed the pre-hide value "
                              "for " stale-frames " animation frames. One is "
-                             "the measured cost of React flushing the "
+                             "the cost of React flushing the "
                              "re-subscribe as a passive effect; more than "
                              "one means the correction has slipped further "
                              "from the reveal."))))
@@ -631,21 +630,20 @@
                          (react/createElement gate nil))))
 
 (deftest a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership
-  ;; The Suspense half of the bead, and the half NOT already covered by
+  ;; The Suspense half, and the half NOT covered by
   ;; `kernel_commit_owns_dom_cljs_test`. That file suspends BEFORE the
   ;; commit, so its boundary never owned anything. Here the boundary is
   ;; committed and live first and the suspension arrives afterwards.
   ;;
-  ;; **A SUSPENSE FALLBACK IS NOT AN ACTIVITY HIDE, and this row is where
-  ;; that was measured rather than assumed.** It was written expecting the
-  ;; release the Activity rows above assert — the two look like the same
-  ;; Offscreen mechanism, and the primary tree is hidden the same way,
-  ;; `display: none` with its host nodes retained. React 19.2 does not
-  ;; treat them the same: hiding for a fallback leaves the primary tree's
-  ;; PASSIVE effects mounted, so the `useSyncExternalStore` subscription
-  ;; survives, and `<Activity mode="hidden">` destroys them, so it does
-  ;; not. Measured here, on the run this row failed: one reader throughout
-  ;; the suspension, and the retry's reader `identical?` to the first.
+  ;; **A SUSPENSE FALLBACK IS NOT AN ACTIVITY HIDE, and this row pins the
+  ;; difference.** The two look like the same Offscreen mechanism, and
+  ;; the primary tree is hidden the same way, `display: none` with its
+  ;; host nodes retained. React 19.2 does not treat them the same: hiding
+  ;; for a fallback leaves the primary tree's PASSIVE effects mounted, so
+  ;; the `useSyncExternalStore` subscription survives, and
+  ;; `<Activity mode="hidden">` destroys them, so it does not. So there is
+  ;; one reader throughout the suspension, and the retry's reader is
+  ;; `identical?` to the first.
   ;;
   ;; That difference is a fact Xray's lifecycle view has to carry:
   ;; a Suspense-hidden subtree is VISIBLE-CONNECTED in this runtime's
@@ -690,7 +688,7 @@
                   (is (false? (visible? handle "panel"))))
 
                 (testing "but hiding it for a FALLBACK does not release its
-                          ownership — the measurement this row exists to
+                          ownership — the fact this row exists to
                           record. The subscription is still installed, and
                           it is still the SAME registration, so the runtime
                           regards the suspended subtree as connected"

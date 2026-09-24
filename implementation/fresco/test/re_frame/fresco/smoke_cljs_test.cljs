@@ -1,17 +1,14 @@
 (ns re-frame.fresco.smoke-cljs-test
   "THE PACKAGE SMOKE — a `defview` reads a `sub`, through the public door.
 
-  This is the one test the extraction bead owes, and it is deliberately
-  the smallest thing that can fail for the right reason. It is not a
-  re-proof of the runtime: the runtime's ~30 suites live in the frozen
-  bench tree and go on running there, which is the point of freezing it.
-  What is genuinely NEW here — and therefore the only thing that can be
-  newly broken — is the PACKAGING:
+  It is deliberately the smallest thing that can fail for the right
+  reason. It is not a proof of the runtime — the package's other suites
+  are that — but of the PACKAGING:
 
   - `re-frame.fresco` resolves, and hands a consumer the three macros
     through a plain `:require` (a CLJS namespace cannot re-export a macro,
     so this is the property most likely to be quietly wrong);
-  - the renamed `impl.*` graph loads, with the bench tree nowhere on the
+  - the `impl.*` graph loads, with the bench tree nowhere on the
     classpath;
   - a boundary minted by the door's `defview` reads a subscription and
     re-reads it after a write.
@@ -23,7 +20,7 @@
   renderer runs a boundary's body for real — the shell's two hooks, the
   read collection, the codec's element emission — so the round-trip below
   is the runtime's own, not a simulation of it. The DOM-driven proofs of
-  the same machinery are the bench tree's `*_dom_cljs_test` suites.
+  the same machinery are the package's `*_dom_cljs_test` suites.
 
   The three harness namespaces reached below the door (`impl.mount`'s
   provider, `impl.codec`'s root element, `impl.collector`'s reset) are the
@@ -51,10 +48,9 @@
 
 ;; Registered above `use-fixtures`, deliberately — the reset fixture captures
 ;; its source-store baseline when the `use-fixtures` form is evaluated. The
-;; adapter is UIx's rather than plain-atom's for the reason the prototype's
-;; own node-lane suites give: plain-atom has no reactivity layer, so a
-;; subscription under it never notifies and a "the value changed" assertion
-;; would pass vacuously by never firing.
+;; adapter is UIx's rather than plain-atom's because plain-atom has no
+;; reactivity layer, so a subscription under it never notifies and a "the
+;; value changed" assertion would pass vacuously by never firing.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
@@ -80,8 +76,8 @@
   [greeting]
   ;; React's `act` queue is not the browser's scheduler, and a server render
   ;; is not inside one. Set outright rather than imported: the helper that
-  ;; carries this line in the prototype lives in the bench tree, which the
-  ;; freeze gate forbids this package from importing.
+  ;; carries this line in the prototype lives in the bench tree, which is
+  ;; off this package's classpath.
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:smoke/seed greeting]))

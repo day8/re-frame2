@@ -21,13 +21,13 @@
   handing the body an EMPTY fixture map and letting the kit refuse any
   read it makes.
 
-  ## What was NOT needed here
+  ## What is NOT needed here
 
   Recorded because the slice authoring report makes the same list from a
   broader application, and a facade freeze reads both. This form of four
-  controls, two buttons and a readout needed `defview`, `sub`, and the three
-  markers `::h/value`, `::h/checked` and `::h/revision`. It needed no
-  `h/event` — every intent said what it meant as a vector — and no
+  controls, two buttons and a readout needs `defview`, `sub`, and the three
+  markers `::h/value`, `::h/checked` and `::h/revision`. It needs no
+  `h/event` — every intent says what it means as a vector — and no
   `boundary`, `portal`, `as-element`, `as-component`, `defhost`,
   `route-link` or `reg-state`. **Six names and three keywords.**
 
@@ -105,8 +105,8 @@
   checkbox written idiomatically has none. Nor does it want one — there
   is no free draft between the click and the dispatch, so
   `[::events/discard]` moving `:published?` back always moves the value
-  React compares. Both halves are measured: the refusal in
-  `editor.l2-cljs-test`, the restore in `editor.flow-dom-cljs-test`."
+  React compares. Both halves are asserted in
+  `editor.flow-dom-cljs-test`: the refusal and the restore."
   [{:keys [label]}]
   [:p.field
    [:label {:for "published"} label]

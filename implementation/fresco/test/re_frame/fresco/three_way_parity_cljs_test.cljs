@@ -10,17 +10,16 @@
   >
   > — `docs/design/fresco/product/specification.md` §6
 
-  The native authoring tier this file used to measure as a third arm was
-  retired by the rf2-6c12m.3 ruling: an island is now a raw React
-  component or a UIx `defui`, mounted through `h/defhost`, using
-  `n/use-sub` / `n/use-frame` when it needs Fresco state. What survives
-  here is the FLOOR that ruling kept — handwritten `react/createElement`
-  is the only arm with no convenience in it, so it is the arm that
-  decides what a crossing costs, and UIx is measured against it rather
-  than against itself.
+  An island is a raw React component or a UIx `defui`, mounted through
+  `h/defhost`, using `n/use-sub` / `n/use-frame` when it needs Fresco
+  state; there is no native authoring tier to measure as a third arm.
+  Handwritten `react/createElement` is the FLOOR — the only arm with no
+  convenience in it, so it is the arm that decides what a crossing costs,
+  and UIx is measured against it rather than against itself.
 
-  The file keeps its name because `docs/design/fresco/product/budgets.md`
-  rows D14 and D16 name it as their witness.
+  The name says three arms and the file has two, because
+  `docs/design/fresco/product/budgets.md` rows D14 and D16 name the file
+  as their witness.
 
   ## The corpus, and why the rows are thunks
 
@@ -75,12 +74,12 @@
   **The band is stated over the DECLARED arm, and the declaration is what
   makes it comparable.** The `:client-only` default mints a gate rather than
   the author's function, so it costs one fiber and one hook the declared arm
-  does not — the ruled price of the conservative default, and not a figure
+  does not — the accepted price of the conservative default, and not a figure
   about the crossing's construction. Every fixture below therefore writes
   `{:server :render}`.
 
   No number is transcribed into the ledger here; the figures are this
-  file's own, and transcribing the ledger row is the ledger's, as it was
+  file's own, and transcribing the ledger row is the ledger's, as it is
   for D10–D13."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -198,10 +197,10 @@
     :uix    #(let [m {:class "cell" :id "c1"}] (uix/$ :span m "42"))}
 
    {:name   "no children"
-    :proves "React's first children shape. rf2-hic-032 repaired the outward
-             bridge over exactly these three, because React's `children` slot
-             is absent, a bare value and an array in turn — and a route that
-             read it as one shape got the other two wrong"
+    :proves "React's first children shape. The outward bridge handles
+             exactly these three, because React's `children` slot is absent,
+             a bare value and an array in turn — and a route that read it as
+             one shape would get the other two wrong"
     :react  #(react/createElement "span" #js {:className "cell"})
     :uix    #(uix/$ :span {:class "cell"})}
 
@@ -464,8 +463,7 @@
   React-context tier by reading `context._currentValue` — a client-render
   fact. Under `react-dom/server` that read finds nothing and the hook
   refuses with `:rf.error/no-frame-context`, whether or not the adapter's
-  own `frame-provider` is above it (measured: it was, and it did).
-  Spec 002's own ladder names the explicit `{:frame <id>}` as the third
+  own `frame-provider` is above it. Spec 002's own ladder names the explicit `{:frame <id>}` as the third
   of three ways to establish a scope, so this arm takes it.
 
   What that costs the row is nothing: the claim is that all three doors
@@ -491,8 +489,8 @@
   policy about the SERVER — the gate withholds the foreign component and
   renders its fallback. That is correct conduct and it is measured in
   `hook_budget_cljs_test`; here it would delete the arm this row exists
-  to compare, and the first draft of this file read two arms agreeing and
-  called it three. The premise row below is what caught it."
+  to compare, and the row would read two arms agreeing and call it three
+  — which the premise row below catches."
   uix-reader-arm
   {:server :render})
 

@@ -11,8 +11,9 @@
   keywords and
   cannot collide, but route **paths** are plain strings in a
   process-global registry, and this repository's node test bundle loads
-  every application in the tree into ONE process. The slice claimed `/`
-  and broke twelve RealWorld assertions with nothing warning.
+  every application in the tree into ONE process, so an application that
+  claimed `/` would break another application's route assertions with
+  nothing warning.
 
   A four-field editor needs no routing to be evidence about controlled
   fields, so it registers none. Nothing enforces that absence — the

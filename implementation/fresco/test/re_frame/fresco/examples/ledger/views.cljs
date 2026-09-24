@@ -82,7 +82,7 @@
   wrong while looking right, so the a11y suite asserts the VALUES and the
   DOM suite asserts them again after a scroll.
 
-  ## What was NOT needed
+  ## What is NOT needed
 
   No island component, no ref, no effect, no imperative handle, no memo
   hint and no second root. The application's whole interop surface is

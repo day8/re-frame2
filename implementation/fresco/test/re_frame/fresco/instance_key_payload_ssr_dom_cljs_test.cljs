@@ -1,18 +1,18 @@
 (ns re-frame.fresco.instance-key-payload-ssr-dom-cljs-test
-  "THE INSTANCE-KEY PAYLOAD OBLIGATION, WITNESSED BOTH WAYS — the
-  prototype's `ssr/instance_key_payload_dom_cljs_test`, re-expressed on
-  [[re-frame.fresco.server]].
+  "THE INSTANCE-KEY PAYLOAD OBLIGATION, WITNESSED BOTH WAYS on
+  [[re-frame.fresco.server]] — the package's counterpart of the bench
+  prototype's `ssr/instance_key_payload_dom_cljs_test`.
 
   [[re-frame.fresco/reg-state]] puts a widget's own state at
   `[:ui ::concern ikey]`, which is APP-SPACE data — so whether it reaches
   the client is decided by the hydration payload policy and by nothing
-  else. The ruling states the obligation that follows:
+  else. The obligation that follows:
 
   > an allowlist MUST name `:ui` whenever server-side events write
   > render-affecting instance state; strip it only if the server never
   > writes it. Whole-app-db carries it automatically.
 
-  ## Why prose was not enough, stated precisely
+  ## Why prose is not enough, stated precisely
 
   The payload policy is fail-closed and stays fail-closed: an ABSENT
   `:payload` throws `:rf.error/ssr-missing-payload-policy` at the
@@ -33,33 +33,31 @@
   it POSITIVELY — the row is red-by-design and the error is the row's
   subject, not an accident it survives.
 
-  ## What this file DOES NOT re-express, and why
+  ## What this file DOES NOT restate, and why
 
-  The prototype suite is 493 lines and this one is not, because three of
-  its rows now have package owners and re-stating them here would be
-  duplicate coverage wearing the shape of thoroughness:
+  Three of the prototype suite's rows have package owners, and restating
+  them here would be duplicate coverage wearing the shape of
+  thoroughness:
 
   - **determinism** — `server_render_ssr_dom_cljs_test`'s
     `two-renders-of-one-request-are-the-same-bytes` makes the byte-identity
-    claim on the package entry, and `frame_doors_ssr_cljs_test` supplies the
-    red control the prototype's own determinism row never had;
+    claim on the package entry, and `frame_doors_ssr_cljs_test` supplies
+    its red control;
   - **the round trip through the real doors** — that suite's §5 drives
     `server/render`'s own `__rf_payload` script through `re-frame.ssr`'s
     `hydrate!` and then an adopting `h/render!`. This file therefore
-    seeds the client frame from the payload map directly, exactly as the
-    prototype did and for a sharper reason: what is under test is the
-    CONTENT of the payload, so the seeding door is deliberately the least
-    interesting part of the row;
-  - **the render-hash measurement** — the prototype kept
-    `ssr-hash/render-tree-hash`'s constant value live to explain WHY the
-    hash was dropped. That is a fact about `re-frame.ssr.hash` rather than
-    about this entry, and it stays in the bench tree. The half that is a
-    fact about the entry — the wire carries no `:rf/render-hash` for an
-    adoption-tier root — is one assertion in [[the-two-requests-differ-by-exactly-the-ui-key]]
-    and had no package owner before this file.
+    seeds the client frame from the payload map directly: what is under
+    test is the CONTENT of the payload, so the seeding door is
+    deliberately the least interesting part of the row;
+  - **the render-hash measurement** — the prototype keeps
+    `ssr-hash/render-tree-hash`'s constant value live to explain why no
+    claim can rest on the hash. That is a fact about `re-frame.ssr.hash`
+    rather than about this entry, and it stays in the bench tree. The half
+    that is a fact about the entry — the wire carries no `:rf/render-hash`
+    for an adoption-tier root — is one assertion in
+    [[the-two-requests-differ-by-exactly-the-ui-key]].
 
-  What is left is the obligation and its enforcement, which is what the
-  prototype suite exists for and what nothing in the package asserted.
+  What is left is the obligation and its enforcement.
 
   ## The two hydration rows are each other's control
 
@@ -376,8 +374,8 @@
               ;; Reports and UNMOUNTS; it never finishes. `done` runs the whole
               ;; remainder of the run synchronously, so a `.catch` downstream of
               ;; it would claim a later namespace's throw as this row's and fire
-              ;; `done` a second time. The unmount stays in the `finally`: it is
-              ;; the success arm's, and only that arm was ever handed a handle.
+              ;; `done` a second time. The unmount sits in the `finally`: it is
+              ;; the success arm's, and only that arm is handed a handle.
               (.catch (fn [e] (is false (str "row 1 threw: " e)) nil))
               (.then (fn [_] (done)))))))))
 
@@ -396,9 +394,10 @@
 
            **This row MANUFACTURES the fault and is the assertion about
            it**, which is the one case `open-console-capture!`'s
-           `:swallow-uncaught?` exists for. `rf2-mwx08` is not softened: the
-           error is not unasserted here, it is the subject, and the row goes
-           on to assert that the door reported it as well as emitting it"
+           `:swallow-uncaught?` exists for. The pageerror rule is not
+           softened: the error is not unasserted here, it is the subject,
+           and the row goes on to assert that the door reported it as well
+           as emitting it"
     (if-not (rf.fresco.impl.mount/browser?)
       (rf.fresco.roots-frames-support/skip! "a payload-obligation hydration claim needs a real React DOM")
       (async done

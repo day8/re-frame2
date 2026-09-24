@@ -28,7 +28,7 @@
   A token is a value a view can read, assert on and interpolate; a class
   name is a promise about a stylesheet the test cannot see. The views
   write `{:style {:background (i18n/token theme :surface)}}`, so
-  `re-frame.fresco.examples.slice.theme-dom-cljs-test` can read the
+  `re-frame.fresco.examples.slice.i18n-dom-cljs-test` can read the
   applied colour off the real DOM and say the switch took effect. A
   class-swap witness would be asserting that a string changed."
   (:refer-clojure :exclude [t]))

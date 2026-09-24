@@ -9,18 +9,19 @@
   [[re-frame.fresco.codec-cljs-test]], which asserts the codec's caches
   answer the rule over every row.
 
-  The table is one definition read by several suites on purpose: a rule
-  written against ONE spelling is a rule the other spellings walk past,
-  and a corpus that only carried bare kebab keywords could not tell.")
+  Its rows are `re-frame.fresco.slot-cljs-test`'s corpus, row for row, and
+  they carry every spelling on purpose: a rule written against ONE
+  spelling is a rule the other spellings walk past, and a corpus that
+  only carried bare kebab keywords could not tell.")
 
 (def corpus
   "Authored prop key → the canonical React slot it emits into.
 
-  ONE table, read by both hosts and by the codec's cache suite. Every
-  branch of the rule is represented, and every spelling the codec accepts
-  appears at least once — because a rule written against the spelling is
-  a rule the other spellings walk past, and a corpus that only carries
-  bare kebab keywords could not tell."
+  The codec's cache suite reads this copy; the one both hosts read is
+  `slot-cljs-test`'s. Every branch of the rule is represented, and every
+  spelling the codec accepts appears at least once — because a rule
+  written against the spelling is a rule the other spellings walk past,
+  and a corpus that only carries bare kebab keywords could not tell."
   {;; the three React renames — the RULE, so they hold for every spelling
    :class          "className"
    :className      "className"

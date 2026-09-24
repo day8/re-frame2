@@ -29,25 +29,21 @@
 
   [[select-dropdown]] is the guide's example
   (`docs/core/fresco/13-overlays-and-focus.md`,
-  *Build a dropdown from a popover*) with the audit's bounded repair
-  applied: the trigger carries `role=\"combobox\"`; `aria-controls`
-  names the listbox and is emitted only while one exists;
-  `aria-activedescendant` names an option INSIDE that listbox; and
-  `aria-selected` follows the COMMITTED value while
+  *Build a dropdown from a popover*): the trigger carries
+  `role=\"combobox\"`; `aria-controls` names the listbox and is emitted
+  only while one exists; `aria-activedescendant` names an option INSIDE
+  that listbox; and `aria-selected` follows the COMMITTED value while
   `aria-activedescendant` follows the keyboard's transient position.
 
-  [[the-guides-dropdown-as-written]] is the same view with the repair
+  [[the-guides-dropdown-as-written]] is the same view with those details
   taken back out, and it is not decoration: every row below is an
   emptiness claim or a stability claim, and each one is shown going the
-  other way over that view. It is also what makes this file the audit's
-  *witness covering the exact guide example* rather than a witness over
-  a nearby one.
+  other way over that view. It is also what makes this file a *witness
+  covering the exact guide example* rather than a witness over a nearby
+  one.
 
-  **The guide chapters are another worker's fence on this wave** —
-  chapter 13 carries the example and chapter 22 calls it the contract —
-  so this file does not edit them. The follow-up bead named in the PR
-  body carries the text change, with this namespace as its source of
-  truth.
+  Chapter 13 carries the example and cites this namespace as its
+  witness, and chapter 22 calls it the contract.
 
   ## Keyboard conduct is measurable here, and only here
 
@@ -59,8 +55,8 @@
   keydown to it exactly as it delivers a trusted one. So the conduct the
   APPLICATION owns — arrow keys moving the active option, Enter
   committing it, DOM focus never leaving the trigger — is genuinely
-  driven below, by real key events, and is the one place in this bead
-  where a key press is the instrument rather than the gap.
+  driven below, by real key events — a key press is the instrument here
+  rather than the gap.
 
   Escape remains the platform's: the popover owns light dismiss and the
   close request, and `overlay-dom-cljs-test` drives it through
@@ -110,9 +106,9 @@
 (rf/reg-event ::moved
   {:doc "An arrow key. Opens the list if it is shut and moves the ACTIVE
   option, which is the keyboard's transient position and not a
-  selection: nothing about `:value` moves here, and that is the audit's
-  *keep active focus distinct from committed selection* stated in the
-  model rather than only in the markup."}
+  selection: nothing about `:value` moves here, and that is *keep active
+  focus distinct from committed selection* stated in the model rather
+  than only in the markup."}
   (fn [{:keys [db]} [_ step]]
     (let [at   (:active db)
           i    (get (zipmap values (range)) at -1)
@@ -134,13 +130,13 @@
     {:db (assoc db :open? false :value v)}))
 
 ;; ---------------------------------------------------------------------------
-;; The view — the guide's example with the audit's repair
+;; The view — the guide's example
 ;; ---------------------------------------------------------------------------
 
 (rf.fresco/defview select-dropdown
-  "The guide's *Build a dropdown from a popover*, repaired.
+  "The guide's *Build a dropdown from a popover*.
 
-  Four changes, and each is one clause of the audit:
+  Four details, and each is load-bearing:
 
   1. `role=\"combobox\"` on the trigger. Without it the element is a
      button, and `aria-activedescendant` is not an attribute a button
@@ -196,8 +192,8 @@
           l])]]]))
 
 (rf.fresco/defview the-guides-dropdown-as-written
-  "THE POSITIVE CONTROL — the same dropdown with the repair taken back
-  out, which is the shape the guide ships today.
+  "THE POSITIVE CONTROL — the same dropdown with those four details taken
+  back out.
 
   Everything a reviewer looks at is here: the trigger is a real button,
   it is named, `aria-expanded` tracks the flag, the options carry
@@ -267,7 +263,7 @@
 
   Written as a sweep over the tree rather than as four assertions about
   one element, so a second combobox added tomorrow is audited the day it
-  lands — the shape `ht/unnamed-controls` established, and
+  lands — the shape `ht/unnamed-controls` takes too, and
   the reason this file's claims are `= []` rather than a list of
   attribute readings.
 
@@ -343,14 +339,14 @@
         (is (true? (attr trigger :aria-expanded)))))))
 
 (deftest the-guides-dropdown-fails-the-model-in-exactly-two-ways
-  ;; THE POSITIVE CONTROL, and the audit finding reproduced. Without it
+  ;; THE POSITIVE CONTROL, and the defect reproduced. Without it
   ;; the row above is green having proved only that the sweep can return
   ;; an empty vector, which it would do just as readily over a tree it
   ;; could not read at all.
   (let [t (open-tree the-guides-dropdown-as-written {:active "ja" :value "en"})]
     (is (= [:role-may-not-carry-activedescendant :no-ownership-edge]
            (activedescendant-findings t))
-        "the two halves of merged-PR audit #7914's first sentence. Note
+        "the two halves of the namespace docstring's quoted defect. Note
          what is NOT reported: the id resolves perfectly — the option
          really is in the document, with that exact id — which is why
          this defect survives review and why an `is the referent there?`
@@ -452,9 +448,9 @@
 
         (testing "AND THE COMMITMENT NEVER MOVED. Three keystrokes later
                   the selected option is still the one the application
-                  holds, and the trigger still shows its label — the
-                  audit's *keep active focus distinct from committed
-                  selection*, driven rather than described"
+                  holds, and the trigger still shows its label — *keep
+                  active focus distinct from committed selection*, driven
+                  rather than described"
           (is (= "true" (.getAttribute (query-node m (str "#" (option-id "en"))) "aria-selected")))
           (is (= "false" (.getAttribute (query-node m (str "#" (option-id "ja"))) "aria-selected")))
           (is (= "English" (.-textContent (query-node m (str "#" trigger-id))))))

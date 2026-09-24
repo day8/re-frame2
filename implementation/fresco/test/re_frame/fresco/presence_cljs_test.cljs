@@ -3,16 +3,15 @@
   census-real toast tray ported both ways (HD-025).
 
   Every row here runs with **no React, no browser and no clock**: `step`
-  and `expire` take `now` as an argument, which is itself one of the
-  ruling's claims — a phase that is data can be asserted without a
+  and `expire` take `now` as an argument, which is itself one of
+  HD-025's claims — a phase that is data can be asserted without a
   timeline. `arm1/presence_dom_cljs_test` then proves React drives this
   machine against a real DOM.
 
   ## The screen, and the diff this file exists to make honest
 
-  The predecessor's own guide worked example, verbatim (that guide retired
-  with its substrate) — a fading toast, with the
-  a11y obligation its Accessibility section spells out:
+  The predecessor substrate's guide worked example, verbatim — a fading
+  toast, with the a11y obligation its Accessibility section spells out:
 
       (v/defview toast-card [{:keys [toast]}]
         (let [exiting? (= :unmounting (v/presence-phase))]
@@ -28,15 +27,14 @@
 
   Two views, an ambient read, and three `(when exiting? …)` attributes —
   and the child view exists **only** so a dynamic var resolves against
-  the right child, because that guide records that reading the phase in
-  markup written inline in the parent silently yields the parent's phase.
+  the right child, because reading the phase in markup written inline in
+  the parent silently yields the parent's phase.
 
   Both Fresco spellings are built below and their rendered attributes
-  asserted **identical**, so the diff in the pull request is about
-  authoring and not about behaviour. The design review that produced
-  HD-025 stated its own risk plainly — that all four of its proposals are
-  taste rulings dressed as deletions — and this is the instrument that
-  answers it for this one."
+  asserted **identical**, so the difference between them is about
+  authoring and not about behaviour. The risk in a change like HD-025's
+  is a taste ruling dressed as a deletion, and this is the instrument
+  that answers it for this one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.presence :as rf.fresco.impl.presence]))
@@ -206,8 +204,8 @@
                                {:key "stolen" :ref (fn [_]) :class "x"}}]]
       (is (= [:div.toast {:key 1 :class "x"}]
              (rf.fresco.impl.presence/with-phase hostile :unmounting)))))
-  (testing "and it cannot reach them under ANY spelling, which is the whole
-            of the repair. `\"key\"` and `:x/key` survive a raw `#{:key
+  (testing "and it cannot reach them under ANY spelling, which is what
+            this row pins. `\"key\"` and `:x/key` survive a raw `#{:key
             :ref}` dissoc and canonicalise onto React's key — after the
             child's own `:key` has been merged, and at the one moment the
             node must NOT be remounted, because it is being animated out.
@@ -240,7 +238,7 @@
 
 (deftest a-legal-override-reaches-the-element-as-appearance-and-never-as-an-attribute
   (testing "the docstring's own claim, MEASURED at the element rather than
-            asserted in prose (rf2-34a7). `with-phase` runs on a tray's
+            asserted in prose. `with-phase` runs on a tray's
             direct children, so this is the only route by which an override
             reaches the codec at all — and what arrives there is an
             ordinary attribute map with the two keys already gone"
@@ -296,9 +294,8 @@
   "BEFORE — the predecessor's shape, minus its trap. The child view exists
   only so a per-child exiting flag can be read; here the flag at least
   arrives as a prop the tray merged rather than as an ambient read, so
-  this rendering is already strictly safer than the one the guide
-  teaches. The three `(when exiting? …)` attributes are the part HD-025
-  is about."
+  this rendering is strictly safer than the ambient one. The three
+  `(when exiting? …)` attributes are the part HD-025 is about."
   [{:keys [message exiting?]}]
   [:div.toast {:class       (when exiting? "toast--exit")
                :inert       (when exiting? true)

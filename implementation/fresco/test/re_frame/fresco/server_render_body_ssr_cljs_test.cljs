@@ -1,10 +1,9 @@
 (ns re-frame.fresco.server-render-body-ssr-cljs-test
   "`re-frame.fresco.server/render-body` — the body-only entry, measured on
-  its own (rf2-8arzr.5, slice E of the ssr-node crossing programme; the
-  parent's shared contract S2/S3).
+  its own.
 
-  The product witness for the whole crossing is
-  `re-frame.fresco.login-server-crossing-ssr-cljs-test`, which drives the
+  The product witness for the whole ssr-node crossing is
+  `re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`, which drives the
   real login example through the real sidecar module contract. This file is
   the narrow one: every row here is a claim about the ENTRY, written so a
   failure names the entry rather than the example.

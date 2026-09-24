@@ -1,25 +1,23 @@
 (ns re-frame.fresco.client-only-arms-ssr-cljs-test
-  "**The Client-only rows that had never been server-rendered** —
+  "**The Client-only rows, server-rendered** —
   dispositions.md §2.1 rows HS-31 (optional forms module), HS-32
   (optional overlay module) and HS-23 (Activity-hosted subtree).
 
-  CHECKPOINT 4 read §2.1's own note 3 — *a Client-only
-  row still owes a witness; the refusal must be shown to fire, at
-  source, with its recovery — an unproved refusal is not a
-  disposition* — against the tree, and four rows came back Client-only
-  with nothing behind them. This file is what three of those rows now
-  point at.
+  §2.1's own note 3 says *a Client-only row still owes a witness; the
+  refusal must be shown to fire, at source, with its recovery — an
+  unproved refusal is not a disposition*. This file is the witness those
+  three rows point at.
 
-  ## What this file found, and it is not what the rows claimed
+  ## What the rows show, and it is not a refusal everywhere
 
-  What was expected was the cheap half of a Client-only row: server-render
-  the surface, watch the refusal fire, name its recovery. **Two of the
-  three surfaces do not refuse at all**, and that is the finding rather
-  than a gap in this file:
+  The cheap half of a Client-only row is: server-render the surface,
+  watch the refusal fire, name its recovery. **Two of the three surfaces
+  do not refuse at all**, and that is the result rather than a gap in
+  this file:
 
   - **HS-31, forms.** `forms/buffered-field` is an `h/defview` boundary
     around an ordinary controlled `<input>`, and every door underneath
-    it is already dispositioned **Render** — the boundary (HS-01), the
+    it is dispositioned **Render** — the boundary (HS-01), the
     `h/sub` read (HS-02), the props map (HS-06) and the controlled
     field's server half (HS-08). So the module emits its live field into
     the server bytes, filled, deterministically. Nothing refuses,
@@ -45,52 +43,47 @@
     tells an author to take — there is no refusal and a VISIBLE
     Activity's subtree reaches the response.
 
-  ## And one measured defect, now repaired
+  ## Why an anchored popover serializes no anchor name
 
-  An anchored `overlay/popover` USED TO bake a CSS anchor name into its
-  `style` attribute, and that name is minted from
+  An anchored `overlay/popover`'s CSS anchor name is minted from
   `impl.overlay/!anchor-seq` — a page-wide `defonce` counter. On a
   client that counter is right, and deliberately so (`globals.md`: a CSS
   anchor name lives in one namespace per DOCUMENT, not one per React
-  root). On a server it was scoped to nothing: two
-  renders of ONE immutable request snapshot produced
-  `position-anchor:--rf-overlay-5` and `position-anchor:--rf-overlay-6`,
-  and a long-lived process drifted further from a fresh client's counter
-  with every request it served. §2.4's first upgrade clause —
-  deterministic server bytes from an immutable request snapshot — was
-  unreachable for the anchored arm by construction, and the attribute it
-  failed on is one hydration must match.
+  root). On a server it is scoped to nothing: baked into the panel's
+  `style` attribute, two renders of ONE immutable request snapshot would
+  produce `position-anchor:--rf-overlay-5` and
+  `position-anchor:--rf-overlay-6`, and a long-lived process would drift
+  further from a fresh client's counter with every request it served.
+  §2.4's first upgrade clause — deterministic server bytes from an
+  immutable request snapshot — would be unreachable for the anchored arm
+  by construction, on an attribute hydration must match.
 
-  The repair was NOT to make the counter deterministic.
-  The ident is a client lifecycle token — its whole job is telling two
-  overlays that share a trigger apart at teardown — so the repair stops
-  SERIALIZING it: the panel's `position-anchor` is now claimed in the
-  ref callback, beside the trigger's `anchor-name` that it was always
-  the other half of. The bytes are deterministic by construction rather
-  than by keeping a counter honest, and section 2 below asserts that
-  PROPERTY rather than any particular name, so it survives the naming
-  scheme changing again.
+  So the counter is not made deterministic; it is not SERIALIZED. The
+  ident is a client lifecycle token — its whole job is telling two
+  overlays that share a trigger apart at teardown — so the panel's
+  `position-anchor` is claimed in the ref callback, beside the trigger's
+  `anchor-name` that it is the other half of. The bytes are
+  deterministic by construction rather than by keeping a counter honest,
+  and section 2 below asserts that PROPERTY rather than any particular
+  name, so it survives a change of naming scheme.
 
-  ## HS-34 is NOT in this file, and its absence is the finding
+  ## HS-34 is NOT in this file, because there is nothing to render
 
   HS-34 is the *optional routing-integration module*, and there is no
   such module to render. `implementation/fresco/src/re_frame/fresco/`
   holds six optional-module namespaces and routing is not among them;
   `fresco/scripts/check_optional_module_reachability.py`'s `MODULES`
   roster names those same six (`motion`, `overlay`, `native`, `forms`,
-  `server`, `substrate`) — a roster that has GROWN THREE TIMES without
-  admitting routing, so the count evidences the absence more sharply
-  than when this paragraph was written and it read three;
+  `server`, `substrate`);
   `docs/design/fresco/product/naming-ledger.md` row 6 carries
   `re-frame.fresco.routing` as a PROVISIONAL recommendation and NOT
   under an open question — that ledger's publication note says every
   row is dispositioned and none is open, and its sibling
   `naming-packet.md`'s own row 6 glosses the marker in terms,
-  *provisional — the namespace does not exist yet*, a better citation
-  for THERE IS NO MODULE than an open question ever was; and
+  *provisional — the namespace does not exist yet*; and
   `implementation/fresco/spec/invariants.md`'s route-link
   row states the move in the FUTURE tense. `h/route-link`
-  lives on the core facade today and is witnessed there as HS-40,
+  lives on the core facade and is witnessed there as HS-40,
   Render, in `facade-roster-ssr-dom-cljs-test`. There is no declaration
   source at which a refusal could fire and no bytes to measure, so this
   file writes no HS-34 section rather than writing an empty one.
@@ -303,9 +296,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-forms-module-does-not-refuse-and-emits-its-live-field
-  (testing "HS-31's cell said *Client-only, awaiting a first witness*, and
-            the measurement says the surface never refuses. Every door
-            under `buffered-field` is already Render — the boundary
+  (testing "HS-31's surface never refuses. Every door
+            under `buffered-field` is Render — the boundary
             (HS-01), the `h/sub` read (HS-02), the props map (HS-06) and
             the controlled field's server half (HS-08) — so the module
             emits the live `<input>`, carrying the committed value. There
@@ -328,10 +320,10 @@
 
 (deftest two-server-renders-of-one-forms-snapshot-are-byte-identical
   (testing "the determinism §2.4's first upgrade clause asks for, measured
-            here rather than assumed. It was not free for every optional
-            module — the overlay's anchored arm failed exactly this
-            assertion until rf2-9zz0y, and section 2 below is where that
-            is now held"
+            here rather than assumed. It is not free for every optional
+            module — the overlay's anchored arm would fail exactly this
+            assertion if it serialized its anchor name, and section 2
+            below is where that is held"
     (fresh! true)
     (let [a (server-html [field-page {}])
           b (server-html [field-page {}])]
@@ -387,8 +379,7 @@
           (str "and none of its children: " modal-html)))))
 
 (deftest an-open-overlay-puts-its-whole-panel-in-the-server-bytes
-  (testing "HS-32's cell said *Client-only, awaiting a first witness*, and
-            the measurement says the module does not refuse either. The
+  (testing "HS-32's module does not refuse either. The
             module's whole client mechanism is one ref callback and React
             does not call refs during `renderToString`, so what the server
             omits is the TOP-LAYER ENTRY — not the markup. Panel and
@@ -421,11 +412,11 @@
 
 (deftest the-dismissal-word-ladder-is-complete-in-the-server-bytes
   (testing "the rows above pin the DEFAULT arms — `closerequest` on the
-            modal and `auto` on the popover. These are the other three,
-            which nothing had ever exercised: the whole dismissal policy
-            is one platform attribute, so each arm is decidable as server
-            bytes, and an arm that rots is a desync between the app's
-            open flag and the platform's own close behaviour"
+            modal and `auto` on the popover. These are the other three:
+            the whole dismissal policy is one platform attribute, so each
+            arm is decidable as server bytes, and an arm that rots is a
+            desync between the app's open flag and the platform's own
+            close behaviour"
     (testing "a modal with no :on-dismiss honours no close request"
       (fresh! true)
       (let [html (server-html [undismissable-modal-page {}])]
@@ -461,29 +452,26 @@
   (testing "**THE PROPERTY, and it is the property rather than a name.**
             Two renders of ONE immutable request snapshot are byte-
             identical — §2.4's first upgrade clause, asserted for the arm
-            that could not reach it before `rf2-9zz0y`.
+            whose page-wide counter would otherwise break it.
 
-            What it used to do is worth keeping, because the repair is
-            shaped by it. `impl.overlay/make-cell` mints the panel's CSS
-            anchor name from `!anchor-seq`, a page-wide `defonce`
-            counter, and the name was written into the `style`
-            attribute — so two renders of one snapshot answered
-            `position-anchor:--rf-overlay-5` and
+            `impl.overlay/make-cell` mints the panel's CSS anchor name
+            from `!anchor-seq`, a page-wide `defonce` counter; written
+            into the `style` attribute, two renders of one snapshot would
+            answer `position-anchor:--rf-overlay-5` and
             `position-anchor:--rf-overlay-6`. Page-wide is CORRECT on a
-            client and deliberate (`globals.md`, `rf2-hic-017`: a CSS
-            anchor name lives in one namespace per DOCUMENT). The defect
-            was that a server has no document to be page-wide with
-            respect to and no request scope to fall back on, so the
-            counter advanced across renders that are independent.
+            client and deliberate (`globals.md`: a CSS anchor name lives
+            in one namespace per DOCUMENT). A server has no document to
+            be page-wide with respect to and no request scope to fall
+            back on, so the counter advances across renders that are
+            independent.
 
-            **The repair does not make the counter deterministic — it
-            stops serializing it.** The panel's `position-anchor` is
-            claimed in the ref callback beside the trigger's
-            `anchor-name`, which it was always the other half of.
-            Asserting EQUALITY rather than a particular ident is the
-            point: this row stays true if the naming scheme changes
-            again, and it would red for any future non-determinism from
-            any source rather than only for this one"
+            **So the counter is not made deterministic — it is not
+            serialized.** The panel's `position-anchor` is claimed in the
+            ref callback beside the trigger's `anchor-name`, which it is
+            the other half of. Asserting EQUALITY rather than a particular
+            ident is the point: this row stays true if the naming scheme
+            changes, and it would red for any non-determinism from any
+            source rather than only for this one"
     (fresh! true)
     (let [a (server-html [anchored-popover-page {}])
           b (server-html [anchored-popover-page {}])]
@@ -491,8 +479,8 @@
           (str "two renders of one snapshot: " a " / " b))))
   (testing "and the MECHANISM, without which the row above could be a
             counter that merely happened not to move between two
-            adjacent renders. `make-cell` still runs per instance on the
-            server and the counter still advances there — what changed is
+            adjacent renders. `make-cell` runs per instance on the server
+            and the counter advances there — what keeps the bytes fixed is
             that nothing carries its value into the response"
     (fresh! true)
     (let [html (server-html [anchored-popover-page {}])]
@@ -501,11 +489,11 @@
       (is (not (re-find #"--rf-overlay-" html))
           (str "and no generated ident reaches any other position in the
                 bytes either: " html))))
-  (testing "while everything the anchored arm is FOR is still in the
-            response. The repair took out a client lifecycle token and
-            not the placement — `:placement` resolves through the
-            module's own table to a static string, so it stays
-            declarative and was never the non-deterministic half"
+  (testing "while everything the anchored arm is FOR is in the response.
+            What stays out is a client lifecycle token and not the
+            placement — `:placement` resolves through the module's own
+            table to a static string, so it is declarative and never the
+            non-deterministic half"
     (fresh! true)
     (let [html (server-html [anchored-popover-page {}])]
       (is (re-find #"<div popover=\"auto\"" html)
@@ -514,7 +502,7 @@
           (str "carrying the placement `:bottom-start` means: " html))
       (is (re-find #"class=\"choice\"" html)
           (str "and its children: " html))))
-  (testing "the unanchored arm is unchanged, and it is still the control
+  (testing "the unanchored arm is the control
             that keeps the rows above a fact about the anchored arm
             rather than about popovers in general"
     (fresh! true)
@@ -591,10 +579,10 @@
           (str "nothing of the hidden subtree reaches the bytes: " html)))))
 
 (deftest through-raw-react-a-visible-activity-subtree-reaches-the-response
-  (testing "**The finding on this row.**
+  (testing "**What this row pins.**
             `lanes/react-compatibility-notes.md` closes its Activity
             section by telling an author to reach Activity through native
-            React construction, and `rf2-9ywe`'s client witness takes that
+            React construction, and the client witness takes that
             route through `react/createElement`. On that route there is no
             declaration and therefore no policy to consult: a VISIBLE
             Activity's hosted subtree is server-rendered, read and all. So

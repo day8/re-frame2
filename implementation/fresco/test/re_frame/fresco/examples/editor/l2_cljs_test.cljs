@@ -27,8 +27,7 @@
   through `ht/materialize`, which is
   `re-frame.fresco.impl.intent/materialize` itself rather than a
   re-derivation of it — so what is asserted is the substitution the
-  browser path runs, and the finding is CONFIRMED by measurement from a
-  second application rather than repeated."
+  browser path runs, not a description of it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco :as rf.fresco]
@@ -54,7 +53,7 @@
                    [::rf.fresco.examples.editor.subs/revision]    revision}}))
 
 ;; ---------------------------------------------------------------------------
-;; THE MARKER LAW — the slice report's finding 1, confirmed from a second app
+;; THE MARKER LAW — the slice report's finding 1
 ;; ---------------------------------------------------------------------------
 
 (deftest the-positional-intent-substitutes-what-was-typed
@@ -70,7 +69,7 @@
        marker's position in the vector is immaterial, only its DEPTH is"))
 
 (deftest the-canonical-payload-map-silently-swallows-the-marker
-  ;; THE FINDING, as a measurement. `spec/Conventions.md` §Canonical
+  ;; THE COLLISION, as an assertion. `spec/Conventions.md` §Canonical
   ;; event-vector shape asks for `[<id> {<k> <v>}]` and the linter nudges
   ;; new code toward it. `materialize` maps over the intent's TOP LEVEL,
   ;; deliberately and for a stated cost reason, so the shape the
@@ -81,10 +80,9 @@
            dispatched)
         "NOT substituted, NOT refused, and not linted: the marker KEYWORD
          is what reaches the handler, lands in app-db and renders as text.
-         The failure is silent at every layer — rf2-hic-025 finding 1,
-         confirmed. This application therefore writes the positional
-         shape at all five of its marker-carrying intents, and says so at
-         `examples.editor.events`")
+         The failure is silent at every layer. This application therefore
+         writes the positional shape at every marker-carrying intent, and
+         says so at `examples.editor.events`")
     (is (not= "typed" (get-in dispatched [1 :value]))
         "stated in the other direction, because this is the assertion a
          reader should be able to find: what the user typed is NOWHERE in
@@ -98,16 +96,9 @@
     ;; return of the `.. e -target -value` that `::h/value` exists to
     ;; delete.
     ;;
-    ;; SPELLED `h/event`, and that cost this witness a compile. The door's
-    ;; own `as-element` docstring writes the escape as `(h/event [i] …)` and
-    ;; so does `impl.intent`'s; `h/event` is the authoring surface the name
-    ;; was chosen FOR and is not a var, so the published spelling does
-    ;; not compile. What the compiler says is
-    ;; `Use of undeclared Var re-frame.fresco/fn` plus one
-    ;; `Use of undeclared Var <your-ns>/e` per argument — a WARNING and
-    ;; not an error, so the build completes and the page throws at
-    ;; render. The naming gap itself is acknowledged in `h/defview`'s
-    ;; docstring.
+    ;; SPELLED `h/event` — `rf.fresco/event` below — which is how the
+    ;; door's own `as-element` docstring and `impl.intent`'s write the
+    ;; escape: `(h/event [i] …)`.
     (let [cb (rf.fresco/event [e] [::rf.fresco.examples.editor.events/edit {:field :title
                                         :value (.. e -target -value)}])]
       (is (rf.fresco.test/callback? cb)
@@ -138,7 +129,6 @@
         (str "the " label " does not carry the reset trigger")))
 
   (testing "the checkbox carries no revision, and could not"
-    ;; MEASURED, and it corrects the guess this witness started from.
     ;; `ht/controlled?` asks whether the converge SHADOW stands in front
     ;; of the element, and for a value-less checkbox it does not: the
     ;; shadow exists for text convergence, so `install!`'s
@@ -160,7 +150,7 @@
            codec would leave an unchecked box uncontrolled")))
 
   (testing "and the REFUSAL for one is not reachable from this tier"
-    ;; A limit, stated where it was met. A `::h/revision` on a value-less
+    ;; A limit, stated where it applies. A `::h/revision` on a value-less
     ;; checkbox is refused with
     ;; `:rf.error/fresco-revision-not-controlled` — but by
     ;; `controlled/install!` reading a private slot that
@@ -299,6 +289,6 @@
   (let [tree    (field-tree :title {:value "T" :revision 0})
         offered (rf.fresco.test/intents tree)]
     (is (= [[::rf.fresco.examples.editor.events/edit :title ::rf.fresco/value]] offered)
-        "one site, one vector. This application needed `h/event` nowhere —
-         every intent said what it meant as data, which is rf2-hic-025's
-         observation about `event` confirmed from a form of four controls")))
+        "one site, one vector. This application needs `h/event` nowhere —
+         every intent says what it means as data, across a form of four
+         controls")))

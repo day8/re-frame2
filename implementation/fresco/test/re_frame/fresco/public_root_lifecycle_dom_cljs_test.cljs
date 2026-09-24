@@ -319,10 +319,10 @@
   "The public teardown door AS IT WOULD BE UNNARROWED: take this root
   down, drop its container, and empty the process-global runtime.
 
-  **The sabotage needs no mock and no seam, because that door still
-  exists under an honest name.** `impl.mount/release!` is `unmount!` plus
-  the container removal plus `collector/reset-runtime!` — precisely the
-  meaning the public facade does not carry, retained as the fixture door
+  **The sabotage needs no mock and no seam, because that door exists
+  under an honest name.** `impl.mount/release!` is `unmount!` plus the
+  container removal plus `collector/reset-runtime!` — precisely the
+  meaning the public facade does not carry, serving as the fixture door
   for a suite that owns the whole page. Its three steps are written out
   here rather than called, for ONE reason: `release!` takes the impl
   tier's positional handle, and a `h/client-root` handle is opaque and
@@ -333,8 +333,8 @@
   act rather than taking a reading, and the header's rule survives it
   whole. That rule forbids the impl tier from doing what the PUBLIC door
   is supposed to be able to do; total teardown is the one thing the
-  public door must NOT be able to do, which is the whole of the
-  narrowing."
+  public door must NOT be able to do, which is the whole of root-scoped
+  teardown."
   [handle container]
   (rf.fresco/unmount! handle)
   (when-some [p (.-parentNode container)] (.removeChild p container))
@@ -361,7 +361,7 @@
 ;;   - the ARMED half reds if the page-wide door stops being page-wide, which
 ;;     is what a control that has quietly become a no-op looks like;
 ;;   - the DISARMED half reds if root-scoped teardown regresses to page-wide,
-;;     which is the defect W1 exists to catch, and which shipped once already.
+;;     which is the defect W1 exists to catch.
 ;;
 ;; The stranding reading is the one worth having, and it is why the row does
 ;; not stop at the counts. A runtime emptied under a live root throws nothing
@@ -451,12 +451,9 @@
 ;; W4 — the door ENSURES its frame and seeds it BEFORE first paint
 ;; ---------------------------------------------------------------------------
 ;;
-;; The ENSURE and its seed are the TREE's now — `h/frame-root` takes the
+;; The ENSURE and its seed are the TREE's — `h/frame-root` takes the
 ;; `rf/make-frame` option map whole — so what this row witnesses is that the
-;; first render through a handle carries them out before it returns. That was
-;; once the root door's own contract (`:frame` + `:initial-events` in a config
-;; map, naming-ledger row 20) and it is the half a rename would have shipped as
-;; a green compile over taught call sites the door could not serve.
+;; first render through a handle carries them out before it returns.
 ;;
 ;; So the reading that matters is taken with NOTHING dispatched between the
 ;; first `render!` and the assertion. It returns, and the label is already on
@@ -465,9 +462,9 @@
 ;; it necessarily paints once with an unseeded frame first, which is the
 ;; guide's own *"the first paint is empty and then fills in"* symptom.
 ;;
-;; It is also the row that fails without the change, and fails twice over: with
-;; no ENSURE the frame this mount names never exists at all, and with no
-;; `:initial-events` nothing would seed it if it did.
+;; It is also a row that fails twice over without them: with no ENSURE the
+;; frame this mount names never exists at all, and with no `:initial-events`
+;; nothing would seed it if it did.
 
 (deftest mounting-ensures-its-frame-and-seeds-it-before-the-first-paint
   (if-not (rf.fresco.impl.mount/browser?)
@@ -608,8 +605,7 @@
 ;; nothing, `drain-active-roots!` has never heard of the root, and the
 ;; caller's container carries one that nothing in the package can take
 ;; down. The retry then calls `createRoot` on an already-rooted container,
-;; which React complains about in development (rf2-gwye.1 / rf2-fzbj.4
-;; finding 1).
+;; which React complains about in development.
 ;;
 ;; THE READING IS REACT'S OWN CONTAINER MARK, and the section note on
 ;; [[react-owned?]] says why nothing else will do: the DOM is identical

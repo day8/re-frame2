@@ -7,7 +7,7 @@
   whose witness only ever asserts the good case is a helper nobody has
   measured. So every row here is written to be able to go the other way,
   and the file is arranged around the three shapes of control
-  `test-kit-cljs-test` established for the kit's other doors.
+  `test-kit-cljs-test` uses for the kit's other doors.
 
   ## 1. Discrimination, on both sides of every conditional arm
 
@@ -122,9 +122,8 @@
                    [:a.bare "y"]])]
     (is (= :link (rf.fresco.test/role (classed t "linked"))))
     (is (nil? (rf.fresco.test/role (classed t "bare")))
-        "an `<a>` with no href is not a link and never was — this is the
-         false positive the clj-kondo export was reopened to remove
-         (rf2-hic-022, audit #7791), and the kit must not re-introduce it")))
+        "an `<a>` with no href is not a link and never was, and the kit
+         must not report it as one")))
 
 (deftest an-input-answers-by-type-including-the-types-that-have-no-role
   (let [t (markup [:form

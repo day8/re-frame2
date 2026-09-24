@@ -3,12 +3,11 @@
   registrar, and what it deliberately does not.
 
   A Story variant names its subject with a KEYWORD and resolves it
-  through the framework registrar. Without the alias `h/defview` computes
-  a name, computes a coordinate, hands both to
-  `impl.collector/mint-view!` and registered nothing — so a Fresco
-  boundary was the one view in the repository a keyword could not reach.
-  It now publishes one entry, and the shape of that entry is the whole
-  claim:
+  through the framework registrar. Without the alias `h/defview` would
+  compute a name, compute a coordinate, hand both to
+  `impl.collector/mint-view!` and register nothing — so a Fresco boundary
+  would be the one view in the repository a keyword could not reach. It
+  publishes one entry, and the shape of that entry is the whole claim:
 
   | slot | what it is |
   |---|---|
@@ -18,17 +17,16 @@
   | `:handler-fn` | the minted head, `identical?` to what the `def` binds |
   | `:executable-key` | **absent** — `:handler-fn` is already where the registrar looks by default |
 
-  ## The head rides `:handler-fn`, which is the whole of rf2-kuky.60
+  ## The head rides `:handler-fn`
 
-  It used to ride a private `:fresco/component`, with `:executable-key`
-  pointing the registrar at it and `:handler-fn` deliberately absent, so
-  `(rf/view id)` answered nil for a Fresco view and every consumer needed
-  a second descriptor shape. `re-frame.views/view-head` returns a `:view`
-  slot it did not itself build EXACTLY AS STORED — no `compose-view`, no
-  `:adapter/wrap-view`, no componentise — so publishing the head under
-  the ordinary key costs the boundary nothing and buys one answer on every
-  substrate. The rows below assert both halves: that `rf/view` now answers
-  the head, and that it is still the untouched `def` value.
+  A private slot, with `:executable-key` pointing the registrar at it and
+  `:handler-fn` absent, would make `(rf/view id)` answer nil for a Fresco
+  view, and every consumer would need a second descriptor shape.
+  `re-frame.views/view-head` returns a `:view` slot it did not itself
+  build EXACTLY AS STORED — no `compose-view`, no `:adapter/wrap-view`,
+  no componentise — so publishing the head under the ordinary key costs
+  the boundary nothing and buys one answer on every substrate. The rows below assert both halves: that `rf/view` answers
+  the head, and that it is the untouched `def` value.
 
   ## The peer registration is the point of comparison, not decoration
 
@@ -164,8 +162,8 @@
     (is (identical? aliased-row (:handler-fn (slot ::aliased-row))))
     (is (fn? (:handler-fn (slot ::aliased-row)))))
 
-  (testing "and the private key it used to ride is gone, so no consumer can
-            still be reading it"
+  (testing "and there is no private key beside it, so no consumer can read
+            the head from a second slot"
     (is (not (contains? (slot ::aliased-row) :fresco/component)))
     (is (not (contains? (slot ::aliased-row) :executable-key)))))
 
@@ -200,7 +198,7 @@
     (is (nil? (rf/current-adapter))))
 
   (testing "IDENTITY is the proof the adapter path was never entered, and it
-            is a stronger one than the absent key it replaces.
+            is a stronger one than an absent key.
             `re-frame.views/reg-view*` is the only route to
             `apply-adapter-wrap-view`, and it never stores the head it was
             given — it stores a WRAPPER built around it. A `:handler-fn`
@@ -253,20 +251,19 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Replacing the entry is half the contract; the other half is what
-;; `register!` says about the replacement, and the row above never looked.
+;; `register!` says about the replacement, and the row above does not look.
 ;; `:different-fn?` is derived from `re-frame.registrar/executable-identity`,
 ;; which reads `(get metadata (get metadata :executable-key :handler-fn))` —
 ;; so the DEFAULT is `:handler-fn`, and an entry publishing its head there
 ;; needs no `:executable-key` at all to be compared correctly.
 ;;
-;; That is the second thing rf2-kuky.60 bought, and it is worth stating
-;; because it used to cut the other way. While the head rode a private
-;; `:fresco/component` with no `:handler-fn`, the default derivation
-;; compared nil with nil and called a real component rotation idempotent;
-;; `:executable-key` existed to point the registrar back at the private
-;; slot. Publishing under the ordinary key makes the default correct, so
-;; the indirection is no longer load-bearing HERE — the rows below assert
-;; the discrimination survived losing it.
+;; That is worth stating because it cuts the other way for a head in a
+;; private slot with no `:handler-fn`: the default derivation would compare
+;; nil with nil and call a real component rotation idempotent, and an
+;; `:executable-key` would be needed to point the registrar at the private
+;; slot. Publishing under the ordinary key makes the default correct, so no
+;; indirection is needed HERE — the rows below assert the discrimination
+;; holds without one.
 ;;
 ;; The HOOK is the seam asserted here rather than the trace bus, and it
 ;; covers both surfaces: `register!` binds `different?` ONCE and hands the
@@ -305,8 +302,8 @@
 
     (testing "the entry names no `:executable-key`, and does not need to:
               the registrar's derivation already defaults to `:handler-fn`,
-              which is where the head now lives. The registrar tells the two
-              cases apart without learning anything about Fresco — and now
+              which is where the head lives. The registrar tells the two
+              cases apart without learning anything about Fresco — and
               without Fresco telling it anything either. The two rows below
               are the proof that the default derivation actually bites; this
               one only records that nothing is pointing it anywhere"
@@ -325,7 +322,7 @@
 
     (testing "and it is a DISCRIMINATOR, not a constant: re-publishing the
               head already in the slot is the idempotent reload it looks
-              like, and still says so"
+              like, and says so"
       (let [same  (head)
             calls (while-recording
                     #(rf.fresco.impl.collector/publish-view-alias! ::aliased-row coords same))]
