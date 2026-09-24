@@ -8,7 +8,7 @@
   the blocking half — the answer to \"wait until the focus lands on the
   modal\" / \"wait until app-db's `[:upload :status]` flips to `:done`\".
   It replaces a hand-rolled `setTimeout` poll inside `eval-cljs`, which
-  carried the same timing/teardown footguns the recorder exists to kill.
+  carries the same timing/teardown footguns the recorder exists to kill.
 
   ## How it blocks
 
@@ -82,7 +82,7 @@
   (let [frame-src   (if frame
                       (ef/emit frame)
                       (ef/emit (ef/rt-call 'current-frame)))
-        ;; rf2-fzbj.6 — the parsed `signals` are EXTERNAL EDN (a `{:sub
+        ;; The parsed `signals` are EXTERNAL EDN (a `{:sub
         ;; [:id args]}` signal carries arbitrary caller data), so they ride
         ;; as QUOTED literal data. Printed unquoted, a list inside a sub
         ;; query is a call and a symbol a name lookup, so the sampler would
@@ -140,13 +140,13 @@
         ;; as snapshot / get-path / record: gate
         ;; OFF (the published default) forces `:include-sensitive false`;
         ;; gate ON honours it. `:elision` (the size override) is honoured
-        ;; on every launch (rf2-ealv5 / rf2-3x7nj.32.4).
+        ;; on every launch.
         elision?   (args/parse-bool-arg raw-args :elision)
         incl?      (if (raw-state/raw-state-allowed?)
                      (args/parse-bool-arg raw-args :include-sensitive)
                      false)
         egress-opts (elision/egress-opts-edn (not elision?) incl?)
-        ;; rf2-3x7nj.32.2 — a JSON-object `signals` / `pred` has its keys
+        ;; A JSON-object `signals` / `pred` has its keys
         ;; minted into keywords (`js->clj :keywordize-keys`), and those are
         ;; PRINTED into the poll form; quoting cannot contain a keyword
         ;; that prints as code, so a key without keyword grammar is
