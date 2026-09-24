@@ -1,14 +1,14 @@
 (ns re-frame.http-interceptor-chain-capture-cljs-test
-  "Host-symmetric (JVM + CLJS) contract for rf2-v3f6 — HTTP interceptor
+  "Host-symmetric (JVM + CLJS) contract: HTTP interceptor
   CHAIN RESOLUTION IS AT ISSUE TIME (Spec 014 §Chain order and frame
   scope).
 
   A managed request captures its frame's interceptor chain once,
   immediately before running `:before`, and its response walks the SAME
-  captured registrations in reverse. Before this, the `:before` chain was
-  resolved once at issue while the `:after` chain was resolved AGAIN from
-  the live process-global registry at response time, so a response landing
-  after the registry changed walked a chain its request never had — and an
+  captured registrations in reverse. Resolving the `:after` chain AGAIN
+  from the live process-global registry at response time would let a
+  response landing after the registry changed walk a chain its request
+  never had — and an
   `:after` could be handed a middleware-ctx its own `:before` never
   touched, which is precisely what the ctx-carried-from-`:before` contract
   promises cannot happen.
@@ -84,10 +84,10 @@
 (defn- clear-frame! []
   (rf.http.managed/clear-all-http-interceptors!))
 
-;; ---- (i) the acceptance criterion: A keeps its chain, B gets the new one ---
+;; ---- (i) A keeps its chain, B gets the new one ----------------------------
 
 (deftest outstanding-response-walks-the-chain-its-request-was-issued-under
-  (testing "rf2-v3f6 — request A is issued under [:one :two]; the registry
+  (testing "request A is issued under [:one :two]; the registry
             then loses :one and gains :three; request B is issued under
             [:two :three]. Both responses are released afterwards. A walks
             ITS OWN chain in reverse with ITS OWN marks, B the new one."
@@ -132,7 +132,7 @@
 ;; and the failure is a wrong VALUE, never a slow one.
 
 (deftest a-registration-made-inside-a-before-does-not-join-that-request
-  (testing "rf2-v3f6 — an interceptor registered from INSIDE a `:before`
+  (testing "an interceptor registered from INSIDE a `:before`
             joins only LATER requests; it does not acquire an `:after` on
             the request whose `:before` walk registered it"
     (clear-frame!)
@@ -164,7 +164,7 @@
 ;; ---- (iii) an empty capture is a real snapshot -----------------------------
 
 (deftest an-empty-capture-is-a-real-snapshot-not-a-fallback-signal
-  (testing "rf2-v3f6 — a request issued while the frame has NO interceptors
+  (testing "a request issued while the frame has NO interceptors
             walks no `:after`, however the registry looks when its response
             lands. This is the arm a live-registry fallback would fail."
     (clear-frame!)
@@ -188,7 +188,7 @@
 ;; call rather than only on the seam.
 
 (deftest canned-success-handler-runs-both-walks-off-ONE-capture
-  (testing "rf2-v3f6 — `canned-success-handler` captures once and uses that
+  (testing "`canned-success-handler` captures once and uses that
             capture for both walks: a `:before`-time registration does not
             reach the reply it interrupted"
     (clear-frame!)
