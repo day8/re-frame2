@@ -1,8 +1,8 @@
 (ns re-frame.routing-url-strategy-test
-  "URL-strategy seam tests (rf2-aerrz5). Locks the pure legs of the two
+  "URL-strategy seam tests. Locks the pure legs of the two
   shipped strategies — `history-url-strategy` (default, path-form) and
   `hash-url-strategy` (`#`-prefixed) — the `with-base-path` combinator
-  (rf2-g8pbwg, for an app deployed under a sub-path) — plus the frame-config
+  (for an app deployed under a sub-path) — plus the frame-config
   resolution the four egress/ingress consult points share.
 
   The side-effecting `:push!` / `:replace!` / `:install-listener!` keys are
@@ -14,9 +14,9 @@
   `url-strategy-from-config` / `url-strategy-for-frame-id`. Per Spec 012
   §URL strategies.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
-  The fail-loud validation seam is FRAME CONSTRUCTION (rf2-ktmto9):
+  The fail-loud validation seam is FRAME CONSTRUCTION:
   `preflight-frame-config!` runs `validate-url-strategy!` UNCONDITIONALLY at
   `re-frame.frame/upsert-frame!`, the sole `frames`-store config writer. That
   is production-real and is asserted here WITHOUT a posture guard — the
@@ -25,16 +25,16 @@
   suite AND in `scripts/test-routing-prod-gate.sh` (the
   `-Dre-frame.debug=false` lane).
 
-  What is NOT production-real is the CONSULT-path tripwire. rf2-ecb4sx made
-  `url-strategy-from-config` a trusted read that pays no per-render
-  validation; what remains there is a `(when rf.interop/debug-enabled? …)`
+  What is NOT production-real is the CONSULT-path tripwire.
+  `url-strategy-from-config` is a trusted read that pays no per-render
+  validation; all that sits there is a `(when rf.interop/debug-enabled? …)`
   re-check, DCE'd from production CLJS bundles and dead on a JVM started with
   `-Dre-frame.debug=false`. The two tripwire deftests below therefore branch
-  on `rf.interop/debug-enabled?`: the dev arm keeps the fail-loud assertions
-  VERBATIM, and the production arm asserts what the trusted read actually
+  on `rf.interop/debug-enabled?`: the dev arm makes the fail-loud assertions,
+  and the production arm asserts what the trusted read actually
   does when the tripwire is gone — it returns the declared value verbatim,
   throwing nothing, which is the contract the ~30x consult speed-up rides on.
-  Neither arm is vacuous; nothing was deleted or weakened."
+  Neither arm is vacuous."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -92,16 +92,17 @@
 
 ;; ---- encode/decode ROUND-TRIP (the property the fixtures pin) ------------
 ;;
-;; `:decode` reads the live browser URL (CLJS), so the JVM cannot exercise it
-;; end-to-end. But the ROUND-TRIP identity — decode(encode(p)) recovers p — is
+;; The ROUND-TRIP identity — decode(encode(p)) recovers p — is
 ;; verified here against a pure JVM model of `window.location.hash`: encode a
-;; path, then decode the `#`-tail the way `hash-decode` would. This is the
+;; path, then decode the `#`-tail the way `hash-decode` would
+;; (`decode-inverts-encode-for-every-shipped-form` below checks the shipped
+;; `:decode` legs themselves). This is the
 ;; host-agnostic half of the round-trip the CLJS suite drives against a real
 ;; (stubbed) `window`.
 
 (defn- hash-decode-model
   "Pure JVM model of `hash-decode` over a raw `window.location.hash` string
-  (the value `hash-encode` produces). Mirrors the CLJS `hash-decode` branch
+  (the value `hash-encode` produces). Mirrors `hash-decode`'s branch
   logic without touching `js/window`."
   [raw-hash]
   (if (or (nil? raw-hash) (= "" raw-hash) (= "#" raw-hash))
@@ -187,35 +188,34 @@
       (is (identical? custom
                       (rf.routing.strategy/url-strategy-from-config {:url-strategy custom}))))))
 
-;; ---- consult-path dev tripwire (rf2-j538f7.11 → rf2-ecb4sx) ----------------
+;; ---- consult-path dev tripwire ---------------------------------------------
 ;;
-;; A custom `:url-strategy` was once consumed VERBATIM with no shape/callability
-;; check, so a typo / partial adapter / hot-reload intermediate value only
-;; failed later — deep in a consult point — as a raw host nil-function /
-;; TypeError. rf2-j538f7.11 added validation at the resolution seam; rf2-ktmto9
-;; then moved the FAIL-LOUD validation to the registration-time PREFLIGHT (the
+;; A custom `:url-strategy` consumed VERBATIM with no shape/callability
+;; check would let a typo / partial adapter / hot-reload intermediate value
+;; fail only later — deep in a consult point — as a raw host nil-function /
+;; TypeError. The FAIL-LOUD validation lives at the registration-time PREFLIGHT (the
 ;; sole frame-config commit chokepoint — see the preflight section below), so a
 ;; malformed strategy can never enter the `frames` store the consults read.
 ;;
-;; rf2-ecb4sx therefore made `url-strategy-from-config` a TRUSTED READ: it no
-;; longer validates on the production consult path (the ~90 ns/consult
-;; `route-link` used to pay per render). What REMAINS at the consult is a
+;; `url-strategy-from-config` is therefore a TRUSTED READ: it does not
+;; validate on the production consult path (which would cost `route-link`
+;; ~90 ns per render). What sits at the consult is a
 ;; DEV-ONLY tripwire, gated on `re-frame.interop/debug-enabled?` (`goog.DEBUG`
 ;; on CLJS, the `re-frame.debug` gate on the JVM) and dead-code-eliminated from
 ;; production CLJS bundles. It re-runs `validate-url-strategy!` so a FUTURE
-;; config-write bypass still fails loud in development. These two tests run in
-;; the dev-default JVM (`debug-enabled?` true), so the tripwire fires and the
-;; historical fail-loud behaviour is still pinned. On the JVM the required legs
+;; config-write bypass fails loud in development. These two tests run in
+;; the dev-default JVM (`debug-enabled?` true), so the tripwire fires and its
+;; fail-loud behaviour is pinned. On the JVM the required legs
 ;; are `:encode` / `:decode` only (the browser legs are reader-conditionally
 ;; absent from the shipped strategies — Spec 012 §URL strategies).
 
 (deftest custom-url-strategy-non-map-tripwire
-  (testing "rf2-ecb4sx: with the dev tripwire active (debug-enabled? — the JVM
-            test default), a truthy but NON-MAP :url-strategy still fails loud
+  (testing "with the dev tripwire active (debug-enabled? — the JVM
+            test default), a truthy but NON-MAP :url-strategy fails loud
             with :rf.error/invalid-url-strategy at the consult, backstopping the
             registration preflight for any future config-write bypass"
     (if rf.interop/debug-enabled?
-      ;; rf2-o5dbf — dev-tripwire arm (see ns docstring), kept verbatim.
+      ;; Dev-tripwire arm (see ns docstring).
       (let [ex (try (rf.routing.strategy/url-strategy-from-config {:url-strategy :not-a-map})
                     nil
                     (catch clojure.lang.ExceptionInfo e e))]
@@ -224,21 +224,21 @@
             "the canonical structured error id is stamped")
         (is (= :not-a-map (:url-strategy (ex-data ex)))
             "the offending value is carried in the ex-data"))
-      ;; rf2-o5dbf — production arm: the tripwire is DCE'd / gated off, so the
+      ;; Production arm: the tripwire is DCE'd / gated off, so the
       ;; consult is a pure trusted read. It must not throw and must not
       ;; silently substitute a default — the preflight (asserted
       ;; posture-independently below) is what keeps a value of this shape out
       ;; of the store in the first place.
       (is (= :not-a-map (rf.routing.strategy/url-strategy-from-config {:url-strategy :not-a-map}))
           "under -Dre-frame.debug=false the consult returns the declared value
-           verbatim and pays no validation — the trusted read rf2-ecb4sx bought"))))
+           verbatim and pays no validation — the trusted read"))))
 
 (deftest custom-url-strategy-missing-leg-tripwire
-  (testing "rf2-ecb4sx: the confirmed repro — a custom strategy missing a
+  (testing "a custom strategy missing a
             callable :encode (only :decode supplied) fails loud under the dev
             tripwire naming the bad leg"
     (if rf.interop/debug-enabled?
-      ;; rf2-o5dbf — dev-tripwire arm (see ns docstring), kept verbatim.
+      ;; Dev-tripwire arm (see ns docstring).
       (let [ex (try (rf.routing.strategy/url-strategy-from-config
                       {:url-strategy {:decode (constantly "/")}})
                     nil
@@ -247,13 +247,13 @@
         (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
         (is (contains? (set (:missing (ex-data ex))) :encode)
             "the missing :encode leg is named in :missing"))
-      ;; rf2-o5dbf — production arm (see ns docstring).
+      ;; Production arm (see ns docstring).
       (let [half {:decode (constantly "/")}]
         (is (identical? half (rf.routing.strategy/url-strategy-from-config {:url-strategy half}))
             "the production consult returns the declared value verbatim, throwing nothing"))))
   (testing "a non-callable leg (a non-fn value in a required slot) is rejected too"
     (if rf.interop/debug-enabled?
-      ;; rf2-o5dbf — dev-tripwire arm (see ns docstring), kept verbatim.
+      ;; Dev-tripwire arm (see ns docstring).
       (let [ex (try (rf.routing.strategy/url-strategy-from-config
                       {:url-strategy {:encode "not-a-fn" :decode (constantly "/")}})
                     nil
@@ -261,8 +261,8 @@
         (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
         (is (contains? (set (:missing (ex-data ex))) :encode)
             "a non-callable :encode counts as missing"))
-      ;; rf2-o5dbf — production arm. The REJECTION of this exact value is not
-      ;; lost under the gate: `preflight-carries-frame-id-in-ex-data` and
+      ;; Production arm. The REJECTION of this exact value holds
+      ;; under the gate: `preflight-carries-frame-id-in-ex-data` and
       ;; `make-frame-engine-rejects-malformed-strategy-before-any-write` below
       ;; assert it posture-independently at the registration chokepoint.
       (let [non-callable {:encode "not-a-fn" :decode (constantly "/")}]
@@ -274,7 +274,7 @@
             "…and the ungated registration preflight still rejects it LOUD")))))
 
 (deftest url-strategy-from-config-is-a-trusted-read
-  (testing "rf2-ecb4sx: a SHAPE-VALID declared strategy resolves by identity —
+  (testing "a SHAPE-VALID declared strategy resolves by identity —
             the consult returns it verbatim, doing no work beyond the read (the
             production trusted-read path; the dev tripwire only re-checks, it
             does not transform)"
@@ -284,8 +284,8 @@
     (let [custom {:encode identity :decode (constantly "/")}]
       (is (identical? custom
                       (rf.routing.strategy/url-strategy-from-config {:url-strategy custom})))))
-  (testing "rf2-ecb4sx: absent / nil / non-map configs resolve to the history
-            default with no validation (the default branch was always trusted)"
+  (testing "absent / nil / non-map configs resolve to the history
+            default with no validation (the default branch is trusted)"
     (is (identical? rf.routing.strategy/history-url-strategy
                     (rf.routing.strategy/url-strategy-from-config {})))
     (is (identical? rf.routing.strategy/history-url-strategy
@@ -296,7 +296,7 @@
                     (rf.routing.strategy/url-strategy-from-config nil)))))
 
 (deftest shipped-and-complete-custom-strategies-pass-validation
-  (testing "rf2-j538f7.11: validation does NOT disturb the valid paths — the
+  (testing "validation does NOT disturb the valid paths — the
             shipped strategies, a with-base-path wrapper, and a shape-complete
             custom map all resolve unchanged"
     (is (identical? rf.routing.strategy/history-url-strategy
@@ -315,7 +315,7 @@
       (is (identical? custom (rf.routing.strategy/validate-url-strategy! custom 'test nil))
           "validate-url-strategy! is identity on a valid strategy"))))
 
-;; ---- with-base-path combinator (rf2-g8pbwg) -------------------------------
+;; ---- with-base-path combinator --------------------------------------------
 ;;
 ;; The side-effecting `:push!` / `:replace!` / `:install-listener!` legs are
 ;; CLJS-only (a browser `window.history`); this JVM suite pins the
@@ -328,7 +328,7 @@
       (is (= "/realworld/" ((:encode wrapped) "/")))
       ;; :decode strips the base off whatever the wrapped strategy decodes —
       ;; simulate that by composing over a fixed decode via a custom strategy.
-      ;; rf2-3x7nj.12.2: `:decode` takes the browser address it decodes.
+      ;; `:decode` takes the browser address it decodes.
       (let [fake-decode (rf.routing.strategy/with-base-path
                           {:encode identity :decode (constantly "/realworld/active")}
                           "/realworld")]
@@ -347,26 +347,26 @@
     (is (= "/other/path" (rf.routing.strategy/strip-base-path "/realworld" "/other/path")))))
 
 (deftest with-base-path-strips-only-on-segment-boundary
-  (testing "ADVERSARIAL (rf2-vuv84a): strip-base-path treats a URL as under the
+  (testing "ADVERSARIAL: strip-base-path treats a URL as under the
             base ONLY at a path-SEGMENT boundary — the mount root (url = base)
             or `base/…`. A prefix-SHARING sibling that merely string-prefixes
             the base is returned UNCHANGED, not mis-sliced."
     ;; siblings that share the base as a bare STRING prefix must NOT be stripped
-    ;; (the pre-fix defect: `/app` string-prefixed `/application` -> `/lication`).
+    ;; (a bare string-prefix strip would turn `/application` under `/app` into `/lication`).
     (is (= "/application/x" (rf.routing.strategy/strip-base-path "/app" "/application/x"))
         "/app must NOT strip /application (segment boundary, not string prefix)")
     (is (= "/apple" (rf.routing.strategy/strip-base-path "/app" "/apple")))
     (is (= "/app-admin" (rf.routing.strategy/strip-base-path "/app" "/app-admin")))
     (is (= "/realworld-demo" (rf.routing.strategy/strip-base-path "/realworld" "/realworld-demo"))
-        "the motivating case: /realworld must not mangle /realworld-demo")
-    ;; genuine under-base URLs still strip correctly.
+        "a mount-point sibling: /realworld must not mangle /realworld-demo")
+    ;; genuine under-base URLs strip correctly.
     (is (= "/x" (rf.routing.strategy/strip-base-path "/app" "/app/x")))
     (is (= "/x/y" (rf.routing.strategy/strip-base-path "/app" "/app/x/y")))
     (is (= "/" (rf.routing.strategy/strip-base-path "/app" "/app"))
         "the bare mount root (url = base) strips to the app root `/`")))
 
 (deftest with-base-path-strips-mount-root-before-query-and-fragment
-  (testing "rf2-gwye.29: the mount root followed DIRECTLY by `?` or `#` is still
+  (testing "the mount root followed DIRECTLY by `?` or `#` is still
             the mount root. `?` and `#` end the pathname, so they are post-base
             boundaries alongside end-of-string and `/`; the suffix is kept
             verbatim behind the app-root slash"
@@ -388,11 +388,10 @@
                     "/app")]
       (is (= "/?tab=all#section" ((:decode wrapped) "/app?tab=all#section"))))))
 
-;; ---- rf2-3x7nj.12.2: `:decode` is PURE, the exact inverse of `:encode` ------
+;; ---- `:decode` is PURE, the exact inverse of `:encode` ----------------------
 ;;
-;; `:decode` used to read `window.location` and so could not run here at all —
-;; the round-trip law above had to be checked against a hand-written model. It
-;; now takes the origin-relative browser address, so the law is checked against
+;; `:decode` takes the origin-relative browser address rather than reading
+;; `window.location`, so the law is checked against
 ;; the SHIPPED strategies themselves, base-path forms included, on the JVM.
 
 (deftest decode-inverts-encode-for-every-shipped-form
@@ -454,7 +453,7 @@
     (is (= ((:encode (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/x")) "/a")
            ((:encode (rf.routing/with-base-path rf.routing.strategy/history-url-strategy "/x")) "/a")))))
 
-;; ---- registration-time frame-config preflight (rf2-ktmto9) ----------------
+;; ---- registration-time frame-config preflight ----------------------------
 ;;
 ;; `preflight-frame-config!` is the PURE registration-time preflight the core
 ;; engine (`re-frame.frame/make-frame`) invokes through the
@@ -467,14 +466,14 @@
 ;; the browser legs).
 
 (deftest preflight-absent-url-strategy-is-a-no-op
-  (testing "rf2-ktmto9: a config with NO :url-strategy key preflights clean —
+  (testing "a config with NO :url-strategy key preflights clean —
             omission alone selects the default history strategy, so an
             ordinary frame (url-bound or not) pays no validation"
     (is (nil? (rf.routing.strategy/preflight-frame-config! :t/plain {})))
     (is (nil? (rf.routing.strategy/preflight-frame-config! :t/owner {:url-bound? true})))))
 
 (deftest preflight-explicit-nil-url-strategy-is-malformed
-  (testing "rf2-ktmto9: an EXPLICIT nil :url-strategy is a PRESENT declaration
+  (testing "an EXPLICIT nil :url-strategy is a PRESENT declaration
             and fails loud — presence semantics, not truthiness; only omission
             selects the default"
     (let [ex (try (rf.routing.strategy/preflight-frame-config!
@@ -487,7 +486,7 @@
           "the ex-data names the offending frame"))))
 
 (deftest preflight-carries-frame-id-in-ex-data
-  (testing "rf2-ktmto9: a malformed declaration's :rf.error/invalid-url-strategy
+  (testing "a malformed declaration's :rf.error/invalid-url-strategy
             ex-data carries the frame id, so the diagnostic names WHICH frame
             declared the bad strategy"
     (let [ex (try (rf.routing.strategy/preflight-frame-config!
@@ -499,7 +498,7 @@
       (is (contains? (set (:missing (ex-data ex))) :encode)))))
 
 (deftest preflight-valid-shipped-and-custom-strategies-pass
-  (testing "rf2-ktmto9: the shipped strategies, a with-base-path wrapper, and a
+  (testing "the shipped strategies, a with-base-path wrapper, and a
             JVM-shape-complete custom map all preflight clean"
     (is (nil? (rf.routing.strategy/preflight-frame-config!
                 :t/owner {:url-strategy rf.routing.strategy/history-url-strategy})))
@@ -513,12 +512,12 @@
                                          :decode (constantly "/")}})))))
 
 (deftest make-frame-engine-rejects-malformed-strategy-before-any-write
-  (testing "rf2-ktmto9: the core engine (rf.frame/upsert-frame!) preflights the
+  (testing "the core engine (rf.frame/upsert-frame!) preflights the
             declared :url-strategy BEFORE any write — a malformed first
             registration throws :rf.error/invalid-url-strategy and leaves NO
             frame record (the fail-loud + no-residue
-            invariant; pre-fix the throw came from the post-create hook, after
-            the container + :initial-events already ran)"
+            invariant; a throw from a post-create hook would come after
+            the container + :initial-events had already run)"
     (let [ex (try (rf.frame/upsert-frame! :ktmto9/bad-jvm
                                        {:url-bound?   true
                                         :url-strategy {:decode (constantly "/")}})
@@ -533,7 +532,7 @@
           "the failed frame is invisible to frame-meta"))))
 
 (deftest make-frame-missing-routing-artefact-fails-loud
-  (testing "rf2-ktmto9: a config declaring :url-strategy while the
+  (testing "a config declaring :url-strategy while the
             :routing/preflight-frame-config! hook is UNPUBLISHED (routing not
             loaded before construction) fails loud with
             :rf.error/routing-artefact-missing — storing a strategy nobody can
@@ -556,7 +555,7 @@
 
 (deftest url-strategy-for-frame-id-reads-frames-store
   (testing "url-strategy-for-frame-id reads the frame's stored config off the
-            frames store (rf2-h1vqa4 — frames have no registrar rows),
+            frames store (frames have no registrar rows),
             defaulting to history for an unregistered / nil frame"
     ;; Real seated frames — the resolver reads `rf.frame/frame-meta`, so the test
     ;; must go through the engine (container creation needs an adapter).
@@ -582,22 +581,22 @@
         (rf.frame/destroy-frame! :test/plain)))))
 
 ;; ---- trusted-read invariant: the store never holds an unvalidated strategy --
-;; (rf2-ecb4sx Part 1 — the gate the consult-path simplification rides on)
+;; (the gate the trusted consult-path read rides on)
 ;;
 ;; The four consult points (route-link render, the :rf.nav/push-url /
 ;; :rf.nav/replace-url fxs, the URL-change listener install) resolve through
 ;; `url-strategy-for-frame-id` → `rf.frame/frame-meta` → the `frames` store, and
-;; rf2-ecb4sx makes that read TRUSTED (no per-consult validation). These tests
+;; that read is TRUSTED (no per-consult validation). These tests
 ;; pin the invariant that makes the trusted read safe: the ONLY writer of a
 ;; frame's `:config` (hence its `:url-strategy`) into the `frames` store is
 ;; `rf.frame/upsert-frame!`, which runs the registration-time PREFLIGHT
-;; (rf2-ktmto9) BEFORE the store write — so no code path can seat an
+;; BEFORE the store write — so no code path can seat an
 ;; unvalidated strategy. Load-order (declaring `:url-strategy` before routing
 ;; loads fails loud — `make-frame-missing-routing-artefact-fails-loud` above)
 ;; and the absence of internal direct-write bypasses are pinned here.
 
 (deftest store-only-ever-holds-validated-strategies-inv
-  (testing "rf2-ecb4sx: every frame reachable via frame-meta carries a strategy
+  (testing "every frame reachable via frame-meta carries a strategy
             the consult resolves WITHOUT throwing — even with the dev tripwire
             active — because only the preflighting engine can seat one. This is
             the invariant the trusted-read consult relies on: whatever is in the
@@ -635,7 +634,7 @@
         (rf.frame/destroy-frame! :ecb4sx-inv/based)))))
 
 (deftest rejected-strategy-never-reaches-the-consult-inv
-  (testing "rf2-ecb4sx: a malformed first registration is rejected at the
+  (testing "a malformed first registration is rejected at the
             preflight and leaves NO store residue, so the consult
             (url-strategy-for-frame-id) reads the history DEFAULT for that id —
             the rejected strategy is never installed where a consult could see
@@ -656,7 +655,7 @@
            invisible to it"))))
 
 (deftest set-generation!-does-not-install-an-unvalidated-strategy-inv
-  (testing "rf2-ecb4sx: `rf.frame/set-generation!` — the only `frames`-store writer
+  (testing "`rf.frame/set-generation!` — the only `frames`-store writer
             OTHER than the preflighting engine — touches only the :generation
             slot, never :config/:url-strategy, so it cannot smuggle an
             unvalidated strategy past the consult. After a generation swap the
