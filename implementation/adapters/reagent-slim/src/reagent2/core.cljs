@@ -1,13 +1,12 @@
 (ns reagent2.core
-  "User-facing compat surface for the day8/reagent-slim artefact
-  (rf2-6hyy Stage 4-D).
+  "User-facing compat surface for the day8/reagent-slim artefact.
 
-  Per IMPL-SPEC §2.2: the audit-binding 14 surfaces. This is the
+  Per IMPL-SPEC §2.2: the 14 shipped surfaces. This is the
   ns most user code imports as `reagent.core`-equivalent — apps
   migrating from the bridge do `s/reagent\\./reagent2./g` at import
   sites (per IMPL-SPEC §13.1).
 
-  Symbols **shipped** (per Stage 2 §2.7 audit):
+  Symbols **shipped**:
 
     atom              — RAtom constructor (re-export of reagent2.ratom/atom)
     create-class      — Form-3 entry point; 7-key cap enforced
@@ -25,29 +24,29 @@
     reaction          — macro (src/reagent2/core.clj); stock body syntax,
                         expands to make-reaction over (fn [] body...)
 
-  Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7
-  audit-confirmed zero usage): `track`, `track!`, `cursor`, `wrap`,
-  `rswap!`, `partial`, `merge-props`, `unsafe-html`, `adapt-react-class`,
-  `reactify-component`, `create-element`, `next-tick`, `flush` (replaced
-  by `reagent2.dom.client/flush-views!`), `class-names`, `is-client`,
+  Symbols **not shipped** (no audited codebase uses them): `track`,
+  `track!`, `cursor`, `wrap`, `rswap!`, `partial`, `merge-props`,
+  `unsafe-html`, `adapt-react-class`, `reactify-component`,
+  `create-element`, `next-tick`, `flush` (use
+  `reagent2.dom.client/flush-views!`), `class-names`, `is-client`,
   `set-default-compiler!`, `create-compiler`, `with-let`.
 
   React-19-removed surfaces are **absent**, not throw-on-call stubs
-  (rf2-jif0qp; the pre-alpha no-back-compat-shim stance — DECISION-8).
+  (the pre-alpha no-back-compat-shim stance).
   `render` (stock `reagent.core/render`, which forwarded to the removed
   `ReactDOM.render`) and `dom-node` (stock `reagent.dom/dom-node`,
   which proxied the removed `findDOMNode`) are simply not defined here:
   use `reagent2.dom.client/{create-root, render}` to mount and a `:ref`
   callback (or `React.useRef`) to reach a DOM node. A call site that
-  still references them gets an unresolved-var compile error — fail loud
+  references them gets an unresolved-var compile error — fail loud
   at build time rather than at first runtime invocation.
 
   Apps that genuinely need a dropped surface stay on the bridge
   adapter day8/re-frame2-reagent; the rewrite's commitment is
   to ship only the surfaces the audited codebases actually exercise.
   `dom-node` is the one exception with no bridge escape hatch:
-  stock Reagent 2.0.1 — the bridge's own pinned floor — already
-  deleted `reagent.dom/dom-node`, so that call site has to move to
+  stock Reagent 2.0.1 — the bridge's own pinned floor — has no
+  `reagent.dom/dom-node` either, so that call site uses
   a `:ref` on either coordinate."
   (:refer-clojure :exclude [atom])
   (:require-macros [reagent2.core])
@@ -73,7 +72,7 @@
 ;; `(reagent2.ratom/make-reaction (fn [] body...))`, as stock
 ;; `reagent.core/reaction` does. There is deliberately no thunk-taking
 ;; function under this name — an explicit thunk goes straight to
-;; `reagent2.ratom/make-reaction` (rf2-b9l8o).
+;; `reagent2.ratom/make-reaction`.
 
 ;; ---------------------------------------------------------------------------
 ;; Component-shape surface
@@ -141,9 +140,9 @@
   "Force re-render of `this` component. Routes through React's
   `forceUpdate` directly — bypasses any pending dirty-set dedup.
 
-  The stock-Reagent 2-arity `(force-update this deep?)` is dropped:
+  There is no stock-Reagent 2-arity `(force-update this deep?)`:
   React 19 has no per-call deep-rerender API, and no audited caller
-  relied on it. Callers passing a second arg will see a CLJS arity
+  relies on it. Callers passing a second arg see a CLJS arity
   error at the call site — fail-fast over silent semantic divergence."
   [^js this]
   (when-some [fu (.-forceUpdate this)]
@@ -155,8 +154,8 @@
 
 (defn after-render
   "Schedule `f` to run after the next React commit — `f` observes the
-  COMMITTED DOM, not a DOM whose re-render has merely been REQUESTED
-  (rf2-cdoo). Routes through `reagent2.impl.batching/do-after-render`.
+  COMMITTED DOM, not a DOM whose re-render has merely been REQUESTED.
+  Routes through `reagent2.impl.batching/do-after-render`.
 
   Never synchronous: `f` runs on the scheduler's own turn even when no
   component is dirty."
@@ -173,6 +172,6 @@
 
 ;; React-19-removed surfaces (`render`, `dom-node`) are ABSENT, not
 ;; throw-on-call shims — see the ns docstring. The pre-alpha no-back-
-;; compat-shim stance (rf2-jif0qp) drops the stub entirely: an
+;; compat-shim stance ships no stub at all: an
 ;; unresolved-var compile error at the call site is the louder, earlier
 ;; signal than a runtime throw.
