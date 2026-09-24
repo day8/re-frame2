@@ -1,8 +1,7 @@
 (ns re-frame.resource-algebra-view-cljs-test
   "Tests for the STATIC + LIVE derivation/process algebra view of resources
-  (EP-0014 slice-4, rf2-gn9juw). Per [spec/Derivations.md] §Resources expose
-  process nodes (graduated from EP-0014) and the `:rf/derivation-node` shape
-  in [spec/Spec-Schemas.md].
+  (EP-0014). Per [spec/Derivations.md] §Resources expose process nodes and
+  the `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
 
   `re-frame.resources.tooling/resource-algebra-view` lowers every registered
   resource into the normalized PROCESS node every declared fact/process
@@ -22,12 +21,11 @@
   runtime-db output address, the selectors / commands / authority, the
   opaque `:derive` request token, source coords, and the live entry view.
 
-  Slice-4 ships NO public accessor (EP-0014 issue-1 disposition): the views
+  There is NO public accessor (EP-0014 issue-1): the views
   live in the bundle-isolated `re-frame.resources.tooling` sibling and are
   consumed by Xray + the conformance fixtures, which name that sibling
   directly. There is no `re-frame.core/resource-algebra-view` public facade
-  export and — since rf2-kuky.86 — no `re-frame.resources` JVM convenience
-  alias either; `re-frame.derivation.graph` reaches the views by
+  export and no `re-frame.resources` JVM convenience alias either; `re-frame.derivation.graph` reaches the views by
   `requiring-resolve`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -159,7 +157,7 @@
 
 (deftest inline-fn-scope-is-refused-at-registration
   (testing "an inline-fn :scope is not one of the two policy shapes, so it
-            never reaches the static view at all (rf2-kuky.81)"
+            never reaches the static view at all"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-missing-scope-policy"
           (rf/reg-resource :fn/scoped
@@ -201,7 +199,7 @@
   [frame-id resource-id scope params {:keys [status owner in-flight?]}]
   (let [scoped-key (rf.resources.state/scoped-resource-key scope resource-id params)
         work-id    (when in-flight? (rf.resources.work-ledger/resource-work-id scoped-key 1))
-        ;; rf2-9e0tyq — the runtime stamps each entry's `:resource/key`; the
+        ;; The runtime stamps each entry's `:resource/key`; the
         ;; live algebra view reads it for the node `:id` / `:inputs` (the
         ;; `:entries` map is keyed on the opaque byte `key-id`).
         entry      (cond-> (assoc (rf.resources.state/empty-entry resource-id scoped-key)
@@ -274,7 +272,7 @@
         (is (= [[:rf.http/in-flight work-id]] (:host-transient node)))))))
 
 (deftest live-view-keeps-cedn-distinct-scoped-keys-distinct
-  (testing "rf2-ka2nkx ADVERSARIAL: two live entries whose params differ ONLY by
+  (testing "ADVERSARIAL: two live entries whose params differ ONLY by
             EDN collection kind (vector vs list) are Clojure-= as scoped-key
             VECTORS but CEDN-distinct (distinct byte key-ids). The cache
             algebra view must report TWO distinct nodes (one per byte-keyed
@@ -304,7 +302,7 @@
           (is (not= (:lifecycle nv) (:lifecycle nl))
               "the two nodes carry their OWN distinct owner sets (not gated together)"))))))
 
-;; ---- EP-0015 egress redaction of the live graph snapshot (rf2-0t0l3w) ----
+;; ---- EP-0015 egress redaction of the live graph snapshot -----------------
 ;;
 ;; `resource-cache-algebra-view` is a TOOL-facing egress boundary (Xray,
 ;; re-frame2-pair-mcp, conformance fixtures consume it). EP-0015 treats
@@ -328,7 +326,7 @@
       :else         false)))
 
 (deftest live-view-redacts-sensitive-params-at-tool-egress
-  (testing "rf2-0t0l3w: a :sensitive? resource's scoped-key scope/params are
+  (testing "a :sensitive? resource's scoped-key scope/params are
             projected to opaque handles in EVERY identity position — the node
             map key, :id, :inputs, :output, and the in-flight work-ledger
             record :resource/key — while resource-id identity + connectivity
@@ -357,7 +355,7 @@
         (is (not (contains-secret? (keys view))))))))
 
 (deftest live-view-preserves-non-sensitive-identity
-  (testing "rf2-0t0l3w guard: a NON-sensitive resource still rides its scope /
+  (testing "a NON-sensitive resource still rides its scope /
             params verbatim (projection must not over-redact the common case)"
     (rf/reg-resource :plain/article (article-spec) article-spec-request)
     (let [scope  :rf.scope/global
@@ -372,9 +370,9 @@
       (is (= scoped-key (:id node)) "non-sensitive scoped key rides verbatim"))))
 
 (deftest live-view-no-derived-sensitivity-inheritance
-  (testing "rf2-71dr8t / EP-0025: a resource whose {:from-db <resolver>} scope
-            derives from a frame-sensitive :db input is NOT auto-redacted — the
-            derived-sensitivity propagation engine was removed (no input→output
+  (testing "EP-0025: a resource whose {:from-db <resolver>} scope
+            derives from a frame-sensitive :db input is NOT auto-redacted —
+            there is no derived-sensitivity propagation (no input→output
             inheritance, Spec 015 §No propagation, no taint). Confirm-by-revert:
             the OWNER's coarse :sensitive? claim still redacts the whole key."
     ;; FRAME classification: the resolver's :db input path is sensitive
@@ -382,13 +380,13 @@
     (rf/make-frame {:id :sens/frame :doc "frame with a sensitive tenant-id"})
     (rf.frame/swap-runtime-db! :sens/frame
       (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
-    ;; resolver reading the frame-sensitive path — NO propagation now.
+    ;; resolver reading the frame-sensitive path — NO propagation.
     (rf/reg-resource-scope :session/tenant
                            {:inputs {:tenant-id [:db [:session :tenant-id]]}}
                            (fn [{:keys [tenant-id]} _]
                              (when tenant-id [:rf.scope/tenant tenant-id])))
     ;; a tenant-scoped resource NOT declared :sensitive? — the derived scope is
-    ;; NO LONGER inherited as sensitive (the secret rides; fail-open).
+    ;; NOT inherited as sensitive (the secret rides; fail-open).
     (rf/reg-resource :derived/article
                      (article-spec {:scope {:from-db :session/tenant}})
                      article-spec-request)
@@ -402,7 +400,7 @@
           (is (contains-secret? view)
               "the raw derived-scope secret rides — no propagation"))))
     (testing "confirm-by-revert: an OWNER-declared :sensitive? resource redacts
-              the whole scoped key (the surviving coarse-claim boundary)"
+              the whole scoped key (the coarse-claim boundary)"
       ;; a FRESH frame so only the secret-article rides the view (its redacted
       ;; key is content-addressed, so a raw-key lookup would miss — assert the
       ;; whole frame view is secret-free instead).
@@ -435,7 +433,7 @@
 
 #?(:clj
    (deftest facade-publishes-no-algebra-view-alias
-     ;; rf2-kuky.86 — the absence pin that replaced the JVM presence pin. Both
+     ;; The absence pin. Both
      ;; views ship NO public accessor (Derivations §Resources expose process
      ;; nodes): the `defn`s stay in `re-frame.resources.tooling` and the facade
      ;; re-exports neither, so `re-frame.derivation.graph` reaches them by
