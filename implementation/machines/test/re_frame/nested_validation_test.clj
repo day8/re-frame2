@@ -58,7 +58,7 @@
       (is (= :no-such-action (:action (ex-data thrown)))
           "ex-data carries the offending action keyword"))))
 
-;; ---- gap probe: NESTED-state :on -----------------------------------------
+;; ---- NESTED-state :on -----------------------------------------
 
 (deftest nested-on-guard-keyword-unresolved
   (testing "Nested-state :on transition with unregistered :guard keyword fails registration"
@@ -86,7 +86,7 @@
       (is (some? thrown)
           "nested-state :on :action misuse SHOULD throw at registration"))))
 
-;; ---- gap probe: :always slot (top-level + nested) -----------------------
+;; ---- :always slot (top-level + nested) -----------------------
 
 (deftest top-level-always-guard-keyword-unresolved
   (testing "Top-level :always with unregistered :guard keyword fails registration"
@@ -207,7 +207,7 @@
       (is (= :no-such-action (:action (ex-data thrown)))
           "ex-data carries the offending action keyword"))))
 
-;; ---- gap probe: :entry / :exit action references -------------------------
+;; ---- :entry / :exit action references -------------------------
 
 (deftest top-level-entry-action-keyword-unresolved
   (testing "Top-level :entry referencing an unregistered action keyword fails registration"
@@ -257,11 +257,11 @@
 
 ;; ---- parallel-region keyword refs ----------------------------------------
 ;;
-;; Per Spec 005 §Parallel regions and machines.cljc:1903-1990:
-;; `walk-state-nodes` iterates parallel regions via the `(parallel?
-;; machine)` branch, so the registration-time validator at lines
-;; 1977-1990 catches keyword-ref typos inside any region. These cover the
-;; parallel-region cases alongside the flat + compound cases above.
+;; Per Spec 005 §Parallel regions: `walk-state-nodes`
+;; (`lifecycle-fx.validation`) iterates parallel regions via its
+;; `(parallel? machine)` branch, so the registration-time validator catches
+;; keyword-ref typos inside any region. These cover the parallel-region
+;; cases alongside the flat + compound cases above.
 
 (deftest parallel-region-on-guard-keyword-unresolved
   (testing "Parallel region :on with unregistered :guard keyword fails registration"
@@ -331,7 +331,7 @@
 (deftest parallel-region-deeply-nested-action-unresolved
   (testing "Parallel region with a DEEPLY-NESTED state referencing an
             unregistered action keyword fails registration"
-    ;; The bead's case (2): inside a region, descend through a compound
+    ;; Inside a region, descend through a compound
     ;; state's :states to a nested leaf. The validator must walk down
     ;; into the region's compound states, not stop at the region root.
     (let [m {:type    :parallel
@@ -397,12 +397,12 @@
       (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))))))
 
 (deftest always-self-loop-bare-keyword-target-rejected
-  (testing "a BARE-KEYWORD :always (the :on / :after keyword-target shorthand,
-            rf2-0k0f3x) whose target names its own declaring state is rejected
+  (testing "a BARE-KEYWORD :always (the :on / :after keyword-target shorthand)
+            whose target names its own declaring state is rejected
             at registration — desugaring runs BEFORE the self-loop check, so
             {:always :itself} cannot slip past `always-self-loop?` (which
-            keys off :target and previously never saw one, since the
-            un-desugared bare keyword has no :target key)"
+            keys off :target, and an un-desugared bare keyword has no
+            :target key)"
     (let [m {:initial :checking
              :states  {:checking {:always :checking}}}
           thrown (registration-throws? :rf.always-self-loop/bare-kw m)]
@@ -414,12 +414,12 @@
 
 (deftest always-self-loop-bare-vector-target-rejected
   (testing "a BARE VECTOR-TARGET :always (the absolute-path sugar
-            `{:target <vec>}` — distinct from a vector OF candidate maps,
-            rf2-0k0f3x) whose target is its own declaring state's absolute
-            path is rejected at registration. Pre-fix, the ad hoc
-            `(vector? a)` branch mistook ANY vector value (including this
-            bare absolute-path sugar) for an already-desugared vector of
-            entries, so this shape never reached `always-self-loop?` at all"
+            `{:target <vec>}` — distinct from a vector OF candidate maps)
+            whose target is its own declaring state's absolute
+            path is rejected at registration. A `(vector? a)` check that
+            read ANY vector value (including this bare absolute-path sugar)
+            as an already-desugared vector of entries would keep this shape
+            from ever reaching `always-self-loop?`"
     (let [m {:initial :outer
              :states  {:outer {:initial :inner
                                :states  {:inner {:always [:outer :inner]}}}}}
@@ -446,7 +446,7 @@
 (deftest always-targetless-fixed-point-demo-registers
   (testing "the CANONICAL fixed-point / re-evaluate-until-condition machine —
             a targetless guarded :always with an :action — registers via
-            reg-machine without throwing (acdlp ruling B)."
+            reg-machine without throwing."
     ;; This is the exact machine the SCXML conformance corpus models in
     ;; `scxml-eventless-settles-to-fixed-point` (the :more?/:bump counter
     ;; that settles :n 0→3). That corpus drives the PURE engine via `step`;
@@ -478,7 +478,7 @@
           "ex-data names the declaring leaf state"))))
 
 (deftest always-self-loop-single-map-form-rejected
-  (testing "an :always declared as a single map (not a vector) is still walked"
+  (testing "an :always declared as a single map (not a vector) is walked"
     (let [m {:initial :checking
              :guards  {:ready? (fn [_] true)}
              :states  {:checking {:always {:guard :ready? :target :checking}}}}
@@ -606,7 +606,7 @@
 (deftest multi-hop-guard-indirection-dangling-tail-rejected
   (testing "a :guard ref whose multi-hop indirection chain dangles at the
             terminal hop (no entry for :b) is rejected at REGISTRATION,
-            not deferred to runtime (rf2-ylpnn)"
+            not deferred to runtime"
     (let [m {:initial :idle
              :guards  {:a :b}                    ;; :a → :b, but no :b entry
              :actions {}
@@ -622,7 +622,7 @@
 
 (deftest multi-hop-action-indirection-dangling-tail-rejected
   (testing "a :action ref whose multi-hop indirection chain dangles at the
-            terminal hop is rejected at REGISTRATION (rf2-ylpnn)"
+            terminal hop is rejected at REGISTRATION"
     (let [m {:initial :idle
              :guards  {}
              :actions {:a :b}                    ;; :a → :b, but no :b entry
@@ -639,7 +639,7 @@
 (deftest cyclic-guard-indirection-rejected
   (testing "a CYCLIC :guard indirection (:a → :b → :a, never a fn) is rejected
             at registration — chase-ref returns nil on a cycle, so the
-            validator must treat it as unresolved rather than loop (rf2-ylpnn)"
+            validator must treat it as unresolved rather than loop"
     (let [m {:initial :idle
              :guards  {:a :b
                        :b :a}                     ;; cycle, no terminal fn
@@ -663,7 +663,7 @@
 ;; rejects unresolvable targets at machine creation; we align.
 
 (deftest on-scalar-target-rejected-at-registration
-  (testing "an :on transition whose :target is a non-keyword/non-vector scalar is rejected at registration (rf2-w84jv)"
+  (testing "an :on transition whose :target is a non-keyword/non-vector scalar is rejected at registration"
     (let [m {:initial :idle
              :states  {:idle  {:on {:go {:target 42}}}
                        :other {}}}
@@ -676,7 +676,7 @@
           "ex-data carries the offending target"))))
 
 (deftest on-missing-vector-target-rejected-at-registration
-  (testing "an :on transition whose vector :target names no declared state is rejected at registration (rf2-w84jv)"
+  (testing "an :on transition whose vector :target names no declared state is rejected at registration"
     (let [m {:initial :idle
              :states  {:idle  {:on {:go {:target [:missing]}}}
                        :other {}}}
@@ -689,7 +689,7 @@
           "ex-data carries the offending target"))))
 
 (deftest on-missing-keyword-target-rejected-at-registration
-  (testing "an :on transition whose keyword :target names no sibling state is rejected at registration (rf2-w84jv)"
+  (testing "an :on transition whose keyword :target names no sibling state is rejected at registration"
     (let [m {:initial :idle
              :states  {:idle  {:on {:go :nowhere}}
                        :other {}}}
@@ -701,7 +701,7 @@
       (is (= :nowhere (:target (ex-data thrown)))))))
 
 (deftest nested-keyword-target-resolves-as-sibling-not-cross-level
-  (testing "a keyword :target from a NESTED state resolves as a sibling (direct child of the parent compound), so a target naming a state at a different level is rejected (rf2-w84jv)"
+  (testing "a keyword :target from a NESTED state resolves as a sibling (direct child of the parent compound), so a target naming a state at a different level is rejected"
     ;; :leaf is at [:outer :mid :leaf]; keyword :sib resolves to
     ;; [:outer :mid :sib] (sibling), NOT [:outer :sib]. Targeting :outer's
     ;; child :elsewhere by bare keyword does NOT resolve — must be a vector.
@@ -716,7 +716,7 @@
       (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest after-unresolved-target-rejected-at-registration
-  (testing "an :after entry whose :target is unresolved is rejected at registration (rf2-w84jv)"
+  (testing "an :after entry whose :target is unresolved is rejected at registration"
     (let [m {:initial :idle
              :states  {:idle  {:after {1000 :nowhere}}
                        :other {}}}
@@ -726,7 +726,7 @@
       (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest on-done-unresolved-target-rejected-at-registration
-  (testing "a compound's :on-done whose :target is unresolved is rejected at registration (rf2-w84jv)"
+  (testing "a compound's :on-done whose :target is unresolved is rejected at registration"
     (let [m {:initial :outer
              :states  {:outer {:initial :done
                                :on-done :nowhere
@@ -737,7 +737,7 @@
       (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest spawn-on-error-unresolved-target-rejected-at-registration
-  (testing "a :spawn :on-error whose :target is unresolved is rejected at registration (rf2-w84jv)"
+  (testing "a :spawn :on-error whose :target is unresolved is rejected at registration"
     (let [m {:initial :working
              :states  {:working {:spawn {:machine-id :rf.w84jv/some-child
                                          :on-error {:target :nowhere}}}
@@ -748,7 +748,7 @@
       (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest parallel-region-unresolved-target-rejected-at-registration
-  (testing "an unresolved :target inside a parallel REGION is rejected at registration (rf2-w84jv)"
+  (testing "an unresolved :target inside a parallel REGION is rejected at registration"
     (let [m {:type    :parallel
              :regions {:region-a {:initial :a
                                   :states  {:a {:on {:go :nowhere}}
@@ -761,7 +761,7 @@
       (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest valid-targets-register-cleanly
-  (testing "well-formed resolvable targets (keyword sibling, vector absolute, :same-state, history pseudo-state) register cleanly (control) (rf2-w84jv)"
+  (testing "well-formed resolvable targets (keyword sibling, vector absolute, :same-state, history pseudo-state) register cleanly (control)"
     (let [m {:initial :idle
              :states  {:idle  {:on {:go     :other          ;; keyword sibling
                                     :abs    [:nested :deep]  ;; vector absolute
@@ -775,7 +775,7 @@
           "well-formed resolvable targets must NOT be rejected"))))
 
 (deftest history-pseudo-state-target-registers
-  (testing "a vector :target naming a :type :history pseudo-state resolves (it lives in :states) and registers (control) (rf2-w84jv)"
+  (testing "a vector :target naming a :type :history pseudo-state resolves (it lives in :states) and registers (control)"
     (let [m {:initial :idle
              :states  {:idle    {:on {:resume [:compound :hist]}}
                        :compound {:initial :a
