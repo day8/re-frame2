@@ -44,12 +44,15 @@
   row therefore reads the `:errors` stream, where it stays live in
   production posture — which is the posture that matters for a fail-loud claim.
 
-  What genuinely is dev-only is the DIAGNOSTIC DETAIL. `emit-error-both!` lifts
-  only `:failing-id` / `:reason` onto the always-on record, and this category
-  passes no `:failing-id`, so `:offending-key` rides the dev-trace tags alone: a
-  production listener learns that a classification effect was malformed but not
-  WHICH key. Those `:offending-key` rows — and the dev-trace counts beside them
-  — sit inside `(when rf.interop/debug-enabled? …)` arms.
+  The always-on record also names WHICH key was malformed: the router passes
+  `:offending-key` as a record attribute, a bounded structural discriminator
+  whose value is always one of `:sensitive` / `:large` / `:clear-sensitive` /
+  `:clear-large`. What is dev-only is the DIAGNOSTIC DETAIL — the rejected
+  `:value` and the `:reason` prose that interpolates it ride the dev-trace tags
+  alone. `re-frame.classification-effect-shape-record-cljs-test` pins the
+  always-on record's closed key set and its `:offending-key`; this namespace
+  reads the dev-trace copy, so its `:offending-key` rows — and the dev-trace
+  counts beside them — sit inside `(when rf.interop/debug-enabled? …)` arms.
 
   The `no :db commit happened` rows stay outside every arm. They are the
   fail-CLOSED half of the contract and the reason the error rows are not
@@ -475,10 +478,9 @@
             "exactly one :rf.error/classification-effect-shape record fans on the always-on axis")
         (is (= :bad-classify (:event-id (first recs)))
             "the always-on record attributes the rejection to the offending event"))
-      ;; The dev-trace arm. `:offending-key` is NOT lifted onto the
-      ;; always-on record (`emit-error-both!` lifts only `:failing-id` /
-      ;; `:reason`, and this category passes no `:failing-id`), so it is
-      ;; readable on the trace tags alone.
+      ;; The dev-trace arm: the trace tags carry `:offending-key` beside the
+      ;; full diagnosis. The always-on record's `:offending-key` is pinned by
+      ;; `re-frame.classification-effect-shape-record-cljs-test`.
       (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/classification-effect-shape)]
           (is (= 1 (count errs))
@@ -549,7 +551,8 @@
           (str "exactly one always-on classification-effect-shape record for " effect-key))
       (is (= ev-id (:event-id (first recs)))
           (str "the always-on record attributes the " effect-key " rejection to its event")))
-    ;; `:offending-key` rides the dev-trace tags only.
+    ;; The dev-trace copy of `:offending-key`; the always-on record's is
+    ;; pinned by `re-frame.classification-effect-shape-record-cljs-test`.
     (when rf.interop/debug-enabled?
       (let [errs (error-events recorded :rf.error/classification-effect-shape)]
         (is (= 1 (count errs))
