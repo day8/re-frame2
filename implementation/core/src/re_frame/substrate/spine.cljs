@@ -2550,8 +2550,7 @@
       `updateFunctionComponent` passes `void 0` for `secondArg`, so the call
       arrives with arity 2. The shell forwards the props object ALONE, which
       is what keeps that stray `undefined` out of the user render-fn and out
-      of the dev-only render-args capture `:rf.view/rendered` carries
-      (rf2-rpgq8).
+      of the dev-only render-args capture `:rf.view/rendered` carries.
     * DIRECT INVOCATION — `((rf/view id) {:label \"hi\"} 42)`, the headless
       shape Spec 001 §`(re-frame.core/view id)` describes and the render-
       trace suites use. Forwarded unchanged, so the registered head stays a
@@ -2567,7 +2566,7 @@
   `displayName` is stamped from `rf.performance/entry-id` — the same single
   source `wrap-view` and `build-name` use, so the name React DevTools shows
   for the mounted registry head is the `<id>` of its own `rf:render:<id>`
-  measure (Spec 009 §Naming convention, rf2-976bw). Dev-only: the shell
+  measure (Spec 009 §Naming convention). Dev-only: the shell
   itself is a CORRECTNESS seam and is built in production too, but the name
   string rides `rf.interop/debug-enabled?` and elides with the rest."
   []
@@ -2587,7 +2586,7 @@
   the chain and every contributor's reset runs.
 
   Delegates to the canonical governance chokepoint
-  `rf.late-bind/register-warn-once-clear-fn!` (rf2-z79p8) so the cache is
+  `rf.late-bind/register-warn-once-clear-fn!` so the cache is
   BOTH chained AND enrolled in the warn-once-clear governance registry the
   governance assertion checks. Callers don't need to know the chain key.
 
@@ -2620,7 +2619,7 @@
 ;;      reaction; subscribe is add-watch on the underlying container.
 ;;   4. On unmount the watch is removed and the sub's ref-count
 ;;      decrements; ref-count → 0 disposes synchronously
-;;      (per Spec 006 §reference-counting-and-disposal, rf2-cmfln).
+;;      (per Spec 006 §reference-counting-and-disposal).
 ;;
 ;; Hook fns (`use-memo`, `use-callback`, `use-context`) differ between
 ;; substrates by their deps-array convention — UIx accepts CLJS vectors;
@@ -2630,40 +2629,38 @@
 ;; for substrates that need them; the
 ;; spine passes the deps as a JS array always.
 
-;; ---- the hook-scoped provisional hand-off (rf2-2rtt6.25) -------------------
+;; ---- the hook-scoped provisional hand-off ----------------------------------
 ;;
-;; THE PROBLEM IT DELETES. A React render and the commit that owns it are two
-;; moments. `use-subscribe-2`'s render phase must read a snapshot, and it used
-;; to do so with a BALANCED round trip — subscribe, deref, unsubscribe — so a
-;; render that never commits retained nothing (rf2-es09qq). On a query with no
-;; live cache entry that round trip is `0 → 1 → 0`, and `1 → 0` is the
-;; disposal edge: `re-frame.subs.cache/unsubscribe!` evicts in-tick, no grace
-;; period. Microseconds later the commit-owned `subscribe-fn` misses that same
-;; cache and BUILDS THE REACTION AGAIN. Every cold subscription read on this
-;; spine therefore constructed two reactions and ran the user's sub body
-;; twice — for a layer-2+ sub, walking the whole input chain twice —
-;; measured exactly at `bodyRuns = 2.00N` against Reagent's `1.00N`
-;; (rf2-2rtt6.12) and priced at ≥ 20% of the mount red-zone in every round at
-;; layers 1, 2 and 3 (rf2-2rtt6.15,
-;; docs/design/fresco/studio/coldmount-double-build-priced.md).
+;; THE PROBLEM IT SOLVES. A React render and the commit that owns it are two
+;; moments. `use-subscribe-2`'s render phase must read a snapshot. A BALANCED
+;; round trip — subscribe, deref, unsubscribe — would let a render that never
+;; commits retain nothing, but on a query with no live cache entry that round
+;; trip is `0 → 1 → 0`, and `1 → 0` is the disposal edge:
+;; `re-frame.subs.cache/unsubscribe!` evicts in-tick, no grace period.
+;; Microseconds later the commit-owned `subscribe-fn` would miss that same
+;; cache and BUILD THE REACTION AGAIN. Every cold subscription read on this
+;; spine would construct two reactions and run the user's sub body twice — for
+;; a layer-2+ sub, walking the whole input chain twice — measured at
+;; `bodyRuns = 2.00N` against Reagent's `1.00N` and priced at ≥ 20% of the
+;; mount red-zone at layers 1, 2 and 3
+;; (docs/design/fresco/studio/coldmount-double-build-priced.md).
 ;;
-;; THE SHAPE, RULED (rf2-2rtt6.14, ADOPT). The render phase stops balancing
-;; in-render. It subscribes and keeps its +1 in a ONE-SHOT ESCROW TOKEN, so
-;; the entry is still live when the commit arrives; `subscribe-fn`'s durable
-;; subscribe is then a cache HIT and the committed reaction is `identical?`
-;; the one the render built — ADOPTION, not a rebuild — after which the token
-;; is released, `2 → 1`. One construction per cold read WHEN THE COMMIT
-;; ARRIVES INSIDE THE HORIZON — which, since rf2-2rtt6.71 moved that horizon
-;; out to `setTimeout 4`, it does on the shipping mount path too. Read "AND ON
-;; THE SHIPPING MOUNT PATH IT NOW WINS — BY A MARGIN" below before reading any
-;; performance claim into the rest of this comment: the margin is measured,
-;; not guaranteed.
+;; THE SHAPE. The render phase does not balance in-render. It subscribes and
+;; keeps its +1 in a ONE-SHOT ESCROW TOKEN, so the entry is still live when
+;; the commit arrives; `subscribe-fn`'s durable subscribe is then a cache HIT
+;; and the committed reaction is `identical?` the one the render built —
+;; ADOPTION, not a rebuild — after which the token is released, `2 → 1`. One
+;; construction per cold read WHEN THE COMMIT ARRIVES INSIDE THE HORIZON —
+;; which, at the `setTimeout 4` horizon, it does on the shipping mount path
+;; too. Read "AND ON THE SHIPPING MOUNT PATH IT WINS — BY A MARGIN" below
+;; before reading any performance claim into the rest of this comment: the
+;; margin is measured, not guaranteed.
 ;;
 ;; WHAT IT IS NOT. It is NOT a ref-count-0 cache tenancy. The token is an
 ;; ordinary reference held by an ordinary owner; the cache never holds a
 ;; zero-ref entry, `unsubscribe!`'s 1 → 0 in-tick dispose is untouched, and no
-;; entry gains a state machine. Reagent, reagent-slim and plain-atom are
-;; byte-identical — they never reach this code.
+;; entry gains a state machine. Reagent, reagent-slim and plain-atom never
+;; reach this code.
 ;;
 ;; WHY IT CANNOT LEAK. Four independent reasons, none of them a promise about
 ;; React:
@@ -2680,7 +2677,7 @@
 ;;     `rf.subs/unsubscribe-if-reaction`, which decrements only while the slot
 ;;     still holds the token's reaction. Hot reload, `clear-sub-cache!` and
 ;;     `destroy-frame!` evict slots out from under live holders; that eviction
-;;     took the +1 with it, so a stale release must no-op rather than
+;;     takes the +1 with it, so a stale release must no-op rather than
 ;;     underflow a successor entry rebuilt under the same key.
 ;;   * ONE OUTSTANDING TOKEN PER HOOK. The factory releases the ref's previous
 ;;     token AFTER taking its own (subscribe-then-release, so the count never
@@ -2688,66 +2685,64 @@
 ;;     escrowed reference no matter how many times React re-runs the factory.
 ;;
 ;; AND WHY IT NEED NOT WIN. If the drain fires before React commits, the entry
-;; disposes and the commit rebuilds — exactly the pre-hand-off behaviour.
-;; Correctness never depends on the ordering; only the saving does.
+;; disposes and the commit rebuilds — exactly the balanced-round-trip
+;; behaviour. Correctness never depends on the ordering; only the saving does.
 ;;
-;; AND ON THE SHIPPING MOUNT PATH IT NOW WINS — BY A MARGIN (rf2-2rtt6.71,
-;; ruling (a); measured by rf2-2rtt6.25's merged-PR audit of #7305).
+;; AND ON THE SHIPPING MOUNT PATH IT WINS — BY A MARGIN.
 ;; `make-render` mounts with a bare `createRoot(…).render(…)`, and on that
 ;; schedule it is the reaper's DELAY that decides the outcome. A `setTimeout 0`
-;; armed during the render runs BEFORE React gets back to flushing the passive
-;; effect that installs the `useSyncExternalStore` subscription — so the token
-;; was reaped, the entry disposed on the ordinary 1 → 0 edge, and the commit
-;; missed and rebuilt: `bodyRuns` 2.00N, the term this was adopted to delete,
-;; paid on every consumer mount. That is the whole reason the horizon is 4 ms
-;; and not 0. It is not 32 either: 4 is the SHORTEST probed delay reading
-;; 1.00N at N = 1 and at N = 300 alike, so the adoption is realised without
-;; holding an abandoned render's graph a millisecond longer than winning takes.
+;; armed during the render would run BEFORE React gets back to flushing the
+;; passive effect that installs the `useSyncExternalStore` subscription — so
+;; the token would be reaped, the entry disposed on the ordinary 1 → 0 edge,
+;; and the commit would miss and rebuild: `bodyRuns` 2.00N, the term this
+;; exists to delete, paid on every consumer mount. That is the whole reason the
+;; horizon is 4 ms and not 0. It is not 32 either: 4 is the SHORTEST probed
+;; delay reading 1.00N at N = 1 and at N = 300 alike, so the adoption is
+;; realised without holding an abandoned render's graph a millisecond longer
+;; than winning takes.
 ;;
 ;; WHAT THE MARGIN IS, AND WHAT IT IS NOT. React documents no maximum
 ;; render-to-subscribe interval, so 4 ms cannot be sized against a contract —
-;; it is the measured distance on React 19 today, and a future scheduling
-;; change can silently reintroduce 2.00N. The claim here is therefore NARROW:
-;; one build on the instrument page the ruling measured, with the two-build
-;; rebuild as the safe fallback, and adoption stays a best-effort optimisation
-;; that no caller may rely on.
+;; it is the measured distance on React 19, and a future scheduling change can
+;; silently reintroduce 2.00N. The claim here is therefore NARROW: one build on
+;; the measured instrument page, with the two-build rebuild as the safe
+;; fallback, and adoption stays a best-effort optimisation that no caller may
+;; rely on.
 ;;
-;; AND THE BROWSER SUITE IS NOT THE WITNESS FOR IT (rf2-2rtt6.71 implementation
-;; sweep). `assert-use-subscribe-browser-runner-schedule-rebuilds` mounts through
-;; the adapter `:render` slot with no `act` and no `flushSync`, and it still
-;; reads TWO builds at this horizon — because the gap that page puts between
-;; the render and React's passive flush measures > 128 ms and <= 256 ms, two to
+;; AND THE BROWSER SUITE IS NOT THE WITNESS FOR IT.
+;; `assert-use-sub-browser-runner-schedule-rebuilds` mounts through the
+;; adapter `:render` slot with no `act` and no `flushSync`, and it still reads
+;; TWO builds at this horizon — because the gap that page puts between the
+;; render and React's passive flush measures > 128 ms and <= 256 ms, two to
 ;; three orders of magnitude past anything shippable. Disabling the reaper, or
 ;; raising it to 256 ms, flips it; 0/8/16/32/64 do not, per-token arming does
-;; not. So that row pins the DEFECT the `setTimeout 0` era had in every
+;; not. So that row pins the DEFECT a `setTimeout 0` horizon has in every
 ;; environment, and it is NOT evidence about a consumer mount at this horizon
-;; in either direction. The witness on a representative page now EXISTS —
-;; committed, one command, and gating nothing (rf2-2rtt6.80):
+;; in either direction. The witness on a representative page is committed,
+;; one command, and gates nothing:
 ;; `bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs`, which
 ;; measures its own page's gap before it will read an adoption integer.
 ;;
 ;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public
 ;; mechanism hardens the margin, because Spec 006's "correctness MUST NOT
-;; depend on the reaper losing the race" is untouched — and that is precisely
-;; what makes a 4 ms heuristic acceptable. The rest of the mechanism is
-;; unchanged and unchanged deliberately: identity adoption, the one-shot
-;; release, the identity guard, the bounded horizon, the cascade at the
-;; horizon, SSR and StrictMode are all exactly as designed and asserted. Every
-;; other probed primitive was rejected on the measurement, not on taste:
-;; `setTimeout 32` also reads 1.00N but holds abandoned graphs eight times
-;; longer for nothing; `requestAnimationFrame` reads 1.00N at N = 1 and 2.00N
-;; at N = 300; a `MessageChannel` post reads 2.00N, because React posts its own
-;; message later and the queue is FIFO. A non-timer signal that is a CONTRACT
-;; rather than a margin would supersede all of them; React exposes none today
-;; (rf2-2rtt6.71 option (c), left open as a research direction).
+;; depend on the reaper losing the race" holds regardless — and that is
+;; precisely what makes a 4 ms heuristic acceptable. The rest of the mechanism
+;; is deliberate: identity adoption, the one-shot release, the identity guard,
+;; the bounded horizon, the cascade at the horizon, SSR and StrictMode are all
+;; exactly as designed and asserted. Every other probed primitive loses on the
+;; measurement, not on taste: `setTimeout 32` also reads 1.00N but holds
+;; abandoned graphs eight times longer for nothing; `requestAnimationFrame`
+;; reads 1.00N at N = 1 and 2.00N at N = 300; a `MessageChannel` post reads
+;; 2.00N, because React posts its own message later and the queue is FIFO. A
+;; non-timer signal that is a CONTRACT rather than a margin would supersede all
+;; of them; React exposes none.
 ;;
-;; THE ONE CONTRACT-VISIBLE CHANGE, blessed by the ruling: a render abandoned
-;; before commit leaves ≤ 1 ref-count until the horizon rather than 0
-;; immediately, and the ruling moved that horizon from one `setTimeout 0` task
-;; out to ~4 ms. The zero-leak property is unchanged; its zero-POINT is the
-;; horizon. Spec 006 §Render-phase provisional acquisition and commit adoption
-;; carries the wording, and every witness that crosses the horizon settles
-;; PAST it deliberately rather than on a bare `setTimeout 0`.
+;; THE ONE CONTRACT-VISIBLE CONSEQUENCE: a render abandoned before commit
+;; leaves ≤ 1 ref-count until the ~4 ms horizon rather than 0 immediately. The
+;; zero-leak property holds; its zero-POINT is the horizon. Spec 006
+;; §Render-phase provisional acquisition and commit adoption carries the
+;; wording, and every witness that crosses the horizon settles PAST it
+;; deliberately rather than on a bare `setTimeout 0`.
 
 (defn- release-provisional!
   "Release one escrow token — ONE-SHOT and REACTION-GUARDED, per the section
@@ -2775,22 +2770,21 @@
   `no-provisional` when there is nothing live to read.
 
   This is what keeps `use-subscribe`'s pre-commit snapshot honest without
-  retaining anything (rf2-2rtt6.13, the audit of PR #7304). The render-phase
-  memo returns a VALUE, so between a render and the commit that owns it the
-  hook has no reaction of its own — and a value frozen at render time compares
-  equal to itself forever, which makes React's pre-commit store-consistency
-  check a no-op BY CONSTRUCTION and lets a write that landed in that gap commit
-  (and paint) stale. Measured: on a concurrent lane the first commit showed the
-  render's value while app-db had already moved.
+  retaining anything. The render-phase memo returns a VALUE, so between a
+  render and the commit that owns it the hook has no reaction of its own — and
+  a value frozen at render time compares equal to itself forever, which would
+  make React's pre-commit store-consistency check a no-op BY CONSTRUCTION and
+  let a write that landed in that gap commit (and paint) stale. That failure is
+  measured, not hypothetical: without this read, on a concurrent lane the first
+  commit would show the render's value while app-db had already moved.
 
   But the token ALREADY holds the reaction, and holds it LIVE: that +1 is the
-  whole point of the hand-off (rf2-2rtt6.25), and it is what makes the entry
-  still tenanted when the commit arrives to adopt it. So the pre-commit read has
-  a live source available for free. Nothing new is retained — the retention is
-  the token's, it predates this fn, and it ends at adoption or at the macrotask
-  horizon, never at the component's lifetime. The memo slot and `get-snap`'s
-  closure still hold a value and no handle, which is exactly what rf2-2rtt6.13
-  bought.
+  whole point of the hand-off, and it is what makes the entry still tenanted
+  when the commit arrives to adopt it. So the pre-commit read has a live source
+  available for free. Nothing new is retained — the retention is the token's,
+  not this fn's, and it ends at adoption or at the macrotask horizon, never at
+  the component's lifetime. The memo slot and `get-snap`'s closure hold a value
+  and no handle.
 
   `spent?` (slot 3) is load-bearing, not defensive. The reaper flips it and
   decrements WITHOUT clearing the holder's ref, so a spent token can be pointing
@@ -2813,8 +2807,8 @@
 
 (def ^:private provisional-horizon-ms
   "The reap horizon in milliseconds: how long an UNADOPTED provisional
-  reference lives before the macrotask drain releases it. RULED 4 by
-  rf2-2rtt6.71. `make-provisional-escrow` below carries the reasoning, the
+  reference lives before the macrotask drain releases it: 4.
+  `make-provisional-escrow` below carries the reasoning, the
   measurement and the margin-not-contract caveat; this is the only place the
   number is written down."
   4)
@@ -2824,7 +2818,7 @@
   query-v)` mints the token, queues it, arms the reaper, and answers the token.
 
   THE REAPER IS A MACROTASK, AND ITS HORIZON IS `setTimeout 4`
-  (`provisional-horizon-ms`, ruled by rf2-2rtt6.71). Those are two separate
+  (`provisional-horizon-ms`). Those are two separate
   constraints and both are load-bearing.
 
   A MACROTASK IS NECESSARY. React 19 installs `useSyncExternalStore`'s
@@ -2834,8 +2828,7 @@
   — so every token would be reaped before the commit that was meant to adopt
   it.
 
-  AND IT IS NOT SUFFICIENT: WHICH macrotask decides the outcome (rf2-2rtt6.25,
-  audit of #7305 — the measurement; rf2-2rtt6.71 — the ruling that acts on it).
+  AND IT IS NOT SUFFICIENT: WHICH macrotask decides the outcome.
   Measured through the public adapter render slot with no `act` and no
   `flushSync`, at N = 1 and at N = 300 boundaries, three trials each: a
   `setTimeout 0` armed inside the render fires BEFORE React's passive flush, so
@@ -2849,17 +2842,16 @@
 
   A MARGIN, NOT A CONTRACT. React documents no maximum render-to-subscribe
   interval, so no delay can be sized against a guarantee: 4 ms is the measured
-  distance on React 19 today, and a future scheduling change can silently
+  distance on React 19, and a future scheduling change can silently
   reintroduce the double build. The claim therefore stays narrow — one build on
   the tested shipping schedule, with the two-build rebuild as the safe fallback.
 
-  AND THERE IS NO STANDING TRIPWIRE, deliberately (rf2-2rtt6.80). This
-  paragraph used to promise one and was wrong twice over.
-  `assert-use-subscribe-browser-runner-schedule-rebuilds` does not pin
+  AND THERE IS NO STANDING TRIPWIRE, deliberately.
+  `assert-use-sub-browser-runner-schedule-rebuilds` does not pin
   `identical?` and ONE construction; it pins the opposite integers, because
   that runner's render-to-passive-flush gap measures > 128 ms and no shippable
   horizon reaches it. What that row holds is the RUNNER's schedule — enough for
-  the `setTimeout 0`-era defect, which was real in every environment, and not
+  the `setTimeout 0` defect, which is real in every environment, and not
   enough to say anything about the adoption.
 
   THE ADOPTION WITNESS IS A COMMITTED DIAGNOSTIC that nothing invokes on a
@@ -2941,9 +2933,9 @@
        :componentize-view          …
        :clear-warned-non-dom-roots! …}
 
-  Note (rf2-z7hfp): the spine no longer produces `:frame-provider` or
+  Note: the spine does not produce `:frame-provider` or
   `:register-context-provider`. The user-facing frame-provider is a
-  NATIVE substrate component (`defui` / `defnc`) defined in the adapter
+  NATIVE substrate component (`defui`) defined in the adapter
   ns above where each substrate's element macro marshals props; the
   adapter passes that component into `make-react-adapter` as
   `:frame-provider`, and the spine wires it into the
@@ -2962,12 +2954,12 @@
         warn-fn            (make-warn-non-dom-root-fn warn-cache substrate-name)
         emitter-cell       (make-hiccup-emitter-cell)
         active-roots-cell  (make-active-roots-cell)
-        ;; rf2-334d9: after-render queue + sentinel component + the
+        ;; After-render queue + sentinel component + the
         ;; routed-hook impl. The adapter publishes the hook by passing
         ;; `:after-render-hook` to `rf.substrate.adapter/route-hook!`.
         after-render-queue-cell       (make-after-render-queue-cell)
         after-render-set-tick-ref     (make-after-render-set-tick-ref)
-        ;; rf2-t0x90: holds the lazily-mounted singleton driver root so
+        ;; Holds the lazily-mounted singleton driver root so
         ;; native-mount apps still get post-commit after-render timing.
         after-render-driver-root-cell (make-after-render-driver-root-cell)
         after-render-sentinel      (make-after-render-sentinel
@@ -2979,13 +2971,13 @@
                                      after-render-sentinel
                                      after-render-driver-root-cell)
         subscribe-cont     (make-subscribe-container gensym-prefix-sub)
-        ;; rf2-i21f5: one epoch scheduler per adapter, shared by
+        ;; One epoch scheduler per adapter, shared by
         ;; `replace-container!` and every `make-derived-value`, so a
         ;; multi-input derived value recomputes glitch-free and notifies
         ;; once per coherent app-db epoch (Spec 006 §Invalidation
         ;; algorithm). See the epoch-scheduler section above.
         scheduler          (make-scheduler)
-        ;; rf2-2rtt6.25: one provisional-escrow acquirer per spine — the
+        ;; One provisional-escrow acquirer per spine — the
         ;; render-phase +1 `use-subscribe-2` hands to the commit, and the
         ;; single macrotask reaper that guarantees every token dies whether or
         ;; not that commit ever arrives. See the section comment above
@@ -3010,11 +3002,11 @@
                                (subs s 0 (dec n))
                                s))
         wrap-view-fn       (make-wrap-view warn-fn)
-        ;; rf2-oz7wr — the substrate-agnostic half of the registered-view
+        ;; The substrate-agnostic half of the registered-view
         ;; component head. The adapter marks the shell this returns with its
         ;; own substrate's component marker before publishing it.
         componentize-fn    (make-componentize-view)
-        ;; rf2-kuky.56 — the ONE create-or-hydrate path; the one-shot `render`
+        ;; The ONE create-or-hydrate path; the one-shot `render`
         ;; slot and the reusable client-root trio are both projections of it,
         ;; exactly as the ratom spine's `mount-root!` serves both there.
         mount-client-root! (make-mount-client-root! active-roots-cell
@@ -3026,7 +3018,7 @@
                              {:active-roots-cell active-roots-cell
                               :warn-cache        warn-cache
                               :emitter-cell      emitter-cell
-                              ;; rf2-t0x90: release the singleton
+                              ;; Release the singleton
                               ;; after-render driver root + clear its
                               ;; set-tick slot so a fresh init! re-arms.
                               :after-render-driver-root-cell after-render-driver-root-cell
@@ -3038,7 +3030,7 @@
         ;; without a self-reference on the let-bound `use-subscribe`
         ;; (CLJS let-bound fns cannot name themselves).
         ;;
-        ;; ---- stable-key derivation (rf2-mwft2) -------------------------------
+        ;; ---- stable-key derivation -------------------------------------------
         ;;
         ;; React's deps comparison is `Object.is` (≈ `===`). Both
         ;; `frame-kw` (a CLJS keyword) and `query-v` (a CLJS persistent
@@ -3054,7 +3046,7 @@
         ;; watch add/remove, and cache-entry ref-count churn even when
         ;; the subscription is unchanged.
         ;;
-        ;; Fix: hold the previous `[frame-kw query-v]` tuple in a
+        ;; So the hook holds the previous `[frame-kw query-v]` tuple in a
         ;; `useRef`. Each render we compare the incoming tuple to
         ;; `ref.current` by CLJS `=`. If equal, we read the stored
         ;; tuple's components back, returning JS-ref-stable elements
@@ -3064,25 +3056,24 @@
         ;; idempotent given identical inputs and never mutates after a
         ;; commit.
         ;;
-        ;; The bead (rf2-mwft2) flagged `(hash [frame-kw query-v])` as
-        ;; the simpler candidate. We chose `useRef` + `=` over `hash`
-        ;; because Murmur3 collisions, however rare, would have
-        ;; useMemo return the wrong reaction for a colliding (frame,
-        ;; query) pair — a silent correctness bug. The `useRef` path
+        ;; `(hash [frame-kw query-v])` is the simpler candidate, but
+        ;; `useRef` + `=` beats it: Murmur3 collisions, however rare,
+        ;; would have useMemo return the wrong reaction for a colliding
+        ;; (frame, query) pair — a silent correctness bug. The `useRef` path
         ;; has no false-positive equality and stays cheap (one extra
         ;; ref, one allocation-free `=` compare per render).
         use-subscribe-2
         (fn use-subscribe-2 [frame-kw query-v]
           (let [key-ref (React/useRef nil)
-                ;; Holds the DURABLE committed reaction (rf2-sqhjtu). The
-                ;; render-phase `use-memo` below reads a snapshot without
-                ;; retaining a handle, and (since rf2-2rtt6.25) hands its
-                ;; ref-count on to the commit rather than balancing it away, so
-                ;; on the cold path `subscribe-fn` ADOPTS the same reaction. The
-                ;; committed and render-phase reactions can still be DIFFERENT
-                ;; objects — the reaper may have beaten the commit, hot reload
-                ;; may have rebuilt the slot — so the rule below is unchanged and
-                ;; not conditional on the hand-off winning.
+                ;; Holds the DURABLE committed reaction. The render-phase
+                ;; `use-memo` below reads a snapshot without retaining a
+                ;; handle, and on the cold path hands its ref-count on to the
+                ;; commit rather than balancing it away, so `subscribe-fn`
+                ;; ADOPTS the same reaction. The committed and render-phase
+                ;; reactions can still be DIFFERENT objects — the reaper may
+                ;; have beaten the commit, hot reload may have rebuilt the
+                ;; slot — so the rule below is not conditional on the hand-off
+                ;; winning.
                 ;;
                 ;; `get-snap` must never read a disposed handle. A disposed
                 ;; reaction still recomputes on `-deref` (pull-based), so
@@ -3096,21 +3087,20 @@
                 ;; reads the committed reaction stored here once `subscribe-fn`
                 ;; has run (post-commit), and before that reads the reaction the
                 ;; hook's unspent ESCROW TOKEN is holding, which is live by
-                ;; construction (rf2-2rtt6.25's +1 is what keeps it tenanted).
+                ;; construction (the escrowed +1 is what keeps it tenanted).
                 ;; The render-phase SNAPSHOT VALUE (`render-snapshot` below) is
-                ;; the last resort, for when neither is live. Since rf2-2rtt6.13
-                ;; nothing here holds a handle for the component's lifetime, so
-                ;; a disposed reaction is not merely un-preferred — it is
-                ;; unreachable.
+                ;; the last resort, for when neither is live. Nothing here
+                ;; holds a handle for the component's lifetime, so a disposed
+                ;; reaction is not merely un-preferred — it is unreachable.
                 ;;
-                ;; rf2-naz09e: the ref stores the committed reaction KEY-TAGGED
+                ;; The ref stores the committed reaction KEY-TAGGED
                 ;; as `#js [stable-key committed]` (see `subscribe-fn` and
                 ;; `get-snap` below) so a query-v/frame change on a mounted
                 ;; component can't serve the PREVIOUS target's value for the
                 ;; change-commit — `get-snap` reads the tag only while it
                 ;; matches the current render's key.
                 committed-ref (React/useRef nil)
-                ;; rf2-2rtt6.25: the hook's single outstanding ESCROW TOKEN,
+                ;; The hook's single outstanding ESCROW TOKEN,
                 ;; key-tagged as `#js [stable-key token]` — the render-phase
                 ;; +1 that keeps the freshly-built reaction alive until the
                 ;; commit adopts it. nil whenever this hook holds none (before
@@ -3133,26 +3123,26 @@
                 ;; same-by-= subsequent renders.
                 stable-frame-kw (aget stable-key 0)
                 stable-query-v  (aget stable-key 1)
-                ;; ---- commit-deferred ref-count acquisition (rf2-es09qq) -------
+                ;; ---- commit-deferred ref-count acquisition ---------------------
                 ;;
                 ;; THE INVARIANT: a render that never commits MUST NOT retain a
-                ;; sub-cache ref-count. The earlier design (rf2-879fe ledger) put
-                ;; the durable `rf.subs/subscribe` (+1) in the render-phase `useMemo`
-                ;; factory and reclaimed it from commit-owned effects. That is
+                ;; sub-cache ref-count. Putting the durable `rf.subs/subscribe`
+                ;; (+1) in the render-phase `useMemo` factory and reclaiming it
+                ;; from commit-owned effects through a `useRef` ledger would be
                 ;; unsound for a FIRST-MOUNT render abandoned before commit
                 ;; (Suspense / concurrent interrupt): React discards the whole
                 ;; fiber — its `useRef` ledger AND its never-run effects — so the
-                ;; render-phase +1 is pinned in the GLOBAL sub-cache forever with
-                ;; no owning component. The ledger only ever healed a render whose
-                ;; fiber LATER committed; a discarded first-mount fiber never gets
+                ;; render-phase +1 would be pinned in the GLOBAL sub-cache forever
+                ;; with no owning component. A ledger only heals a render whose
+                ;; fiber LATER commits; a discarded first-mount fiber never gets
                 ;; that reconcile pass.
                 ;;
-                ;; FIX — the durable acquire/release lives ONLY in commit-owned
+                ;; SO the durable acquire/release lives ONLY in commit-owned
                 ;; hooks (`useSyncExternalStore`'s subscribe callback, run after
                 ;; commit; its cleanup run on unmount / subscribe-identity change
                 ;; / teardown). React NEVER calls that callback for a render that
-                ;; doesn't commit, so an abandoned render acquires NOTHING — the
-                ;; leak is gone BY CONSTRUCTION, independent of fiber discard.
+                ;; doesn't commit, so an abandoned render acquires NOTHING — no
+                ;; leak BY CONSTRUCTION, independent of fiber discard.
                 ;;
                 ;; The render phase still needs a SNAPSHOT to hand
                 ;; `useSyncExternalStore`, and it takes one of two shapes
@@ -3166,7 +3156,7 @@
                 ;; `rf.subs/unsubscribe`) bumps 1 → 2 and drops back to 1, never
                 ;; crossing the disposal edge, and the render retains nothing.
                 ;; React may DISCARD a memo and re-run this factory on unchanged
-                ;; deps whenever it likes (rf2-8u8tx.2) — each re-run is its own
+                ;; deps whenever it likes — each re-run is its own
                 ;; balanced round trip, so no number of discards can move the
                 ;; ref-count.
                 ;;
@@ -3175,52 +3165,48 @@
                 ;; change. Here the balanced round trip WOULD go 0 → 1 → 0 and
                 ;; destroy the reaction it just built, so instead the +1 is kept
                 ;; in a hook-scoped ESCROW TOKEN and handed to the commit
-                ;; (rf2-2rtt6.25 — see the section comment above
+                ;; (see the section comment above
                 ;; `make-provisional-escrow`, and Spec 006 §Render-phase
                 ;; provisional acquisition and commit adoption). `subscribe-fn`
                 ;; then HITS the cache, adopts the identical? reaction, and
                 ;; releases the token 2 → 1; a render that never commits has its
                 ;; token reaped by the macrotask drain armed inside `escrow!`.
-                ;; Since rf2-2rtt6.71 moved the horizon to `setTimeout 4` the
-                ;; commit arrives first on the PUBLIC mount schedule too — by a
-                ;; measured margin, never by a React guarantee. Nothing in this
-                ;; branch depends on which arrives.
+                ;; At the `setTimeout 4` horizon the commit arrives first on the
+                ;; PUBLIC mount schedule too — by a measured margin, never by a
+                ;; React guarantee. Nothing in this branch depends on which
+                ;; arrives.
                 ;;
-                ;; The two prior leak triggers stay closed, by the same
-                ;; construction that closed them:
-                ;;   • rf2-879fe / rf2-es09qq (abandoned before commit) — the
-                ;;     render's reference is owned by the reaper, not by the
-                ;;     fiber React discarded, so it is released whether or not
-                ;;     any effect ever runs. The zero-leak property is
-                ;;     unchanged; the zero-POINT is one macrotask later, and
-                ;;     that is the single contract-visible change the
-                ;;     rf2-2rtt6.14 ruling blesses.
-                ;;   • rf2-8u8tx.2 (memo perf-discard) — committed, the round
-                ;;     trip is balanced; uncommitted, the factory releases the
-                ;;     ref's PREVIOUS token after taking its own, so a hook
-                ;;     holds at most one escrowed reference however many times
-                ;;     React re-runs it. No climb on either path.
-                ;; Per Spec 006 §Reference counting and disposal (rf2-cmfln).
+                ;; Both leak triggers stay closed by construction:
+                ;;   • abandoned before commit — the render's reference is
+                ;;     owned by the reaper, not by the fiber React discarded, so
+                ;;     it is released whether or not any effect ever runs. The
+                ;;     zero-leak property holds; the zero-POINT is the reap
+                ;;     horizon, and that is the single contract-visible
+                ;;     consequence.
+                ;;   • memo perf-discard — committed, the round trip is
+                ;;     balanced; uncommitted, the factory releases the ref's
+                ;;     PREVIOUS token after taking its own, so a hook holds at
+                ;;     most one escrowed reference however many times React
+                ;;     re-runs it. No climb on either path.
+                ;; Per Spec 006 §Reference counting and disposal.
                 ;;
-                ;; ---- the memo yields the VALUE, never the handle (rf2-2rtt6.13) ----
+                ;; ---- the memo yields the VALUE, never the handle --------------
                 ;;
-                ;; Returning the reaction HANDLE retained it for the component's
-                ;; lifetime — `use-memo`'s hook slot held it and `get-snap`'s
-                ;; closure held it — at a measured 769 B `[765–793]` / 23.0
-                ;; objects per read, 22% of every UIx subscription read
+                ;; Returning the reaction HANDLE would retain it for the
+                ;; component's lifetime — `use-memo`'s hook slot and `get-snap`'s
+                ;; closure would each hold it — at a measured 769 B `[765–793]` /
+                ;; 23.0 objects per read, 22% of every UIx subscription read
                 ;; (docs/design/fresco/studio/uix-spine-per-read-
-                ;; decomposition.md; instrument landed 24e8822d7f). And on the
-                ;; cold path that handle used to be DEAD before the factory
-                ;; returned. So deref while the reaction is live and return the
-                ;; VALUE; no HOOK SLOT holds the reaction once the factory
-                ;; returns. The escrow above does not walk this back. Its token
-                ;; does carry the reaction — that is how the release
+                ;; decomposition.md). So deref while the reaction is live and
+                ;; return the VALUE; no HOOK SLOT holds the reaction once the
+                ;; factory returns. The escrow above does not undo this. Its
+                ;; token does carry the reaction — that is how the release
                 ;; identity-guards itself — but the token is owned by the reaper
                 ;; and dies at adoption or at the macrotask horizon, so what the
-                ;; component retains for its lifetime is still a value and not a
+                ;; component retains for its lifetime is a value and not a
                 ;; handle. That distinction is what makes the token safe for
                 ;; `get-snap` to READ pre-commit (`provisional-snapshot`) without
-                ;; reopening the 769 B this change closed.
+                ;; paying those 769 B.
                 render-snapshot
                 (use-memo (fn []
                             (let [stored    (.-current committed-ref)
@@ -3254,7 +3240,7 @@
                 ;; The store-snapshot fn React calls on every render to
                 ;; detect tearing. Pure deref of the LIVE committed reaction.
                 ;;
-                ;; rf2-sqhjtu: prefer the durable committed reaction stored in
+                ;; Prefer the durable committed reaction stored in
                 ;; `committed-ref` by `subscribe-fn` (set post-commit, cleared
                 ;; on teardown). `render-snapshot` — the VALUE the render-phase
                 ;; round trip read — is only the fallback for the pre-commit
@@ -3263,11 +3249,10 @@
                 ;; thing to read. Once committed, `get-snap` tracks the live
                 ;; cached reaction (the one carrying source watches and the
                 ;; current sub body), never a disposed first-render handle —
-                ;; which since rf2-2rtt6.13 it could not reach anyway. The
-                ;; committed reaction's value `=` the render-phase one
-                ;; (rf2-cmfln), so the source swap is tear-free.
+                ;; which it cannot reach anyway. The committed reaction's value
+                ;; `=` the render-phase one, so the source swap is tear-free.
                 ;;
-                ;; rf2-2rtt6.13 — the pre-commit read is LIVE, and it is live
+                ;; The pre-commit read is LIVE, and it is live
                 ;; without retaining anything. Three sources, in strict order of
                 ;; how current they are:
                 ;;
@@ -3280,19 +3265,19 @@
                 ;;   3. `render-snapshot`, the value the render phase read, when
                 ;;      neither of those is live.
                 ;;
-                ;; (2) is what closes the window the audit of PR #7304 opened.
-                ;; The memo returning a VALUE rather than a handle is the whole
-                ;; rf2-2rtt6.13 win and is untouched; but a value frozen at
-                ;; render time compares equal to itself, so with (3) as the only
+                ;; (2) is what closes the pre-commit window. The memo returns
+                ;; a VALUE rather than a handle; but a value frozen at render
+                ;; time compares equal to itself, so with (3) as the only
                 ;; pre-commit answer React's PRE-COMMIT store-consistency check
                 ;; could never fire. On a concurrent lane React re-reads every
                 ;; store's `getSnapshot` before committing a time-sliced render
-                ;; and throws the render away if one moved; a frozen value made
-                ;; that check a no-op by construction, so a write landing in the
-                ;; gap COMMITTED — and could paint — stale, self-healing only one
-                ;; commit later. That is not delayed bookkeeping: a same-commit
-                ;; layout effect or ref read sees it, and the ugly instance is a
-                ;; panel mounting as a permission drops (rf2-so3io / rf2-anmdr).
+                ;; and throws the render away if one moved; a frozen value would
+                ;; make that check a no-op by construction, so a write landing
+                ;; in the gap would COMMIT — and could paint — stale,
+                ;; self-healing only one commit later. That is not delayed
+                ;; bookkeeping: a same-commit layout effect or ref read sees it,
+                ;; and the ugly instance is a panel mounting as a permission
+                ;; drops.
                 ;; The escrow token already holds that reaction LIVE, so (2) costs
                 ;; a ref read and retains nothing new. See `provisional-snapshot`.
                 ;;
@@ -3309,7 +3294,7 @@
                 ;; Every source here is `Object.is`-STABLE across back-to-back
                 ;; calls — each is a memoised reaction's value or a frozen one —
                 ;; which is what React's "the result of getSnapshot should be
-                ;; cached" rule requires. The rejected alternative, having
+                ;; cached" rule requires. The obvious alternative, having
                 ;; `get-snap` re-SUBSCRIBE per call, is unsafe for exactly that
                 ;; reason: on a miss each call would build a fresh reaction with a
                 ;; fresh memo cell, so a collection-returning sub yields a
@@ -3317,7 +3302,7 @@
                 ;; infinite-render-loop condition. Reading a reference something
                 ;; else already owns cannot build anything, so it cannot reach it.
                 ;;
-                ;; rf2-naz09e — the committed reaction is stored KEY-TAGGED as
+                ;; The committed reaction is stored KEY-TAGGED as
                 ;; `#js [stable-key committed]`, and `get-snap` reads it ONLY
                 ;; when the stored key is `identical?` the CURRENT render's
                 ;; `stable-key`; otherwise it falls back to `render-snapshot`.
@@ -3336,13 +3321,12 @@
                 ;; `render-snapshot` memo is keyed on `#js [stable-key]`, so on
                 ;; a key change it already holds the NEW target's value: the
                 ;; fallback serves the NEW value for that very commit, matching
-                ;; the Reagent substrate's in-render recompute (no tear) — and
-                ;; matching it more closely than before, since Reagent's
-                ;; render-phase value is likewise read once, in render. The
-                ;; earlier claim — "once committed-ref is populated post-commit,
-                ;; get-snap's identity is irrelevant to correctness" — was
-                ;; UNTRUE across a key change: committed-ref points at the WRONG
-                ;; (old) reaction until the passive cleanup runs.
+                ;; the Reagent substrate's in-render recompute (no tear), since
+                ;; Reagent's render-phase value is likewise read once, in
+                ;; render. So it is NOT true that get-snap's identity is
+                ;; irrelevant to correctness once committed-ref is populated
+                ;; post-commit: across a key change committed-ref points at the
+                ;; WRONG (old) reaction until the passive cleanup runs.
                 ;;
                 ;; Deps include `render-snapshot` so the fallback path always
                 ;; closes over the CURRENT render's value — both the pre-commit
@@ -3356,7 +3340,7 @@
                                     (let [r (aget stored 1)] (when r @r))
                                     ;; Pre-commit / key-change: prefer the LIVE
                                     ;; reaction the escrow token is holding over
-                                    ;; the frozen render value (rf2-2rtt6.13).
+                                    ;; the frozen render value.
                                     ;; Key-tagged for the same reason
                                     ;; `committed-ref` is — across a query-v /
                                     ;; frame change the ref may still hold the
@@ -3378,15 +3362,14 @@
                 ;; released (`rf.subs/unsubscribe`) — never in render — so a render
                 ;; abandoned before commit owns nothing beyond the reaper's
                 ;; horizon. We re-subscribe by (frame, query) here rather than
-                ;; trust a handle carried out of the render phase; since
-                ;; rf2-2rtt6.25 that re-subscribe CAN be a cache HIT returning
-                ;; the very reaction the render built (the adoption below), and
-                ;; since rf2-2rtt6.71 it is one on the public mount schedule as
-                ;; well — by a measured margin. Lose that margin and it is an
-                ;; honest miss, exactly as it was before the hand-off.
+                ;; trust a handle carried out of the render phase; that
+                ;; re-subscribe CAN be a cache HIT returning the very reaction
+                ;; the render built (the adoption below), and on the public
+                ;; mount schedule it is one — by a measured margin. Lose that
+                ;; margin and it is an honest miss and a rebuild.
                 ;;
-                ;; MEMOIZED ON `[stable-key]`, NOT on the render-phase memo
-                ;; (rf2-es09qq). Keying on anything derived from the render-phase
+                ;; MEMOIZED ON `[stable-key]`, NOT on the render-phase memo.
+                ;; Keying on anything derived from the render-phase
                 ;; build would change subscribe-fn identity right after the first
                 ;; commit — forcing React to release (dispose) and re-acquire the
                 ;; durable ref on churn. `stable-key` is identity-stable for a
@@ -3397,7 +3380,7 @@
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
-                    ;; rf2-1frc — WHAT THIS CLOSURE HOLDS, rather than what
+                    ;; WHAT THIS CLOSURE HOLDS, rather than what
                     ;; ADDRESS it subscribed to. `held` is `#js [reaction
                     ;; watch-key]`: the ONE reaction this store-subscription
                     ;; currently owns a durable +1 on, and the watch key placed
@@ -3407,17 +3390,17 @@
                     ;; it never will, since the memo is keyed on `[stable-key]`
                     ;; and the target has not changed.
                     ;;
-                    ;; Before this, the closure held ONE reaction for the life
-                    ;; of the subscription target and released by ADDRESS. Both
-                    ;; halves were wrong once the cache evicted underneath it:
+                    ;; A closure holding ONE reaction for the life of the
+                    ;; subscription target and releasing by ADDRESS would be
+                    ;; wrong in both halves once the cache evicts underneath it:
                     ;; the disposed reaction has no source watches (so
-                    ;; `on-change` could never fire again — the component went
-                    ;; permanently deaf) while `get-snap` still found a
-                    ;; key-MATCHING entry in `committed-ref` and derefed the
-                    ;; disposed handle (so it kept rendering the OLD sub body);
-                    ;; and the address-only release could later decrement a
-                    ;; SUCCESSOR entry that an independent consumer had
-                    ;; rebuilt under the same (frame, query).
+                    ;; `on-change` could never fire again — the component would
+                    ;; go permanently deaf) while `get-snap` would still find a
+                    ;; key-MATCHING entry in `committed-ref` and deref the
+                    ;; disposed handle (so it would keep rendering the OLD sub
+                    ;; body); and the address-only release could later
+                    ;; decrement a SUCCESSOR entry that an independent consumer
+                    ;; had rebuilt under the same (frame, query).
                     (let [held      (volatile! nil)
                           released? (volatile! false)
                           wire!
@@ -3438,7 +3421,7 @@
                             (let [wk (keyword use-sub-watch-ns
                                               (str (gensym "watch-")))]
                               (vreset! held #js [reaction wk])
-                              ;; rf2-sqhjtu / rf2-naz09e: publish the durable
+                              ;; Publish the durable
                               ;; reaction KEY-TAGGED with this invocation's
                               ;; `stable-key` so `get-snap` derefs THIS live
                               ;; handle (source watches + current sub body) and
@@ -3452,7 +3435,7 @@
                                     #js [stable-key reaction])
                               (when reaction
                                 (add-watch reaction wk (fn [_ _ _ _] (on-change)))
-                                ;; rf2-1frc — THE REACQUISITION SEAM, and the
+                                ;; THE REACQUISITION SEAM, and the
                                 ;; reason it is THIS one. The obvious hook is
                                 ;; `rf.subs.cache/emit-dispose!`, and it is
                                 ;; unusable: that is an `rf.trace/emit!` behind
@@ -3486,7 +3469,7 @@
                                 ;;     rather than emitting a
                                 ;;     `:rf.error/frame-destroyed` recovery per
                                 ;;     mounted component;
-                                ;;   * adapter liveness (rf2-3x7nj.2.2) —
+                                ;;   * adapter liveness —
                                 ;;     `rf/destroy-adapter!` disposes every
                                 ;;     sub-cache BEFORE it unmounts the roots,
                                 ;;     with the generation already claimed, so
@@ -3520,15 +3503,14 @@
                     ;; reaction is the live cached one and its value `=` the
                     ;; `render-snapshot` the render phase read.
                     (let [committed (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})]
-                      ;; rf2-2rtt6.25 — THE ADOPTION, when it happens. If the
+                      ;; THE ADOPTION, when it happens. If the
                       ;; render phase's escrowed +1 is still unspent, the entry
                       ;; was live when the subscribe above ran: it HIT, and
                       ;; `committed` is `identical?` the reaction the render
                       ;; built. Release the token now (2 → 1) and clear the ref,
-                      ;; so the steady state is exactly what it was before this
-                      ;; hand-off existed — one durable reference, owned here,
-                      ;; released by the cleanup below. Since rf2-2rtt6.71 that
-                      ;; is the measured outcome on the public mount schedule as
+                      ;; so the steady state is one durable reference, owned
+                      ;; here, released by the cleanup below. That is the
+                      ;; measured outcome on the public mount schedule as
                       ;; well as under `act`; should the 4 ms margin ever be lost
                       ;; the reaper spends the token first, this falls to the
                       ;; "missing or already spent" branch below, and the
@@ -3542,8 +3524,8 @@
                       ;; hand-off on the floor (a correctness no-op — the reaper
                       ;; covers it — but a rebuild). If the token is missing or
                       ;; already spent, the reaper beat us and the subscribe
-                      ;; above was an honest miss + rebuild: today's behaviour,
-                      ;; no worse.
+                      ;; above was an honest miss + rebuild: correct, just
+                      ;; without the saving.
                       (let [tok (.-current provisional-ref)]
                         (when (and (some? tok)
                                    (identical? (aget tok 0) stable-key))
@@ -3560,7 +3542,7 @@
                           (when (some? h)
                             (let [r (aget h 0)]
                               (when r (remove-watch r (aget h 1)))
-                              ;; rf2-sqhjtu / rf2-naz09e: clear the published
+                              ;; Clear the published
                               ;; committed reaction, but ONLY if it still holds
                               ;; THIS closure's handle (compare the tagged
                               ;; reaction at index 1). A later `subscribe-fn`
@@ -3572,31 +3554,30 @@
                               (let [stored (.-current committed-ref)]
                                 (when (and stored (identical? (aget stored 1) r))
                                   (set! (.-current committed-ref) nil)))
-                              ;; rf2-1frc — RELEASE THE REACTION WE ACTUALLY
-                              ;; HOLD, not the (frame, query) ADDRESS. The
-                              ;; address-only `rf.subs/unsubscribe` was correct
-                              ;; only while a cache slot could never be replaced
-                              ;; under a live holder. It can: hot reload, an
-                              ;; explicit `clear-sub-cache!` and a frame
-                              ;; generation change all evict and rebuild, and
-                              ;; after an independent consumer has rebuilt the
-                              ;; same key a late cleanup here decremented the
-                              ;; SUCCESSOR's reference — a foreign entry this
-                              ;; hook never acquired. `unsubscribe-if-reaction`
-                              ;; releases under an identity guard, so a stale
-                              ;; holder no-ops instead of stealing; when the
-                              ;; slot IS ours it takes the ordinary 1 → 0
-                              ;; in-tick disposal, byte-identical to before.
+                              ;; RELEASE THE REACTION WE ACTUALLY HOLD, not the
+                              ;; (frame, query) ADDRESS. An address-only
+                              ;; `rf.subs/unsubscribe` would be correct only if
+                              ;; a cache slot could never be replaced under a
+                              ;; live holder. It can: hot reload, an explicit
+                              ;; `clear-sub-cache!` and a frame generation
+                              ;; change all evict and rebuild, and after an
+                              ;; independent consumer has rebuilt the same key
+                              ;; a late address-only cleanup here would
+                              ;; decrement the SUCCESSOR's reference — a
+                              ;; foreign entry this hook never acquired.
+                              ;; `unsubscribe-if-reaction` releases under an
+                              ;; identity guard, so a stale holder no-ops
+                              ;; instead of stealing; when the slot IS ours it
+                              ;; takes the ordinary 1 → 0 in-tick disposal.
                               (rf.subs/unsubscribe-if-reaction
                                 stable-frame-kw stable-query-v r))))))))
                   #js [stable-key])]
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
         (fn use-subscribe
-          ;; ---- 1-arg ambient form — full frame-resolution chain (rf2-4mi2zj) ----
+          ;; ---- 1-arg ambient form ------------------------------------------
           ;;
           ;; ---- ONE TIER: the ambient hook reads React context ONLY ---------
-          ;; (rf2-kuky.61 ruling, implemented by rf2-kuky.62.)
           ;;
           ;; The ambient `(use-sub [:q …])` form resolves its frame from the
           ;; shared frame React-context — the closest enclosing
@@ -3613,16 +3594,16 @@
           ;; is turned into the always-on `:rf.error/no-frame-context` by
           ;; `require-frame-stamp!`, with NO `:rf/default` floor. The raw
           ;; sentinel therefore never reaches the explicit path as a literal
-          ;; frame id, which is the second of the two breaks the pre-rf2-4mi2zj
-          ;; shortcut `(use-subscribe-2 (use-current-frame) …)` had.
+          ;; frame id, as it would under the shortcut
+          ;; `(use-subscribe-2 (use-current-frame) …)`.
           ;;
-          ;; THE SINGLE-SOURCING ARGUMENT IS GIVEN UP, DELIBERATELY. What
-          ;; stood here said this hook must resolve through the SAME
-          ;; carried-invariant chain `rf.subs/subscribe`'s own 1-arity uses —
-          ;; dynamic-var tier FIRST, React-context tier second — so "the hook
-          ;; and the imperative read can never diverge". They now diverge on
-          ;; purpose, because the two run at different instants and only one
-          ;; of them is inside the scope that bound the var:
+          ;; THERE IS DELIBERATELY NO SINGLE-SOURCING with the imperative
+          ;; read. Resolving through the SAME carried-invariant chain
+          ;; `rf.subs/subscribe`'s own 1-arity uses — dynamic-var tier FIRST,
+          ;; React-context tier second — would promise that "the hook and the
+          ;; imperative read can never diverge". They diverge on purpose,
+          ;; because the two run at different instants and only one of them
+          ;; is inside the scope that bound the var:
           ;;
           ;;   * A hook is the HOLD face of `capture-frame`, not the scoped
           ;;     one. A body's dynamic extent has unwound by the time React
@@ -3632,7 +3613,7 @@
           ;;     on the component tree: `act()`, `flushSync` and a synchronous
           ;;     server render put the body on the calling stack (so a live
           ;;     `with-frame` shadows the provider), while an ordinary
-          ;;     scheduled update does not. That made the same tree resolve
+          ;;     scheduled update does not. That would make the same tree resolve
           ;;     two different frames depending on how the flush was driven —
           ;;     including for work the surrounding scope never scheduled.
           ;;   * A hook that reads a JS-thread global during a React render is
@@ -3643,18 +3624,16 @@
           ;; `rf/subscribe`, 0-arity `(rf/capture-frame)`,
           ;; `rf/current-frame-id`, handlers, `reg-view` injection and the
           ;; Reagent class-component chain keep dynamic-var → context → error,
-          ;; and `rf.frame/require-current-frame!` is untouched. The explicit
+          ;; as does `rf.frame/require-current-frame!`. The explicit
           ;; override for a test or a harness is a `frame-provider` wrapper,
           ;; which survives a scheduling change. The explicit 2-arg path below
-          ;; is unchanged (it bypasses ambient resolution by design).
+          ;; bypasses ambient resolution by design.
           ;;
-          ;; ---- the explicit form is `[query-v opts]` (rf2-kuky.57) ----------
+          ;; ---- the explicit form is `[query-v opts]` -----------------------
           ;;
-          ;; The frame-FIRST positional arity `[frame-kw query-v]` is GONE. It
-          ;; was the last surviving instance of the shape API-shrink #1
-          ;; (rf2-csbbwu) deleted from `subscribe` / `subscribe-once` /
-          ;; `dispatch` for misbinding — the shrink stopped at the facade and
-          ;; left the hook behind. The replacement is the SAME opts form
+          ;; There is no frame-FIRST positional arity `[frame-kw query-v]` —
+          ;; the shape `subscribe` / `subscribe-once` / `dispatch` also lack,
+          ;; because it misbinds. The explicit form is the SAME opts form
           ;; `rf.subs/subscribe` publishes, `(use-sub query-v {:frame target})`,
           ;; so a hook read and an imperative read spell an explicit frame
           ;; identically and `target` takes the one frame-target grammar (a
@@ -3669,24 +3648,22 @@
           ;; misordered-hook crash somewhere else entirely. For an ambient read,
           ;; call the 1-arity.
           ;;
-          ;; rf2-kuky.57 (audit reopen) — AND THE REQUIREMENT HAS TO BE ENFORCED
-          ;; HERE, because the layer this arm used to delegate it to does not
-          ;; enforce it. The sentence above once ended "a missing or malformed
-          ;; `:frame` fails loud at the subs layer"; it does not.
-          ;; `rf.subs/subscribe`'s opts arity reads `(if-some [target (:frame
-          ;; opts)] … (subscribe query-v))`, so an ABSENT or nil `:frame` is
-          ;; that layer's spelling for "ambient" and it resolves the ambient
-          ;; frame silently. Passing `(:frame opts)` straight through therefore
-          ;; produced a SPLIT identity in the hook: the acquire resolved the
-          ;; ambient frame and took a real +1 on its reaction, while the hook
-          ;; stored nil in `stable-key` — so `release-provisional!` and the
-          ;; commit cleanup both released against a nil frame, `frame-target->id`
-          ;; normalized it to nil, the registry lookup found nothing, and both
-          ;; no-opped. The reference was never balanced: a leak, invisible,
-          ;; behind a contract that promised a refusal.
+          ;; AND THE REQUIREMENT HAS TO BE ENFORCED HERE, because the subs
+          ;; layer does not enforce it. `rf.subs/subscribe`'s opts arity
+          ;; reads `(if-some [target (:frame opts)] … (subscribe query-v))`, so
+          ;; an ABSENT or nil `:frame` is that layer's spelling for "ambient"
+          ;; and it resolves the ambient frame silently. Passing `(:frame
+          ;; opts)` straight through would therefore produce a SPLIT identity
+          ;; in the hook: the acquire would resolve the ambient frame and take
+          ;; a real +1 on its reaction, while the hook stored nil in
+          ;; `stable-key` — so `release-provisional!` and the commit cleanup
+          ;; would both release against a nil frame, `frame-target->id` would
+          ;; normalize it to nil, the registry lookup would find nothing, and
+          ;; both would no-op. The reference would never be balanced: a leak,
+          ;; invisible, behind a contract that promises a refusal.
           ;;
-          ;; The repair is to resolve ONE CONCRETE TARGET before any
-          ;; acquisition, with the machinery that already exists for exactly
+          ;; So the arm resolves ONE CONCRETE TARGET before any
+          ;; acquisition, with the machinery that exists for exactly
           ;; this — `frame-target->id` normalizes the one frame-target grammar
           ;; (a frame-id keyword or a live frame value) to the id its record is
           ;; keyed by, and `require-frame-stamp!` is the framework's standing
@@ -3695,7 +3672,7 @@
           ;; throws the always-on `:rf.error/no-frame-context`. No new
           ;; validation policy, no options schema — we trust the programmer, and
           ;; the one thing checked here is the invariant this arm's own
-          ;; documented contract already asserted.
+          ;; documented contract asserts.
           ;;
           ;; Normalizing to an id is load-bearing beyond the refusal: it is what
           ;; makes the acquire and the release name the SAME thing for a live
@@ -3721,16 +3698,16 @@
                {:where    're-frame.substrate.spine/use-sub
                 :event-id (first query-v)})
              query-v)))]
-    ;; rf2-6id3el: the return map exposes ONLY the surfaces the adapter
+    ;; The return map exposes ONLY the surfaces the adapter
     ;; assembler consumes. `:warn-cache` is read by `make-react-adapter`
-    ;; (the governance arm/armed? probes, :1868). The `:emitter-cell` /
+    ;; (the governance arm/armed? probes). The `:emitter-cell` /
     ;; `:active-roots-cell` cells stay INTERNAL to this closure — they are
     ;; wired into the spine fns (`render`, `set-hiccup-emitter!`,
     ;; `dispose-fn`) here and read by NO assembler or production call site,
     ;; so leaking them through the contract map would be dead surface. The
     ;; dispose unit tests build their own cells via the `make-*-cell`
-    ;; factories and feed `make-dispose-adapter!` directly, so narrowing the
-    ;; map breaks no test.
+    ;; factories and feed `make-dispose-adapter!` directly, so the narrow
+    ;; map costs no test.
     {:warn-cache                  warn-cache
      :make-state-container        make-state-container
      :read-container              read-container
@@ -3738,7 +3715,7 @@
      :subscribe-container         subscribe-cont
      :make-derived-value          make-derived
      :render                      render-fn
-     ;; rf2-kuky.56 — Spec 006 §The client root, the same trio the ratom
+     ;; Spec 006 §The client root, the same trio the ratom
      ;; spine publishes. Riding the same `mount-client-root!` as `:render`
      ;; above, so every Root either door produces is in `active-roots-cell`
      ;; and `dispose-adapter!` releases it exactly once.
@@ -3749,7 +3726,7 @@
      :dispose-adapter!            dispose-fn
      :set-hiccup-emitter!         (fn set-it! [f]
                                     (set-hiccup-emitter! emitter-cell f))
-     ;; rf2-h9szm — precedence-safe install-replay arm. Arms this generation's
+     ;; Precedence-safe install-replay arm. Arms this generation's
      ;; `emitter-cell` with the retained SSR default ONLY when the cell is
      ;; otherwise unarmed, so a pre-init explicit custom emitter (or reset) is
      ;; never silently overwritten by `install-adapter!`'s replay. Routed by the
@@ -3760,52 +3737,48 @@
                                        (when (nil? @emitter-cell)
                                          (set-hiccup-emitter! emitter-cell f)))
      :use-current-frame           use-current-frame
-     ;; rf2-kuky.57: the KEY is the public vocabulary (`use-sub` — one
-     ;; value-hook name across UIx and Fresco islands); the let-bound fn keeps
-     ;; its older internal name so rf2-kuky.62 finds this region by its markers.
+     ;; The KEY is the public vocabulary (`use-sub` — one value-hook name
+     ;; across UIx and Fresco islands); the let-bound fn keeps its internal
+     ;; name, `use-subscribe`.
      :use-sub                     use-subscribe
      :flush-views!                flush-views!
-     ;; rf2-40a84 — production-grade synchronous render-commit (NOT the
+     ;; Production-grade synchronous render-commit (NOT the
      ;; test-only act() wrapper above). Wired into the adapter map's
      ;; :flush-render! contract slot by make-react-adapter.
      :flush-render!               flush-render!
      :wrap-view                   wrap-view-fn
-     ;; rf2-oz7wr — `:adapter/componentize-view` CORE. The adapter marks the
+     ;; `:adapter/componentize-view` CORE. The adapter marks the
      ;; shell as its own substrate's component type and passes the marking
      ;; wrapper to make-react-adapter as `:componentize-view`.
      :componentize-view           componentize-fn
      :clear-warned-non-dom-roots! clear-warned
-     ;; rf2-334d9 — :adapter/after-render impl. Each adapter publishes
+     ;; :adapter/after-render impl. Each adapter publishes
      ;; this via rf.substrate.adapter/route-hook!.
      :after-render-hook           after-render-hook}))
 
 ;; ---- React-hook adapter assembly (UIx) ----------------------------
 ;;
-;; rf2-ee38b.1 / rf2-ee38b.13 / rf2-ee38b.14. `make-react-spine` already
-;; eliminated the substrate LOGIC drift (one factory, N adapters). The
-;; per-adapter WIRING — the 9-key adapter map, the five `route-hook!`
-;; calls, and the two chained installs — was still hand-copied byte-for-
-;; byte between `uix.cljs` and `helix.cljs` (the clarity-lens twin
-;; finding), carrying ~90 lines of identical rationale prose and a
-;; standing drift hazard: any new routed hook had to be copied into both
-;; files in lockstep (a Helix-only SSR-parity fix per rf2-y9spn already
-;; showed the two drifting before being re-synced). `make-react-adapter`
-;; folds that wiring here — the adapter file shrinks to "build spine-fns,
-;; publish the public Vars, call make-react-adapter". The route-hook block
-;; carries zero per-adapter variation; the ONLY input is the spine-fns map
-;; (already built per-substrate) and the `:kind` discriminator keyword.
+;; `make-react-spine` keeps the substrate LOGIC in one factory;
+;; `make-react-adapter` keeps the per-adapter WIRING — the adapter map, the
+;; `route-hook!` calls, and the chained installs — in one place too, so an
+;; adapter file reduces to "build spine-fns, publish the public Vars, call
+;; make-react-adapter". Wiring hand-copied per adapter would be a standing
+;; drift hazard: any new routed hook would have to be copied into every
+;; React-hook adapter in lockstep. The route-hook block carries zero
+;; per-adapter variation; the ONLY input is the spine-fns map (already
+;; built per-substrate) and the `:kind` discriminator keyword.
 ;;
-;; Hook routing (per rf2-0d35 — see `rf.substrate.adapter/route-hook!` for
+;; Hook routing (see `rf.substrate.adapter/route-hook!` for
 ;; the routing contract): each impl runs ONLY when this adapter is the
 ;; (rf/init!)-installed one; otherwise chains to the previously-registered
 ;; handler.
-;;   :adapter/current-frame — rf2-d4sf. Function components have no
+;;   :adapter/current-frame — function components have no
 ;;     class-component (.-context cmp) slot, so the shared impl in
 ;;     `re-frame.adapter.context` reads `_currentValue` directly. This is
 ;;     the WIDER surface — `(rf/current-frame-id)` reaches the dynamic-var-
 ;;     fallback chain via this hook; the per-adapter `use-current-frame`
-;;     hook is the NARROWER React-context-tier-only read (rf2-84myk).
-;;   :adapter/add-on-dispose! / :adapter/dispose! — rf2-jicu2. Spine-
+;;     hook is the NARROWER React-context-tier-only read.
+;;   :adapter/add-on-dispose! / :adapter/dispose! — spine-
 ;;     produced derived values reify the re-frame-owned
 ;;     `re-frame.disposable/IDisposable` (no Reagent coupling); the
 ;;     adapter wires straight to the protocol fns. The reactive-substrate
