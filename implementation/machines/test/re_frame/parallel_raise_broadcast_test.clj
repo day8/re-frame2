@@ -10,15 +10,14 @@
   reaches its SIBLINGS, a sibling's guard sees the raise's `:data` writes
   (evolving snapshot), and the originating region re-sees it too.
 
-  Regions DEFER their raises (`transition/drain-or-defer-raises`);
-  `parallel/parallel-machine-transition` owns the macrostep's
-  internal-event queue and re-broadcasts each surfaced raise across every
-  region.
+  Regions never drain their own raises: `parallel/parallel-machine-transition`
+  owns the macrostep's internal-event queue and re-broadcasts each surfaced
+  raise across every region.
 
   A raised event DECLINED by every region consults the parallel root's own
   `:on` as the ancestor fallback — identically to an external event (XState v6
   / SCXML: a raised event selects against the FULL configuration incl. the
-  parallel ancestor; rf2-x76af2.8).
+  parallel ancestor).
 
   Pure-engine tests — call `machine-transition` directly and read the merged
   post-macrostep snapshot. Order is recorded in `:data :log` (shared `:data`
@@ -65,7 +64,7 @@
           "left transitioned on the external [:trigger]")
       (is (= :ponged (get-in snap [:state :right]))
           "right transitioned on the RE-BROADCAST [:ping] — region-local
-           delivery (pre-fix) would have left it at :waiting")
+           delivery would leave it at :waiting")
       (is (= [:left-trigger :right-pong] (:log (:data snap)))
           "the raise re-broadcast AFTER the external event settled, reaching
            the sibling region in one macrostep"))))
@@ -218,10 +217,10 @@
       (is (nil? (:fx r))
           "a :fail threads no fx — no partial cascade or fx survives the abort"))))
 
-;; ---- 6. region :always still fires on a re-broadcast transition ----------
+;; ---- 6. region :always fires on a re-broadcast transition ----------------
 
 (deftest region-always-fires-on-rebroadcast
-  (testing "a re-broadcast raise that drives a region transition still runs
+  (testing "a re-broadcast raise that drives a region transition runs
    that region's own :always microstep loop (region-local :always intact)"
     (let [spec
           {:type    :parallel
@@ -239,7 +238,7 @@
                    :states  {:a {:on {:go {:target :b :action :arm}}}
                              ;; on the re-broadcast [:advance], move to :c,
                              ;; whose :always (guard now true) auto-advances
-                             ;; to :done — proving region :always still runs.
+                             ;; to :done — proving region :always runs.
                              :b {:on {:advance {:target :c :action :step}}}
                              :c {:always {:guard :ready? :target :done :action :auto}}
                              :done {}}}}}
@@ -253,12 +252,12 @@
 
 ;; ---- 7. a raised event declined by EVERY region consults the root :on ------
 ;;
-;; rf2-x76af2.8: a re-broadcast raise that no region handles must consult the
-;; parallel ROOT's own `:on` ancestor fallback — exactly as an EXTERNAL event
-;; does (`root-fallback-seed`). Pre-fix, `drain-parent-queue` re-broadcast to
-;; the regions only and silently DROPPED the raise when all declined, diverging
-;; from the flat-machine drain and XState v6 / SCXML (a raised event selects
-;; against the full configuration incl. the parallel ancestor).
+;; A re-broadcast raise that no region handles must consult the parallel
+;; ROOT's own `:on` ancestor fallback — exactly as an EXTERNAL event does
+;; (`root-fallback-seed`). Re-broadcasting to the regions only would silently
+;; DROP the raise when all decline, diverging from the flat-machine drain and
+;; XState v6 / SCXML (a raised event selects against the full configuration
+;; incl. the parallel ancestor).
 
 (deftest raised-event-declined-by-regions-consults-root-on
   (let [spec
@@ -286,7 +285,7 @@
     (testing "a RAISED [:reset] declined by every region ALSO fires the root :on"
       (let [{snap :snapshot} (rf.machines/machine-transition spec initial [:trigger])]
         (is (= :done (get-in snap [:state :left]))
-            "the raised [:reset] consulted the root :on (pre-fix: stuck at :fired)")
+            "the raised [:reset] consulted the root :on (dropping it would leave :left at :fired)")
         (is (true? (get-in snap [:data :root-fired]))
             "the root :root-reset action fired for the RAISED event too")
         (is (= [:raise-reset :root-reset] (:log (:data snap)))
