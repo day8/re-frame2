@@ -47,8 +47,8 @@
 ;; navigator-info etc. would otherwise blow up under JVM render or produce
 ;; nonsense values).
 ;;
-;; Single definition lives in `re-frame.fx/runs-on-platform?` (rf2-4ymm0
-;; SP6); we alias it here so internal call sites read in the cofx
+;; Single definition lives in `re-frame.fx/runs-on-platform?`; we alias it
+;; here so internal call sites read in the cofx
 ;; vocabulary.
 
 (def ^:private cofx-runs-on-platform? rf.fx/runs-on-platform?)
@@ -80,15 +80,11 @@
   name collision (Spec 001 §Collisions)."
   #{:db :event})
 
-;; NOTE (rf2-6zfzxy): the registration site does NOT police `rf.`-prefixed
+;; NOTE: the registration site does NOT police `rf.`-prefixed
 ;; APP namespaces — it cannot distinguish an app id from a legitimate
 ;; framework/subsystem `rf.*` fact (`:rf/time-ms`, `:rf.route/*`, …), which
 ;; the framework registers many of. The owner-qualified naming rule is the
-;; lint surface in Spec 009 §9, not a structural registration guard. The
-;; previously-present `rf-prefixed-app-namespace?` seam was a hardcoded `false`
-;; feeding an unreachable `emit-cofx-name-collision!` branch — removed as dead
-;; code (the future lint lives in Spec 009 §9, not a dormant always-false
-;; predicate here).
+;; lint surface in Spec 009 §9, not a structural registration guard.
 
 (defn- emit-cofx-name-collision!
   "Emit `:rf.error/cofx-name-collision` (registration-time, diagnostic) and
@@ -123,8 +119,8 @@
 (defn- validate-cofx-grade!
   "The `reg-cofx` registration-time checks on the id and the coeffect's GRADE,
   shared by `reg-cofx` and the inline lowering `lower-inline-cofx` so an inline
-  registration accepts and rejects exactly what the registrar does
-  (rf2-3x7nj.5.1). `meta` is the registration metadata (nil allowed); `supplier`
+  registration accepts and rejects exactly what the registrar does.
+  `meta` is the registration metadata (nil allowed); `supplier`
   is the value-returning fn, or nil for a provided fact. Throws on a fold-argument
   name collision or a malformed grade; otherwise returns the grade flags the
   registrar stores, `{:recordable? bool :provided? bool}`."
@@ -146,8 +142,8 @@
     ;; grade that would otherwise register as an ambient fact with a nil
     ;; supplier, surfacing only as an opaque host NPE at delivery
     ;; (`run-ambient-supplier` invoking nil). Reject it loudly at the call
-    ;; site instead (Spec-Schemas §`:rf/cofx-meta`, rf2-cu8wet). This is a
-    ;; malformed-grade error, NOT a name collision (rf2-d8mvke.6).
+    ;; site instead (Spec-Schemas §`:rf/cofx-meta`). This is a
+    ;; malformed-grade error, NOT a name collision.
     (when (and provided? (not recordable?))
       (emit-cofx-registration-invalid!
         id
@@ -166,7 +162,7 @@
     ;; looks like it provides a generator, but the first handler requiring
     ;; the fact (when it is absent from the token) fails as
     ;; `:rf.error/missing-required-cofx`. Reject the contradiction at the
-    ;; call site (rf2-d8mvke.1). The valid provided shape is
+    ;; call site. The valid provided shape is
     ;; `{:recordable? true :provided? true}` with NO supplier.
     (when (and provided? (some? supplier))
       (emit-cofx-registration-invalid!
@@ -183,8 +179,7 @@
     ;; A non-recordable (ambient) fact with no supplier cannot produce a
     ;; value; only a PROVIDED recordable fact legitimately omits its
     ;; generator (its owner stamps the token). An ambient fact MUST carry a
-    ;; supplier. This is a malformed-grade error, NOT a name collision
-    ;; (rf2-d8mvke.6).
+    ;; supplier. This is a malformed-grade error, NOT a name collision.
     (when (and (nil? supplier) (not provided?))
       (emit-cofx-registration-invalid!
         id
@@ -205,8 +200,8 @@
       (fn [arg] value)    ;; call-site-parameterized id — declared as
                           ;; `[id arg]` in `:rf.cofx/requires`
 
-  The supplier returns the coeffect VALUE directly (the EP-0017 shape); the
-  ctx→ctx form is retired with `inject-cofx`. A handler takes delivery by
+  The supplier returns the coeffect VALUE directly (the EP-0017 shape); there
+  is no ctx→ctx form. A handler takes delivery by
   declaring the id in `:rf.cofx/requires` (see `reg-event`); the value
   arrives FLAT under the id in the coeffects map — never a nested `:cofx`
   sub-map.
@@ -280,20 +275,20 @@
           [{} metadata-or-supplier])]
     (let [grade (validate-cofx-grade! id meta supplier)]
       ;; Per Spec 015 §5. Coeffects — VALIDATE any declared `:sensitive` /
-      ;; `:large` classification fail-loud BEFORE the registrar write (rf2-ehexnw);
+      ;; `:large` classification fail-loud BEFORE the registrar write;
       ;; the classification itself is DERIVED from the registrar meta at
       ;; `registration-classification` read time (emit-time projection redacts the
       ;; delivered coeffect value's slots in trace events that surface
       ;; `:coeffects`), no imperative stash. Shares the validate + merge-coords +
-      ;; register tail with `reg-fx` via `rf.fx/register-with-classification!`
-      ;; (rf2-a3pl56). The value-returning supplier rides the registrar's
+      ;; register tail with `reg-fx` via `rf.fx/register-with-classification!`.
+      ;; The value-returning supplier rides the registrar's
       ;; conventional `:handler-fn` slot; nil for a provided fact with no
       ;; generator. The cofx-specific `:recordable?` / `:provided?` grade flags
       ;; ride the `extra-slots` map.
       (rf.fx/register-with-classification! :cofx id meta supplier grade))
     id))
 
-;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;; ---- EP-0023 inline-registration lowering ---------------------------------
 ;;
 ;; An image's inline `:registrations` `:reg-cofx` entry carries the raw
 ;; value-returning supplier fn under `:impl`. For the inline cofx to be
@@ -301,7 +296,7 @@
 ;; resolver descriptor must carry the SAME shape `reg-cofx` installs —
 ;; `:handler-fn` (the supplier) + the `:recordable?` / `:provided?` grade flags
 ;; delivery reads, AND the registration metadata at the TOP LEVEL, where the
-;; `:platforms`, classification and `:schema` readers look. Closes the EP-0023
+;; `:platforms`, classification and `:schema` readers look. Honours the EP-0023
 ;; §Image Fragments "same runtime descriptor shape" contract for cofx.
 ;; Published via late-bind (image-assembly cannot static-require this ns).
 
@@ -314,7 +309,7 @@
   `impl` is the raw value-returning supplier (nil for a provided recordable
   fact).
 
-  Runs the SAME registration-time checks `reg-cofx` runs (rf2-3x7nj.5.1): the
+  Runs the SAME registration-time checks `reg-cofx` runs: the
   id and grade checks (`validate-cofx-grade!`), then the key + classification
   checks (`rf.fx/validate-registration-meta!`). Writes nothing to the registrar.
   Image-assembly merges the result UNDER the descriptor, preserving `:impl` +
@@ -351,7 +346,6 @@
                                :received   received}}))
 
 ;; ---- sub-valued recordable source (machines-only, EP-0017 Option A rider) --
-;;    (rf2-h6ggnt)
 ;;
 ;; A MACHINE named entry may grow `:rf.cofx/requires` by ONE member: the map
 ;; form `{:rf/sub query-v :as fact-id}` — a sub-valued RECORDABLE source. It
@@ -428,7 +422,7 @@
   shapes raise `:rf.error/cofx-request-invalid`; the same id declared twice
   (any args) raises `:rf.error/cofx-name-collision`.
 
-  The `allow-sub?` arity (machines-only, EP-0017 Option A rider rf2-h6ggnt)
+  The `allow-sub?` arity (machines-only, EP-0017 Option A rider)
   additionally accepts the sub-valued recordable source map
   `{:rf/sub query-v :as fact-id}` (parsed via `parse-sub-source`); a
   `reg-event` handler (the 2-arity default) declaring one is
@@ -482,7 +476,7 @@
 ;; ambient fact runs its supplier now; a provided fact absent from the token
 ;; is `:rf.error/missing-required-cofx`.
 ;;
-;; GENERATION (EP-0017 slice B.7, rf2-ygpac8). A declared-absent recordable
+;; GENERATION (EP-0017 §5). A declared-absent recordable
 ;; fact that is NEITHER provided NOR present on the token is GENERATOR-BACKED:
 ;; its `reg-cofx` carries a value-returning supplier. The mint policy (§6)
 ;; decides what happens —
@@ -505,8 +499,8 @@
 ;; delivery (supplied values win, but the `:schema` is the type of the replay
 ;; hole — folding an out-of-contract value into the ledger is corrupt durable
 ;; state). The mint policy threads in via the `mint-policy` arg; the router
-;; default is `:live` (slice-B.8 wires the binding points — `:test` preset and
-;; replay hard-wire `:strict`).
+;; default is `:live` (the `:test` preset and replay select `:strict`; see
+;; `resolve-mint-policy`).
 
 (defn- emit-unregistered-cofx!
   "Emit `:rf.error/unregistered-cofx` (the typo case — a declared id with no
@@ -563,18 +557,17 @@
 
 (defn- emit-coeffect-exception!
   "Emit `:rf.error/coeffect-exception` for a supplier that threw during
-  context assembly, then re-throw. Mirrors the router's
+  context assembly. Mirrors the router's
   `classify-pipeline-exception` shape (`:operation`
   `:rf.error/coeffect-exception`, `:failing-id` = the cofx id, `:phase
   :before`) so tools that capture pipeline exceptions (Story) surface a
-  supplier throw with the same fidelity as the retired `inject-cofx`
-  interceptor path. Fans out through the always-on error-emit listener too.
-  Does NOT re-throw — the cascade is failed by SKIPPING the handler (the
-  retired `inject-cofx` interceptor captured rather than propagated, so the
-  drain emitted exactly one pipeline-exception trace; matching that keeps
-  tools from double-recording a captured trace AND a propagated Throwable)."
+  supplier throw with the same fidelity as any other pipeline exception.
+  Fans out through the always-on error-emit listener too.
+  Does NOT re-throw — the cascade is failed by SKIPPING the handler, so the
+  drain emits exactly one pipeline-exception trace; propagating as well
+  would make tools double-record a captured trace AND a propagated Throwable."
   [cofx-id failing-id frame-id ^Throwable t]
-  ;; rf2-vzrxp3: nil-safe extractor (a thrown non-Error value has no message).
+  ;; Nil-safe extractor (a thrown non-Error value has no message).
   (let [msg (rf.error/ex-message-safe t)]
     (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/coeffect-exception nil failing-id frame-id t 0 (rf.interop/now-ms)
@@ -588,7 +581,7 @@
                                  :recovery          :no-recovery}
                           frame-id (assoc :frame frame-id))))))
 
-;; ---- :schema validation of recordable values (EP-0017 §5 / slice B.7) -----
+;; ---- :schema validation of recordable values (EP-0017 §5) -----------------
 ;;
 ;; A recordable value — supplied on the token, replayed from a record, or
 ;; freshly generated — is validated against its registration's `:schema`
@@ -609,7 +602,7 @@
   out-of-contract durable value is corrupt state). Per Spec 002
   §Satisfaction + Spec 009 §Error catalogue.
 
-  Per rf2-hdi6wr (EP-0015 / EP-0017) — a recordable value validated against a
+  Per EP-0015 / EP-0017, a recordable value validated against a
   `:schema` that marks any slot `{:sensitive? true}` MUST NOT surface the raw
   secret off-box. Both the emitted trace tags AND the thrown `ex-info`'s
   `ex-data` carry the value-bearing slots (`:value` / `:explain`), and BOTH
@@ -636,7 +629,7 @@
         ;; The schema declaration's PRESENCE was established by the caller
         ;; (`validate-recordable-value!` delegates only a present key), so
         ;; do NOT suppress redaction again with a truthiness / some? test
-        ;; on the opaque schema value (rf2-6eh5h): a present nil schema is
+        ;; on the opaque schema value: a present nil schema is
         ;; opaque to the walker, which classes it fail-closed sensitive.
         redacted   (if redact-fn
                      (try
@@ -676,8 +669,8 @@
 (defn- validate-recordable-value!
   "Validate a recordable `value` for `cofx-id` against its registration's
   `:schema` (from `meta`). A no-op when the registration declares no
-  `:schema` — declaration is KEY-presence, not value truthiness
-  (rf2-6eh5h): a present nil / false `:schema` is delegated verbatim to
+  `:schema` — declaration is KEY-presence, not value truthiness:
+  a present nil / false `:schema` is delegated verbatim to
   the registered validator — when no validator is registered (schemas
   artefact absent / set to nil), or when the value conforms; otherwise
   emits `:rf.error/cofx-value-invalid` and THROWS (a production hard
@@ -693,7 +686,7 @@
   [cofx-id value meta failing-id frame-id continue?]
   (if-not (continue?)
     nil
-    ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
+    ;; KEY-presence, not value truthiness: a present nil /
     ;; false `:schema` is a declaration whose exact token goes to the
     ;; registered validator (default Malli throws on the non-schema form
     ;; → the catch below fails CLOSED). Only an ABSENT key skips.
@@ -721,31 +714,30 @@
                                          (if (continue?) nil nil))))]
                 ;; Pass `schema` so the emit redacts the value-bearing slots
                 ;; (trace tags AND thrown ex-data) when the schema marks any
-                ;; slot `:sensitive?` — fail-closed off-box (rf2-hdi6wr).
+                ;; slot `:sensitive?` — fail-closed off-box.
                 (when (continue?)
                   (emit-cofx-value-invalid! cofx-id value explanation schema failing-id frame-id
                                             continue?))))))))))
 
 ;; ---- structural-EDN check of GENERATED recordable values ------------------
-;;    (EP-0017 erratum rf2-rmroo4 slice B — rf2-uqz2ir)
 ;;
 ;; A GENERATED recordable value rides the durable causal record (it is written
 ;; back into the in-flight `:rf.cofx`, folded into the epoch ledger, replayed
 ;; verbatim, shipped in the SSR payload, exported, re-read by Xray / pair
 ;; tooling). So — exactly like a SUPPLIED recordable value at the dispatch
-;; boundary (slice A, router/diagnostics.cljc) — it MUST be ordinary EDN data
+;; boundary (router/diagnostics.cljc) — it MUST be ordinary EDN data
 ;; (EP-0017:386). A generator that mints a host handle (a DOM node, Promise,
 ;; function, atom, Date, JS / Java object) breaks that contract SILENTLY: the
 ;; failure surfaces far away at replay / Xray / SSR time, not at the generator.
 ;; This dev-time guard catches the author error AT THE SOURCE — the moment the
-;; generator produces it, before the write-back — reusing the slice-A walker
-;; (`re-frame.recordable`) and error shape (`:rf.error/cofx-value-invalid`,
+;; generator produces it, before the write-back — reusing the supplied-value
+;; walker (`re-frame.recordable`) and error shape (`:rf.error/cofx-value-invalid`,
 ;; reason `:non-edn-recordable-value`).
 ;;
-;; ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?` (rf2-q34j26, EP-0017 Open
+;; ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?` (EP-0017 Open
 ;; Issue 9 — structural EDN always, hard error in production too), matching the
-;; slice-A supplied-value walk (router/diagnostics.cljc) now hardened the same
-;; way: a generated host handle folds a non-EDN value into the durable record
+;; supplied-value walk (router/diagnostics.cljc): a generated host handle folds
+;; a non-EDN value into the durable record
 ;; (epoch ledger / replay / SSR / Xray), corrupt durable state in production as
 ;; much as dev. The declared-`:schema` check (`validate-recordable-value!`,
 ;; above) is the complementary always-on per-supplier causal-token contract;
@@ -755,8 +747,7 @@
 (defn- validate-generated-recordable-value!
   "ALWAYS-ON structural-EDN check of a GENERATED recordable `value` for
   `cofx-id`, run at the generator write-back site BEFORE the value is folded
-  into the in-flight `:rf.cofx` causal record (rf2-rmroo4 slice B;
-  production-hardened rf2-q34j26). The first non-recordable leaf throws
+  into the in-flight `:rf.cofx` causal record. The first non-recordable leaf throws
   `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`); a
   fully-EDN value passes and returns `value`.
 
@@ -765,24 +756,24 @@
   value that is a host handle folds a non-EDN value into the durable causal
   record (written back into `:rf.cofx`, captured in the epoch ledger, replayed,
   shipped in the SSR payload, read by Xray) — corrupt durable state, not a dev
-  nicety, the same causal-token contract the declared-`:schema` check already
+  nicety, the same causal-token contract the declared-`:schema` check
   enforces always-on. The walk runs once per generated fact and short-circuits
-  at the first non-EDN leaf; generation is already the rare slice-B branch (a
+  at the first non-EDN leaf; generation is the rare branch (a
   declared-absent generator-backed fact under `:live`). The declared-`:schema`
-  check stays the complementary always-on production contract; this is the
-  structural always-EDN floor that fires even with no `:schema` (closing the
-  EP-0017 errata tail — a generator without a `:schema` minting a host handle
-  no longer escapes to a far-away replay / Xray / SSR failure).
+  check is the complementary always-on production contract; this is the
+  structural always-EDN floor that fires even with no `:schema`, so a
+  generator without a `:schema` minting a host handle fails here rather than
+  at a far-away replay / Xray / SSR.
 
-  The `:generated` arm of the shared `rf.cofx.value-check/check-edn-value!` (rf2-6zfzxy)
-  — its supplied-value twin (slice A) lives at the dispatch boundary
+  The `:generated` arm of the shared `rf.cofx.value-check/check-edn-value!`
+  — its supplied-value twin lives at the dispatch boundary
   (`router.diagnostics`). The throw propagates from inside the generator's
   HandlerScope, so the failure carries the cofx's source-coord like every other
   cofx emit."
   [cofx-id value failing-id frame-id]
   (rf.cofx.value-check/check-edn-value! :generated cofx-id value failing-id nil frame-id))
 
-;; ---- generation at processing-start (EP-0017 §5 step 3 / slice B.7) --------
+;; ---- generation at processing-start (EP-0017 §5 step 3) --------------------
 ;;
 ;; A declared-absent recordable fact that is generator-backed (a `reg-cofx`
 ;; with a value-returning supplier, NOT `:provided?`) runs its generator at
@@ -807,8 +798,8 @@
        (some? (:handler-fn meta))))
 
 (defn- run-supplier-under-scope
-  "Shared supplier-invocation lifecycle for the two cofx suppliers
-  (rf2-snxp8i): `run-generator` (generator-backed recordable facts) and
+  "Shared supplier-invocation lifecycle for the two cofx suppliers:
+  `run-generator` (generator-backed recordable facts) and
   `run-ambient-supplier` (ambient facts) are the same skeleton modulo one
   outcome keyword + the generator-only post-run validation step. This is the
   single definition of that skeleton:
@@ -816,7 +807,7 @@
     1. resolve the active platform for `frame-id`;
     2. PLATFORM GATE — when the supplier may not run on the active platform,
        emit the BYTE-IDENTICAL `:rf.cofx/skipped-on-platform` warning and
-       return `[:skipped nil]` (both callers shared this branch verbatim);
+       return `[:skipped nil]`;
     3. otherwise run under the cofx HandlerScope (`handler-scope-from-meta`)
        so errors + the success emit carry the cofx's source-coord, invoking
        the supplier inside a try/catch — a throw emits
@@ -878,12 +869,11 @@
   `:rf.cofx/generated` trace op (fact-name + supplier id) so traces are
   self-describing even though the record is flat. The platform-gate +
   HandlerScope + try/catch skeleton is shared with `run-ambient-supplier` via
-  `run-supplier-under-scope` (rf2-snxp8i); the per-generator post-run step
+  `run-supplier-under-scope`; the per-generator post-run step
   below validates the produced value: against the registration's `:schema` (a
   PRODUCTION hard error on mismatch — the validation throw propagates) AND
-  structurally against the recordable-EDN walker (rf2-rmroo4 slice B /
-  rf2-uqz2ir / production-hardened rf2-q34j26 — a generator that mints a non-EDN
-  host handle throws `:rf.error/cofx-value-invalid` reason
+  structurally against the recordable-EDN walker (a generator that mints a
+  non-EDN host handle throws `:rf.error/cofx-value-invalid` reason
   `:non-edn-recordable-value` in dev AND production, BEFORE the value is written
   back into the durable record). The op differs from the ambient
   (`:rf.cofx/generated` vs `:rf.cofx/run`) because generation produces a
@@ -900,31 +890,29 @@
         ;; scope binding, so the failure carries the cofx's source-coord
         ;; like every other cofx emit.
         ;;
-        ;; rf2-0mjgx6 — validation runs FIRST so a schema-invalid generated
-        ;; value never reaches the `:rf.cofx/generated` trace. The earlier
-        ;; order (emit THEN validate) leaked a schema-`{:sensitive? true}`
+        ;; Validation runs FIRST so a schema-invalid generated
+        ;; value never reaches the `:rf.cofx/generated` trace. Emitting
+        ;; first would leak a schema-`{:sensitive? true}`
         ;; produced value verbatim on `:rf.cofx/generated` before the
-        ;; (correctly-redacted) `:rf.error/cofx-value-invalid` fired —
-        ;; `:rf.cofx/generated`'s marks projection (`project-cofx-run-tags`)
-        ;; redacts only explicit `:sensitive` reg-marks, not schema-slot
-        ;; `:sensitive?`, so the failing value egressed to trace listeners /
+        ;; (correctly-redacted) `:rf.error/cofx-value-invalid` fires —
+        ;; `:rf.cofx/generated`'s classification projection (`project-cofx-run-tags`)
+        ;; redacts only explicit `:sensitive` registration paths, not schema-slot
+        ;; `:sensitive?`, so the failing value would egress to trace listeners /
         ;; epoch `:trace-events` / MCP / log sinks unredacted. Validating
         ;; first means the throw aborts before the emit, so the raw value
         ;; never ships on ANY trace on the failure path. (The structural
         ;; EDN-always check runs AFTER `:schema` so a declared `:schema`
-        ;; mismatch — the prod contract — is reported first; rf2-rmroo4
-        ;; slice B / rf2-uqz2ir.)
+        ;; mismatch — the prod contract — is reported first.)
         (when (continue?)
           (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id
                                       continue?))
-        ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
-        ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
+        ;; Structural EDN-always check of the GENERATED value: a generator
         ;; that mints a host handle fails loudly HERE — at the source, before
         ;; the write-back into the durable `:rf.cofx` record — not far away
         ;; at replay / Xray / SSR. ALWAYS-ON (production hard error too);
-        ;; reuses the slice-A walker + error shape. Runs AFTER `:schema` so a
+        ;; reuses the supplied-value walker + error shape. Runs AFTER `:schema` so a
         ;; declared `:schema` mismatch is reported first, and BEFORE the
-        ;; `:rf.cofx/generated` emit (rf2-0mjgx6) so a non-EDN host handle
+        ;; `:rf.cofx/generated` emit so a non-EDN host handle
         ;; never ships on the dev trace either.
         (when (continue?)
           (try
@@ -937,8 +925,8 @@
         ;; `:rf.cofx/run`. The generated value itself rides the durable
         ;; `:rf.cofx` record (always-on), NOT this dev trace. Emitted ONLY
         ;; after both validations pass — a VALID generated value's
-        ;; `:rf.cofx/value` is still projected through the marks chokepoint
-        ;; (`project-cofx-run-tags`) for any explicit `:sensitive` reg-mark.
+        ;; `:rf.cofx/value` is projected through the classification chokepoint
+        ;; (`project-cofx-run-tags`) for any explicit `:sensitive` registration path.
         (when (and (continue?) rf.interop/debug-enabled?)
           (rf.trace/emit! :rf.cofx :rf.cofx/generated
                        (cond-> {:rf.cofx/id    cofx-id
@@ -954,7 +942,7 @@
   `:rf.error/coeffect-exception` and the caller skips the handler). A run
   emits the dev-only `:rf.cofx/run` success op. Shares the platform-gate +
   HandlerScope + try/catch skeleton with `run-generator` via
-  `run-supplier-under-scope` (rf2-snxp8i); the per-ambient post-run step below
+  `run-supplier-under-scope`; the per-ambient post-run step below
   emits `:rf.cofx/run` carrying the supplier-invocation `:rf.cofx/elapsed-ms`
   (the generator omits this slot)."
   [cofx-id meta supplier arg frame-id failing-id continue?]
@@ -963,11 +951,11 @@
     (fn [outcome valued? arg elapsed continue?]
       ;; `:rf.cofx/value` carries the supplier's PRODUCED value — the
       ;; coeffect that actually egresses into `:coeffects` — so the
-      ;; marks chokepoint (`marks/project-cofx-run-tags`, wired to
-      ;; `:rf.cofx/value`) redacts a declared-`:sensitive` produced
+      ;; classification chokepoint (`classification/project-cofx-run-tags`,
+      ;; wired to `:rf.cofx/value`) redacts a declared-`:sensitive` produced
       ;; value before it surfaces in trace. The requirement-arg rides
       ;; under the distinct `:rf.cofx/arg`, present only for a
-      ;; parameterized `[id arg]` requirement (rf2-sepqgg). Both ride
+      ;; parameterized `[id arg]` requirement. Both ride
       ;; under the `rf.interop/debug-enabled?` gate so production DCEs them.
       (when (and (continue?) rf.interop/debug-enabled? (= :delivered (first outcome)))
         (rf.trace/emit! :rf.cofx :rf.cofx/run
@@ -992,7 +980,7 @@
 
 (defn resolve-mint-policy
   "Resolve the effective cofx mint policy for a dispatch, MOST-SPECIFIC-WINS
-  (EP-0017 §6 binding points, slice-B.8):
+  (EP-0017 §6 binding points):
 
     1. `per-call`   — the `:rf.cofx/mint-policy` dispatch opt (a Tool-Pair
                       replay supplies `:strict`; a nondeterminism-declaring
@@ -1022,7 +1010,7 @@
   (or (= policy :live) (= policy :explicit-live)))
 
 ;; ---- sub-valued recordable source delivery (machines-only) ----------------
-;;    (EP-0017 Option A rider, rf2-h6ggnt)
+;;    (EP-0017 Option A rider)
 ;;
 ;; A parsed sub source (`{:id fact-id :arg _ :rf.cofx/sub query-v}`) is a
 ;; RECORDED TOKEN FACT — NOT permission for a callback to read the sub cache.
@@ -1060,7 +1048,7 @@
                     (eval-sub query-v frame-id)
                     (catch #?(:clj Throwable :cljs :default) e
                       ;; A destroy+throw from the authored evaluator is inert;
-                      ;; otherwise preserve the existing hard failure.
+                      ;; otherwise the throw propagates as a hard failure.
                       (if (continue?) (throw e) nil)))]
         ;; The resolved value rides the durable causal record — structural
         ;; recordable-EDN check at write-back (a sub yielding a host handle is
@@ -1130,8 +1118,7 @@
   loudly (throws); a supplier / generator that THREW emits
   `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` so the handler
   does not run and the cascade is failed without a raw throw escaping context
-  assembly (mirroring the retired `inject-cofx` interceptor's
-  capture-don't-propagate behaviour)."
+  assembly (capture, don't propagate)."
   ([coeffects requires recorded failing-id frame-id]
    (deliver-declared-cofx coeffects requires recorded failing-id frame-id default-mint-policy))
   ([coeffects requires recorded failing-id frame-id mint-policy]
@@ -1215,13 +1202,13 @@
                   (catch #?(:clj Throwable :cljs :default) e
                     ;; All hard-error helpers emit synchronously and then
                     ;; throw. If that emit destroyed A, suppress the now-inert
-                    ;; throw; while live, preserve the established contract.
+                    ;; throw; while live, rethrow.
                     (if (continue?) (throw e) nil)))]
            (if (continue?) next-acc (reduced nil)))))
      {:coeffects coeffects :rf.cofx recorded :rf/skip-handler? false}
      requires)))
 
-;; ---- inject-cofx is REMOVED (EP-0017 slice A.3, no alias) ------------------
+;; ---- inject-cofx is REMOVED (EP-0017, no alias) ---------------------------
 ;;
 ;; Per Spec 001 §`inject-cofx` is removed + Spec 009 §Error catalogue:
 ;; `inject-cofx` (and `inject-cofx*`) — the v1 ctx→ctx delivery idiom that ran
@@ -1229,15 +1216,15 @@
 ;; is REMOVED with no alias. `:rf.cofx/requires` is the one declaration
 ;; surface. Calling it is the hard error `:rf.error/inject-cofx-removed`
 ;; naming the replacement; it fires in production too (a correctness contract,
-;; not a dev diagnostic). The stub remains so a stale call site fails LOUDLY
+;; not a dev diagnostic). The stub exists so a stale call site fails LOUDLY
 ;; with an actionable message rather than an opaque "no such var".
 
-;; ---- shared always-on removed-API thrower (rf2-8au0w6) --------------------
+;; ---- shared always-on removed-API thrower ---------------------------------
 ;;
 ;; The removed-public-API "throwing stub" pattern that ALSO fans out on the
 ;; always-on observability channel (a catalogued Spec 009 §Error-event
 ;; category — `:rf.error/inject-cofx-removed`, `:rf.error/reg-event-*-removed`)
-;; was hand-rolled per surface: the same three-step body (surface on the
+;; is one three-step body (surface on the
 ;; always-on `:error-emit/dispatch-on-error` listener → emit the dev
 ;; `:rf.error/*` trace → throw the canonical `rf.error/throw-error!` hard error).
 ;; `raise-removed!` is the ONE shared fan-out thrower both surfaces delegate
@@ -1245,15 +1232,14 @@
 ;; names via `re-frame.events/raise-removed-reg-event!`, which requires this
 ;; ns). Lives here rather than in `re-frame.error` because the fan-out needs
 ;; `late-bind` + `trace`, both of which require `error` — pushing it into
-;; `error` would close a load cycle. Behaviour is byte-identical to the prior
-;; bespoke bodies: the caller passes its exact `error-kw` / `where` / `reason`
+;; `error` would close a load cycle. The caller passes its exact `error-kw` / `where` / `reason`
 ;; / offending `id` and the `id-key` under which the id rides the trace tag +
 ;; thrown ex-data (`:id` for reg-event, `:rf.cofx/id` for inject-cofx). The
 ;; std-interceptor removed values (EP-0022) ride no catalogued 009 category, so
 ;; they throw `rf.error/throw-error!` directly (no fan-out) and do NOT use this.
 (defn raise-removed!
   "Fan out + throw a removed-public-API hard error that rides the always-on
-  Spec 009 observability channel (rf2-8au0w6). Surfaces `error-kw` on the
+  Spec 009 observability channel. Surfaces `error-kw` on the
   always-on `:error-emit/dispatch-on-error` listener (production-survivable),
   emits the dev `:rf.error/*` trace, then throws the canonical
   `rf.error/throw-error!` hard error attributed to `where` with `reason`. The
@@ -1262,7 +1248,7 @@
   normally. The ONE place the fan-out throw mechanics live; every fan-out
   removed stub delegates here so the next such removal is a data edit."
   [error-kw where reason id id-key]
-  ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
+  ;; Both channels via the shared helper: axis 1 the always-on
   ;; listener (production-survivable), axis 2 the dev trace (DCEs in CLJS prod).
   ;; Reached via the `:error-emit/emit-error-both` hook (cofx cannot
   ;; static-require error-emit — load cycle). `elapsed-ms 0`.
@@ -1296,7 +1282,7 @@
 ;;
 ;; The framework ships exactly ONE built-in coeffect registration:
 ;; `:rf/time-ms` — recordable, provided, stamped at enqueue on every dispatch
-;; and reply envelope (EP-0010's stamping rules unchanged). It is the
+;; and reply envelope (per EP-0010's stamping rules). It is the
 ;; canonical durable wall-clock fact; the framework's own durable writers
 ;; (resource freshness, work-ledger rows, mutation instances, epoch records)
 ;; read it from the envelope. A handler takes delivery by declaring
@@ -1304,8 +1290,7 @@
 ;;
 ;; `:db` and `:event` are the fold's OWN arguments (Spec 002 §4) — staged by
 ;; the runtime, NOT registered as cofx suppliers and never declarable. They
-;; carry no `reg-cofx` registration in the EP-0017 model (the former ctx→ctx
-;; `:db` / `:event` / `:app/now-ms` no-op cofx are retired with the ctx form).
+;; carry no `reg-cofx` registration.
 
 (reg-cofx :rf/time-ms
   {:recordable? true
