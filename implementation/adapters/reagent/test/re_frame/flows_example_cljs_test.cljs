@@ -1,6 +1,6 @@
 (ns re-frame.flows-example-cljs-test
   "Integration test: drives the canonical runnable flows example
-   (`examples/core/flows/`) through its HOT-RELOAD seam (rf2-pt637).
+   (`examples/core/flows/`) through its HOT-RELOAD seam.
 
    The example's two named flows (`:cart/subtotal`, `:cart/total`) are
    boot-installed: they live inside `flows.core/install-flows!` because
@@ -17,14 +17,14 @@
    `:cart/total` derive via `with-redefs` on `install-flows!` — standing in
    for the edited-and-rebuilt namespace, exactly what a watch rebuild
    produces — and invokes `reload!`. Non-vacuity: the substitution alone must
-   change NOTHING (that is the stale-derive bug this seam fixes); only the
-   seam invocation swaps the derive in. A mount-only after-load (the
-   pre-rf2-pt637 shape) never calls `install-flows!`, so under it the
-   post-reload assertions here go red.
+   change NOTHING (that is the stale-derive hazard this seam exists for);
+   only the seam invocation swaps the derive in. A mount-only after-load
+   never calls `install-flows!`, so under it the post-reload assertions
+   here would go red.
 
    The fixture fns live HERE (the adapter test tree), not under
-   examples/core/flows/ — the example source stays test-free per the locked
-   policy (rf2-8cevm). The ns requires the example's production source
+   examples/core/flows/ — the example source stays test-free by policy.
+   The ns requires the example's production source
    (`flows.core`) so its events / subs / views register at ns-load, then
    exercises `install-flows!` / `reload!` against the fixture's `:rf/default`
    frame. `mount!` inside `reload!` no-ops under node (no `js/document`),
@@ -113,24 +113,24 @@
                   (swap! new-total-runs inc)
                   (+ 41 (Math/round (* subtotal (- 1 (or discount-rate 0)))))))))]
       ;; A local do-nothing event, purely to drive one flow walk without
-      ;; disturbing the cart. The example itself no longer carries such an
-      ;; event: flow-lifecycle effects settle on their own dispatch now (Spec
-      ;; 013 §Sequencing), so an app never needs one. This test does, because
+      ;; disturbing the cart. The example itself carries no such event:
+      ;; flow-lifecycle effects settle on their own dispatch (Spec 013
+      ;; §Sequencing), so an app never needs one. This test does, because
       ;; it is probing the hot-reload seam rather than a lifecycle effect —
       ;; there is no `:rf.fx/reg-flow` here to settle.
       (rf/reg-event ::walk (fn [{:keys [db]} _] {:db db}))
       (with-redefs [example/install-flows! rebuilt-install-flows!]
         ;; NON-VACUITY, half one: the rebuild REPLACING install-flows! is not
-        ;; enough — this is the bug. Nothing has called the new function, so
-        ;; a walk still computes with the old derive.
+        ;; enough — this is the hazard. Nothing has called the new function,
+        ;; so a walk still computes with the previous build's derive.
         (rf/dispatch-sync [::walk] {:frame :rf/default})
         (is (= 11500 (:total (cart)))
             "before the seam runs, the live frame still computes with the
              PREVIOUS build's derive — replacing the function registers nothing")
         (is (zero? @new-total-runs) "the updated derive has never run")
         ;; THE SEAM. This is what Shadow invokes after a successful rebuild.
-        ;; Under the pre-fix mount-only after-load, install-flows! is never
-        ;; called here and every assertion below goes red.
+        ;; Under a mount-only after-load, install-flows! would never be
+        ;; called here and every assertion below would go red.
         (example/reload!))
       ;; An ordinary cart event drives the next flow pass (the reproduction's
       ;; step 4) — no manual reg-flow, no refresh.
