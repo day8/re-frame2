@@ -747,14 +747,24 @@
   [node]
   (:tags node))
 
+(defn root-tags
+  "The machine root's own `:tags` set, or `#{}`. The root is active for the
+  machine's whole life, so its tags are always in the union. A synthetic
+  region spec (`:rf/region`) is a region body, not the machine root: the
+  parallel union adds the machine root's tags once, itself."
+  [machine]
+  (if (:rf/region machine)
+    #{}
+    (or (node-tags machine) #{})))
+
 (defn compute-tags
   "Per Spec 005 §State tags: walk the active configuration for `state`
-  and return the union of every active state-node's `:tags` set.
-  Returns a set (possibly empty) — never `nil`."
+  and return the union of the machine root's `:tags` and every active
+  state-node's `:tags` set. Returns a set (possibly empty) — never `nil`."
   [machine state]
   (let [path  (state-path state)
         nodes (nodes-along-path machine path)]
-    (transduce (keep (fn [[_ n]] (node-tags n))) set/union #{} nodes)))
+    (transduce (keep (fn [[_ n]] (node-tags n))) set/union (root-tags machine) nodes)))
 
 (defn stamp-tags
   "Elide-or-assoc the `:tags` slot on `snapshot`. Per Spec 005 §State
@@ -3012,6 +3022,52 @@
                                     :action (:exit n)})))
                          vec)]
     (collect-actions machine snapshot [:rf.machine/destroy-exit] steps)))
+
+;; ---- the machine root's own :entry / :exit --------------------------------
+;;
+;; Per Spec 005 §State nodes (the machine root): the root is active for the
+;; machine's whole life, so it enters once at birth and exits once at
+;; teardown, and never on a transition. Its `:entry` / `:exit` are therefore
+;; composed at those two sites (`re-frame.machines.parallel`'s birth cascade
+;; and machine-level exit cascade) rather than through `nodes-along-path`,
+;; whose depth-indexed pairs the transition geometry slices by LCA length —
+;; a root pair there would put the root on every root-declared transition's
+;; exit / entry path. A step records the root as the node at the empty path
+;; `[]`, as `schedule-root-after-fx` does, and only when the root declares
+;; the action.
+
+(defn- run-root-action
+  "Run the machine root's `slot` action (`:entry` / `:exit`) as one cascade
+  step at `:state []`. A root that declares none returns `snap` unchanged
+  with no step."
+  [machine snap slot kind phase event]
+  (if-let [action (get machine slot)]
+    (collect-actions machine snap event
+                     [{:kind kind :phase phase :action action :state [] :region nil}])
+    (rf.machines.result/with-cascade (rf.machines.result/ok snap []) [])))
+
+(defn run-root-entry
+  "Run the machine root's `:entry` at birth, against the seeded snapshot and
+  before any state is entered: the action sees `:state []`, the empty
+  configuration, as the initial descent's own `:entry` actions do. Phase
+  `:initial-entry`, event `[:rf.machine/start]`. Returns the Result with the
+  snapshot's `:state` put back, or the `:fail` the action produced."
+  [machine snap]
+  (let [r (run-root-action machine (assoc snap :state []) :entry :entry
+                           :initial-entry [start-marker])]
+    (if (rf.machines.result/fail? r)
+      r
+      (rf.machines.result/with-ok [snap' fx] r
+        (rf.machines.result/with-cascade
+          (rf.machines.result/ok (assoc snap' :state (:state snap)) fx)
+          (rf.machines.result/cascade r))))))
+
+(defn run-root-exit
+  "Run the machine root's `:exit` at teardown, against the snapshot the
+  active configuration's exit cascade left. Phase `:destroy-exit`, event
+  `[:rf.machine/destroy-exit]`, as the rest of that cascade."
+  [machine snap]
+  (run-root-action machine snap :exit :exit :destroy-exit [:rf.machine/destroy-exit]))
 
 ;; ---- apply-transition-once: cascade phases --------------------------------
 ;;
