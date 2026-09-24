@@ -1110,6 +1110,88 @@ test('and the OPERATOR gets the boot failure, in full, on the sidecar stderr', a
   );
 });
 
+/**
+ * Boot one isolate against the flaky fixture, armed or not, and report what
+ * it settled with and what reached this process's stderr.
+ *
+ * A worker thread's stderr arrives here through a pipe rather than by a
+ * direct write, so the capture is read once the thread has EXITED — the
+ * point at which its pending output has been delivered — and not merely
+ * once the boot promise has settled.
+ */
+async function bootIsolateOnce({ armed }) {
+  const { Isolate } = require('../src/isolate.cjs');
+  const captured = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) {
+    captured.push(String(chunk));
+    return realWrite.call(this, chunk, ...rest);
+  };
+  // Read at construction: a worker thread takes its copy of `process.env`
+  // when it is created.
+  if (armed) process.env[FAIL_FLAG] = '1';
+  try {
+    const isolate = new Isolate({ modulePath: require.resolve('./fixtures/flaky-boot.cjs') });
+    const started = isolate.start();
+    const exited = new Promise((resolve) => isolate.worker.once('exit', resolve));
+    const outcome = await started.then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    if (outcome.value) await isolate.close();
+    await exited;
+    await tick();
+    return { ...outcome, stderr: captured.join('') };
+  } finally {
+    delete process.env[FAIL_FLAG];
+    process.stderr.write = realWrite;
+  }
+}
+
+/**
+ * The line a stack frame writes for the fixture's `throw` — a path, a line
+ * and a column. The refusal the parent builds carries frames from
+ * `isolate.cjs` and never this one, so this is what tells the application's
+ * own stack from a newly constructed one; the module PATH alone would not,
+ * because the refusal's `detail` names it too.
+ */
+const FLAKY_CALL_SITE = /flaky-boot\.cjs:\d+:\d+/;
+
+test('CONTROL — a HEALTHY boot of the same fixture says nothing on stderr', async () => {
+  const run = await bootIsolateOnce({ armed: false });
+  assert.ok(run.value, `the unarmed fixture must boot; got ${run.error}`);
+  assert.ok(!run.stderr.includes('[rf.ssr-node]'), `a clean boot wrote a diagnostic: ${run.stderr}`);
+});
+
+test('a module that throws while LOADING leaves its own stack on the sidecar stderr, and none on its refusal', async () => {
+  const run = await bootIsolateOnce({ armed: true });
+  assert.ok(run.error, 'the armed fixture must refuse to boot');
+  assert.strictEqual(run.error.name, 'Refusal', 'the boot receiver builds a Refusal');
+
+  // The operator's copy is the APPLICATION's exception: its message, and the
+  // frame it was thrown from.
+  assert.ok(
+    run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
+    'the operator was told nothing at all',
+  );
+  assert.ok(run.stderr.includes(BOOT_SENTINEL), 'the operator copy must be the REAL exception');
+  assert.ok(
+    FLAKY_CALL_SITE.test(run.stderr),
+    `the operator copy must carry the application's call site; got ${run.stderr}`,
+  );
+
+  // DISCRIMINATOR: the refusal's own stack does not carry that frame, so the
+  // stderr assertion above cannot be met by printing the refusal instead.
+  assert.ok(!FLAKY_CALL_SITE.test(run.error.stack), 'the refusal is a new Error with frames of its own');
+
+  // And the refusal itself carries no stack at all.
+  assert.deepStrictEqual(Object.keys(run.error.detail), ['modulePath'], 'the boot refusal names the module path only');
+  assert.ok(
+    !FLAKY_CALL_SITE.test(JSON.stringify(run.error.toFrame())),
+    'no application frame reaches the refusal frame',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // 7. The FOURTH RECEIVER — a rejection that is not a `Refusal` at all
 //

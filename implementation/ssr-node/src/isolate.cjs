@@ -192,10 +192,13 @@ class Isolate {
         // THE BOOT ARM — the module's own wording, deliberately. Boot fails
         // before the service listens, so this refusal is read by the
         // operator standing at the process they just started rather than by
-        // a caller across a wire; `worker.cjs`'s boot post names this
-        // handler as where the real stack survives, and it is the diagnostic
-        // for a module that cannot be loaded at all. Two audiences, and this
-        // one is already the operator.
+        // a caller across a wire. Two audiences, and this one is already the
+        // operator. It serves only a fault the worker did not catch, which
+        // kills the thread before `ready`: an exception thrown while the
+        // module is loaded or from its `boot` hook is caught in `worker.cjs`,
+        // which writes its stack to stderr (`reportBootException`) and posts
+        // `boot-error` to the receiver above instead, so it never reaches
+        // this handler.
         //
         // Read NULLISH-SAFELY, because this line runs in every phase: the
         // `reject` is a no-op after boot, but its arguments are still
