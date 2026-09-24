@@ -87,12 +87,12 @@ test('an isolate refuses a second dispatch outright', async () => {
 });
 
 test('a post that THROWS leaves the isolate free, not stuck busy (rf2-ey07)', async () => {
-  // Guarantee 3 has a second half nobody had asked about: an isolate that
-  // is marked busy must be busy WITH something. `render()` used to set
-  // `pendingRender` and arm the deadline before handing the message to
-  // `postMessage`, so a post that threw — and a structured clone throws on
-  // any value it cannot copy — left the flag set with the render it was
-  // supposed to describe already rejected. Nothing but the deadline could
+  // Guarantee 3 has a second half: an isolate that is marked busy must be
+  // busy WITH something. Were `render()` to set `pendingRender` and arm the
+  // deadline before handing the message to `postMessage`, a post that
+  // threw — and a structured clone throws on any value it cannot copy —
+  // would leave the flag set with the render it was supposed to describe
+  // already rejected. Nothing but the deadline could
   // clear it, and clearing it that way is not a release: the deadline's own
   // callback TERMINATES the worker thread, so a healthy isolate is killed
   // and the pool has to boot a replacement.
@@ -101,10 +101,9 @@ test('a post that THROWS leaves the isolate free, not stuck busy (rf2-ey07)', as
   // Node's structured clone on a value the request really carries.
   //
   // This row is deliberately at the ISOLATE rather than through a service.
-  // `validateRequest` no longer lets such a request past (see
-  // protocol.test.cjs), which is the other half of rf2-ey07 — so a
-  // service-level version of this row would go green on the validator's
-  // repair and stop saying anything about the ordering here.
+  // `validateRequest` does not let such a request past (see
+  // protocol.test.cjs) — so a service-level version of this row would go
+  // green on the validator alone and say nothing about the ordering here.
   const isolate = await new Isolate({ modulePath: FIXTURE }).start();
   try {
     const err = await refusalOf(() =>
