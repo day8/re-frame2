@@ -1,32 +1,29 @@
 (ns re-frame.resources-trace-egress-enumerable-token-cljs-test
-  "rf2-hzcv8 — the OFF-BOX resource trace egress must not mint an ENUMERABLE
-  token for sensitive content.
+  "The OFF-BOX resource trace egress must not mint an ENUMERABLE token for
+  sensitive content.
 
   ## The leak this suite pins
 
-  `ssr/redact-value` emitted `fnv-1a-32` of `(pr-str value)` for every
-  classification alike, and every off-box carrier in
-  `re-frame.resources.trace-egress` called it: a sensitive resource's scope and
-  params inside `:resource/key`, a free `[tier {identity}]` scope tag, the
-  load-more pagination cursor, an HTTP failure envelope, and any unrecognised
-  map under a resource-family tag.
+  Every off-box carrier in `re-frame.resources.trace-egress` tokenizes: a
+  sensitive resource's scope and params inside `:resource/key`, a free
+  `[tier {identity}]` scope tag, the load-more pagination cursor, an HTTP
+  failure envelope, and any unrecognised map under a resource-family tag. A
+  content-derived hash there — `fnv-1a-32` of `(pr-str value)`, say — leaks.
 
   FNV-1a-32 is a 32-bit non-cryptographic hash. A tenant slug, an account id or
   a page cursor lives in a candidate space small enough to WALK, so the original
-  is recoverable from the token by enumeration — and testable against it, which
-  is worse, because an attacker who merely wants to confirm a guess needs only
-  one hash. rf2-4bjep proved exactly this and responded by withholding coarse
-  rows from SSR hydration, but that closed only the hydration boundary. The same
-  token kept leaving the process through the trace path, which is the boundary
-  an off-box sink sits on, while Spec 009 and the source comments called the
-  result \"opaque content-addressed\". Spec 015's sensitive-marker contract is
-  that `:rf/redacted` carries NO information about the underlying content; a
-  token you can test candidates against does not meet it, and \"we hashed it\"
-  was a false assurance rather than a weak guarantee.
+  is recoverable from such a token by enumeration — and testable against it,
+  which is worse, because an attacker who merely wants to confirm a guess needs
+  only one hash. Withholding coarse rows from SSR hydration closes only the
+  hydration boundary; the trace path is the boundary an off-box sink sits on.
+  Spec 015's sensitive-marker contract is that `:rf/redacted` carries NO
+  information about the underlying content; a token you can test candidates
+  against does not meet it, and \"we hashed it\" is a false assurance rather
+  than a weak guarantee.
 
-  ## What replaced it
+  ## The token by classification
 
-  The token's payload is now chosen by CLASSIFICATION, and the default is the
+  The token's payload is chosen by CLASSIFICATION, and the default is the
   safe one:
 
     :redact (SENSITIVE, and every caller with no disposition to hand)
@@ -34,12 +31,12 @@
         integer `:count`. There is no candidate space to enumerate against it,
         because every value of the same shape produces the same token.
     :omit (LARGE, not sensitive — a SIZE claim, not a privacy claim)
-      → a digest, which that classification permits, now over
+      → a digest, which that classification permits, over
         `identity/canonical-bytes` rather than `pr-str`.
 
   ## The suite is TWO-SIDED
 
-  Over-redaction fails here as loudly as the leak did. §3 pins a PLAIN owner's
+  Over-redaction fails here as loudly as a leak. §3 pins a PLAIN owner's
   cursor and key riding byte-identical, and §4 pins that a `:large?` owner still
   gets distinct keys — so \"redact everything\" is not a passing answer, and the
   classification split is a real split rather than a blanket removal.
@@ -121,7 +118,7 @@
 ;; ===========================================================================
 
 (deftest sensitive-scoped-key-token-is-not-enumerable
-  (testing "rf2-hzcv8 — a `:sensitive?` owner's params tokenize off-box, and the
+  (testing "a `:sensitive?` owner's params tokenize off-box, and the
             token carries NOTHING derived from the content: two distinct tenants
             of the same shape produce ONE token, so a candidate space cannot be
             walked or tested against it"
@@ -147,12 +144,12 @@
                 1)))))
 
 ;; ===========================================================================
-;; 2. The FREE `:scope` tag and the pagination CURSOR — the two carriers the
-;;    bead named as still leaking after rf2-4bjep.
+;; 2. The FREE `:scope` tag and the pagination CURSOR — two carriers outside
+;;    `:resource/key`.
 ;; ===========================================================================
 
 (deftest free-scope-tag-identity-map-token-is-not-enumerable
-  (testing "rf2-hzcv8 — a free `[tier {identity}]` scope tag (an invalidation
+  (testing "a free `[tier {identity}]` scope tag (an invalidation
             sweep carries no `:resource/key` to read an owner from) keeps its
             TIER keyword so a tool still reads \"session scope\", and tokenizes
             the identity MAP. That token is content-free too: the free tag has
@@ -173,7 +170,7 @@
            (:scope (project-row {:rf.frame/id :rf/default :scope :rf.scope/global}))))))
 
 (deftest pagination-cursor-token-is-not-enumerable
-  (testing "rf2-hzcv8 — the load-more cursor (`:page-param` / `:next-page-param`)
+  (testing "the load-more cursor (`:page-param` / `:next-page-param`)
             is an app-derived free tag that can carry a record id. It tokenizes
             when the row's OWNER redacts, and that token is content-free"
     (let [row-a (project-row {:rf.frame/id :rf/default
@@ -185,7 +182,7 @@
       (is (not (leaks? cursor-a (:page-param row-a))) "no plaintext off-box")
       (is (= (:page-param row-a) (:page-param row-b))
           "THE PROPERTY: two distinct cursors are indistinguishable — an
-           enumerable token over a record id is the leak this bead closes")
+           enumerable token over a record id would leak it")
       (is (= {:rf/redacted {:type :string :count (count cursor-a)}}
              (:page-param row-a))
           "a tag and an integer; the LENGTH is deliberately kept — an integer
@@ -205,7 +202,7 @@
 (deftest plain-owner-rides-verbatim
   (testing "a `:serialize` owner declaring nothing keeps its key BYTE-IDENTICAL
             and its cursor readable — over-redaction fails this suite as loudly
-            as the leak did"
+            as a leak"
     (let [k   (key-for :plain/feed tenant-a)
           row (project-row {:rf.frame/id :rf/default
                             :resource/key k
@@ -218,7 +215,7 @@
 ;; ===========================================================================
 
 (deftest large-owner-keeps-a-distinct-content-derived-token
-  (testing "rf2-hzcv8 — `:large?` is a SIZE claim, not a privacy claim, so a
+  (testing "`:large?` is a SIZE claim, not a privacy claim, so a
             content-derived token is PERMITTED there and is kept. Two distinct
             large tenants still project to DISTINCT tokens, which is what makes
             this a classification split rather than a blanket removal"
@@ -229,7 +226,7 @@
       (is (string? (:rf/redacted ta)) "and the payload is a digest, not a shape")))
 
   (testing "and that digest is a function of the CANONICAL value, so a map
-            spelling difference cannot change it (the rf2-hzcv8 witness)"
+            spelling difference cannot change it"
     (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :bulky/feed
                                         (array-map :tenant tenant-a :page 2))
           k2 (rf.resources.state/scoped-resource-key :rf.scope/global :bulky/feed
