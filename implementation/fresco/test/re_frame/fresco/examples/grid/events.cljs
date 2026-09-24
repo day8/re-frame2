@@ -36,17 +36,16 @@
   ## `::h/value` is positional here too
 
   [[::edit]] carries a marker, so it takes its arguments positionally and
-  not in the canonical `[<id> {<k> <v>}]` payload map. Second
-  confirmation of the slice authoring report's finding 1, from an
-  application whose
-  intent carries THREE arguments rather than two — the collision does not
+  not in the canonical `[<id> {<k> <v>}]` payload map. The slice
+  authoring report's finding 1 holds here too, for an intent carrying
+  THREE arguments rather than two — the collision does not
   soften as the payload grows, it gets worse, because a three-argument
   positional vector is exactly where a payload map would have started to
   pay for itself.
 
   [[::seed]] and [[::clear-row]] carry no marker, so both take the
   canonical payload map — `[::clear-row {:row 2}]` — and between them
-  they are this bead's live exhibit of the shape the convention asks for
+  they are this application's live exhibit of the shape the convention asks for
   working exactly as advertised where nothing needs substituting."
   (:require [re-frame.core :as rf]))
 
