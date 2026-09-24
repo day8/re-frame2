@@ -1,5 +1,5 @@
 (ns re-frame.http-restore-quiesce-test
-  "rf2-u5kmf8 — epoch-restore host-transient quiesce for NON-resource managed
+  "Epoch-restore host-transient quiesce for NON-resource managed
   HTTP. The epoch restore boundary installs the captured durable frame-state
   WHOLESALE, but a plain `:rf.http/managed` request in flight is host work — an
   AbortController / CompletableFuture + an in-flight registry slot, NOT
@@ -19,7 +19,7 @@
 
   Strategy: a blocking in-process server holds the request mid-flight while the
   quiesce fires, so the suppression is observed against a genuinely-in-flight
-  request (the actual failing path the bead names), then the server is released
+  request, then the server is released
   to prove the late completion delivers nothing to the app target."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -70,7 +70,7 @@
 ;; ---- hook publication ------------------------------------------------------
 
 (deftest hook-published
-  (testing "rf2-u5kmf8 — the :http/abort-in-flight-for-frame! hook is published"
+  (testing "the :http/abort-in-flight-for-frame! hook is published"
     (is (some? (rf.late-bind/get-fn :http/abort-in-flight-for-frame!)))
     (is (= rf.http.registry/abort-in-flight-for-frame!
            (rf.late-bind/get-fn :http/abort-in-flight-for-frame!)))))
@@ -78,7 +78,7 @@
 ;; ---- registry-level: frame-scoped abort + reason ---------------------------
 
 (deftest abort-in-flight-for-frame-aborts-only-the-frames-requests
-  (testing "rf2-u5kmf8 — abort-in-flight-for-frame! fires each matching handle's
+  (testing "abort-in-flight-for-frame! fires each matching handle's
             abort-fn with :reason :epoch-restored and leaves other frames alone"
     (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])
@@ -101,14 +101,14 @@
       (rf.http.managed/clear-all-in-flight!))))
 
 (deftest abort-in-flight-for-frame-noop-on-frame-with-no-requests
-  (testing "rf2-u5kmf8 — a frame with no in-flight managed HTTP is a clean no-op"
+  (testing "a frame with no in-flight managed HTTP is a clean no-op"
     (rf.http.managed/clear-all-in-flight!)
     (is (nil? (rf.http.registry/abort-in-flight-for-frame! :frame/none)))))
 
 ;; ---- end-to-end: suppression of a genuinely in-flight request --------------
 
 (deftest restore-quiesce-suppresses-late-completion-of-in-flight-request
-  (testing "rf2-u5kmf8 — a managed request in flight when the frame is restored
+  (testing "a managed request in flight when the frame is restored
             is aborted + its late completion is SUPPRESSED: NO :on-failure /
             :on-success delivery to the original reply target, and an EP-0011
             stale-suppressed trace is emitted"
@@ -121,8 +121,8 @@
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; an ordinary event handler (no spawned actor) issues a managed
-        ;; request with :on-success AND :on-failure recorders — the exact
-        ;; non-resource managed-HTTP shape the bead names.
+        ;; request with :on-success AND :on-failure recorders — the
+        ;; non-resource managed-HTTP shape no work-ledger gate covers.
         (rf/reg-event :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -144,7 +144,7 @@
         (await-condition! #(empty? (rf.http.managed/in-flight-snapshot)))
         ;; Release the server so the late completion (if any) would arrive.
         (.countDown latch)
-        ;; Timer-semantics window (rf2-fun38): prove the ABSENCE of any reply
+        ;; Timer-semantics window: prove the ABSENCE of any reply
         ;; delivery — there is no positive signal to poll for a non-event.
         (Thread/sleep 100)
         (is (empty? @replies)
