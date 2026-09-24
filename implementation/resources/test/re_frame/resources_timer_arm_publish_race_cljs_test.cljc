@@ -1,18 +1,18 @@
 (ns re-frame.resources-timer-arm-publish-race-cljs-test
   "Adversarial ordering regressions for the resource stale / GC / poll timer
-  two-phase arm (rf2-j538f7.10). Two races the serial suite never exercised:
+  two-phase arm. Two races a serial suite does not exercise:
 
     1. ARM-AFTER-CLEANUP — a host arm that returns AFTER a lifecycle cleanup
        (`release-frame!` / `cancel-for-key!` / `reset-cache!`) already ran must
        NOT publish live host work onto a torn-down frame / removed entry. The
-       fix RESERVES the `[frame rkey kind]` slot with a token-stamped arming
+       arm RESERVES the `[frame rkey kind]` slot with a token-stamped arming
        sentinel (`:handle nil`) BEFORE arming, so a concurrent cleanup
        atomically CLAIMS the attempt and the publish phase finds its token gone
        and cancels the orphan handle.
 
     2. OLD-CANCEL-ERASES-SUCCESSOR — a trailing cancellation of an OLD attempt
        must NOT erase a re-armed SUCCESSOR occupying the same reused
-       `[frame rkey kind]` slot. The fix scopes every cancellation to the exact
+       `[frame rkey kind]` slot. Every cancellation is scoped to the exact
        attempt token it observed, so a successor published mid-cancellation
        survives with its handle intact.
 
@@ -25,7 +25,7 @@
   Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
   `:node-test` build on `cljs-test$`. The `-cljs-test` suffix is therefore
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
-  nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
+  nowhere but the JVM and reads as covered."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
