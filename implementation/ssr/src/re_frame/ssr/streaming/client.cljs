@@ -80,8 +80,7 @@
       becomes `\\u003c` (which `cljs.reader/read-string` decodes back),
       while `<` in keyword/symbol tokens (`:<`, `:a<b`) is left intact
       so the delta round-trips. (Spec 011 §Hydration
-      interleaving's wrapped-shape prose is corrected to this shipped
-      contract.)
+      interleaving specifies this bare shape.)
     - A `data-rf2-suspense-failed=\"1\"` marker on a resolved
       `<template>` means the server's continuation render threw and the
       chunk carries the *fallback* HTML; there is no hydrate-delta
@@ -115,12 +114,12 @@
 ;;
 ;; The server↔client streaming wire attribute names live in
 ;; `re-frame.ssr.streaming.constants` so a rename is a one-edit change
-;; there, not a grep-driven sweep across server, client, and tests
+;; there, not a grep-driven sweep across server, client, and tests.
 ;; These must match the attributes
 ;; `re-frame.ssr.streaming/{suspense-template,hydrate-delta-script}` stamp —
-;; they read from the SAME `wire` ns, so the agreement is enforced by the
-;; shared source rather than a comment. Aliased here so the call sites read
-;; the same as before.
+;; they read from the SAME constants ns, so the agreement is enforced by the
+;; shared source rather than a comment. Aliased here so the call sites stay
+;; short.
 
 (def ^:private attr-suspense-id        rf.ssr.streaming.constants/attr-suspense-id)
 (def ^:private attr-suspense-fallback  rf.ssr.streaming.constants/attr-suspense-fallback)
@@ -138,7 +137,7 @@
 ;; streaming-hydration shape (visible fallback + a stable mount the
 ;; resolved subtree swaps into) — the same model React 18 / Solid use,
 ;; expressed over the server's `<template>`-marker protocol. Client-owned
-;; but pinned in the shared `wire` ns alongside the server-emitted
+;; but pinned in the shared constants ns alongside the server-emitted
 ;; attributes.
 (def ^:private attr-suspense-mount     rf.ssr.streaming.constants/attr-suspense-mount)
 (def ^:private mount-tag               rf.ssr.streaming.constants/mount-tag)
@@ -194,7 +193,7 @@
 
 (defn- parser-closed?
   "True once the HTML parser can no longer be writing into chunk element
-  `el` (rf2-3x7nj.13.2).
+  `el`.
 
   The parser INSERTS a `<script>` or `<template>` at its start tag, then
   fills it — a script's text, a template's `.content` — as network bytes
@@ -209,7 +208,7 @@
   closing an element closes everything inside it — or once the document has
   finished parsing. The ancestors matter for a fallback `<template>` that is
   the last child of its `<section>`: it never gets a sibling of its own, but
-  the next chunk lands after `#app` (rf2-5yj03). The last element on the
+  the next chunk lands after `#app`. The last element on the
   page (usually the payload) has nothing after it, so for that one the end
   of parsing is the signal."
   [root el]
@@ -253,7 +252,7 @@
 
 (def ^:private provisional-mounts
   "Fallback `<template>` → the mount painted from it while the parser was
-  still writing it (`materialise-fallback!`, rf2-5yj03). Weak, so an entry
+  still writing it (`materialise-fallback!`). Weak, so an entry
   never outlives its template."
   (js/WeakMap.))
 
@@ -277,7 +276,7 @@
   (`mount-for`).
 
   A template the parser has not yet closed (`parser-closed?`) is painted
-  PROVISIONALLY and not consumed (rf2-5yj03). The parser fills a
+  PROVISIONALLY and not consumed. The parser fills a
   `<template>`'s `.content` as bytes arrive, so a fallback split across
   network reads holds only its prefix, and the parser goes on writing the
   rest into the template it holds — into a removed original, had we
@@ -351,7 +350,7 @@
   author's `<section>` and the resolved `<div class=\"card\">`, so React's
   `hydrateRoot` walks the client tree and finds an element the tree never
   described: a structural mismatch on every boundary, on a page whose
-  content is otherwise byte-correct (rf2-o4rbh measured exactly this).
+  content is otherwise byte-correct.
 
   Unwrapping restores the DOM the author's tree DOES describe — the same
   shape `render-to-string` produces for the equivalent non-streamed
@@ -401,15 +400,15 @@
 
 (defn- always-on-boundary-failure!
   "Fan a STRUCTURAL-ONLY `:rf.ssr/suspense-boundary-failed` union record onto
-  the always-on axis (rf2-tildz), beside the dev traces below.
+  the always-on axis, beside the dev traces below.
 
   Every caller of this ns runs in the BROWSER, where a streaming-SSR
   boundary can fail in production exactly as it can in dev. The
   `rf.trace/emit-error!` traces beside each call site are DCE'd under
   `:advanced` + `goog.DEBUG=false` — `emit-error!`'s whole body sits inside
-  `rf.interop/debug-enabled?` — so before this record a production boundary
-  failure was absorbed fail-closed and reported to NOBODY, which is the same
-  defect as the hydration mismatch in `ssr/hydrate.cljc`.
+  `rf.interop/debug-enabled?` — so without this record a production boundary
+  failure would be absorbed fail-closed and reported to NOBODY, the same
+  gap the hydration mismatch's always-on record closes in `ssr/hydrate.cljc`.
 
   STRUCTURAL SLOTS ONLY. This record fans out to corpus listeners (Sentry /
   Datadog) and the frame's `:observability :errors` sinks RAW — it is NOT
@@ -449,11 +448,11 @@
   throw, `:malformed-value-type` for a non-map parse)."
   [frame-id wire-id-string reason extra]
   (let [boundary-id (read-boundary-id wire-id-string)]
-    ;; Axis 1 — always-on (rf2-tildz). Structural slots only: the
+    ;; Axis 1 — always-on. Structural slots only: the
     ;; branch-specific `extra` (`:exception` / `:malformed-value-type`) is
     ;; derived from UNTRUSTED wire bytes and stays on the dev trace.
     (always-on-boundary-failure! frame-id boundary-id :skipped-delta)
-    ;; Axis 2 — the dev-only trace, byte-identical to before.
+    ;; Axis 2 — the dev-only trace.
     (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                        (merge {:id       boundary-id
                                :frame    frame-id
@@ -476,8 +475,8 @@
       stale without a diagnostic.
 
   A nil parse (an empty / whitespace-only body) is the documented no-delta
-  shape — NOT malformed — and returns nil without a trace, matching the
-  prior `(when delta …)` no-op. The bare delta-map EDN body is the shipped
+  shape — NOT malformed — and returns nil without a trace. The bare
+  delta-map EDN body is the shipped
   wire contract (Spec 011 §Hydration interleaving — \"the per-subtree delta
   is shipped as the bare delta-map EDN\"); anything else is the bug."
   [frame-id wire-id-string delta-edn]
@@ -517,13 +516,13 @@
   sibling of `malformed-delta!`'s `:skipped-delta` and the swap-time
   `:inline-fallback`."
   [frame-id wire-id-string]
-  ;; Axis 1 — always-on (rf2-tildz). The `:reason` below interpolates the
+  ;; Axis 1 — always-on. The `:reason` below interpolates the
   ;; raw `wire-id-string`, so it stays on the DCE'd dev trace; the record
   ;; carries the READ boundary id and the recovery disposition alone.
   (always-on-boundary-failure! frame-id
                                (read-boundary-id wire-id-string)
                                :quarantined-delta)
-  ;; Axis 2 — the dev-only trace, byte-identical to before.
+  ;; Axis 2 — the dev-only trace.
   (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                      {:id       (read-boundary-id wire-id-string)
                       :frame    frame-id
@@ -552,14 +551,14 @@
       for it (Spec 011 §Failure semantics — inline fallback). A matching
       delta is therefore a contradictory / duplicated / reordered stream:
       QUARANTINE it (never merged) with one bounded diagnostic, then drop the
-      script. This is the fail-closed rule (rf2-x76af2.40) — #5728's
-      former undifferentiated `seen` set would otherwise merge a failed
+      script. This is the fail-closed rule — an
+      undifferentiated `seen` set would merge a failed
       boundary's delta.
     - not yet swapped (`nil` outcome) — a delta racing ahead of its template:
       LEFT in the DOM (not consumed) for a future sweep to reclassify.
     - still being parsed (`parser-closed?` false) — LEFT in the DOM whatever
       its outcome. Its text so far is a prefix of the delta, which would
-      fail to parse and be dropped (rf2-3x7nj.13.2).
+      fail to parse and be dropped.
 
   This decouples delta handling from the resolved-template's transient
   presence. The server flushes the resolved `<template>` and its delta
@@ -571,13 +570,13 @@
       outcome recorded in an earlier sweep; scanning the delta `<script>`s
       here (rather than only as a side effect of processing the — now gone —
       template) resolves the delta when it lands in a later sweep. Without
-      this scan a successful boundary's delta is orphaned and its
-      `(into existing delta)` merge is LOST until the final `__rf_payload`
-      self-heals it (rf2-x76af2.35).
+      this scan a successful boundary's delta would be orphaned and its
+      `(into existing delta)` merge LOST until the final `__rf_payload`
+      self-heals it.
     - delta first, template later: a delta whose boundary has NOT swapped yet
       (no outcome) is LEFT in the DOM for a future sweep; a later sweep's swap
       records the outcome, and the delta is then applied (`:resolved`) or
-      quarantined (`:failed`) accordingly — order-independent (rf2-x76af2.40).
+      quarantined (`:failed`) accordingly — order-independent.
 
   Idempotent by script removal: a consumed (applied OR quarantined) delta
   `<script>` is dropped from the DOM, so no later sweep can re-process it —
@@ -609,7 +608,7 @@
   resolved HTML and record the boundary outcome. The matching per-subtree
   hydration-delta `<script>` is applied SEPARATELY by `apply-ready-deltas!`
   at the sweep level (not here), so a delta arriving in a later observer
-  batch than this template is still merged (rf2-x76af2.35). A
+  batch than this template is still merged. A
   `data-rf2-suspense-failed` chunk carries the fallback HTML (which still
   swaps in, so the author's declared loading state replaces the streaming
   placeholder) and NO delta; it surfaces `:rf.ssr/suspense-boundary-failed`
@@ -622,8 +621,8 @@
   observer fires twice for the same node (defensive — MutationObserver
   batching + the initial sweep can both surface the same node). The outcome is
   what lets `apply-ready-deltas!` authorize a delta only for a `:resolved`
-  boundary while quarantining one matching a `:failed` boundary
-  (rf2-x76af2.40). Idempotent.
+  boundary while quarantining one matching a `:failed` boundary.
+  Idempotent.
 
   An id is recorded in `boundary-outcomes` only after a successful
   swap, and the swapped-in content is re-scanned for fallback templates
@@ -637,16 +636,17 @@
        not live DOM). It only enters the live tree when the outer mount
        is swapped. If we processed the (already-present) inner resolved
        chunk before its mount existed, `replace-mount-content!` would
-       return false. Previously the id was recorded FIRST, so that
-       failed inner swap was skipped permanently and no later sweep could
+       return false; recording the id before the swap would then skip that
+       failed inner swap permanently, and no later sweep could
        recover it → the nested boundary stuck on fallback forever.
-       Fix: after a successful outer swap, immediately materialise any
-       fallbacks the new content introduced, so the inner mount exists
+       So after a successful outer swap, any
+       fallbacks the new content introduced are materialised at once, so
+       the inner mount exists
        before the inner resolved template is processed later in the
        SAME `doseq`.
     2. Record an outcome only on a successful swap. A resolved template whose
-       mount does not exist yet (raced ahead of its fallback) stays
-       outcome is absent is retried on the next sweep instead of being burned.
+       mount does not exist yet (raced ahead of its fallback) has no
+       outcome, so it is retried on the next sweep instead of being burned.
        Idempotency is still guaranteed: a successful swap REMOVES the
        resolved template node (`replace-mount-content!`), so a re-fire
        cannot re-process it even before consulting `boundary-outcomes`.
@@ -666,39 +666,39 @@
                                              resolved-template)]
         (when swapped?
           ;; Record the OUTCOME ONLY on success — an unresolved mount is
-          ;; retryable on the next pass rather than permanently skipped
-          ;; (finding 4). The outcome (`:resolved` vs `:failed`) is what gates
+          ;; retryable on the next pass rather than permanently skipped.
+          ;; The outcome (`:resolved` vs `:failed`) is what gates
           ;; delta application: a `:failed` boundary's delta is quarantined,
-          ;; not merged (rf2-x76af2.40).
+          ;; not merged.
           (swap! boundary-outcomes assoc wire-id-string
                  (if failed? :failed :resolved))
           ;; The just-swapped content may carry NESTED fallback templates
           ;; that were inert inside the resolved <template> and are now
           ;; live DOM. Materialise them so a nested resolved chunk found
-          ;; later in this same sweep has a mount to swap into (finding 4).
+          ;; later in this same sweep has a mount to swap into.
           (materialise-fallbacks! root))
         ;; The failed-boundary trace is gated on swap success.
         ;; The failed content (the author's fallback HTML) only lands when
         ;; `replace-mount-content!` finds a live mount, so emitting exactly
         ;; when the swap happens is both correct and exactly-once: the outcome is
         ;; recorded only on a successful swap and the swapped-in <template> is
-        ;; removed, so a re-fire cannot re-process it. Previously the failed
-        ;; arm fired regardless of `swapped?`, so a resolved-failed
+        ;; removed, so a re-fire cannot re-process it. Firing the failed
+        ;; arm regardless of `swapped?` would let a resolved-failed
         ;; <template> swept before its mount existed (a nested-boundary race
-        ;; / out-of-order stream) had no outcome and RE-EMITTED the trace
+        ;; / out-of-order stream), which has no outcome, RE-EMIT the trace
         ;; on every MutationObserver re-sweep — multi-emit.
         ;;
         ;; A non-failed boundary's DELTA is NOT applied here — it is handled
         ;; by `apply-ready-deltas!` at the sweep level so it survives arriving
-        ;; in a later observer batch than this template (rf2-x76af2.35).
+        ;; in a later observer batch than this template.
         (when (and failed? swapped?)
-          ;; Axis 1 — always-on (rf2-tildz). A server continuation that
+          ;; Axis 1 — always-on. A server continuation that
           ;; failed and was swapped for its fallback is a production-visible
           ;; degradation, so it must survive `goog.DEBUG=false`.
           (always-on-boundary-failure! frame-id
                                        (read-boundary-id wire-id-string)
                                        :inline-fallback)
-          ;; Axis 2 — the dev-only trace, byte-identical to before.
+          ;; Axis 2 — the dev-only trace.
           (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                              {:id        (read-boundary-id wire-id-string)
                               :frame     frame-id
@@ -727,7 +727,7 @@
   only as a side effect of the swap would drop it whenever the delta lands in
   a later batch than its (already-swapped, already-removed) template. Running
   an outcome-gated delta scan every sweep makes delta application retryable
-  across sweeps just like the swap (rf2-x76af2.35).
+  across sweeps just like the swap.
 
   The resolved-processing pass iterates to a fixpoint. A nested boundary whose
   inner resolved chunk is already in
@@ -758,7 +758,7 @@
   ;; AFTER the swap fixpoint (so every boundary swapped this sweep has an
   ;; outcome) and independent of resolved-`<template>` presence (so a delta
   ;; arriving in a later batch than its template — the two are separate flushed
-  ;; chunks — is still merged) (rf2-x76af2.35).
+  ;; chunks — is still merged).
   (apply-ready-deltas! root frame-id boundary-outcomes))
 
 (defn- element-by-id
@@ -788,7 +788,7 @@
   would race the canonical replace). The element's presence is not enough:
   it exists from its start tag, holding only the EDN parsed so far, and a
   bootstrap hydrating from it would refuse it as malformed
-  (`parser-closed?`, rf2-3x7nj.13.2).
+  (`parser-closed?`).
 
   Matches the payload by exact id string via
   `element-by-id`, never a raw `#id` CSS selector, so a documented
@@ -871,9 +871,9 @@
     :frame      — REQUIRED. The target frame id whose app-db receives the
                   deltas — the SAME frame the bootstrap `ssr/hydrate!`s
                   into and the root provider mounts. The streaming target is supplied, not
-                  synthesised). An absent `:frame` emits + throws
-                  `:rf.error/no-frame-context` (the pre-EP `:rf/default`
-                  default is removed).
+                  synthesised. An absent `:frame` emits + throws
+                  `:rf.error/no-frame-context`; there is no `:rf/default`
+                  default.
     :root       — the DOM root to observe + query. Default
                   `js/document`. A test harness passes a detached
                   container so it can drive chunk-arrival deterministically.
