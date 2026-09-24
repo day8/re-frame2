@@ -17,7 +17,7 @@
   lowers those paths per instance into the frame elision registry, and every
   durable egress boundary reads that registry. Schema `:sensitive?` / `:large?`
   props govern validation-failure redaction only; they do not classify durable
-  state. Coarse whole-entry `:sensitive?` / `:large?` claims remain the root
+  state. Coarse whole-entry `:sensitive?` / `:large?` claims are the root
   case, where the whole resource is the classification unit.
 
   ## Projection is registry-driven — the routing / machines standard model
@@ -40,7 +40,7 @@
   `project-snapshot-data` (the `frame-snapshot-classification` registry
   read) — one source of truth, all sources unioned at lookup.
 
-  The coarse whole-entry disposition (`whole-entry-disposition`) remains the
+  The coarse whole-entry disposition (`whole-entry-disposition`) is the
   separate, frame-independent authority that gates redact / omit / serialize
   on the whole entry.
 
@@ -224,7 +224,7 @@
      :params {:sensitive (->decl (:params s)) :large (->decl (:params l))}}))
 
 ;; ---------------------------------------------------------------------------
-;; Mutation continuation-reply projection (rf2-825mzj / EP-0025 §subsystems).
+;; Mutation continuation-reply projection (EP-0025 §subsystems).
 ;;
 ;; A `:reply-to` mutation continuation dispatches a canonical reply map carrying
 ;; the accepted attempt's `:params` + resolved `:scope` (Spec 016 §Mutation
@@ -271,32 +271,32 @@
   BOTH continuation families use this, at DIFFERENT boundaries, and the
   difference is deliberate:
 
-    - MUTATIONS call it at the SOURCE (`mutation_events`, rf2-825mzj). A
+    - MUTATIONS call it at the SOURCE (`mutation_events`). A
       mutation's completion echo is redacted before it reaches any carrier;
       a coarse `:sensitive?` root prop is not part of `reg-mutation`'s
       declaration surface at all, so this is the whole of the mutation reply's
       classification.
     - READS call it at OFF-BOX EGRESS
-      (`trace_egress/redact-reply-declarations`, rf2-ko5lm), and must not call
+      (`trace_egress/redact-reply-declarations`), and must not call
       it at the source: the app's own `:reply-to` handler is entitled to the
       decoded body and the trusted-local `:rf.egress/include-sensitive?` opt-in must still
       show it. There it composes with the coarse `whole-entry-disposition` arm,
       which reads the root prop a read owner CAN declare.
 
-  INDEX-FREE, and that is what makes an INFINITE FEED work (rf2-zaopo). A
+  INDEX-FREE, and that is what makes an INFINITE FEED work. A
   projection-relative declaration is written against the projection's SHAPE,
   not against a concrete runtime position, so a positional container consumes
   no declared segment and `[:data :email]` names EVERY element. The DURABLE
-  side has always read it that way — `project-entry-data` walks a feed's page
+  side reads it that way — `project-entry-data` walks a feed's page
   vector through `elide-wire-value`, whose index-free fork matches the
   declaration on every page. The reply carries the MERGED ITEM LIST under
   `:value` (`events/infinite-reply-value`), so without the same reading the
-  re-rooted `[:value :email]` reached nothing at `[:value <i> :email]` and a
-  feed's declared field redacted in the durable entry while riding raw in the
+  re-rooted `[:value :email]` would reach nothing at `[:value <i> :email]` and a
+  feed's declared field would redact in the durable entry while riding raw in the
   continuation echo of it. Hence `{:index-free? true}`: no new declaration
   vocabulary — a feed needs no \"each item\" wildcard because the index-free
-  declaration already IS that spelling — just the carrier honouring the reading
-  the durable side established."
+  declaration IS that spelling — just the carrier honouring the same reading
+  as the durable side."
   [reply spec]
   (let [sens  (carrier-decl-paths spec :sensitive :value)
         large (carrier-decl-paths spec :large :value)]
@@ -309,10 +309,10 @@
   event-bearing trace slots the CORE event projection walks — `:rf.event/v` on
   the dispatched / lifecycle traces, the bare `:event` error slot, the
   always-on `:rf.observe/*` records, and the `:dispatch` / `:dispatch-later`
-  fx-arg recursion (rf2-3ej3xu). The mutation OWNER's projection-relative
+  fx-arg recursion. The mutation OWNER's projection-relative
   `:sensitive` / `:large` declarations govern the payload — the SAME single
   declaration surface the durable-instance lowering and the continuation-reply
-  projection read (rf2-825mzj), never a second classification language: a
+  projection read, never a second classification language: a
   `:params`-rooted decl redacts args `[:params …]`, a `:scope`-rooted decl the
   sibling `:scope`; `:data`-rooted decls name the RESULT projection, which
   does not exist at execute time, and are skipped. The `:reply-to`
@@ -350,7 +350,7 @@
 ;; A resource's `:params-schema` (and, for an infinite feed, the per-page
 ;; validation supplied on the request's `:decode`)
 ;; VALIDATES the value; it does NOT drive DURABLE egress classification. The
-;; per-slot `:sensitive?` / `:large?` schema props survive ONLY for
+;; per-slot `:sensitive?` / `:large?` schema props serve ONLY for
 ;; VALIDATION-FAILURE-TRACE redaction (the validator's own transient egress
 ;; product — `redact-invalid-params-error`, which binds the spec's
 ;; `:params-schema`, via the shared `:schemas/redact-validation-tags` seam) —
@@ -394,7 +394,7 @@
 ;; value VERBATIM — the precise, fail-open-frameless posture machines
 ;; (`project-snapshot-data` nil-frame ride) and routing (`project-routing-egress`
 ;; no-live-frame ride) both take. The COARSE whole-entry `:redact` / `:omit`
-;; dispositions (`whole-entry-disposition`) remain the separate authority that
+;; dispositions (`whole-entry-disposition`) are the separate authority that
 ;; replaces the WHOLE data / key irrespective of frame — they are NOT a
 ;; per-slot path concern and do not flow through this registry walk.
 ;; ---------------------------------------------------------------------------
@@ -510,19 +510,19 @@
 (defn project-entry-scope
   "Project a resource entry's scoped-key SCOPE value (index 0 of
   `[scope resource-id params]`) for egress — the CO-EQUAL scope counterpart to
-  `project-entry-params` (rf2-5e2ye).
+  `project-entry-params`.
 
-  ## The asymmetry this closes
+  ## Why the SSR wire key projects the scope too
 
-  `instance-declaration-paths` has always lowered a `:scope`-rooted declaration
+  `instance-declaration-paths` lowers a `:scope`-rooted declaration
   to the entry's absolute `[… :resource/key 0 …]` path exactly as it lowers a
   `:params`-rooted one to `[… :resource/key 2 …]`, so the epoch / registry walk
-  over the runtime-db honoured BOTH, and (since rf2-dl7bz)
+  over the runtime-db honours BOTH, and
   `trace-egress/redact-key-declarations` honours both on every trace and tool
-  key. But the SSR wire key projected only index 2, so on a `:serialize` owner
-  declaring `{:sensitive [[:scope :tenant-id]]}` the resolved tenant id rode RAW
-  in the hydration payload — the LAST carrier of that value that disagreed, and
-  the only one that is not dev-gated.
+  key. The SSR wire key must agree: projecting only index 2 would let a
+  `:serialize` owner declaring `{:sensitive [[:scope :tenant-id]]}` ride the
+  resolved tenant id RAW in the hydration payload — the one carrier of that
+  value that is not dev-gated.
 
   ## Reaching through the `[tier {identity}]` tuple
 
@@ -557,7 +557,7 @@
 ;; would leak RAW whenever validation failed on a DIFFERENT, non-sensitive
 ;; sibling field — the same sibling-leak class the SSR `:serialize` key
 ;; (`project-entry-params`) and the schema-validation hot-path traces
-;; (`re-frame.schemas.validate/redact-tags`) already close.
+;; (`re-frame.schemas.validate/redact-tags`) also close.
 ;;
 ;; This routes the error payload through the SAME two shared primitives the
 ;; rest of the resources family egress uses — never a registry-private elider:
@@ -587,7 +587,7 @@
 ;; Schema props do not drive DURABLE classification. They do govern the
 ;; validation-failure record that the schema produces, so this seam reads those
 ;; props directly to redact failing params. Durable wire, SSR, and tool egress
-;; remain governed by projection-relative declarations lowered into the frame
+;; are governed by projection-relative declarations lowered into the frame
 ;; registry.
 ;; ---------------------------------------------------------------------------
 
@@ -599,7 +599,7 @@
   FAILURE-TRACE (the schema's own egress product, per Spec 015 §Schemas
   describe shape) — NOT a durable
   classification route. Empty maps when the schema is nil / unschematic / the
-  walker hooks are unbound. Pure: the hooks walk unmemoised (rf2-3x7nj.19.4)."
+  walker hooks are unbound. Pure: the hooks walk unmemoised."
   [schema]
   (let [extract (fn [hook]
                   (if-let [f (and schema (rf.late-bind/get-fn-cached hook))]
@@ -635,7 +635,7 @@
         redact-fn  (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
         {:keys [sensitive large]} (validation-failure-params-marks schema)
         ;; The failing params slot is the validator's own failure product — redact
-        ;; the schema's `:sensitive?` / `:large?` slots per-slot (the surviving
+        ;; the schema's `:sensitive?` / `:large?` slots per-slot (the
         ;; schema-prop route), keeping the non-sensitive failing field diagnostic.
         params'    (if (or (seq sensitive) (seq large))
                      (rf.classification/redact-with-paths params (keys sensitive) (keys large))
@@ -749,7 +749,7 @@
   byte `key-id`), delegating to the core multi-owner op
   `re-frame.elision/replace-owner-claims`. The standard EP-0025 lowering — the
   resources peer of `re-frame.routing.classification/apply-route-classification`
-  and `re-frame.machines.classification/lower-at-spawn!` (rf2-v8x9n8).
+  and `re-frame.machines.classification/lower-at-spawn!`.
 
   Operates on a VALUE so a resource handler's durable `:rf.db/runtime`
   transition folds the registry update into the SAME atomic commit that
@@ -759,8 +759,7 @@
   appear, with no separate drop hook. Value-INDEPENDENT (the declared path
   redacts whatever later occupies the slot). A path ALSO claimed by another
   owner (`{:source :effect}` / `{:source :flow …}` / `{:source :route}` /
-  `{:source :machine …}`) rides untouched and unions at egress-lookup time
-  (rf2-wdm1vg).
+  `{:source :machine …}`) rides untouched and unions at egress-lookup time.
 
   `spec-of` is injected (resources' `registry` requires `classification`, so a
   static back-require would cycle) — the caller (a resource event handler in
@@ -810,7 +809,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Per-instance MUTATION lowering into the per-frame elision registry
-;; (rf2-825mzj — the mutation peer of the resource-entry lowering above).
+;; (the mutation peer of the resource-entry lowering above).
 ;;
 ;; A mutation INSTANCE lives at `[:rf.runtime/mutations <key-id>]` and stores the
 ;; canonical `:params`, resolved `:scope`, and decoded `:result` (Spec 016
