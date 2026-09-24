@@ -63,7 +63,7 @@
   partition. Blindly installing a non-map slice (a string, vector,
   number — a corrupt / hostile / version-skewed payload) silently coerces
   the malformed input to a successful hydration: the same fail-OPEN class
-  the schemas / routing sweeps closed at their boundaries.
+  the schemas and routing boundaries refuse.
 
   Per Spec 011 §The :rf/hydrate event BOTH partitions validate fail-closed
   before installation: returns a `:rf.error/*` reason string when `payload`
@@ -76,7 +76,7 @@
   existing partition value.
 
   Public because `re-frame.ssr.boot/hydrate!` screens with this SAME
-  predicate before it claims a payload id (rf2-gwye.19): a payload the
+  predicate before it claims a payload id: a payload the
   handler refuses never commits, so it must never claim."
   [payload]
   (cond
@@ -121,7 +121,7 @@
   docstring recommends direct `dispatch-sync [:rf/hydrate payload] {:frame
   target}` as the split path for hosts that verify the mounted DOM
   themselves, so the boundary is not purely private: a direct dispatch
-  bypassed the boot check and silently installed the payload into `target`
+  would bypass the boot check and silently install the payload into `target`
   even when `:rf/frame-id` named a different frame. The check is
   therefore enforced HERE, at the handler boundary BOTH paths cross, so a
   manual boot / custom host cannot hydrate the wrong frame.
@@ -302,7 +302,7 @@
   ;;
   ;; That hook reconciles the installed VALUE. Its counterpart for HOST work
   ;; is the `:machines/rearm-after-hydration!` gate on the `:fx` vector
-  ;; below (rf2-jqvgp): machine `:after` timers are suppressed server-side
+  ;; below: machine `:after` timers are suppressed server-side
   ;; and cannot ride the wire, so the machines artefact re-arms them from
   ;; the hydrated snapshots once the runtime-db has committed.
   [_app-db current-runtime-db frame-id payload hydrated-app-db]
@@ -325,9 +325,8 @@
         payload-runtime-db (let [runtime-db-slice (:rf/runtime-db payload)]
                              (when (map? runtime-db-slice) runtime-db-slice))
         hydration-runtime-db-base (or payload-runtime-db current-runtime-db {})
-        ;; Declarative hydration-metadata construction — additive,
-        ;; nil-pruned. New keys land here as kv pairs without re-ordering
-        ;; the previous `cond->` clauses.
+        ;; Declarative hydration-metadata construction,
+        ;; nil-pruned: a new key lands here as one more kv pair.
         metadata      (into {}
                             (filter (comp some? val))
                             {:server-hash (:rf/render-hash payload)
@@ -357,12 +356,11 @@
     ;; reconstitution so `verify-hydration!` can compare against it after the
     ;; first client render), so it lives in the frame's RUNTIME-DB partition
     ;; at `[:rf.runtime/ssr :hydration]` (Conventions §Reserved runtime-db
-    ;; keys) — NOT in app-db (where it briefly sat under the retired
-    ;; `:rf/runtime` root). The handler installs both partitions coherently:
+    ;; keys) — NOT in app-db. The handler installs both partitions coherently:
     ;; `:db` (the server's app-db slice) AND `:rf.db/runtime` (the hydration
     ;; metadata). The reference `:rf/hydrate` handler is framework code, so
-    ;; emitting the reserved `:rf.db/runtime` effect is in-bounds (decision
-    ;; #4 — reserved by convention).
+    ;; emitting the reserved `:rf.db/runtime` effect is in-bounds (the
+    ;; effect is reserved by convention).
     (cond-> {:db hydrated-app-db
              :fx (cond-> []
                    (and client? version)
@@ -371,7 +369,7 @@
                    (and client? schema-digest)
                    (conj [:rf.ssr/check-schema-digest schema-digest])
 
-                   ;; LATE-BOUND cross-subsystem hydration RE-ARM (rf2-jqvgp).
+                   ;; LATE-BOUND cross-subsystem hydration RE-ARM.
                    ;; The `:resources/hydrate-runtime-db` hook below is PURE —
                    ;; it reshapes the runtime-db value being installed. Machines
                    ;; needs the other half: HOST work. A machine hydrated in an
@@ -406,13 +404,13 @@
                         (some? (rf.late-bind/get-fn :machines/rearm-after-hydration!)))
                    (conj [:rf.machine/hydrate-rearm {}])
 
-                   ;; The RESOURCES counterpart (rf2-omahf). A hydrated entry
+                   ;; The RESOURCES counterpart. A hydrated entry
                    ;; whose owner rode the wire is already owned on the client,
                    ;; so neither the client's fresh-skip nor a later release ever
                    ;; arms its GC timer, and it would never be collected. The
                    ;; resources artefact arms the GC timer of each hydrated
                    ;; entry, plus the poll timer of each still-owned entry whose
-                   ;; resource declares :poll-interval-ms (rf2-2ojds); each
+                   ;; resource declares :poll-interval-ms; each
                    ;; timer's fire re-checks ownership, GC re-arming while
                    ;; owned. Same three gates, same post-commit ordering,
                    ;; and nothing it arms rides the wire.
@@ -438,8 +436,8 @@
                ;; clear transient host pointers, surface server clock skew — without
                ;; SSR statically `:require`ing it. Absent hook (no resources
                ;; artefact) leaves `hydration-runtime-db` unchanged, so an SSR
-               ;; app without resources sees no behaviour change. Resources is
-               ;; the first consumer; it reconciles `:rf.runtime/resources`. The
+               ;; app without resources is unaffected. Resources is
+               ;; its consumer; it reconciles `:rf.runtime/resources`. The
                ;; symmetric COUNTERPART of `:ssr/extend-runtime-db-projection`
                ;; (the server projection hook in `project-runtime-db`).
                (if-let [reconcile-runtime-db
@@ -514,7 +512,7 @@
   in builds where schemas is absent the lookup returns nil and the
   check emits `:rf.ssr/compatibility-check-skipped`.
 
-  The hook takes ONE opts MAP with a REQUIRED `:frame` (rf2-kuky.84 — one
+  The hook takes ONE opts MAP with a REQUIRED `:frame` (one
   frame spelling on the side-table read lane), so the fx handler's own
   `:frame` is threaded in here rather than resolved ambiently inside the
   hook."
@@ -668,15 +666,15 @@
                                first-diff-path
                                (assoc :first-diff-path first-diff-path))
                emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
-           ;; Axis 1 — ALWAYS-ON (rf2-tildz). A mismatch is a PRODUCTION
+           ;; Axis 1 — ALWAYS-ON. A mismatch is a PRODUCTION
            ;; event: detection is on by default in every build (Spec 011
            ;; §Mismatch recovery and configuration row 4), so the client
            ;; pays for the hash comparison in an `:advanced` +
            ;; `goog.DEBUG=false` build and the monitoring integration that
            ;; row 3 promises must see the result. The dev trace below is
            ;; DCE'd there — `trace/emit-error!`'s whole body sits inside
-           ;; `rf.interop/debug-enabled?` — so before this record a
-           ;; production mismatch was detected and reported to NOBODY.
+           ;; `rf.interop/debug-enabled?` — so without this record a
+           ;; production mismatch would be detected and reported to NOBODY.
            ;;
            ;; STRUCTURAL SLOTS ONLY, and that is the contract rather than an
            ;; oversight: this record fans out to corpus listeners (Sentry /
@@ -698,10 +696,10 @@
                 :client-hash client-hash
                 :recovery    recovery
                 :time        (rf.interop/now-ms)}))
-           ;; Axis 2 — the dev-only trace, kept BYTE-IDENTICAL to before:
+           ;; Axis 2 — the dev-only trace:
            ;; it carries the rich `:reason` + `:first-diff-path` for the
            ;; local debugger. Emitted after the always-on record per the
-           ;; rf2-vkn8 axis-1-then-axis-2 ordering, so a last-write-wins
+           ;; axis-1-then-axis-2 ordering, so a last-write-wins
            ;; listener buffer keeps the richer trace as its final input.
            ;; THEN escalate in strict mode. The thrown ex-info carries the
            ;; same structured payload so a CI run sees the full diff.
