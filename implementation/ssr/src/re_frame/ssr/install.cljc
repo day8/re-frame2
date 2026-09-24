@@ -10,7 +10,7 @@
 
   [Spec 004C §6] ratifies the rule this namespace implements:
 
-  > Payload install remains **idempotent and order-independent**: the
+  > Payload install is **idempotent and order-independent**: the
   > first hydrating root referencing a payload installs it; later roots
   > find it live and do not re-seed. Conflict is the exception, and it is
   > fail-loud (§7).
@@ -52,12 +52,10 @@
   | entry, **equal** digest | `:already-installed` — the ratified idempotent no-op; do NOT re-seed |
   | entry, **differing** digest | `:rf.error/frame-payload-conflict`, thrown |
 
-  The third arm is the S5 hydrate half of `:rf.error/frame-payload-conflict`
-  that [004C §7] reserved (\"a referenced payload id already installed
-  with a different **content** digest ... carries its own content-`:digest`
-  slot when server rendering lands: the same error id, a distinct conflict
-  trigger\"). Its sibling — the plan-`:config-fingerprint` arm — went with
-  the retired compiled-view artefact, so this is the arm that remains.
+  The third arm is [004C §7]'s payload conflict: a referenced payload id
+  already installed with a different **content** digest fails the arriving
+  root with `:rf.error/frame-payload-conflict`, and the error carries both
+  digests.
 
   ## Why a digest rather than payload equality
 
