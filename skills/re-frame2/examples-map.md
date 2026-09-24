@@ -11,7 +11,7 @@ The full catalogue (each example's build id, what it demonstrates, and the specs
 
 ## counter — `examples/core/counter/`
 
-The smallest possible re-frame2 app. Three `reg-event`s (an `:initialise` plus inc/dec), one `reg-sub`, two `reg-view` Vars, an `:initial-events` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference), or when checking the minimum-viable `app-db` schema attachment. Exercises 002 Frames. The pedagogical "hello world" — its shape sets the bar for every other example.
+The smallest possible re-frame2 app. Three `reg-event`s (an `:initialise` plus inc/dec), one `reg-sub`, two `reg-view` Vars, an `:initial-events` boot dispatch, and a single click. Point at this example when authoring the first event/sub/view of a greenfield feature, or when verifying the canonical macro-shapes (`reg-event`, `reg-sub`, `reg-view` Form-1 with a Var reference). It registers no schema — for `app-db` slice schema attachment (`reg-app-schema`), point at the 7GUIs sub-apps below. Exercises 002 Frames. The pedagogical "hello world" — its shape sets the bar for every other example.
 
 ## flows — `examples/core/flows/`
 
@@ -35,7 +35,7 @@ The single-feature scaffold: everything a typical login flow needs, in one file.
 
 ## managed_http_counter — `examples/core/managed_http_counter/`
 
-A compact Spec 014 demo — a counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. Includes a tiny `/api/` directory served as canned JSON so the example runs without a backend. Point at this example when verifying the canonical shape of an `:rf.http/managed` call, the eight-category `:rf.http/*` failure taxonomy, the retry-with-backoff configuration, the abort-token wiring, or the encode/decode pipeline. The compact, single-feature complement to RealWorld for Spec 014; the canonical Pattern-ManagedHTTP example. Exercises 014 HTTPRequests and Pattern-AsyncEffect.
+A compact Spec 014 demo — a counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. Includes a tiny `/api/` directory served as canned JSON so the example runs without a backend. Point at this example when verifying the canonical shape of an `:rf.http/managed` call, the eight-category `:rf.http/*` failure taxonomy, `:request-id` cancellation via `:rf.http/managed-abort`, or the encode/decode pipeline. It configures no `:retry` policy — the retry-recover button is a canned success reply standing in for a recovered retry. The compact, single-feature complement to RealWorld for Spec 014; the canonical Pattern-ManagedHTTP example. Exercises 014 HTTPRequests and Pattern-AsyncEffect.
 
 ## nine_states — `examples/patterns/nine_states/`
 

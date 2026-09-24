@@ -64,4 +64,4 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 
 ## The checklist
 
-The same recipe covers any one-shot async `fx`: register the effect, capture the frame, start the host work, dispatch a named success or failure event, keep state writes in handlers, and pass data rather than closures. The [login example](../../examples/core/login) shows it under real load — a hand-rolled async `fx` driving its reply into a state machine.
+The same recipe covers any one-shot async `fx`: register the effect, capture the frame, start the host work, dispatch a named success or failure event, keep state writes in handlers, and pass data rather than closures. The [payment snippet](#wrapping-a-promise) above is its worked example.
