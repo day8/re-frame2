@@ -1,5 +1,5 @@
 (ns re-frame.bench.calibration
-  "rf2-l3jv4 — the SMI/DBL control's verdict, made to FAIL CLOSED.
+  "The SMI/DBL control's verdict, made to FAIL CLOSED.
 
   Both allocation harnesses in this directory carry the same pair of
   `.slice()` controls: a PACKED_DOUBLE_ELEMENTS array whose copy has an
@@ -8,28 +8,27 @@
   tagged-slot copy at all? — and the answer is what licenses every absolute
   byte figure the run goes on to print.
 
-  ## Why the answer had to grow teeth
+  ## Why the answer decides the exit code
 
-  The pair already printed its own disagreement. When the SMI/DBL ratio sat
-  outside both bands the harness printed
+  Printing the pair's disagreement is not enough. When the SMI/DBL ratio sits
+  outside both bands the harness prints
 
       *** NEITHER — the SMI arm is not measuring a tagged-slot copy ***
 
-  and then carried on, exited 0, and printed `VERDICT: reportable` from the
-  arm-order guard beside it. That is the exact recurrence this owner exists
-  to catch: `arm-ctl` was once ONE function body closed over both kinds of
-  template, so the harness had ONE `.slice()` call site that saw both
-  elements kinds, and at that polymorphic site the SMI receiver lost
-  `.slice()`'s clone fast path and allocated its elements store TWICE — the
-  arm read 16.11 B/slot against a tagged slot's 8. Splitting the site per
-  elements kind returned it to 8.0. Nothing stops a future edit sharing that
-  site again, and until this namespace existed nothing would have stopped the
-  run REPORTING afterwards.
+  and a harness that then carried on would exit 0 and print `VERDICT:
+  reportable` from the arm-order guard beside it. That is the recurrence this
+  owner exists to catch: ONE `arm-ctl` function body closed over both kinds
+  of template gives the harness ONE `.slice()` call site that sees both
+  elements kinds, and at that polymorphic site the SMI receiver loses
+  `.slice()`'s clone fast path and allocates its elements store TWICE — the
+  arm reads 16.11 B/slot against a tagged slot's 8. Splitting the site per
+  elements kind returns it to 8.0. Nothing stops an edit sharing that site
+  again, so this namespace stops the run REPORTING afterwards.
 
-  So the evidence the harnesses already computed is turned into a boolean
-  here, and that boolean joins the arm-order refusal in deciding the exit
-  code. A run whose control says it is not measuring its stated control is
-  not reportable, by the same rule that an order-contaminated run is not.
+  So the evidence the harnesses compute is turned into a boolean here, and
+  that boolean joins the arm-order refusal in deciding the exit code. A run
+  whose control says it is not measuring its stated control is not
+  reportable, by the same rule that an order-contaminated run is not.
 
   ## What is checked, and what deliberately is NOT
 
@@ -195,7 +194,7 @@
      ";; ==== CONTROL CALIBRATION: THESE FIGURES ARE NOT REPORTABLE ===="
      (str ";;   " (:why v))
      ";;   every absolute byte figure above rests on the SMI/DBL pair agreeing"
-     ";;   about what a tagged slot costs on this build (rf2-l3jv4). It does not."
+     ";;   about what a tagged slot costs on this build. It does not."
      ";;   The table stands as raw data; nothing in it may be quoted."]))
 
 ;; ---------------------------------------------------------------------------
@@ -205,15 +204,15 @@
 (defn- pair [d smi dbl] {:d d :smi smi :dbl dbl})
 
 (defn self-test []
-  (let [;; 1. THE RECORDED FAULT, replayed from this bead's own measurement:
-        ;;    the polymorphic `.slice()` site, SMI D=100 at 1681.7 B against
-        ;;    the DBL D=100's 848, slope 16.1146 B/slot. This is the run that
-        ;;    exited 0 and printed `VERDICT: reportable`.
+  (let [;; 1. THE RECORDED FAULT, replayed from a measured run: the
+        ;;    polymorphic `.slice()` site, SMI D=100 at 1681.7 B against the
+        ;;    DBL D=100's 848, slope 16.1146 B/slot. Unguarded, this run exits
+        ;;    0 and prints `VERDICT: reportable`.
         broken   (verdict [(pair 100 1681.7 848.0) (pair 200 3293.5 1648.0)] 16.1146)
 
-        ;; 2. THE SAME HARNESS AFTER THE FIX, from the numbers the docstring
-        ;;    of `write-attribution` quotes. It must pass, or the guard is
-        ;;    useless.
+        ;; 2. THE SAME HARNESS WITH THE SITE SPLIT, from the numbers the
+        ;;    docstring of `write-attribution` quotes. It must pass, or the
+        ;;    guard is useless.
         healthy  (verdict [(pair 100 849.1 848.0) (pair 200 1651.8 1648.0)] 8.0027)
 
         ;; 3. A CHROME-LIKE BUILD. Pointer compression ON halves every slot
@@ -244,8 +243,8 @@
         ;; 8. THE DOCUMENTED DBL DEVIATION IS NOT GATED. Both DBL arms read
         ;;    9% over their own asserted layout — the page-tail effect — and
         ;;    the SMI arms track them. Only the RATIO is adjudicated here, so
-        ;;    this must pass: turning a known large-object effect into a
-        ;;    refusal was ruled out by name.
+        ;;    this must pass: the namespace docstring excludes turning a known
+        ;;    large-object effect into a refusal.
         ;;    Its own implied slope is 8.72 — the same +9% — and the 25%
         ;;    tolerance must admit it.
         tail     (verdict [(pair 100 924.3 924.3) (pair 200 1796.3 1796.3)] 8.72)
@@ -256,7 +255,7 @@
                      (= :neither (:regime broken))
                      (every? #(= :neither (:regime %)) (:pairs broken)))
           :detail (:why broken)}
-         {:name "the same harness after the fix is reportable"
+         {:name "the same harness with the site split is reportable"
           :ok   (and (not (:refuse? healthy))
                      (= :off (:regime healthy))
                      (< (abs* (:off-by healthy)) 0.01))
