@@ -28,14 +28,13 @@
   verbatim (and almost certainly rejected by the frame's app-schema),
   never executed.
 
-  The `pr-str` path this used to take was NOT that guarantee (rf2-olqo,
-  the sibling of rf2-j2wz on this tool). Printing a value renders it as
-  SOURCE, and source is read as code: a list inside the app-db value is
-  a function call and a symbol is a name lookup, so the value the
-  runtime received was whatever those evaluated to rather than the
-  datum the caller sent — and a value shaped like one of the emitter's
-  own tagged vectors was recognised as IR and its payload spliced in as
-  raw source. `(quote <datum>)` evaluates to its datum for every EDN
+  The default `pr-str` arg path would NOT give that guarantee. Printing
+  a value renders it as SOURCE, and source is read as code: a list
+  inside the app-db value is a function call and a symbol is a name
+  lookup, so the runtime would receive whatever those evaluate to
+  rather than the datum the caller sent — and a value shaped like one
+  of the emitter's own tagged vectors would be recognised as IR and its
+  payload spliced in as raw source. `(quote <datum>)` evaluates to its datum for every EDN
   value, which is the whole of what the paragraph above promises. The
   `frame` argument is an internally-composed keyword and stays on the
   default path.
@@ -103,8 +102,7 @@
               ;; The value is EXTERNAL EDN off the wire, so it rides
               ;; `rt-quote` — the literal-data emission path — and not
               ;; the default `pr-str` arg path, which prints a value as
-              ;; source and so re-evaluates any list or symbol inside it
-              ;; (rf2-olqo; rf2-j2wz is the same defect on `dispatch`).
+              ;; source and so re-evaluates any list or symbol inside it.
               ;; `frame` is composed here, not supplied, so it stays on
               ;; the default path.
               call (if frame
