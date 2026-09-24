@@ -30,8 +30,8 @@
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build. Running
   under `goog.DEBUG=true` would FAIL — the trace surface delivers under
-  dev-mode (which is the dev contract pinned in the existing JVM
-  `http-managed` tests)."
+  dev-mode (the dev contract the JVM
+  `http-managed` tests pin)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -75,7 +75,7 @@
 ;; ---- :rf.http/aborted-on-actor-destroy elides under prod ----------------
 
 (deftest abort-on-actor-destroy-emits-no-trace-under-prod
-  (testing "Per Spec 009 §Production-elision (rf2-xxd6z): calling
+  (testing "Per Spec 009 §Production-elision: calling
             `abort-on-actor-destroy` against an actor with in-flight
             handles fires every handle's `:abort-fn` but emits NO
             `:rf.http/aborted-on-actor-destroy` trace under `:advanced`
