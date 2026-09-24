@@ -1,11 +1,11 @@
 (ns re-frame.bench.order-guard
-  "rf2-88pie / rf2-om73r — the ARM-ORDER guard, for the harnesses that cannot
-  reach the JavaScript one.
+  "The ARM-ORDER guard, for the harnesses that cannot reach the JavaScript
+  one.
 
-  No reported figure may depend on WHERE IN THE PLAN it was measured. That
-  rule already exists, in
+  No reported figure may depend on WHERE IN THE PLAN it was measured. The
+  same rule is expressed in
   `implementation/core/test/re_frame/bench/order_guard.cjs`,
-  where it guards `b8_run.cjs`, `b7_run.cjs` and the B6 harness.
+  which guards the Node-driven bench drivers.
 
   ## Why the rule is expressed twice, and what stops the two drifting
 
@@ -19,11 +19,8 @@
     * `re-frame.bench.write-attribution` is ClojureScript compiled INTO the
       page under measurement. The `.cjs` is driver-side: loaded by the Node
       process that owns that page from outside it. The measured page cannot
-      require the driver's module, and that stays true now the two files are
-      siblings in this directory — the rule was re-homed here from
-      `implementation/freehand` so it survives that tree's deletion
-      (rf2-it4y5), which removes a stale dependency-arrow argument for the
-      split without removing the split's actual reason.
+      require the driver's module, even though the two files are siblings in
+      this directory.
 
   So the honest shape is a SHARED RULE EXPRESSED TWICE, and the thing that
   stops the two copies drifting apart is that [[self-test]] replays the same
@@ -35,7 +32,7 @@
 
   ## The property
 
-  Three remedies were available and the `.cjs` header argues them out in
+  Three remedies are available and the `.cjs` header argues them out in
   full; this is the summary.
 
   **Randomise the order** — rejected: randomising spreads a contaminant
@@ -63,11 +60,9 @@
 
   ## Cyclic rotation does not vary adjacency, and that is the trap
 
-  `b8_run.cjs`, `b7_run.cjs`, `b6-harness/round!` and `b6-rows` all chose
-  the arm for slot `j` of round `r` as `ARMS[(j + r) % n]`, and all of them
-  published that as \"arm order rotating with the round\". A cyclic rotation
-  changes which arm goes FIRST; it does not change which arm follows which.
-  Arm `a` sits at slot `(a - r) mod n`, so its predecessor is `(a - 1) mod n`
+  Choosing the arm for slot `j` of round `r` as `ARMS[(j + r) % n]` reads as
+  \"arm order rotating with the round\". A cyclic rotation changes which arm
+  goes FIRST; it does not change which arm follows which. Arm `a` sits at slot `(a - r) mod n`, so its predecessor is `(a - 1) mod n`
   in every round, and the only sample with a different predecessor is the one
   at the round seam — exactly one of the arm's `R`.
 
@@ -75,26 +70,26 @@
   `a -> a+1` adjacency with `a -> a-1`. [[self-test]] proves both halves of
   that arithmetically.
 
-  ## Two arms are the case where the reflection cancels (rf2-ouwh8)
+  ## Two arms are the case where the reflection cancels
 
   Reversing a pair IS rotating it by one. So at `n = 2` — and only there —
   composing the rotation with the reflection returns `[0 1]` at every index,
   and a two-arm plan runs in a SINGLE ORDER for ever. That is not a weaker
   version of the property; it is the absence of it, and the guard says so:
-  four two-arm rows came back `only 1 stratum — the question was never
+  a two-arm row comes back `only 1 stratum — the question was never
   asked`. Two arms is the natural shape for *candidate versus comparator*,
   so the case is not exotic. [[slot-order]] drops the reflection at `n = 2`,
   where the bare rotation already supplies both of the orders that exist.
 
   ## A LOST position is a refusal, not a smaller question
 
-  Every instrument fault on this programme produced a plausible PRECISE
-  WRONG NUMBER before it was caught, and one of them was aimed straight at
-  this namespace: a shadowed binding in a harness made every `:position`
-  `NaN` from round 2 on. [[stratify]] filters non-finite positions out of
-  the phase contrast, so the phase question was quietly answered over the
-  six samples that still had one while [[report-lines]] printed the arm's
-  full twenty-four beside it — and the run returned `[ok]`.
+  An instrument fault produces a plausible PRECISE WRONG NUMBER, and one
+  kind aims straight at this namespace: a shadowed binding in a harness that
+  makes every `:position` `NaN` from round 2 on. [[stratify]] filters
+  non-finite positions out of the phase contrast, so unguarded the phase
+  question would be quietly answered over the six samples that still have
+  one while [[report-lines]] prints the arm's full twenty-four beside it —
+  and the run would return `[ok]`.
 
   A harness that records NO positions is a different and documented case:
   it is excused the phase contrast (and still owes the predecessor one). A
@@ -103,16 +98,15 @@
   check 11 replays it with deliberately flat values, so nothing but the
   lost positions can be what refuses.
 
-  The excuse belongs to the RUN, not to the sample, and reading it the
-  other way is how the same fault came back: a first repair counted only
-  `NaN`, so a sample carrying `:position nil` — present, unusable, dropped
-  by [[stratify]] exactly as `NaN` is — was excused one at a time, and
-  twenty-four samples with six positions and eighteen nils adjudicated
-  phase over four survivors and answered `[ok]` again. Inside a run that
-  records positions at all, EVERY unusable position is a loss; only a run
-  in which no sample offers one is excused. Check 12 prices both halves.
+  The excuse belongs to the RUN, not to the sample. Read the other way —
+  counting only `NaN` — a sample carrying `:position nil` (present,
+  unusable, dropped by [[stratify]] exactly as `NaN` is) would be excused
+  one at a time, and twenty-four samples with six positions and eighteen
+  nils would adjudicate phase over four survivors and answer `[ok]`. Inside
+  a run that records positions at all, EVERY unusable position is a loss;
+  only a run in which no sample offers one is excused. Check 12 prices both halves.
 
-  ## What the `:predecessor` factor can and cannot attribute (rf2-om73r)
+  ## What the `:predecessor` factor can and cannot attribute
 
   Under [[slot-order]] an arm's predecessor is `(a - 1) mod n` on EVEN
   rounds and `(a + 1) mod n` on ODD ones, so with only two orders available
@@ -154,23 +148,22 @@
   Reversing a pair is rotating it by one, so `(rseq [1 0])` is `[0 1]` and a
   schedule that always composes returns `[0 1]` at every index: a two-arm
   plan runs in ONE ORDER FOR EVER, which is the single-order result this
-  namespace exists to refuse. `rf2-ouwh8` records it, and the guard is how it
-  was found — four two-arm rows came back `only 1 stratum — the question was
-  never asked` and were REFUSED. The repair belongs to the plan, never to the
-  tolerance. At `n = 2` the plain rotation already alternates `[0 1]` and
-  `[1 0]`, which is every order two arms have, so the reflection is dropped
-  rather than composed. [[self-test]] check 9 prices both halves.
+  namespace exists to refuse; the guard reports it as `only 1 stratum — the
+  question was never asked` and REFUSES it. The repair belongs to the plan,
+  never to the tolerance. At `n = 2` the plain rotation already alternates
+  `[0 1]` and `[1 0]`, which is every order two arms have, so the reflection
+  is dropped rather than composed. [[self-test]] check 9 prices both halves.
 
-  The same arithmetic as `order_guard.cjs`'s `schedule`. `b6-harness` and
-  `re-frame.bench.fresco.lane` take this function rather than restate it, so
-  there are two copies of the rule and not four — and the two are the ones a
-  Node driver and a ClojureScript harness genuinely cannot share."
+  The same arithmetic as `order_guard.cjs`'s `schedule`.
+  `re-frame.bench.fresco.lane` takes this function rather than restating it,
+  so there are two copies of the rule — and the two are the ones a Node
+  driver and a ClojureScript harness genuinely cannot share."
   [n round]
   (let [xs (mapv #(mod (+ % round) n) (range n))]
     (if (and (odd? round) (> n 2)) (vec (rseq xs)) xs)))
 
 (defn rotation-only
-  "The plain cyclic rotation, kept so [[self-test]] can price it."
+  "The plain cyclic rotation, for [[self-test]] to price."
   [n round]
   (mapv #(mod (+ % round) n) (range n)))
 
@@ -233,7 +226,7 @@
 (defn stratify
   "Partition one arm's samples on one nuisance factor.
 
-  `:predecessor` is the bead's factor. `:phase` is the one the live
+  `:predecessor` is the obvious factor. `:phase` is the one the live
   reproduction says is larger: THIRDS, not halves, and the middle is
   discarded. A warm-up step lands somewhere inside the run; a median split
   can put the step inside the EARLY stratum, which then straddles it, and a
@@ -273,11 +266,10 @@
 
   So the excuse is a property of the RUN, not of the sample: only a run in
   which NO sample offers a position is excused, and inside a run that does
-  record them every unusable position is a loss. `NaN` was the recorded
-  fault and nil is its sibling — [[stratify]] drops both from the phase
-  contrast while [[report-lines]] prints the arm's full count beside it, so
-  a guard that counted only `NaN` would adjudicate 24 samples on four and
-  answer `[ok]` for the second reason having been repaired for the first."
+  record them every unusable position is a loss. `NaN` and nil are
+  siblings — [[stratify]] drops both from the phase contrast while
+  [[report-lines]] prints the arm's full count beside it, so a guard that
+  counted only `NaN` would adjudicate 24 samples on four and answer `[ok]`."
   [samples]
   (if (not-any? #(some? (:position %)) samples)
     0
@@ -289,7 +281,7 @@
   Strata of a single sample carry no range, so they are adjudicated on the
   ratio alone — and only when there is no better-powered pair available,
   because a powered comparison should decide the question when one exists.
-  `rf2-jr76s`'s recorded fault is exactly the unpowered case (one forward
+  The recorded fault is exactly the unpowered case (one forward
   reading, one reversed) and must still fire."
   [strata tolerance]
   (if (< (count strata) 2)
@@ -305,7 +297,7 @@
           ;; all. Left as `Infinity` this manufactures contamination out of
           ;; two strata that agree exactly, which is the one thing the house
           ;; rule exists to prevent (`read-attribution`'s CACHEGET and NOOP
-          ;; arms are both identically zero and both were flagged).
+          ;; arms are both identically zero).
           ratio      (cond
                        (== (:p50 hi) (:p50 lo)) 1.0
                        (zero? (:p50 lo))        #?(:clj Double/POSITIVE_INFINITY
@@ -364,14 +356,14 @@
                                                   (cond
                                                     ;; A sample with no usable position
                                                     ;; in a run that records positions
-                                                    ;; is a HARNESS FAULT, and it is the
-                                                    ;; recorded one: a shadowed binding
-                                                    ;; made every position `NaN` from
-                                                    ;; round 2 on, `stratify` dropped
-                                                    ;; them, and the report said
+                                                    ;; is a HARNESS FAULT — a shadowed
+                                                    ;; binding making every position
+                                                    ;; `NaN` from round 2 on is one.
+                                                    ;; `stratify` drops them, so without
+                                                    ;; this branch the report would say
                                                     ;; "24 samples" over a phase
                                                     ;; contrast adjudicated on six —
-                                                    ;; and answered `[ok]`. nil is the
+                                                    ;; and answer `[ok]`. nil is the
                                                     ;; same loss by another route and is
                                                     ;; counted the same way. Silently
                                                     ;; narrowing the question is the one
@@ -463,13 +455,13 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The self-test — deterministic, and it is the proof this copy of the rule
-;; still behaves like the one in `order_guard.cjs`. Harnesses run it before
-;; measuring, exactly as `b8_run.cjs` does.
+;; behaves like the one in `order_guard.cjs`. Harnesses run it before
+;; measuring.
 
 (defn self-test []
   (let [one    (fn [v arm factor] (get-in v [:arms arm :factors factor]))
 
-        ;; 1. THE RECORDED 2x, replayed from `rf2-jr76s`. A packed-SMI
+        ;; 1. THE RECORDED 2x, replayed. A packed-SMI
         ;;    `.slice()` control, predicted 8.000 B/slot, read once in
         ;;    forward arm order and once in reversed. Both strata are n=1,
         ;;    which is the whole difficulty: a guard that insisted on ranges
@@ -485,8 +477,8 @@
         slope  [{:arm "RFWRITE-slope" :predecessor "RFWRITE-150" :position 3 :value 2830.7}
                 {:arm "RFWRITE-slope" :predecessor "RFWRITE-300" :position 8 :value 2842.8}]
 
-        ;; 3. A SINGLE-ORDER RESULT IS REFUSED — the bead's first actionable:
-        ;;    a study that ran one order has not checked this.
+        ;; 3. A SINGLE-ORDER RESULT IS REFUSED: a study that ran one order has
+        ;;    not checked this.
         one-order (mapv (fn [[p v]] {:arm "A" :predecessor "B" :position p :value v})
                         [[0 100] [1 101] [2 99]])
         v-one  (verdict one-order {:tolerance 0.10 :factors [:predecessor]})
@@ -501,8 +493,8 @@
         ;; 5. THE WARM-UP STEP, from the `.cjs` module's own measured sweep:
         ;;    the SAME control, nothing else running, consecutive windows.
         ;;    The predecessor is identical throughout, so ONLY the phase
-        ;;    factor can catch it — and a guard built to the bead's literal
-        ;;    proposal (reverse the plan, compare) would not have.
+        ;;    factor can catch it — and a guard that only reverses the plan
+        ;;    and compares would not.
         warmup (map-indexed (fn [i v] {:arm "CTL-SMI-slice" :predecessor "CTL-SMI-slice"
                                        :position i :value v})
                             [10.3223 10.2627 10.2588 10.2588 10.334 10.2832
@@ -532,9 +524,10 @@
 
         ;; 9. TWO ARMS, where the reflection cancels the rotation. Priced
         ;;    beside 7 and 8 because it is the same arithmetic asked at the
-        ;;    smallest `n` a comparison can have. `always-reflect` is what
-        ;;    [[slot-order]] used to be, kept HERE and nowhere else so the
-        ;;    defect stays reproducible rather than merely described.
+        ;;    smallest `n` a comparison can have. `always-reflect` is
+        ;;    [[slot-order]] without its `n = 2` exception, kept HERE and
+        ;;    nowhere else so the defect stays reproducible rather than
+        ;;    merely described.
         ;;
         ;;    A pair has exactly one adjacency per round, so the WITHIN-round
         ;;    question is unaskable at `n = 2` for any schedule; the seams
@@ -550,10 +543,10 @@
         fix-d (mapv :distinct (vals (:arms fix2)))
         fix-s (apply max (map :modal-share (vals (:arms fix2))))
 
-        ;; 11. THE LOST POSITIONS, replayed. A shadowed binding made every
-        ;;     position `NaN` from round 2 on; `stratify` dropped them, the
-        ;;     report printed the arm's full sample count beside a phase
-        ;;     contrast taken over the survivors, and the run came back
+        ;; 11. THE LOST POSITIONS, replayed. A shadowed binding makes every
+        ;;     position `NaN` from round 2 on; `stratify` drops them, and an
+        ;;     unguarded report prints the arm's full sample count beside a
+        ;;     phase contrast taken over the survivors and comes back
         ;;     `[ok]`. Values are deliberately flat, so nothing but the lost
         ;;     positions can be what refuses this.
         nan*   #?(:clj Double/NaN :cljs js/NaN)
@@ -567,7 +560,7 @@
         ;; 12. THE SAME LOSS BY THE OTHER ROUTE. `nil` is dropped from the
         ;;     phase contrast exactly as `NaN` is, so a guard that counts
         ;;     only `NaN` adjudicates these 24 samples on FOUR survivors
-        ;;     and answers `[ok]` — the fault of check 11, repaired for one
+        ;;     and answers `[ok]` — the fault of check 11, guarded for one
         ;;     spelling and live for the other. Only `:phase` is asked, so
         ;;     nothing but the lost positions can be what refuses; and the
         ;;     second half pins the excuse it must NOT swallow, a run in
