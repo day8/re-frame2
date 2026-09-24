@@ -1,23 +1,23 @@
 (ns re-frame.after-timer-announce-claim-race-test
-  "rf2-jqvgp (audit of PR #8965) — a cleanup that claims an `:after` attempt's
+  "A cleanup that claims an `:after` attempt's
   timer-table sentinel BEFORE the attempt's `:rf.machine.timer/scheduled` row
   is out must not put its `:rf.machine.timer/cancelled` in front of that row.
 
-  ## The gap
+  ## The window
 
-  PR #8965 moved the timer-table reservation ABOVE the `/scheduled` emit in
-  `schedule-after-timer!`, so an announced attempt is cancellable from the
-  instant it is visible. That opened the reverse window: between the
-  reservation and the emit the sentinel is claimable but the row is not yet
-  out. On the JVM a concurrent cleanup — state exit, actor destroy, epoch
-  restore, frame destroy — can claim it there, and `claim-cancel-and-release!`
-  emitted `/cancelled` on the claimant's own stack, immediately. The arming
-  thread then emitted `/scheduled`; its owner check still passed (none of
-  those cleanups changes the frame incarnation), the host arm was attempted,
-  publication lost to the earlier claim, and no later row closed the now-last
-  `/scheduled`. The stream read `/cancelled` then an orphan `/scheduled` — the
-  pairing contract Spec 005 §Trace event catalogue states on `(actor-id,
-  state, epoch)`, inverted.
+  `schedule-after-timer!` makes the timer-table reservation ABOVE the
+  `/scheduled` emit, so an announced attempt is cancellable from the instant
+  it is visible. That leaves the reverse window: between the reservation and
+  the emit the sentinel is claimable but the row is not yet out. On the JVM a
+  concurrent cleanup — state exit, actor destroy, epoch restore, frame
+  destroy — can claim it there. Were `claim-cancel-and-release!` to emit
+  `/cancelled` on the claimant's own stack, immediately, the arming thread
+  would then emit `/scheduled`; its owner check passes (none of those
+  cleanups changes the frame incarnation), the host arm is attempted,
+  publication loses to the earlier claim, and no later row closes the
+  now-last `/scheduled`. The stream would read `/cancelled` then an orphan
+  `/scheduled` — the pairing contract Spec 005 §Trace event catalogue states
+  on `(actor-id, state, epoch)`, inverted.
 
   ## The interleaving is driven, not raced
 
@@ -27,15 +27,15 @@
   thread and is joined before the real emit proceeds. That reaches the exact
   reserve-to-emit boundary on every run; nothing here depends on scheduling
   luck, and there is no sleep. A raw `Thread` rather than a `future`, on
-  purpose: `future` conveys the caller's dynamic bindings, and the repair
+  purpose: `future` conveys the caller's dynamic bindings, and the runtime
   marks the announcing THREAD through one, so a conveyed cleanup would read as
   a synchronous listener on the row and defeat the control.
 
   The second test is the control on the other side of that thread mark: a
   claim made ON the announcing thread comes from a listener on the row itself,
   so the row is already out and the `/cancelled` must follow it immediately —
-  before anything the listener goes on to announce. A repair that handed
-  every pre-consummation claim to the announcer would put a same-id
+  before anything the listener goes on to announce. Handing every
+  pre-consummation claim to the announcer would put a same-id
   successor's `/scheduled` between A's row and A's closure, and a consumer
   pairing on `(actor-id, state, epoch)` — identical for A and B here — would
   read B's fresh timer as the cancelled one.
@@ -160,7 +160,7 @@
     {:bit? @bit? :reserved? @reserved? :arms @arms}))
 
 ;; ---------------------------------------------------------------------------
-;; The audit's interleaving — a concurrent claim inside the window
+;; The interleaving — a concurrent claim inside the window
 ;; ---------------------------------------------------------------------------
 
 (deftest a-claim-before-the-row-is-out-closes-the-row-rather-than-preceding-it
@@ -193,7 +193,7 @@
           (is (true? reserved?)
               (str "precondition: at that boundary the attempt was already "
                    "RESERVED — cancellable before its row was out, which is "
-                   "PR #8965's ordering and the window under test"))
+                   "the reserve-before-emit ordering and the window under test"))
           (is (= [:rf.machine.timer/scheduled :rf.machine.timer/cancelled]
                  (mapv :operation (timer-ops)))
               (str "the announcement first, its closure second. A claimant "
