@@ -94,7 +94,7 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (rf.mcp-base.descriptor-manifest/build-manifest :test [bad])))))
   (testing "a valid subset (and the empty-required case) still projects cleanly"
-    ;; the happy path the original gate covered must keep passing.
+    ;; the happy path must keep passing.
     (is (= ["event"] (:required (rf.mcp-base.descriptor-manifest/descriptor->row (second sample-descriptors)))))
     (is (= [] (:required (rf.mcp-base.descriptor-manifest/descriptor->row (first sample-descriptors)))))))
 
@@ -120,7 +120,7 @@
 ;; profile yet be stripped from the DEFAULT one by an operator-only gate
 ;; (story-mcp's `:include-sensitive`). The row models that with
 ;; `:gated-input-keys` — the sorted subset of `:input-keys` the default
-;; profile gates off — so the manifest no longer claims a gated input is
+;; profile gates off — so the manifest does not claim a gated input is
 ;; on the default surface. These tests pin that two-profile contract at
 ;; the base boundary the two server generators consume.
 ;; ---------------------------------------------------------------------------
