@@ -2,16 +2,15 @@
   "Terminology guard for `docs/machines/parallel-states.md`.
 
   The engine law — parallel `:always` stabilization is a PARENT-owned
-  select-then-apply round loop over the whole configuration — is already
+  select-then-apply round loop over the whole configuration — is
   protected executably: property INVARIANT 9 in
-  `machine_property_cljs_test.cljc` plus the pinned `parallel-always-round-*`
-  deftests fail if the engine reverts.
+  `machine_property_cljs_test.cljc` plus the pinned
+  `parallel_always_round_cljs_test.cljc` deftests fail if the engine reverts.
 
-  What those tiers cannot see is the GUIDE reverting to region-local prose
-  while the engine stays correct. That is the exact drift rf2-1rdo4j had to
-  repair: docs that taught `:always` as a per-region loop settling to a
-  per-region fixed point, converging only on the NEXT event, against sibling
-  keys frozen for the whole macrostep.
+  What those tiers cannot see is the GUIDE drifting to region-local prose
+  while the engine stays correct: docs that teach `:always` as a per-region
+  loop settling to a per-region fixed point, converging only on the NEXT
+  event, against sibling keys frozen for the whole macrostep.
 
   So this namespace guards the prose, in two directions:
 
@@ -19,34 +18,32 @@
   - the load-bearing terms (`parent-owned`, the freeze/select/apply ROUND,
     the between-round RE-FREEZE) stay PRESENT.
 
-  Precision matters more than breadth here. The corrected guide legitimately
-  uses the very words the superseded claims used — `:bump-count` runs `ONCE
-  PER REGION` (true: that is the APPLY phase), the `Per-region :always /
-  :after / :spawn` heading (true: TARGETING is region-scoped), and the law is
-  taught by explicitly negating the old framing (`not \"each region settles
-  itself\"`, frozen per round `not for the whole macrostep`). A guard that
-  fired on those would be deleted within a week, so `guard-has-teeth` pins
-  both directions: every superseded sentence is caught, every legitimate
-  sentence is not.
+  Precision matters more than breadth here. Legitimate guide prose uses the
+  very words the superseded claims use — an APPLY phase that runs `ONCE PER
+  REGION`, a `Per-region :always / :after / :spawn` heading (TARGETING is
+  region-scoped), and a law taught by explicitly negating the region-local
+  framing (`not \"each region settles itself\"`, frozen per round `not for
+  the whole macrostep`). A guard that fired on those would be deleted within
+  a week, so `guard-has-teeth` pins both directions: every superseded
+  sentence is caught, every legitimate sentence is not.
 
-  rf2-b0vvu strengthens the superseded half along two axes the first cut
-  (rf2-nqovj) left open, without turning this into a semantic/NLP parser:
+  The superseded half reaches past exact wording along two axes, without
+  turning this into a semantic/NLP parser:
 
-  - PARAPHRASE. The retired claims were anchored on their exact removed
-    wording, so a natural editor/AI paraphrase using different surface words
-    slipped through (e.g. `settles independently` → `stabilizes … on its own`;
-    `frozen for the whole macrostep` → `fixed from macrostep entry until
-    macrostep exit`). Each of the four claim FAMILIES now carries a small
-    relationship/token pattern that catches its original AND a paraphrase,
-    while still steering clear of the legitimate near-matches.
+  - PARAPHRASE. A claim anchored only on its exact wording lets a natural
+    editor/AI paraphrase using different surface words slip through (e.g.
+    `settles independently` → `stabilizes … on its own`; `frozen for the
+    whole macrostep` → `fixed from macrostep entry until macrostep exit`).
+    Each of the four claim FAMILIES carries a small relationship/token
+    pattern that catches its canonical wording AND a paraphrase, while
+    steering clear of the legitimate near-matches.
 
-  - HISTORICAL / INCORRECT-EXAMPLE POLARITY. A retired claim quoted under an
-    explicit negative-example heading (`### BEFORE — incorrect; do not copy`,
-    `Historical …`, `Superseded …`) is a labelled anti-example, not the guide
-    reasserting the claim — the old cut rejected it. `superseded-hits` now
-    strips such heading-scoped sections before scanning, so a labelled block
-    may quote a retired claim, while the SAME claim in ordinary affirmative
-    prose still fails."
+  - HISTORICAL / INCORRECT-EXAMPLE POLARITY. A superseded claim quoted under
+    an explicit negative-example heading (`### BEFORE — incorrect; do not
+    copy`, `Historical …`, `Superseded …`) is a labelled anti-example, not the
+    guide reasserting the claim. `superseded-hits` strips such heading-scoped
+    sections before scanning, so a labelled block may quote a superseded
+    claim, while the SAME claim in ordinary affirmative prose fails."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -64,19 +61,19 @@
   (delay (slurp (io/file (repo-root) "docs/machines/parallel-states.md"))))
 
 ;; ---------------------------------------------------------------------------
-;; The four superseded claim FAMILIES rf2-1rdo4j retired.
+;; The four superseded claim FAMILIES.
 ;;
-;; One entry per family, not per removed sentence: each family's pattern is an
-;; alternation over the original removed phrasing PLUS a small
+;; One entry per family, not per sentence: each family's pattern is an
+;; alternation over the claim's canonical phrasing PLUS a small
 ;; relationship/token paraphrase form. Collapsing to families keeps the return
-;; of `superseded-hits` one label per reverted idea, so an original and its
-;; paraphrase both report the same family rather than double-counting.
+;; of `superseded-hits` one label per reverted idea, so a canonical sentence
+;; and its paraphrase both report the same family rather than double-counting.
 ;;
 ;; Every alternative is anchored on the phrasing that carries the CLAIM (a
 ;; relationship between tokens — `region` + a settling verb + `on its own`;
 ;; a `frozen`/`fixed` word + `whole`/`entire` + `macrostep`), never on a bare
-;; keyword, so the corrected guide's legitimate uses of the same words stay
-;; clear of it. `guard-has-teeth` proves both halves for each family.
+;; keyword, so the guide's legitimate uses of the same words stay clear of
+;; it. `guard-has-teeth` proves both halves for each family.
 
 (def ^:private claim-per-region-settle
   "region `:always` settles independently (not one parent round)")
@@ -94,7 +91,7 @@
    ;;    "on its own" / "by itself" / "independently".
    ;;
    ;;    The paraphrase alternative deliberately does NOT list `itself` /
-   ;;    `themselves`, so the guide's explicit negation of the old framing —
+   ;;    `themselves`, so the guide's explicit negation of the region-local framing —
    ;;    `not "each region settles itself"` — is not caught.
    [claim-per-region-settle
     #"(?i)(?:settles?\s+independently|\bregions?\b[^.\n]{0,40}?\b(?:settl|stabili[sz])[a-z]*\b[^.\n]{0,40}?\b(?:on\s+its\s+own|on\s+their\s+own|by\s+itself|by\s+themselves|independently|in\s+isolation|separately)\b)"]
@@ -129,43 +126,38 @@
    ;;    caught: keys "fixed"/"frozen"/"constant" for the WHOLE/ENTIRE
    ;;    macrostep, or "from macrostep entry … until macrostep exit".
    ;;
-   ;;    NOTE: the corrected guide contains "not for the whole macrostep" and
-   ;;    "frozen for the **selection round**". The original alternatives
+   ;;    NOTE: the guide contains "not for the whole macrostep" and
+   ;;    "frozen for the **selection round**". The canonical alternatives
    ;;    require the contiguous ASSERTION ("frozen FOR the whole macrostep"),
    ;;    and the paraphrase alternatives require a `whole`/`entire`/`macrostep`
    ;;    token within a short window of the `fixed`/`frozen` word — which the
    ;;    negated teaching (`frozen for the selection round … not for the whole
    ;;    macrostep`, `whole` ~80 chars away) never satisfies.
    ;;
-   ;;    rf2-s41i adds the SEEN-AT axis. The rf2-9d0d rewrite shipped "It sees
-   ;;    the sibling state as it was at the start of the macrostep." on main —
-   ;;    the superseded claim in a paraphrase none of the alternatives above
-   ;;    reached (no `frozen`/`fixed` word at all, and `as it WAS AT` rather
-   ;;    than the pinned `as OF`). Two alternatives close it: the `as of / as it
-   ;;    was at ... the start of the macrostep` family, and an observation verb
-   ;;    (`sees`/`reads`/`observes`) within a short window of `at the start of
-   ;;    the macrostep`. Neither can reach the corrected teaching, which never
-   ;;    dates the frozen view to the macrostep at all.
+   ;;    The SEEN-AT axis: "It sees the sibling state as it was at the start
+   ;;    of the macrostep." states the superseded claim in a paraphrase none of
+   ;;    the alternatives above reach (no `frozen`/`fixed` word at all, and
+   ;;    `as it WAS AT` rather than the pinned `as OF`). Two alternatives close
+   ;;    it: the `as of / as it was at ... the start of the macrostep` family,
+   ;;    and an observation verb (`sees`/`reads`/`observes`) within a short
+   ;;    window of `at the start of the macrostep`. Neither can reach the
+   ;;    correct teaching, which never dates the frozen view to the macrostep
+   ;;    at all.
    [claim-frozen-whole-macrostep
     #"(?i)(?:frozen\s+for\s+the\s+\*{0,2}whole\s+macrostep|as\s+(?:of|(?:it|they)\s+(?:was|were)\s+at)\s+the\s+\*{0,2}(?:start|beginning|outset)\*{0,2}\s+of\s+the\s+macrostep|\b(?:sees?|reads?|observes?|gets?)\b[^.\n]{0,60}?\bat\s+the\s+\*{0,2}(?:start|beginning|outset)\*{0,2}\s+of\s+the\s+macrostep\b|\b(?:frozen|fixed|constant|unchanged|stable|pinned|immutable|unchanging)\b[^.\n]{0,45}?\b(?:whole|entire|throughout|across|for\s+the\s+(?:duration|life)\s+of|until\s+the\s+end\s+of|macrostep\s+entry)\b[^.\n]{0,30}?\bmacrostep\b|\bfrom\s+macrostep\s+(?:entry|start|begin(?:ning)?)\b[^.\n]{0,45}?\b(?:until|to|through|up\s+to)\b[^.\n]{0,30}?\bmacrostep\s+(?:exit|end|finish|completion)\b)"]])
 
 ;; ---------------------------------------------------------------------------
-;; The load-bearing terms the rewrite installed. Absence = the guide lost the
+;; The load-bearing terms the guide carries. Absence = the guide lost the
 ;; law, which is the revert this guard exists to catch.
 
-;; rf2-s41i re-pins two of these onto the shorter prose the rf2-9d0d guide
-;; rewrite installed. Both pins move from a phrasing/markup form to the CLAIM
-;; the new prose makes; neither is relaxed. The other four are unchanged,
-;; because the rewritten guide still carries them word for word.
+;; Two pins anchor on the CLAIM rather than on phrasing or markup:
 ;;
-;; - freeze → select → apply was pinned on a **bolded** three-step list. The
-;;   rewrite states the same round in running prose, so the pin now anchors on
-;;   the ORDER (freeze the whole configuration → select → apply → freeze again),
-;;   which is the law; the bold markup was never the law.
-;; - birth was pinned on "the same process runs at **birth**". The rewrite says
-;;   the parent settles `:always` across the whole configuration at birth using
-;;   "the same freeze / select / apply rounds used after an event" — the same
-;;   claim, so the pin follows it.
+;; - freeze → select → apply anchors on the ORDER (freeze the whole
+;;   configuration → select → apply → freeze again), which is the law; bold
+;;   markup around a step list is not the law.
+;; - birth anchors on the parent settling `:always` across the whole
+;;   configuration at birth using "the same freeze / select / apply rounds
+;;   used after an event".
 
 (def ^:private required-terms
   [["the parent owns `:always` stabilization"
@@ -238,7 +230,7 @@
          (mapv first))))
 
 (defn- missing-terms
-  "Every load-bearing term `text` no longer carries."
+  "Every load-bearing term `text` lacks."
   [text]
   (->> required-terms
        (remove (fn [[_ pattern]] (re-find pattern text)))
@@ -261,14 +253,14 @@
 
 (deftest guard-has-teeth
   (testing "every superseded claim is caught — original wording AND a paraphrase"
-    ;; Originals are verbatim from the prose rf2-1rdo4j removed
-    ;; (git show cbaa8192cb^); each `paraphrase` restates the SAME claim with
-    ;; different surface words. Both must report the claim's family.
+    ;; Each unmarked entry is a claim's canonical wording; each `paraphrase`
+    ;; restates the SAME claim with different surface words. Both must report
+    ;; the claim's family.
     (doseq [[family sentence]
             [;; family 1 — per-region settling
              [claim-per-region-settle
               "each region's birth `:always` settles independently as part of the initial step."]
-             [claim-per-region-settle          ; paraphrase (rf2-b0vvu mutation)
+             [claim-per-region-settle          ; paraphrase
               "Each region stabilizes its eventless transitions on its own before its siblings are revisited."]
 
              ;; family 2 — the `:always` loop runs per region
@@ -288,7 +280,7 @@
               "so this re-selects against the committed `:form/valid` on the next event delivered"]
              [claim-converges-next-event
               "it fires, just one event later."]
-             [claim-converges-next-event        ; paraphrase (rf2-b0vvu mutation)
+             [claim-converges-next-event        ; paraphrase
               "A sibling-dependent guard waits until another event arrives."]
 
              ;; family 4 — sibling keys frozen for the whole macrostep
@@ -296,34 +288,33 @@
               "`:tags` and `:all-state` are frozen for the whole macrostep."]
              [claim-frozen-whole-macrostep
               "the sibling configuration as of the *start* of the macrostep."]
-             [claim-frozen-whole-macrostep      ; paraphrase (rf2-b0vvu mutation)
+             [claim-frozen-whole-macrostep      ; paraphrase
               "Sibling keys remain fixed from macrostep entry until macrostep exit."]
-             ;; rf2-s41i — the paraphrase that actually SHIPPED to main in the
-             ;; rf2-9d0d guide rewrite, verbatim. It carried no `frozen`/`fixed`
-             ;; word, so every alternative above missed it.
+             ;; the SEEN-AT paraphrase: no `frozen`/`fixed` word, so only the
+             ;; SEEN-AT alternatives catch it.
              [claim-frozen-whole-macrostep
               "It sees the sibling state as it was at the start of the macrostep."]]]
       (is (= [family] (superseded-hits sentence))
           (str "the guard failed to catch (exactly) the claim: " family
                "\n  in: " sentence))))
 
-  (testing "the three exact paraphrase mutations reproduced in rf2-b0vvu fail the guard"
+  (testing "the three paraphrase mutations fail the guard"
     (doseq [mutation ["Each region stabilizes its eventless transitions on its own before its siblings are revisited."
                       "Sibling keys remain fixed from macrostep entry until macrostep exit."
                       "A sibling-dependent guard waits until another event arrives."]]
       (is (seq (superseded-hits mutation))
-          (str "a reproduced paraphrase mutation slipped through: " mutation))))
+          (str "a paraphrase mutation slipped through: " mutation))))
 
-  (testing "the corrected guide's legitimate uses of the same words are not caught"
-    ;; Verbatim from the SHIPPED guide. Each sits within a word or two of a
-    ;; banned phrasing; none may trip it.
+  (testing "legitimate uses of the same words are not caught"
+    ;; Legitimate guide prose. Each sits within a word or two of a banned
+    ;; phrasing; none may trip it.
     (doseq [sentence
             [;; the APPLY phase is genuinely per-region
              ";; Both regions handle :reset. :bump-count runs ONCE PER REGION against the"
              ;; TARGETING is genuinely region-scoped
              "## Per-region `:always` / `:after` / `:spawn` — and the `:raise` exception"
              "a region's `:always` entries target states *inside that region*"
-             ;; the law is taught by NEGATING the old framing
+             ;; the law is taught by NEGATING the region-local framing
              "So the loop is not *\"each region settles itself\"* — it is *\"the machine settles, one whole-configuration round at a time\"*."
              "`:tags` and `:all-state` are frozen for the **selection round** that is currently choosing transitions, not for the whole macrostep."
              ;; per-region timers/spawn remain correct region-local claims
@@ -337,7 +328,7 @@
              ;; eventless work drains before the next RAISE (not event), no wait
              "the parent settles `:always` to a fixed point before it dequeues the next raise."]]
       (is (= [] (superseded-hits sentence))
-          (str "the guard fired on legitimate shipped prose: " sentence))))
+          (str "the guard fired on legitimate guide prose: " sentence))))
 
   (testing "an explicitly labelled historical / do-not-copy section may quote a retired claim"
     ;; A BEFORE/incorrect block is a labelled anti-example, not a revert.
@@ -364,6 +355,6 @@
   (testing "a guide stripped of the law is caught by the required-term half"
     (is (seq (missing-terms "Parallel regions are orthogonal axes of one machine."))))
 
-  (testing "the shipped guide satisfies both halves"
+  (testing "the guide satisfies both halves"
     (is (= [] (superseded-hits @guide)))
     (is (= [] (missing-terms @guide)))))
