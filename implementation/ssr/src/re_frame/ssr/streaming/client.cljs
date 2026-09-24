@@ -203,14 +203,22 @@
   or a template clone missing its tail while the parser writes that tail
   into the removed original.
 
-  So an element counts as whole once a node FOLLOWS it — the parser adds a
-  sibling only after closing the element, and the server writes every chunk
-  after the one before — or once the document has finished parsing. The
-  last element on the page (usually the payload) has nothing after it, so
-  for that one the end of parsing is the signal."
+  So an element counts as whole once a node FOLLOWS it in document order —
+  its own next sibling, or the next sibling of any element it sits inside:
+  the parser adds a node after an element only once it has closed it, and
+  closing an element closes everything inside it — or once the document has
+  finished parsing. The ancestors matter for a fallback `<template>` that is
+  the last child of its `<section>`: it never gets a sibling of its own, but
+  the next chunk lands after `#app` (rf2-5yj03). The last element on the
+  page (usually the payload) has nothing after it, so for that one the end
+  of parsing is the signal."
   [root el]
   (or (not (still-parsing? root))
-      (some? (.-nextSibling el))))
+      (loop [node el]
+        (cond
+          (nil? node)                  false
+          (some? (.-nextSibling node)) true
+          :else                        (recur (.-parentNode node))))))
 
 (defn- template-content-fragment
   "Materialise a `<template>`'s parsed content as a DocumentFragment
