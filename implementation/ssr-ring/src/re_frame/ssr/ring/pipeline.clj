@@ -41,19 +41,18 @@
 
 ;; ---- the fail-closed status rewrite reports itself ------------------------
 ;;
-;; MEASURED under the real gate (`-Dre-frame.debug=false`) before this change:
-;; a non-integer `:status` reaching the materialiser rewrote the app's 200 to a
-;; 500 and emitted NOTHING. `trace/emit!` is the dev bus, so the warning count
-;; was 0 in production and 2 in dev — the 2 being a double-emit all of its own
-;; (below). An operator saw a 500 with no record of why, on either axis.
+;; A non-integer `:status` reaching the materialiser rewrites the app's 200 to
+;; a 500. `trace/emit!` is the dev bus, so a warning alone would leave a
+;; production host (`-Dre-frame.debug=false`) answering 500 with no record of
+;; why on either axis.
 ;;
-;; WHAT STILL REACHES THIS (re-measured after PR #7204, rf2-dtpfv). The reserved
-;; `:rf.server/*` fx now guard their own args UNCONDITIONALLY, so the framework's
-;; own fx path can no longer feed the flip: `[:rf.server/set-status "not-an-int"]`
-;; leaves `:status 500` (a Long — the guard threw, containment fanned
-;; `:rf.error/fx-handler-exception`, the SSR projector stamped it) and
+;; WHAT REACHES THIS. The reserved
+;; `:rf.server/*` fx guard their own args UNCONDITIONALLY, so the framework's
+;; own fx path cannot feed the flip: `[:rf.server/set-status "not-an-int"]`
+;; leaves `:status 500` (a Long — the guard throws, containment fans
+;; `:rf.error/fx-handler-exception`, the SSR projector stamps it) and
 ;; `[:rf.server/redirect {:status "302"}]` leaves `:redirect nil`. What remains
-;; LIVE is the path the ruling reserved this net for: a HOST that hand-builds the
+;; LIVE is the path this net exists for: a HOST that hand-builds the
 ;; accumulator (`re-frame.ssr.response/swap-response!`) or calls this PUBLIC
 ;; materialiser with its own response map. That is a real caller — `get-response`
 ;; is a documented host-adapter surface — so the arm is a backstop, not dead code,
@@ -61,19 +60,16 @@
 
 ;; THE ALWAYS-ON RECORD IS CLOSED AT ITS ONE CONSTRUCTION SITE. The map literal
 ;; in [[report-non-integer-status!]] below IS the record's key set. There is no
-;; separate allow-list constant to consult, and deliberately isn't one: this
-;; namespace carried such a constant from the day the promotion landed and
-;; nothing ever read it (rf2-6r9j.47), so it advertised a mechanical guarantee
-;; the code did not perform while quietly becoming a third spelling that could
+;; separate allow-list constant to consult, and deliberately isn't one: a
+;; constant nothing reads advertises a mechanical guarantee
+;; the code does not perform, and becomes a third spelling that can
 ;; drift on its own.
 ;;
 ;; BUILT CLOSED, never filtered down to. A deny-list scrub stays one component
-;; away from the next leak (rf2-6jqa8 shipped four URL secrets before that
-;; lesson landed); a literal assembled key-by-key means a slot someone adds
+;; away from the next leak; a literal assembled key-by-key means a slot someone adds
 ;; upstream has no route to Sentry even in principle.
 ;;
-;; WHAT ACTUALLY ENFORCES IT is behavioural, and it is the reason the constant
-;; was never missed. In `status_rewrite_always_on_test`,
+;; WHAT ACTUALLY ENFORCES IT is behavioural. In `status_rewrite_always_on_test`,
 ;; `record-key-set-is-closed` pins the EMITTED record's key set with `=` (never
 ;; `subset?`) against its own independently written expectation, and
 ;; `the-record-never-carries-the-offending-value` asserts the ABSENCE of
@@ -85,12 +81,12 @@
 ;;   :frame       ALWAYS nil — see [[report-non-integer-status!]]
 ;;   :time        the emit instant (union-record shape)
 ;;   :where       the call site; a constant keyword, and the slot the three
-;;                sibling `:rf.ssr/*` materialiser diagnostics already carry
+;;                sibling `:rf.ssr/*` materialiser diagnostics also carry
 ;;   :status-type the offending value's CLASS NAME — program structure, not app
 ;;                data (the documented `:ex-class` residual class), and the one
 ;;                lead that turns "a 500 happened" into "something `str`-ed the
 ;;                status"
-;;   :reason      a closed framework keyword, never prose (rf2-6jqa8: free prose
+;;   :reason      a closed framework keyword, never prose (free prose
 ;;                on this axis is how raw material finds its way back into a
 ;;                record). The sentence stays on the dev trace, where a reader
 ;;                who needs it is already standing
@@ -114,7 +110,7 @@
   function with no frame argument; the two `with-frame` blocks in this
   namespace both CLOSE before the happy-path call site, so an ambient read
   would populate the slot on the error arm and leave it nil on exactly the path
-  this promotion exists for. A slot that is sometimes-populated with no way for
+  this record exists for. A slot that is sometimes-populated with no way for
   the consumer to tell which is worse than one that is honestly always nil —
   the `:rf.error/malformed-hydration-payload` frameless spelling. The cost is
   that the record takes only the corpus-wide route and not the frame-owned
@@ -205,12 +201,9 @@
            target location
            ;; Resolve the wire status ONCE, before the no-target warning that
            ;; also reports it. `fail-closed-status` EMITS on its defect arm, so
-           ;; the previous two calls (the warning's payload and the response
-           ;; map) fanned TWO signals for ONE flip — measured as 2
-           ;; `:rf.ssr/ssr-non-integer-status` warnings for
-           ;; `{:redirect {:status "302"}}`. Harmless while the only consumer
-           ;; was a dev warning; a double record on an off-box shipper is a
-           ;; double alert.
+           ;; calling it for both the warning's payload and the response
+           ;; map would fan TWO signals for ONE flip, and a double record on
+           ;; an off-box shipper is a double alert.
            wire-status (fail-closed-status (or redirect-status status) 302)]
        ;; A redirect with no target is a malformed wire response — a
        ;; 3xx with no `Location` leaves the browser nowhere to go. The
@@ -237,11 +230,11 @@
                      ;; target (the `:location` is caller-trusted at the fx
                      ;; boundary) is coerced so the Ring header map is valid.
                      ;;
-                     ;; rf2-c1b1 — and it REPLACES any Location the app already
+                     ;; It also REPLACES any Location the app already
                      ;; wrote, whatever its casing. Header field names are
                      ;; case-insensitive (RFC 7230 §3.2) and the fold above
                      ;; collapses variants under the FIRST-SEEN spelling, so a
-                     ;; bare case-sensitive `assoc` left an app-set `location`
+                     ;; bare case-sensitive `assoc` would leave an app-set `location`
                      ;; / `LOCATION` standing beside the redirect's own
                      ;; `Location` — two conflicting singleton headers under
                      ;; one logical name, with the browser free to follow the
@@ -278,8 +271,8 @@
   `:frame` is the frame VALUE `make-frame` returns — it carries the EXACT
   incarnation token, so the handler's teardown (`destroy-frame-quietly!`) is
   incarnation-EXACT and can never reap a same-id successor a request drain
-  destroyed-and-reseated under the gensym id (rf2-moftbs). `:frame-id` (the bare
-  keyword) stays the address for every in-request operation (`with-frame`,
+  destroyed-and-reseated under the gensym id. `:frame-id` (the bare
+  keyword) is the address for every in-request operation (`with-frame`,
   `flush-response-result!`, `app-db-value`, the writer thread name) — those are
   correctly address-directed against the current incarnation.
 
@@ -291,7 +284,7 @@
   `make-frame` explicitly (`:id frame-id`) — the same lifecycle order,
   through the ONE public constructor.
 
-  A handler-declared `:url-strategy` (rf2-089dy) is threaded into the
+  A handler-declared `:url-strategy` is threaded into the
   make-frame config BY PRESENCE, not truthiness — make-frame's preflight
   treats a present key (an explicit nil included) as a declaration and
   validates it at the one frame-config commit chokepoint exactly as on the
@@ -304,9 +297,9 @@
   across requests. The failed incarnation itself is NOT reaped here:
   core construction is its exact-token owner — `make-frame` tears the
   partial frame down with its exact installed token before rethrowing
-  (frame.cljc, PR #6072). A bare-id reap in the catch would be address-
+  (frame.cljc). A bare-id reap in the catch would be address-
   directed and could destroy a same-id successor B seated in the window
-  after A's exact rollback released the per-id transaction (rf2-c6lp3)."
+  after A's exact rollback released the per-id transaction."
   [{:keys [initial-events fx-overrides ssr on-error] :as opts} request]
   ;; The alphabetic prefix keeps the payload frame id valid for strict EDN
   ;; readers; keyword construction itself does not validate local names.
@@ -314,12 +307,12 @@
     (rf.ssr/set-request! frame-id request)
     (try
       ;; KEEP the frame VALUE — it carries the exact incarnation token the
-      ;; handler's teardown consumes for incarnation-EXACT cleanup (rf2-moftbs).
+      ;; handler's teardown consumes for incarnation-EXACT cleanup.
       (let [frame-value
             (rf/make-frame
               ;; No `:doc`: the default head rolls a frame's `:doc` into the
               ;; page `<title>`, and the adapter does not know the app's
-              ;; title (rf2-3x7nj.14.4).
+              ;; title.
               (cond-> {:id        frame-id
                        :platform  :server
                         ;; Resolve after `set-request!`: the function form can derive
@@ -332,7 +325,7 @@
                 ;; PRESENT :url-strategy — an explicit nil included — as a
                 ;; declaration and fails loud on a malformed one
                 ;; (:rf.error/invalid-url-strategy), exactly as on the client
-                ;; (rf2-089dy). Omission keeps the default history strategy.
+                ;; Omission keeps the default history strategy.
                 (contains? opts :url-strategy)
                 (assoc :url-strategy (:url-strategy opts))))]
         {:frame-id frame-id :frame frame-value})
@@ -341,11 +334,11 @@
         ;; EXACT-TOKEN owner of the failed incarnation's rollback: `make-frame`
         ;; already tore incarnation A down with its exact installed token before
         ;; rethrowing (frame.cljc — the setup-runner + WON-install catch both
-        ;; destroy `installed-token`, PR #6072). A redundant bare-id
+        ;; destroy `installed-token`). A redundant bare-id
         ;; `destroy-frame-quietly! frame-id` here would be ADDRESS-directed: once
         ;; A's exact rollback releases the per-id transaction, a same-id
         ;; successor B can be seated before this catch continues, and the keyword
-        ;; target would then pin and destroy B (rf2-c6lp3). So we do NOT reap by
+        ;; target would then pin and destroy B. So we do NOT reap by
         ;; bare id — construction rollback owns exactly one incarnation, and the
         ;; request slot is the only per-request state this catch owns.
         (rf.ssr/clear-request! frame-id)
@@ -397,7 +390,7 @@
     - a THROWING error view (`detail` is the `Throwable` — carries
       `:exception` message + `:ex-class`), and
     - a reactive sub INSIDE the error view that RECOVERED to nil under
-      production hardening (`detail` is a keyword `:reason`, rf2-oytx7j).
+      production hardening (`detail` is a keyword `:reason`).
 
   NON-PROJECTING by design: the SSR `error-emit-projection-listener` skips
   this category (`non-projection-eligible-errors`), so the emit ships the
@@ -433,17 +426,12 @@
       public-error map as its single prop),
     - a 1-arity fn → called with the public-error map, returning hiccup.
 
-  rf2-j81hs — the keyword arm used to build `[error-view public-error]`
-  and lean on the emitter resolving a keyword head through the registry.
-  That resolution is gone (a keyword head is a DOM element on every
-  host), so the lookup happens HERE instead. The `:error-view` OPT is
-  unchanged — a registered-view keyword is still accepted, and callers
-  see no difference; only the internal construction moved from an
-  emitter-side probe to an explicit `rf/view` call. An `:error-view`
-  keyword naming no registered view now fails loud into the containment
-  path below (previously it silently emitted a phantom
-  `<error-page>` element as the error page, which is the exact
-  silent-mis-render this bead exists to remove).
+  The keyword arm looks the view up HERE with an explicit `rf/view` call,
+  because the emitter never resolves a keyword head through the registry
+  (a keyword head is a DOM element on every host). An `:error-view`
+  keyword naming no registered view fails loud into the containment
+  path below, rather than silently emitting a phantom
+  `<error-page>` element as the error page.
 
   Both paths render via `render-to-string` (no doctype, no hash — the
   error body is the inner shell body). When no `:error-view` is supplied,
@@ -460,8 +448,8 @@
        it buffers a fail-closed projection. On entry to the error arm the
        pending-error buffer is empty (the drain / render-throw / post-render
        flush already consumed it), so `ssr/pending-error-trace?` after the
-       render can only be that recovered-to-nil error-view sub (rf2-oytx7j —
-       the open-proof that the `try` alone cannot claim complete containment).
+       render can only be that recovered-to-nil error-view sub (the
+       open-proof that the `try` alone cannot claim complete containment).
        We fall back and clear the buffer so the secondary failure is never
        projected."
   [frame-id error-view public-error]
@@ -497,7 +485,7 @@
             (rf/with-frame frame-id
               (rf.ssr/render-to-string error-view-hiccup
                                     {:doctype? false}))]
-        ;; Open-proof containment (rf2-oytx7j): a reactive sub inside the
+        ;; Open-proof containment: a reactive sub inside the
         ;; error view that recovered-to-nil buffered a fail-closed projection
         ;; without throwing. Detect it (pure peek), fall back ONCE to the
         ;; locked template, and clear the buffer so it is never re-projected.
@@ -517,8 +505,8 @@
         (render-error-body public-error)))))
 
 (defn projected-5xx?
-  "Classification predicate (Spec 011 §Drain-time error classification,
-  rf2-oytx7j). True when `public-error` is a projected SERVER FAULT
+  "Classification predicate (Spec 011 §Drain-time error classification).
+  True when `public-error` is a projected SERVER FAULT
   (`:status` in 500..599): the app-db is in an arbitrary partial state, so
   the request diverts to the projected error page BEFORE the body commits.
 
@@ -559,14 +547,12 @@
   removes a needless partial-state egress surface when the caller opted into
   whole-app-db hydration. Redirect precedence is honoured by the caller (it
   branches on `:redirect` first); stale Content-Length is stripped by the
-  shared materialiser. Per Spec 011 §Drain-time error classification
-  (rf2-oytx7j)."
+  shared materialiser. Per Spec 011 §Drain-time error classification."
   [frame-id response public-error opts]
   (materialise-error-arm frame-id response public-error opts))
 
 (defn local-renderer
-  "The DEFAULT `:renderer` — the JVM-local render body `build-full-response*`
-  ran inline before the render-body seam existed (rf2-8arzr.1). Resolves
+  "The DEFAULT `:renderer` — the JVM-local render. Resolves
   the handler's `:root-view`, hashes the resolved tree, and renders it with
   the wire `data-rf-render-hash` marker gated by the construction-level
   `:emit-hash?` opt.
@@ -585,20 +571,20 @@
   The renderer owns the body bytes, hash marker included — the pipeline
   never rewrites them. `:render-hash` feeds the payload's
   `:rf/render-hash`; nil OMITS the key, exactly the unresolved-root
-  behaviour (rf2-q1b96).
+  behaviour.
 
   This default reads `:root-view` and `:emit-hash?` from `opts`.
   `:emit-hash?` is the HOST's \"stamp hydration markers at all?\" switch,
   not an emitter opt: the emitter takes only `:render-hash`, so this fn
   passes the computed hash when the host asked for markers and omits the
   key otherwise. A nil hash (the unresolved root form) omits it too —
-  that root gets no marker on either channel (rf2-q1b96)."
+  that root gets no marker on either channel."
   [{:keys [opts]}]
   (let [{:keys [root-view emit-hash?]} opts
         resolved-root (rf.ssr.ring.lifecycle/resolve-root-view root-view)
         ;; Compute the body hash once for both the emitted marker and the
         ;; payload. nil for an unresolved root form — that root gets NO hash
-        ;; on either channel (rf2-q1b96; see `render-document-hash`).
+        ;; on either channel (see `render-document-hash`).
         render-hash (rf.ssr.ring.lifecycle/render-document-hash resolved-root)]
     {:body-html   (rf.ssr/render-to-string
                      resolved-root
@@ -632,7 +618,7 @@
         ;; Pin the request frame across the body render, head lookups and
         ;; payload projection.
         (rf/with-frame frame-id
-          (let [;; THE RENDER-BODY SEAM (rf2-8arzr.1). The caller's
+          (let [;; THE RENDER-BODY SEAM. The caller's
                 ;; `:renderer` — or the JVM-local default — returns body
                 ;; markup plus an optional locally-derived hash from the live
                 ;; post-drain frame. The pipeline consumes that pair and owns
@@ -662,10 +648,10 @@
                                        {:version         version
                                         :schema-digest   schema-digest
                                         :payload         payload
-                                        ;; rf2-hjz4r — the host's permit.
+                                        ;; The host's permit.
                                         :payload-include-sensitive payload-include-sensitive
                                         :head-hash       head-hash
-                                        ;; rf2-lm2yzy — stable WIRE
+                                        ;; The stable WIRE
                                         ;; :rf/frame-id (nil ⇒ omit).
                                         :client-frame-id client-frame-id})]
             (assoc head-data
@@ -688,7 +674,7 @@
         ;; response would incorrectly ship that broken render as 200. Re-read the
         ;; full accumulator (AND the projected public-error) so post-render
         ;; headers and cookies survive AND a post-render projected 5xx diverts
-        ;; to the error arm (rf2-oytx7j).
+        ;; to the error arm.
         {post-render-response     :response
          post-render-public-error :public-error}
         (rf.ssr/flush-response-result! frame-id)]
@@ -793,7 +779,7 @@
   exceptions both go through the projector, so the wire body contract
   is uniform regardless of where the failure originated.
 
-  Note: the outer `ssr-handler`'s `:on-error` hook still wraps this
+  Note: the outer `ssr-handler`'s `:on-error` hook also wraps this
   call. The remaining exceptions it catches are Ring-layer / transport
   failures the projector can't see (e.g. an exception in the host's
   Content-Type negotiator, or a re-throw from the projector pipeline
