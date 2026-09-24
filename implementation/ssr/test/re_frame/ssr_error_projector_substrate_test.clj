@@ -51,7 +51,7 @@
     ;; step. Construction-time :initial-events is STRICT (EP-0027 §Failure):
     ;; a THROWN setup step tears
     ;; the partial frame down and is the OUTER :on-error transport path (Spec
-    ;; 011 §810), NOT a projector-catches-it case. The projector covers errors
+    ;; 011 §`:on-error` vs `:error-view`), NOT a projector-catches-it case. The projector covers errors
     ;; INSIDE the render/cascade drain — exactly what a post-construction
     ;; request dispatch models. :rf/server-init is a clean no-op setup step.
     (rf/reg-event :load/article
