@@ -5793,11 +5793,11 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
-;; ---- the render→commit window, observed AT THE FIRST COMMIT (rf2-2rtt6.13 audit) ----
+;; ---- the render→commit window, observed AT THE FIRST COMMIT ----
 ;;
 ;; WHY THIS EXISTS. The assertion above pins an ORDERING — React calls
 ;; `getSnapshot` again after `subscribe` returns — and an ordering cannot
-;; answer the question the audit of PR #7304 actually asked. When a write lands
+;; answer the question that matters to a user. When a write lands
 ;; between a render and the commit that owns it, WHAT DOES THE FIRST COMMIT
 ;; SHOW? A repair that arrives one commit later is compatible with both
 ;; answers, so nothing that only reads the settled DOM can discriminate. This
@@ -5838,12 +5838,11 @@
 ;;   implementation can change that. Pinned here so a React release that
 ;;   starts checking blocking lanes is caught rather than assumed.
 ;;
-;;   CONCURRENT (`startTransition`, `useDeferredValue` — opt-in, and per
-;;   rf2-so3io reachable at any time because we mount through `createRoot`) —
+;;   CONCURRENT (`startTransition`, `useDeferredValue` — opt-in, and
+;;   reachable at any time because we mount through `createRoot`) —
 ;;   React DOES re-read every store's `getSnapshot` before committing and
 ;;   throws the render away if any moved. Whether that check can SEE the
-;;   movement is decided entirely by what `get-snap` returns pre-commit, and
-;;   that is the seam PR #7304 changed.
+;;   movement is decided entirely by what `get-snap` returns pre-commit.
 
 (def ^:private gap-idle-element
   "A substrate-free placeholder so the probe arrives as an UPDATE on both
@@ -5859,7 +5858,7 @@
    {:keys [probe-gap-element gap-write! gap-armed? gap-first-commit
            gap-mount-node gap-db-read gap-observed gap-query refcount-target]}
    {:keys [frame lane move?]}]
-  (rf/make-frame {:id frame :doc "rf2-2rtt6.13 render→commit window row"})
+  (rf/make-frame {:id frame :doc "render→commit window row"})
   (rf/dispatch-sync [::gap-seed] {:frame frame})
   (reset! refcount-target frame)
   (let [cache      (:sub-cache (rf.frame/frame frame))
@@ -5892,7 +5891,7 @@
         (try (act-fn (fn [] (.unmount root))) (catch :default _ nil))))))
 
 (defn assert-use-sub-render-to-commit-window-first-commit
-  "rf2-2rtt6.13 (merged-PR audit of #7304): an app-db write landing in the
+  "An app-db write landing in the
   render→commit gap, observed AT THE FIRST COMMIT rather than after the dust
   settles, on both a blocking and a concurrent lane, each beside an unmoved
   control.
@@ -5910,7 +5909,7 @@
   [{:keys [name gap-query gap-blocking-frame gap-blocking-control-frame
            gap-concurrent-frame gap-concurrent-control-frame]
     :as   cfg}]
-  (testing (str name " — a write in the render→commit gap, observed at the FIRST commit (rf2-2rtt6.13)")
+  (testing (str name " — a write in the render→commit gap, observed at the FIRST commit")
     (with-browser-act
      (fn [act-fn]
       (rf/reg-event ::gap-seed (fn [_ _] {:db {:n 0}}))
@@ -5956,7 +5955,7 @@
                  "commit — the write landed in the gap, not after it. Row "
                  concurrent-moved))
         ;; ---- BLOCKING lane: React performs no pre-commit re-read ----------
-        ;; NOT a property of this spine and NOT changed by PR #7304: on a
+        ;; NOT a property of this spine: on a
         ;; blocking lane React pushes no store-consistency check at all, so the
         ;; render's value is the committed value whatever `get-snap` would say.
         ;; Pinned so a React release that starts checking blocking lanes shows
@@ -5983,18 +5982,18 @@
         (is (= {:dom "g=1" :db 1} (:settled concurrent-moved))
             (str "concurrent moved settles fresh. Row " concurrent-moved)))))))
 
-;; ---- the commit adopts the render-phase build (rf2-2rtt6.25) --------------
+;; ---- the commit adopts the render-phase build ----------------------------
 ;;
-;; THE TERM THIS WAS MEANT TO DELETE. A React render and the commit that owns
-;; it are two moments, and a cold `use-sub` read used to pay in both: the
-;; render's balanced round trip built a reaction and then crossed the 1 → 0
-;; disposal edge on the way out, and the commit-owned `subscribe-fn` missed the
-;; same cache and built it again. Two constructions and two sub-body runs per
-;; cold read; at layer 2+ the whole input chain twice. The render phase now
-;; keeps its reference in escrow, so the commit's subscribe HITS and adopts.
+;; THE TERM THE HAND-OFF DELETES. A React render and the commit that owns it
+;; are two moments, and a cold `use-sub` read whose render did a balanced
+;; round trip would pay in both: the render would build a reaction and then
+;; cross the 1 → 0 disposal edge on the way out, and the commit-owned
+;; `subscribe-fn` would miss the same cache and build it again. Two
+;; constructions and two sub-body runs per cold read; at layer 2+ the whole
+;; input chain twice. The render phase keeps its reference in escrow, so the
+;; commit's subscribe HITS and adopts.
 ;;
-;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES (rf2-2rtt6.25 audit of #7305;
-;; rf2-2rtt6.71 ruling). It mounts under `act()`, which forces React's passive
+;; READ THIS ROW FOR EXACTLY WHAT IT MEASURES. It mounts under `act()`, which forces React's passive
 ;; `useSyncExternalStore` subscribe to run before control returns — and that IS
 ;; the ordering the hand-off needs. So this row pins the MECHANISM — escrow,
 ;; hit, adopt, 2 → 1 — under a schedule that lets it run to completion, and by
@@ -6002,23 +6001,23 @@
 ;;
 ;; THAT is what `assert-use-sub-browser-runner-schedule-rebuilds` below is
 ;; for: the adapter render slot, bare `createRoot(…).render(…)`, no `act`. It
-;; reads TWO builds, and it still does after rf2-2rtt6.71 moved the horizon to
-;; `setTimeout 4` — not because the ruling failed, but because this test page's
-;; render-to-passive-flush gap was measured at > 128 ms, far outside any
+;; reads TWO builds with the horizon at `setTimeout 4`, because this test
+;; page's render-to-passive-flush gap was measured at > 128 ms, far outside any
 ;; horizon worth shipping. Both rows are kept deliberately, and their integers
-;; still differ; what separates them is now known to be the PAGE and not only
-;; the `act`. The block comment on that row carries the sweep.
+;; differ; what separates them is the PAGE and not only the `act`. The block
+;; comment on that row carries the sweep.
 ;;
 ;; THE PROOF IS TWO EXACT INTEGERS, both falsifiable and neither a proxy for
 ;; the other:
 ;;
 ;;   IDENTITY — the reaction `rf.subs/subscribe` returns to the commit is
 ;;   `identical?` the one it returned to the render, and both are the cache's
-;;   tenant. Pre-hand-off these are different objects.
+;;   tenant. Without the hand-off these would be different objects.
 ;;
 ;;   CONSTRUCTIONS — the sub body runs exactly ONCE for the mount. Nothing
-;;   moves app-db during it, so a body run IS a build; pre-hand-off this reads
-;;   2. This is the unit-test twin of the coldmount instrument's `bodyRuns`
+;;   moves app-db during it, so a body run IS a build; without the hand-off
+;;   this would read 2. This is the unit-test twin of the coldmount
+;;   instrument's `bodyRuns`
 ;;   witness (`docs/design/fresco/studio/coldmount-double-build-priced.md`),
 ;;   which measures the same integer at 300 boundaries and three layers.
 ;;
@@ -6027,7 +6026,7 @@
 ;; objects the production path sees.
 
 (defn assert-use-sub-commit-adopts-the-render-phase-reaction
-  "rf2-2rtt6.25: on a COLD mount the commit-owned `subscribe-fn` must ADOPT the
+  "On a COLD mount the commit-owned `subscribe-fn` must ADOPT the
   reaction the render phase built — `identical?`, the cache's tenant, one
   construction — rather than rebuild it. Object identity plus an exact body-run
   count.
@@ -6038,11 +6037,11 @@
     :ad-frame — this assertion's OWN frame (hence its own sub-cache), because
       the property is only load-bearing on a cold read."
   [{:keys [name probe-refcount-element refcount-target rc-query ad-frame]}]
-  (testing (str name " — a cold mount's commit adopts the render-phase reaction; one build, not two (rf2-2rtt6.25)")
+  (testing (str name " — a cold mount's commit adopts the render-phase reaction; one build, not two")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target ad-frame)
-      (rf/make-frame {:id ad-frame :doc "rf2-2rtt6.25 adoption probe frame"})
+      (rf/make-frame {:id ad-frame :doc "adoption probe frame"})
       (rf/reg-event ::ad-seed (fn [_ _] {:db {:m 3}}))
       (rf/dispatch-sync [::ad-seed] {:frame ad-frame})
       (let [builds         (atom 0)
@@ -6082,8 +6081,8 @@
             ;; THE DOUBLE BUILD.
             (is (= 1 @builds)
                 (str "the sub body ran ONCE for the whole mount — one reaction "
-                     "constructed, not two (pre-hand-off: 2). Observed " @builds))
-            ;; The steady state is exactly what it was before the hand-off.
+                     "constructed, not two (without the hand-off: 2). Observed " @builds))
+            ;; The steady state does not depend on the hand-off.
             (is (= 1 (ref-count-of cache cache-key-v))
                 (str "exactly one durable reference after the commit — the escrowed "
                      "one was released at adoption, 2 → 1. Observed "
@@ -6095,15 +6094,14 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
-;; ---- THE PUBLIC MOUNT SCHEDULE (rf2-2rtt6.25, merged-PR audit of #7305) ----
+;; ---- THE PUBLIC MOUNT SCHEDULE ----
 ;;
 ;; WHY THIS EXISTS. The adoption row above mounts under `act()`, and the
 ;; coldmount instrument's shipped arm mounts under `flushSync`. Both force
 ;; React's passive `useSyncExternalStore` subscription to run before control
 ;; returns — which is precisely the ordering the hand-off needs — so neither
-;; can tell whether that ordering HOLDS when nothing forces it. The audit of PR
-;; #7305 put the charge exactly: `make-render` calls bare
-;; `createRoot(…).render(…)`, and if the `setTimeout 0` reaper wins on that
+;; can tell whether that ordering HOLDS when nothing forces it. `make-render`
+;; calls bare `createRoot(…).render(…)`, and if the reaper wins on that
 ;; schedule then the provisional is reaped, the commit rebuilds, and the
 ;; shipped benefit is absent from every mount a consumer actually performs.
 ;;
@@ -6121,30 +6119,29 @@
 ;; host chooses to get there; `await-settlement!` only yields turns until it
 ;; has, and its budget expiring fails an assertion rather than hanging.
 ;;
-;; WHAT IT FOUND, AND WHAT WAS DONE ABOUT IT. The audit was right: with the
-;; reaper at `setTimeout 0` the race was lost on this schedule every time — the
-;; render's reaction disposed before React's passive subscribe, the commit
-;; missed and rebuilt, and the mount paid TWO constructions, the very term the
-;; hand-off was adopted to delete. Measured here, and independently at N = 1 and
-;; N = 300 in a swap-the-primitive probe, three trials each:
+;; THE HORIZON, MEASURED. With the reaper at `setTimeout 0` the race is lost on
+;; this schedule every time — the render's reaction disposes before React's
+;; passive subscribe, the commit misses and rebuilds, and the mount pays TWO
+;; constructions, the very term the hand-off exists to delete. Measured here,
+;; and independently at N = 1 and N = 300 in a swap-the-primitive probe, three
+;; trials each:
 ;;
 ;;   `setTimeout 0`            bodyRuns 2.00N at N = 1 and N = 300
-;;   `setTimeout 4` (RULED)    bodyRuns 1.00N at N = 1 and N = 300
+;;   `setTimeout 4` (SHIPPED)  bodyRuns 1.00N at N = 1 and N = 300
 ;;   `setTimeout 32`           bodyRuns 1.00N at N = 1 and N = 300
 ;;   `requestAnimationFrame`   bodyRuns 1.00N at N = 1, 2.00N at N = 300
 ;;   `MessageChannel`          bodyRuns 2.00N at N = 1
 ;;
-;; rf2-2rtt6.71 ruled the horizon out to `setTimeout 4` — the SHORTEST delay
-;; reading 1.00N at both sizes, so abandoned renders and Suspense retries hold
-;; their graphs no longer than winning requires. THE SPINE MOVED. THIS ROW DID
-;; NOT, and the reason is measurement, not reluctance.
+;; The spine's horizon is `setTimeout 4` — the SHORTEST delay reading 1.00N at
+;; both sizes, so abandoned renders and Suspense retries hold their graphs no
+;; longer than winning requires. THIS ROW STILL READS TWO, and the reason is
+;; measurement.
 ;;
-;; WHY THE ASSERTIONS BELOW STILL READ TWO (rf2-2rtt6.71 implementation). The
-;; ruling expected this row to flip to the act-driven row's integers, as the
-;; retraction-era docstring had promised. It cannot, because THIS RUNNER IS NOT
-;; A FAITHFUL CLOCK for a millisecond-scale race. Swept on the ruling's own
-;; branch, narrow `:browser-test` build, `uix-use-sub-dom-cljs-test` only,
-;; one run per cell — the integer below is the row's `:builds`:
+;; WHY THE ASSERTIONS BELOW READ TWO. This row does not read the act-driven
+;; row's integers, because THIS RUNNER IS NOT A FAITHFUL CLOCK for a
+;; millisecond-scale race. Swept on a narrow `:browser-test` build,
+;; `uix-use-sub-dom-cljs-test` only, one run per cell — the integer below is
+;; the row's `:builds`:
 ;;
 ;;   horizon 0 / 8 / 16 / 32 / 64 ms (as shipped, one timer per burst)   2
 ;;   horizon 4 / 32 / 128 ms, rewired to one timer per TOKEN             2
@@ -6156,16 +6153,16 @@
 ;; <= 256 ms**, two to three orders of magnitude above any horizon a consumer
 ;; would ship. That is the test page's own schedule: 30 async rows, cljs-test
 ;; `done` plumbing and a display renderer competing for the main thread. The
-;; swap-the-primitive probe that the ruling read measured a dedicated
-;; single-mount instrument page, where the same gap is under 4 ms.
+;; swap-the-primitive probe above measured a dedicated single-mount instrument
+;; page, where the same gap is under 4 ms.
 ;;
 ;; SO THIS ROW WITNESSES THE RUNNER'S SCHEDULE, NOT THE CONSUMER'S — which is
-;; enough to pin the DEFECT it was written for (at `setTimeout 0` every
-;; environment lost, so the two builds were real everywhere) and NOT enough to
-;; pin the WIN (that needs a page whose gap is representative). Greening it by
-;; choosing a horizon in the hundreds of milliseconds is precisely the move
-;; rf2-2rtt6.71 exists to forbid: it would buy a green row by holding every
-;; abandoned render's reactive graph for a quarter of a second.
+;; enough to pin the DEFECT it guards (at `setTimeout 0` every environment
+;; loses, so the two builds are real everywhere) and NOT enough to pin the WIN
+;; (that needs a page whose gap is representative). Greening it by choosing a
+;; horizon in the hundreds of milliseconds is precisely the move the
+;; shortest-winning-horizon rule forbids: it would buy a green row by holding
+;; every abandoned render's reactive graph for a quarter of a second.
 ;;
 ;; IT IS STILL A RACE EITHER WAY. The primitives that win, win by MARGIN and
 ;; not by construction (the rAF row losing at 300 boundaries and winning at one
@@ -6175,7 +6172,7 @@
 ;; mount in either direction.
 
 (defn assert-use-sub-browser-runner-schedule-rebuilds
-  "rf2-2rtt6.25 (merged-PR audit of #7305): on THIS PAGE's mount schedule —
+  "On THIS PAGE's mount schedule —
   `re-frame.substrate.adapter/render`, no `act`, no `flushSync` — the reaper
   releases the escrowed reference before React's passive
   `useSyncExternalStore` subscribe, the entry disposes on the ordinary 1 → 0
@@ -6185,20 +6182,20 @@
   causally rather than by timing, then re-read across the reap horizon.
 
   READ THE INTEGERS NARROWLY — and read the block comment above before quoting
-  this row for anything. rf2-2rtt6.71 ruled the reap horizon out to
-  `setTimeout 4`, and the spine moved; these assertions did NOT flip with it,
-  because this runner's render-to-passive-flush gap was measured at > 128 ms
-  and <= 256 ms. At `setTimeout 0` the two builds were real in EVERY
-  environment, so the defect this row was written for is genuinely pinned. The
-  ADOPTION is a different claim on a different clock, and this page cannot see
-  it; buying a green row here would take a horizon in the hundreds of
-  milliseconds, which is exactly the trade rf2-2rtt6.71 declined.
+  this row for anything. The reap horizon is `setTimeout 4`, and these
+  assertions still read two builds, because this runner's
+  render-to-passive-flush gap was measured at > 128 ms and <= 256 ms. At
+  `setTimeout 0` the two builds are real in EVERY environment, so the defect
+  this row guards is genuinely pinned. The ADOPTION is a different claim on a
+  different clock, and this page cannot see it; buying a green row here would
+  take a horizon in the hundreds of milliseconds, which is exactly the trade
+  the shipped horizon refuses.
 
   So: a red here means the runner's schedule changed, NOT that a consumer's
   did. The consumer-schedule question is answered elsewhere, by a page whose
   gap is representative and which measures that gap before it reads anything:
   `bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs`, an on-demand
-  diagnostic that gates nothing (rf2-2rtt6.80).
+  diagnostic that gates nothing.
 
   Correctness is not at stake in either direction. Spec 006 §Render-phase
   provisional acquisition and commit adoption is explicit that correctness MUST
@@ -6216,12 +6213,12 @@
                        the property is only load-bearing on a COLD read"
   [{:keys [name probe-public-mount-element pm-on-commit refcount-target
            rc-query pm-frame]}]
-  (testing (str name " — the commit adopts the render-phase build on the PUBLIC mount schedule: no act, no flushSync (rf2-2rtt6.25)")
+  (testing (str name " — the commit adopts the render-phase build on the PUBLIC mount schedule: no act, no flushSync")
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertion")
       (async done
         (reset! refcount-target pm-frame)
-        (rf/make-frame {:id pm-frame :doc "rf2-2rtt6.25 public-schedule adoption frame"})
+        (rf/make-frame {:id pm-frame :doc "public-schedule adoption frame"})
         (rf/reg-event ::pm-seed (fn [_ _] {:db {:m 7}}))
         (rf/dispatch-sync [::pm-seed] {:frame pm-frame})
         (let [builds         (atom 0)
@@ -6293,7 +6290,7 @@
                            "reaper released the escrowed reference first, the entry "
                            "disposed on the ordinary 1 → 0 edge, and the subscribe "
                            "missed and rebuilt. This runner's render-to-flush gap "
-                           "is > 128 ms (measured, rf2-2rtt6.71), so no shippable "
+                           "is > 128 ms (measured), so no shippable "
                            "horizon changes it — see the block comment. Snapshot "
                            snap))
                   (is (identical? (second (:returned snap)) (:tenant snap))
@@ -6325,20 +6322,20 @@
                     (finish!)))))
             240))))))
 
-;; ---- get-snap's ESCROW LEG, on that same schedule (rf2-2rtt6.13 × .25) -----
+;; ---- get-snap's ESCROW LEG, on that same schedule -------------------------
 ;;
-;; THE INTERACTION, stated on the bead. rf2-2rtt6.13's repair made `get-snap`
-;; read, in order, (1) the committed reaction, (2) the reaction this hook's
-;; UNSPENT escrow token is holding, (3) the value the render phase froze. Leg
-;; (2) is live only because the hand-off's +1 keeps the entry tenanted — so if
-;; the reaper really wins before React's passive subscribe, leg (2) is already
-;; SPENT when consulted, `get-snap` falls through to the frozen value, and the
-;; concurrent-lane window #7313 closed reopens on exactly the schedule that
-;; matters. The two properties are one property; asserting only the first would
-;; leave the second free to break silently.
+;; THE INTERACTION. `get-snap` reads, in order, (1) the committed reaction,
+;; (2) the reaction this hook's UNSPENT escrow token is holding, (3) the value
+;; the render phase froze. Leg (2) is live only because the hand-off's +1
+;; keeps the entry tenanted — so if the reaper really wins before React's
+;; passive subscribe, leg (2) could already be SPENT when consulted, `get-snap`
+;; would fall through to the frozen value, and the concurrent-lane window the
+;; first-commit row pins would reopen on exactly the schedule that matters.
+;; The two properties are one property; asserting only the first would leave
+;; the second free to break silently.
 ;;
-;; THE OBSERVATION is the rf2-2rtt6.13 first-commit row, re-run with nothing
-;; forcing the schedule. A frozen render value compares equal to itself, so it
+;; THE OBSERVATION is the render→commit first-commit row above, re-run with
+;; nothing forcing the schedule. A frozen render value compares equal to itself, so it
 ;; can never report movement to React's pre-commit store-consistency check; a
 ;; live reaction can. On a transition lane React re-reads every store before
 ;; committing and throws the render away if one moved, so the FIRST committed,
@@ -6353,16 +6350,16 @@
 ;; transition is what buys the lane, and the root is the one the public render
 ;; slot created.
 ;;
-;; AND THE ANSWER IS YES — the interaction the bead feared does NOT occur, even
+;; AND THE ANSWER IS YES — the interaction does NOT occur, even
 ;; though the reap really does win. The two are not the same moment. React's
 ;; pre-commit store-consistency check runs in the SAME host task as the render
 ;; that produced the tree, so no macrotask — the reaper included — can have run
 ;; between the escrow and the check; the token is necessarily unspent there.
 ;; What the reaper beats is the PASSIVE-EFFECT flush, which is a later task.
-;; So on the public schedule leg (2) answers and rf2-2rtt6.13's window stays
-;; shut, while the adoption one task later does not happen. Both rows below are
-;; green today for that reason, and they are asserted together so that a repair
-;; to the horizon cannot quietly cost the window that is currently closed.
+;; So on the public schedule leg (2) answers and the render→commit window
+;; stays shut, while the adoption one task later does not happen. Both rows
+;; below are green for that reason, and they are asserted together so that a
+;; change to the horizon cannot quietly cost the window that is closed.
 
 (defn- run-public-schedule-escrow-leg-row!
   "Mount the gap probe once, COLD, on `frame`, through the public adapter render
@@ -6374,7 +6371,7 @@
            refcount-target]}
    {:keys [frame move?]}
    k]
-  (rf/make-frame {:id frame :doc "rf2-2rtt6.25 public-schedule escrow-leg row"})
+  (rf/make-frame {:id frame :doc "public-schedule escrow-leg row"})
   (rf/dispatch-sync [::gap-seed] {:frame frame})
   (reset! refcount-target frame)
   (let [cache      (:sub-cache (rf.frame/frame frame))
@@ -6418,21 +6415,21 @@
       240)))
 
 (defn assert-use-sub-escrow-leg-answers-on-the-public-mount-schedule
-  "rf2-2rtt6.13 × rf2-2rtt6.25: on the PUBLIC mount schedule — adapter render
+  "On the PUBLIC mount schedule — adapter render
   slot, no `act`, no `flushSync` — `get-snap`'s escrow leg is still reachable,
   so a write landing in the render→commit gap is REPORTED to React's
   pre-commit store-consistency check and the first commit is fresh. Beside an
   unmoved control on its own frame, so a null result cannot be mistaken for a
   probe that never fired.
 
-  cfg keys: the rf2-2rtt6.13 gap side-channels (`:gap-write!` `:gap-armed?`
+  cfg keys: the render→commit gap side-channels (`:gap-write!` `:gap-armed?`
   `:gap-first-commit` `:gap-mount-node` `:gap-db-read` `:gap-observed`
   `:gap-query`), plus `:probe-gap-public-element` (an idle/probe phase root
   whose mount effect stashes its state setter), `:gap-public-set-phase`,
   `:refcount-target`, and one frame per row (`:pm-gap-frame` /
   `:pm-gap-control-frame`)."
   [{:keys [name gap-query pm-gap-frame pm-gap-control-frame] :as cfg}]
-  (testing (str name " — get-snap's escrow leg still answers on the PUBLIC mount schedule (rf2-2rtt6.13 × rf2-2rtt6.25)")
+  (testing (str name " — get-snap's escrow leg still answers on the PUBLIC mount schedule")
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises the assertion")
       (async done
@@ -6475,7 +6472,7 @@
                          "render value, which compares equal to itself and could "
                          "report nothing. React discarded the torn render and the "
                          "FIRST commit is fresh. `g=0` here means the reaper "
-                         "spent the token before the check and rf2-2rtt6.13's "
+                         "spent the token before the check and the render→commit "
                          "window has reopened on the schedule that ships. Row "
                          moved))
                 (is (= {:dom "g=1" :db 1} (:settled moved))
@@ -6483,7 +6480,7 @@
                 (done)))))))))
 
 (defn assert-use-sub-adopted-provisional-reaper-is-a-noop
-  "rf2-2rtt6.25: the escrow token is ONE-SHOT. Once the commit has adopted and
+  "The escrow token is ONE-SHOT. Once the commit has adopted and
   released it, the macrotask reaper that was armed at acquisition still runs —
   and must change nothing. Crosses the horizon explicitly and asserts the
   mounted subscription is untouched: same ref-count, same tenant, no rebuild.
@@ -6494,11 +6491,11 @@
 
   cfg keys: the shared refcount-probe surface plus `:ad-frame`."
   [{:keys [name probe-refcount-element refcount-target rc-query ad-frame]}]
-  (testing (str name " — the reaper is a no-op on an adopted provisional reference (rf2-2rtt6.25)")
+  (testing (str name " — the reaper is a no-op on an adopted provisional reference")
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target ad-frame)
-      (rf/make-frame {:id ad-frame :doc "rf2-2rtt6.25 one-shot reaper probe frame"})
+      (rf/make-frame {:id ad-frame :doc "one-shot reaper probe frame"})
       (rf/reg-event ::rp-seed (fn [_ _] {:db {:m 5}}))
       (rf/dispatch-sync [::rp-seed] {:frame ad-frame})
       (let [builds      (atom 0)
@@ -6538,14 +6535,14 @@
                     (done))))))))))))
 
 (defn assert-use-sub-abandoned-layer-2-render-cascades-at-the-horizon
-  "rf2-2rtt6.25: an abandoned COLD render of a LAYER-2 sub leaves the parent
+  "An abandoned COLD render of a LAYER-2 sub leaves the parent
   AND its declared input held until the horizon, and both are gone one settle
   later — the ordinary disposal cascade, driven by the ordinary 1 → 0 edge,
   from the reaper rather than from an effect.
 
-  This is the case the rf2-2rtt6.14 ruling worried about most: a zero-owner
-  parent keeping a whole input topology alive. It does — for one macrotask,
-  bounded, and then the cascade runs exactly as `unsubscribe` would have run it.
+  This is the case that matters most: a zero-owner parent keeping a whole
+  input topology alive. It does — for one macrotask, bounded, and then the
+  cascade runs exactly as `unsubscribe` would run it.
 
   Reuses the Suspense-abort probe element, with `:rc-query` REGISTERED AS A
   LAYER-2 SUB over an input of this assertion's own, on its own frame.
@@ -6553,13 +6550,13 @@
   cfg keys: `:probe-suspense-abort-element`, `:refcount-target`, `:rc-query`,
   and `:hz-frame` (this assertion's own frame)."
   [{:keys [name probe-suspense-abort-element refcount-target rc-query hz-frame]}]
-  (testing (str name " — an abandoned layer-2 cold render releases parent AND inputs at the horizon (rf2-2rtt6.25)")
+  (testing (str name " — an abandoned layer-2 cold render releases parent AND inputs at the horizon")
     (if (nil? probe-suspense-abort-element)
       (is true (str name ": no Suspense-abort probe wired; substrate skips this case"))
       (with-browser-act
        (fn [act-fn]
         (reset! refcount-target hz-frame)
-        (rf/make-frame {:id hz-frame :doc "rf2-2rtt6.25 layer-2 horizon probe frame"})
+        (rf/make-frame {:id hz-frame :doc "layer-2 horizon probe frame"})
         (rf/reg-event ::hz-seed (fn [_ _] {:db {:m 11}}))
         (rf/dispatch-sync [::hz-seed] {:frame hz-frame})
         (rf/reg-sub ::hz-input (fn [db _] (:m db)))
@@ -6596,7 +6593,7 @@
                     (done))))))))))))
 
 (defn assert-use-sub-reaped-provisional-is-never-adopted-by-a-later-mount
-  "rf2-2rtt6.25 (merged-PR audit of #7326): THE ADVERSARIAL ROW. A provisional
+  "THE ADVERSARIAL ROW. A provisional
   reference the reaper released must be UNREACHABLE — a later mount of the same
   query builds its own reaction and paints the CURRENT value, never the one the
   abandoned render's disposed reaction was holding.
@@ -6605,8 +6602,8 @@
   `use-sub-browser-runner-schedule-rebuilds` can assert a defect without
   asserting a bug: on the public schedule the reaper usually DOES win, so
   `reaped → rebuilt fresh` is the ordinary consumer path, not an edge case. If
-  a reaped reaction could be handed to a later subscriber the retraction would
-  be a correctness retraction rather than a performance one.
+  a reaped reaction could be handed to a later subscriber, a lost race would
+  cost correctness rather than a construction.
 
   THE TEETH ARE THE WRITE. Between the horizon and the second mount the app-db
   moves with NOBODY subscribed, so the abandoned render's reaction — had it
@@ -6637,13 +6634,13 @@
   sub-cache — the property is only load-bearing on a COLD read)."
   [{:keys [name probe-suspense-abort-element probe-public-mount-element
            pm-on-commit refcount-target rc-query rv-frame]}]
-  (testing (str name " — a reaped provisional is never adopted by a later mount (rf2-2rtt6.25)")
+  (testing (str name " — a reaped provisional is never adopted by a later mount")
     (if (nil? probe-suspense-abort-element)
       (is true (str name ": no Suspense-abort probe wired; substrate skips this case"))
       (with-browser-act
        (fn [act-fn]
         (reset! refcount-target rv-frame)
-        (rf/make-frame {:id rv-frame :doc "rf2-2rtt6.25 reaped-provisional revival frame"})
+        (rf/make-frame {:id rv-frame :doc "reaped-provisional revival frame"})
         (rf/reg-event ::rv-seed (fn [_ _] {:db {:m 0}}))
         (rf/reg-event ::rv-move (fn [_ _] {:db {:m 42}}))
         (rf/dispatch-sync [::rv-seed] {:frame rv-frame})
@@ -6741,7 +6738,7 @@
                       240))))))))))))
 
 (defn assert-use-sub-ssr-render-without-commit-nets-zero-at-the-horizon
-  "rf2-2rtt6.25 (SSR): `renderToString` runs the hook's render phase and never
+  "SSR: `renderToString` runs the hook's render phase and never
   commits — there is no React commit on the server at all. The provisional
   reference is therefore ALWAYS reaped rather than adopted, and the server
   render must net zero at the horizon.
@@ -6753,9 +6750,9 @@
   cfg keys: `:probe-refcount-element`, `:refcount-target`, `:rc-query`, and
   `:ssr-frame` (this assertion's own frame)."
   [{:keys [name probe-refcount-element refcount-target rc-query ssr-frame]}]
-  (testing (str name " — an SSR render with no commit nets zero at the horizon (rf2-2rtt6.25)")
+  (testing (str name " — an SSR render with no commit nets zero at the horizon")
     (reset! refcount-target ssr-frame)
-    (rf/make-frame {:id ssr-frame :doc "rf2-2rtt6.25 SSR horizon probe frame"})
+    (rf/make-frame {:id ssr-frame :doc "SSR horizon probe frame"})
     (rf/reg-event ::ssr-seed (fn [_ _] {:db {:m 13}}))
     (rf/dispatch-sync [::ssr-seed] {:frame ssr-frame})
     (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -6779,13 +6776,13 @@
                 "the slot is evicted on the same 1 → 0 edge as any other release")
             (done)))))))
 
-;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
+;; ---- key-change serves the NEW target -------------------------------------
 ;;
-;; THE BUG (UIx shared spine only — Reagent recomputes in-render and
+;; THE HAZARD (UIx shared spine only — Reagent recomputes in-render and
 ;; never tears; a cross-substrate correctness divergence). When query-v (or the
 ;; resolved frame) changes to a DIFFERENT subscription target on a MOUNTED
-;; use-sub component, the pre-fix spine served the PREVIOUS target's value
-;; for the change-commit:
+;; use-sub component, a spine whose get-snap preferred the committed reaction
+;; would serve the PREVIOUS target's value for the change-commit:
 ;;
 ;;   • render — stable-key recomputes to a fresh #js object; the
 ;;     `[stable-key]`-keyed reaction memo re-runs to the NEW target; get-snap +
@@ -6793,32 +6790,33 @@
 ;;   • but committed-ref.current STILL holds the OLD committed reaction — the old
 ;;     subscribe-fn's ref-clearing cleanup AND the new subscribe-fn that
 ;;     repopulates the ref are BOTH post-commit effects.
-;;   • the pre-fix get-snap `(or committed-ref reaction)` therefore returned the
-;;     OLD reaction's value; useSyncExternalStore committed it (it equals the
-;;     prior snapshot, so nothing flags a tear) → ONE commit renders the OLD
-;;     target's value under the NEW query args. The passive-phase store-
-;;     consistency check then forces a corrective re-render — so the tear self-
-;;     heals, but the torn commit is real (a same-commit layout-effect / ref read
-;;     observes it; a transition lane can paint it).
+;;   • a get-snap of `(or committed-ref reaction)` would therefore return the
+;;     OLD reaction's value; useSyncExternalStore would commit it (it equals
+;;     the prior snapshot, so nothing flags a tear) → ONE commit would render
+;;     the OLD target's value under the NEW query args. The passive-phase
+;;     store-consistency check would then force a corrective re-render — so the
+;;     tear self-heals, but the torn commit is real (a same-commit layout-effect
+;;     / ref read observes it; a transition lane can paint it).
 ;;
-;; The fix key-tags committed-ref as `#js [stable-key committed]` and has
-;; get-snap read it ONLY while the tag matches the current render's key — so the
-;; change-commit falls back to the render-phase handle (the NEW target),
+;; The spine key-tags committed-ref as `#js [stable-key committed]` and
+;; get-snap reads it ONLY while the tag matches the current render's key — so
+;; the change-commit falls back to the render-phase handle (the NEW target),
 ;; matching Reagent's in-render recompute.
 ;;
-;; TWO PROOFS (both FAIL on the pre-fix spine, PASS after) + a control:
+;; TWO PROOFS (both FAIL on a spine that serves the previous target) + a control:
 ;;   (1) VALUE — the child records use-sub's return every render; the FIRST
 ;;       render after the key change already shows the NEW value and the OLD value
 ;;       never reappears. (Deterministic here: the two targets hold DISTINCT
-;;       values, unlike rf2-sqhjtu where both handles deref the same value.)
+;;       values, unlike the getSnapshot-tracks-committed row, where both
+;;       handles deref the same value.)
 ;;   (2) OBJECT IDENTITY — a rf.subs/subscribe spy tags reactions by generation (the
-;;       rf2-sqhjtu deref-recording proxy); no get-snap deref after the change
-;;       hits the OLD target's committed generation.
+;;       getSnapshot-tracks-committed deref-recording proxy); no get-snap deref
+;;       after the change hits the OLD target's committed generation.
 ;;   CONTROL — a re-render with an UNCHANGED query-v keeps serving the committed
 ;;   reaction (value stable, ref-count still 1: no over-invalidation / no churn).
 
 (defn assert-use-sub-key-change-serves-new-target
-  "rf2-naz09e: a query-v / frame change on a mounted use-sub probe must
+  "A query-v / frame change on a mounted use-sub probe must
   render the NEW target's value on the change-commit (parity with Reagent's
   in-render recompute), never the previous target's. Value proof + object-
   identity deref proof; plus a stable-key control (no over-invalidation).
@@ -6835,13 +6833,13 @@
   [{:keys [name probe-key-change-element key-change-set-tick
            key-change-frame key-change-query key-change-observed
            kc-frame kc-frame2 kc-query-a kc-query-b]}]
-  (testing (str name " — use-sub serves the NEW target on a query-v / frame change (rf2-naz09e)")
+  (testing (str name " — use-sub serves the NEW target on a query-v / frame change")
     (with-browser-act
      (fn [act-fn]
       ;; Two frames; kc-query-a / kc-query-b read DISTINCT db keys so every
       ;; (frame, query) target carries a distinct value.
-      (rf/make-frame {:id kc-frame :doc "rf2-naz09e key-change probe frame A"})
-      (rf/make-frame {:id kc-frame2 :doc "rf2-naz09e key-change probe frame B"})
+      (rf/make-frame {:id kc-frame :doc "key-change probe frame A"})
+      (rf/make-frame {:id kc-frame2 :doc "key-change probe frame B"})
       (rf/reg-event ::kc-seed-a (fn [_ _] {:db {:va "A"   :vb "B"}}))
       (rf/reg-event ::kc-seed-b (fn [_ _] {:db {:va "FA2" :vb "FB2"}}))
       (rf/dispatch-sync [::kc-seed-a] {:frame kc-frame})
@@ -6885,8 +6883,8 @@
                                p))
             unwrap         (fn [x] (get @proxy->real x x))
             real-unsub-if  rf.subs/unsubscribe-if-reaction]
-        ;; rf2-2rtt6.25 — the proxy is un-substituted at the identity-guarded
-        ;; release (see the rf2-sqhjtu assertion's note): the cache holds the
+        ;; The proxy is un-substituted at the identity-guarded release (see
+        ;; the getSnapshot-tracks-committed assertion's note): the cache holds the
         ;; REAL reaction, so a proxy reaching the guard would make the spine's
         ;; provisional release no-op and inflate every ref-count below.
         (with-redefs [rf.subs/subscribe
@@ -6980,34 +6978,32 @@
               (finally
                 (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))))
 
-;; ---- release call-shape contract (rf2-gizlj, retargeted by rf2-1frc) ------
+;; ---- release call-shape contract ------------------------------------------
 ;;
-;; What this pin is FOR has not changed: the spine's commit-owned cleanup is
-;; the one production release site whose call shape no type checker sees (it
-;; goes through the spy in the rf2-mwft2 stable-deps-key test), and two drifts
-;; must fail loudly here rather than at the cache layer — the grace-period
-;; `opts` MAP re-entering the call (retired with the mechanism per rf2-cmfln,
-;; Spec 006 §Reference counting and disposal: the cache disposes synchronously
-;; on the 1 → 0 transition and there are no per-call overrides), and the spine
-;; DROPPING its explicit frame-id pin.
+;; What this pin is FOR: the spine's commit-owned cleanup is the one
+;; production release site whose call shape no type checker sees (it goes
+;; through the spy in the stable-deps-key test), and two drifts must fail
+;; loudly here rather than at the cache layer — a grace-period `opts` MAP
+;; entering the call (Spec 006 §Reference counting and disposal: the cache
+;; disposes synchronously on the 1 → 0 transition and there are no per-call
+;; overrides), and the spine DROPPING its explicit frame-id pin.
 ;;
-;; WHAT CHANGED IS WHICH FN THE SPINE CALLS. Until rf2-1frc the cleanup was
-;; `rf.subs/unsubscribe` with `[frame-id query-v]`, and this assertion pinned
-;; the literal arity 2. That release was by ADDRESS, and a mounted hook's
-;; reaction can be replaced under it — hot reload, `clear-sub-cache!`, a frame
-;; generation change — after which the address names a SUCCESSOR's entry and an
-;; address-only release decrements a reference the hook never took. The cleanup
-;; now calls `rf.subs/unsubscribe-if-reaction` with
-;; `[frame-id query-v reaction]`, releasing under an identity guard.
+;; WHICH FN THE SPINE CALLS. The cleanup calls
+;; `rf.subs/unsubscribe-if-reaction` with `[frame-id query-v reaction]`,
+;; releasing under an identity guard, rather than `rf.subs/unsubscribe` with
+;; `[frame-id query-v]`. A release by ADDRESS alone is unsafe because a
+;; mounted hook's reaction can be replaced under it — hot reload,
+;; `clear-sub-cache!`, a frame generation change — after which the address
+;; names a SUCCESSOR's entry and an address-only release decrements a
+;; reference the hook never took.
 ;;
-;; So the pin follows the mechanism instead of the number. Arity 3 is now
-;; CORRECT — but only for this fn, and only with a REACTION in the third
-;; position; a third arg that is a MAP is still exactly the grace-period drift
-;; the original pin was placed to catch, and it is now the more likely way to
-;; reintroduce it.
+;; So the pin follows the mechanism instead of the number. Arity 3 is CORRECT
+;; — but only for this fn, and only with a REACTION in the third position; a
+;; third arg that is a MAP is exactly the grace-period drift this pin catches,
+;; and it is the more likely way to introduce it.
 
 (defn assert-use-sub-cleanup-calls-unsubscribe-with-2-args
-  "rf2-gizlj / rf2-1frc: pin the SHAPE of the React-hook spine's commit-owned
+  "Pin the SHAPE of the React-hook spine's commit-owned
   release. It must release the reaction it holds, under the identity guard —
   `rf.subs/unsubscribe-if-reaction` with `[frame-id query-v reaction]` — with a
   non-nil frame-id pin, and the third argument must be a reaction rather than a
@@ -7017,11 +7013,11 @@
   cfg keys: re-uses the same stable-deps-key probe surface — the cleanup fires
   on either parent here."
   [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
-  (testing (str name " — use-sub cleanup releases via unsubscribe-if-reaction with a reaction, not an opts map (rf2-gizlj / rf2-1frc)")
+  (testing (str name " — use-sub cleanup releases via unsubscribe-if-reaction with a reaction, not an opts map")
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
-      (rf/make-frame {:id stable-deps-frame :doc "rf2-gizlj arity probe frame"})
+      (rf/make-frame {:id stable-deps-frame :doc "arity probe frame"})
       (rf/reg-event ::gizlj-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
