@@ -12,13 +12,13 @@
   point is a JVM stdio subprocess with no bridge to a browser heap, so on
   the JVM neither provider is reachable.
 
-  ## Availability is NOT emptiness (rf2-3fc89f.21)
+  ## Availability is NOT emptiness
 
-  The bug this ns closes: the old code let provider ABSENCE masquerade as
-  a successful EMPTY answer — `list-substrates` returned `{:substrates []}`
-  and `read-a11y-violations` returned `{:violations []}` on the JVM,
+  Provider ABSENCE must not masquerade as a successful EMPTY answer. Were
+  `list-substrates` to return `{:substrates []}` and
+  `read-a11y-violations` `{:violations []}` on the JVM, that would be
   indistinguishable from a reached provider that genuinely holds nothing.
-  An agent could infer 'no substrates registered' or 'zero accessibility
+  An agent would infer 'no substrates registered' or 'zero accessibility
   violations' from a host that never looked, or believe a requested
   render substrate was honoured when it was silently dropped to nil.
 
@@ -28,11 +28,10 @@
   on EVERY platform (see the next section). A bound provider's
   `[]`/`#{}`/`{}` means 'reached and empty', which is DISTINCT from the var
   being nil. A future browser bridge (or a test) supplies a provider by
-  binding the seam; the transport itself is OUT OF SCOPE here (a later bead
-  owns it — this ns only distinguishes 'reached + empty' from 'cannot
-  answer').
+  binding the seam; the transport itself is OUT OF SCOPE here (this ns
+  only distinguishes 'reached + empty' from 'cannot answer').
 
-  ## Neither seam auto-wires — the browser bridge binds BOTH (rf2-jyjadg)
+  ## Neither seam auto-wires — the browser bridge binds BOTH
 
   BOTH provider seams default to `nil` on EVERY platform, JVM and CLJS
   alike. Neither `*substrate-provider*` nor `*a11y-provider*` is
@@ -68,15 +67,15 @@
   provider through `result/capability-unavailable-result` rather than
   returning a false-empty success.
 
-  ## No var probing, on either platform (rf2-6r9j.119)
+  ## No var probing, on either platform
 
-  This ns holds NOTHING but the two seams and their accessors. Earlier
-  revisions carried a `clojure.core/resolve` probe that tried to
-  auto-discover the two providers from the JVM; it could never succeed —
-  both sources are CLJS-only `def`s with no JVM Var, and the shipped
-  Story-MCP entry point is a JVM stdio subprocess with no bridge to a
-  browser heap — so it only obscured the explicit-provider contract above
-  (and dragged the whole Story facade onto the load path to do it).")
+  This ns holds NOTHING but the two seams and their accessors. A
+  `clojure.core/resolve` probe trying to auto-discover the two providers
+  from the JVM could never succeed — both sources are CLJS-only `def`s
+  with no JVM Var, and the shipped Story-MCP entry point is a JVM stdio
+  subprocess with no bridge to a browser heap — so it would only obscure
+  the explicit-provider contract above (and drag the whole Story facade
+  onto the load path to do it).")
 
 ;; ---------------------------------------------------------------------------
 ;; Substrate-registry provider seam
@@ -90,7 +89,7 @@
   'reached and empty', DISTINCT from this var being nil ('cannot answer').
   Rebind in tests / a future browser bridge to supply one.
 
-  NOTE (rf2-jyjadg): the CLJS default is nil even though the registry
+  NOTE: the CLJS default is nil even though the registry
   (`re-frame.story/registered-substrates`) is reachable in-process — it is
   held nil to stay SYMMETRIC with `*a11y-provider*`, whose UI-ns source is
   bundle-isolated out of this helper and so CANNOT auto-wire. A browser
@@ -145,8 +144,8 @@
   (`re-frame.story.ui.a11y/violations-by-frame`) lives in the Story UI ns
   this helper must NOT require (bundle isolation). It is held SYMMETRIC
   with `*substrate-provider*` (also nil on CLJS) so the browser bridge
-  wires BOTH seams together — no silent half-working default (rf2-jyjadg;
-  see the ns docstring)."
+  wires BOTH seams together — no silent half-working default (see the
+  ns docstring)."
   nil)
 
 (defn a11y-provider-available?
