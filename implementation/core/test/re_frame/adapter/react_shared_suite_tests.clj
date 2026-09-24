@@ -1,25 +1,23 @@
 (ns re-frame.adapter.react-shared-suite-tests
   "Compile-time deftest generator for the per-adapter React-shared entry
-  files (UIx) — rf2-6hphn.
+  files (UIx, and fresco's React substrate).
 
   WHY THIS EXISTS. The parameterised shared suite
-  (`re-frame.adapter.react-shared-suite`, rf2-sx77q + rf2-p4736) made
-  every spine-shared assertion live ONCE as an `assert-*` defn — but the
-  per-adapter ENTRY files still hand-paired ~50 `(deftest
-  name (suite/assert-name cfg))` lines each. Any new shared assertion
-  required two hand-copied edits; the failure mode was silent
-  single-adapter coverage if one entry file was forgotten. This macro
-  closes the residual drift surface: the test list lives ONCE here and
-  each entry file reduces to a single `(define-react-shared-suite-tests!
-  cfg)` call.
+  (`re-frame.adapter.react-shared-suite`) keeps every spine-shared
+  assertion ONCE as an `assert-*` defn. Hand-pairing ~50 `(deftest
+  name (suite/assert-name cfg))` lines in each per-adapter ENTRY file
+  would turn every new shared assertion into hand-copied edits, and
+  forgetting one entry file would silently drop that adapter's coverage.
+  So the test list lives ONCE here and each entry file reduces to a
+  single `(define-react-shared-suite-tests! cfg)` call.
 
   WHY A .clj MACRO. The CLJS test files consume this via
   `:require-macros`. The pattern mirrors
   `re-frame.conformance-fixtures` (the conformance-corpus compile-time
   loader) — a sibling `.clj` ns in `core/test/` whose forms are inlined
-  into the .cljs caller's bytecode at compile time. No runtime cost; no
-  new build wiring required (the file lives under a source-path already
-  on the classpath).
+  into the .cljs caller's bytecode at compile time. No runtime cost and
+  no build wiring of its own (the file lives under a source-path on the
+  classpath).
 
   GREP DISCOVERABILITY. `grep -rn 'deftest <name>'` on the codebase will
   NOT find a literal deftest form for the suite-forwarders (they are
@@ -43,9 +41,9 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Test-spec literal — the single source of truth for which suite-fns are
-;; forwarded into deftest forms. Section markers preserve the cluster
-;; layout the entry files used to carry, so a reader can scan the surface
-;; at a glance. `:section` rows are documentation only; `:test` rows emit
+;; forwarded into deftest forms. Section markers group the rows into
+;; clusters, so a reader can scan the surface at a glance. `:section` rows
+;; are documentation only; `:test` rows emit
 ;; a deftest.
 ;;
 ;; The clusters mirror `react_shared_suite.cljs`'s in-source ordering, so a
@@ -89,15 +87,15 @@
    {:test 'wrap-view-injects-explicit-coords
     :fn   'assert-wrap-view-injects-explicit-coords}
 
-   {:section "React DevTools display-name (Spec 006 item 1, amended rf2-976bw)"}
+   {:section "React DevTools display-name (Spec 006 item 1)"}
    {:test 'display-name-matches-render-measure
     :fn   'assert-display-name-matches-render-measure}
 
-   {:section "React :key parity (rf2-pt0u2 — follow-up to rf2-1anbp)"}
+   {:section "React :key parity"}
    {:test 'reg-view-react-key-preserved
     :fn   'assert-reg-view-react-key-preserved}
 
-   {:section "void-element unmount-sentinel (rf2-ghfkkk)"}
+   {:section "void-element unmount-sentinel"}
    {:test 'void-root-view-sentinel-is-fragment-sibling
     :fn   'assert-void-root-view-sentinel-is-fragment-sibling}
 
@@ -105,7 +103,7 @@
    {:test 'frame-context-corrupted
     :fn   'assert-frame-context-corrupted}
 
-   {:section "frame-provider branches (rf2-7kjz8 — folded from helix_frame_provider_children + uix_frame_provider_branches)"}
+   {:section "frame-provider branches"}
    {:test 'frame-provider-missing-frame-raises-no-frame-context
     :fn   'assert-frame-provider-missing-frame-raises-no-frame-context}
    {:test 'frame-provider-nil-frame-raises-no-frame-context
@@ -125,11 +123,11 @@
    {:test 'warn-once-per-id-not-global
     :fn   'assert-warn-once-per-id-not-global}
 
-   {:section "write-after-destroy guard (rf2-ft2b)"}
+   {:section "write-after-destroy guard"}
    {:test 'write-after-destroy-guard
     :fn   'assert-write-after-destroy-guard}
 
-   {:section "render-time parity (rf2-v1y7 / *_parity)"}
+   {:section "render-time parity"}
    {:test 'parity-view-re-register-rerender
     :fn   'assert-view-re-register-causes-rerender}
    {:test 'parity-current-render-key-anon
@@ -137,13 +135,13 @@
    {:test 'parity-wrap-view-callable
     :fn   'assert-wrap-view-callable-dispatches-to-user-fn}
 
-   {:section "reg-event metadata-map :interceptors superset (rf2-bpmszk / *_events)"}
+   {:section "reg-event metadata-map :interceptors superset"}
    {:test 'events-meta-interceptors-threads-chain
     :fn   'assert-reg-event-meta-interceptors-threads-the-chain}
    {:test 'events-positional-vector-rejected
     :fn   'assert-reg-event-positional-vector-rejected}
 
-   {:section "render-to-string + late-bind chain (*_render_to_string)"}
+   {:section "render-to-string + late-bind chain"}
    {:test 'rts-throws-with-no-emitter
     :fn   'assert-render-to-string-throws-with-no-emitter}
    {:test 'rts-returns-html-after-install
@@ -151,31 +149,31 @@
    {:test 'rts-published-through-chain
     :fn   'assert-set-hiccup-emitter-published-through-chain}
 
-   {:section "element-slot CLJS-data guard (rf2-p6f6u (c))"}
+   {:section "element-slot CLJS-data guard"}
    {:test 'render-rejects-cljs-data-render-tree
     :fn   'assert-render-rejects-cljs-data-render-tree}
 
-   {:section "late-bind hook publication set (*_late_bind_publication)"}
+   {:section "late-bind hook publication set"}
    {:test 'late-bind-publishes-expected-set
     :fn   'assert-adapter-publishes-expected-hook-set}
    {:test 'late-bind-cross-checked-directory
     :fn   'assert-adapter-hooks-cross-checked-against-directory}
 
-   {:section "copied / wrapped adapter map routes to live hooks (rf2-dkl5z1)"}
+   {:section "copied / wrapped adapter map routes to live hooks"}
    {:test 'copied-adapter-map-routes-to-live-hooks
     :fn   'assert-copied-adapter-map-routes-to-live-hooks}
 
-   {:section "chained clear-warn-once-caches! (*_clear_warn_once_chain)"}
+   {:section "chained clear-warn-once-caches!"}
    {:test 'clear-warn-chain-empties-cache
     :fn   'assert-chained-clear-warn-once-empties-cache}
 
-   {:section "routing pipeline (Spec 012 / *_routing)"}
+   {:section "routing pipeline (Spec 012)"}
    {:test 'routing-handle-url-change
     :fn   'assert-routing-handle-url-change}
    {:test 'routing-multi-frame
     :fn   'assert-routing-multi-frame}
 
-   {:section "headless runtime slice (*_runtime)"}
+   {:section "headless runtime slice"}
    {:test 'runtime-dispatch-sync
     :fn   'assert-dispatch-sync}
    {:test 'runtime-sub-chain
@@ -195,7 +193,7 @@
    {:test 'runtime-sub-exception-recovers
     :fn   'assert-sub-exception-recovers-to-nil}
 
-   {:section ":rf.view/rendered op (rf2-25zo2 / *_view_rendered_op)"}
+   {:section ":rf.view/rendered op"}
    {:test 'view-rendered-fires-on-render
     :fn   'assert-rf-view-rendered-fires-on-render}
    {:test 'view-rendered-attribution-in-cascade
@@ -205,11 +203,11 @@
    {:test 'view-rendered-render-args-elided
     :fn   'assert-rf-view-rendered-render-args-elided}
 
-   {:section "make-derived-value per-arity (rf2-eoy63 / *_make_derived_value_arity)"}
+   {:section "make-derived-value per-arity"}
    {:test 'derived-value-arities
     :fn   'assert-derived-value-arities}
 
-   {:section "derived-value watch-baseline (rf2-66hb / *_derived_value_baseline)"}
+   {:section "derived-value watch-baseline"}
    {:test 'derived-baseline-projections
     :fn   'assert-derived-baseline-projections}
    {:test 'derived-baseline-sequence
@@ -217,7 +215,7 @@
    {:test 'derived-baseline-multi-source
     :fn   'assert-derived-baseline-multi-source}
 
-   {:section "two-partition projection-equality invalidation (EP-0001 decision #7 / rf2-0sr0ai)"}
+   {:section "two-partition projection-equality invalidation (EP-0001 decision #7)"}
    {:test 'partition-runtime-only-commit-no-rerun-app-subs
     :fn   'assert-runtime-only-commit-does-not-rerun-app-subs}
    {:test 'partition-app-only-commit-no-rerun-runtime-subs
@@ -225,15 +223,15 @@
    {:test 'partition-real-change-propagates-to-its-subs
     :fn   'assert-real-partition-change-propagates-to-its-subs}
 
-   {:section "schema-rejected candidate — zero sub notifications (rf2-uhk9ko)"}
+   {:section "schema-rejected candidate — zero sub notifications"}
    {:test 'schema-rejection-zero-sub-notifications
     :fn   'assert-schema-rejection-zero-sub-notifications}
 
-   {:section "derived-value duplicate-source disposal (rf2-he7se finding 2)"}
+   {:section "derived-value duplicate-source disposal"}
    {:test 'derived-dispose-releases-duplicate-source-watches
     :fn   'assert-derived-dispose-releases-duplicate-source-watches}
 
-   {:section "managed HTTP (Spec 014 / *_http_managed)"}
+   {:section "managed HTTP (Spec 014)"}
    {:test 'http-canned-success-default-reply
     :fn   'assert-http-canned-success-default-reply}
    {:test 'http-canned-failure-on-failure
@@ -249,7 +247,7 @@
    {:test 'http-multi-frame-reply-isolation
     :fn   'assert-http-multi-frame-reply-isolation}
 
-   {:section "Cross-Spec interactions (headless subset / *_cross_spec)"}
+   {:section "Cross-Spec interactions (headless subset)"}
    {:test 'xspec-frame-destroy-active-machines
     :fn   'assert-xspec-frame-destroy-with-active-machines}
    {:test 'xspec-machine-microstep-subscribe
@@ -281,7 +279,7 @@
    {:test 'xspec-adapter-already-installed
     :fn   'assert-xspec-adapter-already-installed}
 
-   {:section "public surface + adapter-map shape (rf2-6c2sr / rf2-ynjts.4 — folded from uix_public_surface + helix_public_surface, rf2-6j09b)"}
+   {:section "public surface + adapter-map shape"}
    {:test 'public-vars-present-and-callable
     :fn   'assert-public-vars-present-and-callable}
    {:test 'public-vars-distinct-fns
