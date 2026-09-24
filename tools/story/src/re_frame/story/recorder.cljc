@@ -42,8 +42,9 @@
     scope, so it carries no parent id, and the listener recognises it by
     the `:rf.event/source-detail {:ms …}` stamp that only the
     `:dispatch-later` seam writes. It lands on `:entries` as a payload-free
-    `:event/timer-child` marker, so the export still waits for the re-armed
-    timer before the next step (rf2-tbik1). On the JVM the timer callback is
+    `:event/timer-child` marker carrying that `:ms`, so the export still
+    waits for the re-armed timer before the next step, never for less than
+    its delay (rf2-tbik1). On the JVM the timer callback is
     `bound-fn`-wrapped, so the child carries a parent id and the rule
     above already skips it.
   - The listener consults `recording?` per emit — toggling off STOPS
@@ -595,7 +596,8 @@
 ;;   {:kind :dom/click      :selector <str> :t <ms>}
 ;;   {:kind :dom/type       :selector <str> :text <str> :t <ms>}
 ;;   {:kind :dom/submit     :selector <str> :t <ms>}
-;;   {:kind :event/timer-child :t <ms>}   ; a fired :dispatch-later child
+;;   {:kind :event/timer-child :t <ms> :ms <delay>}
+;;                                        ; a fired :dispatch-later child
 ;;                                        ; (`append-timer-child`, rf2-tbik1)
 ;;
 ;; `:entries` is a SUPERSET of `:events`: every recordable dispatch
@@ -655,19 +657,25 @@
                          cofx* (assoc :rf.cofx cofx*))))))))
 
 (defn append-timer-child
-  "Pure: append a payload-free `{:kind :event/timer-child :t <ms>}` marker
-  onto `:entries` iff the state is recording — the time a `:dispatch-later`
-  child fired (rf2-tbik1). It is NOT an event: `:events` never sees it and
+  "Pure: append a payload-free `{:kind :event/timer-child :t <ms> :ms <delay>}`
+  marker onto `:entries` iff the state is recording — the time a
+  `:dispatch-later` child fired, and `delay-ms`, the delay its timer was
+  scheduled with (rf2-tbik1). It is NOT an event: `:events` never sees it and
   the export emits no dispatch for it, because replaying the child's root
-  re-arms its timer. The export turns the marker's `:t` into a `[:wait …]`,
-  so the step after it (an auto-assert, typically) runs once the re-armed
-  timer has fired."
-  ([state] (append-timer-child state (now-ms*)))
-  ([state now-ms]
+  re-arms its timer. The export turns the marker into a `[:wait …]` no
+  shorter than `:ms`, so the step after it (an auto-assert, typically) runs
+  once the re-armed timer has fired, even where the measured `:t` lands a
+  millisecond short of the delay.
+
+  The three-arg form `(append-timer-child state delay-ms now-ms)` lets a
+  caller pin the timestamp."
+  ([state delay-ms] (append-timer-child state delay-ms (now-ms*)))
+  ([state delay-ms now-ms]
    (cond-> state
      (:recording? state)
-     (conj-entry {:kind :event/timer-child
-                  :t    (timestamp-since-start state now-ms)}))))
+     (conj-entry (cond-> {:kind :event/timer-child
+                          :t    (timestamp-since-start state now-ms)}
+                   (number? delay-ms) (assoc :ms delay-ms))))))
 
 ;; ---------------------------------------------------------------------------
 ;; DOM-event capture
@@ -917,12 +925,12 @@
    nil))
 
 (defn record-timer-child!
-  "Note that a `:dispatch-later` child fired, iff a recording is in flight —
-  the impure writer over `append-timer-child`. Called by the trace listener
-  (rf2-tbik1)."
-  []
+  "Note that a `:dispatch-later` child scheduled with `delay-ms` fired, iff a
+  recording is in flight — the impure writer over `append-timer-child`.
+  Called by the trace listener (rf2-tbik1)."
+  [delay-ms]
   (when rf.story.config/enabled?
-    (swap! state append-timer-child (now-ms*)))
+    (swap! state append-timer-child delay-ms (now-ms*)))
   nil)
 
 (defn record-dom-event!
@@ -1060,7 +1068,7 @@
                  (recordable-event? (:rf.event/v tags)))
         (cond
           (timer-child? tags)
-          (record-timer-child!)
+          (record-timer-child! (get-in tags [:rf.event/source-detail :ms]))
 
           (rf.story.config/suppress-sensitive? ev (:frame tags))
           (do

@@ -838,3 +838,37 @@
             "the replay reproduces the recorded app-db")))
     (rf.story/destroy-variant! :story.cascade/source)
     (rf.story.recorder/remove-trace-listener!)))
+
+;; ---- a timer child's wait covers its scheduled delay ---------------------
+
+(defn- dispatched-trace
+  "The `:rf.event/dispatched` trace the recorder's listener reads for `event`
+  on `frame-id`, with `tags` merged over the base tags."
+  [frame-id event tags]
+  {:op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      (merge {:frame frame-id :rf.event/v event} tags)})
+
+(deftest a-timer-child-wait-covers-its-scheduled-delay
+  (testing "the recorder's clock can stamp a :dispatch-later child one
+            millisecond under its scheduled delay after the root that armed
+            it. The marker carries the delay, so the export waits all of it"
+    (let [listen @#'rf.story.recorder/trace-listener
+          at     (fn [now-ms ev]
+                   (with-redefs [rf.story.recorder/now-ms* (constantly now-ms)]
+                     (listen ev)))]
+      (rf.story.recorder/start-recording! :story.timer/v 1000)
+      (at 1001 (dispatched-trace :story.timer/v [:t/root] {}))
+      ;; A fired `:dispatch-later` child as the browser runtime traces it: no
+      ;; parent dispatch id, and the seam's `:source-detail {:ms …}` stamp.
+      (at 1080 (dispatched-trace :story.timer/v [:t/child]
+                                 {:rf.event/source-detail {:ms 80}}))
+      (let [[root child :as entries] (rf.story.recorder/recorded-entries)]
+        (is (= 79 (- (:t child) (:t root)))
+            "control: the measured gap is one millisecond under the 80ms delay")
+        (is (= {:kind :event/timer-child :ms 80} (select-keys child [:kind :ms]))
+            "the marker carries the child's scheduled delay")
+        (is (= [[:dispatch [:t/root]] [:wait 80]]
+               (:script (rf.story.recorder.play-export/recording->script-body entries)))
+            "the export waits the whole delay, not the measured gap"))
+      (rf.story.recorder/clear!))))

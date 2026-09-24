@@ -39,7 +39,7 @@
   | `{:kind :dom/click  :selector s :t ms}`     | `[:click s]`                 |
   | `{:kind :dom/type   :selector s :text t :t ms}` | `[:type s t]`            |
   | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (best-effort)   |
-  | `{:kind :event/timer-child :t ms}`          | `[:wait Δt]` only, whatever the threshold, up to `ms` from where the replay has reached (rf2-tbik1, rf2-mcjdg) |
+  | `{:kind :event/timer-child :t ms :ms d}`    | `[:wait Δt]` only, whatever the threshold, up to `ms` from where the replay has reached and never shorter than `d` (rf2-tbik1, rf2-mcjdg) |
   | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
 
@@ -280,7 +280,9 @@
 
   An `:event/timer-child` marker emits only a wait, whatever the
   threshold, and that wait runs to the marker's `:t` from the time the
-  REPLAY has reached rather than from the previous entry (rf2-mcjdg).
+  REPLAY has reached rather than from the previous entry (rf2-mcjdg). It
+  is never shorter than the marker's `:ms`, the delay the timer was
+  scheduled with, rounded up.
 
   Options:
     :wait-threshold-ms  default `default-wait-threshold-ms` (50ms).
@@ -293,7 +295,8 @@
    ;; `covered-t` is the recorded time the replay has reached: the first
    ;; translated entry's `:t` plus every wait emitted since, a replayed step
    ;; taking no time. It falls behind `last-t` by each sub-threshold gap that
-   ;; folds out, and only a timer child's wait reads it.
+   ;; folds out, runs ahead of it when a timer child's wait outlasts the gap,
+   ;; and only a timer child's wait reads it.
    (loop [remaining (seq entries)
           last-t    nil
           covered-t nil
@@ -313,15 +316,22 @@
            ;; waited none of them, so an intervening short-gap step would
            ;; otherwise shorten the wait by its gap (rf2-mcjdg). Catching up
            ;; to the child's `:t` covers a timer armed by any earlier step.
+           ;; The marker's `:ms` bounds the wait from below: the measured `:t`
+           ;; can land a millisecond short of the delay, and the step just
+           ;; replayed, or the timer child before it, may be what armed this
+           ;; timer, so the whole delay runs from here.
            (= :event/timer-child (:kind entry))
            (let [gap   (when (and (some? covered-t) (some? this-t))
                          (- this-t covered-t))
-                 wait? (and (number? gap) (pos? gap))]
+                 floor (if (number? (:ms entry)) (:ms entry) 0)
+                 w     (when (number? gap)
+                         (long (Math/ceil (max gap floor))))
+                 wait? (and (number? w) (pos? w))]
              (recur (rest remaining)
                     (or this-t last-t)
-                    (if wait? this-t (or covered-t this-t))
+                    (if wait? (+ covered-t w) (or covered-t this-t))
                     (if wait?
-                      (conj! out [:wait (long gap)])
+                      (conj! out [:wait w])
                       out)))
 
            ;; Skip entries that don't yield a step (e.g. redacted).

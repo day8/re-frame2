@@ -509,6 +509,37 @@
               {:kind :dom/click :selector "[data-test=\"a\"]" :t 100}
               {:kind :dom/click :selector "[data-test=\"b\"]" :t 160}])))))
 
+(deftest timer-child-wait-never-undercuts-its-scheduled-delay
+  (testing "a marker carries its timer's scheduled :ms. The child's measured
+            fire time can land a millisecond under that delay after the root,
+            and the wait still covers the whole delay"
+    (is (= [[:dispatch [:t/root]]
+            [:wait 80]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root] :t 0}
+              {:kind :event/timer-child :t 79 :ms 80}]))))
+  (testing "a child that re-arms its own timer arms the next one when it fires,
+            so the next wait covers the delay from there"
+    (is (= [[:dispatch [:t/root]]
+            [:wait 80]
+            [:wait 80]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root] :t 0}
+              {:kind :event/timer-child :t 80 :ms 80}
+              {:kind :event/timer-child :t 159 :ms 80}]))))
+  (testing "a fractional delay rounds up"
+    (is (= [[:dispatch [:t/root]]
+            [:wait 81]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root] :t 0}
+              {:kind :event/timer-child :t 79 :ms 80.5}]))))
+  (testing "control: a measured gap past the delay still catches the replay up"
+    (is (= [[:dispatch [:t/root]]
+            [:wait 95]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root] :t 0}
+              {:kind :event/timer-child :t 95 :ms 80}])))))
+
 ;; ---- recording->script-body with the rich :entries shape -----------------
 
 (deftest recording-from-entries
