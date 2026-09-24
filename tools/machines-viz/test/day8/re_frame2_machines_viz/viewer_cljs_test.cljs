@@ -1,6 +1,6 @@
 (ns day8.re-frame2-machines-viz.viewer-cljs-test
-  "Tests for the read-only viewer's pure decode/view-model layer
-  (rf2-8d7w1 · v1.0). The DOM mount (`run`) is browser-only and not
+  "Tests for the read-only viewer's pure decode/view-model layer.
+  The DOM mount (`run`) is browser-only and not
   exercised here; `decode-location` + `viewer-view` are pure given a
   URL / view-model, so they carry the coverage."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -52,7 +52,7 @@
       (is (contains? #{:malformed-fragment :malformed-payload} (:reason vm))))))
 
 (deftest decode-location-rejects-malformed-definition
-  (testing "rf2-3fc89f.18 — a share-URL carrying a MALFORMED machine definition
+  (testing "a share-URL carrying a MALFORMED machine definition
             (a non-keyword flat :initial the canonical grammar gate rejects)
             decodes to :status :error (fail-closed) and never yields
             MachineChart props"
@@ -67,7 +67,7 @@
           "a malformed definition must not reach the :ok / MachineChart path")
       (is (= :invalid-chart-state (:reason vm)))
       (is (nil? (:props vm)) "no MachineChart props are produced for a malformed definition")))
-  (testing "rf2-3fc89f.18 — a malformed PARALLEL region body (no keyword
+  (testing "a malformed PARALLEL region body (no keyword
             :initial, empty :states) is likewise rejected at the viewer boundary"
     (let [url (envelope->url
                 {:rf.machines-viz.share/v       "2"
@@ -81,13 +81,12 @@
       (is (nil? (:props vm))))))
 
 (deftest decode-location-rejects-recursively-malformed-definition
-  (testing "rf2-j538f7.18 — a share-URL carrying a RECURSIVELY-malformed machine
+  (testing "a share-URL carrying a RECURSIVELY-malformed machine
             definition (structurally invalid BELOW the root: a nested compound
             missing :initial, a dangling transition target, or an unknown bare
             node key) also fails closed at the viewer boundary — :status :error,
-            :reason :invalid-chart-state, and NO MachineChart props. The pre-fix
-            shallow gate blessed these (root shape OK); the recursive gate now
-            rejects them."
+            :reason :invalid-chart-state, and NO MachineChart props. A gate
+            that checked only the root shape would bless these."
     (doseq [[label definition]
             {:nested-compound-no-initial {:initial :outer :states {:outer {:states {:inner {}}}}}
              :dangling-target            {:initial :idle :states {:idle {:on {:go :missing}}}}
