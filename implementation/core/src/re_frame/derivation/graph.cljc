@@ -1,6 +1,6 @@
 (ns re-frame.derivation.graph
-  "Internal derivation/process GRAPH-INSPECTION helper (EP-0014 slice-7,
-  rf2-6xm07h) — the composer that assembles the full static + live
+  "Internal derivation/process GRAPH-INSPECTION helper (EP-0014) — the
+  composer that assembles the full static + live
   derivation/process graph by stitching the five algebra-view tooling
   siblings (subs / flows / routes / resources / machines) into ONE
   queryable `DerivationGraph` view.
@@ -19,9 +19,9 @@
   subscription cache, flow registry, route slice, resource cache, and
   machine snapshots.
 
-  SLICE SCOPE (EP-0014 issue-1 disposition). This ships NO public
-  authoring primitive and NO stable public graph accessor — it is the
-  *internal structured shape* the deferred public accessor will one day
+  SCOPE (EP-0014 issue-1). There is NO public
+  authoring primitive and NO stable public graph accessor — this is the
+  *internal structured shape* a deferred public accessor would
   produce, consumed FIRST by Xray and the conformance fixtures (the two
   named first consumers). The public name is deferred until a third
   consumer needs it (the [graduation gate]). There is no
@@ -37,8 +37,8 @@
   machines (`families` below). The assembler reads each family's mechanics
   off the static `family-contract` table by family key; there is no
   per-contributor override of that contract and no extension path for a
-  family beyond these five (pre-alpha posture: a sixth family is a
-  spec/code change here, not a runtime plug-in).
+  family beyond these five (a sixth family is a spec/code change here,
+  not a runtime plug-in).
 
   BUNDLE ISOLATION + THE CONTRIBUTOR SEAM. The four OPTIONAL feature
   siblings (flows / routing / machines / resources) live in separate
@@ -58,9 +58,9 @@
       (which already statically `:require`s its siblings) passes the
       contributor map explicitly. A family whose artefact is absent
       simply contributes no nodes — exactly the no-flows / no-resources
-      story the five siblings already each honour.
+      story the five siblings each honour.
 
-  This is the *registrar-derived* slice (Derivations §The EP-0013
+  This is the *registrar-derived* composer (Derivations §The EP-0013
   relocation seam): the graph is assembled from the per-family algebra
   views, which are themselves assembled from registration metadata, NOT
   (yet) from an EP-0013 app value."
@@ -116,7 +116,7 @@
   [:sub (:id node)])
 
 (defn- flow-node-id
-  "The `:flows` family node id — FRAME-SCOPED (rf2-k0meap.2). The same
+  "The `:flows` family node id — FRAME-SCOPED. The same
   `flow-id` may register against two frames with different `:inputs` /
   `:output` / `:path`, so the node id carries the owning frame to keep the
   per-frame flow facts distinct (Derivations §Flows expose algebra views —
@@ -232,7 +232,7 @@
   "The `:routes` family `:edge-fn`. Composes a route's STATIC route-owned
   resource activation edges (`:resource-edges` — Derivations §Route-owned
   resource activation edges) with the LIVE realized route-owned resource
-  owner edges (rf2-k0meap.1; live only).
+  owner edges (live only).
 
   STATIC: the sibling already produced `{:from … :to [:resource <id>]
   :role :param :target :parametric}` records; we re-target `:from` to the
@@ -299,7 +299,7 @@
   fn on the `:machines` contributor) returns the SET of machine ids one
   selector subscription reads.
 
-  Precise targeting (rf2-4qmiij): for each subscription node we ask which
+  Precise targeting: for each subscription node we ask which
   machine ids it selects, then emit a `:selector` edge ONLY from each
   `[:machine target-id]` node that actually EXISTS in the graph — never the
   cross product of every machine against every selector. A selector that
@@ -499,7 +499,7 @@
   `:machines` contributor additionally carries the `machine-selector-targets`
   extractor on `:selector-targets`, so the assembled graph draws PRECISE
   machine→selector edges and refines the selector subscription nodes
-  (rf2-4qmiij / rf2-k0meap.2) — the machine selector-target surface
+  — the machine selector-target surface
   EP-0014's machine-selector refinement reads.
 
   On CLJS, returns ONLY the in-core `:subs` contributor — the consuming
@@ -527,7 +527,7 @@
                       ;; machine each selector reads, never the cross product
                       ;; (Derivations §Machines: selectors are ordinary
                       ;; derivations the machine draws a :selector edge to;
-                      ;; rf2-4qmiij — precise targeting, no false edges).
+                      ;; precise targeting, no false edges).
                       [family (cond-> c
                                 selector-targets-sym
                                 (assoc :selector-targets
@@ -631,14 +631,14 @@
   "The sort key `graph-edges` orders edges by. It never throws.
 
   An edge inside the CEDN-1 domain keys by its `rf.identity/canonical-bytes`
-  token, which is the platform-stable canonical order (rf2-3fc89f.1). But a
+  token, which is the platform-stable canonical order. But a
   LIVE edge endpoint carries a subscription's whole concrete query vector, and
   a query argument may legally sit outside that domain: a finite float (the
   cache-key contract admits them, Spec 006 §Value-keyed cache-key contract),
   a fn, or a host object. `canonical-bytes` throws on those. Such an edge sorts
   AFTER every CEDN edge, by its `pr-str`, so one out-of-domain argument costs
   that edge its cross-platform byte-stable position and never costs the whole
-  graph (rf2-3x7nj.3.3)."
+  graph."
   [edge]
   (try
     [0 (rf.identity/canonical-bytes edge)]
@@ -653,7 +653,7 @@
   machines → `:selector` edges), de-duplicated. `selector-targets` is
   threaded into the context for the machine `:edge-fn`.
 
-  DETERMINISTIC EDGE ORDER (rf2-3fc89f.1). The unsorted `input`/`extra`
+  DETERMINISTIC EDGE ORDER. The unsorted `input`/`extra`
   concatenation inherits `nodes`-map iteration order and each `:edge-fn`'s
   scan order, so logically identical graphs assembled under different
   registration / projection insertion orders would emit edge PERMUTATIONS —
@@ -699,13 +699,13 @@
 (defn- selector-target-ids
   "The SET of `[:sub …]` node ids that are machine selectors (the `:to`
   end of every `:selector` edge). Drives the `:machine-selector`
-  refinement enrichment (rf2-k0meap.2)."
+  refinement enrichment."
   [selector-edges]
   (into #{} (map :to) selector-edges))
 
 (defn- mark-machine-selectors
   "Stamp `:refinement :machine-selector` on every subscription node that is
-  the `:to` end of a `:selector` edge (rf2-k0meap.2; [Derivations.md]
+  the `:to` end of a `:selector` edge ([Derivations.md]
   §Machines: \"A graph tool labels such a subscription node with the
   `:machine-selector` refinement\"; EP-0014 §Examples — the selector
   algebra carries that refinement).
@@ -733,7 +733,7 @@
   Computes the edge set (folding each present family's `:edge-fn`; the
   optional machine-selector target extractor threads through
   `selector-targets`), then enriches selector subscription nodes with the
-  `:machine-selector` refinement (rf2-k0meap.2)."
+  `:machine-selector` refinement."
   [mode nodes contributors selector-targets extra]
   (let [edges          (graph-edges mode nodes contributors selector-targets)
         selector-edges (filter #(= :selector (:role %)) edges)
@@ -746,8 +746,8 @@
 
 (defn derivation-graph
   "Return the STATIC `DerivationGraph` — the full registration-derived
-  derivation/process graph composed from every PRESENT family (EP-0014
-  slice-7; [Derivations.md] §Graph inspection — internal but structured;
+  derivation/process graph composed from every PRESENT family (EP-0014;
+  [Derivations.md] §Graph inspection — internal but structured;
   [Spec-Schemas §`:rf/derivation-graph`]).
 
   Composes the five algebra-view siblings' STATIC projections (subs,
@@ -767,8 +767,8 @@
                node's `[:sub …]` declared inputs, `:param` edges from a
                route's `:resource-edges`, and `:selector` edges from each
                machine `:process` to its selector subscriptions (whose sub
-               nodes are enriched with `:refinement :machine-selector`,
-               rf2-k0meap.2). A `:parametric` input set contributes NO
+               nodes are enriched with `:refinement :machine-selector`).
+               A `:parametric` input set contributes NO
                static edge (the don't-execute rule).
 
   `contributors` (optional) is the `{family contributor}` map; it defaults
@@ -778,7 +778,7 @@
   contributes no nodes — the no-flows / no-resources story.
 
   Pure data over the per-family projections — no app-db, no per-frame
-  cache, no reactive runtime; JVM-runnable. Slice-7 ships NO public
+  cache, no reactive runtime; JVM-runnable. There is NO public
   accessor (EP-0014 issue-1): this is reached directly by Xray + the
   conformance fixtures; the public name is deferred until a third consumer
   needs it."
@@ -794,7 +794,7 @@
 
 (defn live-derivation-graph
   "Return the LIVE `DerivationGraph` for `frame-id` — the full graph
-  derived from a frame at a point in time (EP-0014 slice-7;
+  derived from a frame at a point in time (EP-0014;
   [Derivations.md] §Static and live graphs). The live counterpart to
   `derivation-graph`: where the static graph reports registration-known
   nodes + `:parametric` markers, the live graph composes the five
@@ -814,10 +814,10 @@
                `[:route route-id nav-token]` owner → the concrete
                `[:resource <scoped-key>]` node it keeps alive, `:role
                :param`, carrying the realized `:owner` — the live resolution
-               of the static graph's `:parametric` route-resource marker,
-               rf2-k0meap.1); plus the same `:selector` edges. Selector
+               of the static graph's `:parametric` route-resource marker);
+               plus the same `:selector` edges. Selector
                subscription nodes are enriched with `:refinement
-               :machine-selector` (rf2-k0meap.2).
+               :machine-selector`.
 
   `contributors` defaults to `default-contributors`. The live projections
   are dev-gated (gated on `interop/debug-enabled?` inside each sibling) —
