@@ -4,12 +4,11 @@
 
   `re-frame.fresco.test` publishes a semantic tree and claims two things
   about it: that its child discrimination is *Fresco's*, and that its
-  node schema is *Spec 004B version 1*. A merged-PR audit found nine
-  places where neither held — a keyword child the runtime renders as text
-  and the kit refused, a `true` child the runtime makes a loud error and
-  the kit dropped, a `:<>` the runtime makes a fragment and the kit made
-  an element — and the kit's own 111-test suite missed every one, because
-  it asked the kit what the kit does.
+  node schema is *Spec 004B version 1*. Either can fail with no kit-only
+  suite noticing — a keyword child the runtime renders as text and the
+  kit refuses, a `true` child the runtime makes a loud error and the kit
+  drops, a `:<>` the runtime makes a fragment and the kit makes an
+  element — because such a suite asks the kit what the kit does.
 
   **A suite that only asks one side cannot find a disagreement.** So this
   file states one table and drives BOTH sides of it:
@@ -26,7 +25,7 @@
   Each row is one claim about one value, and the two columns are the two
   witnesses. A future change that teaches the runtime a new child kind
   and forgets the kit reds the `:tree` column against a `:runtime` column
-  that moved — which is the failure the audit had to find by hand.
+  that moved — a failure that otherwise only a reading by hand finds.
 
   **Refusals are asserted as identity, never as `thrown?`.** A bare
   `(is (thrown? …))` is green for a throw from any layer carrying any id,
@@ -219,9 +218,9 @@
    ;;
    ;; `:opaque` is a claim about a form the kit CANNOT read, and it is only
    ;; honest where the runtime can. For a MALFORMED escape the runtime cannot
-   ;; either — it refuses — so a kit that answered with a pointer to L3 sent the
-   ;; programmer to write a browser test for a hiccup vector that will never
-   ;; render anywhere. Same for an empty vector, which the runtime refuses
+   ;; either — it refuses — so a kit that answered with a pointer to L3 would
+   ;; send the programmer to write a browser test for a hiccup vector that will
+   ;; never render anywhere. Same for an empty vector, which the runtime refuses
    ;; before it classifies a head at all. Both are the RUNTIME's refusal,
    ;; raised by the runtime's own guards through `codec/vector-kind`, so these
    ;; rows assert `:where` as well: a kit paraphrase would name
@@ -278,18 +277,18 @@
     :runtime [:deferred]
     :refuses {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
               :where       're-frame.fresco.test}
-    :why     (str "THE ROW rf2-tsdik EXISTS FOR (after rf2-llps1). The kit "
+    :why     (str "The kit "
                   "borrows the RUNTIME's id here, and the runtime's reason has "
                   "to come with it: opacity is honest "
                   "only where the runtime CAN read a form, and the `:runtime` "
                   "column says it cannot read this one — an unforced `delay` "
                   "crosses a native child position untouched, so the refusal "
-                  "waiting for the author is the crossing's, not React's. The "
-                  "kit answered this id with a pointer to L3 for a release, "
-                  "which pointed at a tier where the identical refusal waits, "
-                  "and a document gate (R10) had to be the thing that noticed "
-                  "— because the only test over the path asserted the id "
-                  "ALONE. The advice rides in `:reason`, prose this table does "
+                  "waiting for the author is the crossing's, not React's. A "
+                  "pointer to L3 would point at a tier where the identical "
+                  "refusal waits, "
+                  "and a test asserting the id ALONE "
+                  "could not "
+                  "see it. The advice rides in `:reason`, prose this table does "
                   "not freeze; `:where` is the KIT, on the `defhost` row's "
                   "precedent: what is borrowed is the id and the reason, never "
                   "the raising site.")}
@@ -299,20 +298,20 @@
     :runtime [:refused :rf.error/fresco-deferred-read-at-boundary]
     :refuses {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
               :where       're-frame.fresco.test}
-    :why     (str "THE POSITION THE ID IS NAMED FOR (rf2-dr0ad). The row above "
+    :why     (str "THE POSITION THE ID IS NAMED FOR. The row above "
                   "is a delay the runtime hands ONWARD; this is the one form "
                   "it genuinely REFUSES — `codec/realize-deep` runs at the "
                   "crossing and will not force an author's explicit deferral, "
                   "so the props map is where the walk raises. Spec 009's row "
-                  "for this id states that trigger in those words. The kit "
-                  "answered its own generic `:rf.error/ui-tree-malformed` here "
-                  "for a release, telling the author to hoist the delay to a "
-                  "site of its own — strictly "
+                  "for this id states that trigger in those words. The kit's "
+                  "own generic `:rf.error/ui-tree-malformed` here, telling the "
+                  "author to hoist the delay to a site of its own, would be "
+                  "strictly "
                   "vaguer than the runtime at exactly the crossing the refusal "
-                  "exists for, and advice with no exit, because the delay was "
-                  "already at its own site. Same class as rf2-llps1, cases "
-                  "reversed. `:where` is the KIT, on the row above's "
-                  "precedent.")}
+                  "exists for, and advice with no exit, because the delay is "
+                  "already at its own site. "
+                  "`:where` is the KIT, on the row "
+                  "above's precedent.")}
 
    {:case    "a REALIZED `delay` in a boundary's props CROSSES — the row above's control"
     :form    [a-boundary {:x (doto (delay 1) deref)}]
@@ -325,15 +324,15 @@
                   "harmless wherever it goes — so the runtime builds the "
                   "element and the `:runtime` column is opaque like any "
                   "boundary's. Without this row the narrowing above is a "
-                  "predicate no test has ever seen false, and 'the kit refuses "
+                  "predicate no test sees false, and 'the kit refuses "
                   "every delay in props' would read identically. The kit still "
                   "refuses — a `Delay` is outside 004B's value grammar however "
                   "forced — but with its OWN id, which is the honest one: "
                   "nothing is waiting for this author at the crossing. Its "
-                  "REASON matters too (rf2-6xhxu): this delay is at a prop "
-                  "of its own already, so telling the author to hoist it pointed "
-                  "back at the form just written — a second advice-with-no-exit "
-                  "one row below the one the row above fixed. The reason now "
+                  "REASON matters too: this delay is at a prop of its own "
+                  "already, so telling the author to hoist it would point back "
+                  "at the form just written — "
+                  "advice with no exit. The reason "
                   "names the two exits that work: a data value, or L3.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
@@ -365,7 +364,7 @@
     :why     (str "004B §The opaque marker — the marker occupies a SITE, never "
                   "a value inside one; a non-data value nested inside a "
                   "recorded value is rejected. A key is inside the value. The "
-                  "REASON is the point of the row (rf2-6xhxu): a function is "
+                  "REASON is the point of the row: a function is "
                   "the ONE value with a site of its own to be hoisted to, "
                   "because the marker is waiting for it at a prop, so hoisting "
                   "is a real exit here and stays the advice the reason gives. "
@@ -373,14 +372,14 @@
                   "walk reports as this offender's `:path` — `[:data-x]`, "
                   "because a bad KEY is reported at the value it is a key OF. "
                   "Nested and top-level are indistinguishable by path even "
-                  "here, on the oldest nested row in the table.")}
+                  "here.")}
 
    {:case    "a function inside a SET is hoistable too, though its path is EMPTY"
     :form    [:div {:data-x #{(fn [] 1)}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
               :where       're-frame.fresco.test}
-    :why     (str "The SECOND arm that drops the path (rf2-6xhxu), and the one "
+    :why     (str "The SECOND arm that drops the path, and the one "
                   "`non-data` says so in: a set member has no position worth "
                   "naming, so the walk stops there and this offender's `:path` "
                   "is `[:data-x]`, exactly like a top-level one's. Two arms, "
@@ -396,10 +395,10 @@
               :where       're-frame.fresco.test}
     :why     (str "004B §The node schema — the tree is plain, serialisable "
                   "Clojure data that EDN print/read round-trips; §Attr value "
-                  "normalization — a host object is rejected. THE ROW rf2-6xhxu "
-                  "EXISTS FOR: this object is already the whole value of "
-                  "`:data-x`, so the hoist advice named the site it "
-                  "was written at and an author following it could only write "
+                  "normalization — a host object is rejected. THE POINT OF THE "
+                  "ROW: this object is already the whole value of "
+                  "`:data-x`, so hoist advice would name the site it "
+                  "is written at and an author following it could only write "
                   "the same form again. The `:runtime` column is what makes the "
                   "L3 half of the reason's advice honest — React builds this element, "
                   "so a mounted DOM carries the attribute the tree cannot.")}
@@ -409,7 +408,7 @@
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
               :where       're-frame.fresco.test}
-    :why     (str "The other half of the same predicate (rf2-6xhxu). A non-empty "
+    :why     (str "The other half of the same predicate. A non-empty "
                   "path says the value is nested, not that it has somewhere to "
                   "go: hoisted to `:data-y` this object meets the identical "
                   "refusal, because 004B's marker is for a FUNCTION and for "
@@ -456,8 +455,7 @@
 
 (deftest the-table-covers-forms-BOTH-sides-refuse
   (testing "the corpus holds rows where the RUNTIME refuses too, and the kit
-            answers with the runtime's own id and raising site —
-            the coverage PR #7796's audit found missing"
+            answers with the runtime's own id and raising site"
     (let [shared (filter (fn [{:keys [runtime refuses]}]
                            (and (= :refused (first runtime))
                                 (= (second runtime) (:rf.error/id refuses))))
@@ -471,12 +469,8 @@
       ;;
       ;; It reads the PACKAGE prefix rather than one file, and deliberately:
       ;; WHICH `impl` namespace guards a given hiccup form is the runtime's
-      ;; business and has moved once already. This row spent a release
-      ;; pinning `front.codec/` — a benchmark-tree namespace the shipped
-      ;; package does not contain — so a coordinate no consumer could follow
-      ;; was held in place by a green assertion. A prefix that
-      ;; names the package survives the next move; one that names a file
-      ;; only survives until it.
+      ;; business and can move. A prefix that names the package survives a
+      ;; move; one that names a file only survives until it.
       (is (seq (filter #(str/starts-with? (str (:where (:refuses %)))
                                           "re-frame.fresco.impl.")
                        shared))
