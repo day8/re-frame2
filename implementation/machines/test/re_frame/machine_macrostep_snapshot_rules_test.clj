@@ -115,7 +115,7 @@
       ;; listeners / epoch / MCP / logs. The `:action-id` locates the
       ;; offending action; the operator does not need the app-db contents.
       (is (= :rf/redacted (-> ws first :tags :offending-value))
-          "the offending app-db value is redacted at egress (rf2-x9haxl)")
+          "the offending app-db value is redacted at egress")
       ;; :data flowed through; the FSM is at :b; app-db root was NOT clobbered.
       (is (= {:legit 1} (:data @(rf/subscribe [:rf/machine :rem/wrote-db]))))
       (is (= :b (snap-of :rem/wrote-db)))
@@ -126,7 +126,7 @@
 (deftest update-snapshot-fx-merges-permitted-keys
   (testing "[:rf.machine/update-snapshot {:rf/machine-id id :rf/patch {...}}]
    merges the spec-permitted keys onto the actor snapshot; user
-   error/status state lives under :data (rf2-gqmrcx fold)"
+   error/status state lives under :data"
     (rf/reg-machine :rem/escape
       {:initial :a
        :actions {:patch
