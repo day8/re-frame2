@@ -314,11 +314,11 @@
 (defn- env-num [k d] (js/parseFloat (env k (str d))))
 
 ;; ---------------------------------------------------------------------------
-;; sinks — Closure is entitled to delete an expression nothing reads, and this
-;; surface has already published a `layout-ms` of exactly 0.000 because a
-;; property read was dropped. Every arm feeds one of these.
+;; sinks — Closure is entitled to delete an expression nothing reads, and a
+;; dropped property read would publish a `layout-ms` of exactly 0.000. Every
+;; arm feeds one of these.
 ;;
-;; rf2-xu0ma — `sink` IS THE INSTRUMENT, so its own type is load-bearing.
+;; `sink` IS THE INSTRUMENT, so its own type is load-bearing.
 ;; `keep!` is a type-PRESERVING increment: given an Smi it produces an Smi and
 ;; allocates nothing; given a double it produces a double, and storing that
 ;; double into the volatile's tagged field boxes a fresh `HeapNumber` — 16 B
@@ -326,12 +326,12 @@
 ;; inner loop therefore reads 4800 B/call MORE than it costs, purely because
 ;; something earlier in the plan left a double in this slot.
 ;;
-;; It did. `arm-ctl` used to store `(aget c 0)` here, and `packed-doubles`
-;; element 0 is `0.5`, so every arm that ran after a `DBL-*` control and before
-;; an `SMI-*` one was charged that 4800 B — which under the reflecting schedule
-;; is exactly the odd-numbered rounds. Measured at +0.00% against the 4800 B
-;; prediction at five window sizes (node 24.13.0 / V8 13.6, pointer compression
-;; OFF); `-diagnose` re-runs the proof.
+;; A control that stored `(aget c 0)` here would do exactly that:
+;; `packed-doubles` element 0 is `0.5`, so every arm that ran after a `DBL-*`
+;; control and before an `SMI-*` one would be charged that 4800 B — which
+;; under the reflecting schedule is exactly the odd-numbered rounds. Measured
+;; at +0.00% against the 4800 B prediction at five window sizes (node 24.13.0
+;; / V8 13.6, pointer compression OFF); `-diagnose` re-runs the proof.
 ;;
 ;; THE INVARIANT, and it is why this comment is here: **`keep!` is the only
 ;; writer of `sink`**. It is seeded with an Smi and only ever incremented, so it
@@ -372,8 +372,8 @@
 (defn- packed-doubles
   "A PACKED double-element JS array. Built by pushing doubles rather than
   `(.fill (js/Array. d) 0.5)`, which produces a HOLEY array whose `.slice()`
-  does not take the packed fast path — the exact construction difference B8
-  found itself on the wrong side of."
+  does not take the packed fast path — a construction difference that
+  silently moves a control off the fast path."
   [d]
   (let [a (array)]
     (dotimes [i d] (.push a (+ 0.5 i)))
@@ -390,18 +390,18 @@
 
 (defn- ctl-key [kind d] (str kind "-" d))
 
-;; rf2-l3jv4 — TWO factories, one per ELEMENT KIND, and the duplication is the
-;; whole point.
+;; TWO factories, one per ELEMENT KIND, and the duplication is the whole
+;; point.
 ;;
 ;; `.slice()`'s clone fast path is keyed on the RECEIVER'S ELEMENTS KIND, and
 ;; V8 has one inline cache per call SITE — that is, per function BODY, shared
 ;; by every closure made from it. A single `arm-ctl` body closed over both
-;; kinds of template therefore gave the harness ONE `.slice()` site with two
+;; kinds of template therefore gives the harness ONE `.slice()` site with two
 ;; receiver maps, and at that polymorphic site the PACKED_SMI receiver loses
 ;; the fast path: the clone allocates its elements store TWICE, so a copy costs
 ;; `32 + 2 x (16 + 8D)` rather than `32 + 16 + 8D`. The PACKED_DOUBLE receivers
 ;; keep theirs and are unaffected, which is why only the SMI half of the pair
-;; was ever wrong.
+;; goes wrong.
 ;;
 ;; Measured in isolation, one node process, the same method, both shapes side
 ;; by side (node 24.13.0 / V8 13.6, pointer compression OFF):
@@ -411,13 +411,13 @@
 ;;   SMI D=200     3275.8            1651.8          1648
 ;;   DBL D=100      849.8             849.8            848
 ;;
-;; So the PREDICTION was right and the INSTRUMENT was wrong — the arm was not
-;; measuring `.slice()` of a packed SMI array, it was measuring `.slice()` of a
-;; packed SMI array at a site that had also been shown doubles.
+;; So at a shared site the PREDICTION is right and the INSTRUMENT is wrong —
+;; the arm is not measuring `.slice()` of a packed SMI array, it is measuring
+;; `.slice()` of a packed SMI array at a site that has also been shown doubles.
 ;;
-;; Do not factor these two back together. If they are merged the SMI control
-;; silently doubles again, which is why the CONTROLS readout now prints
-;; predicted vs measured for every size rather than only a slope.
+;; Do not factor these two together. Merged, the SMI control silently
+;; doubles, which is why the CONTROLS readout prints predicted vs measured
+;; for every size rather than only a slope.
 
 (defn- arm-ctl-dbl
   "The PACKED_DOUBLE control. Its `.slice()` site must never see any other
@@ -425,19 +425,19 @@
   [d]
   (let [t (get @ctl-templates (ctl-key "DBL" d))]
     (fn []
-      ;; rf2-xu0ma — element 0 goes through `keep!`, NOT into `sink` directly.
-      ;; The read is what stops Closure deleting the copy, and it is preserved;
-      ;; what is dropped is the STORE, which used to put a double (`0.5`) in the
-      ;; counter every `DBL-*` call and leave it there for every arm that ran
-      ;; next. The control's own figure loses the 16 B box with it, which is
-      ;; the check: `DBL-100` is predicted to fall from 864 B/copy to 848.
+      ;; Element 0 goes through `keep!`, NOT into `sink` directly. The read is
+      ;; what stops Closure deleting the copy; a STORE would put a double
+      ;; (`0.5`) in the counter every `DBL-*` call and leave it there for
+      ;; every arm that ran next. Without the store the control's own figure
+      ;; carries no 16 B box, which is the check: `DBL-100` is predicted at
+      ;; 848 B/copy, not 864.
       (let [c (.slice t)]
         (keep! (aget c 0)))
       nil)))
 
 (defn- arm-ctl-smi
   "The PACKED_SMI control, character-for-character `arm-ctl-dbl`'s body and
-  separate from it on purpose (rf2-l3jv4). Sharing one body gives V8 one
+  separate from it on purpose. Sharing one body gives V8 one
   polymorphic `.slice()` site and doubles this arm's reading."
   [d]
   (let [t (get @ctl-templates (ctl-key "SMI" d))]
@@ -464,7 +464,7 @@
 (defonce ^:private rig (volatile! nil))
 (defonce ^:private gen (volatile! 1000))
 
-;; rf2-gncxk.1 — one flip cell per movement-witness arm. These arms need their
+;; One flip cell per movement-witness arm. These arms need their
 ;; input to ALTERNATE strictly, because their whole shape is "the value the
 ;; wrappers last saw is the value the source just departed from"; handing an
 ;; arm the same value twice would put it on the memo-HIT branch and measure
@@ -483,10 +483,10 @@
   passes `frame-id` straight through to `emit-sub-skip!` / `validate-and-trace`
   as a tag value — so it does not need to be registered, and is not.
 
-  rf2-c0awb: `C-FRAME` used to look this up, and THAT did need it registered.
-  `build-rig!` builds `:wa/frame0` … `:wa/frame3` and never `:wa/frame`, so
-  the arm published as `commit-frame-transition!`'s registry lookup was
-  pricing a registry MISS. See `arm-c-frame`."
+  `C-FRAME` does NOT look this up, because that lookup needs a registered
+  id: `build-rig!` builds `:wa/frame0` … `:wa/frame3` and never `:wa/frame`,
+  so an arm pricing `commit-frame-transition!`'s registry lookup through
+  this id would price a registry MISS. See `arm-c-frame`."
   :wa/frame)
 
 (def ^:private absent-fid
@@ -534,7 +534,7 @@
     nil))
 
 (defn- arm-fswrite
-  "rf2-gncxk.1 — the SAME write as `arm-rfwrite`, against a frame whose held
+  "The SAME write as `arm-rfwrite`, against a frame whose held
   subscriptions are `:frame-state` subs instead of `:db` subs.
 
   Both kinds route to `subs.memo`'s fixed-arity-1 wrapper, but they differ in
@@ -553,10 +553,10 @@
     (rf.frame/replace-app-db! f (update (rf.frame/frame-app-db-value f) :cells assoc i v))
     nil))
 
-;; ---- rf2-78ejq: the rungs UNDER RFWRITE-0 ---------------------------------
+;; ---- the rungs UNDER RFWRITE-0 --------------------------------------------
 ;;
-;; `RFWRITE-0` — a write to a frame with ZERO subscriptions — was measured by
-;; rf2-jr76s as ONE number. It is a CONSTANT, so at 300 subs it is 1.6% of the
+;; `RFWRITE-0` — a write to a frame with ZERO subscriptions — is ONE number
+;; on the ladder. It is a CONSTANT, so at 300 subs it is 1.6% of the
 ;; write and invisible; at the 10 subs a small app or a per-frame tool panel
 ;; actually has, it is a THIRD of it. These arms split it.
 ;;
@@ -570,18 +570,18 @@
 ;;   C-FRAME    `(rf.frame/frame id)` — the registry lookup `commit-frame-
 ;;              transition!` does before anything else, on a frame the rig
 ;;              REGISTERED, so the visibility walk behind the registry `get`
-;;              actually runs (rf2-c0awb)
+;;              actually runs
 ;;   C-FRAMEX   the same call on an id that was never registered. PAIRED
 ;;              CONTROL: `rf.frame/frame` short-circuits on the `get`, so the
 ;;              miss is strictly less work than the hit and only `C-FRAME`
-;;              belongs in the attribution. This arm is what `C-FRAME` was
-;;              measuring by accident until rf2-c0awb.
+;;              belongs in the attribution. This arm is what `C-FRAME` would
+;;              measure if it were handed an unregistered id.
 ;;   C-FRAMEG   the registry `get` ALONE on the same hit, which is what says
 ;;              WHICH HALF of `rf.frame/frame` a hit-vs-miss difference is in.
 ;;              It reads 0.0 — the registry is a FOUR-entry map, so `get` is
 ;;              an array scan and no hash is taken.
 ;;   C-FRAMEV   the same walk `rf.frame/frame` performs, re-spelled INLINE.
-;;              C-FRAME − C-FRAMEV is what the CALL costs; it is 0 (rf2-tmzie)
+;;              C-FRAME − C-FRAMEV is what the CALL costs; it is 0
 ;;   C-FRAMEL   the `:lifecycle` half of the walk alone
 ;;   C-FRAMES   the `:construction` half alone. L + S = V, additively, and
 ;;              each half is one `PersistentHashMap` lookup on the record.
@@ -621,22 +621,22 @@
   one per write."
   (fnil inc 0))
 
-;; rf2-c0awb — `commit-frame-transition!`'s first act is `(rf.frame/frame id)`, and
-;; this arm is what that costs. It has to be a HIT to be that.
+;; `commit-frame-transition!`'s first act is `(rf.frame/frame id)`, and this
+;; arm is what that costs. It has to be a HIT to be that.
 ;;
 ;; `rf.frame/frame` is `(when-let [f (get @frames id)] (when (visible? id f) f))`,
 ;; so a miss short-circuits on the registry `get` and never reaches the
 ;; visibility predicate — the two-level `:lifecycle`/`:construction` walk that
-;; a real commit's lookup always runs. The arm used to be handed `:wa/frame`,
-;; which `build-rig!` never registers, so it priced the short-circuit.
+;; a real commit's lookup always runs. Handed `:wa/frame`, which `build-rig!`
+;; never registers, the arm would price the short-circuit.
 ;;
 ;; A factory rather than a bare arm, so the id is resolved ONCE at plan-build
 ;; time: `(nth (:frames @rig) 0)` inside the measured body would charge this
 ;; arm a rig lookup it is not measuring. Frame 0 is the one `RFWRITE-0` writes
 ;; through, which is the rung this figure is subtracted from.
 ;;
-;; The miss is kept beside it as `C-FRAMEX` rather than discarded. Both halves
-;; live in one process on one registry — the `P-VALS`/`P-RKV` discipline — so
+;; The miss sits beside it as `C-FRAMEX`. Both halves live in one process on
+;; one registry — the `P-VALS`/`P-RKV` discipline — so
 ;; the pair MEASURES what the hit costs over the miss instead of assuming it,
 ;; and an arm that silently reverts to a miss shows up as the pair collapsing.
 
@@ -649,8 +649,7 @@
       nil)))
 
 (defn- arm-c-frame-miss
-  "The MISS: the same call on an id that was never registered, which is what
-  this arm measured before rf2-c0awb."
+  "The MISS: the same call on an id that was never registered."
   []
   (let [id absent-fid]
     (fn []
@@ -672,8 +671,8 @@
       (keep! (get @rf.frame/frames id))
       nil)))
 
-;; rf2-tmzie — BISECTING the hit, because `C-FRAME − C-FRAMEG` was published as
-;; "the visibility walk" and no expression in that walk allocates.
+;; BISECTING the hit, because `C-FRAME − C-FRAMEG` reads like "the visibility
+;; walk" and no expression in that walk allocates.
 ;;
 ;; `frame-record-visible-to-current-actor?` is, for a FINAL record — which is
 ;; every record `build-rig!` installs — two keyword invokes, a `not`, a third
@@ -684,7 +683,7 @@
 ;; about V8, not about the predicate — and V8 is exactly what a bisection can
 ;; separate.
 ;;
-;;   C-FRAMEG  the registry `get` alone                          (already there)
+;;   C-FRAMEG  the registry `get` alone                          (defined above)
 ;;   C-FRAMEV  + the WHOLE reachable predicate, re-spelled INLINE — the
 ;;             `Q-SCHED` discipline. Identical WORK to `C-FRAME`, with the
 ;;             cross-namespace CALL removed and nothing else changed.
@@ -725,7 +724,7 @@
       (keep! (not= :provisional (-> (get @rf.frame/frames id) :construction :state)))
       nil)))
 
-;; rf2-tmzie — THE MECHANISM, as a PREDICTION stated before it is measured.
+;; THE MECHANISM, as a PREDICTION stated before it is measured.
 ;;
 ;; The bisection lands on `16.0 B` per two-level keyword walk, twice, additive.
 ;; 16 B is this file's OWN standing figure for a boxed `HeapNumber` with pointer
