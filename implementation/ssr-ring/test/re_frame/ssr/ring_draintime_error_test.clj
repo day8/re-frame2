@@ -1,12 +1,11 @@
 (ns re-frame.ssr.ring-draintime-error-test
-  "Per rf2-fn41e (ssr-ring senior-dev review 5tkld) — close the
-  ssr-ring handler-level e2e gap for the DRAIN-TIME error → projected
-  non-200 status path, the path rf2-7d30s (the `:frame`-stamp audit)
-  actually touched.
+  "ssr-ring handler-level e2e coverage for the DRAIN-TIME error → projected
+  non-200 status path, where the drain's error sites stamp the emitting
+  `:frame`.
 
-  ## The gap this closes
+  ## What this covers
 
-  ssr-ring's existing error coverage splits two ways, and BOTH miss the
+  ssr-ring's other error coverage splits two ways, and BOTH miss the
   drain-time routing/schema categories:
 
     - `ring_test.clj` (`handler-render-error-*`) exercises only the
@@ -24,15 +23,15 @@
       the catch-all arm produces, so it does not discriminate the
       *specific* projector arm that fired.
 
-  The categories rf2-7d30s's audit actually stamped `[:tags :frame]` on
+  The categories stamped with `[:tags :frame]`
   inside the routing drain — `:rf.error/no-such-handler` /
   `:rf.error/no-such-route` (→ 404) and `:rf.error/schema-validation-
-  failure` (→ 400) — had NO ssr-ring handler-level coverage. These map
+  failure` (→ 400) — are covered here. These map
   to DISCRIMINATING non-default statuses (404 / 400, not the generic
   500), so a regression that dropped or mis-stamped `:frame` for a
   routing drain-time category would silently ship a 200 for what should
-  be a 4xx — exactly the bug rf2-7d30s fixed — and no ssr-ring test
-  would catch it. (A 200, not the existing 500: with no routable
+  be a 4xx, and no other ssr-ring test
+  would catch it. (A 200, not the 500: with no routable
   `:frame` the projector no-ops and the accumulator keeps its default
   200; see `error-listener/candidate-frame-for-error`.)
 
@@ -40,15 +39,15 @@
   contract directly (`ssr_end_to_end_test/ssr-default-error-projector-
   no-such-handler` → 404; `ssr_error_two_frame_attribution_test` → the
   navigate-reject 400 on the emitting frame only). ssr-ring DEPENDS on
-  that contract but never proved the end-to-end WIRE status flows through
-  ITS handler. This namespace closes that loop:
+  that contract; this namespace proves the end-to-end WIRE status flows
+  through ITS handler:
 
     1. `draintime-no-such-route-projects-404-on-the-wire` — an
        `:initial-events` that dispatches `:rf.route/handle-url-change` to an
        unmatched URL emits a drain-time `:rf.error/no-such-handler`
        (`:kind :route`), buffered by the always-on
        `error-emit-projection-listener`, projected to 404 by
-       `ssr/get-response` (the single `get-response` read in `ssr-handler`). Asserted on the
+       `ssr/flush-response-result!` (the single accumulator read in `ssr-handler`). Asserted on the
        wire (Jetty + `java.net.http`) AND via a direct in-process
        handler call — the 404 is the DISCRIMINATING status that proves
        the routing projector arm rode the wire, not the generic 500
@@ -72,13 +71,12 @@
        a registered route (→ 200). The invariant: EVERY 404 request gets
        a 404 and EVERY 200 request gets a 200 — no cross-frame bleed.
        With >1 server frame live this can only hold if each drain-time
-       trace carries its emitting frame's `:frame` (the removed rf2-7d30s
-       single-frame fallback would have returned nil under >1 frame and
-       shipped a 200 for the should-be-404).
+       trace carries its emitting frame's `:frame` (a
+       single-frame fallback would return nil under >1 frame and
+       ship a 200 for the should-be-404).
 
-  TEST-ONLY: no source change. This proves an existing contract holds
-  through the ring layer. The Jetty + `java.net.http` harness mirrors
-  `concurrency_stress_test.clj` / `ring_e2e_validator_test.clj`."
+  The Jetty + `java.net.http` harness is the shared one
+  `concurrency_stress_test.clj` / `ring_e2e_validator_test.clj` use."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -89,7 +87,7 @@
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
-;; rf2-i3qc0 / rf2-09iktm — canonical reset-runtime fixture; same shape
+;; Canonical reset-runtime fixture; same shape
 ;; every ssr-ring JVM test uses. Each test starts from a reset registrar
 ;; (snapshot/restore baseline) with the SSR adapter installed, so
 ;; `:rf.route/handle-url-change`, `:rf.route/navigate`, the
@@ -101,12 +99,12 @@
 ;; Jetty + java.net.http harness
 ;; ===========================================================================
 ;;
-;; rf2-l1qgjw — the ephemeral Jetty host + `java.net.http` client / GET
-;; helper now live in `re-frame.ssr.ring.test-support` (aliased `ts`),
+;; The ephemeral Jetty host + `java.net.http` client / GET
+;; helper live in `re-frame.ssr.ring.test-support`,
 ;; shared with the other live-host test namespaces. The 30s read timeout
 ;; (these drain-time + concurrency-split tests complete slower than the
-;; 10s single-request streaming tests) stays an explicit `ts/http-get`
-;; argument at each call site.
+;; 10s single-request streaming tests) is the explicit timeout argument
+;; this ns's `http-get` passes to the shared helper.
 
 (def ^:private read-timeout-secs 30)
 
@@ -125,7 +123,7 @@
 
 (defn- with-stub-validator []
   (let [snap     (rf.schemas/schema-fns)
-        ;; rf2-ps05ug: the stub is process-global, so while installed EVERY
+        ;; The stub is process-global, so while installed EVERY
         ;; schema-validating boundary uses it — including the routing
         ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
         ;; (`[:map [:token :string] [:counter :int]]`). A Malli vector is not
@@ -154,20 +152,20 @@
 ;; `:rf.route/handle-url-change` to an unmatched URL. `url-change-fx`
 ;; (routing/url_change.cljc) threads the drain's `:frame` cofx and emits
 ;; `:rf.error/no-such-handler` (`:kind :route`) tagged with that frame —
-;; one of the exact emit sites rf2-7d30s audited. The always-on
-;; `error-emit-projection-listener` buffers it; `ssr/get-response` (the
+;; one of the drain-time emit sites that stamp `:frame`. The always-on
+;; `error-emit-projection-listener` buffers it; `ssr/flush-response-result!` (the
 ;; read in `ssr-handler`, BEFORE render) flushes the buffer through the
 ;; default projector, which maps `:no-such-handler` → 404, and stamps it
 ;; onto the response accumulator. `build-full-response` then materialises
 ;; that 404 onto the Ring response status. 404 (not the generic 500) is
 ;; the load-bearing assertion: it proves the ROUTING projector arm — the
-;; one fed by the rf2-7d30s `:frame` stamp — reached the wire.
+;; one fed by the drain's `:frame` stamp — reached the wire.
 
 (deftest draintime-no-such-route-projects-404-on-the-wire
-  (testing "rf2-fn41e: a drain-time :rf.error/no-such-handler (unmatched
-            route in :initial-events) is projected to 404 by get-response and
+  (testing "a drain-time :rf.error/no-such-handler (unmatched
+            route in :initial-events) is projected to 404 by flush-response-result! and
             rides the wire status through the ring handler — the routing
-            drain-time path rf2-7d30s touched, asserted at the ssr-ring
+            drain-time path, asserted at the ssr-ring
             boundary (ssr_end_to_end_test proves it at the ssr layer; this
             proves the WIRE status through the ring layer)."
     ;; A registered route so a registry exists; the request URL below
@@ -180,7 +178,7 @@
         ;; Drain-time error: dispatch a URL-change to an unmatched URL.
         ;; The :rf.route/handle-url-change handler threads the frame cofx
         ;; into url-change-fx, which emits :rf.error/no-such-handler with
-        ;; :frame stamped (rf2-7d30s). The :dispatch fx keeps this inside
+        ;; :frame stamped. The :dispatch fx keeps this inside
         ;; the SAME initial-events drain so the error buffers against this
         ;; per-request frame.
         {:fx [[:dispatch [:rf.route/handle-url-change "/no-such-page"]]]}))
@@ -194,14 +192,14 @@
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
       (testing "direct in-process handler call — the projected 404 rides
-                the Ring response :status (the get-response → 404 path)"
+                the Ring response :status (the flush-response-result! → 404 path)"
         (let [response (handler {:uri "/no-such-page" :request-method :get})]
           (is (= 404 (:status response))
               "drain-time :no-such-handler → default projector's 404
-               stamped on :rf/response by get-response → ring :status.
+               stamped on :rf/response by flush-response-result! → ring :status.
                A regression that dropped the :frame stamp would no-op the
                projector and ship the default 200 here.")
-          ;; Explicit 4xx-app-arm choice (rf2-oytx7j §Drain-time error
+          ;; Explicit 4xx-app-arm choice (Spec 011 §Drain-time error
           ;; classification): a projected 4xx is a CLIENT fault / renderable
           ;; app — the 4xx owns the wire status but the app renders its OWN
           ;; not-found root body (and hydration payload) and `:error-view` is
@@ -229,14 +227,13 @@
 ;; The navigate-reject path: a `:rf.route/navigate` whose target route's
 ;; `:params` predicate rejects raises inside `route-url`; navigate.cljc
 ;; catches it and emits `:rf.error/schema-validation-failure` (`:where
-;; :event`) with the drain's `:frame` stamped (rf2-7d30s — the exact
-;; audit site). The default projector maps it to 400. Same mechanism as
+;; :event`) with the drain's `:frame` stamped. The default projector maps it to 400. Same mechanism as
 ;; the ssr-artefact two-frame attribution regression, driven through the
 ;; ring handler. 400 is the discriminating status (distinct from both the
 ;; default 200 AND the generic-fallback 500).
 
 (deftest draintime-navigate-reject-projects-400-on-the-wire
-  (testing "rf2-fn41e: a drain-time :rf.error/schema-validation-failure
+  (testing "a drain-time :rf.error/schema-validation-failure
             (navigate-reject in :initial-events) is projected to 400 and rides
             the wire status through the ring handler — mirrors the ssr-
             artefact navigate-reject regression at the ssr-ring boundary."
@@ -256,7 +253,7 @@
         ;; :rf.nav/push-url (registered fn-form by routing with nil provenance
         ;; ns) — the stub must REPLACE that source-store slot, not sit beside
         ;; it as a cross-namespace duplicate that fails the request frame's
-        ;; default-image assembly loud (rf2-h1vqa4; :rf.error/image-duplicate-id).
+        ;; default-image assembly loud (:rf.error/image-duplicate-id).
         (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _url] nil))
@@ -280,12 +277,12 @@
             (let [response (handler {:uri "/articles/zoo" :request-method :get})]
               (is (= 400 (:status response))
                   "drain-time :schema-validation-failure → default
-                   projector's 400 stamped on :rf/response by get-response
+                   projector's 400 stamped on :rf/response by flush-response-result!
                    → ring :status. A dropped :frame stamp would no-op the
                    projector and ship the default 200.")
               (is (str/includes? (:body response) "Article page renders")
                   "the root-view still renders — a projected 400 keeps the
-                   app's own bad-request UI (the 4xx app arm, rf2-oytx7j); only
+                   app's own bad-request UI (the 4xx app arm); only
                    a projected 5xx diverts to the projected-error arm")))
 
           (testing "bytes-on-the-wire through Jetty — 400 survives the round-trip"
@@ -310,14 +307,14 @@
 ;; registered route (→ 200 happy path). The invariant — every 404-request
 ;; gets a 404 AND every 200-request gets a 200 — can ONLY hold under >1
 ;; live server frame if each drain-time error trace carries its EMITTING
-;; frame's `:frame` (rf2-7d30s). The removed single-frame fallback would
-;; have returned nil with >1 frame live and shipped a 200 for the
-;; should-be-404 (the exact regression rf2-7d30s fixed). Mismatches in
+;; frame's `:frame`. A single-frame fallback would
+;; return nil with >1 frame live and ship a 200 for the
+;; should-be-404. Mismatches in
 ;; EITHER direction (a 200-request getting a 404, or a 404-request getting
 ;; a 200) are bleed; zero is the contract.
 
 (deftest two-concurrent-frames-attribute-drain-time-404-per-frame
-  (testing "rf2-fn41e: under N concurrent server frames, a drain-time
+  (testing "under N concurrent server frames, a drain-time
             :rf.error/no-such-handler in a request stamps 404 on THAT
             request's response only — sibling concurrent requests to a
             valid route stay 200. No cross-frame bleed (the two-frame
@@ -393,7 +390,7 @@
               (str "per-frame attribution broken — " (.get miss-wrong)
                    " unmatched-route requests did NOT get a 404 (they got"
                    " the default 200). Under >1 live server frame this is"
-                   " the rf2-7d30s regression: a drain-time error whose"
+                   " a per-frame attribution regression: a drain-time error whose"
                    " :frame was dropped no-ops the projector and ships 200."
                    " First anomalies: " (pr-str (take 8 @anomalies))))
 
