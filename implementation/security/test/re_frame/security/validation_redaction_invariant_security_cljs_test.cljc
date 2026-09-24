@@ -8,10 +8,10 @@
   inside its schema ships the failing value verbatim through `:received` /
   `:value` / `:explain` to every trace listener (and onward to off-box
   monitors and the AI/MCP boundary) — a failing login payload would carry
-  the password. It is the same class as the collection-nested `:set` /
-  `:and` / `:or` / `:multi` leak, and guarding one site does not guard the
-  others: each of these builds its own failure tags, so each must consult
-  the schema's `:sensitive?` declaration itself:
+  the password. It is the same defect class as a `:sensitive?` slot nested
+  under `:set` / `:and` / `:or` / `:multi`, and guarding one site does not
+  guard the others: each of these builds its own failure tags, so each
+  must consult the schema's `:sensitive?` declaration itself:
 
     - `:where :event`         (re-frame.schemas/validate-event!)
     - `:where :machine-data`  (re-frame.machines.data-validation)
