@@ -94,10 +94,9 @@
 
 (defn- cors-headers
   "The response's CORS header names, plus `vary`, lower-cased and sorted.
-  Matched CASE-INSENSITIVELY because the defect this pins was a casing
-  collision: shadow-http keeps response headers in a case-sensitive map, so a
-  lowercase `access-control-allow-origin` went out as a SECOND header beside
-  shadow's own `Access-Control-Allow-Origin: *` (rf2-3x7nj.38.2)."
+  Matched CASE-INSENSITIVELY because shadow-http keeps response headers in a
+  case-sensitive map, so a lowercase `access-control-allow-origin` would go
+  out as a SECOND header beside shadow's own `Access-Control-Allow-Origin: *`."
   [resp]
   (->> (keys (:headers resp))
        (map #(str/lower-case (name %)))
@@ -296,11 +295,11 @@
       (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? addr))
           (str "refused peer: " (pr-str addr))))))
 
-;; rf2-8fms7 — shadow-http 0.1.8, which serves shadow-cljs 3.4.10's `:dev-http`,
+;; shadow-http 0.1.8, which serves shadow-cljs 3.4.10's `:dev-http`,
 ;; sets `:remote-addr (str (.getRemoteAddress request))`: the accepted socket's
 ;; `InetSocketAddress.toString`, not a bare literal. Every peer above is
-;; hand-typed in the bare shape, which is why this suite stayed green while the
-;; check refused every real loopback caller on that server. The peers below are
+;; hand-typed in the bare shape, so on its own this suite would stay green even
+;; if the check refused every real loopback caller on that server. The peers below are
 ;; BUILT the way shadow-http builds them, from real `java.net` objects.
 
 (defn- socket-peer
@@ -340,8 +339,7 @@
         (is (#'rf.testbed.open-in-editor-server/loopback-peer? peer)
             (str "loopback socket peer: " peer)))))
   (testing "…and through `handle`: the launch POST reaches `launch!` and an
-            OPTIONS gets past the peer check to the POST-only 405. On
-            shadow-cljs 3.4.10 both answered 403"
+            OPTIONS gets past the peer check to the POST-only 405"
     (doseq [peer [(socket-peer (ip "127.0.0.1")) (socket-peer (ip "::1"))]]
       (let [calls (atom [])]
         (with-launch-spy calls
@@ -406,9 +404,8 @@
            (#'rf.testbed.open-in-editor-server/peer-literal (socket-peer (named "localhost" "::1")))))
     (is (= "127.0.0.1" (#'rf.testbed.open-in-editor-server/peer-literal "127.0.0.1"))))
   (testing "a string `InetAddress/getByName` would RESOLVE rather than parse is
-            never returned. Measured with a JVM hosts file mapping each bare
-            value to 127.0.0.1: the looser filter this replaced admitted all
-            three as loopback"
+            never returned. With a JVM hosts file mapping each bare value to
+            127.0.0.1, a looser filter would admit all three as loopback"
     (doseq [s ["127.0.0.999" "1.2.3.456" ".::1"
                "/127.0.0.999:54321" "localhost/1.2.3.456:54321"]]
       (is (nil? (#'rf.testbed.open-in-editor-server/peer-literal s))
@@ -432,7 +429,7 @@
             relative URL), so the endpoint answers no CORS preflight: an
             admitted loopback OPTIONS takes the POST-only 405 with a JSON body
             and never launches. The non-nil body is what keeps shadow-http's
-            nil-body → 304 rewrite off every endpoint answer (rf2-3x7nj.38.2)"
+            nil-body → 304 rewrite off every endpoint answer"
     (doseq [origin ["http://localhost:8042" nil]]
       (let [calls (atom [])]
         (with-launch-spy calls
@@ -462,7 +459,7 @@
             whatever its status. shadow-cljs `:dev-http` adds its own
             `Access-Control-Allow-Origin: *` to every response; that is
             shadow's behaviour, and this endpoint neither relies on it nor
-            adds a second value beside it (rf2-3x7nj.38.2)"
+            adds a second value beside it"
     (let [calls (atom [])]
       (with-launch-spy calls
         (doseq [[status label r]
@@ -749,18 +746,18 @@
     (is (= {:ok false :message "file-not-found"} (rf.testbed.open-in-editor-server/launch! "   " 1 1 nil)))))
 
 ;; ---------------------------------------------------------------------------
-;; Real-subprocess pipe-drain regressions (rf2-j538f7.21).
+;; Real-subprocess pipe-drain regressions.
 ;;
-;; OS pipes are bounded (~64 KiB). The pre-fix `launch!` called `.waitFor`
-;; BEFORE reading either child pipe and never read stdout at all — so a child
-;; that filled either pipe blocked on the write, could not reach `process.exit`,
-;; and the JVM timed out waiting for an exit its own undrained pipe prevented.
-;; These spawn REAL node children (the boundary the unit path never exercised
+;; OS pipes are bounded (~64 KiB). A `launch!` that called `.waitFor` BEFORE
+;; reading either child pipe, and never read stdout at all, would let a child
+;; that filled either pipe block on the write, never reach `process.exit`, and
+;; leave the JVM timing out waiting for an exit its own undrained pipe prevents.
+;; These spawn REAL node children (the boundary the unit path never exercises
 ;; — every other launch! test stubs launch! or stops at missing-file rejection)
-;; that write MORE than a pipe's worth to stdout / stderr. With the fix (stdout
-;; DISCARDed, stderr drained concurrently) each child exits and `launch!`
+;; that write MORE than a pipe's worth to stdout / stderr. With stdout
+;; DISCARDed and stderr drained concurrently, each child exits and `launch!`
 ;; classifies it correctly. Each test rebinds a short `*launch-timeout-ms*`
-;; budget so a reintroduced wait-before-drain fails as a BOUNDED timeout result
+;; budget so a wait-before-drain fails as a BOUNDED timeout result
 ;; rather than hanging the suite.
 ;; ---------------------------------------------------------------------------
 
@@ -777,19 +774,17 @@
     (catch Throwable _ false)))
 
 ;; ---------------------------------------------------------------------------
-;; A SKIP MUST NOT READ AS A PASS IN A LANE THAT ARMED THE PREREQUISITE
-;; (rf2-cl8mg).
+;; A SKIP MUST NOT READ AS A PASS IN A LANE THAT ARMED THE PREREQUISITE.
 ;;
 ;; Every real-subprocess block below self-skips when `node` — or the pinned
 ;; `launch-editor` package — is missing, so a node-less developer box stays
 ;; green. That is right for a laptop and wrong for CI: the exit code cannot
-;; distinguish a run from a skip, and the `jvm-tools-testbed-support` job used
-;; to install no node deps at all, so every launch-editor-backed block skipped
-;; and the job reported green on coverage it never had (42 tests / 229
-;; assertions there against 42 / 260 with the dependency present — the
-;; 31-assertion delta was the only signal, and nothing read it).
+;; distinguish a run from a skip, so a CI job that installed no node deps
+;; would skip every launch-editor-backed block and report green on coverage it
+;; never had, with only a smaller assertion count to show for it.
 ;;
-;; The job now installs the dependency AND sets `RF2_REQUIRE_NODE_PROBES`,
+;; So the `jvm-tools-testbed-support` job installs the dependency AND sets
+;; `RF2_REQUIRE_NODE_PROBES`,
 ;; which flips the skip into a failure: a lane that declared the prerequisite
 ;; present and then reached a skip has lost the gate it exists to be, and says
 ;; so instead of passing quietly.
@@ -809,7 +804,7 @@
       (str "skipped: " missing
            " — but RF2_REQUIRE_NODE_PROBES is set, so this lane declared the "
            "prerequisite present. A skip here is lost coverage, not a pass: "
-           "install node and run `npm ci` in `implementation/` (rf2-cl8mg).")))
+           "install node and run `npm ci` in `implementation/`.")))
 
 (def ^:private one-mib-plus
   "Comfortably more than a plausible OS pipe buffer (~64 KiB)."
@@ -829,9 +824,9 @@
      [r# (quot (- (System/nanoTime) t0#) 1000000)]))
 
 (deftest launch-drains-huge-stdout-and-reports-success
-  ;; Criterion 1: a child that floods STDOUT (>1 MiB) and exits 0 is a SUCCESS,
-  ;; reached promptly — never the timeout the undrained-stdout deadlock
-  ;; manufactured. The 8 s budget bounds a reintroduced wait-before-drain to a
+  ;; A child that floods STDOUT (>1 MiB) and exits 0 is a SUCCESS,
+  ;; reached promptly — never the timeout an undrained-stdout deadlock
+  ;; would manufacture. The 8 s budget bounds a wait-before-drain to a
   ;; timeout RESULT at ~8 s (this assertion then goes red) instead of hanging.
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
@@ -847,7 +842,7 @@
                 "returned well within the budget — the child was not wedged by its own pipe")))))))
 
 (deftest launch-drains-huge-stderr-and-reports-bounded-failure
-  ;; Criterion 2: a child that floods STDERR (>1 MiB) and exits nonzero is a
+  ;; A child that floods STDERR (>1 MiB) and exits nonzero is a
   ;; FAILURE carrying a BOUNDED diagnostic (never the timeout, never unbounded
   ;; memory), plus a small-stderr control.
   (if-not (node-available?)
@@ -872,9 +867,9 @@
                    (rf.testbed.open-in-editor-server/launch! (.getAbsolutePath f) nil nil nil)))))))))
 
 (deftest launch-genuine-timeout-honours-short-budget
-  ;; Criterion 4 (a): a child that never exits yields the timeout message
+  ;; A child that never exits yields the timeout message
   ;; WITHIN the (short, test-configurable) budget — proving the wait is bounded
-  ;; and the budget is honoured, not the hardcoded 10 s.
+  ;; and the budget is honoured, not the default 10 s.
   (if-not (node-available?)
     (skip-or-fail "node not on PATH")
     (let [f (tmp-existing-file)]
@@ -884,10 +879,10 @@
             (is (= {:ok false :message "launch-editor timed out"} res)
                 "a non-exiting child times out")
             (is (< ms 5000)
-                "the short budget was honoured — nowhere near the old 10 s stall")))))))
+                "the short budget was honoured — nowhere near the default 10 s stall")))))))
 
 (deftest terminate!-force-kills-a-child-that-ignores-graceful-destroy
-  ;; Criterion 4 (b): after cleanup the child is no longer alive, INCLUDING the
+  ;; After cleanup the child is no longer alive, INCLUDING the
   ;; force-termination fallback when a graceful destroy does not complete (a
   ;; child that traps SIGTERM — the force path is exercised on POSIX CI; on
   ;; Windows `.destroy` already terminates forcibly).
@@ -1032,15 +1027,15 @@
         (is (nil? (nth (first @calls) 3))
             "no editor param → nil hint")))))
 
-;; rf2-1i1ec — endpoint success must mean the COORDINATE arrived.
+;; Endpoint success must mean the COORDINATE arrived.
 ;;
 ;; `launch-editor`'s `get-args.js` switches on the command basename: `code`,
 ;; `code-insiders`, `cursor`, `zed` and the JetBrains binaries get a position
 ;; argument, everything else falls through to a bare-file launch that exits 0.
-;; Windsurf is in this endpoint's vocabulary and NOT in that switch, so before
-;; this decline the endpoint answered 200 to a `line=27&column=9` request that
-;; had opened the file at an arbitrary prior cursor position — and that 200
-;; suppressed the client's `windsurf://…:27:9` fallback, which does carry it.
+;; Windsurf is in this endpoint's vocabulary and NOT in that switch, so without
+;; a decline the endpoint would answer 200 to a `line=27&column=9` request that
+;; opened the file at an arbitrary prior cursor position — and that 200 would
+;; suppress the client's `windsurf://…:27:9` fallback, which does carry it.
 ;;
 ;; The complementary client-side half (a declined answer runs the
 ;; coordinate-preserving fallback exactly once; a 200 suppresses it) is
@@ -1115,10 +1110,10 @@
           (is (= 1 (count @calls)))
           (is (= "windsurf" (nth (first @calls) 3))
               "the windsurf hint still reaches launch! when no coordinate is
-               at stake — the vocabulary is unchanged"))))))
+               at stake — windsurf stays in the vocabulary"))))))
 
 (deftest endpoint-still-serves-every-position-carrying-editor
-  (testing "rf2-1i1ec must not make every editor fall back: each vocabulary
+  (testing "the decline must not make every editor fall back: each vocabulary
             entry launch-editor CAN encode a position for still reaches
             launch! with 27:9 and returns 2xx"
     (doseq [[editor expected-cmd] [["vscode"          "code"]
@@ -1149,7 +1144,7 @@
 ;; pinned by `launch-editor-2-14-1-really-does-drop-these-positions` below,
 ;; which asks the installed `launch-editor/get-args` and proves windsurf is
 ;; invoked with the bare file. A third test asserting only
-;; `(build-file-spec "/abs/src/app.cljs" 27 9)` witnessed neither (rf2-6r9j.123).
+;; `(build-file-spec "/abs/src/app.cljs" 27 9)` would witness neither.
 
 ;; Windows paths exercise the JSON backslash and quote rules.
 
@@ -1213,17 +1208,17 @@
           (.delete tmp))))))
 
 ;; ---------------------------------------------------------------------------
-;; Consumer-shaped resolution witness (rf2-3xq1v)
+;; Consumer-shaped resolution witness
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The suite above proves the endpoint's MECHANISM with a synthetic fixture on
-;; a throwaway classpath root. rf2-3xq1v retired the browser-side source-root
-;; pipeline the repository testbeds used to carry, on the premise that this
-;; endpoint already resolves what that pipeline resolved. That premise is a
+;; a throwaway classpath root. The repository testbeds carry no browser-side
+;; source-root pipeline, on the premise that this endpoint resolves their
+;; coordinates itself. That premise is a
 ;; claim about REAL testbed coordinates, so it is witnessed with real ones:
 ;; the two source roots shadow-cljs actually puts on the dev JVM's classpath
 ;; (`../tools/story/testbeds` and `../tools/xray/testbeds`), and a
-;; classpath-relative coordinate under each that exists on disk today.
+;; classpath-relative coordinate under each that exists on disk.
 ;;
 ;; The server carries no project-root concept at all — which is stronger than
 ;; the CLJS-side condition "with Story and Xray project-root config unset",
@@ -1280,8 +1275,8 @@
   (testing "a real relative Story coordinate and a real relative Xray
             coordinate each reach the handler and resolve to the intended
             existing file — with no project-root anywhere in the request, the
-            client, or this server. This is the endpoint capability the
-            retired checkout-root pipeline duplicated"
+            client, or this server. This is the endpoint capability that makes
+            a browser-side checkout-root pipeline unnecessary"
     (with-testbed-source-roots*
       (fn []
         (doseq [{:keys [tool root file]} consumer-coords]
@@ -1340,16 +1335,15 @@
           (str tool " coordinate is relative — the URI fallback alone
                cannot reach the file"))
       (is (= file (#'rf.source-coords.editor-uri/compose-path nil file))
-          (str tool " composes to itself with no project-root — the
-               composition step the retired pipeline used to feed")))))
+          (str tool " composes to itself with no project-root")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-78s0d — a page load falls through to shadow's own index handling
+;; A page load falls through to shadow's own index handling
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Naming a `:handler` on a `:dev-http` entry replaces shadow's push-state
-;; default, so a `handler` answering 404 to everything off-endpoint made every
-;; wired port 404 at `/`. These requests carry the two keys shadow's
+;; default, so a `handler` answering 404 to everything off-endpoint would make
+;; every wired port 404 at `/`. These requests carry the two keys shadow's
 ;; `start-build-server` adds before calling the handler — `:http-roots` and
 ;; `:http-config` — over a throwaway root holding an `index.html`.
 
@@ -1416,7 +1410,7 @@
               "handler keeps the 404, so the client's editor:// fallback
                still fires"))))))
 
-;; rf2-3x7nj.38.1 — push-state concatenates the RAW request URI onto each root,
+;; Push-state concatenates the RAW request URI onto each root,
 ;; so a `..` segment reaches any `index.html` beside it. Every wired port binds
 ;; `0.0.0.0`, and push-state never consults the peer, so the fallthrough is the
 ;; only place to refuse it.
@@ -1473,7 +1467,7 @@
           (is (= index-body (:body resp))))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-1i1ec (audit) — auto-detect is a capability question too
+;; Auto-detect is a capability question too
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The declared-vocabulary decline above closes `editor=windsurf`. It cannot
@@ -1501,7 +1495,7 @@
   "Whether the pinned `launch-editor` package is present in this checkout.
   A checkout that never ran `npm ci` self-skips rather than failing red —
   unless `RF2_REQUIRE_NODE_PROBES` is set, which is how a lane that DID
-  install it refuses to pass on the skip (`skip-or-fail`, rf2-cl8mg)."
+  install it refuses to pass on the skip (`skip-or-fail`)."
   []
   (.isDirectory (io/file @implementation-dir "node_modules" "launch-editor")))
 
@@ -1613,7 +1607,7 @@
               "rmate gets `--line 27` and no column at all"))
 
         (testing "AUTO-DETECT reaches position-blind binaries the declared set
-                  cannot name — the audit's finding. Brackets is in all three
+                  cannot name. Brackets is in all three
                   process registries with no get-args case; on Windows so is
                   Cursor.exe, whose basename the lowercase `cursor` case
                   does not match"
@@ -1669,15 +1663,15 @@
 
             ;; A COLUMN with no line is the coordinate shape every probe above
             ;; misses: they all pass 27 AND 9. `build-file-spec` normalises it
-            ;; to `path:1:<column>`, and `position-would-be-dropped?` already
-            ;; calls it a coordinate — but the shim gated its probe on the
-            ;; LINE argv token alone, which is empty here, so the whole
-            ;; capability check was skipped and a position-blind binary could
-            ;; strip `:1:7`, exit 0 and win a 200 (rf2-1i1ec audit).
+            ;; to `path:1:<column>`, and `position-would-be-dropped?` calls it
+            ;; a coordinate — so a shim that gated its probe on the LINE argv
+            ;; token alone, which is empty here, would skip the whole
+            ;; capability check and let a position-blind binary strip `:1:7`,
+            ;; exit 0 and win a 200.
             (testing "COLUMN-ONLY, position-blind: refused on the same terms
                       as a line-bearing launch. The argv line token is empty,
-                      so this is precisely the request the old `if(line)` gate
-                      waved through"
+                      so this is precisely the request an `if(line)` gate
+                      would wave through"
               (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
                      (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/Brackets"))
                   "a column alone is a coordinate the launcher can lose"))
@@ -1685,8 +1679,8 @@
             (testing "COLUMN-ONLY POSITIVE CONTROL — the same column-only
                       request to a position-CAPABLE command still reaches a
                       real launch attempt. It fails (the binary does not
-                      exist) but NOT as the decline, so widening the gate did
-                      not turn column-only into a blanket refusal"
+                      exist) but NOT as the decline, so gating on a column too
+                      does not turn column-only into a blanket refusal"
               (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/zed")]
                 (is (false? ok) "the nonexistent binary could not be launched")
                 (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
@@ -1698,7 +1692,7 @@
             ;; the bare file and the total-drop test waves it through, while
             ;; the COLUMN is gone. It is reachable by auto-detect (the Linux
             ;; process registry maps a running `gvim` to it), so a 27:9 chip
-            ;; landed on column 1 behind a 200 that suppressed the
+            ;; would land on column 1 behind a 200 that suppresses the
             ;; coordinate-preserving `editor://` fallback.
             (testing "COLUMN DROPPED BY AN ENCODED CASE: gvim carries the line
                       and discards the column, so a request that asks for one
@@ -1745,8 +1739,8 @@
         (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
             "the same token the declared-vocabulary decline emits"))))
 
-  (testing "the same mapping for a COLUMN-ONLY request, which is the shape
-            that used to bypass the shim's probe altogether: `column=7` with
+  (testing "the same mapping for a COLUMN-ONLY request, the shape a
+            line-gated probe would let bypass the shim altogether: `column=7` with
             no `line` and no `editor`. The coordinate at stake is the
             normalised 1:7 the endpoint would have handed the launcher, and
             the client's URI fallback is what carries it"
