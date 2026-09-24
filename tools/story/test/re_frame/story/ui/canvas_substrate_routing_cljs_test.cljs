@@ -276,7 +276,8 @@
 ;; `plan/variant-plan` folded `:substrates` and `:component` from the VARIANT
 ;; and its `:extends` chain only, so a STORY-level declaration never reached
 ;; `[:world …]`. The canvas was unaffected (`variant-substrate-set` and
-;; `variant-component` walk to the story themselves) while `render-variant`
+;; `variant-component` walked to the story themselves; since rf2-3x7nj.28.2
+;; the canvas reads both off the plan too) while `render-variant`
 ;; read the plan and got nothing — the `:reagent` host default and a nil
 ;; view. The two rows below are the pair: the canvas half is the CONTROL that
 ;; was already right, the host half is the one that was wrong. Asserting only

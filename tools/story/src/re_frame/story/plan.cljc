@@ -1567,12 +1567,12 @@
         story-body   (when sid (story-lookup sid))
         ;; ---- ambient (story-level) world keys ----
         ;; `:substrates` and `:component` are declared on the VARIANT or on
-        ;; its parent STORY, and every renderer resolves them
-        ;; variant-first-then-story: `multi-substrate/resolve-substrate-set`
-        ;; and `canvas/variant-component` / `multi-substrate-grid` /
-        ;; `workspace`. The plan folded only the variant chain, so the two
-        ;; slots meant something NARROWER on the plan than they meant
-        ;; anywhere else — and both have a plan-side reader:
+        ;; its parent STORY, and resolve variant-first-then-story
+        ;; (`multi-substrate/resolve-substrate-set`). The live canvas
+        ;; resolved them that way off the raw bodies while the plan folded
+        ;; only the variant chain, so the two slots meant something NARROWER
+        ;; on the plan than they meant on the canvas — and both have a
+        ;; plan-side reader:
         ;; `canonical/render-host-scope` takes the substrate off
         ;; `[:world :substrates]` (rf2-3afns) and `render/prepare-render`
         ;; takes the subject off `[:world :component]`. So a story that
@@ -1580,7 +1580,11 @@
         ;; correctly on the live canvas while `render-variant` fell back to
         ;; the `:reagent` host default and to a nil view. Folding them here
         ;; makes the compiled plan mean what the canvas means, which is
-        ;; what rf2-3afns established the plan is for.
+        ;; what rf2-3afns established the plan is for. Since rf2-3x7nj.28.2
+        ;; the canvas, `multi-substrate-grid` and every `workspace` cell read
+        ;; both slots off this fold too, so it is the one resolution;
+        ;; `resolve-substrate-set` over the plan's `:world` only adds the
+        ;; host fallback.
         ;;
         ;; The precedence mirrors `resolve-substrate-set` EXACTLY —
         ;; non-empty variant chain wins, else non-empty story, else the slot

@@ -105,7 +105,8 @@
 (deftest the-variant-still-wins-over-its-story
   (testing "precedence is variant-chain FIRST, then the story — the same
             order `multi-substrate/resolve-substrate-set` applies, and the
-            same order `canvas/variant-component` applies for the subject.
+            same order the plan's `:component` fold applies for the subject
+            (which `canvas/canvas-inner` reads, rf2-3x7nj.28.2).
             A story-level default must not overwrite a variant that
             deliberately differs."
     (rf.story.registrar/reg-story* :story.scope-win
@@ -167,7 +168,9 @@
             NORMAL authoring shape (`001-Authoring.md`: the parent story
             carries the component, variants vary by args) handed
             `render-variant` a nil view. The canvas was unaffected because
-            `canvas/variant-component` walks to the story itself."
+            it walked to the story itself (`canvas/variant-component`, since
+            replaced by a read of this same `[:world :component]`,
+            rf2-3x7nj.28.2)."
     (rf.story.registrar/reg-story* :story.scope-cmp
       {:doc "the parent carries the subject" :component :views/probe})
     (rf.story.registrar/reg-variant* :story.scope-cmp/v
