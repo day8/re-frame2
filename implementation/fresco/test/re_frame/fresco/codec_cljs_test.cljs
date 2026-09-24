@@ -41,7 +41,7 @@
     (is (= "main" (prop (rf.fresco.impl.codec/as-element [:div#main]) "id"))))
   (testing "classes alone, dot-separated"
     (is (= "wide tall" (prop (rf.fresco.impl.codec/as-element [:div.wide.tall]) "className"))))
-  (testing "id then classes, in the one spelling the donor supports"
+  (testing "id then classes, the one order the shorthand parses"
     (let [e (rf.fresco.impl.codec/as-element [:section#main.wide.tall])]
       (is (= "section" (el-type e)))
       (is (= "main" (prop e "id")))
@@ -80,9 +80,9 @@
   ;; literals would read `Object.prototype`'s OWN members — a function
   ;; where a ParsedTag or a PropSlot belongs — and the codec would emit
   ;; whatever that function's `.tag` / `.js-name` happened to be, which
-  ;; is `undefined`. The lookup guard the shipping code used to carry
-  ;; (`hasOwnProperty.call`) answered this; nothing but the cache's own
-  ;; construction answers it now, so it is witnessed rather than assumed.
+  ;; is `undefined`. There is no `hasOwnProperty.call` lookup guard;
+  ;; nothing but the cache's own construction answers this, so it is
+  ;; witnessed rather than assumed.
   (testing "a TAG named after an Object.prototype member parses as itself"
     (doseq [n ["toString" "valueOf" "hasOwnProperty" "isPrototypeOf" "constructor"]]
       (is (= n (el-type (rf.fresco.impl.codec/as-element [(keyword n)])))
@@ -125,13 +125,13 @@
     (is (= 4 (:props (rf.fresco.impl.codec/cache-sizes))))))
 
 (deftest the-codecs-cached-slot-is-the-shared-rules-answer
-  (testing "THE OTHER HALF OF THE EQUIVALENCE PIN (rf2-ani6y). The rule
+  (testing "THE OTHER HALF OF THE EQUIVALENCE PIN. The rule
             lives in `.cljc` so the JVM codemod and this runtime share one
             implementation, and `slot-cljs-test` runs its corpus on both
             hosts. That pins the RULE. What it cannot see is this codec
             putting something else in front of the rule — a
             hand-written seed in `prop-cache`, a cache keyed so two
-            spellings share one entry, a re-introduced local copy — each
+            spellings share one entry, a local copy of the rule — each
             of which would answer a slot the codemod would never predict.
             So the codec's own doors are asked the same corpus: whatever
             the rule answers, `cached-prop-name` and `canonical-slot`
@@ -213,14 +213,14 @@
       (is (= "a b" (prop (rf.fresco.impl.codec/as-element [:div.a {k "b"}]) "className"))
           (str "spelled " (pr-str k)))))
   (testing "the class value is coerced at the slot, so a collection joins
-            whatever key carried it — the coercion used to live in the map
-            surgery, where only `:class` and `:className` reached it"
+            whatever key carried it — coercing in the map surgery instead
+            would reach only `:class` and `:className`"
     (doseq [k [:class "className" :x/class]]
       (is (= "a x y" (prop (rf.fresco.impl.codec/as-element [:div.a {k ["x" nil :y]}]) "className"))
           (str "spelled " (pr-str k)))))
   (testing "two spellings of the one slot COMPOSE rather than the last write
-            silently winning — a dropped class is the failure class the
-            ruling exists to delete"
+            silently winning — a dropped class is the failure class this
+            rule exists to prevent"
     (is (= "a b c" (prop (rf.fresco.impl.codec/as-element [:div.a {:class "b" :x/class "c"}]) "className")))))
 
 (deftest the-shorthand-id-loses-to-an-explicit-one-however-it-is-spelled
@@ -242,14 +242,14 @@
       (is (= "many" (prop e "ids"))))))
 
 (deftest the-shorthand-fold-does-not-depend-on-map-order
-  ;; The audit's phrasing: the answer must hold "independent of cache/render
-  ;; /map order". Both spellings of both slots in one map, written in both
+  ;; The answer must hold independent of cache, render and map order. Both
+  ;; spellings of both slots in one map, written in both
   ;; orders, and again in a map big enough to be a PersistentHashMap rather
   ;; than an array map — the iteration order changes underneath and the
   ;; emitted element does not.
   (let [expected {"id" "caller" "className" "foo bar"}
         emitted  (fn [e] {"id" (prop e "id") "className" (prop e "className")})]
-    (testing "the audit's own witness, both ways round"
+    (testing "the two-slot witness, both ways round"
       (is (= expected (emitted (rf.fresco.impl.codec/as-element
                                 [:div#tag.foo {"id" "caller" "className" "bar"}]))))
       (is (= expected (emitted (rf.fresco.impl.codec/as-element
@@ -391,8 +391,8 @@
       (is (= ["children" "ref"] (prop-names e)))
       (is (identical? f (prop e "ref")))))
   (testing "and an attribute React would refuse on a fragment is dropped
-            before React sees it, exactly as it always was — this bead
-            forwards the ref, it does not open the fragment to attributes"
+            before React sees it — the fragment forwards its ref, and is
+            not open to attributes"
     (let [e (rf.fresco.impl.codec/as-element [:<> {:class "x" :on-click [:evt]} [:li "a"]])]
       (is (= ["children"] (prop-names e)))))
   (testing "a nil ref sets no slot, the same `when-some` reading `:key` gets"
@@ -460,7 +460,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-structural-slot-is-recognised-in-every-spelling-the-codec-accepts
-  (testing "the mechanism the whole of this bead's repair rests on: the slot
+  (testing "the mechanism the structural-slot filter rests on: the slot
             a key EMITS INTO, not the key it was written as. React's key and
             ref are reachable as a keyword, a string, a symbol and a
             namespaced keyword, and a rule that names `#{:key :ref}` sees
@@ -607,16 +607,16 @@
   (prop (rf.fresco.impl.codec/as-element [a-host {k v}]) slot))
 
 (deftest a-namespaced-keyword-keeps-its-namespace-at-a-host-prop
-  (testing "the shape rf2-vrvv9 names. `(name :theme/dark)` is \"dark\", so
-            the namespace used to be discarded on its way to a hosted
-            React-context provider and the value arrived as a plausible
-            string that had lost half its identity."
+  (testing "`(name :theme/dark)` is \"dark\", so stringifying here would
+            discard the namespace on its way to a hosted React-context
+            provider and deliver a plausible string that had lost half its
+            identity."
     (is (= :theme/dark (host-prop :value :theme/dark "value"))
         "the keyword crosses whole — not \"dark\", not \"theme/dark\""))
-  (testing "and the collision that made the loss silent is gone. Two
-            keywords from different namespaces used to arrive as ONE
-            string; a crossing that answers two inputs with one output is
-            not a conversion."
+  (testing "and there is no collision to make such a loss silent.
+            Stringified, two keywords from different namespaces would arrive
+            as ONE string; a crossing that answers two inputs with one
+            output is not a conversion."
     (let [crossed #{(host-prop :value :theme/dark "value")
                     (host-prop :value :other/dark "value")}]
       (is (= 2 (count crossed))
@@ -642,33 +642,33 @@
             read the spelling is a rule the other spelling walks past"
     (is (= "primary" (host-prop :className :primary "className")))
     (is (= "primary" (host-prop "class" :primary "className"))))
-  (testing "the namespace drop survives ONLY here, and it is the same answer
+  (testing "the namespace drop happens ONLY here, and it is the same answer
             the native walk gives at the same name"
     (is (= "dark" (host-prop :class :theme/dark "className")))
     (is (= "dark" (prop (rf.fresco.impl.codec/as-element [:div {:class :theme/dark}]) "className"))
-        "the native crossing, unchanged")))
+        "the native crossing, the same answer")))
 
 ;; ---------------------------------------------------------------------------
 ;; The class slot is a POSITION at the crossing too
 ;; ---------------------------------------------------------------------------
 
 (deftest a-class-collection-crosses-as-a-class-string-at-a-host-and-at-a-tag
-  (testing "THE DEVIATION rf2-2rtt6.119 names. The class slot has a coercion
-            of its own — `class-names` — and it was taken at the native
-            position only, so ONE authored shape got TWO answers. The
-            crossing sent `{:class [\"a\" nil :b]}` through `clj->js` and
-            handed the foreign component a JS array, which React writes to
-            the DOM as \"a,,b\" wherever the component passes it on: nothing
-            threw and the styling was simply wrong."
+  (testing "ONE authored shape, ONE answer. The class slot has a coercion of
+            its own — `class-names` — and it is taken at the crossing as
+            well as at the native position. Sent through `clj->js` instead,
+            `{:class [\"a\" nil :b]}` would hand the foreign component a JS
+            array, which React writes to the DOM as \"a,,b\" wherever the
+            component passes it on: nothing would throw and the styling
+            would simply be wrong."
     (let [crossed (host-prop :class ["a" nil :b] "className")
           native  (prop (rf.fresco.impl.codec/as-element [:div {:class ["a" nil :b]}]) "className")]
       (is (string? crossed)
-          "a class string, not the JS array clj->js used to build here")
+          "a class string, not the JS array clj->js would build")
       (is (= "a b" crossed))
       (is (= native crossed)
-          "and it is the SAME answer the native walk gives — which is the
-           rule rf2-vrvv9 already stated for the named value at this slot,
-           applied to the arm a collection takes")))
+          "and it is the SAME answer the native walk gives — the rule for
+           the named value at this slot, applied to the arm a collection
+           takes")))
   (testing "the coercion is on the SLOT, so it holds in every spelling of it
             — the discipline `canonical-slot` and the owned-literal law
             already use, and the reason a rule written against `:class`
@@ -686,21 +686,20 @@
     (let [e (rf.fresco.impl.codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
       (is (= "a b c" (prop e "className"))))
     ;; the crossing rule as a worked case — the guide states it as a rule
-    ;; (docs/core/fresco/09-interop.md §Crossing rules) and no longer carries
-    ;; the example this once quoted verbatim
+    ;; (docs/core/fresco/09-interop.md §Crossing rules), without this example
     (is (= "btn on wide"
            (prop (rf.fresco.impl.codec/as-element [a-host {:class ["btn" nil :on] :className "wide"}])
                  "className"))))
-  (testing "nothing else at the slot moves. A string is verbatim, a keyword
-            still stringifies (rf2-vrvv9's rule, unchanged), and a
-            namespaced keyword still drops its namespace HERE and only here"
+  (testing "the slot's other conversions: a string is verbatim, a keyword
+            stringifies, and a namespaced keyword drops its namespace HERE
+            and only here"
     (is (= "primary" (host-prop :class "primary" "className")))
     (is (= "primary" (host-prop :class :primary "className")))
     (is (= "dark" (host-prop :class :theme/dark "className")))
     (is (nil? (host-prop :class nil "className"))))
-  (testing "and the deviation was the class slot ALONE — `id` and `role`
-            hand a collection to `clj->js` at BOTH positions, so there is
-            nothing to reconcile there and nothing here that changed them"
+  (testing "and the coercion is the class slot's ALONE — `id` and `role`
+            hand a collection to `clj->js` at BOTH positions, so the two
+            positions agree there as well"
     (is (array? (host-prop :id ["a" "b"] "id")))
     (is (array? (prop (rf.fresco.impl.codec/as-element [:div {:id ["a" "b"]}]) "id"))
         "the native walk's own answer, quoted so the claim is not asserted
@@ -724,7 +723,7 @@
     (is (= "a b" (host-prop :class ["a" "b"] "className")))))
 
 (deftest a-host-infers-the-contract-from-the-spelling-exactly-as-a-native-tag
-  ;; rf2-6c12m.2 — the declaration roster is gone. `host-entry`'s `:else`
+  ;; There is no declaration roster. `host-entry`'s `:else`
   ;; arm IS `intent/lower-prop`, the native walk's own classifier, so a
   ;; host prop means what the same prop means on a native tag.
   (let [!seen (atom [])
@@ -827,9 +826,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest an-object-ref-crosses-by-identity-at-both-positions
-  (testing "rf2-d03av, settled as a RECORD rather than a refusal. HD-016
-            reads 'callback refs only', and HD-022 — later, and the ruling
-            that is actually about `:ref`'s value space — says the whole of
+  (testing "An object ref is a RECORD rather than a refusal. HD-016
+            reads 'callback refs only', and HD-022 — the decision that is
+            actually about `:ref`'s value space — says the whole of
             the claim is ONE refusal branch and one error id: the reserved
             vector. An object ref is neither reserved nor broken. React 19
             carries `ref` as an ordinary prop, so `(react/createRef)`
@@ -901,12 +900,11 @@
   (try (f) ::did-not-throw (catch :default e (:rf.error/id (ex-data e)))))
 
 (deftest the-escape-is-a-crossing-and-not-a-tag-named-angle-bracket
-  (testing "THE MIS-PARSE REGRESSION. `:>` was not an error before this:
-            `hiccup-tag?` accepted any keyword that is not `:<>`, so
-            `[:> Foo {}]` routed to the native path and asked React for
-            an element literally named `<>`"
+  (testing "THE MIS-PARSE. A `hiccup-tag?` that accepted any keyword that
+            is not `:<>` would route `[:> Foo {}]` to the native path and
+            ask React for an element literally named `>`"
     (let [e (rf.fresco.impl.codec/as-element [:> a-foreign-component {}])]
-      (is (not= ">" (el-type e)) "not a native tag any more")
+      (is (not= ">" (el-type e)) "not a native tag")
       (is (fn? (el-type e)) "a component — the shared gate")
       (is (= "[:>]" (.-displayName (el-type e)))
           "named by the CONSTANT, never by the component: React resolves
@@ -925,12 +923,11 @@
           "precondition: the row is only meaningful because these are two
            objects")
       (is (= "[:>]" (.-displayName (el-type (rf.fresco.impl.codec/as-element [computed a-foreign-component {}])))))))
-  (testing "and the arms either side of the new one are untouched"
+  (testing "and the arms either side of it keep their own meaning"
     (is (= (.-Fragment react) (el-type (rf.fresco.impl.codec/as-element [:<> "x"]))))
     (is (= "div" (el-type (rf.fresco.impl.codec/as-element [:div]))))
     (is (= "toString" (el-type (rf.fresco.impl.codec/as-element [:toString])))
-        "the redundant second fragment test that paid for this arm is
-         gone; a native tag still parses as itself")))
+        "a native tag parses as itself")))
 
 (deftest conversion-parity-with-the-door-on-one-prop-corpus
   (testing "THE LOAD-BEARING ROW. HD-011 rules that the escape lowers
@@ -964,8 +961,8 @@
         (is (crossed-same? (aget door k) (aget raw k))
             (str "the slot " k " crossed the same way at both")))))
   (testing "including the two conversions that are the slot's own rather
-            than the walk's — the class coercion (rf2-2rtt6.119) and the
-            named value bound for an HTML attribute (rf2-vrvv9)"
+            than the walk's — the class coercion and the named value bound
+            for an HTML attribute"
     (is (= "a b" (raw-prop :class ["a" nil :b] "className")))
     (is (= "dark" (raw-prop :class :theme/dark "className")))
     (is (= :theme/dark (raw-prop :value :theme/dark "value"))
@@ -989,8 +986,7 @@
     (is (= ["c" "children" "p"]
            (vec (sort (js/Object.keys (raw-carrier (rf.fresco.impl.codec/as-element [:> a-foreign-component {} [:span]]))))))))
   (testing "`:key` is React's contract on the crossing's own element, not
-            an attribute and not a carrier slot — the door's rule,
-            unchanged"
+            an attribute and not a carrier slot — the door's rule"
     (let [e (rf.fresco.impl.codec/as-element [:> a-foreign-component {:key "k7" :label "x"}])]
       (is (= "k7" (el-key e)))
       ;; `Object.keys` rather than a read of `.key`: React 19 defines a
@@ -1058,7 +1054,7 @@
 (deftest children-lower-eagerly-and-ride-the-outer-element
   (testing "trailing forms lower here, in the render window of the
             boundary that wrote the crossing, through `make-element`'s
-            existing three arms — so an intent closure in a child
+            three arms — so an intent closure in a child
             captures the owner's frame-locked dispatch at LOWERING time
             (the two-frame proof of that is the DOM witness)"
     (let [one (raw-carrier (rf.fresco.impl.codec/as-element [:> a-foreign-component {} [:span "x"]]))]
@@ -1211,12 +1207,12 @@
     @seen))
 
 ;; A console.error spy on React deliberately does NOT appear here. React 19
-;; removed key validation from `createElement` — the reconciler does it during
+;; does no key validation in `createElement` — the reconciler does it during
 ;; render — so at `as-element` time React is silent about EVERY shape, keyed
 ;; or not, host parent or boundary. A row asserting "React said nothing at the
-;; crossing" would therefore pass on a tree where the defect was fully fixed,
-;; and pass just as well on one where it was never present: a green that means
-;; nothing. The mechanism is pinned structurally instead, below.
+;; crossing" would therefore pass on every tree, whatever the codec does: a
+;; green that means nothing. The mechanism is pinned structurally instead,
+;; below.
 
 (deftest under-a-host-parent-an-unkeyed-seq-is-reacts-to-warn-about-and-the-codec-is-silent
   (let [row (named-view "w1.ns/row")]
@@ -1396,11 +1392,12 @@
       (is (re-find #"carries a set at :key" (second out))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE TOTALITY REPAIR
+;; THE CLASSIFICATION IS TOTAL
 ;;
-;; `check-member-key!`'s classification once let every non-nil `:key` that was
-;; neither primitive nor a CLJS collection fall out of the check in silence.
-;; The foreign JS object is the shape that makes that a bug rather than a gap:
+;; `check-member-key!`'s classification names every non-nil `:key` that is
+;; neither primitive nor a CLJS collection, rather than letting it fall out of
+;; the check in silence. The foreign JS object is the shape that makes silence
+;; a bug rather than a gap:
 ;; every one of them string-coerces to the SAME `[object Object]`, so distinct
 ;; rows share one key. The rows below pin the collision on our own lowering
 ;; first, then the warning, then — just as load-bearing — the two shapes
@@ -1449,7 +1446,7 @@
         (is (re-find #"carries a foreign object at :key" (first out)))))))
 
 (deftest every-other-non-primitive-key-shape-is-named-rather-than-dropped
-  (testing "the shapes that used to fall through the missing `:else`"
+  (testing "the shapes a classification without an `:else` would let fall through"
     (doseq [[label k pattern]
             [["boolean"  true         #"carries a boolean at :key"]
              ["function" (fn [] 1)    #"carries a function at :key"]
