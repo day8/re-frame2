@@ -1,17 +1,17 @@
 (ns re-frame.spawn-reentry-mirror-cljs-test
-  "rf2-3x7nj.9.4 — exiting and re-entering a `:spawn`-bearing state in ONE
+  "Exiting and re-entering a `:spawn`-bearing state in ONE
   macrostep leaves the parent's `[:data :rf/spawned <invoke-id>]` mirror naming
   the NEW child, exactly as the runtime registry slot does.
 
   The transition reducer commits the parent with the mirror already re-pointed
   at the successor; the fx drain then runs the OLD child's tracked destroy
-  before the successor's spawn. The teardown projection used to clear the
-  mirror by invoke-id regardless of what it named, so it deleted the
-  successor's id, and the spawn re-populated only the registry slot: a live
-  child the parent could no longer name (Spec 005 — the mirror 'mirrors the
+  before the successor's spawn. A teardown that cleared the mirror by
+  invoke-id regardless of what it named would delete the successor's id, and
+  a spawn that re-populated only the registry slot would leave a live child
+  the parent could no longer name (Spec 005 — the mirror 'mirrors the
   runtime registry slot', and exists so an action can read its child's id).
   The teardown clears slot and mirror together, so the spawn install (and the
-  `:spawn-all` seed) now writes them together too.
+  `:spawn-all` seed) writes them together too.
 
   The file is named `*-cljs-test.cljc` so it is discovered by both
   cognitect.test-runner (JVM) and shadow-cljs (the `cljs-test$` ns-regexp)."
