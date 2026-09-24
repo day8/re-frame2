@@ -1,13 +1,11 @@
 (ns day8.re-frame2-machines-viz.adapters.react-chart
   "Shared React-component bridge for the `MachineChart` substrate
-  adapters (rf2-yg9he · xyflow Phase 2).
+  adapters.
 
   ## Why this exists
 
-  The xyflow migration (#1806) shipped `MachineChart` Reagent-only —
-  that was the accepted Phase 1 trade-off when the chart went from
-  substrate-agnostic hiccup to a React-component-shaped renderer (xyflow
-  is a React library). This bead restores UIx substrate parity.
+  `MachineChart` is a Reagent component whose renderer is xyflow, a
+  React library. This bridge gives a UIx host the same chart.
 
   The lever is that xyflow IS React: the Reagent `MachineChart` bottoms
   out at a React element tree (via `r/as-element` inside its node + edge
