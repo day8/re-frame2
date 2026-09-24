@@ -54,7 +54,9 @@
   Every chunk element is read only once the parser has CLOSED it
   (`parser-closed?`): the parser inserts a `<script>` or `<template>` at
   its start tag and fills it as bytes arrive, so an element's presence
-  says nothing about whether its contents are all there.
+  says nothing about whether its contents are all there. A fallback
+  `<template>` is painted from what has arrived so the skeleton shows at
+  once, but is consumed only once closed (`materialise-fallback!`).
 
   ## Wire-shape contract — matches the SHIPPED server emitter EXACTLY
 
@@ -241,6 +243,12 @@
   [root wire-id-string]
   (last (mounts-for root wire-id-string)))
 
+(def ^:private provisional-mounts
+  "Fallback `<template>` → the mount painted from it while the parser was
+  still writing it (`materialise-fallback!`, rf2-5yj03). Weak, so an entry
+  never outlives its template."
+  (js/WeakMap.))
+
 (defn- materialise-fallback!
   "Turn one inert `data-rf2-suspense-fallback` `<template>` into a LIVE
   visible mount. Inserts an `<rf-suspense data-rf2-suspense-mount>`
@@ -251,32 +259,59 @@
 
   Per-template idempotent by construction: a materialised template is
   REMOVED from the DOM, so a later sweep's `materialise-fallbacks!` query
-  cannot re-encounter it. We therefore do NOT short-circuit on an existing
-  same-id mount — doing so would collapse a DUPLICATE-id boundary's second
-  fallback `<template>` into the first boundary's mount, leaving the second
-  template stranded inert in the DOM. Each declared boundary
+  cannot re-encounter it; while the parser is still writing it (below), it
+  is remembered with its mount in `provisional-mounts`, so a later sweep
+  finds that mount rather than making a second. We do NOT short-circuit on
+  an existing same-id mount — doing so would collapse a DUPLICATE-id
+  boundary's second fallback `<template>` into the first boundary's mount,
+  leaving the second template stranded inert in the DOM. Each declared boundary
   gets its OWN visible mount; the resolved chunk later targets the LAST one
   (`mount-for`).
 
-  Returns the new mount element, or nil if the template carried no id."
-  [fallback-template]
+  A template the parser has not yet closed (`parser-closed?`) is painted
+  PROVISIONALLY and not consumed (rf2-5yj03). The parser fills a
+  `<template>`'s `.content` as bytes arrive, so a fallback split across
+  network reads holds only its prefix, and the parser goes on writing the
+  rest into the template it holds — into a removed original, had we
+  consumed it. So the mount shows the prefix at once (the skeleton is the
+  first paint), the template stays in place, and the first sweep after the
+  parser has closed it repaints the mount from the WHOLE template and
+  consumes it. Until then later sweeps leave the mount alone: a repaint is
+  a mutation, which the observer would answer with another sweep, and so
+  on for as long as the template stayed open.
+
+  Returns the mount element, or nil if the template carried no id."
+  [root fallback-template]
   (when-let [wire-id-string (.getAttribute fallback-template attr-suspense-id)]
-    (let [parent (.-parentNode fallback-template)
-          mount  (.createElement js/document mount-tag)]
-      (.setAttribute mount attr-suspense-mount wire-id-string)
-      (.appendChild mount (template-content-fragment fallback-template))
-      (when parent
-        (.insertBefore parent mount fallback-template)
-        (.removeChild parent fallback-template))
-      mount)))
+    (let [parent      (.-parentNode fallback-template)
+          provisional (.get provisional-mounts fallback-template)
+          closed?     (parser-closed? root fallback-template)]
+      (if provisional
+        (do (when closed?
+              (set! (.-innerHTML provisional) "")
+              (.appendChild provisional (template-content-fragment fallback-template))
+              (.delete provisional-mounts fallback-template)
+              (when parent
+                (.removeChild parent fallback-template)))
+            provisional)
+        (let [mount (.createElement js/document mount-tag)]
+          (.setAttribute mount attr-suspense-mount wire-id-string)
+          (.appendChild mount (template-content-fragment fallback-template))
+          (when parent
+            (.insertBefore parent mount fallback-template)
+            (if closed?
+              (.removeChild parent fallback-template)
+              (.set provisional-mounts fallback-template mount)))
+          mount)))))
 
 (defn- materialise-fallbacks!
   "Materialise every un-mounted fallback `<template>` under `root` into a
   live mount. Run on install + on observed additions so a fallback that
-  streamed in after install still becomes visible."
+  streamed in after install still becomes visible, and so a provisionally
+  painted one is repainted whole once the parser has closed it."
   [root]
   (doseq [fallback-template (query-by-attr root attr-suspense-fallback)]
-    (materialise-fallback! fallback-template)))
+    (materialise-fallback! root fallback-template)))
 
 (defn- replace-mount-content!
   "Replace the live mount's children for `wire-id-string` with the resolved
