@@ -9,7 +9,7 @@
   These tests exercise the REAL fire path — the host-clock thunk
   `machines.timer` installs — rather than dispatching the synthetic
   `:after-elapsed` event directly (which bypasses the `after-timers` registry
-  entirely, the reason the bug was invisible to the rest of the suite). The
+  entirely, so it cannot see a stranded entry). The
   host clock + the dynamic-delay subscription reaction are both controlled via
   `with-redefs`, after the pattern already used by the sub-vec :after exception
   tests in `after_test.clj`, so the test is deterministic on BOTH the JVM and
@@ -44,7 +44,7 @@
   ;; the state does NOT exit. The firing entry MUST be reaped at fire time
   ;; (no leak), and the now-spent one-shot MUST NOT re-arm when the dynamic
   ;; delay's value later changes.
-  (testing "rf2-8cndln — a guard-suppressed sub-delay :after fire reaps its
+  (testing "a guard-suppressed sub-delay :after fire reaps its
             registry entry (no leak) and the spent one-shot does not re-arm"
     (let [;; A plain atom stands in for the dynamic-delay subscription
           ;; reaction: `add-watch` / `remove-watch` and a `reset!`-driven
@@ -59,7 +59,7 @@
              :data    {}
              ;; Guard always false → the timer's elapsed event is discarded,
              ;; the state does NOT exit, so no `:on-exit` cancel ever runs —
-             ;; the exact path that previously stranded the entry.
+             ;; the path that would strand the entry if the fire did not reap it.
              :guards  {:never? (fn [_] false)}
              :states  {:idle    {:on {:go :running}}
                        :running {:after {[:t/dyn-delay]
@@ -101,10 +101,9 @@
         (is (empty? (default-inner))
             "(a) the guard-suppressed fire REAPED its registry entry — no leak")
 
-        ;; (b) NO RE-ARM — change the dynamic delay's value. Before the fix
-        ;; the watcher is still installed, so `on-sub-changed!` re-arms a
-        ;; fresh timer for the spent one-shot; after the fix the watcher is
-        ;; gone, so the change is inert.
+        ;; (b) NO RE-ARM — change the dynamic delay's value. The reap removed
+        ;; the watcher, so the change is inert; a surviving watcher would let
+        ;; `on-sub-changed!` re-arm a fresh timer for the spent one-shot.
         (reset! delay-reaction 9999)
         (is (empty? (default-inner))
             "(b) the spent one-shot did NOT re-arm on a later sub-value change
