@@ -7,7 +7,7 @@
       `\"5s\"` / `\"10ms\"` shorthand is rejected);
     - registration-time fail-loud validation (timeout requires on-timeout
       and vice-versa; bad duration; :after collision);
-    - desugaring `:timeout` / `:on-timeout` onto the existing `:after`
+    - desugaring `:timeout` / `:on-timeout` onto the `:after`
       timer mechanism (distinct intent, ONE mechanism);
     - the dispatch boundary — the timeout actually arms an `:after`
       timer on state entry and the synthetic timer-elapsed event fires the
@@ -58,7 +58,7 @@
     (is (nil? (rf.machines.timeout/resolve-duration-ms "PT")))))
 
 (deftest duration-rejects-xstate-shorthand
-  (testing "the XState `5s` / `10ms` shorthand is REJECTED (operator-ruled divergence)"
+  (testing "the XState `5s` / `10ms` shorthand is REJECTED (a deliberate divergence)"
     (is (nil? (rf.machines.timeout/resolve-duration-ms "5s")))
     (is (nil? (rf.machines.timeout/resolve-duration-ms "10ms")))
     (is (nil? (rf.machines.timeout/resolve-duration-ms "2m")))
