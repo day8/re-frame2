@@ -1,18 +1,17 @@
 (ns re-frame.http-encoding-test
-  "Direct unit coverage for the pure-fn helpers in `re-frame.http.encoding`
-  (rf2-9dro2; follow-on from rf2-q1z1u F2).
+  "Direct unit coverage for the pure-fn helpers in `re-frame.http.encoding`.
 
-  Extended under rf2-ohwgm (http test-coverage audit) with the request-side
-  encoding pipeline — `url-encode`, `params->query`, `merge-params`,
-  `encode-body` — and the default `run-accept` normalisation. These run on
-  every request / response yet had no direct test before.
+  Covers the request-side encoding pipeline — `url-encode`,
+  `params->query`, `merge-params`, `encode-body` — and the default
+  `run-accept` normalisation. These run on every request / response, so
+  each gets a direct test.
 
   Specifically pins `compute-backoff-ms` against Spec 014 §Retry and
-  backoff at the function boundary. The fn is currently exercised
-  only indirectly via the managed-HTTP retry integration tests in
-  `http_managed_test.clj`; a regression that bumped the jitter
-  constant, the clamp threshold, or the exponent base would not
-  surface at the helper's own test name today.
+  backoff at the function boundary. The managed-HTTP retry integration
+  tests in `http_managed_test.clj` exercise the fn only indirectly, so
+  without these a regression that bumped the jitter constant, the clamp
+  threshold, or the exponent base would not surface at the helper's own
+  test name.
 
   Per Spec 014 §Retry and backoff:
    - default :base-ms 250, :factor 2, :max-ms 5000 (exponential)
@@ -28,7 +27,7 @@
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 
 (deftest compute-backoff-ms-defaults-exponential-curve
-  (testing "rf2-9dro2 — default config (base-ms 250, factor 2,
+  (testing "default config (base-ms 250, factor 2,
             max-ms 5000) produces the documented exponential curve:
             250, 500, 1000, 2000, 4000, then clamped to 5000."
     (is (= 250  (rf.http.encoding/compute-backoff-ms {} 1))
@@ -49,7 +48,7 @@
         "attempt 20 = very large, clamped to max-ms 5000")))
 
 (deftest default-backoff-is-the-single-source-of-truth
-  (testing "rf2-t5mzx (F5) — `default-backoff` names the exponential-backoff
+  (testing "`default-backoff` names the exponential-backoff
             defaults Spec 014 §Retry and backoff documents (base-ms 250,
             factor 2, max-ms 5000), and `compute-backoff-ms` draws its `:or`
             defaults from it so the two can't drift"
@@ -63,7 +62,7 @@
         "deep-attempt delay clamps to default-backoff's :max-ms")))
 
 (deftest compute-backoff-ms-custom-base-and-factor
-  (testing "rf2-9dro2 — caller-supplied :base-ms and :factor override
+  (testing "caller-supplied :base-ms and :factor override
             the defaults"
     (is (= 100 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 1))
         "attempt 1 with base=100, factor=3 → 100 × 3^0 = 100")
@@ -75,7 +74,7 @@
         "attempt 4 with base=100, factor=3 → 100 × 27 = 2700")))
 
 (deftest compute-backoff-ms-linear-when-factor-is-one
-  (testing "rf2-9dro2 — :factor 1 produces a LINEAR (constant) backoff:
+  (testing ":factor 1 produces a LINEAR (constant) backoff:
             every attempt waits :base-ms. Spec 014 §Retry config
             allows :factor 1 as the linear escape hatch."
     (let [cfg {:base-ms 500 :factor 1 :max-ms 10000}]
@@ -87,7 +86,7 @@
            attempt number — never grows, never clamps"))))
 
 (deftest compute-backoff-ms-max-ms-clamp
-  (testing "rf2-9dro2 — :max-ms is the upper clamp on the per-attempt
+  (testing ":max-ms is the upper clamp on the per-attempt
             delay; once raw exceeds :max-ms the result is exactly
             :max-ms (not bigger, not jittered)"
     (let [cfg {:base-ms 1000 :factor 2 :max-ms 3000}]
@@ -101,7 +100,7 @@
           "raw 1000 × 2^49 clamped to max 3000"))))
 
 (deftest compute-backoff-ms-handles-low-attempt-numbers
-  (testing "rf2-9dro2 — attempt 0 / negative is guarded by `(max 0
+  (testing "attempt 0 / negative is guarded by `(max 0
             (dec attempt))` in the exponent so it does not produce a
             negative exponent / fractional delay"
     (is (= 250 (rf.http.encoding/compute-backoff-ms {} 0))
@@ -111,7 +110,7 @@
         "negative attempt → same floor at 250")))
 
 (deftest compute-backoff-ms-returns-long-integer
-  (testing "rf2-9dro2 — the return type is `long` (the source coerces
+  (testing "the return type is `long` (the source coerces
             via `(long jittered)`), suitable for direct use as a
             timeout argument"
     (let [result (rf.http.encoding/compute-backoff-ms {} 3)]
@@ -126,7 +125,7 @@
 ;; floor of zero per the source.
 
 (deftest compute-backoff-ms-jitter-stays-within-spec-window
-  (testing "rf2-9dro2 — when :jitter true, the result sits in the
+  (testing "when :jitter true, the result sits in the
             ±25% window around the capped raw value across many
             samples"
     (let [cfg     {:base-ms 1000 :factor 2 :max-ms 5000 :jitter true}
@@ -143,13 +142,13 @@
                  low ", " high "]")))
       ;; And the samples are not all identical — sanity check that
       ;; jitter is actually being applied (catches a regression where
-      ;; `:jitter true` silently fell through to the un-jittered branch).
+      ;; `:jitter true` silently falls through to the un-jittered branch).
       (is (> (count (set samples)) 1)
           "jitter produces variance across samples (catches a regression
-           where the `:jitter true` arm was unreachable)"))))
+           where the `:jitter true` arm is unreachable)"))))
 
 (deftest compute-backoff-ms-jitter-never-negative
-  (testing "rf2-9dro2 — the source caps jittered output at 0 via
+  (testing "the source caps jittered output at 0 via
             `(max 0 ...)`. With max-ms small enough that 25% offset
             could go negative, the floor protects the caller from a
             negative timeout"
@@ -160,7 +159,7 @@
             (str "jittered sample " s " is non-negative (floor at 0)"))))))
 
 (deftest compute-backoff-ms-jitter-respects-clamp
-  (testing "rf2-9dro2 — clamp happens BEFORE jitter is applied (per
+  (testing "clamp happens BEFORE jitter is applied (per
             the source: `capped = min raw max-ms`, then jitter scales
             `capped`). So a long-running retry at the clamp still
             jitters around max-ms, not the raw-uncapped value."
@@ -176,15 +175,15 @@
 ;; ---- build-reply-event — Spec 014 §Reply addressing -----------------------
 ;;
 ;; The branches: explicit nil (silenced), explicit vector (append payload),
-;; NOT-supplied (nil — the co-located default was retired pre-alpha,
-;; rf2-et4c1s; a wholly-unaddressed request fails loud upstream at
+;; NOT-supplied (nil — there is no co-located default;
+;; a wholly-unaddressed request fails loud upstream at
 ;; `validate-reply-target!`, so an unsupplied branch reaching here is the
-;; partial-addressing silence case), and — per rf2-smqkq — an explicitly
+;; partial-addressing silence case), and an explicitly
 ;; supplied non-vector non-nil value (malformed) which must throw.
 
-;; rf2-ibksxg — build-reply-event is payload-shape-agnostic; it appends /
-;; merges whatever reply map it is given. The payload is now the CANONICAL
-;; reply envelope (`{:status :ok :value …}`), not the retired {:kind …} dialect.
+;; build-reply-event is payload-shape-agnostic; it appends /
+;; merges whatever reply map it is given. The payload here is the CANONICAL
+;; reply envelope (`{:status :ok :value …}`).
 (def ^:private reply-payload {:status :ok :value 42})
 
 (deftest build-reply-event-explicit-nil-is-silenced
@@ -209,10 +208,10 @@
                 :reply-payload reply-payload}))))))
 
 (deftest build-reply-event-unsupplied-is-nil
-  (testing "rf2-et4c1s — an UNSUPPLIED branch (:supplied? false) yields nil
-            (no event dispatched): the co-located default (reply merged
-            under :rf/reply back to the originating event) was retired
-            pre-alpha. A wholly-unaddressed request fails loud upstream at
+  (testing "an UNSUPPLIED branch (:supplied? false) yields nil
+            (no event dispatched): there is no co-located default (no reply
+            merged under :rf/reply back to the originating event).
+            A wholly-unaddressed request fails loud upstream at
             validate-reply-target!; an unsupplied branch reaching here is
             the partial-addressing silence case."
     (is (nil? (rf.http.encoding/build-reply-event
@@ -225,10 +224,10 @@
                  :reply-payload reply-payload})))))
 
 (deftest build-reply-event-non-vector-explicit-throws
-  (testing "rf2-smqkq — an explicitly supplied non-vector non-nil reply
+  (testing "an explicitly supplied non-vector non-nil reply
             target (keyword / map) is malformed per Spec 014 §Reply
             addressing ('event vector or nil') and must throw rather than
-            silently fall through to the default-merge branch"
+            silently re-route to the originator"
     ;; bare keyword
     (let [ex (is (thrown-with-msg?
                    clojure.lang.ExceptionInfo
@@ -257,20 +256,18 @@
                      (catch clojure.lang.ExceptionInfo _ ::threw)))))))
 
 ;; ===========================================================================
-;; rf2-ohwgm — request-side encoding pipeline (G3) + default `run-accept` (G2)
+;; Request-side encoding pipeline + default `run-accept`
 ;;
-;; Per the http test-coverage audit (ai/findings/2026-05-21-testcov-http.md):
 ;; `encode-body` / `params->query` / `merge-params` / `url-encode` run on
-;; EVERY request via `run-attempt!` (http_transport.cljc:749,754) yet had
-;; zero direct test. The default `:accept` (`run-accept` with a nil
-;; accept-fn) was likewise only exercised incidentally. Both are pure /
-;; host-agnostic → the fast JVM layer.
+;; EVERY request via `run-attempt!`, and the default `:accept` (`run-accept`
+;; with a nil accept-fn) on every 2xx response, so each gets a direct test.
+;; Both are pure / host-agnostic → the fast JVM layer.
 ;; ===========================================================================
 
 ;; ---- url-encode — Spec 014 §Body encoding (query escaping) ----------------
 
 (deftest url-encode-escapes-reserved-characters
-  (testing "rf2-ohwgm — url-encode percent-escapes reserved query
+  (testing "url-encode percent-escapes reserved query
             characters so a value never breaks out of its key=value slot"
     (is (= "hello%20world" (rf.http.encoding/url-encode "hello world"))
         "JVM maps the URLEncoder `+` to `%20` (space) per the source")
@@ -287,7 +284,7 @@
 ;; ---- params->query — keyword keys, escaping, joining ----------------------
 
 (deftest params->query-encodes-keyword-keys-and-escapes-values
-  (testing "rf2-ohwgm — params->query renders keyword keys via `name`,
+  (testing "params->query renders keyword keys via `name`,
             escapes values, and joins pairs with `&` (no leading `?`)"
     (is (= "page=2" (rf.http.encoding/params->query {:page 2}))
         "keyword key → name; numeric value coerced via url-encode")
@@ -301,7 +298,7 @@
     (is (= "" (rf.http.encoding/params->query {})))))
 
 (deftest params->query-multi-valued-uses-repeat-key
-  (testing "rf2-mag59 — a sequential value (vector / seq / list) encodes
+  (testing "a sequential value (vector / seq / list) encodes
             as one repeated k=v pair per element (repeat-key idiom),
             NOT a single (str coll) blob"
     (is (= "tag=a&tag=b"
@@ -336,9 +333,9 @@
 ;; ---- merge-params — `?` vs `&` separator selection ------------------------
 
 (deftest merge-params-selects-question-mark-or-ampersand
-  (testing "rf2-ohwgm — merge-params appends the query string with `?`
+  (testing "merge-params appends the query string with `?`
             when the URL has none, and `&` when the URL already carries a
-            `?` (http_encoding.cljc:60-67)"
+            `?`"
     (is (= "/items?page=2"
            (rf.http.encoding/merge-params "/items" {:page 2}))
         "no existing `?` → join with `?`")
@@ -350,10 +347,10 @@
     (is (= "/items" (rf.http.encoding/merge-params "/items" nil)))))
 
 (deftest merge-params-splices-before-fragment
-  (testing "rf2-rznrz — params are spliced BEFORE a `#fragment`, never after.
+  (testing "params are spliced BEFORE a `#fragment`, never after.
             Query text after a `#` is fragment text — real HTTP clients send
-            the fragment to nobody, so appending the query AFTER the `#` (the
-            prior `(str url sep qs)` shape) silently drops the params."
+            the fragment to nobody, so appending the query AFTER the `#` (a
+            `(str url sep qs)` shape) would silently drop the params."
     (is (= "/items?page=2#frag"
            (rf.http.encoding/merge-params "/items#frag" {:page 2}))
         "no existing `?` → the query is inserted with `?` BEFORE `#frag`,
@@ -368,7 +365,7 @@
           "params MUST NOT land after the `#` where they'd be dropped on the wire"))))
 
 (deftest merge-params-no-encoded-pairs-leaves-url-unchanged
-  (testing "rf2-rznrz — when the params map encodes to NO query pairs (e.g.
+  (testing "when the params map encodes to NO query pairs (e.g.
             `{:tag []}` per params->query's empty-sequential rule) the URL is
             returned UNCHANGED — no dangling `?` / `&`. The decision keys off
             the ENCODED query string, not `(seq params)`."
@@ -395,14 +392,14 @@
 ;; pass-through).
 
 (deftest encode-body-nil-body-emits-no-content-type
-  (testing "rf2-ohwgm — a nil body encodes to [nil nil] (no body, no
+  (testing "a nil body encodes to [nil nil] (no body, no
             Content-Type header)"
     (is (= [nil nil] (rf.http.encoding/encode-body nil :json))
         "nil body short-circuits regardless of the requested content-type")
     (is (= [nil nil] (rf.http.encoding/encode-body nil nil)))))
 
 (deftest encode-body-json-request-content-type
-  (testing "rf2-ohwgm — :request-content-type :json JSON-stringifies the
+  (testing ":request-content-type :json JSON-stringifies the
             body and returns application/json"
     (let [[body ct] (rf.http.encoding/encode-body {:a 1 :b "two"} :json)]
       (is (= "application/json" ct))
@@ -410,7 +407,7 @@
           "the body round-trips through json-parse (stable across key order)"))))
 
 (deftest encode-body-form-request-content-type
-  (testing "rf2-ohwgm — :request-content-type :form URL-encodes the map as
+  (testing ":request-content-type :form URL-encodes the map as
             a form body and returns application/x-www-form-urlencoded"
     (let [[body ct] (rf.http.encoding/encode-body {:q "a b" :page 2} :form)]
       (is (= "application/x-www-form-urlencoded" ct))
@@ -421,22 +418,22 @@
       (is (clojure.string/includes? body "page=2")))))
 
 (deftest encode-body-text-request-content-type
-  (testing "rf2-ohwgm — :request-content-type :text stringifies the body
+  (testing ":request-content-type :text stringifies the body
             and returns text/plain"
     (is (= ["hello" "text/plain"] (rf.http.encoding/encode-body "hello" :text)))
     (is (= ["42" "text/plain"] (rf.http.encoding/encode-body 42 :text))
         "non-string body coerced via (str ...)")))
 
 (deftest encode-body-explicit-mime-string-request-content-type
-  (testing "rf2-ohwgm — an explicit MIME-string :request-content-type
+  (testing "an explicit MIME-string :request-content-type
             stringifies the body and returns that exact MIME unchanged"
     (is (= ["<x/>" "application/xml"]
            (rf.http.encoding/encode-body "<x/>" "application/xml")))))
 
 (deftest encode-body-coll-heuristic-defaults-to-json
-  (testing "rf2-ohwgm — with no explicit :request-content-type, a raw
+  (testing "with no explicit :request-content-type, a raw
             Clojure coll (map / sequential / set) is JSON-encoded and
-            tagged application/json (the heuristic at http_encoding.cljc:97)"
+            tagged application/json (the coll heuristic in `encode-body`)"
     (let [[mbody mct] (rf.http.encoding/encode-body {:a 1} nil)]
       (is (= "application/json" mct))
       (is (= {:a 1} (rf.http.json/json-parse mbody))))
@@ -448,7 +445,7 @@
           "a set also trips the coll heuristic"))))
 
 (deftest encode-body-passthrough-string-no-content-type
-  (testing "rf2-ohwgm — a non-coll body with no :request-content-type (a
+  (testing "a non-coll body with no :request-content-type (a
             pre-encoded string / opaque value) passes through unchanged
             with a nil content-type (the caller sets no header)"
     (is (= ["already-encoded" nil]
@@ -457,19 +454,19 @@
 
 ;; ---- run-accept — Spec 014 §`:accept` default normalisation (G2) ----------
 ;;
-;; Per rf2-7iji6 the default `:accept` (nil accept-fn) is unconditionally
+;; The default `:accept` (nil accept-fn) is unconditionally
 ;; {:ok decoded}. The only call site (http-transport/handle-response!)
 ;; reaches run-accept exclusively inside the 2xx branch — status
 ;; classification (4xx / 5xx / non-2xx-else) runs BEFORE decode per Spec
 ;; 014 §Failure categories — so the default never sees a non-2xx status.
-;; The earlier non-2xx arm ({:failure {:kind :http-status ...}}) was dead
-;; on the live cascade and off the closed `:rf.http/*` taxonomy; it has
-;; been removed. The user-fn branch is exercised end-to-end in
+;; It has no non-2xx arm: a {:failure {:kind :http-status ...}} default
+;; would be dead on the live cascade and off the closed `:rf.http/*`
+;; taxonomy. The user-fn branch is exercised end-to-end in
 ;; http_managed_test (accept-failure round-trip); here we pin the DEFAULT
 ;; and the simple user-fn pass-through.
 
 (deftest run-accept-default-is-ok
-  (testing "rf2-7iji6 — with no :accept fn, the decoded value is wrapped
+  (testing "with no :accept fn, the decoded value is wrapped
             unconditionally as {:ok decoded} (run-accept only ever runs
             against an already-classified 2xx response)"
     (is (= {:ok {:title "hello"}}
@@ -479,14 +476,14 @@
         "a nil decoded body still wraps as {:ok nil}")))
 
 (deftest run-accept-default-never-produces-http-status-rf2-xmp74u
-  (testing "rf2-xmp74u — conformance guard: the default `:accept` (nil
+  (testing "conformance guard: the default `:accept` (nil
             accept-fn) NEVER returns a `:failure` and NEVER the off-taxonomy
-            `:kind :http-status`. Spec 014 §`:accept` previously advertised a
-            non-2xx `{:failure {:kind :http-status ...}}` default branch that
-            contradicted the closed `:rf.http/*` failure set + the status-
+            `:kind :http-status`. A non-2xx
+            `{:failure {:kind :http-status ...}}` default branch would
+            contradict the closed `:rf.http/*` failure set + the status-
             before-decode classification order (a non-2xx never reaches
             accept). This pins the default as `{:ok ...}` across every decoded
-            shape so a future port can't reintroduce the dead branch."
+            shape so a port can't introduce that dead branch."
     (doseq [decoded [nil
                      {}
                      {:title "hello"}
@@ -500,10 +497,10 @@
         (is (not (contains? result :failure))
             "default accept NEVER yields a :failure")
         (is (not= :http-status (get-in result [:failure :kind]))
-            "the off-taxonomy :kind :http-status default branch is gone")))))
+            "there is no off-taxonomy :kind :http-status default branch")))))
 
 (deftest run-accept-user-fn-overrides-default
-  (testing "rf2-ohwgm — a supplied :accept fn is invoked with the decoded
+  (testing "a supplied :accept fn is invoked with the decoded
             value and its return ({:ok ..} or {:failure ..}) is used
             verbatim, overriding the default"
     (let [accept (fn [decoded]
@@ -519,7 +516,7 @@
 ;; ---- valid-accept-return? — Spec 014 §`:accept` shape validation ----------
 
 (deftest valid-accept-return-recognises-ok-and-failure
-  (testing "rf2-rznrz — a map carrying EXACTLY one of :ok / :failure is the
+  (testing "a map carrying EXACTLY one of :ok / :failure is the
             recognised accept-return shape"
     (is (rf.http.encoding/valid-accept-return? {:ok 42}))
     (is (rf.http.encoding/valid-accept-return? {:ok nil})
@@ -529,9 +526,9 @@
         "extra keys alongside the single recognised key are tolerated")))
 
 (deftest valid-accept-return-rejects-malformed-shapes
-  (testing "rf2-rznrz — nil, non-maps, and maps without exactly one of
-            :ok/:failure are MALFORMED (these previously stranded the
-            request with no reply)"
+  (testing "nil, non-maps, and maps without exactly one of
+            :ok/:failure are MALFORMED (accepted unvalidated, they would
+            strand the request with no reply)"
     (is (not (rf.http.encoding/valid-accept-return? nil))
         "nil return is malformed")
     (is (not (rf.http.encoding/valid-accept-return? {}))
@@ -550,7 +547,7 @@
 ;; ---- normalize-header-pairs — Spec 014 §Request envelope (multi-valued) ---
 
 (deftest normalize-header-pairs-scalar-yields-one-pair
-  (testing "rf2-rznrz — a scalar header value yields exactly one [name value]
+  (testing "a scalar header value yields exactly one [name value]
             wire pair, stringified"
     (is (= [["Accept" "application/json"]]
            (rf.http.encoding/normalize-header-pairs {"Accept" "application/json"})))
@@ -559,7 +556,7 @@
         "a non-string scalar value is stringified per element")))
 
 (deftest normalize-header-pairs-vector-yields-pair-per-element
-  (testing "rf2-rznrz — a vector/seq header value yields ONE wire pair per
+  (testing "a vector/seq header value yields ONE wire pair per
             element (the HTTP multi-valued idiom = repeat the name), NOT a
             single pair carrying the vector"
     (is (= [["Accept" "text/html"] ["Accept" "application/json"]]
