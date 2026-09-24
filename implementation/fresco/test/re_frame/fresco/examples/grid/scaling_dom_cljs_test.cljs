@@ -7,8 +7,8 @@
   > — product specification §6, absolute correctness and user-visible
   > budgets
 
-  That is a claim about a COUNT AT TWO SIZES, and this file is the only
-  place in the bead where it is measured rather than reasoned about. The
+  That is a claim about a COUNT AT TWO SIZES, and this file is where it
+  is measured rather than reasoned about. The
   same application is mounted at 5x5 and at 10x10, one cell is typed
   into, and the boundary bodies that ran are counted. If the number is
   the same at both sizes the shape scales; if it grows, it does not.
@@ -19,10 +19,9 @@
   actually ran — a `React.memo` bail-out shows up as an increment that
   did not happen, so it measures adoption rather than inferring it from
   the comparator. It is the kit's door onto the runtime's own always-on
-  counter; this file read that counter directly until the door
-  existed, which was allowed — the fence in
-  `examples.fence-cljs-test` is over APPLICATION namespaces — but left
-  the application's own witness naming an internal to state a
+  counter. Reading that counter directly would be allowed — the fence in
+  `examples.fence-cljs-test` is over APPLICATION namespaces — but would
+  leave the application's own witness naming an internal to state a
   budget the specification states.
 
   **It cannot see a props compare.** That matters for reading the table
