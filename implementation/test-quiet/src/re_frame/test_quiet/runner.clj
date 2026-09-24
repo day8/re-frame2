@@ -85,13 +85,13 @@
    - a PROBE lane claims only that its deps and classpath RESOLVE, so zero
      tests is its correct outcome and the coverage floor must not apply.
      Such a lane says so explicitly by passing `--probe` in its `:test`
-     alias `:main-opts` (`implementation/adapters/reagent` and
-     `implementation/adapters/uix` are the two: their `test/` trees are
-     CLJS-only).  A probe still has to prove something mechanically: it
-     must reach its summary having executed exactly zero tests.  Reaching
-     the summary at all means deps resolved and the discovery dirs were
-     scanned; and if the lane ever GAINS a JVM test it goes red, because it
-     is then claiming coverage and must drop `--probe` and take the floor.
+     alias `:main-opts` (`implementation/adapters/reagent` is one: its
+     `test/` tree is CLJS-only).  A probe still has to prove something
+     mechanically: it must reach its summary having executed exactly zero
+     tests.  Reaching the summary at all means deps resolved and the
+     discovery dirs were scanned; and if the lane ever GAINS a JVM test it
+     goes red, because it is then claiming coverage and must drop `--probe`
+     and take the floor.
 
   `--probe` is this wrapper's only own flag and is stripped before args are
   forwarded to cognitect.  Nothing is printed on a green probe: the
