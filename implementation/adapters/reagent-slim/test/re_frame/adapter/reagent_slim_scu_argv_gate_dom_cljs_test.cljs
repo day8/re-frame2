@@ -1,9 +1,9 @@
 (ns re-frame.adapter.reagent-slim-scu-argv-gate-dom-cljs-test
-  "rf2-5al9d7 — the reagent-slim framework-default `shouldComponentUpdate`
+  "The reagent-slim framework-default `shouldComponentUpdate`
   DOM regression proof, under a React 19 `createRoot`.
 
   WHAT IT PROVES. Every reagent-slim class carries a framework-INTERNAL
-  argv-equality `shouldComponentUpdate` (restored from stock Reagent). When a
+  argv-equality `shouldComponentUpdate` (stock Reagent's). When a
   parent re-renders but a child's argv is `=`, the child's render fn AND its
   `:component-did-update` lifecycle do NOT run — the signature fine-grained
   re-render property. When the child's argv CHANGES, they DO run. This is the
@@ -40,7 +40,7 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's
+;; EP-0002: `:ambient-frame nil` opts out of the fixture's
 ;; default ambient `*current-frame*` :rf/default scope so the probe's
 ;; subscribes resolve their frame from the enclosing `frame-provider` via the
 ;; React-context tier (mirrors the flush-render DOM twin).
@@ -58,7 +58,7 @@
     (.createElement js/document "div")))
 
 (deftest scu-argv-gate-skips-equal-argv-child-renders-changed-argv
-  (testing "reagent-slim — the framework-default sCU gates parent-propagated child re-renders by argv `=` (rf2-5al9d7)"
+  (testing "reagent-slim — the framework-default sCU gates parent-propagated child re-renders by argv `=`"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw     :rf.reagent-slim-scu/probe-frame
