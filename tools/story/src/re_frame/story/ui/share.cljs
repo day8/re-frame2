@@ -561,8 +561,9 @@
   a denied permission, or a still-pending write all displayed a false
   'copied ✓'. The shim now resolves a boolean outcome, so the text commands
   get the SAME honesty the screenshot path already had — `mark-error!` with a
-  human reason on a no-op or a rejection, and the dialog keeps the snippet /
-  URL field on screen as the manual-copy fallback.
+  human reason on a no-op or a rejection. The failed command's row renders
+  that reason, and the manual-copy fallback stays on screen: the URL field,
+  or for Copy EDN a read-only field holding the snippet (rf2-3x7nj.29.7).
 
   Returns the `js/Promise` of the outcome (never rejects) so tests can await
   it; the `:on-click` callers are fire-and-forget."
@@ -688,7 +689,8 @@
 
 (defn- command-block
   "One egress command row: a name + description, an optional badge, an
-  action button, and an optional inline body (the URL field).
+  action button, and an optional inline body (the URL field, or Copy EDN's
+  manual-copy fallback).
 
   Surfaces EITHER a `copied ✓` flash (`copied?`) OR an honest
   unavailable/error note (`error` — a short reason string), never both: a
@@ -777,6 +779,7 @@
                            "exact cell. " (if vid "" "No variant focused: shares the workspace/chrome view."))
              :badge   (reproducibility-badge report)
              :copied? (= copied :share-url)
+             :error   (when (= :share-url (:cmd error)) (:reason error))
              :body    [:div {:style (:url-row styles)}
                        [:input {:type      "text"
                                 :read-only true
@@ -794,6 +797,18 @@
                :desc    "A (reg-variant …) snippet of this cell's effective state — paste into your stories ns. It registers a NEW variant extending this one, so the source stays as it is."
                :badge   (reproducibility-badge report)
                :copied? (= copied :copy-edn)
+               :error   (when (= :copy-edn (:cmd error)) (:reason error))
+               ;; The row has no on-screen body of its own, so a failed copy
+               ;; shows the EDN read-only: the manual fallback `copy-text!`
+               ;; promises (rf2-3x7nj.29.7).
+               :body    (when (= :copy-edn (:cmd error))
+                          [:div {:style (:url-row styles)}
+                           [:textarea {:read-only  true
+                                       :rows       6
+                                       :style      (:url-input styles)
+                                       :aria-label "EDN snippet to copy by hand"
+                                       :data-test  "story-egress-copy-edn-fallback"
+                                       :value      (or edn "")}]])
                :action       (fn [_] (copy-text! :copy-edn (or edn "")))
                :action-label "copy EDN"}])
 
@@ -824,7 +839,8 @@
                          :reasons []})
              :action       (fn [_] (copy-text! :static-build "npm run story:build"))
              :action-label "copy command"
-             :copied? (= copied :static-build)}]
+             :copied? (= copied :static-build)
+             :error   (when (= :static-build (:cmd error)) (:reason error))}]
 
            [:div {:style (:btn-row styles)}
             [:button {:style     (:btn-muted styles)
