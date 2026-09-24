@@ -17,8 +17,8 @@
          ;; Pair and Story share ONE dedup implementation so their wire
          ;; encodings cannot drift — it lives in mcp-base above
          ;; (`re-frame.mcp-base.dedup`), vendored there from
-         ;; `day8/de-dupe` under rf2-2ii52 rather than pinned as a git
-         ;; coordinate `clein pom` cannot express.
+         ;; `day8/de-dupe` rather than pinned as a git coordinate
+         ;; `clein pom` cannot express.
 
          ;; Test reporter required by the server-test entry point only.
          day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}}
@@ -29,30 +29,24 @@
  ;; script's exit status is Node's. Every test here is CLJS on that build
  ;; (`shadow-cljs.edn`); there is no JVM suite and so no JVM lane.
  ;;
- ;; rf2-7r9w -- this alias used to run
- ;; `["-m" "shadow.cljs.devtools.cli" "compile" "server-test"]`, and that
- ;; FAILED OPEN. The `:server-test` build sets `:autorun true`, so the
+ ;; A compile is NOT a verdict here, so this alias does not run
+ ;; `["-m" "shadow.cljs.devtools.cli" "compile" "server-test"]`: that
+ ;; would FAIL OPEN. The `:server-test` build sets `:autorun true`, so the
  ;; compile runs the suite and prints its failures -- then exits 0 anyway,
  ;; because the COMPILE succeeded, which is the whole of what a compile
- ;; exit code claims. Measured on this tree when the fix landed -- same
- ;; directory, same build, one compile: `shadow-cljs compile server-test`
- ;; printed `Ran 1120 tests containing 4068 assertions. 2 failures, 0
- ;; errors.` and exited 0, while `node out/server-test.js` over that same
- ;; build printed the identical tally and exited 1. Those two failures
- ;; were LOCAL to the measuring machine -- a live nREPL server that the
- ;; deliberately no-port harness discovered -- and not a red in this repo;
- ;; the cause is beside the point, because the two runs disagree on
- ;; nothing except the exit code. Every other
- ;; artefact's `:test` alias IS a verdict, so this one read as one and
- ;; handed back a clean pass over real failures.
+ ;; exit code claims. Over one build, `shadow-cljs compile server-test`
+ ;; prints a failing tally and exits 0 while `node out/server-test.js`
+ ;; prints the identical tally and exits 1 -- the two runs disagree on
+ ;; nothing except the exit code. Every other artefact's `:test` alias IS
+ ;; a verdict, so a compile alias here would read as one and hand back a
+ ;; clean pass over real failures.
  ;;
- ;; Deleting the alias is NOT the fix, and that was measured too:
- ;; `clojure -M:test` against an ABSENT alias drops into a REPL and exits
- ;; 0 on EOF -- silent, no test output, a false green in a script just the
- ;; same. So `:test` stays and fails CLOSED, naming the command that is a
- ;; verdict. (`:extra-paths ["test"]` is gone as redundant: top-level
- ;; `:paths` already carries `test`, and shadow-cljs reads `:deps true`,
- ;; which applies no aliases at all.)
+ ;; An ABSENT alias is no better: `clojure -M:test` against a missing
+ ;; alias drops into a REPL and exits 0 on EOF -- silent, no test output,
+ ;; a false green in a script just the same. So `:test` exists and fails
+ ;; CLOSED, naming the command that is a verdict. It needs no
+ ;; `:extra-paths`: top-level `:paths` already carries `test`, and
+ ;; shadow-cljs reads `:deps true`, which applies no aliases at all.
  {:test {:main-opts
          ["-e"
-          "(binding [*out* *err*] (println \"tools/re-frame2-pair-mcp has no JVM test lane. `shadow-cljs compile server-test` is NOT a verdict: its :autorun prints failures and the compile still exits 0 (rf2-7r9w). Run `npm test` -- it also runs `node out/server-test.js`, and THAT exit code is the verdict.\")) (System/exit 2)"]}}}
+          "(binding [*out* *err*] (println \"tools/re-frame2-pair-mcp has no JVM test lane. `shadow-cljs compile server-test` is NOT a verdict: its :autorun prints failures and the compile still exits 0. Run `npm test` -- it also runs `node out/server-test.js`, and THAT exit code is the verdict.\")) (System/exit 2)"]}}}
