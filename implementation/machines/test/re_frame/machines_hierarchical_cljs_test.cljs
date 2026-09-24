@@ -187,7 +187,7 @@
 ;; `:initial` chain — is the opt-in `:reenter? true`. This ns exercises
 ;; the live runtime; the pure-engine ordering is pinned in the SCXML
 ;; conformance corpus (`scxml-external-self-transition-*` /
-;; `scxml-reenter-*`).
+;; `scxml-internal-self-transition-*`).
 (deftest machine-self-transition-cljs
   (testing "EXTERNAL self-transition (:target :same-state + :reenter? true) on
             a flat leaf — exit → action → entry, state unchanged"
