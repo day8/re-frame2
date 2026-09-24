@@ -1,26 +1,25 @@
 (ns re-frame.schemas-implies-validation-test
-  "Regression tests for rf2-v96fh — \"schema implies validation\"
-  (Mike-ruled A).
+  "Tests for \"schema implies validation\".
 
   ## The footgun this closes
 
-  Pre-rf2-v96fh, requiring `re-frame.schemas` did NOT wire the default
-  Malli validator. The CLJS reference's default validator delegates to
-  Malli via the late-bind hook `:schemas/malli-validate`, published by
-  the SEPARATE `re-frame.schemas.malli` adapter ns. An app that loaded
-  `re-frame.schemas` but FORGOT to also require `[re-frame.schemas.malli]`
-  registered schemas that then SILENTLY VALIDATED NOTHING — the default
-  validator soft-passed every value (Spec 010 §Recommended soft-pass).
-  \"I registered a schema\" did NOT imply \"it validates.\"
+  The CLJS reference's default validator delegates to Malli via the
+  late-bind hook `:schemas/malli-validate`, published by the SEPARATE
+  `re-frame.schemas.malli` adapter ns. If requiring `re-frame.schemas`
+  did not load that adapter, an app that loaded `re-frame.schemas` but
+  FORGOT to also require `[re-frame.schemas.malli]` would register schemas
+  that SILENTLY VALIDATE NOTHING — the default validator soft-passes every
+  value (Spec 010 §Recommended soft-pass). \"I registered a schema\" would
+  NOT imply \"it validates.\"
 
-  ## The fix (Ruling A)
+  ## The contract
 
-  The `re-frame.schemas` facade now `:require`s `re-frame.schemas.malli`
+  The `re-frame.schemas` facade `:require`s `re-frame.schemas.malli`
   itself, so loading the schemas artefact wires Malli automatically.
-  Registering a schema therefore ALWAYS validates — the inert
-  \"registered but soft-passing\" state is gone.
+  Registering a schema therefore ALWAYS validates — there is no inert
+  \"registered but soft-passing\" state.
 
-  ## What these tests assert (and how they would have FAILED before)
+  ## What these tests assert (and how they would FAIL without the wiring)
 
   This namespace requires ONLY `re-frame.schemas` — deliberately NOT
   `re-frame.schemas.malli`. That mirrors the footgun app: load the
@@ -28,12 +27,13 @@
 
     1. `malli-hook-is-wired-by-requiring-the-facade` — the
        `:schemas/malli-validate` hook is bound after requiring only the
-       facade. Pre-fix this hook was unbound (the adapter ns was never
-       loaded), so this assertion would FAIL.
+       facade. Without the wiring this hook would be unbound (the adapter
+       ns never loaded), so this assertion would FAIL.
     2. `bad-write-to-registered-slot-validates` — a malformed app-db
        commit to a slot with a registered schema fires
-       `:rf.error/schema-validation-failure`. Pre-fix the default
-       validator soft-passed and NO trace fired — this would FAIL.
+       `:rf.error/schema-validation-failure`. Without the wiring the
+       default validator would soft-pass and NO trace would fire — this
+       would FAIL.
     3. `valid-write-passes` — a conforming commit fires no failure
        trace (the validation is real, not a blanket reject).
 
@@ -44,8 +44,8 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             ;; DELIBERATELY require ONLY the facade — NOT
-            ;; `re-frame.schemas.malli`. The whole point of rf2-v96fh is
-            ;; that requiring the facade is sufficient to wire Malli.
+            ;; `re-frame.schemas.malli`. The whole point is that
+            ;; requiring the facade is sufficient to wire Malli.
             [re-frame.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -60,11 +60,10 @@
 ;; ---- the wiring is live by requiring the facade alone ---------------------
 
 (deftest malli-hook-is-wired-by-requiring-the-facade
-  (testing "Per rf2-v96fh: requiring `re-frame.schemas` (without
+  (testing "requiring `re-frame.schemas` (without
             `re-frame.schemas.malli`) wires the default Malli validator —
-            the `:schemas/malli-validate` late-bind hook is bound. Pre-fix
-            the adapter ns was never loaded by the facade and this hook
-            was nil, so the default validator soft-passed."
+            the `:schemas/malli-validate` late-bind hook is bound, so the
+            default validator does not soft-pass."
     (is (some? (rf.late-bind/get-fn :schemas/malli-validate))
         ":schemas/malli-validate is bound — the facade pulled the adapter")
     (is (some? (rf.late-bind/get-fn :schemas/malli-explain))
@@ -73,10 +72,9 @@
 ;; ---- registering a schema implies validation ------------------------------
 
 (deftest bad-write-to-registered-slot-validates
-  (testing "Per rf2-v96fh: a malformed commit to a slot with a registered
+  (testing "a malformed commit to a slot with a registered
             schema fires :rf.error/schema-validation-failure — without any
-            explicit `re-frame.schemas.malli` require. Pre-fix this was a
-            silent no-op (the default validator soft-passed)."
+            explicit `re-frame.schemas.malli` require."
     (rf/reg-app-schema [:count] [:int])
     (with-trace-recorder! [recorded]
       (with-redefs [rf.interop/debug-enabled? true]
@@ -93,7 +91,7 @@
           (is (= "not-an-int" (-> v :tags :value))))))))
 
 (deftest valid-write-passes
-  (testing "Per rf2-v96fh: a conforming commit fires no failure trace —
+  (testing "a conforming commit fires no failure trace —
             the validation is real (it accepts good values), not a blanket
             reject."
     (rf/reg-app-schema [:count] [:int])
