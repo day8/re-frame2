@@ -353,6 +353,48 @@
              (:assertion (first (:assertions result))))))))
 
 ;; ===========================================================================
+;; A COMPILED plan is not an authoring body — refused, never recompiled
+;; ===========================================================================
+
+(deftest compiled-plan-map-is-refused-not-recompiled
+  (testing "a map carrying `:world` is a compiled plan, not an inline
+            authoring body (rf2-nt9f1). Recompiling it read only the
+            authoring keys and dropped everything under `:world`, so
+            `(run (variant-plan id))` ran unseeded and read `:pass` for a run
+            the variant never makes. It is refused with a structured error
+            that says to run the variant by its id."
+    (rf.story/reg-variant :story.inline/seeded {:db-seed {:n 10}
+                                                :script  [[:dispatch [:inline/inc]]]})
+    (testing "control: the variant run by id seeds, then runs"
+      (let [result (run-target :story.inline/seeded)]
+        (is (= :pass (:status result)))
+        (is (= 11 (:n (:app-db result))))))
+    (let [plan (rf.story/variant-plan :story.inline/seeded)]
+      (is (= {:n 10} (get-in plan [:world :db-seed]))
+          "precondition: the compiled plan carries the seed under :world")
+      (testing "run: the ordinary plan-construction error result, no frame"
+        (let [result (run-target plan)]
+          (is (= :error (:status result)))
+          (is (= :rf.error/story-compiled-plan-target
+                 (:assertion (first (:assertions result)))))
+          (is (re-find #"(?i)run the variant by its id"
+                       (str (:reason (first (:assertions result))))))
+          (is (nil? (:n (:app-db result)))
+              "nothing ran: the recompile ran unseeded and read :n 1")))
+      (testing "variant-plan and explain refuse it the same way"
+        (doseq [verb [rf.story/variant-plan rf.story/explain]]
+          (let [ex (try (verb plan) nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+            (is (= :rf.error/story-compiled-plan-target
+                   (:rf.error/id (ex-data ex))))
+            (is (= :story.inline/seeded (:variant/id (ex-data ex))))))))
+    (testing "control: an inline AUTHORING body carrying :db-seed still runs"
+      (let [result (run-target {:db-seed {:n 10}
+                                :script  [[:dispatch [:inline/inc]]]})]
+        (is (= :pass (:status result)))
+        (is (= 11 (:n (:app-db result))))))))
+
+;; ===========================================================================
 ;; rf.story/is reports through the test framework for a map target
 ;; ===========================================================================
 
