@@ -1,14 +1,14 @@
 (ns re-frame.resources-ssr-projected-key-refetch-cljs-test
   "An entry the SSR projection RE-KEYS does not ride the hydration wire, and
   leaves no row behind on the client — whether a `:serialize` owner's own
-  per-slot `:scope` / `:params` declaration re-keyed it (rf2-rjq9d) or the
-  coarse `:redact` / `:omit` tokenisation did (rf2-4bjep).
+  per-slot `:scope` / `:params` declaration re-keyed it or the
+  coarse `:redact` / `:omit` tokenisation did.
 
-  ## The disagreement this suite closes
+  ## Why a re-keyed entry is unreachable
 
   A resource's `:scope` / `:params` declarations are projected into its SSR
-  wire key (`project-entry-scope` at index 0, rf2-5e2ye; `project-entry-params`
-  at index 2, rf2-d3pku1), and resource identity is `canonical-bytes` over the
+  wire key (`project-entry-scope` at index 0; `project-entry-params`
+  at index 2), and resource identity is `canonical-bytes` over the
   WHOLE key — so projecting either component CHANGES the entry's `key-id`, and
   `project-resources-runtime-db` installs the wire entry under the projected
   one. The live client never derives that identity: `route/route-resource-plan`
@@ -16,11 +16,11 @@
   params and read `(rf.resources.state/entry-path scoped-key)`, i.e. the RAW key-id. So the
   hydrated entry is unreachable and the client loads.
 
-  Three answers were given to one question and they did not agree. The server
-  shipped the entry WITH its data; `project-entry` reported
-  `:refetch-on-client? false` (the entry was fresh and coarsely `:serialize`);
-  `hydrate-refetch-plan` saw fresh usable `:data` and omitted the entry. Every
-  one of those says *reuse this* — and the client could not.
+  Shipping such an entry would give three answers to one question that do not
+  agree. The server would ship the entry WITH its data; `project-entry` would
+  report `:refetch-on-client? false` (the entry is fresh and coarsely
+  `:serialize`); `hydrate-refetch-plan` would see fresh usable `:data` and omit
+  the entry. Every one of those says *reuse this* — and the client cannot.
 
   ## Why the miss is not the thing to fix
 
@@ -28,7 +28,7 @@
 
   - Keying the wire map on the RAW key-id would egress the declared slot in
     the clear. A `key-id` is a REVERSIBLE plaintext CEDN-1 encoding, which is
-    exactly why rf2-5e2ye's suite asserts the raw key-id is absent from the
+    exactly why the raw key-id must be absent from the
     whole payload slice.
   - Having the client re-derive the PROJECTED key-id and adopt the entry under
     it is worse than unavailable, it is unsafe. The per-slot substitution is
@@ -38,49 +38,47 @@
     adopt-by-projected-key client would read one principal's data under
     another's identity.
 
-  So the entry is genuinely not reusable, and the fix is to say so. A re-keyed
+  So the entry is genuinely not reusable, and the projection says so. A re-keyed
   entry classifies `:key-projected`, reports `:refetch-on-client? true`, and
   does NOT ride: the row is withheld from the wire, and one arriving from an
   older render is dropped by the hydrate reconcile.
 
-  ## And the coarse arms reach the same end (rf2-4bjep, §6)
+  ## And the coarse arms reach the same end (§6)
 
-  rf2-rjq9d fenced the coarse `:redact` / `:omit` arm out, on the reasoning that
-  its `{:rf/redacted <digest>}` token is content-addressed and so ADOPTION — the
-  client re-deriving the digest from its live scope + params — was a repair the
-  per-slot arm did not have. It is not, on three counts, and this suite pins
+  The coarse `:redact` / `:omit` arm's `{:rf/redacted <digest>}` token is
+  content-addressed, which suggests ADOPTION — the client re-deriving the
+  digest from its live scope + params — as a repair the per-slot arm lacks.
+  It is not one, on three counts, and this suite pins
   each:
 
-    - the token was not DERIVABLE. `redact-value`'s two branches disagreed on
-      every input, so a browser could not reproduce a JVM server's digest.
-      `fnv-1a-32` is now byte-identical across the two, pinned by the shared
-      fixture in `resources-ssr-cljs-test` — which removes the obstacle without
+    - derivability is necessary, not sufficient. A browser reproduces a JVM
+      server's digest only because `redact-value`'s two branches agree:
+      `fnv-1a-32` is byte-identical across the two, pinned by the shared
+      fixture in `resources-ssr-cljs-test` — which removes that obstacle without
       making adoption safe;
     - the token is not ONE-TO-ONE and not one-way. It is a 32-bit
       non-cryptographic hash, so two principals can collide (the same
       cross-principal read as §4, probabilistic rather than certain) and a
       low-entropy tenant id is recoverable from its digest by enumeration —
-      which made SHIPPING it a small egress of the identity the coarse claim
-      asked to hide;
-    - and adoption could not have bought anything. A coarse entry is
+      which makes SHIPPING it a small egress of the identity the coarse claim
+      asks to hide;
+    - and adoption would buy nothing. A coarse entry is
       metadata-only by construction, so `entry-needs-refetch?` is true of every
       one of them and the client loads either way.
 
-  So the coarse row is unreachable and uncollectable exactly as the per-slot
+  So the coarse row is unreachable exactly as the per-slot
   one, and it is withheld and dropped by the same two points. §6 states that
   end-to-end; §1's and §3's exact key-id sets are what make it two-sided.
 
-  ## Why emptying the row was not enough (the AUDIT-REOPEN)
+  ## Why emptying the row is not enough
 
-  The first fix shipped the row metadata-only and this suite asserted that any
-  surviving ghost carried no `:data`. That assertion PERMITS the defect it was
-  written for. An emptied row is still a row: it installs, it survives the
-  reconcile, and it sits in `:entries` beside the entry `ensure` writes under
-  the raw key — reachable by nothing, and, before rf2-omahf armed a GC timer
-  after hydration, collectable by nothing either.
-  The bead's criterion is *no persistent unreachable duplicate*, and a data-less
-  duplicate is still a duplicate. The refetch plan named it too, so the plan
-  carried an identity no live derivation reproduces.
+  Shipping the row metadata-only, and asserting that any surviving ghost
+  carries no `:data`, would PERMIT the defect. An emptied row is still a row:
+  it installs, it survives the reconcile, and it sits in `:entries` beside the
+  entry `ensure` writes under the raw key — reachable by nothing.
+  The criterion is *no persistent unreachable duplicate*, and a data-less
+  duplicate is still a duplicate. The refetch plan would name it too, and so
+  carry an identity no live derivation reproduces.
 
   Every assertion here is therefore stated as ABSENCE of the row rather than
   absence of its contents, and §1's `the-wire-carries-exactly-the-addressable-
@@ -126,16 +124,16 @@
   "Six owners spanning the grains this suite discriminates:
 
     :params/report — `:serialize`, declares `[:params :account-id]`. The
-                     PARAMS arm (re-keyed since rf2-d3pku1).
+                     PARAMS arm.
     :scoped/report — `:serialize`, declares `[:scope :tenant-id]` under a
                      NAMED scope resolver, so a live `ensure` derives the
                      same scope the server entry was installed under. The
-                     SCOPE arm (re-keyed since rf2-5e2ye).
+                     SCOPE arm.
     :plain/report  — declares NOTHING. The reuse control: its key is
                      byte-identical, so it stays addressable and must still
                      hydrate straight into a cache hit.
     :stale/report  — declares nothing either, and is installed STALE. The
-                     PLAN control (rf2-4bjep): withholding both coarse arms
+                     PLAN control: withholding both coarse arms
                      empties the refetch plan of everything else, and \"the
                      plan is empty\" would satisfy every plan assertion in §2
                      vacuously. This owner is addressable AND planned, so a
@@ -303,24 +301,24 @@
   [resource-id]
   (rf.resources.state/key-id (rf.resources.ssr/project-scoped-key (global-key resource-id) :redact nil)))
 
-;; ---- a payload from BEFORE the withholding (the version-skew forgery) ------
+;; ---- a payload from an OLDER render (the version-skew forgery) -------------
 ;;
 ;; A hydration payload is HTML, and cached HTML rendered by an earlier deploy is
 ;; routinely served to a newer JS bundle — so "the server no longer ships it" is
 ;; not on its own a guarantee about the client's cache. These four keys are the
-;; literal wire keys the pre-fix projection installed the re-keyed arms under.
-;; They are written out rather than derived, so the forgery states the BYTES an
-;; older render emitted and cannot drift with today's projector.
+;; literal wire keys a projection that ships the re-keyed arms installs them
+;; under. They are written out rather than derived, so the forgery states the
+;; BYTES an older render emits and cannot drift with the current projector.
 ;;
 ;; The two per-slot keys carry the constant sentinel substituted into the
-;; declared slot, nested inside the component. The two COARSE keys (rf2-4bjep)
+;; declared slot, nested inside the component. The two COARSE keys
 ;; carry a whole-component `{:rf/redacted <digest>}` token whose digest is
-;; DELIBERATELY not one today's projector produces: a pre-fix CLJS render
-;; computed a different digest for the same value (`fnv-1a-32`'s two branches
-;; disagreed), and more importantly the client's drop must be driven by the
+;; DELIBERATELY not one the current projector produces: an older render can
+;; carry a digest the current projector would not compute for the same value,
+;; and more importantly the client's drop must be driven by the
 ;; SHAPE the substitution leaves, never by equality with a token it recomputed.
-;; A forgery using today's digest could pass with a shape test that only ever
-;; compared against `project-scoped-key`'s own output.
+;; A forgery using the current digest could pass with a shape test that only
+;; ever compared against `project-scoped-key`'s own output.
 
 (def ^:private legacy-params-wire-key
   [:rf.scope/global :params/report {:account-id :rf/redacted :page 3}])
@@ -337,12 +335,12 @@
 (defn- legacy-row
   "One wire row as an earlier render emitted it, under the projected key.
 
-  `data` distinguishes the two shapes that ever rode, and which one a test wants
-  is never arbitrary. `{:total 1}` is the PRE-#7354 shape, where the row carried
+  `data` selects between the two shapes an older render can emit, and which one
+  a test wants is never arbitrary. `{:total 1}` is a row carrying
   its data — the strongest form of the row a client must refuse, and so the one
-  the cache controls forge. `nil` is the #7354 shape, shipped metadata-only —
-  the one that reached `hydrate-refetch-plan` and got NAMED there, which is the
-  half of the defect the audit found. A data-carrying row cannot stand in for it:
+  the cache controls forge. `nil` is a metadata-only row —
+  the shape that reaches `hydrate-refetch-plan` and would be NAMED there.
+  A data-carrying row cannot stand in for it:
   it is fresh-with-usable-data, so `entry-needs-refetch?` excludes it on
   FRESHNESS and the plan omits it whether or not the addressability filter
   exists."
@@ -353,7 +351,7 @@
      (some? data) (assoc :data data))])
 
 (defn- slice-with-legacy-rows
-  "Today's wire slice PLUS the four rows an earlier render would have included,
+  "The current wire slice PLUS the four rows an earlier render would have included,
   in the shape `data` selects (see `legacy-row`)."
   [data]
   (update-in (wire-slice) [rf.resources.state/resources-key :entries]
@@ -368,13 +366,13 @@
 ;;
 ;;    Both arms — a `:params`-rooted declaration and a `:scope`-rooted one —
 ;;    re-key the entry, and a re-keyed row is WITHHELD rather than emptied.
-;;    Asserting `(not (contains? e :data))` is what let the ghost through: it
+;;    Asserting `(not (contains? e :data))` would let a ghost through: it
 ;;    is satisfied by a nil `e`, so it can neither distinguish "shipped empty"
 ;;    from "not shipped" nor notice a row that persists.
 ;; ===========================================================================
 
 (deftest a-params-declaration-re-keys-the-entry-and-the-row-does-not-ride
-  (testing "rf2-rjq9d — the PARAMS arm: the entry is not addressable by the
+  (testing "the PARAMS arm: the entry is not addressable by the
             key the client derives, so it is not sent under any key"
     (install-all!)
     (let [wired (wire-entries)
@@ -397,7 +395,7 @@
            reachability, not staleness, that makes it unusable"))))
 
 (deftest a-scope-declaration-re-keys-the-entry-and-the-row-does-not-ride
-  (testing "rf2-rjq9d — the SCOPE arm, which #7255 extended the re-key to.
+  (testing "the SCOPE arm, which re-keys too.
             Same identity break, same answer"
     (install-all!)
     (let [wired (wire-entries)
@@ -411,7 +409,7 @@
       (is (true? (:refetch-on-client? m))))))
 
 (deftest the-wire-carries-exactly-the-addressable-rows
-  (testing "rf2-rjq9d / rf2-4bjep — the two-sided control on WITHHOLDING, stated
+  (testing "the two-sided control on WITHHOLDING, stated
             as an exact set. Six durable entries, two wire rows: withholding one
             row too many fails here just as loudly as withholding none"
     (install-all!)
@@ -422,7 +420,7 @@
              (pr-str (mapv (comp :resource/key second) (wire-entries)))))
     (is (not (contains? (wire-entries) (coarse-wire-key-id :sealed/report)))
         "…and NOT under a coarse digest either: the row is absent, not merely
-         emptied — the assertion shape the audit reopened rf2-rjq9d for")
+         emptied")
     (is (not (contains? (wire-entries) (coarse-wire-key-id :bulky/report))))
     (is (= 6 (count (durable-entries)))
         "…while the server's own cache still holds all six: the withholding
@@ -438,14 +436,14 @@
           m     (:plain/report (metadata-by-resource))]
       (is (contains? wired (rf.resources.state/key-id (global-key :plain/report)))
           "its key-id is unchanged — nothing re-keyed it")
-      (is (= {:total 1} (:data e)) "so its data rides, as it always has")
+      (is (= {:total 1} (:data e)) "so its data rides")
       (is (= :serialized (:disposition m)))
       (is (false? (:refetch-on-client? m))
-          "the no-double-fetch win SSR exists for is untouched"))))
+          "the no-double-fetch win SSR exists for holds"))))
 
 (deftest the-coarse-arms-do-not-ride-either
-  (testing "rf2-4bjep — a coarse `:redact` / `:omit` key is re-keyed on BOTH
-            components, so its row was unaddressable and uncollectable exactly
+  (testing "a coarse `:redact` / `:omit` key is re-keyed on BOTH
+            components, so its row is unaddressable exactly
             as a per-slot-declared one. It is withheld too — and the server's
             own metadata still accounts for it in full, which is what makes
             withholding a projection decision rather than a silence"
@@ -469,12 +467,12 @@
            server's own entries, not a wire identity")
       (is (= (rf.resources.ssr/project-scoped-key (global-key :sealed/report) :redact nil)
              (:projected-key (:sealed/report m)))
-          "…while :projected-key preserves the observation point the wire row
-           used to carry, so the SSR and trace-egress derivations of one answer
-           can still be compared (rf2-5e2ye / rf2-dl7bz)"))))
+          "…while :projected-key carries the observation point a wire row
+           would carry, so the SSR and trace-egress derivations of one answer
+           can be compared"))))
 
 (deftest withholding-is-decided-by-identity-not-by-disposition
-  (testing "rf2-4bjep — the withholding rule is ONE exact question asked of every
+  (testing "the withholding rule is ONE exact question asked of every
             entry (did the projection preserve its key-id?), not an enumeration
             of dispositions. Stated over the whole cache, it is what stops a
             future re-keying projection shipping a ghost by default"
@@ -491,8 +489,8 @@
           (str "…and the wire agrees, row for row — " (pr-str m))))))
 
 (deftest the-declared-slot-still-does-not-ride
-  (testing "the privacy the declaration asked for is unchanged by dropping the
-            data — this suite must not be able to pass by weakening rf2-5e2ye"
+  (testing "the declared slot never rides — this suite must not be able to
+            pass by weakening the per-slot projection"
     (install-all!)
     (let [slice (wire-slice)]
       (is (not (leaks? tenant-secret slice)))
@@ -501,15 +499,15 @@
 ;; ===========================================================================
 ;; 2. THE HYDRATE PLAN NAMES ONLY IDENTITIES THE CLIENT HAS.
 ;;
-;;    The bead's core defect was two independent deciders, one saying "reuse"
-;;    and the other unable to. The AUDIT-REOPEN found the correction had left
-;;    the plan naming the PROJECTED identity — a `:resource/key` the route
-;;    slice would carry into `:rf.resource/refetch` and that no live derivation
-;;    reproduces. A plan entry nobody can act on is not a plan entry.
+;;    Two independent deciders must not disagree, one saying "reuse" and the
+;;    other unable to. Nor may the plan name the PROJECTED identity — a
+;;    `:resource/key` the route slice would carry into `:rf.resource/refetch`
+;;    and that no live derivation reproduces. A plan entry nobody can act on
+;;    is not a plan entry.
 ;; ===========================================================================
 
 (deftest the-refetch-plan-names-no-identity-the-client-cannot-derive
-  (testing "rf2-rjq9d / rf2-4bjep — every re-keyed arm is ABSENT from the plan
+  (testing "every re-keyed arm is ABSENT from the plan
             (its row never arrives), while the STALE addressable owner stays
             present: the plan must not become empty, only truthful"
     (install-all!)
@@ -520,8 +518,8 @@
            and its projected key names a fetch nobody could issue")
       (is (not (contains? by-id :scoped/report)) "…nor the scope arm")
       (is (not (contains? by-id :sealed/report))
-          (str "…nor the coarse redaction, which used to be planned under its "
-               "projected key — a refetch naming an identity the route slice "
+          (str "…nor the coarse redaction — planning it under its projected "
+               "key would name a refetch of an identity the route slice "
                "cannot resolve: " (pr-str plan)))
       (is (not (contains? by-id :bulky/report)) "…nor the coarse omission")
       (is (= #{:stale/report} (set (keys by-id)))
@@ -536,7 +534,7 @@
                ":rf/* namespace, so this one claim covers both: " (pr-str plan))))))
 
 (deftest the-plan-and-the-projection-metadata-cannot-disagree
-  (testing "the invariant the bead asks for, restated for a contract that
+  (testing "the invariant, stated for a contract that
             WITHHOLDS: an entry is planned iff the server marked it
             refetch-on-client AND shipped it. The gap between the two sets is
             not slack — it is exactly the withheld set, asserted as such"
@@ -563,13 +561,13 @@
            deciders still cannot disagree in the dangerous direction"))))
 
 (deftest the-plan-refuses-an-unaddressable-row-it-is-handed-directly
-  (testing "rf2-rjq9d — `hydrate-refetch-plan` is a published entry point a
+  (testing "`hydrate-refetch-plan` is a published entry point a
             host may call on a payload slice it has not reconciled, so the
             property must hold for the FUNCTION, not only for the path that
             drops the row first"
     (install-all!)
     ;; the METADATA-ONLY forgery (`nil` data) is load-bearing: it is the shape
-    ;; #7354 actually shipped and the plan actually named. A data-carrying row
+    ;; the plan would name. A data-carrying row
     ;; would be excluded on freshness instead, and this test would pass with the
     ;; addressability filter deleted.
     (let [forged (get (slice-with-legacy-rows nil) rf.resources.state/resources-key)
@@ -608,11 +606,11 @@
         "…while the undeclared control is exactly where the client looks")))
 
 (deftest a-re-keyed-entry-costs-exactly-one-intentional-request
-  (testing "rf2-rjq9d — the client issues ONE load, under the raw key, and NO
-            unreachable row is left standing beside the answer. The assertion
-            this replaces read `every? (not (contains? e :data))` over the
-            ghosts, which is true of a ghost that persists — the exact defect
-            the bead forbids"
+  (testing "the client issues ONE load, under the raw key, and NO
+            unreachable row is left standing beside the answer. Asserting
+            `every? (not (contains? e :data))` over the ghosts would be true
+            of a ghost that persists — the exact defect
+            this forbids"
     (install-all!)
     (boot-client!)
     (reset! requests 0)
@@ -630,8 +628,8 @@
 (deftest the-scope-arm-costs-exactly-one-intentional-request
   (testing "the same end-to-end statement for a `:scope`-rooted declaration,
             whose live scope comes from the NAMED resolver rather than the
-            ensure payload — including the same no-duplicate claim, which the
-            audit found had only ever been made for the params arm"
+            ensure payload — including the same no-duplicate claim made
+            for the params arm"
     (install-all!)
     (boot-client!)
     (reset! requests 0)
@@ -646,7 +644,7 @@
              (pr-str (mapv (comp :resource/key second) (rows-for :scoped/report)))))))
 
 (deftest no-unaddressable-row-survives-hydration
-  (testing "rf2-rjq9d / rf2-4bjep — the bead's criterion stated ONCE over the
+  (testing "the criterion stated ONCE over the
             whole cache rather than per resource: after hydrate and after every
             re-keyed arm is ensured, the durable `:entries` map is EXACTLY the
             six key-ids a live client can derive. An exact set is what makes
@@ -699,11 +697,10 @@
 ;;    SAFE.
 ;;
 ;;    The per-slot substitution is a CONSTANT sentinel, so distinct principals
-;;    collapse onto one wire key DETERMINISTICALLY. That collapse predates this
-;;    fix; what withholding guarantees is that there is no surviving row to
-;;    collapse ONTO. The previous statement — one row, carrying nothing — was
-;;    the weaker of the two available, and it is the one that let the ghost
-;;    stand.
+;;    collapse onto one wire key DETERMINISTICALLY. What withholding
+;;    guarantees is that there is no surviving row to collapse ONTO. One row
+;;    carrying nothing would be the weaker of the two available statements,
+;;    and would let a ghost stand.
 ;;
 ;;    The coarse token is content-addressed, so it collapses two principals only
 ;;    on a hash collision rather than always. That is a difference of PROBABILITY
@@ -712,7 +709,7 @@
 ;; ===========================================================================
 
 (deftest two-principals-that-would-collapse-onto-one-wire-key-are-both-withheld
-  (testing "rf2-rjq9d — two entries differing ONLY in the declared identity
+  (testing "two entries differing ONLY in the declared identity
             slot project to ONE key. This is why no client may adopt a
             hydrated entry by its projected key-id: the mapping back is
             many-to-one on exactly the slot that names the principal. Neither
@@ -734,12 +731,12 @@
 ;;    Withholding is a decision of the server that rendered the page, and a
 ;;    hydration payload is HTML: cached HTML from an earlier deploy reaches a
 ;;    newer bundle routinely. So the client must reach the same end state for a
-;;    payload it did not produce — including one carrying the DATA the pre-fix
-;;    projection shipped.
+;;    payload it did not produce — including one whose re-keyed rows carry
+;;    their DATA.
 ;; ===========================================================================
 
 (deftest a-payload-from-an-older-render-leaves-no-row-behind
-  (testing "rf2-rjq9d — the hydrate reconcile drops a row whose key no live
+  (testing "the hydrate reconcile drops a row whose key no live
             derivation reproduces, exactly as `recompute-indexes` refuses to
             trust the wire's indexes"
     (install-all!)
@@ -749,7 +746,7 @@
       (is (some (fn [[_ e]] (some? (:data e)))
                 (filterv (fn [[_ e]] (= :params/report (second (:resource/key e))))
                          (:entries forged)))
-          "premise: and the pre-fix row carries its DATA")
+          "premise: and the older render's row carries its DATA")
       (rf.frame/swap-runtime-db!
         :rf/default
         (fn [rdb] (assoc (or rdb {}) rf.resources.state/resources-key forged)))
@@ -760,7 +757,7 @@
       (is (empty? (rows-for :scoped/report)))
       (is (empty? (rows-for :sealed/report))
           (str "…and so is the coarse one, whose token this payload spelled with "
-               "a digest today's projector does not produce: the drop reads the "
+               "a digest the current projector does not produce: the drop reads the "
                "SHAPE, not a recomputed value — "
                (pr-str (mapv (comp :resource/key second) (rows-for :sealed/report)))))
       (is (empty? (rows-for :bulky/report)))
@@ -773,7 +770,7 @@
           "…nor the coarse one's"))))
 
 (deftest an-older-payload-still-costs-exactly-one-request
-  (testing "the end-to-end consequence: a client hydrating a pre-fix payload
+  (testing "the end-to-end consequence: a client hydrating an older render's payload
             behaves identically to one hydrating a withheld payload — one
             intentional load, and nothing left over"
     (install-all!)
@@ -791,17 +788,17 @@
           "and one row"))))
 
 ;; ===========================================================================
-;; 6. THE COARSE ARMS (rf2-4bjep).
+;; 6. THE COARSE ARMS.
 ;;
-;;    Same defect, same two removal points, and the same end-to-end statement:
-;;    ONE request, and NO row left standing beside the answer. The bead this
-;;    descends from was reopened because its witness asserted the ghost carried
-;;    no `:data` rather than that no ghost persisted, so every claim here is
+;;    Same property, same two removal points, and the same end-to-end statement:
+;;    ONE request, and NO row left standing beside the answer. A witness
+;;    asserting that a ghost carries no `:data` would pass while the ghost
+;;    persists, so every claim here is
 ;;    about the ROW.
 ;; ===========================================================================
 
 (deftest a-coarse-redacted-row-costs-exactly-one-intentional-request
-  (testing "rf2-4bjep — the `:sensitive?` owner end to end: hydrate installs no
+  (testing "the `:sensitive?` owner end to end: hydrate installs no
             coarse row, the client's own ensure writes ONE entry under the key
             it derives, and no unreachable duplicate persists beside it"
     (install-all!)
@@ -819,7 +816,7 @@
              (pr-str (mapv (comp :resource/key second) (rows-for :sealed/report)))))))
 
 (deftest a-coarse-omitted-row-costs-exactly-one-intentional-request
-  (testing "rf2-4bjep — the same statement for the `:large?` owner, whose
+  (testing "the same statement for the `:large?` owner, whose
             projection drops the `:data` key rather than replacing it. The two
             coarse arms differ in what they do to the data and not at all in
             what they do to the key, so both must be witnessed"
@@ -835,27 +832,26 @@
              (pr-str (mapv (comp :resource/key second) (rows-for :bulky/report)))))))
 
 (deftest a-coarse-row-was-uncollectable-which-is-why-emptying-it-is-not-enough
-  (testing "rf2-4bjep — removal, not an emptied row: an ownerless hydrated row
-            is reachable by nothing, and until rf2-omahf armed a GC timer after
-            hydration it had no collector at all. The claim is made against the
+  (testing "removal, not an emptied row: an ownerless hydrated row
+            is reachable by nothing, so the claim is made against the
             hydrated cache directly — after hydrate there is no coarse row for a
             collector to want"
     (install-all!)
     (boot-client!)
     (is (empty? (rows-for :sealed/report))
-        (str "no coarse row is installed at all — so there is nothing for the "
-             "absent collector to have to reach: "
+        (str "no coarse row is installed at all — so there is nothing for a "
+             "collector to have to reach: "
              (pr-str (mapv (comp :resource/key second) (rows-for :sealed/report)))))
     (is (empty? (rows-for :bulky/report)))
     (is (some? (live-entry (global-key :plain/report)))
         "while the addressable control still hydrated — the drop is targeted")))
 
 (deftest a-coarse-digest-does-not-egress-from-an-ssr-render
-  (testing "rf2-4bjep — a 32-bit digest of a low-entropy identity is
-            enumerable, so shipping the coarse token was itself a small egress
-            of the identity the coarse claim asked to hide. Withholding the row
-            removes the last carrier: the raw values were already absent, and
-            now the digests are too"
+  (testing "a 32-bit digest of a low-entropy identity is
+            enumerable, so shipping the coarse token would itself be a small
+            egress of the identity the coarse claim asks to hide. Withholding
+            the row removes the last carrier: the raw values are absent, and
+            so are the digests"
     (install-all!)
     (let [slice (wire-slice)]
       (is (not (leaks? "rf/redacted" slice))
