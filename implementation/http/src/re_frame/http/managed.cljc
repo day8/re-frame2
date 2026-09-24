@@ -12,7 +12,7 @@
 
   Plus the registry / middleware / privacy re-exports detailed below.
   HTTP interceptors register through the `reg-http-interceptor` fn/macro
-  pair at boot; there is no fx form (rf2-kuky.13).
+  pair at boot; there is no fx form.
 
   ## Test support
 
@@ -199,17 +199,15 @@
 ;; load-time registration of cross-cutting HTTP interceptors (Spec 014
 ;; §Middleware). Apps register at bootstrap and never call again.
 ;;
-;; There is deliberately NO fx form. The map-shaped
-;; `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` pair was
-;; deleted under rf2-kuky.13 (disposition H of rf2-kuky.25): an interceptor's
+;; There is deliberately NO fx form: an interceptor's
 ;; payload is a fn, so putting it inside an fx vector makes it less
-;; data-shaped rather than more, and after ~200 registration opportunities the
-;; pair had no shipped handler-time consumer. Un-park trigger: a shipped
-;; handler must change the interceptor chain ITSELF from inside an event. If it
-;; ever returns, the shape is pre-settled as positional per Conventions §When a
+;; data-shaped rather than more, and no shipped handler changes the
+;; interceptor chain from inside an event. An fx form earns its place only
+;; when a shipped handler must change the interceptor chain ITSELF from inside
+;; an event; its shape is then positional per Conventions §When a
 ;; registrar has an fx form — `[:rf.fx/reg-http-interceptor [id
-;; interceptor-map]]` / `[:rf.fx/clear-http-interceptor id]` — never the map
-;; form the deleted pair used.
+;; interceptor-map]]` / `[:rf.fx/clear-http-interceptor id]` — never a map
+;; form.
 
 ;; The canned effects and stub helpers are registered only when
 ;; `re-frame.http.test-support` is explicitly required. The namespace boundary,
@@ -229,11 +227,11 @@
 (rf.late-bind/set-fn! :http/abort-in-flight!                 rf.http.registry/abort-in-flight!)
 (rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 ;; Epoch restore aborts pre-restore host work after installing the epoch. The
-;; abort suppresses app replies and records stale-suppression facts. This remains
+;; abort suppresses app replies and records stale-suppression facts. This is
 ;; late-bound so the epoch artefact does not acquire an HTTP dependency.
 (rf.late-bind/set-fn! :http/abort-in-flight-for-frame!       rf.http.registry/abort-in-flight-for-frame!)
-;; Frame destroy aborts the destroyed frame's still-in-flight PLAIN managed HTTP
-;; (rf2-j538f7.8). Called from core `frame/destroy-frame!` AFTER machine +
+;; Frame destroy aborts the destroyed frame's still-in-flight PLAIN managed
+;; HTTP. Called from core `frame/destroy-frame!` AFTER machine +
 ;; resource teardown, suppressing app replies (`:reason :frame-destroyed`) so no
 ;; late completion routes into the dead frame. Late-bound so core does not
 ;; acquire an HTTP dependency; the frame-teardown counterpart of the restore hook.
@@ -243,7 +241,7 @@
 (rf.late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
 (rf.late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
 (rf.late-bind/set-fn! :http/register-managed-machine!        rf.http.machine-wrapper/register-managed-machine!)
-;; rf2-32ffq1 — the core classification projector consults this to redact a
+;; The core classification projector consults this to redact a
 ;; `:rf.http/managed` entry's args at the generic fx-arg-bearing trace slots
 ;; (the `:rf.event/fx` aggregate + `:rf.fx/handled`-shaped slots), honouring
 ;; the DYNAMIC per-call `:sensitive?` flag + carrier denylists that a static
