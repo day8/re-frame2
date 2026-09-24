@@ -39,9 +39,8 @@
       :counts   {<kind> N …}          selected-registration count per kind
       :registrations {[kind id] coordinate …}}   ; only with :include-ns true
 
-  (EP-0026, rf2-dlvmpc: image-declared host capabilities are removed
-  end-to-end — there is no `:rf.gen/requires`, so this tool no longer reports
-  a `:requires` capability set.)"
+  (There are no image-declared host capabilities — no `:rf.gen/requires` —
+  so the result carries no `:requires` capability set.)"
   (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.args :as args]
