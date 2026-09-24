@@ -49,13 +49,13 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             ;; The core's record-kind door, asked once at load by guard G2
-            ;; below (rf2-kuky.92) whether it dispatches `:rf/epoch-record`.
+            ;; below whether it dispatches `:rf/epoch-record`.
             ;; Already on this artefact's transitive require graph through
             ;; `re-frame.epoch.tool-pair`, so the edge adds no bundle weight.
             [re-frame.projection :as rf.projection]
             [re-frame.trace :as rf.trace]))
 
-;; ---- ONE GRAMMAR FOR THE EPOCH RING (rf2-kuky.55, ruled A) -----------------
+;; ---- ONE GRAMMAR FOR THE EPOCH RING ----------------------------------------
 ;;
 ;; Every var below is an IMPLEMENTATION SEAM — a late-bind hook target the
 ;; `re-frame.core` facade reaches through `re-frame.core-epoch`'s defwrappers
@@ -204,7 +204,7 @@
   registration is not observing `:frame` right now. False otherwise — including
   a `nil`/absent `:observed-gen`, which can never name a live registration.
 
-  ONE ATOMIC DECISION, not two composable reads (rf2-uhouu). The decision needs
+  ONE ATOMIC DECISION, not two composable reads. The decision needs
   two facts about the listener ledger, and it takes both from a SINGLE consistent
   snapshot:
 
@@ -213,19 +213,18 @@
       a DIFFERENT generation current, so the reserved generation's silence no
       longer names the current callback.
     * OBSERVATION continuum — a same-id SUCCESSOR frame re-arms a callback by
-      DELIVERY, and a delivery mints NO generation (rf2-qg98y), so the carried
+      DELIVERY, and a delivery mints NO generation, so the carried
       `:observed-gen` still matches while the callback is receiving records
       again. Registration identity alone would accept a silence for a LIVE
       callback.
 
-  Reading those two facts through two separate queries — the shape this replaces
-  — is NOT linearizable: a replacement or drop landing between them reads as
+  Reading those two facts through two separate queries is NOT linearizable: a
+  replacement or drop landing between them reads as
   generation-still-matches AND not-observing, accepting a signal for a
   registration that is already superseded, a verdict no single point in time ever
-  held. The former `epoch-listener-generation` / `epoch-listener-observing?` pair
-  was therefore retired rather than kept beside this fn: exposing the halves is
-  exposing the race. Per Spec 009 §The delayed-silence emission linearization
-  law."
+  held. So there is no public query for either half beside this fn: exposing the
+  halves is exposing the race. Per Spec 009 §The delayed-silence emission
+  linearization law."
   [tags]
   (rf.epoch.state/silence-current? (:frame tags) (:cb-id tags) (:observed-gen tags)))
 
@@ -371,31 +370,31 @@
   halted event made no write. Residual capture is cleared before commit, and
   `committed-at` comes from the halted event's already-stamped envelope.
 
-  rf2-2wntx — a nil `trigger-event` COMMITS NOTHING. The halting event's vector
+  A nil `trigger-event` COMMITS NOTHING. The halting event's vector
   is the only thing naming what a halt record is about, so without it the
   record is an uninterpretable marker that nonetheless heads the ring and, as a
   non-`:ok` outcome, makes `restore-epoch!` refuse the newest epoch. The
   residual-capture harvest still runs.
 
-  ONE frame-state parameter, not a before/after pair (rf2-6r9j.75). The hook
-  once took both and read neither — `commit-record!` receives the SAME value in
+  ONE frame-state parameter, not a before/after pair. `commit-record!`
+  receives the SAME value in
   both slots, sourced from the last settled record (or, on a first-cascade halt,
   from this fallback). A second slot could only ever carry a value this path
-  discards, so the pair implied two meaningful snapshots the halt never had.
+  discards, so a pair would imply two meaningful snapshots the halt never has.
 
-  rf2-vxgfnd.154 — EXACT-INCARNATION halt commit. `exact-owner-token` is A's
+  EXACT-INCARNATION halt commit. `exact-owner-token` is A's
   event-owner token (its `:drain-lock`); the router threads it so a depth-error
   listener that destroyed A and published a same-id B cannot have this terminal
   commit steal B's stores. The buffer harvest AND the record build/commit are
   gated on A's live continuation, and `commit-record!` claims A's exact token
   rather than resolving the current bare-id owner. Once A is lost the commit
   neither harvests B's capture buffer nor commits into B's history; when A
-  retains ownership (the ordinary depth halt) behaviour is unchanged. A nil
-  token preserves the historical bare-id contract for any non-exact caller.
-  Kept single-arity (not multi-arity) with the `(when interop/debug-enabled? …)`
+  retains ownership (the ordinary depth halt) the commit proceeds as usual. A
+  nil token selects the bare-id contract for any non-exact caller.
+  Single-arity (not multi-arity) with the `(when interop/debug-enabled? …)`
   outermost so the epoch's trace-event-projection keyword references stay DCE-
-  able in production (multi-arity perturbed Closure's `:advanced` reachability —
-  the rf2-cprm0q elision trap)."
+  able in production (multi-arity perturbs Closure's `:advanced` reachability
+  and defeats that elision)."
   [frame-id frame-state-after committed-at outcome halt-reason
    trigger-event exact-owner-token]
   (when rf.interop/debug-enabled?
@@ -413,7 +412,7 @@
             fs          (if last-record
                           (:frame-state-after last-record)
                           frame-state-after)]
-        ;; rf2-2wntx — NO HALTING EVENT, NO RECORD. `trigger-event` is the
+        ;; NO HALTING EVENT, NO RECORD. `trigger-event` is the
         ;; halting event's vector, and it is the ONLY thing that names what
         ;; this record is about: the halting event never ran, so the harvested
         ;; buffer resolves no `:event-id` of its own and `commit-record!` has
@@ -456,8 +455,7 @@
                                          anchoring/telemetry tail (the whole
                                          restore is one EXACT-incarnation
                                          transaction — a successor is left
-                                         byte-for-byte untouched; rf2-bjh6y,
-                                         rf2-qfrh4)
+                                         byte-for-byte untouched)
     :rf.epoch/restore-during-drain     — called while drain is in flight
     :rf.epoch/restore-unknown-epoch    — epoch-id not in current history
     :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok
@@ -476,7 +474,7 @@
       (case outcome
         ;; Carry the EXACT incarnation token the preconditions resolved against
         ;; to the write boundary, so a same-id successor seated in between never
-        ;; receives this epoch's state (rf2-bjh6y).
+        ;; receives this epoch's state.
         :ok   (rf.epoch.tool-pair/perform-restore! frame-id incarnation-token epoch)
         :fail (do (rf.epoch.tool-pair/emit-precondition-failure! op tags)
                   false)))))
@@ -561,7 +559,7 @@
   "Record and fan out one synthetic pair-tool epoch, as an EXACT-incarnation
   transaction keyed on `incarnation-token` — the token the replace's
   preconditions resolved and its physical write already committed under
-  (rf2-gj2bo, following the `commit-record!` pattern above). Claiming
+  (following the `commit-record!` pattern above). Claiming
   whichever same-id token happens to be CURRENT is the defect this guards
   against: after A's write has linearized, a same-id successor B seated at
   any callback boundary must never inherit A's synthetic record, ring entry,
@@ -608,7 +606,7 @@
   "Carry out a frame-state patch after preconditions pass, FENCED to the
   exact frame incarnation the preconditions resolved against
   (`incarnation-token`, from `check-replace-frame-state-preconditions!` —
-  rf2-gj2bo, mirroring `perform-restore!`).
+  mirroring `perform-restore!`).
 
   Liveness is checked again at the write boundary, against the EXACT token
   rather than the bare id: a same-id successor seated between validation and
@@ -631,7 +629,7 @@
   write's own re-read. `frame-state-after` is therefore the EXACT value installed — the
   synthetic `:frame-state-before` / `:frame-state-after` describe the physical
   transition, and a concurrent event's update to an omitted partition is never
-  lost or silently reverted (rf2-3fc89f.4). A replace invoked reentrantly from
+  lost or silently reverted. A replace invoked reentrantly from
   the active drainer refuses with `:rf.epoch/replace-during-drain`."
   [frame-id incarnation-token build-frame-state-after write-frame-state!]
   (rf.epoch.tool-pair/serialize-tool-write!
@@ -644,7 +642,7 @@
         ;; live — a same-id SUCCESSOR was seated (or the frame was destroyed /
         ;; is being torn down) between validation and this write. Refuse via
         ;; the SAME canonical no-such-handler failure a destroyed-frame write
-        ;; race uses (rf2-gj2bo). The successor stays byte-for-byte untouched;
+        ;; race uses. The successor stays byte-for-byte untouched;
         ;; no success telemetry fires.
         (do (rf.epoch.tool-pair/emit-precondition-failure! :rf.error/no-such-handler
                                                   {:kind :frame :frame frame-id})
@@ -680,7 +678,7 @@
   the exact validated incarnation: the physical write goes through core's
   EXACT-INCARNATION `replace-frame-state!` 3-arity, which returns nil unless
   the token still names the live record — so a same-id successor can never
-  receive the patch (rf2-gj2bo)."
+  receive the patch."
   [frame-id incarnation-token new-frame-state]
   (perform-replace! frame-id
                     incarnation-token
@@ -735,7 +733,7 @@
       (case outcome
         ;; Carry the EXACT incarnation token the preconditions resolved against
         ;; to the write boundary, so a same-id successor seated in between never
-        ;; receives this injection or its synthetic bookkeeping (rf2-gj2bo).
+        ;; receives this injection or its synthetic bookkeeping.
         :ok   (perform-replace-frame-state! frame-id incarnation-token new-frame-state)
         :fail (do (rf.epoch.tool-pair/emit-precondition-failure! op tags)
                   false)))))
@@ -744,7 +742,7 @@
 
 (defn ^:no-doc project-record
   "The per-kind projector `re-frame.projection/project-egress` dispatches a
-  `:kind :rf/epoch-record` record to (rf2-kuky.92). Published under the
+  `:kind :rf/epoch-record` record to. Published under the
   late-bind hook `:epoch/project-record`; NOT a public name and never
   called directly — `rf/project-egress` is the one door.
 
@@ -756,7 +754,7 @@
   [record opts]
   (rf.epoch.tool-pair/project-record record opts))
 
-;; ---- GUARD G2: version-skew refusal, at LOAD (rf2-kuky.92) ----------------
+;; ---- GUARD G2: version-skew refusal, at LOAD --------------------------------
 ;;
 ;; THE VECTOR. `late-bind/set-fns!` is a plain `swap! assoc` — it validates
 ;; no key at runtime, and the directory is enforced only by a drift TEST. So
@@ -775,14 +773,14 @@
 ;; records rather than degrading quietly.
 ;;
 ;; WHY THE DOOR AND NOT THE LATE-BIND DIRECTORY, which rosters the same
-;; fact and which this guard read first: the directory is a DOCUMENTATION
+;; fact: the directory is a DOCUMENTATION
 ;; corpus that production builds must dead-code-eliminate, pinned by
 ;; `check-elision.cjs`'s `re-frame.late-bind.directory/hooks (:description
-;; corpus, DCE when unrequired)` sentinel. Requiring it from HERE — the
-;; first `src/` namespace anywhere to do so — dragged its whole hook-key
-;; and description corpus into every bundle carrying this artefact, which
-;; broke that sentinel and nine others whose strings the corpus quotes, and
-;; displaced a shared keyword constant out of the module a bundle-isolation
+;; corpus, DCE when unrequired)` sentinel. No `src/` namespace requires it;
+;; requiring it from HERE would drag its whole hook-key
+;; and description corpus into every bundle carrying this artefact, breaking
+;; that sentinel and the others whose strings the corpus quotes, and
+;; displacing a shared keyword constant out of the module a bundle-isolation
 ;; positive control reads. It is also the weaker question: the directory
 ;; DESCRIBES the door, where `recognises-record-kind?` IS the door's own
 ;; answer, and `re-frame.projection` is already on this artefact's
@@ -856,7 +854,7 @@
    ;; capture seam. Back-fills it into the causing (most-recently-settled)
    ;; epoch's `:trace-events`, where Xray's VIEWS step surfaces it.
    :epoch/record-unmount!     rf.epoch.listeners/record-unmount!
-   ;; rf2-vxgfnd.151: `destroy-frame!` fires this BEFORE dissoc to bind the
+   ;; `destroy-frame!` fires this BEFORE dissoc to bind the
    ;; dying incarnation's terminal halted-destroy evidence to a bundle while it
    ;; still solely owns its id-keyed epoch stores; the bundle is threaded to the
    ;; post-dissoc `:epoch/on-frame-destroyed` hook.
@@ -873,16 +871,15 @@
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
    ;; The ONE supported receiver decision for a
-   ;; `:rf.epoch.cb/silenced-on-frame-destroy` signal (rf2-uhouu, superseding the
-   ;; rf2-6ys5n generation query + rf2-qg98y observing query it composes): does
+   ;; `:rf.epoch.cb/silenced-on-frame-destroy` signal: does
    ;; this silence still name a current fact? Registration identity AND
    ;; observation continuum are weighed under one ledger snapshot, because the
    ;; two-query composite a consumer would otherwise write is not linearizable.
    :epoch/epoch-silence-current?     epoch-silence-current?
    :epoch/configure!                 configure!
    ;; The read half, published for `re-frame.core/current-config`. Bound to
-   ;; the STATE-level reader; rf2-kuky.73 deleted this ns's own duplicate
-   ;; reader (rf2-kuky.55 C1), so the facade is the only spelling.
+   ;; the STATE-level reader; this ns has no reader of its own, so the
+   ;; facade is the only spelling.
    :epoch/current-config             rf.epoch.state/current-config
    ;; Test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to
@@ -893,8 +890,8 @@
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 
    ;; ---- off-box egress projection ---------------------------------
-   ;; ONE door (rf2-bv1p, ruling rf2-kuky.9 option A). `rf/project-egress`
+   ;; ONE door. `rf/project-egress`
    ;; dispatches a `:kind :rf/epoch-record` record to this per-kind
-   ;; projector; the standalone `projected-record` spelling it used to sit
-   ;; beside is retired, so there is no second name to drift against.
+   ;; projector; there is no standalone second spelling, so there is no
+   ;; second name to drift against.
    :epoch/project-record      project-record})
