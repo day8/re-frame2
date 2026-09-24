@@ -2,10 +2,10 @@
   "A REAL KEY PRESS, FROM INSIDE A cljs.test ROW.
 
   A page cannot forge a trusted event, and the half of an event a page
-  cannot forge is the DEFAULT ACTION. A
-  synthetic `keydown` reaches every listener — React's included, which
-  is why `combobox-keyboard-dom-cljs-test` drives arrows and Enter for
-  real — and then the engine does nothing with it. Tab moves focus
+  cannot forge is the DEFAULT ACTION. A synthetic `keydown` reaches every
+  listener — React's included, which is why
+  `combobox-keyboard-dom-cljs-test` drives arrows and Enter for real —
+  and then the engine does nothing with it. Tab moves focus
   nowhere. Escape closes no dialog.
 
   In this repo's own headless Chromium, on a bare page with two buttons
