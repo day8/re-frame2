@@ -1,22 +1,22 @@
 (ns re-frame.http-abort-body-prep-race-test
-  "rf2-rsv2n (JVM) — an abort that wins while `run-attempt!` is blocked in
+  "(JVM) An abort that wins while `run-attempt!` is blocked in
   the managed request-preparation phase must never subsequently enter the
   host transport.
 
-  Defect (closed by this test): `run-attempt!` sampled `@finalised?` only
-  BEFORE `prepare-body!`, and a `:body` thunk may block inside that call
-  for arbitrarily long. An abort landing in that window delivered the
-  canonical cancelled reply and cleared the in-flight registry — the
-  framework told the app the request was cancelled — yet the same attempt
-  then proceeded into the successful-preparation branch and called
-  `jvm-fetch`, so `HttpClient.sendAsync` issued a side-effecting request
-  AFTER cancellation. During preparation `cf-holder` is still nil, so the
-  abort closure had no future to cancel either: the request escaped
+  A `:body` thunk may block inside `prepare-body!` for arbitrarily long.
+  Were `@finalised?` sampled only BEFORE `prepare-body!`, an abort landing
+  in that window would deliver the canonical cancelled reply and clear the
+  in-flight registry — the framework telling the app the request was
+  cancelled — yet the same attempt would then proceed into the
+  successful-preparation branch and call `jvm-fetch`, so
+  `HttpClient.sendAsync` would issue a side-effecting request AFTER
+  cancellation. During preparation `cf-holder` is still nil, so the abort
+  closure has no future to cancel either: the request would escape
   cancellation entirely (Spec 014 §Abort precedence — body realization is
   a managed phase; §Aborts — a cancelled request must not issue a fresh
   attempt).
 
-  Fix: a one-cell issuance-phase CAS (`issue-phase`, nil → `:issued` |
+  The guard: a one-cell issuance-phase CAS (`issue-phase`, nil → `:issued` |
   `:aborted`) shared between the abort closure and the host-entry region,
   so the abort/issuance race has exactly one winner — and the commit is
   the host call itself, not a point ahead of it. Abort-before-entry wins
@@ -31,14 +31,14 @@
   during body realization; the third test here drives exactly that
   single-threaded ordering through the JVM's copy of the same gate).
 
-  Committing ahead of the host call is what the audit of PR #8842 found
-  still open, and the last two tests here are its regression pair: an
+  Committing ahead of the host call would leave that window open, and the
+  last two tests here are its regression pair: an
   abort that COMPLETES at the issuance boundary must leave zero host
   calls behind it, and an abort that races an in-flight host call must be
   unable to complete until that call has published its future.
 
-  All tests stub `transport-jvm/jvm-fetch` (the host-transport seam the
-  bug escapes through — the `with-request-stubs` layer overrides
+  All tests stub `transport-jvm/jvm-fetch` (the host-transport seam such a
+  request would escape through — the `with-request-stubs` layer overrides
   the whole `:rf.http/managed` fx and so sits ABOVE the lifecycle under
   test) and use latches / promises / thread-state observation, never
   timing sleeps."
@@ -97,7 +97,7 @@
 ;; ---- (1) abort while the body thunk holds preparation ----------------------
 
 (deftest abort-during-body-prep-never-enters-host-transport
-  (testing "rf2-rsv2n — an abort that completes while the body thunk holds request preparation yields ZERO jvm-fetch calls, exactly one canonical :status :cancelled reply, and an empty registry"
+  (testing "an abort that completes while the body thunk holds request preparation yields ZERO jvm-fetch calls, exactly one canonical :status :cancelled reply, and an empty registry"
     (let [fetch-calls   (atom 0)
           thunk-entered (promise)
           release       (promise)
@@ -157,7 +157,7 @@
 ;; ---- (2) non-vacuity control: same harness, no abort -----------------------
 
 (deftest no-abort-control-enters-host-transport-exactly-once
-  (testing "rf2-rsv2n (non-vacuity control) — the identical harness WITHOUT an abort invokes the host transport exactly once and completes normally"
+  (testing "non-vacuity control — the identical harness WITHOUT an abort invokes the host transport exactly once and completes normally"
     (let [fetch-calls   (atom 0)
           thunk-entered (promise)
           release       (promise)
@@ -200,7 +200,7 @@
 ;; ---- (3) re-entrant abort fired BY body realization ------------------------
 
 (deftest reentrant-abort-inside-body-thunk-never-enters-host-transport
-  (testing "rf2-rsv2n — an abort fired synchronously/re-entrantly FROM INSIDE the body thunk (the single-threaded ordering the CLJS host produces) is honoured by the shared post-prep gate: no transport call follows the cancellation"
+  (testing "an abort fired synchronously/re-entrantly FROM INSIDE the body thunk (the single-threaded ordering the CLJS host produces) is honoured by the shared post-prep gate: no transport call follows the cancellation"
     (let [fetch-calls  (atom 0)
           abort-result (atom ::not-fired)
           replies      (atom [])]
@@ -233,7 +233,7 @@
 ;; ---- (4) handoff control: issuance wins, the future is cancellable ---------
 
 (deftest abort-after-issuance-cancels-published-future
-  (testing "rf2-rsv2n (handoff control) — when issuance wins, the future is published and cancellable: a subsequent abort cancels it via cf-holder and produces no double reply"
+  (testing "handoff control — when issuance wins, the future is published and cancellable: a subsequent abort cancels it via cf-holder and produces no double reply"
     (let [fetch-calls (atom 0)
           returned-cf (atom nil)
           replies     (atom [])]
@@ -264,16 +264,13 @@
 
 ;; ---- (5) the issuance boundary: a completed abort issues nothing -----------
 
-;; This test was `abort-in-residual-publish-window-still-cancels-future`
-;; before the audit of PR #8842. It fired the same abort at the same seam and
-;; then asserted `(= 1 @fetch-calls)` — blessing the very ordering the bead
-;; forbids, where an abort completes (returns true, clears the registry,
-;; delivers the cancelled reply) and the request is issued afterwards, with a
-;; post-`sendAsync` `.cancel` standing in for not having sent it. Cancelling a
-;; future cannot un-send a POST, so the assertion is inverted here rather than
-;; widened: the abort completes at the issuance boundary and NOTHING is sent.
+;; An abort that completes (returns true, clears the registry, delivers the
+;; cancelled reply) must never be followed by the request being issued, with
+;; a post-`sendAsync` `.cancel` standing in for not having sent it:
+;; cancelling a future cannot un-send a POST. So the abort completes at the
+;; issuance boundary and NOTHING is sent.
 (deftest abort-completing-at-issuance-boundary-issues-no-request
-  (testing "rf2-rsv2n (audit residual) — an abort injected at :issue/before-send COMPLETES before the host call; because the commit is the host call itself, the abort wins the issuance cell and jvm-fetch is NEVER entered — zero host calls, one cancelled reply, clean registry"
+  (testing "an abort injected at :issue/before-send COMPLETES before the host call; because the commit is the host call itself, the abort wins the issuance cell and jvm-fetch is NEVER entered — zero host calls, one cancelled reply, clean registry"
     (let [fetch-calls  (atom 0)
           returned-cf  (atom nil)
           abort-result (atom ::not-fired)
@@ -319,7 +316,7 @@
 ;; ---- (6) the opposite ordering: the abort waits, then cancels --------------
 
 (deftest concurrent-abort-cannot-complete-while-host-call-is-in-flight
-  (testing "rf2-rsv2n (audit residual, opposite ordering) — an abort racing an in-flight host call BLOCKS on the issuance monitor: it cannot clear the registry or deliver its reply until the call has published its future, which it then cancels. Issuance genuinely won, so exactly one host call is correct here"
+  (testing "opposite ordering — an abort racing an in-flight host call BLOCKS on the issuance monitor: it cannot clear the registry or deliver its reply until the call has published its future, which it then cancels. Issuance genuinely won, so exactly one host call is correct here"
     (let [fetch-calls        (atom 0)
           returned-cf        (atom nil)
           abort-result       (atom ::not-fired)
@@ -333,8 +330,8 @@
                       ;; This stub runs INSIDE the issuance region, standing
                       ;; in for `HttpClient.sendAsync`. A competing abort
                       ;; fired from here is racing a host call that has begun
-                      ;; and not yet published its future — the window the
-                      ;; audit named.
+                      ;; and not yet published its future — the window this
+                      ;; test pins.
                       (swap! fetch-calls inc)
                       (let [cf (CompletableFuture.)
                             t  (Thread.
