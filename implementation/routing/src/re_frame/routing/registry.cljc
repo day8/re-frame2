@@ -399,7 +399,7 @@
                               "route-url (the EP-0012 route prism): route-url "
                               "host-stringifies the keyword (:asc -> %3Aasc) but "
                               "match-url keeps the URL segment a STRING (the "
-                              "rf2-3k3o7 keyword-interning guard), which then "
+                              "keyword-interning guard), which then "
                               "fails the route's own :keyword schema. Use "
                               "[:enum :a :b …] for a BOUNDED keyword slot (it "
                               "interns + round-trips via the enum allowlist) or "
@@ -469,8 +469,8 @@
     (throw (route-error
              :rf.error/route-bad-metadata
              'rf/reg-route
-             (str "route " id " declares :path inside its metadata map — per "
-                  "rf2-wvh95f F1 the path pattern is the THIRD slot: "
+             (str "route " id " declares :path inside its metadata map — the "
+                  "path pattern is the THIRD slot: "
                   "(reg-route " id " {…} " (pr-str (:path metadata)) "). Move "
                   "the pattern out of the metadata map into the value slot.")
              {:route-id id :keys [:path] :value (:path metadata)})))
