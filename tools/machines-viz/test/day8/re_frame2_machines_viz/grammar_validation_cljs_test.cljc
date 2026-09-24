@@ -219,7 +219,17 @@
            (category {:initial :a :states {:a {:spawn {:machine-id :m
                                                        :definition {:initial :x :states {:x {}}}}}}}))))
   (testing "a :spawn declaring EXACTLY ONE is accepted"
-    (is (nil? (g/definition-defect {:initial :a :states {:a {:spawn {:machine-id :m}}}})))))
+    (is (nil? (g/definition-defect {:initial :a :states {:a {:spawn {:machine-id :m}}}}))))
+  (testing "rf2-0oy7d — an inline :definition with neither :id-prefix nor
+            :fixed-actor-id has no address, and is rejected like the engine"
+    (is (= :rf.error/machine-spawn-bad-shape
+           (category {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}})))
+    (is (nil? (g/definition-defect {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}
+                                                                    :id-prefix  :kid}}}}))
+        "addressed by :id-prefix")
+    (is (nil? (g/definition-defect {:initial :a :states {:a {:spawn {:definition     {:initial :x :states {:x {}}}
+                                                                    :fixed-actor-id :kid-1}}}}))
+        "addressed by :fixed-actor-id")))
 
 ;; ---------------------------------------------------------------------------
 ;; Choice / timeout are validated on their LOWERED (desugared) shape

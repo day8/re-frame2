@@ -461,6 +461,12 @@
    :valid-timeout    {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}}
    :valid-choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
    :valid-spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
+   ;; rf2-0oy7d — an inline :definition is addressed by :id-prefix or
+   ;; :fixed-actor-id (the controls for `:spawn-inline-unaddressed` below).
+   :valid-spawn-inline-prefix {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}
+                                                                 :id-prefix  :kid}}}}
+   :valid-spawn-inline-fixed  {:initial :a :states {:a {:spawn {:definition     {:initial :x :states {:x {}}}
+                                                                 :fixed-actor-id :kid-1}}}}
    :valid-spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
                                                            :on-all-complete [:done]}
                                                :on {:go :b}} :b {}}}
@@ -486,6 +492,9 @@
    :spawn-neither    {:initial :a :states {:a {:spawn {}}}}
    :spawn-both       {:initial :a :states {:a {:spawn {:machine-id :m :definition {:initial :x :states {:x {}}}}}}}
    :spawn-unknown    {:initial :a :states {:a {:spawn {:machine-id :m :bogus 1}}}}
+   ;; rf2-0oy7d — the engine refuses an UNADDRESSED inline :definition (neither
+   ;; :id-prefix nor :fixed-actor-id) since rf2-j1ykz; the viz must too.
+   :spawn-inline-unaddressed {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}}
    :par-nested       {:type :parallel :regions {:r {:initial :a :states {:a {:type :parallel :regions {:x {:initial :y :states {:y {}}}}}}}}}
    :par-no-init      {:type :parallel :regions {:r {:states {:a {}}}}}
    :par-mutex        {:type :parallel :initial :a :regions {:r {:initial :a :states {:a {}}}}}
