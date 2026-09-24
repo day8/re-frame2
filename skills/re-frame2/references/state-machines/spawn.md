@@ -86,7 +86,7 @@ The completion carrier does not stop at the `:on-done` fold — it flows into th
  :always [{:guard :config-loaded? :target :loading-deps}]}
 ```
 
-An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works equally well. **This is the replacement for a child hand-dispatching an event to advance its parent** — the child needs no knowledge of the parent at all.
+An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works equally well, and fires only on a success: a failed child arrives as `:rf.machine.spawn/error` instead, whether or not `:on-error` is declared. **This is the replacement for a child hand-dispatching an event to advance its parent** — the child needs no knowledge of the parent at all.
 
 ### Singleton symmetry — "final means final"
 
@@ -154,7 +154,7 @@ Per Spec 005 §Final states and §Embedded vs top-level (`spec/005-StateMachines
 
 **The grammar.** `:on-error` is an `:on`-shaped transition spec — keyword target, vector-path target, single transition map `{:target :guard :action}`, or guarded candidate vector — resolved **relative to the `:spawn`-bearing state's own level** (a keyword target is a **sibling**), normalised + guard-resolved through the same candidate machinery as an `:on` clause (first-guard-pass-wins; an unguarded candidate is the fallback). The error payload rides the transition's `:event` (`(nth ev 2)`), so a guard / action can branch on it.
 
-**Success vs failure are mutually exclusive per finish.** A **plain** `:final?` leaf fires `:on-done`; an `:error?` `:final?` leaf (or a throw) fires `:on-error` and SKIPS `:on-done`. Both may be declared on one `:spawn` — the runtime picks by how the child finished.
+**Success vs failure are mutually exclusive per finish.** A **plain** `:final?` leaf fires `:on-done`; an `:error?` `:final?` leaf (or a throw) fires `:on-error` and SKIPS `:on-done`. Both may be declared on one `:spawn` — the runtime picks by how the child finished. This holds with no `:on-error` declared too: the failure still arrives as `[:rf.machine.spawn/error …]`, which an explicit `:on {:rf.machine.spawn/error …}` can catch, and it never reaches `:on-done`.
 
 **`:on-error` is additive.** It does NOT replace the lower-level forms: the `:rf.error/*` trace events STILL fire, and the explicit dispatch-back escape hatch (`:fx [[:dispatch [parent-id [:failed err]]]]` + parent `:on {:failed :error}`) keeps working. Reach for `:on-error` for canonical XState-shaped failure routing; for the explicit dispatch when the child needs a richer app-shaped failure event.
 

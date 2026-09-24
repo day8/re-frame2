@@ -277,7 +277,9 @@ up with `:output-key`. The parent folds that value in `:on-done`:
      :always [{:guard :config-loaded? :target :loading-deps}]}
     ```
 
-    An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too.
+    An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too,
+    and fires only on a success: a failed child arrives as
+    `:rf.machine.spawn/error` instead.
     This is what a child would once have needed a hand-rolled dispatch back to
     its parent for. `:on-done` is applied on the parent's **next** macrostep, not
     inside the child's teardown cascade.
