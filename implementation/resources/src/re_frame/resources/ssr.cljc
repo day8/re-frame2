@@ -92,17 +92,17 @@
 
 ;; ---- shared clock ---------------------------------------------------------
 ;;
-;; The WALL-clock epoch-ms read this slice uses — the server clock stamped on
+;; The WALL-clock epoch-ms read this namespace uses — the server clock stamped on
 ;; `loaded-at` / `stale-at`, and the live clock the client compares restored
 ;; absolute timestamps against to surface skew — is the core
-;; `re-frame.interop/epoch-now-ms` (rf2-366u0g — `System/currentTimeMillis`
+;; `re-frame.interop/epoch-now-ms` (`System/currentTimeMillis`
 ;; on the JVM, `js/Date.now` on CLJS), the canonical EP-0010 §Time wall-clock
 ;; surface — NOT the perf clock `rf.interop/now-ms` (`performance.now()` on CLJS,
 ;; origin-relative, ~1e4), which is incomparable with `js/Date`-based freshness
 ;; checks. These resources are durable freshness / skew readers, so the wall
 ;; clock is correct.
 ;;
-;; `rf.interop/epoch-now-ms` is PUBLIC (rf2-wshzsp test seam preserved): the
+;; `rf.interop/epoch-now-ms` is PUBLIC (a test seam): the
 ;; restore-reconcile suite `with-redefs`-stubs it to a sentinel and ADVERSARIALLY
 ;; pins that restore reads it ONLY for the clock-skew DIAGNOSTIC — never to
 ;; freshen a DURABLE restored entry / instance timestamp (EP-0010
@@ -118,12 +118,12 @@
 ;; staleness derivation for the subs projection, the SSR projection, AND the
 ;; stale-timer re-check) so the server projection metadata and the client
 ;; refetch decision agree with the subs layer — there is no SSR-private copy
-;; to drift (rf2-dv4uj1). SSR keeps only its own policy EXPLANATION of what a
+;; to drift. SSR keeps only its own policy EXPLANATION of what a
 ;; stale entry means for projection / hydration near each call site below.
 
 ;; ---- per-entry sensitivity / size classification (Spec 016 clause 4) ------
 ;;
-;; EP-0015 §6 / EP-0025 reconciliation (rf2-5pld34, rf2-71dr8t). Params,
+;; EP-0015 §6 / EP-0025. Params,
 ;; scopes, and data carry `:sensitive` / `:large` classification OWNED by the
 ;; resource definition (Spec 015 §Resource and mutation durable
 ;; classification). The owner surface splits in two:
@@ -142,7 +142,7 @@
 ;;     components (indices 0 and 2 of `:resource/key`). The per-slot
 ;;     `:sensitive?` / `:large?` props on a co-present `:params-schema` do NOT
 ;;     drive durable egress classification — the schema VALIDATES, it does not
-;;     classify (rf2-fuqcob); a schema mark serves only validation-failure-trace
+;;     classify; a schema mark serves only validation-failure-trace
 ;;     redaction (EP-0025). A co-present `:data-schema` drives NEITHER axis: it
 ;;     is a statically reflected shape fact with NO runtime validation consumer,
 ;;     so it reaches no validator and therefore no failure trace.
@@ -157,17 +157,17 @@
 ;; their slots, and any path the FRAME ALSO classifies composes as
 ;; defense-in-depth (the same registry, all sources unioned at lookup). The
 ;; classification + projection live in `re-frame.resources.classification`
-;; (the owner-classification seam); this slice consults it — never a
+;; (the owner-classification seam); this namespace consults it — never a
 ;; family-private elider.
 
 ;; The per-entry disposition (`:serialize` / `:redact` / `:omit`) is computed
 ;; inside `project-entry` (`rf.resources.classification/whole-entry-disposition` over the
 ;; resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim — EP-0015
-;; §6 / issue 11). EP-0025 (rf2-71dr8t) removed the named-scope-resolver
-;; derived-sensitivity inheritance arm (no sensitivity propagation). Sensitive
+;; §6 / issue 11). There is no named-scope-resolver derived-sensitivity
+;; inheritance arm (EP-0025: no sensitivity propagation). Sensitive
 ;; wins over large (the redaction sentinel is the more conservative shape).
 
-;; ---- scoped-key privacy (Spec 016 clause 4, rf2-otms75) -------------------
+;; ---- scoped-key privacy (Spec 016 clause 4) -------------------
 ;;
 ;; The scoped resource KEY (`[scope resource-id params]`) is the MAP KEY of the
 ;; projected `{scoped-key wire-entry}` slice — so even when the entry's DATA is
@@ -186,28 +186,25 @@
 ;; entries. We therefore project the sensitive/large scope + params to a
 ;; `{:rf/redacted …}` token so the raw identity does not ride.
 ;;
-;; What the digest is NOT (rf2-4bjep). It was a 32-bit NON-CRYPTOGRAPHIC hash,
+;; What the digest is NOT. It is a 32-bit NON-CRYPTOGRAPHIC hash,
 ;; so it is neither injective nor one-way: FNV-1a-32 reaches birthday
 ;; collisions at roughly 2^16 distinct identities, and a low-entropy identity
 ;; (a tenant slug, an account id) is BRUTE-FORCEABLE from its digest in
 ;; milliseconds. "Distinct values stay distinct" is a cache-hygiene property
 ;; that holds overwhelmingly in practice, NOT a security guarantee, and the
-;; token was opaque only in the sense that the raw bytes were absent. Nothing
+;; token is opaque only in the sense that the raw bytes are absent. Nothing
 ;; may therefore treat it as a principal-safe identity — which is exactly why
 ;; the coarse rows are WITHHELD from the wire rather than made addressable by
-;; it (see `unaddressable-wire-key?`), and it is why the digest no longer
-;; egresses
+;; it (see `unaddressable-wire-key?`), and why the digest does not egress
 ;; from an SSR render at all.
 ;;
-;; AND IT NO LONGER EGRESSES FROM THE SENSITIVE CLASS ANYWHERE (rf2-hzcv8).
-;; Withholding closed the HYDRATION boundary; the same token kept leaving the
-;; process through `re-frame.resources.trace-egress`, which is the other trust
+;; NOR DOES IT EGRESS FROM THE SENSITIVE CLASS ANYWHERE. Withholding closes
+;; the HYDRATION boundary; `re-frame.resources.trace-egress` is the other trust
 ;; boundary and the one an off-box trace sink sits on. A token an attacker can
 ;; test a low-entropy candidate space against is not a redaction whatever wire
-;; it rides, so the SENSITIVE arm now emits a content-FREE shape token and only
-;; the `:omit` (large — a SIZE claim, not a privacy claim) arm keeps a digest,
-;; derived from CEDN-1 canonical bytes rather than from `pr-str`. See
-;; `redact-value`.
+;; it rides, so the SENSITIVE arm emits a content-FREE shape token and only
+;; the `:omit` (large — a SIZE claim, not a privacy claim) arm carries a digest,
+;; derived from CEDN-1 canonical bytes. See `redact-value`.
 
 (def ^:private fnv-offset-basis 2166136261)
 (def ^:private fnv-prime 16777619)
@@ -218,8 +215,8 @@
      the JVM's `(.getBytes text \"UTF-8\")`. A JS string is a sequence of UTF-16
      CODE UNITS, so this is not a per-character walk: a surrogate PAIR is one
      code point and encodes as four bytes, and an UNPAIRED surrogate encodes as
-     `?` (0x3f) — which is what `String.getBytes` does with a malformed input,
-     verified against the JVM rather than assumed. Pure."
+     `?` (0x3f) — which is what `String.getBytes` does with a malformed input.
+     Pure."
      [text]
      (let [output-bytes    #js []
            code-unit-count (.-length text)]
@@ -276,23 +273,21 @@
   distinct without the raw value riding. Self-contained (no dep on the SSR
   artefact's hash).
 
-  BYTE-IDENTICAL ACROSS CLJ AND CLJS, which it was not (rf2-4bjep). Both
-  branches were nominally FNV-1a-32 and neither agreed with the other on any
-  input, because a 32-bit hash cannot be written in portable Clojure by
-  accident:
+  BYTE-IDENTICAL ACROSS CLJ AND CLJS. A 32-bit hash cannot be written in
+  portable Clojure by accident:
 
-    - the INPUT must be UTF-8 BYTES. The JVM branch always took them; the CLJS
-      branch walked UTF-16 CODE UNITS and masked each to its low byte, so it
-      disagreed on every non-ASCII string AND — because masking discards the
-      high byte — mapped distinct code points onto one byte;
+    - the INPUT must be UTF-8 BYTES. Walking UTF-16 CODE UNITS and masking each
+      to its low byte would disagree with the JVM on every non-ASCII string
+      AND — because masking discards the high byte — map distinct code points
+      onto one byte;
     - the MULTIPLY must be a 32-bit wrapping multiply. `(* h fnv-prime)` in
       CLJS is a DOUBLE multiply whose product exceeds 2^53 and silently loses
-      its low bits before `bit-and` can wrap it, which broke the avalanche as
-      well as the value. `Math.imul` is the wrapping multiply; the JVM branch's
-      long multiply + mask is already exact;
+      its low bits before `bit-and` can wrap it, which would break the
+      avalanche as well as the value. `Math.imul` is the wrapping multiply; the
+      JVM branch's long multiply + mask is exact;
     - the OUTPUT must be UNSIGNED. `bit-and` in CLJS yields a SIGNED int32, so
-      roughly half of all inputs rendered as a NEGATIVE 9-character hex with a
-      leading `-`, which is not the shape this function documents.
+      roughly half of all inputs would render as a NEGATIVE 9-character hex
+      with a leading `-`, which is not the shape this function documents.
 
   The two branches are pinned equal by a shared fixture (ASCII, non-ASCII, a
   surrogate pair, and an unpaired surrogate) in `resources-ssr-cljs-test`. Pure."
@@ -320,8 +315,9 @@
   from a fixed set, plus a `:count` for a counted collection or string.
 
   Every slot is a member of a closed vocabulary or an integer, so no expression
-  in the output is derived from `value`'s CONTENT. That is the rf2-210uq
-  property, adopted here verbatim rather than re-derived: a candidate space
+  in the output is derived from `value`'s CONTENT. That is
+  `diag-value-summary`'s own content-free property, adopted here verbatim
+  rather than re-derived: a candidate space
   cannot be enumerated against `{:type :map :count 2}`, because every map of
   two entries produces it. Size is deliberately kept — an integer cannot carry
   a fragment of a token, and \"a 40-entry scope map\" is the diagnosis a reader
@@ -343,10 +339,9 @@
   `rf.identity/canonical-bytes` is the repo's identity authority and is what makes
   this a fixed function of the CANONICAL value rather than of one spelling of
   it: `(array-map :a 1 :b 2)` and `(array-map :b 2 :a 1)` are `=`, have equal
-  canonical bytes, and now produce one token — on both hosts. `pr-str`, which
-  this replaced, does not have that property (rf2-hzcv8): it walks a map in
-  iteration order, so two equal values emitted two different digests and the
-  \"fixed function of the canonical value\" claim was false.
+  canonical bytes, and produce one token — on both hosts. `pr-str` does not
+  have that property: it walks a map in iteration order, so two equal values
+  would emit two different digests.
 
   Only a classification that PERMITS a content-derived token may use this — see
   `redact-value`. `canonical-bytes` is PARTIAL (it rejects any value outside
@@ -363,7 +358,7 @@
 (defn redact-value
   "Project an owner-local identity-bearing `value` to its wire shape under a
   metadata-only (`:redact` / `:omit`) classification — a `{:rf/redacted …}`
-  token (Spec 016 clause 4 / rf2-otms75). A nil / empty value (the empty-scope
+  token (Spec 016 clause 4). A nil / empty value (the empty-scope
   / no-params case) projects to a stable `{:rf/redacted nil}`: there is nothing
   to hide.
 
@@ -376,35 +371,32 @@
       — a `canonical-digest-token`, so distinct values stay distinct and a
         tool's per-key / per-page joins survive.
 
-  WHY THE SENSITIVE ARM CARRIES NO DIGEST (rf2-hzcv8). It used to carry
-  `fnv-1a-32` of `(pr-str value)` for every classification alike. FNV-1a-32 is
+  WHY THE SENSITIVE ARM CARRIES NO DIGEST. FNV-1a-32 is
   a 32-bit non-cryptographic hash, so a low-entropy tenant id, account id or
   page cursor is recoverable from its token by ENUMERATION — the candidate
-  space is small enough to walk. rf2-4bjep proved exactly that and responded by
-  withholding coarse rows from SSR hydration, but the same token kept leaving
-  the process through `re-frame.resources.trace-egress`, which is the other
+  space is small enough to walk. Withholding coarse rows from SSR hydration
+  closes one boundary, but `re-frame.resources.trace-egress` is the other
   trust boundary and the one an off-box trace sink sits on. Spec 015's
   sensitive-marker contract is that `:rf/redacted` carries NO information about
   the underlying content and that a sensitive value is not revealable by any
   observation surface; a token an attacker can test candidates against does not
-  meet it, and calling it \"classification-chosen\" was a false assurance.
+  meet it.
 
-  So the enumerable token is gone from the sensitive class rather than made
-  stronger. Preserving JOINS is not a reason to emit one — that is the trade
-  rf2-hzcv8 settles — and the trusted-local `:rf.egress/include-sensitive?` opt-in
-  remains the only lift to raw content. `:omit` is a SIZE claim, not a privacy
-  claim, so a content-derived token is permitted there and is kept, now derived
+  So the sensitive class carries no enumerable token at all, rather than a
+  stronger one. Preserving JOINS is not a reason to emit one, and the
+  trusted-local `:rf.egress/include-sensitive?` opt-in
+  is the only lift to raw content. `:omit` is a SIZE claim, not a privacy
+  claim, so a content-derived token is permitted there, derived
   from canonical bytes.
 
   Both payloads are safe by CONSTRUCTION rather than by strength: one is a tag
   and an integer, the other a fixed function of an authoritative canonical
-  encoding. Neither is a general hashing or key-management framework, and no
-  caller gained a new public surface — `redact-value`'s 1-arity is unchanged
-  and now means the SAFE thing.
+  encoding. Neither is a general hashing or key-management framework.
+  `redact-value`'s 1-arity means the SAFE thing.
 
   Used for a scoped key's scope / params components (`project-scoped-key`) and,
   through the 1-arity, for the off-box trace-egress projections of the
-  load-more cursor tag (`:page-param` / `:next-page-param` — rf2-3tysyj), a
+  load-more cursor tag (`:page-param` / `:next-page-param`), a
   free `:scope` tag's identity map, an HTTP failure envelope, and any
   unrecognised map under a resource-family trace tag. Those callers have no
   disposition to hand it and therefore get the sensitive shape, which is the
@@ -417,7 +409,7 @@
                      (canonical-digest-token value)
                      (shape-token value))})))
 
-;; ---- is a wire key one the live client can DERIVE? (rf2-rjq9d) ------------
+;; ---- is a wire key one the live client can DERIVE? ------------
 ;;
 ;; The client never receives a key; it RE-DERIVES one, from its live scope and
 ;; params, and reads `(rf.resources.state/entry-path scoped-key)` (`rf.resources.route/route-resource-
@@ -428,8 +420,7 @@
 ;; declared slot, and no live value re-derives to a constant.
 ;;
 ;; That is a strictly stronger break than a missed cache hit, and it is why the
-;; row must not merely be emptied but REMOVED (the acceptance criterion of
-;; rf2-rjq9d). A constant substitution is MANY-TO-ONE on precisely the slots
+;; row must not merely be emptied but REMOVED. A constant substitution is MANY-TO-ONE on precisely the slots
 ;; that name a principal — two tenants project to one key — so there is no
 ;; client-side mapping back, and the row is unreachable for the whole session:
 ;; nothing addresses it, and nothing collects it either. GC is TIMER-driven
@@ -438,41 +429,36 @@
 ;; row has no collector. Unreachable AND uncollectable leaves removal as the
 ;; only lifecycle it can have.
 ;;
-;; ---- the COARSE arm reaches the same end by a different road (rf2-4bjep) ---
+;; ---- the COARSE arm reaches the same end by a different road ---
 ;;
-;; rf2-rjq9d fenced the coarse `:redact` / `:omit` arm out, on the reasoning
-;; that its `{:rf/redacted <digest>}` token is content-addressed and therefore
-;; "one-to-one and derivable in principle" — so the coarse row had a repair the
-;; per-slot row provably did not: ADOPTION, the client re-deriving the digest
-;; from its own live scope + params. Every part of that turned out to be false,
-;; and the row is withheld for the same reason after all.
+;; The coarse `:redact` / `:omit` arm can look repairable where the per-slot
+;; arm is not: a content-addressed `{:rf/redacted …}` token seems one-to-one and
+;; derivable, so the client could ADOPT the row by re-deriving the token from
+;; its own live scope + params. It cannot, and the row is withheld for the same
+;; reason:
 ;;
-;;   NOT DERIVABLE. `redact-value`'s two branches did not agree on ANY input.
-;;   The JVM hashed UTF-8 bytes with exact integer arithmetic; CLJS hashed
-;;   UTF-16 code units masked to their low byte and multiplied with a double
-;;   `*` past 2^53, emitting a SIGNED result. `"tenant"` was `f93325e5` on the
-;;   server and `74e22aec` in the browser. `fnv-1a-32` is now byte-identical
-;;   across the two — but that only removes an obstacle, it does not make
-;;   adoption safe.
+;;   NOT SAFELY DERIVABLE. `fnv-1a-32` is byte-identical across the two hosts,
+;;   but that only removes an obstacle; it does not make adoption safe. (The
+;;   sensitive arm's token is a content-free shape token and derives nothing.)
 ;;
 ;;   NOT ONE-TO-ONE, AND NOT ONE-WAY. FNV-1a-32 is a 32-bit non-cryptographic
 ;;   hash. Two principals CAN collide (birthday collisions from roughly 2^16
-;;   identities), so adopting by digest is the same cross-principal read the
-;;   per-slot arm was refused for — probabilistic rather than certain, which is
-;;   not a difference a privacy contract can rest on. And a low-entropy tenant
-;;   id is recoverable from its digest by enumeration, so shipping the token was
-;;   itself a small egress of the identity the coarse claim asked to hide.
+;;   identities), so adopting by digest would be the same cross-principal read
+;;   the per-slot arm is refused for — probabilistic rather than certain, which
+;;   is not a difference a privacy contract can rest on. And a low-entropy
+;;   tenant id is recoverable from its digest by enumeration, so shipping the
+;;   token would itself be a small egress of the identity the coarse claim asks
+;;   to hide.
 ;;
 ;;   AND THE PRIZE IS EMPTY. A coarse row is metadata-only BY CONSTRUCTION —
 ;;   `:redact` replaces `:data` with the sentinel, `:omit` drops the key — so
 ;;   `entry-needs-refetch?` is true of every one of them and the client loads
-;;   regardless. Adoption could not have suppressed a single request; it would
-;;   only have moved WHERE the refetch was planned from.
+;;   regardless. Adoption could not suppress a single request; it would only
+;;   move WHERE the refetch is planned from.
 ;;
 ;; So the coarse row is unreachable and uncollectable exactly as the per-slot
-;; one, it buys nothing, and it egresses an enumerable digest of an
-;; identity-bearing scope to every visitor of every page. It is withheld too,
-;; and `unaddressable-wire-key?` matches BOTH substitutions.
+;; one, and it buys nothing. It is withheld too, and `unaddressable-wire-key?`
+;; matches BOTH substitutions.
 
 (defn- coarse-redaction-token?
   "True iff `v` is the coarse WHOLE-COMPONENT `{:rf/redacted …}` token
@@ -487,7 +473,7 @@
   "Deep-scan `v` for ANY projection substitution that makes a wire key
   underivable by the live client — `rf.privacy/redacted-sentinel` (`:rf/redacted`)
   or an `:rf.size/large-elided` marker map (`rf.elision/marker?`) from a per-slot
-  declaration, or a whole-component coarse `{:rf/redacted <digest>}` token.
+  declaration, or a whole-component coarse `{:rf/redacted …}` token.
 
   The scan is deep because a per-slot declaration names a SLOT INSIDE a
   component: an owner declaring `[[:scope :tenant-id]]` leaves
@@ -513,8 +499,8 @@
 (defn- unaddressable-wire-key?
   "True iff `scoped-key` is a hydrated wire key the live client CANNOT derive:
   its SCOPE (index 0) or PARAMS (index 2) carries a projection substitution —
-  a per-slot constant sentinel (rf2-rjq9d) or a coarse whole-component token
-  (rf2-4bjep). The resource-id at index 1 is never a classification carrier and
+  a per-slot constant sentinel or a coarse whole-component token.
+  The resource-id at index 1 is never a classification carrier and
   is not scanned.
 
   This is the CLIENT's test. The server has an exact one — `project-entry`
@@ -530,17 +516,17 @@
 
 (defn project-scoped-key
   "Project a scoped resource KEY (`[scope resource-id params]`) to its wire
-  shape per the resource's `disposition` (Spec 016 clause 4 / rf2-otms75):
+  shape per the resource's `disposition` (Spec 016 clause 4):
 
     - `:serialize` — the key rides VERBATIM (scope + params unchanged). A
       per-slot `:params` / `:scope` projection-relative declaration on a
       `:serialize` resource is the REGISTRY-DRIVEN concern of the SSR
-      `project-entry` path (`rf.resources.classification/project-entry-params` at index 2,
-      rf2-d3pku1; `rf.resources.classification/project-entry-scope` at index 0, rf2-5e2ye):
+      `project-entry` path (`rf.resources.classification/project-entry-params` at index 2;
+      `rf.resources.classification/project-entry-scope` at index 0):
       it has the entry's `key-id` + the live SSR frame, so it walks each
       component through `project-egress` seeded at that component's own lowered
       registry path. The trace / tool egress callers do NOT get their per-slot
-      answer here either — `trace-egress/redact-key-declarations` (rf2-dl7bz)
+      answer here either — `trace-egress/redact-key-declarations`
       derives the same two-component substitution from the SPEC, because a
       frameless trace boundary cannot read the registry;
     - `:redact` / `:omit` — the scope and params are replaced by
@@ -549,7 +535,7 @@
       SENSITIVE claim and gets a content-FREE shape token, `:omit` is a SIZE
       claim and keeps a canonical-bytes digest, so key DISTINCTNESS survives
       for the large class and is deliberately surrendered for the sensitive one
-      (rf2-hzcv8 — an enumerable token is not worth a join). The COARSE
+      (an enumerable token is not worth a join). The COARSE
       whole-entry claim already redacts the WHOLE params component here, so the
       per-slot params surface is subsumed.
 
@@ -560,9 +546,9 @@
 
   The wire key keeps the `[scope resource-id params]` SHAPE so the client's
   index recompute + refetch plan parse it unchanged (resource-id at position
-  1). `spec` is the resource owner spec (`rf.resources.registry/resource-meta`) — retained
-  for caller signature stability (the disposition already encodes the coarse
-  claim it carried). PURE."
+  1). `spec` is the resource owner spec (`rf.resources.registry/resource-meta`) — accepted
+  for caller signature stability (the disposition encodes the coarse
+  claim it carries). PURE."
   [scoped-key disposition _spec]
   (if (= :serialize disposition)
     scoped-key
@@ -581,7 +567,7 @@
        resolver inputs never propagate classification to the output);
     3. projected key ← `project-scoped-key scoped-key disposition spec`
        (`:redact` / `:omit` replace scope + params with classification-chosen
-       `{:rf/redacted <digest>}` tokens; `:serialize` rides VERBATIM — the
+       `{:rf/redacted …}` tokens; `:serialize` rides VERBATIM — the
        resource-id always survives. A `:serialize` key's per-slot `:params` /
        `:scope` projection-relative declarations are the registry-driven concern
        of the SSR `project-entry` caller — `rf.resources.classification/project-entry-scope`
@@ -601,7 +587,7 @@
   `re-frame.resources.registry` already requires `classification`, so hosting
   it in `classification` would introduce a require cycle. `ssr` already
   requires both `classification` and `registry`, and the trace / tool egress
-  callers already require `ssr`. The `frame-id` arg is retained for caller
+  callers already require `ssr`. The `frame-id` arg is accepted for caller
   signature stability; whole-entry disposition is frame-independent."
   [scoped-key _frame-id]
   (let [resource-id (second scoped-key)
@@ -645,7 +631,7 @@
   `:refresh-error` serializes only when the error envelope is allowed by
   the data projection). A redacted/omitted entry drops `:refresh-error`.
 
-  rf2-9e0tyq: the entry carries its own scoped-key VECTOR as `:resource/key`
+  The entry carries its own scoped-key VECTOR as `:resource/key`
   (the `:entries` map is keyed on the byte `key-id`), so the scoped key is
   read from the entry, not a separate map-key argument. The wire entry's
   `:resource/key` is PROJECTED through `project-scoped-key` (scope+params
@@ -655,15 +641,15 @@
   (let [scoped-key  (:resource/key entry)
         resource-id (second scoped-key)
         key-id      (rf.resources.state/key-id scoped-key)
-        ;; The shared disposition+project-key pipeline (rf2-366u0g) resolves the
+        ;; The shared disposition+project-key pipeline resolves the
         ;; owner spec ONCE, computes the whole-entry disposition, and projects
         ;; the scoped key in one call:
         ;;   - the disposition is the OWNER's coarse `:sensitive?` / `:large?`
-        ;;     root-prop claim ALONE — EP-0025 (rf2-71dr8t) removed the
-        ;;     named-scope-resolver derived-sensitivity inheritance arm (no
+        ;;     root-prop claim ALONE — there is no named-scope-resolver
+        ;;     derived-sensitivity inheritance (EP-0025: no
         ;;     sensitivity propagation);
         ;;   - `projected-key` is the in-entry `:resource/key` copy projected the
-        ;;     SAME way as the wire MAP key (rf2-9e0tyq) — a `:redact` / `:omit`
+        ;;     SAME way as the wire MAP key — a `:redact` / `:omit`
         ;;     resource redacts its scope + params to classification-chosen
         ;;     tokens, so the raw identity never rides in EITHER carrier; a
         ;;     `:serialize` key rides verbatim and its per-slot scope + params
@@ -671,8 +657,8 @@
         [projected-key disposition _spec] (disposition+project-key scoped-key frame-id)
         stale?      (rf.resources.state/entry-stale? entry clock-ms)
         ;; A `:serialize` key's BOTH classification-bearing components are
-        ;; REGISTRY-PROJECTED — the SCOPE at index 0 (rf2-5e2ye) and the PARAMS
-        ;; at index 2 (rf2-d3pku1). `reconcile-registry` lowers a `:scope`-rooted
+        ;; REGISTRY-PROJECTED — the SCOPE at index 0 and the PARAMS
+        ;; at index 2. `reconcile-registry` lowers a `:scope`-rooted
         ;; declaration to `[… :resource/key 0 …]` and a `:params`-rooted one to
         ;; `[… :resource/key 2 …]`, so each component walks through
         ;; `project-egress` seeded at its OWN lowered offset and a per-slot
@@ -693,7 +679,7 @@
                              params key-id frame-id
                              :rf.egress/ssr-hydration)])
                         projected-key)
-        ;; rf2-rjq9d — DID a per-slot declaration actually change this entry's
+        ;; DID a per-slot declaration actually change this entry's
         ;; identity? `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE key
         ;; vector, so projecting EITHER component re-keys the entry, and
         ;; `project-resources-runtime-db` installs the wire entry under the
@@ -706,7 +692,8 @@
         ;; That miss is not fixable by making the raw key-id addressable. A
         ;; `key-id` is a REVERSIBLE plaintext CEDN-1 encoding, so keying the
         ;; wire map on the raw key-id would egress the declared slot in the
-        ;; clear — the exact leak rf2-5e2ye closed. Nor is it fixable by having
+        ;; clear — exactly the leak the scope projection prevents. Nor is it
+        ;; fixable by having
         ;; the client re-derive the PROJECTED key-id and adopt the entry under
         ;; it: the per-slot substitution is the CONSTANT `:rf/redacted` /
         ;; `:rf.size/large-elided` sentinel (`rf.resources.classification/project-entry-key-
@@ -721,10 +708,10 @@
         ;; `:redact` / `:omit` arms, reached for the same reason (its wire
         ;; identity is not the client's) — and is deliberately refetched. That
         ;; also disarms the many-to-one collapse: two entries that project to
-        ;; one wire key now collapse to one row carrying NO data, so no
+        ;; one wire key collapse to one row carrying NO data, so no
         ;; principal's data can ever ride under another's key.
         ;;
-        ;; rf2-4bjep — this is the ONE exact addressability question, and it is
+        ;; This is the ONE exact addressability question, and it is
         ;; asked of EVERY disposition rather than only `:serialize`: did the
         ;; projection preserve the entry's identity? A coarse `:redact` /
         ;; `:omit` key answers no just as a per-slot-declared `:serialize` key
@@ -751,16 +738,16 @@
                      :stale-at       (:stale-at entry)
                      :invalidated-at (:invalidated-at entry)}
         wire-entry  (if key-projected?
-                      ;; rf2-rjq9d — a re-keyed entry carries NOTHING. Its wire
+                      ;; A re-keyed entry carries NOTHING. Its wire
                       ;; identity is not one the live client can derive, so its
                       ;; data is unreachable by construction: shipping it would
                       ;; be dead payload beside a duplicate the client loads
                       ;; anyway, and (under the many-to-one projection above)
                       ;; potentially one principal's data filed under another's
                       ;; key. `project-resources-runtime-db` goes further and
-                      ;; WITHHOLDS the row outright — emptying it left an
-                      ;; ownerless, unaddressable, uncollectable duplicate in the
-                      ;; client's cache (see `unaddressable-wire-key?`). Dropping
+                      ;; WITHHOLDS the row outright — merely emptying it would
+                      ;; leave an ownerless, unaddressable, uncollectable duplicate
+                      ;; in the client's cache (see `unaddressable-wire-key?`). Dropping
                       ;; the data here still matters: it is what makes the
                       ;; withheld row's metadata safe to compute and report, and
                       ;; it fails CLOSED if any future caller ships this entry.
@@ -768,7 +755,7 @@
                       (dissoc entry :data :refresh-error)
                       (case disposition
                       ;; ship the data, but PROJECT it through the REGISTRY-DRIVEN
-                      ;; egress read (EP-0025, rf2-d3pku1): the resource's
+                      ;; egress read (EP-0025): the resource's
                       ;; per-slot `:data` declarations were lowered into the
                       ;; per-frame elision registry at the entry's absolute
                       ;; `:data` path (`reconcile-registry`), and
@@ -783,7 +770,7 @@
                       ;; frame-scoped; the coarse disposition is the separate
                       ;; frame-independent authority).
                       ;;
-                      ;; rf2-byl7bk.3.2 / EP-0021 R5: an INFINITE feed's `:data` is
+                      ;; EP-0021 R5: an INFINITE feed's `:data` is
                       ;; the framework-owned VECTOR OF PAGES; the lowered decl is
                       ;; `[… :data :field]` and the walker's index-free fork
                       ;; matches it against the indexed runtime path `[… :data
@@ -799,12 +786,12 @@
                       ;; sentinel is explicit, not dependent on a frame-resolved
                       ;; schema mark. refresh-error is the same privacy class.
                       ;;
-                      ;; rf2-4bjep — this arm and the `:omit` one below are now
+                      ;; This arm and the `:omit` one below are
                       ;; DEFENCE IN DEPTH rather than the wire shape: a coarse
                       ;; entry is re-keyed on both components, so
                       ;; `project-resources-runtime-db` withholds its row and
-                      ;; this wire entry is discarded. They are kept for the same
-                      ;; reason the `key-projected?` branch above is kept — they
+                      ;; this wire entry is discarded. They exist for the same
+                      ;; reason the `key-projected?` branch above does — they
                       ;; are what make a withheld row's metadata safe to compute
                       ;; and report, and they fail CLOSED if any future caller
                       ;; ships this entry. Nothing here decides what rides;
@@ -821,9 +808,9 @@
         ;; entry currently points at references a host handle that does not
         ;; survive the round-trip (Spec 016 §Restore and replay part 2 — a
         ;; non-terminal attempt is dangling on install).
-        ;; `:invalidated-during` names such an attempt too (rf2-3x7nj.10.1).
+        ;; `:invalidated-during` names such an attempt too.
         wire-entry  (dissoc wire-entry :current-work :invalidated-during)
-        ;; rf2-9e0tyq — the in-entry `:resource/key` copy is the SAME projected
+        ;; The in-entry `:resource/key` copy is the SAME projected
         ;; key computed above (`disposition+project-key`), matching the wire MAP
         ;; key: a `:redact` / `:omit` resource redacts its scope + params to
         ;; classification-chosen tokens here too, so the raw identity never
@@ -838,25 +825,23 @@
         ;; of THIS projected `:resource/key`, so the wire map key and the entry's
         ;; own copy are one value by construction, and the client's
         ;; `recompute-indexes` keys index members on the `:entries` map keys it
-        ;; installed. The coarse `:redact` / `:omit` arm has always re-keyed both
-        ;; components this way, and the params arm has since rf2-d3pku1. What
-        ;; rf2-rjq9d added is the CONSEQUENCE being told truthfully: a re-keyed
+        ;; installed. The coarse `:redact` / `:omit` arm re-keys both
+        ;; components this way, and so does the per-slot arm. The
+        ;; CONSEQUENCE is told truthfully: a re-keyed
         ;; entry is not addressable by the live client, so it rides metadata-only
         ;; and reports `:refetch-on-client? true` (see `key-projected?` above).
         wire-entry  (assoc wire-entry :resource/key projected-key)
         meta'       (assoc base
-                           ;; rf2-rjq9d — the key the projection PRODUCED, beside
-                           ;; the raw `:resource/key` it started from. It rode
-                           ;; only on the wire entry until withholding removed
-                           ;; that carrier for the `:key-projected` arm, and the
-                           ;; projected key is not incidental: it is the answer
-                           ;; the registry-driven per-slot walk computed, and the
-                           ;; value the trace-egress projection must stay
-                           ;; byte-equal to (rf2-5e2ye, rf2-dl7bz — two
-                           ;; derivations, one answer). Naming it here keeps ONE
-                           ;; observation point for that agreement whether or not
-                           ;; the row ships, and egresses nothing new: this is
-                           ;; the redacted form, and it is what used to ride.
+                           ;; The key the projection PRODUCED, beside
+                           ;; the raw `:resource/key` it started from. A withheld
+                           ;; `:key-projected` row has no wire entry to carry it,
+                           ;; and the projected key is not incidental: it is the
+                           ;; answer the registry-driven per-slot walk computed,
+                           ;; and the value the trace-egress projection must stay
+                           ;; byte-equal to (two derivations, one answer). Naming
+                           ;; it here keeps ONE observation point for that
+                           ;; agreement whether or not the row ships, and
+                           ;; egresses nothing: this is the redacted form.
                            :projected-key projected-key
                            :disposition (case disposition
                                           :serialize (if key-projected?
@@ -864,7 +849,7 @@
                                                        :serialized)
                                           :redact    :redacted
                                           :omit      :omitted)
-                           ;; rf2-4bjep — did this entry's ROW ride? The
+                           ;; Did this entry's ROW ride? The
                            ;; withholding decision, named on the metadata rather
                            ;; than re-derived by the caller from `:disposition`,
                            ;; because it is one fact with one owner: the exact
@@ -909,12 +894,10 @@
   can classify one way on the wire and the other in the record. Exactly two
   slots drift that way — `:freshness` and `:refetch-on-client?`, both derived
   from `rf.resources.state/entry-stale?`; `:withheld?`, `:disposition` and
-  `:projected-key` are key-identity facts and cannot (rf2-oryb).
+  `:projected-key` are key-identity facts and cannot.
 
   So do not read this helper's existence as evidence that projection decisions
-  are recorded anywhere — an earlier version of this docstring asserted that the
-  host adapter records it, which was never true of any adapter in-tree
-  (rf2-6r9j.53)."
+  are recorded anywhere — no in-tree host adapter records them."
   [frame-id clock-ms entries]
   (mapv (fn [[_k-id entry]] (second (project-entry frame-id clock-ms entry)))
         entries))
@@ -932,7 +915,7 @@
 
   This is the body behind the `:ssr/extend-runtime-db-projection` hook.
 
-  The SSR frame is the EXPLICIT `frame-id` the consumer threads (rf2-f02diw):
+  The SSR frame is the EXPLICIT `frame-id` the consumer threads:
   the two-arity `[runtime-db frame-id]` is the canonical form and the security-
   critical `payload-policy/project-runtime-db` calls it with the same target it
   stamps the payload `:rf/frame-id`, so the resource's declared projection-
@@ -945,16 +928,15 @@
   `:rf.runtime/resources` `:entries` (Spec 016 §SSR and hydration: \"Do not
   serialize all of `:rf.db/runtime` by default\").
 
-  rf2-otms75 — the projected MAP KEY is also privacy-aligned: a `:sensitive?` /
+  The projected MAP KEY is also privacy-aligned: a `:sensitive?` /
   `:large?` resource's scope + params are redacted to classification-chosen
   tokens in the wire key (`project-scoped-key`), so the raw identity never
   rides any more than its data does (Spec 016 clause 4). A `:serialize`
   resource's key rides verbatim EXCEPT where the owner's own projection-relative
   `:scope` / `:params` declarations name a slot, which `project-entry` walks out
-  of index 0 / index 2 against the frame's elision registry (rf2-d3pku1,
-  rf2-5e2ye).
+  of index 0 / index 2 against the frame's elision registry.
 
-  ## The re-key, and what it costs the entry (rf2-5e2ye, rf2-rjq9d)
+  ## The re-key, and what it costs the entry
 
   `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id params]`
   vector, so projecting EITHER component changes it. The wire map is therefore
@@ -963,71 +945,68 @@
   `recompute-indexes` over the `:entries` it installed. A declared slot's
   redaction consequently makes the entry unaddressable by a key the client
   re-derives from live scope + params, which is the SAME consequence the coarse
-  `:redact` / `:omit` digests have always had, and which the params arm has had
-  since rf2-d3pku1.
+  `:redact` / `:omit` tokens have.
 
-  rf2-rjq9d settled what that costs the ENTRY, because for a while only half of
-  it was said: an unaddressable entry was still shipped with its data and still
-  reported `:refetch-on-client? false`, so the server promised a reuse the
-  client could not perform and refetched anyway. `project-entry` classifies such
-  an entry `:key-projected` and reports `:refetch-on-client? true`, and this
-  projection WITHHOLDS the row from the wire entirely. The reasoning that rules
+  What that costs the ENTRY: shipped with its data and reporting
+  `:refetch-on-client? false`, an unaddressable entry would promise a reuse the
+  client cannot perform, and the client would refetch anyway. So `project-entry`
+  classifies such an entry `:key-projected` and reports `:refetch-on-client? true`,
+  and this projection WITHHOLDS the row from the wire entirely. The reasoning that rules
   out the alternative (a client-side mapping back to the projected key-id) is
   on `unaddressable-wire-key?`: the per-slot substitution is a CONSTANT
   sentinel, so it is many-to-one on exactly the slots that carry principal
   identity.
 
-  Withholding, rather than shipping the row empty, is the second half of that
-  same settlement. An emptied row is still a row: it installs, it survives the
-  hydrate reconcile, and it sits in the client's `:entries` beside the entry
+  Withholding, rather than shipping the row empty, is the other half. An
+  emptied row would still be a row: it would install, survive the hydrate
+  reconcile, and sit in the client's `:entries` beside the entry
   `ensure` writes under the raw key — ownerless, addressable by nothing, and
   kept only until the GC timer the client arms after hydration collects it.
-  It is also, on every SSR render of every page, bytes that no client can use.
-  So the row does not ride, and `hydrate-runtime-db` drops one that arrives from
-  an older render anyway. The many-to-one collapse it used to have to survive is
-  now vacuous: nothing collides because nothing is shipped.
+  It would also be, on every SSR render of every page, bytes that no client can
+  use. So the row does not ride, and `hydrate-runtime-db` drops one that arrives
+  from an older render anyway. The many-to-one collapse is vacuous: nothing
+  collides because nothing is shipped.
 
-  rf2-4bjep extends BOTH halves to the coarse `:redact` / `:omit` arm, which
-  rf2-rjq9d had fenced out. A coarse key is re-keyed no less than a declared
-  one — `project-scoped-key` replaces both its components — so its row was
-  unaddressable and uncollectable in exactly the same way, and it persisted for
-  the same reason. The exemption rested on the digest being one-to-one and
-  client-derivable, and it is neither (`unaddressable-wire-key?` carries the
-  three-part refutation); worse, a coarse row's key was itself a small egress,
-  since a 32-bit digest of a low-entropy tenant id is enumerable. Withholding it
-  costs the client nothing measurable: a coarse entry is metadata-only by
-  construction, so `entry-needs-refetch?` was already true of every one of them.
+  BOTH halves apply to the coarse `:redact` / `:omit` arm too. A coarse key is
+  re-keyed no less than a declared one — `project-scoped-key` replaces both its
+  components — so its row would be unaddressable and uncollectable in exactly
+  the same way. A digest is neither one-to-one nor safely client-derivable
+  (`unaddressable-wire-key?` carries the three-part reasoning), and a 32-bit
+  digest of a low-entropy tenant id is enumerable, so shipping a coarse row's
+  key would itself be a small egress. Withholding it costs the client nothing
+  measurable: a coarse entry is metadata-only by construction, so
+  `entry-needs-refetch?` is true of every one of them.
   The withholding rule is therefore stated once, over the exact key-id
   comparison (`:withheld?`), rather than per disposition.
 
   ## Build posture: ALWAYS-ON
 
-  Unlike the trace / tool key projection (`trace-egress/redact-key-declarations`,
-  rf2-dl7bz), which is dev-only — every caller sits behind
+  Unlike the trace / tool key projection (`trace-egress/redact-key-declarations`),
+  which is dev-only — every caller sits behind
   `rf.interop/debug-enabled?` or bundle isolation — this projection is PRODUCTION.
   It is the body behind `:ssr/extend-runtime-db-projection`, called from
   `re-frame.ssr.payload-policy/project-runtime-db` on every SSR render, and its
   output ships in the `:rf/hydration-payload` to every visitor of every page.
-  That is why the scope asymmetry mattered more here than anywhere else it
-  appeared."
+  That is why key privacy matters more here than at any other egress
+  boundary."
   ([runtime-db]
    ;; Convenience: project under the AMBIENT scope frame. Sound only at a call
    ;; site already inside the frame's own `with-frame` (ambient == the target) —
    ;; e.g. a direct unit-test caller. The security-critical SSR consumer passes
-   ;; the explicit target (rf2-f02diw).
+   ;; the explicit target.
    (project-resources-runtime-db runtime-db (rf.frame/resolve-current-frame)))
   ([runtime-db frame-id]
    (let [resources (get runtime-db rf.resources.state/resources-key)
          entries   (:entries resources)]
      (if (seq entries)
        (let [clock-ms (rf.interop/epoch-now-ms)
-             ;; rf2-9e0tyq — the projected wire entries are RE-KEYED on the byte
+             ;; The projected wire entries are RE-KEYED on the byte
              ;; `key-id` of each entry's PROJECTED `:resource/key` (the wire
              ;; entry's own `:resource/key`, set by `project-entry`), so the
              ;; client installs them under the same byte identity it will then
              ;; `recompute-indexes` over. `entries` here is keyed on the byte
              ;; `key-id`; the scoped-key vector is read from each entry.
-             ;; rf2-rjq9d / rf2-4bjep — an entry the projection RE-KEYED is
+             ;; An entry the projection RE-KEYED is
              ;; WITHHELD, not shipped empty, whatever re-keyed it: a per-slot
              ;; `:scope` / `:params` declaration on a `:serialize` owner, or the
              ;; coarse `:redact` / `:omit` tokenisation of both components.
@@ -1073,13 +1052,13 @@
   with no blocking resources never blocks the render). PURE — the host
   reads the live frame's entries each tick and re-evaluates.
 
-  `blocking` is `{<key-id> <scoped-key>}` (rf2-btdl1 — the byte-exact shape
+  `blocking` is `{<key-id> <scoped-key>}` (the byte-exact shape
   the route slice stores, so a vector-params and a list-params requirement are
   two entries here and BOTH must settle); nav-token isolation is the CALLER's
   responsibility — the route slice computes the blocking map for the current
   nav-token only, so a superseded navigation's keys never enter this predicate.
 
-  rf2-9e0tyq: `entries` is keyed on the CEDN-1 byte `key-id`, which is exactly
+  `entries` is keyed on the CEDN-1 byte `key-id`, which is exactly
   what the carrier's own keys are — no translation."
   [entries blocking]
   (every? (fn [[k-id _]] (entry-settled? (get entries k-id))) blocking))
@@ -1089,7 +1068,7 @@
   have NOT settled (still `:idle` / `:loading` / `:fetching`, or absent). What
   `settle-blocking-timeout` fails closed against when the SSR deadline
   fires. Per Spec 016 §SSR and hydration (blocking timeout policy).
-  rf2-btdl1: byte-keyed throughout, so two `=`-equal-but-byte-distinct
+  Byte-keyed throughout, so two `=`-equal-but-byte-distinct
   requirements are never reported (or settled) as one."
   [entries blocking]
   (into {} (remove (fn [[k-id _]] (entry-settled? (get entries k-id)))) blocking))
@@ -1135,13 +1114,13 @@
   route slice owns that surface)."
   [entries blocking deadline-ms frame-id]
   (let [unsettled (unsettled-blocking-keys entries blocking)
-        ;; the REPORTED value is the kind-preserving scoped key, as it has
-        ;; always been; only the carrier is byte-keyed (rf2-btdl1).
+        ;; the REPORTED value is the kind-preserving scoped key; only the
+        ;; carrier is byte-keyed.
         timed-out (vec (vals unsettled))]
     (if (empty? unsettled)
       {:entries entries :route-blocking-failure nil}
       (let [error    (ssr-timeout-error deadline-ms)
-            ;; rf2-9e0tyq — the `:entries` map is keyed on the byte `key-id`,
+            ;; The `:entries` map is keyed on the byte `key-id`,
             ;; which `unsettled` already carries as its own keys; each settle is
             ;; stamped with the entry's `:resource/key` VECTOR so a
             ;; freshly-minted timeout entry carries its identity for the
@@ -1172,7 +1151,7 @@
 
 ;; ---- routing slice literals (duplicated, not imported) --------------------
 ;;
-;; Two SSR-slice consumers read the routing-runtime subtree:
+;; Two consumers in this namespace read the routing-runtime subtree:
 ;;   - the BLOCKING DRAIN reads the current nav-token's blocking identity map
 ;;     the route slice wrote on entry (`route.cljc` §blocking-path), so it
 ;;     knows which resources must settle before the render;
@@ -1190,8 +1169,8 @@
 
 (def ^:private routing-key
   "The routing-runtime subtree key (`:rf.runtime/routing`). Mirrors the
-  literal routing + `route.cljc` use; duplicated (not imported) so the SSR
-  slice never statically `:require`s routing/route."
+  literal routing + `route.cljc` use; duplicated (not imported) so this
+  namespace never statically `:require`s routing/route."
   :rf.runtime/routing)
 
 (def ^:private routing-current-nav-token-path
@@ -1275,7 +1254,7 @@
 
   Returns `{:settled? <bool> :timed-out [<scoped-key> …] :route-blocking-failure
   <record-or-nil>}`. `:timed-out` is the SAME vector of scoped keys the
-  failure record carries (rf2-btdl1 — one spelling; a set would collapse two
+  failure record carries (one spelling; a set would collapse two
   `=`-equal-but-byte-distinct requirements into one report). On a clean settle
   within budget: `:settled? true`,
   `:timed-out []`, no failure record, and the frame's runtime-db is
@@ -1361,7 +1340,7 @@
   [owner]
   (and (vector? owner) (= :route (first owner))))
 
-;; ---- route-owner reconcile POLICY (the hydration↔restore split, rf2-64bdnk) -
+;; ---- route-owner reconcile POLICY (the hydration↔restore split) -
 ;;
 ;; A nil live nav-token means TWO different things, so the route-owner orphan
 ;; rule MUST distinguish the caller:
@@ -1393,7 +1372,7 @@
   revives only if its nav-token EQUALS `live-nav-token` (the restored
   `[:rf.runtime/routing :current :nav-token]`). A nil `live-nav-token` (absent
   routing slice / no `:current` / nil nav-token) means NO route owner is live
-  → every route owner orphans (rf2-64bdnk). Per Spec 016 §Restore part 4."
+  → every route owner orphans. Per Spec 016 §Restore part 4."
   [live-nav-token]
   {:restore-live-nav-token live-nav-token})
 
@@ -1406,8 +1385,7 @@
     - `{:restore-live-nav-token <t>}` (restore) → true iff the owner's
       nav-token ≠ `<t>`. When `<t>` is nil (the restored routing names no live
       nav-token) EVERY route owner orphans, because no owner's token can equal
-      nil (a real nav-token is never nil). Per Spec 016 §Restore part 4
-      (rf2-64bdnk)."
+      nil (a real nav-token is never nil). Per Spec 016 §Restore part 4."
   [route-owner-policy owner]
   (and (route-owner? owner)
        (not= :ride-through route-owner-policy)
@@ -1426,7 +1404,7 @@
       (`:ride-through`) NONE — route owners ride through for routing's own
       client reconcile; on RESTORE (`{:restore-live-nav-token <t>}`) every
       route owner whose nav-token ≠ the restored live token, INCLUDING all of
-      them when the restored routing names no live token at all (rf2-64bdnk) —
+      them when the restored routing names no live token at all —
       such an owner would otherwise pin its entry alive forever + refetch on
       focus/reconnect (part 4).
 
@@ -1444,7 +1422,7 @@
          (assoc :active-owners kept)
          (assoc :current-work nil)
          ;; the attempt an in-flight invalidation was stamped against is gone
-         ;; too (rf2-3x7nj.10.1); the stale mark itself stays.
+         ;; too; the stale mark itself stays.
          (dissoc :invalidated-during))
      dropped]))
 
@@ -1484,7 +1462,7 @@
     1. drop SSR owners from every entry (they orphan — part 4) + clear the
        transient `:current-work` pointer (part 2), AND settle a non-terminal
        `:loading` / `:fetching` entry whose `:current-work` was stripped on the
-       wire to its last STABLE status (`settle-entry-to-last-stable` — rf2-bg6qah):
+       wire to its last STABLE status (`settle-entry-to-last-stable`):
        the server projection strips `:current-work` (`project-entry`) but keeps
        the entry's `:status`, so a hydrated entry can arrive `:loading` / `:fetching`
        with NO live work behind it. Left as-is it would dangle — a `:fetching`
@@ -1495,8 +1473,8 @@
        (the planner then refetches it). This mirrors the restore reconcile (the
        unprojected snapshot needs the same settle — `reconcile-on-restore`);
     1b. DROP any row whose key the live client cannot derive
-       (`unaddressable-wire-key?` — rf2-rjq9d for the per-slot substitution,
-       rf2-4bjep for the coarse `:redact` / `:omit` token).
+       (`unaddressable-wire-key?` — the per-slot substitution or the coarse
+       `:redact` / `:omit` token).
        `project-resources-runtime-db` withholds such rows, so a payload rendered
        by this build carries none; this is the never-trust-the-wire half, for
        cached HTML rendered by an earlier deploy. Installing one would leave an
@@ -1510,7 +1488,7 @@
        counts, and a clock-skew diagnostic when a restored `:stale-at` is
        implausible against the live clock;
     4. COMPUTE the client refetch plan (`hydrate-refetch-plan`) over the
-       reconciled entries (rf2-fopuj9), emitting one `:rf.resource/hydrate-
+       reconciled entries, emitting one `:rf.resource/hydrate-
        refetch` decision row per entry that is NOT sufficient on its own —
        stale (background refetch), omitted (`:no-data`), or redacted (the
        `:rf/redacted` sentinel is metadata-only, NOT usable data, so it is
@@ -1540,7 +1518,7 @@
        runtime-db
        (let [clock-ms (rf.interop/epoch-now-ms)
              ;; reconcile each entry: orphan SSR owners + clear current-work +
-             ;; settle a non-terminal entry to last-stable (rf2-bg6qah).
+             ;; settle a non-terminal entry to last-stable.
              ;; Hydration passes nil live-nav-token — there is no client
              ;; routing yet, so route owners ride through unchanged (their
              ;; liveness is reconciled by routing on the live client). The
@@ -1553,7 +1531,7 @@
              ;; (`:fetching`+data → `:loaded`, `:loading`+no-data → `:idle`)
              ;; lets the refetch planner classify it correctly rather than
              ;; leaving it dangling in a non-terminal status forever.
-             ;; rf2-5o52l — `:entries` stays keyed on the byte `key-id` (`k`),
+             ;; `:entries` is keyed on the byte `key-id` (`k`),
              ;; but the `:orphaned` / `:skews` accumulators name each entry by
              ;; its SCOPED KEY, because they feed TRACE TAGS. A `key-id` is a
              ;; reversible plaintext CEDN-1 encoding, so a key-id in a trace tag
@@ -1564,19 +1542,19 @@
              ;; entry)`), and the reason `:entries` and these two diverge.
              ;;
              ;; Both accumulators are SEQUENCES, and that is load-bearing rather
-             ;; than incidental (rf2-5o52l audit of #7018). Resource identity is
-             ;; the CEDN `key-id`, which is collection-KIND sensitive
-             ;; (rf2-wgutc2): params `{:xs [1 2 3]}` and `{:xs '(1 2 3)}` are two
+             ;; than incidental. Resource identity is
+             ;; the CEDN `key-id`, which is collection-KIND sensitive:
+             ;; params `{:xs [1 2 3]}` and `{:xs '(1 2 3)}` are two
              ;; distinct entries with two distinct key-ids, and yet their scoped
-             ;; keys are `=` to Clojure. A scoped-key-KEYED accumulator therefore
-             ;; silently collapses them and one live entry's diagnostic
-             ;; disappears — `:skews` was such a map and did exactly that. A
+             ;; keys are `=` to Clojure. A scoped-key-KEYED accumulator would
+             ;; therefore silently collapse them and one live entry's diagnostic
+             ;; would disappear. A
              ;; sequence has no key to collide on: `reduce-kv` visits each
              ;; key-id once, so one entry in is one member out, and the scoped
              ;; key rides in the VALUE where it is emitted rather than in a
              ;; position where it decides identity.
              ;;
-             ;; rf2-rjq9d / rf2-4bjep — a row whose key the live client cannot
+             ;; A row whose key the live client cannot
              ;; DERIVE is dropped rather than installed, whether a per-slot
              ;; declaration or the coarse tokenisation re-keyed it.
              ;; `project-resources-runtime-db`
@@ -1624,7 +1602,7 @@
                        ;; walks it per member, so each key projects through its
                        ;; own owner and per-key joins survive.
                        :clock-skews    (vec (:skews reconciled))
-                       ;; rf2-rjq9d — the wire rows DROPPED as unaddressable,
+                       ;; The wire rows DROPPED as unaddressable,
                        ;; named by the projected key that arrived. Reporting the
                        ;; count alone would make a version-skewed payload look
                        ;; like a payload that simply carried fewer entries. The
@@ -1640,7 +1618,7 @@
                                             skew "ms ahead of the live client clock "
                                             "— server clock skew makes freshness "
                                             "ambiguous; refetch will resolve it.")}))
-         ;; rf2-fopuj9 — COMPUTE the client refetch plan over the reconciled
+         ;; COMPUTE the client refetch plan over the reconciled
          ;; entries on the `:rf/hydrate` install path, emitting the per-entry
          ;; `:rf.resource/hydrate-refetch` decision rows (stale / no-data /
          ;; metadata-only). The route slice consults `hydrate-refetch-plan`
@@ -1648,7 +1626,7 @@
          ;; ensures the decision (esp. that a REDACTED sentinel entry is
          ;; metadata-only, not fresh-with-data) is never lost on hydrate.
          (hydrate-refetch-plan rdb' clock-ms frame-id)
-         ;; rf2-kqxe6.17 — reconcile the hydrated ROUTE readiness through the
+         ;; Reconcile the hydrated ROUTE readiness through the
          ;; ONE projector. A hydration payload that carries a routing slice
          ;; carries the server's cached `:transition` / `:error`, and the
          ;; entries just reconciled above may CONTRADICT it (a `:loading` the
@@ -1752,7 +1730,7 @@
                            ledger)]
     (if (empty? non-terminal)
       [runtime-db []]
-      ;; rf2-9e0tyq — `non-terminal` are ledger map keys (already byte
+      ;; `non-terminal` are ledger map keys (already byte
       ;; `work-id-id`s from the `(map key)` scan), so update them via
       ;; `update-record-by-id` (NOT `update-record`, which re-transforms a
       ;; work-id VECTOR to its byte id and would double-hash).
@@ -1766,8 +1744,8 @@
        non-terminal])))
 
 (defn dangle-pending-mutations!
-  "Reconcile restored PENDING mutation INSTANCES on epoch restore (rf2-o3d1uf,
-  Spec 016 §Restore and replay part 2). A restored `:pending` (or `:idle`)
+  "Reconcile restored PENDING mutation INSTANCES on epoch restore (Spec 016
+  §Restore and replay part 2). A restored `:pending` (or `:idle`)
   mutation instance at `:rf.runtime/mutations` retains its `:current-work` +
   `:generation` — pointing at an attempt the restored timeline no longer owns
   (the host handle was never serialized). Unlike a resource cache entry (whose
@@ -1775,8 +1753,8 @@
   INSTANCE's `:current-work` + `:generation` (`live-instance-for-reply`), so
   WITHOUT reconciling the instance a late pre-restore mutation success/failure
   reply would still match the restored instance and PATCH / POPULATE /
-  INVALIDATE post-restore resource state — the exact correctness leak this
-  closes.
+  INVALIDATE post-restore resource state — the correctness leak this
+  prevents.
 
   Each restored pending/idle instance is TERMINALLY SETTLED to `:error` with
   the `:dangling-on-restore` envelope and its `:current-work` is CLEARED
@@ -1788,7 +1766,7 @@
   structural impossibility. Already-terminal (`:success` / `:error`) instances
   ride through unchanged (a settled write's durable outcome is real).
 
-  EP-0019 Q3 GUARD — a dangled OPTIMISTIC write also ROLLS BACK its recorded
+  EP-0019 Open Issue 3 — a dangled OPTIMISTIC write also ROLLS BACK its recorded
   apply (the entry shows the optimistic value with no in-flight write to confirm
   it — an accepted-error-shaped terminal). The rollback runs INSIDE this same
   pure pass (`rf.resources.mutation-runtime/dangle-rollback-optimistic`), NOT as a second
@@ -1808,7 +1786,7 @@
   `dangle-non-terminal-work!`, work-kind `:mutation`)."
   [runtime-db settled-at]
   (let [instances (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
-        ;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the CEDN-1 byte
+        ;; `:rf.runtime/mutations` is keyed on the CEDN-1 byte
         ;; `key-id`; iterate the map's OWN keys (already byte key-ids) and
         ;; operate on the direct `[mutations-key <key-id>]` path. Do NOT re-feed
         ;; a byte key-id through `instance-path` (that would re-encode it).
@@ -1823,7 +1801,7 @@
               (fn [[rdb rk dids] key-id]
                 (let [inst-path (conj (rf.resources.mutation-runtime/instances-path) key-id)
                       inst (get-in rdb inst-path)
-                      ;; EP-0019 Q3 — roll back the recorded optimistic apply
+                      ;; EP-0019 Open Issue 3 — roll back the recorded optimistic apply
                       ;; (conflict-aware, INSIDE the pass) BEFORE settling the
                       ;; instance terminal, so the restored cache shows truth (the
                       ;; restored `:before`, or a durable-stale entry the read path
@@ -1844,7 +1822,7 @@
 
 (defn clear-host-transients-on-restore!
   "Clear the restored `frame-id`'s HOST-SIDE transient resource caches that the
-  pre-restore timeline armed (rf2-nd1r9q, Spec 016 §Restore and replay part 5).
+  pre-restore timeline armed (Spec 016 §Restore and replay part 5).
   Epoch restore installs the durable snapshot wholesale, but host side tables
   are NOT frame-state — they belong to the pre-restore timeline and must be
   cleared so a stale timer / abandoned in-flight handle cannot fire against the
@@ -1860,7 +1838,7 @@
       attempts; best-effort aborted on the way out (the work is dangling per
       part 2 — its durable row was already settled `:suppressed`).
 
-  DELIBERATELY does NOT touch (Spec 016 part 5 / the bead's explicit fence):
+  DELIBERATELY does NOT touch (Spec 016 part 5):
 
     - the host-side GENERATION high-water mark (`rf.resources.state/generation-cache`) — it
       is monotonic + must NOT rewind (part 1), or a pre-restore reply's
@@ -1881,13 +1859,13 @@
   (rf.resources.work-ledger/release-frame! frame-id)
   nil)
 
-;; ---- deferred restore trace intents (rf2-obi8rr) --------------------------
+;; ---- deferred restore trace intents --------------------------
 ;;
 ;; `reconcile-on-restore` runs INSIDE `perform-restore!` BEFORE the atomic
 ;; `replace-frame-state!` install (it reconciles the runtime-db the install is
 ;; about to write). The install can still FAIL after the reconcile: a frame
 ;; destroyed in the post-liveness teardown window makes `replace-frame-state!`
-;; return nil (the rf2-s93722 race), so no frame-state is written. If the
+;; return nil (a destroy/install race), so no frame-state is written. If the
 ;; reconcile had ALREADY emitted `:rf.resource/restored` / `owner-released`
 ;; success traces, those would leak — announcing a restore that never installed.
 ;;
@@ -1903,8 +1881,8 @@
 
 (def ^:private deferred-trace-intents-key
   "Metadata key carrying the deferred restore-reconcile trace intents on the
-  runtime-db `reconcile-on-restore` returns under `:defer-traces? true`
-  (rf2-obi8rr). `perform-restore!` reads them via `commit-restore-reconcile-
+  runtime-db `reconcile-on-restore` returns under `:defer-traces? true`.
+  `perform-restore!` reads them via `commit-restore-reconcile-
   traces!` and emits them only after the frame-state install succeeds."
   ::deferred-trace-intents)
 
@@ -1912,7 +1890,7 @@
   "Emit one deferred restore trace intent `{:level :op :tags}` through the
   matching `trace` emitter. `:error` routes through `rf.trace/emit-error!` (the
   structured-error channel); every other level (`:rf.epoch` / `:warning` / …)
-  routes through `rf.trace/emit!`. Per rf2-obi8rr."
+  routes through `rf.trace/emit!`."
   [{:keys [level op tags]}]
   (if (= :error level)
     (rf.trace/emit-error! op tags)
@@ -1921,7 +1899,7 @@
 
 (defn commit-restore-reconcile-traces!
   "Emit the restore-reconcile trace intents DEFERRED on `reconciled-runtime-db`
-  by a `reconcile-on-restore` call made with `:defer-traces? true` (rf2-obi8rr).
+  by a `reconcile-on-restore` call made with `:defer-traces? true`.
   The body behind the `:resources/commit-restore-reconcile!` hook
   `perform-restore!` consults AFTER a successful `replace-frame-state!` install,
   so a failed restore (a destroyed-frame install returning nil) emits NO
@@ -1930,7 +1908,7 @@
   `emit-trace-intent!`. No-op when the value carries no deferred intents (a
   resource-free restore, or a reconcile that emitted inline). Returns nil.
 
-  The commit is itself a callback FAN-OUT (rf2-sdeae): every intent emits to the
+  The commit is itself a callback FAN-OUT: every intent emits to the
   frame's trace listeners, and a listener is app code that can destroy
   incarnation A and seat a same-id successor B. A single check around the whole
   loop is therefore not enough — the 3-arity takes the SAME `:owner-token`
@@ -1938,7 +1916,7 @@
   exact ownership at EVERY intent boundary. Once the incarnation is lost the
   remaining A-owned intents are STOPPED, so A's restore is never announced
   against B. nil token (and the 1-arity pure-unit path) has no incarnation to
-  fence and commits every intent, as before."
+  fence and commits every intent."
   ([reconciled-runtime-db] (commit-restore-reconcile-traces! reconciled-runtime-db nil nil))
   ([reconciled-runtime-db frame-id {:keys [owner-token]}]
    (let [still-owned? (fn []
@@ -1979,7 +1957,7 @@
        reply is suppressed;
     3b. settle every restored PENDING MUTATION INSTANCE to terminal `:error` /
        `:dangling-on-restore` and CLEAR its `:current-work`
-       (`dangle-pending-mutations!`, part 2 — rf2-o3d1uf) so a late pre-restore
+       (`dangle-pending-mutations!`, part 2) so a late pre-restore
        mutation reply cannot patch / populate / invalidate post-restore state
        (the mutation reply gate checks the INSTANCE's `:current-work` +
        `:generation`, not the resource entry's, so the resource-side dangle
@@ -1996,7 +1974,7 @@
        stale-nav route owner released as an orphan (part 4), and a clock-skew
        diagnostic when a restored `:stale-at` is implausible against the live
        clock — emitted INLINE by the 1-/2-arity (the pure unit path; no install
-       to gate), or DEFERRED under `:defer-traces? true` (rf2-obi8rr): the
+       to gate), or DEFERRED under `:defer-traces? true`: the
        intents ride back as metadata for `commit-restore-reconcile-traces!` to
        emit AFTER `perform-restore!`'s install succeeds, so a failed
        (destroyed-frame) restore leaks NO `:rf.resource/restored` /
@@ -2009,13 +1987,13 @@
 
   `opts` (3-arity): `{:defer-traces? <bool> :restore-time-ms <epoch-ms>}`.
 
-  - `:defer-traces?` (rf2-obi8rr) — when true (the epoch hook path) the trace
+  - `:defer-traces?` — when true (the epoch hook path) the trace
     rows are NOT emitted inline; they ride back as `::deferred-trace-intents`
     metadata on the returned runtime-db for `commit-restore-reconcile-traces!`
     to emit post-install. The host-side-transient clear runs regardless
     (idempotent; the only failure path is an already-destroyed frame whose
     transients were already released).
-  - `:owner-token` (rf2-qfrh4 seam 2) — the EXACT incarnation token (the
+  - `:owner-token` — the EXACT incarnation token (the
     captured frame record's `:drain-lock`) the restore resolved against. The
     host-side-transient clear addresses the frame by BARE id and runs BEFORE the
     atomic install, so a callback that churns incarnation A to a same-id
@@ -2024,8 +2002,8 @@
     still live (`rf.frame/frame-incarnation-live?`); once it is lost the clear is
     skipped — B is untouched, and A's transients were already released by
     `destroy-frame!`. nil (the pure-unit 1-/2-arity) has no incarnation to fence
-    and clears unconditionally, as before.
-  - `:restore-time-ms` (rf2-wshzsp) — the restore's CAUSAL time: the restored
+    and clears unconditionally.
+  - `:restore-time-ms` — the restore's CAUSAL time: the restored
     epoch's `:committed-at` (the committing token's `:rf.cofx`
     `:rf/time-ms`, replay-stable per EP-0010 §Time). It is the source of the
     DURABLE `:settled-at` stamped on a PENDING mutation instance dangled on
@@ -2061,7 +2039,7 @@
              ;; projection never carried an in-flight entry, but the
              ;; unprojected snapshot can).
              route-owner-policy (restore-route-owner-policy live-nav-token)
-             ;; rf2-5o52l — as in `hydrate-runtime-db`: `:entries` stays keyed on
+             ;; As in `hydrate-runtime-db`: `:entries` is keyed on
              ;; the byte `key-id` (`k`), while `:orphaned` / `:skews` name each
              ;; entry by its SCOPED KEY because they feed TRACE TAGS, and a
              ;; key-id is a reversible plaintext CEDN-1 encoding the off-box
@@ -2090,11 +2068,11 @@
              [rdb'' dangled] (dangle-non-terminal-work! rdb')
              ;; settle the dangling PENDING mutation instances + clear their
              ;; :current-work so a late pre-restore mutation reply is suppressed
-             ;; by the instance work-id + generation gate (rf2-o3d1uf). Runs on
+             ;; by the instance work-id + generation gate. Runs on
              ;; the resource-reconciled runtime-db; the mutation work-ledger row
              ;; was already dangled by `dangle-non-terminal-work!` above.
              ;;
-             ;; rf2-wshzsp — the dangled instance's DURABLE `:settled-at` is a
+             ;; The dangled instance's DURABLE `:settled-at` is a
              ;; frame-state field, so per EP-0010 §Time + §Restore/Replay it MUST
              ;; come from the restore's CAUSAL time (`restore-time-ms` — the
              ;; restored epoch's `:committed-at`, itself the committing token's
@@ -2106,10 +2084,9 @@
              ;; clock-skew DIAGNOSTIC (below) — never a durable entry/instance
              ;; field. Falls back to `clock-ms` only on the pure-unit 1-/2-arity
              ;; (no token in flight, no causal time available — and those paths
-             ;; carry no real restore epoch), keeping the unit harness's existing
-             ;; behaviour intact.
+             ;; carry no real restore epoch).
              settled-at (or restore-time-ms clock-ms)
-             ;; EP-0019 Q3 — the dangle ALSO rolls back any recorded optimistic
+             ;; EP-0019 Open Issue 3 — the dangle ALSO rolls back any recorded optimistic
              ;; apply INSIDE this pass (`rolled-mutation-keys` are the keys the
              ;; rollback restored / durably-staled). A restore-before may have
              ;; re-created / dropped entries + tags, so recompute the reverse
@@ -2120,7 +2097,7 @@
              rdb''' (if (seq rolled-mutation-keys)
                       (update rdb-dangled rf.resources.state/resources-key rf.resources.state/recompute-indexes)
                       rdb-dangled)
-             ;; rf2-obi8rr — compute the restore-reconcile trace rows as INTENTS
+             ;; Compute the restore-reconcile trace rows as INTENTS
              ;; (plain `{:level :op :tags}` data). They are emitted inline below
              ;; for the direct (unit-test) path, or deferred onto the returned
              ;; runtime-db's metadata under `:defer-traces? true` so the epoch
@@ -2133,7 +2110,7 @@
                                  :orphaned-owners   (vec (:orphaned reconciled))
                                  :dangled-work      (vec dangled)
                                  :dangled-mutations (vec dangled-mutations)
-                                 ;; EP-0019 Q3 — the optimistic keys a dangled
+                                 ;; EP-0019 Open Issue 3 — the optimistic keys a dangled
                                  ;; optimistic write rolled back INSIDE this pass.
                                  :rolled-back-mutation-keys (vec rolled-mutation-keys)
                                  ;; a VECTOR of `[<scoped-key> <skew-ms>]` pairs
@@ -2167,7 +2144,7 @@
                                                       skew "ms ahead of the live clock — clock "
                                                       "skew makes freshness ambiguous; the next "
                                                       "live-owner ensure will resolve it.")}})
-                        ;; rf2-nftz2s §4 — a PENDING mutation instance was
+                        ;; A PENDING mutation instance was
                         ;; terminally dangled and its DURABLE :settled-at stamped
                         ;; from the LIVE install clock (`clock-ms`) because NO
                         ;; causal `:restore-time-ms` was supplied. Per EP-0010
@@ -2180,7 +2157,7 @@
                         ;; causal time and install no epoch, so the stamp is never
                         ;; replayed there; but a PRODUCTION restore that dangles
                         ;; real pending mutations without threading
-                        ;; `:restore-time-ms` is the seam the bead flags. We
+                        ;; `:restore-time-ms` is a replay-determinism seam. We
                         ;; surface it LOUDLY (no-silent-swallow) rather than
                         ;; refuse — the 3-arity production caller
                         ;; (`reconcile-runtime-db-on-restore`) always threads the
@@ -2206,7 +2183,7 @@
                                                              "only on the pure-unit 1-/2-arity, which "
                                                              "installs no epoch.)")
                                     :recovery           :restore-reconcile}}])])]
-         ;; rf2-nd1r9q — clear the restored frame's HOST-SIDE transients (stale /
+         ;; Clear the restored frame's HOST-SIDE transients (stale /
          ;; GC timer handles + work-ledger host handles) that the pre-restore
          ;; timeline armed (Spec 016 §Restore and replay part 5). These are NOT
          ;; frame-state, so the wholesale install does not touch them; a stale
@@ -2217,10 +2194,10 @@
          ;; — part 1) and the revalidation listeners (frame-lifecycle-scoped, not
          ;; epoch-scoped). Guarded on `frame-id` (the host always passes one; the
          ;; pure-unit 1-arity passes nil and has no live host tables to clear).
-         ;; NOT deferred (rf2-obi8rr): idempotent, and the only failed-install
+         ;; NOT deferred: idempotent, and the only failed-install
          ;; path is an already-destroyed frame whose transients were released.
          ;;
-         ;; FENCED to the exact incarnation (rf2-qfrh4 seam 2). This clear
+         ;; FENCED to the exact incarnation. This clear
          ;; addresses the frame by BARE id and runs BEFORE `perform-restore!`'s
          ;; atomic write; a callback that churns incarnation A to a same-id
          ;; successor B mid-reconcile would otherwise make it release B's live
@@ -2229,12 +2206,12 @@
          ;; clear is skipped, so B is untouched (and if A was destroyed to seat
          ;; B, `destroy-frame!` already released A's transients). nil owner-token
          ;; (the pure-unit 1-/2-arity) has no incarnation to fence and clears
-         ;; unconditionally, as before.
+         ;; unconditionally.
          (when (and frame-id
                     (or (nil? owner-token)
                         (rf.frame/frame-incarnation-live? frame-id owner-token)))
            (clear-host-transients-on-restore! frame-id))
-         ;; rf2-kqxe6.17 — reconcile the restored ROUTE readiness through the
+         ;; Reconcile the restored ROUTE readiness through the
          ;; ONE projector, LAST (after the entry settles + the work/mutation
          ;; dangles, so it projects over the facts the restore actually
          ;; installs). The captured slice's `:transition` / `:error` is a
@@ -2243,13 +2220,13 @@
          ;; restore has just dangled, so nothing would ever move it again.
          ;; Under `:defer-traces?` the `:rf.error/resource-route-blocking`
          ;; emit is suppressed — the reconcile runs BEFORE the atomic install
-         ;; and must announce nothing an aborted install would not have done
-         ;; (rf2-obi8rr). Per Spec 012 §Route readiness is a resource
+         ;; and must announce nothing an aborted install would not have done.
+         ;; Per Spec 012 §Route readiness is a resource
          ;; projection.
          (let [rdb-final (rf.resources.route/reconcile-readiness
                            rdb''' {:emit-error? (not defer-traces?)})]
            (if defer-traces?
-             ;; rf2-obi8rr — ride the intents back as metadata; the epoch
+             ;; Ride the intents back as metadata; the epoch
              ;; `perform-restore!` emits them via `commit-restore-reconcile-traces!`
              ;; only after the frame-state install succeeds.
              (vary-meta rdb-final assoc deferred-trace-intents-key intents)
@@ -2290,7 +2267,7 @@
   `rf.resources.state/has-data?` so the two never drift: crucially, an INFINITE feed's
   `:data` is the ordered PAGE VECTOR (seeded `[]`), and an EMPTY page vector is
   NO usable data (EP-0021 R1) — a naive `(some? :data)` would treat `[]` as
-  present and strand an empty hydrated feed fresh-forever (rf2-x76af2.11). The
+  present and strand an empty hydrated feed fresh-forever. The
   sentinel exclusion is checked FIRST (short-circuit): a redacted infinite
   entry keeps `:infinite?`, and `has-data?` would `(seq sentinel)` — the
   sentinel is a keyword, so it must be ruled out before `has-data?` runs. Per
@@ -2344,20 +2321,16 @@
   `runtime-db` (the trace emit self-gates on debug, as `hydrate-runtime-db`'s
   `:rf.resource/hydrated` does) — the route slice / host drives the issuing.
 
-  rf2-rjq9d / rf2-4bjep — a row the client cannot ADDRESS is not planned. A plan
+  A row the client cannot ADDRESS is not planned. A plan
   entry is consumed by `:resource/key`: the route slice carries that key into
   `:rf.resource/refetch`. A key no live derivation reproduces therefore names a
-  fetch nobody can issue and a cache slot nobody can fill, which is not a plan
-  entry but a second copy of the defect. Neither a `:key-projected` entry nor a
+  fetch nobody can issue and a cache slot nobody can fill, which is not a usable
+  plan entry. Neither a `:key-projected` entry nor a
   coarse `:redact` / `:omit` one reaches here at all —
   `project-resources-runtime-db` withholds both and `hydrate-runtime-db` drops
-  any that arrives — and the client still issues exactly the one load
+  any that arrives — and the client issues exactly the one load
   `route-resource-plan` / `ensure-handler` derive from the RAW key, which is the
-  load it was always going to issue. Before the fix the `:key-projected` entry
-  arrived fresh-with-data and was silently omitted from the plan while the
-  client refetched anyway, and the coarse entry was PLANNED under its projected
-  key — a refetch request naming an identity the route slice could not resolve.
-  The correction is that the plan and the cache both stop mentioning an identity
+  load it would issue anyway. The plan and the cache both omit an identity
   the client does not have.
 
   `frame-id` (3-arity) is the explicit hydration target the trace rows are
@@ -2366,13 +2339,13 @@
   ([runtime-db clock-ms] (hydrate-refetch-plan runtime-db clock-ms nil))
   ([runtime-db clock-ms frame-id]
    (let [entries (get-in runtime-db [rf.resources.state/resources-key :entries])
-         ;; rf2-9e0tyq — `entries` is keyed on the opaque byte `key-id`; the
+         ;; `entries` is keyed on the opaque byte `key-id`; the
          ;; plan names each entry by its stored `:resource/key` VECTOR (the
          ;; route slice re-resolves params from the live route under that key)
          ;; and reads the resource-id from position 1 of THAT vector.
          plan    (into []
                        (comp
-                         ;; rf2-rjq9d — a row the client cannot ADDRESS cannot be
+                         ;; A row the client cannot ADDRESS cannot be
                          ;; planned: `:resource/key` is what the route slice
                          ;; carries into `:rf.resource/refetch`, and a key no live
                          ;; derivation reproduces names a fetch nobody can issue
@@ -2393,12 +2366,12 @@
                                                  ;; an OMITTED entry (`:no-data`) so
                                                  ;; Xray / the route slice can tell a
                                                  ;; sensitive-redaction refetch from a
-                                                 ;; large-omission one (rf2-fopuj9).
+                                                 ;; large-omission one.
                                                  (= rf.privacy/redacted-sentinel (:data entry)) :metadata-only
                                                  ;; no usable last-known-good data — a nil
                                                  ;; scalar (omitted `:large?`) OR an EMPTY
-                                                 ;; infinite page vector `[]` (EP-0021 R1;
-                                                 ;; rf2-x76af2.11). `rf.resources.state/has-data?` is the
+                                                 ;; infinite page vector `[]` (EP-0021 R1).
+                                                 ;; `rf.resources.state/has-data?` is the
                                                  ;; single home for the infinite-empty branch,
                                                  ;; reached only after the sentinel is ruled out.
                                                  (not (rf.resources.state/has-data? entry))       :no-data
@@ -2414,7 +2387,7 @@
                      :cause        :hydration}))
      plan)))
 
-;; ---- client hydration timer rearm (rf2-omahf, rf2-2ojds) --------------------
+;; ---- client hydration timer rearm --------------------
 
 (defn rearm-timers-after-hydration!
   "Arm the GC timer of every resource entry `frame-id`'s runtime-db holds, and
@@ -2429,12 +2402,12 @@
   owned entry, which arms nothing, and on the ordinary SSR boot no client
   ensure runs at all. Releasing that owner arms nothing either, because a
   release never starts a timer.
-    - GC (rf2-omahf). Without this arm no GC re-check ever runs and the entry
+    - GC. Without this arm no GC re-check ever runs and the entry
       lives for the session. Arming is safe because `events/gc-fired-handler`
       re-checks the LIVE durable facts on fire: a still owned or in-flight
       entry is kept and its GC timer re-armed, and only an owner-free, idle
       entry is removed.
-    - Poll (rf2-2ojds). Without this arm an owned entry of a polling resource
+    - Poll. Without this arm an owned entry of a polling resource
       never polls. It arms only for an entry still owned after the reconcile
       orphaned its SSR owners, because a poll never pins an owner-free entry;
       `events/poll-fired-handler` re-checks ownership on fire, and the last
@@ -2495,17 +2468,17 @@
       restored non-terminal work-ledger rows as dangling so a pre-restore reply
       is suppressed — Spec 016 §Restore and replay parts 2/4/5). Called by epoch
       with `:defer-traces? true` so its success rows ride back as metadata
-      instead of firing inline (rf2-obi8rr);
+      instead of firing inline;
     - `:resources/commit-restore-reconcile!` — epoch `perform-restore!` emits
       the restore-reconcile success rows (`:rf.resource/restored` /
       `:rf.resource/owner-released`) the reconcile deferred, fired ONLY AFTER the
       frame-state install succeeds so a destroyed-frame restore that writes
-      nothing leaks no success traces (rf2-obi8rr);
+      nothing leaks no success traces;
     - `:resources/rearm-after-hydration!` — the SSR `:rf/hydrate` handler's
       PRESENCE gate for the `:rf.resource/hydrate-rearm` fx, which runs this
       body after the commit on a client frame and arms the GC timer of each
-      hydrated entry (rf2-omahf), plus the poll timer of each owned entry whose
-      resource declares `:poll-interval-ms` (rf2-2ojds).
+      hydrated entry, plus the poll timer of each owned entry whose
+      resource declares `:poll-interval-ms`.
 
   No-op effect on an app that never SSRs / time-travels — the hooks simply sit
   unread. All are no-op on an app WITHOUT resources (the projection contributes
