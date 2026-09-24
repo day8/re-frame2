@@ -11,7 +11,8 @@
   multi-actor shapes:
 
     - a parent DESTROYED and RESPAWNED at the same address begins counting from
-      zero beside its own still-live orphans, so its first new child re-mints
+      zero beside the children its previous incarnation HAND-EMITTED, which no
+      slot tracks and so outlive it, so its first new child re-mints
       `<type>#1`; and
     - two parents spawning the same child TYPE each mint `<type>#1`, with no
       destroy or re-incarnation anywhere in sight.
@@ -98,41 +99,50 @@
                          :on    {:back :idle}}}}))
 
 ;; ---------------------------------------------------------------------------
-;; (1) The filed defect: a respawned parent re-mints its live orphan's address.
+;; (1) A respawned parent re-mints the address of a live actor its previous
+;;     incarnation hand-emitted.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-respawned-parent-is-refused-its-live-orphans-generated-address
-  (testing "rf2-1sip — a parent destroyed and respawned at the SAME address
-            starts its :rf/spawn-counter fresh, so its first new child would
+  (testing "a parent destroyed and respawned at the SAME address starts its
+            :rf/spawn-counter fresh, so its first declarative child would
             allocate <type>#1 over the still-live orphan the previous
-            incarnation left. That install is now REJECTED: the orphan keeps its
-            snapshot and its :data verbatim, no second spawned trace names the
-            address, and one :rf.error/machine-spawn-all-duplicate-id fires."
+            incarnation HAND-EMITTED — no slot tracks it, so the parent's
+            destroy left it live. That install is REJECTED: the orphan keeps
+            its snapshot and its :data verbatim, no second spawned trace names
+            the address, and one :rf.error/machine-spawn-all-duplicate-id fires."
     (reg-child! :gac/child)
-    (reg-parent! :gac/parent :gac/child)
+    (rf/reg-machine :gac/parent
+      {:initial :idle
+       :states  {:idle    {:on {:go    :working
+                                :adopt {:action (fn [_]
+                                                  {:fx [[:rf.machine/spawn {:machine-id :gac/child}]]})}}}
+                 :working {:spawn {:machine-id :gac/child}
+                           :on    {:back :idle}}}})
     (rf/reg-event :gac/hire
       (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :gac/parent
                                           :fixed-actor-id :gac/p}]]}))
     (rf/reg-event :gac/fire
       (fn [_ _] {:fx [[:rf.machine/destroy :gac/p]]}))
 
-    ;; First incarnation of the parent spawns a child at the generated address.
+    ;; First incarnation of the parent hand-emits a child, which the
+    ;; frame-wide allocator places at the first generated address.
     (rf/dispatch-sync [:gac/hire])
-    (rf/dispatch-sync [:gac/p [:go]])
+    (rf/dispatch-sync [:gac/p [:adopt]])
     (is (some? (snapshot :gac/child#1))
         "the first incarnation's child installed at the generated address")
     (rf/dispatch-sync [:gac/child#1 [:mark :FIRST]])
     (is (= :FIRST (:mark (machine-data :gac/child#1)))
         "and it is addressable — the mark distinguishes it from any successor")
 
-    ;; An IMPERATIVE destroy of the parent tears down the parent ONLY: the
-    ;; child is an independent actor at its own address and outlives its
-    ;; spawner (Spec 005 §Teardown is explicit in v1). That orphan is the
-    ;; occupant the respawned parent will collide with.
+    ;; The parent's destroy ends the children its slots track; a hand-emitted
+    ;; child is tracked by none, so it is an independent actor at its own
+    ;; address and outlives its spawner (Spec 005 §Teardown is explicit in
+    ;; v1). That orphan is the occupant the respawned parent will collide with.
     (rf/dispatch-sync [:gac/fire])
     (is (nil? (snapshot :gac/p)) "the parent was destroyed")
     (is (some? (snapshot :gac/child#1))
-        "its child survives as an orphan — teardown is explicit in v1")
+        "its hand-emitted child survives as an orphan — teardown is explicit in v1")
 
     (rf.machines.test-support/reset-captured!)
 
@@ -140,7 +150,7 @@
     (rf/dispatch-sync [:gac/hire])
     (is (= {} (:rf/spawn-counter (snapshot :gac/p)))
         "the new incarnation's spawn-counter is seeded fresh — this is the
-         defect's cause, and pinning it keeps the test honest about what it
+         collision's cause, and pinning it keeps the test honest about what it
          reproduces")
     (rf/dispatch-sync [:gac/p [:go]])
 
@@ -231,8 +241,7 @@
     (is (some? (snapshot :gac4/child#1)))
     (rf/dispatch-sync [:gac4/parent [:back]])
     (is (nil? (snapshot :gac4/child#1))
-        "the exit cascade destroyed the child — unlike an imperative parent
-         destroy, which does not")
+        "the exit cascade destroyed the child")
     (rf/dispatch-sync [:gac4/parent [:go]])
     (is (some? (snapshot :gac4/child#2))
         "re-entry allocated the NEXT address, not a re-mint of #1")
