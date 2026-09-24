@@ -355,16 +355,24 @@
 (def ^:private sa-child-a (keyword "rf2-i4aj9c" "sa-a#1"))
 (def ^:private sa-child-b (keyword "rf2-i4aj9c" "sa-b#1"))
 
-(defn- child-snap [id]
-  {:state :running :data {:rf/self-id id} :rf/machine-type actor-type})
+(defn- child-snap [id child-id]
+  {:state :running
+   :data  {:rf/self-id    id
+           :rf/join-child {:parent-id       sa-parent
+                           :invoke-id       sa-invoke
+                           :child-id        child-id
+                           :spawned-id      id
+                           :attempt         1
+                           :work-generation 1}}
+   :rf/machine-type actor-type})
 
 (defn- seed-spawn-all! [frame-id]
   (rf/reg-machine actor-type (classified-spec nil))
   (rf.frame/swap-runtime-db!
     frame-id
     (fn [rt] (-> rt
-                 (assoc-in (snapshot-path sa-child-a) (child-snap sa-child-a))
-                 (assoc-in (snapshot-path sa-child-b) (child-snap sa-child-b))
+                 (assoc-in (snapshot-path sa-child-a) (child-snap sa-child-a :a))
+                 (assoc-in (snapshot-path sa-child-b) (child-snap sa-child-b :b))
                  (assoc-in [:rf.runtime/machines :spawned sa-parent sa-invoke]
                            {:children   {:a sa-child-a :b sa-child-b}
                             :done       #{}
