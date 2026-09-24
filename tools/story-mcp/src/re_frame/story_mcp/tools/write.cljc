@@ -21,7 +21,7 @@
   caller's MCP tool name, sans namespace) through to the error's
   `:structuredContent :tool` slot so agents inspecting a gated-error
   payload see the tool that actually tripped the gate — not a hardcoded
-  string. Two callers today: `register-variant` and
+  string. Two callers: `register-variant` and
   `unregister-variant`."
   [tool-name]
   (when-not (rf.story-mcp.config/writes-allowed?)
@@ -36,14 +36,14 @@
 ;; ---- EDN reader hardening --------------------------------------------------
 ;;
 ;; `:body` arrives as either a JSON object (preferred — round-trippable map)
-;; or an EDN string (legacy; needed because JSON has no native keyword type
-;; and the registrar's variant schema demands `:tags #{:dev :docs}` and the
-;; like). The string path is retained because the mcp-conformance probe
+;; or an EDN string (needed because JSON has no native keyword type and the
+;; registrar's variant schema demands `:tags #{:dev :docs}` and the like).
+;; The mcp-conformance probe
 ;; (`tools/mcp-conformance/test/end-to-end-story.cjs`) registers its fixture
 ;; variant via the EDN-string path — JSON's keyword-blind surface would
 ;; otherwise force a coercion pass the registrar isn't shaped for.
 ;;
-;; The hardening posture for the retained EDN-string path:
+;; The hardening posture for the EDN-string path:
 ;;
 ;;   1. Reject any tagged literal (`#<reader-tag> ...`) by setting both
 ;;      `:readers {}` (no custom tags admitted) AND `:default` to a
@@ -52,8 +52,8 @@
 ;;      which is a footgun on agent-supplied input.
 ;;
 ;;   2. Cap payload size at 64KB of UTF-8 BYTES — the unit the wire
-;;      actually charges, not `count`'s UTF-16 code units (rf2-2rtt6.131;
-;;      see `read-edn-body`). A 64KB EDN map is generous for a variant body
+;;      actually charges, not `count`'s UTF-16 code units (see
+;;      `read-edn-body`). A 64KB EDN map is generous for a variant body
 ;;      (`:doc` + `:args` + a few `:tags`); abusive payloads get a clean
 ;;      reject rather than allocating a megabyte.
 ;;
@@ -147,16 +147,16 @@
   so the reader sees only sanitised inputs.
 
   The size check counts UTF-8 BYTES, matching `max-body-bytes`' declared
-  unit. It used to carry a `#?(:clj … :cljs (count body))` arm whose CLJS
-  half counted UTF-16 CODE UNITS, so a non-ASCII body could be refused
-  under one ruler and admitted under the other (rf2-2rtt6.131). That arm
-  was also unreachable: this ns requires `clojure.edn` and catches
-  `Throwable` unconditionally, and story-mcp is a JVM-only artefact by
-  declaration (`tools/story-mcp/deps.edn` §JVM-only). A phantom second host
-  publishing a WRONG number is worse than no second host, so the conditional
-  is gone and the one ruler that runs is the correct one. Code units equal UTF-8 bytes
-  only for ASCII — which is exactly why an ASCII-only oversize fixture
-  could never see the defect."
+  unit. There is deliberately no `#?(:cljs (count body))` arm: its CLJS
+  half would count UTF-16 CODE UNITS, so a non-ASCII body could be refused
+  under one ruler and admitted under the other. Such an arm would also be
+  unreachable: this ns requires `clojure.edn` and catches `Throwable`
+  unconditionally, and story-mcp is a JVM-only artefact by declaration
+  (`tools/story-mcp/deps.edn` §JVM-only). A phantom second host publishing
+  a WRONG number is worse than no second host, so the one ruler that runs
+  is the correct one. Code units equal UTF-8 bytes only for ASCII — which
+  is exactly why an ASCII-only oversize fixture cannot tell the two
+  rulers apart."
   [^String body]
   (try
     (let [byte-count (alength (.getBytes body "UTF-8"))]
@@ -277,12 +277,12 @@
     (catch Throwable e
       ;; `wire-safe-ex-data` swaps the registrar's raw Malli `:explain`
       ;; (live reified schema objects — not JSON-encodable) for the
-      ;; humanized projection. Without it a schema-violating body took
-      ;; the encoder down and the client got a `-32603` server fault
-      ;; naming a malli class instead of this error result (rf2-2z9u3).
+      ;; humanized projection. Without it a schema-violating body would
+      ;; take the encoder down and the client would get a `-32603` server
+      ;; fault naming a malli class instead of this error result.
       ;; It also renames the thrown `:rf.error/id` to the wire's bare
-      ;; `:rf.error`; harvesting `:rf.error` here instead was reading a
-      ;; key no throw sets, so the id slot never populated (rf2-2nbck).
+      ;; `:rf.error`; harvesting `:rf.error` here instead would read a
+      ;; key no throw sets, so the id slot would never populate.
       (rf.story-mcp.tools.result/error-result (str "Registration failed: " (ex-message e))
                       (merge {:variant-id vk}
                              (rf.story-mcp.tools.result/wire-safe-ex-data
@@ -382,7 +382,7 @@
                                 {:variant-id rf.story-mcp.tools.schemas/kw-or-string
                                  :body {:oneOf [{:type "object"}
                                                 {:type "string"
-                                                 :description (str "EDN-encoded variant body. Parsed under the rf2-g9fje "
+                                                 :description (str "EDN-encoded variant body. Parsed with "
                                                                    "hardening: tagged literals (#<tag> ...) rejected, "
                                                                    "no custom readers, "
                                                                    max-body-bytes "-byte payload ceiling, "
