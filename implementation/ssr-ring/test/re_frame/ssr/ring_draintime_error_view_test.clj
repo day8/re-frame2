@@ -1,5 +1,5 @@
 (ns re-frame.ssr.ring-draintime-error-view-test
-  "rf2-oytx7j — the projected-error PRE-COMMIT contract at the ssr-ring
+  "The projected-error PRE-COMMIT contract at the ssr-ring
   handler boundary. Classification is SEMANTIC by projected status:
 
     - projected 4xx (routing miss / bad client input) with a renderable app
@@ -22,8 +22,8 @@
   that recovered to nil inside it) falls back ONCE to the locked template,
   emits `:rf.error/ssr-ring-error-view-failed`, and does NOT re-project.
 
-  Runtime-side pins (`flush-response-result!`, `:rf/public-error` validation
-  tightening) live in `re-frame.ssr-flush-response-result-test`."
+  Runtime-side pins (`flush-response-result!`, `:rf/public-error`
+  validation) live in `re-frame.ssr-flush-response-result-test`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -308,7 +308,7 @@
         (rf.error-emit/clear-error-listeners!)))))
 
 (deftest error-view-recovered-nil-sub-falls-back-to-template
-  (testing "OPEN PROOF (rf2-oytx7j): an error view whose reactive sub RECOVERS
+  (testing "an error view whose reactive sub RECOVERS
             to nil under production hardening does NOT throw — the try/catch
             cannot see it — but it falls back ONCE to the locked template,
             keeps the ORIGINAL 500, emits :rf.error/ssr-ring-error-view-failed,
@@ -383,7 +383,7 @@
   (testing "a root-view whose reactive sub recovers-to-nil buffers a
             fail-closed 500 AFTER the render walk — the non-streaming handler
             DISCARDS the degraded body + payload and ships the projected-error
-            arm (rf2-oytx7j supersedes the ship-the-degraded-body behaviour)."
+            arm."
     (rf/reg-sub :render/throwing (fn [_db _] (throw (ex-info "render-sub-boom" {}))))
     (rf/reg-view* :pages/uses-throwing-render-sub
       (fn []
@@ -440,8 +440,7 @@
 (deftest stream-post-shell-recovered-sub-500-non-streamed-error-arm
   (testing "a recovered-to-nil sub during the streaming shell render buffers a
             fail-closed 500; the post-shell re-read diverts to the
-            NON-STREAMED error arm — NOT the degraded shell under a 500
-            (rf2-oytx7j supersedes the old stream-the-degraded-shell pin)."
+            NON-STREAMED error arm — NOT the degraded shell under a 500."
     (rf/reg-sub :shell/throwing (fn [_db _] (throw (ex-info "shell-sub-boom" {}))))
     (rf/reg-view* :pages/shell-uses-throwing-sub
       (fn []
@@ -458,7 +457,7 @@
                         :payload   :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/shell-sub" :request-method :get})
             body     (body->str (:body response))]
-        (is (= 500 (:status response)) "fail-closed 500 on the committed head")
+        (is (= 500 (:status response)) "fail-closed 500 on the wire")
         (is (not (instance? InputStream (:body response)))
             "the recovered-to-nil 5xx fails closed to a plain-String error
              body — no writer thread, no partial-state shell")
