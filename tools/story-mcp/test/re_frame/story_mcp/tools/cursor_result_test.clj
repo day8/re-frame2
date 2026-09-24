@@ -1,14 +1,14 @@
 (ns re-frame.story-mcp.tools.cursor-result-test
   "Focused unit coverage for the two shared result-shaping helpers the
-  Docs `list-*` handlers compose on (rf2-ynjts.20 testing-review).
+  Docs `list-*` handlers compose on.
 
   The per-tool tests in `tools_test.clj` exercise `rf.story-mcp.tools.cursor/page` /
   `rf.story-mcp.tools.cursor/paged-result` and `rf.story-mcp.tools.result/edn-result` end-to-end through every
   `list-*` handler — but always THROUGH a handler, so the helpers' own
   contracts (the end-of-page nil guard on `encode-cursor`, the
   blank/absent recovery on `decode-cursor`, the dual-slot invariant on
-  `edn-result`, and `paged-result`'s metadata-merge) were only asserted
-  transitively. This ns pins them directly so a regression in a helper
+  `edn-result`, and `paged-result`'s metadata-merge) would only be
+  asserted transitively. This ns pins them directly so a regression in a helper
   surfaces here rather than as a confusing failure three handlers away.
 
   Deterministic: no registry, no fixtures, no I/O — pure data over the
@@ -146,7 +146,7 @@
       (is (= :rf.mcp/cursor-stale (-> err-result :structuredContent :reason))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-to3q7 — wire-boundary range gate on the cursor payload.
+;; Wire-boundary range gate on the cursor payload.
 ;;
 ;; The cursor `:offset` / `:total` are NATURAL integers and `:offset <=
 ;; :total`. A forged/edited cursor that violates this (negative offset,
@@ -187,8 +187,8 @@
   (testing "a tampered negative-offset cursor recovers via cursor-stale, never throwing into subvec"
     (let [entries (vec (range 5))
           forged  (forge-cursor {:v 1 :offset -1 :total 5 :sig (live-sig-for entries entries)})
-          ;; Pre-fix this threw IndexOutOfBoundsException from subvec;
-          ;; post-fix the bad offset is rejected at decode and page
+          ;; Unchecked, this offset would throw IndexOutOfBoundsException
+          ;; from subvec; the bad offset is rejected at decode and page
           ;; returns the structured stale envelope.
           [res err-result] (rf.story-mcp.tools.cursor/page entries entries {:cursor forged} "list-things")]
       (is (= :err res))
