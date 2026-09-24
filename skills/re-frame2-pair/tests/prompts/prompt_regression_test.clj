@@ -7,14 +7,13 @@
 ;;;; ideal* version of this surface; the structural substrate here catches
 ;;;; the cheapest class of drift:
 ;;;;
-;;;; - The canonical prompt's *recipe* still lives in `references/recipes.md`
+;;;; - The canonical prompt's *recipe* lives in `references/recipes.md`
 ;;;; under the expected heading.
-;;;; - The recipe still names the expected op(s) — so a renamed shim or a
+;;;; - The recipe names the expected op(s) — so a renamed shim or a
 ;;;; removed runtime helper breaks the test.
 ;;;;
-;;;; A future bead lands the conversation-driving variant on top of this
-;;;; substrate (the canonical-prompts table is the source-of-truth in
-;;;; either case).
+;;;; A conversation-driving variant can sit on top of this substrate; the
+;;;; canonical-prompts table is the source of truth for either.
 ;;;;
 ;;;; Run: bb tests/prompts/prompt_regression_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -79,10 +78,10 @@
 ;; Six representative prompts (`docs/TESTING.md` §3 calls them out).
 ;; Each row carries:
 ;;
-;; :id stable identifier for cross-referencing in beads/PRs
+;; :id stable identifier, printed in each row's failure context
 ;; :prompt the user-spoken request
 ;; :recipe-anchor a substring expected in references/recipes.md's
-;; heading — proves the recipe still exists
+;; heading — proves the recipe exists
 ;; :must-mention ops the recipe is expected to name. Each is an
 ;; alternation of phrasings; the test passes if AT
 ;; LEAST ONE alternative appears in recipes.md.
@@ -118,7 +117,7 @@
  {:id :experiment-loop
  :prompt "Iterate on the cart handler until expired coupons are rejected"
  :recipe-anchor "Experiment loop"
- ;; rf2-44d3 — the anchor vocabulary is part of the op set now: the
+ ;; The anchor vocabulary is part of the op set: the
  ;; recipe must name the PRE-DISPATCH anchor and the baseline RESULT
  ;; epoch separately, or the loop teaches a confounded comparison.
  :must-mention [["dispatch-and-collect"]
@@ -133,7 +132,7 @@
  :must-mention [["dom/source-at" "source-at"]
  ["data--coord" "source-coord"]]}
 
- ;; rf2-p1keh — Story-in-the-open-app. The recipe must route through the
+ ;; Story-in-the-open-app. The recipe must route through the
  ;; ATTACHED browser runtime: `eval-cljs` over `re-frame.story/*`, awaited
  ;; (run-variant returns a Promise in CLJS), then an ordinary Pair frame op
  ;; against the same runtime. The forbidden half — no `mcp__re-frame2-story-mcp__`
@@ -179,7 +178,7 @@
  (doseq [alts must-mention]
  (is (contains-any? section alts)
  (str "recipe " recipe-anchor
- " no longer names any of " (pr-str alts)
+ " does not name any of " (pr-str alts)
  " — likely a renamed op or removed step. Update the "
  "table or restore the mention."))))))
 
@@ -210,17 +209,17 @@
  (is (str/includes? @skill-md "ops.md#hot-reload-coordination"))))
 
 ;; ---------------------------------------------------------------------------
-;; Setup-recipe — discoverable + still pointing at the preload mechanism.
+;; Setup-recipe — discoverable + pointing at the preload mechanism.
 ;; ---------------------------------------------------------------------------
 
 (deftest setup-recipe-still-names-the-preload
- (testing "SKILL.md §Setup still names :devtools :preloads and re-frame2-pair.runtime"
+ (testing "SKILL.md §Setup names :devtools :preloads and re-frame2-pair.runtime"
  (is (str/includes? @skill-md ":preloads"))
  (is (str/includes? @skill-md "re-frame2-pair.runtime"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Epoch artefact — the one classpath prerequisite discover-app does not
-;; probe (rf2-ef1c). Without `day8/re-frame2-epoch` a core-only app passes
+;; probe. Without `day8/re-frame2-epoch` a core-only app passes
 ;; discover-app, then every epoch read comes back `[]` and restore refuses;
 ;; only `rf/replace-frame-state!` raises `:rf.error/epoch-artefact-missing`
 ;; (Tool-Pair §Time-travel, the *Artefact home* note). So the setup, the
@@ -228,40 +227,40 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest setup-recipe-names-the-epoch-artefact
-  (testing "SKILL.md names the day8/re-frame2-epoch artefact (rf2-ef1c)"
+  (testing "SKILL.md names the day8/re-frame2-epoch artefact"
     (is (str/includes? @skill-md "day8/re-frame2-epoch")
-        (str "SKILL.md no longer names `day8/re-frame2-epoch`. Without it on "
+        (str "SKILL.md does not name `day8/re-frame2-epoch`. Without it on "
              "the app classpath discover-app still passes and every epoch "
-             "surface reads empty, so §Setup must say so (rf2-ef1c).")))
-  (testing "errors.md covers the one loud symptom of the missing artefact (rf2-ef1c)"
+             "surface reads empty, so §Setup must say so.")))
+  (testing "errors.md covers the one loud symptom of the missing artefact"
     (is (str/includes? @errors-md ":rf.error/epoch-artefact-missing")
-        (str "references/errors.md no longer covers "
+        (str "references/errors.md does not cover "
              "`:rf.error/epoch-artefact-missing` — the only symptom of a missing "
-             "epoch artefact that raises rather than reading empty (rf2-ef1c)."))
+             "epoch artefact that raises rather than reading empty."))
     (is (str/includes? @errors-md "day8/re-frame2-epoch")
-        (str "references/errors.md no longer names the `day8/re-frame2-epoch` "
-             "artefact that fixes it (rf2-ef1c).")))
-  (testing "LOCAL_DEV's empty-watch troubleshooting names the artefact (rf2-ef1c)"
+        (str "references/errors.md does not name the `day8/re-frame2-epoch` "
+             "artefact that fixes it.")))
+  (testing "LOCAL_DEV's empty-watch troubleshooting names the artefact"
     (is (str/includes? @local-dev-md "day8/re-frame2-epoch")
-        (str "docs/LOCAL_DEV.md no longer lists a missing `day8/re-frame2-epoch` "
-             "as a cause of watch ops coming back empty (rf2-ef1c)."))))
+        (str "docs/LOCAL_DEV.md does not list a missing `day8/re-frame2-epoch` "
+             "as a cause of watch ops coming back empty."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Errors recipe — :runtime-not-preloaded is the most-likely first-run
-;; failure mode; the recipe must still cover it.
+;; failure mode; the recipe must cover it.
 ;; ---------------------------------------------------------------------------
 
 (deftest errors-md-covers-not-preloaded
- (testing "errors.md still covers :runtime-not-preloaded"
+ (testing "errors.md covers :runtime-not-preloaded"
  (is (str/includes? @errors-md ":runtime-not-preloaded"))))
 
 ;; ---------------------------------------------------------------------------
-;; Hot-reload protocol — must still name the probe-based contract,
+;; Hot-reload protocol — must name the probe-based contract,
 ;; since SKILL.md cardinal-rule §Source edits points users there.
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-doc-still-describes-probe
- (testing "ops.md §Hot-reload coordination still describes the probe-based contract"
+ (testing "ops.md §Hot-reload coordination describes the probe-based contract"
  (is (str/includes? @hot-reload "Hot-reload coordination"))
  (is (str/includes? @hot-reload "probe"))
  (is (str/includes? @hot-reload "tail-build"))))
@@ -276,8 +275,8 @@
 ;;     NOT to raw `eval-cljs` (which is default-ON and returns its value
 ;;     un-walked, regardless of --allow-sensitive-reads).
 ;;   - Epoch egress (trace-window / watch-epochs) is REDACTED/ELIDED by
-;;     default via project-egress (the ONE record-level egress door since
-;;     rf2-bv1p retired the standalone `projected-record` spelling) /
+;;     default via project-egress (the ONE record-level egress door; there
+;;     is no standalone `projected-record` spelling) /
 ;;     elide-wire-value — not shipped raw.
 ;; These assertions fail if the docs drift to the over-broad "sensitive
 ;; data does not cross the LLM boundary by default" claim or the "epoch
@@ -291,73 +290,73 @@
     ;; The carve-out must be present: eval-cljs is default-ON + un-elided
     ;; + not governed by --allow-sensitive-reads.
     (is (includes-ci? @skill-md "raw-eval carve-out")
-        (str "SKILL.md no longer references the raw-eval carve-out — the "
-             "privacy guarantee may have drifted back to the over-broad "
-             "blanket claim (rf2-k2off)."))
+        (str "SKILL.md does not reference the raw-eval carve-out — the "
+             "privacy guarantee may have drifted to the over-broad "
+             "blanket claim."))
     (is (or (str/includes? @skill-md "not governed by this gate")
             (str/includes? @skill-md "NOT governed by this gate"))
         "SKILL.md must state eval-cljs is NOT governed by --allow-sensitive-reads.")
     (is (str/includes? @skill-md "without running the elision walker")
         "SKILL.md must state eval-cljs returns its value un-elided."))
   (testing "SKILL.md must NOT carry the bare over-broad guarantee as a standalone claim"
-    ;; The exact stale lede the review flagged. Its presence (verbatim,
-    ;; un-narrowed) is the regression.
+    ;; The over-broad lede itself. Its presence (verbatim, un-narrowed) is
+    ;; the regression.
     (is (not (str/includes? @skill-md "Sensitive data does not cross the LLM boundary by default."))
         (str "SKILL.md carries the over-broad 'Sensitive data does not "
              "cross the LLM boundary by default.' lede — narrow it to the "
-             "structured MCP reads (rf2-k2off)."))))
+             "structured MCP reads."))))
 
 (deftest vocabulary-epoch-egress-matches-impl
-  (testing "vocabulary.md reflects projected/elided epoch egress (rf2-6wvh5 / rf2-vr2hn)"
+  (testing "vocabulary.md reflects projected/elided epoch egress"
     (is (str/includes? @vocabulary-md "project-egress")
-        (str "vocabulary.md no longer mentions project-egress — the epoch "
-             "egress description may be stale (pre-rf2-6wvh5 'not dropped' "
-             "claim). The needle was `projected-record` until rf2-bv1p "
-             "retired that standalone door in favour of the one "
-             "`project-egress` boundary."))
+        (str "vocabulary.md does not mention project-egress — the epoch "
+             "egress description may carry the stale 'not dropped' "
+             "claim. `project-egress` is the one record-level "
+             "egress boundary; there is no standalone "
+             "`projected-record` door."))
     (is (str/includes? @vocabulary-md ":rf.epoch/sensitive?")
         "vocabulary.md must name the :rf.epoch/sensitive? epoch rollup stamp.")
     (is (str/includes? @vocabulary-md "raw-eval carve-out")
         "vocabulary.md must carry the raw-eval carve-out section.")
-    ;; Guard the specific stale wording the review flagged: a claim that
-    ;; epoch records do NOT carry a sensitive stamp, OR that they are NOT
-    ;; dropped, would be a regression to the pre-tightening posture.
+    ;; Guard the specific stale wording: a claim that epoch records do NOT
+    ;; carry a sensitive stamp, OR that they are NOT dropped, contradicts the
+    ;; projected/redacted egress.
     (is (not (str/includes? @vocabulary-md "Epoch records do not carry a top-level `:sensitive?` stamp"))
         (str "vocabulary.md carries the stale 'Epoch records do not carry a "
              "top-level :sensitive? stamp' wording — epoch records carry "
-             ":rf.epoch/sensitive? and are projected/redacted on egress "
-             "(rf2-k2off)."))))
+             ":rf.epoch/sensitive? and are projected/redacted on "
+             "egress."))))
 
 (deftest ops-md-raw-eval-rows-carry-privacy-carveout
   (testing "ops.md flags the raw-eval privacy carve-out for the catalogue rows"
     (is (includes-ci? @ops-md "privacy carve-out")
-        (str "ops.md no longer carries the raw-eval privacy carve-out — the "
+        (str "ops.md does not carry the raw-eval privacy carve-out — the "
              "raw `eval-cljs` read rows (snapshot / sub-cache / trace-buffer "
              "/ epoch-history) document an un-elided path that must steer "
-             "sensitive reads to the structured tools (rf2-k2off)."))
+             "sensitive reads to the structured tools."))
     (is (and (str/includes? @ops-md "trace-buffer")
              (str/includes? @ops-md "epoch-history"))
-        "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs."))
-  ;; screen-reads.md was split out of ops.md under rf2-wgvyx and took the raw
-  ;; `eval-cljs` DOM rows with it, so the carve-out no longer sits "above" them
-  ;; in the same file. The leaf must therefore state the CONSEQUENCE itself.
-  ;; Pinning a pointer back to ops.md instead would lock in a
-  ;; SKILL -> screen-reads -> ops load chain, which skills/README.md and
-  ;; spec/authoring-prompt.md ("no SKILL -> A -> B chains") both forbid — and a
-  ;; mere substring test for "ops.md" is satisfied by the provenance sentence
-  ;; ("split out of ops.md") while the safety rule itself is absent.
+        "ops.md must name the raw trace-buffer / epoch-history surfaces the carve-out governs."))
+  ;; screen-reads.md carries raw `eval-cljs` DOM rows, while the carve-out
+  ;; lives in ops.md rather than "above" them in the same file. The leaf must
+  ;; therefore state the CONSEQUENCE itself. Pinning a pointer to ops.md
+  ;; instead would lock in a SKILL -> screen-reads -> ops load chain, which
+  ;; skills/README.md and spec/authoring-prompt.md ("no SKILL -> A -> B
+  ;; chains") both forbid — and a mere substring test for "ops.md" is
+  ;; satisfied by any sentence naming ops.md while the safety rule itself is
+  ;; absent.
   (testing "screen-reads.md states the raw-eval un-elided rule locally"
     (is (and (includes-ci? @screen-reads-md "un-elided")
              (includes-ci? @screen-reads-md "eval-cljs"))
-        (str "references/screen-reads.md carries raw `eval-cljs` DOM rows but no "
-             "longer states locally that those forms return un-elided values — a "
+        (str "references/screen-reads.md carries raw `eval-cljs` DOM rows but does "
+             "not state locally that those forms return un-elided values — a "
              "reader who loads only this leaf must learn the carve-out HERE, not by "
-             "opening a second leaf (rf2-wgvyx)."))
+             "opening a second leaf."))
     (is (not (str/includes? @screen-reads-md "(ops.md#operations-catalogue)"))
         (str "references/screen-reads.md routes its raw-eval safety rule into "
              "ops.md, so a screen-read task loads SKILL.md -> screen-reads.md -> "
              "ops.md — the leaf-to-leaf chain skills/README.md and "
-             "spec/authoring-prompt.md forbid (rf2-wgvyx)."))))
+             "spec/authoring-prompt.md forbid."))))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP-surface conformance drift
@@ -383,33 +382,33 @@
              " tools (the live :tool-count)."))
     (is (not (str/includes? @readme-md "fourteen ops"))
         (str "README carries the stale 'fourteen ops' count — the MCP surface "
-             "is " @tool-count " tools (rf2-ojo3z).")))
-  (testing "README does not advertise the phantom `machines` accessor (rf2-ef1c)"
+             "is " @tool-count " tools.")))
+  (testing "README does not advertise the phantom `machines` accessor"
     ;; No `defn machines` exists and spec/api-manifest.edn carries no
-    ;; :var "machines" (rf2-kuky.29 / rf2-wrzfb removed it). Machine
+    ;; :var "machines". Machine
     ;; enumeration is `list-handlers {kind: "machine"}` over the
     ;; :rf/machine? registrar filter (docs/capabilities.md).
     (is (not (str/includes? @readme-md "`machines`"))
         (str "README names a `machines` introspection accessor. There is none: "
-             "list machines with list-handlers {kind: \"machine\"} (rf2-ef1c).")))
+             "list machines with list-handlers {kind: \"machine\"}.")))
   (testing "README does not claim the skill is un-exercised end-to-end"
     (is (not (str/includes? @readme-md "not yet exercised against a running"))
         (str "README carries the stale 'not yet exercised against a running "
              "re-frame2 app' status — the fixture app "
-             "has landed (rf2-ojo3z)."))))
+             "exercises the skill end-to-end."))))
 
 (deftest local-dev-is-mcp-primary-not-babashka-required
-  (testing "LOCAL_DEV no longer lists Babashka as a skill prerequisite"
-    ;; The retired bash/babashka transport was removed (rf2-dduetj), so
+  (testing "LOCAL_DEV does not list Babashka as a skill prerequisite"
+    ;; There is no bash/babashka transport, so
     ;; LOCAL_DEV must not mention Babashka at all — not as a prerequisite,
     ;; not as a harness caveat.
     (is (not (str/includes? @local-dev-md "Babashka"))
-        (str "LOCAL_DEV still mentions Babashka — the bash/babashka transport "
-             "was removed; the MCP server is the one implementation (rf2-dduetj)."))
+        (str "LOCAL_DEV mentions Babashka — there is no bash/babashka transport; "
+             "the MCP server is the one implementation."))
     (is (not (str/includes? @local-dev-md "scripts/discover-app.sh"))
-        (str "LOCAL_DEV references the retired scripts/discover-app.sh as the "
-             "live first-use path — first use calls the discover-app MCP tool "
-             "(rf2-ojo3z).")))
+        (str "LOCAL_DEV references scripts/discover-app.sh, which does not exist, as the "
+             "live first-use path — first use calls the discover-app MCP "
+             "tool.")))
   (testing "LOCAL_DEV documents the MCP server as the transport"
     (is (str/includes? @local-dev-md "@day8/re-frame2-pair-mcp")
         "LOCAL_DEV must name the MCP server package as the skill transport.")))
@@ -425,8 +424,8 @@
                      "`epoch/restore`" "undo/step-back" "repl/eval"
                      "epoch-diff"]]
       (is (not (str/includes? @capabilities-md retired))
-          (str "capabilities.md still names the retired v1 op `" retired
-               "` — map it to the current MCP tool (rf2-ojo3z).")))
+          (str "capabilities.md names the v1 op `" retired
+               "` — map it to the current MCP tool.")))
     (is (str/includes? @capabilities-md "get-path")
         "capabilities.md must name the get-path tool.")
     (is (str/includes? @capabilities-md "list-handlers")
@@ -436,49 +435,49 @@
   (testing "TESTING.md states the MCP server is the only transport, one implementation"
     (is (str/includes? @testing-md "only skill-facing transport")
         "TESTING.md must state the MCP server is the only skill-facing transport.")
-    ;; The retired bash-shim integration suite was removed (rf2-dduetj); the
-    ;; docs must not resurrect the "retained harness" framing for it.
+    ;; There is no bash-shim integration suite; the docs must not frame one
+    ;; as a "retained harness".
     (is (not (str/includes? @testing-md "retained harness"))
-        (str "TESTING.md still frames a 'retained harness' bash-shim suite — "
-             "the bash/babashka transport was removed; the live coverage moved "
-             "to tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs (rf2-dduetj)."))
+        (str "TESTING.md frames a 'retained harness' bash-shim suite — "
+             "there is no bash/babashka transport; the live coverage is "
+             "tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs."))
     (is (str/includes? @testing-md "live-e2e-fixture.cjs")
-        (str "TESTING.md must point at the migrated pair-mcp live-e2e gate "
+        (str "TESTING.md must point at the pair-mcp live-e2e gate "
              "(tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs) as the "
-             "connect/dispatch/trace/hot-reload coverage (rf2-dduetj)."))))
+             "connect/dispatch/trace/hot-reload coverage."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-size-budget + recipes drift
 ;; ---------------------------------------------------------------------------
 
-;; Finding 3 — the render-source-coord recipe must NOT tell an agent to pass
+;; The render-source-coord recipe must NOT tell an agent to pass
 ;; the whole `:render-key` tuple to `handler-meta {kind: "view"}`. The schema
 ;; defines `:render-key` as `[<view-id-or-:rf.view/anonymous> <instance-token>]`;
 ;; `handler-meta :view` is keyed by the FIRST slot (the registered view id).
 ;; The recipe must steer to `(first render-key)` / the `view-id`, and
-;; capabilities.md must not still call `:render-key` opaque-pending-finalisation.
+;; capabilities.md must not call `:render-key` opaque-pending-finalisation.
 
 (deftest render-key-recipe-uses-first-tuple-slot
-  (testing "recipes.md resolves render source from the first render-key slot, not the whole tuple (rf2-a85bb2 finding 3)"
+  (testing "recipes.md resolves render source from the first render-key slot, not the whole tuple"
     (is (not (str/includes? @recipes-md "id: <render-key>"))
         (str "recipes.md tells an agent to pass the whole render-key tuple as "
              "the handler-meta {kind: \"view\"} id — that yields :not-registered. "
-             "The id is the FIRST tuple slot (the registered view id) (rf2-a85bb2)."))
+             "The id is the FIRST tuple slot (the registered view id)."))
     (is (str/includes? @recipes-md "first render-key")
         (str "recipes.md must steer render-coord resolution to `(first "
-             "render-key)` (the view id) for handler-meta {kind: \"view\"} "
-             "(rf2-a85bb2)."))
+             "render-key)` (the view id) for handler-meta {kind: "
+             "\"view\"}."))
     (is (str/includes? @recipes-md ":rf.view/anonymous")
         (str "recipes.md must handle the :rf.view/anonymous first-slot case "
-             "(fall back to read-ui's :source-coord) (rf2-a85bb2).")))
-  (testing "capabilities.md no longer calls :render-key opaque-pending-finalisation (rf2-a85bb2 finding 3)"
+             "(fall back to read-ui's :source-coord).")))
+  (testing "capabilities.md does not call :render-key opaque-pending-finalisation"
     (is (not (str/includes? @capabilities-md "opaque pending spec finalisation"))
-        (str "capabilities.md still calls :render-key opaque-pending-"
+        (str "capabilities.md calls :render-key opaque-pending-"
              "finalisation — the schema defines a finalised tuple "
-             "[<view-id> <instance-token>] (rf2-a85bb2)."))
+             "[<view-id> <instance-token>]."))
     (is (str/includes? @capabilities-md "first render-key")
         (str "capabilities.md must point at `(first render-key)` for source-"
-             "coord resolution, matching recipes.md (rf2-a85bb2)."))))
+             "coord resolution, matching recipes.md."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Restore / hot-reload teaching drift
@@ -493,7 +492,7 @@
 ;;   timeout as a compile error" framing must not appear.
 
 (deftest restore-not-taught-as-app-db-only
-  (testing "pair skill no longer teaches restore as app-db-only (rf2-7a1mkv finding 1)"
+  (testing "pair skill does not teach restore as app-db-only"
     (doseq [[label md] [["ops.md" @ops-md]
                         ["recipes.md" @recipes-md]
                         ["README.md" @readme-md]
@@ -501,99 +500,99 @@
       (is (not (includes-ci? md "restore rewinds app-db only"))
           (str label " carries the stale 'restore rewinds app-db only' "
                "framing — restore reinstalls the whole frame-state, both "
-               "partitions, via replace-frame-state! (rf2-7a1mkv)."))
+               "partitions, via replace-frame-state!."))
       (is (not (includes-ci? md "old snapshots in app-db"))
           (str label " carries the stale 'old snapshots in app-db' wording — "
                "machine snapshots live in the runtime-db partition "
-               "([:rf.runtime/machines …]) (rf2-7a1mkv).")))
+               "([:rf.runtime/machines …]).")))
     (is (str/includes? @ops-md "frame-state")
-        (str "ops.md no longer positively teaches restore as a frame-state "
-             "rewind (both partitions) (rf2-7a1mkv).")))
+        (str "ops.md does not positively teach restore as a frame-state "
+             "rewind (both partitions).")))
   (testing "ops.md restore caveat names runtime-db revival + the side-effect limit"
     (is (and (str/includes? @ops-md "frame-state")
              (includes-ci? @ops-md "runtime-db"))
         (str "ops.md restore caveat must say restore rewinds frame-state "
              "(both partitions incl. runtime-db) while NOT reversing side "
-             "effects / transient host state (rf2-7a1mkv)."))))
+             "effects / transient host state."))))
 
 (deftest hot-reload-branches-on-probe-values-not-blanket-compile-error
-  (testing "ops.md hot-reload branches on :probe-values / :reason, not 'all timeouts are compile errors' (rf2-7a1mkv finding 2)"
+  (testing "ops.md hot-reload branches on :probe-values / :reason, not 'all timeouts are compile errors'"
     (let [hr (section-from @ops-md "Hot-reload coordination")]
       (is (str/includes? hr ":probe-values")
-          (str "ops.md hot-reload guidance no longer mentions `:probe-values` "
+          (str "ops.md hot-reload guidance does not mention `:probe-values` "
                "— the diagnostic tail-build returns on timeout so the agent "
-               "can tell a stuck probe from a compile error (rf2-7a1mkv)."))
+               "can tell a stuck probe from a compile error."))
       (is (str/includes? hr ":probe-errored")
-          (str "ops.md hot-reload guidance no longer covers `:probe-errored` "
-               "as a malformed-probe path distinct from a compile error "
-               "(rf2-7a1mkv)."))
+          (str "ops.md hot-reload guidance does not cover `:probe-errored` "
+               "as a malformed-probe path distinct from a compile "
+               "error."))
       (is (not (str/includes? hr "treat that as a compile error in the user's code — read the tail output"))
-          (str "ops.md still tells the agent to treat any tail-build timeout "
+          (str "ops.md tells the agent to treat any tail-build timeout "
                "as a compile error and read the tail output — tail-build does "
-               "not tail logs; branch on :reason / :probe-values (rf2-7a1mkv)."))
+               "not tail logs; branch on :reason / :probe-values."))
       (is (or (includes-ci? hr "does not tail")
               (includes-ci? hr "historical"))
           (str "ops.md hot-reload guidance must note tail-build does NOT "
-               "actually tail the shadow-cljs server log (rf2-7a1mkv).")))))
+               "actually tail the shadow-cljs server log.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Hot-reload baseline order (rf2-1f60u)
+;; Hot-reload baseline order
 ;; ---------------------------------------------------------------------------
 ;;
 ;; tail-build's comparison value is the CALLER's pre-edit capture — the
 ;; baseline — so a reload landing before the first sample still reads as
 ;; success. The protocol must teach capture-BEFORE-edit and pass `baseline`
-;; into tail-build; a post-edit self-baseline framing must not reappear.
+;; into tail-build; a post-edit self-baseline framing must not appear.
 
 (deftest hot-reload-teaches-pre-edit-baseline
-  (testing "ops.md hot-reload protocol captures a pre-edit baseline and passes it to tail-build (rf2-1f60u)"
+  (testing "ops.md hot-reload protocol captures a pre-edit baseline and passes it to tail-build"
     (let [hr (section-from @ops-md "Hot-reload coordination")]
       (is (includes-ci? hr "baseline")
-          (str "ops.md hot-reload guidance no longer names the pre-edit "
-               "baseline tail-build compares against (rf2-1f60u)."))
+          (str "ops.md hot-reload guidance does not name the pre-edit "
+               "baseline tail-build compares against."))
       (is (re-find #"(?i)capture[^.\n]{0,120}(pre-edit|before)" hr)
           (str "ops.md hot-reload guidance must instruct capturing the "
-               "probe's value BEFORE the edit (rf2-1f60u)."))
+               "probe's value BEFORE the edit."))
       (is (str/includes? hr ":missing-baseline")
           (str "ops.md hot-reload guidance must cover the :missing-baseline "
-               "refusal branch (rf2-1f60u)."))
+               "refusal branch."))
       (is (re-find #"(?i)(before or after|lands? before)[^.\n]{0,80}(first (probe )?sample|first probe)" hr)
           (str "ops.md must state the invariant: a reload is recognized "
-               "whether it lands before or after the first sample "
-               "(rf2-1f60u)."))))
-  (testing "recipes.md permanent-change step carries the baseline capture (rf2-1f60u)"
+               "whether it lands before or after the first "
+               "sample."))))
+  (testing "recipes.md permanent-change step carries the baseline capture"
     (is (includes-ci? @recipes-md "baseline")
-        (str "recipes.md's permanent-change step no longer passes the "
-             "pre-edit baseline into tail-build (rf2-1f60u).")))
-  (testing "SKILL.md cardinal rule orders capture before the edit (rf2-1f60u)"
+        (str "recipes.md's permanent-change step does not pass the "
+             "pre-edit baseline into tail-build.")))
+  (testing "SKILL.md cardinal rule orders capture before the edit"
     (is (includes-ci? @skill-md "baseline")
-        (str "SKILL.md's source-edit cardinal rule no longer names the "
-             "pre-edit baseline (rf2-1f60u)."))))
+        (str "SKILL.md's source-edit cardinal rule does not name the "
+             "pre-edit baseline."))))
 
 ;; ---------------------------------------------------------------------------
-;; No-probe mode is a DELAY, never post-edit evidence (rf2-1f60u audit)
+;; No-probe mode is a DELAY, never post-edit evidence
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A probe-less tail-build samples nothing and compares nothing, yet still
 ;; returns {:ok? true :soft? true}. So the proceed-gate must require
 ;; :soft? false: an "if you don't know a good probe, omit it" bullet sitting
 ;; inside a gate that accepts any {:ok? true} authorizes dispatching against
-;; stale code, which is exactly the contradiction the rf2-1f60u audit found.
+;; stale code — the gate would contradict itself.
 
 (deftest no-probe-soft-wait-is-not-post-edit-evidence
-  (testing "ops.md's post-edit gate requires :soft? false, not any {:ok? true} (rf2-1f60u)"
+  (testing "ops.md's post-edit gate requires :soft? false, not any {:ok? true}"
     (let [hr (section-from @ops-md "Hot-reload coordination")]
       (is (str/includes? hr ":soft? false")
-          (str "ops.md's proceed-gate no longer requires `:soft? false` — a "
+          (str "ops.md's proceed-gate does not require `:soft? false` — a "
                "probe-less 300ms wait returns {:ok? true :soft? true} and "
-               "would satisfy a bare {:ok? true} gate (rf2-1f60u)."))
+               "would satisfy a bare {:ok? true} gate."))
       (is (not (str/includes? hr "the tool falls back to a 300ms timer"))
           (str "ops.md's no-probe bullet reads as a sanctioned substitute for "
-               "the probe again. It must be fenced as a delay only, never as "
-               "evidence that unlocks post-edit dispatch (rf2-1f60u)."))
+               "the probe. It must be fenced as a delay only, never as "
+               "evidence that unlocks post-edit dispatch."))
       (is (re-find #"(?i)(never evidence|not evidence|a delay, not)" hr)
-          (str "ops.md no longer says a probe-less wait is a delay rather "
-               "than evidence that the reload landed (rf2-1f60u).")))))
+          (str "ops.md does not say a probe-less wait is a delay rather "
+               "than evidence that the reload landed.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; snapshot uses plural `frames`, not singular `frame`
@@ -608,21 +607,21 @@
 ;; singular form.
 
 (deftest snapshot-recipe-uses-plural-frames-not-singular-frame
-  (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame` (rf2-hf7m9j)"
+  (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame`"
     (let [section (recipe-section @recipes-md "Diff two variants")]
       (is (seq section)
           "recipes.md missing the 'Diff two variants' heading.")
       (is (str/includes? section "snapshot {frames:")
-          (str "the variant-diff recipe no longer calls `snapshot "
+          (str "the variant-diff recipe does not call `snapshot "
                "{frames: [...]}` (plural). snapshot has no singular "
                "`frame` arg — it parses only :frames (snapshot.cljs) — so "
                "a singular call snapshots the operating frame twice and "
-               "yields a false comparison (rf2-hf7m9j finding 2)."))
+               "yields a false comparison."))
       (is (not (re-find #"snapshot \{frame:" section))
           (str "the variant-diff recipe calls `snapshot {frame: ...}` "
                "(singular) — the tool ignores that arg. Use `snapshot "
                "{frames: [\":...\"]}` (plural), or pin one operating frame "
-               "at a time (rf2-hf7m9j finding 2).")))))
+               "at a time.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Named state-rewrite writes route through the dedicated gated tools
@@ -637,70 +636,69 @@
 ;; tools from the allow-list.
 
 (deftest write-tools-are-allow-listed
-  (testing "SKILL.md allow-lists both dedicated write tools (rf2-230ekq)"
+  (testing "SKILL.md allow-lists both dedicated write tools"
     (is (str/includes? @skill-md "mcp__re-frame2-pair__restore-epoch")
-        (str "SKILL.md allowed-tools no longer lists "
+        (str "SKILL.md allowed-tools does not list "
              "mcp__re-frame2-pair__restore-epoch — the dedicated time-travel "
-             "tool is the canonical named-write path (rf2-230ekq)."))
+             "tool is the canonical named-write path."))
     (is (str/includes? @skill-md "mcp__re-frame2-pair__replace-app-db")
-        (str "SKILL.md allowed-tools no longer lists "
+        (str "SKILL.md allowed-tools does not list "
              "mcp__re-frame2-pair__replace-app-db — the dedicated "
-             "state-injection tool is the canonical named-write path "
-             "(rf2-230ekq)."))))
+             "state-injection tool is the canonical named-write "
+             "path."))))
 
 (deftest named-writes-prefer-dedicated-tool-not-default-eval
-  (testing "the skill no longer frames the raw eval write forms as the DEFAULT-reachable path (rf2-230ekq)"
+  (testing "the skill does not frame the raw eval write forms as the DEFAULT-reachable path"
     (doseq [[label md] [["SKILL.md" @skill-md]
                         ["ops.md" @ops-md]
                         ["recipes.md" @recipes-md]
                         ["mcp-transport.md (via recipes/ops links)" @ops-md]]]
       (is (not (re-find #"(?i)default-reachable\s+write\s+path" md))
-          (str label " still calls the raw eval form the 'default-reachable "
+          (str label " calls the raw eval form the 'default-reachable "
                "write path' — the dedicated `restore-epoch` / `replace-app-db` "
-               "tools are now the canonical path; eval is the backstop "
-               "(rf2-230ekq).")))
+               "tools are the canonical path; eval is the "
+               "backstop.")))
     ;; The Experiment-loop recipe's restore step must call the dedicated tool,
     ;; not the eval form, as its primary invocation.
     (let [section (recipe-section @recipes-md "Experiment loop")]
       (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
       (is (str/includes? section "mcp__re-frame2-pair__restore-epoch {epoch-id:")
-          (str "the Experiment-loop restore step no longer leads with the "
+          (str "the Experiment-loop restore step does not lead with the "
                "dedicated `restore-epoch {epoch-id: …}` tool — the eval form "
-               "is the backstop, not the default (rf2-230ekq)."))))
-  (testing "README's time-travel example leads with the restore-epoch tool, not the eval backstop (rf2-ef1c)"
+               "is the backstop, not the default."))))
+  (testing "README's time-travel example leads with the restore-epoch tool, not the eval backstop"
     ;; README's framework-level `(rf/restore-epoch! frame-id epoch-id)` in
     ;; §No re-frame-10x dependency names the core API and stays; the needle
     ;; is the worked example's eval CALL against a concrete frame.
     (is (not (str/includes? @readme-md "(rf/restore-epoch! :rf/default"))
         (str "README's worked time-travel example demonstrates the raw eval "
              "backstop `(rf/restore-epoch! :rf/default …)`. SKILL.md, ops.md "
-             "and recipes.md make the `restore-epoch` tool canonical (rf2-ef1c)."))
+             "and recipes.md make the `restore-epoch` tool canonical."))
     (is (str/includes? @readme-md "restore-epoch {epoch-id:")
-        (str "README's worked time-travel example no longer calls the "
-             "`restore-epoch {epoch-id: …}` tool (rf2-ef1c).")))
-  (testing "the eval write forms are kept as an explicitly-labelled backstop (rf2-230ekq)"
-    ;; The backstop must still be documented (gate-OFF server fallback), but
-    ;; framed as such — not removed entirely.
+        (str "README's worked time-travel example does not call the "
+             "`restore-epoch {epoch-id: …}` tool.")))
+  (testing "the eval write forms are kept as an explicitly-labelled backstop"
+    ;; The backstop stays documented (the gate-OFF server fallback), framed
+    ;; as such.
     (is (includes-ci? @ops-md "backstop")
-        (str "ops.md no longer labels the raw eval restore/reset forms as a "
+        (str "ops.md does not label the raw eval restore/reset forms as a "
              "BACKSTOP — they must remain documented for a gate-OFF server but "
-             "framed as the fallback, not the default (rf2-230ekq)."))))
+             "framed as the fallback, not the default."))))
 
 ;; ---------------------------------------------------------------------------
-;; Experiment-loop rewind anchor (rf2-44d3)
+;; Experiment-loop rewind anchor
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `restore-epoch` reinstalls the named epoch's `:frame-state-after` (Tool-Pair
 ;; §Time-travel), so restoring the epoch a dispatch PRODUCED reinstates that
-;; event's POST-state — not the state it started from. The recipe used to
-;; capture the baseline dispatch's own result epoch and restore it before the
-;; edited run, which put the edited handler on top of the baseline's mutation:
-;; a `+1` baseline then a `+2` edit reads 3, not 2, and every non-idempotent
-;; handler (append / toggle / consume-once) compounds it per iteration. The
-;; procedure still LOOKED like a controlled experiment, which is what made it
-;; expensive.
+;; event's POST-state — not the state it started from. A recipe that captures
+;; the baseline dispatch's own result epoch and restores it before the edited
+;; run puts the edited handler on top of the baseline's mutation: a `+1`
+;; baseline then a `+2` edit reads 3, not 2, and every non-idempotent handler
+;; (append / toggle / consume-once) compounds it per iteration. That procedure
+;; LOOKS like a controlled experiment, which is what makes it expensive.
 ;;
-;; The old shape passed the table row above (it named `restore-epoch`), so the
+;; That shape passes the table row above (it names `restore-epoch`), so the
 ;; row alone cannot hold this. These assertions are the discriminating half:
 ;; they pin the two ids as DISTINCT roles, pin the ORDER (anchor captured
 ;; before the baseline dispatch), pin the honest refusal when no anchor exists,
@@ -712,22 +710,22 @@
 
     (testing "the anchor and the baseline result are named as SEPARATE roles"
       (is (str/includes? section "pre-dispatch-epoch-id")
-          (str "the Experiment loop no longer names a `pre-dispatch-epoch-id` — "
+          (str "the Experiment loop does not name a `pre-dispatch-epoch-id` — "
                "without a separately-named anchor the recipe cannot say which "
-               "epoch to rewind to (rf2-44d3)."))
+               "epoch to rewind to."))
       (is (str/includes? section "baseline-epoch-id")
-          (str "the Experiment loop no longer names the baseline's RESULT epoch "
-               "separately — the two roles have collapsed back into one "
-               "'the captured epoch' (rf2-44d3).")))
+          (str "the Experiment loop does not name the baseline's RESULT epoch "
+               "separately — the two roles collapse into one "
+               "'the captured epoch'.")))
 
     (testing "the restore step passes the ANCHOR, not the baseline result"
       (is (str/includes?
             section
             "mcp__re-frame2-pair__restore-epoch {epoch-id: \"<pre-dispatch-epoch-id>\"}")
-          (str "the Experiment loop's restore invocation no longer passes "
+          (str "the Experiment loop's restore invocation does not pass "
                "<pre-dispatch-epoch-id>. A bare <epoch-id> placeholder reads as "
                "'the one you just captured from the dispatch' — the exact "
-               "defect (rf2-44d3).")))
+               "defect.")))
 
     (testing "the anchor is captured BEFORE the baseline dispatch"
       ;; Ordering, not mere presence: a recipe that captures the head only
@@ -738,43 +736,43 @@
             (str "the Experiment loop introduces `baseline-epoch-id` at or "
                  "before `pre-dispatch-epoch-id` — the anchor must be captured "
                  "BEFORE anything is dispatched, or it is the post-dispatch "
-                 "head under an honest-looking name (rf2-44d3)."))))
+                 "head under an honest-looking name."))))
 
     (testing "the recipe states WHY — restore reinstalls :frame-state-after"
       (is (str/includes? section ":frame-state-after")
-          (str "the Experiment loop no longer states that `restore-epoch` "
+          (str "the Experiment loop does not state that `restore-epoch` "
                "reinstalls the named epoch's `:frame-state-after`. Without the "
-               "mechanism the rule reads as a style preference and drifts back "
-               "(rf2-44d3).")))
+               "mechanism the rule reads as a style preference and gets "
+               "undone.")))
 
     (testing "a missing anchor fails honestly instead of substituting one"
       (is (str/includes? section ":head-id")
-          (str "the Experiment loop no longer reads the frame's current "
-               "`:head-id` — that read IS the anchor capture (rf2-44d3)."))
+          (str "the Experiment loop does not read the frame's current "
+               "`:head-id` — that read IS the anchor capture."))
       (is (and (str/includes? section "STOP")
                (str/includes? section "dispatch-dry-run"))
-          (str "the Experiment loop no longer tells the agent to STOP (and fall "
+          (str "the Experiment loop does not tell the agent to STOP (and fall "
                "back to `dispatch-dry-run`) when the frame has no retained "
                "pre-dispatch epoch — a silent substitution of the baseline "
-               "result epoch is the confounded comparison (rf2-44d3).")))
+               "result epoch is the confounded comparison.")))
 
     (testing "the worked control carries the numbers that discriminate"
       ;; 1 = baseline, 2 = the edit's real answer, 3 = the confounded reading.
       (is (every? #(str/includes? section %) ["{:n 0}" "{:n 1}" "{:n 2}" "{:n 3}"])
-          (str "the Experiment loop's worked control no longer walks "
+          (str "the Experiment loop's worked control does not walk "
                "{:n 0} → baseline {:n 1} → edited {:n 2}, with {:n 3} named as "
                "the confounded reading a result-epoch restore produces. Those "
-               "four numbers are what make the defect unfollowable (rf2-44d3).")))
+               "four numbers are what make the defect unfollowable.")))
 
     (testing "the handler fingerprint is captured before the edit, not claimed"
       (is (str/includes? section "pre-edit-handler-meta")
-          (str "the Experiment loop's verification step no longer references a "
-               "separately-captured `pre-edit-handler-meta`. It used to say the "
-               "fingerprint was captured at step 1, where only the result epoch "
-               "was captured — a comparison against nothing (rf2-44d3).")))))
+          (str "the Experiment loop's verification step does not reference a "
+               "separately-captured `pre-edit-handler-meta`. Without it the step "
+               "claims a fingerprint from step 1, where only the result epoch "
+               "is captured — a comparison against nothing.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Handler fingerprint wire key (rf2-66xy8)
+;; Handler fingerprint wire key
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The Experiment loop's "did the patch land?" check compares a handler
@@ -800,10 +798,10 @@
 
     (testing "the fingerprint is named by its actual wire key"
       (is (str/includes? section ":handler-fn-hash")
-          (str "the Experiment loop no longer names `:handler-fn-hash`. That is "
+          (str "the Experiment loop does not name `:handler-fn-hash`. That is "
                "the key `handler-meta` actually returns — the live `:handler-fn` "
                "is stripped — so without it the recipe has no fingerprint to "
-               "capture or compare (rf2-66xy8).")))
+               "capture or compare.")))
 
     (testing "the absent :handler-fn key is not offered as the fingerprint"
       (is (not (re-find #":handler-fn(?!-hash)" section))
@@ -811,23 +809,23 @@
                "`registrar-describe` dissocs the live handler fn and the MCP "
                "tool repeats the dissoc, so that key is never on the wire; an "
                "agent comparing it sees nil-vs-nil and reports the patch landed "
-               "when it did not. Use `:handler-fn-hash` (rf2-66xy8).")))
+               "when it did not. Use `:handler-fn-hash`.")))
 
     (testing "the recipe says WHY the hash is the discriminator"
       ;; Without the mechanism the key reads as a spelling preference and the
       ;; next author reverts it to the shorter, wronger name.
       (is (re-find #"(?is)strip[^.\n]{0,120}:handler-fn-hash" section)
-          (str "the Experiment loop no longer states that the live handler fn "
+          (str "the Experiment loop does not state that the live handler fn "
                "is STRIPPED and replaced by `:handler-fn-hash`. The rule reads "
-               "as a spelling nit without the mechanism (rf2-66xy8)."))
+               "as a spelling nit without the mechanism."))
       (is (re-find #"(?is):handler-fn-hash[^.\n]{0,120}(only discriminator|line[^.\n]{0,20}column unchanged)" section)
-          (str "the Experiment loop no longer says the hash is what "
+          (str "the Experiment loop does not say the hash is what "
                "discriminates when `:line` / `:column` are unchanged — the "
                "in-place body edit is exactly the case the fingerprint exists "
-               "for (rf2-66xy8).")))))
+               "for.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Published eval-cljs forms must be fully qualified (rf2-ikbgk.2)
+;; Published eval-cljs forms must be fully qualified
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `eval-cljs` hands the form to `shadow.cljs.devtools.api/cljs-eval` with EMPTY
@@ -835,20 +833,20 @@
 ;; shadow's default namespace, which carries no `rf` alias, and the server then
 ;; refuses any non-blank analyzer `:err` as `:rf.error/eval-cljs-compile-error`.
 ;; So a published `form:` spelled `(rf/…)` is not a style nit: EVERY copy-paste
-;; of it fails before it runs. The skill states the rule it would break twice
-;; over — SKILL.md ("the eval namespace carries no `rf` alias") and errors.md
-;; ("there are no ambient aliases") — and nine such forms shipped anyway,
-;; because the suite pinned only that a recipe NAMES `reg-event` /
-;; `restore-epoch`, never that a published form is fully qualified.
+;; of it fails before it runs. The skill states the rule twice over — SKILL.md
+;; ("the eval namespace carries no `rf` alias") and errors.md ("there are no
+;; ambient aliases") — yet a suite that pins only that a recipe NAMES
+;; `reg-event` / `restore-epoch` passes any number of such forms, because it
+;; never checks that a published form is fully qualified.
 ;;
 ;; PROSE citations of `rf/…` are deliberate and MUST keep passing: they cite the
 ;; facade contract rather than invoking it (SKILL.md, STATUS.md,
 ;; docs/capabilities.md). So this guard reads ONLY the inside of a published
 ;; `form:` string — a blanket `rf/` sweep is exactly what it must not be.
 ;;
-;; The character class spans newlines on purpose: one of the nine original sites
-;; was a `(let …)` broken across two lines, which a line-oriented search cannot
-;; see at all.
+;; The character class spans newlines on purpose: a published form can be a
+;; `(let …)` broken across two lines, which a line-oriented search cannot see
+;; at all.
 
 (defn- skill-rel
   "Path of `f` relative to the skill root, forward-slash form — so a failure
@@ -879,11 +877,11 @@
       ;; clean sweep over a skill full of broken forms.
       (is (seq forms)
           (str "no `form:` strings found in any skill leaf — the extraction is "
-               "broken, not the skill clean (rf2-ikbgk.2)."))
+               "broken, not the skill clean."))
       (is (some (fn [[_ body]] (str/includes? body "(re-frame2-pair.runtime/")) forms)
           (str "no published `form:` names `(re-frame2-pair.runtime/`. That is "
                "the skill's commonest eval spelling, so its absence means this "
-               "guard is reading nothing (rf2-ikbgk.2).")))
+               "guard is reading nothing.")))
 
     (testing "no published form uses the `rf/` alias the eval namespace lacks"
       (let [offenders (filterv (fn [[_ body]] (str/includes? body "(rf/")) forms)]
@@ -892,22 +890,22 @@
                  "`(rf/…)`, which the eval namespace cannot resolve — every "
                  "copy-paste returns :rf.error/eval-cljs-compile-error. Spell "
                  "the facade `re-frame.core/…` INSIDE a form; prose citations "
-                 "of `rf/…` are fine and deliberate (rf2-ikbgk.2). Offending "
+                 "of `rf/…` are fine and deliberate. Offending "
                  "leaves: "
                  (pr-str (vec (distinct (map first offenders))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Single-host boundary (rf2-p1keh)
+;; Single-host boundary
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The skill's contract is ONE attached browser runtime. Story variants are the
-;; surface that used to breach it: seven `mcp__re-frame2-story-mcp__*` tools
-;; were allow-listed and the Story leaves taught compositions that ran a
-;; variant in story-mcp's headless JVM registry while Pair read the browser —
-;; two different frames wearing one keyword.
+;; surface that breaches it most easily: allow-listing
+;; `mcp__re-frame2-story-mcp__*` tools, or teaching a composition that runs a
+;; variant in story-mcp's headless JVM registry while Pair reads the browser,
+;; puts two different frames under one keyword.
 ;;
 ;; `scripts/check_skill_mcp_drift.py`'s single-host axis pins the FRONTMATTER.
-;; These guards pin the PROSE, which no gate reads: the surviving Story leaf
+;; These guards pin the PROSE, which no gate reads: the one Story leaf
 ;; must teach the browser route, and no doc may name the other server's tool
 ;; prefix. `story-mcp` in prose is fine and expected — the leaf routes headless
 ;; work out to it by name. The banned thing is a callable `mcp__...__` entry.
@@ -915,30 +913,30 @@
 (def ^:private story-mcp-tool-prefix "mcp__re-frame2-story-mcp__")
 
 (deftest story-work-stays-on-the-attached-runtime
-  (testing "the Story leaf teaches the browser route: eval-cljs + await + a Pair frame read (rf2-p1keh)"
+  (testing "the Story leaf teaches the browser route: eval-cljs + await + a Pair frame read"
     (let [md @stories-md]
       (is (str/includes? md "mcp__re-frame2-pair__eval-cljs")
-          (str "references/stories.md no longer names "
+          (str "references/stories.md does not name "
                "`mcp__re-frame2-pair__eval-cljs` — the attached browser heap "
                "is reached through eval-cljs, and it is the only Story door "
-               "this skill has (rf2-p1keh)."))
+               "this skill has."))
       (is (str/includes? md "re-frame.story/run-variant")
-          (str "references/stories.md no longer names "
+          (str "references/stories.md does not name "
                "`re-frame.story/run-variant` — running a variant in the open "
-               "app is a call into the app's OWN Story registry (rf2-p1keh)."))
+               "app is a call into the app's OWN Story registry."))
       (is (str/includes? md "await")
-          (str "references/stories.md no longer tells the caller to `await` "
+          (str "references/stories.md does not tell the caller to `await` "
                "the run — `run-variant` returns a JS Promise in the browser, "
-               "so a plain eval hands back an unresolved thenable "
-               "(rf2-p1keh)."))
+               "so a plain eval hands back an unresolved "
+               "thenable."))
       (is (or (str/includes? md "set-operating-frame")
               (str/includes? md "mcp__re-frame2-pair__read-sub"))
-          (str "references/stories.md no longer follows the run with an "
+          (str "references/stories.md does not follow the run with an "
                "ordinary Pair frame op against the SAME runtime — the "
                "variant-id-is-frame-id identity is what makes the browser "
-               "route complete (rf2-p1keh)."))))
+               "route complete."))))
 
-  (testing "no live-session doc grants or calls a second MCP server (rf2-p1keh)"
+  (testing "no live-session doc grants or calls a second MCP server"
     (doseq [[label md] [["SKILL.md"                skill-md]
                         ["references/stories.md"   stories-md]
                         ["references/recipes.md"   recipes-md]
@@ -950,7 +948,7 @@
                "variant it runs is NOT the frame Pair reads — the two share a "
                "keyword, not an object. Drive variants through eval-cljs over "
                "`re-frame.story/*` instead, and route explicitly headless work "
-               "out to tools/story-mcp/ (rf2-p1keh).")))
+               "out to tools/story-mcp/.")))
     ;; Control: the census pattern above must be able to find something.
     ;; A `str/includes?` against a token nothing carries answers "absent" in
     ;; the same voice whether the rule holds or the token is misspelt, so
@@ -958,16 +956,16 @@
     (is (str/includes? @skill-md "mcp__re-frame2-pair__")
         (str "SKILL.md carries no `mcp__re-frame2-pair__` entry at all — the "
              "single-host assertions above are therefore vacuous, not "
-             "satisfied (rf2-p1keh)."))))
+             "satisfied."))))
 
 (deftest story-leaf-is-single-not-a-pair
-  (testing "the overlapping stories.md + variant-as-frame.md pair collapsed to one leaf (rf2-p1keh)"
+  (testing "stories.md is the one Story leaf; there is no variant-as-frame.md"
     (is (not (.exists (io/file skill-root "references/variant-as-frame.md")))
-        (str "references/variant-as-frame.md is back. Its content — the "
+        (str "references/variant-as-frame.md exists. Its content — the "
              "variant-id-is-frame-id identity, per-variant isolation, the "
              "mount/reset/destroy gotchas — lives in references/stories.md, "
-             "which is the ONE Story leaf the router points at (rf2-p1keh).")))
-  (testing "the surviving leaf kept what the merge absorbed (rf2-p1keh)"
+             "which is the ONE Story leaf the router points at.")))
+  (testing "the Story leaf covers the variant-as-frame content"
     (let [md @stories-md]
       (doseq [[what token] [["the variant-id/frame-id identity" "variant-id IS the frame-id"]
                             ["the frame-allocation call"        "rf/make-frame"]
@@ -975,27 +973,25 @@
                             ["the unmount gotcha"               "destroy-frame!"]
                             ["cross-frame diff"                 "frame-diff"]]]
         (is (str/includes? md token)
-            (str "references/stories.md no longer covers " what " (`" token
-                 "`) — the merge was meant to absorb variant-as-frame.md, not "
-                 "drop it (rf2-p1keh).")))))
-  (testing "the router points at the one surviving leaf (rf2-p1keh)"
+            (str "references/stories.md does not cover " what " (`" token
+                 "`) — stories.md is the one home for the "
+                 "variant-as-frame content.")))))
+  (testing "the router points at the one Story leaf"
     (is (str/includes? @skill-md "references/stories.md")
-        "SKILL.md no longer routes to references/stories.md.")
+        "SKILL.md does not route to references/stories.md.")
     (is (not (str/includes? @skill-md "variant-as-frame.md"))
-        "SKILL.md still routes to the deleted references/variant-as-frame.md.")))
+        "SKILL.md routes to references/variant-as-frame.md, which does not exist.")))
 
 ;; ---------------------------------------------------------------------------
 ;; Published call ARITY, read against the defining facade
 ;; ---------------------------------------------------------------------------
 ;;
-;; Every guard above proves a recipe still NAMES an op. None of them says
-;; whether the published call would RUN. references/stories.md shipped
-;; `(re-frame.story/start-recording!)` and `(re-frame.story/gen-play-snippet)`
-;; with zero args against a facade requiring `[variant-id]` and
-;; `[events opts]` — an arity error before capture or codegen happens at all —
-;; and every structural check stayed green through the merge (rf2-p1keh,
-;; audit of PR #8951). These guards read the defining `defn` and the
-;; published call, and relate the two.
+;; Every guard above proves a recipe NAMES an op. None of them says whether
+;; the published call would RUN: a zero-arg `(re-frame.story/start-recording!)`
+;; or `(re-frame.story/gen-play-snippet)` against a facade requiring
+;; `[variant-id]` and `[events opts]` is an arity error before capture or
+;; codegen happens at all, and every structural check above passes it. These
+;; guards read the defining `defn` and the published call, and relate the two.
 
 (def ^:private story-facade
   ;; The public Story facade, two levels up from skill-root (repo `tools/story/`).
@@ -1024,47 +1020,47 @@
   (boolean (re-find #"(?m)^\s*\[\]\s*$|^\s*\(\[\]" defn-src)))
 
 (deftest recorder-recipe-calls-match-the-facade-arity
-  (testing "the facade declares the arities the leaf must satisfy (rf2-p1keh)"
+  (testing "the facade declares the arities the leaf must satisfy"
     (let [src @story-facade]
       ;; Control. `zero-arity?` answering "false" for every input would clear
       ;; the two assertions below in the same voice as a correct facade, so
       ;; exercise it against the one recorder entry point that IS zero-arity.
       (is (some? (defn-form src "stop-recording!"))
           (str "could not locate `(defn stop-recording!` in the Story facade "
-               "— the arity guards below are vacuous, not satisfied "
-               "(rf2-p1keh)."))
+               "— the arity guards below are vacuous, not "
+               "satisfied."))
       (is (zero-arity? (defn-form src "stop-recording!"))
-          (str "`re-frame.story/stop-recording!` no longer reads as zero-arity, "
+          (str "`re-frame.story/stop-recording!` does not read as zero-arity, "
                "so `zero-arity?` is not measuring what it claims and the "
-               "guards below prove nothing (rf2-p1keh)."))
+               "guards below prove nothing."))
       (doseq [sym ["start-recording!" "gen-play-snippet"]]
         (let [form (defn-form src sym)]
           (is (some? form)
               (str "could not locate `(defn " sym "` in the Story facade — "
                    "references/stories.md publishes a call to it, so either "
-                   "the fn moved or this guard is reading the wrong file "
-                   "(rf2-p1keh)."))
+                   "the fn moved or this guard is reading the wrong "
+                   "file."))
           (is (not (zero-arity? form))
-              (str "`re-frame.story/" sym "` now declares a zero-arity. If that "
+              (str "`re-frame.story/" sym "` declares a zero-arity. If that "
                    "is deliberate, references/stories.md may simplify its "
                    "recorder sequence; until then the leaf must keep passing "
-                   "arguments (rf2-p1keh)."))))))
+                   "arguments."))))))
 
-  (testing "references/stories.md publishes no zero-arg recorder call (rf2-p1keh)"
+  (testing "references/stories.md publishes no zero-arg recorder call"
     (let [md @stories-md]
       (doseq [sym ["start-recording!" "gen-play-snippet"]]
         (is (not (str/includes? md (str "(re-frame.story/" sym ")")))
             (str "references/stories.md publishes `(re-frame.story/" sym ")` "
                  "with zero args. The facade requires arguments, so following "
-                 "the recipe throws before it captures anything (rf2-p1keh).")))
+                 "the recipe throws before it captures anything.")))
       (is (str/includes? md "(re-frame.story/start-recording! :story.")
-          (str "references/stories.md no longer passes a variant id to "
+          (str "references/stories.md does not pass a variant id to "
                "`start-recording!` — the recording's address IS the variant "
-               "frame (rf2-p1keh)."))
+               "frame."))
       (is (str/includes? md ":variant-id :story.")
-          (str "references/stories.md no longer supplies `gen-play-snippet`'s "
+          (str "references/stories.md does not supply `gen-play-snippet`'s "
                "required `:variant-id` opt — the snippet has no id to render "
-               "the `reg-variant` form against (rf2-p1keh).")))))
+               "the `reg-variant` form against.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Catalogue-cardinality drift
@@ -1098,17 +1094,15 @@
     (testing (str "every count-stating doc names the live " live "-tool catalogue")
       (doseq [[label md] count-docs]
         (is (str/includes? @md live-s)
-            (str label " no longer states the live Pair-MCP tool count of "
+            (str label " does not state the live Pair-MCP tool count of "
                  live " (from tool-descriptors.edn :tool-count) — update the "
-                 "prose count when the catalogue changes (rf2-sdudwy)."))))
+                 "prose count when the catalogue changes."))))
     (testing "no count-stating doc carries a stale tool count"
-      ;; Sweep the counts the catalogue has actually held; the LIVE count is
-      ;; exempt. This catches a doc that was missed when the catalogue
-      ;; grew/shrank. The trajectory, from tool-descriptors.edn's history:
-      ;; 30 -> 35 -> 33 -> 29 -> 30, so 33 and 35 are real stale counts a
-      ;; missed doc could still carry (rf2-je5ki item 8). 31/32 are NOT
-      ;; swept -- the catalogue never held them, so no doc can be stale at
-      ;; one, and sweeping a count that never shipped only adds noise.
+      ;; Sweep the counts the catalogue has held (tool-descriptors.edn's git
+      ;; history); the LIVE count is exempt. This catches a doc missed when
+      ;; the catalogue changes size. 31/32 are NOT swept -- the catalogue
+      ;; never held them, so no doc can be stale at one, and sweeping a count
+      ;; that never shipped only adds noise.
       (doseq [[label md] count-docs
               stale ["26" "27" "28" "29" "30" "33" "35"]
               :when (not= stale live-s)]
@@ -1118,24 +1112,23 @@
         (let [pat (re-pattern (str "(?i)\\b" stale "[ -]tools?\\b|\\ball " stale "\\b"))]
           (is (not (re-find pat @md))
               (str label " carries a stale " stale "-tool catalogue count — "
-                   "the live surface is " live " tools (rf2-sdudwy).")))))))
+                   "the live surface is " live " tools.")))))))
 
 ;; ---------------------------------------------------------------------------
-;; list-handlers kind parity (rf2-fzbj.15 F3)
+;; list-handlers kind parity
 ;; ---------------------------------------------------------------------------
 ;;
 ;; ops.md's registrar/list row advertises the kinds `list-handlers`
-;; accepts. It went on offering `flow` and `frame` after rf2-zhef removed
-;; them from the SERVER's parser: `parse-kind` returns nil for both, so a
-;; catalogue-driven call following the skill got the `:invalid-kind`
-;; refusal, and the row presented a reserved, permanently EMPTY registrar
-;; slot as the route to live flows and frames — which have their own
-;; doors.
+;; accepts. The SERVER's parser accepts neither `flow` nor `frame`:
+;; `parse-kind` returns nil for both, so a row offering them sends a
+;; catalogue-driven call to the `:invalid-kind` refusal, and presents a
+;; reserved, permanently EMPTY registrar slot as the route to live flows and
+;; frames — which have their own doors.
 ;;
 ;; The guard reads the kinds the SERVER publishes (the generated
 ;; tool-descriptors.edn, the same manifest the tool-count guard above
 ;; trusts) and compares them with the row's enumeration, so this cannot
-;; drift again in either direction: a kind the skill offers and the server
+;; drift in either direction: a kind the skill offers and the server
 ;; refuses, or a kind the server gains and the skill never mentions.
 
 (def ^:private manifest-text
@@ -1147,7 +1140,7 @@
   []
   (let [t @manifest-text
         i (str/index-of t "Supported kinds:")
-        _ (assert i "tool-descriptors.edn no longer states list-handlers' supported kinds")
+        _ (assert i "tool-descriptors.edn does not state list-handlers' supported kinds")
         s (subs t (+ i (count "Supported kinds:")))
         s (first (str/split s #"—" 2))]
     (->> (str/split s #",")
@@ -1160,7 +1153,7 @@
   []
   (let [t @ops-md
         i (str/index-of t "Supported kinds:")
-        _ (assert i "ops.md's registrar/list row no longer states its supported kinds")
+        _ (assert i "ops.md's registrar/list row does not state its supported kinds")
         s (subs t (+ i (count "Supported kinds:")))
         s (first (str/split s #"\(the closed registrar set" 2))]
     (->> (str/split s #"/")
@@ -1179,10 +1172,10 @@
              "; only in the server manifest: "
              (pr-str (sort (remove skill server)))
              ". A kind the skill advertises and the parser refuses returns "
-             ":reason :invalid-kind to an agent following the catalogue (rf2-fzbj.15 F3)."))))
+             ":reason :invalid-kind to an agent following the catalogue."))))
 
 (deftest flow-and-frame-are-not-offered-as-registrar-kinds
-  ;; The specific residue, pinned by name so a re-add is loud: both are
+  ;; `flow` and `frame`, pinned by name so offering either is loud: both are
   ;; reserved-but-empty registrar slots, and each has a real door.
   (let [skill (ops-row-kinds)]
     (is (not (contains? skill "flow"))
@@ -1223,7 +1216,7 @@
                  "current policy allow-lists EVERY server tool (incl. gated "
                  "write tools) and fences them at the server's `--allow-writes` "
                  "launch gate; `intentional_server_only` is empty for the "
-                 "re-frame2-pair mapping (rf2-sdudwy)."))))))
+                 "re-frame2-pair mapping."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
