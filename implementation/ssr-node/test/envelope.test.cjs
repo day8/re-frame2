@@ -32,16 +32,15 @@
 // request is asserted inside the budget before a single sample is taken,
 // with a control row that shows a request over it being turned away —
 // because a condition nothing enforces is a condition the witness can
-// drift out of, which is how this one came to bound `state` alone while
-// the wire grew a second partition (rf2-6r9j.71).
+// drift out of.
 //
 // ## How to read the numbers
 //
 // As a SHAPE claim — the service's overhead is single-digit milliseconds
 // at the median and does not run away — and never as a benchmark to diff a
-// future run against. This box is shared with other work, and the repo has
-// already measured what that does: the X3 adoption witness published two
-// runs at one commit whose phase maxima differed by more than twofold.
+// future run against. This box is shared with other work, and that makes
+// a millisecond-scale figure noisy: two runs at one commit can differ by
+// more than twofold in their phase maxima.
 // The figures are printed as diagnostics either way, because a breach that
 // prints no number is not a witness.
 
@@ -89,10 +88,9 @@ test('the budget counts a request the way the validator counts it — keys, valu
   // exactly N bytes must be admitted at a ceiling of N and refused at
   // N - 1, which is only true if both counts agree key for key.
   //
-  // The witness used to count two VALUES of one partition and call that
-  // the request's size. It omitted every key and the whole `runtime`
-  // partition, so it could clear a budget the validator would have read
-  // as larger (rf2-6r9j.71).
+  // Counting two VALUES of one partition and calling that the request's
+  // size would omit every key and the whole `runtime` partition, so the
+  // witness could clear a budget the validator reads as larger.
   const request = {
     protocol: 1,
     entry: 'app/root',
@@ -127,7 +125,7 @@ test('a request over the combined condition is refused by the witness preconditi
   // THE CONTROL FOR THE ROW BELOW. The measured request clearing the
   // budget says nothing unless a request that busts it would be turned
   // away — and the interesting one busts it on `runtime` alone, which is
-  // the partition the condition did not used to see. It is a request the
+  // the partition a `state`-only condition would not see. It is a request the
   // SERVICE would happily accept (one allowlisted key, far under the
   // 1 MiB protocol ceiling); it is the envelope's narrower sampling
   // condition that refuses it, which is the distinction being pinned.
@@ -152,7 +150,7 @@ test(`the service clears its pre-registered envelope over ${ENVELOPE.samples} sa
     // A request comfortably inside the registered budget, and carrying
     // BOTH partitions — the condition is stated over the request, so a
     // sample that sent one of them would be measuring a narrower request
-    // than the envelope claims to cover (rf2-6r9j.71).
+    // than the envelope claims to cover.
     const request = {
       protocol: 1,
       entry: 'app/root',
