@@ -2,7 +2,7 @@
   "THE TWO HOOKS, WHERE NO DOM IS NEEDED.
 
   `re-frame.fresco.native` is two React hooks — `n/use-sub` and
-  `n/use-frame` — and nothing else, by the rf2-6c12m.3 ruling. An
+  `n/use-frame` — and nothing else. An
   island is an ordinary React component, raw or UIx, and it reaches
   Fresco state through these two. Most of what is true about them is
   true only once React is driving a real fiber — identity across
@@ -16,9 +16,9 @@
   |---|---|
   | [[a-read-under-a-live-frame-answers-without-committing-anything]] | the COLD tier. A body runs, the value is right, and the runtime retained nothing — because nothing committed. Both arms. |
   | [[both-hooks-refuse-outside-every-frame-and-each-names-itself]] | the refusal, and that the two hooks are distinguishable in it. |
-  | [[a-live-with-frame-around-the-render-does-not-reach-either-hook]] | rf2-kuky.62's ONE rule, adversarially: React context only, even when a `with-frame` is live on the very stack the body runs on. |
+  | [[a-live-with-frame-around-the-render-does-not-reach-either-hook]] | the ONE hook frame-resolution rule, adversarially: React context only, even when a `with-frame` is live on the very stack the body runs on. |
   | [[use-frame-answers-the-runtimes-own-row-rather-than-capturing-its-own]] | the hook is not a second `capture-frame`. This is the row the incarnation rule rests on, and it is an IDENTITY test because an equality test passes for the wrong implementation. |
-  | [[the-namespace-is-the-two-hooks]] | the membership pin: `use-sub` and `use-frame` are present, and the exact census is armed for the wave-2 bead. |
+  | [[the-namespace-is-the-two-hooks]] | the membership pin: `use-sub` and `use-frame` are present, and they are the whole namespace. |
 
   ## Why the server renderer is the harness
 
@@ -221,16 +221,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-live-with-frame-around-the-render-does-not-reach-either-hook
-  (testing "rf2-kuky.62 — the ONE rule the React hook family follows: a hook
+  (testing "the ONE rule the React hook family follows: a hook
             resolves from the React context the boundary above it installed,
             and from NOTHING else. `renderToStaticMarkup` runs the component
             body on THIS stack, so a `with-frame` wrapped around it is
             genuinely live while the body runs — which is the only condition
             under which a dynamic-var tier could ever answer, and therefore
-            the only shape in which this claim can be tested at all. Fresco's
-            native tier already followed the rule; these rows are what stop it
-            drifting back, and what make the UIx family's move onto it a
-            SHARED statement rather than one adapter's private choice."
+            the only shape in which this claim can be tested at all. These
+            rows hold Fresco's native tier to the rule, and make it a SHARED
+            statement with the UIx family's hooks rather than one adapter's
+            private choice."
     (seat!)
     (rf/make-frame {:id ::somewhere-else})
     (rf/with-frame ::somewhere-else (rf/dispatch-sync [::seed {"AAPL" :wrong-frame}]))
@@ -319,6 +319,6 @@
     (is (fn? rf.fresco.native/use-frame)))
 
   (testing "and they are the whole namespace — a third public var reds
-            here at the diff that adds it (rf2-6c12m.3)"
+            here at the diff that adds it"
     (is (= #{"use-sub" "use-frame"} publics)
         "the namespace's public census is exactly the two hooks")))
