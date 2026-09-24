@@ -1,6 +1,6 @@
 (ns re-frame.resources-skeleton-cljs-test
-  "Surface + wiring smoke tests for the Resources artefact (rf2-p10npe,
-  Spec 016 §EP-0003).
+  "Surface + wiring smoke tests for the Resources artefact (Spec 016,
+  EP-0003).
 
   These tests lock the artefact's public surface and registration wiring —
   the load-time guarantees that the runtime behaviour tests then build on:
@@ -39,7 +39,7 @@
 (defn- valid-spec
   "A minimal, valid resource METADATA map — the REQUIRED metadata keys (Spec
   016 §Resource registration spec). The `:request` handler is the THIRD
-  registration slot (rf2-wvh95f F1); see `valid-request`."
+  registration slot; see `valid-request`."
   []
   {:doc           "test resource"
    :scope         :rf.scope/global
@@ -57,10 +57,10 @@
 (deftest artefact-loads
   (testing "the resources façade ns loaded (the require is the smoke)"
     (is (fn? rf.resources/reg-resource))
-    ;; rf2-kuky.80: no `rf.resources/clear-resource` NAME — the registrar
+    ;; There is no `rf.resources/clear-resource` NAME — the registrar
     ;; inverse is the one kind-keyed `(rf/clear :resource id)`.
     (is (fn? rf/clear))
-    ;; rf2-kuky.31: no `rf.resources/resource-meta` NAME either — the
+    ;; nor a `rf.resources/resource-meta` NAME — the
     ;; registered spec is the generic registrar read plus the documented
     ;; `:rf/resource` inner-key projection (exercised below, and the
     ;; facade-ABSENCE pin is smoke_test.clj's, where a var is resolvable).
@@ -71,19 +71,19 @@
     (rf.resources/reg-resource :test/article (valid-spec) valid-request)
     (is (contains? (rf.registrar/registrations :resource) :test/article))
     (is (= :test/article (first (keys (rf/registrations {:source :store :kind :resource})))))
-    (testing "resource-meta reads the spec back"
+    (testing "handler-meta reads the spec back"
       (is (= "test resource" (:doc (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/article})))))
       (is (= :rf.scope/global (:scope (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/article}))))))
-    (testing "clear-resource removes the entry"
+    (testing "(rf/clear :resource id) removes the entry"
       (rf/clear :resource :test/article)
       (is (not (contains? (rf.registrar/registrations :resource) :test/article))))))
 
 (deftest gc-after-ms-normalizes-at-registration
-  ;; rf2-bbpu11 (Option A) — `:gc-after-ms` is normalized AT REGISTRATION so
+  ;; `:gc-after-ms` is normalized AT REGISTRATION so
   ;; `resource-meta` (and every downstream `positive-or-nil` read site) sees
   ;; exactly one of: the finite framework default, the auditable `:never`
   ;; opt-out, the caller's own positive number, or a loud registration error.
-  ;; Never today's silent "any non-number becomes nil".
+  ;; Never a silent "any non-number becomes nil".
   (testing "absent :gc-after-ms normalizes to the finite framework default (300000ms)"
     (rf.resources/reg-resource :test/gc-absent (valid-spec) valid-request)
     (is (= 300000 (:gc-after-ms (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/gc-absent})))))
@@ -125,7 +125,7 @@
                                   (dissoc (valid-spec) :params-schema)
                                   valid-request))))
   (testing "reg-resource with :request inside the metadata map throws (it is the
-            THIRD slot, rf2-wvh95f F1)"
+            THIRD slot)"
     (is (thrown-with-msg?
           js/Error #"resource-bad-spec"
           (rf.resources/reg-resource :test/no-request
@@ -133,7 +133,7 @@
                                   valid-request)))))
 
 (deftest reg-resource-rejects-non-map-metadata
-  ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE reconstruction.
+  ;; The metadata MIDDLE slot must be a map BEFORE reconstruction.
   ;; A non-map metadata (vector / string / nil) must surface the canonical
   ;; :rf.error/resource-bad-spec naming the resource, NOT a raw host
   ;; IllegalArgumentException ("Key must be integer") from the `:request`
@@ -162,11 +162,11 @@
   {:request {:method :get :url "/api/defn"}})
 
 (deftest reg-resource-rejects-non-callable-request
-  ;; rf2-76md — the THIRD slot is the resource's HANDLER, and the ensure path
-  ;; invokes it as `((:request spec) params ctx)`. Presence (`contains?`) was
-  ;; the only gate, so a non-callable value registered cleanly, stayed
-  ;; introspectable, and failed at the FIRST read instead of at the mistake.
-  ;; The displaced failure has TWO distinct shapes, and the second is the
+  ;; The THIRD slot is the resource's HANDLER, and the ensure path
+  ;; invokes it as `((:request spec) params ctx)`. A presence-only
+  ;; (`contains?`) gate would let a non-callable value register cleanly, stay
+  ;; introspectable, and fail at the FIRST read instead of at the mistake.
+  ;; That displaced failure has TWO distinct shapes, and the second is the
   ;; dangerous one:
   ;;   * 42 / "nope"  -> raw host cast error, `ex-data` nil, naming neither
   ;;                     the resource nor its definition site;
@@ -233,7 +233,7 @@
          so the Var row cannot pass by silently testing the plain fn twice")))
 
 (deftest scope-policy-is-exactly-two-shapes-fail-closed
-  ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
+  ;; A bare keyword in the framework-reserved :rf.scope/*
   ;; namespace that is NOT :rf.scope/global is a TYPO. It MUST be rejected
   ;; loudly at registration (fail-closed) rather than silently accepted as a
   ;; literal scope that would resolve to the wrong [:rf.scope/glabal] cache
@@ -258,10 +258,9 @@
                                    valid-request))
         "a {:from-db <id>} reference is accepted at registration — the resolver
          id is resolved at USE time, so it need not be registered yet"))
-  ;; Every OTHER shape the policy once admitted is now refused at
-  ;; registration (rf2-kuky.81): the scope-required-from-the-use-site
-  ;; keyword, an app-namespaced keyword, a literal data value
-  ;; (tuple / map / string) and a fn resolver.
+  ;; Every OTHER shape is refused at registration: the
+  ;; scope-required-from-the-use-site keyword, an app-namespaced keyword, a
+  ;; literal data value (tuple / map / string) and a fn resolver.
   (testing "an app-namespaced keyword scope is REFUSED (it is not a policy)"
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
@@ -310,10 +309,10 @@
     (doseq [k [:resources/reg-resource :resources/clear-resource
                :resources/resource-state]]
       (is (some? (rf.late-bind/get-fn k)) (str k " should be published"))))
-  (testing "and the retired per-kind meta hooks are NOT published (rf2-kuky.31)"
+  (testing "and there are NO per-kind meta hooks"
     (doseq [k [:resources/resource-meta :resources/mutation-meta]]
       (is (nil? (rf.late-bind/get-fn k))
-          (str k " was retired for the generic handler-meta projection")))))
+          (str k " must not be published — the generic handler-meta projection serves it")))))
 
 (deftest resource-subs-registered
   (testing "the passive :rf.resource/* sub family is registered"
@@ -326,11 +325,11 @@
           (str sub-id " sub should be registered")))))
 
 (def ^:private resource-event-family
-  "The CURRENT, complete `:rf.resource/*` + `:rf.resource.internal/*` event
+  "The complete `:rf.resource/*` + `:rf.resource.internal/*` event
   family the façade registers (re-frame.resources `reg-event` calls). Kept
   in lock-step with the façade registrations — when a resource event is
-  added/removed there, this list moves with it so the smoke is never stale
-  (rf2-l1a0s7). The `:rf.mutation/*` causal-write family is a SEPARATE
+  added/removed there, this list moves with it so the smoke is never stale.
+  The `:rf.mutation/*` causal-write family is a SEPARATE
   surface (covered by the mutation suite), deliberately not enumerated here."
   [;; public, user-causable events
    :rf.resource/ensure
@@ -340,19 +339,19 @@
    :rf.resource/clear-scope
    :rf.resource/remove
    ;; focus / reconnect revalidation events (host listeners dispatch these;
-   ;; user code MUST NOT) — landed events the prior smoke omitted
+   ;; user code MUST NOT)
    :rf.resource/window-focused
    :rf.resource/network-reconnected
    ;; framework-internal reply handlers (user code MUST NOT dispatch)
    :rf.resource.internal/succeeded
    :rf.resource.internal/failed
-   :rf.resource.internal/stale-fired      ;; landed; prior smoke omitted
+   :rf.resource.internal/stale-fired
    :rf.resource.internal/gc-fired
    :rf.resource.internal/stale-suppressed])
 
 (deftest resource-events-registered
-  (testing "the CURRENT :rf.resource/* event family is registered AND every
-            member carries framework-write authority (rf2-l1a0s7)"
+  (testing "the :rf.resource/* event family is registered AND every
+            member carries framework-write authority"
     (doseq [event-id resource-event-family]
       (let [handler (rf.registrar/lookup :event event-id)]
         (is (some? handler)
