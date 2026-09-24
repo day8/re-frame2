@@ -8,8 +8,8 @@
   declares its boundary's frame as `:extent-frame`
   (`impl.intent/with-frame`), so the two core doors answer the rendering
   boundary's frame inside a body and inside a render callback that body
-  supplied — with no substrate verb of its own. `h/hframe` is retired
-  (naming-ledger row 18, rf2-t32wg).
+  supplied — with no substrate verb of its own. There is no `h/hframe`
+  (naming-ledger row 18).
 
   This file is the node half: everything the seam does that is not
   React's is answerable here, and the `-dom` sibling
@@ -129,7 +129,7 @@
 
 (deftest a-render-callback-answers-the-supplying-boundarys-frame
   (frames!)
-  (testing "rf2-2rtt6.74's owner rule, reached through the core doors. A
+  (testing "the owner rule, reached through the core doors. A
            render callback is minted during the supplying boundary's body
            and INVOKED later by a foreign component — so the frame it must
            answer is the owner's. The wrapper re-establishes the owner's
@@ -229,11 +229,11 @@
 (deftest the-door-answers-where-the-reader-is-withdrawn
   (frames!)
   (testing "the two answers taken in the SAME extent, one line apart:
-           core's READER says 'no ambient frame' — rf2-2rtt6.122's refusal,
+           core's READER says 'no ambient frame' — the refusal tier,
            doing exactly its job, so every reader-first path (subs/subscribe
            inlines one) is untouched — while the requiring door answers the
            boundary's declared frame. That gap is the seam: the ambient
-           FIND is still deleted, and the door is answered from the
+           FIND stays withdrawn, and the door is answered from the
            extent's declaration rather than found through any adapter.
 
            THE CONTEXT SLOT IS PUBLISHED FOR THE WHOLE ROW, and it has to
@@ -316,15 +316,14 @@
       (is (= :dispatch (:operation (:dispatch seen)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The configuration where an ambient carry used to answer the WRONG frame
+;; The configuration where an ambient carry would answer the WRONG frame
 ;; ---------------------------------------------------------------------------
 
 (deftest a-carried-outer-scope-refuses-rather-than-answering-the-wrong-frame
   (frames!)
-  (testing "FOUND while grounding the SSR rows and pinned as a DEFECT
-           (rf2-nqj22). rf2-2rtt6.122's refusal withdrew the ambient FIND
-           and never the CARRYING, so a tier-1 stamp — an enclosing
-           `rf/with-frame` — still answered inside a body. But the boundary
+  (testing "withdrawing the ambient FIND alone, and never the CARRYING,
+           would let a tier-1 stamp — an enclosing `rf/with-frame` —
+           answer inside a body. But the boundary
            renders a different frame, and everything else in the body
            targets THAT one: the collector's reads, the lowered intents,
            the presence tray. One body, two frames, chosen by which
@@ -353,7 +352,7 @@
           (is (= frame-b (:carried-frame data)) "naming the stamp that was carried")
           (is (= frame-a (:extent-frame data)) "and the frame the boundary is rendering")))
       (is (= frame-a (:frame (:explicit @seen)))
-          "while the 1-arity never consults the resolver and carries as ever")))
+          "while the 1-arity never consults the resolver and carries")))
 
   (testing "and a MATCHED enclosing scope is the one thing this must not
            break: the stamp names the frame the extent is rendering, so
