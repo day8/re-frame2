@@ -292,9 +292,11 @@
 ;; never populated at all. `rf.machines.spawn-order/reset-all!` reproduces exactly that —
 ;; an empty cache beside a full runtime-db.
 ;;
-;; It is NOT a model of an IN-PROCESS `restore-epoch!` / `replace-frame-state!`:
-;; no production install path clears the cache (`:machines/on-frame-restored!`
-;; cancels `:after` timers and nothing else), so after an in-process install
+;; It is NOT a model of an IN-PROCESS `restore-epoch!` / `replace-frame-state!`
+;; / `:rf/install-frame-state`: no production install path clears the cache
+;; (`:machines/on-frame-restored!` cancels `:after` timers and
+;; `:rf.machine/hydrate-rearm` re-arms them, and neither does anything else),
+;; so after an in-process install
 ;; the cache is POPULATED and may name actors the installed durable value
 ;; discarded. That harder shape has its own section — §in-process runtime-state
 ;; install, below — driven through core's real write surface with no reach into
