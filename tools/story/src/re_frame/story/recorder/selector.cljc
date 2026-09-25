@@ -47,7 +47,7 @@
   The recorder is a developer ergonomics tool — the selector it
   picks ends up in source. We deliberately AVOID classes (CSS-
   framework noise like `tailwind-3xl`), `name`, or `for` even when
-  they're present: only the four attributes above are stable
+  they're present: only the three attributes above are stable
   hooks Story / re-frame2 / Reagent authors reach for. Less is
   more — a brittle selector that looks right (until the
   refactor) is worse than a `:nth-of-type` fallback the user
@@ -57,8 +57,8 @@
 ;; ---- pure ---------------------------------------------------------------
 
 (defn- blank?
-  "Local `clojure.string/blank?` — keeps the deps surface small and
-  avoids `(:require [clojure.string :as str])` reaching every call site."
+  "Local blank check: true for nil or a whitespace-only string, false for
+  any other value."
   [s]
   (or (nil? s) (and (string? s) (zero? (count (.trim ^String s))))))
 
