@@ -1533,7 +1533,16 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:outcome    :any]                       ;; <return-value> | :ok | :rf.error/action-threw
    [:exception  {:optional true} :any]      ;; present only on the throw path
    [:decl-path  {:optional true} [:vector :any]] ;; path of the node DECLARING the action; [] for a tree root (the machine root or a region body); region-relative inside a region
-   [:region     {:optional true} :keyword]])    ;; the parallel region the action ran in; present only inside a region
+   [:region     {:optional true} :keyword]      ;; the parallel region the action ran in; present only inside a region
+   [:frame      :keyword]                       ;; the frame the actor runs in
+   [:transition-slot {:optional true}           ;; present only on a transition `:action`: the selected transition's spec-path discriminator
+    [:map
+     [:decl-path     [:vector :any]]            ;; the declaring state's path; [] for a tree root
+     [:slot          [:enum :on :always :after]]
+     [:event-key     :any]                      ;; the matched `:on` key; nil otherwise
+     [:delay-key     :any]                      ;; the `:after` delay key; nil otherwise
+     [:candidate-idx [:maybe :int]]             ;; nil unless the slot holds a vector of candidate maps
+     [:root?         :boolean]]]])
 
 ;; --- runtime: machine `:after` timer cancelled trace payload
 ;;     (per [005 §Trace events]) ---

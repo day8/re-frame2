@@ -349,10 +349,10 @@
     :description "Humanize the raw m/explain output into operator-readable shape. The only in-tree publisher is re-frame.schemas.malli, which installs (malli.error/humanize ...); per-validator ports install their own humanizer from their own ns. Absent the hook, the substrate ships only :explain (raw); Xray's violation block falls back to the raw map. Consulted by validate.cljc's emit-validation-failure! helper when building the :rf.error/schema-validation-failure trace payload — augments tags with :explain-humanized when present."}
    {:key         :schemas/extract-large-paths-from-schema
     :producer-ns 're-frame.schemas
-    :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.elision."}
+    :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots. Consumed by re-frame.http.privacy-body (a :rf.http/managed :decode schema's response-body classification) and re-frame.resources.classification (a :params-schema's validation-failure trace redaction)."}
    {:key         :schemas/extract-sensitive-paths-from-schema
     :producer-ns 're-frame.schemas
-    :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.elision."}
+    :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true. Consumed by re-frame.http.privacy-body (a :rf.http/managed :decode schema's response-body classification) and re-frame.resources.classification (a :params-schema's validation-failure trace redaction)."}
 
    ;; ---- re-frame.machines ----------------------------------------------------
    {:key         :machines/reg-machine

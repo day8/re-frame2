@@ -76,7 +76,7 @@
 (defonce
   ^{:doc "frame-id → vector of `:rf/http-interceptor-meta` slots — each a map
   carrying `:id`, optional `:before`, optional `:after`, `:frame`, and the
-  captured registration-metadata (`:doc`, `:schema`, `:tags`, `:sensitive?`,
+  captured registration-metadata (`:doc`, `:schema`, `:tags`,
   flat source-coord keys `:ns`/`:line`/`:column`/`:file`). Per-frame so
   each frame's HTTP middleware chain is isolated. Order is
   registration-order; clearing an id and re-registering re-appends to the
@@ -116,8 +116,12 @@
                               the carried-invariant scope chain resolves it;
                               registering under no scope raises
                               `:rf.error/no-frame-context`.
-    - `:doc` / `:tags` / `:schema` / `:sensitive?` — standard
+    - `:doc` / `:tags` / `:schema` — standard
       `:rf/registration-metadata` (per `:rf/http-interceptor-meta`)
+
+  Request sensitivity is not interceptor metadata: it is each request's
+  per-call `:sensitive?` or `[:request :sensitive?]` (see
+  `re-frame.http.privacy/request-sensitive?`).
 
   At least one of `:before` / `:after` MUST be supplied — a no-op
   interceptor is rejected.
