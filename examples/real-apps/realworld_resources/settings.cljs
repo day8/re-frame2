@@ -36,9 +36,9 @@
   (:require [re-frame.core :as rf]
             [re-frame.resources]
             [realworld-resources.http :as rh]
-            ;; `store-session-db` — the shared, nested-dispatch-avoiding
-            ;; session write both auth.cljs's classified reply events and
-            ;; :settings/replied (below) call directly. See its doc.
+            ;; `store-session-db` — the shared session write both auth.cljs's
+            ;; classified reply events and :settings/replied (below) fold
+            ;; into their own `:db`. See the comment above it.
             [realworld-resources.auth :as auth])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -102,8 +102,8 @@
 ;; isn't. `:sensitive [[:value]]` classifies that `:value` key, so the
 ;; dispatched-event trace redacts it while the handler still writes the real
 ;; keystroke into the draft. The mutation `:realworld/update-settings` itself
-;; already classifies `[[:params :password]]` on its OWNER declaration
-;; (mutations.cljs, rf2-825mzj), which covers the SUBMIT-time execute/trace/
+;; classifies `[[:params :password]]` on its OWNER declaration
+;; (mutations.cljs), which covers the SUBMIT-time execute/trace/
 ;; instance/continuation projections; this event covers the per-keystroke
 ;; EDIT's own dispatched-event trace, which that mutation-owner declaration
 ;; can't reach.
@@ -122,7 +122,7 @@
 (rf/reg-event :settings/submit
   {:doc "Fire the update-settings mutation with the current draft, then blank
          the draft's live password (secret-field hygiene — the mutation's own
-         `:sensitive [[:params :password]]` declaration already covers the
+         `:sensitive [[:params :password]]` declaration covers the
          :params it carries off to the server). The form watches the
          `:settings/save` instance for pending / error, and the success
          continuation is the call-site `:reply-to [:settings/replied]` target,
@@ -228,10 +228,9 @@
       (= :ok status)
       (let [user (:user value)]
         ;; `store-session-db` is called DIRECTLY (not via a nested
-        ;; `[:dispatch [:auth/store-session user]]`) — see that fn's doc
-        ;; (auth.cljs) for why a nested dispatch would leak the raw token at
-        ;; THIS handler's own trace regardless of :auth/store-session's own
-        ;; classification.
+        ;; `[:dispatch [:auth/store-session user]]`), so the session lands in
+        ;; this reply's own `:db` commit — see the comment above that fn
+        ;; (auth.cljs).
         {:db (-> db
                  (auth/store-session-db user)
                  (dissoc :settings-save-owner))
