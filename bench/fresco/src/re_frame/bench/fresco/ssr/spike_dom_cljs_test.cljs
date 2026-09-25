@@ -1,9 +1,9 @@
 (ns re-frame.bench.fresco.ssr.spike-dom-cljs-test
   "THE SSR SPIKE WITNESS — X1(b), X2, X4 and X5 on the HYDRATED dogfood
-  screen, in real Chromium (rf2-2rtt6.87).
+  screen, in real Chromium.
 
-  Evidence for the P2 sitting. **No verdict is published here and none is
-  implied**; the sitting's decider is the operator. X1(a) — determinism —
+  Evidence, not a verdict: **no verdict is published here and none is
+  implied**. X1(a) — determinism —
   is `ssr/spike_cljs_test`'s, because it belongs in Node. X3 —
   reactivity adopted — is the on-demand diagnostic's
   (`adoption_witness_run.cjs`, phase 3), because it is a timing
@@ -13,12 +13,12 @@
 
   **From `react-dom/server`, through `ssr/entry.cljs`, in this page.**
   Not a fixture, not a captured client render: [[server!]] calls the
-  render entry rf2-2rtt6.86 landed — the per-request gensym frame, the
+  render entry — the per-request gensym frame, the
   `:rf/set-db` snapshot door, `renderToString`, `destroy-frame!` in a
   `finally` — and hydrates the markup it returns.
 
   The one honest caveat, stated rather than buried: shadow resolves
-  `react-dom/server` by the build's target, so a `:browser-test` build
+  `react-dom/server` by the build's target, so a browser build
   gets `server.browser.js` where a Node host gets `server.node.js`. Both
   are React's server renderer over the same entry, and the entry is
   target-agnostic (it requires no `node:` module — `ssr/node.cljs` states
@@ -64,16 +64,15 @@
   | X2 count | the counter is inferred from renders | [[x2-a-props-equal-re-render-runs-no-body]] |
   | X5 | the residue read is taken on an emptied table | [[x5-the-residue-reading-can-answer-false]] |
 
-  ## The build this drives, and why it can see what it claims
+  ## The build this runs in, and why it can see what it claims
 
-  `:browser-test` — shadow's test target, development optimizations,
-  `goog.DEBUG` true — driven by `npm run test:browser` in real Chromium.
-  The instrument X2 reads is `runtime/body-runs`, and it is **always
-  on**: the bump is an unconditional `(set! (.-bodyRuns rstate) …)` in
-  `runtime/run-once`, with no `goog.DEBUG` gate anywhere near it.
-  rf2-2rtt6.84 clause 6 chose it that way FOR THIS WITNESS, so the
-  reading would survive an `:advanced` / `goog.DEBUG false` bundle where
-  a debug-gated counter is dead code the compiler removes. (`rstate`
+  A browser build with development optimizations and `goog.DEBUG` true,
+  in real Chromium. The instrument X2 reads is `runtime/body-runs`, and
+  it is **always on**: the bump is an unconditional
+  `(set! (.-bodyRuns rstate) …)` in `runtime/run-once`, with no
+  `goog.DEBUG` gate anywhere near it — deliberately, FOR THIS WITNESS,
+  so the reading survives an `:advanced` / `goog.DEBUG false` bundle
+  where a debug-gated counter is dead code the compiler removes. (`rstate`
   carries `^js` and its keys are string literals, so `:infer-externs
   :auto` keeps `.-bodyRuns` off Closure's renamer too — the same spelling
   discipline `rf.bench.fresco.arm1.mount/adoption-window-closer`'s `displayName` stamp
@@ -82,9 +81,8 @@
   the one whose runtime it stamps. [[runtime-stamp]] records that stamp
   on every published row.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM; under `:node-test` every DOM claim degrades to a stated
-  skip."
+  Runtime: a browser, for a real React DOM; without a DOM every DOM
+  claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.dogfood-collector :as rf.bench.fresco.arm1.dogfood-collector]
@@ -124,7 +122,7 @@
 
 (def ^:private reaper-horizon-ms
   "One macrotask, with room: the arm arms the cell reaper at 0 ms and the
-  entry reaper at its 4 ms horizon (rf2-2rtt6.84), so 8 clears both."
+  entry reaper at its 4 ms horizon, so 8 clears both."
   8)
 
 (def ^:private nothing-retained
@@ -183,8 +181,7 @@
   `ssr/entry/render` — `react-dom/server` over the real request path.
 
   Answers `{:html … :body-runs …}`. There is no `:render-hash` — an
-  adoption-tier root carries none (rf2-2rtt6.91), and nothing here ever
-  read it. `:body-runs` is the
+  adoption-tier root carries none, and nothing here reads it. `:body-runs` is the
   server's OWN boundary-body count, read before the runtime is reset:
   `renderToString` runs every body exactly once too, so a row that
   asserts it is a row that would notice the server rendering a different
@@ -289,7 +286,7 @@
                         (is (= todo-count
                                (.-length (.querySelectorAll container ".row"))))
                         ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`, which answers
-                        ;; UTF-16 code units (rf2-2rtt6.121).
+                        ;; UTF-16 code units.
                         (report! "X1b" {:canonical-bytes  (rf.bench.fresco.lane/utf8-bytes hydrated-dom)
                                         :rows             todo-count
                                         :server-body-runs body-runs
@@ -366,7 +363,7 @@
 
                     (testing "(c) BODY RUNS EQUAL THE BOUNDARY COUNT EXACTLY
                              ONCE, **counted** in `run-once` where a body is
-                             invoked (rf2-2rtt6.84 (6)) rather than inferred
+                             invoked rather than inferred
                              from the renders React was asked for"
                       (is (= boundary-count (rf.bench.fresco.arm1.runtime/body-runs))
                           (str "each of the screen's " boundary-count
@@ -423,7 +420,7 @@
            `:swallow-uncaught?`**, and it is the row that manufactures the
            fault. React reports a recoverable hydration error through
            `reportError`, which the browser runner treats as a fatal
-           uncaught `pageerror` whatever the tally says (rf2-mwx08) — a
+           uncaught `pageerror` whatever the tally says — a
            rule this row does not soften, because the error is not
            unasserted here, it IS the assertion"
     (async done
@@ -580,7 +577,7 @@
                                :intents-match? (= rf.bench.fresco.arm1.dogfood-script/interaction-intents
                                                   (:intents hydrated-run))
                                :dom-match?     (= (:dom cold-run) (:dom hydrated-run))})))
-            ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+            ;; Reports and RELEASES; it never finishes. `done` runs
             ;; the whole remainder of the run synchronously, so a `.catch`
             ;; downstream of it would claim a later namespace's throw as this
             ;; row's and fire `done` a second time.
@@ -648,7 +645,7 @@
                   ;; `unmount!`, never `release!`: `release!` resets the
                   ;; runtime, and a reading taken after that reset is a
                   ;; reading of an emptied table — zero however badly the
-                  ;; teardown went (rf2-2rtt6.48).
+                  ;; teardown went.
                   (rf.bench.fresco.arm1.mount/unmount! handle)
                   (js/setTimeout
                     (fn []
@@ -669,9 +666,9 @@
   (testing "**the mutation proof for X5.** Two hydrated roots, one
            unmounted: the reading X5 takes must NOT be zero, because the
            other root's boundaries are still holding what they acquired.
-           This is the property the pre-repair gates lacked — `release!`
-           resets the runtime, so it would report zero here too, with a
-           whole screen still adopted"
+           This is the property a gate that read after `release!` would
+           lack — `release!` resets the runtime, so it would report zero
+           here too, with a whole screen still adopted"
     (async done
       (if-not (rf.bench.fresco.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
@@ -684,9 +681,9 @@
                 ;; below settles long after this root exists, so a throw in
                 ;; those assertions takes the rejection arm — which cannot see
                 ;; any fulfilment value. Holding the survivor here is what lets
-                ;; its release run on both paths (audit of #7942/#7968), and it
-                ;; is why the second adoption no longer needs a nested chain to
-                ;; thread the first one through.
+                ;; its release run on both paths, and it is why the second
+                ;; adoption needs no nested chain to thread the first one
+                ;; through.
                 (.then (fn [survivor]
                          (reset! survivor* survivor)
                          (hydrate-and-adopt! html)))
@@ -717,7 +714,7 @@
                               (resolve nil)
                               (catch :default e (reject e))))
                           reaper-horizon-ms)))))
-                ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done`
+                ;; Reports and RELEASES; it never finishes. `done`
                 ;; runs the whole remainder of the run synchronously, so a
                 ;; `.catch` downstream of it would claim a later namespace's
                 ;; throw as this row's and fire `done` a second time.
