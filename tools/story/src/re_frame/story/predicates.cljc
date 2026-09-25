@@ -7,7 +7,7 @@
   Companion leaf to `re-frame.story.late-bind` (run-time function
   resolution) — both are pure namespaces the rest of Story consumes.
 
-  The five micro-fns here are the single canonical home for helpers the
+  The micro-fns here are the single canonical home for helpers the
   rest of the tree consumes (args / assertions / recorder / docs / state /
   test-mode/pure), so each cycle-sensitive consumer requires one leaf
   rather than carrying a private mirror."
