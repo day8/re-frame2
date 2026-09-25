@@ -1,25 +1,26 @@
 'use strict';
 // THE WITHIN-ROUND PASS-POSITION TERM, AND WHETHER IT IS THE PASS OR THE
-// PARITY — rf2-fk6pj.
+// PARITY.
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs <dataset.json>...
-//     node fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs --self-test
+//     node src/re_frame/bench/fresco/alloc_pass_position.cjs <dataset.json>...   (from bench/fresco/)
+//     node src/re_frame/bench/fresco/alloc_pass_position.cjs --self-test
 //
 // ## WHAT THIS ADJUDICATES
 //
-// `rf2-0gjqi`'s paired window measured that, under `P0_ALLOC_WRITE=paired`,
+// The paired window of `docs/design/fresco/studio/the-sign-follows-the-pass-not-the-write.md`
+// measured that, under `P0_ALLOC_WRITE=paired`,
 // THE PASS THAT RAN SECOND READS LOWER — 10 of 12 round blocks, 6 of 6 in run
 // 1 and 4 of 6 in run 2, median second-minus-first −0.59%, whichever write
 // occupied it. Decomposed under an additive position model the pass-order
 // half-difference read +0.68% and +0.21%, the same sign on both runs, while
 // the order-free write half-sum read −0.33% and +0.24%, opposite signs.
 //
-// What that window could NOT establish is whether the carrier is the PASS
-// POSITION or some other EVEN/ODD PROPERTY OF THE ROUND, because the rig tied
-// them: the leg order was `round % 2`, so every `page`-first round was an even
-// round and the two are one column in the design matrix.
+// What that window cannot establish is whether the carrier is the PASS
+// POSITION or some other EVEN/ODD PROPERTY OF THE ROUND, because under `parity`
+// the rig ties them: the leg order is `round % 2`, so every `page`-first round
+// is an even round and the two are one column in the design matrix.
 //
-// `P0_ALLOC_PASS_ORDER=seeded` (`p0_run.cjs`, rf2-fk6pj) draws a BALANCED leg
+// `P0_ALLOC_PASS_ORDER=seeded` (`p0_run.cjs`) draws a BALANCED leg
 // schedule from a recorded seed instead. The two columns separate, and this
 // reader is what reads them apart: it decomposes the same block statistic on
 // BOTH groupings — by which pass ran first, and by round parity — and reports
@@ -44,8 +45,9 @@
 // above it, so an estimator that skips the subtraction is measuring the floor.
 //
 // **THE BLOCK IS THE ROUND, NOT THE RUNG.** Within one round every arm of a
-// segment differences against the same floor pair, and `rf2-77gz8`'s term is
-// page-global, so a level term common to a round moves every cell in it
+// segment differences against the same floor pair, and the second mode's
+// per-write term (`the-second-mode-is-per-write-and-the-controls-never-move.md`)
+// is page-global, so a level term common to a round moves every cell in it
 // together. The block statistic is the median of `Δ / d_all` over that round's
 // certified mid-rung (R3, R7) cells.
 //
@@ -64,59 +66,53 @@
 // parity one, which is the worst possible failure mode: silent on the corpus
 // it is pinned against and wrong on the corpus it exists for.
 //
-// ## THE ARBITERS ARBITRATE, AND THAT IS A REPAIR (audit of PR #8601, #8615)
+// ## THE ARBITERS ARBITRATE
 //
-// This reader used to PRINT `controlVerdict`, `verification.unverified`,
-// `passOrder`, `parityTied` and `scheduleDrove` and then feed every row to the
-// blocks, the headline and both decompositions REGARDLESS. A copy of a real
-// record with `controlVerdict.ok = false` still produced the headline. The
-// audit of #8615 found the front-door version in `alloc_pass_design.cjs` had
-// its own hole on top: `scheduleDrove` iterated only the rows PRESENT, so a
-// record with `perRound` emptied or truncated to one row returned `true`
-// VACUOUSLY and the boundary blessed missing evidence.
+// A reader that PRINTED `controlVerdict`, `verification.unverified`,
+// `passOrder`, `parityTied` and `scheduleDrove` and then fed every row to the
+// blocks, the headline and both decompositions REGARDLESS would produce the
+// headline from a copy of a real record with `controlVerdict.ok = false`. And
+// a `scheduleDrove` that iterated only the rows PRESENT would return `true`
+// VACUOUSLY for a record with `perRound` emptied or truncated to one row,
+// blessing missing evidence.
 //
-// `admissibleRun` and `admissibleCorpus` below are that boundary, moved IN.
+// `admissibleRun` and `admissibleCorpus` below are the boundary, in this reader.
 // A refused run contributes no figure and `report` prints no figure at all —
-// it prints the clause that refused it. Completeness is now its own clause:
+// it prints the clause that refused it. Completeness is its own clause:
 // the realised round set must be the complete, unique `0..rounds-1`, so a
 // truncated record is refused rather than blessed.
 //
-// ## THREE MORE THINGS IT READ PAST, AND WHAT THEY HAVE IN COMMON (rf2-flxxa)
+// ## THREE MORE CHECKS ON WHAT THE RECORD SHOWS
 //
-// The audit of PR #8634 and phase 4's own reading found three further shapes
-// the boundary blessed. All three are the same mistake in different clothes —
-// A CHECK ON WHAT THE RECORD SAYS, STANDING IN FOR A CHECK ON WHAT THE RECORD
-// SHOWS — and none of them moved a figure phase 4 published, which is what made
-// them worth closing rather than noting.
+// Three further shapes need the boundary to look past what the record says.
+// All three are the same mistake in different clothes — A CHECK ON WHAT THE
+// RECORD SAYS, STANDING IN FOR A CHECK ON WHAT THE RECORD SHOWS — and none of
+// them moves a figure phase 4 published, which is what makes them worth
+// closing rather than noting.
 //
-//   1. THE BALANCE WAS READ OFF THE DRAW, NOT OFF THE BLOCKS. `q·parity` and
-//      `q·linear` were computed on `passSchedule.flips`. A round whose mid-rung
+//   1. THE BALANCE IS READ OFF THE BLOCKS, NOT OFF THE DRAW. `q·parity` and
+//      `q·linear` on `passSchedule.flips` are not enough: a round whose mid-rung
 //      windows all failed to certify still appears there and still contributes
-//      no block, so the labelling the term is READ ON could be short and
+//      no block, so the labelling the term is READ ON can be short and
 //      unbalanced under a draw that is neither. See `realisedLabelling`.
-//   2. A RECORD CARRYING NO MEASURED WINDOW AT ALL was admissible, because
-//      every clause was a declared parameter or a control and none of them
-//      needed data to exist. `admissibleCorpus` closes that; `admissibleRun`
+//   2. A RECORD CARRYING NO MEASURED WINDOW AT ALL would be admissible if
+//      every clause were a declared parameter or a control, since none of those
+//      needs data to exist. `admissibleCorpus` closes that; `admissibleRun`
 //      deliberately does not, and says why.
-//   3. THE DECLARED SESSION was carried through the boundary and never
-//      compared against the record. Collapsing all eight of phase 4's
-//      `box.session.sessionStartedAt` values to a single ID left the corpus
-//      admitted and OUTCOME 1 computed — a one-session window read as the
-//      two-session design it declared. See `sessionPartition`.
-//
-// None was repaired inside phase 4's window, and that was not an oversight: an
-// estimator must not change between a pre-registration and the runs it will be
-// read on. They were recorded on the window's page and owned by a bead instead.
+//   3. THE DECLARED SESSION is compared against the record. Carried through
+//      the boundary unread, collapsing all eight of phase 4's
+//      `box.session.sessionStartedAt` values to a single ID would leave the
+//      corpus admitted and OUTCOME 1 computed — a one-session window read as
+//      the two-session design it declared. See `sessionPartition`.
 //
 // ## THE BAND IS A RESTRICTED RANDOMISATION, AND IT IS ON THE AGGREGATE
 //
-// Phase 3 (PR #8615) refused the pass term against a band built at ten times
-// its own null-arm p90. It recorded the defect rather than repairing it: that
-// band compared an AGGREGATE — a contrast of medians over 316 cells — against
-// a PER-OBSERVATION noise scale. `rf2-0eu1s` then found the reason the scale
-// could not be repaired by re-cutting it either: the null arm is TWO DISJOINT
-// POPULATIONS, so a pooled percentile of it is not a magnitude at all and the
-// same rule returns 45 on one window and 610 on the next.
+// A band built at ten times the null arm's own p90 — the band phase 3 refused
+// the pass term against — compares an AGGREGATE, a contrast of medians over
+// 316 cells, against a PER-OBSERVATION noise scale. Nor can the scale be
+// repaired by re-cutting it (`the-floor-is-two-populations.md`): the null arm
+// is TWO DISJOINT POPULATIONS, so a pooled percentile of it is not a magnitude
+// at all and the same rule returns 45 on one window and 610 on the next.
 //
 // So the band here is not a byte threshold and is not derived from one. The
 // noise scale and the signal scale are THE SAME OBJECT because they are the
@@ -132,8 +128,8 @@
 // COMPLEMENT, so any parity structure or linear drift in the block values
 // enters every re-labelling symmetrically.
 //
-// AND THE RESTRICTION IS ON THE WHOLE ASSIGNMENT, NOT ON EACH RUN SEPARATELY,
-// which is the repair `rf2-t4vu1` filed. Phase 4 drew TWO schedules and the
+// AND THE RESTRICTION IS ON THE WHOLE ASSIGNMENT, NOT ON EACH RUN SEPARATELY.
+// Phase 4 drew TWO schedules and the
 // design forced the other two as their complements, then repeated the quadruple
 // verbatim in the second session — so the eight-run assignment ranges over
 // 48 × 46 = 2,208 configurations and not over 48⁸. See `assignmentRoles` for
@@ -212,15 +208,14 @@ function armOverFloor(round, segment, arm, leg, boundaries) {
 
 // Every matched certified cell of one round, at the rungs asked for.
 //
-// `ratio` IS NULL WHERE `d_all` IS ZERO, AND THE CELL IS STILL RETURNED. An
-// earlier revision of this function DROPPED such a cell, which is correct for
-// the block statistic — a ratio against a zero denominator is not a number —
-// and wrong for the null arm, where `d_all = 0` is the value the arm is
-// SUPPOSED to take. It cost 14 of the 38 cells `rf2-0gjqi` published in its
-// section E, and it silently kept exactly the cells where the instrument had
-// behaved perfectly. The self-test now pins that section's published figures
-// for the same reason it pins the blocks: the defect was invisible in every
-// figure the reader was pinned on.
+// `ratio` IS NULL WHERE `d_all` IS ZERO, AND THE CELL IS STILL RETURNED.
+// Dropping such a cell would be correct for the block statistic — a ratio
+// against a zero denominator is not a number — and wrong for the null arm,
+// where `d_all = 0` is the value the arm is SUPPOSED to take: it would cost 14
+// of the 38 cells the paired window publishes in its section E, and the cells
+// it lost would be exactly those where the instrument behaved perfectly. The
+// self-test pins that section's published figures for the same reason it pins
+// the blocks: such a drop is invisible in every mid-rung figure.
 function roundCells(round, boundaries, rungs) {
   const out = [];
   for (const { segment, arm } of FAMILIES) {
@@ -290,7 +285,7 @@ function blocks(row, label, rungs = MID_RUNGS, stat = 'ratio') {
 // additive model the half-sum of the two groups' medians is the term the
 // grouping is blind to and the half-difference is the term it isolates.
 //
-// It is called TWICE and that is the whole of what rf2-fk6pj added: once on
+// It is called TWICE and that is the whole of this reader's point: once on
 // the pass grouping and once on round parity. Under `parity` those two are the
 // same partition and the second call is inert; under `seeded` they are
 // different partitions and the two half-differences are separately readable.
@@ -308,7 +303,7 @@ function decompose(bs, isA) {
 // the parity indicator (+1 even) and the pass indicator (+1 `page`-first) over
 // the blocks: ±n is a schedule in which the two are the same column up to
 // sign, and 0 is one in which they are orthogonal. A `parity` corpus reads
-// exactly −n, which is the tie this bead exists to break.
+// exactly −n, which is the tie `seeded` exists to break.
 function separation(bs) {
   let dot = 0;
   for (const b of bs) dot += (b.evenRound ? 1 : -1) * (b.first === 'page' ? 1 : -1);
@@ -359,8 +354,8 @@ const carriesWindows = (row) =>
 //
 // A run whose positive control failed contributes no data, so the verdict is
 // read off the record and reported per run, never pooled and never inferred
-// from the figures. `alloc_cluster_carrier.cjs`'s own admissibility defect
-// (rf2-csca8) was exactly this check being absent.
+// from the figures. A reader without this check reads figures off a run whose
+// control failed.
 function controls(row) {
   const v = row.controlVerdict || {};
   const ver = row.verification || {};
@@ -380,13 +375,12 @@ function controls(row) {
   };
 }
 
-// IT FAILS CLOSED ON A CORPUS THAT IS NOT THERE, and that is the audit of
-// #8615's finding repaired at its source. The earlier revision iterated only
-// the rows PRESENT, so a record whose `perRound` was emptied or truncated to
-// one row returned `true` — the check reported agreement between a draw of
-// twelve rounds and a drive of one. "Every row present agreed" is not the
-// claim this function's name makes, and a boundary built on it blessed missing
-// evidence. It now requires the drive to cover EVERY round the draw scheduled,
+// IT FAILS CLOSED ON A CORPUS THAT IS NOT THERE. Iterating only the rows
+// PRESENT would return `true` for a record whose `perRound` was emptied or
+// truncated to one row — agreement reported between a draw of twelve rounds
+// and a drive of one. "Every row present agreed" is not the claim this
+// function's name makes, and a boundary built on it would bless missing
+// evidence. So it requires the drive to cover EVERY round the draw scheduled,
 // exactly once each, before it can return `true`.
 function scheduleDrove(row) {
   const sched = row.passSchedule;
@@ -426,8 +420,8 @@ const flipKey = (flips) => flips.map((f) => (f ? '1' : '0')).join('');
 // byte threshold, and no clause was chosen after seeing a figure — the
 // declaration is a committed file that predates run 1.
 //
-// `plan`, `roots`, `boundaries` and `writes` are checked because the audit of
-// #8615 found the front door admitting them changed: `boundaries` is the `B`
+// `plan`, `roots`, `boundaries` and `writes` are checked because a front door
+// admitting them changed admits a different estimator: `boundaries` is the `B`
 // every `d` on this page is divided by, so a run that moved it is not a run of
 // the same estimator at all.
 function admissibleRun(row, expect = {}) {
@@ -501,8 +495,8 @@ function admissibleRun(row, expect = {}) {
   //
   // Phase 4 realised 96 blocks of a possible 96 with `q·parity` 0 in all eight
   // runs, so this clause changes no figure that window published. That is
-  // precisely why it has to be a clause: the reading was checked by hand and
-  // written into a paragraph, and a paragraph does not run.
+  // precisely why it has to be a clause: a reading checked by hand lives in a
+  // paragraph, and a paragraph does not run.
   if (carriesWindows(row)) {
     const scheduled = sched && Array.isArray(sched.flips) ? sched.flips.length : null;
     const real = realisedLabelling(row, scheduled);
@@ -520,16 +514,15 @@ function admissibleRun(row, expect = {}) {
   return { ok: reasons.length === 0, reasons };
 }
 
-// THE DECLARED SESSION PARTITION, CHECKED RATHER THAN PRINTED (audit of PR
-// #8634).
+// THE DECLARED SESSION PARTITION, CHECKED RATHER THAN PRINTED.
 //
 // `declared.runs[i].session` is a LABEL — phase 4 declares four runs into `A`
-// and four into `B` — and it was the one declared parameter the boundary read
-// past. Every other field of a declared run is compared against the record;
-// this one was carried into `admissibleRun` and never looked at, so replacing
-// all eight `box.session.sessionStartedAt` values with a single ID left the
-// corpus ADMITTED and OUTCOME 1 computed, and a window that took ONE session
-// was read as the two-session design it declared. The session is the
+// and four into `B` — and, like every other field of a declared run, it is
+// compared against the record. Carried into `admissibleRun` and never looked
+// at, replacing all eight `box.session.sessionStartedAt` values with a single
+// ID would leave the corpus ADMITTED and OUTCOME 1 computed, and a window that
+// took ONE session would be read as the two-session design it declared. The
+// session is the
 // independent unit here — it is the whole reason phase 4 cost eight runs
 // instead of four — so admitting a collapsed partition is not a cosmetic miss.
 //
@@ -544,7 +537,7 @@ function admissibleRun(row, expect = {}) {
 //     which is the collapse above.
 //
 // The record's own session identity is `box.session.sessionStartedAt`, written
-// by the rig at the record's TOP level beside `alloc` (rf2-24o2z). A run that
+// by the rig at the record's TOP level beside `alloc`. A run that
 // carries none cannot be shown to have taken the session it was declared into,
 // so it is refused rather than given one of its own — `report`'s
 // `unrecorded-<label>` fallback is a display convenience and would, used here,
@@ -596,8 +589,8 @@ function sessionPartition(rows, declared) {
 }
 
 // THE CORPUS, not one run of it. A window that declared eight runs and can show
-// six has not taken the window it declared, and the audit of #8615's `--admit`
-// exiting 0 on an EMPTY corpus is exactly that hole. There is no partial
+// six has not taken the window it declared, and an `--admit` exiting 0 on an
+// EMPTY corpus would be exactly that hole. There is no partial
 // credit: the count is fixed before run 1 and a short corpus is refused.
 //
 // TWO CLAUSES LIVE HERE AND NOT IN `admissibleRun`, because neither is a
@@ -669,9 +662,9 @@ function complementIndex(schedules) {
 
 // --- THE DESIGN'S OWN ASSIGNMENT SUPPORT -------------------------------------
 //
-// A RUN'S SCHEDULE IS NOT DRAWN INDEPENDENTLY OF ITS SIBLINGS, and an earlier
-// revision of this reference behaved as though it were: it drew each of the
-// eight runs from that run's own 48 admissible schedules, a support of 48⁸.
+// A RUN'S SCHEDULE IS NOT DRAWN INDEPENDENTLY OF ITS SIBLINGS, so a reference
+// that drew each of the eight runs from that run's own 48 admissible
+// schedules — a support of 48⁸ — would be the wrong reference.
 // Phase 4 never drew eight schedules. `alloc_pass_design.cjs`'s rule draws
 // TWO — the first admissible seed, then the first subsequent one drawing
 // neither that schedule nor its complement — and the design then FORCES the
@@ -692,7 +685,7 @@ function complementIndex(schedules) {
 // `assignmentRoles` READS THAT STRUCTURE OFF THE DECLARATION rather than
 // assuming it: for each declared run, which free schedule it takes and whether
 // it takes that schedule complemented. A declaration of eight unrelated
-// schedules yields eight generators, and the old independent support falls out
+// schedules yields eight generators, and the independent support falls out
 // as that special case rather than being the general one.
 function assignmentRoles(declaredRuns) {
   const generatorKeys = [];
@@ -812,7 +805,7 @@ function rng(seed) {
 //
 // The statistic is re-read over every assignment THE DESIGN COULD HAVE DRAWN,
 // which is NOT every combination of per-run schedules — see `assignmentRoles`
-// for what that distinction cost. At phase 4's two free schedules over 48
+// for why that distinction matters. At phase 4's two free schedules over 48
 // admissible ones the support holds 48 × 46 = 2,208 assignments, so the
 // reference is EXACT: `p` is a rank among all of them, nothing is sampled, and
 // the declared `draws` and `seed` do the sampling they were declared for only
@@ -826,8 +819,8 @@ function rng(seed) {
 // carry: a two-sided count is always EVEN, and the smallest attainable p is
 // `2/|support|` rather than `1/|support|`.
 //
-// The sampled branch keeps the conservative convention it always had — the
-// observation is counted, so the smallest attainable p there is `1/(draws+1)`.
+// The sampled branch keeps the conservative convention — the observation is
+// counted, so the smallest attainable p there is `1/(draws+1)`.
 //
 // AND A REFERENCE THAT DOES NOT CONTAIN THE OBSERVATION IS NOT A REFERENCE FOR
 // IT. An executed assignment whose free schedules are not themselves admissible
@@ -858,11 +851,11 @@ function termReference(runs, { draws, seed, design }) {
 
   const observed = meanRunTerm(runs);
   // AN ARM THAT CARRIES NO BLOCK HAS NO TERM, AND THAT IS A REFUSAL RATHER THAN
-  // A PASS. The earlier revision let `observed` be `null`, compared every draw
-  // against `Math.abs(null) = 0`, and returned p = 1 — so a corpus carrying no
-  // R = 0 arm at all cleared the null-arm control vacuously and outcome 1 was
-  // read with no negative control under it. Same class as the `--admit` that
-  // exited 0 on an empty corpus.
+  // A PASS. Letting `observed` be `null` would compare every draw against
+  // `Math.abs(null) = 0` and return p = 1 — so a corpus carrying no R = 0 arm
+  // at all would clear the null-arm control vacuously and outcome 1 would be
+  // read with no negative control under it. Same class as an `--admit` that
+  // exits 0 on an empty corpus.
   if (observed === null) {
     return { refused: 'the arm carries no block at all, so there is no term to rank' };
   }
@@ -896,7 +889,7 @@ function termReference(runs, { draws, seed, design }) {
     draws: exact ? sample.length : draws,
     seed: exact ? null : seed,
     // Per run, the exact rank among that run's own 48 re-labellings. A MARGINAL
-    // statement and now labelled as one: it is what a single run's schedule
+    // statement, labelled as one: it is what a single run's schedule
     // could have been holding its siblings nowhere, and the joint support above
     // is what the window is adjudicated on.
     perRun: runs.map((r, i) => {
@@ -940,12 +933,13 @@ function nullArm(rows) {
 // it is what licenses a figure. A `seeded` corpus is by construction part of a
 // declared design — the seed only means anything against the schedule it was
 // selected to draw — so reading one WITHOUT its declaration is refused rather
-// than annotated. A `parity` corpus predates the design and is read as before.
+// than annotated. A `parity` corpus is part of no declared design and is read
+// without one.
 function report(rows, declared = null) {
   const out = [];
   const all = [];
 
-  out.push(';; THE PASS-POSITION TERM, AND WHETHER IT IS THE PASS OR THE PARITY (rf2-fk6pj)');
+  out.push(';; THE PASS-POSITION TERM, AND WHETHER IT IS THE PASS OR THE PARITY');
   out.push(';;');
 
   const seeded = rows.filter(({ row }) => row.passOrder === 'seeded');
@@ -1124,8 +1118,8 @@ function report(rows, declared = null) {
 
     // THE SESSION, which is the block that has never been replicated on this
     // estimand and is the reason this window took more than one.
-    // The session rider lives at the record's TOP level (`box.session`,
-    // rf2-24o2z), beside `alloc` rather than inside it, so it arrives here as
+    // The session rider lives at the record's TOP level (`box.session`),
+    // beside `alloc` rather than inside it, so it arrives here as
     // its own field. A run that carries none is its own session rather than
     // silently joining another's.
     const sessions = new Map();
@@ -1142,12 +1136,12 @@ function report(rows, declared = null) {
     }
     const signs = [...sessions.values()].map((rs) => Math.sign(meanRunTerm(rs) || 0));
     const agree = sessions.size > 1 && signs.every((s) => s === signs[0] && s !== 0);
-    // ONE SESSION IS NOT A DISAGREEMENT. The earlier wording had no clause for
-    // `sessions.size === 1`: it fell into the `agree === false` branch and
-    // printed "THE SESSIONS DO NOT AGREE IN SIGN … With 1 sessions that is a
-    // sign agreement on 1 blocks", which asserts the outcome of a comparison
-    // that was never made. Re-reading phase 3's four runs took that branch. No
-    // figure moves either way — what moves is whether the reader describes its
+    // ONE SESSION IS NOT A DISAGREEMENT. Without a clause for
+    // `sessions.size === 1` the corpus would fall into the `agree === false`
+    // branch and print "THE SESSIONS DO NOT AGREE IN SIGN … With 1 sessions
+    // that is a sign agreement on 1 blocks", asserting the outcome of a
+    // comparison that was never made — and re-reading phase 3's four runs
+    // reaches exactly that branch. No figure moves either way — what moves is whether the reader describes its
     // own evidence truthfully, and a reader that does not is worth less than
     // one that prints nothing.
     if (sessions.size === 1) {
@@ -1269,12 +1263,12 @@ function selfTest() {
     assert.strictEqual(sep.dot, sep.n, 'a parity corpus is perfectly tied');
     assert.strictEqual(sep.orthogonal, false, 'and is therefore not orthogonal');
 
-    // THE NULL ARM, pinned on the published section E — and it is the pin that
-    // caught this reader's one real defect. A `d_all` of exactly zero is what the
-    // R = 0 arm is SUPPOSED to read, and an earlier `roundCells` dropped every
-    // such cell as a division hazard: 24 of 38 survived, the absolute median read
-    // 3 instead of 1.5 and the 90th percentile 56.5 instead of 4.5. Nothing else
-    // here would have seen it — every mid-rung figure above was unaffected.
+    // THE NULL ARM, pinned on the published section E. A `d_all` of exactly
+    // zero is what the R = 0 arm is SUPPOSED to read, and a `roundCells` that
+    // dropped every such cell as a division hazard would keep 24 of 38, reading
+    // the absolute median as 3 instead of 1.5 and the 90th percentile as 56.5
+    // instead of 4.5. Nothing else here would see it — every mid-rung figure
+    // above is unaffected.
     const na = nullArm(rows.map((r) => r.row));
     assert.strictEqual(na.n, 38, 'null arm: published n');
     assert.strictEqual(na.median, 0, 'null arm: published median');
@@ -1315,8 +1309,8 @@ function selfTest() {
   //
   // A control that cannot refuse is not a control, and one that refuses
   // everything is not one either. So: one corpus that must be admitted, then
-  // one clause at a time broken on it, then the shapes the audit of #8615
-  // found the front door blessing — an EMPTY corpus, a TRUNCATED one, and one
+  // one clause at a time broken on it, then the shapes a front door can
+  // bless — an EMPTY corpus, a TRUNCATED one, and one
   // with duplicate or out-of-range rounds.
   // THE DECLARATION IS A COMMITTED FIXTURE AND ITS ABSENCE IS A FAILURE, not a
   // skip: it is what the boundary is proved against, so it stays on main under
@@ -1332,14 +1326,13 @@ function selfTest() {
     // and a fixture that spread the declaration verbatim would be testing the
     // boundary against a shape no run has.
     //
-    // IT CARRIES CERTIFIED WINDOWS, AND THAT IS A CHANGE (rf2-flxxa). The
-    // earlier fixture set every round's `arms` to `{}` on the principle that
-    // admissibility is decided before a figure is read. That principle is
-    // still true of the DECLARED clauses, and `alloc_pass_design.cjs` still
-    // builds such a row for them — but it made the fixture structurally unable
-    // to exercise the realised-labelling clause, because a record with no
-    // window has no labelling to be short or unbalanced. A control that cannot
-    // reach the fault it exists to catch is not a control.
+    // IT CARRIES CERTIFIED WINDOWS. A fixture with every round's `arms` set to
+    // `{}` — on the principle that admissibility is decided before a figure is
+    // read, which is true of the DECLARED clauses, and `alloc_pass_design.cjs`
+    // builds such a row for them — would be structurally unable to exercise
+    // the realised-labelling clause, because a record with no window has no
+    // labelling to be short or unbalanced. A control that cannot reach the
+    // fault it exists to catch is not a control.
     //
     // The values are chosen to be inert and are not a figure: every cell reads
     // `d_all = 1000 B/boundary`, and `page` reads 6 higher where `page` ran
@@ -1358,7 +1351,7 @@ function selfTest() {
         }
         // AND AN R = 0 ARM, reading the floor exactly under both legs so its
         // true term is zero the way the real null arm's is. It is here because
-        // the band now REFUSES an arm carrying no block rather than returning
+        // the band REFUSES an arm carrying no block rather than returning
         // p = 1 for it: a fixture with no null arm would exercise the refusal
         // instead of the two-session verdict it is built for.
         for (const rung of NULL_RUNGS) {
@@ -1441,7 +1434,7 @@ function selfTest() {
       ['a TRUNCATED drive', (r) => { r.perRound = r.perRound.slice(0, 1); }],
       ['a DUPLICATED round', (r) => { r.perRound[1] = { ...r.perRound[0] }; }],
       ['an OUT-OF-RANGE round', (r) => { r.perRound[0] = { ...r.perRound[0], round: 99 }; }],
-      // AND THE REALISED LABELLING, WHICH THE DRAW CANNOT SPEAK FOR (rf2-flxxa).
+      // AND THE REALISED LABELLING, WHICH THE DRAW CANNOT SPEAK FOR.
       // Every declared parameter is untouched in all three, the drive still
       // covers every scheduled round exactly once, and the drawn schedule is
       // still balanced with `q·parity = 0` and `q·linear = 0`. What moved is
@@ -1539,7 +1532,7 @@ function selfTest() {
       );
     }
 
-    // THE DECLARED SESSION PARTITION, IN BOTH DIRECTIONS (audit of PR #8634).
+    // THE DECLARED SESSION PARTITION, IN BOTH DIRECTIONS.
     // The declaration puts runs 1–4 in session A and 5–8 in session B. Nothing
     // below touches a single other field: only which actual session each record
     // says it was taken in moves, so nothing but `sessionPartition` can refuse
@@ -1549,7 +1542,7 @@ function selfTest() {
       assert.strictEqual(admissibleCorpus(corpus(declared, ids), declared).ok, true,
         'the declared partition, honoured, is admitted');
 
-      // COLLAPSED — the reproduction on the bead: every run in one session.
+      // COLLAPSED — every run in one session.
       const collapsed = admissibleCorpus(corpus(declared, ids.map(() => 'one-session')), declared);
       assert.strictEqual(collapsed.ok, false, 'a COLLAPSED session partition is refused');
       assert.ok(collapsed.reasons.some((r) => /are the SAME actual session/.test(r)),
@@ -1586,8 +1579,8 @@ function selfTest() {
         `on the split group, got: ${p3Split.reasons.join('; ')}`);
     }
 
-    // AND A SHORT CORPUS IS REFUSED ON ITS COUNT, which is the `--admit`
-    // exiting 0 on an empty corpus that the audit found.
+    // AND A SHORT CORPUS IS REFUSED ON ITS COUNT, so an `--admit` cannot exit
+    // 0 on an empty corpus.
     assert.strictEqual(admissibleCorpus([], declared).ok, false, 'an empty corpus is refused');
     assert.strictEqual(admissibleCorpus(good.slice(0, 2), declared).ok, false, 'a short corpus is refused');
 
@@ -1598,11 +1591,11 @@ function selfTest() {
 
     // --- WHAT THE READER SAYS ABOUT ITS OWN SESSIONS, BOTH BRANCHES ----------
     //
-    // The session verdict is the LAST line the band block prints, and it had no
-    // clause for a one-session corpus: it fell into `agree === false` and
-    // asserted that sessions which were never compared did not agree. Both
-    // branches are pinned here, the two-session one VERBATIM as published, so
-    // repairing the single-session wording cannot quietly move the other.
+    // The session verdict is the LAST line the band block prints, and a
+    // one-session corpus needs its own clause or it falls into `agree ===
+    // false` and asserts that sessions which were never compared did not
+    // agree. Both branches are pinned here, the two-session one VERBATIM as
+    // published, so a change to one wording cannot quietly move the other.
     //
     // `draws` is cut to 200 because the branch under test is a string and the
     // reference distribution is not what is being pinned. Nothing else in the
@@ -1709,9 +1702,9 @@ function selfTest() {
 
   // --- THE JOINT ASSIGNMENT SUPPORT, WHICH IS THE DESIGN'S AND NOT EACH RUN'S -
   //
-  // `rf2-t4vu1`'s repair, pinned on the SUPPORT rather than only on each run's
-  // 48 marginal schedules — which is exactly what the earlier pins reached and
-  // is why an eight-fold independent draw sat under them unnoticed.
+  // Pinned on the SUPPORT rather than only on each run's 48 marginal
+  // schedules, because pins on the marginals alone would pass an eight-fold
+  // independent draw unnoticed.
   const design = bandDesign(JSON.parse(fs.readFileSync(declPath, 'utf8')));
   assert.strictEqual(design.generatorKeys.length, 2, 'phase 4 draws exactly TWO free schedules');
   assert.deepStrictEqual(
@@ -1796,9 +1789,9 @@ function selfTest() {
   }
 
   // THE REFERENCE IS EXACT, SO THE DECLARED SEED IS INERT — and that is the
-  // property to pin now, where before it was the opposite one. An exhaustive
-  // enumeration of 2,208 assignments is a function of the corpus and the design
-  // alone; a reader that still varied with the seed would be sampling
+  // property to pin. An exhaustive enumeration of 2,208 assignments is a
+  // function of the corpus and the design
+  // alone; a reader that varied with the seed would be sampling
   // something. The declaration's `draws` and `seed` are kept and reported
   // unused rather than deleted: they are what the sampled branch needs, and a
   // pre-registration is not amended after its runs.
@@ -1907,7 +1900,7 @@ if (require.main === module) {
     console.error('usage: alloc_pass_position.cjs [--declared <pre-registration.json>] <dataset.json>... | --self-test');
     process.exit(2);
   }
-  // THE DATASET INGRESS GOES THROUGH THE ARCHIVE BOUNDARY (rf2-d1nr.2). These
+  // THE DATASET INGRESS GOES THROUGH THE ARCHIVE BOUNDARY. These
   // are run records, and the ones this report was published from are archived
   // in the pre-rename vocabulary — a raw parse reads 27 of the record's 55
   // certified cells, drops the native arm entirely, and prints a plausible
