@@ -77,8 +77,8 @@
 (defn- apply-width!
   "Write a clamped `width` for `side` into shell state WITHOUT persisting,
   returning the new widths. A splitter drag calls this per mousemove and
-  persists once, on release (rf2-ohc5): a localStorage write per mouse
-  event was synchronous main-thread work for a value read only at the
+  persists once, on release: a localStorage write per mouse
+  event would be synchronous main-thread work for a value read only at the
   next page load."
   [side width]
   (let [widths (normalise-widths
@@ -99,16 +99,16 @@
   "Accessible mouse + keyboard separator between shell panes."
   [side]
   (let [dragging?     (r/atom false)
-        ;; rf2-cmjly3 finding 6: holds `{:move fn :up fn}` for the
+        ;; Holds `{:move fn :up fn}` for the
         ;; document-level mousemove/mouseup listeners a drag installs, or
-        ;; nil between drags. Previously these were only removed from
-        ;; INSIDE the mouseup handler itself — if the splitter unmounted
+        ;; nil between drags. Removing them only from
+        ;; INSIDE the mouseup handler would leak them: if the splitter unmounts
         ;; mid-drag (e.g. `narrow-viewport?` flips and `shell.cljs` drops
-        ;; `[rails/splitter :left]`), mouseup never fired, so the document
-        ;; listeners were never torn down and kept calling `set-width!`
+        ;; `[rails/splitter :left]`), mouseup never fires, so the document
+        ;; listeners would never be torn down and would keep calling `apply-width!`
         ;; against this (by-then-stale) component's closure forever.
-        ;; `:component-will-unmount` below removes them from this atom
-        ;; instead, so an unmount mid-drag is covered too.
+        ;; `:component-will-unmount` below removes them from this atom,
+        ;; so an unmount mid-drag is covered too.
         drag-handlers (atom nil)]
     (r/create-class
       {:display-name (str "rf-story-rail-splitter-" (name side))
@@ -119,7 +119,7 @@
            (.removeEventListener js/document "mousemove" move)
            (.removeEventListener js/document "mouseup" up)
            ;; A drag cut short by unmount never reaches `up-fn`; persist
-           ;; the widths it reached here instead (rf2-ohc5).
+           ;; the widths it reached here instead.
            (persist! (current-widths))))
        :reagent-render
        (fn [side]
@@ -162,7 +162,7 @@
                                         (reset! dragging? true)
                                         (letfn [(move-fn [move-e]
                                                   (let [dx (- (.-clientX move-e) start-x)]
-                                                    ;; rf2-ohc5: state only — persisted on release.
+                                                    ;; State only — persisted on release.
                                                     (apply-width!
                                                       side
                                                       (+ start-w (if left? dx (- dx))))))
