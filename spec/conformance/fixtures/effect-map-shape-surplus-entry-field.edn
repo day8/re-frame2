@@ -1,7 +1,8 @@
 ;; Conformance fixture: effect-map-shape/surplus-entry-field
 ;; Spec 009 §:rf.error/effect-map-shape CASE (c) — surplus :fx ENTRY field.
 ;;
-;; The OTHER half of the rf2-18kwf fix. A reg-event-fx handler returns an
+;; The OTHER half of the truncation case (the first is
+;; effect-map-shape-bad-fx-entry.edn). A reg-event-fx handler returns an
 ;; :fx vector with a 3-element entry [:shape/sink {:used true} {:dropped
 ;; true}]. Per Spec-Schemas §:rf/effect-map each entry is a [:tuple :keyword
 ;; :any] — exactly two elements. The runtime PROACTIVELY polices the arity:
@@ -9,7 +10,7 @@
 ;; full over-long entry), the entry is DROPPED, sibling entries still run
 ;; (recovery :logged-and-skipped).
 ;;
-;; The teeth — the exact rf2-18kwf bug: a lenient walk that destructures
+;; The teeth: a lenient walk that destructures
 ;; only `[fx-id args]` SILENTLY TRUNCATES the surplus 3rd field and fires
 ;; the entry as a 2-tuple [:shape/sink {:used true}] — the {:dropped true}
 ;; slot vanishes with no diagnostic. The spec contract (case c) is that the
