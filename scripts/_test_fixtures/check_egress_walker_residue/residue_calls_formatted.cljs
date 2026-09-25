@@ -3,12 +3,12 @@
 ;;;; Five findings expected. Not compiled; not on any classpath.
 ;;;;
 ;;;; `residue_calls.cljs` is the tight-call control these discriminate against:
-;;;; it spells every shape with the callee hard against the paren, which is the
-;;;; blind spot merged-PR audit #9491 found (rf2-kuky.90). The gate refused only
-;;;; the tight spelling, and its own fixtures only ever wrote the tight
-;;;; spelling, so gate and fixtures agreed while both were wrong. A Clojure
-;;;; reader proof on the audit shows the variants below read as IDENTICAL call
+;;;; it spells every shape with the callee hard against the paren. A gate that
+;;;; refused only the tight spelling, checked by fixtures that only ever wrote
+;;;; the tight spelling, would agree with those fixtures while both were
+;;;; wrong. A Clojure reader reads the variants below as IDENTICAL call
 ;;;; forms — the whitespace is formatting, not meaning.
+;;;;
 
 (ns fixture.residue-calls-formatted
   (:require [re-frame.elision :as rf.elision]))
