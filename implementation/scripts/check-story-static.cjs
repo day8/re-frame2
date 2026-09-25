@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 /*
- * Story static-export sanity check (rf2-8wgpm).
+ * Story static-export sanity check.
  *
  * 1. Runs `story-build.cjs` to produce the static export at
  *    `implementation/out/story-static/counter-with-stories/`.
  * 2. Selects a free local port and serves the output directory via
- *    http-server. The previous implementation hardcoded port 8040 and
- *    treated any responder on that port as "ready"; rf2-o38lb (security
- *    audit) called that out as a TOCTOU window for a port-squatter to
- *    serve foreign content to the headless browser. This script now
- *    mirrors the hardened ownership-token model from
+ *    http-server. Treating any responder on a hardcoded port as "ready"
+ *    would leave a TOCTOU window for a port-squatter to serve foreign
+ *    content to the headless browser, so this script mirrors the
+ *    hardened ownership-token model from
  *    `serve-and-run-browser-tests.cjs`:
  *
  *      - Free-port selection (OS-chosen if PORT env var is busy).
@@ -28,11 +27,11 @@
  *    published docs site don't get the dev-time onboarding modal).
  * 5. Tears the server down and removes the ownership token sentinel.
  *
- * Per rf2-o38lb: env-var driven defaults are constrained to
+ * Env-var driven defaults are constrained to
  * `implementation/out/` unless the explicit opt-in flag
- * `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is set in the environment.
- * The audit's secondary finding was that env-controlled path overrides
- * could become an arbitrary file-write primitive in CI / downstream
+ * `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is set in the environment,
+ * because env-controlled path overrides could otherwise become an
+ * arbitrary file-write primitive in CI / downstream
  * environments inheriting state from a wrapper. The same knob also gates
  * out-of-tree READ sources (a custom `STORY_BUILD_INDEX_HTML` template),
  * hence the path-neutral name rather than a write-only one.
@@ -69,20 +68,19 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 const DEFAULT_PORT = 8040;
 const READY_TIMEOUT_MS = 30000;
 
-// rf2-bhjzn — the navigation's own ceiling, named rather than left a literal.
+// The navigation's own ceiling, named rather than left a literal.
 //
-// Unlike run-ui-g8.cjs this smoke never INHERITED Playwright's default: it
-// always passed an explicit `timeout: 30000`. But an unnamed 30000 sitting
+// An unnamed 30000 sitting
 // beside a READY_TIMEOUT_MS that is also 30000 is its own trap — the two are
 // different budgets (owned-http-server readiness vs. the navigation) printing
 // the same number, so `page.goto: Timeout 30000ms exceeded` in a CI log points
 // at the wrong one. Named here, and the failure below says which fired.
 //
-// `waitUntil: 'load'` is KEPT deliberately. This page is a static export whose
+// `waitUntil: 'load'` is deliberate. This page is a static export whose
 // script does not run a suite during load, and the assertions that follow have
 // short budgets of their own (a 15s wait for `story-canvas-empty`, then 5s
-// waits) which assume a loaded document. Switching to `'commit'` the way
-// rf2-dczpv/rf2-bhjzn did for the two suite-running runners would move the
+// waits) which assume a loaded document. Switching to `'commit'`, as the
+// suite-running runners do, would move the
 // bundle download-and-boot wait onto that 15s locator budget and make this
 // lane FLAKIER, not tighter.
 const NAV_TIMEOUT_MS = 30000;
@@ -97,7 +95,7 @@ cleanup.addCleanup(() => {
 });
 cleanup.installSignalHandlers();
 
-// Per rf2-o38lb: ownership-token sentinel, same shape as
+// Ownership-token sentinel, same shape as
 // serve-and-run-browser-tests.cjs. The whole token lifecycle (nonce +
 // write + concurrency-safe idempotent cleanup) and the probe/token-fetch/
 // owned-readiness mechanics come from the shared local-browser-harness.cjs
@@ -147,9 +145,9 @@ function runBuild(diagnostics) {
 }
 
 // Resolve the port via the shared harness primitive: prefer DEFAULT_PORT
-// when free, else fall back to an OS-chosen free port (rf2-84gzw). The
+// when free, else fall back to an OS-chosen free port. The
 // shared resolveServePort carries the strict 1..65535 explicit-port
-// contract (rf2-0u8kz); the launcher-specific fallback note is logged
+// contract; the launcher-specific fallback note is logged
 // into the diagnostics buffer.
 async function resolvePort(diagnostics) {
   return await resolveServePort(DEFAULT_PORT, {
@@ -180,13 +178,12 @@ async function smokeTest(baseUrl, diagnostics) {
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  // rf2-mwx08: track uncaught browser/runtime exceptions SEPARATELY from
-  // console noise. The static-export smoke passes when its visible
-  // assertions resolve; previously an uncaught `pageerror` was
-  // diagnostic-only, so the smoke could ship green while the page threw a
-  // runtime exception the assertions happened not to cover. Console
-  // output stays diagnostic-only; only `pageerror` is fatal. Mirrors the
-  // rf2-wf5al fix for the examples/scripts Story play runner.
+  // Track uncaught browser/runtime exceptions SEPARATELY from
+  // console noise. The static-export smoke's visible assertions can
+  // resolve while the page throws a runtime exception they happen not to
+  // cover, so a diagnostic-only `pageerror` would let the smoke ship
+  // green. Console output stays diagnostic-only; only `pageerror` is
+  // fatal. The examples/scripts Story play runner does the same.
   const pageErrors = [];
   diagnostics.add('Spec: story-static static export smoke');
   diagnostics.add(`URL: ${baseUrl}`);
@@ -208,13 +205,13 @@ async function smokeTest(baseUrl, diagnostics) {
     try {
       await page.goto(baseUrl, { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
     } catch (err) {
-      // rf2-bhjzn: name the ceiling that fired. This is the navigation's
+      // Name the ceiling that fired. This is the navigation's
       // budget, not the server-readiness wait that carries the same number.
       diagnostics.add(
         `NAVIGATION FAILED — this is the page.goto ceiling ` +
           `(waitUntil: 'load', timeout: ${NAV_TIMEOUT_MS}ms), NOT the ` +
           `${READY_TIMEOUT_MS}ms owned-http-server readiness wait, which had ` +
-          `already succeeded. No assertion ran (rf2-bhjzn).`,
+          `already succeeded. No assertion ran.`,
         'stderr');
       throw err;
     }
@@ -224,7 +221,7 @@ async function smokeTest(baseUrl, diagnostics) {
     // The Story chrome lands around it: the sidebar lists the four counter
     // variants + two workspaces. Asserted via the stable
     // `data-test="story-canvas-empty"` attribute (shell.cljs) rather than the
-    // placeholder PROSE, which has drifted before — the test-id is the
+    // placeholder PROSE, which drifts — the test-id is the
     // contract, the copy is not.
     await page
       .locator('[data-test="story-canvas-empty"]')
@@ -273,7 +270,7 @@ async function smokeTest(baseUrl, diagnostics) {
       .first()
       .waitFor({ state: 'visible', timeout: 10000 });
 
-    // rf2-mwx08: all visible assertions passed — but an uncaught
+    // All visible assertions passed — but an uncaught
     // `pageerror` is still fatal. A green smoke that ignored a runtime
     // exception is a false-green. Allow a brief settle for any
     // post-interaction pageerror to surface, then fail if any were seen.
@@ -281,8 +278,8 @@ async function smokeTest(baseUrl, diagnostics) {
     if (pageErrors.length > 0) {
       throw new Error(
         `story-static smoke assertions passed, but the page emitted ` +
-          `${pageErrors.length} uncaught pageerror(s) — failing the smoke ` +
-          `(rf2-mwx08). First: ${pageErrors[0]}`,
+          `${pageErrors.length} uncaught pageerror(s) — failing the smoke. ` +
+          `First: ${pageErrors[0]}`,
       );
     }
 
@@ -326,7 +323,7 @@ async function smokeTest(baseUrl, diagnostics) {
   // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
   // probe and the headless browser only ever hit loopback, so the
   // listener must not be exposed on non-loopback interfaces during a
-  // test run (rf2-utvst; matches serve-and-run-adapter-smokes.cjs).
+  // test run (matches serve-and-run-adapter-smokes.cjs).
   const serverArgs = [HTTP_SERVER_BIN, OUT_DIR, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
   const server = cleanup.trackProcess(spawnHarnessProcess(
     process.execPath,
@@ -353,7 +350,7 @@ async function smokeTest(baseUrl, diagnostics) {
   });
 
   // 5. Wait for ready WITH ownership-token verification via the shared
-  //    harness primitive (rf2-84gzw / rf2-gkf9).
+  //    harness primitive.
   const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
     pollMs: POLL_MS,
     isAborted: () => state.exited,
