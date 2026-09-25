@@ -27,8 +27,9 @@
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
 (defn- large-marker
-  "A `:rf.size/large-elided` marker as `rf/elide-wire-value` emits it
-  (Spec 009 §Size elision in traces). `path` distinguishes the handle;
+  "A `:rf.size/large-elided` marker as the
+  `re-frame.elision/elide-wire-value` walker emits it (Spec 009 §Size
+  elision in traces). `path` distinguishes the handle;
   pass the SAME path to all records to make the marker maps EQUAL so
   dedup pools them — the exact trigger for a post-dedup undercount."
   [path]
