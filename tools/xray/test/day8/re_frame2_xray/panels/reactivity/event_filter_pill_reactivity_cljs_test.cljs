@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.panels.reactivity.event-filter-pill-reactivity-cljs-test
   "Sub-reactivity guard for the IN/OUT filter-pill mechanism
-  (rf2-dhoc9 per-control-action test).
+  (a per-control-action test).
 
-  Renamed from `event-mute-reactivity` (rf2-dkmnm): this file is NOT
+  This file is NOT
   about event-id muting — that distinct mechanism
   (`:rf.xray/mute-event-id` → the `:rf.xray/muted-event-ids` set)
   is owned by `control-axes-e2e/event-id-mute-e2e-cljs-test`. Here we
@@ -10,7 +10,7 @@
   <pill>` adds an `:out`-bucket pill to `:rf.xray/active-filters`;
   `:rf.xray/filtered-event-bundles` recomposes and the L2 event list
   re-renders without the filtered event. This is the unit-level
-  mirror of rf2-rwhat Phase 3's right-click flow."
+  mirror of the right-click filter flow."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.test-helpers.sub-reactivity :as h]))
 
@@ -26,7 +26,7 @@
    (h/cascade :nav/cart :rf/default)])
 
 (deftest active-filters-sub-tracks-add-filter
-  (testing "rf2-dhoc9 — `:rf.xray/add-filter` adds a pill to the
+  (testing "`:rf.xray/add-filter` adds a pill to the
             active-filters slot; the `:rf.xray/active-filters` sub
             re-fires with the new bucket contents."
     (h/setup-xray-frame!)
@@ -45,7 +45,7 @@
             "active-filters sub re-fired on add-filter")))))
 
 (deftest filtered-event-bundles-sub-tracks-out-pill
-  (testing "rf2-dhoc9 — `:rf.xray/filtered-event-bundles` recomposes when
+  (testing "`:rf.xray/filtered-event-bundles` recomposes when
             an `:out` pill is added. The filtered event-id's cascade
             falls out of the projected list."
     (h/setup-xray-frame!)
@@ -63,7 +63,7 @@
             "filtered-event-bundles sub re-fired on filter")))))
 
 (deftest remove-filter-restores-cascade
-  (testing "rf2-dhoc9 — `:rf.xray/remove-filter` deletes a pill; the
+  (testing "`:rf.xray/remove-filter` deletes a pill; the
             previously-filtered cascade returns to `:rf.xray/filtered-
             cascades`. Closes the round-trip filter → unfilter
             reactivity contract."
