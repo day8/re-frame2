@@ -4,8 +4,8 @@
   ns covers CLJS-specific paths (the `js/encodeURIComponent` path).
 
   The share URL is the same URL the browser's address bar carries —
-  there is no separate Share button or QR popover (rf2-ymnfx Issue B
-  removed the redundant affordance). The URL builder remains because
+  there is no separate Share button or QR popover. The URL builder exists
+  because
   `re-frame.story.ui.url-state` writes it via `pushState` and the
   public `rf.story/variant-share-url` facade is exported for embed code
   (per `tools/story/spec/Tutorial-Embed.md`)."
@@ -42,7 +42,7 @@
       (is (str/includes? url "overrides=")))))
 
 (deftest variant-share-url-replaces-stale-owned-keys-cljs
-  (testing "rf2-b7je1 — the REAL URLSearchParams (the API the url-state
+  (testing "the REAL URLSearchParams (the API the url-state
             hydrator reads with) sees the values THIS call generated, not
             stale ones already on the base-url. get is first-value, so an
             append-only merge would return the old variant here."
@@ -68,9 +68,10 @@
           "the hash route survives, after the query"))))
 
 (deftest variant-share-url-clears-stale-omitted-keys-cljs
-  (testing "rf2-b7je1 audit — build-params omits empty / default optional
-            slots, so a base-url carrying stale modes / overrides /
-            substrate survived a call requesting [] / {} / :reagent. Read
+  (testing "build-params omits empty / default optional slots, so a
+            builder replacing only the keys it emits would let a base-url's
+            stale modes / overrides / substrate survive a call requesting
+            [] / {} / :reagent. Read
             through the REAL URLSearchParams the url-state hydrator uses:
             every omitted Story key must be absent, not merely later in the
             string, because .get would happily return the stale value."
@@ -117,17 +118,17 @@
       (is (= "1" (.get usp "embed")) "unrelated embed= survives")
       (is (str/ends-with? url "#/stories") "the hash route survives"))))
 
-;; ---- rf2-b7je1 (audit reopen 2): ownership compares DECODED key names ----
+;; ---- ownership compares DECODED key names --------------------------------
 ;;
-;; This is the arm that matters, because the disagreement is with a real
-;; browser API rather than with an emulation of one. Ownership was
-;; matched on the fragment's RAW key text; `URLSearchParams` compares key
-;; names after percent-decoding. So `%76ariant=` — a valid spelling of
-;; `variant=` — was a different string to the builder and the SAME key to
-;; the browser: the stale entry survived, the generated one was appended
-;; behind it, and `.get` (first-value) handed the hydrator the stale
-;; value. Asserted through `js/URLSearchParams` itself, so the pin cannot
-;; drift from what the shell will actually read.
+;; This is the arm that matters, because the disagreement would be with a
+;; real browser API rather than with an emulation of one. `URLSearchParams`
+;; compares key names after percent-decoding. Were ownership matched on the
+;; fragment's RAW key text, `%76ariant=` — a valid spelling of `variant=` —
+;; would be a different string to the builder and the SAME key to the
+;; browser: the stale entry would survive, the generated one would be
+;; appended behind it, and `.get` (first-value) would hand the hydrator the
+;; stale value. Asserted through `js/URLSearchParams` itself, so the pin
+;; cannot drift from what the shell will actually read.
 
 (defn- escape-first-char
   "Spell `k` with its leading character percent-encoded — \"variant\" →
@@ -144,7 +145,7 @@
   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))
 
 (deftest escaped-story-keys-are-the-same-keys-to-urlsearchparams
-  (testing "rf2-b7je1 — the fixture below is only a regression if the real
+  (testing "the fixture below is only a regression if the real
             URLSearchParams reads the escaped spellings as the owned keys.
             Pin that against the browser API before relying on it."
     (doseq [k (map name rf.story.share/story-query-keys)]
@@ -156,7 +157,7 @@
             (str "URLSearchParams reads " esc " as the key " k))))))
 
 (deftest variant-share-url-owns-percent-encoded-keys-cljs
-  (testing "rf2-b7je1 audit — a base-url spelling every Story key with an
+  (testing "a base-url spelling every Story key with an
             escape is carrying those keys as far as the browser is
             concerned. Read the result back through the REAL
             URLSearchParams the hydrator uses: one value for each key this
@@ -212,7 +213,7 @@
       (is (str/ends-with? url "#/stories") "the hash route survives"))))
 
 (deftest undecodable-and-unowned-keys-survive-cljs
-  (testing "rf2-b7je1 audit — decoding is an ownership TEST, not a rewrite.
+  (testing "decoding is an ownership TEST, not a rewrite.
             A key half js/decodeURIComponent throws on is preserved
             byte-for-byte, and `mode+tab` reads as `mode tab` to the
             browser, so it is not Story's `mode-tab` and must stay."
@@ -245,8 +246,8 @@
   (testing "the browser-decoded `overrides=` token the share-url-hydrates
             scenario drives (`{:label \"Shared Label\"}`) parses as a kept
             override, not a dropped one. A space-bearing string value is the
-            case that exposed the stale pre-rf2-j0hwf `label:\"...\"` wire
-            form (it was classified :dropped), so this pins the EDN-map form."
+            case a `label:\"...\"` list wire form would classify :dropped,
+            so this pins the EDN-map form."
     (let [decoded "{:label \"Shared Label\"}"
           parsed  (rf.story.share/parse-overrides-param* decoded)]
       (is (= {:label "Shared Label"} (:overrides parsed))
