@@ -547,7 +547,7 @@
 ;; storage!` and its reader are `#?(:cljs …)`-only — `(resolve
 ;; 'day8.re-frame2-xray.config/load-settings-from-storage!)` answers nil
 ;; under Clojure — so the persisted layer, and the order-independence that
-;; is the point of the fix, are pinned in
+;; is the point of the layering, are pinned in
 ;; `settings/persistence_cljs_test.cljs`
 ;; (`preload-order-persisted-wins-over-later-configure`). What IS JVM-
 ;; reachable is the `defaults < configure!` half plus the deep-merge
