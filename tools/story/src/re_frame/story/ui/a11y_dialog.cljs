@@ -113,8 +113,8 @@
                   does not stop the other listeners on that same target, so
                   each handler acts only while it is the LAST entry — the
                   topmost dialog. The recorder stacks its export dialog on
-                  its save dialog, and one Escape used to close both
-                  (rf2-3x7nj.29.6)."}
+                  its save dialog, and without this gate one Escape would
+                  close both."}
   open-traps
   (atom []))
 
