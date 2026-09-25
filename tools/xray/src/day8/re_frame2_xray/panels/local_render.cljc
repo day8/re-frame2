@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.local-render
   "Xray's ON-BOX local-render egress seam — the EP-0015 `:rf.egress/local-redacted`
-  graduating consumer (rf2-t55hxg.12).
+  graduating consumer.
 
   ## What this is
 
@@ -16,7 +16,7 @@
   `local-render-value` walks a value AS the root; `local-render-value-at`
   seeds an explicit absolute `:path` for a slice egress'd in isolation;
   `local-render-route-sub-value` names a framework ROUTE READ sub and lets
-  routing's own seed table supply the position (rf2-8nyi2). A route's
+  routing's own seed table supply the position. A route's
   classification is re-rooted under `[:rf.runtime/routing :current …]`, so
   the first arm cannot match it and the Routing panel needs the third.
 
@@ -24,7 +24,7 @@
   fourth seeding: it applies the route-sub arm to each of the two keys the
   route classification contract covers (`:query`, `:params`), because a
   route's declaration is projection-relative to that whole shape and a
-  surface projecting one axis honours half a contract (rf2-6j8gd).
+  surface projecting one axis honours half a contract.
 
   ## The default is `:rf.egress/local-redacted` (EP-0015 §10, issue 3)
 
@@ -38,12 +38,11 @@
   shoulder-surfer / screen-share / recorded-session must not leak).
 
   This is the EP-0015 issue-3 **graduation consumer** for the
-  `:rf.egress/local-redacted` profile (the one remaining gap in
-  [spec/015 §The graduation gate]): the profile was defined + unit-tested
-  in `re-frame.projection` but no on-box dev tool named it as its render
-  default. Xray is that tool — the named on-box-dev-tool consumer the
-  graduation row requires. Routing the local panel render through it
-  exercises the profile end-to-end.
+  `:rf.egress/local-redacted` profile ([spec/015 §The graduation gate]):
+  the profile is defined + unit-tested in `re-frame.projection`, and the
+  graduation row requires a named on-box dev tool that uses it as its
+  render default. Xray is that tool. Routing the local panel render
+  through it exercises the profile end-to-end.
 
   ## `:rf.egress/local-raw` is the per-(tool,frame) opt-in (EP-0015 issue 7)
 
@@ -63,13 +62,12 @@
   classification — the frame Xray is currently inspecting — never a
   borrowed or ambient one. The named frame is passed as the explicit
   `:frame` opt so the walk applies THAT frame's policy regardless of any
-  ambient scope, exactly as `redact-graph-for-egress` (the off-box sibling,
-  rf2-yjarv6) does.
+  ambient scope, exactly as `redact-graph-for-egress` (the off-box
+  sibling) does.
 
   ## Fail-closed (the silent-leak this seam abolishes)
 
-  `rf/project-egress` delegates to `rf/project-egress`, which reads its
-  `:frame` opt by KEY PRESENCE — so an ABSENT `:frame` key falls through to
+  `rf/project-egress` reads its `:frame` opt by KEY PRESENCE — so an ABSENT `:frame` key falls through to
   the AMBIENT dynamically-bound frame, applying THAT frame's (possibly empty)
   policy and shipping value-bearing fields RAW under a borrowed scope. At a
   panel render that ambient frame is Xray's OWN chrome frame, which resolves,
@@ -81,7 +79,7 @@
   and redacts the whole value to `:rf/redacted` rather than borrow the
   ambient frame's marks. STAMPING (never OMITTING) `:frame` is the point: an
   absent `:frame` key is exactly the ambient-borrow path this seam abolishes
-  (rf2-cra0nq, mirroring the off-box derivation-graph fix rf2-udkj69).
+  (the off-box derivation-graph egress stamps `:frame` the same way).
   (Under `:rf.egress/local-raw`'s explicit `:rf.egress/include-sensitive? true`
   opt-out the walker ships the value raw even under an unresolvable frame —
   the operator has explicitly asked for it; the opt-out branch precedes the
@@ -139,18 +137,15 @@
     must never do is OMIT the key: an absent `:frame` falls through to the
     AMBIENT dynamically-bound frame — at a panel render, Xray's own chrome
     frame — and ships value-bearing fields RAW under that borrowed frame's
-    policy, the ambient-borrow leak this seam abolishes (rf2-cra0nq,
-    mirroring rf2-udkj69).
+    policy, the ambient-borrow leak this seam abolishes.
 
-    This is why the fn is small again. Three passes (rf2-ws60) fought to
-    mint a fake frame IDENTITY — a namespaced keyword, then a shared
-    private object, then a fresh per-call object — each because a nil
-    `:frame` read as absence, and each fail-OPEN in turn once a caller could
-    get hold of the sentinel and register a live frame under it. The walker
-    now believes an explicit nil, so there is no sentinel to leak and no
-    liveness probe to run (the walker validates liveness itself). The fn
-    stays private as ordinary namespace hygiene, not as a privacy
-    load-bearer (rf2-kuky.5).
+    The walker believes an explicit nil, so there is no fake frame
+    IDENTITY to mint, no sentinel to leak and no liveness probe to run
+    (the walker validates liveness itself). A minted sentinel — a
+    namespaced keyword, a shared private object, a fresh per-call object —
+    would fail OPEN once a caller could get hold of it and register a live
+    frame under it. The fn is private as ordinary namespace hygiene, not
+    as a privacy load-bearer.
   - **`:rf.egress/include-large? true`** — the on-box 'keep large' override
     (EP-0015 §10: `local-redacted` *suppresses sensitive display*; the
     local operator IS entitled to large values — Xray's own size-bounding
@@ -203,8 +198,8 @@
   `:sensitive` / `:large` declarations a bare-value walk (path `[]`) would
   miss — e.g. the per-instance resource declarations the resources registry
   LOWERS onto absolute runtime-db slot paths rooted at the entry's byte
-  key-id (`[:rf.runtime/resources :entries <key-id> :data …]`, rf2-aw9cfs).
-  This is the Resources tab's on-box per-slot egress seam (rf2-9zix0u), the
+  key-id (`[:rf.runtime/resources :entries <key-id> :data …]`).
+  This is the Resources tab's on-box per-slot egress seam, the
   path-aware sibling of `local-render-value` the App-DB tab uses.
 
   Same fail-closed + per-frame guarantees as `local-render-value` — they
@@ -230,7 +225,7 @@
   elision registry (`re-frame.routing.classification`). So a bare route
   value walked at the whole-value root — which is what `local-render-value`
   does — can never match its OWN declaration, and the declared-sensitive
-  query rides to the DOM verbatim (rf2-8nyi2).
+  query would ride to the DOM verbatim.
 
   Naming the sub as `:query-v` is the framework's prescribed gesture for a
   DIRECT-READ surface, and the reason this is not
@@ -250,7 +245,7 @@
   value rather than borrow the ambient frame's policy. A LIVE frame whose
   active route declared no classification rides the value verbatim — the
   walk is path-precise, never a blanket scrub — so ordinary query display
-  is unchanged.
+  is untouched.
 
   NARROW, exactly as the routing door is: a `sub-id` outside the route
   read table resolves no seed and the value walks at the root. No generic
