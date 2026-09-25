@@ -1604,6 +1604,37 @@
             [delay-key _t] (:after root)]
       (check-key! :rf/root delay-key))))
 
+(defn- validate-clause-slots!
+  "Reject an `:on` / `:after` clause that is neither nil nor a map, on the
+  machine root, each parallel region body and every state node. An `:on`
+  clause maps each event id to its transition and an `:after` clause each
+  delay; every later check — the `:timeout` validator and both desugars
+  included — iterates them as maps, so a keyword, vector, string or fn in
+  either slot would escape as a host exception instead of a refusal. Throws
+  `:rf.error/machine-bad-on-clause` / `:rf.error/machine-bad-after-spec`,
+  the categories the runtime raises for a malformed clause value, with the
+  `:slot` and the offending `:value`. nil is the absent clause."
+  [machine]
+  (let [check! (fn [extras where node]
+                 (doseq [[slot error-id] [[:on    :rf.error/machine-bad-on-clause]
+                                          [:after :rf.error/machine-bad-after-spec]]
+                         :let  [v (get node slot)]
+                         :when (and (some? v) (not (map? v)))]
+                   (throw (validation-error
+                            error-id
+                            (str "the " slot " clause on " where " is " (key-label v)
+                                 " — an " slot " clause is a map from each "
+                                 (if (= :on slot) "event id" "delay")
+                                 " to its transition, or nil for none. Per Spec 005"
+                                 " §Transition table grammar.")
+                            (assoc extras :slot slot :value v)))))]
+    (check! {:state :rf/root} "the machine root" machine)
+    (when (and (rf.machines.parallel/parallel? machine) (map? (:regions machine)))
+      (doseq [[rn body] (:regions machine)]
+        (check! {:state :rf/region-root :region rn} (str "region " (key-label rn)) body)))
+    (doseq [[state-key node] (walk-state-nodes machine)]
+      (check! {:state state-key} (str "state " (key-label state-key)) node))))
+
 (defn- validate-transition-targets!
   "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget:
   reject malformed-shape and unresolved transition `:target`s at registration
@@ -2129,6 +2160,11 @@
   Composed at the top of `make-machine-handler` so the registered handler
   fn's body is exclusively about request processing.
 
+  Per Spec 005 §Transition table grammar: the machine root's, each region
+  body's and every state node's `:on` / `:after` clause is a map or nil. Any
+  other value throws `:rf.error/machine-bad-on-clause` /
+  `:rf.error/machine-bad-after-spec` before any other check reads it.
+
   Per Spec 005 §History states §Pseudo-state constraints:
   every `:type :history` pseudo-state — placement (must have an owning
   compound), the closed `:type` / `:deep?` / `:default-target` key-set,
@@ -2233,8 +2269,12 @@
   `:output-key`, `:error?`, `:deep?`, `:default-target` or `:regions` throws
   it too, with `:path` naming the region."
   [machine]
-  ;; Validate the `:timeout` / `:on-timeout` grammar on the raw
-  ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the
+  ;; Every check below reads each node's `:on` / `:after` as a map, the
+  ;; `:timeout` validator's collision check first among them, so a clause of
+  ;; any other shape is refused before anything iterates it.
+  (validate-clause-slots! machine)
+  ;; Validate the `:timeout` / `:on-timeout` grammar on the raw spec, before
+  ;; either desugar, so diagnostics name the `:timeout` / `:on-timeout` keys the
   ;; author wrote (timeout-requires-on-timeout pairing, the integer-ms /
   ;; ISO-8601-only duration rule rejecting the "5s"/"10ms" shorthand, and
   ;; the :after-collision guard). Then DESUGAR the spec so every subsequent

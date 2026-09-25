@@ -228,7 +228,7 @@
                                                    (update :states walk-states-choice))))
                                         {} regions))))))
 
-(declare timeout-defect choice-defect)
+(declare slot-shape-defect timeout-defect choice-defect)
 
 (defn desugar-grammar
   "Apply every named-intent grammar desugar an emitter must lower before
@@ -237,15 +237,19 @@
   single ingestion-boundary seam the three emitters share so a future
   desugar is added once, not three times. Pure; idempotent; nil-safe.
 
-  Timeouts are lowered only when `timeout-defect` finds none. Lowering an
-  unpaired, unresolvable or colliding `:timeout` would drop it, and every
-  boundary validates the lowered definition, so it keeps its `:timeout` keys
-  for `definition-defect` to refuse as the engine does. Choices are lowered
-  only when `choice-defect` finds none, for the same reason: a refused
-  `:choice` keeps its keys, so every boundary refuses it with the engine's
-  `:choice` category rather than as a lowered `:always`."
+  Timeouts are lowered only when `slot-shape-defect` and `timeout-defect` find
+  none. A timeout lowers by merging into its node's `:after`, which a
+  malformed `:after` cannot take. Lowering an unpaired, unresolvable or
+  colliding `:timeout` would drop it, and every boundary validates the lowered
+  definition, so it keeps its `:timeout` keys for `definition-defect` to
+  refuse as the engine does. Choices are lowered only when `choice-defect`
+  finds none, for the same reason: a refused `:choice` keeps its keys, so
+  every boundary refuses it with the engine's `:choice` category rather than
+  as a lowered `:always`."
   [definition]
-  (let [d (cond-> definition (nil? (timeout-defect definition)) desugar-timeouts)]
+  (let [d (cond-> definition
+            (and (nil? (slot-shape-defect definition)) (nil? (timeout-defect definition)))
+            desugar-timeouts)]
     (cond-> d (nil? (choice-defect d)) desugar-choices)))
 
 ;; ---------------------------------------------------------------------------
@@ -532,6 +536,8 @@
 ;;
 ;; Enforced (recursively, over root + parallel regions + every compound
 ;; descendant):
+;;   - every `:on` / `:after` clause a map or nil, checked before anything
+;;     else (`machine-bad-on-clause` / `machine-bad-after-spec`);
 ;;   - keyword state/region ids + non-empty `:states` maps;
 ;;   - compound-`:initial` PRESENCE (`machine-compound-state-missing-initial`);
 ;;   - transition `:target` shape + resolution for `:on` / `:after` /
@@ -897,41 +903,32 @@
     {:category :rf.error/machine-bad-target :path (vec path) :slot slot}))
 
 (defn- transition-slot-shape-defect
-  "The SHARED transition-SLOT shape rule, for the node scope and the root
-  scopes. A fallback-transition `:on` / `:after` slot present on `node`
-  at `path` must be a MAP of clause → spec. A non-map (e.g. `{:on :retry}`
-  from an LLM) would throw an uncaught ISeq exception the moment it is
-  iterated, instead of the clean `:invalid-definition` the emit paths promise.
-  Surface the runtime's own slot-specific defect category so the emit path
-  rejects cleanly. An `:after` holding nil is absent, as the engine reads it
-  at every scope: it declares no delay, and iterating it yields nothing.
-
-  Deliberately shared by EVERY scope that consumes the `:on` / `:after`
-  fallback grammar — compound state node (`transition-target-defect`), flat
-  root, region root, and parallel root (`flat-defect` / `region-defect` /
-  `parallel-defect`) — so the four scopes cannot drift and no path iterates an
-  unchecked slot."
+  "The `:on` / `:after` clause shape rule for one node at `path`: each is a MAP
+  of trigger → transition, or nil, which is absent — as the engine reads both at
+  every scope. Any other value (e.g. `{:on :retry}` from an LLM) is refused
+  with the engine's slot-specific category, since every other check iterates
+  both clauses as maps and would throw an uncaught ISeq exception instead of
+  the clean `:invalid-definition` the emit paths promise. `slot-shape-defect`
+  applies it to every node before any other check runs."
   [path node]
-  (or (when (and (contains? node :on) (not (map? (:on node))))
+  (or (when (and (some? (:on node)) (not (map? (:on node))))
         {:category :rf.error/machine-bad-on-clause :path (vec path)})
       (when (and (some? (:after node)) (not (map? (:after node))))
         {:category :rf.error/machine-bad-after-spec :path (vec path)})))
 
 (defn- transition-target-defect [scope path node]
-  (or
-    (transition-slot-shape-defect path node)
-    (let [check (fn [slot v]
-                  (some (fn [{:keys [present? target]}]
-                          (when present? (target-defect scope path slot target)))
-                        (candidate-targets v)))]
-      (or (some (fn [[_ v]] (check :on v)) (:on node))
-          (some (fn [[_ v]] (check :after v)) (:after node))
-          (some (fn [entry] (check :always entry)) (always-entries node))
-          (when (contains? node :on-done) (check :on-done (:on-done node)))
-          (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe))
-          ;; A fn `:spawn :on-done` is the `:data` fold and carries no target.
-          (let [od (get-in node [:spawn :on-done])]
-            (when (and (some? od) (not (fn? od))) (check :spawn/on-done od)))))))
+  (let [check (fn [slot v]
+                (some (fn [{:keys [present? target]}]
+                        (when present? (target-defect scope path slot target)))
+                      (candidate-targets v)))]
+    (or (some (fn [[_ v]] (check :on v)) (:on node))
+        (some (fn [[_ v]] (check :after v)) (:after node))
+        (some (fn [entry] (check :always entry)) (always-entries node))
+        (when (contains? node :on-done) (check :on-done (:on-done node)))
+        (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe))
+        ;; A fn `:spawn :on-done` is the `:data` fold and carries no target.
+        (let [od (get-in node [:spawn :on-done])]
+          (when (and (some? od) (not (fn? od))) (check :spawn/on-done od))))))
 
 (defn- transition-keys-defect
   "First transition map in `node`'s transition slots that carries an unknown
@@ -940,8 +937,8 @@
   projected as a targetless or unguarded edge. It runs on the LOWERED node, so
   a `:choice` candidate reports under `:always` and an `:on-timeout` spec under
   `:after`. History pseudo-states are skipped: they carry no transition slot,
-  and their own key-set check refuses one. A non-map `:on` / `:after` is left
-  to `transition-slot-shape-defect`."
+  and their own key-set check refuses one. A non-map `:on` / `:after` is
+  `slot-shape-defect`'s."
   [path node]
   (when-not (history-node? node)
     (let [check (fn [slot v]
@@ -1107,9 +1104,8 @@
   "The non-parallel root's OWN `:on` (the ancestor-fallback slot, decl-path
   `[]`) and its `:spawn :on-error` / transition-shaped `:spawn :on-done`
   target resolution — mirror of the engine's root branch in
-  `validate-transition-targets!`. Assumes `:on` is a MAP: its shape is
-  guarded upstream in `flat-defect` by `transition-slot-shape-defect`, so a
-  malformed non-map root `:on` is rejected cleanly BEFORE this iterates it."
+  `validate-transition-targets!`. Assumes `:on` is a map or nil:
+  `slot-shape-defect` has refused any other shape before this iterates it."
   [scope d]
   (let [check (fn [slot v]
                 (some (fn [{:keys [present? target]}]
@@ -1141,12 +1137,33 @@
   region's entered leaves and the parallel root's own `:after`, never a region
   body's, so the timer would register and never fire; a region deadline
   belongs on the region's `:initial` state. A non-empty `:after` is refused
-  whatever it holds. Assumes `:after` is a map or nil: `region-defect` guards
-  its shape first with `transition-slot-shape-defect`."
+  whatever it holds. Assumes `:after` is a map or nil: `slot-shape-defect`
+  has refused any other shape."
   [region-name body]
   (when (seq (:after body))
     {:category :rf.error/machine-non-parallel-root-after-not-supported
      :path     [:regions region-name]}))
+
+(defn- slot-shape-defect
+  "The first malformed `:on` / `:after` clause in `definition` — the machine
+  root at `[]`, then each parallel region body at `[<region>]`, then every
+  state node at its scope-relative path — mirror of the engine's
+  `validation/validate-clause-slots!`, which refuses one before any other check
+  reads it. Every later check iterates both clauses as maps, and
+  `desugar-grammar` lowers no `:timeout` onto a malformed `:after`. Total over
+  malformed input."
+  [definition]
+  (when (map? definition)
+    (let [regions (when (and (parallel-definition? definition) (map? (:regions definition)))
+                    (:regions definition))
+          nodes   (if (parallel-definition? definition)
+                    (mapcat (fn [[_ body]] (when (map? body) (walk-scope-nodes (:states body))))
+                            regions)
+                    (walk-scope-nodes (:states definition)))]
+      (or (transition-slot-shape-defect [] definition)
+          (some (fn [[rn body]] (when (map? body) (transition-slot-shape-defect [rn] body)))
+                regions)
+          (some (fn [[path node]] (transition-slot-shape-defect path node)) nodes)))))
 
 (defn- node-choice-category
   "The `:type :choice` / `:choice` grammar category of one MAP node declared at
@@ -1208,8 +1225,8 @@
   (taken on the region's done) target resolution — mirror of the engine's
   region branch in `validate-transition-targets!`. Both resolve within the
   region at decl-path `[]`, so a keyword names one of the region's top-level
-  states, and a sibling region's name is unresolved. Assumes `:on` is a MAP:
-  `region-defect` guards its shape first with `transition-slot-shape-defect`."
+  states, and a sibling region's name is unresolved. Assumes `:on` is a map or
+  nil: `slot-shape-defect` has refused any other shape."
   [scope region-name body]
   (let [check (fn [slot v]
                 (some (fn [{:keys [present? target]}]
@@ -1230,13 +1247,6 @@
           (root-slot-defect d)
           (tags-defect [] d)
           (spawn-defect [] d)
-          ;; The flat ROOT's own `:on` / `:after` fallback slot
-          ;; is validated for shape with the SAME rule as a state node's,
-          ;; BEFORE `root-on-target-defect` iterates it. A malformed root
-          ;; `:on` (`{… :on :retry}`) returns the clean
-          ;; `machine-bad-on-clause` defect instead of throwing an ISeq
-          ;; exception out of `valid-definition?` / the emit paths.
-          (transition-slot-shape-defect [] d)
           (transition-keys-defect [] d)
           (spawn-timeout-ms-defect [] d)
           (spawn-completion-defect [] d)
@@ -1260,9 +1270,6 @@
     (let [scope (:states body)]
       (or (node-keys-defect [region-name] body false)
           (tags-defect [region-name] body)
-          ;; The region ROOT's own `:on` / `:after` ancestor
-          ;; fallback slot gets the same shape guard as every other scope.
-          (transition-slot-shape-defect [region-name] body)
           (transition-keys-defect [region-name] body)
           ;; After the nested-parallel refusal above, which names that shape
           ;; more precisely — the engine's order, in which the region-body
@@ -1289,9 +1296,6 @@
           (root-slot-defect d)
           (tags-defect [] d)
           (spawn-defect [] d)
-          ;; The parallel ROOT's own `:on` / `:after` ancestor
-          ;; fallback slot gets the same shape guard as every other scope.
-          (transition-slot-shape-defect [] d)
           (transition-keys-defect [] d)
           (spawn-timeout-ms-defect [] d)
           (spawn-completion-defect [] d)
@@ -1302,11 +1306,12 @@
   value-FREE map `{:category <:rf.error/*> :path <state-id vector> …}`
   (key/target defects add `:keys` / `:slot`), or nil when the definition is
   projectable. Desugars (`desugar-grammar` — EP-0029 A4/A5) FIRST so a
-  `:timeout` / `:choice` authoring form is validated on its lowered shape; a
-  `:timeout` the desugar cannot lower is refused before anything else, as the
-  engine's `validate-timeouts!` refuses it first, and a malformed `:choice`
-  next, as the engine's `validate-node-choice!` refuses it. It then
-  recursively mirrors the runtime machine contract's projectable invariants —
+  `:timeout` / `:choice` authoring form is validated on its lowered shape. A
+  malformed `:on` / `:after` clause is refused before anything else, as the
+  engine's `validate-clause-slots!` refuses it first; then a `:timeout` the
+  desugar cannot lower, as the engine's `validate-timeouts!` refuses it next,
+  and a malformed `:choice`, as the engine's `validate-node-choice!` does. It
+  then recursively mirrors the runtime machine contract's projectable invariants —
   see the section comment above for the full enforced list + the documented
   viz-vs-engine divergences.
 
@@ -1317,6 +1322,7 @@
   (let [d (desugar-grammar definition)]
     (cond
       (not (map? d))           {:category :rf.error/machine-bad-definition :path []}
+      (slot-shape-defect d)    (slot-shape-defect d)
       (timeout-defect d)       (timeout-defect d)
       (choice-defect d)        (choice-defect d)
       (parallel-definition? d) (parallel-defect d)

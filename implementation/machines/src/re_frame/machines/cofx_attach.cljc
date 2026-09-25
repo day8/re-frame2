@@ -267,6 +267,15 @@
       (mapcat (fn [[_r body]] (walk [] (:states body))) (:regions machine))
       (walk [] (:states machine)))))
 
+(defn- clause-entries
+  "The `[trigger transition]` entries of `node`'s `:on` / `:after` clause, or
+  nil when the clause is absent or not a map. This sweep runs before
+  `validate-machine!`, which refuses a malformed clause with its own category,
+  so it skips one rather than failing on it."
+  [node slot]
+  (let [clause (get node slot)]
+    (when (map? clause) clause)))
+
 (defn- check-inline-restriction!
   "Sweep every transition slot + callback slot of every state node (and the
   machine / region roots) for an inline `:rf.cofx/requires` declaration, and
@@ -285,8 +294,8 @@
                 ;; a choice node's candidates ride `:choice`; `always-entries`
                 ;; surfaces them, but label the site `:choice` not `:always`.
                 always-label (if (rf.machines.choice/choice-node? node) " :choice" " :always")]
-            (doseq [[_ev v] (:on node)]    (check-no-inline-requires! (str where " :on") v))
-            (doseq [[_d v]  (:after node)] (check-no-inline-requires! (str where " :after") v))
+            (doseq [[_ev v] (clause-entries node :on)]    (check-no-inline-requires! (str where " :on") v))
+            (doseq [[_d v]  (clause-entries node :after)] (check-no-inline-requires! (str where " :after") v))
             (doseq [e (always-entries node)] (check-no-inline-requires! (str where always-label) e))
             (when (contains? node :on-done)
               (check-no-inline-requires! (str where " :on-done") (:on-done node)))
@@ -295,8 +304,8 @@
     (doseq [[path node] (walk-nodes-with-path machine)]
       (check-node! path node))
     (doseq [root roots]
-      (doseq [[_ev v] (:on root)]    (check-no-inline-requires! ":rf/root :on" v))
-      (doseq [[_d v]  (:after root)] (check-no-inline-requires! ":rf/root :after" v))
+      (doseq [[_ev v] (clause-entries root :on)]    (check-no-inline-requires! ":rf/root :on" v))
+      (doseq [[_d v]  (clause-entries root :after)] (check-no-inline-requires! ":rf/root :after" v))
       (when (contains? root :on-done)
         (check-no-inline-requires! ":rf/root :on-done" (:on-done root))))))
 
@@ -470,7 +479,7 @@
        parsed-diet index the dispatch-time `ensure-set-for` reads.
 
   Idempotent and pure (machine → machine'); called from
-  `make-machine-handler` after `validate-machine!`. A machine with no
+  `make-machine-handler` before `validate-machine!`. A machine with no
   `:rf.cofx/requires` anywhere stamps an empty index (cheap)."
   [machine]
   (check-inline-restriction! machine)

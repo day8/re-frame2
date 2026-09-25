@@ -1146,6 +1146,76 @@
       (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
           (str label ": the viz category after the boundary desugar")))))
 
+;; An `:on` / `:after` clause is a map or nil at every position it can take. nil
+;; is absent on both sides; any other value is refused on both with the slot's
+;; category, before anything iterates it — so neither side throws a host
+;; exception, a `:timeout` beside a malformed `:after` included.
+
+(def ^:private clause-positions
+  "Position → a machine declaring `clause` in `slot` there, and the map clause
+  that registers in that slot there. A flat root's and a region body's `:after`
+  never fire, so the only map they take is the empty one."
+  {:leaf          [(fn [slot clause] {:initial :a :states {:a {slot clause} :b {}}})
+                   {:on {:go :b} :after {1000 :b}}]
+   :compound      [(fn [slot clause] {:initial :o
+                                      :states  {:o {:initial :a slot clause :states {:a {}}} :b {}}})
+                   {:on {:go :b} :after {1000 :b}}]
+   :region-state  [(fn [slot clause] {:type    :parallel
+                                      :regions {:r {:initial :a :states {:a {slot clause} :b {}}}}})
+                   {:on {:go :b} :after {1000 :b}}]
+   :region-body   [(fn [slot clause] {:type    :parallel
+                                      :regions {:r {:initial :a slot clause :states {:a {} :b {}}}}})
+                   {:on {:go :b} :after {}}]
+   :flat-root     [(fn [slot clause] {:initial :a slot clause :states {:a {} :b {}}})
+                   {:on {:go :b} :after {}}]
+   :parallel-root [(fn [slot clause] {:type    :parallel slot clause
+                                      :regions {:r {:initial :a :states {:a {} :b {}}}}})
+                   {:on {:go [:r :b]} :after {1000 {:target [:r :b]}}}]})
+
+(def ^:private clause-categories
+  {:on    :rf.error/machine-bad-on-clause
+   :after :rf.error/machine-bad-after-spec})
+
+(def ^:private malformed-after-beside-timeout
+  "Label → a definition whose `:after` is malformed beside a `:timeout` that
+  would lower into it."
+  {:state-timeout       {:initial :a :states {:a {:after :x :timeout 100 :on-timeout :b} :b {}}}
+   :state-timeout-pair  {:initial :a :states {:a {:after [1000 :b] :timeout 100 :on-timeout :b} :b {}}}
+   :spawn-timeout       {:initial :a :states {:a {:after :x :spawn {:machine-id :m :timeout 100 :on-timeout :b}}
+                                              :b {}}}
+   :parallel-root-timeout {:type    :parallel :after #{1} :timeout 100 :on-timeout {:target [:r :b]}
+                           :regions {:r {:initial :a :states {:a {} :b {}}}}}})
+
+(deftest clause-slot-parity
+  (doseq [slot                        [:on :after]
+          [position [make map-clause]] clause-positions]
+    (testing (str slot " nil and a map clause register on both sides on the " position)
+      (doseq [clause [nil (get map-clause slot)]
+              :let [m (make slot clause)]]
+        (is (= :accept (engine-answer m)) (str (pr-str clause) ": the engine accepts"))
+        (is (= :accept (viz-answer m)) (str (pr-str clause) ": the viz accepts"))
+        (is (= :accept (viz-answer (g/desugar-grammar m)))
+            (str (pr-str clause) ": the viz accepts after the boundary desugar"))))
+    (testing (str slot " neither nil nor a map is refused on both sides on the " position
+                  " with the slot's category")
+      (doseq [clause [:b [:b] [1000 :b] 42 "b" #{:b} (fn [_] nil)]
+              :let [m (make slot clause)]]
+        (is (= (clause-categories slot) (engine-category m))
+            (str (pr-str clause) ": the engine's category"))
+        (is (= (clause-categories slot) (:category (g/definition-defect m)))
+            (str (pr-str clause) ": the viz category"))
+        (is (= (clause-categories slot) (:category (g/definition-defect (g/desugar-grammar m))))
+            (str (pr-str clause) ": the viz category after the boundary desugar")))))
+  (testing "a malformed :after beside a :timeout is refused as malformed on both
+            sides, not lowered"
+    (doseq [[label m] malformed-after-beside-timeout]
+      (is (= :rf.error/machine-bad-after-spec (engine-category m))
+          (str label ": the engine's category"))
+      (is (= :rf.error/machine-bad-after-spec (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= :rf.error/machine-bad-after-spec (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
+
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
             rejects a dangling guard ref (runtime wiring); the viz accepts it
