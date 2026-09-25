@@ -120,9 +120,16 @@
   (atom #{}))
 
 (defn- registry-of
+  "The frame's elision registry, read off its runtime-db projection as a
+  SNAPSHOT. Its readers run inside the computations they describe — trace
+  classification projects a `:rf.sub/run` inside the sub's compute and a
+  `:rf.view/rendered` inside the view's render — and a capturing read there
+  would make the whole runtime-db projection an input of that computation, so
+  an unrelated runtime-db write would re-run it. The read therefore records no
+  reactive dependency."
   [frame-id]
   (when-let [container (rf.frame/runtime-db-container frame-id)]
-    (get-in (rf.substrate.adapter/read-container container) [:rf.runtime/elision])))
+    (get-in (rf.substrate.adapter/read-container-untracked container) [:rf.runtime/elision])))
 
 (defn ^:no-doc write-elision-slot
   "Set or clear the per-frame elision registry inside `runtime-db`. When
@@ -539,6 +546,8 @@
   every source that populates the slot — EP-0025 commit-plane effects under
   `:source :effect`, `reg-flow` outputs under `:source :flow`, subsystem
   projection-relative declarations).
+  Returns a snapshot, not a reactive subscription: reading it inside a
+  reactive computation does not make that computation depend on the registry.
   EP-0002 — the zero-arity ambient form resolves the frame through the
   carried-invariant scope chain (`rf.frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
@@ -554,6 +563,8 @@
   of every source that populates the slot — EP-0025 commit-plane effects
   under `:source :effect`, `reg-flow` outputs under `:source :flow`,
   subsystem projection-relative declarations).
+  Returns a snapshot, not a reactive subscription: reading it inside a
+  reactive computation does not make that computation depend on the registry.
   EP-0002 — the zero-arity ambient form resolves the frame through the
   carried-invariant scope chain (`rf.frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than

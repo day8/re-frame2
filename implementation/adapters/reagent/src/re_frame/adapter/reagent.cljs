@@ -246,4 +246,18 @@
      ;; not the Var value, because `*ratom-context*` is a dynamic var: it must be
      ;; read at CALL time, inside the binding, or it answers nil for every caller.
      :reactive-owner    (fn [] ratom/*ratom-context*)
+     ;; A read that registers no dependency on the reaction being computed.
+     ;; Inside a reactive context the capture context is rebound to a fresh
+     ;; throwaway object — the shape of `ratom/check-derefs` — so the deref
+     ;; is captured THERE and evaluates exactly as a tracked read otherwise
+     ;; would. NOT nil: a Reaction deref'd under a nil context takes its
+     ;; non-reactive branch, which `flush!`es the whole reaction queue in the
+     ;; middle of the enclosing compute and can re-enter a reaction whose
+     ;; compute is still on the stack. Outside a reactive context there is no
+     ;; edge to suppress, so it is a plain read and allocates nothing.
+     :read-container-untracked (fn read-container-untracked [container]
+                                 (if (nil? ratom/*ratom-context*)
+                                   @container
+                                   (binding [ratom/*ratom-context* (js-obj)]
+                                     @container)))
      :after-render      r/after-render}))

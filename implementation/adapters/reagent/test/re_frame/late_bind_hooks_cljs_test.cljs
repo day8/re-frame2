@@ -61,6 +61,9 @@
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?
+    ;; The read that records no dependency on the reaction being computed,
+    ;; published by the ratom family alone: only their reads capture.
+    :adapter/read-container-untracked
     :adapter/after-render
     :adapter/derived-container?})
 

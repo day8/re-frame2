@@ -148,6 +148,13 @@
      ;; Twin of the stock adapter's entry; see it for why this is a
      ;; call-time lambda over the dynamic var rather than the Var value.
      :reactive-owner    (fn [] ratom/*ratom-context*)
+     ;; Twin of the stock adapter's entry; see it for why the capture
+     ;; context is rebound to a throwaway object rather than to nil.
+     :read-container-untracked (fn read-container-untracked [container]
+                                 (if (nil? ratom/*ratom-context*)
+                                   @container
+                                   (binding [ratom/*ratom-context* (js-obj)]
+                                     @container)))
      :after-render      r/after-render}))
 
 ;; ---- warn-once cache reset wiring -----------------------------------------

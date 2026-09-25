@@ -399,6 +399,44 @@
   (let [a (require-adapter! 'rf/read-container)]
     ((:read-container a) container)))
 
+(def ^:no-doc untracked-read-no-opinion
+  "Sentinel the routed `:adapter/read-container-untracked` hook returns from
+  its chain-bottom fallback to mean \"the installed adapter publishes no
+  untracked read\". `read-container-untracked` then falls back to
+  `read-container`. A sentinel rather than nil, because nil is a legitimate
+  container value.
+
+  Public so `re-frame.substrate.spine` (the ratom hook producer) and any
+  custom adapter that publishes the routed hook return the SAME sentinel from
+  their `route-hook!` fallback thunk."
+  ::untracked-read-no-opinion)
+
+(defn ^:no-doc read-container-untracked
+  "Read `container` exactly as `read-container` would, WITHOUT recording a
+  dependency on the enclosing reactive computation. The value is a snapshot:
+  a later change to `container` does not re-run the computation that read it.
+
+  For a read made inside a computation it DESCRIBES rather than feeds — trace
+  classification reads the frame's elision registry while a sub computes or a
+  view renders — so that observing a computation never adds an input to it.
+
+  Resolves the installed adapter's optional `:adapter/read-container-untracked`
+  late-bind hook (Spec 006 §`make-derived-value`). A substrate whose reads
+  capture dependencies publishes it. On every other substrate a read captures
+  nothing, so `read-container` is already untracked and this falls back to it:
+  when no adapter publishes the hook, and when the routed hook answers the
+  `untracked-read-no-opinion` sentinel because the installed adapter is not one
+  that publishes it.
+
+  On the per-dispatch hot path (the elision registry feeds every dispatch's
+  redaction paths), so the hook resolves through `get-fn-cached`."
+  [container]
+  (let [hook (rf.late-bind/get-fn-cached :adapter/read-container-untracked)
+        v    (if hook (hook container) untracked-read-no-opinion)]
+    (if (= untracked-read-no-opinion v)
+      (read-container container)
+      v)))
+
 (def container-class-unknown
   "Sentinel the routed `:adapter/derived-container?` hook returns from its
   chain-bottom fallback to mean \"the installed adapter has NO opinion on

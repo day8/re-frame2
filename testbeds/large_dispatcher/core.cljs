@@ -191,8 +191,10 @@
 ;; the view shows what's been classified. The registry lives in runtime-db at
 ;; `[:rf.runtime/elision :declarations]` (NOT app-db), so this reads it through
 ;; the public `re-frame.elision/declarations` reader for the frame rather than
-;; through app-db. (A debug-introspection convenience; the load-bearing assert
-;; is the wire-marker on the trace.)
+;; through app-db. `declarations` returns a snapshot, so this recomputes when
+;; app-db changes rather than when the registry does; the declarations land in
+;; the same boot event as the :db they classify. (A debug-introspection
+;; convenience; the load-bearing assert is the wire-marker on the trace.)
 (rf/reg-sub :elision-decls
   (fn [db _] (rf.elision/declarations :rf/default)))
 
