@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.error-override
-  "Error-override filter bypass for the L2 event list (rf2-jqqsh9).
+  "Error-override filter bypass for the L2 event list.
 
   ## What this is
 
