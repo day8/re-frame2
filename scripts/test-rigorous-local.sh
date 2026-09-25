@@ -3,17 +3,17 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# First line names the tree this run resolved — see scripts/test-fast-pr.sh
-# (rf2-g2mxd): a relative invocation resolves `${BASH_SOURCE[0]}` against the
-# shell's actual cwd, so a backgrounded gate can silently run in, and grade,
-# another worktree.  Invoke backgrounded gates by ABSOLUTE path.
+# First line names the tree this run resolved: a relative invocation resolves
+# `${BASH_SOURCE[0]}` against the shell's actual cwd, so a backgrounded gate
+# can silently run in, and grade, another worktree.  Invoke backgrounded gates
+# by ABSOLUTE path.
 printf 'gate root: %s\n' "$repo_root"
 
 "$repo_root/scripts/test-fast-pr.sh"
 "$repo_root/scripts/test-jvm-implementation.sh"
 "$repo_root/scripts/test-jvm-tools.sh"
 
-# rf2-bv2qqm — the heavy `^:slow` / `^:stress` JVM tests are EXCLUDED from
+# The heavy `^:slow` / `^:stress` JVM tests are EXCLUDED from
 # the default `:test` gate (`-e :slow -e :stress`) so the PR/local fast path
 # stays quick. They are NOT lost: this rigorous sweep runs them via each
 # artefact's `:slow-test` alias (`-i :slow -i :stress`), mirroring the nightly
@@ -41,7 +41,7 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # Local mirror of the rigorous browser-bundle-and-story sweep in
 # `.github/workflows/expensive-tests.yml`.
 #
-# THIS MIRRORS THE EXPENSIVE SWEEP, NOT THE PR LANE (rf2-0l1nv). A command earns
+# THIS MIRRORS THE EXPENSIVE SWEEP, NOT THE PR LANE. A command earns
 # a line below when BOTH hold: (a) it yields a VERDICT, so a non-zero exit means
 # something is broken, rather than producing a build artefact or publishing a
 # record; and (b) no PR run gates it, its only scheduled home being a nightly or
@@ -51,40 +51,25 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # silence. A nightly-only verdict has no such protection, and closing exactly
 # that window is the entire reason this script exists.
 #
-# On that bench lane: it runs here for its mounted-correctness VERDICT — DOM
-# parity between interpreted and compiled views, cell-elision counts, exact
-# event/write/recompute/render counts, controlled-input value/caret/node identity
-# under contention, cross-substrate parity — which are deterministic browser
-# facts even though they are collected inside a benchmark harness. The
-# scheduled bench lanes, on pinned hardware and with a compiled-in revision,
-# remains the sole authority for citable numbers. A local run deliberately
-# labels its records unattributable; this script consumes the verdict and
-# ignores the distributions.
+# `test:cljs-perf-emit-nightly` is not a browser gate and is here on the same
+# derivation: it runs the `:node-test-perf-nightly` lane, whose
+# `-emit-nightly-test$` selector the consolidated `:node-test` build's
+# `cljs-test$` does not match, so its namespaces run in that lane alone.  It
+# yields a VERDICT and is nightly-only, so it satisfies (a) and (b).
 #
-# The last two are not browser gates and are here on the same derivation
-# (rf2-a9oic).  `test:cljs-perf-emit-nightly` runs the `:node-test-perf-nightly`
-# lane, whose `-emit-nightly-test$` selector the consolidated `:node-test`
-# build's `cljs-test$` does not match, so its namespaces run in that lane alone;
-# `test:ui-warm-watch` drives a real Shadow warm watch and one live emitted
-# runtime through eight scripted edit passes plus a disk-cache restart.  Both
-# yield a VERDICT and both are nightly-only, so both satisfy (a) and (b) — and
-# until this change neither ran anywhere at all.
-#
-# The TEN after those (rf2-mvq7, from the rf2-2uy8 B+ ruling) are the
-# narrow-armed gates: each runs at PR time only when `detect_changed_surfaces`
-# arms it, and until that change none had any arm that ran against main at all,
-# so a cross-surface regression in one sat green there until some PR happened to
-# touch its narrow surface.  They join the nightly sweep and therefore join this
-# mirror.  The `fresco-controlled` / `fresco-hmr` / `ui-g8` trio is
-# deliberately NOT here, for the same reason it is not in the nightly — the
-# declared-hole comment in `expensive-tests.yml` carries the exposure each one
-# accepts.
+# The commands after it are the narrow-armed gates: each runs at PR time only
+# when `detect_changed_surfaces` arms it, so without the nightly none would have
+# an arm that runs against main, and a cross-surface regression in one would sit
+# green there until some PR happened to touch its narrow surface.  They are in
+# the nightly sweep and therefore in this mirror.  The `fresco-controlled` /
+# `fresco-hmr` pair is deliberately NOT here, for the same reason it is not in
+# the nightly — the declared-hole comment in `expensive-tests.yml` carries the
+# exposure each one accepts.
 #
 # Keep these commands in lockstep with that workflow's implementation
 # browser/bundle list — the `test:scripts` gate pins the inventory (see
 # implementation/scripts/_rigorous-local-inventory.test.cjs).  That pin is not
-# decorative: it is what caught this list drifting behind the ten additions
-# above, in the same spine run that was meant merely to confirm them.
+# decorative: it is what catches this list drifting behind the workflow.
 (cd "$repo_root/implementation" && \
   npm run test:browser && \
   npm run test:browser-schemas-boundary-prod && \
