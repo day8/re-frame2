@@ -8,7 +8,7 @@
 ;; the documented place to factor common transitions every state inherits
 ;; (`:logout` from every authenticated descendant; a global `:reset`).
 ;;
-;; This pins the four root-`:on` behaviours:
+;; This pins the five root-`:on` behaviours:
 ;;   1. Root `:on` explicit match fires from a state lacking its own handler
 ;;      (keyword target — resolves root-relative).
 ;;   2. Root `:on` vector target — absolute path from root.
