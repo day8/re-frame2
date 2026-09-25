@@ -98,10 +98,10 @@ const duplicated = assertPositiveControlComplete(confusedArtefacts, POSITIVE_CON
 assert(!duplicated.ok, 'one sentinel attributed to two owners must fail completeness');
 assert.strictEqual(duplicated.sharedSentinels.length, 1);
 
-// ----- structural + causal enrollment mutations (rf2-klyw5 / rf2-zef0e) ------
+// ----- structural + causal enrollment mutations ------------------------------
 // The sentinel + positive-control mutations above prove per-feature artefacts
-// don't LEAK. This section proves the ENROLLMENT is FAIL-CLOSED and can no
-// longer be DISCHARGED by text or names: a newly publishable runtime mapped to
+// don't LEAK. This section proves the ENROLLMENT is FAIL-CLOSED and cannot be
+// DISCHARGED by text or names: a newly publishable runtime mapped to
 // no valid isolation gate turns the gate RED. Executable + permanent, exercising
 // the real EDN-aware discovery + gate-validation path (not injected list
 // membership) so a regression in the flat-plus-adapters traversal, the EDN
@@ -114,20 +114,19 @@ let coverageMutations = 0;
 const PUBLISHABLE_DEPS =
   '{:paths ["src"]\n :aliases {:clein/build {:lib day8/re-frame2-fixture}}}\n';
 // A deps.edn that only MENTIONS :clein/build inside a comment (a pre-publication
-// shape — this was implementation/ui/deps.edn's shape before rf2-vxgfnd.99.2 made
-// ui publishable). Must NOT be discovered as publishable.
+// shape). Must NOT be discovered as publishable.
 const COMMENT_ONLY_DEPS =
   ';; NO :clein deploy aliases yet — deliberate; mentions :clein/build in prose.\n' +
   '{:paths ["src"] :deps {day8/re-frame2 {:local/root "../core"}}}\n';
 // Genuine :aliases/:clein/build, but with a `;` inside an EDN STRING before it.
-// The old stripEdnComments regex truncated the line at the first `;`, dropping
-// the real alias — a publishable runtime silently escaped the gate. The
-// EDN-aware authority must still discover it.
+// A regex comment-strip would truncate the line at the first `;`, dropping
+// the real alias, and a publishable runtime would silently escape the gate. The
+// EDN-aware authority must discover it.
 const SEMICOLON_IN_STRING_DEPS =
   '{:note "a ; semicolon inside a string"\n' +
   ' :aliases {:clein/build {:lib day8/re-frame2-fixture}}}\n';
 // :clein/build appears only as a STRING VALUE — not a build alias. Must NOT be
-// discovered (the old `/:clein\\/build/` search invented an alias from prose).
+// discovered (a plain `/:clein\\/build/` search would invent an alias from prose).
 const TOKEN_IN_STRING_DEPS =
   '{:note ":clein/build is a deploy alias, described here"\n' +
   ' :aliases {:test {}}}\n';
@@ -149,7 +148,7 @@ function writeArtefact(root, relPath, contents) {
 // artefact that must not be discovered, and a dedicated-gated adapter (reagent) —
 // all correctly accounted for — plus whatever `extra` mutation the caller
 // injects. Gate VALIDATION resolves against the REAL scripts/ + package.json (the
-// four dedicated gates are a property of this repo, not the temp fixture), so the
+// dedicated gates are a property of this repo, not the temp fixture), so the
 // temp fixture drives only DISCOVERY while coverage validation stays authentic.
 function withFixture(extra, body) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-cov-'));
@@ -181,9 +180,6 @@ withFixture(() => {}, (root) => {
 // Mutation 1 — a hypothetical NEW flat publishable non-adapter runtime while no
 // generic ARTEFACTS entry or dedicated gate exists: coverage must fail and NAME
 // it. Proves a future-publishable flat runtime is not permanently defined away.
-// (Real `ui` was this case until rf2-vxgfnd.99.2 made it publishable AND enrolled
-// its generic gate; the real-tree floor below now asserts ui IS covered, so the
-// mechanism is exercised here with a fresh fictional path instead.)
 coverageMutations += 1;
 withFixture((root) => writeArtefact(root, 'newpub', PUBLISHABLE_DEPS), (root) => {
   const required = discoverBrowserOptionalRuntimes(root);
@@ -253,7 +249,7 @@ withFixture((root) => {
 });
 
 // Mutation 5 — DEDICATED GATES ARE CAUSAL, bound to the EXACT runtime AND
-// executable (rf2-klyw5 / rf2-kfn9q): a dedicated descriptor enrols a runtime
+// executable: a dedicated descriptor enrols a runtime
 // only when its checker script EXISTS, its command RUNS that checker as a
 // directly-invoked reachable step, AND a checker OWNS the exact runtime in its
 // COVERS_RUNTIMES. A prose string, a nonexistent checker, an uninvoked / echoed /
@@ -274,7 +270,7 @@ coverageMutations += 1;
   assert(validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' }).ok,
     'a real checker run by its real package command validates (executable binding)');
 
-  // rf2-kfn9q — EXECUTABLE binding: a checker counts only when a package-script
+  // EXECUTABLE binding: a checker counts only when a package-script
   // step DIRECTLY runs it. echo / comment / argument-only / name-substring /
   // unreachable false-and mentions do NOT. A synthetic scripts map isolates the
   // grammar from the real package.json.
@@ -296,7 +292,7 @@ coverageMutations += 1;
   assert(!grammarGate('gate:substring').ok, 'a longer filename containing the checker name as a substring does not RUN it');
   assert(grammarGate('gate:real').ok, 'a real `node scripts/<checker>` step RUNS the checker');
 
-  // rf2-n36v6 — SCRIPT IDENTITY: the operand that counts is the one Node
+  // SCRIPT IDENTITY: the operand that counts is the one Node
   // ACTUALLY executes. Two families of false-green are closed here.
   //
   // (a) PRE-SCRIPT OPTIONS. Several Node options consume the following token, so
@@ -345,9 +341,9 @@ coverageMutations += 1;
   assert(identityGate('gate:win-sep').ok, 'a Windows-separator operand RUNS the checker');
   assert(identityGate('gate:trailing-args').ok, 'trailing arguments after the script operand are fine');
 
-  // rf2-n36v6 — a descriptor names a checker SCRIPT: a non-regular file (here a
-  // DIRECTORY sharing a checker's name) must not discharge enrolment, which mere
-  // existsSync path existence would have allowed.
+  // A descriptor names a checker SCRIPT: a non-regular file (here a
+  // DIRECTORY sharing a checker's name) must not discharge enrolment, which a
+  // mere existsSync path check would allow.
   {
     const fakeScripts = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-scripts-'));
     try {
@@ -363,7 +359,7 @@ coverageMutations += 1;
     }
   }
 
-  // rf2-kfn9q — RUNTIME binding: with a relPath, a checker must OWN that exact
+  // RUNTIME binding: with a relPath, a checker must OWN that exact
   // runtime (COVERS_RUNTIMES). The login checker owns adapters/reagent, not
   // adapters/newpub.
   const boundReagent = validateDedicatedGate(
@@ -398,7 +394,7 @@ coverageMutations += 1;
     assert(!uninvoked.ok && uninvoked.missing.some((rt) => rt.relPath === 'adapters/newpub'),
       'a dedicated entry whose command is not an invoked package script must fail closed');
 
-    // rf2-kfn9q — reusing an UNRELATED existing checker for a new runtime fails:
+    // Reusing an UNRELATED existing checker for a new runtime fails:
     // the login checker really RUNS under test:bundle-isolation, but it does NOT
     // own adapters/newpub, so the descriptor is not causally bound to newpub.
     const unrelated = withNewpub({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' });
@@ -412,8 +408,8 @@ coverageMutations += 1;
   });
 }
 
-// ----- inventory completeness + fail-closed read faults (rf2-o58c2) ----------
-// Bundle isolation now CONSUMES the shared authority's listPublishableRuntimes
+// ----- inventory completeness + fail-closed read faults ----------------------
+// Bundle isolation CONSUMES the shared authority's listPublishableRuntimes
 // (no second, narrower traversal), so a publishable runtime nested OUTSIDE
 // adapters/ — which the release lockstep enrols — is discovered and fails
 // closed if ungated. And an unexpected root / subtree / deps.edn read fault
@@ -421,9 +417,9 @@ coverageMutations += 1;
 // MISSING deps.edn stays a normal non-candidate.
 
 // Mutation 6 — NESTED NON-ADAPTER runtime (implementation/<x>/<y>/deps.edn with
-// a real :clein/build, x != adapters). The pre-rf2-o58c2 bundle-isolation walk
-// descended only into adapters/, so this reached release inventory (via the
-// authority) while escaping bundle coverage. Now both consumers enrol it by
+// a real :clein/build, x != adapters). A bundle-isolation walk that descended
+// only into adapters/ would let this reach release inventory (via the
+// authority) while escaping bundle coverage. Both consumers enrol it by
 // exact relPath, and — ungated — it fails coverage closed.
 coverageMutations += 1;
 withFixture((root) => writeArtefact(root, 'plugins/widgets', PUBLISHABLE_DEPS), (root) => {
@@ -449,8 +445,8 @@ withFixture((root) => fs.mkdirSync(path.join(root, 'nodeps')), (root) => {
     'a directory with no deps.edn is a normal non-candidate (not an error)');
 });
 
-// (b) Nonexistent implementation root: throws (was a silent empty result → the
-// CLI exited 0 for a torn checkout).
+// (b) Nonexistent implementation root: throws (a silent empty result would let
+// the CLI exit 0 for a torn checkout).
 {
   const ghostRoot = path.join(os.tmpdir(), `bundle-iso-nonexistent-${process.pid}-${Date.now()}`);
   assert.throws(() => listPublishableRuntimes(ghostRoot), /cannot read implementation root/,
@@ -506,31 +502,19 @@ for (const relPath of Object.keys(DEDICATED_ISOLATION_GATES)) {
   assert(rt && rt.via === 'dedicated' && rt.relPath.startsWith('adapters/'),
     `${relPath}: must be discovered under adapters/ and covered by its validated dedicated gate`);
 }
-// rf2-k9rzr — the decision the retired-`ui` guard was left waiting on. Two
-// `ui`-shaped remnants stood here, and BOTH were unreachable once the artefact
-// was retired and its directory deleted:
-//
-//   - `assert(!realCoverage.required.some((rt) => rt.relPath === 'ui'))`. The
-//     required set is derived by READING each candidate's deps.edn off disk, so
-//     a path with no directory can never enter it. Measured: substituting any
-//     never-present string for 'ui' left the self-test green, which is the
-//     definition of an assertion proving nothing.
-//   - a `NON_PUBLISHABLE_GENERIC = new Set(['ui'])` waiver that let a named
-//     generic-coverage path settle for mere directory existence instead of the
-//     structural publishable test. `genericCoveragePaths()` has not yielded 'ui'
-//     since the retire, so the branch never ran.
-//
-// Generalising the first into a retired-path guard was considered and REJECTED:
-// discovery cannot manufacture a path that is not on disk, so the generalised
-// form would be vacuous by construction too. Both are deleted rather than
-// patched, and the waiver goes with them — an exemption nothing claims can only
-// ever weaken this check for whatever claims it next.
+// There is no absent-path guard here. The required set is derived by READING
+// each candidate's deps.edn off disk, so discovery cannot manufacture a path
+// that is not on disk, and an assertion that such a path is absent would be
+// vacuous by construction. Nor is there a waiver letting a generic-coverage
+// path settle for mere directory existence: every one must pass the structural
+// publishable test below, since an exemption nothing claims can only ever
+// weaken this check for whatever claims it next.
 for (const relPath of genericCoveragePaths()) {
   assert(pathDeclaresBuildAlias(path.join(REPO_ROOT, 'implementation'), relPath),
     `generic-coverage relPath '${relPath}' must be a real publishable implementation/ artefact`);
 }
 
-// ----- lockstep consumes the SAME structural authority (rf2-zef0e) -----------
+// ----- lockstep consumes the SAME structural authority -----------------------
 // The release lockstep (.github/scripts/verify-version-lockstep.sh) must derive
 // its publishable-artefact inventory from the shared EDN-aware authority, NOT a
 // duplicated textual grep — so bundle-isolation and lockstep prove the identical
@@ -540,19 +524,18 @@ const LOCKSTEP = fs.readFileSync(
 assert(/publishable-runtimes\.cjs/.test(LOCKSTEP),
   'lockstep must consume the shared publishable-runtimes.cjs authority for inventory discovery');
 assert(!/grep\s+-qF\s+':clein\/build'/.test(LOCKSTEP),
-  'lockstep must NOT rediscover publishability via a textual grep for the clein/build token (duplicated grep removed)');
+  'lockstep must NOT rediscover publishability via a textual grep for the clein/build token');
 
-// ----- example ns-load co-load isolation (rf2-k4oe) --------------------------
+// ----- example ns-load co-load isolation -------------------------------------
 // The rule under test: an example calling an OPTIONAL artefact's registration
 // façade must `:require` that artefact ITSELF, rather than loading only because
 // a sibling app in the consolidated `:node-test` bundle already did.
 //
 // Every assertion below is a MUTATION, for the reason the whole file is written
 // this way: a rule that has only ever been seen green is indistinguishable from
-// a rule that reads nothing. resources/core.cljs was the real defect (its
-// `rf/reg-machine` call resolved only through a co-loaded sibling's
-// `re-frame.machines`), so the fixtures reproduce that exact shape rather than
-// an invented one.
+// a rule that reads nothing. The fixtures reproduce the real defect's shape — an
+// `rf/reg-machine` call that resolves only through a co-loaded sibling's
+// `re-frame.machines` — rather than an invented one.
 const CO_LOAD_FIXTURE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-coload-'));
 let coLoadMutations = 0;
 
@@ -624,8 +607,8 @@ for (const row of OPTIONAL_ARTEFACT_FACADES) {
 // namespace may DEFINE machine values requiring only re-frame.core and leave the
 // artefact require to the boot namespace that REGISTERS them.
 //
-// The first block would fail if `defmachine` were restored to the roster; the
-// second would fail if removing it were mistaken for "machines are now
+// The first block would fail if `defmachine` were added to the roster; the
+// second would fail if its absence were mistaken for "machines are
 // unchecked". A single fixture carrying both calls over one shared require —
 // which is what CO_LOAD_COMPLIANT is — cannot tell these two apart, so each gets
 // a namespace of its own.
@@ -666,8 +649,8 @@ for (const row of OPTIONAL_ARTEFACT_FACADES) {
 
 // A façade named only in PROSE is not a call site. Without this the rule would
 // demand a require for every doc comment mentioning the surface — and
-// resources/core.cljs, the real subject, names `rf/reg-machine` in a comment two
-// lines above the genuine call.
+// examples/capabilities/resources/resources/core.cljs names `rf/reg-machine` in
+// a comment as well as calling it.
 {
   coLoadMutations += 1;
   const res = assertExampleCoLoadIsolation([coLoadFixture('prose-only.cljs', `(ns fixture.prose
