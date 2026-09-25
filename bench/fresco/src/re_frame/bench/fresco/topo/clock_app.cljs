@@ -1,7 +1,6 @@
 (ns re-frame.bench.fresco.topo.clock-app
   "**THE TOPOLOGY TOURNAMENT'S CLOCK DRIVER** — the arms × operations ×
-  row-counts table the tournament pre-registered and never instrumented
-  (rf2-w01c, splitting the clock half out of rf2-hic-036).
+  row-counts table the tournament pre-registers.
 
   Driven by the lane's generic driver, so it adds no driver of its own and
   takes no new build id:
@@ -9,23 +8,17 @@
       FRESCO_INIT_FN=re-frame.bench.fresco.topo.clock-app/-main \\
       FRESCO_OUT_DIR=out/topo-clock \\
       FRESCO_PORT=8148 \\
-      node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+      node bench/fresco/src/re_frame/bench/fresco/run.cjs
 
-  ## What was missing, and it was not a control
+  ## The table and its driver
 
   [The tournament](../../../../../../../docs/design/fresco/product/topology-tournament.md)
-  froze its arms, operations, row counts, estimand, controls and stopping
-  rule before a measurement was taken, and its deterministic half then
-  landed complete at all 48 cells. The clock half published nothing, and
-  after `rf2-m6i0` the reason stopped being the control:
+  freezes its arms, operations, row counts, estimand, controls and
+  stopping rule before a measurement is taken, and its deterministic half
+  is complete at all 48 cells. Its clock half needs a driver for the
+  4 arms × 4 operations table, and this file is that driver.
 
-  > What withholds those three cells now is narrower and more ordinary:
-  > **the tournament's clock cells were never instrumented.** Only the
-  > control was built, it refused first, and no driver for the 4 arms × 4
-  > operations table exists to run.
-  > — `topology-tournament.md` §2
-
-  This file is that driver. It builds nothing the lane already has: the
+  It builds nothing the lane already has: the
   schedule, the sampling, the guard, the tally and the one meaning of
   *verified* are [[re-frame.bench.fresco.lane]]'s, and **the control is
   [[re-frame.bench.fresco.topo.control-app]]'s, called rather than
@@ -33,18 +26,14 @@
 
   ## THE CONSTRAINT THIS DRIVER IS BUILT AROUND
 
-  `rf2-m6i0`'s window established it and `rf2-hic-036` carries it forward
-  as the design input for exactly this file:
-
   > A MANIPULATION CERTIFIES AN INSTRUMENT ONLY WHEN EVERY COST IN THE
   > WINDOW MOVES WITH IT.
 
-  Two controls have now been refused on this lane and both failed the same
-  way from opposite ends — one moved only the markup while the handler and
-  the subscription layer stood still, the other moved nothing at all on
-  two of the four arms. What each left behind was a **shared constant**,
-  and a shared constant compresses a measured ratio toward 1, which reads
-  exactly like an instrument that cannot see.
+  A manipulation can fail that from either end — moving only the markup
+  while the handler and the subscription layer stand still, or moving
+  nothing at all on two of the four arms. What each leaves behind is a
+  **shared constant**, and a shared constant compresses a measured ratio
+  toward 1, which reads exactly like an instrument that cannot see.
 
   So this driver does not carry a control of its own. **It calls
   [[re-frame.bench.fresco.topo.control-app/run-arm!]] — the
@@ -55,17 +44,16 @@
   as registered (*\"A published clock figure requires both to pass for
   that arm at that row count; either failing withholds the figure\"*), and
   it is the whole reason a second control here would be a defect rather
-  than a redundancy: a driver that minted its own would be the third
-  attempt at the manipulation two windows have already priced.
+  than a redundancy: a driver that minted its own would repeat a
+  manipulation this lane has already priced.
 
   ## THE WINDOWED ARM IS NOT MEASURED, AND THAT IS A RULING
 
-  `rf2-4t36` ruled on `virtual` without taking a new measurement: at the
-  window this tournament commits to, its whole commit is 0.125–0.195 ms
-  against a fitted per-commit floor of about 0.059 ms — **47% of the
-  reading** — so a healthy instrument on a quiet box certifies that arm
-  about one run in four. Its clock cells are **UNADDRESSED**, and the
-  ruling names the two repairs that are refused: do not widen a band to
+  At the window this tournament commits to, `virtual`'s whole commit is
+  0.125–0.195 ms against a fitted per-commit floor of about 0.059 ms —
+  **47% of the reading** — so a healthy instrument on a quiet box
+  certifies that arm about one run in four. Its clock cells are
+  **UNADDRESSED**, and two repairs are refused: do not widen a band to
   admit them, and do not enlarge the window to rescue them, *\"which would
   certify a regime the cells are not published in\"*.
 
@@ -76,20 +64,19 @@
 
   ## The floor row, which is REPORTED and decides nothing
 
-  The same ruling is the reason every row count also carries a `:noop`
+  The same floor is the reason every row count also carries a `:noop`
   row. `[:topo/noop-write]` moves a key no arm reads, so its window holds
   the per-commit cost of a commit that builds no markup — dispatch, the
   `flushSync` boundary, the commit React schedules regardless. That is the
-  quantity that killed the windowed arm, and a reader handed an
+  quantity that rules out the windowed arm, and a reader handed an
   arm-to-arm ratio without it cannot tell a topology result from a floor.
 
-  **That cost is ARM-SPECIFIC, and the premise this file used to state —
-  that the row holds *\"exactly the cost that does not move with the
-  arm\"* — is FALSIFIED.** The window `rf2-w01c` took on this driver
-  reads, at `B = 1000`, **31.75 / 31.60 / 31.85 ms on `fine`** against
+  **That cost is ARM-SPECIFIC: the row does NOT hold a cost that stays
+  still across arms.** The exclusive window taken on this driver reads,
+  at `B = 1000`, **31.75 / 31.60 / 31.85 ms on `fine`** against
   **8.00 / 8.20 / 8.40 on `coarse`** and **9.40 / 9.40 / 9.55 on
   `chunked`** — `fine`'s floor is 3.97, 3.85 and 3.79 times `coarse`'s
-  across the three runs. The floor MOVES with the arm, by about 4x.
+  across the three runs. The floor MOVES with the arm.
   **What it varies with is not settled**, and this file fits no cost for
   it: the arms differ in boundary count, in subscription count and in
   nothing else the window separates, so the statement the measurement
@@ -97,35 +84,29 @@
   reads* and nothing sharper. See
   [§2.9.7](../../../../../../../docs/design/fresco/product/topology-tournament.md#297-the-floor-row-and-the-thing-it-turned-out-not-to-be).
 
-  **[2026-08-22.] A second series, taken under the exclusivity condition
-  the merged-PR audit of #8466 asked for, CONFIRMS the falsification and
-  RETIRES the `about 4x`.** Read the two apart, because only one of them
-  replicated. The claim did, in all six of its readings — the floor is
-  arm-specific and always larger on the arm with more boundaries and
-  reads — and at the two smaller row counts its factors land on top of
-  the series above, 2.15x / 2.12x at `B = 100` and 3.19x / 3.00x at
-  `B = 300`. **The factor at `B = 1000` did not**: 3.54x and 3.35x, on
+  **A second series, taken with the box held exclusive, agrees on the
+  claim and not on a single factor.** The claim holds in all six of its
+  readings — the floor is arm-specific and always larger on the arm with
+  more boundaries and reads — and at the two smaller row counts its
+  factors land on top of the window's, 2.15x / 2.12x at `B = 100` and
+  3.19x / 3.00x at `B = 300`. At `B = 1000` it reads 3.54x and 3.35x, on
   cells that both read higher (`fine` 35.75 / 39.85 against `coarse`
-  10.10 / 11.90). So `about 4x` describes the series above rather than
-  this instrument, and the sentence this file is entitled to is the one
-  it already narrows itself to. What the second series adds is that **the
-  factor grows with `B`** — near 2.1x, 3.0x and 3.4x at the three row
-  counts — which no single row count could have shown.
-
-  **The figures above are NOT replaced**, and this note is why rather
-  than an omission: that series is two admissible runs against a
-  pre-registered three, so it is a record and not a window. See
+  10.10 / 11.90), so no one factor describes this instrument; what the
+  series shows is that **the factor grows with `B`** — near 2.1x, 3.0x
+  and 3.4x at the three row counts — which no single row count could
+  show. That series is two admissible runs against a pre-registered
+  three, so it is a record beside the window's figures rather than a
+  replacement for them. See
   [Part 3](../../../../../../../docs/design/fresco/product/topology-tournament.md#part-3--the-re-take-rf2-w01c-the-exclusive-window).
 
-  The sentence above — that a reader handed an arm-to-arm ratio without
-  the floor cannot tell a topology result from a floor — is
-  **STRENGTHENED** by that and not weakened: a floor that is itself
-  arm-specific is one a reader cannot even bound by taking the smallest
-  arm's.
+  A floor that is itself arm-specific is one a reader cannot even bound
+  by taking the smallest arm's, which is the stronger form of the
+  sentence above: a reader handed an arm-to-arm ratio without the floor
+  cannot tell a topology result from a floor.
 
-  **It is published beside every cell and it adjudicates nothing.** The
-  same ruling rejected subtracting a separately-measured floor on three
-  counts, any one sufficient, and the sharpest is that there is no stable
+  **It is published beside every cell and it adjudicates nothing.**
+  Subtracting a separately-measured floor is rejected on three counts,
+  any one sufficient, and the sharpest is that there is no stable
   floor to subtract: the identical fit returns +47% on one arm and
   NEGATIVE constants on the other three. A quantity of that shape is the
   intercept of an assumed cost model, not a property of the rig. So this
@@ -136,8 +117,8 @@
 
   `batch-k` commits of one operation on one already-mounted page, under
   ONE clock, then — with the clock stopped — two cell-addressed probes
-  read back and banked into `rf.bench.fresco.lane/tally`. The batch is `rf2-9zysg`'s
-  repair for Chrome's 100 µs clamp and the same number the control uses;
+  read back and banked into `rf.bench.fresco.lane/tally`. The batch answers
+  Chrome's 100 µs clamp and is the same number the control uses;
   the read-back is `control-app`'s, cell-addressed by `data-testid`
   rather than by the row's own text, because a row's text node
   concatenates its label, its `n`, its draft and its button's caption and
@@ -190,8 +171,8 @@
   "The arms this driver deliberately starts no clock on, with the reason
   carried in the file rather than in a commit message.
 
-  `rf2-4t36` ruled the windowed arm's cells unresolvable at the committed
-  window size and handed them over as UNADDRESSED. A driver that measured
+  The windowed arm's cells are unresolvable at the committed window size,
+  and so UNADDRESSED; the reason below names the ruling. A driver that measured
   the arm anyway and labelled the number would publish a figure a reader
   can quote; this one cannot."
   {:virtual (str "rf2-4t36: at the tournament's committed window (w=20) the whole commit is "
@@ -209,8 +190,8 @@
 
   `[:topo/noop-write]` moves a key no arm reads, so its window holds the
   per-commit cost of a commit that builds no markup. That cost is
-  ARM-SPECIFIC — about 4x larger on `fine` than on `coarse` at
-  `B = 1000` — rather than the shared constant this row was named for.
+  ARM-SPECIFIC — 3.35x to 3.97x larger on `fine` than on `coarse` at
+  `B = 1000` across the recorded runs — and not a shared constant.
   REPORTED beside the cells; it corrects nothing. See the namespace
   docstring."
   :noop)
@@ -233,7 +214,7 @@
   ZERO, which is `census_dom_cljs_test`'s own choice and is copied here
   deliberately: the clock table and the work census must describe the
   same operation, and a different target would make them two experiments
-  wearing one name. That file's reason stands unchanged — row 0 is the
+  wearing one name. That file's reason holds here too — row 0 is the
   only index guaranteed to be in the windowed arm's DOM at every row
   count."
   0)
@@ -247,9 +228,9 @@
   "Operations under ONE clock — the control's own number, not a second
   one.
 
-  Chrome clamps `performance.now()` to 100 µs and `rf2-d2tzk` records
-  what that does to a narrow row. `rf2-9zysg`'s repair is to batch, and
-  `control-app` already carries the value this lane batches at; two
+  Chrome clamps `performance.now()` to 100 µs, which a narrow row cannot
+  survive unbatched. Batching is the answer, and `control-app` carries
+  the value this lane batches at; two
   numbers for one decision is how a table comes to be taken at a depth
   its control was never certified at."
   rf.bench.fresco.topo.control-app/batch-k)
@@ -506,7 +487,7 @@
               ;; One p50 per arm per round — the within-round median every
               ;; ratio below is a ratio OF, named here rather than in the
               ;; caller so a published row cannot be read as a mean of
-              ;; samples (rf2-pqyxz's correction, on the other instrument).
+              ;; samples (the same discipline the other instrument keeps).
               per-round (mapv (fn [r]
                                 (into {} (map (fn [[id xs]] [id (:p50 (rf.bench.fresco.lane/summarise xs))])) r))
                               readings)
@@ -517,7 +498,7 @@
            :cells     centre
            :per-round per-round
            ;; Against `fine`, which is the tournament's reference topology and
-           ;; the one arm both refused controls could address. `:straddles-1?`
+           ;; the one arm every candidate control can address. `:straddles-1?`
            ;; is the honesty flag: a range containing 1.0 means the two arms
            ;; are INDISTINGUISHABLE here and the row says so rather than
            ;; quoting a mean as a winner.
@@ -536,21 +517,21 @@
 
   `share` is the floor row's centre over the operation row's centre on
   the SAME arm at the SAME row count — a ratio of two measurements, never
-  a correction applied to either. `rf2-4t36` rejected subtracting a
-  floor and the sharpest of its three reasons is that there is nothing
-  stable to subtract: the identical fit returns +47% on one arm and
-  negative constants on three. The window STRENGTHENED that reason, by
-  measuring a floor that is arm-specific — see the namespace docstring.
+  a correction applied to either. Subtracting a floor is rejected, and
+  the sharpest of three reasons is that there is nothing stable to
+  subtract: the identical fit returns +47% on one arm and negative
+  constants on three. A floor that is arm-specific — see the namespace
+  docstring — makes that reason stronger.
 
   **The received rule for reading a mostly-floor cell does not apply to
-  this table, and the reason is that same falsification.** *\"A cell
+  this table, and the reason is that the floor is arm-specific.** *\"A cell
   whose window is mostly floor has its arm-to-arm ratio compressed
   toward 1\"* is true when both arms carry the SAME floor. These do not,
   so the limit here is a different number: were an operation to add
   nothing at all to either arm, the ratio would read this table's own
   floor ratio — `coarse`/`fine` of 0.254-0.268 at `B = 1000` — and not
   1.00. **No corrected ratio is computed here**, because computing one
-  needs the additive cost model `rf2-4t36` refused. Nothing here
+  needs an additive cost model, which is refused. Nothing here
   adjudicates on any of it."
   [table]
   (into {}
