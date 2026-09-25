@@ -1,13 +1,13 @@
 (ns re-frame.story.ui.shell-poll-tick-cljs-test
-  "rf2-k8mz — the shell's 500 ms poll runs two detectors, and a throw in
-  the fingerprint half must not starve the watch-mode half.
+  "The shell's 500 ms poll runs two detectors, and a throw in the
+  fingerprint half must not starve the watch-mode half.
 
-  `poll-tick!` used to call `detect-and-tick!` bare, so a throw from
-  `resolution-fingerprints` (`:rf.error/story-missing-arg`, rf2-eyrpr)
-  aborted the tick before `watch-mode-tick!` ran: watch mode silently
-  stopped re-running while its eye icon still read 'watching'. Both halves
-  now sit behind the same try / `emit-error!` shape, so the throw is
-  observable and the other half still runs on the same tick."
+  Called bare, `detect-and-tick!` would let a throw from
+  `resolution-fingerprints` (`:rf.error/story-missing-arg`) abort the
+  tick before `watch-mode-tick!` ran: watch mode would silently stop
+  re-running while its eye icon still read 'watching'. Both halves sit
+  behind the same try / `emit-error!` shape, so the throw is observable
+  and the other half still runs on the same tick."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.trace :as rf.trace]
             [re-frame.story.ui.shell :as rf.story.ui.shell]))
