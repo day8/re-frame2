@@ -1,13 +1,12 @@
 (ns day8.re-frame2-xray.machines-shape-parity-cljs-test
-  "Shape parity for the MACHINES fixture family (rf2-y8doi.28).
+  "Shape parity for the MACHINES fixture family.
 
   The Static Sim suite feeds its panel machine-transition results it holds
   as fixtures (`ok-result`, `fail-result` in `sim-helpers-cljs-test`). A
   fixture is only evidence about the panel if it has the shape the engine
-  returns: the `{:error {:reason :no-matching-transition}}` result that
-  rf2-y8doi.21 replaced was a shape the engine never produces, and every row
-  asserting against it stayed green, because the author typed both the
-  fixture and the assertion.
+  returns: a `{:error {:reason :no-matching-transition}}` result is a shape
+  the engine never produces, yet every row asserting against it would stay
+  green, because the author types both the fixture and the assertion.
 
   So the REAL side here comes from the producer, once, and the FIXTURE side
   is the suite's own var, never retyped. The key sets must be EQUAL at every
@@ -51,4 +50,4 @@
       (is (= (key-set real-error) (key-set err)))
       (is (= (key-set (:error real-error)) (key-set (:error err))))
       (is (not= (key-set (:error real-error)) #{:kind :reason})
-          "control: the fixture rf2-y8doi.21 replaced fails this parity"))))
+          "control: an error keyed #{:kind :reason} fails this parity"))))
