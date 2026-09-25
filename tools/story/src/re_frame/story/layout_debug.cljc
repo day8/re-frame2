@@ -4,7 +4,7 @@
   Three `:hiccup`-kind decorators for visual layout debugging during
   variant authoring. Each registers under `re-frame.story.registrar`
   via `reg-decorator*` so they participate in the standard decorator
-  composition pipeline (no new registries — per the
+  composition pipeline (no registry of their own — per the
   `downstream-EPs-consume-foundation` discipline).
 
   ## The three decorators
@@ -163,7 +163,7 @@
 
   `args` is the resolved args map; `:decorator/args` carries the ref
   args (the tail of `[:rf.story/layout-debug.measure & args]`). Per
-  the standard decorator-args convention. Not currently used."
+  the standard decorator-args convention. The measure wrap ignores them."
   [body _args]
   (let [wc (next-wrap-id)]
     [:div {:data-rf-story-measure true
