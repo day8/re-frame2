@@ -25,8 +25,7 @@
   feeds it through the rendering layers that FEED the devtools render:
 
     - `proj/machine-cascade-rows` — the Epoch panel's per-epoch machine
-      cascade (the exit/action/entry rows; the canonical sort; the
-      no-op-transition suppression).
+      cascade (the exit/action/entry rows; the canonical sort).
     - `mih/project-focused-event-transitions` — the Machine Inspector's
       focused-event view-model (one record per transition; parallel → ≥2).
     - `chart-layout/project-definition` — the SOLE topology projector
@@ -570,13 +569,12 @@
           "internal self-transition leaves the configuration at :on"))))
 
 (deftest neither-self-transition-emits-spurious-no-op-transition-row
-  (testing "regression guard — the no-op transition-row suppression must NOT over-fire: a GENUINE self-
-            transition (external or internal) carries a real transition row,
-            so the suppression (which drops the substrate's unconditional
-            `{X}→{X}` emit ONLY when a `:no-op` row is present) must leave the
-            transition row intact. Both self-transitions render exactly one
-            transition row and zero no-op rows — the inverse of the unhandled-
-            event case the suppression targets."
+  (testing "regression guard — a GENUINE self-transition (external or
+            internal) carries a real transition row: the source suppresses
+            the no-change `{X}→{X}` emit only for a no-op macrostep (empty
+            cascade, zero microsteps), so a self-transition's row survives.
+            Both self-transitions render exactly one transition row and zero
+            no-op rows — the inverse of the unhandled-event case."
     (setup!)
     (drive! [:hvac/power-cycle])
     (doseq [ev [[:hvac/nudge] [:hvac/tweak]]]
@@ -701,4 +699,4 @@
             "single-machine case drops the machine name"))
       ;; Benign — no transition row beside it, no state change committed.
       (is (empty? (rows-of-kind rows :transition))
-          "a no-op carries no transition row (the no-op transition-row suppression)"))))
+          "a no-op carries no transition row (the source suppresses the no-change transition)"))))
