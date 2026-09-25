@@ -11,6 +11,8 @@
             [day8.re-frame2-xray.filters.pills :as pills]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
@@ -225,32 +227,55 @@
         "singular 'pattern' for count = 1")))
 
 ;; -------------------------------------------------------------------------
-;; (7) The add-pill never calls window.prompt
+;; (7) The add buttons never call window.prompt
+;;
+;; The buttons are taken from the SHELL's own tree — the chrome ribbon's
+;; `+ filter` and the events ribbon's `[+]` — so the test clicks whatever
+;; the shell mounts, and a button it cannot find fails the test rather
+;; than skipping the click.
+;;
+;; The node lane has no `window`, so the test installs one for the length
+;; of the clicks: `window` is `globalThis`, as in a browser, and `prompt`
+;; is a recording stub. A call through `window.prompt`, a bare `prompt`
+;; or a `window`-guarded branch all land on the stub. The tree is walked
+;; BEFORE the stub goes in, so no render path sees a `window` it would
+;; take for a browser.
 ;; -------------------------------------------------------------------------
 
-(deftest add-pill-handler-no-longer-calls-window-prompt
-  (testing "clicking [+] does not trigger a
-            `js/window.prompt` call. We assert
-            this by stubbing prompt to throw; the click handler must
-            complete without calling it (the click dispatches the
-            open-edit-popup event instead)."
-    (xray-setup!)
-    (let [prompt-called? (atom false)
-          original-prompt (when (and (exists? js/window)
-                                     (.-prompt js/window))
-                            (.-prompt js/window))]
-      (when (exists? js/window)
-        (set! (.-prompt js/window)
-              (fn [& _]
-                (reset! prompt-called? true)
-                (throw (js/Error. "window.prompt called — stub regression")))))
-      (try
-        (let [tree (pills/pills-view rf/dispatch {:filters {:in [] :out []}})
-              add  (rf.test-helpers/find-by-testid tree "rf-xray-filter-add")
-              handler (:on-click (second add))]
-          (when handler (handler nil)))
-        (is (not @prompt-called?)
-            "add-pill click must not call window.prompt")
-        (finally
-          (when (and (exists? js/window) original-prompt)
-            (set! (.-prompt js/window) original-prompt)))))))
+(def ^:private add-button-testids
+  ["rf-xray-filter-add"          ; chrome ribbon `+ filter`
+   "rf-xray-filter-add-events"]) ; events ribbon `[+]`
+
+(deftest add-filter-buttons-never-call-window-prompt
+  (xray-setup!)
+  (let [handlers     (rf/with-frame :rf/xray
+                       (let [tree (dynamic-shell-tree/shell-view-tree)]
+                         (mapv #(:on-click (second (rf.test-helpers/find-by-testid tree %)))
+                               add-button-testids)))
+        prompt-calls (atom [])
+        dispatches   (atom [])
+        global       js/globalThis
+        had-window?  (exists? js/window)
+        had-prompt?  (some? (.-prompt global))
+        original     (.-prompt global)]
+    (doseq [[testid handler] (map vector add-button-testids handlers)]
+      (is (fn? handler) (str testid " is in the shell tree with a click handler")))
+    (when-not had-window? (set! (.-window global) global))
+    (set! (.-prompt global) (fn [& args] (swap! prompt-calls conj (vec args)) nil))
+    (try
+      (with-redefs [rf/dispatch-impl (fn
+                                       ([ev]       (swap! dispatches conj ev) nil)
+                                       ([ev _opts] (swap! dispatches conj ev) nil))]
+        (doseq [handler handlers :when (fn? handler)]
+          (handler nil)))
+      (finally
+        (if had-prompt?
+          (set! (.-prompt global) original)
+          (js-delete global "prompt"))
+        (when-not had-window? (js-delete global "window"))))
+    (is (empty? @prompt-calls)
+        "no add-filter click calls window.prompt")
+    (is (= [[:rf.xray/open-edit-popup {:source :add :mode :in}]
+            [:rf.xray/open-edit-popup {:source :add :mode :in}]]
+           @dispatches)
+        "each click opens the edit popup, empty and defaulted to IN")))

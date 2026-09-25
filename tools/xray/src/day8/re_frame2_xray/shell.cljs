@@ -693,8 +693,9 @@
 ;; on the existing reactive path (a new event-bundle appears in
 ;; `:rf.xray/event-bundles`) so no timer / no internal trace pollution.
 ;;
-;; The view subscribes to `:rf.xray/relative-time-now-ms` (sub
-;; composed off `:rf.xray/event-bundles` — see `registry.cljs`).
+;; That anchor is the `:rf.xray/relative-time-now-ms` sub in
+;; `registry.cljs`. The L2 list does not read it: the `timestamp` column
+;; renders absolute time, which needs no anchor.
 
 (defn format-relative-time
   "Pure helper. Given two epoch-ms values (current time + the event-bundle's
@@ -783,10 +784,9 @@
   "Render the L2 row's right-aligned `timestamp` column. This renders
   the ABSOLUTE wall-clock time (`HH:MM:SS.mmm`, e.g.
   `12:30:05.123`) per the authoritative reference event-list — NOT a
-  relative `1s`/`now` chip. The `now-ms` anchor is not consumed for the
-  label (absolute time needs no anchor); the parameter is ignored. The
-  chip's `:title` carries the full ISO walltime + epoch-ms as the
-  power-user reveal.
+  relative `1s`/`now` chip, so it takes no `now` anchor. The chip's
+  `:title` carries the full ISO walltime + epoch-ms as the power-user
+  reveal.
 
   `col-px` is the user-resizable `timestamp` column width
   (pixels). The header + every row read from the same
@@ -794,7 +794,7 @@
   out of column alignment.
 
   Renders nothing when the event-bundle carries no dispatched-time stamp."
-  [event-bundle _now-ms col-px]
+  [event-bundle col-px]
   (when-let [then-ms (event-bundle-dispatched-time-ms event-bundle)]
     (let [label   (format-clock-time then-ms)
           tooltip (format-absolute-time then-ms)]
@@ -845,14 +845,6 @@
                     :text-align    "right"
                     :white-space   "nowrap"}}
      label]))
-
-;; ---- Relative-time anchor ------------------------------------------------
-;;
-;; No timer. The anchor is the dispatched-time of the most recent
-;; event-bundle — see the `:rf.xray/relative-time-now-ms` sub in
-;; `registry.cljs`. It re-fires on the standard reactive path when a
-;; new event-bundle lands in `:rf.xray/event-bundles`, so old rows recompute
-;; their relative-time exactly when fresh context arrives.
 
 ;; ---- L1 ribbon -----------------------------------------------------------
 
@@ -1441,9 +1433,9 @@
     - **LEFT** — the `Event History` label (the reference leads with it;
       there is no `❖ Xray` wordmark), the `[‹ › »]` blue-filled nav
       cluster, then the `+ filter` add-pill.
-      The chrome `+ filter` is mutually-exclusive with the events-ribbon:
+      The chrome `+ filter` gives way to the events-ribbon's `[+]`:
       when ≥1 filter is committed the events-ribbon owns the
-      `[+]` add affordance and the chrome `+ filter` collapses to zero
+      add affordance and the chrome `+ filter` collapses to zero
       width via the `.rf-xray-filters-collapse-h` horizontal-grid track
       (250ms, same cadence + reduced-motion seam as the events-ribbon
       vertical collapse).
@@ -1723,7 +1715,7 @@
   inline column widths from. The parent (`event-list`) subscribes
   ONCE per paint and threads the resolved map through props so each
   row doesn't re-subscribe per render."
-  [{:keys [event-bundle focused-id auto-track? now-ms col-widths dispatch-fn]}]
+  [{:keys [event-bundle focused-id auto-track? col-widths dispatch-fn]}]
   (let [dispatch-fn (or dispatch-fn rf/dispatch)
         id          (:dispatch-id event-bundle)
         focused?    (= id focused-id)
@@ -1980,7 +1972,7 @@
      ;; Timestamp column — absolute wall-clock
      ;; `HH:MM:SS.mmm`, right-aligned. The chip carries an absolute-time
      ;; `:title` tooltip as the power-user reveal.
-     (relative-time-chip event-bundle now-ms (:timestamp col-widths))
+     (relative-time-chip event-bundle (:timestamp col-widths))
      ;; Divider sits between `timestamp` and `duration`.
      (col-divider {:col-id    :duration
                    :col-px    (:duration col-widths)
@@ -2046,7 +2038,10 @@
   so all three are CALLED rather than headed."
   [dispatch {:keys [filters hidden-summary]}]
   (let [filter-count (+ (count (:in filters)) (count (:out filters)))
-        open?        (pos? filter-count)]
+        ;; A mute hides rows with no pill to show for it, so the count
+        ;; alone opens the ribbon too: the `N events filtered out` warning
+        ;; never renders inside a closed track.
+        open?        (or (pos? filter-count) (boolean (:visible? hidden-summary)))]
     ;; Collapse track. Always mounted so the height/opacity
     ;; transition runs in BOTH directions (open when the first filter is
     ;; added, closed when the last is removed). `data-open` drives the
@@ -2114,9 +2109,10 @@
   ## Conditional + animated
 
   The whole `filters:` ribbon is HIDDEN when there are zero filters and
-  appears only after the user creates the first filter via `[+ filter]`.
-  It animates OPEN when the first filter is added and animates CLOSED when
-  the last filter is removed. The collapse uses a CSS
+  appears only after the user creates the first filter via `[+ filter]`,
+  or when mutes alone hide rows, so their `N events filtered out` count
+  shows. It animates OPEN when the first filter is added and animates
+  CLOSED when the last filter is removed. The collapse uses a CSS
   `grid-template-rows: 0fr ⇄ 1fr` transition (the modern jank-free
   height-collapse technique) keyed off the `data-open` attribute — see
   `theme/global-styles/motion-css` for the rule. The outer collapse track
@@ -2344,7 +2340,7 @@
 
 (defn event-list-tree
   "The L2 event list's WHOLE hiccup, as a pure function of the frame-bound
-  `dispatch` and the eight values [[event-list]] reads.
+  `dispatch` and the seven values [[event-list]] reads.
 
   SPLIT OUT OF [[event-list]] so the view's body is the thin
   read-and-call shape every Fresco boundary has, and the node lane's door
@@ -2374,7 +2370,7 @@
   differ exactly when none is, so the count cannot derive one from the
   other — see [[nav-boundary-state]], which draws the same distinction."
   [dispatch {:keys [col-widths list-height-px event-bundles spine-event-bundles
-                    focus focus-slot show-ungrouped? now-ms]}]
+                    focus focus-slot show-ungrouped?]}]
   (let [focused-id    (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view
@@ -2458,7 +2454,6 @@
                  (event-row {:event-bundle event-bundle
                              :focused-id   focused-id
                              :auto-track?  auto-track?
-                             :now-ms       now-ms
                              :col-widths   col-widths
                              :dispatch-fn  dispatch})))))
       ;; LAST child of the scroll container so
@@ -2527,7 +2522,7 @@
     `resources/Panel` do.
 
     Making it a boundary is local to this file: swap `rf/reg-view` for
-    `rf.fresco/defview`, swap the eight `@(rf/subscribe …)` for
+    `rf.fresco/defview`, swap the seven `@(rf/subscribe …)` for
     `rf.fresco/sub`, and make [[event-list-bridge]] the `as-component`
     bridge. The body below is already the thin read-and-call shape every
     boundary has, [[event-list-tree]] is the pure fn, and the node lane's
@@ -2599,15 +2594,7 @@
        ;; bucket. Default OFF keeps silent-by-default; ON
        ;; surfaces the bucket as a muted L2 row that focuses the
        ;; bucket on click so downstream panels populate.
-       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-       ;; The relative-time anchor: the dispatched-time of the most
-       ;; recent event-bundle (it flips on event arrival, not on a
-       ;; per-second tick), falling back to `(rf.interop/now-ms)` when
-       ;; the buffer is empty / no event-bundle carries a stamp.
-       ;; [[relative-time-chip]] receives it but renders absolute time
-       ;; and ignores it.
-       :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
-                            (rf.interop/now-ms))})))
+       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])})))
 
 ;; ---- the event-spine bridge ----------------------------------------------
 ;;
