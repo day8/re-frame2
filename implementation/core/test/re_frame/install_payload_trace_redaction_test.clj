@@ -31,12 +31,26 @@
       see payloads at all;
     - the installed values are in the frame.
 
+  ## Posture split
+
+  Traces are dev instrumentation: under `-Dre-frame.debug=false` none is
+  emitted. So every trace assertion that holds in BOTH postures is written to
+  hold there — no captured trace carries a secret, and every captured trace
+  that echoes an installer's event vector reads `[<event-id> :rf/redacted]`,
+  which a production build satisfies by emitting none. The assertions that a
+  trace EXISTS — each of the six carriers, and the ordinary event's payload
+  showing through — sit inside `(when rf.interop/debug-enabled? …)` arms.
+  The refused install's `:errors` sink record, the shared descriptor and the
+  installed state are always-on, so they run unguarded under
+  `scripts/test-core-prod-gate.sh` and keep that lane's claim non-vacuous.
+
   JVM-only: the core test classpath carries the machines and SSR artefacts
   both installers need."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interop :as rf.interop]
             ;; Both artefacts register an installer's collaborators at load:
             ;; machines the snapshot runtime, SSR the `:rf/hydrate` event.
             [re-frame.machines]
@@ -82,13 +96,23 @@
   [:rf.event/dispatched :rf.event/run-start :rf.event/db-pending
    :rf.event/db-changed :rf.event/frame-state-changed :rf.event/run-end])
 
-(defn- redacted-in-every-carrier
-  "Assert every `event-v-carriers` trace in `traces` is present and reads
-  `[event-id :rf/redacted]`."
-  [traces event-id]
-  (doseq [op event-v-carriers]
-    (is (= [event-id :rf/redacted] (event-v-of traces op))
-        (str op " carries the event id and the payload redacted as a whole"))))
+(defn- assert-installer-traces-redacted
+  "The trace assertions for an installer run as `event-id`, split by posture.
+  In both postures: no trace in `traces` carries any of `secrets`, and every
+  trace echoing `event-id`'s vector reads `[event-id :rf/redacted]`. In a dev
+  build: each of `event-v-carriers` is present."
+  [traces event-id secrets]
+  (doseq [s secrets]
+    (is (not-any? #(carries? % s) traces) (str "no trace carries " s)))
+  (doseq [t traces
+          :let [v (get-in t [:tags :rf.event/v])]
+          :when (and (vector? v) (= event-id (first v)))]
+    (is (= [event-id :rf/redacted] v)
+        (str (:operation t) " carries the event id and the payload redacted as a whole")))
+  (when rf.interop/debug-enabled?
+    (doseq [op event-v-carriers]
+      (is (= [event-id :rf/redacted] (event-v-of traces op))
+          (str op " is emitted, redacted")))))
 
 (defn- reg-fixtures! []
   (rf/reg-machine :trc/vault
@@ -137,10 +161,7 @@
           ;; events do; the install payload carries no classification.
           _      (rf/dispatch-sync [:trc/classify [[:account :password]]] {:frame :trc/dest})
           traces (captured #(rf/dispatch-sync [:rf/install-frame-state saved] {:frame :trc/dest}))]
-      (is (seq traces) "precondition: the install emitted traces")
-      (is (not-any? #(carries? % machine-secret) traces) "no trace carries the machine secret")
-      (is (not-any? #(carries? % app-secret) traces) "no trace carries the app-db secret")
-      (redacted-in-every-carrier traces :rf/install-frame-state)
+      (assert-installer-traces-redacted traces :rf/install-frame-state [machine-secret app-secret])
 
       (testing "the installed state is readable in the frame"
         (is (= app-secret (get-in (rf/app-db-value :trc/dest) [:account :password])))
@@ -148,11 +169,12 @@
                (get-in (rf/frame-state-value :trc/dest)
                        [:rf.db/runtime :rf.runtime/machines :snapshots :trc/vault :data :token]))))
 
-      (testing "an ordinary event's trace still shows its payload"
-        (let [ordinary (captured #(rf/dispatch-sync [:trc/note {:note "visible-note"}] {:frame :trc/dest}))]
-          (doseq [op event-v-carriers]
-            (is (= [:trc/note {:note "visible-note"}] (event-v-of ordinary op))
-                (str op " shows an ordinary event's payload"))))))))
+      (when rf.interop/debug-enabled?
+        (testing "an ordinary event's trace still shows its payload"
+          (let [ordinary (captured #(rf/dispatch-sync [:trc/note {:note "visible-note"}] {:frame :trc/dest}))]
+            (doseq [op event-v-carriers]
+              (is (= [:trc/note {:note "visible-note"}] (event-v-of ordinary op))
+                  (str op " shows an ordinary event's payload")))))))))
 
 (deftest the-registrar-and-the-image-standard-carry-one-declaration
   (testing "`:rf/install-frame-state` resolves to the same `:sensitive [[]]`
@@ -200,8 +222,6 @@
     (rf/dispatch-sync [:trc/classify [[:csrf]]] {:frame :trc/client})
     (let [payload {:rf/version 1 :rf/app-db {:csrf wire-secret :greeting "hello"}}
           traces  (captured #(rf/dispatch-sync [:rf/hydrate payload] {:frame :trc/client}))]
-      (is (seq traces) "precondition: the hydration emitted traces")
-      (is (not-any? #(carries? % wire-secret) traces) "no trace carries the permitted secret")
-      (redacted-in-every-carrier traces :rf/hydrate)
+      (assert-installer-traces-redacted traces :rf/hydrate [wire-secret])
       (is (= wire-secret (:csrf (rf/app-db-value :trc/client)))
           "the hydrated state is readable in the frame"))))
