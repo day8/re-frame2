@@ -1,5 +1,5 @@
 (ns re-frame.story-save-variant-test
-  "JVM tests for the save-current-canvas-state-as-variant flow (rf2-one3t).
+  "JVM tests for the save-current-canvas-state-as-variant flow.
 
   Pure-data coverage: the args-snapshot helper, the EDN code-gen
   (`gen-variant-snippet`), the dialog state-machine transitions, and the
@@ -41,9 +41,9 @@
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
   (rf.story.save-variant/set-open-dialog-fn! nil)
-  ;; EP-0002 (rf2-bd4div) — the event-handler tests dispatch
-  ;; `:rf.story/save-current-as-variant` ambiently; that frame-scoped op
-  ;; now requires a carried frame stamp. Pin the ordinary `:rf/default`
+  ;; The event-handler tests dispatch
+  ;; `:rf.story/save-current-as-variant` ambiently, and that frame-scoped op
+  ;; requires a carried frame stamp (EP-0002). Pin the ordinary `:rf/default`
   ;; frame (registered just above) as the established scope for the test
   ;; body so the dispatch lands on a real frame rather than raising
   ;; :rf.error/no-frame-context.
@@ -224,7 +224,7 @@
         (is (= 7 (-> @captured :args :n)))
         (is (= :story.snap/v (:source-id result)))))))
 
-;; ---- rf2-ba86n.6: the eight-slice capture report rides the trigger -------
+;; ---- the eight-slice capture report rides the trigger --------------------
 
 (deftest save-current-as-variant!-carries-slice-report
   (testing "the trigger computes the eight-slice capture report and passes
@@ -246,7 +246,7 @@
             "args is the projectable slice")))))
 
 (deftest save-current-as-variant!-declared-slots-captured-as-declared
-  (testing "a source variant declaring the not-yet-wired slices captures them
+  (testing "a source variant declaring slices with no live capture captures them
             as-declared (carried forward via :extends) — honest, not dropped"
     (rf.story/reg-variant :story.snap/declared
       {:args         {:n 1}
