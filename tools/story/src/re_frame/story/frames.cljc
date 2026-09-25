@@ -45,7 +45,7 @@
   The UI shell combines Story's registrar mutation tick with content
   fingerprints to detect a changed testable variant. Its watch-mode path
   reruns only variants whose effective content hash drifted; frame lifecycle
-  remains owned here and in `re-frame.story.runtime`."
+  is owned here and in `re-frame.story.runtime`."
   (:require [re-frame.core             :as rf]
             ;; `reset-state!` reaches the raw frame-state
             ;; write boundary (`rf.frame/replace-frame-state!`) directly so an
@@ -61,7 +61,7 @@
             [re-frame.frame            :as rf.frame]
             ;; EP-0025: a variant's durable app-db `:sensitive` / `:large`
             ;; classification is applied as commit-plane classification
-            ;; effects (the frame annotation is removed). Story reaches the
+            ;; effects (there is no frame annotation). Story reaches the
             ;; pure registry-write seam directly (same artefact as
             ;; `re-frame.frame` above; bundle-isolated from production).
             [re-frame.elision          :as rf.elision]
@@ -77,7 +77,7 @@
             [re-frame.story.error      :as rf.story.error]
             [re-frame.story.late-bind  :as rf.story.late-bind]
             [re-frame.story.loaders    :as rf.story.loaders]
-            ;; rf2-shx4 — frame teardown releases the frame's ownership of its
+            ;; Frame teardown releases the frame's ownership of its
             ;; authored `:network` canned replies (the runtime takes ownership
             ;; before allocation). Pure registry bookkeeping; the HTTP
             ;; artefact itself is reached lazily from inside that ns.
@@ -129,10 +129,10 @@
 ;; decorator stack upstream and runs each `:frame-setup` decorator's `:init`
 ;; against it; we stash the SAME stack here so `run-teardown-walks!` runs the
 ;; matching `:teardown` set — even when a hot-reload changed the variant's
-;; `:decorators` between allocate! and teardown. Re-resolving at teardown (the
-;; prior behaviour) ran a DIFFERENT set than `:init` did, leaking a resource
-;; the old `:init` opened and tearing down one the new set never opened
-;; (rf2-x76af2.19). Mirrors `destroy-inline!`, which already uses its
+;; `:decorators` between allocate! and teardown. Re-resolving at teardown
+;; would run a DIFFERENT set than `:init` did, leaking a resource
+;; the old `:init` opened and tearing down one the new set never opened.
+;; Mirrors `destroy-inline!`, which uses its
 ;; caller-supplied captured stack. Evicted by `run-teardown-walks!`.
 (defonce
   ^{:doc "frame-id → the `rf.story.decorators/resolve-decorators` result CAPTURED at
@@ -142,9 +142,9 @@
   (atom {}))
 
 ;; Per-frame ALLOCATE-TIME `:loaders-teardown`, for exactly the reason the
-;; decorator capture above exists (rf2-gwye.6). Teardown used to re-read the
-;; CURRENT registration, so an ordinary edit / hot-reload between a run and its
-;; destroy ran a cleanup whose `:loaders` never fired and skipped the cleanup
+;; decorator capture above exists. Re-reading the CURRENT registration at
+;; teardown would, after an ordinary edit / hot-reload between a run and its
+;; destroy, run a cleanup whose `:loaders` never fired and skip the cleanup
 ;; for the resource the live run actually opened — closing the wrong socket,
 ;; timer or subscription, or none at all. The capture is the RESOLVED slot
 ;; (the compiled plan's, when the caller threaded a `world`), so an inherited /
@@ -242,8 +242,7 @@
   every pipeline exception (handler / coeffect / interceptor) targeting
   `id`, not just handler-exception: a phase event whose cofx injector or
   user interceptor throws is a first-class failure too — and so is a
-  phase event nobody registered a handler for (the no-handler refusal,
-  rf2-0ae7o.13).
+  phase event nobody registered a handler for (the no-handler refusal).
 
   `:drain!` — THE ORDERING CONTRACT, which governs every call site.
   Call it after EVERY dispatch inside the listener-bound walk, and once
@@ -264,7 +263,7 @@
   Each captured event is read into its record by
   `rf.story.error/captured-failure-record` — the one trace→record reader,
   shared with the play-runner's drain, which also knows the no-handler
-  refusal's bare tag shape (rf2-0ae7o.13). A projection dispatch that
+  refusal's bare tag shape. A projection dispatch that
   itself throws is swallowed: the walk records what it can and never
   aborts `destroy-frame!`."
   [id phase]
@@ -496,19 +495,19 @@
   can recognise variant frames from their `frame-meta`.
 
   EP-0025: a variant's durable app-db `:sensitive` / `:large` classification
-  is NO LONGER threaded onto the `make-frame` config — the frame annotation is
-  removed. It is applied as commit-plane classification effects into the
+  is NOT threaded onto the `make-frame` config — there is no frame
+  annotation. It is applied as commit-plane classification effects into the
   frame's elision registry right after `make-frame`, before the lifecycle /
   init events run (see `apply-variant-classification!`).
 
-  rf2-kuky.18: the config also declares Story's own `:observability :errors`
+  The config also declares Story's own `:observability :errors`
   sink, so a variant's deliberate refusal is ROUTED rather than merely
   unreported — that is what keeps `re-frame.error-emit`'s dev console
   fallback quiet for Story's frames without silencing a host app's frames on
   the same page. Conj'd onto whatever `[:observability :errors]` entries are
   already there, never replacing them.
 
-  rf2-0ae7o.8: `interceptor-overrides` is the compiled plan's
+  `interceptor-overrides` is the compiled plan's
   `[:world :frame :interceptor-overrides]`, installed under the framework's
   per-frame `:interceptor-overrides` key beside `:fx-overrides`, so an
   authored override swaps the interceptor in every dispatch the frame runs
@@ -560,19 +559,16 @@
   - `variant-images` — the variant body's own `:images`, layered on top of the
                        story image (a BEHAVIOUR variant overriding specific
                        `[kind id]`s with its own image).
-  - `fixture-image`  — rf2-shx4: PRESENT ONLY when this frame owns an authored
+  - `fixture-image`  — PRESENT ONLY when this frame owns an authored
                        `:network` fixture (`rf.story.network/install-for-frame!`
                        ran for it upstream in phase 0). It carries exactly ONE
                        inline `:reg-fx` — the frame-scoped managed-request stub
-                       the plan's `:fx-overrides` redirect names. It was added
-                       because a variant with an EXPLICIT app image could not
-                       resolve that redirect's target, so the request fell
-                       through to the REAL `:rf.http/managed` transport. Since
-                       rf2-3x7nj.5.2 every explicit composition is layered
+                       the plan's `:fx-overrides` redirect names. Every
+                       explicit composition is layered
                        over the framework base (`:rf/framework`), whose
                        unstamped `:rf`-rooted registrations include the stub,
-                       so this image is now redundant but kept; its entry
-                       shadows the base's (`rf.story.network` ns docstring,
+                       so this image duplicates the base's entry and
+                       shadows it (`rf.story.network` ns docstring,
                        017 §Reaching the fixture). Composed after
                        every app image (nothing authored can shadow the
                        fixture) and before `runtime-image` (they are disjoint;
@@ -598,7 +594,7 @@
   (let [story-imgs (story-images variant-id)
         app-imgs   (into (vec story-imgs) variant-images)]
     (when (seq app-imgs)
-      ;; rf2-shx4 — the fixture image is layered ONLY when this frame owns a
+      ;; The fixture image is layered ONLY when this frame owns a
       ;; `:network` fixture AND the stub is genuinely installed
       ;; (`fixture-image` reads the source store, so it returns nil rather
       ;; than inlining a stale handler).
@@ -612,9 +608,9 @@
   "Convert a variant body's `:sensitive` / `:large` classification declaration
   (the durable app-db form `{:app-db [[path]…]}`) into the flat EP-0025
   commit-plane effect form `{:sensitive [[path]…] :large [[path]…]}`. The
-  variant `:sensitive` / `:large` slots carry only `:app-db` paths — EP-0025
-  retired the frame `:sensitive {:http}` carrier block (HTTP carriers moved
-  onto the `:rf.http/managed` `reg-fx` registration's `:carriers` block), so
+  variant `:sensitive` / `:large` slots carry only `:app-db` paths — HTTP
+  carriers are declared on the `:rf.http/managed` `reg-fx` registration's
+  `:carriers` block — so
   only the `:app-db` paths are lowered here. Returns nil when no app-db paths
   are declared."
   [{:keys [sensitive large]}]
@@ -634,8 +630,8 @@
   classified path is already redacted in any trace the run's setup emits.
   No-op when `classification` declares no app-db classification. Shared by
   both `allocate!` (the caller threads the ALREADY-COMPILED plan's
-  `[:world :sensitive]` / `[:world :large]` — rf2-lsr95i, see `allocate!`)
-  and `allocate-inline!` (rf2-cmjly3 finding 12 — an inline plan's
+  `[:world :sensitive]` / `[:world :large]` — see `allocate!`)
+  and `allocate-inline!` (an inline plan's
   `[:world :sensitive]` / `[:world :large]`, threaded through the same
   way since an inline run has no registered variant body). Both callers
   hand this fn the plan's EFFECTIVE (`:extends`-merged) classification,
@@ -657,15 +653,15 @@
   Called AFTER the frame is registered (both callers), not before: for
   `allocate-inline!` this means a malformed declaration can leave an
   orphan anonymous frame behind (`run-inline-plan`'s failure-path teardown
-  only fires once `allocate-inline!` has RETURNED normally). That was
-  deliberately chosen over validating pre-registration — doing so left the
+  only fires once `allocate-inline!` has RETURNED normally). That is
+  deliberate: validating pre-registration would leave the
   throw with NO live frame for `record-error!`'s `::append-assertion`
-  dispatch to land in, so the malformed-classification failure was
+  dispatch to land in, so the malformed-classification failure would be
   silently swallowed as a vacuous `:status :pass` with zero assertions —
   strictly worse than an orphaned dev-tool frame. It is also no NEW risk
   class: every other throw site between `rf/make-frame` and the
   `allocated?` flip (`rf.story.loaders/mount!` / `apply-frame-setup!`'s `:init`
-  events) already shares it."
+  events) shares it."
   [subject-id classification]
   (let [effects (->classification-effects classification)]
     (when (seq effects)
@@ -721,26 +717,26 @@
   runtime (`run-phase-0!`) threads `(:world plan)`; four groups of slots are
   read off it:
 
-  - `:sensitive` / `:large` — the EFFECTIVE app-db classification
-    (rf2-lsr95i). `plan/variant-plan` folds them through the `:extends` chain
+  - `:sensitive` / `:large` — the EFFECTIVE app-db classification.
+    `plan/variant-plan` folds them through the `:extends` chain
     via `context-keys` — the SAME merge `allocate-inline!` receives for an
-    inline plan run (rf2-cmjly3 finding 12). Reading the raw body here
-    silently dropped a classified parent's redaction from a child that only
-    `:extends`ed it.
-  - `[:frame :fx-overrides]` — the compiled frame overrides (rf2-shx4), e.g.
+    inline plan run. Reading the raw body here would
+    silently drop a classified parent's redaction from a child that only
+    `:extends`es it.
+  - `[:frame :fx-overrides]` — the compiled frame overrides, e.g.
     the `:network` lowering's `{:rf.http/managed :rf.http/managed-test-stub}`
     redirect. They merge UNDER the decorator stack's materialised stubs (the
     plan map wins), exactly as `allocate-inline!` merges its own; without
-    them an authored `:network` fixture reached the REAL transport.
-  - `[:frame :interceptor-overrides]` — the compiled interceptor overrides
-    (rf2-0ae7o.8), installed as the frame's `:interceptor-overrides`. Nothing
-    installed them before, so an authored override was silently ignored.
+    them an authored `:network` fixture would reach the REAL transport.
+  - `[:frame :interceptor-overrides]` — the compiled interceptor overrides,
+    installed as the frame's `:interceptor-overrides`; without them an
+    authored override would be silently ignored.
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — the RESOLVED
-    loader world (rf2-gwye.5). The events-only classification is taken from
+    loader world. The events-only classification is taken from
     it, so a variant that only `:extends` (or `:compose`s) a loader fixture
     takes the four-phase path that fixture needs instead of jumping to
     `:ready` with its loaders unrun; and its `:loaders-teardown` is CAPTURED
-    for this run in `allocated-loaders-teardown` (rf2-gwye.6).
+    for this run in `allocated-loaders-teardown`.
 
   Omitted (2-arity — direct / test callers with no compiled plan on hand)
   every slot falls back to the RAW registered body, i.e. no `:extends` /
@@ -752,13 +748,13 @@
      (install-canonical-frame-events!)
      (let [fx-stack       (rf.story.decorators/fx-overrides-map (:fx-override decorator-stack))
            decor-fx       (register-fx-overrides! fx-stack)
-           ;; rf2-shx4 — the compiled plan's `[:world :frame :fx-overrides]`
+           ;; The compiled plan's `[:world :frame :fx-overrides]`
            ;; (e.g. the `:network` lowering's `{:rf.http/managed
            ;; :rf.http/managed-test-stub}` redirect) rides onto the frame the
-           ;; SAME way `allocate-inline!` already merges it: decorator stubs
-           ;; UNDER the plan map, so the plan wins. Before this the registered
-           ;; path passed only the decorator stack, so an authored `:network`
-           ;; fixture's redirect was silently dropped and the variant reached
+           ;; SAME way `allocate-inline!` merges it: decorator stubs
+           ;; UNDER the plan map, so the plan wins. Passing only the decorator
+           ;; stack would silently drop an authored `:network`
+           ;; fixture's redirect, and the variant would reach
            ;; the REAL `:rf.http/managed` transport.
            fx-overrides   (merge decor-fx (get-in world [:frame :fx-overrides]))
            ;; Inline the variant-body lookup (`variant-body` is defined
@@ -799,9 +795,11 @@
            ;; author-declared behaviour set).
            author-images  (into (vec (story-images variant-id))
                                  (:images v-body))
-           ;; Thread the variant's EP-0015 frame-owned
-           ;; `:sensitive` / `:large` classification onto the make-frame config,
-           ;; plus the image ids (for frame-meta tooling read-back).
+           ;; The make-frame config: the fx / interceptor overrides plus
+           ;; the image ids (for frame-meta tooling read-back).
+           ;; `variant-frame-config` reads neither `:sensitive` nor `:large` —
+           ;; classification rides the commit-plane effects applied after
+           ;; `make-frame` below.
            config-map     (variant-frame-config
                             variant-id fx-overrides
                             (assoc (select-keys scenario [:sensitive :large])
@@ -810,7 +808,7 @@
                                    (get-in world [:frame :interceptor-overrides])))
            ;; Classify off the RESOLVED loader world: an inherited or composed
            ;; `:loaders` / `:loaders-complete-when` keeps the variant off the
-           ;; events-only fast path, so its fixture actually runs (rf2-gwye.5).
+           ;; events-only fast path, so its fixture actually runs.
            events-only?   (rf.story.loaders/events-only-variant? scenario decorator-stack)]
        ;; EP-0023 §Stories / §Frame-derived live registration resolution
        ;; — the frame carries the resolved, sealed image GENERATION so
@@ -836,10 +834,10 @@
        ;; classification as commit-plane classification effects into the frame's
        ;; elision registry NOW — after the container exists, BEFORE the
        ;; lifecycle / init / frame-setup events run, so a classified path is
-       ;; already redacted in any trace the variant's setup emits. (The frame
-       ;; annotation that previously rode the frame config is removed.)
+       ;; already redacted in any trace the variant's setup emits. (There is
+       ;; no frame-config annotation.)
        ;;
-       ;; rf2-lsr95i: the EFFECTIVE (`:extends`-merged) classification when a
+       ;; The EFFECTIVE (`:extends`-merged) classification when a
        ;; compiled `world` was threaded; the raw body's own
        ;; `:sensitive`/`:large` for the 2-arity direct / test callers below
        ;; `run-phase-0!`, none of which exercise `:extends`.
@@ -859,12 +857,12 @@
        (apply-frame-setup! variant-id (:frame-setup decorator-stack))
        ;; Stash the ALLOCATE-TIME stack so teardown runs the SAME
        ;; :frame-setup set whose :init just ran, even if a hot-reload changes
-       ;; the variant's :decorators before teardown (rf2-x76af2.19). In the
+       ;; the variant's :decorators before teardown. In the
        ;; re-run path (run-phase-0!) reset-state!'s teardown reads the PRIOR
        ;; stash BEFORE this line overwrites it with the current stack.
        (swap! allocated-decorator-stacks assoc variant-id decorator-stack)
        ;; …and the RESOLVED `:loaders-teardown` this run owns, for the same
-       ;; reason and with the same lifetime (rf2-gwye.6). Stashed even when
+       ;; reason and with the same lifetime. Stashed even when
        ;; EMPTY: presence is what tells teardown this run's cleanup is known,
        ;; so a cleanup added to the registration AFTER the run started never
        ;; fires against a resource it never opened. In the re-run path
@@ -892,7 +890,7 @@
   "Construct the `make-frame` record-config map for an inline-plan frame. Mirrors
   `variant-frame-config` but stamps `:rf/inline? true` (the inline run's
   anonymous frame is never a navigable variant). It carries the same
-  `:observability :errors` sink for the same reason (rf2-kuky.18): an inline
+  `:observability :errors` sink for the same reason: an inline
   plan fails on purpose exactly as a variant does, and a frame Story
   allocated without the policy would be the one hole in
   \"every Story frame routes its refusals\"."
@@ -917,21 +915,21 @@
     `[:world :decorators]` refs (the runtime resolves it upstream);
   - `plan-frame` — the plan's `[:world :frame]` map, whose `:fx-overrides`
     (the lowered map, e.g. the managed-HTTP stub the compiler folded
-    `:network` into) and `:interceptor-overrides` (rf2-0ae7o.8) are both
+    `:network` into) and `:interceptor-overrides` are both
     installed on the frame;
   - `events-only?` — whether the plan drives no loaders / frame-setup, so
     the lifecycle takes the `:pre-mount → :ready` fast-path;
-  - `classification` (optional, 5-arity; rf2-cmjly3 finding 12) — the
+  - `classification` (optional, 5-arity) — the
     plan's `(select-keys (:world plan) [:sensitive :large])` map (the
     caller, `run-inline-phase-0!`, threads this from the compiled plan —
-    `plan.cljc`'s `context-keys` now carries `:sensitive`/`:large` through
+    `plan.cljc`'s `context-keys` carries `:sensitive`/`:large` through
     to `[:world :sensitive]` / `[:world :large]`). An inline plan run has
     no registered variant body for `apply-variant-classification!` to read
-    (the way `allocate!` does via `v-body`), so without this arg a
-    `:sensitive`/`:large` declaration on an inline plan map compiled +
-    ran with NO error and NO redaction — a value marked sensitive silently
-    rode into the wire trace unredacted. Defaults to nil (no
-    classification), which `apply-variant-classification!` already
+    (the fallback `allocate!` has via `v-body`), so without this arg a
+    `:sensitive`/`:large` declaration on an inline plan map would compile +
+    run with NO error and NO redaction — a value marked sensitive would
+    silently ride into the wire trace unredacted. Defaults to nil (no
+    classification), which `apply-variant-classification!`
     no-ops on.
 
   Registers the `:fx-override`-decorator stubs, applies the plan's
@@ -945,21 +943,21 @@
   author/network overrides). Does NOT register anything in the Story
   side-table.
 
-  rf2-cmjly3 finding 12 follow-on: classification is validated AFTER
+  Classification is validated AFTER
   `rf/make-frame` (NOT before), even though that means a malformed
   declaration can leave an anonymous inline frame registered with nothing
   to tear it down (`run-inline-plan`'s failure path only tears down once
   `allocate-inline!` has RETURNED normally). That risk is accepted, not
-  overlooked: validating BEFORE `rf/make-frame` was tried and reverted — it
-  left the frame-less throw with NO live frame for `record-error!`'s
+  overlooked: validating BEFORE `rf/make-frame` would
+  leave the frame-less throw with NO live frame for `record-error!`'s
   `::append-assertion` dispatch to land in, so the malformed-classification
-  failure was silently swallowed (`:status :pass`, zero assertions — a
+  failure would be silently swallowed (`:status :pass`, zero assertions — a
   privacy-relevant defect reported as a vacuous green, strictly worse than
   an orphaned dev-tool frame). Validating after `rf/make-frame` — the SAME
-  position `allocate!` already uses for the registered path — keeps
+  position `allocate!` uses for the registered path — keeps
   fail-loud reporting correct and is no NEW risk class: every other
   throw site between `rf/make-frame` and the `allocated?` flip
-  (`rf.story.loaders/mount!` / `apply-frame-setup!`'s `:init` events) already shares
+  (`rf.story.loaders/mount!` / `apply-frame-setup!`'s `:init` events) shares
   it."
   ([frame-id decorator-stack plan-frame events-only?]
    (allocate-inline! frame-id decorator-stack plan-frame events-only? nil))
@@ -1002,7 +1000,7 @@
     ;; leaves no stale run-state behind once it is torn down.
     (when-let [drop (rf.story.late-bind/get-fn :drop-run-state)]
       (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; Evict the a11y panel's per-frame axe state (rf2-cpbut), symmetric with
+    ;; Evict the a11y panel's per-frame axe state, symmetric with
     ;; `run-teardown-walks!`. An inline frame the dev scanned leaves no
     ;; retained detached DOM behind once it is torn down.
     (when-let [drop (rf.story.late-bind/get-fn :drop-a11y-state)]
@@ -1012,7 +1010,7 @@
         (catch #?(:clj Throwable :cljs :default) _ nil)))
     (try (apply-frame-teardown! frame-id (:frame-setup decorator-stack))
       (catch #?(:clj Throwable :cljs :default) _ nil))
-    ;; rf2-shx4 — same release as `destroy!`: an inline run's completion drops
+    ;; Same release as `destroy!`: an inline run's completion drops
     ;; exactly the fixture that run owned.
     (rf.story.network/release-frame! frame-id)
     (rf/destroy-frame! frame-id)
@@ -1052,7 +1050,7 @@
   ;; runner-events — cycle).
   (when-let [drop (rf.story.late-bind/get-fn :drop-run-state)]
     (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-  ;; Evict the a11y panel's per-frame axe state (rf2-cpbut). Unlike the two
+  ;; Evict the a11y panel's per-frame axe state. Unlike the two
   ;; evictions above, the cost here is not a stale verdict but RETAINED DOM:
   ;; the violations bag holds raw axe-core violation objects, each of which
   ;; references the offending elements through `:nodes` / `:target`. Left in
@@ -1066,12 +1064,12 @@
   ;; loader-installed narrower state is cleaned up before decorator-installed
   ;; wider state.
   ;;
-  ;; The events come from the ALLOCATE-TIME capture (rf2-gwye.6), mirroring
+  ;; The events come from the ALLOCATE-TIME capture, mirroring
   ;; step 4's decorator capture: cleanup must release what THIS run's loaders
-  ;; opened, and re-reading the registration here handed an edited body's
+  ;; opened, and re-reading the registration here would hand an edited body's
   ;; cleanup to a run that never set it up. The capture is also the RESOLVED
-  ;; slot, so an `:extends`-inherited / `:compose`d cleanup runs at all
-  ;; (rf2-gwye.5). Falls back to the current registration only for a frame
+  ;; slot, so an `:extends`-inherited / `:compose`d cleanup runs at all.
+  ;; Falls back to the current registration only for a frame
   ;; torn down without going through `allocate!`'s stash path; `find`, not
   ;; `get`, so a run that captured NO cleanup keeps its empty answer.
   (try
@@ -1088,7 +1086,7 @@
   ;; rather than re-resolving here, so a hot-reload that changed the variant's
   ;; :decorators between allocate! and teardown still tears down the SAME
   ;; :frame-setup set whose :init ran — mirroring `destroy-inline!`, which
-  ;; uses its caller-supplied captured stack (rf2-x76af2.19). Falls back to a
+  ;; uses its caller-supplied captured stack. Falls back to a
   ;; fresh resolve when nothing was stashed (a frame torn down without going
   ;; through allocate!'s stash path). Evicted so the side-table never outlives
   ;; the frame; in the re-run path (run-phase-0!) this read happens BEFORE the
@@ -1111,7 +1109,7 @@
   3. Dispatch-sync the RUN's `:loaders-teardown` events in declared order —
      the resolved slot captured when this run's frame was allocated, so the
      cleanup releases what this run's loaders opened even if the
-     registration changed meanwhile (rf2-gwye.6). Exceptions are caught and
+     registration changed meanwhile. Exceptions are caught and
      projected into the variant frame's `:rf.story/assertions` as
      `:rf.error/exception` records with
      `:phase :phase-loaders-teardown`. The walk never aborts.
@@ -1121,7 +1119,7 @@
      `:rf.error/exception` records with `:phase :phase-teardown`. The
      walk never aborts.
   5. Machines spawned into the variant frame receive
-     `:rf.machine/destroy` (existing spec/005 contract, executed
+     `:rf.machine/destroy` (the spec/005 contract, executed
      inside `rf/destroy-frame!`).
   6. `rf/destroy-frame!` runs the frame's own teardown walk.
 
@@ -1135,7 +1133,7 @@
   [variant-id]
   (when rf.story.config/enabled?
     (run-teardown-walks! variant-id)
-    ;; rf2-shx4 — release THIS frame's canned-network ownership (and, once no
+    ;; Release THIS frame's canned-network ownership (and, once no
     ;; Story frame owns any, the shared stub fx). Only this frame's fixture
     ;; goes: a concurrently mounted variant keeps answering its own replies.
     (rf.story.network/release-frame! variant-id)
@@ -1202,7 +1200,7 @@
   NOTE the in-place `reset-state!` is the path
   `run-variant`'s fresh-run boundary takes when a frame already exists —
   it preserves live view reactions. This destroy + re-allocate helper is
-  the explicit full-teardown variant retained for callers that genuinely
+  the explicit full-teardown variant for callers that genuinely
   want the frame torn down and rebuilt."
   [variant-id decorator-stack]
   (destroy! variant-id)
