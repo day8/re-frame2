@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.element-inspector-cljs-test
-  "Tests for the element-level click-to-code inspector (rf2-h0jc0).
+  "Tests for the element-level click-to-code inspector.
 
   Runs on both the JVM (cognitect.test-runner via `clojure -M:test`)
   and the CLJS node-test build (shadow's `:node-test` target picks up
@@ -21,7 +21,8 @@
     - `resolve-source-coord` walks parsed coord + the registry's
       handler-meta to produce a launchable source-coord map.
     - The toolbar chip renders the right shape (data-test attr,
-      `aria-haspopup`/`aria-expanded` per rf2-zll4h convention,
+      `aria-haspopup`/`aria-expanded` per the toolbar reset-gate
+      convention,
       label flips on toggle).
     - The overlay component renders nothing when inspect mode is off
       or no element is hovered; renders the outline + tooltip when
@@ -125,7 +126,7 @@
 #?(:cljs
    (deftest inspect-chip-renders-toggle-state
      (testing "chip renders with `aria-haspopup` (not aria-pressed) per
-               rf2-zll4h reset-gate convention"
+               the toolbar reset-gate convention"
        (let [hiccup (rf.story.ui.element-inspector/inspect-chip)
              props  (second hiccup)]
          (is (= :button (first hiccup)))
@@ -137,7 +138,7 @@
          (is (= "false" (:aria-expanded props))
              "off-state aria-expanded")
          (is (not (contains? props :aria-pressed))
-             "MUST NOT use aria-pressed — see rf2-zll4h")
+             "MUST NOT use aria-pressed — the toolbar reset assertion counts it")
          (is (fn? (:on-click props)))))))
 
 #?(:cljs
