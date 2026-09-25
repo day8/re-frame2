@@ -3,7 +3,7 @@
   2, the product default).
 
   The same screen and the same shared state layer, with this rendering's
-  own event positions written out (as every rendering's now are). One fixed
+  own event positions written out (as every rendering's are). One fixed
   site per boundary receives the complete query collection and the body
   destructures the snapshot; the hook count does not move with the
   collection's size, which is the whole reason this tier — and not the
@@ -15,7 +15,7 @@
   1. **[[row]] declares both queries and reads the draft
      unconditionally**, where the collector rendering reads it only for
      an editable row. A completed row therefore holds two edges here and
-     one there. The ruled alternative — a conditional *child boundary*
+     one there. The alternative — a conditional *child boundary*
      owning the draft — buys the edge back and costs a second `defview`;
      the judgement page prices both, and this file takes the spelling a
      working author actually writes.
@@ -28,11 +28,10 @@
   Nothing else moves. The DOM is asserted identical to the other two
   renderings by `arm1_dogfood_dom_cljs_test`.
 
-  **Historical for the preference question (rf2-2rtt6.67).** The operator
-  ruled this surface below the usability bar (2026-07-31), so the
-  charter-v0 preference case is collector vs raw UIx and this rendering
-  is not in it. It stays because it is still the measured control the
-  collector's conditional read is priced against
+  **Not in the preference question.** This surface sits below the
+  usability bar, so the charter-v0 preference case is collector vs raw
+  UIx and this rendering is not in it. It exists as the measured control
+  the collector's conditional read is priced against
   (`the-collectors-conditional-read-costs-fewer-edges-than-the-declaration`),
   and for no other reason."
   (:require [re-frame.bench.fresco.arm1.runtime :refer [use-subs]]
@@ -56,7 +55,7 @@
      [:button.add {:type "submit"} "Add"]]))
 
 (defn- filter-button
-  "The read moved out: a helper under this tier takes the value it needs
+  "The read is the caller's: a helper under this tier takes the value it needs
   as an argument, because there is no fixed hook site inside a helper for
   a read to occupy."
   [id label current]
