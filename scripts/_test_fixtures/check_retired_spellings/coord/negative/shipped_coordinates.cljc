@@ -1,11 +1,11 @@
 (ns fixture.coord.negative.shipped-coordinates
-  "NEGATIVE fixture: the shipped shapes rf2-hic-007 moved the corpus ONTO —
-  a `:where` on the package's own namespace, and the corrected parity assertion
-  that reads the PACKAGE prefix instead of one file's. If rule (d) fired on
-  either, it would red the very fix it exists to protect.
+  "NEGATIVE fixture: the shipped shapes the corpus uses —
+  a `:where` on the package's own namespace, and a parity assertion
+  that reads the PACKAGE prefix rather than one file's. If rule (d) fired on
+  either, it would red the very shapes it exists to protect.
 
-  The corrected assertion is the interesting half: it is still a string, still
-  compared with `str/starts-with?`, and still names a namespace prefix — so the
+  The assertion is the interesting half: it is a string,
+  compared with `str/starts-with?`, and names a namespace prefix — so the
   rule cannot be 'a string that looks like a coordinate'. It has to be
   `front.`/`arm1.` specifically.")
 

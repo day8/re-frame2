@@ -1,6 +1,6 @@
 (ns fixture.negative.rf-frame-id-coeffect
   "NEGATIVE fixture: the CANONICAL :rf.frame/id event-context coeffect read
-  in all three accessor forms. This is the CORRECT spelling that replaced
+  in all three accessor forms. This is the CORRECT spelling, not
   the retired bare :frame coeffect — it must NEVER fire the gate."
   (:require [re-frame.interceptor :as interceptor]))
 

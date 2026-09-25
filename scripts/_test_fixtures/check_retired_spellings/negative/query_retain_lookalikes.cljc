@@ -1,12 +1,12 @@
 (ns fixture.negative.query-retain-lookalikes
-  "NEGATIVE fixture: the surviving query vocabulary plus every near-miss
+  "NEGATIVE fixture: the query vocabulary plus every near-miss
   spelling. Must stay GREEN — the rule matches the retired keyword TOKEN
   `:query-retain` exactly, so a namespaced or suffixed lookalike is a
   different key and none of them is retired.")
 
 (defn register! [rf]
   (rf/reg-route :route/cart
-                {;; the surviving two-slot promotion vocabulary
+                {;; the two-slot promotion vocabulary
                  :query          [:map [:sort {:optional true} :keyword]]
                  :query-defaults {:sort :recent}
                  ;; app-namespaced keys are always accepted (open map for
@@ -22,7 +22,7 @@
    :query-retain/mode :shell-keys})
 
 ;; The in-place request keys — the causal primitive for "same page, different
-;; query" — are untouched by the retirement.
+;; query" — are not part of the rule.
 (defn shell-nav [current-query]
   {:to          :route/cart
    :query-merge (select-keys current-query [:locale :tenant])})

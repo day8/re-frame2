@@ -1,7 +1,7 @@
 ;; POSITIVE fixture (rule g) — the retired namespace, in live source.
 ;;
-;; The rename moved the product's namespace to `re-frame.fresco` and its munged
-;; path to `re_frame/fresco/`. A require naming the old namespace resolves to
+;; The product's namespace is `re-frame.fresco` and its munged path is
+;; `re_frame/fresco/`. A require naming the retired namespace resolves to
 ;; nothing and is the plainest reintroduction there is.
 ;;
 ;; EXACTLY ONE line below may carry the retired name. This header deliberately

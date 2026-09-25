@@ -4,13 +4,13 @@
   verbatim from
   `implementation/fresco/src/re_frame/fresco/impl/{state.cljc,presence_react.cljs}`.
 
-  rf2-r4jy's brief named ONE of these (the state.cljc section header) and asked
-  whether to allowlist it or mask comments generally. Scanning the real surface
-  with comments unmasked answers it: there are three, the other two are
-  `[[wiki-link]]` doc references whose `[` grants token start exactly as the
-  header's `(` does, and any allowlist would grow with the next provenance
-  comment someone writes. Rule (d) masks comments; this fixture is what pins
-  that decision to the corpus that forced it.
+  Rule (d) masks comments rather than allowlisting any of these. Scanning
+  the real surface with comments unmasked finds three: the section header
+  in state.cljc, and two `[[wiki-link]]` doc references whose `[` grants
+  token start exactly as the header's `(` does. Any allowlist would grow
+  with the next provenance comment someone writes, so masking comments
+  is the rule, and this fixture pins that rule to the corpus it
+  describes.
 
   All three are prose provenance into a frozen prototype tree, kept verbatim by
   the freeze manifest, carried by NO refusal.")

@@ -1,6 +1,6 @@
 (ns fixture.negative.redirect-location-key
   "NEGATIVE fixture: the CANONICAL :location redirect-target key on a
-  :rf.server/redirect / :rf.server/safe-redirect fx (rf2-vngir). This is
+  :rf.server/redirect / :rf.server/safe-redirect fx. This is
   the correct spelling — it must NEVER fire the gate.")
 
 (defn save-handler [_ _]

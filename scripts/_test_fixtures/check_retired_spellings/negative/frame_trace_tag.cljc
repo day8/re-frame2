@@ -2,7 +2,7 @@
   "NEGATIVE fixture: the SANCTIONED trace / error-record :frame tag. The
   frame id is READ from the :rf.frame/id coeffect and STAMPED onto a trace
   under the :frame tag — the value flows :rf.frame/id -> :frame tag. Must
-  stay GREEN (rf2-7d30s error-emit frame-stamp pass)."
+  stay GREEN."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.trace :as trace]))
 
