@@ -17,7 +17,7 @@
 ;;
 ;; DIVERGENCE pinned elsewhere (machine-reg-error-choice.edn): the :choice
 ;; value is a DECLARATIVE candidate ARRAY — a function-valued :choice is
-;; REJECTED at registration (operator-ruled A2 / C1).
+;; REJECTED at registration.
 ;;
 ;; Per [005 §`:type :choice` (transient / choice states)]
 ;; (../../005-StateMachines.md#type-choice-transient--choice-states) and
