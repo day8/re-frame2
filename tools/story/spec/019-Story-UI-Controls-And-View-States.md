@@ -160,7 +160,7 @@ projection for a slice whose substrate is not wired:
 | Args | projectable | Live effective args (five-layer precedence chain, [`002-Runtime.md`](002-Runtime.md)) → the snippet's `:args` slot. |
 | Transient controls | projectable | In-flight `:cell-overrides` — folded into `:args` by `resolve-args`, not a separate slot. |
 | Sub-overrides | captured-as-declared / not-wired | The runtime applies sub-overrides at render ([`017` §View-state subscription overrides](017-Testing-Story.md#view-state-subscription-overrides)), but no View-State control pins a live value, so there is nothing live to capture; the `:sub-overrides` the source declares, inherits through its own `:extends` chain or composes carry forward (warned), else not-wired. |
-| DB seed | captured-as-declared / not-wired | The runtime wires the schema-checked app-db-seed fidelity rung ([`017` §Direct app-db seeding](017-Testing-Story.md#direct-app-db-seeding--db-seed-as-implemented)), but the save flow has no live app-db capture; the `:db-seed` the source declares, inherits through its own `:extends` chain or composes carries forward (warned), else not-wired. A `:setup`, declared or inherited, is not a seed and never sets this row's status: its events re-run in the saved variant through `:extends`, which the row's note states separately. |
+| DB seed | captured-as-declared / not-wired | The runtime wires the schema-checked app-db-seed fidelity rung ([`017` §Direct app-db seeding](017-Testing-Story.md#direct-app-db-seeding--db-seed-as-implemented)), but the save flow has no live app-db capture; the `:db-seed` the source declares, inherits through its own `:extends` chain or composes carries forward (warned), else not-wired. A `:setup`, declared or inherited, is not a seed and never sets this row's status: its events re-run in the saved variant through `:extends`, which the row's note states separately. When the saved body leaves the source's `:compose` out (below), the note also says so, names the ids and gives the reason. |
 | Route | not-wired | No live route capture, and a variant body has no route slot — route state is not captured. |
 | Network | captured-as-declared / not-wired | No live Network controls; the `:network` the source declares, inherits or composes carries forward (warned), else not-wired. |
 | FX-overrides | captured-as-declared / not-wired | No live Effects controls; the source's declared `:fx-overrides` carries forward via `:extends` (warned), else not-wired. The row reads the declared slot only: the compiled plan's `[:world :frame :fx-overrides]` also holds `:network`'s managed-stub lowering, which is no fx override the author wrote, so fx overrides the source inherits or composes are not shown, and the row's note says so. |
@@ -173,7 +173,10 @@ composes. The copy is left out when the source's own body and a fragment
 it composes both carry `:setup`, or both carry a script — `:compose` runs a
 fragment's setup and script before the composing body's own, and a variant
 that extends the source runs the source's own setup first and its own
-script not at all. Every captured-as-declared row except FX-overrides reads
+script not at all. A silent reorder is worse than a known omission, so the
+DB seed row's note then states that `:compose` was not carried and why,
+and names its ids so the author can add them by hand. Every
+captured-as-declared row except FX-overrides reads
 the value the saved variant runs with, off that saved body's compiled plan.
 
 Slices that are not a clean live projection surface a non-blocking

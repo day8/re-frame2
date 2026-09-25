@@ -435,6 +435,52 @@
     (is (= [:fragment.sv/seed]
            (:compose (rf.story.save-variant/saved-variant-body :story.sv/setup-and-seed {:n 1}))))))
 
+(defn- not-carried-notes
+  "Every capture-report note for `variant-id` that says a `:compose` was
+  not carried."
+  [variant-id]
+  (->> (vals (saved-rows variant-id))
+       (keep :note)
+       (filter #(str/includes? % "is not carried"))))
+
+(deftest save-current-as-variant!-names-a-compose-it-leaves-out
+  (testing "the source and a fragment it composes both carry setup: the saved
+            body has no :compose, and the DB seed row names the ids and why"
+    (rf.story/reg-fragment :fragment.nc/boot {:setup [[:frag/boot]]})
+    (rf.story/reg-variant :story.nc/setup-both
+      {:args {:n 1} :setup [[:own/boot]] :compose [:fragment.nc/boot]})
+    (is (not (contains? (rf.story.save-variant/saved-variant-body :story.nc/setup-both {:n 1})
+                        :compose)))
+    (let [note (-> (saved-rows :story.nc/setup-both) :db-seed :note)]
+      (is (str/includes? note "The source's :compose [:fragment.nc/boot] is not carried"))
+      (is (str/includes? note "would run in a different order under :extends"))
+      (is (= 1 (count (not-carried-notes :story.nc/setup-both)))
+          "one row says it, not every row")))
+  (testing "the same when both carry a script"
+    (rf.story/reg-fragment :fragment.nc/click {:script [[:frag/click]]})
+    (rf.story/reg-variant :story.nc/script-both
+      {:args {:n 1} :script [[:own/click]] :compose [:fragment.nc/click]})
+    (is (not (contains? (rf.story.save-variant/saved-variant-body :story.nc/script-both {:n 1})
+                        :compose)))
+    (is (str/includes? (-> (saved-rows :story.nc/script-both) :db-seed :note)
+                       "The source's :compose [:fragment.nc/click] is not carried")))
+  (testing "control: fragments carrying no setup or script are copied, with no note"
+    (rf.story/reg-fragment :fragment.nc/seed {:db-seed {[:count] 1}})
+    (rf.story/reg-variant :story.nc/seed-only
+      {:args {:n 1} :setup [[:own/boot]] :script [[:own/click]] :compose [:fragment.nc/seed]})
+    (is (= [:fragment.nc/seed]
+           (:compose (rf.story.save-variant/saved-variant-body :story.nc/seed-only {:n 1}))))
+    (is (empty? (not-carried-notes :story.nc/seed-only))))
+  (testing "control: a map-slot collision is copied, the source still wins the
+            key, and there is no note"
+    (rf.story/reg-fragment :fragment.nc/pin {:sub-overrides {[:cart/items] [:frag]}})
+    (rf.story/reg-variant :story.nc/map-both
+      {:args {:n 1} :sub-overrides {[:cart/items] [:own]} :compose [:fragment.nc/pin]})
+    (is (= [:fragment.nc/pin]
+           (:compose (rf.story.save-variant/saved-variant-body :story.nc/map-both {:n 1}))))
+    (is (= {[:cart/items] [:own]} (-> (saved-rows :story.nc/map-both) :sub-overrides :value)))
+    (is (empty? (not-carried-notes :story.nc/map-both)))))
+
 (deftest save-current-as-variant!-nil-when-no-focus
   (testing "without a focused variant the trigger is a no-op"
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant nil)
