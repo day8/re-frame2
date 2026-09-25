@@ -13,8 +13,8 @@
 ;; leaf fn (`re-frame.http.privacy-headers/redact-headers`) — a pure
 ;; `(headers-map, frame-extras) → redacted-map` projection. `:frame-extras`
 ;; is the lower-cased carrier extension set the resolver lowers a `:carriers
-;; {:headers […]}` declaration to (the call-op arg name is historical; the
-;; declaration site is the `:rf.http/managed` registration now). The fixture
+;; {:headers […]}` declaration to (whatever the call-op arg's name, the
+;; declaration site is the `:rf.http/managed` registration). The fixture
 ;; pins the UNION semantics directly: a built-in default AND a carrier both
 ;; redact; an unclassified header rides verbatim.
 ;;
