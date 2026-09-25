@@ -1,10 +1,10 @@
 (ns re-frame.story.egress-test
-  "JVM tests for the human-egress reproducibility classifier (rf2-ba86n.16,
-  spec/022 §3 + spec/018 §4 T4).
+  "JVM tests for the human-egress reproducibility classifier
+  (spec/022 §3 + spec/018 §4 T4).
 
   The classifier is pure data → data so the JVM corpus covers it without
-  booting Reagent / the runtime. These tests pin the contract the reframe
-  load-bears: human egress is NOT privacy-gated, but a shared / exported /
+  booting Reagent / the runtime. These tests pin the load-bearing
+  contract: human egress is NOT privacy-gated, but a shared / exported /
   copied artifact says HONESTLY whether the recipient can reproduce it
   (full / partial / view-only) and WHAT downgraded it."
   (:require [clojure.test :refer [deftest is testing]]
@@ -123,11 +123,11 @@
       (is (string? (get rf.story.egress/status-labels s))
           (str "missing label for " s)))))
 
-;; ---- EP-0015 scope reconciliation (rf2-nnc06c) ---------------------------
+;; ---- EP-0015 scope --------------------------------------------------------
 ;;
 ;; Story's share / copy / static / screenshot are feature-created artifacts,
-;; so EP-0015 scopes them in — but the recorded ruling is that human-local
-;; egress ships UNREDACTED (the trusted-local operator act). The classifier
+;; so EP-0015 scopes them in — and human-local egress ships UNREDACTED (the
+;; trusted-local operator act). The classifier
 ;; is REPRODUCIBILITY-only: it must NOT redact a sensitive value, and a
 ;; sensitive value must not change the reproducibility verdict. These tests
 ;; pin that the human-egress seam is orthogonal to sensitivity.
