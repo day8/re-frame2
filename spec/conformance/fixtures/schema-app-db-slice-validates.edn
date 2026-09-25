@@ -3,8 +3,8 @@
 ;; the slice at the registered path AFTER the handler's :db effect commits.
 ;; A handler that violates the slice's shape triggers
 ;; :rf.error/schema-validation-failure with :where :app-db and the
-;; offending :path. Per Spec 010 §Per-step recovery row 4 (rf2-wkxng /
-;; rf2-6m0se) the :db effect is ROLLED BACK to the pre-handler value
+;; offending :path. Per Spec 010 §Per-step recovery row 4
+;; the :db effect is ROLLED BACK to the pre-handler value
 ;; and the dispatch is treated as failed; the trace tag carries
 ;; :rollback? true and :recovery :no-recovery.
 ;;
@@ -27,7 +27,7 @@
           :user/set-good {:doc "Sets :user to a well-typed map (passes)."}
           :user/set-bad  {:doc "Sets :user to a value violating the schema."}}
   :sub   {:user {:doc "Current user slice."}}
-  ;; Per rf2-cq1ak app-db schemas are NOT a registrar kind; the
+  ;; App-db schemas are NOT a registrar kind; the
   ;; `:app-schemas` fixture key carries `path → schema` for the
   ;; runner's `reg-app-schema` realisation step.
   :app-schemas
@@ -48,8 +48,8 @@
   [:user/set-bad]]
 
  :fixture/expect
- ;; Final app-db reflects the LAST WELL-TYPED commit — per rf2-wkxng /
- ;; rf2-6m0se the malformed :user/set-bad commit is rolled back to the
+ ;; Final app-db reflects the LAST WELL-TYPED commit — the
+ ;; malformed :user/set-bad commit is rolled back to the
  ;; pre-handler value ({:id 2 :email "bob@example.com"}, set by
  ;; :user/set-good).
  {:final-app-db {:user {:id 2 :email "bob@example.com"}}
@@ -68,7 +68,7 @@
     :tags      {:category        :rf.error/schema-validation-failure
                 :failing-id      :user/set-bad
                 :where           :app-db
-                ;; Per rf2-oh4se the trace's :path is the failing leaf
+                ;; The trace's :path is the failing leaf
                 ;; path (registered-path + Malli explainer's :in suffix),
                 ;; not the registration root. The :registered-path tag
                 ;; carries the registration root for consumers that want
