@@ -34,7 +34,7 @@
  * The deliverable is informational, not a regression gate. The
  * production-elision contract already has a gate
  * (`check-bundle-isolation.cjs`); the Story dev bundle's absolute size
- * doesn't have a meaningful budget yet, and a hard cap would just bake
+ * has no meaningful budget, and a hard cap would just bake
  * in the current implementation cost. Re-run this script when the
  * comparison number needs refreshing.
  *
@@ -47,8 +47,9 @@
  * Set BENCH_SKIP_BUILD=1 to skip the `shadow-cljs release` step
  * (useful when the bundles are already fresh in `implementation/out/`).
  *
- * Exit 0 always — informational only. The script reports numbers; the
- * output is the comparison record.
+ * Exit 0 whenever it measures — informational only; a failed release or
+ * a missing bundle exits 1. The script reports numbers; the output is the
+ * comparison record.
  */
 
 'use strict';
