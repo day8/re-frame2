@@ -51,8 +51,8 @@
     The quieter inactive fill lets the active tab POP in the rhythm
     of the dark tabs ribbon; 0.2 makes the inactive tabs read as
     competing siblings rather than backgrounded options. This is a
-    deliberate, contractual divergence from the authority — codified
-    here so a future audit doesn't raise it as drift.
+    deliberate, contractual divergence from the authority — recorded
+    here so it is not mistaken for drift.
 
   ## Out of scope (WIP)
 
@@ -517,7 +517,7 @@
         [:span {:style {:color "var(--devtools-text)"}} "→ {:method :get, :uri \"/api/data\"}"]]]]]]])
 
 ;; ============================================================================
-;; App-DB Panel Component (RETAINED — richer than the Figma stub)
+;; App-DB Panel Component (richer than the Figma stub)
 ;; ============================================================================
 
 (defn app-db-panel []
