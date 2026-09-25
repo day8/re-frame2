@@ -1,6 +1,5 @@
 (ns panel-gallery.gallery-routing
-  "Story coverage for the **Routes tab** of the Xray 4-layer chrome
-  (rf2-nrbs9, reshaped per rf2-lq0ef).
+  "Story coverage for the **Routes tab** of the Xray 4-layer chrome.
 
   The Routes tab body is the `routing/Panel` view. The panel reads:
 
@@ -43,8 +42,7 @@
      :doc  "Xray Routes tab — flat catalogue of registered routes with
             substring search + Simulate-URL plus HERE/FROM/TO markers
             driven by the focused event-bundle per spec/016 §Routes tab +
-            spec/018 §5.6. Decorative URL-path tree dropped per
-            rf2-lq0ef (audit verdict B)."})
+            spec/018 §5.6."})
 
   (rf.story/reg-story :story.xray.routing
     {:doc        "Visual gallery of the Xray Routes tab under varying
@@ -62,7 +60,7 @@
     {:doc        "Host app has no routes registered. Panel renders
                  the silent empty-state — terse one-liner, no list,
                  no search, no Simulate-URL. Honours silent-by-
-                 default per rf2-g3ghh."
+                 default."
      :setup     [[:rf.xray/set-registered-routes-override-for-test {}]
                   [:rf.xray/set-current-route-slice-override-for-test nil]]
      :tags       #{:dev :state/empty}
@@ -95,7 +93,7 @@
                    fixtures/cart-routes]
                   ;; Live slice is the post-nav value (confirm). FROM is
                   ;; read off the event-bundle's :rf.route/deactivated emit
-                  ;; (prior route = cart), NOT the live slice (rf2-m9rx6).
+                  ;; (prior route = cart), NOT the live slice.
                   [:rf.xray/set-current-route-slice-override-for-test
                    fixtures/confirm-slice]
                   [:rf.xray/sync-trace-buffer
