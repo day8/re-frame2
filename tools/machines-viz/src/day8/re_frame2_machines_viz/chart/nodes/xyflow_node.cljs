@@ -78,6 +78,19 @@
       (js->clj c :keywordize-keys true)
       vc/chart-regular)))
 
+(defn lifecycle-of
+  "Recover a node's own `:tags`, `:entry` / `:exit` action names and those
+  actions' declared requirement ids off its `:data`, keyed as
+  `chart.projection/lifecycle-band-height` reads them. The projector puts
+  these slots on every node's `:data`; xyflow `clj->js`-es them, so the
+  arrays come back as CLJS vectors and an undeclared slot as nil."
+  [^js d]
+  {:tags           (js->clj (.-tags d))
+   :entry          (.-entry d)
+   :exit           (.-exit d)
+   :entry-requires (some-> (.-entryRequires d) js->clj)
+   :exit-requires  (some-> (.-exitRequires d) js->clj)})
+
 (defn palette-of
   "Recover the resolved chart-semantic token map off a
   node's `:data` (`(.-palette d)`). The projector threads
