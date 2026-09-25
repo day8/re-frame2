@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.view-state
   "The View-State controls section — the fidelity-ladder surface in the
-  Controls panel (rf2-ba86n.7, spec/019 §1 'View State' group + §5 the
+  Controls panel (spec/019 §1 'View State' group + §5 the
   fidelity ladder; spec/017 §View-state subscription overrides;
   spec/018 §12.6/§12.7 'fidelity is not a status' + the honest-fidelity
   controls model).
@@ -18,7 +18,7 @@
     2. **Schema-checked app-db seed** (`:db-seed`) — mid; the view renders
        against a validated state shape.
     3. **Sub-overrides** (`:sub-overrides`) — lowest; pinned subscription
-       values surface at render (the rf2-7pgiz seam). Useful for design
+       values surface at render. Useful for design
        exploration, but a *picture for the eye*, never proof.
 
   The section renders the ladder with each rung labelled DISTINCT (rank,
@@ -39,7 +39,7 @@
 
   And when an override targets a sub with an output `:schema` and the
   pinned value VIOLATES it, core emits `:rf.error/schema-validation-
-  failure :where :sub-override` (rf2-7pgiz fold-in; spec/010 §Sub
+  failure :where :sub-override` (spec/010 §Sub
   override). Those failures land in the variant's per-frame trace buffer;
   this section surfaces them honestly (an override that the real
   derivation could never produce is reported, not silently shown).
@@ -59,20 +59,20 @@
   save-variant / author-expectations do (source is never written
   directly).
 
-  ## Schema-generated value entry (rf2-xon7j)
+  ## Schema-generated value entry
 
   When a pinned sub-override targets a sub that declares an output
   `:schema`, the section generates a TYPED INPUT FORM from that schema
   (`re-frame.story.ui.schema-form/field-shape`) so the designer fills
   fields with the right widgets (text / number / checkbox / select / a
   flat fieldset) rather than hand-writing the override's raw EDN. A schema
-  good enough to VALIDATE an override (the rf2-7pgiz `:where :sub-override`
+  good enough to VALIDATE an override (the `:where :sub-override`
   seam) is good enough to GENERATE its input — we read the registered
   schema's Malli EDN VECTOR form as DATA (via the pure `malli-schema`
   leaf), never calling the pluggable validator to introspect structure
   (Spec 010 §The `:schema` value is opaque to re-frame).
 
-  Flat shapes only in the first cut; ANY non-flat shape (nested map,
+  Flat shapes only; ANY non-flat shape (nested map,
   collection, opaque predicate, registry ref, or simply no schema) drops
   to the raw-EDN escape hatch, which is ALWAYS present — the form never
   blocks a value. Either path emits the SAME copy-paste `:sub-overrides`
@@ -204,8 +204,7 @@
 ;;
 ;; Every fidelity rung's evidence has a SOURCE. The controls surface MUST
 ;; show WHERE the state came from (spec/019 §1 — Setup / Network / Effects
-;; group "backing data"; the acceptance criterion "setup/network/fx
-;; summaries show source/provenance"). These are read-only summaries off
+;; group "backing data"). These are read-only summaries off
 ;; the COMPILED plan + its `:explain` map (the single source of truth, the
 ;; same slots the Explain panel reads — never the bare registrar body).
 
@@ -247,7 +246,7 @@
 
       {:rung :db-seed :present? bool :source :db-seed}
 
-  The `:db-seed` rung is wired end-to-end (rf2-blw1q): a variant that
+  The `:db-seed` rung is wired end-to-end: a variant that
   authors a `:db-seed` map lowers it to `[:world :db-seed]` and the
   runtime seeds + schema-validates the frame's app-db before the script.
   `:present?` is true iff the compiled plan carries a non-empty seed; the
@@ -317,12 +316,12 @@
      :validation (get-in explain [:sub-overrides :validation])}))
 
 ;; ===========================================================================
-;; PURE: live override schema-validation failures (rf2-7pgiz)
+;; PURE: live override schema-validation failures
 ;; ===========================================================================
 ;;
 ;; The plan-time `override-rows` validation catches an override value that
 ;; violates a sub's output schema BEFORE render (the compiler fails the
-;; plan). But the rf2-7pgiz seam ALSO validates at the render-time deref
+;; plan). But the core sub-override seam ALSO validates at the render-time deref
 ;; point: an override HIT against a sub with an output `:schema` whose
 ;; pinned value violates it emits `:rf.error/schema-validation-failure`
 ;; with `:where :sub-override`, lands in the variant's per-frame trace
@@ -352,7 +351,8 @@
 ;; acceptance: "users can upgrade a low-fidelity state without changing
 ;; artifact kind"). The upgrade is a copy-paste SCAFFOLD (source is never
 ;; written directly — the save-variant / author-expectations idiom), not a
-;; raw-value editor (that is the separate, un-greenlit rf2-xon7j surface).
+;; raw-value editor (that is the separate schema-generated value-entry
+;; surface below).
 
 (defn upgrade-targets
   "The fidelity rungs `plan` can be UPGRADED TO — every rung STRONGER than
@@ -380,8 +380,8 @@
   "Per target rung: the authoring slot an upgrade adds, the placeholder the
   author fills, and the one-line note. The note is emitted on ITS OWN LINE
   above the slot, never after it: the slot is the body's last line, and a
-  `;` comment there swallows the envelope's closing `})`, so the snippet no
-  longer reads (rf2-mw9th)."
+  `;` comment there would swallow the envelope's closing `})`, so the
+  snippet would not read."
   {:real-setup {:key         :setup
                 :placeholder "[[:dispatch [:your/setup-event {}]]]"
                 :note        ";; real events — proves handlers + app-db"}
@@ -419,7 +419,7 @@
   `:db-seed` for `:db-seed` — while dropping the `:sub-overrides` (the
   upgrade replaces the picture with real evidence). Raw values are
   placeholders the author completes; this surface deliberately does not
-  type them (rf2-xon7j is separate).
+  type them (typed value entry is the separate value-entry dialog).
 
   HOW the pin is dropped. `:extends` inherits `:sub-overrides` — per query,
   child wins, and nothing deletes an entry — so a scaffold that `:extends` a
@@ -433,7 +433,7 @@
     minus `not-restated`. Pinned layers between that ancestor and the
     source are named in a trailing comment rather than merged here — the
     plan compiler stays the single merge authority. The one exception is
-    `:decorators` (rf2-yemtm): they merge child-wins, so when the source
+    `:decorators`: they merge child-wins, so when the source
     declares none the nearest skipped layer's are copied, because extending
     above that layer must not strip the fx stubs its setup events need.
 
@@ -486,7 +486,7 @@
          ;; `:decorators` merge child-wins down `:extends` (plan `merge-context`),
          ;; so the source runs under the nearest layer that declares them.
          ;; Extending above a pinned layer would strip that layer's decorators —
-         ;; the fx stubs its real events need (rf2-yemtm) — so copy them when
+         ;; the fx stubs its real events need — so copy them when
          ;; the source declares none of its own.
          carried (when (and pin-at (nil? (:decorators body)))
                    (some (comp :decorators :body) (rseq skipped-layers)))
@@ -574,7 +574,7 @@
   (global-args + the parent story's `:args`) folded in through
   `rf.story.args/run-arg-layers`, the same rule as `explain-for` and the
   run, so a variant whose `[:arg key]` resolves only through its story
-  compiles here instead of reporting a missing arg (rf2-851t0). An inline
+  compiles here instead of reporting a missing arg. An inline
   plan map runs with no ambient layers and compiles bare."
   [variant-id trace-events]
   (try
@@ -700,7 +700,7 @@
                      :font-family mono-stack
                      :font-size (:micro rf.story.theme.typography/type-scale)
                      :white-space "pre-wrap"}
-      ;; rf2-xon7j — the schema-generated value-entry surface.
+      ;; The schema-generated value-entry surface.
       :pin-btn      {:padding "2px 8px"
                      :background (:bg-3 rf.story.theme.colors/tokens)
                      :color (:text-primary rf.story.theme.colors/tokens)
@@ -753,12 +753,12 @@
                      :font-size (:micro rf.story.theme.typography/type-scale)
                      :margin-top "4px"}}))
 
-;; ---- schema-generated value entry (rf2-xon7j) ----------------------------
+;; ---- schema-generated value entry ----------------------------------------
 ;;
 ;; Resolve a pinned sub-override's TARGET sub output `:schema` off the
 ;; framework registrar (`re-frame.registrar/lookup :sub <sub-id>` →
-;; `:schema` — the SAME slot core's rf2-7pgiz `maybe-validate-sub-override!`
-;; reads), then project it into a flat field-shape. The schema is read as
+;; `:schema` — the SAME slot core's
+;; `re-frame.subs.override-schema/validate-sub-override!` reads), then project it into a flat field-shape. The schema is read as
 ;; DATA (the Malli EDN vector form) via the pure `schema-form` leaf — we
 ;; NEVER call the pluggable validator to introspect structure (Spec 010
 ;; §The `:schema` value is opaque to re-frame). The lookup is CLJS-only (the
@@ -858,7 +858,7 @@
    (defn- close-upgrade-dialog! []
      (reset! upgrade-dialog rf.story.review-dialog/initial-state)))
 
-;; ---- schema-generated value-entry render (rf2-xon7j) ---------------------
+;; ---- schema-generated value-entry render ---------------------------------
 ;;
 ;; The dialog has TWO tabs: a generated FORM (when the target sub's output
 ;; schema is flat-renderable) and the raw-EDN escape hatch (always present).
@@ -1113,7 +1113,7 @@
      output-schema validation status, and any LIVE `:where :sub-override`
      schema-validation failures.
 
-     rf2-xon7j: each pinned row carries an `edit value` affordance that
+     Each pinned row carries an `edit value` affordance that
      opens the schema-generated value-entry dialog pre-seeded with the
      row's current value — a TYPED FORM when the target sub's output schema
      is flat-renderable, the raw-EDN escape hatch otherwise (always
@@ -1190,7 +1190,8 @@
      "The upgrade affordance — one button per stronger rung the variant
      can upgrade to, WITHOUT changing the artifact kind (it stays a
      variant). Each button opens a copy-paste scaffold dialog (raw value
-     entry is the separate rf2-xon7j surface, not built here)."
+     entry is the separate `edit value` dialog on each pinned override
+     row)."
      [variant-id targets]
      (when (seq targets)
        [:div {:data-test "story-view-state-upgrade"}
@@ -1233,7 +1234,7 @@
               ;; The scaffold's id is DERIVED (the upgrade keeps it a
               ;; variant); the id input shows it but does not drive the
               ;; fixed scaffold snippet — `:on-edit-id` is a no-op (raw
-              ;; value entry is the separate rf2-xon7j surface).
+              ;; value entry is the separate value-entry dialog).
               :placeholder-id   (upgraded-variant-id source-id)
               :on-edit-id       (fn [_])
               :on-copy          (fn [] (rf.story.review-dialog/copy-to-clipboard! snippet))
@@ -1297,5 +1298,5 @@
                  [upgrade-path variant-id upgrade-targets]]))
             ;; the upgrade scaffold dialog (portal-less inline; visible iff open)
             [upgrade-dialog-view]
-            ;; the schema-generated value-entry dialog (rf2-xon7j; visible iff open)
+            ;; the schema-generated value-entry dialog (visible iff open)
             [value-entry-dialog-view]])))))
