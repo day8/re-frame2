@@ -1,21 +1,19 @@
 #!/usr/bin/env node
 'use strict';
-// THE PER-KEYSTROKE WITNESS'S FIXTURES, IN A GATE — rf2-0qj9w.
+// THE PER-KEYSTROKE WITNESS'S FIXTURES, IN A GATE.
 //
-//     node fresco/test/re_frame/bench/fresco/clock_witness.test.cjs
+//     node src/re_frame/bench/fresco/clock_witness.test.cjs   (from bench/fresco/)
 //
 // `clock_witness.cjs` decides whether the keystroke row's `n` means anything.
-// Its predecessor did not: it grouped Event Timing entries by
-// `${interactionId || 0}` inside an already-known physical sample, so the
-// zero-id `beforeinput`/`input` entries formed a second pseudo-interaction and
-// 60 keys were published as 109-115 "interactions". Nothing went red. Nothing
-// could — the only way to run that arithmetic was to open a browser and read a
-// console line.
+// Grouping Event Timing entries by `${interactionId || 0}` inside an
+// already-known physical sample would make the zero-id `beforeinput`/`input`
+// entries a second pseudo-interaction and publish 60 keys as 109-115
+// "interactions". Nothing would go red. Nothing could — the only way to run
+// that arithmetic would be to open a browser and read a console line.
 //
-// So the adjudicator's own refusals ride the fast-PR spine (`npm run
-// test:script-helpers`, beside `lane_build.test.cjs`), and this file is what
-// makes a mutation to the grouping go red in seconds rather than in a bench
-// run nobody schedules.
+// So the adjudicator's own refusals run in the lane's `npm run check`, beside
+// `lane_build.test.cjs`, and this file is what makes a mutation to the
+// grouping go red in seconds rather than in a bench run nobody schedules.
 //
 // The self-test lives in the module rather than here, so `clock_run.cjs` runs
 // the same fixtures on every invocation before it launches Chromium. This file
@@ -84,7 +82,7 @@ test('UNMUTATED: two physical keys form two records and the run is clean', () =>
   assert.strictEqual(v.records.length, 2);
   assert.strictEqual(v.censored.length, 0);
   assert.strictEqual(v.totals.sent, 2);
-  // The zero-id entries are counted and are NOT records — the whole defect.
+  // The zero-id entries are counted and are NOT records — the defect this guards.
   assert.strictEqual(v.totals.zeroIdEntries, 2);
   assert.strictEqual(v.perArm['s/fresco'].observed, 2);
 });
