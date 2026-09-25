@@ -28,24 +28,22 @@
       (code-block {:source \"(reg-event :foo …)\"
                    :lang   :clojure})
 
-  ## Two heads, one renderer (rf2-k97c.3)
+  ## Two heads, one renderer
 
   `inspect` emits the Reagent head; `inspect-view` emits the Fresco
   boundary. Same value, same opts, same renderer underneath — only the
-  observer differs. A panel re-authored in the re-frame-native view layer
-  reaches for `inspect-view`; a panel still on `reg-view` keeps `inspect`
-  and changes nothing.
+  observer differs. A panel authored in the re-frame-native view layer
+  reaches for `inspect-view`; a `reg-view` panel uses `inspect`.
 
   Everything else here — `inspect-inline`, `code-block`, the tokenizer —
-  is a PLAIN FUNCTION returning pure hiccup, so a migrated panel CALLS it
+  is a PLAIN FUNCTION returning pure hiccup, so a Fresco panel CALLS it
   (`(code-block {…})`) rather than putting it in head position, where
-  Fresco refuses a plain fn by design. That is a call-site rule for the
-  migrating panel, not a change here.
+  Fresco refuses a plain fn by design.
 
   ## Posture
 
   Pre-alpha · NO back-compat shims · dev-only · bundle-isolated.
-  zprint stays for `code-block` source-text rendering."
+  zprint serves `code-block` source-text rendering."
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
@@ -61,19 +59,16 @@
 ;; `:rf.xray.edn-inspector/expansion` slot + toggle/reset events; this
 ;; facade simply delegates to it.
 
-;; ---- no value-copy affordance on this renderer (rf2-6r9j.24) -------------
+;; ---- no value-copy affordance on this renderer ---------------------------
 ;;
-;; The universal `⎘` copy button this facade once carried was RETIRED
-;; on 2026-09-04 (rf2-6r9j.24). It had been unreachable since the
-;; rf2-oqa60 phase-1 rebuild removed its only call site, and the
-;; canonical renderer's own design lock — `spec/021-Dynamic-Panel-
-;; Designs.md` §10.1 / §10.5, the polished super-prompt B.9 — says
-;; copy-value and copy-path are explicitly OUT here. The retraction
-;; honours that lock rather than reopening it, so spec, published
-;; skill, and runtime agree again: no copy-value on this renderer.
+;; There is no universal `⎘` copy button on this facade. The canonical
+;; renderer's own design lock — `spec/021-Dynamic-Panel-
+;; Designs.md` §10.1 / §10.5, B.9 — says
+;; copy-value and copy-path are explicitly OUT here, so spec, published
+;; skill, and runtime agree: no copy-value on this renderer.
 ;;
-;; A FOCUSED copy affordance remains possible as a NEW design, but it
-;; must reopen B.9 with the mayor first, and it has to carry
+;; A FOCUSED copy affordance would be a NEW design that reopens B.9,
+;; and it has to carry
 ;; provenance: `egress/egress-value` keys the framework's `:sensitive`
 ;; / `:large` declarations by ABSOLUTE app-db path, and this facade's
 ;; call sites hand it slices, raw fx request/response values, and
@@ -116,24 +111,23 @@
    [ei/edn-inspector v (inspect-opts node-key)]))
 
 (defn inspect-view
-  "`inspect`, for a panel that has been re-authored in the re-frame-native
-  view layer (rf2-k97c.3).
+  "`inspect`, for a panel authored in the re-frame-native view layer.
 
   Same value, same opts, same renderer — the ONLY difference is the head.
   `inspect` emits `[ei/edn-inspector …]`, which is a Reagent component;
   this emits `[ei/edn-inspector-view …]`, which is a Fresco boundary
   reading through Fresco's own collector. A plain function in head
-  position is a loud error in a Fresco body by design, so a migrated panel
-  cannot keep calling `inspect`, and giving each migrating panel its own
-  hand-rolled head would put the facade's one-renderer-many-call-sites
-  property back where it was before this namespace existed.
+  position is a loud error in a Fresco body by design, so a Fresco panel
+  cannot use `inspect`, and giving each Fresco panel its own
+  hand-rolled head would lose the facade's one-renderer-many-call-sites
+  property.
 
   `node-key` does double duty here: it is the panel-id qualifier, as it is
   for `inspect`, AND the boundary's required `:mount-id`. A Fresco
   boundary is a React function component with no form-2 outer body, so it
   cannot mint its own per-mount identity — see `ei/edn-inspector-view`.
   That makes `node-key` load-bearing rather than decorative: two mounts
-  sharing one `node-key` now share a width slot and a projection cache as
+  sharing one `node-key` share a width slot and a projection cache as
   well as a panel-id, so give each mount its own."
   ([v] (inspect-view v "root"))
   ([v node-key]
@@ -182,8 +176,8 @@
 ;;
 ;;   3. **String-literal unescape** — `unescape-string-tokens` turns the
 ;;      `\n` escape in each string token back into a real line break, so
-;;      a multi-line `:doc` renders across lines (rf2-iosnp), and leaves
-;;      regex and character literals as printed (rf2-3x7nj.25.6).
+;;      a multi-line `:doc` renders across lines, and leaves
+;;      regex and character literals as printed.
 
 (defn unescape-source-newlines
   "Turn the two-character escaped-newline sequence `\\n` (backslash + n)
@@ -205,12 +199,12 @@
   that paints one over-wide line carrying a visible `\\n`, not the
   multi-line docstring the author wrote.
 
-  ## Only ever handed a string literal (rf2-3x7nj.25.6)
+  ## Only ever handed a string literal
 
   `pr-str` prints the same two characters OUTSIDE string literals too: a
   regex literal's pattern source verbatim (`#\"\\n\"`), and the character
   literals `\\n` (the letter n) and `\\newline`. A whole-source replace
-  broke all three across lines, so `code-block` calls this on the text
+  would break all three across lines, so `code-block` calls this on the text
   of each `:string` token and nothing else ([[unescape-string-tokens]]).
 
   The replace is escape-aware: `pr-str` emits every escape as a two-char
@@ -248,8 +242,7 @@
   multi-line `:doc` still carries its `\\n` escape here. `code-block`
   unescapes it after tokenising, one string token at a time
   ([[unescape-string-tokens]]) — never across the whole formatted
-  source, where `\\n` is also regex and character-literal code
-  (rf2-3x7nj.25.6)."
+  source, where `\\n` is also regex and character-literal code."
   [src]
   (if-not (and (string? src) (seq src))
     src
@@ -295,7 +288,7 @@
     "deftype" "defrecord" "ns" "require" "reg-event"
     ;; The source-text highlighter renders whatever source the substrate
     ;; captured — including `reg-event-db` / `-fx` / `-ctx` call sites in a
-    ;; v1 app under inspection — so those spellings stay in the highlighter
+    ;; v1 app under inspection — so those spellings are in the highlighter
     ;; set even though re-frame2's own event registrar is the single
     ;; `reg-event` (EP-0018).
     "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-fx" "reg-view"
@@ -342,9 +335,9 @@
             m   (subs s 0 end)]
         (recur (conj acc [:comment m]) (subs s end)))
 
-      ;; character literal — ONE token (rf2-3x7nj.25.6): `\n`, `\newline`,
-      ;; `\"`. Split into `\` plus the rest, `\"` opened a STRING running
-      ;; to the next quote, and `\;` a comment.
+      ;; character literal — ONE token: `\n`, `\newline`,
+      ;; `\"`. Split into `\` plus the rest, `\"` would open a STRING
+      ;; running to the next quote, and `\;` a comment.
       (str/starts-with? s "\\")
       (let [m (or (re-find #"^\\(?:newline|space|tab|formfeed|backspace|return|u[0-9a-fA-F]{4}|o[0-7]{1,3}|.)" s)
                   (subs s 0 1))]
@@ -380,7 +373,7 @@
 
 (defn unescape-string-tokens
   "Run [[unescape-source-newlines]] over the `:string` tokens of a
-  `tokenize-clojure` result and nothing else (rf2-3x7nj.25.6). A
+  `tokenize-clojure` result and nothing else. A
   `:string` token straight after a `#` token is a regex literal's
   pattern, whose `\\n` is the regex escape, so it is left as printed.
   Character literals are tokens of their own and never reach the
@@ -406,7 +399,7 @@
 
   Required: `:source`.
   Optional: `:lang` (defaults to `:clojure` — only `:clojure` highlights
-            today · others render mono-text), `:testid`."
+            · others render mono-text), `:testid`."
   [{:keys [source lang testid]
     :or   {lang :clojure
            testid "rf-xray-edn-widget-code"}}]
@@ -448,13 +441,11 @@
                      :box-sizing  "border-box"
                      :overflow-x  "auto"
                      :white-space "pre"}}
-       ;; rf2-k97c.3 — the React key rides in each span's own ATTRIBUTE
+       ;; The React key rides in each span's own ATTRIBUTE
        ;; MAP rather than in vector metadata. Both spellings work under
        ;; Reagent; only the attribute map is read by the re-frame-native
-       ;; view layer, and this block is pure hiccup that a migrated panel
-       ;; will render inside a Fresco boundary. The whitespace branch
-       ;; gains an attribute map it did not have, which is the whole of
-       ;; the change to it.
+       ;; view layer, and this block is pure hiccup that a Fresco panel
+       ;; renders inside a boundary.
        (into [:code]
              (for [[idx [t literal]] (map-indexed vector tokens-seq)]
                (if (= t :whitespace)
