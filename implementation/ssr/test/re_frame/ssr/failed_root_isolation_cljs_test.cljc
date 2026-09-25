@@ -31,16 +31,19 @@
 
   One blanket mutation could red some of these while leaving others
   green, which would certify a falsifiability it never established. So
-  each arm is failed by its own lever and falsified by its own
-  `boot-page-without-isolation!` counterpart.
+  each arm is failed by its own lever, and the manifest, verify and mount
+  arms are each falsified by their own `boot-page-without-isolation!`
+  counterpart. The conflict arm has none: its lever is a claim installed
+  before the page boots rather than a key on the root's spec.
 
   ## The unguarded twin is permanent and executable
 
   `boot-page-without-isolation!` IS `boot-one-root!` with the try/catch
   deleted — the bare hydrate-then-mount loop a host writes when it does
-  not use the boundary. Every isolation arm has a
-  `without-the-boundary-*` twin that runs the same page through it and
-  measures the damage: the failing root's throw escapes and the roots
+  not use the boundary. The manifest, verify and mount levers each run
+  the same page through it
+  (`without-the-boundary-one-failed-root-takes-the-page-down`) and
+  measure the damage: the failing root's throw escapes and the roots
   after it never boot. Delete the guard from `hydrate-page!` and the
   isolation arms reproduce their twins' outcome. So the guard cannot
   decay into a tautology.
@@ -264,7 +267,8 @@
                           (str "conflict @" fail-idx))))))
 
 ;; ---------------------------------------------------------------------------
-;; The unguarded twin — the same four levers, without the boundary
+;; The unguarded twin — the manifest, verify and mount levers, without the
+;; boundary
 ;; ---------------------------------------------------------------------------
 
 (defn- measure-unisolated!
