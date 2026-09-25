@@ -1,4 +1,4 @@
-# Self-test fixture marker (rf2-ru0wg).  Empty config is fine — the validator
+# Self-test fixture marker.  Empty config is fine — the validator
 # only checks for this file's existence as the repo-root guard.  Duplicate case
 # for the renderer-parity tooth: two headings carrying the same brace suffix
 # slugify to the same full-title slug and are disambiguated with pymdownx.toc's

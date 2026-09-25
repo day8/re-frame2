@@ -1,4 +1,4 @@
-# Self-test fixture marker (rf2-57k74 / rf2-zq5i6).  Empty config is fine — the
+# Self-test fixture marker.  Empty config is fine — the
 # validator only checks for this file's existence as the repo-root guard.  This
 # fixture drives the compat-anchor render-faithfulness, uniqueness, placement, and
 # source-comment TEETH via explicit manifest/source-file/placement inputs passed to
