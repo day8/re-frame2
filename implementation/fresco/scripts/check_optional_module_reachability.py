@@ -1101,7 +1101,7 @@ def self_test():
         {
             "src/p.cljs": '(ns re-frame.fresco.impl.route-link\n'
             '  "Lifted from [[re-frame.bench.fresco.shapes.card/card]]; the\n'
-            '  witness `re-frame.bench.fresco.front.slot-cljs-test` pins it."\n'
+            '  witness `re-frame.bench.fresco.front.witnesses-cljs-test` pins it."\n'
             "  (:require [re-frame.fresco.impl.slot :as slot]))"
         }
     )

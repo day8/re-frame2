@@ -145,7 +145,7 @@ retired SHAPES:
           `front.dogfood`, `front.intent`), which name a retired MODULE in
           provenance prose and resolve to nothing executable.
         * Token start denies a preceding `.`, so the honest fully-qualified
-          `re-frame.bench.fresco.front.slot-cljs-test` stays green: that
+          `re-frame.bench.fresco.front.codec/root-element` stays green: that
           spelling names the prototype tree truthfully and is not a coordinate
           anyone could mistake for a shipped one.
         * Token start denies a preceding BACKTICK **in Markdown only**, so
