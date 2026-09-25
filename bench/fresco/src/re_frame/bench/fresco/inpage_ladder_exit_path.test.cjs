@@ -216,7 +216,7 @@ test('an arm made to depend on WHERE IT RAN is REFUSED', () => {
   const out = agg.checkRun('A', text);
   assert.ok(out.order.refuse, 'the arm-order guard must refuse a phase-dependent arm');
   assert.ok(
-    out.problems.some((p) => /arm-order guard REFUSED \(rf2-88pie\)/.test(p)),
+    out.problems.some((p) => /arm-order guard REFUSED —/.test(p)),
     `the refusal must reach the problems array; got: ${out.problems.slice(0, 4).join(' | ')}`
   );
   assert.ok(

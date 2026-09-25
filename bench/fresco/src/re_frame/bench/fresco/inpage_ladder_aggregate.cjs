@@ -480,13 +480,13 @@ function checkRun(runId, text) {
       for (const [f, res] of Object.entries(a.factors)) {
         if (res.status !== 'clean')
           problems.push(
-            `run${runId}: arm-order guard REFUSED (rf2-88pie) — ${arm} by ${f}: ${res.why}`
+            `run${runId}: arm-order guard REFUSED — ${arm} by ${f}: ${res.why}`
           );
       }
     }
     if (problems.length === before)
       problems.push(
-        `run${runId}: arm-order guard REFUSED (rf2-88pie) — contaminated=${order.contaminated}, ` +
+        `run${runId}: arm-order guard REFUSED — contaminated=${order.contaminated}, ` +
           `unchecked=${order.unchecked}`
       );
   }
