@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.settings.effects
-  "Side-effect appliers for the Xray Settings popup (rf2-9poxq).
+  "Side-effect appliers for the Xray Settings popup.
 
   Each setting that needs DOM / shell-state plumbing has a 1-arg
   `apply-*!` fn here. The popup's events handler (and the preload's
@@ -15,20 +15,19 @@
 
   - **theme** — toggled as a CSS class on the Xray shell root.
     `rf-xray-theme-light` vs `rf-xray-theme-dark`. Default is
-    `:light` (rf2-3f2di — the authoritative reference renders light by
+    `:light` (the authoritative reference renders light by
     default); both palettes resolve via the `var(--rf-xray-*)` block
     `theme/global-styles/themes-css` emits, so the class toggle flips
     the whole shell in one assignment.
 
-  - **panel-position** — routes to existing mount-layer fns:
+  - **panel-position** — routes to mount-layer fns:
     `:right-rail` is the default inline mount; `:fullscreen` mounts as
-    the overlay via `mount/open-overlay!`. (Per rf2-czcg5 the `:popout`
-    option was removed — the second-window pop-out is launched from the
+    the overlay via `mount/open-overlay!`. (There is no `:popout`
+    option — the second-window pop-out is launched from the
     chrome's visible `⛶` button + the programmatic `(xray/popout!)` API,
     not via panel-position.) Switching position does not tear down the
     current mount — the user can sit in two surfaces at once if they
-    choose. A follow-on bead can lock the enumeration to
-    single-mount-at-a-time.
+    choose.
 
   - **auto-open-on-error?** — a re-frame subscription watcher set
     up by `install-auto-open-watcher!`. When the issues-ribbon sub
@@ -115,9 +114,9 @@
   not re-parent a hidden overlay back inline: `toggle!` shows whatever
   physical surface the shell was last realized on, so a hidden overlay
   reopens as the overlay (and, with no layout host, is never stranded
-  hidden). This is the rf2-j538f7.41 surface-preserving contract; the
-  auto-open-on-error watcher (rf2-kggzi4) routes its reopen through here
-  — it is the THIRD reopen route, joining the `Ctrl+Shift+C` toggle and
+  hidden). This is the surface-preserving contract; the
+  auto-open-on-error watcher routes its reopen through here
+  — it is the THIRD reopen route, beside the `Ctrl+Shift+C` toggle and
   the Cmd/Ctrl+K palette. Spec: 011-Launch-Modes §Closed state +
   016-Auxiliary-Panels §Auto-open-on-error."
   []
@@ -130,12 +129,12 @@
   nil otherwise — every effect that touches the shell root must
   no-op on nil so pre-mount calls remain harmless.
 
-  A PARTIAL `js/document` counts as 'otherwise' (rf2-y8doi.17). A
+  A PARTIAL `js/document` counts as 'otherwise'. A
   document object that exists but carries no `getElementById` — a test
   harness's listener-only stub, an SSR shim — throws a `TypeError`
   rather than answering nil, which is not a distinction any caller here
   wants to make: there is no shell root either way. Same defensive
-  posture `mount-fn` and `apply-use-system-colors!` already take."
+  posture `mount-fn` and `apply-use-system-colors!` take."
   []
   (try
     (when (and (exists? js/document)
@@ -178,17 +177,17 @@
       (.setProperty (.-style html) text-size-css-var value)))
   nil)
 
-;; ---- density (rf2-i40us) ------------------------------------------------
+;; ---- density ------------------------------------------------------------
 ;;
-;; The density radio (Compact / Cosy in v1; Comfy is the spec's third
-;; tier kept here for forward compat) writes a px value to the canonical
+;; The density radio (Compact / Cosy; Comfy is the spec's third
+;; tier, catalogued here for forward compat) writes a px value to the canonical
 ;; `--rf-xray-font-size` CSS custom property that anchors the whole
-;; `theme/tokens/type-scale`. Per rf2-n8i2c every `type-scale` entry
+;; `theme/tokens/type-scale`. Every `type-scale` entry
 ;; resolves to `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`;
 ;; flipping the var rescales every typographic surface in lockstep on
 ;; the next paint (no re-render needed). This completes the "one knob
-;; per density" loop the radio shipped without — until this commit the
-;; radio only persisted the value + drove the `:rf.xray/density` sub.
+;; per density" loop beside the radio's other two legs: persisting the
+;; value and driving the `:rf.xray/density` sub.
 ;;
 ;; ## Why we write here AND `theme/global-styles/motion-css` already
 ;; publishes a default on `:root`
@@ -205,12 +204,12 @@
 
 (def density->font-size-px
   "Pure-data map from density keyword → font-size pixel value to write
-  into `--rf-xray-font-size`. The v1 radio surfaces only `:compact`
-  and `:cosy` (Mike 2026-05-19); `:comfy` is catalogued so a future
-  un-drop of the third tier wires through without a code change.
+  into `--rf-xray-font-size`. The radio surfaces only `:compact`
+  and `:cosy`; `:comfy` is catalogued so surfacing the third tier
+  needs no code change here.
 
-  - `:compact` → 12px (one step tighter than the historic baseline)
-  - `:cosy`    → 13px (the historic baseline; matches
+  - `:compact` → 12px (one step tighter than the baseline)
+  - `:cosy`    → 13px (the baseline; matches
                  `tokens/font-size-default`)
   - `:comfy`   → 14px (one step looser; spec/007 §Typography catalogues
                  it as the third tier on the ±1px density knob)
@@ -223,10 +222,10 @@
 
 (defn density->px
   "Resolve a density keyword to its px value via `density->font-size-px`.
-  Falls back to the cosy default (13px) when the keyword is unknown
-  (a persisted `:comfy` payload pre-Mike-2026-05-19 lands here; the
-  `:rf.xray/density` sub coerces unknown values to `:cosy` for the
-  reactive surface, and this helper mirrors that posture)."
+  Falls back to the cosy default (13px) when the keyword is unknown,
+  mirroring the `:rf.xray/density` sub's coercion of unknown values to
+  `:cosy`. A persisted `:comfy` is NOT unknown here: it resolves to
+  14px, while that sub reads it as `:cosy`."
   [density]
   (or (get density->font-size-px density)
       (get density->font-size-px :cosy)))
@@ -274,15 +273,14 @@
         (try (.add cl klass) (catch :default _ nil)))))
   nil)
 
-;; ---- reduced-motion override (rf2-ybjkx) --------------------------------
+;; ---- reduced-motion override --------------------------------------------
 
 (def motion-override-class-prefix
   "CSS class prefix the reduced-motion override writes onto `<html>`.
   Three states:
 
     :os      — no class set; OS media query alone drives the seam
-               (the historic behaviour preserved when the user has
-               never opted in).
+               (the behaviour when the user has never opted in).
     :always  — `rf-xray-motion-override-always` — force the
                vanishingly-small motion-scale regardless of OS pref.
     :never   — `rf-xray-motion-override-never` — restore full motion
@@ -321,7 +319,7 @@
           (try (.add cl klass) (catch :default _ nil))))))
   nil)
 
-;; ---- use-system-colors? (rf2-846h2) -------------------------------------
+;; ---- use-system-colors? -------------------------------------------------
 ;;
 ;; Opt-in toggle that activates the same system-token chrome the
 ;; `@media (forced-colors: active)` block paints, even when the OS
@@ -334,7 +332,7 @@
 ;;
 ;; The CSS contract is "either media query OR descendant of an
 ;; element carrying the attribute" — the attribute selector composes
-;; cleanly with the existing per-element `data-testid` predicates
+;; cleanly with the per-element `data-testid` predicates
 ;; without forcing every rule onto a single class. `data-rf-force-
 ;; colors` reads as a tristate signal ("active" | absent) which
 ;; mirrors the `(forced-colors: active)` media-query semantics
@@ -378,7 +376,7 @@
         (catch :default _ nil))))
   nil)
 
-;; ---- panel width (rf2-x8h9y resize handle) ------------------------------
+;; ---- panel width (resize handle) ----------------------------------------
 
 (def panel-width-css-var
   "Name of the CSS custom property the resize handle drives. Mirrors
@@ -419,8 +417,7 @@
     in the host stylesheet) resolve at the host via the documented
     cascade. Asserting the default would otherwise shadow that
     override — inline declarations on `<html>` beat any author-normal
-    selector-based rule, including `:root { ... }` in `<style>`
-    (rf2-6fqr5).
+    selector-based rule, including `:root { ... }` in `<style>`.
 
   No-op when `<html>` is absent (test runtimes without a `document`
   root). Matches the apply-text-size! / apply-theme! pattern, except
@@ -430,24 +427,23 @@
 
   ## Why we do NOT also write to the host element
 
-  An earlier draft (rf2-x8h9y) wrote the custom property on BOTH the
-  host element AND `<html>`. The host write trapped the cascade even
-  harder than the `<html>`-default trap above: inline style on the
-  host beats ALL selector-based declarations regardless of layer,
-  including the consumer's `:root` rule. Removed for the same
-  rf2-6fqr5 reason; the host's `var(...)` inherits from `<html>`
+  Writing the custom property on the host element as well as `<html>`
+  would trap the cascade even harder than the `<html>`-default trap
+  above: inline style on the host beats ALL selector-based
+  declarations regardless of layer, including the consumer's `:root`
+  rule. The host's `var(...)` inherits from `<html>`
   (or `:root`) on the next paint without any per-element write.
 
-  ## Clamping, and why the persisted value converges (rf2-y8doi.17)
+  ## Clamping, and why the persisted value converges
 
   `px` is clamped through `config/clamp-panel-width-px` against the
   LIVE viewport, and a clamped-down value is written back through
-  `config/update-setting!`. Before this, the drag handler
-  (`:rf.xray/set-panel-width-px`) was the only clamp site, so a width
-  dragged wide on a large monitor replayed VERBATIM at boot on a
-  narrower one: `apply-all!` handed the persisted number straight to
-  `<html>` and the host's `flex-basis` could squeeze the app itself to
-  nothing, on a surface with no resize handle visible to undo it.
+  `config/update-setting!`. Were the drag handler
+  (`:rf.xray/set-panel-width-px`) the only clamp site, a width
+  dragged wide on a large monitor would replay VERBATIM at boot on a
+  narrower one: `apply-all!` would hand the persisted number straight
+  to `<html>` and the host's `flex-basis` could squeeze the app itself
+  to nothing, on a surface with no resize handle visible to undo it.
 
   The write-back makes storage converge on a usable value rather than
   re-clamping on every boot, matching the drag path's own posture
@@ -456,7 +452,7 @@
   It is guarded on the value actually moving, so the drag path — which
   clamps before it calls here — triggers no second storage round-trip.
 
-  It repairs only a width the user WROTE (rf2-3x7nj.27.1). When storage
+  It repairs only a width the user WROTE. When storage
   carries no `:panel-width-px` override, the width being applied is
   inherited — the default or a host `configure!` value — and the clamp
   fits the live map and the CSS var alone, through
@@ -479,7 +475,7 @@
      ;; Only an EXPLICIT persisted width is repaired in storage; an
      ;; inherited one (the default, a host `configure!` width) is fitted
      ;; in the live map alone, so the clamp never manufactures an
-     ;; override that would block a later host width (rf2-3x7nj.27.1).
+     ;; override that would block a later host width.
      (when (and (number? px) (not= (long px) clamped))
        (if (config/persisted-override? [:general :panel-width-px])
          (config/update-setting! :general :panel-width-px clamped)
@@ -497,7 +493,7 @@
                        (str clamped "px")))))
    nil))
 
-;; ---- epoch history (rf2-3zyyx — spec/021 §10.7, §13) -------------------
+;; ---- epoch history (spec/021 §10.7, §13) --------------------------------
 ;;
 ;; The Epoch history slider in Settings → General writes through to the
 ;; substrate's per-frame ring depth via `(rf/configure! {:epoch-history
@@ -522,7 +518,7 @@
 
 (defn apply-epoch-history!
   "Write `n` (the epoch-history depth) through to the substrate's
-  per-frame ring buffer. Per Mike pair-debug 2026-05-27: drives BOTH
+  per-frame ring buffer. Drives BOTH
   `:depth` AND `:trace-events-keep` to the same `n` so trace is
   retained for every retained epoch — when an epoch evicts, its
   trace evicts too. Operator gets one knob, atomic relationship.
@@ -573,10 +569,10 @@
   exports (see ns docstring §Why we late-bind mount via the browser
   API export).
 
-  Per rf2-czcg5 the `:popout` branch was removed: the second-window
-  pop-out is no longer a panel-position; it is launched from the
+  There is no `:popout` branch: the second-window
+  pop-out is not a panel-position; it is launched from the
   chrome's visible `⛶` button (`:rf.xray/popout-shell` → `mount/popout!`)
-  + the programmatic `(xray/popout!)` API. `apply-panel-position!` now
+  + the programmatic `(xray/popout!)` API. `apply-panel-position!`
   governs only the inline ⇄ fullscreen axis."
   [position]
   (case position
@@ -598,16 +594,15 @@
 ;; and drive the surface-preserving generic reopen `mount/toggle!` on
 ;; the first transition from empty → non-empty IFF the toggle is on AND
 ;; Xray is not already visible. (`toggle!` not `open!`: a reopen must
-;; not re-parent a hidden overlay back inline — rf2-kggzi4, mirroring
-;; the rf2-j538f7.41 fix on the palette + Ctrl+Shift+C routes.) Two
+;; not re-parent a hidden overlay back inline, the same rule the
+;; palette + Ctrl+Shift+C routes follow.) Two
 ;; install triggers, both idempotent: (1) `mount/ensure-xray-frame!`
 ;; on first Xray open when the persisted toggle is on, (2)
 ;; `:rf.xray/settings-update` on toggle flip-on. Detached on flip-off.
 ;;
-;; This is the always-on issues RIBBON signal Mike KEPT under rf2-gbz39
-;; Option (c): the dedicated Issues tab + its aggregate panel were
-;; removed, but the cross-epoch "something is wrong" signal survives as
-;; this auto-open watcher reading the same composite.
+;; This is the always-on issues RIBBON signal: there is no dedicated
+;; Issues tab or aggregate panel, and the cross-epoch "something is
+;; wrong" signal is this auto-open watcher reading the composite.
 ;;
 ;; ## Why subscribe rather than register a trace-cb
 ;;
@@ -646,8 +641,8 @@
   to drive the late-bound surface-preserving reopen `mount/toggle!` on
   the first transition from empty → non-empty issue list IFF
   `:auto-open-on-error?` is on AND Xray is not already visible.
-  (`toggle!` reopens on the last-realized surface — rf2-kggzi4 —
-  rather than `open!`, which would revert a hidden overlay to inline.)
+  (`toggle!` reopens on the last-realized surface, rather than
+  `open!`, which would revert a hidden overlay to inline.)
 
   The sub is created via a `(rf/capture-frame :rf/xray)` `:subscribe`
   so the watcher reads the Xray frame's app-db (where the issues feed
@@ -682,7 +677,7 @@
                                     (pos? n)
                                     (zero? prev)
                                     (not (visible-shell?)))
-                           ;; Surface-preserving reopen (rf2-kggzi4): the
+                           ;; Surface-preserving reopen: the
                            ;; `(not (visible-shell?))` guard above proves the
                            ;; shell is hidden, so route through the mode-aware
                            ;; `toggle!` (which reopens on the last-realized
@@ -690,25 +685,19 @@
                            ;; would revert a hidden overlay to inline. See
                            ;; `reopen-preserving-surface!`'s docstring.
                            (reopen-preserving-surface!))))]
-        ;; ACTIVATE, then seed, then watch — and the activation is the
-        ;; whole fix for rf2-lynzk (the same defect shape as rf2-8cnxg, which
-        ;; was first repaired in the internal observation port's
-        ;; `build-node-handle!`; that port was retired on 2026-08-21 —
-        ;; rf2-63t1i — so this comment is now one of the sites that states
-        ;; the order rather than a pointer to one that does).
+        ;; ACTIVATE, then seed, then watch.
         ;;
-        ;; This call used to be absent, on the stated premise that "a
-        ;; reagent/re-frame reaction is already live the instant
-        ;; `subscribe` returns". That premise is FALSE on the ratom
+        ;; A reagent/re-frame reaction is NOT live the instant
+        ;; `subscribe` returns on the ratom
         ;; family, and silently so. Under those adapters the subscription
         ;; IS a bare `reagent.ratom/Reaction`, built deliberately WITHOUT
         ;; `:auto-run`, and a Reaction learns its sources ONLY through
         ;; `deref-capture`. The plain `@reaction` below is taken outside
         ;; `*ratom-context*`, so it runs the body raw and leaves
-        ;; `watching` nil — the node is in nobody's watcher set, the
-        ;; `add-watch` records a callback that can never fire, and
-        ;; auto-open-on-error never fires at all. Watchable, watched,
-        ;; silent. A Reagent COMPONENT never hits this because its render
+        ;; `watching` nil — without activation the node would be in
+        ;; nobody's watcher set, the `add-watch` would record a callback
+        ;; that can never fire, and auto-open-on-error would never fire
+        ;; at all. Watchable, watched, silent. A Reagent COMPONENT never hits this because its render
         ;; IS the capture context; `:rf.xray/issues-ribbon` is a SIGNAL
         ;; with no rendered consumer anywhere (panels.cljs §Issues), so
         ;; nothing but this call supplies one.
@@ -756,7 +745,7 @@
   (let [s (config/get-settings)]
     (apply-text-size!  (get-in s [:general :text-size]))
     (apply-theme!      (get s :theme))
-    ;; rf2-i40us — restore the persisted density-driven font-size so
+    ;; Restore the persisted density-driven font-size so
     ;; the user's saved choice rescales the type scale BEFORE first
     ;; paint. Default (`:cosy`) re-asserts 13px (the same value
     ;; `theme/global-styles/motion-css` publishes on `:root` at install
@@ -764,13 +753,13 @@
     ;; cost of writing-anyway is one DOM setProperty per boot.
     (apply-density-font-size!
       (get-in s [:general :density]))
-    ;; rf2-ybjkx — restore the reduced-motion override so the user's
+    ;; Restore the reduced-motion override so the user's
     ;; saved choice survives reload BEFORE first paint. The default
     ;; `:os` writes nothing (the OS media query alone drives the
     ;; seam); `:always` / `:never` write the override class.
     (apply-reduced-motion-override!
       (get-in s [:general :reduced-motion-override]))
-    ;; rf2-846h2 — restore the persisted "Use system colors" toggle so
+    ;; Restore the persisted "Use system colors" toggle so
     ;; the user's saved opt-in survives reload BEFORE first paint. The
     ;; default `false` writes nothing (the attribute stays absent; the
     ;; OS HCM detection alone drives the chrome); `true` stamps the
@@ -779,20 +768,20 @@
     ;; token chrome.
     (apply-use-system-colors!
       (get-in s [:general :use-system-colors?]))
-    ;; rf2-x8h9y — restore the persisted panel width so the user's
+    ;; Restore the persisted panel width so the user's
     ;; saved drag survives reload BEFORE first paint. No-op-safe
     ;; pre-mount (writes to `<html>` only when the layout host hasn't
     ;; mounted yet; the host pickup happens at next paint via the
     ;; var cascade).
     (apply-panel-width! (get-in s [:general :panel-width-px]))
-    ;; rf2-3zyyx — restore the persisted epoch-history depth so the
+    ;; Restore the persisted epoch-history depth so the
     ;; substrate's per-frame ring buffer matches the user's saved
     ;; capacity BEFORE the first dispatch settles into it. No-op-safe
     ;; when the epoch artefact isn't loaded (the late-bind hook in
     ;; `re-frame.core/configure!` returns nil so the call is a tap-only
     ;; no-op).
     (apply-epoch-history! (get-in s [:general :epoch-history]))
-    ;; rf2-5u03ig — restore the persisted events-retained count so the
+    ;; Restore the persisted events-retained count so the
     ;; substrate's per-frame trace ring matches the user's saved capacity
     ;; BEFORE the first dispatch settles into it. No-op-safe when the
     ;; trace artefact isn't loaded (the late-bind hook in
@@ -803,12 +792,12 @@
     ;; preload's auto-open already handles the default `:right-rail`
     ;; case, and reopening into the saved position would surprise a
     ;; user who closed Xray from popout last session and now expects
-    ;; their app to load clean. The setting still applies when the
+    ;; their app to load clean. The setting applies when the
     ;; user changes it from the popup.
     )
   nil)
 
-;; ---- applier registration (rf2-y8doi.17) --------------------------------
+;; ---- applier registration -----------------------------------------------
 ;;
 ;; `config/configure!` recomputes the live settings map (defaults < the
 ;; `:rf.xray/settings` seed < the persisted payload) and then has to get that
@@ -820,7 +809,7 @@
 ;; installer!`.
 ;;
 ;; Inert on its own: registering stores a fn and runs nothing. On the preload
-;; path `apply-all!` ran at load time against the pre-`configure!` map, which
+;; path `apply-all!` runs at load time against the pre-`configure!` map, which
 ;; is precisely why the host's configured theme / text-size / width needs this
 ;; second application.
 (config/register-settings-applier! apply-all!)
