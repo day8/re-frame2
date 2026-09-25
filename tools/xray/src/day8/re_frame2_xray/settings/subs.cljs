@@ -12,8 +12,8 @@
                                           mirrored the slot (pre-
                                           first-open).
   - `:rf.xray/keybinding-enabled?` — boolean. Keybindings tab
-                                      'Handle keys?' master toggle
-                                      (rf2-8i1tg3). Reads the app-db
+                                      'Handle keys?' master toggle.
+                                      Reads the app-db
                                       mirror `:rf.xray/keybinding-
                                       enabled-update` writes; falls
                                       back to `config/keybinding-
@@ -102,19 +102,15 @@
                   :cosy)]
         (if (#{:cosy :compact} d) d :cosy))))
 
-  ;; (`:rf.xray/show-tool-frames?` was REMOVED here — rf2-y8doi.27. The
-  ;; rf2-ttnst toggle's Settings UI was removed on 2026-05-27 and the
-  ;; slot was left behind, so this sub could only ever read the default
-  ;; `false`: nothing in the tree wrote `[:settings :general
-  ;; :show-tool-frames?]`, and the two readers hardcoded `false` anyway.
-  ;; The tool-frame exclusion the picker actually honours is
-  ;; `frame-switcher/internal-frames`, which needs no setting.)
+  ;; (There is no `:rf.xray/show-tool-frames?` sub: the tool-frame
+  ;; exclusion the picker honours is `frame-switcher/internal-frames`,
+  ;; which needs no setting.)
 
-  ;; rf2-r9lyy — convenience sub: should the L2 event list surface
+  ;; Convenience sub: should the L2 event list surface
   ;; the `:ungrouped` pseudo-event-bundle bucket (registry-time emits /
   ;; frame lifecycle / `:rf.ssr/hydration-mismatch` / REPL evals)?
-  ;; OFF by default — Xray is silent-by-default per Mike's 2026-05-19
-  ;; closure of rf2-q60yf. Flipping ON re-includes the bucket in L2
+  ;; OFF by default, because Xray is silent-by-default. Flipping ON
+  ;; includes the bucket in L2
   ;; with a muted row treatment; clicking the row focuses it so
   ;; downstream panels (Event / App-db / Views / Trace) render against
   ;; the bucket's events. Useful when debugging SSR / REPL flows.
@@ -123,16 +119,16 @@
       (boolean (or (get-in db [:settings :general :show-ungrouped?])
                    (config/get-setting :general :show-ungrouped?)))))
 
-  ;; rf2-ttnst — convenience sub: long-keyword wrap threshold (chars).
-  ;; Default 24 (was a fixed constant; now user-tuneable per spec/007-
-  ;; UX-IA.md §Long-keyword treatment).
+  ;; Convenience sub: long-keyword wrap threshold (chars).
+  ;; Default 24, user-tuneable per spec/007-UX-IA.md §Long-keyword
+  ;; treatment.
   (rf/reg-sub :rf.xray/long-keyword-threshold
     (fn [db _query]
       (or (get-in db [:settings :general :long-keyword-threshold])
           (config/get-setting :general :long-keyword-threshold)
           24)))
 
-  ;; rf2-8i1tg3 — Keybindings tab 'Handle keys?' master toggle. The
+  ;; Keybindings tab 'Handle keys?' master toggle. The
   ;; underlying flag (`config/keybinding-enabled?`) is a bare
   ;; process-global `configure!` slot, not a `:settings` key, so it
   ;; gets its own top-level app-db mirror (`:keybinding-enabled?`,
