@@ -8,7 +8,7 @@
   - `re-frame.story.ui.test-mode.state` — CLJS local-state atom + the
     `begin-run!` / `store-result!` / `select-step!` / `toggle-expanded!` /
     `run-variant-pane!` mutators.
-  - `re-frame.story.ui.test-mode.view`  — CLJS-only styles, section
+  - `re-frame.story.ui.test-mode.view`  — CLJS-only section
     renderers, and the top-level `test-view` component.
 
   Everything in this namespace is `.cljc` so it runs unchanged on both
@@ -24,7 +24,7 @@
 ;;
 ;; `assertion-event?` lives canonically in `re-frame.story.predicates`
 ;; (a pure leaf ns the rest of Story consumes without cycle risk).
-;; Aliased here so internal call sites stay textually identical.
+;; Aliased here for the internal call sites.
 ;; `parent-story-id` is not re-exported here — its sole caller
 ;; (`test-mode.view`) calls `rf.story.predicates/parent-story-id` directly.
 
@@ -46,8 +46,7 @@
   placeholder.
 
   That is the SAME predicate `testable-variant-ids` (sidebar dots, Run all)
-  filters on, so the Tests pane and Run all agree on what is a test
-  (rf2-uiihg).
+  filters on, so the Tests pane and Run all agree on what is a test.
 
   Pure data → data; JVM-testable."
   [variant-id]
@@ -213,7 +212,7 @@
 ;;   - the epoch-id alignment (`epoch-id-slice`, below) — one epoch-id per
 ;;     dispatch-only play event, matched against the run's OWN `:epoch-tape`
 ;;     by `:trigger-event` identity rather than a positional trailing-N
-;;     slice (rf2-4e545l finding 4 — see that fn's docstring for why
+;;     slice (see that fn's docstring for why
 ;;     position alone misaligns on a mixed `:click`+`:dispatch` script).
 ;;
 ;; All four helpers are pure data → data and JVM-testable.
@@ -293,17 +292,17 @@
   `:dispatch` / `:dispatch-sync` steps only), return the epoch-id the
   scrubber should restore to for EACH play event, in play-event order.
 
-  rf2-4e545l finding 4: a `:click` / `:type` / `:focus` step has no
+  A `:click` / `:type` / `:focus` step has no
   event-vector representation in `play-events` (`variant-play-events`
   skips every non-dispatch step type) — but running it may STILL commit
-  an epoch, e.g. a `:click` whose DOM handler dispatches. The prior
-  implementation took a positional trailing-N slice of the FRAME's whole
-  epoch-history (`n` = `(count play-events)`); a non-dispatch step that
-  ALSO committed an epoch then interleaves an epoch the position-only
-  slice never accounted for, so ticks/labels attribute to the WRONG
-  epoch and clicking one restores the WRONG app-db.
+  an epoch, e.g. a `:click` whose DOM handler dispatches. A positional
+  trailing-N slice of the FRAME's whole epoch-history (`n` =
+  `(count play-events)`) would misalign: a non-dispatch step that ALSO
+  commits an epoch interleaves an epoch the position-only slice never
+  accounts for, so ticks/labels would attribute to the WRONG epoch and
+  clicking one would restore the WRONG app-db.
 
-  This walks `epoch-tape` in order instead, matching each record's
+  So this walks `epoch-tape` in order, matching each record's
   `:trigger-event` against the next UNCONSUMED play-event: a match
   consumes both and contributes that record's `:epoch-id`; a non-match
   (a non-dispatch-step epoch, or any other epoch not among the
@@ -354,11 +353,11 @@
 ;;   - `cannot-run-rows`    — the `:cannot-run` refusal rows (required vs
 ;;                            available evidence/runner).
 ;;   - `filter-rows`        — the failed-only filter over assertion rows.
-;;   - `evidence-available?`— whether the evidence spine can be linked yet
-;;                            (graceful "evidence pending" until ba86n.10).
+;;   - `evidence-available?`— whether the run retained evidence the
+;;                            evidence spine can be linked to.
 ;;
 ;; All pure data → data; JVM-testable. Render-what-is-present: a slot the
-;; substrate does not yet populate projects to an empty vector, NEVER a
+;; substrate does not populate projects to an empty vector, NEVER a
 ;; fabricated row.
 
 (defn run-status
@@ -407,7 +406,7 @@
                                             ; the check id AND its records
                                             ; (spec/017 §Run result).
 
-  Empty when the plan declared no checks (the common case today — render an
+  Empty when the plan declared no checks (the common case — render an
   honest empty state, never a fabricated check). Pure data → data."
   [result]
   (mapv (fn [{:keys [check status assertions]}]
@@ -443,7 +442,7 @@
   `:actual` (`re-frame.story.result/schema-error-record`).
 
   The caller-supplied `:consumed-selectors` escape hatch (selectors
-  pre-excused outside the matcher, with NO `:pass` record) still excuses
+  pre-excused outside the matcher, with NO `:pass` record) excuses
   EVERY same-selector violation — set-keyed, matching the floor's treatment
   of that input. A partial result without the `:consumed-selectors` slot
   falls back to the same `:pass`-record derivation (multiset).
@@ -567,8 +566,7 @@
 ;;     would `pr-str`);
 ;;   - the axe-style a11y violations ({:id :impact :help}) likewise;
 ;;   - the visual-snapshot screenshot/identity presentation (the reused
-;;     `content-hash` snapshot identity — a real pixel diff lands later with
-;;     the `:pixels` runner);
+;;     `content-hash` snapshot identity, not a pixel diff);
 ;;   - the honest `:cannot-run` row for a browser-tier check the headless /
 ;;     hiccup runner could not even attempt (spec/017 §`:cannot-run` — never
 ;;     a false pass or silent blank).
@@ -601,7 +599,7 @@
 
   `:locus` is the offending element's hiccup tag (the structural check works
   over the rendered hiccup TREE, so the tag is the locus the `:hiccup` tier
-  can prove). The structural tier has NO real source coordinate to thread
+  can prove). The structural tier has NO real source coordinate to thread:
   the `:hiccup-structure` runner walks an in-memory hiccup tree,
   not a DOM, so there is no CSS selector and no file/line coord to recover —
   the tree carries none. Honesty over fabrication: the §4 source-link MUST is
@@ -668,7 +666,7 @@
   A `:cannot-run` row (a browser-tier check the headless / hiccup runner
   could not even attempt) carries its `:reason` so it reads as a refusal,
   never a false pass or a silent blank (spec/017 §`:cannot-run`). The status
-  is the record's unified `:status` (the run path stamped it); the legacy
+  is the record's unified `:status` (the run path stamped it); the
   `:passed?`-only read is the fallback. Empty when the run recorded no
   browser-tier checks (the common headless case — an honest empty state,
   never a fabricated row). Pure data → data; JVM-testable."
