@@ -515,7 +515,7 @@ function Write-Husk([string]$Path) {
       'files you can still see have no worktree behind them.',
       'THIS IS A DESTROYED TREE, NOT AN UNTOUCHED ONE. If an agent was using it,',
       'its build or gate run has already been broken; a partial removal kills a',
-      'running gate exactly as a complete one does (rf2-k3j2w).',
+      'running gate exactly as a complete one does.',
       'Retrying this script will not finish the job - there is no registered',
       "worktree left to remove, and 'git worktree prune' has nothing to clear.",
       'Any node_modules link has been disarmed, so what remains is an ordinary',
@@ -936,7 +936,7 @@ if ($SelfTest) {
           exit 1
         }
         if ($gText -match 'MAYOR_ROOT=') {
-          Write-Error "SELF_TEST=FAILED a bad argument was refused only AFTER the script began examining trees, which is how the explanation came to be stranded above the canary block: $aBad. Output: $gText"
+          Write-Error "SELF_TEST=FAILED a bad argument was refused only AFTER the script began examining trees, which strands the explanation above the canary block: $aBad. Output: $gText"
           exit 1
         }
       }
