@@ -395,7 +395,8 @@
 
 (defn collocate-state-source
   "Dev-branch runtime co-location of reference-site `:source-coords` onto
-  each map node inside the registered machine spec's `:states` tree.
+  each map node of the registered machine spec's trees — the root, each
+  region body, and each map node inside a `:states` tree.
   `coords` is the `{<map-spec-path> <coord-map>}` index the
   reg-machine macro built via [[walk-machine-spec]] at expansion time; this
   fn splices each coord onto the map living at its spec-path, yielding e.g.
@@ -424,7 +425,8 @@
 
 (defn collocate-state-inline-source
   "Dev-branch runtime co-location of inline-fn `:source-code` strings onto
-  each enclosing `:states`-tree map node. `inline-source` is the
+  each enclosing map node — a node inside a `:states` tree, or the root or a
+  region body for its own `:entry` / `:exit`. `inline-source` is the
   `{<map-spec-path> {<slot> <source-string>}}` index the macro built via
   [[walk-machine-inline-source]] at expansion time; this fn splices each
   per-slot source map onto the map living at its spec-path under
@@ -450,8 +452,8 @@
 
   This co-location does not collide with the named-element `:source-code`
   (a STRING on `:guards`/`:actions` entries via [[collocate-element-source]]):
-  those live under the `:guards`/`:actions` registry slots, never on a
-  `:states`-tree map node, so the two `:source-code` shapes never share a map.
+  those live under the `:guards`/`:actions` registry slots, never on a tree
+  node, so the two `:source-code` shapes never share a map.
 
   Only paths whose live value is a map get a `:source-code` (the walker only
   emits map-valued paths; this fn defends with `(map? (get-in …))` so a spec
@@ -769,8 +771,9 @@
 ;;
 ;; Per Spec 005 §Source-coord stamping: the `reg-machine` macro walks its
 ;; literal machine-spec form at expansion time and CO-LOCATES a REFERENCE-SITE
-;; `:source-coords` onto each map node inside the `:states` tree — directly on
-;; the state-node / transition map at its spec path, e.g.
+;; `:source-coords` onto each map node of the spec's trees — the spec root,
+;; each parallel region body, and every map node inside the root's or a
+;; region's `:states` tree — directly on the node at its spec path, e.g.
 ;;
 ;;   :states {:locked {:tags #{:door/locked}
 ;;                     :on   {:door/insert-coin :closed}
@@ -789,18 +792,23 @@
 ;; :source-coords .. :source-code ..}}`). See [[walk-element-source]] +
 ;; [[collocate-element-source]].
 ;;
-;; What lives here is the reference-site co-location: each MAP node inside
-;; `:states` (state-node, `:spawn` map, transition map) carries its own
-;; `:source-coords`. Inline-fn slots (`:entry` / `:exit` / `:guard` /
-;; `:action`) hold a fn or keyword VALUE — there is no map to
-;; hang a key on — so they are NOT stamped directly; a tool resolving an
-;; inline-fn slot reads the `:source-coords` off the nearest enclosing map
-;; (its state-node / transition map), which IS stamped. This mirrors the
-;; keyword-reference rule: a keyword `:guard :form-valid?` carries no reader
-;; metadata, and the enclosing transition map's coord stands in for it.
+;; What lives here is the reference-site co-location: each MAP node — the
+;; spec root, a region body, and each state-node, `:spawn` map and transition
+;; map inside a `:states` tree — carries its own `:source-coords`. Inline-fn
+;; slots (`:entry` / `:exit` / `:guard` / `:action`) hold a fn or keyword
+;; VALUE — there is no map to hang a key on — so they are NOT stamped
+;; directly; a tool resolving an inline-fn slot reads the `:source-coords` off
+;; the nearest enclosing map (its state-node / transition map, or the root /
+;; region body for a tree root's own `:entry` / `:exit`), which IS stamped.
+;; This mirrors the keyword-reference rule: a keyword `:guard :form-valid?`
+;; carries no reader metadata, and the enclosing transition map's coord stands
+;; in for it.
 ;;
-;; Spec paths are vectors of keys mirroring the spec's `:states` structure
-;; (`[:states :idle :on :submit]` for the `:submit` transition map). The
+;; Spec paths are vectors of keys mirroring the spec's structure
+;; (`[:states :idle :on :submit]` for the `:submit` transition map, `[]` for
+;; the root, `[:regions :r1]` for a region body and `[:regions :r1 :states
+;; :idle]` for a state inside it) — the enclosing-node paths of the keys a
+;; tool builds from an action's declaring node. The
 ;; walker runs at compile time on JVM only (the Clojure side of the macro)
 ;; and produces a `{<map-spec-path> <coord-form>}` index that
 ;; [[collocate-state-source]] splices onto each map node at RUNTIME — but
@@ -937,16 +945,20 @@
       acc states-form)))
 
 (defn walk-machine-spec
-  "Compile-time helper. Walk a literal machine-spec form's `:states` tree
-  (a Clojure map literal as it appears in user code) and return a flat map
-  `{<map-spec-path> {:ns :line :column :file}, ...}` capturing the
-  REFERENCE-SITE source coordinate of each MAP node inside `:states`.
+  "Compile-time helper. Walk a literal machine-spec form (a Clojure map
+  literal as it appears in user code) — the spec root, its `:states` tree
+  and, for a parallel machine, each region under `:regions` — and return a
+  flat map `{<map-spec-path> {:ns :line :column :file}, ...}` capturing the
+  REFERENCE-SITE source coordinate of each MAP node.
 
-  Reference-site MAP nodes: each state-node, `:spawn` map, and transition
-  map inside the `:states` tree is keyed by its full spec path, e.g.
-  `[:states :idle :on :submit]` for the `:submit` transition map and
-  `[:states :idle]` for the `:idle` state-node. Inline-fn / keyword slots
-  (`:entry` / `:exit` / `:guard` / `:action`) are NOT keyed —
+  Reference-site MAP nodes, each keyed by its full spec path: the spec root
+  at `[]`; each region body at `[:regions <region>]`; and each state-node,
+  `:spawn` map and transition map inside the root's `:states` tree
+  (`[:states :idle]` for the `:idle` state-node, `[:states :idle :on
+  :submit]` for its `:submit` transition map) or a region's
+  (`[:regions <region> :states :idle]`). The root and a region body are the
+  enclosing nodes of a tree root's own `:entry` / `:exit`. Inline-fn /
+  keyword slots (`:entry` / `:exit` / `:guard` / `:action`) are NOT keyed —
   they hold a value, not a map, so there is no node to co-locate a coord
   on; a tool reads the enclosing map's coord (mirroring the
   keyword-reference rule).
@@ -954,8 +966,8 @@
   The returned index is consumed by [[collocate-state-source]], which
   splices each coord onto its map node at runtime (the dev arm of the
   macro's `rf.interop/debug-enabled?` gate), so the registered spec carries
-  `:source-coords` directly on each state-node / transition map rather than
-  in a flat side-index.
+  `:source-coords` directly on each map node rather than in a flat
+  side-index.
 
   Definition-site coords (each fn literal under `:guards` / `:actions`)
   are NOT produced here — they are
@@ -979,14 +991,30 @@
     ;; NEW object, so `stamp-map!` threads the return via `vswap!` rather than
     ;; relying on in-place mutation (which would cap the index at 8 entries).
     (let [acc (volatile! (transient {}))]
+      ;; The root map node itself.
+      (stamp-map! [] spec-form)
       ;; Reference-site stamping of MAP nodes under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
+      ;; A parallel machine's regions. Each region body is the root of its
+      ;; region's tree: it carries its own coord, and its `:states` tree is
+      ;; walked as the root's is.
+      (when (map? (:regions spec-form))
+        (reduce-kv
+          (fn [_ region-id body]
+            (let [region-path [:regions region-id]]
+              (stamp-map! region-path body)
+              (when (map? body)
+                (walk-states-tree (:states body) (conj region-path :states)
+                                  acc ns-sym file)))
+            nil)
+          nil (:regions spec-form)))
       (persistent! @acc))))
 
 ;; ---- inline-fn source-code co-location ------------------------------------
 ;;
-;; An inline-fn slot (`:entry` / `:exit` / `:guard` / `:action`)
-;; inside the `:states` tree holds a fn VALUE, not a map, so it carries no
+;; An inline-fn slot (`:entry` / `:exit` / `:guard` / `:action`) inside a
+;; `:states` tree, or a root's or region body's own `:entry` / `:exit`,
+;; holds a fn VALUE, not a map, so it carries no
 ;; `:source-coords` of its own — a tool resolving such a slot reads the
 ;; enclosing map node's coord (jump-to-editor lands on the right line). But
 ;; the enclosing map's coord cannot supply the inline fn's CODE TEXT: pr-str
@@ -1019,17 +1047,18 @@
 
 (def ^:private inline-source-slots
   "The inline-fn slots whose fn-literal source is co-located onto the
-   enclosing `:states`-tree map node's `:source-code` map.
-   State-nodes carry `:entry` / `:exit`; transition maps carry `:guard` /
+   enclosing map node's `:source-code` map. State-nodes, the spec root and
+   region bodies carry `:entry` / `:exit`; transition maps carry `:guard` /
    `:action`. Only fn-literal values are captured (keyword references defer
    to the named `:guards` / `:actions` entry's own `:source-code`)."
   [:entry :exit :guard :action])
 
 (defn- node-inline-source
-  "Build the `{<slot> <source-string>}` map for a single `:states`-tree map
-   node `form`, capturing the `pr-str` of each inline-fn slot whose value is
-   a fn LITERAL (`(fn …)` / `#(…)` reader form — a list). Keyword references
-   and non-list values are skipped (a keyword's body lives on its named
+  "Build the `{<slot> <source-string>}` map for a single map node `form` —
+   a `:states`-tree node, the spec root or a region body — capturing the
+   `pr-str` of each inline-fn slot whose value is a fn LITERAL (`(fn …)` /
+   `#(…)` reader form — a list). Keyword references and non-list values are
+   skipped (a keyword's body lives on its named
    `:guards` / `:actions` entry; a non-list slot value carries no fn form to
    render). Returns nil when the node carries no capturable inline fn so the
    caller emits no entry. Compile-time / JVM-only."
@@ -1124,13 +1153,16 @@
       acc states-form)))
 
 (defn walk-machine-inline-source
-  "Compile-time helper. Walk a literal machine-spec form's `:states` tree
-   and return a flat index `{<map-spec-path> {<slot> <source-string>}}`
+  "Compile-time helper. Walk a literal machine-spec form — the spec root, its
+   `:states` tree and, for a parallel machine, each region under `:regions`
+   — and return a flat index `{<map-spec-path> {<slot> <source-string>}}`
    capturing each inline-fn slot's fn-literal source. Keyed by
-   the ENCLOSING `:states`-tree map node's spec-path — e.g.
+   the ENCLOSING map node's spec-path — e.g.
    `[:states :idle :on :submit]` → `{:action \"(fn [_] {})\"}` for an inline
    transition `:action`, `[:states :open]` → `{:entry \"(fn …)\"}` for an
-   inline state `:entry`.
+   inline state `:entry`, `[]` for the root's own `:entry` / `:exit`,
+   `[:regions <region>]` for a region body's, and `[:regions <region>
+   :states …]` inside a region.
 
    Inline-fn slots hold a fn VALUE, not a map, so they cannot carry a
    `:source-code` key of their own (the same reason
@@ -1157,7 +1189,23 @@
     ;; (possibly promoted) return so stamps past the 8th key are not lost. See
     ;; `walk-machine-spec` for the array-map-promotion rationale.
     (let [acc (volatile! (transient {}))]
+      ;; The root's own inline `:entry` / `:exit`.
+      (when-let [src (node-inline-source spec-form)]
+        (vswap! acc assoc! [] src))
       (walk-states-inline-source (:states spec-form) [:states] acc)
+      ;; A parallel machine's regions: each region body's own inline
+      ;; `:entry` / `:exit`, then its `:states` tree.
+      (when (map? (:regions spec-form))
+        (reduce-kv
+          (fn [_ region-id body]
+            (when (map? body)
+              (let [region-path [:regions region-id]]
+                (when-let [src (node-inline-source body)]
+                  (vswap! acc assoc! region-path src))
+                (walk-states-inline-source (:states body) (conj region-path :states)
+                                           acc)))
+            nil)
+          nil (:regions spec-form)))
       (persistent! @acc))))
 
    )) ;; end #?(:clj (do ...)) for the inline-source walk
