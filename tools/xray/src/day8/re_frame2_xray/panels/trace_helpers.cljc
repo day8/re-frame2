@@ -6,29 +6,30 @@
   The Trace panel renders the COMPLETE TRACE of a single epoch — every
   trace operation the substrate emits during the epoch, in strict fire
   order (oldest-first). Its contract is COMPLETENESS: every op-family in
-  the Spec-009 vocabulary surfaces (spec/023 §1). Since rf2-aqusw the
-  panel is a SINGLE FLAT LIST — no envelope, no phase-band nesting, no
-  empty-band scaffolding. The 4-band hierarchy (EPOCH OPEN / DISPATCH /
-  EVENT HANDLING / EFFECTS-FX / REACTIVE RENDERING) was replaced because
-  it was hard to scan. The epoch-lifecycle ops (`:rf.epoch/*`) render as
-  ORDINARY rows in the flat list; `:rf.epoch/outcome` carries the
-  consumer-facing `:ok` / `:blocked` / `:error` summary.
+  the Spec-009 vocabulary surfaces (spec/023 §1). The panel is a SINGLE
+  FLAT LIST — no envelope, no phase-band nesting, no empty-band
+  scaffolding — because a banded hierarchy (EPOCH OPEN / DISPATCH /
+  EVENT HANDLING / EFFECTS-FX / REACTIVE RENDERING) is hard to scan.
+  The epoch-lifecycle ops (`:rf.epoch/*`) render as ORDINARY rows in the
+  flat list; `:rf.epoch/outcome` carries the consumer-facing `:ok` /
+  `:blocked` / `:error` summary.
 
   Each op renders as a row of SIX columns (spec/023 §3):
 
       Δt · stage · area badge · what-happened · target/detail · duration
 
-  The phase information the bands conveyed is recovered per-row by the
-  STAGE column + a colour-coded left edge — each row names the Epoch-panel
-  pipeline step it belongs to (spec/023 §3a).
+  Each row carries its phase in the STAGE column + a colour-coded left
+  edge — each row names the Epoch-panel pipeline step it belongs to
+  (spec/023 §3a).
 
   Errors and warnings are cross-cutting — they render INLINE at their
   chronological point in the flat list (spec/023 §7), with the row's left
   edge riding the severity colour so failures stand out.
 
-  NOTE: the band-projection helpers (`build-bands` etc.) below are
-  retained for cross-panel / test consumers, but the Trace panel no
-  longer renders bands — see the per-helper comments.
+  NOTE: the band-projection helpers (`build-bands` etc.) below fill the
+  feed's `:envelope` / `:bands` / `:outcome` slots and are covered by
+  their unit tests, but the Trace panel does not render bands — see the
+  per-helper comments.
 
   ## Why a separate `.cljc` ns
 
@@ -37,8 +38,7 @@
   each op's phase / area / verb / target, banding the rows into the arc
   shape, and classifying the empty state — is pure data → data. The
   algebra lives here as `.cljc` so it runs under the JVM unit-test
-  target (`clojure -M:test`) per the standing
-  `feedback_jvm_interop_must_work.md` rule.
+  target (`clojure -M:test`).
 
   ## Epoch-scoped feed (spec/018 §6)
 
@@ -131,10 +131,8 @@
       ;; `.registrar` / …). A prefix match covers the whole `rf.machine*`
       ;; family — consistent with the `rf.route*` routing branch above — so
       ;; a spawn-all / event / history / start op badges MACHINE rather than
-      ;; falling through to a bare EVENT. The prior enumerated set omitted
-      ;; those four sub-families (rf2-99f7eq; same class as rf2-409jka /
-      ;; rf2-uxp0u5, PR #5357). No other op-family namespace begins with
-      ;; `rf.machine`, so the prefix cannot over-match.
+      ;; falling through to a bare EVENT. No other op-family namespace
+      ;; begins with `rf.machine`, so the prefix cannot over-match.
       (and op-ns (str/starts-with? op-ns "rf.machine")) :machine
       :else                              :event)))
 
@@ -161,10 +159,10 @@
   [row-or-ev]
   (get area->badge (area row-or-ev) "EVENT"))
 
-;; ---- phase / band placement (spec/023 §2 · §4) --------------------------
+;; ---- phase / band placement ---------------------------------------------
 ;;
-;; Per spec/023 §4 every op-family places into the epoch envelope or one
-;; of the four phase bands, in arc order:
+;; Every op-family places into the epoch envelope or one of the four
+;; phase bands, in arc order:
 ;;
 ;;   envelope        :rf.epoch/* (open / close / restore / replay / …)
 ;;   ① DISPATCH      :rf.event/dispatched
@@ -178,21 +176,20 @@
 ;; feed projection threads them inline at their chronological point.
 
 (def band-order
-  "The canonical arc order of the four phase bands (spec/023 §2). The
-  epoch envelope brackets these and is rendered separately. Pure data."
+  "The canonical arc order of the four phase bands. The epoch envelope
+  brackets these and is projected separately. Pure data."
   [:dispatch :event-handling :effects :reactive])
 
 (def band->label
-  "Map a band keyword to its numbered uppercase header label
-  (spec/023 §2 · §9)."
+  "Map a band keyword to its numbered uppercase header label."
   {:dispatch       "① DISPATCH"
    :event-handling "② EVENT HANDLING"
    :effects        "③ EFFECTS / FX"
    :reactive       "④ REACTIVE RENDERING"})
 
 (defn phase
-  "Classify a projected row (or raw event) into its arc phase per
-  spec/023 §4: `:envelope` · `:dispatch` · `:event-handling` ·
+  "Classify a projected row (or raw event) into its arc phase:
+  `:envelope` · `:dispatch` · `:event-handling` ·
   `:effects` · `:reactive`. Errors / warnings classify by the band they
   occurred in is impossible without inline context, so they fall through
   to `:event-handling` here — the feed projection threads them inline at
@@ -239,10 +236,10 @@
   the operation's terminal segment (`dispose`, `skip`, `cache-hit`, …).
   Pure data → keyword; JVM-testable.
 
-  Per rf2-uo4e2 the dispose terminal is the singular `dispose` form
-  (matches the framework-emitted `:rf.sub/dispose` op spec/009 + spec/023
-  ratified via rf2-2v3p7). The regex uses the shorter root so it
-  still matches both `dispose` and any legacy `disposed` substring."
+  The dispose terminal is the singular `dispose` form (the
+  framework-emitted `:rf.sub/dispose` op, spec/009 + spec/023). The regex
+  uses the shorter root so it matches both `dispose` and a `disposed`
+  substring."
   [{:keys [op-type operation] :as _row-or-ev}]
   (let [op-name (when (keyword? operation) (name operation))]
     (cond
@@ -257,12 +254,12 @@
       :pending
       :else :active)))
 
-;; ---- op-family classification (left-border band — retained) -------------
+;; ---- op-family classification -------------------------------------------
 ;;
-;; The op-FAMILY (a coarser 5-bucket grouping than the area badge) is
-;; retained for the 3px op-family left-border band the view paints on
-;; each row and for the per-band rail colour. Five families plus the two
-;; severity tiers:
+;; The op-FAMILY is a coarser 5-bucket grouping than the area badge,
+;; carried on each row as `:op-family`, with `op-family-colour` resolving
+;; a colour per family. The flat view's left edge rides the STAGE colour
+;; instead (`stage-colour`). Five families plus the two severity tiers:
 ;;
 ;;     :dispatch  — the event side (dispatched / run-start / run-end)
 ;;     :db        — :rf.event/db-changed
@@ -270,14 +267,14 @@
 ;;     :reactive  — subs + views (:rf.sub/* · :rf.view/*)
 ;;     :machine   — :rf.machine/*
 ;;
-;; with :error / :warning preserved so a failure never hides under a
-;; family band. Unknown ops fall back to :dispatch-adjacent neutral.
+;; with :error / :warning separate so a failure never hides under a
+;; family colour. Unknown ops fall back to :dispatch-adjacent neutral.
 
 (defn op-family
   "Classify a projected row (or raw event) into one of the op families:
   `:dispatch` · `:db` · `:fx` · `:reactive` · `:machine`, with the
-  `:error` / `:warning` severity tiers preserved. Drives the 3px
-  left-border band colour. Pure data → keyword; JVM-testable."
+  `:error` / `:warning` severity tiers separate. `op-family-colour`
+  resolves its colour. Pure data → keyword; JVM-testable."
   [{:keys [op-type] :as row-or-ev}]
   (let [a (area row-or-ev)]
     (case a
@@ -323,7 +320,7 @@
    :warning  :yellow})
 
 (defn op-family-colour
-  "Resolve the 3px left-border colour for a row's op family. Routes the
+  "Resolve the colour for a row's op family. Routes the
   family through `op-family` then `op-family->token` then
   `theme/tokens`. Falls back to `:text-secondary` for an unknown family.
   Pure data → CSS-var string; JVM-testable."
@@ -350,11 +347,10 @@
   (get tokens/tokens
        (get outcome-tier->token (outcome-tier row-or-ev) :text-primary)))
 
-;; ---- pipeline stage (flat list · rf2-aqusw) -----------------------------
+;; ---- pipeline stage (flat list) -----------------------------------------
 ;;
-;; The flat Trace panel (rf2-aqusw) loses the 4-band hierarchy in favour
-;; of a single list of rows, each carrying a STAGE column + a colour-coded
-;; left edge. The stage is the Epoch panel's pipeline step — DISPATCH /
+;; The flat Trace panel is a single list of rows, each carrying a STAGE
+;; column + a colour-coded left edge. The stage is the Epoch panel's pipeline step — DISPATCH /
 ;; COEFFECT / HANDLER / FLOW / SIDE-EFFECTS / SUBSCRIPTIONS / VIEWS — so
 ;; the Trace stage column + edge match the Epoch panel's numbered event-bundle
 ;; exactly. ONE mental model, DRY: the label + colour are resolved
@@ -385,10 +381,10 @@
 ;;                                                  dispatch-link family)
 ;;
 ;; Errors / warnings are cross-cutting (spec/023 §7) — the STAGE is the
-;; step where the op chronologically occurred (so the column still labels
-;; its phase), but the row's left EDGE rides the severity colour in the
-;; view so a failure stands out (the view layers `:error` / `:warning`
-;; over `stage-colour` exactly as it did over `op-family-colour`).
+;; step where the op chronologically occurred (so the column labels its
+;; phase), but the row's left EDGE rides the severity colour in the view
+;; so a failure stands out (the view layers `:error` / `:warning` over
+;; `stage-colour`).
 
 (def area->stage
   "Map a trace AREA keyword to its Epoch-panel pipeline STAGE keyword
@@ -410,7 +406,7 @@
   "Classify a projected row (or raw event) into its Epoch-panel pipeline
   STAGE — one of the 7 `epoch.badge` step badges (`:DISPATCH` ·
   `:COEFFECT` · `:HANDLER` · `:FLOW` · `:SIDE-EFFECTS` · `:SUBSCRIPTIONS`
-  · `:VIEWS`). The flat Trace panel (rf2-aqusw) reads this for both the
+  · `:VIEWS`). The flat Trace panel reads this for both the
   stage column and the colour-coded left edge so the two panels share one
   step model. Pure data → keyword; JVM-testable.
 
@@ -420,7 +416,7 @@
 
   Errors / warnings classify by the stage where they OCCURRED (spec/023
   §3a) — the view rides the severity colour on the edge regardless
-  (spec/023 §7). rf2-3x7nj.24.4: an op whose own namespace names a step
+  (spec/023 §7). An op whose own namespace names a step
   takes that step (`:rf.cofx/skipped-on-platform` → COEFFECT,
   `:rf.fx/skipped-on-platform` → SIDE-EFFECTS); an `:rf.error/*` /
   `:rf.warning/*` op, which names none, takes `preceding` — the stage of
@@ -443,7 +439,7 @@
 
 (defn stage-label
   "The uppercase stage label for a row's STAGE — the Epoch panel's own
-  badge label (`DISPATCH`, `SIDE EFFECTS`, `SUBSCRIPTIONS`, …) resolved
+  badge label (`DISPATCH`, `EFFECT HANDLERS`, `SUBSCRIPTIONS`, …) resolved
   through `epoch.badge/label` so the Trace stage column reads identically
   to the Epoch event-bundle. Pure data → string; JVM-testable."
   [row-or-ev]
@@ -453,7 +449,7 @@
   "Resolve the colour-coded left-edge CSS-var string for a row's STAGE —
   the Epoch panel's own badge colour resolved through
   `epoch.badge/colour` so the Trace left edge matches the Epoch step
-  pills exactly (one palette, no parallel scheme — rf2-aqusw). Pure data
+  pills exactly (one palette, no parallel scheme). Pure data
   → CSS-var string; JVM-testable."
   [row-or-ev]
   (epoch-badge/colour (stage row-or-ev)))
@@ -635,11 +631,11 @@
           :else nil))
 
       :fx
-      ;; rf2-vbadq — the framework emits effect arguments under the
+      ;; The framework emits effect arguments under the
       ;; CANONICAL PLURAL `:rf.fx/args` (`re-frame.fx`, on the handled,
-      ;; exception, skipped-on-platform and no-such-fx rows alike). The
-      ;; earlier singular `:rf.fx/arg` / `:rf.fx/value` reads matched no
-      ;; producer, so every real row projected its fx-id alone.
+      ;; exception, skipped-on-platform and no-such-fx rows alike). A
+      ;; singular `:rf.fx/arg` / `:rf.fx/value` read would match no
+      ;; producer, so every real row would project its fx-id alone.
       ;; Presence is by KEY, not truthiness: `false` and `nil` are valid
       ;; effect arguments, so only a genuinely absent key falls back to
       ;; the id-only form.
@@ -673,7 +669,7 @@
           (str vid (when cause (str " ← " cause)))))
 
       :machine
-      ;; rf2-ws5thu / rf2-yyvtk5 — live-runtime machine rows (transition /
+      ;; Live-runtime machine rows (transition /
       ;; microstep) address the actor INSTANCE under `:actor-id`; prefer it,
       ;; then fall back to `:machine-id` / `:rf/machine-id` for other rows.
       (let [mid  (or (:actor-id tags) (:machine-id tags) (:rf/machine-id tags))
@@ -685,7 +681,7 @@
                  (str " " (name-or-str from) " → " (name-or-str to))))))
 
       :coeffect
-      ;; rf2-sepqgg — `:rf.cofx/value` carries the supplier's PRODUCED
+      ;; `:rf.cofx/value` carries the supplier's PRODUCED
       ;; value (redacted by the cofx's marks); the requirement-arg rides
       ;; the distinct `:rf.cofx/arg`. The one-liner surfaces the produced
       ;; value (what egressed into `:coeffects`), mirroring `:fx`.
@@ -721,13 +717,12 @@
 
       nil)))
 
-;; ---- readable plain-language description (legacy fallback) ---------------
+;; ---- readable plain-language description --------------------------------
 ;;
-;; The full 5-column row (Δt · badge · verb · target/detail · duration)
-;; supersedes the single readable line as the dense default. The
-;; readable line is retained as the row's `:description` slot — used by
-;; cross-panel consumers + as the row title/hover — built from the area
-;; verb + target/detail (or the terse fallback so no op is ever blank).
+;; The panel renders the 6-column row (Δt · stage · badge · verb ·
+;; target/detail · duration), not a single readable line. The readable
+;; line is the row's `:description` slot, built from the area verb +
+;; target/detail (or the terse fallback so no op is ever blank).
 
 (defn readable-description
   "Build a one-line plain-language description for a trace event —
@@ -736,9 +731,8 @@
   ops outside the recognised vocabulary so the line is never blank.
   Pure data → string; JVM-testable.
 
-  Retained for cross-panel consumers + the row title/hover; the panel
-  itself renders the 5-column row (badge · verb · target/detail), not
-  this single line."
+  It fills the row's `:description` slot; the panel itself renders the
+  6-column row, not this single line."
   [ev]
   (let [verb   (what-happened ev)
         detail (target-detail ev)
@@ -779,18 +773,18 @@
 
 ;; ---- relative timing + duration -----------------------------------------
 ;;
-;; Per spec/023 §3 each row leads with Δt — the ms offset from EPOCH
-;; OPEN — and carries a duration column (a number in ms, or `—` when the
+;; Per spec/023 §3 each row leads with Δt — the ms offset from the
+;; epoch's first op — and carries a duration column (a number in ms, or `—` when the
 ;; substrate supplies no timing, §6).
 
 (defn frame-of
   "Project the event's frame routing key. Reads the RAW trace-event
   frame via the canonical reader `re-frame.trace/trace-event-frame`
   (its `[:tags :frame]` slot — Spec 009 §Frame identity on the raw
-  event, rf2-7737vq). The prior defensive top-level `:frame` fallback is
-  removed: per the ruling raw trace events carry frame identity ONLY
-  under `[:tags :frame]`; a top-level `:frame` belongs to derived /
-  projection records, not the raw rows this projection consumes."
+  event). There is no top-level `:frame` fallback: raw trace events
+  carry frame identity ONLY under `[:tags :frame]`; a top-level `:frame`
+  belongs to derived / projection records, not the raw rows this
+  projection consumes."
   [ev]
   (rf.trace/trace-event-frame ev))
 
@@ -809,11 +803,11 @@
   §243), `:rf.sub/elapsed-ms` (§251), `:rf.event/elapsed-ms`
   (re-frame.router emit-run-end), `:rf.view/elapsed-ms` (re-frame.views ·
   §281). Flows carry a bare `:elapsed-ms` tag (re-frame.flows). We read the
-  per-area tag by op family first, then the bare `:elapsed-ms` (flows + any
-  legacy projected emit-record carrying it top-level). This mirrors the
-  Epoch projection reader's canonical-tag fix (rf2-ipaza); reading only the
-  non-canonical `:elapsed-ms` silently rendered `—` for every fx/sub/view/
-  cofx/handler row against real substrate traces (rf2-k7vtri).
+  per-area tag by op family first, then the bare `:elapsed-ms` (flows + a
+  projected emit-record carrying it top-level). The Epoch projection
+  reader reads the same canonical tags; reading only the non-canonical
+  `:elapsed-ms` would silently render `—` for every fx/sub/view/
+  cofx/handler row against real substrate traces.
 
   Returns nil otherwise — genuine point-in-time emits carry no elapsed, and
   production DCE strips the timing capture, so the duration column renders
@@ -851,7 +845,7 @@
 
 (defn epoch-t0
   "The earliest `:time` across `rows` (the epoch's domino-trail origin —
-  the EPOCH OPEN moment). Returns nil when no row carries a numeric
+  its first op). Returns nil when no row carries a numeric
   `:time`. Pure."
   [rows]
   (let [ts (keep :time rows)]
@@ -859,7 +853,7 @@
 
 (defn format-rel-time
   "Render `t` (absolute ms) relative to `t0` as the spec/023 §3 Δt form
-  `+N.N` — the ms offset from EPOCH OPEN. An error/warning row's Δt may
+  `+N.N` — the ms offset from the epoch's first op. An error/warning row's Δt may
   be rendered with a `!` lead by the view (spec/023 §9); the helper
   produces the neutral `+N.N` and the view applies emphasis. Falls back
   to nil when either is non-numeric so the view can render an em-dash.
@@ -912,15 +906,14 @@
        :tags            <map>               ;; full tags for the detail view
        :raw             <trace-event>}
 
-  The flat row (rf2-aqusw) reads `:rel-time` (stamped by
+  The flat row reads `:rel-time` (stamped by
   `with-rel-times`) · `:stage-label` · `:area-badge` · `:verb` ·
   `:target` · `:duration-ms`, with `:stage-colour` painting the
-  colour-coded left edge. `:phase` is retained for cross-panel
-  consumers + the band-projection helpers; `:stage` drives the flat
-  panel's stage column + edge (the Epoch pipeline step, DRY);
-  `:op-family` is retained for cross-panel consumers; `:outcome-tier`
-  drives the verb's colour tint (spec/023 §8). Pure data → data;
-  JVM-testable."
+  colour-coded left edge. `:phase` feeds the band-projection helpers;
+  `:stage` drives the flat panel's stage column + edge (the Epoch
+  pipeline step, DRY); `:op-family` and `:description` are not rendered
+  by the flat panel; `:outcome-tier` drives the verb's colour tint
+  (spec/023 §8). Pure data → data; JVM-testable."
   [{:keys [id time op-type operation source tags] :as ev}]
   {:id              id
    :time            time
@@ -958,19 +951,19 @@
   "Project every event in `events` into a row. Returns a vector in
   chronological order (oldest first). Pure data → data.
 
-  Drops any event lacking an `:id` (rf2-wh33n). The runtime allocates a
+  Drops any event lacking an `:id`. The runtime allocates a
   monotonic `:id` per emit, so a nil-`:id` event is a pathological,
   malformed envelope (`trace_collector/snapshot-from-rings` already
   sorts such events to the tail via `MAX_SAFE_INTEGER`). Such a row has
   no stable identity: `row-key` would key it `\"t:nil\"` — colliding
   with every other nil-`:id` row into one React key — and it cannot be
   selected (`find-row` matches on `:id`) or expanded (the toggle
-  dispatches `:id`). Filtering it here is the projection-time guard the
-  bead prescribed, and it keeps `row-key` keying on the stable `:id`
-  alone — no positional fallback, honouring the anti-positional-key
-  contract (`project-feed-from-epoch-rows-carry-no-row-index-slot`).
+  dispatches `:id`). Filtering it here, at projection time, keeps
+  `row-key` keying on the stable `:id` alone — no positional fallback,
+  honouring the anti-positional-key contract
+  (`project-feed-from-epoch-rows-carry-no-row-index-slot`).
 
-  rf2-3x7nj.24.4 — the walk threads the stage of the last non-severity
+  The walk threads the stage of the last non-severity
   row, so an error / warning row labels the step it occurred in rather
   than a constant EVENT HANDLER (see `stage`)."
   [events]
@@ -988,20 +981,20 @@
             [[] nil]
             (filter (comp some? :id) events))))
 
-;; ---- band projection (spec/023 §2 · §4) ---------------------------------
+;; ---- band projection ----------------------------------------------------
 ;;
-;; Per spec/023 §2 the arc is the epoch envelope (EPOCH OPEN / CLOSE
-;; rows carrying the :rf.epoch/* ops) bracketing four collapsible phase
-;; bands, in arc order. Per spec/023 §13 EMPTY bands render dimmed with
-;; `(none)` — never hidden — so the 4-phase shape is always legible.
+;; The feed's `:envelope` / `:bands` group the rows into the epoch
+;; envelope (the :rf.epoch/* ops) and the four phase bands, in arc order.
+;; Every band is present even when it has no rows (`:empty? true`). The
+;; flat panel renders none of this; it paints `:rows`.
 ;; Errors / warnings are cross-cutting (spec/023 §7) — they stay inline
 ;; in whatever band they chronologically occurred (the rows keep their
 ;; fire-order position within a band).
 
 (defn epoch-outcome
   "Extract the epoch's `:rf.epoch/outcome` from its envelope rows — the
-  `:ok` / `:blocked` / `:error` outcome the EPOCH CLOSE row shows
-  (spec/023 §13). Reads the `:rf.epoch/outcome` operation's
+  `:ok` / `:blocked` / `:error` outcome (spec/023 §13). Reads the
+  `:rf.epoch/outcome` operation's
   `[:tags :rf.epoch/outcome]` (or `:outcome`). Returns nil when no
   outcome op is present (the epoch is still in-flight). Pure data →
   keyword-or-nil; JVM-testable."
@@ -1012,19 +1005,19 @@
         rows))
 
 (defn build-bands
-  "Project the epoch's oldest-first rows into the spec/023 §2 arc shape:
+  "Project the epoch's oldest-first rows into the banded arc shape:
 
-      {:envelope [<:rf.epoch/* row> ...]   ;; EPOCH OPEN / CLOSE ops
+      {:envelope [<:rf.epoch/* row> ...]   ;; the epoch-lifecycle ops
        :outcome  <:ok/:blocked/:error-or-nil>
        :bands    [{:id    :dispatch
                    :label \"① DISPATCH\"
                    :rows  [<row> ...]       ;; in fire order, oldest-first
                    :count <int>
-                   :empty? <bool>}          ;; → dimmed `(none)` (spec §13)
+                   :empty? <bool>}          ;; true when the band has no rows
                   ... one per band-order ...]}
 
-  Every band in `band-order` is ALWAYS present (spec/023 §13 — empty
-  bands render dimmed `(none)`, never hidden). Rows keep their fire-order
+  Every band in `band-order` is ALWAYS present, flagged `:empty?` when
+  it has no rows. Rows keep their fire-order
   position WITHIN a band, so a cross-cutting error/warning row stays at
   its chronological point in whatever band it landed (spec/023 §7).
   Pure data → data; JVM-testable."
@@ -1041,11 +1034,11 @@
                           :empty? (empty? band-rows)}))
                      band-order)}))
 
-;; ---- per-path db-changed diff (rf2-b3zw2 / rf2-8q8i4 = (b)) -------------
+;; ---- per-path db-changed diff -------------------------------------------
 ;;
 ;; The trace event `:rf.event/db-changed` carries only `:event` + `:frame`
-;; (no per-path diff payload — Mike's 2026-05-25 decision rf2-8q8i4 = (b),
-;; PANEL-SIDE derive). Per spec/023 §10 the "net db" diff IS the
+;; (no per-path diff payload — the panel derives it). Per spec/023 §10 the
+;; "net db" diff IS the
 ;; meaningful content of a DB row, but its derivation is the panel's
 ;; responsibility, not the runtime's: it comes from the focused epoch
 ;; record's `:db-before` / `:db-after` slots (already on every
@@ -1065,42 +1058,40 @@
 ;; (spec/021 §2.2 step 6). One derivation, one engine, one shape —
 ;; differences in rendering live in the view, not in re-derived data.
 ;;
-;; ---- render-side redaction (rf2-y8doi.14) --------------------------------
+;; ---- render-side redaction ----------------------------------------------
 ;;
-;; One engine was not enough, because the two tabs did not share the
-;; EGRESS SEAM in front of it. The App-DB tab projects its value AND its
-;; pre-image through `local-render/local-render-value` under the OBSERVED
-;; frame's policy before the section model is built
+;; One engine is not enough; the two tabs must also share the EGRESS SEAM
+;; in front of it. The App-DB tab projects its value AND its pre-image
+;; through `local-render/local-render-value` under the OBSERVED frame's
+;; policy before the section model is built
 ;; (`app_db_diff_subs/:rf.xray/app-db-state`), so a slot the frame declared
-;; `:sensitive` reaches the inspector as `:rf/redacted`. This derivation had
-;; no such seam: it diffed the epoch record's RAW `:db-before` / `:db-after`,
-;; so the identical record printed `~ [:auth :token] "old" → "new"` on the
-;; Trace tab and a redacted chip on the App-DB tab. Same record, same
-;; engine, two answers — and the leaking one was the one with a
+;; `:sensitive` reaches the inspector as `:rf/redacted`. Without that seam
+;; here, diffing the epoch record's RAW `:db-before` / `:db-after` would
+;; print `~ [:auth :token] "old" → "new"` on the Trace tab for the
+;; identical record the App-DB tab shows as a redacted chip. Same record,
+;; same engine, two answers — and the leaking one would be the one with a
 ;; `:data-testid` on every value span.
 ;;
-;; The fix is the seam, not a second policy: `redact-epoch-db` projects
-;; BOTH db slots through the SAME `local-render-value` the App-DB tab
-;; calls, under the SAME observed frame, BEFORE `diff-paths` runs. The two
-;; tabs now diff the same projected pair, so they cannot disagree by
-;; construction.
+;; So the seam is shared, not a second policy: the values this derivation
+;; renders come from the SAME `local-render-value` the App-DB tab calls,
+;; under the SAME observed frame — split between the raw and the projected
+;; pair as below.
 ;;
 ;; ## The path set comes from the RAW pair; the VALUES come from the
 ;; ## PROJECTED pair — and that split is load-bearing in both directions
 ;;
 ;; The obvious shape is to project both dbs and diff the projected pair.
-;; It redacts correctly, and it destroys the signal: a declared-sensitive
-;; path reads `:rf/redacted` on BOTH sides, `diff-paths` classifies them
-;; EQUAL, and no triple is emitted at all — so a changed secret renders as
-;; NOTHING, indistinguishable from a slot that did not change. That is the
-;; exact blindness this item exists to remove from the App-DB tab
-;; (`tools/xray/spec/004-App-DB-Diff.md` §Count semantics: "both sides
-;; redacted ⇒ empty diff but something changed"), reproduced on the Trace
-;; tab while curing it.
+;; It would redact correctly, and it would destroy the signal: a
+;; declared-sensitive path reads `:rf/redacted` on BOTH sides, `diff-paths`
+;; classifies them EQUAL, and no triple is emitted at all — so a changed
+;; secret would render as NOTHING, indistinguishable from a slot that did
+;; not change. That is the blindness `tools/xray/spec/004-App-DB-Diff.md`
+;; §Count semantics rules out ("both sides redacted ⇒ empty diff but
+;; something changed").
 ;;
 ;; The other obvious shape — diff raw, then project each triple's values
 ;; at its own path with `local-render-value-at` — keeps the signal and
-;; LEAKS. Measured on this tree: with `[:auth]` declared sensitive, a walk
+;; LEAKS: with `[:auth]` declared sensitive, a walk
 ;; rooted at `[:auth :token]` returns the value VERBATIM, because the
 ;; declaration sits ABOVE the walk root and the path-keyed match never
 ;; fires. `[:auth]`-shaped declarations are the ordinary case, and
@@ -1117,11 +1108,10 @@
 ;; destroyed / never-registered observed frame redacts the WHOLE value, so
 ;; every triple's values read `:rf/redacted` while the rows STAY. The
 ;; operator still sees WHICH paths changed and is told plainly that the
-;; values are withheld. Fail-closed must not mean fail-silent — that was
-;; the defect in the first cut of this seam, and silence is the one
-;; failure a diff panel cannot afford.
+;; values are withheld. Fail-closed must not mean fail-silent — silence
+;; is the one failure a diff panel cannot afford.
 ;;
-;; The ingest gate (`epoch/redact-history`, rf2-y8doi.13) is UPSTREAM of
+;; The ingest gate (`epoch/redact-history`) is UPSTREAM of
 ;; this and does NOT make it redundant. That gate drops a record whole on
 ;; its stamped `:rf.epoch/sensitive?` rollup; this one projects the values
 ;; a SURVIVING record carries. The two answer different questions and a
@@ -1187,7 +1177,7 @@
   pr-str. Returns `[]` when `db-before == db-after` (the no-changes
   case — empty diff section per spec/023 §APP-DB CHANGES).
 
-  ## The two arities (rf2-y8doi.14)
+  ## The two arities
 
   The 1-arity takes the record's db slots AS THEY STAND and applies no
   egress policy, so its triples carry whatever the record carried. It is
@@ -1242,9 +1232,8 @@
         trace-events    (when record-present?
                           (:trace-events epoch-record))
         ;; Derive the per-path db-changed diff ONCE from the epoch
-        ;; record's `:db-before` / `:db-after` (rf2-b3zw2 — panel-side
-        ;; derive, Mike-decided rf2-8q8i4 = (b)) and attach to each
-        ;; db-changed row's `:db-diff` slot.
+        ;; record's `:db-before` / `:db-after` (a panel-side derive) and
+        ;; attach to each db-changed row's `:db-diff` slot.
         db-diff         (when record-present?
                           (diff-fn epoch-record))
         raw-rows        (with-rel-times (project-rows (or trace-events [])))
@@ -1288,30 +1277,27 @@
                       settled no epoch (the resolver's 3-arity). Mapped
                       through as `:no-epoch`, never `:no-events`, which
                       would claim a focused epoch ran and emitted
-                      nothing (rf2-c4abp; mapped here, not in the sub,
-                      since rf2-p766c)
+                      nothing (mapped here, not in the sub)
     :epoch-evicted  — focus has an :epoch-id but the record is gone
     :focused        — focus resolved to a real epoch record
 
   Returns:
 
       {:rows        [<row> ...]   ;; the epoch's domino trail, OLDEST first
-       :envelope    [<row> ...]   ;; the EPOCH OPEN / CLOSE :rf.epoch/* ops
+       :envelope    [<row> ...]   ;; the :rf.epoch/* ops
        :outcome     <:ok/:blocked/:error-or-nil>  ;; the epoch outcome
        :bands       [{:id :label :rows :count :empty?} ...]  ;; the 4 phase
-                                  ;; bands in arc order (spec/023 §2 / §4)
+                                  ;; bands in arc order
        :total       <int>         ;; the epoch's trace-event count
        :rendered    <int>         ;; same as :total (no filtering)
        :epoch-id    <int-or-nil>  ;; the focused epoch's id
        :empty-kind  <:no-events / :no-focus / :no-epoch / :epoch-evicted / nil>}
 
-  Rows render OLDEST-first (chronological) so the arc reads top-down —
-  EPOCH OPEN → ① DISPATCH → … → ④ REACTIVE → EPOCH CLOSE. `:bands` is
-  the structural arc the view paints (one band per phase, empty bands
-  dimmed per spec/023 §13); `:rows` is the flat oldest-first projection
-  (kept for cross-panel consumers + tests).
+  Rows are OLDEST-first (chronological) so the list reads top-down.
+  `:rows` is the flat list the view paints; `:bands` groups the same
+  rows by phase, and the view does not render it.
 
-  ## The two arities (rf2-y8doi.14)
+  ## The two arities
 
   The 3-arity is the PRODUCTION door: `observed-frame` is the frame Xray
   is inspecting (`:rf.xray/observed-frame`), and each db-changed row's
