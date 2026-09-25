@@ -126,7 +126,8 @@
   (if (rf.machines.result/ok? r)
     {:status   :ok
      :snapshot (rf.machines.result/snap r)
-     :fx       (vec (rf.machines.result/fx r))}
+     :fx       (vec (rf.machines.result/fx r))
+     :handled? (rf.machines.result/handled? r)}
     (let [info (rf.machines.result/info r)
           kind (if (rf.machines.result/depth-abort? r)
                  (:error-id info)
@@ -140,13 +141,16 @@
   `snapshot` and an `event` vector, return one plain map (Spec 005
   §Testing §Level 1):
 
-      {:status :ok :snapshot <next-snapshot> :fx [<effect> …]}
+      {:status :ok :snapshot <next-snapshot> :fx [<effect> …] :handled? <bool>}
       {:status :error :error {:kind <error-id> …}}
 
   `:snapshot` is the post-transition `{:state … :data … :tags …}` and
   `:fx` the emitted effects in emission order — described, never
-  performed. An event no transition matched is `:status :ok` with the
-  snapshot unchanged and `:fx []`. `:status :error` is the engine's own
+  performed. `:handled?` is true when the event selected a transition —
+  even a targetless one that changed nothing — and false when nothing
+  took it: no transition matched, or every candidate's guard declined. An
+  unhandled event is `:status :ok` with the snapshot unchanged and
+  `:fx []`. `:status :error` is the engine's own
   failed macrostep — a guard / action / `:data` fn threw
   (`:kind :rf.error/machine-action-exception`, with `:exception` and the
   throwing ref) or a bounded-depth limit tripped

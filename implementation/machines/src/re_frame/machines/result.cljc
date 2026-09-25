@@ -25,8 +25,9 @@
   handler reads and nobody else should — `::handled?`, `::microsteps`,
   `::cascade`, `::parallel-done-handled?` on a success, and the
   `::depth-abort?` sentinel inside a failure's `:error` map. The public
-  `re-frame.machines/machine-transition` strips every one of them and
-  stamps the public `:kind`; see that facade for the projection.
+  `re-frame.machines/machine-transition` strips every one of them but
+  `::handled?`, which it reports as the public `:handled?`, and stamps the
+  public `:kind`; see that facade for the projection.
 
   Use the constructors `ok` / `fail` / `depth-abort`, the predicates
   `ok?` / `fail?` / `depth-abort?`, the accessors `snap` / `fx` / `info`,
@@ -137,9 +138,10 @@
   a parallel-region machine reports whether its inbound event resolved to
   a transition so the parent can emit the benign
   `:rf.machine.event/unhandled-no-op` trace exactly once when EVERY region
-  declines (xstate-v5 parity; not an error). The flag is internal to the
-  machines engine — `:fail` Results and non-region callers ignore it; the
-  key is namespaced so it never collides with snapshot / fx slots."
+  declines (xstate-v5 parity; not an error). The pure Level-1
+  `re-frame.machines/machine-transition` reports it as the public
+  `:handled?`; `:fail` Results carry none. The key is namespaced so it
+  never collides with snapshot / fx slots."
   [r handled?]
   (if (ok? r) (assoc r ::handled? handled?) r))
 

@@ -572,7 +572,8 @@
 ;; ---- step orchestrator (pure shape, runtime-callable) -------------------
 ;;
 ;; `re-frame.machines/machine-transition` returns the Spec 005 §Level 1 map —
-;; `{:status :ok :snapshot … :fx …}` or `{:status :error :error {:kind …}}`
+;; `{:status :ok :snapshot … :fx … :handled? …}` or
+;; `{:status :error :error {:kind …}}`
 ;; — plain keys, so the sim reads it with no dependency on the machines
 ;; artefact (which may not be on the host's classpath at all). The `:fx`
 ;; ride into the audit-trail row but are NOT executed — sim is hermetic.
@@ -596,20 +597,20 @@
   The engine returns `:status :ok` with the snapshot UNCHANGED and
   `:fx []` for three benign outcomes — a stale `:after`, a candidate
   whose every guard declined, and an event no transition matched
-  (`machines.cljc`: \"An event no transition matched is `:status :ok`
-  with the snapshot unchanged and `:fx []`\"; Spec 005 §Transition
+  (`machines.cljc`: \"An unhandled event is `:status :ok` with the
+  snapshot unchanged and `:fx []`\"; Spec 005 §Transition
   resolution makes the unhandled case an xstate-parity no-op, not an
   error). Folding those as transitions would invent a `#N :open -> :open`
   audit row and animate a from=to edge for a step the framework never
   took, so a step that moved NOTHING appends no row.
 
-  WHAT THIS CAN AND CANNOT TELL APART, because the diagnostic must not
-  overclaim: the public Level 1 map carries `:status` / `:snapshot` /
-  `:fx` and no handled flag, so an unchanged snapshot with no effects is
-  ALSO what a genuine self-transition declared with no action produces
-  (a `{:on {:ping :open}}` self-loop in `:open` is
-  byte-identical to the guard-blocked result). The rejection therefore
-  names the three possibilities rather than asserting one."
+  An unchanged snapshot with no effects is ALSO what a transition the
+  engine DID take can produce — a `{:on {:ping :open}}` self-loop in
+  `:open` with no action, or a targetless action that changes nothing.
+  The public Level 1 map's `:handled?` tells the two apart, so the
+  rejection names which it was: the event was declined or matched
+  nothing (`:handled? false`), or it was accepted and its transition was
+  a no-op (`:handled? true`). The flag rides on the rejection's `:info`."
   [sim-state event runtime-fn]
   (let [{:keys [snapshot]} sim-state
         prior-state        (:state snapshot)
@@ -619,12 +620,15 @@
       (record-error sim-state event (:error result) "transition failed")
 
       :ok
-      (let [new-snap (:snapshot result)]
+      (let [new-snap (:snapshot result)
+            handled? (boolean (:handled? result))]
         (if (and (= new-snap snapshot) (empty? (:fx result)))
           (record-error sim-state event
-            {:kind :rf.xray.static.machines.sim/no-change}
-            (str "no change — no transition matched, a guard declined, "
-                 "or the matched transition was a no-op"))
+            {:kind     :rf.xray.static.machines.sim/no-change
+             :handled? handled?}
+            (if handled?
+              "no change — the event was accepted, but its transition was a no-op"
+              "no change — the event was declined, or no transition matched it"))
           (-> sim-state
               clear-error
               (assoc :snapshot new-snap)
