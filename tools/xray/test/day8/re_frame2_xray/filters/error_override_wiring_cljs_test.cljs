@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.error-override-wiring-cljs-test
-  "Sub-level wiring for the error-override filter bypass (rf2-jqqsh9).
+  "Sub-level wiring for the error-override filter bypass.
 
   The pure algebra lives in `error_override_cljs_test.cljc`; this drives the
   PRODUCTION `:rf.xray/filtered-event-bundles` sub end-to-end so the
@@ -65,7 +65,7 @@
     @(rf/subscribe [:rf.xray/filtered-event-bundles])))
 
 (deftest errored-event-survives-an-out-pill-that-would-hide-it
-  (testing "rf2-jqqsh9 — with the default bypass ON, an errored event an OUT
+  (testing "with the default bypass ON, an errored event an OUT
             pill would hide is surfaced anyway (spec/018 §7); a CLEAN event the
             same pill matches IS hidden (the pill still works)"
     (setup!)
@@ -85,7 +85,7 @@
           "the surfaced errored bundle is tagged for the filter-bypass cue"))))
 
 (deftest disabled-config-lets-filters-hide-errored-events
-  (testing "rf2-jqqsh9 — with the bypass explicitly OFF
+  (testing "with the bypass explicitly OFF
             (:rf.xray/filters-auto-hide-error-overrides? false) an OUT pill
             hides the errored event too (opt-out honoured through the sub)"
     ;; Set BEFORE the first sub read so the config sub computes against false.
@@ -98,7 +98,7 @@
         "the errored event is hidden when the bypass is disabled")))
 
 (deftest configure-plumbs-the-error-override-flag
-  (testing "rf2-jqqsh9 — configure! round-trips the config key + resets on nil"
+  (testing "configure! round-trips the config key + resets on nil"
     (config/configure! {:rf.xray/filters-auto-hide-error-overrides? false})
     (is (false? (config/error-override-bypass-enabled?)))
     (config/configure! {:rf.xray/filters-auto-hide-error-overrides? nil})
