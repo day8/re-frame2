@@ -1,10 +1,10 @@
 /*
- * Playground smoke (Phase 1 rf2-y99zt; Phase 3 rf2-00zvt).
+ * Playground smoke.
  * Real headless-Chromium run of the PRODUCTION bundles (docs/cljs/playground.js
  * + docs/cljs/playground-rf2.js) against a page that mimics the mkdocs-emitted
  * DOM: `<pre class="language-cljs">` and `<pre class="language-cljs-rf2">` cells.
  *
- * Asserts the Phase-1 contract:
+ * Asserts the plain-cell contract:
  *   - The bootstrap auto-injects Scittle (we do NOT add a Scittle <script> to
  *     the test page — proving the production loader path works).
  *   - plain-eval cells mount as CM6 editors.
@@ -14,7 +14,7 @@
  *   - no uncaught page errors (Scittle's console.error on eval-failure is
  *     expected diagnostic noise, NOT a page error — see spike gotcha #4).
  *
- * Asserts the Phase-3 contract:
+ * Asserts the re-frame2-cell contract:
  *   - A ```cljs-rf2 cell makes the bootstrap auto-load the self-contained
  *     re-frame2 SCI bundle (docs/cljs/playground-rf2.js -> window.rf2sci).
  *     We do NOT add that <script> — the loader must, resolving it as a
@@ -22,10 +22,10 @@
  *   - A reagent2 component using re-frame2's OWN subscribe RENDERS live
  *     (re-frame.core v2 reg-event / reg-sub / dispatch-sync), and
  *     clicking a button DISPATCHES a re-frame2 event that re-renders it.
- *   - The Phase-1 plain cell on the SAME page still works alongside the
+ *   - The plain cell on the SAME page still works alongside the
  *     re-frame2 bundle (Scittle + rf2sci coexist).
  *
- * Asserts the rf2-ldgpd (machines) contract:
+ * Asserts the machines contract:
  *   - A second ```cljs-rf2 cell calls real rf/reg-machine against a two-state
  *     toggle machine, renders the state name via rf/subscribe [:rf/machine …],
  *     and clicking
@@ -34,24 +34,21 @@
  *     bundle init (sci.cljs :require's the artefact) and its top-level
  *     (subs/reg-sub :rf/machine ...) + (fx/reg-fx :rf.machine/* ...) forms ran.
  *
- * Asserts the rf2-2h1yhk (eager creation marker) contract:
+ * Asserts the eager-creation-marker contract:
  *   - A fourth ```cljs-rf2 cell pins the quickstart shape: (ns ...) form,
  *     reg-view via the SCI macro shim (injected bare dispatch/subscribe),
  *     and a cell-created frame (make-frame + frame-provider {:frame ...}).
  *   - A third ```cljs-rf2 cell dispatches the eager creation marker
- *     [machine-id [:rf.machine/start]] (the reserved lifecycle keyword, renamed
- *     from the retired :rf.machine/bootstrap per rf2-gl588) against a machine
+ *     [machine-id [:rf.machine/start]] (the reserved lifecycle keyword)
+ *     against a machine
  *     whose :booting initial state holds an `:always` guard. A live
  *     :rf.machine/start runs the initial-entry cascade and settles the machine
- *     to :ready with no user event. Since rf2-tzy13 untracked the bundle (it is
- *     generated at each consumption boundary, never committed), this smoke is
- *     the WHOLE SCI-bundle correctness gate, not the runtime half of one: a
- *     build keyed on the retired :rf.machine/bootstrap would no-op the start
- *     kick and stick at :booting, and this assertion is what catches it. The
- *     former static half, scripts/check-playground-sci-freshness.sh, compared a
- *     committed snapshot against its inputs and was deleted with that snapshot.
+ *     to :ready with no user event. The bundle is generated at each
+ *     consumption boundary and never committed, so this smoke is the WHOLE
+ *     SCI-bundle correctness gate: a stale build whose start kick no-ops
+ *     would stick at :booting, and this assertion is what catches it.
  *
- * Asserts the rf2-io9mdr (instant-navigation isolation) contract:
+ * Asserts the instant-navigation isolation contract:
  *   - Simulating a Material navigation.instant swap (tear out the mounted
  *     cells, inject a "page 2", re-fire the bootstrap's document$ entrypoint)
  *     RELEASES the outgoing page's detached React roots (live root count is
@@ -60,27 +57,26 @@
  *     inheriting the stale app-db. A fresh machine cell still resolves after the
  *     teardown, proving framework registrations (not page-owned) survive.
  *
- * Asserts the rf2-gmjblu (edited Core live-cell Try-it variants) contract —
- * the automated-coverage half of rf2-zp5ych / #6066, guarding that an edited
- * cell re-runs on its OWNING frame, not :rf/default:
- *   - views.md :demo two-stepper: the corrected Try-it edit keeps the :demo
+ * Asserts the edited Core live-cell Try-it variants contract, guarding that
+ * an edited cell re-runs on its OWNING frame, not :rf/default:
+ *   - views.md :demo two-stepper: the Try-it edit keeps the :demo
  *     frame-root and nests the two steppers in its child
  *     [rf/frame-root {:id :demo …} [:div [qty-stepper] [qty-stepper]]]. BOTH
  *     steppers resolve the :demo frame (seeded :views.qty/value 1) through the
  *     context tier and read 1 — not blank, not inc-on-nil. Clicking one +
  *     moves BOTH (one shared :demo value). The regression this guards: if the
- *     edit dropped the frame-root (the pre-fix prose said "change the LAST
- *     form to [:div …]"), the steppers mount on the harness default frame
- *     where the seed never ran and read nil → blank.
- *   - coeffects.md order-list injected-dispatch + :rf.cofx: the corrected
+ *     edit dropped the frame-root (changing the LAST form to [:div …]), the
+ *     steppers would mount on the harness default frame where the seed never
+ *     ran and read nil → blank.
+ *   - coeffects.md order-list injected-dispatch + :rf.cofx: the
  *     Try-it edit uses the reg-view-INJECTED (unqualified) dispatch with an
  *     opts 2nd arg — #(dispatch [:demo.order/place {:id (random-uuid)}]
  *     {:rf.cofx {:rf/time-ms N}}). The injected dispatch is locked to the
  *     render frame (:orders via frame-provider), so the placed order lands on
  *     :orders (the list updates) and the supplied :rf.cofx {:rf/time-ms N}
  *     wins over the enqueue stamp (placed-at == N). The regression this
- *     guards: the pre-fix prose used the ns-level rf/dispatch, which targets
- *     :rf/default — the order would never land on the :orders sub, list empty.
+ *     guards: the ns-level rf/dispatch targets :rf/default, so an edit using
+ *     it would never land the order on the :orders sub — list empty.
  *
  * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
  * browsers`)
@@ -107,7 +103,7 @@ if (!existsSync(bundlePath)) {
 if (!existsSync(rf2BundlePath)) {
   console.error(
     "FAIL: docs/cljs/playground-rf2.js not found. It is a GENERATED artefact" +
-      " (rf2-tzy13 — untracked and .gitignored, so a fresh clone never has it)." +
+      " (untracked and .gitignored, so a fresh clone never has it)." +
       " Build it: `npm run build` (or `npm run build:rf2`) in docs/tools/playground."
   );
   process.exit(1);
@@ -141,12 +137,12 @@ const PAGE = `<!DOCTYPE html>
    [:span#rf2-cnt "count: " @(rf/subscribe [:rf2smoke/count])]
    [:button#rf2-btn {:on-click #(rf/dispatch [:rf2smoke/inc])} "inc"]])
 [counter]</pre>
-  <h2>live re-frame2 state machine (rf2 cell, rf2-ldgpd)</h2>
+  <h2>live re-frame2 state machine (rf2 cell)</h2>
   <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 ;; A two-state toggle as a real reg-machine — exercises the machines artefact's
 ;; reg-machine* / make-machine-handler / :rf/machine sub late-bind hooks
-;; baked into the bundle by rf2-ldgpd.
+;; baked into the bundle.
 (rf/reg-machine :rf2smoke/toggle
   {:initial :off
    :data    {}
@@ -159,16 +155,15 @@ const PAGE = `<!DOCTYPE html>
      [:span#rf2-tog-state "state: " (str (:state snap))]
      [:button#rf2-tog-btn {:on-click #(rf/dispatch [:rf2smoke/toggle [:flip]])} "flip"]]))
 [toggle-view]</pre>
-  <h2>eager [:rf.machine/start] kick (rf2 cell, rf2-2h1yhk)</h2>
+  <h2>eager [:rf.machine/start] kick (rf2 cell)</h2>
   <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 ;; Eager creation-marker boot: [machine-id [:rf.machine/start]] is the
 ;; xstate createActor(m).start() equivalent — it runs the initial-entry
 ;; cascade with NO user event. Here :booting carries an :always guard that
 ;; holds, so the eager start must settle the machine straight to :ready.
-;; This cell exists to keep the committed SCI bundle honest about the reserved
-;; :rf.machine/start lifecycle keyword (renamed from the retired
-;; :rf.machine/bootstrap, rf2-gl588): if the bundle were stale, this start
+;; This cell keeps the generated SCI bundle honest about the reserved
+;; :rf.machine/start lifecycle keyword: if the bundle were stale, this start
 ;; kick would no-op and the view would stick at :booting.
 (rf/reg-machine :rf2smoke/eager
   {:initial :booting
@@ -275,16 +270,16 @@ const PAGE = `<!DOCTYPE html>
   [rf/frame-root {:id :rf2smoke/app-b
                   :initial-events [[:rf2smoke.two/init 0]]}
    [two-counter "green"]]]]</pre>
-  <h2>edited :demo two-stepper (views.md Try-it, rf2-gmjblu)</h2>
+  <h2>edited :demo two-stepper (views.md Try-it)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
-;; The CORRECTED views.md Try-it variant (rf2-zp5ych / #6066): the edited last
+;; The views.md Try-it variant: the edited last
 ;; form KEEPS the :demo frame-root and nests the two steppers in its CHILD —
 ;; [rf/frame-root {:id :demo …} [:div [qty-stepper] [qty-stepper]]] — so BOTH
 ;; steppers resolve the :demo frame (seeded :views.qty/value 1) through the
-;; context tier and read 1. The regression this guards: the pre-fix prose said
-;; "change the LAST form to [:div [qty-stepper] [qty-stepper]]", which drops the
-;; frame-root; the steppers then mount on the harness default frame where the
-;; seed never ran, read nil, and render blank / inc-on-nil.
+;; context tier and read 1. The regression this guards: changing the LAST form
+;; to [:div [qty-stepper] [qty-stepper]] drops the frame-root; the steppers
+;; then mount on the harness default frame where the seed never ran, read nil,
+;; and render blank / inc-on-nil.
 (rf/reg-event :views.qty/initialise
   (fn [{:keys [db]} _] {:db (assoc db :views.qty/value 1)}))
 (rf/reg-event :views.qty/inc
@@ -300,18 +295,17 @@ const PAGE = `<!DOCTYPE html>
    [:button.rf2-qty-inc {:on-click #(dispatch [:views.qty/inc])} "+"]])
 [rf/frame-root {:id :demo :initial-events [[:views.qty/initialise]]}
  [:div [qty-stepper] [qty-stepper]]]</pre>
-  <h2>edited order-list injected-dispatch + :rf.cofx (coeffects.md Try-it, rf2-gmjblu)</h2>
+  <h2>edited order-list injected-dispatch + :rf.cofx (coeffects.md Try-it)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
-;; The CORRECTED coeffects.md Try-it variant (rf2-zp5ych / #6066): the button's
+;; The coeffects.md Try-it variant: the button's
 ;; on-click uses the reg-view-INJECTED (unqualified) dispatch with an opts 2nd
 ;; arg — #(dispatch [:demo.order/place {:id (random-uuid)}]
 ;;                   {:rf.cofx {:rf/time-ms 1735732800000}}).
 ;; The injected dispatch is locked to the render frame (:orders via
 ;; frame-provider), so the order lands on :orders (the list updates) and the
 ;; supplied :rf.cofx {:rf/time-ms N} wins over the enqueue stamp. The regression
-;; this guards: the pre-fix prose used the ns-level rf/dispatch, which targets
-;; :rf/default — the order would never land on the :orders sub and the list
-;; would stay empty.
+;; this guards: the ns-level rf/dispatch targets :rf/default, so an order placed
+;; with it would never land on the :orders sub and the list would stay empty.
 (rf/reg-event :demo.order/place
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [id]}]]
@@ -340,8 +334,7 @@ const PAGE = `<!DOCTYPE html>
 </body></html>`;
 
 // Every route below writes its own `content-type` explicitly, so there is no
-// extension-to-MIME lookup to do — the generic static-server shape this file
-// once had was replaced by the three named routes.
+// extension-to-MIME lookup to do.
 const server = createServer(async (req, res) => {
   try {
     const p = req.url.split("?")[0];
@@ -389,16 +382,16 @@ const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 
 /*
- * The navigation's OWN ceiling, named (rf2-rbyyx).
+ * The navigation's OWN ceiling, named.
  *
- * This `goto` carried no `timeout:`, so it took Playwright's 30s default —
- * a budget nothing in this file could see or move, and one whose failure
+ * Without a `timeout:` this `goto` would take Playwright's 30s default —
+ * a budget nothing in this file can see or move, and one whose failure
  * line (`Timeout 30000ms exceeded`) is indistinguishable from the 20000ms
- * assertion waits immediately below it. The failure is worse here than
+ * assertion waits immediately below it. That bites harder here than
  * elsewhere in the class because `networkidle` settles strictly LATER than
  * `load`, so the default bites sooner relative to what is being waited for.
  *
- * `networkidle` is KEPT, and this is the site where keeping it matters most:
+ * `networkidle` is deliberate, and this is the site where it matters most:
  * the page under test deliberately ships NO Scittle <script>, because the
  * contract being smoked is that the production bootstrap injects one — from
  * `https://cdn.jsdelivr.net/npm/scittle@…` (see src/playground.mjs
@@ -409,9 +402,9 @@ page.on("pageerror", (e) => pageErrors.push(e.message));
  *
  * 60s, therefore: three times the assertion budgets it must stay
  * distinguishable from, and generous enough that a slow-but-working jsDelivr
- * is not read as a broken bootstrap. Demonstrated (rf2-rbyyx): against a page
- * whose subresource is held 35s, a bare `goto{waitUntil:'networkidle'}` dies
- * at 30016ms, and the same call with `timeout: 60000` resolves at 35519ms.
+ * is not read as a broken bootstrap: against a page whose subresource is
+ * held 35s, a bare `goto{waitUntil:'networkidle'}` dies at the 30s default,
+ * and the same call with `timeout: 60000` resolves.
  */
 const NAV_TIMEOUT_MS = 60000;
 
@@ -424,7 +417,7 @@ try {
       "assertion waits below, none of which had started. The page never " +
       "settled, so nothing about the playground bundles has been observed. " +
       "Note that settling requires the bootstrap's Scittle fetch from " +
-      "cdn.jsdelivr.net, so a CDN stall lands here (rf2-rbyyx). Underlying: " +
+      "cdn.jsdelivr.net, so a CDN stall lands here. Underlying: " +
       e.message
   );
 }
@@ -485,7 +478,7 @@ assert(/ERROR/i.test(c3.text), `cell3 shows ERROR text (got ${JSON.stringify(c3.
 const c1again = await evalCell(0);
 assert(c1again.text.includes("=> 6"), `cell1 still evals to 6 after error (got ${JSON.stringify(c1again.text)})`);
 
-// --- Phase 3: live re-frame2 (v2) render cell --------------------------------
+// --- live re-frame2 (v2) render cell -----------------------------------------
 
 // The bootstrap must auto-load the self-contained re-frame2 SCI bundle because
 // the page has a ```cljs-rf2 cell. We did NOT add that <script>.
@@ -557,9 +550,9 @@ assert(
   `re-frame2 dispatch increments subscribed count to 2 (got ${JSON.stringify(rf2After)})`
 );
 
-// --- rf2-ldgpd: live state-machine cell -----------------------------------
+// --- live state-machine cell -----------------------------------------------
 //
-// The machines artefact is now bundled (re-frame.machines is :require'd by the
+// The machines artefact is bundled (re-frame.machines is :require'd by the
 // SCI build, activating the :machines/* late-bind hooks at load time). A cell
 // that calls real rf/reg-machine + rf/subscribe [:rf/machine …] + rf/dispatch
 // must render the machine's state and flip across button-driven transitions.
@@ -583,17 +576,16 @@ assert(
   `machine :flip transitions :on -> :off via reg-machine (got ${JSON.stringify(togAfter)})`
 );
 
-// --- rf2-2h1yhk: eager [:rf.machine/start] creation marker --------------------
+// --- eager [:rf.machine/start] creation marker ------------------------------
 //
-// The reserved lifecycle keyword moved from the retired :rf.machine/bootstrap
-// to :rf.machine/start (rf2-gl588, pre-alpha no shim). This cell dispatches the
-// eager creation marker [machine-id [:rf.machine/start]] — the xstate
+// This cell dispatches the eager creation marker [machine-id
+// [:rf.machine/start]] (the reserved lifecycle keyword) — the xstate
 // createActor(m).start() equivalent — against a machine whose :booting initial
 // state carries a holding `:always` guard. A live :rf.machine/start must run
 // the initial-entry cascade and settle the machine straight to :ready with NO
-// user event. If the committed SCI bundle were stale (still keyed on
-// :rf.machine/bootstrap), the start kick would no-op and the view would stick
-// at :booting — so this assertion is the runtime half of the freshness guard.
+// user event. If the generated SCI bundle were stale, the start kick would
+// no-op and the view would stick at :booting — so this assertion is the
+// bundle's freshness guard.
 await page.waitForSelector(".cljs-cell--rf2 #rf2-eager-state", { timeout: 20000 });
 const eagerState = (await page.locator("#rf2-eager-state").innerText()).trim();
 console.log("eager-start machine cell state:", JSON.stringify(eagerState));
@@ -681,9 +673,9 @@ const twoB2 = (await page.locator("#rf2-two-b .two-val").innerText()).trim();
 console.log("after clicking frame a:", JSON.stringify({ a: "7", b: twoB2 }));
 assert(twoB2 === "0", `clicking frame :app-a leaves :app-b untouched (got ${JSON.stringify(twoB2)})`);
 
-// --- rf2-gmjblu: edited :demo two-stepper (views.md Try-it) -----------------
+// --- edited :demo two-stepper (views.md Try-it) -----------------------------
 //
-// The corrected views.md Try-it edit keeps the :demo frame-root and nests the
+// The views.md Try-it edit keeps the :demo frame-root and nests the
 // two steppers in its child [:div [qty-stepper] [qty-stepper]]. BOTH steppers
 // resolve :demo (seeded :views.qty/value 1) through the context tier, so both
 // read 1 — not blank, not inc-on-nil. Clicking one + moves BOTH (one shared
@@ -733,9 +725,9 @@ assert(
   `clicking one stepper's + moves BOTH to 2 (shared :demo value) (got ${JSON.stringify(stepperAfter)})`
 );
 
-// --- rf2-gmjblu: edited order-list injected-dispatch + :rf.cofx -------------
+// --- edited order-list injected-dispatch + :rf.cofx -------------------------
 //
-// The corrected coeffects.md Try-it edit uses the reg-view-injected dispatch
+// The coeffects.md Try-it edit uses the reg-view-injected dispatch
 // with an opts 2nd arg: #(dispatch [:demo.order/place {:id (random-uuid)}]
 // {:rf.cofx {:rf/time-ms 1735732800000}}). The injected dispatch is locked to
 // the render frame (:orders), so the placed order lands on :orders (the list
@@ -789,7 +781,7 @@ assert(
   `plain cell still evals to 6 alongside rf2 cell (got ${JSON.stringify(c1afterRf2.text)})`
 );
 
-// --- rf2-io9mdr + rf2-u4pqs: instant-navigation isolation --------------------
+// --- instant-navigation isolation -------------------------------------------
 //
 // Material's navigation.instant swaps <main> and re-fires window.document$
 // WITHOUT reloading the page, so the playground bootstrap re-scans the fresh
@@ -802,30 +794,31 @@ assert(
 // then (3) drives the SAME entrypoint a real document$ emission would
 // (window.__rf2PlaygroundLoad).
 //
-// Proves the fix:
-//   - Detached roots released (rf2-io9mdr): post-nav live root count is page-2's
+// Proves:
+//   - Detached roots released: post-nav live root count is page-2's
 //     cell count (3), NOT the accumulated 11 + 3 = 14. Without disposePage the
 //     roots leak.
-//   - Frame isolation / seed replay (rf2-io9mdr): :rf2smoke/frame carried {:rv 2}
+//   - Frame isolation / seed replay: :rf2smoke/frame carried {:rv 2}
 //     from page 1; page 2 re-`make-frame`s the SAME id with :initial-events.
 //     Idempotent replacement PRESERVES durable app-db and never REPLAYS the seed
 //     (Spec 002 §Duplicate id policy), so without the destroy-frame! in
 //     disposePage the :label seed is skipped and the cell renders "label: ".
-//     With the fix the frame is destroyed on nav, recreated fresh, and the seed
+//     With it the frame is destroyed on nav, recreated fresh, and the seed
 //     replays.
-//   - Page-owned registrations cleared (rf2-u4pqs): page 2 dispatches
+//   - Page-owned registrations cleared: page 2 dispatches
 //     :page1/stale (an id ONLY page 1 registered) into its own fresh frame
 //     WITHOUT re-registering it. disposePage cleared the page-owned registration,
 //     so the dispatch is a no-op and the leaked-value probe reads "leaked:"
-//     (nil), not "leaked: true". Without the fix the leaked handler runs and the
-//     probe reads "leaked: true" — the isolation break this bead closes.
-//   - Framework registrations survive (rf2-u4pqs): a fresh machine cell resolves
+//     (nil), not "leaked: true". Without that clearing the leaked handler would
+//     run and the probe would read "leaked: true" — the isolation break this
+//     guards.
+//   - Framework registrations survive: a fresh machine cell resolves
 //     reg-machine + the :rf/machine sub after dispose cleared page-owned
 //     registrations and destroyed every frame (incl. :rf/default) — disposePage
 //     reaps page-owned frames + registrations but PRESERVES the machines
 //     artefact's bundle-init framework baseline (:rf/machine sub, :rf.machine/*
 //     fxs, captured before any cell ran).
-// rf2-u4pqs: register a PAGE-OWNED event id (:page1/stale) as a real page-1
+// Register a PAGE-OWNED event id (:page1/stale) as a real page-1
 // cell BEFORE the nav. It is post-baseline (the framework baseline was snapshotted
 // at the first cell mount), so disposePage must clear it on the instant nav — the
 // page-2 leak-probe cell below dispatches it WITHOUT re-registering and must not
@@ -884,11 +877,11 @@ await page.evaluate(() => {
     "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]]))",
     "[tog2]",
   ].join("\n");
-  // rf2-u4pqs leak-probe: page 2 dispatches :page1/stale (page 1's id) WITHOUT
+  // Leak-probe: page 2 dispatches :page1/stale (page 1's id) WITHOUT
   // re-registering it, into its OWN fresh frame, then reads back through a
   // page-2-owned sub whether the leaked handler ran. If page 1's registration
   // survived the nav, the handler writes {:leaked-registration true} and the
-  // probe renders "leaked: true"; with the fix disposePage cleared the
+  // probe renders "leaked: true"; once disposePage has cleared the
   // page-owned :page1/stale, the dispatch is a no-op (:rf.error/no-such-handler
   // recovers), and the probe renders "leaked:".
   const cellC = document.createElement("pre");
@@ -930,7 +923,7 @@ assert(
   `machine framework registrations survive dispose (got ${JSON.stringify(navTog)})`
 );
 
-// rf2-u4pqs: the page-owned :page1/stale registration was cleared on the nav, so
+// The page-owned :page1/stale registration was cleared on the nav, so
 // page 2's dispatch through it never reaches page 1's handler — the leaked value
 // does NOT land. "leaked:" (nil) proves isolation; "leaked: true" is the leak.
 const navLeak = (await page.locator("#rf2-nav-leak").innerText()).trim();
