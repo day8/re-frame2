@@ -1,6 +1,6 @@
 (ns panel-gallery.gallery-edn-inspector
   "Story coverage for the **edn-inspector widget**
-  (rf2-hp4ow — widget-isolation gallery).
+  (widget-isolation gallery).
 
   The edn-inspector widget (`day8.re-frame2-xray.views.edn-inspector`)
   is the single renderer behind every Xray surface that shows a CLJS
@@ -40,7 +40,7 @@
   `:rf.xray/sync-epoch-history` — all L4 gallery namespaces seed
   via events). A small testbed-local reducer (registered here,
   idempotent under namespace reload) keeps the surface uniform
-  across all eight gallery namespaces."
+  across the gallery namespaces."
   (:require [re-frame.core :as rf]
             [re-frame.story :as rf.story]
             [panel-gallery.fixtures-edn-inspector :as fixtures]
@@ -137,8 +137,7 @@
 
   (rf.story/reg-variant :story.xray.edn-inspector/map-nested
     {:doc        "Six-level nested map. Exercises the depth ceiling
-                 — deeper nodes render `▸ {…N keys}` summaries
-                 (rf2-kbdk8)."
+                 — deeper nodes render `▸ {…N keys}` summaries."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/map-nested)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -190,7 +189,7 @@
 
   ;; ----- uuid + inst (default IXrayEdnInspector formatters) -----------
   (rf.story/reg-variant :story.xray.edn-inspector/uuid
-    {:doc        "Single random UUID. Default formatter (rf2-x16b1)
+    {:doc        "Single random UUID. Default formatter
                  renders compact `#uuid \"…<last-8>\"` header with
                  full canonical form on hover + expand."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/uuid-instance)]]
@@ -212,7 +211,7 @@
                  bump + nested `:name` change), `:removed`
                  (`:legacy-flag`), `:same` (untouched `:user/id`).
                  Pins the gutter-glyph + colour ladder under
-                 rf2-zuh1e's `children-of-pair` walk."
+                 the `children-of-pair` walk."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/diff-map-mixed-ops)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -235,7 +234,7 @@
 
   ;; ----- opts demos ---------------------------------------------------
   (rf.story/reg-variant :story.xray.edn-inspector/opts-zoomable
-    {:doc        "`:zoomable? true` (rf2-h71e0; gesture rf2-zl4rs) —
+    {:doc        "`:zoomable? true` —
                  double-click a container (or press Enter while it is
                  focused) to re-root the inspector onto it. No glyph."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-zoomable)]]
@@ -243,35 +242,35 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.edn-inspector/opts-popup-affordance
-    {:doc        "`:popup-affordance? true` (rf2-l4625) — `↗` icon
+    {:doc        "`:popup-affordance? true` — `↗` icon
                  button sits at the widget's top-right corner."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-popup-affordance)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.edn-inspector/opts-card
-    {:doc        "`:card? true` (rf2-63ie5) — outer container picks
+    {:doc        "`:card? true` — outer container picks
                  up inspector-card chrome (bg, border, radius)."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-card)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.edn-inspector/opts-header
-    {:doc        "`:header \"…\"` (rf2-okq7p) — three-shade card
+    {:doc        "`:header \"…\"` — three-shade card
                  chrome with a string ribbon label."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.edn-inspector/opts-header-hiccup
-    {:doc        "`:header [:span …]` (rf2-okq7p) — composed
+    {:doc        "`:header [:span …]` — composed
                  hiccup ribbon (label + code chip)."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-header-hiccup)]]
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.edn-inspector/opts-site-id
-    {:doc        "`:site-id` (rf2-pvsxs) — stable site-id survives
+    {:doc        "`:site-id` — stable site-id survives
                  a remount. Visually identical to the unkeyed
                  mount; the difference shows on remount cadence."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-site-id)]]
@@ -279,8 +278,8 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.edn-inspector/opts-shallow-depth
-    {:doc        "`:default-expanded-depth 1` (rf2-kbdk8) — legacy
-                 depth-driven behaviour. Depth ≥ 1 renders
+    {:doc        "`:default-expanded-depth 1` — a shallow expand
+                 ceiling. Depth ≥ 1 renders
                  `▸ {…N keys}` collapsed summaries."
      :setup     [[:panel-gallery.edn-inspector/seed! (fixtures/opts-shallow-depth)]]
      :tags       #{:dev :feature/opts}
@@ -294,9 +293,9 @@
      :tags       #{:dev :feature/opts}
      :substrates #{:reagent}})
 
-  ;; ----- grammar-edge diffs (rf2-yaajg) -------------------------------
+  ;; ----- grammar-edge diffs -------------------------------------------
   ;;
-  ;; Six additional diff variants that pin grammar edges the canonical
+  ;; Six diff variants that pin grammar edges the canonical
   ;; added/removed/modified coverage doesn't reach: set ops, boolean
   ;; toggle, vector-of-records, nil-vs-missing, near-equal floats,
   ;; deep redaction. Each variant pins ONE engine behaviour for
@@ -364,9 +363,9 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- additional grammar-edge diffs (rf2-r7xf7) --------------------
+  ;; ----- more grammar-edge diffs --------------------------------------
   ;;
-  ;; Three further diff variants the rf2-yaajg six don't reach:
+  ;; Three further diff variants the six above don't reach:
   ;; pure-add set diff (distinct from set-mixed's add+remove pair),
   ;; long-string truncation under diff annotation, and symbol-value
   ;; mutation (distinct from keyword mutation already covered by
