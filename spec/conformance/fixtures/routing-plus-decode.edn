@@ -1,6 +1,6 @@
 ;; Conformance fixture: routing/plus-decode
 ;;
-;; Per rf2-9a9ix (Mike-ruled 2026-06-01) + Spec 012 §`+` is a literal:
+;; Per Spec 012 §`+` is a literal:
 ;; url-decode is HOST-SYMMETRIC for `+`. A bare `+` decodes to a LITERAL
 ;; `+` on BOTH JVM (SSR) and CLJS (browser) — it is NOT swapped to a
 ;; space. `js/decodeURIComponent` (CLJS) leaves `+` untouched; the JVM
@@ -12,15 +12,15 @@
 ;; for the same URL on each host — exactly the Spec 011 hydration-
 ;; mismatch class, and a violation of Spec 012's "same handler server and
 ;; client" contract + Spec 000 Goal 2 cross-host conformance bar. This is
-;; the same bug-class spec/012 already pins for :int coercion (rf2-oyw04).
+;; the same hazard class spec/012 pins for :int coercion.
 ;;
 ;; This fixture is run by BOTH the JVM harness (conformance_test.clj) and
 ;; the CLJS harness (conformance_corpus_cljs_test.cljs), so a host that
-;; re-introduces the `+`→space swap fails the corpus.
+;; swaps `+` for a space fails the corpus.
 ;;
-;; Also pins finding 2: a trailing `?`, leading `&`, or doubled `&&`
-;; injects a spurious empty query pair `{"" ""}`. The parser skips blank
-;; pairs, so the slice's :query stays clean.
+;; Also pins the blank-pair rule: a trailing `?`, leading `&`, or doubled
+;; `&&` would inject a spurious empty query pair `{"" ""}`. The parser skips
+;; blank pairs, so the slice's :query stays clean.
 ;;
 ;; Per [012 §Query strings and fragments]
 ;; (../../012-Routing.md#query-strings-and-fragments) and
@@ -38,7 +38,7 @@
 
  :fixture/calls
  [;; `+` in a path capture decodes to a LITERAL `+` on every host
-  ;; (RFC-3986 path semantics). Pre-fix JVM yielded "a b".
+  ;; (RFC-3986 path semantics), never "a b".
   {:call :match-url :url "/files/a+b"
    :expect {:route-id :route/files
             :params   {:name "a+b"}
@@ -47,7 +47,7 @@
             :validation-failed? false}}
 
   ;; `+` in a query value decodes to a LITERAL `+` on every host.
-  ;; Pre-fix JVM yielded {"q" "a b"}.
+  ;; Never {"q" "a b"}.
   {:call :match-url :url "/search?q=a+b"
    :expect {:route-id :route/search
             :params   {}
@@ -55,8 +55,8 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; `%20` still decodes to a real space on every host — the fix removes
-  ;; only the `+`→space swap, not the %20 decode.
+  ;; `%20` decodes to a real space on every host — only a bare `+` stays
+  ;; literal.
   {:call :match-url :url "/search?q=a%20b"
    :expect {:route-id :route/search
             :params   {}
@@ -72,7 +72,7 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; Finding 2 — a trailing `?` yields an EMPTY query, not `{"" ""}`.
+  ;; Blank-pair rule — a trailing `?` yields an EMPTY query, not `{"" ""}`.
   {:call :match-url :url "/search?"
    :expect {:route-id :route/search
             :params   {}
@@ -80,7 +80,7 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; Finding 2 — a doubled `&&` drops the empty pair; only real pairs survive.
+  ;; Blank-pair rule — a doubled `&&` drops the empty pair; only real pairs survive.
   {:call :match-url :url "/search?a=1&&b=2"
    :expect {:route-id :route/search
             :params   {}
