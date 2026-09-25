@@ -1,26 +1,26 @@
 (ns re-frame.story.egress
   "Human-facing egress — the reproducibility contract behind Story's
   share / static-export / copy / screenshot commands (spec/022 §3,
-  spec/018 §4 T4; rf2-ba86n.16).
+  spec/018 §4 T4).
 
   ## What this is NOT
 
   This is NOT a privacy / redaction seam. A local developer already has
   programmatic access to their own app's state and secrets, so redacting
   the URLs, EDN, static builds, and screenshots they emit of their OWN
-  running app is futile and not the goal (Mike's 2026-05-30 reframe). The
+  running app is futile and not the goal. The
   two real redaction points — the AI/MCP boundary and logs — are handled
-  elsewhere (rf2-m25hd verified the MCP gate; rf2-6773q scrubbed logs).
+  elsewhere (the MCP gate; log scrubbing).
   Human egress ships freely and is NOT privacy-gated.
 
-  ## EP-0015 scope reconciliation (rf2-nnc06c)
+  ## EP-0015 scope
 
-  EP-0015 (final) scopes screenshots / manual copy OUT of the egress
+  EP-0015 scopes screenshots / manual copy OUT of the egress
   contract — **except where a re-frame2 feature itself creates the
   copied/exported artifact** (EP-0015 §Non-Goals). Story's share URL,
   static build, copied EDN, and screenshot ARE feature-created artifacts,
-  so by the letter of that exception they are IN scope. The reconciliation
-  is a recorded post-EP ruling, not an oversight:
+  so by the letter of that exception they are IN scope. They ship
+  unredacted by design, not by oversight:
 
   - **These artifacts are a TRUSTED-LOCAL operator act.** A human pressing
     share / copy / export / screenshot is the trusted-local operator
@@ -28,15 +28,15 @@
     `:rf.egress/local-raw` profile (EP-0015 issue 7). The artifact is
     produced ON the operator's box, at the operator's deliberate request,
     of an app the operator already has full programmatic access to. There
-    is no NEW disclosure the operator could not already make. So the ruling
-    is: human-local share/copy/export/screenshot artifacts ship UNREDACTED,
+    is no NEW disclosure the operator could not already make. So
+    human-local share/copy/export/screenshot artifacts ship UNREDACTED,
     with the residual risk documented (the recipient of a deliberately
     shared artifact sees whatever the operator chose to share).
   - **The off-box / saved / tool boundaries are NOT this seam and ARE
     classified.** An AI/MCP read of the same data is the off-box-tool
-    boundary (`:rf.egress/off-box-tool`, gated in the MCP jar — rf2-m25hd);
-    a hosted log sink is the off-box-observability boundary (scrubbed —
-    rf2-6773q). Those are where EP-0015's redaction lives. This module is
+    boundary (`:rf.egress/off-box-tool`, gated in the MCP jar);
+    a hosted log sink is the off-box-observability boundary (scrubbed).
+    Those are where EP-0015's redaction lives. This module is
     exclusively the human, on-box, operator-initiated artifact.
   - **This module classifies REPRODUCIBILITY, not sensitivity.** It answers
     \"can the recipient reproduce this artifact?\", never \"is this
