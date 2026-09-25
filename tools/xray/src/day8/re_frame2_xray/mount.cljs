@@ -19,19 +19,16 @@
   being Xray's business — the mount verbs read `current-adapter` only to
   learn whether a host has booted yet, and never branch on its `:kind`.
 
-  That was not always so. Until rf2-k97c.3 the shell mounted through the
-  host adapter's `:render`, which only works on hosts whose `:render`
-  accepts HICCUP render-trees — the ratom family (stock Reagent /
-  reagent-slim). Every substrate built on the React-hook spine shares an
-  ELEMENT-shaped `render` (`re-frame.substrate.spine/make-react-adapter`)
-  that hands the tree to React untouched, so the hiccup shell reached
-  React as raw CLJS data there (rf2-qgfo4 — fn-as-child console.error +
-  uncaught MapEntry pageerror on every UIx template boot). A denylist of
-  those kinds refused the mount rather than let that happen. The root
-  swap severed the coupling the denylist guarded, so rf2-k97c.4 retired
-  it: the mount verbs now mount on ANY installed adapter. The
+  Mounting through the host adapter's `:render` would only work on hosts
+  whose `:render` accepts HICCUP render-trees — the ratom family (stock
+  Reagent / reagent-slim). Every substrate built on the React-hook spine
+  shares an ELEMENT-shaped `render`
+  (`re-frame.substrate.spine/make-react-adapter`) that hands the tree to
+  React untouched, so a hiccup shell would reach React as raw CLJS data
+  there (a fn-as-child console.error + an uncaught MapEntry pageerror).
+  With its own root, the mount verbs mount on ANY installed adapter. The
   `:unsupported-substrate` reason stays reserved in `status`'s
-  vocabulary — see `status` — and simply never fires.
+  vocabulary — see `status` — and never fires.
 
   ## Production posture
 
@@ -93,13 +90,13 @@
   ;; opener runtime remains the source of truth. The `:overlay-node` slot holds
   ;; the opener-gone overlay element (sibling to the shell root) and
   ;; `:watchdog-id` holds the setInterval token that polls
-  ;; `window.opener.closed`. `:keydown-dispose` (rf2-61i5) holds the
+  ;; `window.opener.closed`. `:keydown-dispose` holds the
   ;; zero-arg disposer for this pop-out document's own keydown listener,
   ;; or nil when none was installed.
   (atom nil))
 
 (defonce ^:private popout-keydown-installer
-  ;; rf2-61i5 — the seam that gives a pop-out document its keyboard.
+  ;; The seam that gives a pop-out document its keyboard.
   ;;
   ;; DOM key events do not cross realms, so the opener-document listener
   ;; `keybinding/attach!` installs can never see a keypress made in the
@@ -111,13 +108,12 @@
   ;; holds `(fn [doc] -> disposer-fn-or-nil)`: mount hands over a document
   ;; and gets back a zero-arg disposer it stores and later calls, without
   ;; knowing what a chord is. nil when keybinding was never loaded (or the
-  ;; host disabled it), in which case a pop-out simply has no keyboard —
-  ;; exactly the behaviour that shipped before this bead.
+  ;; host disabled it), in which case a pop-out simply has no keyboard.
   (atom nil))
 
 (defn register-popout-keydown-installer!
   "Register the fn that installs a pop-out document's keydown listener
-  (rf2-61i5). Called once by `day8.re-frame2-xray.keybinding` at load
+  Called once by `day8.re-frame2-xray.keybinding` at load
   time; see `popout-keydown-installer` for why the injection runs this
   way round. `installer` takes the pop-out `document` and returns either
   a zero-arg disposer that removes exactly the listener it installed, or
@@ -165,14 +161,12 @@
     `rf/init!`. Recorded only while auto-open is on.
   - `:auto-open-disabled` — the preload found auto-open switched off.
     Health, not failure: `:ok?` stays true.
-  - `:unsupported-substrate` — **RESERVED, NEVER PRODUCED** (rf2-k97c.4).
-    It fired while Xray painted through the installed adapter's
-    `:render` and a denylist refused the element-shaped kinds. The root
-    swap (rf2-k97c.3) gave Xray its own React root, so the host's render
-    shape no longer decides whether Xray can paint and the condition the
-    reason named cannot arise. The ID is kept because this is a public
-    read surface a consumer may key on; it is not recycled for any other
-    meaning.
+  - `:unsupported-substrate` — **RESERVED, NEVER PRODUCED**. It names a
+    host whose render shape prevents Xray from painting. Xray paints
+    through its own React root, so the host's render shape does not
+    decide whether Xray can paint and the condition the reason names
+    cannot arise. The ID is kept because this is a public read surface a
+    consumer may key on; it is not recycled for any other meaning.
 
   `popout!` answers `:popup-blocked` and `:no-substrate-adapter` in its
   own RETURN value and publishes neither here; the preload's
@@ -246,37 +240,27 @@
   (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
   nil)
 
-;; ---- substrate render-shape gate — RETIRED (rf2-qgfo4 → rf2-k97c.4) ------
+;; ---- no substrate render-shape gate --------------------------------------
 ;;
-;; A `react-element-render-kinds` denylist and a `refuse-unsupported-
-;; substrate!` guard stood here. They existed because Xray painted through
-;; the INSTALLED adapter's `:render`, and a React-hook substrate's `:render`
-;; is ELEMENT-shaped: it hands the tree to React untouched, so the hiccup
-;; shell reached React as raw CLJS values — the component fn became a
-;; Fragment child ("Functions are not valid as a React child …
-;; frame_provider") and the props map's MapEntries threw UNCAUGHT on every
-;; boot. Refusing those kinds turned that into a clean diagnostic.
-;;
-;; rf2-k97c.3 severed the coupling: Xray owns a Fresco client root and paints
-;; through it (see `xray-root` below), so the host's render shape no longer
-;; decides whether Xray can paint and the guard's PRECONDITION CAN NO LONGER
-;; ARISE. The mount verbs therefore mount on any installed adapter, and read
+;; Xray owns a Fresco client root and paints through it (see `xray-root`
+;; below), so the host's render shape does not decide whether Xray can
+;; paint. The mount verbs therefore mount on any installed adapter, and read
 ;; `current-adapter` only as a PRESENCE check — the map, never `:kind`, which
 ;; is the read shape 006 §Adapter introspection prescribes anyway.
 ;;
-;; `:unsupported-substrate` survives as a RESERVED, never-produced member of
+;; `:unsupported-substrate` is a RESERVED, never-produced member of
 ;; `status`'s public `:reason` vocabulary; `status`'s docstring is its home.
 ;; The application-facing `:rf.error/hiccup-on-element-render-slot` in the
 ;; core is a DIFFERENT guard, aimed at app authors handing hiccup to an
-;; element-shaped render slot, and is untouched by this retirement.
+;; element-shaped render slot.
 
 ;; ---- layout-host display snapshot ---------------------------------------
 ;;
 ;; Toggle-off must collapse the layout host's flex/grid slot too, not just
-;; hide the mount root. The previous `display:none` on `#rf-xray-root`
-;; left the surrounding `[data-rf-xray-host]` aside still occupying its
-;; `flex-basis` slot (and rendering its `border-left` chrome), so the user
-;; perceived a sliver of Xray chrome residue on toggle-off. Recording the
+;; hide the mount root: `display:none` on `#rf-xray-root` alone would leave
+;; the surrounding `[data-rf-xray-host]` aside still occupying its
+;; `flex-basis` slot (and rendering its `border-left` chrome), a sliver of
+;; Xray chrome residue on toggle-off. Recording the
 ;; host's pre-Xray `display` value lets us restore it on toggle-on without
 ;; guessing what the host's CSS intended.
 (defonce ^:private host-display-snapshot
@@ -336,11 +320,9 @@
 (defn- set-mode-attrs!
   "Write the canonical `data-rf-xray-mode` attribute on both the
   mount root and the shell node so external testbeds + DOM inspectors
-  read a single axis (per rf2-zkfiz Q1-9 — the previous double-write
-  of `data-mode` + `data-rf-xray-mode` left two axes drifting in
-  parallel). The spec-published attribute is `data-rf-xray-mode`
-  (per tools/xray/spec/011-Launch-Modes.md); `data-mode` was the
-  shell's internal echo and is gone."
+  read a single axis. The spec-published attribute is
+  `data-rf-xray-mode` (per tools/xray/spec/011-Launch-Modes.md); there
+  is no second `data-mode` echo to drift beside it."
   [node mode]
   (when (some? node)
     (let [mode-name (name mode)]
@@ -348,13 +330,12 @@
       (when-let [shell (shell-node node)]
         (.setAttribute shell "data-rf-xray-mode" mode-name)))))
 
-;; ---- Xray's OWN React root (rf2-k97c.3) ---------------------------------
+;; ---- Xray's OWN React root ----------------------------------------------
 ;;
-;; THIS IS THE EPIC'S COUPLING (1), SEVERED. Xray used to paint by calling
-;; the INSTALLED ADAPTER's `:render`, which is why a host whose `:render`
-;; takes React ELEMENTS could not host it at all. It now owns a Fresco
-;; client root and paints through that, so what the host installs stops
-;; being Xray's business.
+;; Xray owns a Fresco client root and paints through it rather than through
+;; the INSTALLED ADAPTER's `:render`, so a host whose `:render` takes React
+;; ELEMENTS can host it too, and what the host installs is not Xray's
+;; business.
 ;;
 ;; TWO HANDLES, NOT ONE, AND THE SECOND IS NOT A CONVENIENCE. `render!`
 ;; reads its mount-point on the FIRST call through a handle and updates
@@ -377,7 +358,7 @@
 (defn- render-shell!
   "Paint `tree` into `node` through `root-handle` and answer the UNMOUNT
   THUNK the caller stores, so `switch-surface!`, `close!` and `teardown!`
-  keep the `(unmount)` shape they have always had and need no change.
+  all call a plain `(unmount)`.
 
   Fresco's own door is a pair — `render!` then `unmount!` on the same
   handle — rather than the adapter's render-answers-an-unmount-fn; this
@@ -388,18 +369,12 @@
 
 (defn- mount-shell-into! [node mode]
   (ensure-xray-frame!)
-  ;; rf2-tqlmq / rf2-k97c.3 — the OUTER `frame-provider` stays, and after
-  ;; the root swap it is load-bearing for a DIFFERENT reason with the
-  ;; OPPOSITE failure mode. It used to be about a render TRACE: `shell-view`
-  ;; was a `reg-view`, and rendered bare its `:rf.view/rendered` emit
-  ;; resolved `current-frame-id` to `:rf/default` and leaked into the
-  ;; inspected app frame's epoch `:renders`. A Fresco boundary emits no
-  ;; view-render trace at all, so that hazard is now structurally absent.
-  ;; What the provider does NOW is give `shell/ShellView`'s two ambient
+  ;; The OUTER `frame-provider` gives `shell/ShellView`'s two ambient
   ;; `rf.fresco/sub` reads their frame — drop it and the shell refuses with
   ;; `:rf.error/no-frame-context` rather than quietly painting into the
-  ;; wrong frame. Silent contamination became a loud refusal, which is
-  ;; strictly better.
+  ;; wrong frame. (A Fresco boundary emits no view-render trace, so no
+  ;; render trace can leak into the inspected app frame's epoch `:renders`
+  ;; either.)
   ;;
   ;; `frame-provider` and NOT `frame-root`: `frame-root` is an idempotent
   ;; ENSURE that would REPLACE the frame, silently dropping the
@@ -420,32 +395,20 @@
              :mode     mode})
     @mount-state))
 
-;; ---- first-mount hook table (rf2-y1saa) ---------------------------------
+;; ---- first-mount hook table ---------------------------------------------
 ;;
-;; `ensure-xray-frame!` accreted eight side-effects across eight beads
-;; (rf2-in6l2, rf2-boyc2, rf2-ak4ms, rf2-ikuwt, rf2-o5f5f.1, rf2-9poxq, ...),
-;; each chosen ad-hoc by the bead that added it (some dispatch-sync, some
-;; direct fn call, some conditional on a config flag). The lazy-
-;; registration pattern is correct — the substrate adapter isn't ready at
-;; preload time so each seeding step has to wait until the first
-;; Ctrl+Shift+C keypress — but the implementation density made adding a
-;; Nth side-effect a "modify ensure-xray-frame! the Nth time" task,
-;; which kept the function the hot zone for every first-mount tweak.
+;; The substrate adapter isn't ready at preload time, so each seeding step
+;; waits until first mount. Rather than growing `ensure-xray-frame!` one
+;; side-effect at a time, the steps are entries in an internal
+;; `register-first-mount-hook!` registrar (sentinel-guarded by `:id` so each
+;; hook is idempotent on re-registration via shadow-cljs `:after-load`),
+;; and `ensure-xray-frame!` is a thin walker: register the frame, then
+;; invoke each hook in insertion order.
 ;;
-;; The hook-table refactor introduces an internal `register-first-mount-
-;; hook!` registrar (sentinel-guarded by `:id` so each hook is idempotent
-;; on re-registration via shadow-cljs `:after-load`). `ensure-xray-
-;; frame!` becomes a thin walker: register the frame, then invoke each
-;; hook in insertion order.
-;;
-;; Today the hooks themselves are registered from this namespace's
-;; bottom (one-line `register-first-mount-hook!` per subsystem) so the
-;; refactor lands as a pure structural change without changing the
-;; require graph or touching the registering namespaces. The next
-;; iteration moves each registration into its owning ns (e.g.
-;; `filters/install!` would call `(register-first-mount-hook! ::filters
-;; hydrate!)`), at which point the "modify mount.cljs Nth time" coupling
-;; drops to "add a hook from sub-ns". The mechanism here is the prereq.
+;; The hooks are registered from this namespace's bottom (one-line
+;; `register-first-mount-hook!` per subsystem), which keeps the require
+;; graph unchanged; a registration can move into its owning ns without
+;; touching the walker.
 ;;
 ;; Insertion order is load-bearing: the frame-seed hook MUST run before
 ;; the hydrate hooks (the dispatch targets live on `:rf/xray`'s app-
@@ -467,19 +430,18 @@
   (atom []))
 
 (defonce ^:private seeded-frame-ids
-  ;; rf2-n4p5it — the set of frame-ids whose first-mount hooks have
-  ;; already fired at least once. `ensure-xray-frame!` fans the hook
-  ;; table out UNGUARDED prior to this fix: `popout!` calls
-  ;; `(ensure-xray-frame!)` with no arg, defaulting to the SAME
-  ;; `shell/default-frame-id` the inline shell already seeded, so a
-  ;; pop-out remount re-ran EVERY first-mount hook — including
+  ;; The set of frame-ids whose first-mount hooks have already fired at
+  ;; least once. `popout!` calls `(ensure-xray-frame!)` with no arg,
+  ;; defaulting to the SAME `shell/default-frame-id` the inline shell
+  ;; already seeded, so without this guard a pop-out remount would re-run
+  ;; EVERY first-mount hook — including
   ;; `::seed-trace-and-target-frame`, which re-derives the seed frame
   ;; from the CURRENT head focusable event-bundle and re-dispatches
-  ;; `:rf.xray/set-target-frame`. That reverted `:target-frame` (and
+  ;; `:rf.xray/set-target-frame`. That would revert `:target-frame` (and
   ;; the `:epoch-history` ring keyed on it) back to the head frame
   ;; even when the user had already picked a different frame via the
-  ;; L1 switcher — the inline shell's App-DB / Epoch panels jumped off
-  ;; the user's choice the instant they popped the shell out. Spec
+  ;; L1 switcher — the inline shell's App-DB / Epoch panels would jump
+  ;; off the user's choice the instant they popped the shell out. Spec
   ;; 011 §Pop-out: the pop-out shares the opener's runtime and frame —
   ;; reflecting it, not resetting it.
   ;;
@@ -499,8 +461,8 @@
   "Register a 1-ary fn `(fn [frame-id] …)` to run on first
   `ensure-xray-frame!` after the shell's frame is registered. Hooks
   run in insertion order and receive the instance `frame-id` so their
-  seed/hydrate dispatches land on the right app-db (per rf2-lnluk — the
-  production singleton passes `shell/default-frame-id`). An already-
+  seed/hydrate dispatches land on the right app-db (the production
+  singleton passes `shell/default-frame-id`). An already-
   registered `id` replaces in place (idempotent on `:after-load`).
   Internal — not part of the public API."
   [id handler]
@@ -523,7 +485,7 @@
   (`rf/make-frame` raises `:rf.error/no-adapter-installed` without one —
   the constraint `boot-on-runtime-ready!` polls for).
 
-  ## Adapter presence is NOT the only precondition (rf2-1t0d5)
+  ## Adapter presence is NOT the only precondition
 
   An adapter makes the seat POSSIBLE, not safe. A fresh seat assembles
   Xray's own image, and that image's `day8.re-frame2-xray.**`
@@ -534,7 +496,7 @@
   `:rf.error/image-zero-match` rather than no-opping.
 
   That is deliberate rather than an oversight, and it is not to be
-  repaired by guarding the seat (rf2-atecy): an EXPLICIT seat fails
+  repaired by guarding the seat: an EXPLICIT seat fails
   loud, so a caller who asked to seat gets the diagnostic. The
   background readiness tick is the one path that declines instead, and
   only because a throw from a timer crashes the runtime before it can
@@ -544,7 +506,7 @@
   already registered: the preload's step 1, or `core/init!`, which
   registers before it seats.
 
-  ## Why this is NOT `ensure-xray-frame!` (rf2-88f1)
+  ## Why this is NOT `ensure-xray-frame!`
 
   `ensure-xray-frame!` is the seat PLUS the first-mount hook fan-out,
   and the fan-out must stay at first OPEN: it harvests the trace rings
@@ -554,9 +516,9 @@
   history to show.
 
   So a caller that merely needs the frame to EXIST takes this fn.
-  `boot-on-runtime-ready!` already made exactly that distinction on the
-  readiness path (rf2-avi7); this is that call, named, so the public
-  facade can make it too.
+  `boot-on-runtime-ready!` makes exactly that distinction on the
+  readiness path; this is that call, named, so the public facade can
+  make it too.
 
   Returns nothing."
   ([] (ensure-seated! shell/default-frame-id))
@@ -570,66 +532,61 @@
   registered first-mount hook — but ONLY on the first call for a given
   `frame-id`. Idempotent via `make-frame`'s surgical-update-on-re-
   register semantics (per Spec 002 §Frame lifecycle) on the frame side, AND
-  via the `seeded-frame-ids` run-once guard on the hook side (rf2-
-  n4p5it) — first call creates the frame and seeds; every subsequent
+  via the `seeded-frame-ids` run-once guard on the hook side — first
+  call creates the frame and seeds; every subsequent
   call for the SAME `frame-id` is a surgical no-op on the frame side
   and skips the hook fan-out entirely.
 
-  ## rf2-n4p5it — run-once guard
+  ## Run-once guard
 
-  Pre-fix the hook fan-out ran UNGUARDED on every call — harmless for
-  the inline shell (`open!` only calls this once, before the frame
-  exists), but `popout!` also calls `(ensure-xray-frame!)` with the
-  SAME default `frame-id` the inline shell already seeded. Without a
-  guard, popping out re-ran `::seed-trace-and-target-frame`, which
-  re-derives the seed frame from the CURRENT head focusable event-
-  bundle and re-dispatches `:rf.xray/set-target-frame` — reverting
-  `:target-frame` (and the `:epoch-history` ring keyed on it) back to
-  the head frame even when the user had already picked a different
-  frame via the L1 switcher. The pop-out is supposed to REFLECT the
-  opener's already-running instance, not reset it (Spec 011 §Pop-out).
-  See `seeded-frame-ids` above for the guard's contract, including the
-  test-only `reset-for-test!` escape hatch.
+  `open!` calls this once, before the frame exists, but `popout!` also
+  calls `(ensure-xray-frame!)` with the SAME default `frame-id` the
+  inline shell already seeded. Without a guard, popping out would re-run
+  `::seed-trace-and-target-frame`, which re-derives the seed frame from
+  the CURRENT head focusable event-bundle and re-dispatches
+  `:rf.xray/set-target-frame` — reverting `:target-frame` (and the
+  `:epoch-history` ring keyed on it) back to the head frame even when
+  the user had already picked a different frame via the L1 switcher.
+  The pop-out REFLECTS the opener's already-running instance rather
+  than resetting it (Spec 011 §Pop-out). See `seeded-frame-ids` above
+  for the guard's contract, including the test-only `reset-for-test!`
+  escape hatch.
 
-  EP-0023 §Xray Beside The Target (rf2-32siq3.36): the production singleton is
-  SEATED in its OWN image-loaded frame via `image_view_reads/seat-xray-frame!`
+  EP-0023 §Xray Beside The Target: the production singleton is SEATED in
+  its OWN image-loaded frame via `image_view_reads/seat-xray-frame!`
   (`rf/make-frame {:id :rf/xray :images [(xray-image)]}`) — true runtime
-  self-seating in genuine registration isolation, NOT the legacy shared
-  registrar. Two blockers gated this flip and both are resolved: the
-  test-namespace assembly collision (the `day8.re-frame2-xray.**` glob sweeping
-  in Xray's own `*-cljs-test` namespaces → `:rf.error/image-duplicate-id`) is
-  fixed by the `:select-ns :exclude` globs on `xray-image`; and the
-  host-registry read regression under image-loaded seating — a `:rf.xray/*`
-  sub's bare `(rf/registrations {:source :store :kind …})` / `(rf/handler-meta …)` resolving through
-  Xray's OWN image generation instead of the inspected host's process-global
-  registrar (the `routes-epochs` nightly xray-feature-gate caught it: empty
-  route table / `currentId:null`) — is fixed by reading the host registry
-  with the `{:source :store …}` query form (the SOURCE-STORE read, which
-  never consults a bound image generation). Both the node-test suite and the
-  `routes-epochs` feature-gate are green with the flip.
+  self-seating in genuine registration isolation, NOT a shared
+  registrar. Two things keep that seating sound. The `:select-ns
+  :exclude` globs on `xray-image` stop the `day8.re-frame2-xray.**` glob
+  sweeping in Xray's own `*-cljs-test` namespaces (which would raise
+  `:rf.error/image-duplicate-id`). And `:rf.xray/*` subs read the host
+  registry with the `{:source :store …}` query form (the SOURCE-STORE
+  read, which never consults a bound image generation): a read without
+  it would resolve through Xray's OWN image generation instead of the
+  inspected host's process-global registrar, and the route table would
+  read empty.
 
-  ## `frame-id` arg (rf2-lnluk)
+  ## `frame-id` arg
 
   Defaults to `shell/default-frame-id` (`:rf/xray`) — the production
-  singleton path passes nothing and behaviour is unchanged. A testbed
+  singleton path passes nothing. A testbed
   mounting a second shell against a distinct frame-id calls
   `(ensure-xray-frame! :other-frame)` so the seed/hydrate hooks land on
   that frame's app-db. Handlers are NOT re-registered per frame (the
   registry is process-global) — only the per-frame app-db seed runs.
 
-  ## What is lazy here, and what no longer is (rf2-avi7)
+  ## What is lazy here, and what is not
 
-  Per rf2-in6l2 the registration was attempted at preload LOAD time but
-  reverted (rf2-e9s81): the preload runs before the host's `rf/init!` has
-  installed a substrate adapter, and `rf/make-frame` raises
-  `:rf.error/no-adapter-installed` without one.
+  The frame cannot be seated at preload LOAD time: the preload runs
+  before the host's `rf/init!` has installed a substrate adapter, and
+  `rf/make-frame` raises `:rf.error/no-adapter-installed` without one.
 
-  That constraint is about the adapter, not about opening, and the two came
-  apart once `boot-on-runtime-ready!` grew a readiness loop: the SEAT now runs
-  from there the moment `rf/init!` lands, so `:rf/xray` exists whether or not
-  anything ever opens Xray. Tying it to `open!` had left Xray addressable but
-  not writable between preload and first open — see that fn's docstring for
-  the `:rf.error/frame-destroyed` this closes.
+  That constraint is about the adapter, not about opening:
+  `boot-on-runtime-ready!`'s readiness loop runs the SEAT the moment
+  `rf/init!` lands, so `:rf/xray` exists whether or not anything ever
+  opens Xray. Tying the seat to `open!` would leave Xray addressable but
+  not writable between preload and first open — see that fn's docstring
+  for the `:rf.error/frame-destroyed` this avoids.
 
   So the `seat-xray-frame!` call below is normally a cheap re-seat skip, and
   what this fn contributes is the FIRST-MOUNT hook fan-out: seeding
@@ -639,50 +596,48 @@
   fn without the preload's loop (a testbed's second shell, a direct `open!`)
   still gets its frame.
 
-  ## First-mount hook table (rf2-y1saa)
+  ## First-mount hook table
 
-  The seeding work that used to live inline here is now driven by the
-  `first-mount-hooks` registrar — each subsystem's seed/hydrate step
-  is registered as a `{:id :handler}` entry, and `ensure-xray-frame!`
-  walks the table in insertion order. See the §first-mount hook table
-  block above for the registrar's contract and the registrations at
-  this namespace's bottom for the concrete hooks shipped today.
+  The seeding work is driven by the `first-mount-hooks` registrar —
+  each subsystem's seed/hydrate step is registered as a
+  `{:id :handler}` entry, and `ensure-xray-frame!` walks the table in
+  insertion order. See the §first-mount hook table block above for the
+  registrar's contract and the registrations at this namespace's
+  bottom for the concrete hooks.
 
-  ## App-db seeding semantics (preserved from the pre-rf2-y1saa shape)
+  ## App-db seeding semantics
 
   Two slots seed on first open so the panels render against history
   the user has already produced before opening Xray:
 
   - `:trace-buffer` — seeded from the framework's per-frame trace
-    rings + Xray's frameless secondary ring (per rf2-43koh). The
+    rings + Xray's frameless secondary ring. The
     framework's rings retain pre-mount event bundles event-keyed; the
-    secondary ring captures frameless emits the per-frame rings skip
-    (per the B3 ruling, rf2-g1b2m). The seed lifts both surfaces into
-    the reactive slot at first Ctrl+Shift+C via
-    `trace-collector/refresh-trace-rings!`; subsequent
+    secondary ring captures frameless emits the per-frame rings skip.
+    The seed lifts both surfaces into the reactive slot at first open
+    via `trace-collector/refresh-trace-rings!`; subsequent
     `trace-collector/collect-trace!` calls request a coalesced
-    `:rf.xray/sync-trace-buffer` (rf2-wq6gx) so the sub fires on every
+    `:rf.xray/sync-trace-buffer` so the sub fires on every
     push without one dispatch per trace event.
 
-  - `:epoch-history` + `:target-frame` (rf2-1barg + rf2-boyc2) —
+  - `:epoch-history` + `:target-frame` —
     seeded together via `:rf.xray/set-target-frame` so the slot is
     keyed on the frame the user will be observing on first paint.
-    Pre-rf2-boyc2 the seed was hardcoded to `:rf/default` — but
     `compose-focus` derives the panel-observed frame from the head
-    focusable event-bundle in the trace buffer, so an app whose pre-mount
-    events ran on `:cart-frame` rendered the App-DB panel against
+    focusable event-bundle in the trace buffer, so a seed keyed on any
+    other frame would misalign the two axes: an app whose pre-mount
+    events ran on `:cart-frame` would render the App-DB panel against
     `:cart-frame` (the observed frame) while `:epoch-history` carried
-    the empty `:rf/default` ring. The composite's `:history-empty?`
-    resolved true → the panel rendered the boot empty-state
+    another frame's empty ring, and the composite's `:history-empty?`
+    would render the boot empty-state
     'app-db for :cart-frame is at the boot value. No diffs yet.'
-    EVEN WITH event-bundles from `:cart-frame` already in the buffer
-    (the Mike report). Frame-switch round-trip resolved it because
-    `set-frame-reducer` aligns the two axes; the first-mount path
-    had to do the same. The seed-frame is the head focusable
+    EVEN WITH event-bundles from `:cart-frame` already in the buffer.
+    `set-frame-reducer` aligns the two axes on a frame switch; the
+    first-mount path does the same. The seed-frame is the head focusable
     event-bundle's `:frame` (via `spine/focusable-head-frame-id` over the
     same event-bundle projection panels read off) — the operator-present
     discovery tier that UNIQUELY resolves the head app event-bundle's frame
-    (EP-0002 rf2-bd4div: unique resolution, NOT `:rf/default` synthesis).
+    (EP-0002: unique resolution, NOT `:rf/default` synthesis).
     When no focusable event-bundle exists (cold start; only the `:ungrouped`
     bucket present) the seed is `defaults/default-target-frame` =
     **nil = UNSELECTED**: the target stays unselected (the frame picker
@@ -692,11 +647,10 @@
     in lockstep — symmetric with the picker path and the public
     `core/set-target-frame!` API.
 
-    Discovery runs only where the slot is still UNSELECTED (rf2-88f1).
+    Discovery runs only where the slot is still UNSELECTED.
     `core/set-target-frame!` seats `:rf/xray` itself, so a host can target a
-    frame before anything opens Xray and this hook can now find an explicit
-    choice already in the slot — an ordering that did not exist when the seed
-    was written. An explicit target wins: discovery is the operator-present
+    frame before anything opens Xray and this hook can find an explicit
+    choice already in the slot. An explicit target wins: discovery is the operator-present
     guess at what the user is looking at, and it does not overrule what the
     host said. The preserved target is still re-dispatched through the same
     event, so `:epoch-history` picks up whatever the host recorded between
@@ -707,29 +661,29 @@
    ;; inspector frame: the framework suppresses all trace emission
    ;; tagged with this frame so Xray's own UI reactivity (`:rf.sub/run`
    ;; + `:rf.view/render` on every panel render) does NOT flood the
-   ;; shared trace ring it inspects (rf2-2qaqh). Without this, Xray's
-   ;; self-instrumentation evicted every application event from the
+   ;; shared trace ring it inspects. Without this, Xray's
+   ;; self-instrumentation would evict every application event from the
    ;; process-global ring buffer — any other consumer reading the raw
-   ;; buffer (re-frame2-pair, Story) saw only Xray noise. The flag is
+   ;; buffer (re-frame2-pair, Story) would see only Xray noise. The flag is
    ;; the frame-scoped sibling of the handler-scoped `:rf.trace/no-
    ;; emit?`; the framework's frame engine honours it on every (re-)
    ;; registration so the gate survives hot-reload.
    ;;
-   ;; EP-0023 §Xray Beside The Target (rf2-32siq3.36) — SEAT this singleton in
+   ;; EP-0023 §Xray Beside The Target — SEAT this singleton in
    ;; its OWN image-loaded frame via `image-reads/seat-xray-frame!` (the
-   ;; `rf/make-frame {:id :rf/xray :images [(xray-image)]}` path), replacing the
-   ;; legacy realm seating ({:rf.trace/frame-no-emit? true} config). The
+   ;; `rf/make-frame {:id :rf/xray :images [(xray-image)]}` path) rather
+   ;; than passing the flag as frame config. The
    ;; seated frame resolves ONLY Xray's `:rf.xray/*` registrations (plus the
    ;; framework standards), in genuine isolation from the inspected target.
-   ;; `seat-xray-frame!` re-asserts the trace-no-emit gate directly through
-   ;; `re-frame.trace/set-frame-no-emit!` (the same seam the frame engine routed it
-   ;; through), and is idempotent on re-seat (`xray-frame-seated?` skips the
+   ;; `seat-xray-frame!` asserts the trace-no-emit gate directly through
+   ;; `re-frame.trace/set-frame-no-emit!` (the seam the frame engine uses for
+   ;; the config flag), and is idempotent on re-seat (`xray-frame-seated?` skips the
    ;; duplicate-`:id` `make-frame`). Host-registry reads inside Xray's subs go
    ;; with `{:source :store …}` (which never consults a bound image
    ;; generation) so the inspector still sees the inspected app's registrar,
    ;; not its own image's — see spec/API.md §Public registrar query API.
    (image-reads/seat-xray-frame! frame-id)
-   ;; rf2-n4p5it — run the hook fan-out only on the FIRST call for this
+   ;; Run the hook fan-out only on the FIRST call for this
    ;; `frame-id`. `seat-xray-frame!` above stays unconditional (its own
    ;; `xray-frame-seated?` check makes a re-seat a cheap no-op); it's
    ;; the SEED/HYDRATE hook table that must not re-fire on a same-
@@ -741,7 +695,7 @@
        (handler frame-id)))))
 
 (defn reset-for-test!
-  "Reset the `ensure-xray-frame!` run-once guard (rf2-n4p5it) so test
+  "Reset the `ensure-xray-frame!` run-once guard so test
   fixtures that wipe the frame registry between tests also get a
   fresh first-mount hook pass on the next `ensure-xray-frame!` call.
   Test-only — never call from production code."
@@ -763,8 +717,7 @@
   ;; Seed the frame's app-db with whatever the framework's per-frame
   ;; trace rings + Xray's frameless secondary ring + the framework's
   ;; epoch ring buffer have accumulated so far. The host may have
-  ;; driven dispatches before the user opened Xray (rf2-43koh consumer
-  ;; substrate; rf2-boyc2 :epoch-history + :target-frame).
+  ;; driven dispatches before the user opened Xray.
   ;;
   ;; The snapshot comes from `trace-collector/snapshot-from-rings` — a
   ;; synchronous read of the same per-frame rings + frameless secondary
@@ -775,17 +728,17 @@
   ;; internal filter a tool-frame event-bundle could be chosen as the head,
   ;; which the user never sees in the L2 list.
   ;;
-  ;; DISCOVERY IS THE FALLBACK, NOT THE OVERRIDE (rf2-88f1). Since
-  ;; `core/set-target-frame!` seats `:rf/xray` itself, a host can target a
+  ;; DISCOVERY IS THE FALLBACK, NOT THE OVERRIDE.
+  ;; `core/set-target-frame!` seats `:rf/xray` itself, so a host can target a
   ;; frame BEFORE anything opens Xray — so by the time this hook runs the
-  ;; slot may already carry an explicit choice, which it never could when
-  ;; the seed was written. Discovery is the operator-present tier that
-  ;; guesses what the user is looking at; an explicit target is what the
-  ;; host SAID. The guess must not overwrite the statement, and on a cold
-  ;; ring it does not even guess: `focusable-head-frame-id` returns nil,
-  ;; and `:rf.xray/set-target-frame` writes nil as a RESET (dissoc
-  ;; `:target-frame`, clear `[:focus :frame]`, empty `:epoch-history`), so
-  ;; the host's boot intent vanished at first open with nothing to read.
+  ;; slot may already carry an explicit choice. Discovery is the
+  ;; operator-present tier that guesses what the user is looking at; an
+  ;; explicit target is what the host SAID. The guess must not overwrite
+  ;; the statement, and on a cold ring it cannot even guess:
+  ;; `focusable-head-frame-id` returns nil, and `:rf.xray/set-target-frame`
+  ;; writes nil as a RESET (dissoc `:target-frame`, clear `[:focus :frame]`,
+  ;; empty `:epoch-history`), so overwriting would make the host's boot
+  ;; intent vanish at first open with nothing to read.
   ;; Reading the slot first makes this the ordering the two tiers already
   ;; imply — host config, then picker, then discovery (see
   ;; `defaults/default-target-frame`).
@@ -806,7 +759,7 @@
                               defaults/default-target-frame)]
       (rf/with-frame frame-id
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
-        ;; rf2-boyc2 — seed via `:rf.xray/set-target-frame` so
+        ;; Seed via `:rf.xray/set-target-frame` so
         ;; `:target-frame` + `:epoch-history` move in lockstep keyed
         ;; on the frame the user will be observing on first paint
         ;; (the head focusable event-bundle's frame). Mirrors the picker-
@@ -819,36 +772,36 @@
         ;; preserved target through the same event harvests the epochs the
         ;; host recorded between its call and first open. Skipping the
         ;; dispatch would keep the target and strand the history at the
-        ;; value it had at boot — which is the lockstep rf2-boyc2 exists
+        ;; value it had at boot — breaking the lockstep this seed exists
         ;; to hold.
         (rf/dispatch-sync [:rf.xray/set-target-frame seed-frame])))))
 
 (register-first-mount-hook!
   ::reset-transient-filters
   ;; Reset the TRANSIENT exploration filters to unfiltered on every page
-  ;; load (rf2-swclw). Three suppressing surfaces — the IN/OUT pills
-  ;; (rf2-ak4ms), the muted-event-ids set (rf2-ikuwt), and the frame pin
-  ;; (rf2-iwwou) — are session-scoped: a fresh load must NOT silently
-  ;; carry a stale filter from a past session (the trap that hid events
-  ;; and made the inspector look broken — rf2-jvghz). An inspector's
+  ;; load. Three suppressing surfaces — the IN/OUT pills, the
+  ;; muted-event-ids set, and the frame pin — are session-scoped: a fresh
+  ;; load must NOT silently carry a stale filter from a past session (a
+  ;; stale filter hides events and makes the inspector look broken). An
+  ;; inspector's
   ;; prime directive is to show the truth, so the first paint starts
   ;; fully unfiltered.
   ;;
   ;; Mechanism: we do NOT hydrate these slots, so app-db starts at its
   ;; registry default (empty pills / empty mute set / unpinned frame).
-  ;; For the two that DO still have a localStorage slot — mutes and the
+  ;; For the two that DO have a localStorage slot — mutes and the
   ;; frame pin — we additionally CLEAR the stale value so storage matches
   ;; what the user sees and a phantom value can never resurface: if we
   ;; only ignored-on-read, the next mute / pin write would overwrite a
   ;; slot that still held last session's ghost until then. Clearing keeps
   ;; storage honest from the first frame.
   ;;
-  ;; The IN/OUT pills need no clear at all since rf2-y8doi.27: their
-  ;; localStorage layer is GONE, so there is no stale value to strand
-  ;; and reset-on-load holds by construction rather than by cleanup.
+  ;; The IN/OUT pills need no clear at all: they have no localStorage
+  ;; layer, so there is no stale value to strand and reset-on-load holds
+  ;; by construction rather than by cleanup.
   ;;
   ;; DURABLE view prefs (Dynamic/Static mode, density, panel layout)
-  ;; still hydrate via their own hooks below — only transient filters
+  ;; hydrate via their own hooks below — only transient filters
   ;; reset. The #1962 'N events hidden by filters' indicator stays as
   ;; the in-session safety net once the user reaches for a filter.
   ;;
@@ -858,7 +811,7 @@
   ;; ON TOP of this clean slate. Sequencing matters: this hook runs FIRST
   ;; and clears the stale localStorage slot, then the seed hook lands the
   ;; host baseline — so a user's stale session filters never survive
-  ;; reload, while the host's explicit seed always does (rf2-fhtes).
+  ;; reload, while the host's explicit seed always does.
   (fn [_frame-id]
     (spine-filters/clear-raw!)
     (frame-switcher/clear!)))
@@ -867,14 +820,13 @@
   ::seed-configured-filters
   ;; Apply the host-configured `:rf.xray/filters` seed as the boot
   ;; BASELINE for `:active-filters`, AFTER `::reset-transient-filters`
-  ;; above has wiped any stale user/localStorage filter state (rf2-fhtes).
+  ;; above has wiped any stale user/localStorage filter state.
   ;;
-  ;; This closes a false public contract: `configure!` accepted
-  ;; `:rf.xray/filters` and the config/spec prose promised the seed would
-  ;; hydrate `:active-filters`, but production never called
-  ;; any hydrate fn — `filters/install!` explicitly does NO hydrate and
-  ;; nothing on the real `ensure-xray-frame!` path read the seed. A host
-  ;; using the documented key got no error and an unfiltered first paint.
+  ;; This hook is what makes `configure!`'s `:rf.xray/filters` key do what
+  ;; it documents: `filters/install!` does NO hydrate, so without this hook
+  ;; nothing on the real `ensure-xray-frame!` path would read the seed, and
+  ;; a host using the documented key would get no error and an unfiltered
+  ;; first paint.
   ;;
   ;; The policy is small and coherent: an EXPLICITLY configured seed is the
   ;; programmer's opt-in and lands as the boot baseline on EVERY load (a
@@ -887,8 +839,8 @@
   ;;
   ;; Mirrors the `::hydrate-static-mode` shape (read via a config helper,
   ;; dispatch the owning event). This hook is seed-only and reads no
-  ;; localStorage, so it cannot resurrect a stale user set — and since
-  ;; rf2-y8doi.27 there is no filter localStorage to read. The
+  ;; localStorage, so it cannot resurrect a stale user set — and there is
+  ;; no filter localStorage to read. The
   ;; `:rf.xray/hydrate-filters` event (registered by `filters/install!`)
   ;; is the single `:active-filters` write seam.
   (fn [frame-id]
@@ -900,8 +852,8 @@
 
 (register-first-mount-hook!
   ::hydrate-column-widths
-  ;; Hydrate the per-table column-widths slot from localStorage
-  ;; (rf2-xzg1y). Durable preference (NOT a transient filter) — the
+  ;; Hydrate the per-table column-widths slot from localStorage.
+  ;; Durable preference (NOT a transient filter) — the
   ;; user's column reading-shape choices persist across reloads. The
   ;; `resizable-table/hydrate!` fn guards on `(frame/frame :rf/xray)`
   ;; being registered, so this hook is the canonical landing site
@@ -913,16 +865,15 @@
 
 (register-first-mount-hook!
   ::hydrate-static-mode
-  ;; Hydrate the Dynamic ↔ Static mode slot (rf2-o5f5f.1). Same
+  ;; Hydrate the Dynamic ↔ Static mode slot. Same
   ;; rationale as the filter hydrate above — the persisted mode lives
   ;; in localStorage under `xray.mode` and the frame must exist
   ;; before the dispatch can land. `:rf.xray/set-mode` normalises
   ;; unknown values back to `:dynamic` so an absent or malformed slot
   ;; is harmless. The dispatch carries the persist-mode fx which
   ;; would re-write the slot; that's intentional — the round-trip
-  ;; canonicalises the stored value (e.g. an old "explorer" pre-
-  ;; rename value would land back as "runtime" without manual
-  ;; intervention).
+  ;; canonicalises the stored value (an unrecognised stored value is
+  ;; rewritten as the normalised mode without manual intervention).
   (fn [frame-id]
     (rf/with-frame frame-id
       (rf/dispatch-sync [:rf.xray/set-mode (static-persistence/load)]))))
@@ -930,21 +881,19 @@
 (register-first-mount-hook!
   ::hydrate-static-machines
   ;; Hydrate the Static Machines selection + per-machine sub-mode slots
-  ;; from localStorage (rf2-qw0o). Durable preferences, exactly like the
+  ;; from localStorage. Durable preferences, exactly like the
   ;; column widths and the Dynamic ↔ Static mode above — the operator's
   ;; last-inspected machine is a reading position, not a transient
   ;; exploration filter, so it carries across sessions.
   ;;
-  ;; This hook is the FIX for the bead. `static/machines/panel.cljs`'s
-  ;; `install!` already called `persistence/hydrate!`, but `install!`
-  ;; runs from `registry/register-xray-handlers!` — orchestrator time,
-  ;; before this fn has registered the frame. The hydrate dispatch
-  ;; therefore named a frame that did not exist yet and was refused with
-  ;; a promoted `:rf.error/frame-destroyed`: the selection was silently
-  ;; dropped and never restored, and every Xray-preloaded dev page load
-  ;; emitted that refusal to the console. `hydrate!` now carries the same
-  ;; frame guard its two siblings carry, so the orchestrator-time call
-  ;; short-circuits cleanly and THIS hook is the landing site.
+  ;; `static/machines/panel.cljs`'s `install!` also calls
+  ;; `persistence/hydrate!`, but `install!` runs from
+  ;; `registry/register-xray-handlers!` — orchestrator time, before this
+  ;; fn has registered the frame — where a hydrate dispatch would name a
+  ;; frame that does not exist yet and be refused with a promoted
+  ;; `:rf.error/frame-destroyed`. `hydrate!` carries the same frame guard
+  ;; its two siblings carry, so the orchestrator-time call short-circuits
+  ;; cleanly and THIS hook is the landing site.
   ;;
   ;; Ordered after `::hydrate-static-mode` for reading order (both are
   ;; Static-surface durable prefs); the two slots are independent, so
@@ -954,7 +903,7 @@
 
 (register-first-mount-hook!
   ::auto-open-watcher
-  ;; Auto-open-on-error watcher (rf2-9poxq) — install lazily here so
+  ;; Auto-open-on-error watcher — install lazily here so
   ;; the persisted-true case picks up as soon as the user opens Xray.
   ;; The watcher subscribes to `:rf.xray/issues-ribbon` (which lives
   ;; on `:rf/xray`'s app-db), so it CANNOT install until the frame
@@ -965,7 +914,7 @@
     (when (config/get-setting :general :auto-open-on-error?)
       (settings-effects/install-auto-open-watcher!))))
 
-;; ---- surface transition (rf2-j538f7.23) ---------------------------------
+;; ---- surface transition -------------------------------------------------
 ;;
 ;; `open!` and `open-overlay!` name two DISTINCT PHYSICAL surfaces
 ;; (spec/API.md §open! / open-overlay!, spec/011-Launch-Modes.md):
@@ -974,12 +923,11 @@
 ;; fixed modal under `document.body` (`position: fixed`). `shell-view`
 ;; derives that positioning from its render-time `:mode` prop, and the
 ;; mount node's OWNER (host vs body) is fixed at create-time. So a mode
-;; change is NOT a CSS toggle — the pre-rf2-j538f7.23 update-only
-;; branches merely flipped visibility + `data-rf-xray-mode` +
-;; `mount-state :mode`, leaving the actual React tree, parent, and
-;; layout on the PREVIOUS surface: the stored mode/attrs reported the
-;; requested surface while nothing physically moved (a Settings control
-;; that reported success without realizing it).
+;; change is NOT a CSS toggle: flipping only visibility +
+;; `data-rf-xray-mode` + `mount-state :mode` would leave the actual React
+;; tree, parent, and layout on the PREVIOUS surface, with the stored
+;; mode/attrs reporting the requested surface while nothing physically
+;; moved.
 ;;
 ;; `switch-surface!` realizes the requested surface both directions:
 ;; it recreates the React root on the (rare) mode flip rather than
@@ -1045,16 +993,15 @@
   mounted inline: make the container visible (a CSS-only show — the
   <80ms toggle target). When already mounted as the OVERLAY surface:
   realize the requested inline surface — re-parent the shell into the
-  layout host and re-render inline (rf2-j538f7.23) so the public
+  layout host and re-render inline so the public
   `open!` verb honours its distinct-surface contract instead of
   silently leaving the overlay in place.
 
-  Per rf2-in6l2 the `:rf/xray` registration is lazy here (post-
-  `rf/init!`) rather than at preload time; see `ensure-xray-frame!`
-  for the rationale.
+  The `:rf/xray` registration is lazy here (post-`rf/init!`) rather
+  than at preload time; see `ensure-xray-frame!` for the rationale.
 
   If the substrate adapter is absent, returns nil so preload retry can
-  wait. WHICH adapter is installed no longer matters (rf2-k97c.4): the
+  wait. WHICH adapter is installed does not matter: the
   shell paints through Xray's own React root, so an element-shaped host
   (UIx / Fresco) mounts exactly as a ratom-family one does. If the layout
   host is missing, returns an inspectable diagnostic map and logs
@@ -1080,11 +1027,10 @@
   the overlay surface: make it visible (a CSS-only show). When already
   mounted as the INLINE surface: realize the requested overlay surface
   — re-parent the shell to `document.body` and re-render fixed
-  (rf2-j538f7.23) so the public `open-overlay!` verb honours its
+  so the public `open-overlay!` verb honours its
   distinct-surface contract instead of only flipping attributes.
 
-  Indifferent to the installed adapter's render shape, same as `open!`
-  (rf2-k97c.4)."
+  Indifferent to the installed adapter's render shape, same as `open!`."
   []
   (if-let [state @mount-state]
     (if (= :overlay (:mode state))
@@ -1110,7 +1056,7 @@
   "Toggle the Xray shell's visibility. First call mounts + shows
   (per `open!`); subsequent calls flip visibility.
 
-  ## Generic reopen preserves the realized surface (rf2-j538f7.41)
+  ## Generic reopen preserves the realized surface
 
   `toggle!` is the global show/hide route (the `Ctrl+Shift+C` keybinding
   drives it) — NOT an explicit surface-switch. When reopening a hidden
@@ -1121,17 +1067,16 @@
   (`@mount-state` nil ⇒ `:mode` nil) — reopens inline via `open!`. The
   explicit `open!` / `open-overlay!` verbs stay the intentional
   surface-CHANGE APIs, each honouring its own distinct-surface contract
-  (incl. the missing-host fail-safe from rf2-j538f7.23).
+  (incl. the missing-host fail-safe).
 
-  Pre-fix the hidden branch hard-coded `(open!)`, so a hidden OVERLAY
-  mount reopened via `Ctrl+Shift+C` was treated as an explicit
-  inline-surface request: with a layout host it silently re-parented the
-  overlay back inline (discarding the operator's fullscreen choice and
-  component-local state, and violating the CSS-only reopen contract);
-  with no host `switch-surface! :inline` returned the missing-host
-  diagnostic and left the overlay stranded hidden — repeated toggles
-  could never recover it (the operator had to know to call
-  `open-overlay!` again despite the toggle promising to show it)."
+  Hard-coding `(open!)` in the hidden branch would treat a hidden
+  OVERLAY mount reopened via `Ctrl+Shift+C` as an explicit
+  inline-surface request: with a layout host it would silently
+  re-parent the overlay back inline (discarding the operator's
+  fullscreen choice and component-local state, and violating the
+  CSS-only reopen contract); with no host `switch-surface! :inline`
+  would return the missing-host diagnostic and leave the overlay
+  stranded hidden, beyond the reach of repeated toggles."
   []
   (if (visible?)
     (close!)
@@ -1139,7 +1084,7 @@
       (open-overlay!)
       (open!))))
 
-;; ---- close-shell effect (rf2-fq491) -------------------------------------
+;; ---- close-shell effect -------------------------------------------------
 ;;
 ;; The shell `✕` button (and any other in-app close affordance) dispatches
 ;; `:rf.xray/close-shell`, an app-db event. That event sets the reactive
@@ -1155,7 +1100,7 @@
 
   - `:rf.xray.fx/hide-shell` — hide the in-app shell (`close!`); fired
     by the `✕` close button via `:rf.xray/close-shell`.
-  - `:rf.xray.fx/popout-shell` (rf2-czcg5) — open the second-window
+  - `:rf.xray.fx/popout-shell` — open the second-window
     pop-out (`popout!`); fired by the chrome `⛶` pop-out button via
     `:rf.xray/popout-shell`. The event/fx bridge keeps `shell.cljs`
     free of a direct `mount/popout!` call (which would form the
@@ -1186,7 +1131,7 @@
                      opener-window opener-pagehide-handler]} @popout-state]
     (when watchdog-id
       (try (js/clearInterval watchdog-id) (catch :default _ nil)))
-    ;; rf2-61i5 — drop the pop-out document's keydown listener. This is the
+    ;; Drop the pop-out document's keydown listener. This is the
     ;; ONE disposal path for it: external close routes here via
     ;; `register-popout-unload-cleanup!`, `teardown!` calls this directly,
     ;; and `popout!` returns the existing state rather than re-opening, so
@@ -1196,7 +1141,7 @@
     ;; over that document.
     (when keydown-dispose
       (try (keydown-dispose) (catch :default _ nil)))
-    ;; rf2-uong — drop the opener-side `pagehide` announcer. Unlike the
+    ;; Drop the opener-side `pagehide` announcer. Unlike the
     ;; watchdog (a timer owned by this realm) the listener would otherwise
     ;; accumulate across repeated popout open/close cycles in ONE opener
     ;; realm, each survivor closing over a now-detached overlay node.
@@ -1226,7 +1171,7 @@
   All unmount calls run inside swallow-errors guards so a single
   failed unmount cannot strand the remaining singletons.
 
-  ## Test-fixture obligation: the keybinding listener (rf2-zkfiz Q1-10)
+  ## Test-fixture obligation: the keybinding listener
 
   `teardown!` does NOT detach the global `Ctrl+Shift+C` keydown
   listener that `preload/init!` attaches via `keybinding/attach!`.
@@ -1244,7 +1189,7 @@
   `tools/xray/spec/Conventions.md` §Mount conventions.
 
   That obligation is about the OPENER-document listener only. The
-  pop-out document's own listener (rf2-61i5) IS disposed from here, via
+  pop-out document's own listener IS disposed from here, via
   `teardown-popout-state!`, because mount owns its disposer rather than
   having to reach into keybinding for it."
   []
@@ -1283,31 +1228,32 @@
   Xray in the true-inline host unless the host disabled auto-open. Missing
   host emits a single actionable diagnostic; no alert and no blocking startup.
 
-  ## Why the frame is seated here (rf2-avi7)
+  ## Why the frame is seated here
 
   `:rf/xray` is an ordinary frame, so `rf/make-frame` needs an installed
   substrate adapter: it raises `:rf.error/no-adapter-installed` before the
-  host's `rf/init!`, which is why rf2-e9s81 reverted seating at preload LOAD
-  time. Adapter readiness is therefore the earliest moment the frame can exist
-  at all, and this loop is the one place in Xray already watching for it.
+  host's `rf/init!`, which rules out seating at preload LOAD time. Adapter
+  readiness is therefore the earliest moment the frame can exist at all,
+  and this loop is the one place in Xray already watching for it.
 
-  Seating used to ride `open!` alone, which tied the frame's existence to a
-  React commit. Xray's whole `:rf.xray/*` instruction set is registered at
-  preload, so between preload and first open Xray was ADDRESSABLE BUT NOT
-  WRITABLE: every dispatch into `:rf/xray` — `core/set-target-frame!`,
-  `focus!`, a host re-orienting the observed frame — recovered-but-emitted
-  `:rf.error/frame-destroyed`, dropped the host's intent, and named the
-  HANDLER's registration coord rather than the caller, so the diagnostic
-  pointed at the wrong file. A host that sets `:rf.xray/auto-open? false`
-  never left that window until it opened a panel of its own. Seating here
-  closes it: the frame exists as soon as the runtime does, opened or not.
+  Seating on `open!` alone would tie the frame's existence to a React
+  commit. Xray's whole `:rf.xray/*` instruction set is registered at
+  preload, so between preload and first open Xray would be ADDRESSABLE
+  BUT NOT WRITABLE: every dispatch into `:rf/xray` —
+  `core/set-target-frame!`, `focus!`, a host re-orienting the observed
+  frame — would recover-but-emit `:rf.error/frame-destroyed`, drop the
+  host's intent, and name the HANDLER's registration coord rather than
+  the caller, pointing the diagnostic at the wrong file; and a host that
+  sets `:rf.xray/auto-open? false` would stay in that window until it
+  opened a panel of its own. Seating here closes it: the frame exists as
+  soon as the runtime does, opened or not.
 
   What stays lazy is the FIRST-MOUNT seed/hydrate fan-out. It harvests the
   trace rings the user has already produced BEFORE opening Xray, so it belongs
   at first open and keeps its own `seeded-frame-ids` guard inside
   `ensure-xray-frame!` — which skips the redundant re-seat and runs the hooks.
 
-  ## A registrar cleared under the preload (rf2-atecy)
+  ## A registrar cleared under the preload
 
   The preload arms this loop when it LOADS, and a tick acts on whatever runtime
   exists when it lands. If the registrar was cleared in between
@@ -1316,12 +1262,13 @@
   a pool with no Xray registration in it — core's deliberate
   `:rf.error/image-zero-match` guard, thrown from a timer. In a node-test
   bundle the preload is loaded by test namespaces, so a `--test=` selection
-  whose fixtures clear the registrar crashed node before it printed a verdict.
+  whose fixtures clear the registrar would crash node before it printed a
+  verdict.
 
   So the adapter branch seats only while the instruction set is still
   registered, and otherwise ends the loop: there is no Xray left to seat, and
   whatever cleared the registrar owns registering it again. The guard itself
-  is untouched and still fails loud for every explicit seat
+  still fails loud for every explicit seat
   (`ensure-seated!`, `ensure-xray-frame!`)."
   []
   (when (compare-and-set! auto-open-state {:started? false :attempts 0}
@@ -1332,7 +1279,7 @@
     ;; would see the default `true` on every host that suppresses the open, and
     ;; the `:auto-open-disabled` diagnostic would never be recorded.
     ;;
-    ;; What it no longer gates is the SEAT. A host that turns auto-open off is
+    ;; What it does NOT gate is the SEAT. A host that turns auto-open off is
     ;; exactly the host most likely to drive Xray by dispatch instead, so the
     ;; frame is seated on readiness either way and only the open is suppressed.
     (letfn [(tick! []
@@ -1344,12 +1291,12 @@
                   ;; A registrar cleared since the preload registered Xray
                   ;; leaves nothing to seat, so the boot ends here instead of
                   ;; building an image over a pool without Xray in it
-                  ;; (rf2-atecy — see §A registrar cleared under the preload).
+                  ;; (see §A registrar cleared under the preload).
                   (when (instruction-set-registered?)
                     ;; Idempotent (`xray-frame-seated?` skips a re-seat), and
                     ;; seed-free — `open!` here, or a later first open, still
                     ;; runs the first-mount hooks through `ensure-xray-frame!`.
-                    ;; Same call the public facade takes (rf2-88f1), so the
+                    ;; Same call the public facade takes, so the
                     ;; seat-without-seeding rule is expressed once.
                     (ensure-seated! shell/default-frame-id)
                     (if (config/auto-open-enabled?)
@@ -1380,7 +1327,7 @@
   nil)
 
 (defn- register-popout-unload-cleanup!
-  "Per rf2-yudol: when the user closes the popout window externally
+  "When the user closes the popout window externally
   (or the page unloads for any other reason), the opener-side
   `popout-state` singleton must clear so a subsequent `popout!` is
   treated as a fresh first-mount rather than short-circuiting on the
@@ -1403,7 +1350,7 @@
       (try (.addEventListener win "pagehide" handler) (catch :default _ nil))
       (try (.addEventListener win "unload"   handler) (catch :default _ nil)))))
 
-;; ---- popout opener-gone overlay (rf2-h3ekl) ------------------------------
+;; ---- popout opener-gone overlay ------------------------------------------
 ;;
 ;; Per tools/xray/spec/011-Launch-Modes.md §Pop-out §Constraints:
 ;;
@@ -1428,13 +1375,12 @@
 ;; even if the substrate tree has thrown mid-render under the broken
 ;; opener. Token-derived colours match the rest of the Xray shell.
 
-;; Per rf2-5kfxe.4 the four colour constants and the sans stack now
-;; resolve through `theme/tokens` directly. The earlier "inlined to
-;; avoid pulling theme into the install path" rationale was stale —
-;; `theme.tokens` has no transitive deps and is the canonical palette.
+;; The four colour constants and the sans stack resolve through
+;; `theme/tokens` directly — `theme.tokens` has no transitive deps and is
+;; the canonical palette.
 
 ;; The overlay paints into the popout window's own document via
-;; imperative `set! style.background` etc. Post rf2-czcg5 the popout
+;; imperative `set! style.background` etc. The popout
 ;; document DOES carry the Xray `<style>` injection (the `:root`
 ;; `--rf-xray-…` custom properties land via `style-popout-document!`),
 ;; but these overlay constants deliberately keep reading `dark-palette`
@@ -1508,7 +1454,7 @@
       (set! (.-fontSize s)    "20px")
       (set! (.-fontWeight s)  "600")
       (set! (.-marginBottom s) "12px"))
-    ;; rf2-uong — the overlay now also fires on an opener RELOAD, so the
+    ;; The overlay also fires on an opener RELOAD, so the
     ;; copy must not assert "closed": a reloaded opener is still on screen,
     ;; and a message contradicting what the user can see reads as a bug in
     ;; Xray rather than an explanation. Name the cause generically and say
@@ -1581,7 +1527,7 @@
     (reset! id-atom id)
     id))
 
-;; ---- popout opener-RELOAD announcer (rf2-uong) ---------------------------
+;; ---- popout opener-RELOAD announcer --------------------------------------
 ;;
 ;; The watchdog above cannot see an opener RELOAD, and widening its
 ;; predicate would not help — the watchdog does not survive the event it
@@ -1616,7 +1562,7 @@
 
 (defn- register-opener-reload-announcer!
   "Reveal the popout's opener-gone overlay when the OPENER window unloads —
-  the hard-reload case `opener-gone?` structurally cannot observe (rf2-uong).
+  the hard-reload case `opener-gone?` structurally cannot observe.
   Returns the registered handler so `teardown-popout-state!` can detach it,
   or nil when no listener could be registered.
 
@@ -1651,7 +1597,7 @@
         handler
         (catch :default _ nil)))))
 
-;; ---- popout stylesheet hand-off (rf2-czcg5) -----------------------------
+;; ---- popout stylesheet hand-off -----------------------------------------
 ;;
 ;; Per tools/xray/spec/011-Launch-Modes.md §Pop-out §Styling: the
 ;; pop-out window MUST carry Xray's stylesheet + `:root` custom
@@ -1703,7 +1649,7 @@
 (defn- remove-stale-popout-nodes!
   "Evict a previous pop-out's `#rf-xray-popout-root` and its opener-gone
   overlay from `doc` before `popout!` appends fresh ones — the pop-out
-  counterpart of `remove-stale-root!` (rf2-3x7nj.27.3).
+  counterpart of `remove-stale-root!`.
 
   `popout!` opens `window.open(\"\", \"rf-xray-popout\")`: a fixed window
   NAME and an empty URL, so a pop-out still open from before an opener
@@ -1711,8 +1657,9 @@
   realm's shell root and the overlay the reload announcer revealed —
   full-window, topmost — while the reloaded opener's `popout-state` is
   nil, so the re-pop does not recognise the window as its own. Without
-  this, the fresh live shell rendered UNDER that overlay, which still
-  told the user to close the window. No-op when `doc` has neither node,
+  this, the fresh live shell would render UNDER that overlay, which
+  still tells the user to close the window. No-op when `doc` has neither
+  node,
   or cannot look them up."
   [^js doc]
   (when (and doc (.-getElementById doc))
@@ -1727,17 +1674,17 @@
   serialisation layer is introduced. Returns a state map, or
   `{:ok? false :reason :popup-blocked}` when `window.open` fails, or
   `{:ok? false :reason :no-substrate-adapter}` when no host has booted
-  yet. WHICH adapter that host installed is not consulted (rf2-k97c.4):
+  yet. WHICH adapter that host installed is not consulted:
   the pop-out paints through `xray-popout-root`, Xray's own React root
   in the pop-out's document.
 
-  Per rf2-yudol the popout window registers a `pagehide`/`unload`
+  The popout window registers a `pagehide`/`unload`
   listener that clears `popout-state` when the user closes the
   window externally, so the next `popout!` is a fresh first-mount
   rather than returning a stale state map whose `:window` is
   already closed.
 
-  Per rf2-h3ekl the popout also installs an opener-gone overlay
+  The popout also installs an opener-gone overlay
   (a hidden sibling DOM node) plus a `setInterval` watchdog that
   polls `window.opener.closed`. When the opener disappears the
   watchdog reveals the spec'd 'opener gone — close this window'
@@ -1745,7 +1692,7 @@
   with no UI signal as to the cause. See `install-opener-gone-
   overlay!` + `start-opener-gone-watchdog!` for the contract.
 
-  Per rf2-uong that pair is joined by an opener-side `pagehide`
+  That pair is joined by an opener-side `pagehide`
   announcer, because the watchdog covers only the cases in which
   the OPENER'S REALM OUTLIVES the event. A hard reload of the
   opener destroys the realm that owns the watchdog's timer, so no
@@ -1768,13 +1715,13 @@
                   body (.-body doc)
                   node (.createElement doc "div")]
               (set! (.-title doc) "Xray")
-              ;; rf2-czcg5 — inject Xray's stylesheet set + the `:root`
+              ;; Inject Xray's stylesheet set + the `:root`
               ;; `--rf-xray-*` custom properties into the pop-out's own
               ;; document and mirror the persisted theme, so the shell
               ;; renders fully styled (visually identical to the inline
               ;; panel) rather than unstyled against the bare window.
               (style-popout-document! doc)
-              ;; rf2-3x7nj.27.3 — a window reused from before an opener
+              ;; A window reused from before an opener
               ;; reload still carries the dead shell and its revealed
               ;; overlay; clear both before appending the live ones.
               (remove-stale-popout-nodes! doc)
@@ -1782,15 +1729,11 @@
               (.setAttribute node "data-rf-xray-mode" "popout")
               (.appendChild body node)
               (let [unmount      (render-shell!
-                                   ;; rf2-k97c.3 — the pop-out moves onto
-                                   ;; the owned root in the SAME commit as
-                                   ;; the inline shell. Two lines, in a file
-                                   ;; the swap opens anyway, and leaving it
-                                   ;; behind would have left one surface
-                                   ;; painting through the installed
-                                   ;; adapter's `:render` — i.e. coupling (1)
-                                   ;; only half severed, with the pop-out
-                                   ;; still refusing every element-shaped
+                                   ;; The pop-out paints through an owned
+                                   ;; root exactly as the inline shell does;
+                                   ;; painting it through the installed
+                                   ;; adapter's `:render` would leave the
+                                   ;; pop-out refusing every element-shaped
                                    ;; host.
                                    ;;
                                    ;; ITS OWN HANDLE. `render!` binds a
@@ -1810,11 +1753,11 @@
                                    node)
                     overlay-node (install-opener-gone-overlay! doc)
                     watchdog-id  (start-opener-gone-watchdog! win overlay-node)
-                    ;; rf2-uong — the reload case the watchdog cannot
+                    ;; The reload case the watchdog cannot
                     ;; see, because the reload destroys the watchdog.
                     announcer    (register-opener-reload-announcer!
                                    js/window win overlay-node)
-                    ;; rf2-61i5 — the pop-out's OWN keydown listener.
+                    ;; The pop-out's OWN keydown listener.
                     ;; Key events do not cross realms, so without this
                     ;; the documented keyboard workflow (Cmd/Ctrl+K,
                     ;; Cmd/Ctrl+Shift+M, Space / l / j / k / G, `,`/s)
