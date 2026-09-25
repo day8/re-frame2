@@ -1,20 +1,21 @@
 (ns re-frame.story.budgets
-  "Single source of truth for the Story UI **parity budgets** (rf2-ba86n.2,
-  ratified 2026-05-30). The qualitative Storybook parity bars in
+  "Single source of truth for the Story UI **parity budgets**. The
+  qualitative Storybook parity bars in
   spec/018 §3.1 are turned into concrete, enforceable numbers here; the
   normative table lives in spec/018 §10 and this namespace is the code-side
   mirror it points at.
 
   ## Why a dedicated namespace
 
-  The caps were previously inlined per surface (`sidebar/default-variant-cap`,
-  `sidebar/default-artifact-cap`, `docs/evidence-excerpt-beat-cap`). That left
-  no place for the *new* surfaces (controls flat-panel cap, variants-grid cell
-  cap, matrix dimension guard) and no single artefact the enforcement gate
+  Inlined per surface, the caps would leave the budgets that have no single
+  owning surface (controls flat-panel cap, variants-grid cell cap, matrix
+  dimension guard) nowhere to live, and no single artefact the enforcement gate
   (`re-frame.story.budgets-cljs-test`) could read. This namespace is that
-  single source: the implementation surfaces read these constants, and the
-  gate asserts the budgets against synthetic floor-scale fixtures. Change a
-  number here and both the UI and the gate move together — no parallel copy.
+  single source: the implementation surfaces read these constants
+  (`sidebar/default-variant-cap`, `sidebar/default-artifact-cap` and
+  `docs/evidence-excerpt-beat-cap` alias them), and the gate asserts the
+  budgets against synthetic floor-scale fixtures. Change a number here
+  and both the UI and the gate move together — no parallel copy.
 
   ## What is enforced vs. documented
 
@@ -29,12 +30,12 @@
     (flaky in CI). The gate enforces the *shape* that makes the targets
     achievable (bounded output, no O(n²) pass), not the clock.
 
-  ## F1 = cap-and-page (ratified)
+  ## F1 = cap-and-page
 
-  Every scale budget here is the proven `bound-variants` philosophy
+  Every scale budget here is the `bound-variants` philosophy
   extended: a bounded prefix plus a `+N more` / page affordance. True
-  virtualization (windowed render) is FUTURE (spec/018 §10) — it is not
-  required for the first Story UI EPIC and is not a pure-data gate.
+  virtualization (windowed render) is FUTURE (spec/018 §10) and is not a
+  pure-data gate.
 
   Pure data → data. JVM + CLJS. No Reagent, no runtime."
   (:refer-clojure :exclude [bound-cells]))
@@ -45,7 +46,7 @@
 
 (def sidebar-variant-cap
   "N1 — per-story variant rows the sidebar shows before bounding with a
-  `+N more` expander (spec/018 §10). CURRENT, ratified at 40: a typical
+  `+N more` expander (spec/018 §10). CURRENT, at 40: a typical
   design-system story (a handful to a dozen variants) is never bounded,
   while a matrix-scale story stays scannable until the author opts to
   expand it. `re-frame.story.ui.sidebar/default-variant-cap` aliases this."
@@ -54,7 +55,7 @@
 (def captured-artifact-cap
   "N2 — captured run-artifact rows the sidebar's collapsible captures
   section shows before bounding with a `+N more` expander (spec/018 §10).
-  CURRENT, ratified at 20: captures accumulate across matrix / generated
+  CURRENT, at 20: captures accumulate across matrix / generated
   runs; the cap keeps the section scannable.
   `re-frame.story.ui.sidebar/default-artifact-cap` aliases this."
   20)
@@ -71,7 +72,7 @@
    :workspaces 50})
 
 ;; ---------------------------------------------------------------------------
-;; Controls — C2 (flat-panel row cap); C1 / C4 are the existing
+;; Controls — C2 (flat-panel row cap); C1 / C4 are the
 ;; summarise-before-expand lazy-nesting contract (spec/019 §4)
 ;; ---------------------------------------------------------------------------
 
