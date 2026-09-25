@@ -83,8 +83,7 @@
 
   ## Test surface, not tutorial
 
-  Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs as
-  anti-patterns, no teaching layers. The exception / slow-fx / schema
+  No deliberate bugs as anti-patterns, no teaching layers. The exception / slow-fx / schema
   buttons exercise the REAL error / Issues surface — each is a feature
   being driven, not a buggy demo. Captions are guidance, not lessons.
 
@@ -177,9 +176,9 @@
 ;; registration throws `:rf.error/flow-frame-not-live`. The schema (and the
 ;; `:standard-epochs/derived` flow below) are therefore registered from `run`,
 ;; AFTER `(rf/make-frame {:id host-frame})` makes the frame live. `register-
-;; frame-local-features!` is the single entry point (also reused conceptually
-;; by the two-frame deck, which registers the same features into its own
-;; `:above` / `:below` frames).
+;; frame-local-features!` is the single entry point (the two-frame deck calls
+;; it too, registering the same features into its own `:above` / `:below`
+;; frames).
 
 ;; ============================================================================
 ;; COEFFECT — :standard-epochs/now  (button #2)
@@ -286,7 +285,7 @@
 ;; the single per-frame feature-registration point: the standalone deck calls
 ;; it with `:rf/default`; the two-frame deck installs the same features into
 ;; its own `:above` / `:below` frames so the flow + schema rungs fire there
-;; too (rf2-4279q4). Run at the TOP LEVEL, AFTER `make-frame`, never inside a
+;; too. Run at the TOP LEVEL, AFTER `make-frame`, never inside a
 ;; handler cascade.
 (defn register-frame-local-features!
   "Register the `:standard-epochs/derived` flow + the `[:auth] :string`
@@ -805,7 +804,7 @@
 ;; two-frame cards stay clean (no per-frame title duplication) while the
 ;; standalone deck still shows the Epochs header. There is no deck-reset
 ;; button: reloading re-seeds via `run` (the frames re-seed via :initial-events),
-;; so the manual reset is unnecessary.
+;; so no manual reset is needed.
 
 (reg-view standalone []
   [:div {:style {:font-family "system-ui, sans-serif" :max-width "720px"}}
