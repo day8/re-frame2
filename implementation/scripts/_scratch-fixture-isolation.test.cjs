@@ -3,13 +3,13 @@
 'use strict';
 
 /*
- * Scratch-fixture isolation gate (rf2-2i1ay).
+ * Scratch-fixture isolation gate.
  *
- * THE DEFECT THIS PINS. Four script self-tests materialised fixtures in a
- * unique `mkdtemp` dir under the repo's gitignored `.scratch/`, then tore
- * down with `fs.rmSync(SCRATCH_ROOT, …)` — deleting the SHARED ROOT rather
- * than their own dir. Run concurrently in one checkout they failed 20/20;
- * each passes standalone. Worse than the flake itself is how it reads: the
+ * THE DEFECT THIS PINS. A script self-test that materialises fixtures in a
+ * unique `mkdtemp` dir under the repo's gitignored `.scratch/`, then tears
+ * down with `fs.rmSync(SCRATCH_ROOT, …)`, deletes the SHARED ROOT rather
+ * than its own dir. Suites doing that fail when run concurrently in one
+ * checkout, though each passes standalone. Worse than the flake itself is how it reads: the
  * script under test reports `expected source file … not found` or `cd:
  * .scratch/…: No such file or directory`, so a deleted fixture is
  * indistinguishable at a glance from a real defect in the diff.
@@ -19,7 +19,7 @@
  *   1. A BEHAVIOURAL probe — the load-bearing one. A child process creates
  *      its own lane and runs the real teardown; the parent asserts its own
  *      sentinel lane SURVIVED. This exercises `scratch-fixtures.cjs` rather
- *      than describing it, so it fails on the pre-fix teardown regardless of
+ *      than describing it, so it fails on a whole-root teardown regardless of
  *      how that teardown is spelled.
  *
  *   2. A STATIC scan, because the behavioural probe only covers callers that
@@ -78,12 +78,12 @@ test("a sibling process's teardown does not remove this process's lane (rf2-2i1a
       'the neighbour process must remove its OWN lane',
     );
     // … and left this process's fixture untouched. This is the assertion
-    // that fails on the pre-fix whole-root `rmSync`.
+    // that fails on a whole-root `rmSync`.
     assert.equal(
       fs.existsSync(marker),
       true,
       "a concurrent suite's teardown must not delete this process's fixtures — "
-        + 'teardown must be scoped to the lanes its own process created (rf2-2i1ay)',
+        + 'teardown must be scoped to the lanes its own process created',
     );
     // The shared root is infrastructure, not a resource any process owns.
     assert.equal(
@@ -144,14 +144,14 @@ test('no first-party script recursively removes the shared scratch root (rf2-2i1
     `these scripts remove the shared \`${SCRATCH_DIRNAME}/\` root rather than their own lane, `
       + 'which deletes a concurrent suite\'s live fixtures: '
       + `${offenders.join(', ')}. Take a lane with makeScratchDir() and tear down with `
-      + 'cleanupScratchDirs() (implementation/scripts/lib/scratch-fixtures.cjs, rf2-2i1ay).',
+      + 'cleanupScratchDirs() (implementation/scripts/lib/scratch-fixtures.cjs).',
   );
 });
 
 test(`every ${SCRATCH_DIRNAME}/ fixture dir is taken from the shared helper (rf2-2i1ay)`, () => {
   // A direct `mkdtempSync` under the scratch root bypasses the ownership
   // registry, so the process's own teardown cannot find that lane and it
-  // leaks — or invites the whole-root removal that caused this bead.
+  // leaks — or invites a whole-root removal.
   const directMkdtemp = /mkdtempSync\s*\([^)]*(?:SCRATCH_ROOT\b|['"`]\.scratch['"`])/;
   const offenders = [];
   for (const file of firstPartyScripts()) {
@@ -163,13 +163,13 @@ test(`every ${SCRATCH_DIRNAME}/ fixture dir is taken from the shared helper (rf2
     offenders,
     [],
     `these scripts create a \`${SCRATCH_DIRNAME}/\` fixture dir directly instead of via `
-      + `makeScratchDir(): ${offenders.join(', ')} (rf2-2i1ay).`,
+      + `makeScratchDir(): ${offenders.join(', ')}.`,
   );
 });
 
 test('the four historical callers still route through the helper (rf2-2i1ay)', () => {
   // Sanity for the two scans above: if these stop requiring the helper the
-  // scans go vacuously green while the suites drift back to private roots.
+  // scans go vacuously green while the suites drift to private roots.
   const callers = [
     '_transform-reagent-slim-ns.test.cjs',
     '_preflight-story-package.test.cjs',
@@ -181,7 +181,7 @@ test('the four historical callers still route through the helper (rf2-2i1ay)', (
     assert.match(
       src,
       /require\(['"]\.\/lib\/scratch-fixtures\.cjs['"]\)/,
-      `${caller} must take its fixture lanes from lib/scratch-fixtures.cjs (rf2-2i1ay)`,
+      `${caller} must take its fixture lanes from lib/scratch-fixtures.cjs`,
     );
   }
 });
