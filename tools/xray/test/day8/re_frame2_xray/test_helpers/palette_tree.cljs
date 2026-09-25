@@ -1,17 +1,17 @@
 (ns day8.re-frame2-xray.test-helpers.palette-tree
-  "The node lane's door onto the Xray COMMAND PALETTE (rf2-k97c.3).
+  "The node lane's door onto the Xray COMMAND PALETTE.
 
   ## Why this exists
 
-  `palette/ModalView` is an `rf.fresco/defview` now — a real React
+  `palette/ModalView` is an `rf.fresco/defview` — a real React
   function component. A boundary's body may only run inside a React
   render window (`rf.fresco/sub` REFUSES outside one, naming the query
   and its own remedy), so `(palette/ModalView nil)` is not a callable
   that answers hiccup, and `(palette/Modal)` answers the `[:>]` interop
-  vector of the migration bridge rather than a tree to walk.
+  vector of its bridge rather than a tree to walk.
 
-  The repair is `defview`'s own documented extract-a-helper spelling, the
-  one every migrated view in this epic uses: `palette/view.cljs` is PURE
+  The way in is `defview`'s own documented extract-a-helper spelling:
+  `palette/view.cljs` is PURE
   and takes its reads' values, the boundary is the thin thing that reads
   and calls it, and the node lane drives the pure fn. This ns is the
   composer that does that driving — the palette's sibling of
@@ -47,8 +47,7 @@
   ## Call these INSIDE a frame scope
 
   Every fn here subscribes ambiently, so each call belongs inside
-  `(rf/with-frame :rf/xray …)` — the same requirement the `reg-view` body
-  had, and the same one every existing caller already satisfies."
+  `(rf/with-frame :rf/xray …)`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.palette.view :as view]))
 
