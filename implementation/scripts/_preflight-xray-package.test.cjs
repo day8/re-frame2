@@ -1,24 +1,22 @@
 /**
  * Unit tests for .github/scripts/preflight-xray-package.sh, and for the
- * rewrite roster it grades (rf2-5dut1).
+ * rewrite roster it grades.
  *
  * # Why these exist
  *
  * The preflight is the last gate before an IRREVERSIBLE Clojars publish of
- * `day8/re-frame2-xray`, and it was itself untested — the one script standing
- * between a pom with holes in it and a registry with no yank. Its Story and
- * reagent-slim siblings both carry a suite; this is Xray's.
+ * `day8/re-frame2-xray` — the one script standing between a pom with holes in
+ * it and a registry with no yank. Its Story and reagent-slim siblings each
+ * carry a suite; this is Xray's.
  *
  * It also closes the gap those siblings leave. The preflight only runs on an
  * `xray-v*` TAG PUSH, so the drift it exists to catch — release-xray.yml's
  * rewrite roster falling behind tools/xray/deps.edn — is invisible in ordinary
- * CI. That is exactly how the defect shipped: deps.edn grew from one in-repo
- * `:local/root` coordinate to ELEVEN while the workflow kept rewriting two, and
- * `clein pom` skips `:local/root` coordinates SILENTLY, so a jar cut from that
- * workflow would have published a pom declaring two of Xray's eleven in-repo
- * runtime dependencies. Every gate was green throughout. The roster tests
- * below derive BOTH sides — the coordinates from deps.edn, the roster from the
- * workflow — so neither can fall behind the other again without reddening a PR.
+ * CI. `clein pom` skips `:local/root` coordinates SILENTLY, so a workflow that
+ * rewrites fewer coordinates than deps.edn declares would publish a pom missing
+ * the rest, with every gate green. The roster tests below derive BOTH sides —
+ * the coordinates from deps.edn, the roster from the workflow — so neither can
+ * fall behind the other without reddening a PR.
  *
  * # The three groups
  *
@@ -26,10 +24,9 @@
  *      `:local/root` coordinates by whether the target artefact is publishable
  *      (carries an `:aliases -> :clein/build`), and assert release-xray.yml
  *      rewrites every publishable one and NO unpublishable one.
- *   2. THE UNPUBLISHABLE EDGE — pin the operator decision that is
- *      deliberately open (rf2-hic-023 for Fresco), so it cannot be closed by
- *      accident in either direction. It was two until rf2-l86mm; rf2-5dut1's
- *      Freehand edge was answered by deleting the coordinate.
+ *   2. THE UNPUBLISHABLE EDGE — pin the set of coordinates whose target
+ *      artefact is unpublishable (each an open operator decision), so it
+ *      cannot change by accident in either direction. The set is empty.
  *   3. VERDICT — the script's pom parsing and verdict, against fixture poms.
  *
  * # Mechanism for group 3
@@ -45,8 +42,8 @@
  * through the repo's own EDN authority.
  *
  * See _preflight-reagent-slim-package.test.cjs's `buildCommand` comment for the
- * WSL double-expansion portability contract this runner also honours
- * (rf2-sefx0): the `bash -lc` string may reference only $PWD and $PATH.
+ * WSL double-expansion portability contract this runner also honours:
+ * the `bash -lc` string may reference only $PWD and $PATH.
  */
 
 'use strict';
@@ -70,12 +67,8 @@ const VERSION = '0.0.1.alpha';
 // The coordinates deliberately NOT rewritten, because their target artefact
 // carries no `:clein/build` and so has no Maven coordinate to rewrite TO.
 //
-// EMPTY as of rf2-gra70, and the emptiness is asserted rather than assumed —
-// see the ledger test below. It was two under rf2-5dut1
-// (day8/re-frame2-freehand, day8/re-frame2-fresco), then one when rf2-l86mm
-// removed the Freehand coordinate from tools/xray/deps.edn along with the
-// Views panel's Freehand tool-door sections, then none when rf2-gra70
-// published day8/re-frame2-fresco.
+// EMPTY, and the emptiness is asserted rather than assumed — see the ledger
+// test below.
 const FRESCO = 'day8/re-frame2-fresco';
 const UNPUBLISHABLE = [];
 
@@ -161,7 +154,7 @@ test('release-xray.yml rewrites EVERY publishable in-repo coordinate', () => {
     'These coordinates are declared at :local/root in tools/xray/deps.edn and their target '
       + 'artefact IS publishable, but release-xray.yml does not rewrite them. `clein pom` skips '
       + ':local/root coordinates silently, so the published pom would omit them and Clojars has '
-      + 'no yank (rf2-5dut1). Add each to the rewrite step in .github/workflows/release-xray.yml '
+      + 'no yank. Add each to the rewrite step in .github/workflows/release-xray.yml '
       + 'AND to TOOLS_LOCAL_ROOTS in .github/scripts/verify-version-lockstep.sh.',
   );
 });
@@ -177,39 +170,27 @@ test('release-xray.yml rewrites NO unpublishable coordinate', () => {
       + 'WORSE than omitting them: the pom names a GAV that does not and cannot exist, the '
       + 'presence-based preflight passes it, and the failure lands in the consumer\'s build '
       + 'instead of our release job. Publish the artefact, vendor it, or move the edge to '
-      + 'late-bind (rf2-5dut1).',
+      + 'late-bind.',
   );
 });
 
 test('NO coordinate is unpublishable — the ledger is empty (rf2-gra70)', () => {
-  // Pinned in BOTH directions on purpose, and the empty set is the stronger
-  // half of the pin rather than the weaker one: a NEW unpublishable
-  // coordinate reds here rather than quietly joining a known-bad set, and the
-  // day the last one became publishable this test reds too — which is exactly
-  // how rf2-gra70 was told to add the tenth entry to the rewrite roster. The
-  // pin is a ledger of open operator decisions, not a tolerance for
-  // accumulating them.
+  // Pinned by equality, so the set cannot change in either direction
+  // unnoticed, and the empty set is the stronger form of the pin: a NEW
+  // unpublishable coordinate reds here rather than quietly joining a
+  // known-bad set. The pin is a ledger of open operator decisions, not a
+  // tolerance for accumulating them.
   //
-  // Two -> one (rf2-l86mm): `day8/re-frame2-freehand` is gone from
-  // tools/xray/deps.edn. It sat at top-level `:deps` only because
-  // `day8.re-frame2-xray.mounted-views` was in `src`, and that consumer
-  // retired with the Views panel's Mounted Views + Declared View Sites
-  // sections. rf2-5dut1 asked whether Xray should wait for Freehand's
-  // EP-0036 F6 publication or move the edge to late-bind; the edge was
-  // deleted instead, which answers it.
-  //
-  // One -> none (rf2-gra70): `${FRESCO}` is published. rf2-5dut1 posed the
-  // same question of it that it posed of Freehand, and this time the answer
-  // was the first branch — the artefact ships, from release.yml's
-  // post-matrix `deploy-fresco` stage, so the coordinate is rewritable and
-  // release-xray.yml rewrites it. What Xray's publishability now depends on
-  // is release ORDER (a framework `v*` tag before an `xray-v*` one), which
-  // `clojure -P` enforces at classpath resolution, not a ruling.
+  // Every in-repo coordinate is publishable. `${FRESCO}` ships from
+  // release.yml's post-matrix `deploy-fresco` stage, so its coordinate is
+  // rewritable and release-xray.yml rewrites it. What Xray's publishability
+  // depends on is release ORDER (a framework `v*` tag before an `xray-v*`
+  // one), which `clojure -P` enforces at classpath resolution.
   const { unrewritable } = partitionedCoords();
   assert.deepEqual(
     unrewritable.map((c) => c.lib), UNPUBLISHABLE,
     'The set of unpublishable in-repo coordinates Xray declares has changed, and it is '
-      + 'supposed to be empty (rf2-gra70). A coordinate here targets an artefact with no '
+      + 'supposed to be empty. A coordinate here targets an artefact with no '
       + ':aliases -> :clein/build, so nothing can pin it: publish that artefact, vendor it, '
       + 'or move the edge to late-bind — and until one of those, release-xray.yml must NOT '
       + 'rewrite it and this preflight must refuse the deploy. Do not make it green by '
@@ -248,8 +229,8 @@ function pomWith(deps) {
 
 // Verbatim shape of the pom `clojure -M:clein pom` writes in tools/xray with
 // NO rewrite applied: four third-party artefacts and nothing else, alongside
-// ten `Skipping coordinate` lines on stdout. This is the pom the bead exists
-// to stop reaching Clojars.
+// ten `Skipping coordinate` lines on stdout. This is the pom the preflight
+// exists to stop reaching Clojars.
 const THIRD_PARTY = [
   dep('org.clojure', 'clojure', '1.11.2'),
   dep('zprint', 'zprint', '1.3.0'),
@@ -259,7 +240,7 @@ const THIRD_PARTY = [
 
 // The ten coordinates as the script's derivation emits them:
 // `group/artifact`, one per line, sorted. Kept as a literal so the verdict
-// fixtures below are independent of what deps.edn happens to say today —
+// fixtures below are independent of what deps.edn happens to say —
 // group 1 is what asserts the two agree.
 const DERIVED_ALL = [
   'day8/re-frame2',
@@ -281,15 +262,13 @@ function inRepoDeps(libs, version = VERSION) {
   });
 }
 
-// What the rewrite step produces today (rf2-gra70): ALL TEN in-repo
-// coordinates at the lockstep version. Nothing is skipped by `clein pom`
-// any more, because every coordinate's target artefact is publishable.
+// What the rewrite step produces: ALL TEN in-repo coordinates at the
+// lockstep version. `clein pom` skips none of them, because every
+// coordinate's target artefact is publishable.
 const COMPLETE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL)]);
 
-// The shape the gate produced while ONE coordinate had no publishable target
-// — nine rewritten, Fresco skipped. Kept as a negative-control fixture: it
-// is now a plain incomplete pom and must be refused like any other, with the
-// generic hint, since the reason to tolerate it is gone.
+// Nine rewritten, Fresco skipped. A negative-control fixture: it is a plain
+// incomplete pom and must be refused like any other, with the generic hint.
 const NINE = DERIVED_ALL.filter((lib) => lib !== FRESCO);
 const NINE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(NINE)]);
 
@@ -401,7 +380,7 @@ test('a pom carrying every in-repo coordinate PASSES', () => {
   expectPass(makeFixture({ pom: COMPLETE_POM }), 'complete pom');
 });
 
-// ── The bug this bead was filed for ─────────────────────────────────────
+// ── The unrewritten pom ─────────────────────────────────────────────────
 
 test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () => {
   const fixture = makeFixture({ pom: pomWith(THIRD_PARTY) });
@@ -424,15 +403,13 @@ test('the two-coordinate rewrite fails — the shipping state rf2-5dut1 found', 
   assert.match(out, /day8\/re-frame2-epoch/, `expected epoch among the eight\n${out}`);
 });
 
-// ── The shape that used to be tolerated, and no longer is ───────────────
+// ── A pom missing only Fresco ───────────────────────────────────────────
 
 test('the nine-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
-  // Until rf2-gra70 this was the SHIPPING state and the refusal carried a
-  // coordinate-specific hint saying "not a mechanical fix". Fresco is
-  // published now, so a pom missing it is an ordinary hole and gets the
-  // ordinary advice: add it to the rewrite step. The assertion runs the other
-  // way too — the operator-decision hint must be GONE, because following it
-  // would now be wrong.
+  // Fresco is published, so a pom missing it is an ordinary hole and gets
+  // the ordinary advice: add it to the rewrite step. The assertion runs the
+  // other way too — no operator-decision hint ("NOT A MECHANICAL FIX") may
+  // appear, because following it would be wrong.
   const out = expectFail(
     makeFixture({ pom: NINE_POM }),
     'nine-of-ten pom',
@@ -448,7 +425,7 @@ test('the nine-coordinate rewrite fails — Fresco is a coordinate like any othe
   );
   assert.doesNotMatch(
     out, /NOT A MECHANICAL FIX/,
-    `the retired operator-decision hint must not come back — Fresco publishes (rf2-gra70)\n${out}`,
+    `no operator-decision hint may appear — Fresco publishes\n${out}`,
   );
   assert.doesNotMatch(
     out, /MISSING the in-repo dependency day8\/re-frame2-epoch/,
@@ -514,7 +491,7 @@ test('a malformed pom fails rather than parsing to an empty dep set', () => {
   expectFail(makeFixture({ pom: '<project><dependencies>' }), 'malformed pom', /not well-formed XML/);
 });
 
-// ── Portability contract (rf2-sefx0) ────────────────────────────────────
+// ── Portability contract ────────────────────────────────────────────────
 
 test('the bash -lc command references only pre-existing shell variables', () => {
   const referenced = [...buildCommand('some/rel', VERSION).matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)]
@@ -524,7 +501,7 @@ test('the bash -lc command references only pre-existing shell variables', () => 
     notPreExisting, [],
     'WSL\'s bash.exe expands the -c string TWICE, so a variable this command assigns '
       + 'itself resolves to EMPTY before the assignment runs — dropping the fixture stub off '
-      + `PATH. Offending: ${notPreExisting.join(', ')} (rf2-sefx0).`,
+      + `PATH. Offending: ${notPreExisting.join(', ')}.`,
   );
 });
 
