@@ -27,16 +27,17 @@
 
     `:payload [<kw> <kw> ...]`
       An **allowlist** of top-level `app-db` keys to ship (a non-empty
-      **vector** of KEYWORDS). Other keys are dropped — including any
-      keys added later as the app evolves. The recommended primary
-      mechanism. A non-empty vector carrying a non-keyword element
-      (a string typo, a stray `nil`, a nested coll) fails loud at boot with
-      `:rf.error/ssr-malformed-payload-allowlist` rather than silently
-      shipping a wrong or empty slice. The allowlist is specifically a
-      vector; a list or seq is not an accepted
-      spelling); the vector-vs-keyword distinction IS the allowlist-vs-
-      whole-app-db policy selector, so a single precise shape keeps the
-      fail-closed security boundary unambiguous.
+      **sequential** of KEYWORDS — a vector is the canonical spelling, and
+      a list or lazy seq is accepted too). Other keys are dropped —
+      including any keys added later as the app evolves. The recommended
+      primary mechanism. A non-empty sequential carrying a non-keyword
+      element (a string typo, a stray `nil`, a nested coll) fails loud at
+      boot with `:rf.error/ssr-malformed-payload-allowlist` rather than
+      silently shipping a wrong or empty slice. The collection-vs-keyword
+      distinction IS the allowlist-vs-whole-app-db policy selector, so a
+      sequential of keywords can never be mistaken for the opt-in and the
+      fail-closed security boundary stays unambiguous. A set is not
+      sequential and is not an allowlist.
 
     `:payload :rf.ssr.payload/whole-app-db`
       An explicit opt-in to ship the whole `app-db`. Use only when the
@@ -51,7 +52,7 @@
 
   One opt can hold exactly one value, so there is nothing to arbitrate: the
   allowlist-vs-whole-app-db choice is the value's shape
-  (vector vs keyword), not a contest between two opts. Empty `:payload`
+  (collection vs keyword), not a contest between two opts. Empty `:payload`
   (`[]`) is treated as **no allowlist supplied**, since shipping zero
   keys is almost certainly a programmer error rather than an intent.
   Callers that genuinely want to ship an empty `:rf/app-db` use
@@ -117,8 +118,8 @@
 ;; ---- policy resolution ---------------------------------------------------
 
 (defn- valid-allowlist?
-  "An allowlist is a non-empty **vector** of top-level app-db keys — the
-  vector shape of the `:payload` opt. Per Spec 011 §`:rf/app-db`
+  "An allowlist is a non-empty **sequential** of top-level app-db keys —
+  the collection shape of the `:payload` opt. Per Spec 011 §`:rf/app-db`
   projection the elements are *top-level app-db keys*, which in re-frame2
   are keywords; this validator therefore requires EVERY element to be a
   keyword.
@@ -263,7 +264,7 @@
       :rf.error/ssr-malformed-payload-allowlist
       're-frame.ssr.payload-policy
       (str "ssr-handler :payload allowlist must be a "
-           "non-empty VECTOR of KEYWORD "
+           "non-empty sequential (a vector, list or seq) of KEYWORD "
            "top-level app-db keys; got "
            (pr-str payload)
            " — these entries are not keywords: "
