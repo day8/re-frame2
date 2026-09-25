@@ -5,9 +5,8 @@
 
   `re-frame.core/project-egress` is the ONE record-level egress door —
   there is no standalone `projected-record` door — and it recognises an
-  epoch record SOLELY by
-  its stamped `:kind :rf/epoch-record`. There is no shape test and no
-  second name to call.
+  epoch record SOLELY by its stamped `:kind :rf/epoch-record`. There is
+  no shape test and no second name to call.
 
   An UNRECOGNISED input is not refused by the door — it falls through to
   the KINDLESS BARE-VALUE WALK. That is the correct answer for the
@@ -19,8 +18,8 @@
 
   The trigger is real rather than hypothetical: an app running a
   `re-frame.epoch.assembly` that predates the `:kind` stamp stamps no
-  `:kind` at all, so
-  a version-skewed pair session takes exactly that path. Every eval form
+  `:kind` at all, so a version-skewed pair session takes exactly that
+  path. Every eval form
   this server emits therefore checks the stamp BEFORE the door call and
   THROWS otherwise. Silently shipping raw state is far worse than an
   error.
