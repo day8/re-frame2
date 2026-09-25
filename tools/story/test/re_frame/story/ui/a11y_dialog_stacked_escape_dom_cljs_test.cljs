@@ -1,12 +1,12 @@
 (ns re-frame.story.ui.a11y-dialog-stacked-escape-dom-cljs-test
-  "rf2-3x7nj.29.6 — with two focus-trapped dialogs stacked, one Escape
-  closes only the TOP one.
+  "With two focus-trapped dialogs stacked, one Escape closes only the TOP
+  one.
 
   The recorder stacks them on purpose: the save dialog's export button
   opens the export dialog on top without closing the save dialog. Every
   trap listens for Escape on the window, and `stopPropagation` does not stop
-  other listeners on the same target, so one Escape used to close both, and
-  the save dialog's recording went with it.
+  other listeners on the same target, so without the topmost-trap check one Escape
+  would close both, and the save dialog's recording would go with it.
 
   The rows mount real traps through `reagent.dom.client` and dispatch a
   real `keydown` on the window.
@@ -37,7 +37,7 @@
   (react-dom/flushSync (fn [] (rdc/render root tree))))
 
 (deftest one-escape-closes-only-the-top-dialog
-  (testing "rf2-3x7nj.29.6: the save dialog is open and the export dialog
+  (testing "the save dialog is open and the export dialog
             opens ON TOP of it. Escape closes the export dialog and leaves the
             save dialog open; the next Escape, with the export dialog gone,
             closes the save dialog"
@@ -52,7 +52,7 @@
           (render! root [:div (dialog closed :save) (dialog closed :export)])
           (escape!)
           (is (= [:export] @closed)
-              "only the top dialog closed — before the fix both did")
+              "only the top dialog closed")
           (render! root [:div (dialog closed :save)])
           (escape!)
           (is (= [:export :save] @closed)
