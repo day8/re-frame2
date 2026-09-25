@@ -526,6 +526,10 @@
                                                :tags #{:busy} :states {:a {}}}}}
    ;; A region body's `:after` that declares no delay schedules nothing.
    :valid-region-empty-after    {:type :parallel :regions {:r {:initial :a :after {} :states {:a {}}}}}
+   ;; A choice state inside a region is an ordinary choice state.
+   :valid-region-nested-choice  {:type    :parallel
+                                 :regions {:r {:initial :g :states {:g {:type :choice :choice [{:target :a}]}
+                                                                    :a {}}}}}
    :valid-parallel-root-on-done {:type    :parallel :actions {:announce (fn [_ctx] nil)} :on-done {:action :announce}
                                  :regions {:r {:initial :a :states {:a {:final? true}}}}}
    ;; A single spawn's `:on-done` is a fn folding `:data`, or a transition.
@@ -1005,10 +1009,13 @@
    :region-body-choice-self-loop    :rf.error/machine-choice-self-loop})
 
 (deftest region-body-after-and-choice-refusal-parity
-  (testing "a region body's empty :after registers on both sides"
-    (let [m (get validation-parity-corpus :valid-region-empty-after)]
-      (is (= :accept (engine-answer m)) "the engine accepts")
-      (is (= :accept (viz-answer m)) "the viz accepts")))
+  (testing "an ordinary region, a region body's empty :after, the parallel root's
+            own :after and a choice state inside a region register on both sides"
+    (doseq [label [:valid-parallel :valid-region-empty-after
+                   :valid-parallel-root-after :valid-region-nested-choice]
+            :let [m (get validation-parity-corpus label)]]
+      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
+      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))))
   (testing "the viz refuses a region body's :after and :choice with the engine's
             own category, naming the region the engine names"
     (doseq [[label category] region-body-after-choice-rows
