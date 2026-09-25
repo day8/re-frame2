@@ -25,16 +25,15 @@
   `re-frame.flows/flows-snapshot` (Tool-Pair.md §public APIs; spec/014
   catalogues the reading sub, `:rf.xray.static.flows/registered-flows`,
   as `rf.flows/flows-snapshot`).
-  Since rf2-en00bk the per-frame `flows` atom is the SOLE store; the
-  registrar `:flow` kind is RESERVED-but-empty (no write), so the old
-  `(rf/registrations {:source :store :kind :flow})` read now returns `{}` (an empty catalogue).
+  The per-frame `flows` atom is the SOLE store; the
+  registrar `:flow` kind is RESERVED-but-empty (no write), so a
+  `(rf/registrations {:source :store :kind :flow})` read returns `{}` (an empty catalogue).
   `flows-snapshot` returns the whole-registry `{frame-id {flow-id
   flow-map}}` value DIRECTLY — already in the per-frame shape the
   projection + picker-scoping helpers consume, so no flat-to-grouped
   regrouping is needed. The store is FRAME-DIVERGENT-per-id (Spec 013):
   the same flow-id against two frames carries each frame's OWN definition,
-  which this panel surfaces per frame — a strict improvement over the old
-  frame-blind last-registration-wins registrar slot.
+  which this panel surfaces per frame.
 
   Optional test override slot: `:rf.xray.static.flows/registered-
   flows-override` lets the CLJS test suite inject deterministic
@@ -54,7 +53,7 @@
 
   ## Public surface
 
-  - `Panel`        — the tab's root. Since rf2-k97c.3 an
+  - `Panel`        — the tab's root. An
                      `rf.fresco/defview` BOUNDARY — a real React function
                      component, not an `rf/reg-view`.
   - `panel-tree`   — the whole body, as a pure fn of the read's VALUE and
@@ -149,10 +148,10 @@
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
-  ;; CALLED, never used as a hiccup head (rf2-k97c.3). `search-box/search-box`
+  ;; CALLED, never used as a hiccup head. `search-box/search-box`
   ;; is a plain fn, and a plain function in head position is a loud error
   ;; inside a Fresco body by design; applying it renders the identical
-  ;; markup. The flex-row chrome still lives in the shared component.
+  ;; markup. The flex-row chrome lives in the shared component.
   ;;
   ;; `dispatch` arrives from the boundary rather than being captured here.
   ;; The keystroke dispatch is an OUT-OF-RENDER affordance — it fires after
@@ -175,18 +174,17 @@
 (defn- row-identity
   "One row's identity — the OWNING FRAME plus the flow-id.
 
-  ONE derivation with TWO consumers, and that shared derivation IS the
-  rf2-uyg0 repair. The catalogue's React key already carried the frame;
-  the inspector node keys below were built from the flow-id ALONE, so
-  under the browse-all projection (`scope-to-frame` with a nil frame-id,
-  which passes every frame's flows through) the same flow-id registered
-  against two frames produced two rows in ONE render frame carrying the
-  SAME `:mount-id`. That is not cosmetic: `edn-widget/inspect-view` hands
+  ONE derivation with TWO consumers: the catalogue's React key and the
+  inspector node keys below. Node keys built from the flow-id ALONE would
+  collide under the browse-all projection (`scope-to-frame` with a nil
+  frame-id, which passes every frame's flows through): the same flow-id
+  registered against two frames would produce two rows in ONE render frame
+  carrying the SAME `:mount-id`. That is not cosmetic: `edn-widget/inspect-view` hands
   the node-key straight to the boundary as its `:mount-id`, and
   `edn-inspector/container-ref-for` MEMOISES the ref callback on it — so
-  the two rows shared one ResizeObserver entry and detaching either row
-  released the SURVIVOR's. Deriving both keys here is what keeps them from
-  drifting apart again.
+  the two rows would share one ResizeObserver entry and detaching either
+  row would release the SURVIVOR's. Deriving both keys here is what keeps
+  them from drifting apart.
 
   Both components keep their leading `:`, which is what makes the join
   unambiguous — frame `:a/b` + flow `:c` reads `:a/b/:c`, never the
@@ -220,15 +218,15 @@
    ;; `[:code]`. `edn/inspect-view` is the widget's FRESCO head — same
    ;; value, same opts, same renderer as `edn/inspect`, differing ONLY in
    ;; that it emits `[ei/edn-inspector-view …]` (a boundary) rather than
-   ;; `[ei/edn-inspector …]` (a Reagent component). rf2-k97c.3 made the
-   ;; swap mandatory rather than stylistic: `ei/edn-inspector` is a plain
+   ;; `[ei/edn-inspector …]` (a Reagent component). The swap is
+   ;; mandatory rather than stylistic: `ei/edn-inspector` is a plain
    ;; fn, and a plain fn in hiccup head position is a loud error inside a
    ;; Fresco body. Each value keeps its stable per-ROW `node-key`, which
-   ;; is now load-bearing twice over — it is the panel-id keying expand
+   ;; is load-bearing twice over — it is the panel-id keying expand
    ;; state AND the boundary's required `:mount-id`, so two mounts sharing
    ;; one node-key would share a width slot and a projection cache.
    ;;
-   ;; rf2-uyg0 — the qualifier is [[row-identity]] (frame + flow-id), not
+   ;; The qualifier is [[row-identity]] (frame + flow-id), not
    ;; the flow-id alone. A flow-id is unique per FRAME, not per catalogue,
    ;; and the browse-all projection lists every frame's flows at once.
    (let [flow-key (row-identity row)]
@@ -243,25 +241,22 @@
        (into [:span {:style {:display     "inline-flex"
                              :flex-wrap   "wrap"
                              :gap         "6px"}}]
-             ;; THE KEY RIDES ON A KEYED FRAGMENT'S ATTRIBUTE MAP, and this
-             ;; site has now been wrong in TWO different ways for two
-             ;; different reasons (rf2-k97c.3, RULING 2's key sweep).
+             ;; THE KEY RIDES ON A KEYED FRAGMENT'S ATTRIBUTE MAP, because
+             ;; both metadata spellings lose it here.
              ;;
-             ;; It was first `^{:key …}` reader meta on the `(edn/inspect …)`
-             ;; CALL FORM — metadata on a source list, discarded when the
-             ;; call returns its fresh vector, so NO key ever reached React
-             ;; and the inputs seq reconciled by index. That was repaired to
-             ;; `with-meta` on the RETURNED VECTOR, which Reagent's
-             ;; `get-react-key` really does read.
+             ;; `^{:key …}` reader meta on the call form is metadata on a
+             ;; source list, discarded when the call returns its fresh
+             ;; vector, so NO key would reach React and the inputs seq
+             ;; would reconcile by index. `with-meta` on the RETURNED
+             ;; VECTOR is what Reagent's `get-react-key` reads.
              ;;
              ;; Fresco's codec reads `:key` from an ATTRIBUTE MAP and reads
-             ;; Clojure metadata NOWHERE, so that repair goes inert the
-             ;; moment this panel renders through a boundary — and a lost key
-             ;; does not fail, it degrades silently into index-based
-             ;; reconciliation, which paints identically and corrupts
-             ;; identity only once the seq changes shape. The fragment
-             ;; carries the key without adding a DOM node, and the key
-             ;; EXPRESSION is unchanged.
+             ;; Clojure metadata NOWHERE, so `with-meta` goes inert inside a
+             ;; boundary — and a lost key does not fail, it degrades
+             ;; silently into index-based reconciliation, which paints
+             ;; identically and corrupts identity only once the seq changes
+             ;; shape. The fragment carries the key without adding a DOM
+             ;; node.
              (for [[i input-path] (map-indexed vector inputs)]
                [:<> {:key (str "in-" i)}
                 (edn/inspect-view input-path
@@ -286,10 +281,10 @@
   [[Panel]] reads — the `:rf.xray.static.flows/tab-data` composite — and
   the frame-bound `dispatch` the search box needs.
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
+  SPLIT OUT OF [[Panel]], and the split is `defview`'s own
   documented extract-a-helper spelling rather than an invention. A
   boundary's body may only run inside a React render window, so `(Panel)`
-  is no longer a callable that answers hiccup — while the catalogue's
+  is not a callable that answers hiccup — while the catalogue's
   projection is ordinary data → data and is worth testing in the fast node
   lane. `panel_cljs_test` drives THIS fn with the value it takes from the
   sub directly; the boundary's own behaviour — first paint, liveness,
@@ -306,7 +301,7 @@
     :rows       flows
     :search     (search-box dispatch query total filtered?)
     ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata
-    ;; (rf2-k97c.3) — the same move the input seq above makes, for the
+    ;; — the same move the input seq above makes, for the
     ;; same reason. `^{:key …}` on this vector literal is read by Reagent
     ;; and by Fresco's codec NOWHERE, so it would reach React as nothing
     ;; once the panel renders through a boundary. The fragment carries the
@@ -315,10 +310,9 @@
     ;; domain-shaped and local, exactly as `catalogue-panel`'s `:row-render`
     ;; contract asks.
     ;;
-    ;; The key EXPRESSION is now [[row-identity]] — the same string the row's
-    ;; inspector node keys are built from (rf2-uyg0). It computes exactly
-    ;; what the inline `(str (:frame row) "/" (:flow-id row))` here computed;
-    ;; naming it is what stops the two key sites diverging again.
+    ;; The key EXPRESSION is [[row-identity]] — the same string the row's
+    ;; inspector node keys are built from; naming it is what stops the two
+    ;; key sites diverging.
     :row-render (fn [row]
                   [:<> {:key (row-identity row)}
                    (flow-row row)])}))
@@ -326,30 +320,28 @@
 ;; ---- root view -----------------------------------------------------------
 
 (rf.fresco/defview Panel
-  "The Static Flows tab's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The Static Flows tab's root — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Reads the flows composite and hands its value plus a
   frame-bound dispatcher to [[panel-tree]].
 
   The READ is `rf.fresco/sub`, a plain call the shipped collector records
   an edge for — no deref, no reaction owned by the installed adapter, and
   a re-wire that NOTIFIES when the substrate disposes the underlying
-  derived value. That is the third of the epic's three couplings, and the
-  one a first-paint smoke test cannot see.
+  derived value. That re-wire is the coupling a first-paint smoke test
+  cannot see.
 
   The FRAME the read resolves against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this resolves
-  `:rf/xray` identically under the Fresco tree the Static shell is today
+  `:rf/xray` identically under the Fresco tree the Static shell is
   and under an `rf/frame-provider` a Reagent parent writes. It never
   consults `:adapter/current-component`, the hook a foreign root cannot
   answer.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
-  which answers the boundary's DECLARED frame inside a body. It replaces
-  the render-time `(rf/current-frame-id)` capture the `reg-view` body did:
-  same guarantee, one call, and it is the spelling every migrated panel
-  now uses. The search box's keystroke dispatch therefore still lands on
+  which answers the boundary's DECLARED frame inside a body. The search
+  box's keystroke dispatch therefore lands on
   THIS Xray instance's frame after render scope unwinds; a bare global
   `rf/dispatch` would there resolve no frame and raise
   `:rf.error/no-frame-context`, EP-0002 leaving no `:rf/default` floor.
@@ -358,7 +350,7 @@
   head-position use, not file size: `catalogue-panel`, `catalogue-row`,
   `search-box` and `flow-row` are all CALLED, never used as a hiccup head,
   so Fresco's \"a plain function in head position is a loud error\" rule
-  never meets one. The one fn-headed vector that REMAINS in the tree is
+  never meets one. The one fn-headed vector in the tree is
   `edn/inspect-view`'s `[ei/edn-inspector-view …]`, which is itself a
   boundary and so is a legal head; nothing else in the interior wants a
   boundary of its own.
@@ -370,9 +362,9 @@
   (panel-tree (rf.fresco/sub [:rf.xray.static.flows/tab-data])
               (:dispatch (rf/capture-frame))))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge -----------------------------------------
 ;;
-;; Xray's Static shell is a Fresco tree, but it still reaches this panel
+;; Xray's Static shell is a Fresco tree, but it reaches this panel
 ;; across an `as-child` seam. `static/shell.cljs`'s `detail-panel` mounts
 ;; the active tab as the hiccup head `[(:panel tab)]`, and
 ;; `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
@@ -385,7 +377,7 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; BOTH DEFS ARE PRIVATE, and that is a measured property of this panel
+;; BOTH DEFS ARE PRIVATE, and that is a property of this panel
 ;; rather than a default: `Panel` is named outside this file only in
 ;; `static/shell.cljs`'s PROSE (a docstring listing the L4 tabs) and in
 ;; `spec/api-manifest*.edn`'s rows — never mounted or called by name. The
@@ -395,15 +387,12 @@
 ;; takes the view to mount as an argument and needs a name to pass; this
 ;; panel has none — `panels.cljs` names no Static sub-tab.
 ;;
-;; `Panel` KEEPS THE NATURAL NAME, which is the spelling ruled to survive
-;; (the #9581 assignment) and is also what keeps the two hot-zone
-;; api-manifest rows for `static.flows.panel/Panel` valid without touching
-;; either file.
+;; `Panel` KEEPS THE NATURAL NAME, which is also the name the two
+;; `spec/api-manifest*.edn` rows for `static.flows.panel/Panel` carry.
 ;;
-;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
-;; The Static shell is a Fresco tree now and both defs stayed anyway: it
-;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; THIS IS NOT SCAFFOLDING. The Static shell is a Fresco tree, yet it
+;; reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` requires a
 ;; callable `:panel`.
 
 (def ^:private Panel-component
@@ -434,11 +423,11 @@
   `re-frame.flows/flows-snapshot`.
 
   Reads `rf.flows/flows-snapshot` — the whole-registry `{frame-id {flow-id
-  flow-map}}` snapshot — NOT the registrar `:flow` slot. Since rf2-en00bk
-  the per-frame `flows` atom is the SOLE store; the registrar `:flow` kind
-  is RESERVED-but-empty (no write), so the old `(rf/registrations {:source :store :kind :flow})` /
-  `rf/registrations :flow` read now returns `{}` and the panel
-  rendered an empty catalogue. `flows-snapshot` deref's the process-global
+  flow-map}}` snapshot — NOT the registrar `:flow` slot. The per-frame
+  `flows` atom is the SOLE store; the registrar `:flow` kind
+  is RESERVED-but-empty (no write), so a `(rf/registrations {:source :store :kind :flow})` /
+  `rf/registrations :flow` read returns `{}` and the panel would
+  render an empty catalogue. `flows-snapshot` deref's the process-global
   `re-frame.flows.registry/flows` atom directly, so — unlike a registrar
   read — it is generation-INDEPENDENT: it does not route through the
   registrar resolver and is unaffected by Xray's sub build binding to its
@@ -446,9 +435,7 @@
   is ALREADY in the per-frame `{frame-id {flow-id flow-map}}` shape the
   projection + picker-scoping helpers consume, and is FRAME-DIVERGENT by
   construction — the same flow-id registered against two frames carries
-  each frame's OWN `:inputs` / `:derive` / `:output-path`, a strict
-  improvement over the old frame-blind last-registration-wins registrar
-  slot (rf2-20359j)."
+  each frame's OWN `:inputs` / `:derive` / `:output-path`."
   []
   (try (rf.flows/flows-snapshot)
        (catch :default _ {})))
@@ -496,8 +483,8 @@
   ;; introspection surface (Tool-Pair.md §public APIs) once per sub
   ;; re-fire. The snapshot is already in the per-frame `{frame-id
   ;; {flow-id flow-map}}` shape the projection + picker-scoping helpers
-  ;; consume — no flat-to-grouped regroup needed (rf2-en00bk made the
-  ;; per-frame flows atom the sole store; the registrar `:flow` slot is
+  ;; consume — no flat-to-grouped regroup needed (the per-frame flows atom
+  ;; is the sole store; the registrar `:flow` slot is
   ;; reserved-but-empty). Declaring `:rf.xray/trace-buffer` as an `:inputs` head
   ;; keeps the sub reactive against the same "something changed" pulse the
   ;; other static-mode subs ride — without it, a fresh `reg-flow!`
@@ -535,13 +522,12 @@
      :mnem  "f"
      :modes #{:static}
      :order 3
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary) and the Static shell mounts `:panel`
-     ;; as a Reagent hiccup head; the bridge is the one line between them
-     ;; and STAYS (rf2-lect, ruled option 2). The Static shell is a Fresco
-     ;; tree now and the bridge stayed anyway: it still reaches the panel
+     ;; as a Reagent hiccup head; the bridge is the one line between them.
+     ;; The Static shell is a Fresco tree, but it reaches the panel
      ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent hiccup
-     ;; vector and `reg-l4-tab!`'s `:pre` still requires a callable
+     ;; vector and `reg-l4-tab!`'s `:pre` requires a callable
      ;; `:panel`.
      :panel Panel-bridge})
 
