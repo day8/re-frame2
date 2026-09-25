@@ -31,10 +31,10 @@ schema, the canonical form, the normalization `N`, and the conversion table are 
 once, here, and never restated per producer — which is what makes "the same declaration
 means the same thing" a checkable claim rather than a slogan.
 
-**A refusal belongs to the producer.** Where a row below says "compile error", the rule
-is enforced by whatever reads the author's form: at the declaration by a producer that
-compiles it, and the first time the form is walked by a producer that walks it. The
-rule is one rule; the tier it fires in, and the id it fires under, are the producer's.
+**A refusal belongs to the producer.** Where a row below refuses an authored value or
+form, the rule is enforced by whatever reads the author's form, when it reads it:
+`re-frame.fresco.test/tree` refuses as it walks the body. The rule is one rule; the tier
+it fires in, and the id it fires under, are the producer's.
 
 **Author space and final space stay separate.** The tree carries the names the author
 wrote, and only a consumer projects them into final DOM or React names, through its
@@ -89,7 +89,7 @@ without ambiguity. A map carrying two primaries, or no primary and no `:children
 **malformed** — every consumer (the traversal helpers, the serialiser, the fingerprint
 fn) fails loud with the typed error `:rf.error/ui-tree-malformed`, and so does the walk
 that would otherwise build one. The **text variant is deliberately not a map**: text
-carries no attributes, no key, no identity — it is content, and `t/text` is its
+carries no attributes, no key, no identity — it is content, and `ht/text` is its
 read surface. Text is therefore not a *queryable node*: selectors never match it and
 `pred-fn` selectors never receive it.
 
@@ -122,16 +122,16 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
     3. the **opaque marker** (below) for fn-carried sites (`v/event`, `v/handler`, bare
        fn, `v/raw-fn`) — the site's *existence and spelling* are testable, its behaviour
        is Tier-3.
-  Handler expressions the emitter cannot read statically — which, in the interpreted
-  mode, is every one of them — classify **by the value present at
-  render** (vector → 1, map → 2, fn → 3, `nil` → the entry is dropped). Absent when
+  Handler expressions a producer cannot read before render — which, for a producer
+  that walks the body as it renders, is every one of them — classify **by the value
+  present at render** (vector → 1, map → 2, fn → 3, `nil` → the entry is dropped). Absent when
   empty. **`:attrs` and `:events` key domains are disjoint by construction** — every
   emitter routes every `:on-*` name to `:events` — so the merged projection (below) is
   collision-free.
 - **`:key`** — present **iff** the site was explicitly keyed; holds the authored key
   *value* (any `rf=`-comparable value), not React's string coercion. A view-boundary
   node records the `:key` its call carried on the same footing, so a keyed boundary is
-  distinguishable from an unkeyed one in either mode. Duplicate-key diagnosis happens
+  distinguishable from an unkeyed one. Duplicate-key diagnosis happens
   upstream at the indexed list site and applies React's
   string coercion (key `1` collides with key `"1"`) **[S1-CONFIRM]**.
 - **`:children`** — a vector of nodes in document order; absent when empty
@@ -199,8 +199,8 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   select is a property of the *whole element*, settled once from its attributes exactly
   as the controlled-input door's element half is.
 - collection values outside `:class`/`:style` (e.g. `:data-foo {:a 1}`) → rejected,
-  didactic (React would render `"[object Object]"` garbage) — at the declaration in
-  compiled mode, at the walk in interpreted mode. **One host element is excepted**:
+  didactic (React would render `"[object Object]"` garbage), by the producer where it
+  reads the form (§Producers and the consumer). **One host element is excepted**:
   a native `<select>`'s `value`, because a `<select multiple>`'s value is not a scalar
   — what is selected is the *list* of chosen option values, and the client contract
   reads the prop as an array. A **sequential** value there converts member by member
@@ -210,8 +210,9 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   collection into the host array is the client emitter's own final step, exactly as
   every other final-shape conversion is. The exception is the `value` slot on the
   `select` tag and nothing else: acceptance deliberately does **not** consult
-  `multiple`, whose value a compiled declaration may not be able to see, so a
-  declaration cannot compile in one mode and be refused in the other. The **empty**
+  `multiple`, whose value a producer reading the form before render may not be able to
+  see, so one declaration cannot be accepted by one producer and refused by another. The
+  **empty**
   value does consult it — see the `nil` row above, where a multiple select's controlled
   empty is `[]` rather than `""`.
 - everything else — a function in an attribute slot, a host object — is likewise
@@ -318,7 +319,7 @@ normalization `N`, steps 1–2).
 | Key | Role | Where | Meaning |
 |---|---|---|---|
 | `:rf.ui/tree-version` | required gate | root node only | the schema-version integer (**1** for this document); validated first, then removed from `N`'s output |
-| `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the `v/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
+| `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys a producer classifies as custom-element **properties** (§Custom elements); **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
 | `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally; phase is always `:present` on the JVM |
 | `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved) |
 | `:rf.ui/top-layer` | diagnostic | the element node a DOM top-layer desired-state property is declared on | `{:popover-open? bool}` or `{:modal-open? bool}` — the desired state a top-layer declaration expressed, recorded as a FACT and never as a claim that anything was promoted; a structural host has no top layer, and the property is vocabulary rather than an attribute, so it never appears in `:attrs` |
@@ -433,8 +434,9 @@ and to the render fingerprint. Pinned, in order:
 6. **Coalesce** adjacent text again post-splice; text is compared **decoded** (entity-
    and escaping-free semantic space — escaping is a serialisation concern the
    comparator normalizes away ).
-7. **Carry trusted-HTML nodes as opaque raw-markup leaves**, compared verbatim (both
-   emitters treat `v/html` identically).
+7. **Carry trusted-HTML nodes as opaque raw-markup leaves**, compared verbatim (the
+   serialiser writes an `:html` node's string unescaped, as React writes
+   `dangerouslySetInnerHTML.__html`).
 
 The semantic node is `{:ns … :tag … :attrs {final-name → serialised-value} :children
 […]}` with attribute maps order-insensitive and child vectors order-significant.
@@ -472,9 +474,9 @@ exercised against real React.
 | `data-*` | verbatim, and written **lowercase**: an ASCII uppercase letter in a `data-*` name does not survive, because the HTML DOM cannot store the casing (`setAttribute` ASCII-lowercases the name) and `.dataset` drops either the word boundary or the attribute (and SSR parsing lowercases in every namespace, so server and client can diverge on a foreign element). Write `:data-foo-bar`; the platform reads it back as `dataset.fooBar`. A lowercase / correctly-hyphenated `data-*` stays verbatim |
 | `aria-*` | verbatim names; **values always stringify** — `:aria-hidden false` → `aria-hidden="false"`, never omitted |
 | SVG camelCase aliases | the kebab keyword maps through React's published SVG alias table: `:view-box` → `viewBox`, `:stroke-width` → `stroke-width` (SVG's own hyphenated attrs stay hyphenated); mirrors `possibleStandardNames` — implemented, and probed in a real browser both directly under `<svg>` and beneath a declared view |
-| reserved props | `:children` is React's **reserved** prop and is refused in an attribute map by both emitters — through the attribute path it would render DOM content the structural tree does not carry, and on a void element it would throw in React alone. `dangerouslySetInnerHTML` and its aliases are refused the same way; `v/html` is the one visible trusted-markup spelling |
+| reserved props | `:children` is React's **reserved** prop, and the two emitters part here. The **tree tier** refuses it in an element's `:attrs`: `re-frame.ssr/emit-ui-tree` raises `:rf.error/ui-tree-malformed`, because through the attribute path it would render DOM content the structural tree does not carry. `dangerouslySetInnerHTML`, and every spelling that canonicalises onto either name, is refused the same way; the tree's trusted-markup spelling is the `:html` node variant. **Fresco's React emitter** passes React props, content props included, through to React, whose own semantics apply (children on a void element throw); its trusted-markup spelling is React's `dangerouslySetInnerHTML` |
 | refusal reads the **emitted** name | every reserved/rejected refusal above judges the prop name the emitters **write**, never the raw map key. A key is classified and projected by its `name`, so a namespace, a string or a symbol changes the spelling at the site and nothing about where the value lands: `:x/children`, `"children"` and `'children` all reach React's `children` slot and are refused exactly as `:children` is. Fresco's codec resolves every attribute rule through this same canonicalization (`canonical-slot`), so one authored key has one verdict wherever it is written. A key whose name projects onto an **ordinary** prop is untouched — `data-*`/`aria-*` stay verbatim, and a qualified attribute like `:x/title` is an ordinary `title` |
-| an alias of `:key` | **refused**, on the same law. React's `key` is not a prop: the reconciler consumes it and it never reaches the DOM, so an alias routed into that slot would not misspell an attribute — it would change which element React considers the *same* element across renders. The failure mode is wrong element reuse (preserved DOM state landing on the wrong row, or a remount where none was intended), which is `:children`'s structural hazard class rather than a misspelled attribute's, so `:key` keeps exactly one spelling |
+| an alias of `:key` | **refused**, on the same law. React's `key` is not a prop: the reconciler consumes it and it never reaches the DOM, so an alias routed into that slot would not misspell an attribute — it would change which element React considers the *same* element across renders. The failure mode is wrong element reuse (preserved DOM state landing on the wrong row, or a remount where none was intended), which is `:children`'s structural hazard class rather than a misspelled attribute's, so `:key` keeps exactly one spelling. A **bare** `:key` inside an element's `:attrs` is refused too: the tree carries a key as the node's own `:key` field, so one in `:attrs` is a malformed tree, and `emit-ui-tree` raises `:rf.error/ui-tree-malformed` for it |
 | an alias of `:class` / `:style` | **routed**, not refused: an authored key whose emitted name is `className` or `style` is that key spelled differently, and is canonicalized to it. These reach the DOM as ordinary props, and Fresco's codec emits every spelling of an attribute under its one canonical slot (`canonical-slot`), so refusing an alias here would make the tree stricter than the React emitter for the same key. A routed `:class` **composes** into the class string beside the `.class#id` sugar exactly as the exact spelling does, never replacing it — and where one map carries **both** an exact `:class` and an alias projecting onto the same slot, those two **compose** as well, rather than the later key winning last: the class string is the union of every source taken in the fixed order `.class#id` sugar → exact `:class` → alias. (Last-wins would silently drop one value, and for a hash map *which* one survives is iteration order — no host contract; composition is the same set-valued union the class grammar already takes for sugar.) `:style` routes plainly, since it has no sugar to compose. Only these two names are canonicalized — an ordinary qualified attribute stays in author space, because the structural tree carries authored names |
 | `xlink:`/`xml:` attrs | `:xlink-href` → `xlink:href`, `:xml-lang` → `xml:lang` (note `href` supersedes `xlink:href` in SVG2 — emit what was authored) **[S1-CONFIRM]** |
 
@@ -498,8 +500,8 @@ exercised against real React.
 | `:default-value` / `:default-checked` | serialise as `value` / `checked` attributes **[S1-CONFIRM]** |
 | `:value` on `:textarea` | serialises as the element's **text child**, not an attribute **[S1-CONFIRM]** |
 | `:value` on `:select` | serialises as `selected` on the matching `:option`(s) **[S1-CONFIRM]** |
-| `dangerouslySetInnerHTML` | does not exist in this grammar — `v/html` is the one trusted-markup spelling, and it is a node variant, not a prop. A trusted-markup (`:html`) child **beneath `<textarea>`** is rejected at the SSR seam through `:rf.error/ui-tree-malformed` (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a textarea — its content is `value`/`defaultValue` or a text child). The seam validates the **effective** child stream — a `:html` leaf spliced in through a transparent fragment or view boundary is caught at its actual path, not only an immediate child |
-| `:ref` | absent from the tree entirely: a ref is a commit-phase host hook and carries no markup, so the tree never shows it as an ordinary attribute that React silently consumes as a reserved prop. `:ref` is the one accepted spelling of React's ref slot, so an alias (`:x/ref`) is refused on the same one-spelling-per-name law, rather than reaching that slot as an ordinary attribute |
+| `dangerouslySetInnerHTML` | is not a tree attribute: the tree's trusted-markup spelling is the `:html` node variant, and a `dangerouslySetInnerHTML` in an element's `:attrs` is refused (reserved props, above). Fresco's React emitter passes the prop through to React, where it is Fresco's trusted-markup spelling. A trusted-markup (`:html`) child **beneath `<textarea>`** is rejected at the SSR seam through `:rf.error/ui-tree-malformed` (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a textarea — its content is `value`/`defaultValue` or a text child). The seam validates the **effective** child stream — a `:html` leaf spliced in through a transparent fragment or view boundary is caught at its actual path, not only an immediate child |
+| `:ref` | absent from the tree entirely: a ref is a commit-phase host hook and carries no markup, so the tree never shows it as an ordinary attribute that React silently consumes as a reserved prop. `:ref` is the one accepted spelling of React's ref slot, so an alias (`:x/ref`) is refused on the same one-spelling-per-name law, rather than reaching that slot as an ordinary attribute. A **bare** `:ref` inside an element's `:attrs` is refused as well, since the tree carries no ref at all: `emit-ui-tree` raises `:rf.error/ui-tree-malformed` for it |
 
 ### `:style`
 
@@ -530,7 +532,7 @@ exercised against real React.
 
 | Row | Rule |
 |---|---|
-| escaping | full 5-char escaping (`& < > " '`) in text and attribute values; `v/html` is the single bypass. **Raw-text exception — `<script>`/`<style>` only:** these two HTML raw-text elements emit their **text content verbatim** (no entity escaping — the HTML parser does not decode character references inside them, so routing script/style text through the 5-char escape would corrupt valid JS/CSS), with only a **context-safe closing-sequence rewrite** so the raw-text parser cannot terminate the element early: an embedded `<`/`</` followed by `script` has its `s`/`S` rewritten to the JS unicode escape `\u0073`/`\u0053`, and one followed by `style` to the CSS escape `\73 `/`\53 ` (byte-parity with react-dom/server 19.2.0's `scriptRegex`/`styleRegex` + replacers). `title`/`textarea` are escapable RCDATA and escape normally (**not** raw-text). This narrows the blanket rule for these two elements only, and only because their content is trusted server-authored rendered-tree text (never user input); attribute values and every other element escape in full, and the `v/html` bypass applies as it does everywhere else |
+| escaping | full 5-char escaping (`& < > " '`) in text and attribute values; a trusted-markup (`:html`) node is the single bypass. **Raw-text exception — `<script>`/`<style>` only:** these two HTML raw-text elements emit their **text content verbatim** (no entity escaping — the HTML parser does not decode character references inside them, so routing script/style text through the 5-char escape would corrupt valid JS/CSS), with only a **context-safe closing-sequence rewrite** so the raw-text parser cannot terminate the element early: an embedded `<`/`</` followed by `script` has its `s`/`S` rewritten to the JS unicode escape `\u0073`/`\u0053`, and one followed by `style` to the CSS escape `\73 `/`\53 ` (byte-parity with react-dom/server 19.2.0's `scriptRegex`/`styleRegex` + replacers). `title`/`textarea` are escapable RCDATA and escape normally (**not** raw-text). This narrows the blanket rule for these two elements only, and only because their content is trusted server-authored rendered-tree text (never user input); attribute values and every other element escape in full, and the `:html` bypass applies as it does everywhere else |
 | void elements | the void set that self-closes, and whose children React rejects: `area base br col embed hr img input keygen link meta param source track wbr` — **15** tags, `param` and `keygen` among them (react-dom/server 19.2.0 throws for children on both; S1b probe). React **also rejects children** on `menuitem`, which is *not* self-closing and so is not in the void set. Self-closing normalized (S1b probe) |
 | raw-text child shape | a `<script>`/`<style>` is an HTML raw-text element React renders from a **single text body**. The accepted shapes are: **no body**, **one text child**, or a **sole trusted-markup** (`{:html …}`) child. Any other body — a structural child (an element, fragment or view boundary), text mixed with one, or several structural children — is refused at the SSR seam through `:rf.error/ui-tree-malformed`, locating the element: React drops or stringifies such a body, and the serialiser would otherwise print it into the element |
 | textarea child shape | a `<textarea>` (escapable RCDATA, not raw text) renders its content from **one channel** — its `:value`/`:default-value`, **or** a single ordinary text child, never both and never several. **Multiple children** (React allows at most one child), a **`:value`/`:default-value` combined with a child** (React rejects the value-plus-child pair), and a **structural sole child** (React renders an element as `[object Object]`; the JVM serialiser would emit a divergent `<span>…</span>`) are refused at the SSR seam through `:rf.error/ui-tree-malformed`, validated against the **effective** child stream (after transparent fragment / view-boundary splicing) at the actual offending path. A sole text child, and `:value` alone, stay valid |
@@ -571,7 +573,7 @@ compensates):
   through `:value`/`:default-value` (the form-control special form in *Property-only
   and form-control special forms* above); a `:value` string beginning with LF is
   compensated on the same footing as a string child.
-- **`<pre>` / `<listing>` only** — a **sole trusted-markup (`v/html`, `{:html s}`)
+- **`<pre>` / `<listing>` only** — a **sole trusted-markup (`{:html s}`)
   child** whose string begins with LF is compensated as well (React doctors
   `dangerouslySetInnerHTML.__html` the same way). `<textarea>` is **absent from this
   arm**: a trusted-markup child beneath a textarea is rejected outright at the SSR
@@ -589,24 +591,18 @@ the tree is emitted verbatim apart from this one compensating LF.
 
 ### Custom elements (per the RULED grammar)
 
-Per the `v/custom-element`
-grammar (restated here as consumer): a declared `(v/custom-element tag {:properties #{…}})`
-name compiles to the camelCase JS **property** (`:help-text` → `helpText`) on the
-client; undeclared names are attributes; undeclared elements default to
-all-attributes. In this tree: property-classified props stay in `:attrs` (author
-space, one map) and are named by the `:rf.ui/property-props` reserved key; the JVM
-serialiser emits **attributes only** (property-props omitted — applied at hydration);
-normalization omits them likewise. Custom-event handlers ride `:events` under their
-authored `:on-*` keys; the DOM event type is the kebab tail verbatim (`:on-my-event` →
+A custom element is an element whose tag contains a hyphen. Its props live in `:attrs`,
+in author space, like any element's, and every name is an attribute unless a producer
+classifies it as a JS **property**. A property-classified prop stays in `:attrs` (one
+map) and is named by the `:rf.ui/property-props` reserved key; the JVM serialiser emits
+**attributes only** (property-props omitted — a property is set on the live element,
+never written as markup), and normalization omits them likewise. No producer in this
+repository classifies properties, so the trees it builds carry no
+`:rf.ui/property-props` and every custom-element prop is an attribute. Custom-event
+handlers ride `:events` under their authored `:on-*` keys, like every handler
+(§Element fields); the DOM event type is the kebab tail verbatim (`:on-my-event` →
 `"my-event"`) — confirm against React 19's custom-element event registration
 **[S1-CONFIRM]**.
-
-The two grammars **overlap**, and the declaration ranks first. A web component may
-legitimately name a property in the `on-*` family, so a DECLARED `:on-detail` is a
-property on every lowering path — in `:attrs`, named by `:rf.ui/property-props`, omitted
-from server markup, set as `onDetail` in the browser — while an undeclared one is a
-native event on every lowering path. What admits a property is the NAME being declared,
-never the prefix and never the element merely carrying a declaration somewhere.
 
 ## The SSR consumption boundary
 
@@ -811,25 +807,30 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
   presence metadata, fallbacks, text) — §Node schema + §Reserved `:rf.ui/*` keys
   (presence and fallback markers).
 - **Q11** (keyword lookup vs opaque; where event vectors live) — §Projections: plain
-  maps, field reads public, attribute reads via `t/attrs`, events under
+  maps, field reads public, attribute reads via `ht/attrs`, events under
   `:events`.
 - **Q12** (view-id selectors on fragment/nil-rooted views; boundary survival under
-  nesting) — view-boundary nodes are real nodes wrapping each internal-view expansion,
-  nesting recursively; a nil-rooted view is a boundary with no `:children`, a
-  fragment-rooted view a boundary with several — both matchable.
+  nesting) — a view-boundary node records the view CALL: its `:view-id`, the props and
+  `:key` the call site passed, and the children the call site wrote (§Projections). The
+  view's own body does not run, so a fragment-rooted or nil-rooted view records the same
+  boundary as any other view and a `(:view-id %)` predicate matches it; boundaries nest
+  only where a call site's children hold further calls. Assert what a view renders by
+  building a tree from its own body.
 - **Q13** (path vectors, `find!`) — demand-bar items in the selector draft
   (OPEN-2/OPEN-3), not settled by this contract.
 - **Q14** (the conversion table) — §The DOM conversion table.
 - **Q15** (sugar precedence, class order) — §`:class` + §sugar rows.
-- **Q16** (custom-element declaration) — consumed in §Custom elements.
+- **Q16** (custom-element declaration) — §Custom elements: there is no declaration
+  form; a producer's property classification rides `:rf.ui/property-props`.
 - **Q23** (SSR seam owner/signature/version error) — §The SSR consumption boundary.
 
 ## Ripples
 
 - Tree traversal is ordinary Clojure — `(tree-seq map? :children tree)` and a
-  `(:view-id %)` / `(:tag %)` predicate. (There is no `t/find`/`find-all`
-  selector grammar; a `:view-id` predicate matches the
-  view-boundary node, so fragment-rooted and nil-rooted views are matchable.)
+  `(:view-id %)` / `(:tag %)` predicate. `ht/find` and `ht/find-all` take such a
+  predicate over that walk (the root included, document order, node maps only); there
+  is no selector grammar beyond it. A `:view-id` predicate matches the view-boundary
+  node, so fragment-rooted and nil-rooted views are matchable.
 - [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
   points at this contract; the 009 catalogue carries rows for
   `:rf.error/ui-tree-malformed` and `:rf.error/ssr-ui-tree-version-unsupported`.
