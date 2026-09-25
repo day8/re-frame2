@@ -1,17 +1,13 @@
 (ns re-frame.bench.fresco.controlled-restore-dom-cljs-test
-  "WHAT CORRECT MEANS FOR A CONTROLLED INPUT, on React (rf2-m6if4,
-  rf2-n3dxw).
+  "WHAT CORRECT MEANS FOR A CONTROLLED INPUT, on React.
 
-  Arm 2 (the PATCH renderer) is retired — Mike ruled on 2026-07-31 that
-  Fresco is an adapter for React — and this file is what its hard gate
-  left behind. Arm 2's `:controlled/grid-100` witness was the clearest
-  statement in the repo of what a store-backed controlled input has to
-  do, and the statement is worth keeping even though the renderer that
-  provoked it is not.
+  There is no PATCH renderer: Fresco is an adapter for React. The
+  `:controlled/grid-100` witness is kept regardless, because it is the
+  clearest statement in the repo of what a store-backed controlled input
+  has to do, and that statement holds whatever the renderer.
 
-  The model is Arm 2's, unchanged, because the model was never the
-  renderer's business: 100 cells, one event, one subscription, and a
-  per-cell policy in `app-db`.
+  The model is no renderer's business: 100 cells, one event, one
+  subscription, and a per-cell policy in `app-db`.
 
   | policy | what the model does with the typed value |
   |---|---|
@@ -20,7 +16,7 @@
   | `:upper`  | normalises it to upper case |
   | `:group`  | normalises `12345` to `12,345` — the length changes |
 
-  ## There are TWO input implementations, and the BUNDLE used to pick
+  ## There are TWO input implementations, and unpinned the BUNDLE picks
 
   UIx chooses, per element and at element-creation time, between plain
   React and a port of Reagent's controlled-input workaround —
@@ -68,22 +64,22 @@
   that work on `reagent.impl.batching/do-after-render`, a queue drained
   from `requestAnimationFrame` (`reagent/impl/batching.cljs:16-25`,
   `:57-59`). Value and caret both come back correct — by offset from the
-  END of the string, which is the algorithm Arm 2 used — but **one
-  animation frame later, never inside the discrete event.**
+  END of the string — but **one animation frame later, never inside the
+  discrete event.**
 
-  ## What rf2-n3dxw actually is
+  ## A refused character left on screen is not a React defect
 
-  The bead recorded `:unchanged-model-rejection` as a React defect: the
-  refused character stayed on the screen. **It is not React's.** The row
-  was measured in the full `:browser-test` bundle, which carries Reagent,
-  so what it measured was `:uix-reagent-input`'s one-frame lag. On React
-  the character is gone before `dispatchEvent` returns, and that is now
-  asserted.
+  Measured unpinned in the full `:browser-test` bundle, which carries
+  Reagent, `:unchanged-model-rejection` shows the refused character
+  staying on the screen — but what that measures is
+  `:uix-reagent-input`'s one-frame lag. **It is not React's.** On React
+  the character is gone before `dispatchEvent` returns, and that is
+  asserted below.
 
-  The bead stays open for the half that is real: **neither implementation
-  gives both same-turn convergence and a caret at the position before the
-  refused character.** React converges in-turn and puts the caret at the
-  end; UIx's port puts the caret in the right place a frame late.
+  The half that is real: **neither implementation gives both same-turn
+  convergence and a caret at the position before the refused
+  character.** React converges in-turn and puts the caret at the end;
+  UIx's port puts the caret in the right place a frame late.
 
   ## The door is a variable too
 
@@ -118,8 +114,8 @@
   ## What is asserted elsewhere, and what is still not
 
   - `:ime-composition-commits-nothing` — **established, and asserted by
-    the real-composition harness rather than here** (rf2-o27h3):
-    `bench/fresco/ime_run.cjs` drives CDP `Input.imeSetComposition` /
+    the real-composition harness rather than here**: `ime_run.cjs`,
+    beside this file, drives CDP `Input.imeSetComposition` /
     `insertText` / `dispatchKeyEvent` — trusted composition events, a
     real composition range, real mid-composition keydowns — against
     three pages, one implementation each: plain React, the port, and
@@ -128,17 +124,15 @@
     exchange survives to `compositionend`; a cancelled exchange leaves
     field and model exactly as before. It stays out of THIS file
     because an `Event` dispatched from page script exercises neither
-    React's composition plumbing nor the browser's composition state —
-    the very reason the row sat unasserted so long — and `:browser-test`
-    runs in-page. What the harness also measured: every implementation
-    (React's own restore included) rewrote a refused/normalised value
-    mid-composition and silently destroyed the exchange — rf2-digtt.
-    The operator ruled the carve-out IN on 2026-08-03, and it landed in
-    **Arm 1's element path only**: the two implementations THIS file
-    measures are the ones that still abort, which is what makes the
-    divergence a divergence. Nothing here changes.
-  - `teardown-leaves-no-boundary-and-no-edge` — dropped as a duplicate.
-    Arm 1's dogfood suite already asserts zero residue after unmount
+    React's composition plumbing nor the browser's composition state,
+    and `:browser-test` runs in-page. What the harness also measures:
+    the two implementations THIS file measures — React's own restore
+    and UIx's port — rewrite a refused/normalised value mid-composition and
+    silently destroy the exchange. The composition carve-out lives in
+    **Arm 1's element path only**, which is what makes the divergence a
+    divergence.
+  - `teardown-leaves-no-boundary-and-no-edge` — not here, as a duplicate:
+    Arm 1's dogfood suite asserts zero residue after unmount
     (`:cells :cell-refs :boundaries :edges :entries` all 0), and one
     assertion gets one home."
   (:require [clojure.string :as str]
@@ -163,7 +157,7 @@
 (def frame-id ::grid)
 
 ;; ---------------------------------------------------------------------------
-;; The model — Arm 2's, unchanged
+;; The model
 ;; ---------------------------------------------------------------------------
 
 (defn group-digits
@@ -287,15 +281,15 @@
   value of `uix.compiler.input/*use-reagent-input-enabled?*` that selects
   each. `nil` — UIx's OWN unset default — is not a third option; it is
   *whichever of these two the bundle's contents imply*, which is what
-  this file exists to stop measuring by accident. Since rf2-heqwo,
-  `re-frame.adapter.uix` pins the var to `false` at load, so `nil` is no
-  longer what a re-frame2 UIx app runs; it is reachable here only by
+  this file exists to stop measuring by accident.
+  `re-frame.adapter.uix` pins the var to `false` at load, so `nil` is not
+  what a re-frame2 UIx app runs; it is reachable here only by
   deliberately clearing the pin."
   {:react             false
    :uix-reagent-input true})
 
 (def adapter-default-implementation
-  "What `re-frame.adapter.uix` pins at load (rf2-heqwo). Rows restore THIS,
+  "What `re-frame.adapter.uix` pins at load. Rows restore THIS,
   not `nil`: leaving the var cleared would hand the choice back to the
   bundle for every later namespace in the same test build — the exact
   accident this file exists to stop."
@@ -428,7 +422,7 @@
 (deftest the-input-implementation-is-the-adapters-choice-not-the-bundles
   (testing "UIx's own unset answer is a fact about the classpath, and this
            bundle carries Reagent — so unset, a UIx `:input` here would be
-           the port. `re-frame.adapter.uix` pins it to React (rf2-heqwo), so
+           the port. `re-frame.adapter.uix` pins it to React, so
            it is not."
     (is (some? reagent.impl.batching/do-after-render)
         "Reagent's after-render queue is in this bundle — which is exactly
@@ -528,7 +522,7 @@
 (deftest the-uix-port-keeps-the-caret-mid-string-through-a-normalisation
   (testing "the same keystroke on the other implementation: UIx's port owns
            the write, and restores the caret by offset from the END of the
-           string — Arm 2's algorithm, and Reagent's before it"
+           string — Reagent's own algorithm"
     (if-not (browser?)
       (is true off-browser)
       (with-grid :uix-reagent-input
@@ -581,13 +575,12 @@
             (is (= [1 4] (caret n)))))))))
 
 (deftest a-range-does-not-survive-a-converge-that-writes-on-either-implementation
-  (testing "Arm 2 restored both ends of a selection by distance from the end
-           of the string and required [2 5]. Neither shipped implementation
+  (testing "restoring both ends of a selection by distance from the end of
+           the string would give [2 5]. Neither shipped implementation
            does: React resets the cursor to the end of the new value, and
            UIx's port restores ONE offset into both `selectionStart` and
            `selectionEnd` by construction (uix/compiler/input.cljs:68-69).
-           A range collapses. rf2-n3dxw records it; nothing here pretends
-           otherwise"
+           A range collapses, and nothing here pretends otherwise"
     (if-not (browser?)
       (is true off-browser)
       (do
@@ -614,7 +607,7 @@
                    as a range"))))))))
 
 ;; ---------------------------------------------------------------------------
-;; :unchanged-model-rejection — the row Arm 2 called decisive (rf2-n3dxw)
+;; :unchanged-model-rejection — the decisive row
 ;; ---------------------------------------------------------------------------
 
 (deftest a-refused-keystroke-moves-no-model-and-re-runs-no-boundary
@@ -636,7 +629,7 @@
                  did not change, so there was nothing for React to re-render")))))))
 
 (deftest a-refused-keystroke-is-taken-off-the-screen-inside-the-event
-  (testing "THE ROW rf2-n3dxw WAS OPENED FOR, and React meets it.
+  (testing "THE DECISIVE ROW, and React meets it.
 
            Nothing re-rendered — the test above counts zero body runs on
            this exact keystroke — so the write below cannot have come from
@@ -672,16 +665,16 @@
                 "caret at the position before the refused character")))))))
 
 (deftest a-refused-keystroke-mid-string-converges-with-the-caret-at-the-end
-  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw).
+  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR.
 
-           This is the residue after the headline row was corrected. The
+           This is the half the ns docstring calls real. The
            refused character IS removed, in the same turn — but React's
            write moves the cursor to the end of the control, so a user
            editing mid-string is thrown to the end of the field on every
            refused keystroke. The assertion is written to the MEASURED
            value deliberately: the day something puts the caret back at 2
-           this goes red, and whoever makes it go red is exactly the person
-           who should be reading rf2-n3dxw."
+           this goes red, and whoever makes it go red has closed that half
+           and should say so here."
     (if-not (browser?)
       (is true off-browser)
       (with-grid :react
@@ -698,14 +691,14 @@
                 "but the caret is at the end of the field, not at 2")))))))
 
 (deftest the-uix-port-takes-the-refused-character-off-one-frame-late
-  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw).
+  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR.
 
            The other implementation gets the caret right and the timing
            wrong. Its convergence rides `do-after-render`, whose queue is
            drained from `requestAnimationFrame`, so on the line after
            `dispatchEvent` the refused character is still on the screen —
-           which is what the bead originally recorded, and attributed to
-           React."
+           the lag that, measured unpinned in a bundle carrying Reagent,
+           reads like a React defect."
     (if-not (browser?)
       (is true off-browser)
       (async done
@@ -734,7 +727,7 @@
              (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The priced option — both halves, in one turn (rf2-n3dxw)
+;; The priced option — both halves, in one turn
 ;; ---------------------------------------------------------------------------
 
 (deftest a-same-turn-converge-can-have-both-halves-at-a-stated-price
