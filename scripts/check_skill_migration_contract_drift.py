@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""M-11 / M-13 contract-drift guard for the re-frame-migration skill (rf2-h9yfsm).
+"""M-11 / M-13 contract-drift guard for the re-frame-migration skill.
 
 The re-frame-migration skill teaches an agent the v1->v2 breaking-change rules.
-Two of those rules describe *current-framework contracts* that earlier skill
-prose got backwards — a senior review (rf2-h9yfsm) found the top-level SKILL.md,
-the breaking-changes leaf, and the migration README still carrying the
-superseded claims while the spec / runtime / tests say the opposite. Because the
+Two of those rules describe *current-framework contracts* that are easy to
+state backwards, and the top-level SKILL.md, the breaking-changes leaf and the
+migration README all state them. Because the
 skill is the agent's source of truth for "what breaks", a stale contract claim
 produces a wrong migration: the agent reassures the author that a plain Reagent
 fn is fine inside a provider (it raises `:rf.error/no-frame-context`), or it
 points the author at a frame-level `:on-error` recovery policy that does not
-exist (it was removed). This guard makes both re-introductions a build failure.
+exist. This guard makes both stale claims a build failure.
 
 Two contract facts, each pinned against the shipped spec:
 
@@ -18,7 +17,7 @@ Two contract facts, each pinned against the shipped spec:
     Reagent a plain `(defn …)` fn carries no `:contextType` wiring, so it cannot
     read the surrounding provider's frame; a bare ambient `subscribe` / `dispatch`
     in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
-    fall-through; the old warn-once is superseded). A `reg-view`-registered view
+    fall-through and no warn-once). A `reg-view`-registered view
     DOES read the provider frame. (spec/002-Frames.md §Reading the frame from
     React context / §Decision table; the cross_spec_dom and
     frame_provider_context_dom adapter tests.) The stale claim
@@ -28,15 +27,15 @@ Two contract facts, each pinned against the shipped spec:
 
   * **M-13 — there is NO frame-level `:on-error` recovery policy.** `reg-event-
     error-handler` is dropped and has no app-steering recovery replacement;
-    recovery is framework-owned (the typed per-category default). The per-frame
-    `:on-error` recovery policy that earlier drafts named was REMOVED (spec/002-
+    recovery is framework-owned (the typed per-category default). There is no
+    per-frame `:on-error` recovery policy (spec/002-
     Frames.md §make-frame config grammar; spec/API.md §Error-emit; spec/009-
     Instrumentation.md §`:on-error` recovery policy — REMOVED). Error
     observability is the ONE production door: `register-observability-sink!`
     against a frame's `:observability :errors` policy, or the same entry grammar
     declared once with `(rf/configure! {:observability ...})`. Dev-only
     observation is `(register-listener! :trace id f)`, whose closed vocabulary is
-    the two raw dev streams `:trace` / `:epoch` (rf2-kuky.69 retired the always-on
+    the two raw dev streams `:trace` / `:epoch` (there are no always-on
     `:events` / `:errors` members). The stale claim this gate kills: "`reg-event-error-handler` moved
     / moves to a frame-level (per-frame) `:on-error` (recovery) policy".
 
@@ -47,8 +46,8 @@ Two contract facts, each pinned against the shipped spec:
     `:rf.error/no-frame-context`. To intentionally target `:rf/default` the
     component must scope or pass that frame explicitly. The stale claim this gate
     kills: a component "pins to `:rf/default` regardless of where it renders" /
-    "falls through to `:rf/default`". (The earlier M-11 rule above keyed on a
-    "plain fn" subject + an inherit-verb on one line and so missed this distinct
+    "falls through to `:rf/default`". (The M-11 rule above keys on a
+    "plain fn" subject + an inherit-verb on one line and so cannot see this distinct
     "pins to `:rf/default`" wording — hence the dedicated narrow rule.)
 
   * **Form-3 lifecycle frame targeting — hooks have no ambient frame.** A stock
@@ -65,12 +64,11 @@ Two contract facts, each pinned against the shipped spec:
     arity is what separates the bare form from the frame-qualified one), bounds
     lifecycle context to the enclosing Markdown section, and applies BEFORE /
     AFTER example exemptions per call. Those bounds are the rule: without them
-    it either misses realistic recipes (rf2-vxgfnd.94.19) or rejects legal
-    ambient calls and lets an AFTER recipe hide behind a BEFORE example
-    (rf2-vxgfnd.94.20).
+    it either misses realistic recipes or rejects legal
+    ambient calls and lets an AFTER recipe hide behind a BEFORE example.
 
   * **Form-3 captured-`subscribe` acquisition — the exceptional imperative
-    subscription (rf2-v84zn).** The ONE Form-3 that holds a live reactive
+    subscription.** The ONE Form-3 that holds a live reactive
     subscription outside render captures the frame once in the outer callable and
     MUST both destructure `subscribe` from that bundle
     (`{:keys [frame subscribe]} (rf/capture-frame)`) AND acquire its reaction
@@ -78,9 +76,9 @@ Two contract facts, each pinned against the shipped spec:
     (`(let [reaction (subscribe query-v)] …)`) — never the ambient `rf/subscribe`,
     whose ambient frame lookup a lifecycle hook (render scope already unwound)
     cannot satisfy, so it raises `:rf.error/no-frame-context`. Rule 5 above (bare
-    arity) covers `subscribe-once` / `unsubscribe`; it never required the acquire
+    arity) covers `subscribe-once` / `unsubscribe` and does not require the acquire
     to route through the captured op, so swapping `(subscribe query-v)` for
-    `(rf/subscribe query-v)` at the acquire site left the guard green. This narrow
+    `(rf/subscribe query-v)` at the acquire site would pass it. This narrow
     Rule-5b check pins that acquire + its matching destructuring in the ONE
     canonical fenced example — identified by the once-capture, the mount hook, and
     the frame-first teardown that marks the long-lived-reaction branch, so it never
@@ -88,20 +86,20 @@ Two contract facts, each pinned against the shipped spec:
     or explanatory prose. See `form3_captured_subscribe_problems`.
 
   * **Form-3 reactive OWNERSHIP — the exceptional imperative subscription must
-    activate what it acquires (rf2-ynved; defect shape rf2-8cnxg).** Rules 5 and
+    activate what it acquires.** Rules 5 and
     5b police where the reaction comes from; neither asks whether anything
     ACTIVATES it. Under the stock-Reagent adapter a subscription is a bare
     `reagent.ratom/Reaction` built without `:auto-run`, and a Reaction learns its
     sources only through `deref-capture` — so a deref taken in
     `:component-did-mount` runs the body raw, leaves `watching` nil, and puts the
     node in no watcher set. A bare `add-watch` on it is a TRAP: registered, never
-    fires, widget fed once at mount and deaf thereafter. That shape shipped in the
-    copy-pasteable recipe. The rule requires, on the same one canonical fenced
+    fires, widget fed once at mount and deaf thereafter — and in a
+    copy-pasteable recipe it reaches every adopter. The rule requires, on the same one canonical fenced
     example, no `add-watch`, a per-mount `r/track!` owner, and a matching
     `r/dispose!` at unmount. See `form3_reactive_owner_problems`.
 
   * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY +
-    cross-owner check (rf2-aalo4n, rf2-gjrlz).** The reagent-slim FORM-3.md is the
+    cross-owner check.** The reagent-slim FORM-3.md is the
     adopter-facing owner of the Form-3 capture-once recipe; guided-views-m11.md
     §M-11 is the canonical migration recipe. FORM-3.md recommends
     capturing the frame once in the outer `reg-view*` callable, but that handle is
@@ -116,14 +114,14 @@ Two contract facts, each pinned against the shipped spec:
     registered `reg-view` child — and the canonical-recipe pointer, and NEITHER
     owner may assert the OPPOSITE polarity (capture-once auto-retargets /
     re-resolves / follows automatically, never goes stale, or needs no remount),
-    even when every positive vocabulary token still appears elsewhere. The
-    corrected adaptive-remedy prose (route 1 "follows A→B with no remount") is
-    exempt — it is the fix, not the footgun. This started as a POSITIVE-presence
-    census (rf2-aalo4n) that a reversal with scattered vocabulary slipped past;
-    rf2-gjrlz gave it the relationship + polarity teeth. See
+    even when every positive vocabulary token appears elsewhere. The
+    adaptive-remedy prose (route 1 "follows A→B with no remount") is
+    exempt — it is the remedy, not the footgun. A POSITIVE-presence census
+    alone would let a reversal with scattered vocabulary through, which is
+    why the check reads relationship and polarity. See
     `form3_capture_once_retarget_problems` / `_retarget_invariance_problems`.
 
-  * **Boot-smoke Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair
+  * **Boot-smoke Pair partition mismatch — an app-db-only Pair
     read aimed at a runtime-db path.** The boot smoke-test (references/runtime-
     smoke-test.md) must read the two runtime partitions with the right tool.
     `get-path` is a `get-in` against the frame's **app-db**, and `snapshot`'s
@@ -141,11 +139,11 @@ Two contract facts, each pinned against the shipped spec:
     "confirm the boot machine via `get-path`/`snapshot {path:}` on
     `[:rf.runtime/machines :snapshots]`" / "`snapshot {path: [:rf.db/runtime]}`".
 
-  * **M-0 publication-route lock (rf2-snjn5) — the migration guide teaches the
+  * **M-0 publication-route lock — the migration guide teaches the
     author-supplied pinned consumption route, never an invented "latest".** The
     event that flips install prose is OFF-REPO (an operator release decision),
-    so no code change reds it naturally, and the guide has lied in both
-    polarities. Three narrow assertions over MIGRATION_MD only: no `"<latest>"`
+    so no code change reds it naturally, and the guide can drift in either
+    polarity. Three narrow assertions over MIGRATION_MD only: no `"<latest>"`
     version placeholder in a dependency coordinate; no leave-the-dep-alone /
     wait-for-a-release stop instruction (the migration is fully doable — a
     first release is not a precondition, per the skill's setup.md); and the
@@ -154,31 +152,31 @@ Two contract facts, each pinned against the shipped spec:
     publication-state decision governs the whole guide. The delegation check is
     section-scoped because the seven artefact rules M-27..M-33 carry the same
     anchor by design — a whole-file substring test stays green with M-0's own
-    link removed (the rf2-snjn5 merged-PR audit's acceptance seam). Same class
+    link removed. Same class
     as the setup skill's Lock 9. Retire deliberately at a real first publish.
     See `m0_publication_route_problems`.
 
-  * **Rule 6b — the same lock over the SKILL LEAVES (rf2-qivv).** Rule 6 scans
-    MIGRATION_MD only, because the corrected setup.md wording legitimately
+  * **Rule 6b — the same lock over the SKILL LEAVES.** Rule 6 scans
+    MIGRATION_MD only, because the setup.md wording legitimately
     QUOTES the banned instruction in negated form ("Do **not** leave the dep
-    alone"). That exemption left the leaves unguarded and a POSITIVE copy
-    survived in setup.md's `## Edge cases` for four months: a per-feature
+    alone"). Without Rule 6b that exemption leaves the leaves unguarded against
+    a POSITIVE copy — e.g. an `## Edge cases` note that a per-feature
     artefact not yet published should be left alone and deferred until it
-    lands — the instruction M-0, in the same leaf, forbids, and the more
+    lands: the instruction M-0, in the same leaf, forbids, and the more
     dangerous polarity because it reads as a specific EXCEPTION after the
     general rule. Following it ships a required M-27..M-33 source rewrite
-    without the module that implements it. The repair is a NEGATION-AWARE scan
+    without the module that implements it. Rule 6b is a NEGATION-AWARE scan
     of the leaves: the same shapes, reported only where the match's own CLAUSE
-    carries no negation cue. Clause-scoped, not line-scoped — the stale
-    sentence carried "not yet published" and "no v2 version" earlier on its own
+    carries no negation cue. Clause-scoped, not line-scoped — such a
+    sentence can carry "not yet published" and "no v2 version" earlier on its own
     line, so a line-wide test reads the defect as legal. Clause-scoped is about
     the NEGATION test; the SCAN UNIT is a normalised paragraph, and the two are
-    independent. The first cut ran the pattern over `text.splitlines()`, which
-    made both banned phrases evade the lock the moment an author reflowed the
+    independent. Running the pattern over `text.splitlines()` would let
+    both banned phrases evade the lock the moment an author reflows the
     paragraph — `leave the dependency\nalone` (the shape's `\\s+` never reaches
     a newline `splitlines` has already cut) and `wait until a\nrelease lands`
     (whose `[^.\n]` excludes one outright). An editor's wrap, not a rewrite,
-    and invisible in review (rf2-qivv post-merge audit). Paragraphs are joined
+    and invisible in review. Paragraphs are joined
     and whitespace-collapsed before the pattern runs, with an origin-line map
     so a finding still names the physical line; blank lines still bound a
     paragraph, so a negation cannot leak across one. MIGRATION_MD stays on
@@ -186,52 +184,52 @@ Two contract facts, each pinned against the shipped spec:
     publish. See `skill_leaf_publication_route_problems`.
 
 All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
-shape, never on the corrected wording that states the negation — and never on the
-unrelated, still-live `:on-error` *surfaces* (a machine `:spawn :on-error`
+shape, never on the correct wording that states the negation — and never on the
+unrelated, live `:on-error` *surfaces* (a machine `:spawn :on-error`
 transition, a route `:on-error` lifecycle event), which are NOT frame-level
-recovery policies. The skill legitimately mentions all of those in their corrected
+recovery policies. The skill legitimately mentions all of those in their correct
 forms — including the bare-prose "`get-path` reads app-db …" warning, which Rule 4
 passes because it keys on the braced COMMAND shape, not a tool mention.
 
-A fourth, structurally different guard (rf2-3fc89f.35) rides the same gate:
+Two structurally different guards ride the same gate:
 
   * **M-1 classifier — the executable off-contract-namespace sweep must exempt
     every public destination and flag the private internals.** The skill ships a
     two-stage `rg` broad-scan + invert-filter (auto-call-site-rewrites.md) whose
-    survivors it calls M-1 sites. An earlier filter omitted `adapter` and `spec`,
-    so `re-frame.adapter.reagent` (the skill's OWN M-38/M-40 boot destination) and
-    the M-54-preserved `re-frame.spec` survived and were wrongly flagged — the
-    skill diagnosing its own required import as off-contract. This guard extracts
+    survivors it calls M-1 sites. A filter omitting `adapter` and `spec`
+    would let `re-frame.adapter.reagent` (the skill's OWN M-38/M-40 boot
+    destination) and the M-54-preserved `re-frame.spec` survive and be wrongly
+    flagged — the skill diagnosing its own required import as off-contract. This
+    guard extracts
     the leaf's own invert-filter and runs it over representative requires, plus
     pins the exceptions-definition anchor, the breaking-changes / inventory links
     to it, the kickoff `ls-tree`/`rg` allowance, and the M-22 Type-A label. See
-    `m1_classifier_problems()` / `m1_anchor_problems()`. rf2-0tur widened the
-    must-exempt set with four public namespaces the filter had omitted
-    (`re-frame.resources`, `re-frame.story`, `re-frame.fresco`,
-    `re-frame.test-helpers`) — the skill routes into two of them, and M-1's
-    rewrite removes the require outright. rf2-z9xl added the exact
+    `m1_classifier_problems()` / `m1_anchor_problems()`. The must-exempt set
+    includes public namespaces such as `re-frame.resources`, `re-frame.story`,
+    `re-frame.fresco` and `re-frame.test-helpers` — the skill routes into two of
+    them, and M-1's rewrite removes the require outright — and the exact
     `re-frame.subs.tooling` (O-12 routes tools and tests into it; there is no
-    `re-frame.core` alias) and the private `re-frame.subs.cache` sibling as a
+    `re-frame.core` alias), with the private `re-frame.subs.cache` sibling as a
     must-flag control, so the exemption cannot widen to the `re-frame.subs`
     subtree.
 
   * **M-51 sweep — the executable unary-`reg-fx` sweep must see every common
-    unary shape (rf2-0tur).** M-51 is SILENT-fail: a unary fx handler compiles,
+    unary shape.** M-51 is SILENT-fail: a unary fx handler compiles,
     binds v2's context map to its only parameter and drops the real args with no
-    error, and the leaf's `rg -U` sweep is its only detector. The earlier
-    pattern required a newline between `reg-fx` and `fn` AND a bare-symbol
-    parameter, so it saw one of four common unary shapes — a same-line handler
-    and the destructured `(fn [{:keys [...]}] ...)` http-fx v1 shape were
-    invisible. This guard extracts the leaf's own sweep pattern and runs it over
+    error, and the leaf's `rg -U` sweep is its only detector. A
+    pattern requiring a newline between `reg-fx` and `fn` AND a bare-symbol
+    parameter sees one of four common unary shapes — a same-line handler
+    and the destructured `(fn [{:keys [...]}] ...)` http-fx v1 shape are
+    invisible to it. This guard extracts the leaf's own sweep pattern and runs it over
     four unary shapes, which it must all match, and a binary control, which it
     must not. See `m51_sweep_problems()`.
 
 Scan surface: the user-facing migration-skill leaves (SKILL.md + references/*.md)
 PLUS the migration corpus the skill treats as source of truth
-(migration/from-re-frame-v1/README.md) and the two Reagent adapter README entry
-points that migration guidance links to, since the review found the same drift
-across those user-facing surfaces. The skill's `spec/` re-authoring meta-docs
-are out of scope (not loaded during normal operation).
+(migration/from-re-frame-v1/README.md), the shipped adapter READMEs that
+migration guidance links to and the reagent-slim FORM-3.md, since the same
+drift can appear across those user-facing surfaces. The skill's `spec/`
+re-authoring meta-docs are out of scope (not loaded during normal operation).
 
 Exit code:
     0  no drift detected
@@ -243,8 +241,6 @@ Usage:
     python scripts/check_skill_migration_contract_drift.py --verbose
     python scripts/check_skill_migration_contract_drift.py --ci
     python scripts/check_skill_migration_contract_drift.py --self-test
-
-rf2-h9yfsm.
 """
 
 from __future__ import annotations
@@ -272,24 +268,22 @@ MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
 # The READMEs of the adapters that SHIP — the three rostered under
 # `implementation/adapters/README.md` §"Adapters that ship today", in that
 # table's order. Each carries the same lifecycle-frame contract the migration
-# corpus does, so each is a stale-claim scan surface. uix was added under
-# rf2-poxh: it had been off this roster while shipping, and the gap was found
-# by measurement rather than audit — the stale `:rf/default` claim rf2-mhpo
-# repaired (PR #9659) outlived its already-corrected siblings' copies
-# precisely because no rule here ever read the uix file.
+# corpus does, so each is a stale-claim scan surface: a shipping README off
+# this roster is a copy no rule reads, where a stale claim outlives its
+# correct siblings.
 #
 # This is a ROSTER and deliberately not a glob over
 # `implementation/adapters/*/README.md`: `adapters/test-react/` is
 # local-test-only, has no Maven coordinate and is deliberately unsmoked (see
 # `implementation/adapters/README.md` §"Local-test-only adapter"), so a glob
-# would scan it today and would silently acquire any future local-test-only
-# adapter tomorrow. A new SHIPPING adapter is added here by hand.
+# would scan it and would silently acquire any future local-test-only
+# adapter. A new SHIPPING adapter is added here by hand.
 ADAPTER_READMES = (
     REPO_ROOT / "implementation" / "adapters" / "reagent" / "README.md",
     REPO_ROOT / "implementation" / "adapters" / "uix" / "README.md",
     REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "README.md",
 )
-# The reagent-slim Form-3 adopter owner (rf2-aalo4n). FORM-3.md is the
+# The reagent-slim Form-3 adopter owner. FORM-3.md is the
 # adopter-facing companion to the canonical migration recipe
 # (guided-views-m11.md §M-11); it carries the same lifecycle-frame contract the
 # READMEs do, so it belongs on the same stale-claim scan surface, and its
@@ -302,7 +296,7 @@ def _scanned_files() -> list[Path]:
     """User-facing migration-skill leaves (SKILL.md + references/*.md), globbed so
     a new reference leaf is covered automatically, plus the migration corpus the
     skill treats as source of truth, the shipped adapter READMEs, and the
-    reagent-slim Form-3 adopter owner (FORM-3.md — rf2-aalo4n). The skill's spec/
+    reagent-slim Form-3 adopter owner (FORM-3.md). The skill's spec/
     meta-docs are excluded (re-authoring material, not loaded during normal
     operation)."""
     files = [SKILL_DIR / "SKILL.md"]
@@ -318,9 +312,9 @@ def _scanned_files() -> list[Path]:
 # Fires when a line couples a PLAIN (non-reg-view) Reagent fn to a frame-provider
 # / established-frame SCOPE with an INHERIT-shaped verb (inherit / work inside /
 # fine / pick up / read the provider frame), UNLESS the same line carries a
-# NEGATION cue — the corrected wording always says the plain fn CANNOT / does NOT
+# NEGATION cue — the correct wording always says the plain fn CANNOT / does NOT
 # read the frame, or names the loud error. We require all three signals (plain-fn
-# subject, frame scope, inherit verb) so the rule never fires on the corrected
+# subject, frame scope, inherit verb) so the rule never fires on the correct
 # "plain fns cannot read the surrounding frame-provider's frame" sentence.
 PLAIN_FN_RE = re.compile(
     r"plain[- ](?:reagent[- ])?fn|plain[- ]reagent|non-`?reg-view`?\s+(?:reagent\s+)?fn",
@@ -337,12 +331,12 @@ INHERIT_VERB_RE = re.compile(
     r"|resolve(?:s)? (?:to|correctly)|target(?:s)? that frame|carry the frame",
     re.IGNORECASE,
 )
-# Negation cues — the corrected wording. Any of these on the line clears Rule 1:
+# Negation cues — the correct wording. Any of these on the line clears Rule 1:
 # the line is stating the (true) limitation, not the (false) inheritance. These
 # are deliberately plain-fn-SPECIFIC: a bare "fails loudly" / "raise" is NOT a
 # negation cue because a stale line can carry it about an *escaping callback*
 # ("…work inside any frame scope; only a callback … now fails loudly") while
-# still asserting the false plain-fn inheritance. The real corrected wording
+# still asserting the false plain-fn inheritance. The real correct wording
 # always names the contextType limitation, the no-frame-context error, the
 # reg-view contrast, or the warn-once supersession.
 M11_NEGATION_RE = re.compile(
@@ -371,14 +365,14 @@ M11_NEGATION_RE = re.compile(
 # the corpus carries: scoping interceptors `to :rf/default`, naming `:rf/default`
 # as the like-for-like replacement for non-frame-addressed v1 code, the optional
 # `:frame` default, or the `:re-frame/default` -> `:rf/default` rewrite table.
-# UNLESS the line carries a negation cue — the corrected wording always denies
+# UNLESS the line carries a negation cue — the correct wording always denies
 # the floor or frames the target as EXPLICITLY scoped.
 M11_RFDEFAULT_PIN_RE = re.compile(
     r"(?:pin(?:s|ned)?|fall(?:s)?\s+through|fall-through|silently\s+routes?)"
     r"[^.\n]*?`?:rf/default`?",
     re.IGNORECASE,
 )
-# Negation cues — the corrected wording. Any clears Rule 3: the line denies the
+# Negation cues — the correct wording. Any clears Rule 3: the line denies the
 # floor, or marks `:rf/default` as something you must scope/pass EXPLICITLY.
 M11_RFDEFAULT_NEGATION_RE = re.compile(
     r"no\s+`?:rf/default`?\s+(?:floor|tier|fall-through|fall\s+through)"
@@ -392,9 +386,9 @@ M11_RFDEFAULT_NEGATION_RE = re.compile(
 # Fires when a line asserts that reg-event-error-handler MOVED / MOVES to a
 # FRAME-LEVEL (per-frame) `:on-error` (recovery) policy, UNLESS the line marks
 # that policy removed / dropped / nonexistent / framework-owned. Scoped to the
-# FRAME-LEVEL recovery-policy claim so it never fires on the still-live machine
+# FRAME-LEVEL recovery-policy claim so it never fires on the live machine
 # `:spawn :on-error` transition or route `:on-error` lifecycle event (neither is
-# a frame-level recovery policy), nor on the corrected "no frame-level :on-error
+# a frame-level recovery policy), nor on the correct "no frame-level :on-error
 # recovery policy" wording.
 M13_ERROR_HANDLER_RE = re.compile(r"reg-event-error-handler")
 M13_MOVED_TO_ONERROR_RE = re.compile(
@@ -402,7 +396,7 @@ M13_MOVED_TO_ONERROR_RE = re.compile(
     r"(?:frame-level|per-frame)\s+`?:on-error`?",
     re.IGNORECASE,
 )
-# Negation cues — the corrected wording. Any of these on the line clears Rule 2.
+# Negation cues — the correct wording. Any of these on the line clears Rule 2.
 M13_NEGATION_RE = re.compile(
     r"removed|dropped|no app-steering|no\s+(?:app-steering\s+)?(?:frame-level\s+)?`?:on-error`?"
     r"|no(?:t)?\s+a\s+(?:frame-level\s+)?recovery policy|framework-owned|typed per-category"
@@ -410,7 +404,7 @@ M13_NEGATION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# --- Rule 4: Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair read
+# --- Rule 4: Pair partition mismatch — an app-db-only Pair read
 # COMMAND (`get-path {…}`, or `snapshot {… path: …}`) pointed at a runtime-db
 # path (`:rf.db/runtime` or `:rf.runtime/*`). Pair's `get-path` is a `get-in`
 # against the frame's **app-db** snapshot, and `snapshot`'s `path:` argument
@@ -424,14 +418,14 @@ M13_NEGATION_RE = re.compile(
 # `include-sensitive: true`, else it returns `:rf/redacted` / a summary, both of
 # which are INCONCLUSIVE, never absence). The rule keys on the braced COMMAND
 # shape aimed at a runtime path — never on a bare prose mention of the tool
-# (`get-path reads app-db …`), so the corrected warning wording passes; a
+# (`get-path reads app-db …`), so the correct warning wording passes; a
 # same-line negation cue also clears it as a second safety net.
 PAIR_APPDB_READ_CMD_RE = re.compile(
     r"get-path\s*\{|snapshot\s*\{[^}]*\bpath\s*:",
     re.IGNORECASE,
 )
 RUNTIME_DB_PATH_RE = re.compile(r":rf\.db/runtime|:rf\.runtime/")
-# Negation cues — the corrected wording states the app-db-only LIMITATION. Any
+# Negation cues — the correct wording states the app-db-only LIMITATION. Any
 # clears Rule 4. `\**` absorbs a markdown-bold `**app-db**`.
 PAIR_PARTITION_NEGATION_RE = re.compile(
     r"reads?\s+(?:only\s+)?\**app-db|app-db[- ]only|will\s+not\s+(?:find|reach)"
@@ -443,20 +437,20 @@ PAIR_PARTITION_NEGATION_RE = re.compile(
 # --- Rule 5: stock-Reagent Form-3 lifecycle advice must target the captured
 # frame explicitly. The one-argument forms are valid while a real resolver scope
 # exists, so this rule requires bounded lifecycle/hook context and clears
-# corrected negative examples ("a bare call throws").
+# negative examples ("a bare call throws").
 FORM3_LIFECYCLE_RE = re.compile(
     r"form-3|component-did-mount|component-did-update|component-will-unmount"
     r"|lifecycle",
     re.IGNORECASE,
 )
-# The bare form is an ARITY fact, not a spelling (rf2-vxgfnd.94.19).
+# The bare form is an ARITY fact, not a spelling.
 # `subscribe-once` carries the frame as a `{:frame frame}` opts map and
 # `unsubscribe` is frame-first, so a ONE-argument call is exactly the bare form
 # lifecycle guidance must never recommend; two-or-more is frame-qualified and
 # legal. Reading that needs balanced-form scanning rather than a token match:
 # real guidance writes vector queries (`[:todos/all :active]`) and splits calls
-# over lines, and a same-line whitespace-free-token pattern misses both — which
-# let realistic unsafe recipes through the gate.
+# over lines, and a same-line whitespace-free-token pattern misses both, letting
+# realistic unsafe recipes through the gate.
 #
 # This is deliberately NOT a Clojure parser. It matches a known head symbol,
 # walks brackets to the closing paren inside a bounded window, and counts
@@ -472,7 +466,7 @@ FORM3_BARE_ARITY = 1
 _OPENERS = "([{"
 _CLOSERS = ")]}"
 
-# --- Shared lexical pass (rf2-6m5qb) ----------------------------------------
+# --- Shared lexical pass ----------------------------------------------------
 # A small Markdown-aware Clojure classifier is the shared basis for BOTH
 # call-head discovery (a `(rf/subscribe-once …)` inside a string or a `;`
 # comment is NOT a call, so `(log/debug "(rf/subscribe-once query-v)")` must not
@@ -543,7 +537,7 @@ def _lex_scan(text: str) -> bytearray:
     `_clj_kind`; everything else (Markdown prose, the fence/backtick delimiters)
     stays `_LEX_CODE`. So a string inside a fenced example is opaque, but a `;`
     or `"` in an English sentence is not mistaken for a comment/string that would
-    swallow a following call head (rf2-6m5qb)."""
+    swallow a following call head."""
     n = len(text)
     kind = bytearray(n)  # prose + delimiters default to _LEX_CODE (0)
     in_fence: str | None = None
@@ -576,7 +570,7 @@ def _read_form(
     or None if the form does not close within `FORM3_CALL_SCAN_LIMIT`. Strings
     and char literals are opaque single arguments; `;` comments are skipped
     entirely so their words and any stray brackets can neither inflate arity nor
-    corrupt the bracket depth (rf2-6m5qb).
+    corrupt the bracket depth.
     """
     limit = min(len(text), start + FORM3_CALL_SCAN_LIMIT)
     depth = 0
@@ -636,7 +630,7 @@ def _form3_call_sites(text: str) -> list[tuple[int, int, int]]:
 
     Call heads are discovered over the shared `_lex_scan` mask so a call-shaped
     token inside a string / char literal / comment is skipped, not read as a
-    call (rf2-6m5qb)."""
+    call."""
     kind = _lex_scan(text)
     sites = []
     for m in FORM3_CALL_HEAD_RE.finditer(text):
@@ -651,18 +645,18 @@ FORM3_BARE_LIFECYCLE_NEGATION_RE = re.compile(
     r"|must not|never|invalid|wrong|omit(?:s|ted)?|instead",
     re.IGNORECASE,
 )
-# Example-polarity markers (rf2-vxgfnd.94.20). A BEFORE / negative-example
+# Example-polarity markers. A BEFORE / negative-example
 # marker exempts the calls that FOLLOW it; an AFTER / corrected marker ends that
 # exemption. Both are matched by POSITION, so a historical BEFORE example cannot
 # hide an affirmative recipe sitting beside it in the same fence. The markers are
 # read only over Markdown prose and `;` comment text (`_polarity_scan_text`), so
-# a `(log/debug "BEFORE")` string cannot forge an exemption (rf2-6m5qb).
+# a `(log/debug "BEFORE")` string cannot forge an exemption.
 #
 # `not recommended` / `n't recommended` is NEGATIVE prose — the author is naming
 # an anti-pattern — so it must exempt the call it owns, NOT be read as an
 # affirmative `recommended` marker. The positive `recommended` therefore carries
 # a `not `/`n't ` negative-lookbehind, and the negated forms live in the negative
-# set (rf2-6m5qb).
+# set.
 FORM3_NEGATIVE_EXAMPLE_RE = re.compile(
     r"\bBEFORE\b|(?i:bad example|negative example|anti-pattern|do not copy"
     r"|(?:not|n't) recommended)",
@@ -674,12 +668,11 @@ FORM3_POSITIVE_EXAMPLE_RE = re.compile(
 )
 FORM3_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?:[*_`]+)?\s+")
 
-# Structural Markdown boundaries (rf2-vxgfnd.94.20). Lifecycle context must not
+# Structural Markdown boundaries. Lifecycle context must not
 # leak past a heading or thematic break, else a `## Form-3 lifecycle` section
 # makes every legal ambient call in later sections a false failure. ATX (`#…`),
 # Setext (a paragraph underlined by `===`/`---`), and CommonMark thematic breaks
-# — including the spaced `* * *` / `- - -` / `_ _ _` forms — all bound context
-# (rf2-6m5qb).
+# — including the spaced `* * *` / `- - -` / `_ _ _` forms — all bound context.
 ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
 THEMATIC_BREAK_RE = re.compile(
     r"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"
@@ -793,7 +786,7 @@ def line_problems(line: str) -> list[str]:
         problems.append(
             "M13-FRAME-ONERROR: `reg-event-error-handler` did NOT move to a "
             "frame-level / per-frame `:on-error` recovery policy — that policy "
-            "was REMOVED (rf2-hiqtk8). There is no app-steering error-recovery "
+            "does not exist. There is no app-steering error-recovery "
             "policy; recovery is framework-owned (typed per-category default). "
             "Observability is ONE production door: "
             "`register-observability-sink!` against a frame's `:observability "
@@ -824,7 +817,7 @@ def line_problems(line: str) -> list[str]:
             "gated `snapshot {include: [\"machines\"], modes: {\"machines\":"
             "\"full\"}}` slice (needs `--allow-sensitive-reads` + per-call "
             "`include-sensitive: true`; a `:rf/redacted`/summary result is "
-            "INCONCLUSIVE, never absence). (rf2-j538f7.33.)"
+            "INCONCLUSIVE, never absence)."
         )
 
     # Rule 5 is NOT here: it needs Markdown context (section bounds + example
@@ -848,13 +841,13 @@ def _markdown_sections(text: str) -> list[list[tuple[int, list[str]]]]:
       it, so a hook body stays a single unit.
     * A **section** ends at a Markdown heading or thematic break. Lifecycle
       context must not cross one: a `## Form-3 lifecycle` section does not make
-      a legal ambient call three headings later illegal (rf2-vxgfnd.94.20). The
+      a legal ambient call three headings later illegal. The
       heading line itself opens the new section, so a `## Form-3 lifecycle`
       heading still establishes context for the prose beneath it. Headings are
       recognised in all three CommonMark shapes — ATX (`#…`), Setext (a
       paragraph underlined by `===`/`---`), and spaced/compact thematic breaks —
       so a Setext-headed lifecycle section is still bounded and a later Setext
-      heading still ends the prior context (rf2-6m5qb).
+      heading ends the prior context.
     """
     sections: list[list[tuple[int, list[str]]]] = []
     section: list[tuple[int, list[str]]] = []
@@ -937,7 +930,7 @@ def _polarity_scan_text(block: str) -> str:
     fence, e.g. `;; BEFORE (v1)`). Fenced code tokens, string/char-literal
     contents, and inline-code spans are blanked to spaces — offsets preserved, so
     the marker positions still line up with call positions — so that a
-    `(log/debug "BEFORE")` cannot forge an exemption (rf2-6m5qb).
+    `(log/debug "BEFORE")` cannot forge an exemption.
     """
     kept: list[str] = []
     in_fence: str | None = None
@@ -971,7 +964,7 @@ def _example_polarity_events(block: str) -> list[tuple[int, bool]]:
 
     Markers are read only over the prose / comment text of the block
     (`_polarity_scan_text` blanks fenced code, strings, and inline-code spans),
-    so a label inside a code string cannot forge one (rf2-6m5qb). Offsets are
+    so a label inside a code string cannot forge one. Offsets are
     preserved by the blanking, so they still align with call positions."""
     scan = _polarity_scan_text(block)
     events = [(m.start(), True) for m in FORM3_NEGATIVE_EXAMPLE_RE.finditer(scan)]
@@ -994,8 +987,7 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
     """Find Rule-5 drift inside bounded, structurally-delimited context.
 
     Bare one-argument forms are valid wherever a real ambient render scope
-    exists, so this is deliberately not a file-wide search. Three bounds apply
-    (rf2-vxgfnd.94.20):
+    exists, so this is deliberately not a file-wide search. Three bounds apply:
 
     * **Structural.** Lifecycle context never crosses a Markdown heading or
       thematic break. Within a section, a call is dirty only when its own block
@@ -1007,9 +999,9 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
       introduces, up to the next AFTER / corrected marker. It owns only that
       concrete example: an unmarked block does NOT propagate an inherited
       exemption further, so a historical BEFORE cannot bless an ordinary later
-      affirmative recipe in the same section (rf2-6m5qb closes the indefinite
-      carry). Applying it per block instead let an affirmative AFTER recipe hide
-      beside a historical BEFORE example in the same fence.
+      affirmative recipe in the same section. Applying it per block instead
+      would let an affirmative AFTER recipe hide beside a historical BEFORE
+      example in the same fence.
     * **Negation.** Stays call-line local: a nearby paragraph explaining that a
       bare call throws must not bless a later affirmative recipe.
 
@@ -1035,14 +1027,14 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
             # A block's polarity carries forward exactly one block — to the
             # concrete example a trailing BEFORE/negative label introduces — and
             # then lapses. An unmarked block resets the carry, so the exemption
-            # cannot leak across the whole section (rf2-6m5qb).
+            # cannot leak across the whole section.
             carried = events[-1][1] if events else False
             recent.append(block)
     return found
 
 
 # ---------------------------------------------------------------------------
-# Rule 5b — Form-3 captured-`subscribe` acquisition (rf2-v84zn).
+# Rule 5b — Form-3 captured-`subscribe` acquisition.
 #
 # The exceptional imperative-subscription Form-3 is the ONE Form-3 that holds a
 # live reactive subscription OUTSIDE render (a JS widget re-fed from a hook as a
@@ -1056,17 +1048,17 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
 # (the same unwind that re-raises a fresh `(rf/capture-frame)` in a hook).
 #
 # Rule 5 (`form3_context_problems`) only reads `subscribe-once` / `unsubscribe`
-# bare arity; it never required the acquire to route through the captured op, so
-# swapping `(subscribe query-v)` for `(rf/subscribe query-v)` at the acquire site
-# left BOTH the baseline and the mutated scan empty — a false green after the
-# central ownership rule regressed (rf2-v84zn).
+# bare arity and does not require the acquire to route through the captured op,
+# so swapping `(subscribe query-v)` for `(rf/subscribe query-v)` at the acquire
+# site would leave BOTH the baseline and the mutated scan empty — a false green
+# on a regressed central ownership rule.
 #
 # The check keys on the ONE canonical fenced example so it never fires on the
 # dispatch-only route-2 examples (they destructure `{:keys [dispatch]}` and never
 # `unsubscribe`), the M-68 `capture-frame` rename recipe (no lifecycle hook), the
 # route-1 outer/inner pattern, or explanatory prose (it scans fenced Clojure code
 # only, with strings / `;` comments blanked). This is deliberately NOT a Clojure
-# parser and does NOT touch Rule 5 or the capture-once retarget teeth (rf2-gjrlz).
+# parser and does NOT touch Rule 5 or the capture-once retarget teeth.
 # ---------------------------------------------------------------------------
 
 # The once-captured frame-op destructuring that binds `subscribe`:
@@ -1099,23 +1091,23 @@ FORM3_AMBIENT_SUBSCRIBE_PROBLEM = (
     "so an ambient `subscribe` finds no frame and raises "
     "`:rf.error/no-frame-context`. Acquire through the `subscribe` destructured "
     "ONCE from `(rf/capture-frame)` in the outer callable — "
-    "`(let [reaction (subscribe query-v)] …)` — never `(rf/subscribe …)`. "
-    "(rf2-v84zn.)"
+    "`(let [reaction (subscribe query-v)] …)` — never "
+    "`(rf/subscribe …)`."
 )
 FORM3_MISSING_ACQUIRE_PROBLEM = (
     "FORM3-CAPTURED-SUBSCRIBE-UNUSED: the exceptional imperative-subscription "
     "Form-3 destructures `subscribe` from `(rf/capture-frame)` but never acquires "
     "its reaction through that captured local in `:component-did-mount`. The one "
     "lifecycle use of the captured `subscribe` is the acquire — "
-    "`(let [reaction (subscribe query-v)] …)`. (rf2-v84zn.)"
+    "`(let [reaction (subscribe query-v)] …)`."
 )
 FORM3_MISSING_DESTRUCTURE_PROBLEM = (
     "FORM3-CAPTURE-DESTRUCTURE-MISSING: the exceptional imperative-subscription "
     "Form-3 (it captures the frame once and tears down with frame-first "
     "`(rf/unsubscribe frame query-v)`) must destructure `subscribe` from the "
     "once-captured frame ops — `{:keys [frame subscribe]} (rf/capture-frame)` — and "
-    "acquire its reaction through that captured local in `:component-did-mount`. "
-    "(rf2-v84zn.)"
+    "acquire its reaction through that captured local in "
+    "`:component-did-mount`."
 )
 
 
@@ -1151,7 +1143,7 @@ def _code_masked(block_text: str) -> str:
     spaces (offsets preserved). A fenced block is wholly code, so `_clj_kind`
     classifies it directly; blanking non-code keeps a call-shaped token or a
     landmark word inside a string / comment from being read as real code
-    (rf2-6m5qb shares the same lexical basis)."""
+    (the same lexical basis `_lex_scan` uses)."""
     kind = _clj_kind(block_text)
     return "".join(
         ch if kind[i] == _LEX_CODE else " " for i, ch in enumerate(block_text)
@@ -1171,7 +1163,7 @@ def _block_line_at(block_text: str, offset: int, buf_start: int) -> tuple[int, s
 def form3_captured_subscribe_problems(text: str) -> list[tuple[int, str, str]]:
     """Rule 5b — the exceptional imperative-subscription Form-3 must destructure
     `subscribe` from the once-captured frame ops AND acquire its reaction through
-    that captured local in `:component-did-mount` (rf2-v84zn).
+    that captured local in `:component-did-mount`.
 
     Returns `(lineno, label, excerpt)`, matching `form3_context_problems` so
     `find_drift` formats it identically. The example is identified by three
@@ -1209,8 +1201,7 @@ def form3_captured_subscribe_problems(text: str) -> list[tuple[int, str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 5c — the exceptional imperative Form-3 must OWN its subscription
-# (rf2-ynved; the defect shape is rf2-8cnxg).
+# Rule 5c — the exceptional imperative Form-3 must OWN its subscription.
 #
 # Rules 5 and 5b police WHERE the reaction comes from (the captured frame, the
 # captured `subscribe`). Neither asks the question that actually decides whether
@@ -1223,10 +1214,9 @@ def form3_captured_subscribe_problems(text: str) -> list[tuple[int, str, str]]:
 # `watching` nil — the node is in nobody's watcher set and can never be told the
 # value moved. An `add-watch` on it is therefore a TRAP, not an observer: the
 # watch is registered, fires never, and the widget is fed once at mount and deaf
-# for the rest of its life. That shape shipped in the copy-pasteable recipe and
-# is what rf2-ynved repaired.
+# for the rest of its life.
 #
-# The repair is a per-mount reactive OWNER — `(r/track! …)` — created in the
+# The remedy is a per-mount reactive OWNER — `(r/track! …)` — created in the
 # same hook: its eager first run is both the seed and the `deref-capture`, and
 # `r/dispose!` in `:component-will-unmount` stops it before the cache slot is
 # released. So this rule requires, on the ONE canonical fenced example (same
@@ -1265,28 +1255,28 @@ FORM3_ADD_WATCH_PROBLEM = (
     "nil, so the node is in no watcher set and the watch CANNOT fire — the widget "
     "is fed once at mount and deaf thereafter. Own the reaction with a per-mount "
     "`(r/track! (fn [] … @reaction))` in `:component-did-mount` instead; its eager "
-    "first run is both the seed and the deref-capture. (rf2-ynved / rf2-8cnxg.)"
+    "first run is both the seed and the deref-capture."
 )
 FORM3_OWNER_MISSING_PROBLEM = (
     "FORM3-REACTIVE-OWNER-MISSING: the exceptional imperative-subscription Form-3 "
     "acquires a long-lived reaction but gives it no reactive owner. A cached "
     "subscription with no live consumer is dormant on this adapter — it never "
     "re-runs, so nothing downstream of it ever moves. Create a per-mount "
-    "`(r/track! (fn [] … @reaction))` in `:component-did-mount`. (rf2-ynved.)"
+    "`(r/track! (fn [] … @reaction))` in `:component-did-mount`."
 )
 FORM3_OWNER_DISPOSE_MISSING_PROBLEM = (
     "FORM3-OWNER-DISPOSE-MISSING: the exceptional imperative-subscription Form-3 "
     "creates a per-mount reactive owner but never disposes it. "
     "`:component-will-unmount` must `r/dispose!` the tracker BEFORE "
     "`(rf/unsubscribe frame query-v)`, so the owner is gone before the cache slot "
-    "is released and no feed runs against a destroyed widget. (rf2-ynved.)"
+    "is released and no feed runs against a destroyed widget."
 )
 
 
 def form3_reactive_owner_problems(text: str) -> list[tuple[int, str, str]]:
     """Rule 5c — the exceptional imperative-subscription Form-3 must OWN its
     acquired reaction with a per-mount `r/track!`, dispose that owner at unmount,
-    and never fall back to a bare `add-watch` (rf2-ynved).
+    and never fall back to a bare `add-watch`.
 
     Returns `(lineno, label, excerpt)`, matching the sibling Form-3 rules so
     `find_drift` formats it identically. Scoped by the same three structural
@@ -1319,7 +1309,7 @@ def form3_reactive_owner_problems(text: str) -> list[tuple[int, str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# M-1 public-namespace classifier + kickoff / slicing anchors (rf2-3fc89f.35).
+# M-1 public-namespace classifier + kickoff / slicing anchors.
 #
 # A second, structurally distinct defect class the M-11/M-13 line-scanner above
 # cannot see: the migration skill's *executable* M-1 inventory — the two-stage
@@ -1331,14 +1321,14 @@ def form3_reactive_owner_problems(text: str) -> list[tuple[int, str, str]]:
 # .utils / .router / .subs / .registrar / .loggers). An invert-filter that drops
 # `adapter` / `spec` diagnoses the skill's OWN boot namespace as off-contract and
 # can direct a routine migration to remove its required import, then fail
-# compile/boot (rf2-3fc89f.35).
+# compile/boot.
 #
 # This guard runs the skill's OWN documented invert-filter — extracted verbatim
 # from the leaf, not a hand-kept copy — against representative require lines and
-# asserts the classification, so re-dropping `adapter`/`spec` is a build failure.
-# It also pins the prose anchors the fix introduced (the single exceptions
+# asserts the classification, so dropping `adapter`/`spec` is a build failure.
+# It also pins the prose anchors (the single exceptions
 # definition + its inbound links, the kickoff `ls-tree`/`rg` allowance, the M-22
-# Type-A classification) so they cannot silently rot back.
+# Type-A classification) so they cannot silently rot.
 # ---------------------------------------------------------------------------
 
 AUTO_CALL_SITE_MD = SKILL_DIR / "references" / "auto-call-site-rewrites.md"
@@ -1358,17 +1348,17 @@ M1_FLAG_NSES = [
     "re-frame.events", "re-frame.registrar", "re-frame.loggers",
     "re-frame.interceptor", "re-frame.fx", "re-frame.cofx",
     "re-frame.std-interceptors",
-    # rf2-z9xl: a private subs sibling. With bare `re-frame.subs` it proves the
+    # A private subs sibling. With bare `re-frame.subs` it proves the
     # `re-frame.subs.tooling` exemption stays exact, not subtree-wide.
     "re-frame.subs.cache",
-    # rf2-zjss3: the substrate siblings the plain-atom/adapter carve-out must NOT
+    # The substrate siblings the plain-atom/adapter carve-out must NOT
     # reach. The three view substrates are the v1 namespaces M-38 really does
     # rename to `re-frame.adapter.<name>`, so they stay M-1 sites; `spine` is a
     # private v2 internal. Together they prove the exemption stays exact — a
     # subtree-wide `substrate\b` spelling would exempt all four and silence M-38.
     "re-frame.substrate.reagent", "re-frame.substrate.uix",
     "re-frame.substrate.context", "re-frame.substrate.spine",
-    # Exact public names are not subtree exemptions. Helix is retired.
+    # Exact public names are not subtree exemptions; there is no Helix adapter.
     "re-frame.schemas.cache", "re-frame.http.retry", "re-frame.ssr.ring.trust",
     "re-frame.adapter.context", "re-frame.adapter.helix",
 ]
@@ -1381,15 +1371,15 @@ M1_EXEMPT_NSES = [
     "re-frame.schemas", "re-frame.machines", "re-frame.routing", "re-frame.flows",
     "re-frame.http.managed", "re-frame.http.test-support",
     "re-frame.ssr", "re-frame.epoch", "re-frame.test-support",
-    # rf2-0tur: public namespaces with manifest rows that the list omitted — the
+    # Public namespaces with manifest rows — the
     # skill routes INTO two of them (resources, fresco), and M-1's rewrite says
     # "remove the :require entirely", so a false flag deletes a live import.
     "re-frame.resources", "re-frame.story", "re-frame.fresco",
     "re-frame.test-helpers",
-    # rf2-z9xl: O-12 tells tools, dev overlays and tests to require this exact
+    # O-12 tells tools, dev overlays and tests to require this exact
     # namespace (sub-topology / sub-cache-snapshot), and core has no alias.
     "re-frame.subs.tooling",
-    # rf2-zjss3: the two namespaces M-38 carves OUT of its own rename and that
+    # The two namespaces M-38 carves OUT of its own rename and that
     # stay as-is — the headless boot ns `setup.md` prescribes for a project with
     # no view layer (there is no `re-frame.adapter.plain-atom`) and the substrate
     # contract ns. M-1's rewrite says "remove the :require entirely", so a false
@@ -1422,7 +1412,7 @@ M1_MIXED_REQUIRES = (
 _M1_BROAD_RE = re.compile(r"rg -n '([^']*re-frame[^']*)' \.([^\n]*)")
 _M1_INVERT_RE = re.compile(r"rg -v '([^']*re-frame[^']*)'")
 
-# M-51 sweep (rf2-0tur). M-51 is SILENT-fail — a unary fx handler compiles, binds
+# M-51 sweep. M-51 is SILENT-fail — a unary fx handler compiles, binds
 # v2's context map to its only param and drops the real args — and the leaf's
 # `rg -U` sweep is its only detector, so the sweep must see every common unary
 # shape. Four unary shapes a v1 codebase carries (next-line and same-line,
@@ -1471,7 +1461,7 @@ def m51_sweep_problems() -> list[str]:
     return [
         f"M51-SWEEP-BLIND: the documented M-51 sweep {miss}. M-51 is SILENT-fail "
         "and this sweep is its only detector: a missed shape is a unary fx handler "
-        "that drops its real args with no error (rf2-0tur)."
+        "that drops its real args with no error."
         for miss in _m51_sweep_misses(pattern)
     ]
 
@@ -1489,7 +1479,7 @@ def _extract_m1_patterns(text: str):
         return None, None, (
             "could not locate the documented M-1 two-stage `rg` broad-scan / "
             "invert-filter in auto-call-site-rewrites.md — the executable M-1 "
-            "inventory shape drifted; a migration can no longer run it."
+            "inventory shape drifted; a migration cannot run it."
         )
     try:
         return re.compile(mb.group(1)), re.compile(mv.group(1)), None
@@ -1552,7 +1542,7 @@ def m1_classifier_problems() -> list[str]:
                 f"M1-FALSE-POSITIVE: the documented M-1 invert-filter FLAGS the "
                 f"public-surface `{ns}` — the skill would tell a migration its own "
                 f"required destination is off-contract. Add it to the invert-filter "
-                f"alternation AND the exceptions list (rf2-3fc89f.35)."
+                f"alternation AND the exceptions list."
             )
     problems.extend(f"M1-MIXED-REQUIRES: {miss}"
                     for miss in _m1_mixed_misses(broad, invert))
@@ -1560,16 +1550,16 @@ def m1_classifier_problems() -> list[str]:
 
 
 def m1_anchor_problems() -> list[str]:
-    """Pin the prose anchors the rf2-3fc89f.35 fix introduced."""
+    """Pin the M-1 prose anchors the other leaves and the kickoff rely on."""
     problems: list[str] = []
 
     # 1. The single canonical exceptions definition + its linkable anchor, naming
-    #    the three surfaces the pre-fix incomplete subset dropped.
+    #    the public surfaces an incomplete subset would drop.
     if AUTO_CALL_SITE_MD.is_file():
         acs = _slurp(AUTO_CALL_SITE_MD)
         if M1_EXCEPTIONS_HEADING not in acs:
             problems.append(
-                "M1-ANCHOR-MISSING: auto-call-site-rewrites.md no longer defines "
+                "M1-ANCHOR-MISSING: auto-call-site-rewrites.md does not define "
                 f"the `{M1_EXCEPTIONS_HEADING}` section the other leaves link to."
             )
         for token in (
@@ -1578,7 +1568,7 @@ def m1_anchor_problems() -> list[str]:
         ):
             if token not in acs:
                 problems.append(
-                    f"M1-EXCEPTIONS-INCOMPLETE: the M-1 leaf no longer names "
+                    f"M1-EXCEPTIONS-INCOMPLETE: the M-1 leaf does not name "
                     f"`{token}` as a public-surface exception."
                 )
     else:
@@ -1594,8 +1584,8 @@ def m1_anchor_problems() -> list[str]:
                 f"public-surface subset instead of the single definition."
             )
 
-    # 3. Kickoff prompt: the required read-only `ls-tree` + `rg` are permitted, the
-    #    stale "only commands you run yourself" line is gone, and M-22 is not Type B.
+    # 3. Kickoff prompt: the required read-only `ls-tree` + `rg` are permitted,
+    #    there is no "only commands you run yourself" line, and M-22 is not Type B.
     if KICKOFF_MD.is_file():
         k = _slurp(KICKOFF_MD)
         if "ls-tree" not in k:
@@ -1605,12 +1595,12 @@ def m1_anchor_problems() -> list[str]:
             )
         if re.search(r"`rg`", k) is None:
             problems.append(
-                "KICKOFF-NO-RG: kickoff-prompt.md no longer notes that the session "
+                "KICKOFF-NO-RG: kickoff-prompt.md does not note that the session "
                 "runs the codebase `rg` inventories itself."
             )
         if re.search(r"only command[s]?\b[^.\n]*\byourself", k, re.IGNORECASE):
             problems.append(
-                "KICKOFF-ONLY-COMMANDS: kickoff-prompt.md still says the provenance "
+                "KICKOFF-ONLY-COMMANDS: kickoff-prompt.md says the provenance "
                 "checks are the ONLY commands the session runs — that forbids the "
                 "required read-only `rg`/`ls-tree` reads (contradicts cardinal rule 5)."
             )
@@ -1627,7 +1617,7 @@ def m1_anchor_problems() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Form-3 capture-once retarget invariance (rf2-aalo4n).
+# Form-3 capture-once retarget invariance.
 #
 # The reagent-slim FORM-3.md is the ADOPTER-facing owner of the Form-3
 # capture-once recipe; guided-views-m11.md §M-11 is the CANONICAL migration
@@ -1640,18 +1630,17 @@ def m1_anchor_problems() -> list[str]:
 # the stale A, because React keeps it mounted and the outer callable does not
 # re-run. The canonical recipe records this A→B footgun and its two frame-safe
 # remedies (a frame-derived React `key` remount, or the registered `reg-view`
-# child route); PR #5922 shipped the FORM-3.md capture-once advice WITHOUT the
-# invariance, so the two owners could drift. This guard makes the adopter owner
-# carry the invariant and keeps it aligned with the canonical recipe
-# (rf2-aalo4n; historical rf2-vxgfnd.272/.288).
+# child route); adopter capture-once advice WITHOUT the invariance drifts from
+# it. This guard makes the adopter owner
+# carry the invariant and keeps it aligned with the canonical recipe.
 #
 # This carries BOTH shapes. Like `m1_anchor_problems` it asserts a thing must be
 # PRESENT (a future edit must not delete the invariant from one owner while the
-# other still carries it); like the M-11/M-13 line rules it KILLS a stale claim —
+# other carries it); like the M-11/M-13 line rules it KILLS a stale claim —
 # here the OPPOSITE polarity (capture-once auto-adapts to a provider change). A
-# pure token census (the original rf2-aalo4n shape) let a reversal through as long
-# as the positive vocabulary appeared *somewhere*, so rf2-gjrlz added the
-# relationship + polarity teeth in `_retarget_invariance_problems`: the invariant
+# pure token census would let a reversal through as long
+# as the positive vocabulary appears *somewhere*, so
+# `_retarget_invariance_problems` adds relationship + polarity teeth: the invariant
 # must be stated in ONE paragraph (framing + A→B + stale-A consequence), and no
 # capture-once paragraph may assert the reversal.
 # ---------------------------------------------------------------------------
@@ -1678,13 +1667,13 @@ FORM3_REMEDY_RE = re.compile(
 # The pointer back to the canonical migration recipe.
 FORM3_RECIPE_POINTER_RE = re.compile(r"guided-views-m11\.md", re.IGNORECASE)
 
-# --- Semantic teeth (rf2-gjrlz) --------------------------------------------
+# --- Semantic teeth ---------------------------------------------------------
 # The four presence checks above prove the *vocabulary* is somewhere in the
 # document; they do NOT prove the tokens state the locked-handle RELATIONSHIP,
 # and they accept the OPPOSITE polarity. So a document that scatters "provider A
 # to B", "remount", and the pointer across unrelated fragments, then asserts the
 # reversal ("capture-once automatically follows any provider change; it never
-# goes stale"), passed as clean. These two regexes give the check teeth: the
+# goes stale"), would pass as clean. These two regexes give the check teeth: the
 # capture-once statement must state the stale-A CONSEQUENCE, and it must not
 # assert the reversal.
 #
@@ -1702,10 +1691,10 @@ FORM3_STALE_RELATION_RE = re.compile(
 # provider change: it re-resolves/retargets/follows automatically, never goes
 # stale, or needs no remount. Any of these inside a capture-once paragraph
 # (outside an adaptive-remedy sentence, below) is flagged, EVEN when every
-# positive vocabulary token still appears elsewhere in the document.
+# positive vocabulary token appears elsewhere in the document.
 #
 # The affirmative auto-adaptation forms are deliberately paired with an
-# auto/dynamic qualifier or a to-B target, so the CORRECTED negations do NOT
+# auto/dynamic qualifier or a to-B target, so the negations do NOT
 # match: "never re-resolves", "not a live re-resolver", and "It goes stale" all
 # stay clean (the qualifier "live" is intentionally excluded — the corpus uses
 # "live re-resolver"/"live resolver" positively about the reg-view child).
@@ -1732,9 +1721,9 @@ FORM3_REVERSAL_RE = re.compile(
 # Sentences that legitimately describe an ADAPTIVE remedy — the route-1 reg-view
 # child (reads its frame from React context every render, so it follows A→B), or
 # the frame-derived-`key` remount (a frame change remounts and the capture
-# re-locks to B). A reversal-shaped phrase inside such a sentence is the
-# corrected remedy prose, not a false claim, so these sentences are exempt from
-# the reversal scan — e.g. "…so it follows A→B with no remount" (rf2-gjrlz).
+# re-locks to B). A reversal-shaped phrase inside such a sentence is
+# remedy prose, not a false claim, so these sentences are exempt from
+# the reversal scan — e.g. "…so it follows A→B with no remount".
 FORM3_ADAPTIVE_REMEDY_RE = re.compile(
     r"reg-view`?\s+child|route\s*1|react\s+context|reads?\s+(?:its|the)\s+frame"
     r"|:context-?type|context-reading|on\s+(?:every|each)\s+render"
@@ -1746,7 +1735,7 @@ FORM3_ADAPTIVE_REMEDY_RE = re.compile(
 
 def _capture_once_paragraphs(text: str) -> list[str]:
     """Blank-line-delimited blocks that carry the capture-once / locked-handle
-    framing. A minimal split — deliberately NOT a Markdown parser (rf2-gjrlz);
+    framing. A minimal split — deliberately NOT a Markdown parser;
     it just bounds the capture-once statement to its own paragraph so scattered
     vocabulary elsewhere cannot satisfy the invariant, and so a reversal is read
     against its own subject."""
@@ -1756,7 +1745,7 @@ def _capture_once_paragraphs(text: str) -> list[str]:
 def _reversal_sentences(paragraph: str) -> list[str]:
     """The reversal-asserting sentences of a capture-once paragraph, minus the
     ones describing an adaptive remedy (route 1 / key remount) — those carry a
-    reversal-shaped phrase legitimately (rf2-gjrlz)."""
+    reversal-shaped phrase legitimately."""
     hits: list[str] = []
     for sentence in FORM3_SENTENCE_BOUNDARY_RE.split(paragraph):
         if FORM3_REVERSAL_RE.search(sentence) and not FORM3_ADAPTIVE_REMEDY_RE.search(
@@ -1767,14 +1756,13 @@ def _reversal_sentences(paragraph: str) -> list[str]:
 
 
 def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> list[str]:
-    """Relationship + polarity teeth for one owner's capture-once statement
-    (rf2-gjrlz).
+    """Relationship + polarity teeth for one owner's capture-once statement.
 
     Beyond the vocabulary being present, the capture-once/locked-handle framing,
     the A→B retarget, and the stale-A consequence must sit in ONE paragraph
     (scattered tokens cannot satisfy it), and no capture-once paragraph may
     ASSERT the reversal (auto-retargets / never goes stale / no remount needed),
-    even if every positive token still appears elsewhere. `adopter=True` (the
+    even if every positive token appears elsewhere. `adopter=True` (the
     FORM-3 owner) additionally requires an in-paragraph supported remedy and the
     canonical-recipe pointer; the canonical recipe is the pointer target, so it
     passes adopter=False."""
@@ -1794,17 +1782,17 @@ def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> li
             "frame and never re-resolves; a surviving A→B retarget keeps sending to "
             f'the stale A. Offending: "{sample[:140]}". State the invariant and its '
             "frame-safe remedy (a frame-derived React `key` remount, or the "
-            "registered `reg-view` child) — not the (false) auto-adaptation "
-            "(rf2-gjrlz)."
+            "registered `reg-view` child) — not the (false) "
+            "auto-adaptation."
         )
 
     # Relationship — capture-once, the A→B retarget, and the stale-A consequence
     # must be tied together in one paragraph.
     if not capture_paras:
         problems.append(
-            f"FORM3-CAPTURE-ONCE-MISSING: {owner} no longer frames the "
+            f"FORM3-CAPTURE-ONCE-MISSING: {owner} does not frame the "
             "outer-callable `(rf/capture-frame)` as capture-once / a locked handle "
-            "— the retarget invariance has no subject to attach to (rf2-aalo4n)."
+            "— the retarget invariance has no subject to attach to."
         )
     elif not owning:
         problems.append(
@@ -1814,15 +1802,15 @@ def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> li
             "is absent. State, in the capture-once paragraph, that a surviving "
             "instance retargeted from provider A to provider B keeps sending "
             "render/lifecycle actions to the stale A (the locked handle does not "
-            "re-resolve; the outer callable does not re-run). (rf2-aalo4n; "
-            "canonical: guided-views-m11.md §M-11.)"
+            "re-resolve; the outer callable does not re-run). (Canonical: "
+            "guided-views-m11.md §M-11.)"
         )
     elif not any(FORM3_STALE_RELATION_RE.search(p) for p in owning):
         problems.append(
             f"FORM3-STALE-RELATION-MISSING: {owner} names the provider A→B retarget "
             "beside the capture-once framing but never states the CONSEQUENCE — the "
             "locked handle stays on the stale A and does not follow B. The A→B "
-            "token alone does not carry the invariant (rf2-gjrlz)."
+            "token alone does not carry the invariant."
         )
 
     if adopter and owning:
@@ -1831,22 +1819,21 @@ def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> li
                 f"FORM3-REMEDY-MISSING: {owner} states the provider A→B stale case "
                 "but its owning paragraph points at no supported remedy — name the "
                 "frame-derived React `key` remount or the registered `reg-view` "
-                "child (route 1). Do NOT reach for a mutable / re-pointable capture "
-                "(rf2-aalo4n)."
+                "child (route 1). Do NOT reach for a mutable / re-pointable "
+                "capture."
             )
         if not any(FORM3_RECIPE_POINTER_RE.search(p) for p in owning):
             problems.append(
                 f"FORM3-RECIPE-POINTER-MISSING: {owner}'s capture-once paragraph "
                 "does not point at the canonical migration recipe "
-                "(guided-views-m11.md §M-11) for the full retarget routes "
-                "(rf2-aalo4n)."
+                "(guided-views-m11.md §M-11) for the full retarget "
+                "routes."
             )
     return problems
 
 
 def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
-    """Relationship + polarity check over the two owners' text (rf2-aalo4n +
-    rf2-gjrlz).
+    """Relationship + polarity check over the two owners' text.
 
     Kept text-pure (no disk read) so the self-test can exercise it against
     fixtures and live mutations, mirroring the M-1 classifier / live-corpus teeth.
@@ -1867,12 +1854,12 @@ def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
 
 
 def form3_capture_once_retarget_problems() -> list[str]:
-    """Pin the Form-3 capture-once retarget invariance in BOTH owners (rf2-aalo4n).
+    """Pin the Form-3 capture-once retarget invariance in BOTH owners.
 
     The adopter owner (FORM-3.md) must state when capture-once is safe, the
     provider A→B stale-bundle case, at least one supported remedy, and a pointer
     to the canonical recipe. The canonical recipe (guided-views-m11.md §M-11)
-    must still carry the aligned invariance, so the two owners cannot drift
+    must carry the aligned invariance, so the two owners cannot drift
     apart."""
     if not FORM3_MD.is_file():
         return [
@@ -1890,16 +1877,16 @@ def form3_capture_once_retarget_problems() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 6 — M-0 publication-route lock (rf2-snjn5).
+# Rule 6 — M-0 publication-route lock.
 #
 # The migration guide's M-0 (and the seven artefact rules that inherit it) is
 # install documentation, and the event that flips its truth is OFF-REPO — an
 # operator release decision — so no code change ever reds stale route prose
-# naturally. It has now lied in both polarities: with nothing published, the
-# guide taught `{:mvn/version "<latest>"}` ("look it up — Clojars / Maven
-# Central"), a coordinate that fails resolution, and M-0's pre-publication
-# branch ordered the author to leave the dep alone and apply no other
-# migration rules until a release lands — a stop-ALL-work dead end that
+# naturally, and it can go wrong in either polarity: with nothing published, a
+# `{:mvn/version "<latest>"}` coordinate ("look it up — Clojars / Maven
+# Central") fails resolution, and a pre-publication M-0
+# branch ordering the author to leave the dep alone and apply no other
+# migration rules until a release lands is a stop-ALL-work dead end that
 # directly contradicts the skill this guide fronts for (references/setup.md:
 # the migration is fully doable; a first release is NOT a precondition; never
 # invent a version — the author supplies the pin/route). Three narrow
@@ -1921,10 +1908,9 @@ def form3_capture_once_retarget_problems() -> list[str]:
 #     so ONE publication-state decision governs the whole guide instead of
 #     eight independently drifting copies. Scoped to the M-0 section because
 #     the seven artefact rules M-27..M-33 carry the same anchor by design: a
-#     whole-file substring check stayed green with only M-0's occurrence
+#     whole-file substring check stays green with only M-0's occurrence
 #     removed — the deciding rule silently un-delegated while its inheritors
-#     still pointed at the recipe (the rf2-snjn5 merged-PR audit's acceptance
-#     seam). The `<latest>` and stop-and-wait assertions stay whole-file: those
+#     point at the recipe. The `<latest>` and stop-and-wait assertions stay whole-file: those
 #     shapes are illegal anywhere in the guide.
 #
 # Retire this lock deliberately at a real first publish — it pins the
@@ -1943,13 +1929,13 @@ M0_STOP_AND_WAIT_RE = re.compile(
 # does not.
 M0_DELEGATION_ANCHOR = "deps-versions.md#choosing-the-coordinate"
 # The M-0 section: the `### M-0.` rule heading up to the next `### M-N.` rule
-# heading (M-1 today). Bounded by rule headings — not by "any heading" — so a
+# heading (M-1). Bounded by rule headings — not by "any heading" — so a
 # future subsection inside M-0 cannot truncate the span, and matched at any
 # ATX level so a heading-depth reshuffle does not blind the lock. A rule
 # heading is the COMPLETE `M-N.` id — whitespace or end-of-line must follow
 # the terminal dot — so a numbered subsection (`#### M-0.1 …`, whose dot is a
 # decimal point, not a terminator) neither ends the span early nor stands in
-# for a missing parent heading (the rf2-snjn5 #7296 audit's two polarities).
+# for a missing parent heading.
 M0_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-0\.(?=[ \t]|$)", re.MULTILINE)
 M_RULE_HEADING_RE = re.compile(r"^ {0,3}#{1,6} +M-\d+\.(?=[ \t]|$)", re.MULTILINE)
 
@@ -1970,7 +1956,7 @@ M0_LATEST_PROBLEM = (
     "such coordinate fails resolution — and \"latest\" is never a pin the "
     "guide may invent (the author supplies the pin). Teach the "
     "author-supplied route chosen at M-0 and delegate the recipe to "
-    "deps-versions.md §Choosing the coordinate. (rf2-snjn5.)"
+    "deps-versions.md §Choosing the coordinate."
 )
 M0_STOP_PROBLEM = (
     "M0-STOP-AND-WAIT: the migration guide orders the author to leave the dep "
@@ -1978,15 +1964,15 @@ M0_STOP_PROBLEM = (
     "precondition — the author chooses a consumption route (pinned `:git/sha`; "
     "`:local/root` for local dev only), records it in the migration report, "
     "and the migration CONTINUES (skills/re-frame-migration/references/"
-    "setup.md §Discovering the current VERSION). (rf2-snjn5.)"
+    "setup.md §Discovering the current VERSION)."
 )
 M0_DELEGATION_PROBLEM = (
-    "M0-RECIPE-DELEGATION-MISSING: the M-0 section no longer links the "
+    "M0-RECIPE-DELEGATION-MISSING: the M-0 section does not link the "
     "canonical coordinate recipe (re-frame2-setup references/deps-versions.md "
     "§Choosing the coordinate). The route decision is made ONCE, at M-0, and "
     "every later artefact rule inherits it — the M-27..M-33 copies delegating "
     "is not enough when the deciding rule itself does not; restated per-rule "
-    "recipes are how eight copies drifted independently. (rf2-snjn5.)"
+    "recipes let eight copies drift independently."
 )
 
 
@@ -2008,7 +1994,7 @@ def _m0_publication_route_problems(text: str) -> list[tuple[int, str, str]]:
 
 def m0_publication_route_problems() -> list[str]:
     """Run the Rule-6 M-0 publication-route lock over MIGRATION_MD only —
-    the corrected setup.md wording legitimately QUOTES the banned instruction
+    the setup.md wording legitimately QUOTES the banned instruction
     in negated form ("Do not leave the dep alone"), so the skill leaves are
     deliberately out of this rule's scan surface."""
     if not MIGRATION_MD.is_file():
@@ -2027,16 +2013,16 @@ def m0_publication_route_problems() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 6b - the same publication-route lock over the SKILL LEAVES (rf2-qivv).
+# Rule 6b - the same publication-route lock over the SKILL LEAVES.
 #
 # Rule 6 above scans MIGRATION_MD only, and its docstring says why: the
-# corrected setup.md wording legitimately QUOTES the banned instruction in
+# setup.md wording legitimately QUOTES the banned instruction in
 # negated form ("Do **not** leave the dep alone"), so a whole-file scan of the
-# leaves would red on the correct sentence. That exemption left the leaves
-# unguarded, and a POSITIVE copy survived in setup.md's `## Edge cases` from
-# 140e3b20419 (2026-05-12) until rf2-qivv: a per-feature artefact not yet
+# leaves would red on the correct sentence. Without Rule 6b that exemption
+# leaves the leaves unguarded against a POSITIVE copy - e.g. an `## Edge cases`
+# note that a per-feature artefact not yet
 # published should be "left alone", flagged in the report, and deferred until
-# it lands - the exact instruction M-0, in the SAME leaf, forbids. It is the
+# it lands: the exact instruction M-0, in the SAME leaf, forbids. It is the
 # more dangerous polarity for an agent because it is phrased as a specific
 # EXCEPTION placed after the general rule. Following it completes a required
 # M-27..M-33 source rewrite WITHOUT the module that implements it, and the app
@@ -2045,10 +2031,10 @@ def m0_publication_route_problems() -> list[str]:
 # `no-such-handler`, or epoch's silent degrade - auto-cross-cutting.md
 # "Per-feature artefact adds"), not in the report a deferral would write.
 #
-# The repair is not a wider scan but a NEGATION-AWARE one: the same shapes over
+# Rule 6b is not a wider scan but a NEGATION-AWARE one: the same shapes over
 # the skill leaves, reported only where the match's OWN CLAUSE carries no
 # negation cue. Clause-scoped rather than line-scoped, and that distinction is
-# the whole rule - the stale sentence itself carries "not yet published" and
+# the whole rule - such a sentence itself carries "not yet published" and
 # "no v2 version" EARLIER ON THE SAME LINE, so a line-wide or fixed-window
 # negation test reads those as the negation and passes the defect through. The
 # clause boundary (the `:` after "edge case") is what separates the two.
@@ -2057,7 +2043,7 @@ def m0_publication_route_problems() -> list[str]:
 #
 # MIGRATION_MD deliberately stays on Rule 6's stricter whole-file assertion:
 # the corpus carries no legitimate negated quotation of the instruction, and
-# granting it a negation allowance would hand back the rf2-snjn5 lock.
+# granting it a negation allowance would give away the Rule 6 lock.
 #
 # Retire this with Rule 6 at a real first publish - it pins the same
 # pre-publish polarity.
@@ -2065,16 +2051,17 @@ def m0_publication_route_problems() -> list[str]:
 
 # Emphasis markers are stripped before the negation test so `Do **not**` reads
 # as `Do not`. Clause boundaries are the punctuation a clause's polarity cannot
-# survive. The `:` is the one that catches the shipped rf2-qivv defect; the `,`
+# survive. The `:` is the one that catches the "edge case: leave it alone"
+# shape; the `,`
 # is what stops a LEADING CONDITIONAL from shielding the instruction behind it
 # ("If the artefact is not published, wait until a release lands" - fixture
-# SETUP-2b, which read clean until the comma was added). Both live sentences in
+# SETUP-2b, which reads clean without the comma). Both live sentences in
 # the leaf place their negation adjacent to the verb, so neither boundary costs
 # a legal one.
 _EMPHASIS_RE = re.compile(r"[*_`]+")
 _CLAUSE_BOUNDARY_RE = re.compile("[.;:,\u2014]|--")
 # Hard wraps and whitespace runs collapse to one space before the pattern runs
-# (rf2-qivv post-merge audit) - see `_normalised_paragraphs`.
+# - see `_normalised_paragraphs`.
 _WS_RUN_RE = re.compile(r"[ \t]+")
 # How much of the normalised paragraph a finding quotes either side of the
 # match. A paragraph can be long; the match plus its clause is what a reader
@@ -2097,15 +2084,15 @@ SKILL_ROUTE_PROBLEM = (
     "only in its own `:deps/root` / `:local/root` sub-path (re-frame2-setup "
     "references/deps-versions.md, Choosing the coordinate). Deferring it ships "
     "an M-27..M-33 source rewrite without the module that implements it, which "
-    "fails at the `:require` or at the first call - not in the report. "
-    "(rf2-qivv.)"
+    "fails at the `:require` or at the first call - not in the "
+    "report."
 )
 
 
 def _clause_is_negated(line: str, offset: int) -> bool:
     """True when the clause ENDING at `offset` carries a negation cue.
 
-    Clause, not line. The rf2-qivv stale sentence carried "not yet published"
+    Clause, not line. A stale sentence can carry "not yet published"
     and "no v2 version" earlier on its own line, so a line-wide test reads the
     defect as legal prose; only the text after the last clause boundary
     decides polarity."""
@@ -2159,12 +2146,10 @@ def _skill_leaf_route_problems(text: str) -> list[tuple[int, str, str]]:
     `(lineno, label, excerpt)`. Text-pure so the self-test can exercise it
     against fixtures and against a mutation of the shipped leaf.
 
-    Scanned per NORMALISED PARAGRAPH rather than per physical line (rf2-qivv
-    post-merge audit): the first cut ran the pattern against
-    `text.splitlines()`, so either banned phrase evaded the lock the moment an
-    author reflowed the paragraph it sat in — an editor's wrap, not a rewrite,
-    and invisible in review. The banned vocabulary is unchanged; only the unit
-    the pattern reads is."""
+    Scanned per NORMALISED PARAGRAPH rather than per physical line: against
+    `text.splitlines()` either banned phrase would evade the lock the moment
+    an author reflowed the paragraph it sits in — an editor's wrap, not a
+    rewrite, and invisible in review."""
     problems: list[tuple[int, str, str]] = []
     for paragraph, line_of in _normalised_paragraphs(text):
         for match in M0_STOP_AND_WAIT_RE.finditer(paragraph):
@@ -2180,21 +2165,21 @@ def _skill_leaf_route_problems(text: str) -> list[tuple[int, str, str]]:
     return problems
 
 
-# --- Rule 7: the retired listener-stream vocabulary (rf2-qnsk).
+# --- Rule 7: the listener-stream vocabulary.
 #
 # `register-listener!` / `unregister-listener!` take a stream from a CLOSED
 # TWO-member vocabulary, `#{:trace :epoch}` (implementation/core/src/re_frame/
-# core.cljc `listener-streams`); rf2-kuky.69 retired the always-on `:events` /
-# `:errors` members, whose replacement is an `:observability` SINK rather than a
-# listener. A passage still teaching the four-member vocabulary sends a migrator
+# core.cljc `listener-streams`); there are no always-on `:events` /
+# `:errors` members, and production observation is an `:observability` SINK
+# rather than a listener. A passage teaching a four-member vocabulary sends a migrator
 # to `(rf/register-listener! :errors ...)`, which installs no monitor at all —
 # it throws `:rf.error/unknown-listener-stream`. The scan unit is the NORMALISED
 # PARAGRAPH, per `_normalised_paragraphs`: the stale shapes are multi-word and a
-# reflow would otherwise retire the rule silently.
+# reflow would otherwise disarm the rule silently.
 #
 # The anchor deliberately matches the STALE SHAPE only — `:events` / `:errors`
 # presented as current STREAMS, or enumerated inside the closed vocabulary —
-# never the corrected wording, which calls them retired MEMBERS. A sentence
+# never the correct wording, which calls them retired MEMBERS. A sentence
 # carrying a retirement cue is exempt, so prose that names the retirement in
 # passing (as the M-69 row and the observability pointer both do) stays legal.
 LISTENER_STALE_STREAM_RE = re.compile(
@@ -2211,19 +2196,19 @@ LISTENER_RETIRED_CUE_RE = re.compile(
 LISTENER_STREAM_PROBLEM = (
     "LISTENER-STREAM-VOCAB: `register-listener!` / `unregister-listener!` take "
     "a stream from a CLOSED TWO-member vocabulary — `:trace` (dev-only) and "
-    "`:epoch` (via the epoch artefact). rf2-kuky.69 retired the always-on "
+    "`:epoch` (via the epoch artefact). There are no always-on "
     "`:events` / `:errors` members; they have no listener replacement, and "
     "either one in the stream slot throws "
     "`:rf.error/unknown-listener-stream`, so the recipe installs no monitor. "
     "Production observation is an `:observability` sink — "
     "`register-observability-sink!` against a frame's policy, or the same "
     "entry grammar once per process via `(rf/configure! {:observability ...})`. "
-    "State the two-member vocabulary, not the retired four. (rf2-qnsk.)"
+    "State the two-member vocabulary, not a four-member one."
 )
 
 
 def listener_stream_vocab_problems(text: str) -> list[tuple[int, str, str]]:
-    """Rule-7 drift in one scanned file: `:events` / `:errors` still taught as
+    """Rule-7 drift in one scanned file: `:events` / `:errors` taught as
     members of `register-listener!`'s stream vocabulary, reported only where the
     match's own SENTENCE carries no retirement cue."""
     problems: list[tuple[int, str, str]] = []
@@ -2337,13 +2322,13 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "contract-drift: no plain-fn-inherits-frame (M-11), "
                 "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
                 "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
-                "(Rule 5), Form-3 captured-subscribe acquisition (Rule 5b — "
-                "rf2-v84zn), Form-3 reactive-owner ownership (Rule 5c — "
-                "rf2-ynved), Form-3 capture-once retarget-invariance drift "
-                "(rf2-aalo4n), M-0 publication-route drift (Rule 6 — "
-                "rf2-snjn5), skill-leaf stop-and-wait route drift (Rule 6b — "
-                "rf2-qivv), retired listener-stream vocabulary (Rule 7 — "
-                "rf2-qnsk), or M-1 classifier / kickoff-anchor drift "
+                "(Rule 5), Form-3 captured-subscribe acquisition (Rule "
+                "5b), Form-3 reactive-owner ownership (Rule 5c), "
+                "Form-3 capture-once retarget-invariance drift, "
+                "M-0 publication-route drift (Rule 6), "
+                "skill-leaf stop-and-wait route drift (Rule 6b), "
+                "stale listener-stream vocabulary (Rule "
+                "7), or M-1 classifier / kickoff-anchor drift "
                 "found."
             )
         return 0
@@ -2361,13 +2346,13 @@ def run(*, verbose: bool, ci: bool) -> int:
         "destinations exempt, private internals flagged) / kickoff anchors, plus "
         "Form-3 lifecycle explicit-frame targeting, the exceptional imperative "
         "Form-3's per-mount `r/track!` OWNER (a bare `add-watch` on a ratom-family "
-        "subscription can never fire — rf2-ynved), the Form-3 capture-once "
-        "retarget invariance (FORM-3.md + guided-views-m11.md §M-11 aligned "
-        "— rf2-aalo4n), the M-0 publication-route lock (author-supplied "
-        "pinned route, no `\"<latest>\"`, no stop-and-wait — rf2-snjn5), and "
+        "subscription can never fire), the Form-3 capture-once "
+        "retarget invariance (FORM-3.md + guided-views-m11.md §M-11 "
+        "aligned), the M-0 publication-route lock (author-supplied "
+        "pinned route, no `\"<latest>\"`, no stop-and-wait), and "
         "`register-listener!`'s closed TWO-member stream vocabulary "
-        "(`:trace` / `:epoch`; rf2-kuky.69 retired the always-on `:events` / "
-        "`:errors` members — rf2-qnsk), to the shipped contract."
+        "(`:trace` / `:epoch`; there are no always-on `:events` / "
+        "`:errors` members), to the shipped contract."
     )
     return 1
 
@@ -2375,14 +2360,14 @@ def run(*, verbose: bool, ci: bool) -> int:
 # ---------------------------------------------------------------------------
 # Self-test — exercises the line classifier against in-memory fixtures so the
 # guard itself can't silently rot. Mirrors the --self-test convention in the
-# sibling check_skill_*.py guards. The FAIL fixtures are the EXACT pre-fix
-# stale-claim shapes the rf2-h9yfsm review found; the PASS fixtures are the
-# corrected wording (and the unrelated live `:on-error` surfaces).
+# sibling check_skill_*.py guards. The FAIL fixtures are real stale-claim
+# shapes; the PASS fixtures are the correct wording (and the unrelated live
+# `:on-error` surfaces).
 # ---------------------------------------------------------------------------
 
 GUIDED_VIEWS_M11_MD = SKILL_DIR / "references" / "guided-views-m11.md"
 
-# Live-corpus mutation teeth (rf2-vxgfnd.94.15). Each entry mutates the frame-
+# Live-corpus mutation teeth. Each entry mutates the frame-
 # qualified form the skill actually teaches into the bare form the contract
 # forbids. The guard MUST notice every one of them.
 LIVE_FORM3_MUTATIONS = (
@@ -2432,8 +2417,8 @@ def _live_corpus_mutation_problems() -> list[str]:
     for label, qualified, bare in LIVE_FORM3_MUTATIONS:
         if qualified not in text:
             problems.append(
-                f"LIVE-MUTATION-STALE: guided-views-m11.md no longer "
-                f"contains `{qualified}`, so the mutation teeth for '{label}' "
+                f"LIVE-MUTATION-STALE: guided-views-m11.md does not "
+                f"contain `{qualified}`, so the mutation teeth for '{label}' "
                 f"are vacuous — the Form-3 recipe was re-authored. Re-point "
                 f"LIVE_FORM3_MUTATIONS at the current recipe."
             )
@@ -2442,13 +2427,13 @@ def _live_corpus_mutation_problems() -> list[str]:
             problems.append(
                 f"LIVE-MUTATION-UNDETECTED: mutating the LIVE Form-3 recipe so "
                 f"the {label} does not trip Rule 5. The guard is blind to the "
-                f"shape the corpus actually ships (rf2-vxgfnd.94.15)."
+                f"shape the corpus actually ships."
             )
     return problems
 
 
-# The captured acquire the exceptional Form-3 actually ships, and the ambient
-# regression the bead reproduced (rf2-v84zn). Kept as anchors so the live teeth
+# The captured acquire the exceptional Form-3 ships, and the ambient
+# regression Rule 5b refuses. Kept as anchors so the live teeth
 # report STALE rather than going vacuous if the recipe is re-authored.
 LIVE_CAPTURED_ACQUIRE = "(let [reaction (subscribe query-v)]"
 LIVE_AMBIENT_ACQUIRE = "(let [reaction (rf/subscribe query-v)]"
@@ -2456,10 +2441,10 @@ LIVE_AMBIENT_ACQUIRE = "(let [reaction (rf/subscribe query-v)]"
 
 def _live_captured_subscribe_problems() -> list[str]:
     """Run Rule 5b against a MUTATION OF THE SHIPPED guided-views-m11.md, not
-    hand-written prose (rf2-v84zn). The shipped exceptional Form-3 must be clean,
-    and swapping its captured `(subscribe query-v)` acquire for the ambient
-    `(rf/subscribe query-v)` — the exact false-green the bead reproduced — must
-    trip the guard. If the recipe is re-authored so the anchor no longer matches,
+    hand-written prose. The shipped exceptional Form-3 must be clean, and
+    swapping its captured `(subscribe query-v)` acquire for the ambient
+    `(rf/subscribe query-v)` — the false green Rule 5b exists to refuse — must
+    trip the guard. If the recipe is re-authored so the anchor stops matching,
     this reports STALE instead of quietly proving nothing."""
     if not GUIDED_VIEWS_M11_MD.is_file():
         return [
@@ -2475,8 +2460,8 @@ def _live_captured_subscribe_problems() -> list[str]:
         ]
     if LIVE_CAPTURED_ACQUIRE not in text:
         return [
-            "LIVE-CAPTURED-SUBSCRIBE-STALE: guided-views-m11.md no longer "
-            f"contains the captured acquire `{LIVE_CAPTURED_ACQUIRE}`, so the Rule "
+            "LIVE-CAPTURED-SUBSCRIBE-STALE: guided-views-m11.md does not "
+            f"contain the captured acquire `{LIVE_CAPTURED_ACQUIRE}`, so the Rule "
             "5b mutation tooth is vacuous — the exceptional Form-3 recipe was "
             "re-authored. Re-point LIVE_CAPTURED_ACQUIRE at the current recipe."
         ]
@@ -2485,13 +2470,13 @@ def _live_captured_subscribe_problems() -> list[str]:
         return [
             "LIVE-CAPTURED-SUBSCRIBE-UNDETECTED: swapping the LIVE captured acquire "
             "for the ambient `rf/subscribe` did not trip Rule 5b — the guard is "
-            "blind to the false-green the bead reproduced (rf2-v84zn)."
+            "blind to the ambient-acquire false green."
         ]
     return []
 
 
-# Rule 5c live teeth (rf2-ynved). Each entry breaks the SHIPPED recipe's
-# ownership in one of the three ways the repair rules out: delete the owner,
+# Rule 5c live teeth. Each entry breaks the SHIPPED recipe's ownership in
+# one of the three ways Rule 5c rules out: delete the owner,
 # swap it back for the `add-watch` trap, or leave the owner undisposed. Anchors
 # are kept short so a re-authored recipe reports STALE rather than going vacuous.
 LIVE_TRACK_OWNER = "(r/track!"
@@ -2516,8 +2501,8 @@ LIVE_OWNER_MUTATIONS = (
 
 
 def _live_reactive_owner_problems() -> list[str]:
-    """Run Rule 5c against MUTATIONS OF THE SHIPPED guided-views-m11.md
-    (rf2-ynved). The shipped exceptional Form-3 must own its acquired reaction
+    """Run Rule 5c against MUTATIONS OF THE SHIPPED guided-views-m11.md.
+    The shipped exceptional Form-3 must own its acquired reaction
     with a per-mount `r/track!` and dispose it at unmount; deleting that owner,
     restoring the `add-watch` trap, or dropping the dispose must each trip the
     guard against the LIVE text. A re-authored recipe reports STALE instead of
@@ -2538,8 +2523,8 @@ def _live_reactive_owner_problems() -> list[str]:
     for label, present, broken in LIVE_OWNER_MUTATIONS:
         if present not in text:
             problems.append(
-                f"LIVE-REACTIVE-OWNER-STALE: guided-views-m11.md no longer "
-                f"contains `{present}`, so the Rule 5c tooth for '{label}' is "
+                f"LIVE-REACTIVE-OWNER-STALE: guided-views-m11.md does not "
+                f"contain `{present}`, so the Rule 5c tooth for '{label}' is "
                 f"vacuous — the exceptional Form-3 recipe was re-authored. "
                 f"Re-point LIVE_OWNER_MUTATIONS at the current recipe."
             )
@@ -2548,18 +2533,18 @@ def _live_reactive_owner_problems() -> list[str]:
             problems.append(
                 f"LIVE-REACTIVE-OWNER-UNDETECTED: mutating the LIVE recipe so "
                 f"{label} did not trip Rule 5c. The guard is blind to the shape "
-                f"that shipped the rf2-8cnxg defect to users (rf2-ynved)."
+                f"that feeds the widget once and is deaf thereafter."
             )
     return problems
 
 
 def _live_m0_delegation_problems() -> list[str]:
     """Run Rule 6's delegation assertion against a MUTATION OF THE SHIPPED
-    migration guide, not hand-written fixtures (rf2-snjn5). The landed guide
-    carries the delegation anchor eight times — once in M-0 and once in each
-    artefact rule M-27..M-33 — which made a whole-file substring check the
-    audit's acceptance seam: removing only M-0's occurrence left seven copies
-    and a green gate. This tooth removes exactly that one occurrence and
+    migration guide, not hand-written fixtures. The guide carries the
+    delegation anchor eight times — once in M-0 and once in each artefact rule
+    M-27..M-33 — so a whole-file substring check would be blind to M-0:
+    removing only M-0's occurrence would leave seven copies and a green gate.
+    This tooth removes exactly that one occurrence and
     requires M0-RECIPE-DELEGATION to red. If the guide is re-authored so the
     anchors move, it reports STALE rather than quietly proving nothing."""
     if not MIGRATION_MD.is_file():
@@ -2585,7 +2570,7 @@ def _live_m0_delegation_problems() -> list[str]:
         return [
             "LIVE-M0-STALE: removing the M-0 section's delegation anchor left "
             "no copy anywhere else in the guide — the M-27..M-33 artefact-rule "
-            "copies were re-authored, so this tooth no longer proves the "
+            "copies were re-authored, so this tooth does not prove the "
             "section scoping (a whole-file check would red here too). Re-point "
             "the tooth at the current guide."
         ]
@@ -2594,8 +2579,8 @@ def _live_m0_delegation_problems() -> list[str]:
         return [
             "LIVE-M0-UNDETECTED: removing ONLY the M-0 section's delegation "
             "anchor (the seven M-27..M-33 copies intact) did not trip "
-            "M0-RECIPE-DELEGATION — the acceptance seam the rf2-snjn5 "
-            "merged-PR audit reproduced is open."
+            "M0-RECIPE-DELEGATION — the section-scoping seam is "
+            "open."
         ]
     return []
 
@@ -2643,8 +2628,8 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # FAIL fixtures — the exact pre-fix stale claims (SKILL.md:156,
-    # breaking-changes.md M-11/M-13 rows, README:1734/512 shapes).
+    # FAIL fixtures — stale-claim shapes (the SKILL.md, breaking-changes.md
+    # M-11/M-13 row and README forms).
     expect(
         "Plain Reagent fns work in v2 inside any established frame scope; only a "
         "callback that escapes the render scope now fails loudly.",
@@ -2669,8 +2654,8 @@ def _self_test() -> int:
         "reg-event-error-handler moves to a per-frame :on-error recovery policy.",
         dirty=True, label="A5 reg-event-error-handler moves to per-frame :on-error",
     )
-    # A6/A7 — the exact pre-fix M-11 "Leave as-is" stale claim
-    # (guided-views-m11.md shape) + the README fall-through variant.
+    # A6/A7 — the stale M-11 "Leave as-is" claim (guided-views-m11.md
+    # shape) + the README fall-through variant.
     expect(
         "Leave as-is. The author accepts that the component pins to `:rf/default` "
         "regardless of where it renders.",
@@ -2681,7 +2666,7 @@ def _self_test() -> int:
         dirty=True, label="A7 plain fn falls through to :rf/default",
     )
 
-    # PASS fixtures — the corrected wording must NOT flag.
+    # PASS fixtures — the correct wording must NOT flag.
     expect(
         "A plain (non-`reg-view`) Reagent fn carries no `:contextType` wiring, so "
         "it cannot read the surrounding `frame-provider`'s frame; a bare ambient "
@@ -2708,7 +2693,7 @@ def _self_test() -> int:
         "it was REMOVED (rf2-hiqtk8).",
         dirty=False, label="B5 explicitly denies the move (correct)",
     )
-    # Unrelated, still-live `:on-error` surfaces — must NOT flag (no
+    # Unrelated, live `:on-error` surfaces — must NOT flag (no
     # reg-event-error-handler subject; not a frame-level recovery policy).
     expect(
         "`:spawn :on-error` is a first-class transition the parent takes when a "
@@ -2725,15 +2710,15 @@ def _self_test() -> int:
         "resolve to it at render time.",
         dirty=False, label="B8 reg-view descendants resolve (no plain-fn subject)",
     )
-    # B9/B10/B11 — the corrected M-11 "Leave as-is" wording
-    # (guided-views-m11.md post-fix) and explicit-target phrasing must NOT flag.
+    # B9/B10/B11 — the correct M-11 "Leave as-is" wording
+    # (guided-views-m11.md) and explicit-target phrasing must NOT flag.
     expect(
         "Do not describe this as pinning to `:rf/default`: there is no "
         "`:rf/default` fall-through (EP-0002), so a frame-dependent plain fn "
         "raises `:rf.error/no-frame-context` — it does not silently route to a "
         "default. To intentionally target `:rf/default`, scope or pass that "
         "frame explicitly.",
-        dirty=False, label="B9 corrected M-11 leave-as-is wording (no :rf/default pin)",
+        dirty=False, label="B9 correct M-11 leave-as-is wording (no :rf/default pin)",
     )
     expect(
         "There is no `:rf/default` floor; the read tier returns nil and the op "
@@ -2746,8 +2731,8 @@ def _self_test() -> int:
         dirty=False, label="B11 explicit :rf/default target (correct)",
     )
 
-    # --- Rule 4 fixtures (rf2-j538f7.33) ---------------------------------------
-    # FAIL fixtures — the exact pre-fix bad boot-smoke commands: an app-db-only
+    # --- Rule 4 fixtures ------------------------------------------------------
+    # FAIL fixtures — bad boot-smoke commands: an app-db-only
     # Pair read pointed at a runtime-db path.
     expect(
         'confirm boot machines have a live snapshot via `get-path {path: '
@@ -2763,7 +2748,7 @@ def _self_test() -> int:
         ':snapshots :app/boot]"}`.',
         dirty=True, label="C3 get-path at a specific runtime machine snapshot",
     )
-    # PASS fixtures — the corrected partition-aware recipe and the negated warning.
+    # PASS fixtures — the partition-aware recipe and the negated warning.
     expect(
         'the canonical `read-sub {sub: "[:rf/machine :app/boot]"}` reads the '
         'runtime-db machine snapshot at `[:rf.runtime/machines :snapshots]`.',
@@ -2851,11 +2836,11 @@ def _self_test() -> int:
         label="E9 later warning cannot bless earlier bare teardown",
     )
 
-    # --- Rule 5 realistic call shapes (rf2-vxgfnd.94.19) ------------------------
-    # The pre-fix pattern only saw a one-argument call whose argument was a
-    # single whitespace-free token on the call's own line. Guidance does not
-    # look like that: queries are vectors and calls wrap. Each F-case below
-    # passed the pre-fix gate while teaching an unsafe recipe.
+    # --- Rule 5 realistic call shapes -----------------------------------------
+    # A pattern that saw only a one-argument call whose argument was a single
+    # whitespace-free token on the call's own line would miss real guidance:
+    # queries are vectors and calls wrap. Each F-case below would pass such a
+    # gate while teaching an unsafe recipe.
     expect_text(
         "In `:component-did-mount` read `(rf/subscribe-once [:todos/all :active])`.",
         dirty=True, label="F1 same-line vector query arg is bare",
@@ -2944,7 +2929,7 @@ def _self_test() -> int:
         dirty=False, label="G10 ambient bare call in the O-13 shape is legal",
     )
 
-    # --- Rule 5 structural bounds (rf2-vxgfnd.94.20) ----------------------------
+    # --- Rule 5 structural bounds ---------------------------------------------
     # H-cases: a heading ENDS lifecycle context. Without this a single Form-3
     # section falsely rejects every legal ambient call below it.
     expect_text(
@@ -2977,9 +2962,9 @@ def _self_test() -> int:
         "  (rf/subscribe-once query-v))\n```",
         dirty=True, label="H4 heading itself establishes context for its section",
     )
-    # I-cases: BEFORE/AFTER polarity is per call, not per block. The pre-fix
-    # block-wide exemption let an affirmative AFTER recipe hide beside a
-    # historical BEFORE example in the same fence.
+    # I-cases: BEFORE/AFTER polarity is per call, not per block. A block-wide
+    # exemption would let an affirmative AFTER recipe hide beside a historical
+    # BEFORE example in the same fence.
     expect_text(
         "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
         "```clojure\n"
@@ -3048,22 +3033,22 @@ def _self_test() -> int:
         label="J2 a heading inside a fence does not reset context",
     )
 
-    # === rf2-6m5qb: lexical / polarity / Markdown-boundary gaps ================
-    # Each pair is the EXACT pre-fix repro: a construct that previously BYPASSED
-    # the guard now trips it (dirty=True), and a construct that previously
-    # FALSE-FIRED now passes (dirty=False).
+    # === Lexical / polarity / Markdown-boundary gaps ===========================
+    # Each pair holds a construct a naive scanner would let BYPASS the guard,
+    # which must trip it (dirty=True), and a construct a naive scanner would
+    # FALSE-FIRE on, which must pass (dirty=False).
 
     # --- Gap 1: Clojure lexical context (LEX) ----------------------------------
     # LEX-1: a bare multiline call whose sole argument is followed by a `;`
-    # comment. Pre-fix `_read_form` counted the comment words as arguments
-    # (arity ~6), so the call slipped past the bare threshold. It is arity 1.
+    # comment. A reader that counted the comment words as arguments (arity ~6)
+    # would let the call slip past the bare threshold. It is arity 1.
     expect_text(
         "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
         "```clojure\n:component-did-mount\n(fn [_]\n"
         "  (rf/subscribe-once\n"
         "    query-v  ; the live query vector to read once\n"
         "    ))\n```",
-        dirty=True, label="LEX-1 bare call + trailing comment stays arity-1 (was bypass)",
+        dirty=True, label="LEX-1 bare call + trailing comment stays arity-1",
     )
     # LEX-2: a comment BEFORE the sole argument must also not inflate arity.
     expect_text(
@@ -3083,15 +3068,15 @@ def _self_test() -> int:
         "    {:frame frame}))\n```",
         dirty=False, label="LEX-3 comment brackets do not corrupt depth; arity-2 clean",
     )
-    # LEX-4: a call-shaped token inside a STRING is not a call. Pre-fix
-    # `_form3_call_sites` matched the head inside the log string and flagged it;
-    # the real call is frame-qualified, so the block is wholly clean.
+    # LEX-4: a call-shaped token inside a STRING is not a call. Matching the
+    # head inside the log string would flag it, but the real call is
+    # frame-qualified, so the block is wholly clean.
     expect_text(
         "**Form-3 lifecycle.** Log the query for debugging.\n\n"
         "```clojure\n:component-did-mount\n(fn [_]\n"
         '  (log/debug "calling (rf/subscribe-once query-v) now")\n'
         "  (rf/subscribe-once query-v {:frame frame}))\n```",
-        dirty=False, label="LEX-4 call-shaped text inside a string is clean (was false-fire)",
+        dirty=False, label="LEX-4 call-shaped text inside a string is clean",
     )
     # LEX-5: a call-shaped token inside a `;` comment is not a call either.
     expect_text(
@@ -3123,31 +3108,31 @@ def _self_test() -> int:
 
     # --- Gap 2: example polarity (POL) -----------------------------------------
     # POL-1: a historical BEFORE example must not bless a later UNLABELLED
-    # affirmative recipe. Pre-fix the exemption carried across every block until
-    # a positive marker, so the second recipe slipped through.
+    # affirmative recipe. An exemption carried across every block until a
+    # positive marker would let the second recipe slip through.
     expect_text(
         "**Form-3 lifecycle — BEFORE.** The old v1 shape.\n\n"
         "`(rf/subscribe-once old-query)`\n\n"
         "Seed the chart at mount with `(rf/subscribe-once query-v)`.",
-        dirty=True, label="POL-1 carried BEFORE cannot bless a later recipe (was bypass)",
+        dirty=True, label="POL-1 carried BEFORE cannot bless a later recipe",
     )
-    # POL-2: the BEFORE still owns the ONE concrete example it introduces — that
-    # example stays exempt (the fix scopes, it does not disable, the exemption).
+    # POL-2: the BEFORE owns the ONE concrete example it introduces — that
+    # example is exempt (the exemption is scoped, not disabled).
     expect_text(
         "**Form-3 lifecycle — BEFORE.** The old v1 shape.\n\n"
         "`(rf/subscribe-once old-query)`",
-        dirty=False, label="POL-2 BEFORE still exempts the example it owns",
+        dirty=False, label="POL-2 BEFORE exempts the example it owns",
     )
     # POL-3: a `BEFORE` inside a code STRING is not a polarity label, so it cannot
-    # exempt a following unsafe call. Pre-fix the string `"BEFORE"` forged one.
+    # exempt a following unsafe call; read as a label, the string would forge one.
     expect_text(
         "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
         "```clojure\n:component-did-mount\n(fn [_]\n"
         '  (log/debug "BEFORE")\n'
         "  (rf/subscribe-once query-v))\n```",
-        dirty=True, label="POL-3 string 'BEFORE' does not forge an exemption (was bypass)",
+        dirty=True, label="POL-3 string 'BEFORE' does not forge an exemption",
     )
-    # POL-4: `;; BEFORE` / `;; AFTER` COMMENT labels are still honoured per call —
+    # POL-4: `;; BEFORE` / `;; AFTER` COMMENT labels are honoured per call —
     # the BEFORE example is exempt, the AFTER recipe is not.
     expect_text(
         "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
@@ -3157,36 +3142,36 @@ def _self_test() -> int:
         ";; AFTER (v2) — the recipe to copy\n"
         "(rf/subscribe-once query-v)\n"
         "```",
-        dirty=True, label="POL-4 comment BEFORE/AFTER labels still work per call",
+        dirty=True, label="POL-4 comment BEFORE/AFTER labels work per call",
     )
     # POL-5: ordinary negative prose ("Not recommended: …") is a negative label,
-    # so it exempts the anti-pattern it names. Pre-fix the `recommended` substring
-    # read as a POSITIVE marker and falsely flagged the call.
+    # so it exempts the anti-pattern it names. Reading the `recommended`
+    # substring as a POSITIVE marker would falsely flag the call.
     expect_text(
         "**Form-3 lifecycle.** Not recommended: seed with "
         "`(rf/subscribe-once query-v)`.",
-        dirty=False, label="POL-5 'Not recommended:' is negative prose (was false-fire)",
+        dirty=False, label="POL-5 'Not recommended:' is negative prose",
     )
-    # POL-6: a plain `recommended` recipe is still POSITIVE — a bare call it
+    # POL-6: a plain `recommended` recipe is POSITIVE — a bare call it
     # presents is flagged.
     expect_text(
         "**Form-3 lifecycle.** The recommended shape is "
         "`(rf/subscribe-once query-v)` at mount.",
-        dirty=True, label="POL-6 plain 'recommended' recipe is still positive/dirty",
+        dirty=True, label="POL-6 plain 'recommended' recipe is positive/dirty",
     )
 
     # --- Gap 3: Markdown structural boundaries (MD) ----------------------------
     # MD-1: a Setext H2 heading (`text` underlined by `---`) bounds lifecycle
-    # context like an ATX `##`. Pre-fix the `---` read as a thematic break that
-    # split the heading text away from its section, so the bare call went unseen.
+    # context like an ATX `##`. Reading the `---` as a thematic break would split
+    # the heading text away from its section and hide the bare call.
     expect_text(
         "Form-3 lifecycle\n---\n\n"
         "A hook has no ambient frame; seed with `(rf/subscribe-once query-v)`.",
-        dirty=True, label="MD-1 Setext-H2 lifecycle section flags a bare call (was bypass)",
+        dirty=True, label="MD-1 Setext-H2 lifecycle section flags a bare call",
     )
     # MD-2: a Setext H1 heading (`text` underlined by `===`) ENDS the prior
-    # lifecycle context, so a later ambient call is legal. Pre-fix `===` was
-    # unrecognised and the lifecycle context leaked into the ambient section.
+    # lifecycle context, so a later ambient call is legal. Left unrecognised,
+    # `===` would leak the lifecycle context into the ambient section.
     expect_text(
         "## Form-3 lifecycle\n\n"
         "Capture the frame in the outer callable.\n\n"
@@ -3194,10 +3179,10 @@ def _self_test() -> int:
         "==================================\n\n"
         "In a registered view `(rf/subscribe-once query-v)` reads the "
         "provider frame.",
-        dirty=False, label="MD-2 Setext-H1 ends lifecycle context (was false-fire)",
+        dirty=False, label="MD-2 Setext-H1 ends lifecycle context",
     )
     # MD-3: the Setext heading itself establishes context for its own section, so
-    # a bare call beneath a Setext-headed lifecycle section is still dirty.
+    # a bare call beneath a Setext-headed lifecycle section is dirty.
     expect_text(
         "Form-3 lifecycle\n"
         "================\n\n"
@@ -3205,14 +3190,14 @@ def _self_test() -> int:
         dirty=True, label="MD-3 Setext-H1 heading establishes context for its section",
     )
     # MD-4: a CommonMark SPACED thematic break (`* * *`) resets bounded context
-    # like a compact `---`. Pre-fix only the compact forms matched.
+    # like a compact `---`; matching only the compact forms would miss it.
     expect_text(
         "## Form-3 lifecycle\n\n"
         "Capture the frame in the outer callable.\n\n"
         "* * *\n\n"
         "In an ordinary registered view, `(rf/subscribe-once [:todos/all])` "
         "reads the provider frame.",
-        dirty=False, label="MD-4 spaced thematic break '* * *' resets context (was false-fire)",
+        dirty=False, label="MD-4 spaced thematic break '* * *' resets context",
     )
     # MD-5: a spaced `- - -` thematic break resets context too.
     expect_text(
@@ -3224,10 +3209,10 @@ def _self_test() -> int:
         dirty=False, label="MD-5 spaced thematic break '- - -' resets context",
     )
 
-    # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
-    # Exercise the classifier logic against the CORRECTED invert-filter (adapters
-    # + spec exempt, privates flagged) and the PRE-FIX buggy filter (missing
-    # adapter/spec) — the latter proving the guard detects the regression.
+    # --- M-1 classifier fixtures -----------------------------------------------
+    # Exercise the classifier logic against the CORRECT invert-filter (adapters
+    # + spec exempt, privates flagged) and against narrower and over-wide
+    # variants, which prove the guard detects each regression.
     good_broad = re.compile(r"\[\s*re-frame\.[A-Za-z0-9_.-]+")
     good_invert = re.compile(
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
@@ -3235,30 +3220,30 @@ def _self_test() -> int:
         r"substrate\.(plain-atom|adapter)|test-support|"
         r"test-helpers|spec)\b"
     )
-    pre_z9xl_invert = re.compile(  # the rf2-0tur filter rf2-z9xl widened
+    pre_z9xl_invert = re.compile(  # no `subs.tooling`, no substrate carve-outs
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|test-support|test-helpers|spec)\b"
     )
-    pre_zjss3_invert = re.compile(  # the rf2-z9xl filter rf2-zjss3 widened
+    pre_zjss3_invert = re.compile(  # `subs.tooling`, but no substrate carve-outs
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|subs\.tooling|test-support|"
         r"test-helpers|spec)\b"
     )
-    subtree_invert = re.compile(  # the over-wide fix rf2-z9xl refuses: all of subs
+    subtree_invert = re.compile(  # over-wide: exempts all of subs
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|subs|test-support|test-helpers|"
         r"spec)\b"
     )
-    substrate_subtree_invert = re.compile(  # the over-wide fix rf2-zjss3 refuses
+    substrate_subtree_invert = re.compile(  # over-wide: exempts all of substrate
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|subs\.tooling|substrate|"
         r"test-support|test-helpers|spec)\b"
     )
-    bad_invert = re.compile(  # the exact pre-fix filter — no `adapter`, no `spec`
+    bad_invert = re.compile(  # no `adapter`, no `spec`
         r"\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|"
         r"http|http-managed|http-test-support|ssr|epoch|test-support)\b"
     )
-    pre_0tur_invert = re.compile(  # the rf2-3fc89f.35 filter rf2-0tur widened
+    pre_0tur_invert = re.compile(  # no resources/fresco/story/test-helpers
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|test-support|spec)\b"
     )
@@ -3274,7 +3259,7 @@ def _self_test() -> int:
             print(f"SELF-TEST FAIL ({label}): {ns} classified {got!r}, want {want!r}")
             failures += 1
 
-    # Corrected filter: public destinations exempt (incl. the M-38/M-40 adapters
+    # Correct filter: public destinations exempt (incl. the M-38/M-40 adapters
     # + the M-54 spec ns), private internals flagged (incl. the router/routing +
     # interop/interceptor near-miss edges).
     for ns in (
@@ -3288,18 +3273,18 @@ def _self_test() -> int:
         "re-frame.loggers", "re-frame.interceptor", "re-frame.std-interceptors",
     ):
         m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
-    # Pre-fix buggy filter MUST misclassify the adapters + spec as flagged — this
-    # is the exact rf2-3fc89f.35 false-positive the corrected filter removes.
+    # The buggy filter MUST misclassify the adapters + spec as flagged — the
+    # false positive the correct filter avoids.
     for ns in ("re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.spec"):
         m1_expect(ns, bad_invert, "flag", f"M1-regression-detected {ns}")
-    # rf2-0tur: the four public namespaces the filter omitted are exempt under the
-    # widened filter, and the pre-rf2-0tur filter flags every one of them.
+    # The four public namespaces `pre_0tur_invert` omits are exempt under the
+    # correct filter, and `pre_0tur_invert` flags every one of them.
     for ns in rf2_0tur_nses:
         m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
         m1_expect(ns, pre_0tur_invert, "flag", f"M1-regression-detected {ns}")
-    # rf2-z9xl: the exact O-12 tooling namespace is exempt and the rf2-0tur filter
-    # flagged it; bare subs, db and a private subs sibling stay flagged, and the
-    # subtree-wide spelling is caught because it exempts those two subs controls.
+    # The exact O-12 tooling namespace is exempt and `pre_z9xl_invert` flags it;
+    # bare subs, db and a private subs sibling are flagged, and the subtree-wide
+    # spelling is caught because it exempts those two subs controls.
     ns = "re-frame.subs.tooling"
     m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
     m1_expect(ns, pre_z9xl_invert, "flag", f"M1-regression-detected {ns}")
@@ -3307,11 +3292,11 @@ def _self_test() -> int:
         m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
     for ns in ("re-frame.subs", "re-frame.subs.cache"):
         m1_expect(ns, subtree_invert, "exempt", f"M1-subtree-overreach-seen {ns}")
-    # rf2-zjss3: M-38 carves plain-atom + the substrate contract ns out of its own
-    # rename, so both are exempt and the pre-rf2-zjss3 filter flags them — the
-    # false positive that would tell a headless project to delete its boot
-    # require. The view substrates M-38 does rename, and a private v2 internal,
-    # stay flagged; the subtree-wide spelling is caught because it exempts them.
+    # M-38 carves plain-atom + the substrate contract ns out of its own rename,
+    # so both are exempt and `pre_zjss3_invert` flags them — the false positive
+    # that would tell a headless project to delete its boot require. The view
+    # substrates M-38 does rename, and a private v2 internal, are flagged; the
+    # subtree-wide spelling is caught because it exempts them.
     for ns in ("re-frame.substrate.plain-atom", "re-frame.substrate.adapter"):
         m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
         m1_expect(ns, pre_zjss3_invert, "flag", f"M1-regression-detected {ns}")
@@ -3323,9 +3308,9 @@ def _self_test() -> int:
         m1_expect(ns, substrate_subtree_invert, "exempt",
                   f"M1-subtree-overreach-seen {ns}")
 
-    # rf2-puuvf: a whole-line or prefix-based filter loses real private imports.
-    # The mixed fixtures exercise order, several matches, wrapped libspecs and
-    # a public-only control. The current extracted recipe must pass them all.
+    # A whole-line or prefix-based filter loses real private imports. The mixed
+    # fixtures exercise order, several matches, wrapped libspecs and a
+    # public-only control. The live extracted recipe must pass them all.
     live_broad, live_invert, live_error = _extract_m1_patterns(_slurp(AUTO_CALL_SITE_MD))
     if live_error:
         print(f"SELF-TEST FAIL (M1 mixed setup): {live_error}")
@@ -3339,29 +3324,29 @@ def _self_test() -> int:
             print("SELF-TEST FAIL (M1 CRLF regression): LF-only filter escaped")
             failures += 1
     if not _m1_mixed_misses(good_broad, good_invert):
-        print("SELF-TEST FAIL (M1 prefix regression): old subtree filter escaped")
+        print("SELF-TEST FAIL (M1 prefix regression): prefix subtree filter escaped")
         failures += 1
 
-    # --- M-51 sweep fixtures (rf2-0tur) -----------------------------------------
-    # The corrected sweep sees all four unary shapes and skips the binary control;
-    # the exact pre-fix sweep (newline required, bare-symbol param only) sees one.
+    # --- M-51 sweep fixtures ---------------------------------------------------
+    # The correct sweep sees all four unary shapes and skips the binary control;
+    # a narrow sweep (newline required, bare-symbol param only) sees one.
     good_m51 = re.compile(r"reg-fx[^\n]*\n?[^\n]*\(fn \[[^]\s_][^]]*\]")
     bad_m51 = re.compile(r"reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]")
     if _m51_sweep_misses(good_m51):
         print(
-            "SELF-TEST FAIL (M51-good): the corrected M-51 sweep "
+            "SELF-TEST FAIL (M51-good): the correct M-51 sweep "
             f"{_m51_sweep_misses(good_m51)!r}"
         )
         failures += 1
     bad_misses = _m51_sweep_misses(bad_m51)
     if len(bad_misses) != 3 or any("control" in m for m in bad_misses):
         print(
-            "SELF-TEST FAIL (M51-regression-detected): the pre-fix sweep must miss "
+            "SELF-TEST FAIL (M51-regression-detected): the narrow sweep must miss "
             f"exactly 3 of the 4 unary shapes and skip the control, got {bad_misses!r}"
         )
         failures += 1
 
-    # --- Rule 5b fixtures — captured-subscribe acquisition (rf2-v84zn) ----------
+    # --- Rule 5b fixtures — captured-subscribe acquisition ----------------------
     # A structurally faithful copy of the ONE canonical exceptional Form-3: the
     # frame captured once (destructuring `subscribe`), the mount-hook acquire
     # through that captured local, and the frame-first teardown. Mutations derive
@@ -3395,13 +3380,13 @@ def _self_test() -> int:
         "               (r/track! (fn [] (feed-gauge! @reaction))))))\n"
     )
     expect_captured(CANON, dirty=False, label="VC1 canonical captured acquire is clean")
-    # VC2 — the exact bead repro: the captured acquire swapped for ambient.
+    # VC2 — the captured acquire swapped for ambient.
     expect_captured(
         CANON.replace("(let [reaction (subscribe query-v)]",
                       "(let [reaction (rf/subscribe query-v)]"),
-        dirty=True, label="VC2 ambient rf/subscribe acquire is flagged (was false-green)",
+        dirty=True, label="VC2 ambient rf/subscribe acquire is flagged",
     )
-    # VC3 — matching destructuring dropped (subscribe no longer bound from capture).
+    # VC3 — matching destructuring dropped (subscribe not bound from capture).
     expect_captured(
         CANON.replace("{:keys [frame subscribe]}", "{:keys [frame]}"),
         dirty=True, label="VC3 dropped subscribe destructuring is flagged",
@@ -3478,17 +3463,18 @@ def _self_test() -> int:
     )
 
     # Rule 5b live-corpus teeth: the shipped exceptional Form-3 must be clean, and
-    # the bead's exact acquire swap must trip the guard against the LIVE recipe.
+    # the captured-to-ambient acquire swap must trip the guard against the LIVE
+    # recipe.
     for problem in _live_captured_subscribe_problems():
         print(f"SELF-TEST FAIL (captured-subscribe live): {problem}")
         failures += 1
 
-    # --- Rule 5c fixtures — reactive ownership (rf2-ynved) ----------------------
-    # The same CANON, now read for the question that decides whether the recipe
+    # --- Rule 5c fixtures — reactive ownership ----------------------------------
+    # The same CANON, read for the question that decides whether the recipe
     # WORKS: does anything activate the reaction it acquires?
     expect_owner(CANON, dirty=False, label="VO1 canonical track!-owner recipe is clean")
-    # VO2 — the shipped pre-fix shape: seed deref + add-watch, no owner. This is
-    # the recipe as it stood before rf2-ynved; it must not be able to come back.
+    # VO2 — the seed-deref + add-watch shape with no owner; it must never be able
+    # to ship.
     PRE_FIX_MOUNT = (
         "         (fn [this]\n"
         "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
@@ -3503,7 +3489,7 @@ def _self_test() -> int:
     expect_owner(
         PRE_FIX,
         dirty=True,
-        label="VO2 the pre-fix seed-deref + add-watch recipe is flagged (rf2-ynved)",
+        label="VO2 the seed-deref + add-watch recipe is flagged",
     )
     # VO3 — the trap alone: an add-watch bolted onto the owned recipe.
     expect_owner(
@@ -3512,7 +3498,7 @@ def _self_test() -> int:
             "             (add-watch reaction ::feed (fn [_ _ _ v] (feed-gauge! v)))\n"
             "             (reset! !driver                             ; OWN\n",
         ),
-        dirty=True, label="VO3 add-watch beside the owner is still flagged",
+        dirty=True, label="VO3 add-watch beside the owner is flagged",
     )
     # VO4 — owner dropped, everything else intact: the acquired reaction is
     # dormant, so the widget is fed once and never again.
@@ -3571,12 +3557,12 @@ def _self_test() -> int:
         print(f"SELF-TEST FAIL (reactive-owner live): {problem}")
         failures += 1
 
-    # --- Live-corpus mutation teeth (rf2-vxgfnd.94.15) --------------------------
+    # --- Live-corpus mutation teeth -------------------------------------------
     for problem in _live_corpus_mutation_problems():
         print(f"SELF-TEST FAIL (live-corpus mutation): {problem}")
         failures += 1
 
-    # --- Form-3 capture-once retarget invariance (rf2-aalo4n) -------------------
+    # --- Form-3 capture-once retarget invariance ------------------------------
     # Fixtures for the pure presence + cross-owner alignment helper. A complete
     # adopter owner carries: capture-once framing, the provider A→B stale case, a
     # supported remedy, and the canonical-recipe pointer; a canonical owner
@@ -3632,14 +3618,13 @@ def _self_test() -> int:
         dirty=True, label="K6 canonical drifting off the A→B invariance is dirty",
     )
 
-    # Semantic-teeth fixtures (rf2-gjrlz). Vocabulary presence is not enough: the
+    # Semantic-teeth fixtures. Vocabulary presence is not enough: the
     # OPPOSITE polarity must fail even when every positive token survives, and
     # tokens scattered across unrelated paragraphs must not satisfy the invariant.
     #
-    # K7 is the exact repro: an adopter owner that ASSERTS the reversal
-    # ("automatically follows … never goes stale") with the A→B / remount /
-    # pointer tokens sprinkled into unrelated paragraphs. The pre-teeth guard
-    # returned [] here.
+    # K7: an adopter owner that ASSERTS the reversal ("automatically follows …
+    # never goes stale") with the A→B / remount / pointer tokens sprinkled into
+    # unrelated paragraphs. A presence-only guard would return [] here.
     K7_REVERSED_SCATTERED = (
         "Capture-once automatically follows any provider change; it never goes "
         "stale.\n\n"
@@ -3653,7 +3638,7 @@ def _self_test() -> int:
     )
     # K8: every positive token tied in ONE paragraph, but with a "no need to
     # remount" / "never goes stale" reversal spliced in — polarity teeth must
-    # still fail it (the reversal survives beside the correct relationship).
+    # fail it (the reversal survives beside the correct relationship).
     K8_REVERSED_TIED = (
         "Capture-once is a locked handle; there is no need to remount even if a "
         "surviving instance is retargeted from provider A to provider B, and it "
@@ -3665,7 +3650,7 @@ def _self_test() -> int:
         K8_REVERSED_TIED, K_CANON, dirty=True,
         label="K8 adopter reversal with every positive token present is dirty",
     )
-    # K9: the canonical owner reversed (repro's second half) — the cross-owner
+    # K9: the canonical owner reversed — the cross-owner
     # leg must catch it, not just the adopter.
     K9_CANON_REVERSED = (
         "Capture-once automatically retargets and re-resolves to the new "
@@ -3676,8 +3661,8 @@ def _self_test() -> int:
         K_OWNER, K9_CANON_REVERSED, dirty=True,
         label="K9 canonical reversal is dirty",
     )
-    # K10: the corrected adaptive-remedy prose (route 1 follows A→B "with no
-    # remount") must NOT be read as a reversal — it is the fix, not the footgun.
+    # K10: the adaptive-remedy prose (route 1 follows A→B "with no remount")
+    # must NOT be read as a reversal — it is the remedy, not the footgun.
     K10_ADAPTIVE_REMEDY_OK = (
         "Capture-once is a locked handle. It goes stale if a surviving instance is "
         "retargeted from provider A to provider B — the locked handle keeps "
@@ -3691,17 +3676,17 @@ def _self_test() -> int:
         label="K10 route-1 adaptive-remedy prose is clean",
     )
 
-    # --- Rule 6 fixtures — M-0 publication-route lock (rf2-snjn5) ---------------
-    # The FAIL fixtures are the exact pre-fix shapes (M-0 :69-77 / :81 and the
-    # seven artefact-rule `<latest>` recipes); the PASS fixture is the corrected
+    # --- Rule 6 fixtures — M-0 publication-route lock --------------------------
+    # The FAIL fixtures are the stale M-0 shapes (the `<latest>` coordinate
+    # recipes and the stop-and-wait instructions); the PASS fixture is the
     # author-supplied-route wording, including the two sentences that must stay
     # legal: the labelled if/when-published `:mvn/version` destination and the
     # honestly-scoped Leiningen pause option. The delegation assertion is
     # scoped to the M-0 section, so the fixtures carry the guide's real rule-
     # heading structure (`### M-0.` … `### M-1.`) — appended dirty lines land
     # after the M-1 heading, proving the `<latest>` / stop-and-wait assertions
-    # stay whole-file — and M0-7 reproduces the merged-PR audit's acceptance
-    # seam: the anchor present only in a later artefact rule.
+    # stay whole-file — and M0-7 pins the section-scoping seam: the anchor
+    # present only in a later artefact rule.
     def expect_m0(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         got = bool(_m0_publication_route_problems(text))
@@ -3728,7 +3713,7 @@ def _self_test() -> int:
         "### M-1. Private namespace access\n"
         "Every rule below assumes the coord chosen at M-0 is in place."
     )
-    expect_m0(M0_CLEAN, dirty=False, label="M0-1 corrected route text is clean")
+    expect_m0(M0_CLEAN, dirty=False, label="M0-1 route text is clean")
     expect_m0(
         M0_CLEAN + '\nday8/re-frame2 {:mvn/version "<latest>"}',
         dirty=True, label="M0-2 mvn <latest> map coord is dirty",
@@ -3755,10 +3740,10 @@ def _self_test() -> int:
         ),
         dirty=True, label="M0-6 dropped delegation anchor is dirty",
     )
-    # M0-7 — the rf2-snjn5 merged-PR audit's acceptance seam: the anchor
-    # removed from the M-0 section while a later artefact rule (the M-27..M-33
-    # shape) still carries it. A whole-file substring check stays green here;
-    # the section-scoped assertion must red.
+    # M0-7 — the section-scoping seam: the anchor removed from the M-0 section
+    # while a later artefact rule (the M-27..M-33 shape) carries it. A
+    # whole-file substring check would stay green here; the section-scoped
+    # assertion must red.
     expect_m0(
         M0_CLEAN.replace(
             "deps-versions.md"
@@ -3780,7 +3765,7 @@ def _self_test() -> int:
         dirty=True,
         label="M0-8 missing M-0 heading is dirty",
     )
-    # M0-9 — polarity 1 of the rf2-snjn5 #7296 audit: a numbered subsection
+    # M0-9 — polarity 1: a numbered subsection
     # (`#### M-0.1 …`) inside M-0, before the delegation anchor. Its dot is a
     # decimal point, not a rule terminator, so the span must run on to
     # `### M-1.` and scan clean — not truncate at the child and false-red the
@@ -3807,9 +3792,8 @@ def _self_test() -> int:
         label="M0-10 orphan M-0.1 child with the parent heading removed is dirty",
     )
 
-    # Live red-proof teeth: the lock must have BITE against the exact pre-fix
-    # M-0 text — the `<latest>` recipe and the stop instruction verbatim from
-    # the guide as it stood before rf2-snjn5.
+    # Red-proof teeth: the lock must have BITE against the stale M-0 text —
+    # the `<latest>` recipe and the stop instruction together.
     PRE_FIX_M0 = (
         M0_CLEAN
         + '\nday8/re-frame2         {:mvn/version "<latest>"}\n'
@@ -3820,26 +3804,26 @@ def _self_test() -> int:
     )
     if len(_m0_publication_route_problems(PRE_FIX_M0)) < 2:
         print(
-            "SELF-TEST FAIL (M0-red-proof): the exact pre-fix M-0 text does "
+            "SELF-TEST FAIL (M0-red-proof): the stale M-0 text does "
             "not trip both the <latest> and stop-and-wait assertions."
         )
         failures += 1
 
-    # Live-corpus M-0 delegation tooth (rf2-snjn5): remove ONLY the M-0
-    # section's anchor from the SHIPPED guide — the seven M-27..M-33 copies
-    # stay intact — and require M0-RECIPE-DELEGATION to red. This is the
-    # merged-PR audit's acceptance seam, proven against the landed corpus
-    # rather than a fixture that could drift away from it.
+    # Live-corpus M-0 delegation tooth: remove ONLY the M-0 section's anchor
+    # from the SHIPPED guide — the seven M-27..M-33 copies stay intact — and
+    # require M0-RECIPE-DELEGATION to red. This proves the section-scoping seam
+    # against the shipped corpus rather than a fixture that could drift away
+    # from it.
     for problem in _live_m0_delegation_problems():
         print(f"SELF-TEST FAIL (M0 delegation live): {problem}")
         failures += 1
 
-    # --- Rule 6b fixtures - skill-leaf publication-route lock (rf2-qivv) ------
-    # Rule 6 exempts the skill leaves because M-0's corrected wording quotes the
-    # banned instruction in NEGATED form. These fixtures are the two real
-    # sentences that exemption has to tell apart, taken verbatim from setup.md:
-    # the negated M-0 one (legal) and the positive `## Edge cases` one that
-    # survived there until rf2-qivv (the defect).
+    # --- Rule 6b fixtures - skill-leaf publication-route lock ----------------
+    # Rule 6 exempts the skill leaves because M-0's wording quotes the banned
+    # instruction in NEGATED form. These fixtures are the two sentence shapes
+    # that exemption has to tell apart in setup.md: the negated M-0 one (legal)
+    # and a positive per-feature defer paragraph under `## Edge cases` (the
+    # defect).
     def expect_leaf(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         got = bool(_skill_leaf_route_problems(text))
@@ -3867,7 +3851,7 @@ def _self_test() -> int:
     )
     expect_leaf(
         LEAF_STALE, dirty=True,
-        label="SETUP-2 the rf2-qivv stale per-feature defer paragraph is dirty",
+        label="SETUP-2 the stale per-feature defer paragraph is dirty",
     )
 
     expect_leaf(
@@ -3887,7 +3871,7 @@ def _self_test() -> int:
     _stale_match = M0_STOP_AND_WAIT_RE.search(LEAF_STALE)
     if _stale_match is None:
         print(
-            "SELF-TEST FAIL (SETUP-3): the stale fixture no longer matches the "
+            "SELF-TEST FAIL (SETUP-3): the stale fixture does not match the "
             "Rule-6 stop-and-wait shapes, so it can prove nothing about the "
             "skill-leaf lock."
         )
@@ -3896,27 +3880,27 @@ def _self_test() -> int:
         _stale_prefix = _EMPHASIS_RE.sub("", LEAF_STALE[: _stale_match.start()])
         if not SKILL_NEGATION_CUE_RE.search(_stale_prefix):
             print(
-                "SELF-TEST FAIL (SETUP-3 line-cue): the stale fixture no longer "
-                "carries a negation cue EARLIER ON ITS LINE, so it can no "
-                "longer prove that clause scoping - not a line-wide test - is "
-                "what catches the rf2-qivv defect."
+                "SELF-TEST FAIL (SETUP-3 line-cue): the stale fixture does not "
+                "carry a negation cue EARLIER ON ITS LINE, so it cannot "
+                "prove that clause scoping - not a line-wide test - is "
+                "what catches the stale defer paragraph."
             )
             failures += 1
         if _clause_is_negated(LEAF_STALE, _stale_match.start()):
             print(
                 "SELF-TEST FAIL (SETUP-3 clause): the clause test reads the "
-                "rf2-qivv stale sentence as negated. The cue must be required "
+                "stale defer sentence as negated. The cue must be required "
                 "in the match's OWN clause; a wider window lets the defect "
                 "land again."
             )
             failures += 1
 
     # SETUP-5..8 - the scan unit is a NORMALISED PARAGRAPH, not a physical
-    # line (rf2-qivv post-merge audit). Both banned phrases are multi-word, and
-    # Markdown reflow puts a newline anywhere between two words: the first
-    # shape's `\s+` was never allowed to reach one (`splitlines` had already
-    # cut it) and the second's `[^.\n]` excludes one outright, so an editor's
-    # wrap - not a rewrite - silently retired the lock. SETUP-5 and SETUP-6
+    # line. Both banned phrases are multi-word, and Markdown reflow puts a
+    # newline anywhere between two words: under a per-line scan the first
+    # shape's `\s+` could never reach one (`splitlines` would already have cut
+    # it) and the second's `[^.\n]` excludes one outright, so an editor's wrap
+    # - not a rewrite - would silently disarm the lock. SETUP-5 and SETUP-6
     # wrap the two real sentences INSIDE the banned phrase itself, which is the
     # only wrap that matters; SETUP-7 pins that a wrap does not flip polarity
     # the other way either; SETUP-8 pins the paragraph BOUND, so a negation two
@@ -3974,11 +3958,11 @@ def _self_test() -> int:
             print(
                 "SELF-TEST FAIL (SETUP-4 undetected): re-growing the stale "
                 "per-feature defer paragraph in the shipped setup.md did not "
-                "trip Rule 6b - the rf2-qivv defect could land again."
+                "trip Rule 6b - the stale defer paragraph could land again."
             )
             failures += 1
         # SETUP-4b - the same live mutation, hard-wrapped inside the banned
-        # phrase. This is the one the pre-audit per-line scan missed, so it is
+        # phrase. This is the shape a per-line scan would miss, so it is
         # asserted against the real leaf and not only against a fixture. The
         # reported line must be the physical line the phrase STARTS on, which
         # is what makes a paragraph-scoped finding actionable.
@@ -3986,8 +3970,8 @@ def _self_test() -> int:
             "leave the dep alone", "leave the dep\nalone")
         if _wrapped_stale == LEAF_STALE:
             print(
-                "SELF-TEST FAIL (SETUP-4b anchor): the stale fixture no longer "
-                "carries the exact `leave the dep alone` phrase, so the "
+                "SELF-TEST FAIL (SETUP-4b anchor): the stale fixture does not "
+                "carry the exact `leave the dep alone` phrase, so the "
                 "hard-wrap mutation is a no-op - re-point it in the same change."
             )
             failures += 1
@@ -3999,7 +3983,7 @@ def _self_test() -> int:
                     "SELF-TEST FAIL (SETUP-4b undetected): the stale paragraph "
                     "re-grown in setup.md with an ordinary Markdown wrap inside "
                     "`leave the dep alone` did not trip Rule 6b. The lock is "
-                    "back to failing open on reflow (rf2-qivv audit)."
+                    "failing open on reflow."
                 )
                 failures += 1
             else:
@@ -4010,7 +3994,7 @@ def _self_test() -> int:
                     print(
                         "SELF-TEST FAIL (SETUP-4b lineno): the wrapped finding "
                         f"reported line {_wrapped_problems[0][0]}, expected "
-                        f"{_expected_line} - the paragraph scan must still map "
+                        f"{_expected_line} - the paragraph scan must map "
                         "a match back to the physical line it starts on."
                     )
                     failures += 1
@@ -4053,13 +4037,12 @@ def _self_test() -> int:
             )
             failures += 1
 
-        # rf2-gjrlz: mutate each live owner to the WRONG POLARITY while keeping
-        # ALL of the A/B / remount / pointer vocabulary intact — a splice adjacent
-        # to a real capture-once token, so it lands inside a capture-once
-        # paragraph regardless of the doc's exact wording. The pre-teeth guard
-        # (vocabulary-presence only) was blind to this; the polarity teeth must
-        # now catch it. This proves the guard has semantic teeth, not just a
-        # token census.
+        # Mutate each live owner to the WRONG POLARITY while keeping ALL of the
+        # A/B / remount / pointer vocabulary intact — a splice adjacent to a
+        # real capture-once token, so it lands inside a capture-once paragraph
+        # regardless of the doc's exact wording. A vocabulary-presence-only
+        # guard would be blind to this; the polarity teeth must catch it. This
+        # proves the guard has semantic teeth, not just a token census.
         def _splice_reversal(t: str) -> str:
             return FORM3_CAPTURE_ONCE_RE.sub(
                 lambda m: m.group(0)
@@ -4098,12 +4081,12 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # --- Rule 7 (rf2-qnsk) — the retired listener-stream vocabulary. The DIRTY
-    # fixtures are the EXACT pre-fix sentences the migration corpus carried at
-    # trunk c09c413ad6; the CLEAN ones are the repaired wording plus the live
-    # M-69 retirement statement, which names `:events` / `:errors` in passing
-    # and must stay legal. R7-7 is the reflow tooth: the anchor is multi-word,
-    # so a physical-line scan would retire the rule on an editor's wrap.
+    # --- Rule 7 — the four-member listener-stream vocabulary. The DIRTY
+    # fixtures are stale four-stream sentence shapes; the CLEAN ones are the
+    # two-member wording plus an M-69-style retirement statement, which names
+    # `:events` / `:errors` in passing and must stay legal. R7-7 is the reflow
+    # tooth: the anchor is multi-word, so a physical-line scan would disarm the
+    # rule on an editor's wrap.
     def expect_r7(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         found = bool(listener_stream_vocab_problems(text))
@@ -4119,7 +4102,7 @@ def _self_test() -> int:
         "`:events` and `:errors` always-on, `:epoch` via the epoch artefact), "
         "and an unknown stream throws `:rf.error/unknown-listener-stream`.",
         dirty=True,
-        label="R7-1 the pre-fix M-26 four-stream row",
+        label="R7-1 a stale M-26 four-stream row",
     )
     expect_r7(
         "— which also carries the always-on `:events` and `:errors` "
@@ -4127,14 +4110,14 @@ def _self_test() -> int:
         "optional: the vocabulary is closed (`:trace` / `:events` / "
         "`:errors` / `:epoch`) with no bare default.",
         dirty=True,
-        label="R7-2 the pre-fix M-55 closed-vocabulary sentence",
+        label="R7-2 a stale M-55 closed-vocabulary sentence",
     )
     expect_r7(
         "… with the raw always-on `:events` / `:errors` streams of "
         "`(rf/register-listener! stream id f)` beneath it for an intentionally "
         "corpus-wide hook, and that same verb's `:trace` stream.",
         dirty=True,
-        label="R7-3 the pre-fix observability-sweep pointer",
+        label="R7-3 a stale observability-sweep pointer",
     )
     expect_r7(
         "The stream is the **first** argument — the verb is one "
@@ -4144,7 +4127,7 @@ def _self_test() -> int:
         "whose replacement is an `:observability` sink rather than a listener, "
         "and an unknown stream throws `:rf.error/unknown-listener-stream`.",
         dirty=False,
-        label="R7-4 the repaired M-26 row",
+        label="R7-4 the two-member M-26 row",
     )
     expect_r7(
         "— whose stream is the **first** argument and is not optional: "
@@ -4153,7 +4136,7 @@ def _self_test() -> int:
         "`:events` / `:errors` members; production observation is an "
         "`:observability` sink, per M-69 below).",
         dirty=False,
-        label="R7-5 the repaired M-55 sentence",
+        label="R7-5 the two-member M-55 sentence",
     )
     expect_r7(
         "rf2-kuky.69 retired the always-on `:events` / `:errors` listener "
