@@ -40,7 +40,7 @@
   `:cannot-run` refusal rows through the pure projection helpers in
   `re-frame.story.ui.test-mode.pure` (`run-status` / `check-rows` /
   `schema-rows` / `cannot-run-rows` / `filter-rows` / `evidence-available?`).
-  Slots the substrate does not yet populate render an honest empty/dash
+  Slots the substrate does not populate render an honest empty/dash
   state — never a fabricated row.
 
   When the variant body's `:script` slot is empty / absent the pane
@@ -55,7 +55,7 @@
 
   ## Layout
 
-  This namespace owns styles, the per-section renderers
+  This namespace owns the per-section renderers
   (`header` / `summary-section` / `scrubber-section` / `rows-section` /
   `empty-state`), and the top-level `test-view` component. Companion
   namespaces:
@@ -89,8 +89,8 @@
             [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
 ;; Styles live in `re-frame.story.ui.test-mode.view-styles` (pure-data
-;; leaf, no Reagent dep). Required as `styles` above so the in-file
-;; call sites (`(:wrap styles)` etc.) stay textually identical.
+;; leaf, no Reagent dep), referred as `styles` above for the in-file
+;; call sites (`(:wrap styles)` etc.).
 
 ;; ---- section renderers ---------------------------------------------------
 
@@ -440,7 +440,7 @@
 
 (defn- rows-section
   "Per-test assertion rows (spec/021 §1 — terminal + script-checkpoint
-  assertions; the substrate folds both onto one `:assertions` slot today,
+  assertions; the substrate folds both onto one `:assertions` slot,
   so the pane renders them as one ordered list). Carries the failed-only
   filter. Empty when no run has executed; renders nothing when the run
   recorded zero assertions (the summary pill already told the user)."
@@ -468,7 +468,7 @@
   "Checks grouped by check id (spec/021 §1; spec/017 §Checks — a failed
   check shows BOTH the check id AND its underlying assertion records).
   Renders nothing when the plan declared no checks (the common case
-  today — an honest empty state, never a fabricated check group)."
+  — an honest empty state, never a fabricated check group)."
   [variant-id]
   (let [slot     (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result   (:result slot)
@@ -673,25 +673,24 @@
   (re-allocates the variant frame via `reset-variant`) but not
   the variant's authoring shape.
 
-  rf2-4e545l finding 3: shell.cljs mounts this component with NO React
+  shell.cljs mounts this component with NO React
   key (`[test-mode-view/test-view variant-id]`), and `:active-mode-tab`
   is per-variant persisted, so switching `:selected-variant` between two
   variants BOTH already on the `:test` tab reconciles as a PROP UPDATE
   at this component's tree position — React reuses the same instance
   rather than unmounting/remounting it. A `:component-did-mount`-only
-  auto-run (the prior implementation) never re-fires on a prop update,
-  so the newly-focused variant's pane rendered blank until a manual
-  Re-run. `r/with-let`'s body runs on EVERY render (mount AND
+  auto-run would never re-fire on a prop update, so the newly-focused
+  variant's pane would render blank until a manual Re-run. `r/with-let`'s body runs on EVERY render (mount AND
   reconciled update alike), so tracking the last-seen `variant-id` here
   and re-checking the auto-run condition on a change catches a
   reconciled swap the same way a fresh mount would — the same pattern
-  `variant-cell` (workspace.cljc, rf2-zme7/kgn0c/c56hr) uses to
+  `variant-cell` (workspace.cljc) uses to
   pre-allocate a variant's frame from inside a render body rather than a
   lifecycle hook."
   [variant-id]
   (when variant-id
     (r/with-let [last-variant (atom nil)]
-      ;; rf2-yemtm: `variant-has-tests?` below reads the registrar, which no
+      ;; `variant-has-tests?` below reads the registrar, which no
       ;; ratom tracks, so read the registry tick the shell's poll stamps. A
       ;; registration that adds a `:script` or `:assertions` then re-renders
       ;; this pane instead of leaving it on 'No tests registered'.
