@@ -105,7 +105,7 @@ function Get-DescendantPids([int]$rootPid) {
 # PATH) dumps open handles into the core dir. Best-effort: never throws.
 function Write-LockHolderDump([string]$worktreeRoot, [int]$ourChildPid) {
   Write-Host ""
-  Write-Host "================ rf2-c3hffe lock-holder dump ================"
+  Write-Host "================ re-frame2 lock-holder dump ================="
   Write-Host "Timed out waiting for: cd $CoreDir && clojure -M:test"
   Write-Host "Worktree root: $worktreeRoot"
   Write-Host ""
@@ -177,7 +177,7 @@ try {
 } catch { $worktreeRoot = "" }
 if ([string]::IsNullOrWhiteSpace($worktreeRoot)) { $worktreeRoot = $CoreDir }
 
-Write-Info "rf2-c3hffe bounded core JVM runner"
+Write-Info "re-frame2 bounded core JVM runner"
 Write-Info "  dir:     $CoreDir"
 Write-Info "  command: clojure -M:test"
 Write-Info "  timeout: ${TimeoutSeconds}s"
@@ -210,7 +210,7 @@ if (-not $exited) {
 
   Write-Host ""
   Write-Host "FAIL (timeout) core JVM suite did not finish within ${TimeoutSeconds}s."
-  Write-Host "This is the rf2-c3hffe Windows file-lock deadlock symptom, NOT a"
+  Write-Host "This is the Windows file-lock deadlock symptom, NOT a"
   Write-Host "framework-correctness failure - CI's Linux runners run this suite green."
   Write-Host ""
   Write-Host "HANDOFF / next steps:"
@@ -237,7 +237,7 @@ if ($code -eq 0) {
 } else {
   Write-Host ""
   Write-Host "FAIL core JVM suite exited non-zero (exit $code) - a REAL test failure"
-  Write-Host "(distinct from the rf2-c3hffe deadlock, which exits 124)."
+  Write-Host "(distinct from the file-lock deadlock, which exits 124)."
   Write-Host "repro: cd implementation/core && clojure -M:test"
 }
 exit $code
