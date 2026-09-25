@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # scripts/git-hooks/lib/check-commit-attribution.sh
 #
-# ONE detector for the AI-ATTRIBUTION rule (rf2-2e8f), sourced by BOTH arms so
+# ONE detector for the AI-ATTRIBUTION rule, sourced by BOTH arms so
 # the local hook and the CI gate cannot drift apart:
 #
 #   1. scripts/git-hooks/commit-msg          — refuses the message being written.
@@ -12,21 +12,17 @@
 # THE RULE. CLAUDE.md > Git Conventions: "No AI attribution in commits or PRs.
 # ... Commit and PR text should read as the user's own work."
 #
-# WHY IT NEEDED A GUARD, AND WHY IT WILL RECUR WITHOUT ONE
+# WHY IT NEEDS A GUARD
 #
-#   The rule is not being broken by carelessness. It is being broken by a LIVE
-#   CONFLICT BETWEEN TWO INSTRUCTION SOURCES. The agent harness injects a
-#   session-level reminder telling the agent to END EVERY COMMIT MESSAGE with
-#   exactly these trailers; the checked-in CLAUDE.md forbids them. Both reach
-#   every worker, they contradict flatly, and nothing resolved the tie — so it
-#   was broken BOTH WAYS by capable agents in the SAME WAVE (one worker
-#   declined the trailers citing CLAUDE.md; two siblings followed the harness).
-#   That is a coin-flip, not a convention.
-#
-#   Three commits reached the trunk that way — 04230d0d33, e1b07cf184,
-#   e71c404c9b, each carrying a `Co-Authored-By:` line AND a `Claude-Session:`
-#   URL — and they got there SILENTLY, because nothing checked. A convention
-#   with standing counterexamples in its own log is a convention eroding.
+#   The rule is not broken by carelessness. It is broken by a LIVE CONFLICT
+#   BETWEEN TWO INSTRUCTION SOURCES. The agent harness injects a session-level
+#   reminder telling the agent to END EVERY COMMIT MESSAGE with exactly these
+#   trailers; the checked-in CLAUDE.md forbids them. Both reach every worker and
+#   they contradict flatly, so without a check capable agents break the tie
+#   BOTH WAYS — one declines the trailers citing CLAUDE.md, its sibling follows
+#   the harness. That is a coin-flip, not a convention, and the offending
+#   commits reach the trunk SILENTLY. A convention with standing
+#   counterexamples in its own log is a convention eroding.
 #
 # WHAT IT MATCHES, AND WHY THE SET IS SMALL
 #
@@ -39,26 +35,26 @@
 #
 # A TRAILER IS A LINE THAT *IS* THE ATTRIBUTION; PROSE MERELY NAMES IT
 #
-#   That distinction is the whole of rule 3's and rule 4's shape, and it was
-#   learned the expensive way (rf2-uo5f). Rule 3 was a bare SUBSTRING test and
-#   rule 4 a bare PREFIX test, so a line that only MENTIONED a forbidden shape
-#   was refused as though it carried one. The line that found it, on PR #9330
-#   at column 0, was a worker's own statement that it had COMPLIED:
+#   That distinction is the whole of rule 3's and rule 4's shape. A bare
+#   SUBSTRING test for rule 3, or a bare PREFIX test for rule 4, would refuse a
+#   line that only MENTIONS a forbidden shape as though it carried one — and
+#   the likeliest such line at column 0 is a worker's own statement that it
+#   COMPLIED:
 #
 #     No Co-Authored-By: Claude and no Generated with [Claude Code] trailer,
 #     in the commit message or in this description.
 #
 #   Every dispatch brief in this project tells the worker to decline the
-#   trailers, so that sentence is written by design — and the guard reddened
-#   the PR for saying it. Not once: a PR per worker per wave. And it could not
+#   trailers, so that sentence is written by design, and a guard that reddens
+#   the PR for saying it fires on a PR per worker per wave. Nor can such a red
 #   be cleared by fixing the body, because `test.yml` reads the body from the
 #   FROZEN EVENT PAYLOAD; a re-run re-reads the old text for ever, and only a
 #   new event (a push, or a close/reopen, which then leaves two check
 #   generations in the rollup) can clear it.
 #
-#   THE FIX IS STRUCTURAL, NOT SENTIMENTAL. It does not look for a negation,
-#   an "I declined" or any other phrasing — that was considered and rejected as
-#   fragile and trivially defeatable. It asks the one question that actually
+#   THE TEST IS STRUCTURAL, NOT SENTIMENTAL. It does not look for a negation,
+#   an "I declined" or any other phrasing — that is fragile and trivially
+#   defeatable. It asks the one question that actually
 #   separates the two: is this line the attribution, or a sentence about it?
 #   `git interpret-trailers` recognises a trailer only as a WHOLE LINE, and
 #   GitHub links a co-author only from a whole line, so a marker spliced into
@@ -70,9 +66,9 @@
 #   which is already precisely git's own definition of a trailer: a column-0
 #   line reading `Claude-Session: ...`, or `Co-Authored-By: ...` carrying the
 #   assistant's address, IS one however the rest of the sentence reads. The
-#   observed false positive never reached rule 2 — `No Co-Authored-By: ...`
-#   fails its prefix test for free. Widening what is already exact would only
-#   open a hole.
+#   compliance sentence never reaches rule 2 — `No Co-Authored-By: ...` fails
+#   its prefix test for free. Widening what is already exact would only open a
+#   hole.
 #
 #   That is the whole set, deliberately. This is a convention checker and they
 #   metastasise: it is NOT a commit-message linter, it does not grade subject
@@ -86,8 +82,7 @@
 #   default is `Claude <claude@anthropic.com>` — so the address is both
 #   sufficient and precise. A name substring is neither: it refuses
 #   `Co-Authored-By: Jean-Claude Martin <jcm@example.invalid>`, a human
-#   colleague turned away for their own name. An earlier revision of this file
-#   shipped exactly that.
+#   colleague turned away for their own name.
 #
 #   The fourth shape is the same session URL as the first with no key in front
 #   of it, which is how the harness writes it into a PULL REQUEST BODY. It
@@ -108,14 +103,14 @@
 #   READING at git's scissors line — `# ------------------------ >8 ---...` —
 #   below which `git commit -v` writes the diff.
 #
-#   NEITHER FALLS OUT OF THE COLUMN-0 ANCHOR, which is what an earlier revision
-#   of this file claimed. A `#` line starts at column 0, and rules 1, 2 and 4
-#   are prefix tests that a `#` displaces for free while rule 3 is a SUBSTRING
-#   test that it does not — so `# 🤖 Generated with [Claude Code]` was refused.
-#   That bit for real: `commit-msg` reads COMMIT_EDITMSG BEFORE git strips the
-#   comments and the diff, so any `git commit -v` whose diff touched CLAUDE.md,
-#   this file or its tests was refused with `--no-verify` the only escape — a
-#   guard punishing the commit that repairs it. Layer 10d pins both halves.
+#   NEITHER FALLS OUT OF THE COLUMN-0 ANCHOR. A `#` line starts at column 0,
+#   and rules 1, 2 and 4 are prefix tests that a `#` displaces for free, but
+#   rule 3 admits decoration in front of the marker — so without the `#` arm
+#   `# 🤖 Generated with [Claude Code](<link>)` would be refused. That matters:
+#   `commit-msg` reads COMMIT_EDITMSG BEFORE git strips the comments and the
+#   diff, so any `git commit -v` whose diff touches CLAUDE.md, this file or its
+#   tests would be refused with `--no-verify` the only escape — a guard
+#   punishing the commit that repairs it. Layer 10d pins both halves.
 #
 # WHY FOLDING BEATS `grep -i`
 #
@@ -150,19 +145,18 @@
 # arrives wearing whatever punctuation the surrounding text lent it — the
 # markdown marker's closing `)`, a sentence's full stop.
 #
-# THIS ISOLATES THE HOST, WHICH IS THE WHOLE POINT. Rule 3's tail anchor used
-# to ask whether the word CONTAINED `claude` or `anthropic` anywhere, which
-# every piece of documentation around it already described as "ends on the
-# tool's own link". A URL's PATH is not its host, so that test refused an
-# ordinary citation:
+# THIS ISOLATES THE HOST, WHICH IS THE WHOLE POINT. Rule 3's tail anchor means
+# "ends on the tool's own link", and a URL's PATH is not its host, so a test
+# asking whether the word CONTAINS `claude` or `anthropic` anywhere would refuse
+# an ordinary citation:
 #
 #      Generated with [Claude Code] was declined per https://github.com/day8/re-frame2/blob/main/CLAUDE.md.
 #
 #   — a link to the very rule the sentence is complying with, refused because
-# the FILENAME of that rule is `CLAUDE.md`. The same sentence citing
-# `README.md` passed. That is the rf2-uo5f false-positive class again, reached
-# through the tail rather than the head, and linking the rule rather than
-# naming its file is the natural thing to write.
+# the FILENAME of that rule is `CLAUDE.md`, while the same sentence citing
+# `README.md` passes. That is the mention-versus-attribution false positive
+# again, reached through the tail rather than the head, and linking the rule
+# rather than naming its file is the natural thing to write.
 #
 # So: strip the scheme, take the authority, drop userinfo and port, and compare
 # the host itself. Subdomains of the tool's hosts count; a host that merely
@@ -205,7 +199,7 @@ rf2_attribution_is_tool_link() {
 #
 # Returns 0 when LINE is an AI-attribution line, 1 otherwise.
 #
-# TRAILING WHITESPACE IS TRIMMED BEFORE THE RULES RUN, which matters now that
+# TRAILING WHITESPACE IS TRIMMED BEFORE THE RULES RUN, which matters because
 # rules 3 and 4 anchor the END of the line as well as the start. A trailing CR
 # (a CRLF commit-message file on Windows) is already stripped upstream by
 # rf2_attribution_offending_lines; trailing blanks are stripped here.
@@ -262,44 +256,34 @@ rf2_attribution_is_offending_line() {
   #        after it attributes nothing.
   #
   #    So `… Generated with [Claude Code](…)` is refused and `Generated with
-  #    [Claude Code] was declined` is not — which is the whole of rf2-uo5f.
+  #    [Claude Code] was declined` is not.
   #
-  #    THE SECOND ANCHOR TESTS FOR A LINK, NOT FOR THE WORD "CLAUDE", and the
-  #    difference between those two is the residual this repair closes (the
-  #    merged-PR audit of #9385). The first cut of this rule asked only whether
-  #    the last word CONTAINED `claude` or `anthropic`, which the documentation
-  #    above, scripts/git-hooks/README.md and CLAUDE.md all described as "ends
-  #    on the tool's own link" — a promise the code did not keep. The gap is
-  #    not academic: it refuses an ordinary column-0 compliance sentence that
+  #    THE SECOND ANCHOR TESTS FOR A LINK, NOT FOR THE WORD "CLAUDE". A test
+  #    for the word would refuse an ordinary column-0 compliance sentence that
   #    merely happens to END on such a word,
   #
   #      Generated with [Claude Code] was declined per CLAUDE.md.
   #
   #    whose final word `CLAUDE.md.` is a FILENAME. That line carries no link
-  #    and attributes nothing to anybody, and it is the same false-positive
-  #    class rf2-uo5f exists for, reached one rewording away from the case
-  #    already pinned: `No Generated with [Claude Code] trailer was added.`
-  #    passes only because it ends on `added.`. So the discriminator is
-  #    structural on BOTH halves — no letters in front, and a URL at the end
-  #    whose host is the tool's; deliberately NOT a list of negations ("No",
-  #    "declined", "not"), which was considered and rejected here as trivially
+  #    and attributes nothing to anybody; it is the same mention-versus-
+  #    attribution false positive, one rewording away from
+  #    `No Generated with [Claude Code] trailer was added.`, which ends on
+  #    `added.`. So the discriminator is structural on BOTH halves — no letters
+  #    in front, and a URL at the end whose host is the tool's; deliberately
+  #    NOT a list of negations ("No", "declined", "not"), which is trivially
   #    defeatable.
   #
-  #    AND "WHOSE HOST IS THE TOOL'S" HAD TO BE IMPLEMENTED TOO, which is the
-  #    third round on the same sentence. That repair added a `://` test in
-  #    front of the substring test and kept the substring test behind it, so
-  #    the word still answered for the host and a citation URL whose PATH
-  #    carried `claude` was read as the tool's own link:
+  #    AND "WHOSE HOST IS THE TOOL'S" MEANS THE HOST. A word test behind a
+  #    `://` test would still let a citation URL whose PATH carries `claude`
+  #    read as the tool's own link:
   #
   #      Generated with [Claude Code] was declined per https://github.com/day8/re-frame2/blob/main/CLAUDE.md.
   #
-  #    was refused while the same sentence citing `README.md` passed, on
+  #    would be refused while the same sentence citing `README.md` passes, on
   #    nothing but a word in the path. Linking the rule rather than naming its
   #    file is the natural way to cite it — and this repository's rule file is
-  #    literally called CLAUDE.md — so the wording a brief invites most was the
-  #    one refused. `rf2_attribution_is_tool_link` above now parses the tail as
-  #    a URL and compares the HOST, which is what every piece of documentation
-  #    around this rule has promised since the first repair.
+  #    literally called CLAUDE.md — so `rf2_attribution_is_tool_link` above
+  #    parses the tail as a URL and compares the HOST.
   case "$_rf2a_low" in
     *'generated with'*)
       case "${_rf2a_low%%generated with*}" in
@@ -406,8 +390,8 @@ rf2_attribution_refusal() {
   # The safe force-push flag is `--force-with-<the retired view-lifetime word>`,
   # and `scripts/check_view_lifetime_residue.py` is a repo-wide ratchet held at
   # ZERO over tracked file content — it matches that word as a bare token, which
-  # is exactly what a git flag name makes it. Spelling the flag out reds the
-  # ratchet (measured on this file). Do not "helpfully" restore it.
+  # is exactly what a git flag name makes it. Spelling the flag out would red
+  # the ratchet, so do not "helpfully" spell it.
   case "$_rf2a_context" in
     pr)
       printf '  Fix — drop those lines from the body:\n' >&2
