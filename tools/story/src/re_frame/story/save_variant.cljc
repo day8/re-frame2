@@ -188,6 +188,9 @@
                       the ones the saved variant runs with — declared,
                       inherited through `:extends` or composed — except
                       `:fx-overrides`, which is the source's declared slot.
+                      It also reads `::compose-left-out`, the source's
+                      `:compose` ids the saved body leaves out, which the
+                      DB seed row's note names.
   - `shell`         — the shell-state map — read for the live chrome-wide
                       `:viewport` selection (the viewport fork).
 
@@ -210,6 +213,14 @@
         setup-note (if (seq setup)
                      " The source's :setup events re-run in the saved variant via :extends."
                      "")
+        left-out  (declared-slot variant-body ::compose-left-out)
+        compose-note (if (seq left-out)
+                       (str " The source's :compose " (pr-str (vec left-out))
+                            " is not carried: the source and those fragments both carry"
+                            " setup or a script, which would run in a different order"
+                            " under :extends. Add them to the saved variant by hand if"
+                            " that order suits.")
+                       "")
         fx-hidden-note " :fx-overrides the source inherits or composes are not shown."
         body-vp   (declared-slot variant-body :viewport)
         live-vp   (:viewport shell)
@@ -237,14 +248,15 @@
      ;; `:db-seed` the saved variant runs with, declared, inherited or
      ;; composed. A `:setup` is not a seed, so it never sets
      ;; this row's status or value; the note says separately that its
-     ;; events re-run through `:extends`.
+     ;; events re-run through `:extends`, and names any `:compose` ids the
+     ;; saved body leaves out because their setup or script would reorder.
      (if (some? db-seed)
        (declared :db-seed (slice-labels :db-seed) db-seed
                  (str "No live app-db capture — the :db-seed the source declares, inherits or composes carries forward, captured-as-declared."
-                      setup-note))
+                      setup-note compose-note))
        (not-wired :db-seed (slice-labels :db-seed)
                   (str "No live app-db capture and no :db-seed on the source — app-db state is not captured."
-                       setup-note)))
+                       setup-note compose-note)))
 
      (not-wired :route (slice-labels :route)
                 "No live route capture and no route slot on a variant body — route state is not captured.")
@@ -477,13 +489,23 @@
       (or (and (seq (:setup source-body)) (some (comp seq :setup) frags))
           (and (script? source-body) (some script? frags))))))
 
+(defn- compose-left-out
+  "The `:compose` ids of `source-body` that a saved variant leaves out, or
+  nil. They are left out when a copied `:compose` would run the fragments'
+  setup and script in a different order than the source does
+  (`compose-order-lost?`); the capture report names them instead."
+  [source-body]
+  (let [compose (:compose source-body)]
+    (when (and (seq compose) (compose-order-lost? source-body compose))
+      (vec compose))))
+
 (defn saved-variant-body
   "The variant body Save Variant writes for `source-id`:
   `{:extends source-id :args args-snapshot}`, plus the source's own
   `:compose` ids. `:extends` does not inherit `:compose`, so without the
   copy the saved variant renders without the fragments the source
   composes. The copy is left out when the saved variant could not run the
-  composed setup and script in the source's order (`compose-order-lost?`).
+  composed setup and script in the source's order (`compose-left-out`).
 
   The capture report compiles this body and the save dialog prints it, so
   the report describes exactly the variant the snippet registers."
@@ -491,7 +513,7 @@
   (let [body    (rf.story.registrar/handler-meta :variant source-id)
         compose (:compose body)]
     (cond-> {:extends source-id :args args-snapshot}
-      (and (seq compose) (not (compose-order-lost? body compose)))
+      (and (seq compose) (not (compose-left-out body)))
       (assoc :compose (vec compose)))))
 
 (defn- carried-source-body
@@ -506,19 +528,25 @@
   lowering, which is not an fx override the author wrote, and the plan
   holds no merged value from before that lowering.
 
-  When the plan cannot compile, the registered body is returned as it is."
+  `::compose-left-out` carries the `:compose` ids the saved body leaves
+  out, so the report can name them.
+
+  When the plan cannot compile, the registered body is returned with only
+  `::compose-left-out` added."
   [source-id args-snapshot]
-  (let [body  (rf.story.registrar/handler-meta :variant source-id)
-        world (try
-                (:world (rf.story.plan/variant-plan
-                          (saved-variant-body source-id args-snapshot)))
-                (catch #?(:clj Exception :cljs :default) _ nil))]
+  (let [body     (rf.story.registrar/handler-meta :variant source-id)
+        left-out (compose-left-out body)
+        world    (try
+                   (:world (rf.story.plan/variant-plan
+                             (saved-variant-body source-id args-snapshot)))
+                   (catch #?(:clj Exception :cljs :default) _ nil))]
     (cond-> body
-      world (assoc :sub-overrides (not-empty (get-in world [:render :sub-overrides]))
-                   :db-seed       (:db-seed world)
-                   :setup         (:setup world)
-                   :network       (:network world)
-                   :viewport      (:viewport world)))))
+      world    (assoc :sub-overrides (not-empty (get-in world [:render :sub-overrides]))
+                      :db-seed       (:db-seed world)
+                      :setup         (:setup world)
+                      :network       (:network world)
+                      :viewport      (:viewport world))
+      left-out (assoc ::compose-left-out left-out))))
 
 (defn save-current-as-variant!
   "Capture the current canvas state as a save-as-variant snapshot and
