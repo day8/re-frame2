@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.self-noise-cljs-test
-  "Regression tests for the Xray self-noise filter (rf2-xs8vu).
+  "Tests for the Xray self-noise filter.
 
   Xray's own panels render INSIDE the host app, so every host
   dispatch reactively re-fires the Xray-side subs they read and
@@ -15,8 +15,8 @@
   the frameless secondary ring + the mirror dispatch never record
   the noise in the first place; readers stay simple. Pure-data +
   JVM-runnable predicate (`xray-internal-event?`) lives in
-  `self_noise.cljc` per the rf2-43koh / rf2-3g9nw D4=a ruling; the
-  CLJS-side wiring lock drives `collect-trace!` end-to-end."
+  `self_noise.cljc`; the CLJS-side wiring lock drives `collect-trace!`
+  end-to-end."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [re-frame.trace.projection :as rf.trace.projection]
@@ -42,10 +42,10 @@
 ;; ---- predicate ----------------------------------------------------------
 
 (deftest xray-internal-event?-reads-tags-frame
-  ;; rf2-7737vq: the predicate now reads the RAW trace-event frame via the
+  ;; The predicate reads the RAW trace-event frame via the
   ;; canonical reader `re-frame.trace/trace-event-frame` ([:tags :frame]).
-  ;; Per the ruling a raw trace event carries frame identity ONLY under
-  ;; [:tags :frame]; the prior top-level-`:frame` fallback is gone.
+  ;; A raw trace event carries frame identity ONLY under
+  ;; [:tags :frame]; there is no top-level-`:frame` fallback.
   (testing ":frame under :tags — true iff = :rf/xray"
     (is (true?  (self-noise/xray-internal-event?
                   {:tags {:frame :rf/xray}})))
@@ -60,7 +60,7 @@
     (is (false? (self-noise/xray-internal-event? {})))))
 
 (deftest xray-internal-event?-ignores-stray-top-level-frame
-  ;; rf2-7737vq: a stray top-level `:frame` is NOT a public raw-event shape;
+  ;; A stray top-level `:frame` is NOT a public raw-event shape;
   ;; the canonical reader ignores it. A raw event whose `[:tags :frame]` is
   ;; absent reads as frameless regardless of a top-level `:frame`.
   (testing "top-level-only :frame is ignored (raw events frame under :tags)"
@@ -84,7 +84,7 @@
                           :frame   :rf/xray}})))
     ;; View re-render from a Xray panel — :frame rides under :tags per
     ;; re-frame.views/emit-view-render-trace! (the emit passes :frame in
-    ;; the tags map; build-event never hoists it top-level — rf2-7737vq).
+    ;; the tags map; build-event never hoists it top-level).
     (is (true?  (self-noise/xray-internal-event?
                   {:operation :rf.view/render :op-type :rf.view
                    :id 18 :time 1001
@@ -104,9 +104,9 @@
 ;; `sensitive_trace_cljs_test.cljc` uses for its `collect-trace!`
 ;; assertions).
 ;;
-;; Post-rf2-43koh the listener body lives in `trace_collector.cljs`
+;; The listener body lives in `trace_collector.cljs`
 ;; and frame-bound events ride the framework's per-frame rings. The
-;; self-noise filter still sits at the listener boundary — `:rf/xray`
+;; self-noise filter sits at the listener boundary — `:rf/xray`
 ;; events never reach either the per-frame rings (the frame is
 ;; suppressed by `:rf.trace/frame-no-emit?` at source) nor the
 ;; frameless secondary ring.
@@ -116,7 +116,7 @@
      ;; Realistic `:rf.sub/run` emit from a Xray panel re-rendering in
      ;; response to host activity. The sub fires under
      ;; `(rf/with-frame :rf/xray ...)` so its trace envelope carries
-     ;; `:frame :rf/xray`. This is the noise rf2-xs8vu eliminates.
+     ;; `:frame :rf/xray`. This is the noise the filter eliminates.
      {:operation :rf.sub/run :op-type :rf.sub
       :id 2 :time 1001
       :tags {:rf.sub/id  :rf.xray/trace-buffer
@@ -128,7 +128,7 @@
      ;; Realistic `:rf.view/render` emit from a Xray panel re-rendering.
      ;; `:frame` rides under `:tags` per re-frame.views/emit-view-render-trace!
      ;; (the emit passes it in the tags map; build-event never hoists it
-     ;; top-level — rf2-7737vq).
+     ;; top-level).
      {:operation :rf.view/render :op-type :rf.view
       :id 3 :time 1002
       :tags  {:rf.view/render-key 42 :frame :rf/xray}}))
@@ -154,16 +154,16 @@
 #?(:cljs
    (deftest collect-trace-filter-applies-to-tags-frame
      (testing "Xray-internal events with :frame under :tags only are also dropped"
-       ;; Some emit sites leave :frame under :tags rather than hoisting
-       ;; top-level (e.g. :rf.sub/run via re-frame.subs/validate-and-trace).
-       ;; The filter MUST cover both shapes.
+       ;; Emit sites leave :frame under :tags rather than hoisting it
+       ;; top-level (e.g. :rf.sub/run via re-frame.subs/validate-and-trace),
+       ;; and the filter reads it there.
        (trace-collector/collect-trace!
          {:operation :rf.sub/run :op-type :rf.sub
           :id 4 :time 1003
           :tags {:rf.sub/id :rf.xray/event-bundles :frame :rf/xray}})
        (is (empty? (trace-collector/frameless-events))))))
 
-;; ---- xray-internal event-id guard (rf2-g1pt8) --------------------------
+;; ---- xray-internal event-id guard --------------------------------------
 ;;
 ;; Pure-data sibling of `xray-internal-event?`. The ingest filter above
 ;; catches every trace event emitted INSIDE `(rf/with-frame :rf/xray
@@ -182,16 +182,16 @@
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/select-tab)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/open-settings)))
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/sync-trace-buffer)))
-    (testing "sub-namespaced internal events also classify (rf2-y8iqe)"
+    (testing "sub-namespaced internal events also classify"
       ;; Xray registers + dispatches many internal events under
       ;; SUB-namespaces of rf.xray. The palette lowers
       ;; `:palette/select-static-tab` into a FRAMELESS
       ;; `[:dispatch [:rf.xray.static/select-tab …]]`
-      ;; (palette/events.cljs:304) — that chain-resolves onto
+      ;; (palette/events.cljs) — that chain-resolves onto
       ;; :rf/default, so the frame gate misses it and this data-layer
       ;; predicate is the only thing standing between it and the host's
       ;; user-facing :rf.xray/event-bundles L2 list. Exact `= "rf.xray"`
-      ;; equality missed it; the segment-prefix match catches it.
+      ;; equality would miss it; the segment-prefix match catches it.
       (is (true?  (self-noise/xray-internal-event-id? :rf.xray.static/select-tab)))
       (is (true?  (self-noise/xray-internal-event-id? :rf.xray.epoch/toggle-row-expand)))
       (is (true?  (self-noise/xray-internal-event-id? :rf.xray.filters/persist)))
@@ -240,12 +240,12 @@
                   {:dispatch-id 3
                    :event       [:rf.xray/open-settings]}))
         "single-element event vector (no payload) still classifies")
-    (testing "frameless sub-namespaced internal cascade is filtered (rf2-y8iqe)"
-      ;; The concrete leak path: palette/events.cljs:304 lowers
+    (testing "frameless sub-namespaced internal cascade is filtered"
+      ;; The concrete leak path: palette/events.cljs lowers
       ;; `:palette/select-static-tab` into a FRAMELESS
-      ;; `[:dispatch [:rf.xray.static/select-tab :machines]]`. With the
-      ;; old exact-equality predicate this cascade landed on :rf/default
-      ;; and surfaced as a spurious row in the host's :rf.xray/event-bundles
+      ;; `[:dispatch [:rf.xray.static/select-tab :machines]]`. That cascade
+      ;; lands on :rf/default, and an exact-equality predicate would
+      ;; surface it as a spurious row in the host's :rf.xray/event-bundles
       ;; L2 list. The segment-prefix match closes the hole.
       (is (true?  (self-noise/xray-internal-event-bundle?
                     {:dispatch-id 9
@@ -261,7 +261,7 @@
                   {:dispatch-id 5
                    :event       [:user/click]}))))
   (testing ":ungrouped + event-less cascades stay false"
-    ;; `event-bundle-has-event?` (rf2-639lc) handles the :ungrouped bucket
+    ;; `event-bundle-has-event?` handles the :ungrouped bucket
     ;; at the L2 boundary; the xray-internal filter sits orthogonal.
     (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id :ungrouped :event nil})))
@@ -272,13 +272,12 @@
     (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 7 :event "not-a-vector"})))))
 
-;; ---- filtered-event-bundles — the shared group+strip projection (rf2-y2h6y) ---
+;; ---- filtered-event-bundles — the shared group+strip projection --------
 ;;
 ;; `filtered-event-bundles` is the ONE home for the `(into [] (remove
-;; xray-internal-event-bundle?) (group-by-event buffer))` pairing that was
-;; previously triplicated verbatim across spine/db->event-bundles, the
-;; reactive :rf.xray/event-bundles sub (registry), and the first-mount seed
-;; (mount). rf2-qlvq8 made those three agree; this helper makes the
+;; xray-internal-event-bundle?) (group-by-event buffer))` pairing that
+;; spine/db->event-bundles, the reactive :rf.xray/event-bundles sub
+;; (registry), and the first-mount seed (mount) all need; it makes their
 ;; agreement structural. These tests pin (a) the strip behaviour and
 ;; (b) that the helper is exactly the manual expression — so all three
 ;; call sites stay in lockstep by construction.
