@@ -1,12 +1,12 @@
 (ns re-frame.bench.fresco.arm1.host-hatch-dom-cljs-test
-  "THE HOST HATCH, PROVEN END-TO-END (rf2-2rtt6.65, HD-011).
+  "THE HOST HATCH, PROVEN END-TO-END (HD-011).
 
   The charter's v0 gate says 'one host hatch proven', and use case D9
   names the claim: hosting React libraries via the one door — value in,
-  callback out, hook/context/ref owners, React-owned lifecycle. Before
-  this bead the contract half existed alone: `front/intent_cljs_test`
-  proves what a declared `:callbacks` entry lowers TO, at closure level,
-  with no door, no foreign component and no DOM anywhere in the witness.
+  callback out, hook/context/ref owners, React-owned lifecycle.
+  `front/intent_cljs_test` is the contract half: it proves what a
+  declared `:callbacks` entry lowers TO, at closure level, with no door,
+  no foreign component and no DOM anywhere in the witness.
   This file is the other half: a real foreign React component — its own
   `useState`, its own `useEffect`, its own `useContext`, its own ref
   plumbing — declared once with `defhost`, driven from Fresco
@@ -32,38 +32,30 @@
   distinction is the whole point of the door — and the dispatcher-level
   probe below is what measures the difference rather than asserting it.
 
-  **The door's own cost changed with rf2-2rtt6.85**, and this suite is
-  where the change is visible. Until HD-011's SSR placeholder was
-  activated the door minted no wrapper, no fiber and no hook: the
-  foreign component was the element's own type. Activating the policy
-  gives every declaration ONE gate — the component that renders the
-  placeholder until the markup is adopted and the foreign component
-  afterwards — so a crossing now costs one fiber and one
-  `useSyncExternalStore`. The budget itself is untouched: `shell-hook-
-  ledger` still declares two, the gate holds no subscription and reads
-  no frame, and the probe below counts the shell's two, then the door's
-  one, then nothing that is not the widget's own roster.
+  **The door has a cost of its own**, and this suite is where it is
+  visible. HD-011's SSR placeholder gives every declaration ONE gate —
+  the component that renders the placeholder until the markup is adopted
+  and the foreign component afterwards — so a crossing costs one fiber
+  and one `useSyncExternalStore`. The budget itself is untouched:
+  `shell-hook-ledger` declares two, the gate holds no subscription and
+  reads no frame, and the probe below counts the shell's two, then the
+  door's one, then nothing that is not the widget's own roster.
 
-  ## The gap this suite found, and the half only the door can witness
+  ## Presence children, and the half only the door can witness
 
-  Proving the crossing turned up a defect one component along: a child
-  handed to `h/presence` is lowered inside the presence component's OWN
-  render, and presence bound no frame there — so an intent-bearing prop
-  on ANY presence child, native or host alike, lowered against no
-  dispatch. Filed as rf2-2rtt6.66 rather than smoothed here, because it
-  was presence's frame plumbing and not the door's; repaired on main
-  (presence resolves the frame through the substrate's context and binds
-  it around its one `as-element` call), and `h/error-boundary` since took the
-  identical repair for its fallback and children (rf2-uo9di).
+  A child handed to `h/presence` is lowered inside the presence
+  component's OWN render, so presence binds the frame there: it resolves
+  the frame through the substrate's context and binds it around its one
+  `as-element` call, and `h/error-boundary` does the same for its
+  fallback and children. Without that, an intent-bearing prop on ANY
+  presence child, native or host alike, would lower against no dispatch.
 
-  That repair could not witness its own host half — the door was still
-  in flight — and its bead says so, naming this suite's then-fenced
-  presence children as what it un-fences. So the fence is lifted below
-  and both shapes are driven through the door from the RETAINED window:
-  an intent vector, which lowers during presence's render, and a
-  declared-`:event` `h/event`, which fails a whole phase later at
-  invocation. Two shapes that break at different moments is exactly why
-  witnessing one is not witnessing the other.
+  The host half is what only the door can witness, so both shapes are
+  driven through the door from the RETAINED window: an intent vector,
+  which lowers during presence's render, and a declared-`:event`
+  `h/event`, which would fail a whole phase later at invocation. Two
+  shapes that break at different moments is exactly why witnessing one
+  is not witnessing the other.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
@@ -145,7 +137,7 @@
                   :imperative-args [] :imperative-return nil
                   :received-imperative nil :ref-node nil :ref-cleanups 0
                   ;; Every context value the foreign side ever read, in the
-                  ;; order it read them (rf2-vrvv9). Accumulated rather than
+                  ;; order it read them. Accumulated rather than
                   ;; overwritten because the question is whether two
                   ;; DISTINCT values stay distinct across the crossing, and
                   ;; the last one alone cannot answer it.
@@ -282,7 +274,7 @@
 
 (defview namespaced-theme-page
   "TWO hosted providers of the ONE context, side by side, each handed a
-  namespaced keyword from a DIFFERENT namespace (rf2-vrvv9). Siblings
+  namespaced keyword from a DIFFERENT namespace. Siblings
   rather than nested, because the question is whether two distinct values
   stay two — and a nested pair would only ever show the inner one.
 
@@ -310,8 +302,8 @@
                   :on-render-row (event [label] (str "rendered:" label))}])
 
 (defview tray
-  "The host under presence, WITH callbacks — the fence rf2-2rtt6.66's
-  repair lifted. Both shapes, because they break a phase apart: the
+  "The host under presence, WITH callbacks. Both shapes, because they
+  break a phase apart: the
   vector at `:on-close` is lowered during presence's own render, and the
   `h/event` at `:on-pick` survives lowering and would fail at invocation."
   [_]
@@ -325,8 +317,8 @@
               :re-frame.fresco/unmounting {:class "widget--exit"}}])])
 
 (defview hosted-row
-  "A host inside an ordinary boundary — which since rf2-2rtt6.52/HD-028
-  is a memoised one, every boundary being a `React.memo` carrying a
+  "A host inside an ordinary boundary — which under HD-028 is a
+  memoised one, every boundary being a `React.memo` carrying a
   value-equality comparator."
   [{:keys [label]}]
   [picker {:label label :on-imperative stable-imperative}])
@@ -463,12 +455,12 @@
                 (fn [_]
                   (try
                     (let [seen (set (:context-themes @!instr))]
-                      (testing "rf2-vrvv9, at the far end of the crossing. The
-                                foreign consumer records every context value it
-                                reads; under the old `(name v)` rule BOTH
-                                providers handed it \"dark\" and this set held
-                                ONE element — two themes, silently one, with
-                                nothing thrown anywhere."
+                      (testing "at the far end of the crossing. The foreign
+                                consumer records every context value it reads;
+                                were keywords crossed by `(name v)`, BOTH
+                                providers would hand it \"dark\" and this set
+                                would hold ONE element — two themes, silently
+                                one, with nothing thrown anywhere."
                         (is (= 2 (count seen))
                             "the collision, stated as a count: two distinct
                              keywords in, two distinct values out")
@@ -551,8 +543,7 @@
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-value-marker-materializes-when-the-foreign-invoker-hands-an-event
-  (testing "the guide's open question — 'whether ::h/value works across a host
-            crossing' — answered with evidence: it works exactly when the
+  (testing "::h/value across a host crossing works exactly when the
             foreign contract hands the DOM event first, as this widget's
             onChange does. A value-first invoker has no event to read a
             target from; h/event is that spelling (row 2 above proves it)."
@@ -678,14 +669,14 @@
                                    :plain-fn   identity}])
           ^js props (unchecked-get el "props")]
       (is (= :compact (unchecked-get props "variant"))
-          "keyword values cross by IDENTITY, not by name (rf2-vrvv9) — the
+          "keyword values cross by IDENTITY, not by name — the
            shallow default's own rule, applied to the value: the author is
            handed to the library exactly what they typed, here as at the
            nested map below")
       (is (= :theme/dark (unchecked-get props "theme"))
           "so a namespaced keyword keeps its namespace. `(name :theme/dark)`
-           was \"dark\", which :other/dark also was — one output for two
-           inputs, silently")
+           is \"dark\", and so is `(name :other/dark)` — crossing by name
+           would be one output for two inputs, silently")
       (is (= "primary" (unchecked-get props "className"))
           "the one exception: a value bound for an HTML attribute has no
            representation but a string, and this is the answer the native
@@ -700,19 +691,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5b — the declaration GOVERNS, and the vector spelling is EVENT-FIRST
-;;      (HD-024, rf2-2rtt6.35). These rows run under :node-test too.
+;;      (HD-024). These rows run under :node-test too.
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Two laws, one surface, and both of them are about the door rather than
 ;; about the value:
 ;;
 ;;   (a) the CONTRACT the declaration named governs every carrier at that
-;;       position — not only the `h/event`.  Before this, a vector took the
-;;       intent path and a map the key-map path whatever the declaration
-;;       said, so a slot declared `:handler` silently dispatched and a
-;;       slot declared `:render` could dispatch during the foreign
-;;       component's own render.  That is the value selecting the
-;;       contract, which is precisely what HD-024 deletes.
+;;       position — not only the `h/event`.  Were the carrier to choose,
+;;       a vector would take the intent path and a map the key-map path
+;;       whatever the declaration said, so a slot declared `:handler`
+;;       would silently dispatch and a slot declared `:render` could
+;;       dispatch during the foreign component's own render.  That is the
+;;       value selecting the contract, which is precisely what HD-024
+;;       forbids.
 ;;   (b) the vector spelling reads the DOM event from argument ONE.  A
 ;;       foreign invoker that hands a value first has no event there, and
 ;;       the refusal names the POSITION and points at `h/event` — instead of
@@ -779,7 +771,7 @@
       (is (identical? stable-imperative (prop el "onImperative"))))
     (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-imperative [:hatch/closed]})))
-        "a bare intent at a declared :handler no longer silently dispatches")
+        "a bare intent at a declared :handler is refused, never silently dispatched")
     (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-imperative {"Enter" [:hatch/closed]}}))))
     (let [[el _] (crossed render-picker {:on-imperative identity})]
@@ -794,8 +786,8 @@
       (is (= [] @!seen)))
     (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-render-row [:hatch/closed]})))
-        "the audit's sharpest case: an intent vector at a declared :render
-         position used to take the intent path and dispatch during the
+        "the sharpest case: an intent vector at a declared :render
+         position taking the intent path would dispatch during the
          foreign component's render")
     (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-render-row {"Enter" [:hatch/closed]}}))))
@@ -817,7 +809,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5c — and what the declaration does NOT govern, an `h/event` may not ask
-;;      (rf2-2rtt6.116)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The complement of 5b, and the same law read from the other side.  5b
@@ -827,18 +818,18 @@
 ;; a request that the position impose one, is asking a position that
 ;; cannot answer.
 ;;
-;; Before this it crossed by identity and simply ran, which is fine for
-;; a plain function and is a SILENTLY DEAD HANDLER for the marked one:
-;; the `:event` convenience means an `h/event` returning `[:row/pick x]` at
-;; an unclaimed slot is called by the library, returns the intent, has
-;; the return discarded, and dispatches nothing.  The user's click does
+;; Crossing it by identity and simply running it would be fine for a
+;; plain function and is a SILENTLY DEAD HANDLER for the marked one: the
+;; `:event` convenience means an `h/event` returning `[:row/pick x]` at an
+;; unclaimed slot would be called by the library, return the intent, have
+;; the return discarded, and dispatch nothing.  The user's click would do
 ;; nothing, in production, with no diagnostic — the same class the
 ;; sibling refusal on an undeclared intent VECTOR exists to delete, one
 ;; level of indirection down.
 ;;
 ;; The rows below are a pair by construction, because a refusal that
-;; also rejected legitimate usage would be strictly worse than the
-;; silence it replaces: the RED row asserts the id, the `:where` and the
+;; also rejected legitimate usage would be strictly worse than
+;; silence: the RED row asserts the id, the `:where` and the
 ;; roster, and the GREEN rows re-assert that every CLAIMED slot — a
 ;; declared `:event`, a declared `:handler`, a declared `:render`,
 ;; React's own `:ref` — still takes the marked form, and that a PLAIN
@@ -939,12 +930,12 @@
     [el !seen]))
 
 (deftest a-render-props-row-is-owned-by-the-boundary-that-supplied-the-callback
-  (testing "rf2-2rtt6.74, at the real `renderRow` seam. HD-024's refusal is
+  (testing "at the real `renderRow` seam. HD-024's refusal is
             INVOCATION-scoped — poison while the call runs, forward to the
             owner once it has returned — so the handlers a `:render` body
             LOWERS are not poisoned with it. Which is most of what a render
             prop is for: a row that is not interactive works either way, and
-            the failure this pins used to land on the USER's click.
+            the failure this pins would land on the USER's click.
 
             Two frames and two recorders are live, and the ambient one at
             invocation is the OTHER — what a foreign component nested below
@@ -990,7 +981,7 @@
       ((prop el "onDraft") #js {:target #js {:value "west"}})
       (is (= [[:hatch/typed "west"]] @!seen))))
 
-  (testing "and the case audit #7398 named. The widget calls
+  (testing "and the value-first case. The widget calls
             `(f (.-value props) e)` — VALUE-first — so argument one is a
             string, and `.preventDefault` on it is the engine's own
             TypeError naming nothing the author wrote. It is this error
@@ -1059,7 +1050,7 @@
                      "them: " (pr-str names)))
             (is (= "useSyncExternalStore" (nth names 2 nil))
                 (str "then the door's ONE hook — the SSR gate's adoption "
-                     "read (rf2-2rtt6.85), and the whole of what a crossing "
+                     "read, and the whole of what a crossing "
                      "costs: " (pr-str names)))
             (is (every? #{"useContext" "useState" "useEffect"} (drop 3 names))
                 (str "and EVERYTHING after it is the widget's own roster — "
@@ -1105,10 +1096,9 @@
           (is (= "1" (attr handle ".widget" "data-clicks"))
               "React-owned state survived entering the exit phase")
           (is (= 1 (:mounts @!instr)))
-          (testing "AND THE RETAINED HOST IS STILL LIVE — the half
-                    rf2-2rtt6.66's repair could not witness for itself,
-                    because the door was in flight when it landed. A
-                    declared :event h/event on a child being animated OUT
+          (testing "AND THE RETAINED HOST IS STILL LIVE — the half only
+                    the door can witness. A declared :event h/event on a
+                    child being animated OUT
                     dispatches into the tray's frame: presence lowered this
                     host's props inside its own render, and the frame it
                     bound there is what the callback closed over"
@@ -1174,13 +1164,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-page-write-does-not-re-render-a-host-under-an-unchanged-boundary
-  (testing "the composition hazard, now that HD-028 ships: a hosted foreign
+  (testing "the composition hazard under HD-028: a hosted foreign
             component sitting inside a memoised boundary. A write that moves
             only the page chrome re-renders the chrome and stops at the row —
             so the third-party component is not re-rendered AT ALL, and the
-            door did not have to know that. The cascade claim rf2-2rtt6.52
-            repaired, extended to foreign components, which are exactly the
-            ones whose render cost nobody controls."
+            door did not have to know that. HD-028's cascade claim,
+            extended to foreign components, which are exactly the ones
+            whose render cost nobody controls."
     (async done
       (if-not (rf.bench.fresco.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
@@ -1248,10 +1238,10 @@
                               closure per parent render, so it defeats a
                               memoised host — the same price every native
                               event position pays. (The boundary-level
-                              value-equality bail-out now SHIPS as HD-028,
-                              and it sits ABOVE this seam: it stops the
-                              equal-props parent re-render before the door is
-                              reached at all, which is the row below.)"
+                              value-equality bail-out, HD-028, sits ABOVE
+                              this seam: it stops the equal-props parent
+                              re-render before the door is reached at all,
+                              which is the row above.)"
                       (let [before (:renders @!instr)]
                         (rf.bench.fresco.arm1.mount/dispatch! @handle [:hatch/set :label "moved-again"])
                         (is (= "moved-again" (.-textContent (q @handle ".mlabel"))))
