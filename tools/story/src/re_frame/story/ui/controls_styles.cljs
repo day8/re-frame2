@@ -1,7 +1,6 @@
 (ns re-frame.story.ui.controls-styles
   "Style map for `re-frame.story.ui.controls`. Pure data; no Reagent
-  dependency. A separate leaf so the controls ns stays within the
-  250-LoC leaf-size ceiling.
+  dependency.
 
   CLJS-only."
   (:require [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
