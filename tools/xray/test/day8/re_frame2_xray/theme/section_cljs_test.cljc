@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.theme.section-cljs-test
-  "Pure-data tests for the shared section-row primitive (rf2-pie8q).
+  "Pure-data tests for the shared section-row primitive.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -16,9 +16,8 @@
      carry the expected testids; header glyph reflects `:expanded?`.
   2. **Collapsed semantics** — when `:expanded? false`, body div is
      omitted entirely (matches managed_fx_template's contract).
-  3. **`:count*` option** — silent when nil, renders ` (N)` when set
-     (event_detail's INTERCEPTORS / EFFECTS HANDLERS RAN contract).
-  4. **`:container-padding` option** — defaults to event_detail's
+  3. **`:count*` option** — silent when nil, renders ` (N)` when set.
+  4. **`:container-padding` option** — defaults to
      `\"8px 12px\"` and is overridable to `\"8px 0\"` for
      managed_fx_template's rhythm."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -109,7 +108,7 @@
     (is (not (contains? ids "t-body")) "body div is omitted when collapsed")
     (is (not (contains? ids "payload-marker"))
         "body hiccup is NOT mounted when collapsed (matches
-         managed_fx_template's pre-refactor behaviour)")))
+         managed_fx_template's contract)")))
 
 ;; ---- (3) :count* option -------------------------------------------------
 
@@ -134,7 +133,7 @@
         outer    (find-by-testid out "t")
         padding  (get-in outer [1 :style :padding])]
     (is (= "8px 12px" padding)
-        "default padding matches event_detail's pre-refactor rhythm")))
+        "default padding is the 8px 12px rhythm")))
 
 (deftest container-padding-overridable
   (let [out      (section/section-row {:label "X" :testid "t"
