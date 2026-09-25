@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.sensitive-trace-cljs-test
-  "Tests for the `:sensitive?` trace-event privacy gate (rf2-azls9,
-  migrated to the EP-0015 per-(tool,frame) reveal grain by rf2-h40lt2).
+  "Tests for the `:sensitive?` trace-event privacy gate, at the EP-0015
+  per-(tool,frame) reveal grain.
 
-  Per Spec 009 §Privacy (resolved by rf2-a32kd) Xray, as a
+  Per Spec 009 §Privacy Xray, as a
   framework-published trace consumer, MUST default-suppress events
   carrying `:sensitive? true`. EP-0015 issue 7 (Spec 015 §Cross-tool
   visibility grain) rules on-box visibility per `(tool, frame)`: there is
@@ -11,8 +11,7 @@
   trusted-local reveal) governs the gate. This suite covers:
 
     1. The predicate vocabulary — the framework-published
-       `rf/sensitive?` (Xray composes against it directly since
-       rf2-kuky.8 retired the tool-side `sensitive-event?` alias) plus
+       `rf/sensitive?` (Xray composes against it directly) plus
        `config.cljc`'s own `suppress-sensitive?` / `include-sensitive?`.
     2. The profile round-trip — `set-egress-profile!` / `get-egress-profile`
        / `configure! {:rf.xray/egress-profile ...}`.
@@ -22,11 +21,11 @@
        through behaviour.
     5. `trace-collector/reset-for-test!` resets the counter alongside the
        buffer.
-    6. The two INGEST gates rf2-y8doi.13 closed — Xray's `:epoch-history`
+    6. The two INGEST gates — Xray's `:epoch-history`
        slot (epoch records carry `:trace-events` verbatim) and
        `panels.fresco-reads/trace-windows` (Xray's second, seam-side
        reader of the framework rings).
-    7. The spine RE-SEED writers (rf2-3x7nj.26.1) — `:rf.xray/set-frame`
+    7. The spine RE-SEED writers — `:rf.xray/set-frame`
        and a cross-frame `:rf.xray/focus-event` re-seed `:epoch-history`
        from a real framework ring through the same gate.
 
@@ -69,8 +68,8 @@
 ;; ---- (1) predicate vocabulary -------------------------------------------
 
 (deftest the-framework-predicate-detects-the-top-level-flag
-  ;; rf2-kuky.8 — Xray composes against `rf/sensitive?` directly; the
-  ;; one-line `config/sensitive-event?` alias is deleted.
+  ;; Xray composes against `rf/sensitive?` directly; there is no
+  ;; tool-side alias.
   (testing "events with :sensitive? true are sensitive"
     (is (true? (rf.privacy/sensitive? {:sensitive? true})))
     (is (true? (rf.privacy/sensitive?
@@ -85,8 +84,8 @@
     (is (false? (rf.privacy/sensitive? nil)))
     (is (false? (rf.privacy/sensitive? :keyword)))
     (is (false? (rf.privacy/sensitive? [:vector]))))
-  (testing "a MALFORMED truthy stamp is sensitive — Xray's panels now
-            suppress it, matching what the MCP wire already did"
+  (testing "a MALFORMED truthy stamp is sensitive — Xray's panels
+            suppress it, matching the MCP wire"
     (is (true? (rf.privacy/sensitive? {:sensitive? "true"})))
     (is (true? (rf.privacy/sensitive? {:sensitive? :yes})))
     (is (true? (rf.privacy/sensitive? {:sensitive? 1})))))
@@ -111,7 +110,7 @@
 
 (deftest default-egress-profile-is-local-redacted
   (testing "Xray defaults to the fail-closed redacting profile — sensitive
-            display suppressed (EP-0015 issue 7, rf2-h40lt2)"
+            display suppressed (EP-0015 issue 7)"
     (is (= :rf.egress/local-redacted (config/get-egress-profile)))
     (is (false? (config/include-sensitive?)))))
 
@@ -205,8 +204,8 @@
 ;; ---- (4) collect-trace! default-suppress + opt-in pass-through ----------
 
 ;; These envelopes deliberately omit `:frame` / `:tags :frame` so the
-;; collector routes them to the frameless secondary ring (per rf2-3g9nw
-;; D2=a). For the LISTENER-path gate the frameless-vs-frame-bound
+;; collector routes them to the frameless secondary ring. For the
+;; LISTENER-path gate the frameless-vs-frame-bound
 ;; distinction is irrelevant — `collect-trace!` drops the sensitive
 ;; event above the ring split either way.
 ;;
@@ -214,8 +213,8 @@
 ;; the §(7) tests below: a real `rf.trace/emit!` populates the framework's
 ;; per-frame ring (which retains EVERY event with no `:sensitive?`
 ;; check), and the gate that matters there is the read-side scrub in
-;; `snapshot-from-rings` (rf2-0ax6f). Keeping both halves here pins the
-;; symmetry the `collect-trace!` docstring now claims.
+;; `snapshot-from-rings`. Keeping both halves here pins the
+;; symmetry the `collect-trace!` docstring claims.
 
 (defn- non-sensitive-event []
   {:op-type :rf.event :operation :rf.event/dispatched
@@ -284,7 +283,7 @@
        (is (= 0 (config/suppressed-count))
            "clearing the buffer also drops the indicator state"))))
 
-;; ---- (6) retroactive scrub on profile-narrowing (rf2-lqmje / rf2-h40lt2) -
+;; ---- (6) retroactive scrub on profile-narrowing ------------------------
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: when the local-render egress
 ;; profile NARROWS from a sensitive-revealing boundary
@@ -391,7 +390,7 @@
        (is (= 2 (count (trace-collector/buffer-for-test)))
            "redundant narrow to local-redacted must not clear the buffer"))))
 
-;; ---- (7) frame-bound sensitive events — the snapshot-read gate (rf2-0ax6f)
+;; ---- (7) frame-bound sensitive events — the snapshot-read gate ---------
 ;;
 ;; The §(4) tests drive FRAMELESS events through `collect-trace!` — that
 ;; path is gated by the listener-side `suppress-sensitive?` check before
@@ -402,13 +401,12 @@
 ;; it, it cannot un-retain it. `snapshot-from-rings` reads those rings
 ;; back directly, so without a read-side gate a later non-sensitive
 ;; event's mirror-sync would pull the retained sensitive event into the
-;; buffer (rf2-0ax6f leak). These tests drive a REAL emit → per-frame
+;; buffer. These tests drive a REAL emit → per-frame
 ;; ring → `snapshot-from-rings` (`buffer-for-test`) and pin that the
 ;; sensitive event is scrubbed on the read when the flag is false, and
-;; passes through only when opted in. This is the missing half of the
-;; matrix (mirrors the rf2-lo28u "green test routed around the gap"
-;; lesson — the assertion hits the ACTUAL failing path, the per-frame
-;; ring read, not the already-covered listener path).
+;; passes through only when opted in. This is the other half of the
+;; matrix: the assertion hits the per-frame ring read, not the listener
+;; path the §(4) tests cover.
 
 #?(:cljs
    (def ^:private host-frame ::sensitive-host))
@@ -418,7 +416,7 @@
      "Drive a REAL `re-frame.trace/emit!` into `host-frame`'s per-frame
      ring. A `:frame` + `:rf.trace/dispatch-id` in `tags` is what
      `push-to-ring!` keys on to retain the event (frameless emits skip
-     the ring per the B3 ruling). `:sensitive?` in `tags` is hoisted to
+     the ring per B3, Spec 009). `:sensitive?` in `tags` is hoisted to
      a top-level `:sensitive? true` stamp by `build-event` — the same
      stamp a schema-sensitive handler scope produces at runtime. The
      `dispatch-id` keys the cascade slot; distinct ids = distinct
@@ -461,8 +459,7 @@
      (with-host-frame
        (fn []
          (testing "a sensitive FRAME-BOUND event retained in the per-frame
-                   ring is scrubbed from the snapshot when the flag is false
-                   (rf2-0ax6f — the bug: it leaked through snapshot-from-rings)"
+                   ring is scrubbed from the snapshot when the flag is false"
            ;; A non-sensitive event lands first — the leak surfaces
            ;; precisely when a *later* benign event's mirror-sync reads
            ;; the ring back and drags the retained sensitive cascade along.
@@ -495,28 +492,28 @@
              (is (some :sensitive? buf)
                  "the sensitive event passes through under the opt-in")))))))
 
-;; ---- (8) the two INGEST gates (rf2-y8doi.13) -----------------------------
+;; ---- (8) the two INGEST gates -------------------------------------------
 ;;
 ;; §(7) above pins the FLAT read (`snapshot-from-rings` → `:trace-buffer`).
-;; Two other paths carried the same retained-but-sensitive events into
-;; Xray's surfaces without passing any gate, and this section pins both.
+;; Two other paths carry the same retained-but-sensitive events into
+;; Xray's surfaces, and this section pins the gate on both.
 ;;
 ;;   (a) `:epoch-history`. The framework's per-frame EPOCH ring retains RAW
 ;;       records by design ("redaction happens at off-box egress" —
 ;;       `re-frame.epoch.assembly`), and every record carries
-;;       `:trace-events` verbatim. Xray copied the ring into its app-db
-;;       unfiltered, so the Epoch panel, Issues ribbon, Reactive panel,
-;;       Machine Inspector and Trace feed — all of which read
-;;       `:trace-events` off the focused record — saw a sensitive cascade
-;;       the whole trace side was hiding. `epoch/redact-history` is now the
-;;       one gate every write to the slot passes through.
+;;       `:trace-events` verbatim. `epoch/redact-history` is the one gate
+;;       every write to the slot passes through. Copying the ring into
+;;       Xray's app-db unfiltered would show the Epoch panel, Issues
+;;       ribbon, Reactive panel, Machine Inspector and Trace feed — all of
+;;       which read `:trace-events` off the focused record — a sensitive
+;;       cascade the whole trace side hides.
 ;;
 ;;   (b) `panels.fresco-reads/trace-windows`. Xray's SECOND, seam-side
-;;       reader of the framework rings: it called
-;;       `re-frame.trace.tooling/trace-buffer` bare, so the same events
-;;       reached the Fresco advisor's ranking and the causal slice. It now
-;;       reads `trace-collector/bundles-for-frame`, the gated
-;;       bundle-shaped sibling of `snapshot-from-rings`.
+;;       reader of the framework rings. It reads
+;;       `trace-collector/bundles-for-frame`, the gated bundle-shaped
+;;       sibling of `snapshot-from-rings`; calling
+;;       `re-frame.trace.tooling/trace-buffer` bare would carry the same
+;;       events into the Fresco advisor's ranking and the causal slice.
 ;;
 ;; THE FIXTURES ARE PRODUCER-DERIVED, not hand-written maps: the trace
 ;; events are the ones `rf.trace/emit!` actually pushed into the per-frame
@@ -549,25 +546,25 @@
      [record]
      (:id (first (filter :sensitive? (:trace-events record))))))
 
-;; ---- the missing-rollup fallback (rf2-vaont) -----------------------------
+;; ---- the missing-rollup fallback ----------------------------------------
 ;;
 ;; The record-level rollup and the event-level stamp are two signals, and
-;; the gate used to answer them at two GRAINS: drop the record on the
-;; rollup, but merely scrub `:trace-events` when only the stamp was there.
+;; the gate answers both at ONE grain: drop the record whole.
 ;; `build-record` assembles `:trigger-event`, `:db-before` / `:db-after`,
 ;; `:sub-runs`, `:renders` and `:effects` in the SAME map as
-;; `:trace-events` (`re-frame.epoch.assembly`), so the event-grain scrub
-;; left every one of those siblings holding the cascade it had just
-;; removed. `trace-collector/bundles-for-frame` had already settled the
-;; question for the bundle read — drop whole, because the sibling slots
-;; are projections of the same events and "a slot added upstream would
-;; silently re-open the leak" — and the record is the same shape.
+;; `:trace-events` (`re-frame.epoch.assembly`), so merely scrubbing
+;; `:trace-events` when only the stamp is there would leave every one of
+;; those siblings holding the cascade it had just removed.
+;; `trace-collector/bundles-for-frame` drops whole for the bundle read for
+;; the same reason — the sibling slots are projections of the same events
+;; and "a slot added upstream would silently re-open the leak" — and the
+;; record is the same shape.
 ;;
 ;; The fixtures below put the secret in `:trigger-event` SPECIFICALLY, a
-;; slot the old event-grain scrub never reached. That is what makes the
-;; regression discriminating rather than a restatement of the tests
-;; above: chasing the event `:id` through `:trace-events` alone passes
-;; under BOTH the old gate and the new one.
+;; slot an event-grain scrub never reaches. That is what makes these rows
+;; discriminating rather than a restatement of the tests above: chasing
+;; the event `:id` through `:trace-events` alone passes under an
+;; event-grain scrub and a whole-record drop alike.
 
 #?(:cljs
    (def ^:private secret-payload
@@ -594,9 +591,9 @@
    (defn- slot-mentions-secret?
      "Does the secret survive ANYWHERE in the slot, at any depth?
 
-     The bead's acceptance is \"no record/payload survives anywhere\", and
+     The contract is \"no record/payload survives anywhere\", and
      enumerating the slots to check is precisely the maintenance burden
-     this fix exists to retire — a list of payload slots goes stale the
+     the whole-record drop avoids — a list of payload slots goes stale the
      moment the producer gains one. So the probe is the printed structure,
      which cannot miss a slot it does not know about."
      [history]
@@ -664,11 +661,12 @@
        (fn []
          (with-host-frame
            (fn []
-             (testing "rf2-vaont — a record with NO rollup but a sensitive
+             (testing "a record with NO rollup but a sensitive
                        event is dropped WHOLE, at the same grain the rollup
                        gets. Scrubbing `:trace-events` and keeping the record
-                       left the cascade's payload standing in the sibling
-                       slots `build-record` derived from those same events"
+                       would leave the cascade's payload standing in the
+                       sibling slots `build-record` derived from those same
+                       events"
                (emit-frame-bound! 1 false)
                (emit-sensitive-trigger! 2)
                (let [full   (producer-record)
@@ -685,8 +683,8 @@
                  (is (= [:user/login secret-payload] (:trigger-event record))
                      "precondition, and the whole point of this test: the
                       producer lifted the secret into `:trigger-event`, a
-                      SIBLING of `:trace-events`. The old event-grain scrub
-                      never reached this slot, so this is the assertion that
+                      SIBLING of `:trace-events`. An event-grain scrub
+                      never reaches this slot, so this is the assertion that
                       discriminates — chasing the event :id through
                       `:trace-events` alone passes either way")
                  (let [history (seed-and-read-history! [record])]
@@ -695,7 +693,7 @@
                         absent rollup is not a licence to keep it")
                    (is (not (slot-mentions-secret? history))
                        "and the payload survives NOWHERE in the slot — the
-                        bead's acceptance, probed over the whole printed
+                        contract, probed over the whole printed
                         structure rather than a list of slots")
                    (is (not-any? #(= ev-id (:id %))
                                  (mapcat :trace-events history))
@@ -793,8 +791,8 @@
      (with-host-frame
        (fn []
          (testing "the Fresco advisor's window must not carry a cascade the
-                   whole trace side is hiding (rf2-y8doi.13 — the second,
-                   seam-side reader of the framework rings)"
+                   whole trace side is hiding (the second, seam-side reader
+                   of the framework rings)"
            (emit-frame-bound! 1 false)
            (emit-frame-bound! 2 true)
            (let [bundles (window-bundles)]
@@ -821,15 +819,16 @@
              (is (some #(some :sensitive? (:trace-events %)) bundles)
                  "including the sensitive one")))))))
 
-;; ---- (8) the spine RE-SEED writers (rf2-3x7nj.26.1) ----------------------
+;; ---- (9) the spine RE-SEED writers --------------------------------------
 ;;
-;; `redact-history` gated the three `epoch.cljs` writers, but the spine
+;; `redact-history` gates the three `epoch.cljs` writers, and the spine
 ;; writes the slot too: the frame picker (`:rf.xray/set-frame` →
 ;; `spine/set-frame-reducer`) and every committed-focus gesture that crosses
 ;; frames (`:rf.xray/focus-event`, its prev/next steps, `:rf.xray/focus-epoch`
 ;; and `:rf.xray/select-dispatch-id` → `spine/reseed-epoch-history-for-frame`).
-;; Both reducers wrote `(vec ring)`, so one picker change put every record
-;; the gate had dropped straight back into the slot.
+;; Both reducers write through the same gate; writing `(vec ring)` would let
+;; one picker change put every record the gate drops straight back into the
+;; slot.
 ;;
 ;; The ring here is the REAL framework ring, filled by real dispatches on a
 ;; host frame, and both gestures run through their registered handlers — so
@@ -905,7 +904,7 @@
    (deftest set-frame-re-seed-keeps-sensitive-records-out
      (with-runtime
        (fn []
-         (testing "rf2-3x7nj.26.1 — the frame picker's `:rf.xray/set-frame`
+         (testing "the frame picker's `:rf.xray/set-frame`
                    re-seeds `:epoch-history` from the picked frame's RAW ring
                    through `redact-history`, under the default profile"
            (let [ring (record-sensitive-ring!)]
@@ -922,7 +921,7 @@
    (deftest cross-frame-focus-event-re-seed-keeps-sensitive-records-out
      (with-runtime
        (fn []
-         (testing "rf2-3x7nj.26.1 — an L2 row click on another frame's event
+         (testing "an L2 row click on another frame's event
                    (`:rf.xray/focus-event`) re-keys `:epoch-history` onto that
                    frame's RAW ring through `redact-history`, and cannot
                    resolve a dropped record's epoch-id"
