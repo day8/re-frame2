@@ -37,17 +37,17 @@
       slot.
 
   ONE key, no fallback. `:schema` is the canonical registration-metadata
-  slot on every kind (`re-frame.reg-meta/base-bare-keys`); its v1 spelling
-  `:spec` was RETIRED by MIGRATION §M-54. A `reg-*` carrying `:spec` does
+  slot on every kind (`re-frame.reg-meta/base-bare-keys`); `:spec` is a
+  retired key (MIGRATION §M-54). A `reg-*` carrying `:spec` does
   not merely fail to surface here — it HARD-ERRORS at registration
   (`:rf.error/retired-registration-key`), deliberately, because swallowing
   it would disable that registration's payload validation. So no live
   registrar can put a `:spec` slot in front of this projection, and reading
-  one as a fallback would be a branch production cannot reach. That dead
-  branch is exactly what let this panel read `:spec` ALONE — and show zero
-  event rows and zero sub rows against every real host app — without a red
-  test, because the only rows exercising it fed synthetic metadata through
-  the override seam (rf2-t8a8).
+  one as a fallback would be a branch production cannot reach. A dead
+  branch like that hides a real defect: a panel reading `:spec` ALONE would
+  show zero event rows and zero sub rows against every real host app
+  without a red test, because only synthetic metadata fed through the
+  override seam would exercise it.
 
   ## Jump-to-source
 
@@ -76,7 +76,7 @@
 
   ## Public surface
 
-  - `Panel`        — the tab's root. Since rf2-k97c.3 an
+  - `Panel`        — the tab's root. An
                      `rf.fresco/defview` BOUNDARY — a real React function
                      component, not an `rf/reg-view`.
   - `panel-tree`   — the whole body, as a pure fn of the read's VALUE and
@@ -140,7 +140,7 @@
   a `:schema` slot — the canonical registration-metadata key a live
   `rf/reg-event` / `rf/reg-sub` actually stores. The ns docstring's
   \"ONE key, no fallback\" note says why the retired `:spec` spelling is
-  not read as a fallback (rf2-t8a8)."
+  not read as a fallback."
   [kind id meta]
   (when-some [schema (:schema meta)]
     {:kind         kind
@@ -182,9 +182,8 @@
 (defn- host-registrations
   "`registrations-map` without Xray's OWN `:rf.xray*` registrations, which
   share the process source store with the host's — the same filter the
-  Static Interceptors catalogue applies, kept here for symmetry
-  (rf2-y8doi.22). No Xray event or sub carries a `:schema` today, so it
-  changes no row yet; it keeps one from appearing the day one does."
+  Static Interceptors catalogue applies, so an Xray event or sub that
+  carries a `:schema` never appears as a host row."
   [registrations-map]
   (into {} (remove (comp self-noise/xray-internal-event-id? key)) registrations-map))
 
@@ -209,10 +208,10 @@
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
-  ;; CALLED, never used as a hiccup head (rf2-k97c.3). `search-box/search-box`
+  ;; CALLED, never used as a hiccup head. `search-box/search-box`
   ;; is a plain fn, and a plain function in head position is a loud error
   ;; inside a Fresco body by design; applying it renders the identical
-  ;; markup. The flex-row chrome still lives in the shared component.
+  ;; markup. The flex-row chrome lives in the shared component.
   ;;
   ;; `dispatch` arrives from the boundary rather than being captured here.
   ;; The keystroke dispatch is an OUT-OF-RENDER affordance — it fires after
@@ -261,19 +260,18 @@
 (defn- row-identity
   "One row's identity — the kind, the OWNING FRAME, and the id.
 
-  ONE derivation with TWO consumers, and that shared derivation IS the
-  rf2-uyg0 repair. The catalogue's React key already carried the frame;
-  the inspector node key below was built from `(kind, id)` ALONE, even
-  though `frame` was destructured by name one line above it. Under the
+  ONE derivation with TWO consumers: the catalogue's React key and the
+  inspector node key, and both must carry the frame. Under the
   browse-all projection (`scope-app-schemas-to-frame` with a nil frame-id,
   which passes every frame's app-db schemas through) the same path
-  registered against two frames produced two rows in ONE render frame
-  carrying the SAME `:mount-id`. That is not cosmetic:
+  registered against two frames yields two rows in ONE render frame, and
+  a key built from `(kind, id)` ALONE would give them the SAME
+  `:mount-id`. That is not cosmetic:
   `edn-widget/inspect-view` hands the node-key straight to the boundary as
   its `:mount-id`, and `edn-inspector/container-ref-for` MEMOISES the ref
-  callback on it — so the two rows shared one ResizeObserver entry and
-  detaching either row released the SURVIVOR's. Deriving both keys here is
-  what keeps them from drifting apart again.
+  callback on it — so the two rows would share one ResizeObserver entry
+  and detaching either row would release the SURVIVOR's. Deriving both
+  keys here keeps them from drifting apart.
 
   `pr-str` rather than `str` on both variable components: a `:frame` of
   nil is the honest answer for the process-global `:event` / `:sub` rows
@@ -307,13 +305,13 @@
                 :style       {:color     (:text-tertiary tokens)
                               :font-size "10px"}}
          (pr-str frame)])
-      ;; CALLED, never used as a hiccup head (rf2-k97c.3).
+      ;; CALLED, never used as a hiccup head.
       ;; `open-in-editor/open-chip` is a plain fn answering hiccup (or nil
       ;; when the coord carries no usable `:file`), and a plain fn in head
       ;; position is a loud error inside a Fresco body; applying it renders
       ;; the identical `<a>` chrome, and a nil is a legal child either way.
-      ;; Its click handler is untouched — `defview`'s contract passes a
-      ;; plain fn at an `on-*` prop through, and `chip-click!` already
+      ;; Its click handler works as is — `defview`'s contract passes a
+      ;; plain fn at an `on-*` prop through, and `chip-click!`
       ;; carries its own explicit `{:frame …}`.
       (when (and source-coord (:file source-coord))
         (open-in-editor/open-chip source-coord))]
@@ -325,16 +323,16 @@
      ;; FRESCO head — same value, same opts, same renderer as
      ;; `edn/inspect`, differing ONLY in that it emits
      ;; `[ei/edn-inspector-view …]` (a boundary) rather than
-     ;; `[ei/edn-inspector …]` (a Reagent component). rf2-k97c.3 made the
-     ;; swap mandatory rather than stylistic: `ei/edn-inspector` is a
+     ;; `[ei/edn-inspector …]` (a Reagent component). The Fresco head is
+     ;; mandatory rather than stylistic: `ei/edn-inspector` is a
      ;; plain fn, and a plain fn in hiccup head position is a loud error
      ;; inside a Fresco body. The `node-key` is stable per ROW — per
      ;; (kind, frame, id), via [[row-identity]] — so expand state survives
      ;; reloads and doesn't collide across rows. It is load-bearing twice
      ;; over, since it is also the boundary's required `:mount-id`, which is
-     ;; why (kind,id) alone was not enough: the browse-all projection lists
+     ;; why (kind,id) alone is not enough: the browse-all projection lists
      ;; every frame's app-db schemas at once, so one path registered against
-     ;; two frames gave two rows ONE mount id (rf2-uyg0).
+     ;; two frames would give two rows ONE mount id.
      [:div {:data-testid (str "rf-xray-static-schemas-schema-" row-id)
             :style {:margin-left "20px"
                     :margin-top  "2px"
@@ -359,10 +357,10 @@
   value [[Panel]] reads — the `:rf.xray.static.schemas/tab-data`
   composite — and the frame-bound `dispatch` the search box needs.
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
-  documented extract-a-helper spelling rather than an invention. A
+  A separate fn from [[Panel]], in `defview`'s own documented
+  extract-a-helper spelling. A
   boundary's body may only run inside a React render window, so `(Panel)`
-  is no longer a callable that answers hiccup — while the catalogue's
+  is not a callable that answers hiccup — while the catalogue's
   projection is ordinary data → data and is worth testing in the fast node
   lane. `panel_cljs_test` drives THIS fn with the value it takes from the
   sub directly; the boundary's own behaviour — first paint, liveness,
@@ -379,21 +377,19 @@
     :rows       schemas
     :gap        "4px"
     :search     (search-box dispatch query total filtered?)
-    ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata
-    ;; (rf2-k97c.3). Fresco's codec reads a literal `:key` from an
-    ;; ATTRIBUTE MAP and reads Clojure metadata nowhere, so the
-    ;; `^{:key …}` this line used to carry survives Reagent and reaches
+    ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata.
+    ;; Fresco's codec reads a literal `:key` from an
+    ;; ATTRIBUTE MAP and reads Clojure metadata nowhere, so a
+    ;; `^{:key …}` here would survive Reagent and reach
     ;; React as NOTHING once the panel renders through the codec — and a
     ;; lost key does not fail, it degrades silently into index-based
     ;; reconciliation. The fragment carries the key without adding a DOM
     ;; node, so `catalogue-row`'s `li` chrome stays the shared
     ;; presentational helper it is.
     ;;
-    ;; The key EXPRESSION is now [[row-identity]] — the same string the
-    ;; row's inspector node key is built from (rf2-uyg0). It computes
-    ;; exactly what the inline `(str (name (:kind row)) "/" (pr-str (:frame
-    ;; row)) "/" (pr-str (:id row)))` here computed; naming it is what stops
-    ;; the two key sites diverging again.
+    ;; The key EXPRESSION is [[row-identity]] — the same string the
+    ;; row's inspector node key is built from, so the two key sites cannot
+    ;; diverge.
     :row-render (fn [row]
                   [:<> {:key (row-identity row)}
                    (schema-row row)])}))
@@ -401,30 +397,27 @@
 ;; ---- root view -----------------------------------------------------------
 
 (rf.fresco/defview Panel
-  "The Static Schemas tab's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The Static Schemas tab's root — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Reads the schemas composite and hands its value plus a
   frame-bound dispatcher to [[panel-tree]].
 
   The READ is `rf.fresco/sub`, a plain call the shipped collector records
   an edge for — no deref, no reaction owned by the installed adapter, and
   a re-wire that NOTIFIES when the substrate disposes the underlying
-  derived value. That is the third of the epic's three couplings, and the
-  one a first-paint smoke test cannot see.
+  derived value — the coupling a first-paint smoke test cannot see.
 
   The FRAME the read resolves against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this resolves
-  `:rf/xray` identically under the Fresco tree the Static shell is today
+  `:rf/xray` identically under the Fresco tree the Static shell is
   and under an `rf/frame-provider` a Reagent parent writes. It never
   consults `:adapter/current-component`, the hook a foreign root cannot
   answer.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
-  which answers the boundary's DECLARED frame inside a body. It replaces
-  the render-time `(rf/current-frame-id)` capture the `reg-view` body did:
-  same guarantee, one call, and it is the spelling every migrated panel
-  now uses. The search box's keystroke dispatch therefore still lands on
+  which answers the boundary's DECLARED frame inside a body. The search
+  box's keystroke dispatch therefore lands on
   THIS Xray instance's frame after render scope unwinds; a bare global
   `rf/dispatch` would there resolve no frame and raise
   `:rf.error/no-frame-context`, EP-0002 leaving no `:rf/default` floor.
@@ -434,7 +427,7 @@
   `search-box`, `kind-badge`, `open-in-editor/open-chip` and `schema-row`
   are all CALLED, never used as a hiccup head, so Fresco's \"a plain
   function in head position is a loud error\" rule never meets one. The
-  one fn-headed vector that REMAINS in the tree is `edn/inspect-view`'s
+  one fn-headed vector in the tree is `edn/inspect-view`'s
   `[ei/edn-inspector-view …]`, which is itself a boundary and so is a
   legal head; nothing else in the interior wants a boundary of its own.
 
@@ -445,9 +438,9 @@
   (panel-tree (rf.fresco/sub [:rf.xray.static.schemas/tab-data])
               (:dispatch (rf/capture-frame))))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge --------------------------------------------------
 ;;
-;; Xray's Static shell is a Fresco tree, but it still reaches this panel
+;; Xray's Static shell is a Fresco tree, but it reaches this panel
 ;; across an `as-child` seam. `static/shell.cljs`'s `detail-panel` mounts
 ;; the active tab as the hiccup head `[(:panel tab)]`, and
 ;; `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
@@ -460,8 +453,7 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; BOTH DEFS ARE PRIVATE, and that is a measured property of this panel
-;; rather than a default: `Panel` is named outside this file only in
+;; BOTH DEFS ARE PRIVATE: `Panel` is named outside this file only in
 ;; `static/shell.cljs`'s PROSE (a docstring listing the L4 tabs) and in
 ;; `spec/api-manifest*.edn`'s rows — never mounted or called by name. The
 ;; L4 registry is the only consumer, and `install!` below is the only
@@ -470,15 +462,12 @@
 ;; takes the view to mount as an argument and needs a name to pass; this
 ;; panel has none — `panels.cljs` names no Static sub-tab.
 ;;
-;; `Panel` KEEPS THE NATURAL NAME, which is the spelling ruled to survive
-;; (the #9581 assignment) and is also what keeps the two hot-zone
-;; api-manifest rows for `static.schemas.panel/Panel` valid without
-;; touching either file.
+;; `Panel` carries the natural name, which is the one the two
+;; api-manifest rows for `static.schemas.panel/Panel` name.
 ;;
-;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
-;; The Static shell is a Fresco tree now and both defs stayed anyway: it
-;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; THIS IS NOT SCAFFOLDING. The Static shell is a Fresco tree, but it
+;; reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` requires a
 ;; callable `:panel`.
 
 (def ^:private Panel-component
@@ -508,8 +497,8 @@
   For each live frame (`rf/frame-ids`), ONE `(rf.schemas/app-schemas
   {:frame frame-id})` read returns that frame's whole `{path →
   schema-meta}` map — `:schema`, `:doc`, `:file` / `:line` / `:ns` source
-  coords. Since rf2-kuky.84 `app-schemas` answers the metadata directly, so
-  the per-path second read this used to make is gone. Frames with no app-db
+  coords. `app-schemas` answers the metadata directly, so no per-path
+  second read is needed. Frames with no app-db
   schemas are dropped so the snapshot mirrors the storage atom's shape
   (absent rather than empty-mapped). Returns `{}` when the schemas artefact
   is not on the classpath (`app-schemas` then yields `{}` per frame)."
@@ -629,13 +618,12 @@
      :mnem  "c"
      :modes #{:static}
      :order 2
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary) and the Static shell mounts `:panel`
-     ;; as a Reagent hiccup head; the bridge is the one line between them
-     ;; and STAYS (rf2-lect, ruled option 2). The Static shell is a Fresco
-     ;; tree now and the bridge stayed anyway: it still reaches the panel
+     ;; as a Reagent hiccup head; the bridge is the one line between them.
+     ;; The Static shell is a Fresco tree, but it reaches the panel
      ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent hiccup
-     ;; vector and `reg-l4-tab!`'s `:pre` still requires a callable
+     ;; vector and `reg-l4-tab!`'s `:pre` requires a callable
      ;; `:panel`.
      :panel Panel-bridge})
 
