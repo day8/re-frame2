@@ -156,9 +156,10 @@
 ;; ---- text-size ----------------------------------------------------------
 
 (def text-size-css-var
-  "Name of the CSS custom property the text-size slider writes. Xray
-  surfaces that want to honour the slider read
-  `var(--rf-xray-text-size, 13px)`. Mirrors the
+  "Name of the CSS custom property [[apply-text-size!]] writes from the
+  `:general :text-size` setting (no Settings control ships; a host sets
+  the slot through `configure!`). Xray surfaces that want to honour the
+  setting read `var(--rf-xray-text-size, 13px)`. Mirrors the
   `default-layout-host-css-var` / `default-accent-css-var` naming
   pattern from `config.cljc`."
   "--rf-xray-text-size")
