@@ -9,14 +9,12 @@
 ;; error channel, recovery :fix-effect, and NO partial commit — the legal :db
 ;; does not land either. The legacy key is NOT routed through the fx machinery.
 ;;
-;; WHY THE :db MUST NOT LAND, and this is what the fixture is really for
-;; (rf2-04tx). The old contract dropped the key and committed the :db, which
-;; made a half-executed handler look like a working one: the state changed, so
-;; the screen updated, while the effect the programmer wrote never happened.
-;; That partial-success disguise defeated two real gates in this repo's own
-;; tree — a dead :dispatch-later timer that kept three browser engines green
-;; for 14 hours, and a persist fx inside the Xray inspector that had been dead
-;; for eleven weeks. A port that keeps the old drop-and-commit behaviour FAILS
+;; WHY THE :db MUST NOT LAND, and this is what the fixture is really for.
+;; Dropping the key and committing the :db would make a half-executed handler
+;; look like a working one: the state changes, so the screen updates, while
+;; the effect the programmer wrote never happens. That partial-success
+;; disguise hides a dead effect behind green gates. A port with
+;; drop-and-commit behaviour FAILS
 ;; here on :final-app-db, which is the assertion that cannot be satisfied by
 ;; accident.
 ;;
@@ -28,8 +26,8 @@
 ;;
 ;; The handler returns the malformed map via the :return-raw DSL op — the
 ;; only DSL path that yields a literal effect-map verbatim (the :set / :fx
-;; ops always build a well-shaped map, so the shape gate was unreachable
-;; from a fixture before this op). Grounded against the reference carrier
+;; ops always build a well-shaped map, so the shape gate is unreachable
+;; from a fixture without this op). Grounded against the reference carrier
 ;; re-frame.events/effect-map-defect and its emit site
 ;; re-frame.router/emit-effect-map-shape!.
 
