@@ -102,7 +102,8 @@
   and it needs no `::h/revision`, because clearing the draft UNMOUNTS the
   field rather than handing a still-mounted one a value it is already
   showing. That is the other side of the boundary: the revision counter
-  is what a reset needs when the field SURVIVES it."
+  is what a reset needs when the field SURVIVES it and every other read
+  the body makes stays `=`, so nothing else re-runs the body."
   [{:keys [id title done?]}]
   (let [draft (rf.fresco/sub [rf.fresco.examples.todo.db/draft id])]
     [:li.todo-row {:class (str/join " " (cond-> []
