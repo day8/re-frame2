@@ -1,6 +1,6 @@
 ;; Conformance fixture: machine/history-dangling-path-falls-back
 ;;
-;; First-class history dangling-path fallback (rf2-mle6e / rf2-wgfv0). A
+;; First-class history dangling-path fallback. A
 ;; recorded configuration in `:rf/history` may reference a substate a
 ;; hot-reloaded definition REMOVED — a *dangling recorded path*. On a
 ;; restore-to-history transition the runtime DISCARDS the dead recorded path
@@ -10,7 +10,7 @@
 ;; hot reload — NOT an error; no `:rf.error/*` is raised.
 ;;
 ;; The history-owning compound is `:playing` (the XState v5 / SCXML exit-set
-;; rule, rf2-9eidiv — only a genuinely-exited compound records). The restore
+;; rule — only a genuinely-exited compound records). The restore
 ;; ENTERS :playing (does not exit it), so it records nothing: the seeded
 ;; dangling value is discarded for RESOLUTION but the slot is left untouched.
 ;;
