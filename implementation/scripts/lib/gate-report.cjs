@@ -1,4 +1,4 @@
-// Shared gate-reporter for the check-* JS gate scripts (#1197).
+// Shared gate-reporter for the check-* JS gate scripts.
 //
 // A gate's normal output is exactly one `PASS <label>` line; the noisy
 // per-check detail is buffered, not printed, unless either (a)
