@@ -146,7 +146,6 @@ for (const { tag, file, mod } of DRIVERS) {
     assert.strictEqual(v.lines.length, 1, 'only the unverified refusal should be reported');
     assert.match(v.lines[0], /^\[\w+\] REFUSED — unverified operations/);
     assert.match(v.lines[0], /uix\/mount-M: 4 of 36/);
-    assert.match(v.lines[0], /rf2-rr6do/);
   });
 
   t('A BREACHED BAND CEILING alone is a nonzero exit — the case that used to be green', () => {
@@ -156,7 +155,6 @@ for (const { tag, file, mod } of DRIVERS) {
     assert.strictEqual(v.lines.length, 1);
     assert.match(v.lines[0], /REFUSED — the run's own reproducibility band exceeds/);
     assert.match(v.lines[0], /uix\/mount-M \(41\.2%\)/);
-    assert.match(v.lines[0], /rf2-ymi6j/);
   });
 
   t('A FAILED POSITIVE CONTROL alone is a nonzero exit — the case that used to be green', () => {
@@ -1133,12 +1131,11 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('the retained rule states its measured rates where the grep lands', () => {
     // The label a `^18`-semantics grep hits must say the rule was measured and
     // kept, or the next grep re-opens the question this block answers.
-    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(rf2-y0pkh: measured and retained\)'/);
+    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(measured and retained\)'/);
     for (const [rowId, want] of Object.entries(RATES)) {
       assert.ok(CSRC.includes(`${want.inBand}/${want.blocks}`), `the comment states ${rowId}'s per-block count`);
     }
     assert.match(CSRC, /90\.5%/, "and the clock's retired rate it is measured against");
-    assert.match(CSRC, /rf2-pzqy8/, "the ordinary row's centre is handed on by bead id, not left as a shape");
     // The rates are rates AT A SLACK. Widening the band would change every one
     // of them, so the constant they were measured at is pinned beside them —
     // otherwise the limits could move and the stated rates would quietly lie.
@@ -1233,7 +1230,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       () => checkStandardVerdict('a-row-nobody-calibrated', [1.2, 1.25]),
       /is in neither `rows` nor `notInThisStandard`/
     );
-    assert.throws(() => checkStandardVerdict('a-row-nobody-calibrated', [1.2]), /rf2-pzqy8/);
+    assert.throws(() => checkStandardVerdict('a-row-nobody-calibrated', [1.2]), /is in neither `rows` nor `notInThisStandard`/);
   });
 
   t('the two sibling rows are declared out and get NO standard, by name', () => {
@@ -1369,7 +1366,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       if (r.rowId === 'ordinary') {
         assert.ok(r.adj.standard, 'ordinary must carry a standard verdict');
         assert.strictEqual(r.adj.ok, r.adj.standard.ok, 'a calibrated row is adjudicated by its standard');
-        assert.match(r.adj.adjudicator, /calibrated check standard `census-clock\/ctl-2x-level` v1 \(rf2-pzqy8\)/);
+        assert.match(r.adj.adjudicator, /calibrated check standard `census-clock\/ctl-2x-level` v1;/);
       } else {
         assert.strictEqual(r.adj.standard, null, `${r.rowId} must carry no standard`);
         assert.strictEqual(r.adj.ok, r.adj.strictOk, 'a row with no standard is adjudicated by the strict rule');
@@ -1389,7 +1386,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       assert.strictEqual(rows.filter((r) => r.adj.strictOk).length, passed, `${rowId}: and the strict rule is what decided it`);
       for (const r of rows) assert.strictEqual(r.adj.ok, r.stored.ok, `${r.where}: unchanged from what the run recorded`);
     }
-    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(rf2-y0pkh: measured and retained\)'/);
+    assert.match(CSRC, /rule: 'strict — EVERY block inside the band \(measured and retained\)'/);
   });
 
   tc('the tolerance band is REPORTED on a calibrated row, and the all-blocks rule is why', () => {
@@ -1491,7 +1488,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const v = checkStandardVerdict('ordinary', Array.from({ length: 18 }, () => ORD.centre));
     assert.strictEqual(v.standard.id, STD.id);
     assert.strictEqual(v.standard.version, STD.version);
-    assert.strictEqual(v.standard.bead, 'rf2-pzqy8');
     assert.ok(Number.isInteger(STD.version), 'a version that is not an integer cannot be bumped');
     assert.deepStrictEqual(v.location.limits, ORD.location.limits, 'the frozen limits are the JSON\'s, never a literal');
     assert.strictEqual(v.location.centre, ORD.centre);
@@ -1500,9 +1496,8 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.ok(STD.recalibrateOn.some((s) => /FRESH baseline/.test(s)));
   });
 
-  t('the driver cites the bead and the standard where a reader of the control lands', () => {
+  t('the driver cites the standard where a reader of the control lands', () => {
     assert.match(CSRC, /require\('\.\/census_check_standard\.json'\)/);
-    assert.match(CSRC, /rf2-pzqy8/);
     // The finding itself, above `checkStandardVerdict`, where a reader of the
     // control lands — the measured centre and the prediction it is not.
     const note = CSRC.slice(CSRC.indexOf('THE CALIBRATED CHECK STANDARD, applied to one row-run'), CSRC.indexOf('function checkStandardVerdict('));
@@ -1510,8 +1505,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(note, /1\.2308x/);
     assert.match(note, /1\.7255x/);
     assert.match(note, /mis-specified CENTRE/);
-    assert.match(note, /rf2-8a746/, 'and the ruling whose idiom this is');
-    assert.match(note, /rf2-y0pkh/, 'and the measurement it stands on');
   });
 }
 
@@ -1664,7 +1657,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(v.lines.length, 1);
     assert.match(v.lines[0], /uix\/ordinary \(measured 1\.2264x\)/);
     assert.doesNotMatch(v.lines[0], /large-template|feed/, 'a clean row must not be blamed');
-    assert.match(v.lines[0], /the scope is the ROW \(rf2-pzqy8\)/);
+    assert.match(v.lines[0], /the scope is the ROW:/);
 
     // 2. THE FILE STAYS IN THE PUBLISHED SET, because the run's SHAPE is the
     //    published one and a gate refusal is not a fact about the shape.
@@ -1802,7 +1795,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(header, /the ROW publishes a REFUSAL with the reason, not a number/);
     assert.match(header, /A NONZERO EXIT IS A RUN-LEVEL FACT AND STAYS ONE/);
     assert.match(header, /full-shape census run could ever be canonical/i);
-    assert.match(header, /rf2-pzqy8/);
     // The write-path note must name both scopes and the idiom it follows.
     const note = CSRC.slice(CSRC.indexOf('// WHERE A RUN\'S DATASETS MAY BE WRITTEN'), CSRC.indexOf('function destination('));
     assert.match(note, /`clock_run\.cjs`'s `publication\(shape\)` has read shape and nothing else/);
@@ -2532,7 +2524,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const v = reportability([respRow()]);
     const all = v.lines.join('\n');
     assert.match(all, /REGIME: these rows publish a regime and never a magnitude/);
-    assert.match(all, /keystroke \[responsiveness-regime, rf2-swwud\] STATED/);
+    assert.match(all, /keystroke \[responsiveness-regime\] STATED/);
     assert.match(all, /DIAGNOSTIC, never magnitudes/);
     assert.doesNotMatch(
       all,
@@ -2544,7 +2536,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('the M1 refusal now states a REGIME rather than a control that went wrong', () => {
     const v = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]);
     const all = v.lines.join('\n');
-    assert.match(all, /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/);
+    assert.match(all, /M1 \[mount-regime\] STATED/);
     assert.match(all, /NO MAGNITUDE FROM ONE RUN/);
     assert.match(
       all,
@@ -2553,30 +2545,9 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.doesNotMatch(all, /the positive control did not see the change/);
   });
 
-  // --- THE BRACKET CITES THE RULING IN FORCE --------------------------------
-  //
-  // The driver's PROSE and its LOG must name the same ruling, or the source
-  // says one thing and the run prints another. These three cases are the pins
-  // that hold the log's half, and they are deliberately two-sided: naming the
-  // ruling in force is half of it, and NOT printing the retired sentence is
-  // the other half. A pin that only asserts the current string would pass on
-  // a line carrying both.
-
-  t('the printed bracket names the ruling IN FORCE and keeps the superseded citation beside it', () => {
-    const all = reportability([mountRow()]).lines.join('\n');
-    // rf2-diaud is what governs the row; rf2-jcm3p is retained rather than
-    // dropped, because annotate-never-erase reaches a log line too.
-    assert.match(all, /\[mount-regime, rf2-diaud superseding rf2-jcm3p\]/);
-    assert.doesNotMatch(
-      all,
-      /\[mount-regime, rf2-jcm3p\]/,
-      'the bracket must not name the superseded ruling alone'
-    );
-  });
-
   t('and the retired regime-only sentence is GONE from the log, not merely joined', () => {
     const all = reportability([mountRow()]).lines.join('\n');
-    assert.doesNotMatch(all, /DIRECTION ONLY/, "rf2-t2flm and rf2-diaud gave M1 a magnitude — it publishes no 'DIRECTION ONLY'");
+    assert.doesNotMatch(all, /DIRECTION ONLY/, "M1 publishes a magnitude, so the log prints no 'DIRECTION ONLY'");
     assert.doesNotMatch(
       all,
       /the control status is the published reason/,
@@ -2629,7 +2600,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.doesNotMatch(
       all,
       /the reason no magnitude is published/,
-      'rf2-diaud: M1 publishes a magnitude, and this driver withholds one for the ensemble reason, not a control failure'
+      'M1 publishes a magnitude, and this driver withholds one for the ensemble reason, not a control failure'
     );
   });
 
@@ -2643,7 +2614,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // `keystroke` DOES wait on its controls, so the withholding is already the
     // subject of the line above and the annotation stays out of it.
     const all = reportability([respRow({ ctlOk: false })]).lines.join('\n');
-    assert.match(all, /keystroke \[responsiveness-regime, rf2-swwud\] WITHHELD/);
+    assert.match(all, /keystroke \[responsiveness-regime\] WITHHELD/);
     assert.doesNotMatch(all, /positive control: FAIL[^\n]*withholds nothing/);
   });
 
@@ -2686,7 +2657,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   t('a responsiveness regime is WITHHELD when its fixed-work controls did not pass', () => {
     const v = reportability([respRow({ ctlOk: false })]);
     assert.strictEqual(v.code, 1);
-    assert.match(v.lines.join('\n'), /keystroke \[responsiveness-regime, rf2-swwud\] WITHHELD/);
+    assert.match(v.lines.join('\n'), /keystroke \[responsiveness-regime\] WITHHELD/);
     assert.match(v.lines.join('\n'), /prove the instrument moves when the work moves/);
   });
 
@@ -2696,7 +2667,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // rf2-diaud the position; the independence survives both, which is why the
     // fixture still sets `ctlOk: false` and the row still STATES itself.
     const v = reportability([mountRow()]);
-    assert.match(v.lines.join('\n'), /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/);
+    assert.match(v.lines.join('\n'), /M1 \[mount-regime\] STATED/);
     assert.doesNotMatch(v.lines.join('\n'), /M1 .* WITHHELD/);
   });
 
@@ -4226,7 +4197,6 @@ function fixtureRoundsTask(over) {
     // has to be a real number and the limits have to live in the JSON rather
     // than in the code that reads it.
     assert.ok(Number.isInteger(STANDARD.version) && STANDARD.version >= 1, JSON.stringify(STANDARD.version));
-    assert.strictEqual(STANDARD.ruling, 'rf2-8a746');
     const bulk = STANDARD.classes.bulk;
     assert.strictEqual(bulk.calibrated, true);
     assert.strictEqual(typeof bulk.centre, 'number');
@@ -4327,7 +4297,7 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(v.gating, false);
     assert.strictEqual(typeof v.premiseMet, 'boolean');
     assert.strictEqual(typeof v.allInBand, 'boolean', 'the retired rule survives as a DESCRIPTION, named for what it is');
-    assert.match(v.rule, /DIAGNOSTIC \/ NON-GATING \(rf2-8a746\)/);
+    assert.match(v.rule, /DIAGNOSTIC \/ NON-GATING —/);
   });
 
   t('criterion 4: the ^18 semantics are gone from both programs, and the survivor says why', () => {
@@ -4410,7 +4380,7 @@ function fixtureRoundsTask(over) {
   });
 
   t('criterion 1: the printout is relabelled DIAGNOSTIC / NON-GATING and no re-siting code landed', () => {
-    assert.match(CLOCKSRC, /THREE-POINT STATISTIC \[DIAGNOSTIC, NON-GATING — rf2-8a746\]/);
+    assert.match(CLOCKSRC, /THREE-POINT STATISTIC \[DIAGNOSTIC, NON-GATING\]/);
     assert.match(CLOCKSRC, /RETIRED {2}this statistic refuses nothing/);
     // No re-siting: the points are not to be moved, so the page's declared
     // dirty counts are the only source of the prediction and no alternative
@@ -4584,7 +4554,7 @@ function fixtureRoundsTask(over) {
       const r = cp.spawnSync(process.execPath, [RJ, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       const out = `${r.stdout}${r.stderr}`;
       assert.strictEqual(r.status, 0, `${dir}: ${out.slice(-2000)}`);
-      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746, row-class estimand and threshold rf2-diaud\)/.test(out), `${dir}: the interval must be printed`);
+      assert.ok(/EFFECT-SIZE INTERVAL \(row-class estimand and threshold\)/.test(out), `${dir}: the interval must be printed`);
       for (const rowId of BULK_ROWS) {
         const at = out.indexOf(`;; ======== ROW ${rowId} `);
         assert.ok(at >= 0, `${dir}: the ${rowId} block must be printed`);
@@ -4599,18 +4569,9 @@ function fixtureRoundsTask(over) {
     }
   });
 
-  // --- 7. CRITERION 5: EVERYTHING CITES THE RULING --------------------------
+  // --- 7. EVERY ROW HAS A CLASS, OR NONE -----------------------------------
 
-  t('criterion 5: the ruling is cited by bead id in every surface it changed', () => {
-    for (const [name, src] of [
-      ['clock_run.cjs', CLOCKSRC],
-      ['clock_readjudicate.cjs', RJSRC2],
-      ['clock_check_standard.cjs', fs.readFileSync(path.join(__dirname, 'clock_check_standard.cjs'), 'utf8')],
-      ['clock_check_standard.json', fs.readFileSync(path.join(__dirname, 'clock_check_standard.json'), 'utf8')],
-      ['clock_app.cljs', fs.readFileSync(path.join(__dirname, 'clock_app.cljs'), 'utf8')],
-    ]) {
-      assert.ok(/rf2-8a746/.test(src), `${name} must cite the ruling that changed it`);
-    }
+  t('every row maps to its standard class, and a row with none maps to null', () => {
     assert.strictEqual(classOf('bulk300'), 'bulk');
     assert.strictEqual(classOf('M1'), 'mount');
     assert.strictEqual(classOf('keystroke'), null);
@@ -4700,7 +4661,6 @@ function fixtureRoundsTask(over) {
     assert.ok(Math.abs(mount.centre - 2.0) > 0.15, 'the frozen centre is not the arithmetic 2.00x');
     const prov = mount.provenance;
     assert.strictEqual(prov.rowRuns, 14);
-    assert.strictEqual(prov.calibratedBy, 'rf2-x7x10');
     assert.deepStrictEqual(prov.datasets, ['data/clock-emvod/run1-8.json', 'data/clock-w3yxd/run1-6.json']);
     // The independence field states the level a hold-out measured, and on
     // this class that measurement is split — see the hold-out block below.
@@ -4834,7 +4794,7 @@ function fixtureRoundsTask(over) {
         assert.strictEqual(
           ev.publishes,
           gated,
-          `${dir}/M1/${pair}: expected publishes === ${gated} under rf2-diaud — the gated pair trips K1 on a whole ` +
+          `${dir}/M1/${pair}: expected publishes === ${gated} — the gated pair trips K1 on a whole ` +
             `interval above 1.10x, the co-instrumented pairs are reported beside it and gate nothing. ` +
             `Verdict: ${ev.verdict} — ${ev.why}`
         );
@@ -4855,7 +4815,7 @@ function fixtureRoundsTask(over) {
       assert.ok(!/reportable subset: NONE/.test(m1), `${dir}: the M1 row must have a reportable subset — NONE here is the lost reproduction path`);
       assert.ok(new RegExp(`reportable subset [0-9.]+x n=${runs}`).test(m1), `${dir}: the subset must pool all ${runs} runs`);
       assert.ok(!/the `mount` class of the check standard is NOT CALIBRATED/.test(m1), `${dir}: the mount class is calibrated`);
-      assert.ok(/EFFECT-SIZE INTERVAL \(rf2-8a746, row-class estimand and threshold rf2-diaud\)/.test(m1), `${dir}: the interval must be printed on M1 too`);
+      assert.ok(/EFFECT-SIZE INTERVAL \(row-class estimand and threshold\)/.test(m1), `${dir}: the interval must be printed on M1 too`);
     }
   });
 
@@ -4871,32 +4831,13 @@ function fixtureRoundsTask(over) {
     const a = mount.amendedFrom;
     assert.ok(a, 'the mount class must carry what it was amended from');
     assert.strictEqual(a.version, 1);
-    assert.match(a.citedASupersededRuling, /rf2-jcm3p/);
-    assert.match(a.citedASupersededRuling, /rf2-t2flm/);
     assert.match(a.citedASupersededRuling, /ALREADY FALSE/);
     assert.match(a.whatItActuallyCost, /REPRODUCTION PATH/);
     assert.match(a.keptRatherThanDeleted, /[Aa]nnotate-never-erase/);
-    // and the superseded premise is asserted nowhere as live rationale: it
-    // survives only inside the amendment that corrects it.
-    const json = fs.readFileSync(path.join(__dirname, 'clock_check_standard.json'), 'utf8');
-    const outsideAmendment = json.split('"amendedFrom"')[0];
-    assert.ok(!/rf2-jcm3p/.test(outsideAmendment), 'the superseded ruling may only appear inside the amendment that retires it');
     // the standard also records the amendment at the top level, so a reader
     // meeting v2 knows what changed between the versions without diffing.
     assert.ok(Array.isArray(STANDARD.amendments) && STANDARD.amendments.length >= 1);
     assert.strictEqual(STANDARD.amendments[0].version, 2);
-    assert.strictEqual(STANDARD.amendments[0].ruling, 'rf2-x7x10');
-  });
-
-  t('the ruling is cited by bead id in every surface it changed', () => {
-    for (const [name, file] of [
-      ['clock_check_standard.json', 'clock_check_standard.json'],
-      ['clock_check_standard.cjs', 'clock_check_standard.cjs'],
-      ['clock_readjudicate.cjs', 'clock_readjudicate.cjs'],
-      ['clock_run.cjs', 'clock_run.cjs'],
-    ]) {
-      assert.ok(/rf2-x7x10/.test(fs.readFileSync(path.join(__dirname, file), 'utf8')), `${name} must cite the ruling that changed it`);
-    }
   });
 
   t('the UNCALIBRATED seat survives its last live instance — a class with no limits still refuses', () => {
@@ -5165,7 +5106,6 @@ function fixtureRoundsTask(over) {
     // has been answered — not because it was inconvenient.
     for (const k of [bulk, mount]) {
       assert.ok(!/NOT INDEPENDENT OF ITS OWN BASELINE/.test(k.provenance.independence), 'the admission is replaced by the measurement that answers it');
-      assert.match(k.provenance.independence, /rf2-c1974/);
       assert.match(k.provenance.independence, /SESSION LEVEL/i);
     }
   });
@@ -5178,16 +5118,9 @@ function fixtureRoundsTask(over) {
     const residual = triggers.find((r) => /COMMIT-LEVEL INDEPENDENCE HAS NEVER BEEN MEASURED/.test(r));
     assert.ok(residual, `the standard must name what it still lacks — ${JSON.stringify(triggers)}`);
     assert.match(residual, /different trees/);
-    assert.match(residual, /rf2-8a746 part 3/);
     // and the mount's own residual, which is narrower and sharper: its next
     // baseline may not be a single sitting.
     assert.ok(triggers.some((r) => /MOUNT class specifically/.test(r) && /more than 14 runs/.test(r)), JSON.stringify(triggers));
-  });
-
-  t('the ruling is cited by bead id in every surface it changed', () => {
-    for (const file of ['clock_check_standard.json', 'clock_check_standard.cjs']) {
-      assert.ok(/rf2-c1974/.test(fs.readFileSync(path.join(__dirname, file), 'utf8')), `${file} must cite the ruling that changed it`);
-    }
   });
 }
 
@@ -5548,16 +5481,6 @@ function fixtureRoundsTask(over) {
     assert.match(src, /two independently launched ensembles/i);
     assert.match(src, /overlapping intervals/i);
   });
-
-  t('the ruling is cited by bead id in every surface it changed', () => {
-    for (const f of [
-      path.join(__dirname, 'clock_readjudicate.cjs'),
-      path.join(__dirname, 'clock_exit_path.test.cjs'),
-      path.join(STUDIO, 'rows-re-adjudicated-on-the-corrected-clock.md'),
-    ]) {
-      assert.ok(/rf2-diaud/.test(fs.readFileSync(f, 'utf8')), `${path.basename(f)} must cite the ruling that changed it`);
-    }
-  });
 }
 
 // --- rf2-vp0j7 / rf2-vh0e3: BULK GATES THE PAIR ITS BAR NAMES ----------------
@@ -5764,9 +5687,8 @@ function fixtureRoundsTask(over) {
           assert.strictEqual(
             ev.publishes,
             false,
-            `${dir}/${rowId}/${pair} PUBLISHED a magnitude — rf2-8a746 rules the 42 committed row-runs calibration ` +
-              `and diagnostic evidence, NEVER retroactively promoted, and rf2-vh0e3 turns on that sentence still ` +
-              `holding. Verdict: ${ev.verdict} — ${ev.why}`
+            `${dir}/${rowId}/${pair} PUBLISHED a magnitude — the 42 committed row-runs are calibration ` +
+              `and diagnostic evidence, NEVER retroactively promoted. Verdict: ${ev.verdict} — ${ev.why}`
           );
           seen += 1;
         }
@@ -5807,22 +5729,13 @@ function fixtureRoundsTask(over) {
     assert.deepStrictEqual(
       would,
       ['clock-emvod/bulk300', 'clock-emvod/bulk100', 'clock-w3yxd/bulk300'],
-      'the pairs gatedPairs is holding back — if this list changes, the corpus has moved and rf2-vh0e3 needs re-reading'
+      'the pairs gatedPairs is holding back — if this list changes, the corpus has moved and the gatedPairs scoping needs re-reading'
     );
     // and every one of them is refused as UNADJUDICATED rather than as refused
     for (const dir of CORPORA) {
       for (const rowId of BULK_ROWS) {
         const p = bulkPooled(dir, rowId, PAIR);
         assert.match(effectVerdict(p.iv, rowId, PAIR, { widestSameRunBandPct: p.band }).verdict, /^CO-INSTRUMENTED/);
-      }
-    }
-  });
-
-  t('the rulings are cited by bead id in every surface they changed', () => {
-    for (const f of [path.join(__dirname, 'clock_readjudicate.cjs'), path.join(__dirname, 'clock_exit_path.test.cjs')]) {
-      const src = fs.readFileSync(f, 'utf8');
-      for (const bead of ['rf2-vp0j7', 'rf2-vh0e3']) {
-        assert.ok(new RegExp(bead).test(src), `${path.basename(f)} must cite ${bead}`);
       }
     }
   });
@@ -5915,10 +5828,9 @@ function fixtureRoundsTask(over) {
       STANDARD.evidence.expectedBlocks,
       'the count is the design\'s arithmetic, stated once'
     );
-    assert.strictEqual(STANDARD.evidence.ruling, 'rf2-8a746');
     assert.strictEqual(STANDARD.version, 4, 'requiring completeness is a consumer-contract change — a version bump with its own amendment');
     const a = STANDARD.amendments.find((x) => x.version === 4);
-    assert.ok(a && a.ruling === 'rf2-8a746' && /#7698/.test(a.what), 'the amendment names the audit');
+    assert.ok(a, 'the completeness change is recorded as its own amendment');
     assert.match(a.touches, /byte-identical to v3/, 'and swears the frozen numbers did not move');
   });
 
@@ -5983,11 +5895,11 @@ function fixtureRoundsTask(over) {
 
   // --- THE INTERVAL CONSUMER REFUSES, NEVER FILTERS -------------------------
 
-  t('effectInterval REJECTS an invalid member rather than filtering it, citing the ruling', () => {
+  t('effectInterval REJECTS an invalid member rather than filtering it', () => {
     const good = Array(6).fill(Math.log(1.2));
-    assert.throws(() => effectInterval([good, null]), /rf2-8a746/, 'a null member is refused, not dropped');
+    assert.throws(() => effectInterval([good, null]), /member\(s\) 1 of 2 carry no usable paired log-ratios/, 'a null member is refused, not dropped');
     assert.throws(() => effectInterval([good, []]), /never filtered into a smaller unstated subset/, 'an empty member too');
-    assert.throws(() => effectInterval([good, [Math.log(1.2), NaN]]), /merged-PR audit #7700/, 'and a member with a non-finite entry');
+    assert.throws(() => effectInterval([good, [Math.log(1.2), NaN]]), /completeness is the caller's to prove before pooling/, 'and a member with a non-finite entry');
     const iv = effectInterval([good, good, good]);
     assert.ok(iv && iv.runs === 3, 'a complete pool still forms its interval');
     assert.strictEqual(effectInterval([]), null, 'an EMPTY pool is no interval, not a refusal — nothing was pooled and nothing was lost');
@@ -6084,18 +5996,6 @@ function fixtureRoundsTask(over) {
     }
   });
 
-  t('the ruling and both audits are cited at every changed seat', () => {
-    for (const [name, res] of [
-      ['clock_check_standard.json', /#7698/],
-      ['clock_check_standard.cjs', /audit #7698/],
-      ['clock_readjudicate.cjs', /audit #7700/],
-      ['clock_run.cjs', /#7698/],
-    ]) {
-      const src = fs.readFileSync(path.join(__dirname, name), 'utf8');
-      assert.ok(res.test(src), `${name} must cite the audit that changed it`);
-      assert.ok(/rf2-8a746/.test(src), `${name} must cite the ruling`);
-    }
-  });
 }
 
 let failed = 0;

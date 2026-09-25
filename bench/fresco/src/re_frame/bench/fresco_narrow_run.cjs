@@ -1015,7 +1015,7 @@ function verdict(s) {
       `VERDICT: REFUSED — warm-up never settled inside the ${s.warmupMax}-window ceiling on:`,
       `         ${unsettled.join(', ')}. Those arms were measured on a site that was still`,
       '         trending, so their figures are of the trajectory, not of the arm. Raise',
-      '         HN_WARMUP_MAX and re-run (rf2-rr6do).'
+      '         HN_WARMUP_MAX and re-run.'
     );
   }
   const clamped = s.clamped || [];
@@ -1023,7 +1023,7 @@ function verdict(s) {
     say(
       'VERDICT: REFUSED — a quoted leg sits on the clock quantum, so the absolute table above',
       `         is not a reading of the arm: ${clamped.join(', ')}. Raise HN_WRITES so each`,
-      '         sample carries at least 10x the quantum; do not loosen the multiple (rf2-rr6do).'
+      '         sample carries at least 10x the quantum; do not loosen the multiple.'
     );
   }
 

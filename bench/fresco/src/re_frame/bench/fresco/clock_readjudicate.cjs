@@ -725,7 +725,7 @@ function effectInterval(runs) {
     throw new Error(
       `effectInterval: member(s) ${invalid.join(', ')} of ${rs.length} carry no usable paired log-ratios — an invalid ` +
         'member is REFUSED, never filtered into a smaller unstated subset; completeness is the caller\'s to prove ' +
-        'before pooling (rf2-8a746, merged-PR audit #7700)'
+        'before pooling'
     );
   }
   const usable = rs;
@@ -1409,7 +1409,7 @@ function main(argv) {
         rawEvidenceLoss.push(...ivLost.map((m) => ({ file: m.file, rowId, pair })));
       }
       console.log(
-        `;;     EFFECT-SIZE INTERVAL (${EFFECT.bead}, row-class estimand and threshold ${EFFECT.thresholdsRuling}) — ` +
+        `;;     EFFECT-SIZE INTERVAL (row-class estimand and threshold) — ` +
           `${rule ? rule.estimandSays : 'no estimand of record for this row class'}; ${EFFECT.method}`
       );
       if (rule) {

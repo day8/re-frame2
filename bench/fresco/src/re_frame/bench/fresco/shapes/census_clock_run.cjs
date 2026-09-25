@@ -390,7 +390,7 @@ function controlVerdict(predicted, per, slack) {
     measured: b,
     perBlock: per.map(r4),
     ok: per.every((x) => x >= lo && x <= hi),
-    rule: 'strict — EVERY block inside the band (rf2-y0pkh: measured and retained)',
+    rule: 'strict — EVERY block inside the band (measured and retained)',
   };
 }
 
@@ -466,7 +466,7 @@ function checkStandardVerdict(rowId, per) {
     throw new Error(
       `row \`${rowId}\` is in neither \`rows\` nor \`notInThisStandard\` of ${CHECK_STANDARD.id} ` +
         `v${CHECK_STANDARD.version} — a row this standard has never heard of can be neither adjudicated ` +
-        `by it nor waved past it (${CHECK_STANDARD.bead})`
+        `by it nor waved past it`
     );
   }
 
@@ -582,8 +582,8 @@ function controlAdjudication(rowId, predicted, per, slack) {
     strictOk: strict.ok,
     standard,
     adjudicator: standard
-      ? `the calibrated check standard \`${standard.standard.id}\` v${standard.standard.version} (${standard.standard.bead}); the band above is REPORTED`
-      : 'the strict all-blocks rule above, about the row\'s own element arithmetic (rf2-y0pkh: measured and retained)',
+      ? `the calibrated check standard \`${standard.standard.id}\` v${standard.standard.version}; the band above is REPORTED`
+      : 'the strict all-blocks rule above, about the row\'s own element arithmetic (measured and retained)',
     ok: standard ? standard.ok : strict.ok,
   };
 }
@@ -593,7 +593,7 @@ function formatCheckStandard(v) {
   if (!v) return [];
   const lines = [
     `;;   ${v.ok ? 'IN CONTROL' : 'REFUSED   '} check standard \`${v.standard.id}\` v${v.standard.version} ` +
-      `[${v.rowId}${v.calibrated ? '' : ', UNCALIBRATED'}] (${v.standard.bead})`,
+      `[${v.rowId}${v.calibrated ? '' : ', UNCALIBRATED'}]`,
   ];
   if (v.location && v.dispersion) {
     lines.push(
@@ -1367,7 +1367,7 @@ function verdict(summary) {
   }
   if (unverified.length) {
     lines.push(
-      '[c56clock] REFUSED — unverified operations (rf2-rr6do): a window whose value never reached ' +
+      '[c56clock] REFUSED — unverified operations: a window whose value never reached ' +
         'the page is not a measurement of that page: ' +
         unverified.map((r) => `${r.id}: ${r.unverified} of ${r.writes}`).join(', ')
     );
@@ -1375,7 +1375,7 @@ function verdict(summary) {
   if (overCeiling.length) {
     lines.push(
       `[c56clock] REFUSED — the run's own reproducibility band exceeds seam.cjs's ceiling ` +
-        `(rf2-ymi6j, rf2-rr6do; this is prediction P4 kept) on: ` +
+        `(this is prediction P4 kept) on: ` +
         overCeiling.map((r) => `${r.id} (${pct(r.band)})`).join(', ') +
         '. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ' +
         'page, so a band that wide means the box could not reproduce identical work — no magnitude ' +
@@ -1387,7 +1387,7 @@ function verdict(summary) {
       '[c56clock] REFUSED — the positive control did not see the change its own arithmetic ' +
         'predicts (prediction P4) on: ' +
         ctlFailed.map((r) => `${r.id} (measured ${Number(r.ctlMeasured).toFixed(4)}x)`).join(', ') +
-        '. No MAGNITUDE from those rows is reportable — and the scope is the ROW (rf2-pzqy8): every ' +
+        '. No MAGNITUDE from those rows is reportable — and the scope is the ROW: every ' +
         'row above that passed every gate stays canonical in the same file, which is P4 kept at the ' +
         'scope P4 states it.'
     );

@@ -80,13 +80,12 @@ test('an UNSETTLED WARM-UP alone is a nonzero exit — the case that used to be 
   assert.doesNotMatch(joined(v), /reportable\./, 'a refused run may not also call itself reportable');
 });
 
-test('the warm-up refusal NAMES the arms, the ceiling, the knob and its bead', () => {
+test('the warm-up refusal NAMES the arms, the ceiling and the knob', () => {
   const v = verdict(clean({ warmupUnsettled: ['reagent-ratom', 're-frame2'], warmupMax: 20 }));
   const text = joined(v);
   assert.match(text, /reagent-ratom, re-frame2/);
   assert.match(text, /20-window ceiling/);
   assert.match(text, /HN_WARMUP_MAX/);
-  assert.match(text, /rf2-rr6do/);
 });
 
 // --- the second, narrower instance: a clamp-limited leg --------------------
@@ -104,7 +103,6 @@ test('the clamp refusal names the legs and the repair, and refuses to loosen its
   assert.match(text, /re-frame2\/force \(4\.1x quantum per sample\)/);
   assert.match(text, /HN_WRITES/);
   assert.match(text, /do not loosen the multiple/);
-  assert.match(text, /rf2-rr6do/);
 });
 
 // --- the other refusals: their exit codes and their wording ----------------
