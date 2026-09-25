@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.panels.l2-timeline-cljs-test
-  "Pure-data tests for the L2 epoch-timeline helpers (rf2-gf58j).
+  "Pure-data tests for the L2 epoch-timeline helpers.
 
   ## What's under test
 
     1. **source extraction** — `source-of` reads
-       `[:dispatched :tags :source]` and nil-safes every step. Per
-       rf2-1ve9h the prior `:rf/dispatch-origin` axis was collapsed
-       into `:source` (Mike-approved Option A, 2026-05-28).
+       `[:dispatched :tags :source]` and nil-safes every step.
+       `:source` is the one origin axis (there is no
+       `:rf/dispatch-origin`).
     2. **source → text tag** — `origin-source-tag` renders the bare
        source name for substrate origins and `ui` for every app-code
        source (and for nil), never a blank cell.
@@ -28,7 +28,7 @@
 (defn- cascade-with-source
   "Build a synthetic cascade record whose `:dispatched` carries the
   given `:source` tag. Mirrors the shape produced by
-  `re-frame.trace.projection/group-by-event` post-rf2-1ve9h."
+  `re-frame.trace.projection/group-by-event`."
   [source]
   {:dispatch-id 42
    :event       [:cart/add-item {:id 99}]
@@ -45,10 +45,10 @@
   (cond-> {:operation operation :tags tags}
     op-type (assoc :op-type op-type)))
 
-;; ---- 1. source extraction (post-rf2-1ve9h) ------------------------------
+;; ---- 1. source extraction -----------------------------------------------
 
 (deftest source-of-test
-  (testing "reads :source from :dispatched :tags (the post-rf2-1ve9h axis)"
+  (testing "reads :source from :dispatched :tags (the origin axis)"
     (is (= :tool           (l2/source-of (cascade-with-source :tool))))
     (is (= :router         (l2/source-of (cascade-with-source :router))))
     (is (= :ui             (l2/source-of (cascade-with-source :ui))))
@@ -67,10 +67,10 @@
     (is (nil? (l2/source-of "not a cascade")))
     (is (nil? (l2/source-of 42)))))
 
-;; ---- 2. source → source-tag (Figma `source` column, rf2-ad7zx.12) -------
+;; ---- 2. source → source-tag (Figma `source` column) ---------------------
 
 (deftest origin-source-tag-test
-  (testing "app-code sources render the `ui` tag (rf2-lnod7) — the
+  (testing "app-code sources render the `ui` tag — the
             reference tags EVERY row; the dominant app-code source reads
             `ui` rather than a blank cell"
     (is (= "ui" (l2/origin-source-tag :ui)))
@@ -94,20 +94,19 @@
     (is (= "machine-spawn"     (l2/origin-source-tag :machine-spawn)))
     (is (= "websocket"         (l2/origin-source-tag :websocket))))
 
-  (testing "nil → the `ui` default (rf2-lnod7) so synthetic / pre-source-
-            tag cascades still render a concrete source rather than blank;
-            never throws"
+  (testing "nil → the `ui` default so synthetic / untagged cascades
+            render a concrete source rather than blank; never throws"
     (is (= "ui" (l2/origin-source-tag nil)))
-    ;; an unknown keyword still yields its name — the column is the bare
+    ;; an unknown keyword yields its name — the column is the bare
     ;; source axis, not gated on the closed-enum glyph map.
     (is (= "unknown-axis" (l2/origin-source-tag :unknown-axis)))))
 
-;; ---- 3. duration column (Figma `duration` column, rf2-lnod7) ------------
+;; ---- 3. duration column (Figma `duration` column) -----------------------
 
 (defn- cascade-with-duration
   "Build a synthetic cascade whose `:handler` (`:rf.event/run-end`) trace
   event carries the given handler duration under `:rf.event/elapsed-ms`,
-  the key the producer stamps (rf2-3x7nj.22.5 — a live run-end carries
+  the key the producer stamps (a live run-end carries
   `:frame :rf.event/elapsed-ms :rf.event/v :rf.trace/dispatch-id
   :rf.trace/event-id :rf.trace/phase` and no `:duration-ms`). Mirrors the
   shape `re-frame.trace.projection/group-by-event` buckets into `:handler`."
@@ -125,7 +124,7 @@
     (is (= 0     (l2/event-bundle-duration-ms (cascade-with-duration 0))))
     (is (= "1.2 ms" (l2/event-bundle-duration-label (cascade-with-duration 1.234)))))
 
-  (testing "falls back to the legacy :duration-ms when elapsed-ms is absent"
+  (testing "falls back to :duration-ms when elapsed-ms is absent"
     (is (= 2.5 (l2/event-bundle-duration-ms
                  {:handler {:operation :rf.event/run-end
                             :tags      {:duration-ms 2.5}}}))))
@@ -160,7 +159,7 @@
     (is (nil? (l2/event-bundle-duration-label {})))
     (is (nil? (l2/event-bundle-duration-label nil)))))
 
-;; ---- 4. epoch-has-an-issue signal (rf2-b8guz) --------------------------
+;; ---- 4. epoch-has-an-issue signal --------------------------------------
 ;;
 ;; `event-bundle-has-issue?` drives the L2 row's light-pink `:bg-issue-row`
 ;; wash. It must light up for EXACTLY the set the Issues ribbon/feed
@@ -195,21 +194,21 @@
     (is (true? (l2/event-bundle-has-issue?
                 {:other [(ev :rf.ssr/hydration-mismatch :op-type :error)]}))))
 
-  (testing "the cascade's legacy :errors slot alone → true (defence in
-            depth for synthetic / older traces that populate it directly)"
+  (testing "the cascade's :errors slot alone → true (defence in
+            depth for synthetic traces that populate it directly)"
     (is (true? (l2/event-bundle-has-issue?
                 {:errors [{:operation :rf.error/no-such-fx}]}))))
 
-  (testing "an issue mixed with lifecycle chatter still lights up"
+  (testing "an issue mixed with lifecycle chatter lights up"
     (let [c (-> (cascade-with-source :fx-dispatch)
                 (assoc :other [(ev :rf.machine/transition :op-type :rf.machine)
                                (ev :rf.error/handler-exception :op-type :error)]))]
       (is (true? (l2/event-bundle-has-issue? c))))))
 
 (deftest event-bundle-has-issue?-info-activity-test
-  (testing "REGRESSION rf2-3x7nj.24.1 — a healthy managed-HTTP event does NOT
-            wash. The runtime emits `:rf.http/issued` at `:info` inside the
-            issuing fx handler on every managed request, so the row lands in
+  (testing "a healthy managed-HTTP event does NOT wash. The runtime emits
+            `:rf.http/issued` at `:info` inside the issuing fx handler on
+            every managed request, so the row lands in
             the issuing bundle's :other beside a green `:ok` status; `:info`
             is activity, never an issue. The bundle is the producer's shape."
     (let [b (-> (cascade-with-source :ui)
@@ -217,7 +216,7 @@
                        :other   [(teb/http-issued-ev :app/load "/api/load")]))]
       (is (false? (l2/event-bundle-has-issue? b)))))
   (testing "CONTROLS — beside the same :info row, a `:warning` and an
-            `:error` still wash, so the false above is about :info"
+            `:error` do wash, so the false above is about :info"
     (is (true? (l2/event-bundle-has-issue?
                 {:other [(teb/http-issued-ev :app/load "/api/load")
                          (teb/ev :warning :rf.fx/skipped-on-platform
