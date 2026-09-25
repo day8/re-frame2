@@ -14,7 +14,7 @@
           :rf.route/not-found      {:doc       "Render the not-found page with the right status."
                                  :platforms #{:server}}}
   ;; :rf.server/set-status is registered by the runtime (re-frame.ssr,
-  ;; per Spec 011 §HTTP response contract / rf2-8pif). The harness's
+  ;; per Spec 011 §HTTP response contract). The harness's
   ;; :fixture/registry :fx slot would shadow that with a no-op stub, so
   ;; the canonical fx is intentionally not declared here.
   ;; No :sub for the response accumulator: it lives in a framework-private
@@ -33,7 +33,7 @@
  :fixture/dispatches []
 
  :fixture/expect
- ;; Submap match. Per rf2-jbcmt the :rf/response accumulator lives in a
+ ;; Submap match. The :rf/response accumulator lives in a
  ;; framework-private side-channel atom (re-frame.ssr/response-slots),
  ;; NOT in app-db — so the fixture pins the response shape via
  ;; :ssr/request-result and only the application-visible :page slot on
