@@ -163,9 +163,9 @@
                              (repeat (apply str (repeat 64 "x"))))}})
 
 (deftest snapshot-wholesale-rf-xray-is-refused-before-the-eval
-  ;; Reproduce the overflow path: a `path: []` read of :rf/xray would
-  ;; return huge-xray-snapshot. Assert it is now REFUSED and the runtime
-  ;; eval was never reached (so the huge payload never crosses).
+  ;; The overflow path: a `path: []` read of :rf/xray would return
+  ;; huge-xray-snapshot. Assert it is REFUSED and the runtime eval is
+  ;; never reached (so the huge payload never crosses).
   (async done
     (let [seen (atom [])]
       (stub-eval! seen {:value huge-xray-snapshot :elided-count 0 :tool-frames-excluded []})
@@ -194,15 +194,14 @@
                    (done)))))))
 
 (deftest snapshot-wholesale-mode-full-no-path-is-refused
-  ;; rf2-brpc6v regression: `mode "full"` + no `path` is the OTHER
-  ;; wholesale shape the guard exists to catch (docs at
-  ;; `reserved-frame-guard.cljs` name it explicitly), independent of
-  ;; `path: []`. The bug routed the parsed `:epochs-mode` (default
-  ;; `:diff`) into the guard instead of the parsed slice `mode`
-  ;; (`:summary`/`:full`), so this exact shape sailed through to the
-  ;; eval round-trip and shipped the full unelided :rf/xray state. Assert
-  ;; the refusal fires BEFORE the eval — the huge canned payload never
-  ;; crosses.
+  ;; `mode "full"` + no `path` is the OTHER wholesale shape the guard
+  ;; exists to catch (docs at `reserved-frame-guard.cljs` name it
+  ;; explicitly), independent of `path: []`. The guard must receive the
+  ;; parsed slice `mode` (`:summary`/`:full`), not the parsed
+  ;; `:epochs-mode` (default `:diff`) — fed that, this exact shape would
+  ;; sail through to the eval round-trip and ship the full unelided
+  ;; :rf/xray state. Assert the refusal fires BEFORE the eval — the huge
+  ;; canned payload never crosses.
   (async done
     (let [seen (atom [])]
       (stub-eval! seen {:value huge-xray-snapshot :elided-count 0 :tool-frames-excluded []})
@@ -218,12 +217,11 @@
                    (done)))))))
 
 (deftest snapshot-epochs-mode-full-alone-does-not-trip-the-guard
-  ;; Negative guard, other half of the rf2-brpc6v fix: the OBSCURE
+  ;; Negative guard, the other half of that pairing: the OBSCURE
   ;; `:epochs-mode full` arg (unrelated to the wholesale slice mode) must
   ;; NOT spuriously trip the guard when the documented `:mode` stays at
-  ;; its `:summary` default and no `path` narrows the read. Before the
-  ;; fix this shape was (wrongly) refused because the guard received
-  ;; epochs-mode instead of slice-mode.
+  ;; its `:summary` default and no `path` narrows the read. A guard fed
+  ;; epochs-mode instead of slice-mode would (wrongly) refuse this shape.
   (async done
     (let [seen (atom [])]
       (stub-eval! seen {:value {:rf/xray {:epochs [{:idx 0}]}}
@@ -316,7 +314,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest set-operating-frame-refuses-reserved-tool-frame
-  ;; The bypass entry point: pinning :rf/xray as the operating frame is now
+  ;; The bypass entry point: pinning :rf/xray as the operating frame is
   ;; refused BEFORE any nREPL round-trip (a reserved :rf/* frame is a
   ;; devtool surface, never the app the operator pairs against). With the
   ;; pin closed, an omitted-:frame read can never resolve to :rf/xray.
@@ -359,10 +357,9 @@
 
 (deftest sliced-reserved-frame-read-still-succeeds-via-explicit-frame
   ;; With the reserved-frame PIN closed, a TARGETED (sliced) read of a tool
-  ;; frame stays available through the explicit per-call :frame arg — the
-  ;; "preserve allowed targeted reads of reserved frames" acceptance
-  ;; criterion. (The "pinned :rf/xray + sliced read" example is moot: a
-  ;; reserved frame is never the operating frame.)
+  ;; frame stays available through the explicit per-call :frame arg.
+  ;; (A "pinned :rf/xray + sliced read" cannot arise: a reserved frame is
+  ;; never the operating frame.)
   (async done
     (let [seen (atom [])]
       (stub-eval! seen {:ok? true :exists? true :value [1 2 3] :elided-count 0})
