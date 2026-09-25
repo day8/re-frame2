@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels-e2e.evicted-epoch-all-panels-cljs-test
-  "Cross-panel regression for rf2-uo0rc.1 — spec/021 §10.7 (Evicted-epoch
+  "Cross-panel regression for spec/021 §10.7 (Evicted-epoch
   placeholder).
 
   ## The invariant (spec/021 §10.7, NORMATIVE)
@@ -8,26 +8,24 @@
   edn-inspector in EVERY panel renders the same placeholder: Epoch evicted
   from buffer.'
 
-  ## The bug
+  ## The bug class
 
-  On a PINNED (RETRO) focus whose epoch had aged out of the per-frame
-  epoch ring, the L4 panels DISAGREED:
+  On a PINNED (RETRO) focus whose epoch has aged out of the per-frame
+  epoch ring, a panel whose focused-epoch lookup SILENTLY FALLS BACK TO
+  HEAD would render the LATEST machine state / cascade while the other
+  panels render the evicted placeholder. The operator would believe they
+  were inspecting the pinned (evicted) epoch but see the most-recent
+  state instead — a state-reconstruction lie.
 
-    - Issues / Trace / Epoch (shared `focus-resolver/find-epoch-record`)
-      + App-DB Diff (`find-epoch-in-history`) correctly resolved nil →
-      rendered the evicted placeholder.
-    - Machine Inspector (`machine-inspector-helpers/focused-epoch-record`)
-      + Views (`reactive-panel-subs/focused-epoch-record`) SILENTLY FELL
-      BACK TO HEAD → rendered the LATEST machine state / cascade. The
-      operator believed they were inspecting the pinned (evicted) epoch
-      but saw the most-recent state instead — a state-reconstruction lie.
+  ## How the panels agree
 
-  ## The fix
-
-  Both panel `focused-epoch-record` helpers now route through the shared
-  `panels.shared.focus-resolver/find-epoch-record`, which returns nil for
-  a pinned-but-evicted epoch (preserving only the spec-correct NIL-focus
-  head-fallback). So ALL panels resolve the evicted epoch to nil and
+  Issues / Trace / Epoch, the Machine Inspector
+  (`machine-inspector-helpers/focused-epoch-record`) and Views
+  (`reactive-panel-subs/focused-epoch-record`) all route through the
+  shared `panels.shared.focus-resolver/find-epoch-record`, which returns
+  nil for a pinned-but-evicted epoch (keeping only the spec-correct
+  NIL-focus head-fallback); App-DB Diff (`find-epoch-in-history`)
+  resolves nil too. So ALL panels resolve the evicted epoch to nil and
   render the §10.7 placeholder.
 
   This test drives the REAL panel composite subs (`:rf.xray/focus` →
@@ -125,9 +123,9 @@
                "focus: " (pr-str focus))))))
 
 (deftest evicted-pin-machine-inspector-renders-placeholder
-  (testing "rf2-uo0rc.1 — Machine Inspector resolves an evicted pin to NO
+  (testing "Machine Inspector resolves an evicted pin to NO
             transitions (→ blank/evicted placeholder), NOT the latest
-            machine state. Pre-fix it head-fell-back and showed epoch 9's
+            machine state. A head-fallback would show epoch 9's
             :traffic-light transition."
     (install-xray!)
     (seed-evicted-pin!)
@@ -138,9 +136,9 @@
                "records: " (pr-str records))))))
 
 (deftest evicted-pin-views-panel-renders-placeholder
-  (testing "rf2-uo0rc.1 — Views (reactive-data) resolves an evicted pin to
+  (testing "Views (reactive-data) resolves an evicted pin to
             :has-event-bundle? false (→ empty/evicted placeholder), NOT the
-            latest cascade. Pre-fix it head-fell-back to epoch 9's cascade."
+            latest cascade. A head-fallback would show epoch 9's cascade."
     (install-xray!)
     (seed-evicted-pin!)
     (let [reactive (sub-xray [:rf.xray/reactive-data])]
@@ -155,10 +153,11 @@
           "Views projected view-rows from the head record on an evicted pin"))))
 
 (deftest evicted-pin-all-panels-agree-on-placeholder
-  (testing "rf2-uo0rc.1 / spec/021 §10.7 — EVERY focus-scoped panel renders
+  (testing "spec/021 §10.7 — EVERY focus-scoped panel renders
             the evicted placeholder for a pinned-evicted epoch; NONE shows
-            HEAD. This is the cross-panel agreement the bug broke (two
-            panels silently showed latest state while four showed evicted)."
+            HEAD. A head-fallback in any one panel breaks this cross-panel
+            agreement (that panel silently shows latest state while the
+            others show evicted)."
     (install-xray!)
     (seed-evicted-pin!)
     (let [trace     (sub-xray [:rf.xray/trace-feed])
@@ -167,7 +166,7 @@
           app-db    (sub-xray [:rf.xray/selected-epoch-record])
           machine   (sub-xray [:rf.xray/machine-transitions-for-focused-event])
           reactive  (sub-xray [:rf.xray/reactive-data])]
-      ;; Already-correct panels (regression-guard they STAY correct).
+      ;; The shared-resolver panels.
       (is (= :epoch-evicted (:empty-kind trace))
           (str "Trace feed must report :epoch-evicted. trace: "
                (pr-str (select-keys trace [:empty-kind :epoch-id]))))
@@ -179,7 +178,7 @@
                (pr-str (select-keys issues [:empty-kind]))))
       (is (nil? app-db)
           "App-DB Diff must resolve no record for an evicted pin")
-      ;; The two panels the fix corrects.
+      ;; The two panels with their own focused-epoch-record helpers.
       (is (= [] machine)
           "Machine Inspector must resolve no transitions for an evicted pin")
       (is (false? (:has-event-bundle? reactive))
