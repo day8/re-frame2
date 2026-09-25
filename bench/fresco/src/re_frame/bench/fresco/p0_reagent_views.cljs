@@ -1,11 +1,11 @@
 (ns re-frame.bench.fresco.p0-reagent-views
   "THE SHIP BAR'S DENOMINATOR — Reagent reading re-frame2 subscriptions,
-  and the two arms that make that number mean something (rf2-2rtt6.2).
+  and the two arms that make that number mean something.
 
   HD-012 states the bar as `mount AND bulk view-work ≤ 1.0× Reagent,
-  LIKE-FOR-LIKE — both sides reading re-frame2 subscriptions`. Every
-  Reagent row in this repo before today read a bare `reagent.core/atom`
-  through an `r/cursor`, which is Reagent's own idiom but is NOT the same
+  LIKE-FOR-LIKE — both sides reading re-frame2 subscriptions`. A Reagent
+  row reading a bare `reagent.core/atom` through an `r/cursor` uses
+  Reagent's own idiom but is NOT the same
   amount of framework: it pays no subscription graph, no query cache, no
   frame. A candidate measured against it would be measured against a
   denominator no re-frame2 application has. This namespace supplies the
@@ -27,15 +27,11 @@
 
   ## Why one page can host all four
 
-  The missing Reagent-on-subs arm was expensive for the predecessor
-  programme for a reason that does not apply here: its own view substrate
-  was inert under a ratom adapter, so a page could not host it and a
-  re-frame-reading Reagent arm at once, and the design called for `two
-  adapter phases bridged by the floor`. Every arm below is Reagent or
-  nothing. One `(rf/init! reagent/adapter)` serves all four, the floor
-  has no substrate to conflict with, and the whole two-phase problem
-  disappears. That is worth saying because it is the reason this bead is
-  a day's work rather than the week the donor budgeted.
+  A view substrate that is inert under a ratom adapter cannot share a
+  page with a re-frame-reading Reagent arm, and needs two adapter phases
+  bridged by the floor. Every arm below is Reagent or nothing: one
+  `(rf/init! reagent/adapter)` serves all four, and the floor has no
+  substrate to conflict with, so there is no two-phase problem.
 
   ## The markup is one markup
 
@@ -107,7 +103,7 @@
 
   It is named rather than inlined into the registration below so that a
   witness which must register the query behind something — the keystroke
-  witness registers it behind a recompute census (rf2-0qj9w) — reaches
+  witness registers it behind a recompute census — reaches
   ONE body instead of copying it. A copied `(get-in db [:cells i])` is
   the drift class this lane already pays for deliberately in its ARMS,
   and there is no reason to pay it for an accessor."
@@ -118,9 +114,8 @@
   "The sub graph: ONE layer-1 subscription, keyed by index, one read per
   boundary — the first rung of the HD-002 1/3/7/20 ladder.
 
-  Called at load, exactly as it was when rf2-2rtt6.2 published, so this
-  arm's behaviour is unchanged. It is a FUNCTION as well because the
-  witness-convergence run (rf2-a4x1o) installs and destroys an adapter
+  Called at load. It is a FUNCTION as well because the
+  witness-convergence run installs and destroys an adapter
   once per segment and calls it again on every segment entry. A
   re-register overwrites with the identical handler, so calling it twice
   and calling it once are the same registry."
