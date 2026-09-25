@@ -1,16 +1,16 @@
 // Pure, side-effect-free parsing + validation for the canonical
-// `:rf.mcp/overflow` wire marker (rf2-3fc89f.20).
+// `:rf.mcp/overflow` wire marker.
 //
 // ## Why this is a standalone helper
 //
-// The live gate `test/live-re-frame2-pair-overflow.cjs` used to carry the
-// overflow parsing/validation inline. That file's top-level SKIP path
-// (`runWithWatchdog.skip` when `$SHADOW_CLJS_NREPL_PORT` is unset) exits
-// the process before any function is reachable, so Node's `--test` unit
-// runner cannot exercise the parser directly. Extracting the pure logic
-// here makes every branch unit-testable without booting a server — the
-// live gate now imports from this module and adds only the on-the-wire
-// ceremony (SDK spawn, the real over-budget eval, dual-slot reads).
+// The live gate `test/live-re-frame2-pair-overflow.cjs` has a top-level
+// SKIP path (`runWithWatchdog.skip` when `$SHADOW_CLJS_NREPL_PORT` is
+// unset) that exits the process before any function is reachable, so
+// Node's `--test` unit runner could not exercise a parser kept inline
+// there. Keeping the pure logic here makes every branch unit-testable
+// without booting a server — the live gate imports from this module and
+// adds only the on-the-wire ceremony (SDK spawn, the real over-budget
+// eval, dual-slot reads).
 //
 // ## The contract this enforces
 //
@@ -19,11 +19,11 @@
 // (`wire-vocab/.../schemas.clj`). CLOSED and SINGLE-KEY is load-bearing:
 // clients pattern-match on exactly one reserved top-level discriminator
 // key, so a mixed envelope such as
-// `{:rf.mcp/overflow {...} :unexpected "sibling"}` — which the pre-fix
-// extraction-only parser accepted, returning the inner body regardless of
-// siblings — is a contract break. The body itself stays OPEN/additive
-// (`ReFrame2PairOverflowBody` is `{:closed false}`): future additive
-// fields inside the marker are fine, extra keys OUTSIDE the wrapper are not.
+// `{:rf.mcp/overflow {...} :unexpected "sibling"}` — which an
+// extraction-only parser would accept, returning the inner body regardless
+// of siblings — is a contract break. The body itself is OPEN
+// (`ReFrame2PairOverflowBody` is `{:closed false}`): additional fields
+// inside the marker are fine, extra keys OUTSIDE the wrapper are not.
 //
 // ## EDN vs structuredContent — one shape, two representations
 //
@@ -63,7 +63,7 @@ const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
 // overflow-required-field`) reads THIS data table by name (it slurps this
 // file — see `live-re-frame2-pair-overflow-js-rel`) so a drift in either
 // direction trips the JVM-side test. `int` means an INTEGER, as Malli's
-// `:int` does — `typeof === 'number'` let 5000.5 through (rf2-gwye.41).
+// `:int` does — `typeof === 'number'` would let 5000.5 through.
 const REQUIRED_FIELDS = [
   ['limit',       (v) => v === 'reached',          'enum :reached'],
   ['cap-tokens',  (v) => Number.isInteger(v),      'int'],
@@ -83,9 +83,9 @@ function isPlainObject(v) {
 // wrapper — a non-array object whose OWN-KEY SET is EXACTLY
 // `["rf.mcp/overflow"]`. Returns the inner body on success; throws on any
 // other shape (missing key, a lookalike such as `rf.mcp/overflowed`,
-// an array/scalar, or ANY sibling top-level key). This is the guard the
-// pre-fix extraction-only parser lacked: it read `outer['rf.mcp/overflow']`
-// without ever checking it was the sole top-level key.
+// an array/scalar, or ANY sibling top-level key). An extraction-only
+// parser that read `outer['rf.mcp/overflow']` without checking it was the
+// sole top-level key would accept a mixed envelope.
 function unwrapClosedOverflow(outer, ctx) {
   if (!isPlainObject(outer)) {
     throw new Error(
