@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// THE CHECK STANDARD FOR THE FRESCO CLOCK (rf2-8a746).
+// THE CHECK STANDARD FOR THE FRESCO CLOCK.
 //
 //   node src/re_frame/bench/fresco/clock_check_standard.cjs   the self-test (from bench/fresco/)
 //
 // ## Why the check is a LEVEL, not a difference of differences
 //
-// rf2-8a746 retired the three-point difference-of-differences control as a
-// gate on this instrument — not re-sited, retired — on two independently
+// The three-point difference-of-differences control is not a gate on this
+// instrument, and re-siting it would not make it one, on two independently
 // fatal grounds, both arithmetic:
 //
-//   * THE PREDICTION WAS MIS-DERIVED. `(d2-d0)/(d1-d0) = 2.0101` is the
+//   * THE PREDICTION IS MIS-DERIVED. `(d2-d0)/(d1-d0) = 2.0101` is the
 //     expectation only if `T` is affine in the dirty set. On the published
 //     TaskDuration clock it is not: marginal cost falls 12.6 -> 6.8-7.2 µs
 //     per cell across `[1,100]` / `[100,200]`, so the statistic's true centre
 //     is 1.546-1.578 and sits 2.6% ABOVE the 1.5076 edge at which it refuses.
-//   * THE ESTIMATOR WAS ILL-CONDITIONED. `den = T(100) - T(1)` is 1.23-1.25 ms
+//   * THE ESTIMATOR IS ILL-CONDITIONED. `den = T(100) - T(1)` is 1.23-1.25 ms
 //     carrying 0.60-0.67 ms of dispersion — 1.85-2.09 sigma from zero, with
 //     `corr(T(1), T(100)) ~ 0.4`. That is the classic Fieller ratio problem
 //     (Franz, arXiv:0710.2024): differencing away the additive constant also
@@ -60,41 +60,36 @@
 // The JSON beside it is data on purpose: recalibrating is editing that file
 // and bumping its version, never editing this one.
 //
-// ## v2 — THE MOUNT CLASS IS CALIBRATED (rf2-x7x10, 2026-08-08)
+// ## THE MOUNT CLASS IS CALIBRATED ON ITS OWN RUNS
 //
-// v1 froze the BULK class and left the MOUNT class uncalibrated and failing
-// closed, which was the correct restraint at the time: `rf2-8a746`'s ruling
-// seeded bulk only and the mount half was `rf2-t2flm`'s concurrent seat. The
-// consequence fell between the two rulings. `rf2-t2flm`'s published `M1` row is
-// conditioned on the every-block `ctl-2x` rule — the rule `rf2-8a746` retired
-// EVERYWHERE ON THIS INSTRUMENT — so after v1 the row carried a label naming a
-// rule nothing implements, and `clock_readjudicate.cjs`, which that ruling's
-// close reason records as reproducing every published figure exactly, returned
-// `reportable subset: NONE` on every `M1` pair instead.
+// The published `M1` row is a mount, and no rule on this instrument keeps
+// every block in band, so without a calibrated MOUNT class every `M1` run
+// would fail closed and `clock_readjudicate.cjs`, which reproduces every
+// published figure, would return `reportable subset: NONE` on every `M1` pair.
 //
-// So v2 calibrates the mount from the mount's own 14 committed row-runs, in
-// v1's derivation with nothing changed but the data it is applied to. THE TWO
-// CLASSES SIT 4.4% APART on the identical statistic through the identical door
-// — 1.9 of the mount's own between-run SDs — and that gap is why there is a
-// second class rather than a second row list on the first. Importing bulk's
-// limits would have asserted against the mount a value never measured on it,
-// which is the mis-specification `rf2-8a746` retired, one row class over;
-// `rf2-8a746` saw it coming and handed the finding forward by id.
+// So the mount is calibrated from the mount's own 14 committed row-runs, in
+// the bulk class's derivation with nothing changed but the data it is applied
+// to. THE TWO CLASSES SIT 4.4% APART on the identical statistic through the
+// identical door — 1.9 of the mount's own between-run SDs — and that gap is why
+// there is a second class rather than a second row list on the first.
+// Importing bulk's limits would assert against the mount a value never
+// measured on it, which is the mis-specification this standard exists to
+// prevent, one row class over.
 //
 // WHAT THIS DOES NOT DO. It moves no published figure and it loosens nothing:
 // the mount's location limits are 30% NARROWER than bulk's, because the mount's
-// between-run scatter is smaller. What it restores is the reproduction path — a
+// between-run scatter is smaller. What it gives is the reproduction path — a
 // reader with the datasets can run the readjudicator and get the row back — and
 // what the row then says is the readjudicator's to state, not this file's.
 //
-// ## v3 — THE LIMITS, VALIDATED OUT OF SAMPLE (rf2-c1974, 2026-08-08)
+// ## THE LIMITS, VALIDATED OUT OF SAMPLE
 //
-// `rf2-8a746` part 3 asks for limits frozen from an INDEPENDENT baseline, and
-// v1 and v2 both said in their own `provenance.independence` fields that they
-// did not have one: seeded from the runs they were quoted against, so `0 of 42`
-// and `14 of 14` were consistency checks and not false-refusal measurements.
-// A self-seeded standard leaves a gap, because the moment a NEW run is judged
-// in control the verdict rests on limits nobody has tested out of sample.
+// A check standard's limits should be frozen from an INDEPENDENT baseline.
+// These are fitted on the runs they are quoted against, so `0 of 42` and
+// `14 of 14` are consistency checks and not false-refusal measurements, and a
+// self-seeded standard leaves a gap: the moment a NEW run is judged in
+// control, the verdict rests on limits nobody has tested out of sample. So
+// each class also carries a hold-out.
 //
 // WHAT THIS CORPUS CAN SUPPORT, AND WHAT IT CANNOT. The census clock's check
 // standard (`shapes/census_check_standard.json`) holds out a genuinely later
@@ -127,8 +122,7 @@
 // the committed corpus by `clock_exit_path.test.cjs`, which has the datasets;
 // the fixtures here stay synthetic and check the record's SHAPE and its claims.
 //
-// ## v4 — THE EVIDENCE CARDINALITY IS PART OF THE STANDARD (rf2-8a746,
-// merged-PR audit #7698, 2026-08-10)
+// ## THE EVIDENCE CARDINALITY IS PART OF THE STANDARD
 //
 // Having no PER-BLOCK VERDICT is not licence to accept ANY number of blocks:
 // without a cardinality check a one-element list at the frozen centre would
@@ -256,7 +250,7 @@ function checkStandard(perBlockRatios, rowId) {
         : `${xs.length - finite.length} of ${xs.length} blocks are not finite readings of a level ratio`;
     return base;
   }
-  // THE EXPECTED-N CONTRACT (rf2-8a746, merged-PR audit #7698). The frozen
+  // THE EXPECTED-N CONTRACT. The frozen
   // limits are statistics of the declared 6-round x 3-segment design — a
   // location band of run medians over 18 blocks, a dispersion limit of
   // 18-block robust scales — so a run is judged only when it carries EXACTLY
@@ -270,7 +264,7 @@ function checkStandard(perBlockRatios, rowId) {
       `${finite.length} block(s) observed where the frozen standard's ${STANDARD.evidence.design.rounds}-round x ` +
       `${STANDARD.evidence.design.segments}-segment design requires exactly ${expected} — ` +
       `${finite.length < expected ? 'a MISSING round or block' : 'an EXTRA round or block'} is an incomplete or ` +
-      'foreign evidence set, and limits calibrated on the full design certify nothing about it (rf2-8a746, audit #7698)';
+      'foreign evidence set, and limits calibrated on the full design certify nothing about it';
     return base;
   }
 
@@ -294,7 +288,7 @@ function checkStandard(perBlockRatios, rowId) {
     measured: r4(scale),
     ok: scale <= klass.dispersion.limit,
   };
-  // REPORTED AND NOT A RULE (rf2-8a746). It is printed because a reader wants
+  // REPORTED AND NOT A RULE. It is printed because a reader wants
   // to see where the blocks fell; nothing below reads `inBand` into `ok`.
   base.tolerance = {
     band: [tlo, thi],
@@ -326,7 +320,7 @@ function formatCheckStandard(v) {
   if (!v) return [];
   const head =
     `;;   ${v.ok ? 'IN CONTROL' : 'REFUSED   '} check standard \`${v.standard.id}\` v${v.standard.version} ` +
-    `[${v.rowClass || 'no class'}${v.calibrated ? '' : ', UNCALIBRATED'}] (${v.standard.ruling})`;
+    `[${v.rowClass || 'no class'}${v.calibrated ? '' : ', UNCALIBRATED'}]`;
   const lines = [head];
   if (v.location && v.dispersion) {
     lines.push(
@@ -353,8 +347,8 @@ function formatCheckStandard(v) {
  * lane is held to: the refusals stated as cases rather than as prose, run
  * before a browser opens and driven by `clock_exit_path.test.cjs` in CI.
  *
- * THE SABOTAGE CASE IS THE ONE THAT MATTERS (rf2-8a746 acceptance criterion
- * 2). `HCLOCK_CTL3_SABOTAGE` makes the THREE-POINT control's top arm render
+ * THE SABOTAGE CASE IS THE ONE THAT MATTERS. `HCLOCK_CTL3_SABOTAGE` makes
+ * the THREE-POINT control's top arm render
  * fewer cells than it declares, and it is the fixture form of that knob —
  * an arm that does not do what it declares — pointed at the standard's own
  * arm instead: `ctl-2x` declares the floor's page doubled and builds 140 of
@@ -382,8 +376,7 @@ function checkStandardSelfTest() {
   // `(2W + c)/(W + c) = centre` gives `c = W(2 - centre)/(centre - 1)` — so a
   // world sits on the limits it is meant to sit on by construction. A literal
   // here would be a second copy of a calibrated number, and two copies of a
-  // calibration drift (rf2-x7x10, which exists because a justification drifted
-  // from the ruling it cited).
+  // calibration drift apart.
   const W = 3.0;
   const cFor = (centre) => (W * (2 - centre)) / (centre - 1);
   const blocksAtIn = (klass, P, n, jitter) => {
@@ -454,7 +447,7 @@ function checkStandardSelfTest() {
     JSON.stringify(survives.tolerance)
   );
 
-  // 5. THE MOUNT CLASS (rf2-x7x10), and the case that matters is that it is
+  // 5. THE MOUNT CLASS, and the case that matters is that it is
   //    NOT THE BULK CLASS. The two centres are 4.4% apart, which is small
   //    enough that copying bulk's limits across would look harmless and large
   //    enough that it would be the mis-specification this standard exists to
@@ -500,8 +493,8 @@ function checkStandardSelfTest() {
   // AND THE FENCE, AS A COUNT ON THE REAL CORPUS. The widest of the 14 mount
   // row-runs reads above bulk's ceiling: had bulk's limits been imported here,
   // that run would have been refused by a limit derived from a different row
-  // class on a different page. That is the mis-specification rf2-8a746 retired,
-  // and it is why this class was calibrated rather than borrowed.
+  // class on a different page. That is the mis-specification this standard
+  // exists to prevent, and it is why this class is calibrated rather than borrowed.
   check(
     'the corpus proves the fence: the widest observed mount run sits ABOVE bulk\'s ceiling and inside the mount\'s',
     mount.provenance.observed.runMedianRange[1] > bulk.location.limits[1] &&
@@ -555,7 +548,7 @@ function checkStandardSelfTest() {
   check('and a block that is not a finite reading refuses the run', !checkStandard([...blocksAt(2, 17, 0.05), NaN], BULK).ok);
   check('a missing block set is absent, not clean', !checkStandard(undefined, BULK).ok && !checkStandard(null, BULK).ok);
 
-  // 6b. THE EVIDENCE CARDINALITY (rf2-8a746, merged-PR audit #7698). The
+  // 6b. THE EVIDENCE CARDINALITY. The
   //     sharpest case comes first: without the contract, ONE block sitting
   //     dead on the frozen centre would certify with `n: 1` and `robustScale: 0`,
   //     because a single reading trivially has no dispersion and is its own
@@ -636,7 +629,7 @@ function checkStandardSelfTest() {
       .every(([, k]) => k.provenance && k.provenance.rowRuns > 0 && k.provenance.independence && k.errorRates)
   );
 
-  // 8. THE INDEPENDENCE CLAIM IS A MEASUREMENT (rf2-c1974), and the fixtures
+  // 8. THE INDEPENDENCE CLAIM IS A MEASUREMENT, and the fixtures
   //    that hold it to that are here rather than only in the corpus test,
   //    because the corpus is retained and not required to build. What is
   //    checked here is the RECORD — its shape, its arithmetic against itself,
