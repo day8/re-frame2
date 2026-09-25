@@ -1,5 +1,5 @@
 (ns re-frame.story-a11y-cljs-test
-  "CLJS smoke tests for Stage 6 (rf2-zhwd) — a11y panel.
+  "CLJS smoke tests for the a11y panel.
 
   The actual axe-core integration is a browser concern (it injects a
   `<script>` tag from a CDN); these smoke tests cover the panel's
@@ -49,7 +49,7 @@
             Per Spec 006 §Source-coord annotation the annotator can only
             attach `data-rf2-source-coord` to hiccup DOM roots; a bare
             `[panel variant-id]` root makes the panel invisible to Story
-            Inspect Mode + Xray Inspect Mode (rf2-iwny7). The `[:div]`
+            Inspect Mode + Xray Inspect Mode. The `[:div]`
             wrap is load-bearing."
     (let [view-fn (rf/view rf.story.ui.a11y/panel-render-id)
           out     (view-fn :story.unknown/y)]
@@ -79,7 +79,7 @@
     (is (string? rf.story.ui.a11y/violations-stylesheet))
     (is (pos? (count rf.story.ui.a11y/violations-stylesheet)))))
 
-;; ---- rf2-qgms1: variant-root scoping ------------------------------------
+;; ---- variant-root scoping -----------------------------------------------
 
 (deftest variant-root-selector-targets-data-attribute
   (testing "variant-root-selector returns a CSS attribute selector keyed on the variant id"
@@ -117,10 +117,9 @@
           (set! js/console.warn orig-warn)
           (rf.story.ui.a11y/drop-frame-state! frame-id))))))
 
-;; ---- rf2-20w5i: axe-core CDN load is opt-in only ------------------------
+;; ---- axe-core CDN load is opt-in only -----------------------------------
 ;;
-;; Per the security audit, the axe-core load is gated behind a
-;; persisted opt-in. These tests cover the contract surface:
+;; The axe-core load is gated behind a persisted opt-in. These tests cover the contract surface:
 ;; `cdn-opt-in?` defaults to false (or whatever localStorage holds),
 ;; `set-cdn-opt-in!` flips it, and `run-axe!` short-circuits to
 ;; `:no-consent` when the dev hasn't approved. The companion JVM
@@ -148,8 +147,7 @@
   (testing "run-axe! short-circuits to `:no-consent` when the dev
             hasn't approved the CDN load. The panel reads this state
             to render the consent prompt instead of triggering the
-            load — defence against the pre-fix shape where a single
-            panel-open inadvertently fetched remote JS."
+            load, so a single panel-open never fetches remote JS."
     (rf.story.ui.a11y/set-cdn-opt-in! false)
     (let [frame-id :story.never-consented/x
           ;; Pass a fake context so the call doesn't short-circuit on
