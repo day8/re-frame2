@@ -49,8 +49,7 @@
 //     bounds the additive residual (printed as c, both rows); it cannot
 //     certify exactness, and a clean pass at 2.00 is not expected.
 //   * THE BAND — seam.cjs's `ctl-2x / floor` per-block statistic, ceiling
-//     35% on raw TaskDuration (rf2-ymi6j's recalibration; the 25% figure
-//     is superseded). A run whose band breaches the ceiling has NO
+//     35% on raw TaskDuration. A run whose band breaches the ceiling has NO
 //     reportable magnitude; a gated ratio whose margin to the 1.10 line
 //     sits inside the band is INSTRUMENT-LIMITED, not a pass.
 //   * the arm-order guard, tolerance 0.35 (HD-008's own stated choice for
@@ -76,9 +75,9 @@
 //   4  the run's reproducibility band breached seam.cjs's ceiling
 //   5  the positive control did not see the change its arithmetic predicts
 //
-// 3, 4 and 5 are rf2-rr6do's repair: all three were computed, printed and
-// written into the dataset, and none of them reached the exit. See the note
-// above `verdict` below.
+// 3, 4 and 5 are refusals the run also prints and writes into the dataset;
+// without their own exit codes a run would exit 0 on figures its report had
+// just refused. See the note above `verdict` below.
 //
 // ## Where the datasets land
 //
@@ -87,9 +86,8 @@
 // depth, taken `--no-build`, or refused by the verdict above writes to a
 // sibling `.unpublished` directory instead, named on stdout with the reason;
 // an explicit HD8CLOCK_DATA_DIR is honoured as given. See the note above
-// `destination` — that routing is rf2-2rtt6.31's half of the same fail-open
-// rf2-rr6do repaired on the exit path, and the rule census_clock_run.cjs
-// (rf2-2rtt6.56) already carries one file over.
+// `destination` — that routing is the write-path half of the rule the exit
+// codes above enforce, and census_clock_run.cjs carries the same rule.
 
 'use strict';
 
@@ -117,7 +115,7 @@ const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HD8CLOCK_PORT || 8141);
 
 // The published design: 6 rounds x 3 blocks x (4 warmup + 10 samples) per
-// arm — 18 blocks for the band (the shape rf2-ymi6j's ceiling was
+// arm — 18 blocks for the band (the shape seam.cjs's ceiling is
 // calibrated on), and TEN warm samples per block cell, which is
 // `clock_run.cjs`'s own per-block depth. At 2 + 4 the block p50s are too
 // fragile to adjudicate anything: the control fails strict on single
@@ -644,7 +642,7 @@ function report(out) {
   const bw = assessed.bandStats.band;
   console.log(
     `;; ---- THE BAND (ctl-2x / floor per block, seam.cjs): ${Number.isFinite(bw) ? (bw * 100).toFixed(1) + '%' : 'n/a'} ` +
-      `— ceiling ${(seamlib.BAND_CEILING * 100).toFixed(0)}% (rf2-ymi6j) ${assessed.verdict.ceilingBreached ? '— BREACHED, no magnitude reportable' : ''} ----`
+      `— ceiling ${(seamlib.BAND_CEILING * 100).toFixed(0)}% ${assessed.verdict.ceilingBreached ? '— BREACHED, no magnitude reportable' : ''} ----`
   );
   console.log(
     `;;   block seam (floor by block-position): [${assessed.seam.bySeg.map((x) => fmt(x, 3)).join(', ')}] ` +
@@ -714,8 +712,7 @@ function report(out) {
 // The exit decision
 // ---------------------------------------------------------------------------
 
-// A refusal that only PRINTS is not a refusal (rf2-rr6do; rf2-tb345 repaired
-// the same defect one tree over, in b8_run.cjs). A driver that computes THREE
+// A refusal that only PRINTS is not a refusal. A driver that computes THREE
 // refusals, prints each one loudly, writes each into the dataset — and then
 // takes its exit off `failed` and the arm-order guard ALONE — lets a quiet
 // box with a clean guard print
@@ -837,8 +834,8 @@ function verdict(summary) {
 // whatever bundle happened to be on disk, taken at an overridden depth, or one
 // the verdict then REFUSES, silently replace the published evidence the studio
 // page cites, with nothing to announce it: the nonzero exit would arrive only
-// once the write had landed. rf2-rr6do repaired the exit path; this is the write path,
-// the other half of the same fail-open.
+// once the write had landed. `verdict` holds the exit path; this is the write
+// path, the other half of the same fail-open.
 //
 // THE RULE: the canonical directory holds the PUBLISHED SHAPE and nothing
 // else. Any narrowing, any override, any refusal routes to a sibling
@@ -980,7 +977,7 @@ async function drive() {
   );
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8CLOCK_ONLY=${ONLY} — PARTIAL, not the published shape)` : ''}`);
   console.log(`;;   guard tol   ${TOLERANCE} on raw TaskDuration (HD-008's stated mount choice)`);
-  console.log(`;;   band ceil   ${(seamlib.BAND_CEILING * 100).toFixed(0)}% on raw TaskDuration (rf2-ymi6j)`);
+  console.log(`;;   band ceil   ${(seamlib.BAND_CEILING * 100).toFixed(0)}% on raw TaskDuration`);
   console.log(';; ==== PREDICTIONS, REGISTERED BEFORE ANY CLOCK ====');
   console.log(';;   P1  ctl-2x reads BELOW 2.00x on every mount row — toward the recorded 1.8173x —');
   console.log(';;       and inside the strict +/-25% band unless block scatter is wide.');
