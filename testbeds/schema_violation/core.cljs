@@ -16,7 +16,7 @@
     Button C → :rf.error/cofx-value-invalid
                (a recordable cofx's value fails its reg-cofx :schema — a
                PRODUCTION HARD ERROR that THROWS and halts the run, NOT a
-               :where :cofx trace; that surface was retired in EP-0017)
+               :where :cofx trace; per EP-0017 there is no such surface)
     Button D → :rf.error/schema-validation-failure :where :fx-args
                (fx :schema rejects the offending fx's args)
 
@@ -24,8 +24,8 @@
   skip-fx) — see README.md for the per-button matrix."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Loads the schemas artefact's late-bind hooks (rf2-p7va).
-            ;; Required before any reg-app-schema / :spec metadata is
+            ;; Loads the schemas artefact's late-bind hooks.
+            ;; Required before any reg-app-schema / :schema metadata is
             ;; consumed by validation.
             [re-frame.schemas]
             ;; Publish Malli into the schemas artefact. Without this adapter
@@ -47,7 +47,7 @@
 (def AuthSlice
   [:map [:token :string]])
 
-;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; Per EP-0002, reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This testbed hosts on
 ;; :rf/default, so name it explicitly.
 (with-frame :rf/default
@@ -65,7 +65,7 @@
 ;;
 ;; The handler returns a `:db` whose [:auth :token] slot holds an int.
 ;; The candidate app-db validation step (per [spec/010 §Validation
-;; order] step 4, rf2-uhk9ko — the candidate transition validates
+;; order] step 4 — the candidate transition validates
 ;; BEFORE install) catches it and emits the failure trace with
 ;; :rollback? true (transaction REJECTED). The :db effect is never
 ;; installed — :auth :token stays at "seed-token" — and the dispatch is
@@ -79,10 +79,10 @@
     {:db (assoc-in db [:auth :token] 42)}))
 
 ;; ----------------------------------------------------------------------------
-;; Button B — :where :event (dispatched vector fails the handler's :spec)
+;; Button B — :where :event (dispatched vector fails the handler's :schema)
 ;; ----------------------------------------------------------------------------
 ;;
-;; The handler declares :spec requiring a positive int as arg-1. Button
+;; The handler declares :schema requiring a positive int as arg-1. Button
 ;; B dispatches it with the string "not-a-number". Per [spec/010
 ;; §Per-step recovery] step 1, the handler is NOT invoked; the failure
 ;; trace fires with :where :event; the downstream queue continues to
@@ -98,15 +98,15 @@
 ;;            fails its reg-cofx :schema — a HALTING production hard error)
 ;; ----------------------------------------------------------------------------
 ;;
-;; EP-0017: `reg-cofx` is a value-returning supplier — the v1 ctx->ctx
-;; idiom and `inject-cofx` are removed. A recordable coeffect
+;; Per EP-0017, `reg-cofx` is a value-returning supplier — there is no
+;; v1 ctx->ctx idiom and no `inject-cofx`. A recordable coeffect
 ;; (`:rf.cofx/requires`) rides the durable causal record (epoch ledger,
 ;; replay, SSR payload, Xray), so a bad value is NOT a recoverable
 ;; dev-only trace: it is `:rf.error/cofx-value-invalid`, a PRODUCTION
-;; HARD ERROR that THROWS and halts the run. The old `:where :cofx`
-;; schema-validation surface (skip-handler, queue-continues) was RETIRED
-;; in EP-0017 (rf2-nkf4l3) — a recordable-coeffect schema miss does NOT
-;; emit `:rf.error/schema-validation-failure` at all.
+;; HARD ERROR that THROWS and halts the run. There is no `:where :cofx`
+;; schema-validation surface (skip-handler, queue-continues) — a
+;; recordable-coeffect schema miss does NOT emit
+;; `:rf.error/schema-validation-failure` at all.
 ;;
 ;; The cofx :schema demands a positive int; the supplier deliberately
 ;; returns -1. Per [spec/010 §Validation order] step 2 the supplied
@@ -132,10 +132,10 @@
     {:db (update-in db [:click-count :cofx] inc)}))
 
 ;; ----------------------------------------------------------------------------
-;; Button D — :where :fx-args (fx :spec rejects the offending fx's args)
+;; Button D — :where :fx-args (fx :schema rejects the offending fx's args)
 ;; ----------------------------------------------------------------------------
 ;;
-;; The fx's :spec demands a map with :url string. Button D's handler
+;; The fx's :schema demands a map with :url string. Button D's handler
 ;; dispatches it with a vector. Per [spec/010 §Per-step recovery] step
 ;; 5, the offending fx is skipped (the failure trace fires with :where
 ;; :fx-args); other fx in the same :fx vector continue. The handler's
@@ -154,7 +154,7 @@
   (fn [{:keys [db]} _ev]
     {:db (update-in db [:click-count :fx] inc)
      :fx [;; HOT PATH — the fx-args site for :where :fx-args.
-          ;; The registered :spec is [:map [:url :string]]; supplying
+          ;; The registered :schema is [:map [:url :string]]; supplying
           ;; a vector triggers the per-fx skip path.
           [::violate-fx ["not-a-map"]]]}))
 
