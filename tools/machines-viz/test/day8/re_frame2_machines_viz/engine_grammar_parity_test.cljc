@@ -585,6 +585,9 @@
    :leaf-on-done-spawning {:initial :a :states {:a {:spawn {:machine-id :m} :on-done :b} :b {}}}
    :leaf-on-done-timeout  {:initial :a :states {:a {:timeout 1000 :on-timeout :b :on-done :b} :b {}}}
    :leaf-on-done-region   {:type :parallel :regions {:r {:initial :a :states {:a {:on-done :b} :b {}}}}}
+   ;; ---- a choice state is a leaf, held to the state-node key vocabulary ----
+   :choice-on-done     {:initial :g :states {:g {:type :choice :choice [{:target :a}] :on-done :a} :a {}}}
+   :choice-unknown-key {:initial :g :states {:g {:type :choice :choice [{:target :a}] :bogus 1} :a {}}}
    ;; ---- a transition-shaped `:spawn :on-done` that does not resolve ----
    :spawn-on-done-unresolved     {:initial :a :states {:a {:spawn {:machine-id :m :on-done :nope}} :b {}}}
    :spawn-on-done-unresolved-map {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target [:nope]}}} :b {}}}
@@ -711,6 +714,23 @@
             :spawn :on-done that does not resolve, with the engine's own
             category"
     (doseq [[label category] on-done-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
+
+(def ^:private choice-refusal-rows
+  "Corpus labels → the category the engine refuses each choice-state key with."
+  {:choice-on-done     :rf.error/machine-unknown-node-key
+   :choice-unknown-key :rf.error/machine-unknown-node-key})
+
+(deftest choice-refusal-category-parity
+  (testing "the viz refuses a choice state's :on-done and an unknown bare key
+            on a choice state with the engine's own category"
+    (doseq [[label category] choice-refusal-rows
             :let [m (get validation-parity-corpus label)]]
       (is (= category (engine-category m))
           (str label ": the engine's category"))
