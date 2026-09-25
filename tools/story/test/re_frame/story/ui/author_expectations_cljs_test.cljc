@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.author-expectations-cljs-test
-  "Tests for the expectation-authoring UI surface (rf2-ba86n.12, spec/021
-  §S5).
+  "Tests for the expectation-authoring UI surface (spec/021 §S5).
 
   Two tiers (mirrors `save_variant_cljs_test` / `promotion_cljs_test`):
 
