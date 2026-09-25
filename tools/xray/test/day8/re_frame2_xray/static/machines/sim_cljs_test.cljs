@@ -1,7 +1,6 @@
 (ns day8.re-frame2-xray.static.machines.sim-cljs-test
   "CLJS-side wiring + view + integration tests for the Static Machines
-  Sim sub-mode (rf2-r4nao rehost; engine originally rf2-v869p Phase 2,
-  parent rf2-2tkza).
+  Sim sub-mode.
 
   ## What's under test (in addition to the pure-data tests in
   `sim_helpers_cljs_test.cljc`)
@@ -28,7 +27,7 @@
     7. **Sim rail** mounts when active + carries the testid hooks the
        design calls out (banner, event input, step button, reset button,
        exit button, audit trail), and DISCLOSES in the rendered tree that
-       initial `:entry` actions were not run (rf2-00126).
+       initial `:entry` actions were not run.
 
     8. **Body auto-start** — `sim/body` dispatches `:sim-start` when no
        sim-state exists yet for the selected machine + definition.
@@ -49,10 +48,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
+  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 (defn- setup-xray-frame! []
@@ -95,7 +92,7 @@
                          (.startsWith prefix))))
           (hiccup-seq tree)))
 
-;; rf2-u422r — a RAW walker that does NOT invoke fn components, so a
+;; A RAW walker that does NOT invoke fn components, so a
 ;; `[machine-canvas/Chart {...}]` child survives as data and its props
 ;; are assertable (the expanding `hiccup-seq` would replace it with the
 ;; component's render output).
@@ -128,13 +125,13 @@
 (defn- select-static-machine! [machine-id]
   (rf/dispatch-sync [:rf.xray.static.machines/select machine-id]))
 
-;; rf2-jholrb — the sim plain-fn subtree (`body` / `SimRail` / `SimChart`)
-;; no longer self-subscribes; it receives the derefed sub values from the
-;; enclosing `detail` reg-view. These helpers deref the sim sub family
-;; (under `:rf/xray`, where the frame is in context) so the tests can
-;; thread the same values the reg-view would. This mirrors the production
-;; threading exactly — the tests no longer rely on the plain fns
-;; recovering a frame they cannot reach.
+;; The sim plain-fn subtree (`body` / `SimRail` / `SimChart`) does not
+;; self-subscribe; it receives the derefed sub values from the enclosing
+;; `detail` boundary. These helpers deref the sim sub family (under
+;; `:rf/xray`, where the frame is in context) so the tests can thread the
+;; same values the boundary would. This mirrors the production threading
+;; exactly — the tests never rely on the plain fns recovering a frame
+;; they cannot reach.
 
 (defn- sim-rail-values
   "The values `SimRail` reads, derefed where the frame is in context."
@@ -161,13 +158,13 @@
    :snapshot {:state :authing :data {:counter 1}}
    :fx []})
 
-;; rf2-y8doi.21: this was a HAND-WRITTEN
-;; `{:status :error :error {:reason :no-matching-transition}}` — a shape
-;; the engine never returns, twice over. `:no-matching-transition`
-;; appears nowhere in the machines artefact, and an event no transition
-;; matched is `:status :ok` with the snapshot unchanged, not an error.
-;; A REAL `:status :error` is the engine's own failed macrostep, so we
-;; obtain one from the producer by making an action throw.
+;; The fail-Result comes from the producer, not from a hand-written map.
+;; A hand-written `{:status :error :error {:reason :no-matching-transition}}`
+;; would be a shape the engine never returns, twice over.
+;; `:no-matching-transition` appears nowhere in the machines artefact, and
+;; an event no transition matched is `:status :ok` with the snapshot
+;; unchanged, not an error. A REAL `:status :error` is the engine's own
+;; failed macrostep, so we obtain one by making an action throw.
 
 (def ^:private throwing-definition
   {:initial :a
@@ -187,12 +184,12 @@
     (is (= :error (:status fail-result)))
     (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
     (is (nil? (get-in fail-result [:error :reason]))
-        "the engine's :error map carries no :reason — the old fixture invented one")))
+        "the engine's :error map carries no :reason")))
 
 ;; ---- (1) registry wiring ------------------------------------------------
 
 (deftest registry-installs-sim-handlers
-  (testing "register-xray-handlers! installs every rf2-r4nao Sim handler"
+  (testing "register-xray-handlers! installs every Sim handler"
     (registry/register-xray-handlers!)
     (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-by-machine)))
     (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-state)))
@@ -312,10 +309,10 @@
         (is (= :idle (get-in sim [:snapshot :state])))
         (is (some? (:last-error sim)))))))
 
-;; ---- (4b) on-chart edge click → step (rf2-u422r) ------------------------
+;; ---- (4b) on-chart edge click → step ------------------------------------
 
 (deftest registry-installs-on-chart-sim-handlers
-  (testing "rf2-u422r — register-xray-handlers! installs the on-chart
+  (testing "register-xray-handlers! installs the on-chart
             sub family + the edge-click step event"
     (registry/register-xray-handlers!)
     (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-current-state)))
@@ -323,7 +320,7 @@
     (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-chart-edge-clicked)))))
 
 (deftest sim-chart-edge-clicked-steps-via-engine
-  (testing "rf2-u422r — an on-chart edge click folds ONE step through the
+  (testing "an on-chart edge click folds ONE step through the
             SAME engine path as the step-button: snapshot advances +
             audit-trail grows. No new transition logic."
     (setup-xray-frame!)
@@ -343,7 +340,7 @@
         (is (= [:start] (-> sim :audit-trail last :event))
             "the clicked edge's event-id was coerced to the step vector")))))
 
-;; ---- a step the REAL engine declined (rf2-y8doi.21) ---------------------
+;; ---- a step the REAL engine declined ------------------------------------
 ;;
 ;; These deliberately do NOT `with-redefs` the engine: the point is what
 ;; the real `machine-transition` returns for a declined step, folded
@@ -433,8 +430,8 @@
              @(rf/subscribe [:rf.xray.static.machines/sim-current-state]))))))
 
 (deftest sim-start-seeds-a-parallel-root-with-a-region-map
-  (testing "a `:type :parallel` root has no `:initial` at all, and used to
-            seed nil"
+  (testing "a `:type :parallel` root has no `:initial` at all, so seeding
+            from `:initial` would give nil"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (select-static-machine! :auth/login)
@@ -451,7 +448,7 @@
              @(rf/subscribe [:rf.xray.static.machines/sim-current-state]))))))
 
 (deftest sim-chart-edge-clicked-nil-event-is-noop
-  (testing "rf2-u422r — clicking an inert (auto / non-fireable) edge with
+  (testing "clicking an inert (auto / non-fireable) edge with
             a nil event-id is a no-op: no step, no trail growth"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -468,7 +465,7 @@
         (is (= 0 (count (:audit-trail sim))))))))
 
 (deftest sim-chart-edge-clicked-fail-surfaces-guard-error
-  (testing "rf2-u422r — a failed-guard transition fired ON the chart
+  (testing "a failed-guard transition fired ON the chart
             surfaces the error exactly as the button does: snapshot stays
             put + :last-error stamped (rendered in the rail's error toast)"
     (setup-xray-frame!)
@@ -488,7 +485,7 @@
             "guard pass/fail surfaces via :last-error")))))
 
 (deftest sim-current-state-and-last-transition-subs
-  (testing "rf2-u422r — the chart-binding subs derive the active state +
+  (testing "the chart-binding subs derive the active state +
             the taken transition off sim-state"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -583,7 +580,7 @@
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-exit-button"))))))
 
 (deftest rail-discloses-that-initial-entry-actions-were-not-run
-  ;; rf2-00126 — `build-sim-seed` seeds through the engine's
+  ;; `build-sim-seed` seeds through the engine's
   ;; `build-initial-snapshot`, which computes the initial STATE and does
   ;; NOT run `apply-initial-entry-cascade`. That difference from running
   ;; the machine is invisible to the user unless the rail says so, and a
@@ -629,9 +626,9 @@
                     (:data-testid (second %)))
                 available)))))
 
-;; rf2-pzuqw — the rail lists each `:after` timer declared on the active
+;; The rail lists each `:after` timer declared on the active
 ;; path as a `⌚` row, and clicking one fires the engine's own synthetic
-;; elapsed event through the EXISTING `:sim-step`. The whole path is real
+;; elapsed event through the ordinary `:sim-step`. The whole path is real
 ;; here: the real registry, the real `rf.machines/machine-transition`, and
 ;; the row's own `:on-click` invoked against a synchronous dispatcher — so
 ;; this grades the WIRING, not just the rendered testid.
@@ -677,7 +674,7 @@
             (str "the row says it is a timer; got: " (pr-str text)))
         (is (not (re-find #"after-elapsed" text))
             "the raw event shape stays OUT of the label"))
-      (testing "and clicking it fires the timer through the existing :sim-step"
+      (testing "and clicking it fires the timer through the ordinary :sim-step"
         ((:on-click (second row)) nil)
         (is (= :timeout (get-in @(rf/subscribe
                                    [:rf.xray.static.machines/sim-state])
@@ -755,10 +752,10 @@
         (is (some? sim) "sim-state landed via the body's auto-start")
         (is (= :idle (get-in sim [:snapshot :state])))))))
 
-;; ---- (8b) on-chart sim surface (rf2-u422r) ------------------------------
+;; ---- (8b) on-chart sim surface ------------------------------------------
 
 (deftest sim-chart-returns-canvas-bound-to-sim
-  (testing "rf2-u422r — SimChart returns the topology chart wrapper bound
+  (testing "SimChart returns the topology chart wrapper bound
             to the sim engine (the on-chart simulation surface)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -783,7 +780,7 @@
             "the wrapper embeds machine-canvas/Chart")))))
 
 (deftest sim-chart-passes-sim-bindings-to-canvas
-  (testing "rf2-u422r — SimChart hands the canvas the amber sim palette,
+  (testing "SimChart hands the canvas the amber sim palette,
             the current snapshot state, the focused-edge lens off the last
             transition, and an on-edge-click callback"
     (setup-xray-frame!)
@@ -817,9 +814,9 @@
         (is (fn? (:on-edge-click chart-props))
             "the chart gets an on-edge-click callback")))))
 
-;; rf2-eao0s0 — the Static Sim chart must forward the STATIC context
-;; shape into machine-canvas/Chart so the root Context band renders on
-;; the Sim surface too (the Dynamic + Static Topology charts already do).
+;; The Static Sim chart forwards the STATIC context shape into
+;; machine-canvas/Chart so the root Context band renders on the Sim
+;; surface, as it does on the Dynamic + Static Topology charts.
 
 (def ^:private inferred-fixture-definition
   "No [:schemas :data] → the context shape is INFERRED from one sample of
@@ -855,7 +852,7 @@
     (second chart-node)))
 
 (deftest sim-chart-forwards-inferred-context-shape-to-canvas
-  (testing "rf2-eao0s0 — an inferred (:data, no schema) machine: the Static
+  (testing "an inferred (:data, no schema) machine: the Static
             Sim chart hands the canvas the {key → type-caption} shape with
             :context-band-inferred? TRUE (the inferred-from-:data badge)."
     (setup-xray-frame!)
@@ -873,7 +870,7 @@
             "inferred sample → :context-band-inferred? TRUE reaches the chart")))))
 
 (deftest sim-chart-forwards-declared-context-shape-to-canvas
-  (testing "rf2-eao0s0 — a declared ([:schemas :data]) machine: the Static Sim
+  (testing "a declared ([:schemas :data]) machine: the Static Sim
             chart hands the canvas the AUTHORITATIVE schema shape with
             :context-band-inferred? FALSE (badge dropped)."
     (setup-xray-frame!)
@@ -891,7 +888,7 @@
             "declared schema → :context-band-inferred? FALSE reaches the chart")))))
 
 (deftest sim-body-renders-chart-and-rail-panes
-  (testing "rf2-u422r — the sim body is a two-pane split: the on-chart sim
+  (testing "the sim body is a two-pane split: the on-chart sim
             surface (primary) + the rail side column"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -933,24 +930,24 @@
       (is (some? (find-by-testid tree
                                  "rf-xray-static-machines-sim-no-machine"))))))
 
-;; ---- (8c) no-ambient-frame regression (rf2-jholrb) ----------------------
+;; ---- (8c) no-ambient-frame regression ------------------------------------
 ;;
 ;; The sim sub-mode's `body` / `SimRail` / `SimChart` are plain fns
 ;; mounted as Reagent components from `definition_detail/body`. A plain
 ;; fn renders in its OWN React cycle and so CANNOT recover the
 ;; surrounding `:rf/xray` frame (Spec 000 §Plain Reagent fns under
-;; non-default frames). The pre-fix code self-
-;; subscribed inside these fns; with NO frame in dynamic context a bare
-;; `rf/subscribe` throws `:rf.error/no-frame-context` and crashes the
-;; whole Static surface. The fix threads the derefed sub values DOWN from
-;; the `detail` reg-view, so the plain fns never subscribe.
+;; non-default frames). With NO frame in dynamic context a bare
+;; `rf/subscribe` throws `:rf.error/no-frame-context`, so a fn that
+;; self-subscribed here would crash the whole Static surface. The derefed
+;; sub values are threaded DOWN from the `detail` boundary instead, so
+;; the plain fns never subscribe.
 ;;
 ;; These tests render the three fns WITHOUT any `with-frame` wrapper —
 ;; matching the React render cycle the components actually run in — and
-;; assert they no longer throw. (Pre-fix, every one of these threw.)
+;; assert they do not throw.
 
 (deftest sim-plain-fns-do-not-self-subscribe-without-a-frame
-  (testing "rf2-jholrb — body / SimRail / SimChart render without an
+  (testing "body / SimRail / SimChart render without an
             ambient :rf/xray frame (no :rf.error/no-frame-context). The
             sub values are threaded in as args, not self-subscribed."
     (setup-xray-frame!)
@@ -995,28 +992,28 @@
           "sim slot did NOT leak into :rf/default"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ppzid — React unique-key warning regression guard (preserved from the
-;; rf2-r4nao rehost source; see ns docstring in `static/machines/sim.cljs`).
+;; React unique-key regression guard (see the ns docstring in
+;; `static/machines/sim.cljs`).
 ;;
 ;; Two `for` loops in the Sim rail wrap function-call list forms — the
 ;; available-transition rows and audit-trail rows. Reader meta on the
 ;; source list would be lost when the call returns its fresh vector, so
 ;; each row's key has to be applied to the value the call ANSWERS.
 ;;
-;; rf2-a38l — it is applied as a KEYED FRAGMENT, and these tests grade it
+;; It is applied as a KEYED FRAGMENT, and these tests grade it
 ;; AT THE RENDERER rather than at `(meta …)`. `(:key (meta row))` is a
 ;; hollow instrument in both directions: it passes on metadata React
 ;; never sees, and fails on a key that reaches React perfectly well. The
 ;; two doors below are the real question, and only the second can see
 ;; this defect:
 ;;
-;;   - `reagent-key` — today's substrate. Reagent reads meta AND props,
-;;     so it returns the same key either way; it is the half that pins
-;;     the sweep as a NO-OP today.
+;;   - `reagent-key` — the Reagent substrate. Reagent reads meta AND
+;;     props, so it returns the same key either way; it is the half that
+;;     pins the keyed fragment as behaviour-neutral under Reagent.
 ;;   - `fresco-key` — `re-frame.fresco.impl.codec/as-element`, the
 ;;     codec's own hiccup→element door, which takes a literal `:key`
 ;;     from an attribute map and reads Clojure metadata NOWHERE. This
-;;     is the half that goes red on a revert to `with-meta`.
+;;     is the half that goes red if the key rides `with-meta` instead.
 ;;
 ;; Same shape as `views/resizable_table_key_cljs_test`, which is this
 ;; tree's pattern for the question.
@@ -1065,8 +1062,7 @@
 
 (deftest sim-available-transitions-reach-react-with-distinct-keys
   (testing "available-transition-row for-loop ships per-transition <li>
-            children whose keys reach React on BOTH substrates
-            (rf2-ppzid; regraded at the renderer under rf2-a38l)"
+            children whose keys reach React on BOTH substrates"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -1110,8 +1106,7 @@
 
 (deftest sim-audit-trail-rows-reach-react-with-distinct-keys
   (testing "audit-trail-row for-loop ships per-step <li> children whose
-            keys reach React on BOTH substrates (rf2-ppzid; regraded at
-            the renderer under rf2-a38l)"
+            keys reach React on BOTH substrates"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -1120,26 +1115,23 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      ;; THE SUBJECT IS UNCHANGED — distinct React keys on per-step <li>
-      ;; children, across both substrates — and it needs MORE THAN ONE
-      ;; row to grade anything, so the count assertion below stays at 2.
+      ;; THE SUBJECT is distinct React keys on per-step <li> children,
+      ;; across both substrates — and it needs MORE THAN ONE row to
+      ;; grade anything, so the count assertion below is 2.
       ;;
-      ;; What changed is how the two rows are obtained (rf2-y8doi.21).
-      ;; This used to stub `machine-transition` with `ok-result`, which
-      ;; is a CONSTANT: the second step handed the sim back the very
-      ;; snapshot it was already holding — the stubbed engine reporting
-      ;; NO CHANGE. It yielded a second row only because `step-sim`
-      ;; folded every `:status :ok` as a transition, so this fixture was
-      ;; quietly depending on the defect that bead removes, and its two
-      ;; rows were identical in content (both `:authing` / `{:counter
-      ;; 1}`), differing only in `:event`.
+      ;; The two rows come from the REAL engine, not from stubbing
+      ;; `machine-transition` with `ok-result`. That stub is a CONSTANT:
+      ;; the second step would hand the sim back the very snapshot it
+      ;; already holds — the stubbed engine reporting NO CHANGE, which
+      ;; the sim records as no row — and any two rows it did yield would
+      ;; be identical in content, differing only in `:event`.
       ;;
-      ;; `fixture-definition` already declares `:idle --:start-->
+      ;; `fixture-definition` declares `:idle --:start-->
       ;; :authing --:ok--> :done`, so the REAL engine makes both steps
-      ;; genuine and DISTINCT transitions. Dropping the stub is strictly
-      ;; better evidence for a key-distinctness test than the stub ever
-      ;; was, and it keeps the count at 2 rather than weakening it to 1,
-      ;; which would leave this passing while grading almost nothing.
+      ;; genuine and DISTINCT transitions. That is stronger evidence for a
+      ;; key-distinctness test, and it keeps the count at 2 rather than
+      ;; weakening it to 1, which would leave this passing while grading
+      ;; almost nothing.
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login :event [:start]}])
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
