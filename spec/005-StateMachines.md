@@ -791,7 +791,7 @@ Two keys. **Symmetric with `reg-event`'s `{:db :fx}`** — same shape, different
 
 When N action slots fire in one transition (`:exit` → `:action` → `:entry`), `:data` updates merge in slot order; `:fx` vectors concatenate left-to-right.
 
-**XState v6 is moving toward this shape — re-frame2 got here first; do not re-describe the effect map as following v6.** `6.0.0-alpha.22` changed XState's own interpretation to *"Pure transitions now return every effect needed to interpret actor logic in execution order"* — actor spawning, starting and stopping, event delivery, emitted events, timers, custom effects and actor termination all **returned as a declarative effect list** rather than performed as direct side effects. That is precisely the `{:data :fx}` map an re-frame2 action has always returned, and `:fx` is re-frame's own effects-as-data lineage, not a v6 import. The convergence runs upstream-toward-re-frame2 (re-validated against `xstate@6.0.0-alpha.52`).
+**XState v6 converges on this shape; do not describe the effect map as following v6.** `6.0.0-alpha.22` changed XState's own interpretation to *"Pure transitions now return every effect needed to interpret actor logic in execution order"* — actor spawning, starting and stopping, event delivery, emitted events, timers, custom effects and actor termination all **returned as a declarative effect list** rather than performed as direct side effects. That is precisely the `{:data :fx}` map a re-frame2 action returns, and `:fx` is re-frame's own effects-as-data lineage, not a v6 import (checked against `xstate@6.0.0-alpha.52`).
 
 **XState-v5 parity — no `assign` to reorder.** XState v5 made a deliberate correctness fix over v4: `assign` actions are no longer hoisted ahead of other actions; they run **in declared order** interleaved with the transition's other actions, and each action observes the context produced by the assigns that ran before it. re-frame2 has **no separate `assign` primitive** — a `:data` write *is* the assign, and an action returns the atomic `{:data :fx}` map — so the v5 "no reorder" property is automatic rather than a rule the engine must enforce:
 
@@ -819,7 +819,7 @@ Routing rules (per [§Drain semantics](#drain-semantics)):
 - `[:rf.machine/destroy <actor-id>]` — runs the actor's `:exit` action, then a **pure runtime-db write** dissociating its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]` and its spawn-registry slot. It clears no registrar entry (a spawned actor has none). Symmetric counterpart to `:rf.machine/spawn`. Used directly by user actions and emitted by the desugaring of `:spawn` on state exit.
 - Any other `[fx-id args]` — forwarded to the standard `do-fx` for runtime processing.
 
-`:raise` is machine-internal and unqualified, matching re-frame's existing reserved unqualified fx names (`:dispatch`, `:dispatch-later`). `:rf.machine/spawn` and `:rf.machine/destroy` are namespaced under the framework's `:rf.<feature>/...` convention so user code can register them globally as canonical actor-lifecycle fxs (per [§Top-level boot-time spawn](#top-level-boot-time-spawn-rare)). They are listed in [Conventions.md §Reserved fx-ids](Conventions.md#reserved-fx-ids).
+`:raise` is machine-internal and unqualified, matching re-frame's reserved unqualified fx names (`:dispatch`, `:dispatch-later`). `:rf.machine/spawn` and `:rf.machine/destroy` are namespaced under the framework's `:rf.<feature>/...` convention so user code can register them globally as canonical actor-lifecycle fxs (per [§Top-level boot-time spawn](#top-level-boot-time-spawn-rare)). They are listed in [Conventions.md §Reserved fx-ids](Conventions.md#reserved-fx-ids).
 
 ## Strict encapsulation — actions only see their own data
 
@@ -861,7 +861,7 @@ This forces every cross-encapsulation write to be a *named, traced, reusable eve
 
 ## Path conventions in machine bodies
 
-every machine callback receives a SINGLE context-map argument; the keys present per slot are:
+Every machine callback receives a SINGLE context-map argument; the keys present per slot are:
 
 | Slot | Signature | Ctx keys | What it returns |
 |---|---|---|---|
@@ -884,7 +884,7 @@ every machine callback receives a SINGLE context-map argument; the keys present 
 
 <a id="snapshot-level-escape-hatch"></a>
 
-**Snapshot-level escape hatch.** If a callback NEEDS to touch `:state` / `:meta` / `:data` plus something else in one atomic write, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from inside the callback's `:fx` vector — NOT a return-shape hidden contract. `:rf/machine-id` names the actor whose snapshot at `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is merged onto that snapshot, restricted to the permitted top-level keys above (`:state` / `:meta` / `:data`) — and the patch's **`:data` merges like an action's**, rather than replacing the map. `:state` / `:meta` replace, since the caller names those outright; `:data` does not, because it also holds framework-owned reserved `:rf/*` slots the programmer never sees (the `:after`-timer epoch map, a spawned actor's `:rf/parent-id` / `:rf/invoke-id` lineage). A replacing `:data` patch dropped those silently — stale-suppressing the actor's live `:after` timers and making a spawned child finish as a singleton — so the two paths that write a `:data` map now agree about what that means. User error/status state is *user-domain working memory* and lives under `:data` (where `[:schemas :data]` validation covers it) — not as bare snapshot-root keys. The `:data` patch is **not** exempt from that validation: the fx validates the would-be-merged snapshot's `:data` against the actor's `[:schemas :data]` schema **before** writing, and a violating patch is rejected — the invalid `:data` never installs (`:phase :update-snapshot`, `:rollback? false`; see [§Schema validation](#schema-validation)). A `:db` key in the patch is the same hard-disallow as in an action's effect map (it surfaces `:rf.error/machine-action-wrote-db` and is dropped); merging into a destroyed / unknown actor is a no-op.
+**Snapshot-level escape hatch.** If a callback NEEDS to touch `:state` / `:meta` / `:data` plus something else in one atomic write, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from inside the callback's `:fx` vector — NOT a return-shape hidden contract. `:rf/machine-id` names the actor whose snapshot at `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is merged onto that snapshot, restricted to the permitted top-level keys above (`:state` / `:meta` / `:data`) — and the patch's **`:data` merges like an action's**, rather than replacing the map. `:state` / `:meta` replace, since the caller names those outright; `:data` does not, because it also holds framework-owned reserved `:rf/*` slots the programmer never sees (the `:after`-timer epoch map, a spawned actor's `:rf/parent-id` / `:rf/invoke-id` lineage). A replacing `:data` patch would drop those silently — stale-suppressing the actor's live `:after` timers and making a spawned child finish as a singleton — so the two paths that write a `:data` map agree about what that means. User error/status state is *user-domain working memory* and lives under `:data` (where `[:schemas :data]` validation covers it) — not as bare snapshot-root keys. The `:data` patch is **not** exempt from that validation: the fx validates the would-be-merged snapshot's `:data` against the actor's `[:schemas :data]` schema **before** writing, and a violating patch is rejected — the invalid `:data` never installs (`:phase :update-snapshot`, `:rollback? false`; see [§Schema validation](#schema-validation)). A `:db` key in the patch is the same hard-disallow as in an action's effect map (it surfaces `:rf.error/machine-action-wrote-db` and is dropped); merging into a destroyed / unknown actor is a no-op.
 
 The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on the destructured `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
 
@@ -907,9 +907,9 @@ A machine is registered as **one event handler**. `reg-machine` is the registrat
 
 When the spec is a value rather than an inline literal, `defmachine` captures its per-element source at the **definition** site and `reg-machine` registers it — `(defmachine drawer-editor {…})` then `(reg-machine :drawer/editor drawer-editor)` (per [§Value-registered machines](#value-registered-machines--defmachine)).
 
-Beneath both sits `make-machine-handler`, the pure factory that turns a spec into the handler fn (per [§`make-machine-handler` is a pure factory](#make-machine-handler-is-a-pure-factory)). It stays public — it is the composition seam for programmatic registration — but `reg-machine` is the authoring surface, and the one that stamps the registration metadata `[:schemas :data]` validation resolves through.
+Beneath both sits `make-machine-handler`, the pure factory that turns a spec into the handler fn (per [§`make-machine-handler` is a pure factory](#make-machine-handler-is-a-pure-factory)). It is public — the composition seam for programmatic registration — but `reg-machine` is the authoring surface, and the one that stamps the registration metadata `[:schemas :data]` validation resolves through.
 
-The `:guards` and `:actions` maps declare the machine's named guard / action implementations. Inside `:states`, a transition's `:guard :circle-exists?` resolves against this machine's `:guards` map; `:action :clear-error` resolves against `:actions`. **Each machine has its own guards/actions namespace** — there is no global `:machine-guard` / `:machine-action` registry. Inline fns remain first-class (`:guard (fn [...] ...)` skips the lookup).
+The `:guards` and `:actions` maps declare the machine's named guard / action implementations. Inside `:states`, a transition's `:guard :circle-exists?` resolves against this machine's `:guards` map; `:action :clear-error` resolves against `:actions`. **Each machine has its own guards/actions namespace** — there is no global `:machine-guard` / `:machine-action` registry. Inline fns are first-class (`:guard (fn [...] ...)` skips the lookup).
 
 Reference resolution:
 
@@ -977,7 +977,7 @@ This makes the standard fx-callback convention work without ceremony. Idiomatic 
 
 - **Chained dispatches that carry payload.** Any callsite that wants to "ship a value into the machine" can use the `[:machine-id [:event-id] payload]` form rather than constructing the inner vector manually.
 
-The fold only applies when the outer event has length ≥ 3 AND the second element is itself a vector. Length-2 dispatches (`[:machine-id [:inner-id]]`) and the legacy single-arg form (`[:machine-id]`) are unaffected. The runtime resolves the outer-shape ambiguity by inspecting the second element's type — a vector second element means "sub-event, fold extras"; anything else means "use the whole vector as the inner event" (compatibility fallback).
+The fold only applies when the outer event has length ≥ 3 AND the second element is itself a vector. Length-2 dispatches (`[:machine-id [:inner-id]]`) and the single-element form (`[:machine-id]`) have nothing to fold. The runtime resolves the outer-shape ambiguity by inspecting the second element's type — a vector second element means "sub-event, fold extras"; anything else means "use the whole vector as the inner event".
 
 ### `reg-machine` — public registration surface
 
@@ -1010,15 +1010,15 @@ The fold only applies when the outer event has length ≥ 3 AND the second eleme
    :states  { ... }})
 ```
 
-The event-`:schema` arity is the one blessed spelling for a machine that needs BOTH `[:schemas :data]` validation and an event-vector schema; a hand-composed `(reg-event id {:schema … :rf/machine? true :rf/machine spec} (make-machine-handler spec))` does not wire `[:schemas :data]` validation. The event-`:schema` arity replaces that composition.
+The event-`:schema` arity is the one blessed spelling for a machine that needs BOTH `[:schemas :data]` validation and an event-vector schema; a hand-composed `(reg-event id {:schema … :rf/machine? true :rf/machine spec} (make-machine-handler spec))` does not wire `[:schemas :data]` validation, so use the event-`:schema` arity instead.
 
 **The single registration home + auto-stamp + fail-loud guard.** Both `reg-machine` / `reg-machine*` (every arity) route through ONE registration home that stamps the `:rf/machine?` / `:rf/machine` registration metadata — the `:where :machine-data` post-commit walker resolves a machine's `[:schemas :data]` schema THROUGH the `:rf/machine` registrar projection, so without the stamp the schema validates nothing.
 
 > **Durable `:data` classification is machine-owned.** There is no schema→marks redaction bridge from a machine's `:sensitive?` / `:large?` `:data` slots into snapshot egress. Durable machine `:data` egress classification is declared projection-relative on the `reg-machine` spec (`:sensitive` / `:large`), lowered per actor instance at spawn / first-boot (per [§Privacy](#privacy--redacting-machine-data-at-trace-egress)). The home runs the validation-stamp plus the projection-relative-classification shape check (`:rf.error/invalid-machine-classification`).
 
-The bare `(reg-event id meta (make-machine-handler spec))` composition does not stamp the meta — so a `[:schemas :data]` schema declared on a hand-stamped machine is **inert** (validates nothing). `make-machine-handler` therefore **fails loud** when handed a `[:schemas :data]`-bearing spec outside the home: it raises `:rf.error/machine-schema-requires-reg-machine`, directing the author to `reg-machine` / `reg-machine*` (and, when the machine also validates its event vector, the event-`:schema` arity). A schema-LESS spec is unaffected — it has nothing inert, so the bare `reg-event` + `make-machine-handler` composition stays legal for it (the lazy spawned-actor materialisation seam relies on it).
+The bare `(reg-event id meta (make-machine-handler spec))` composition does not stamp the meta — so a `[:schemas :data]` schema declared on a hand-stamped machine is **inert** (validates nothing). `make-machine-handler` therefore **fails loud** when handed a `[:schemas :data]`-bearing spec outside the home: it raises `:rf.error/machine-schema-requires-reg-machine`, directing the author to `reg-machine` / `reg-machine*` (and, when the machine also validates its event vector, the event-`:schema` arity). A schema-LESS spec has nothing inert, so the bare `reg-event` + `make-machine-handler` composition is legal for it (the lazy spawned-actor materialisation seam relies on it).
 
-Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (per [API.md §Front-porch boundary](API.md), the non-registration / plain-fn machine surface stays in its owning namespace). See [API.md §Machines](API.md#machines) for the canonical API table.
+Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (per [API.md §Front-porch boundary](API.md), the non-registration / plain-fn machine surface lives in its owning namespace). See [API.md §Machines](API.md#machines) for the canonical API table.
 
 Both forms return `machine-id` per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
@@ -1033,7 +1033,7 @@ Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) f
 
 ### `make-machine-handler` is a pure factory
 
-`make-machine-handler` is the primitive `reg-machine` is built on, and it stays public — the composition seam for callers that must build a handler *without* registering one, such as code-gen and loader pipelines minting handlers for computed ids.
+`make-machine-handler` is the primitive `reg-machine` is built on, and it is public — the composition seam for callers that must build a handler *without* registering one, such as code-gen and loader pipelines minting handlers for computed ids.
 
 The fn `make-machine-handler` returns is the event handler. Crucially, the factory itself:
 
@@ -1162,7 +1162,7 @@ The common app shape defines the spec as a top-level value and registers it by s
 (rf/reg-machine :door/main door-machine)
 ```
 
-Here the `reg-machine` macro sees only the symbol `door-machine` at its call site — **not** the inline literal — so the per-element walk above captures nothing and the registered spec's `:guards` / `:actions` entries are bare fns with no co-located source. The fix is `defmachine`, a `def`-replacement that walks the literal **at the definition site** and co-locates the source onto the def'd value, so it travels into `reg-machine` with the value:
+Here the `reg-machine` macro sees only the symbol `door-machine` at its call site — **not** the inline literal — so the per-element walk above captures nothing and the registered spec's `:guards` / `:actions` entries are bare fns with no co-located source. `defmachine` covers this shape: a `def`-replacement that walks the literal **at the definition site** and co-locates the source onto the def'd value, so it travels into `reg-machine` with the value:
 
 ```clojure
 (rf/defmachine door-machine
@@ -1175,7 +1175,7 @@ Here the `reg-machine` macro sees only the symbol `door-machine` at its call sit
 
 (rf/reg-machine :door/main door-machine)
 ;; (get-in (rf/handler-meta {:source :store :kind :event :id :door/main})
-;;         [:rf/machine :actions :clear-hold :source-coords]) is now populated,
+;;         [:rf/machine :actions :clear-hold :source-coords]) is populated,
 ;; and (rf/handler-meta {:source :store :kind :machine-action :id [:door/main :clear-hold]}) carries the fn source.
 ```
 
@@ -1204,15 +1204,15 @@ The id is the meaning at the call site; the inline fn is opaque to readers. The 
 
 This is a normative rule on top of the [data-DSL-vs-fn](#design-rule--data-dsls-vs-functions) rule: *both* forms are first-class at the grammar level (`:guard` and `:action` accept a fn or a keyword reference), but the **default form is the named keyword reference**. When a transition's logic is more than a single non-branching expression, name it in the machine's `:guards` / `:actions` map.
 
-Why the bias (note — *not* "you can't see an inline fn's code": since [§Inline-fn / keyword slots](#inline-fn--keyword-slots-the-exemption-case) an inline fn's `:source-code` text is co-located on its enclosing node, so visualisers and Xray CAN render the body. The bias is about a *name*, *reuse*, and *addressability* — not source visibility):
+Why the bias (note — *not* "you can't see an inline fn's code": per [§Inline-fn / keyword slots](#inline-fn--keyword-slots-the-exemption-case) an inline fn's `:source-code` text is co-located on its enclosing node, so visualisers and Xray CAN render the body. The bias is about a *name*, *reuse*, and *addressability* — not source visibility):
 
 - **Visualisers label arrows with ids.** A diagram exporter can label an arrow `:under-quota?` and have it carry meaning at a glance. An inline fn has the source available but no name — the diagram shows the whole body (or an anonymous `[fn]` glyph) where a name would have summarised the intent.
-- **AIs and tooling reference ids, not closures.** When an AI reasons about a machine — generating tests, proposing changes, explaining behaviour — a keyword reference is a stable name it can resolve against the machine's `:guards` / `:actions` map (visible on the registration's `:rf/machine` projection). An inline fn is a closure with no public name to address, even though its source is now visible.
+- **AIs and tooling reference ids, not closures.** When an AI reasons about a machine — generating tests, proposing changes, explaining behaviour — a keyword reference is a stable name it can resolve against the machine's `:guards` / `:actions` map (visible on the registration's `:rf/machine` projection). An inline fn is a closure with no public name to address, even though its source is visible.
 - **Humans read ids, not fn bodies.** A reviewer scanning a transition table sees `:guard :under-quota?` and knows what gates the transition; with `:guard (fn [{data :data ev :event}] ...)` they have to read the body to find out.
 - **Tests read ids.** Level-1 (`machine-transition`) and Level-2 tests can stub or assert against named guards/actions by id — re-define the spec's `:guards` / `:actions` entry with a deterministic stand-in. Inline fns can only be replaced by re-writing the entire transition table.
 - **Conformance fixtures read ids.** A fixture's expected `:fx` vector can name `[:dispatch [:audit/login-ok]]` against the action `:record-success` declared in the machine's `:actions` map; inline-fn equivalents are not addressable.
 
-Inline fns remain acceptable for **trivial bodies that don't add meaning by being named** — e.g. `:guard (fn [{data :data}] (some? (:circle-id data)))` is fine; naming it as `:has-circle?` may add no information beyond what the body already shows. The test is whether the fn body is a single non-branching expression: yes → inline is OK; no → name it in `:guards` / `:actions`.
+Inline fns are acceptable for **trivial bodies that don't add meaning by being named** — e.g. `:guard (fn [{data :data}] (some? (:circle-id data)))` is fine; naming it as `:has-circle?` may add no information beyond what the body already shows. The test is whether the fn body is a single non-branching expression: yes → inline is OK; no → name it in `:guards` / `:actions`.
 
 Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaffolding guidance.
 
@@ -1226,9 +1226,9 @@ Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaf
 - **Pure transition contract:** `(machine-transition definition snapshot event)` → one plain map — `{:status :ok :snapshot <next-snapshot> :fx [...]}` on success, `{:status :error :error <diagnostic>}` when a guard / action / `:data` fn threw or a bounded-depth limit tripped. The exact shape is settled once under [§Level 1 — pure `machine-transition`](#level-1--pure-machine-transition).
 - **Pure factory:** `(make-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
 - **Definition shape:** transition table is pure data; guards/actions referenced by id or supplied as fns; both forms are first-class.
-- **Inspection:** lifecycle/transition events emitted on the existing trace surface — discriminated by their `:rf.machine.*` `:operation` keyword (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, …). Machine-emitted dispatches carry `:source :machine-action` on the envelope (the actor-message path; `:dispatch` / `:dispatch-later` fx handlers stamp this when the parent envelope is `:rf.machine/internal? true`).
+- **Inspection:** lifecycle/transition events emitted on the trace surface — discriminated by their `:rf.machine.*` `:operation` keyword (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, …). Machine-emitted dispatches carry `:source :machine-action` on the envelope (the actor-message path; `:dispatch` / `:dispatch-later` fx handlers stamp this when the parent envelope is `:rf.machine/internal? true`).
 - **Composition:** ordinary `dispatch` between machines, made deterministic by drain semantics.
-- **Discipline:** machines reuse the existing event registry, dispatch pipeline, and effect substrate; machine snapshots live as values in `runtime-db`.
+- **Discipline:** machines reuse the event registry, dispatch pipeline, and effect substrate; machine snapshots live as values in `runtime-db`.
 
 This Spec describes everything else.
 
