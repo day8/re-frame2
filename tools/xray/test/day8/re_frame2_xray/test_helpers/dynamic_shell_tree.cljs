@@ -1,20 +1,20 @@
 (ns day8.re-frame2-xray.test-helpers.dynamic-shell-tree
-  "The node lane's door onto Xray's DYNAMIC shell (rf2-k97c.3).
+  "The node lane's door onto Xray's DYNAMIC shell.
 
   ## Why this exists
 
-  Seven of the Dynamic chrome's eight regions are now Fresco boundaries
+  Seven of the Dynamic chrome's eight regions are Fresco boundaries
   — `shell/ribbon-theme-toggle`, `/ribbon`, `/events-ribbon`, `/tab-bar`,
   `/detail-panel`, `/dynamic-chrome` and `/surface-composer` are
   `rf.fresco/defview`s, i.e. real React function components. (`/event-list`
   is the exception and its own docstring says why.) A boundary's body may
   only run inside a React render window (`rf.fresco/sub` REFUSES outside
-  one, naming the query), so `(shell/ribbon nil)` is no longer a callable
-  that answers hiccup, and `(shell/shell-view)`'s hiccup now stops at the
+  one, naming the query), so `(shell/ribbon nil)` is not a callable
+  that answers hiccup, and `(shell/shell-view)`'s hiccup stops at the
   `[:>]` interop head of the private bridge the shell mounts.
 
-  The repair is `defview`'s own documented extract-a-helper spelling, the
-  one every migrated view in this epic already uses: the shell exports
+  The way in is `defview`'s own documented extract-a-helper spelling:
+  the shell exports
   PURE `*-tree` fns of its reads' values, each boundary is the thin thing
   that reads and calls one, and the node lane drives the tree fns. This
   ns is the composer that does that driving — the Dynamic sibling of
@@ -27,8 +27,7 @@
   boundary beside it, with `rf.fresco/sub` swapped for `rf/subscribe`
   (the node lane has no React render window and no collector extent) and
   nothing else changed. Where the boundary applies a fallback
-  ([[event-list-tree]]'s `now-ms`), so does this — [[detail-panel-tree]]
-  applied one too until rf2-y8doi.30 deleted the dead constant behind it;
+  ([[event-list-tree]]'s `now-ms`), so does this;
   where the DERIVATION lives in the shell's own
   `*-tree` fn (`nav-boundary-state`, the `no-filters?` gate, the L2
   visibility filter), this passes the raw values through and lets the
@@ -36,10 +35,10 @@
 
   ## `as-child` is `identity` here
 
-  The boundaries pass `substrate/as-element` for their surviving islands
-  — the L2/L3 seam handle and the L4 `[(:panel tab)]` mount. This lane
-  passes `identity`, so each island stays the fn-headed hiccup vector
-  that `rf.test-helpers/expand-tree` walks precisely as it always has.
+  The L4 boundary passes `substrate/as-element` for its island — the
+  `[(:panel tab)]` mount. This lane
+  passes `identity`, so the island stays the fn-headed hiccup vector
+  that `rf.test-helpers/expand-tree` walks.
   That crossing's evidence is the browser lane's, not this one's — the
   node lane's `as-child` is `identity` BY CONSTRUCTION, so wrapping and
   not wrapping are the same value here.
@@ -53,20 +52,17 @@
   what `rf.fresco/sub` refuses. This lane therefore hands `shell/
   ribbon-tree` each child's already-expanded plain hiccup, the same way
   [[shell-view-tree]] hands it the chrome's — which is also why the L1
-  ribbon has no `as-child` seam left to pass `identity` through.
+  ribbon has no `as-child` seam to pass `identity` through.
 
-  `frame-switcher-view` and `mode-pill` were the ribbon's two REAGENT
-  ISLANDS until rf2-k97c.3 deleted four of them at once — these two here
-  and the same two in the Static ribbon. Their doors are
+  The frame switcher's and the mode pill's doors are
   `test-helpers.static-shell-tree`'s `frame-switcher-tree` and
   `mode-pill-tree`: both ribbons mount both widgets, so the read
-  reproduction is single-sourced in the ns this one already requires.
+  reproduction is single-sourced in the ns this one requires.
 
   ## Call these INSIDE a frame scope
 
   Every fn here subscribes ambiently, so each call belongs inside
-  `(rf/with-frame :rf/xray …)` — the same requirement the `reg-view`
-  bodies had, and the same one every existing caller already satisfies."
+  `(rf/with-frame :rf/xray …)`."
   (:require [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -96,19 +92,19 @@
      {:redacted-count  @(rf/subscribe [:rf.xray/suppressed-sensitive-count])
       :muted-count     @(rf/subscribe [:rf.xray/muted-event-ids-count])
       :focus           @(rf/subscribe [:rf.xray/focus])
-      ;; rf2-lh98m — the STORED slot beside the composed map. The ribbon
+      ;; The STORED slot beside the composed map. The ribbon
       ;; reads both: the composed `:frame` is the resolved current-row
       ;; coordinate, the stored one is the restriction that bounds the
       ;; spine's walk. Omitting it here would grade this lane's boundary
       ;; against an unscoped domain the shipped ribbon does not pass.
       :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
-      ;; rf2-cqpj4 — the boundary reads the RAW spine vector in this slot,
+      ;; The boundary reads the RAW spine vector in this slot,
       ;; not the filtered one. `nav-boundary-state`'s domain is the
       ;; spine's focusable walk — the same walk
       ;; `:rf.xray/focus-event-prev` / `-next` step over — so reproducing
       ;; a `:rf.xray/filtered-event-bundles` read here would grade this
-      ;; lane's nav boundary against a vector the shipped ribbon no longer
-      ;; passes.
+      ;; lane's nav boundary against a vector the shipped ribbon does not
+      ;; pass.
       :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
       :filters         @(rf/subscribe [:rf.xray/active-filters])}
@@ -142,7 +138,7 @@
      {:col-widths      @(rf/subscribe [:rf.xray/event-list-col-widths])
       :list-height-px  @(rf/subscribe [:rf.xray/events-list-height-px])
       :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
-      ;; rf2-y8doi.30 — the boundary reads the RAW spine vector beside
+      ;; The boundary reads the RAW spine vector beside
       ;; the filtered one, because the newer-events marker's presence and
       ;; count come from the vector `spine/compose-focus` derives `:head?`
       ;; from, never from the filtered one the rows render. Omitting it
@@ -150,7 +146,7 @@
       ;; a marker the shipped boundary does not.
       :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
       :focus           @(rf/subscribe [:rf.xray/focus])
-      ;; rf2-lh98m — as in `ribbon-tree` above: the newer-count's domain
+      ;; As in `ribbon-tree` above: the newer-count's domain
       ;; is bounded by the STORED restriction, so this lane reads the
       ;; stored slot too rather than letting the composed frame answer
       ;; for it.
@@ -163,13 +159,10 @@
   "The L2/L3 seam's hiccup, read the way
   `resize-handle/seam-handle-view` reads it.
 
-  Added by rf2-k97c.3, when the seam stopped being a
-  `reagent.core/as-element` island and became an ordinary Fresco
-  boundary headed by `shell/dynamic-chrome`. Before that this position
-  was the plain `[resize-handle/SeamHandle]` vector `expand-tree`
-  walked; now the seam is a boundary, so a vector headed by it would
-  stop the walk at a component head and a row would assert nothing
-  about the seam's markup. Driving the shipped `*-tree` fn is what
+  The seam is an ordinary Fresco boundary headed by
+  `shell/dynamic-chrome`, so a vector headed by it would stop
+  `expand-tree`'s walk at a component head and a row would assert
+  nothing about the seam's markup. Driving the shipped `*-tree` fn is what
   keeps that row evidence about the shipped seam.
 
   `aria-max-events-list-height-px` is the boundary's own helper rather
@@ -202,15 +195,11 @@
   it — the raw `:rf.xray/selected-tab` value and the same
   `panel-registry/tab-by-id :dynamic` lookup.
 
-  NO `(or … default-tab)` FALLBACK, because the boundary applies none
-  since rf2-y8doi.30. `shell.cljs`'s private `default-tab` pinned
-  `:event`, which no `reg-l4-tab!` registers, and the sub it guarded is
-  total (`registry.cljs` reads `(get db :selected-tab :epoch)`) — so the
-  constant was both unreachable and wrong, and it was deleted along with
-  the `or`. This fn used to reach it through its var
-  (`@#'shell/default-tab`); that reach is what made the deletion visible
-  here. `static-shell/default-tab` is a DIFFERENT and still-live
-  constant (`:machines`), read by `static_shell_tree.cljs`."
+  NO `(or … default-tab)` FALLBACK, because the boundary applies none:
+  the sub is total (`registry.cljs` reads `(get db :selected-tab
+  :epoch)`), so a fallback could never fire. `static-shell/default-tab`
+  is a DIFFERENT, live constant (`:machines`), read by
+  `static_shell_tree.cljs`."
   []
   (let [selected @(rf/subscribe [:rf.xray/selected-tab])]
     (shell/detail-panel-tree
@@ -219,23 +208,22 @@
       identity)))
 
 (defn dynamic-chrome-tree
-  "The WHOLE Dynamic chrome as plain hiccup — the node lane's replacement
-  for the old `(shell/dynamic-chrome)` call.
+  "The WHOLE Dynamic chrome as plain hiccup — what the node lane calls
+  in place of `(shell/dynamic-chrome)`.
 
   Composes the five region trees above through the shell's own
   `dynamic-chrome-tree` envelope, so the `display: contents` wrapper and
   its `data-rf-xray-dynamic-chrome` handle are the shipped definitions
   rather than a copy of them.
 
-  The chrome's ONE REMAINING ISLAND is `shell/event-list` (still an
-  `rf/reg-view`; its own docstring says why), which the boundary crosses
-  with `reagent.core/as-element`. Here the L2 list is driven through
+  The chrome's ONE ISLAND is `shell/event-list` (an `rf/reg-view`; its
+  own docstring says why), which the boundary crosses with
+  `substrate/as-element`. Here the L2 list is driven through
   `shell/event-list-tree` the same way every other region is, so a row
-  still walks the shipped L2 chrome rather than stopping at a component
+  walks the shipped L2 chrome rather than stopping at a component
   head.
 
-  THE SEAM WAS THE SECOND ISLAND AND IS NO LONGER ONE (rf2-k97c.3): it
-  is an ordinary Fresco boundary now, so it is driven through
+  The seam is an ordinary Fresco boundary, so it is driven through
   [[seam-handle-tree]] exactly as every other region is."
   ([] (dynamic-chrome-tree (:dispatch (rf/capture-frame))))
   ([dispatch]
@@ -247,15 +235,15 @@
                               (detail-panel-tree))))
 
 (defn surface-composer-tree
-  "The mode composer as plain hiccup — the node lane's replacement for the
-  old `(shell/surface-composer)` call. Reads `:rf.xray/mode` the way the
+  "The mode composer as plain hiccup — what the node lane calls in place
+  of `(shell/surface-composer)`. Reads `:rf.xray/mode` the way the
   boundary does and composes BOTH arms: the Dynamic chrome from this ns,
   the Static surface from `test-helpers.static-shell-tree`.
 
   BOTH ARMS ARE COMPOSED EAGERLY, where the shipped `case` picks one.
   That is deliberate and it costs nothing but a little work: the envelope
   is what decides, so a row asserting which arm the composer mounts is
-  still asserting the shipped `case`."
+  asserting the shipped `case`."
   ([] (surface-composer-tree (:dispatch (rf/capture-frame))))
   ([dispatch]
    (shell/surface-composer-tree @(rf/subscribe [:rf.xray/mode])
@@ -263,9 +251,9 @@
                                 (dynamic-chrome-tree dispatch))))
 
 (defn shell-view-tree
-  "The WHOLE Xray shell as plain hiccup — the node lane's replacement for
-  the old `(shell/shell-view opts)` call, and the substitution every
-  existing row makes.
+  "The WHOLE Xray shell as plain hiccup — what the node lane calls in
+  place of `(shell/shell-view opts)`, and the substitution every row
+  makes.
 
   It reproduces `ShellView`'s TWO SIDE EFFECTS as well as its two reads
   — the plain `shell-view` defn has neither, being the `as-element` +
