@@ -404,6 +404,19 @@
         ;; the macro's keying.
         (some? candidate-idx) (conj candidate-idx)))))
 
+(defn- root-lifecycle-source-key
+  "The spec-path of a tree ROOT's own `:entry` / `:exit` when an `:action`
+  row ran one — its `:decl-path` is `[]` and its phase is an entry or exit
+  phase: `[:entry]` / `[:exit]` for the machine root, `[:regions <region>
+  :entry]` / `… :exit]` for a parallel region body. nil for every other row,
+  which keeps the reconstruction from the surrounding transition's states."
+  [{:keys [kind decl-path region phase]}]
+  (when (and (= :action kind) (= [] decl-path))
+    (when-let [slot (cond
+                      (contains? #{:entry :initial-entry} phase) :entry
+                      (contains? #{:exit :destroy-exit} phase)   :exit)]
+      (conj (if (some? region) [:regions region] []) slot))))
+
 (defn cascade-row-source-key
   "Spec-path tuple used to look up a cascade row's source-coord on the
   registered machine spec. Pure-data; the view layer reuses this for the
@@ -430,6 +443,11 @@
 
   - `:action` with a keyword `:action-id` → `[:actions <id>]`
     (definition-site stamp; the named-handler path).
+  - `:action` with an inline `:action-id` (fn) that a tree ROOT declares
+    on its `:entry` / `:exit` (the row's `:decl-path` is `[]`) →
+    `[:entry]` / `[:exit]`, or `[:regions <region> :entry]` / `… :exit]`
+    for a parallel region body. The surrounding transition's states name a
+    child, never the root.
   - `:action` with an inline `:action-id` (fn) — derive from the row's
     `:phase` + state slot (`:source-state` / `:target-state`, stamped
     by `enrich-cascade-rows`):
@@ -466,7 +484,8 @@
     coord)."
   [{:keys [kind action-id guard-id phase source-state target-state event-id
            spec-path transition-slot]
-    timer-state :state}]
+    timer-state :state
+    :as row}]
   (let [source-prefix (proj/state-spec-path-prefix source-state)
         target-prefix (proj/state-spec-path-prefix target-state)
         timer-prefix  (proj/state-spec-path-prefix timer-state)
@@ -488,6 +507,9 @@
         ;; (candidate-vector `:on`, nonzero `:always` candidate, `:after`
         ;; delay-key, root `:on`) — append the `:action` leaf.
         slot-prefix (conj slot-prefix :action)
+        ;; A tree root's own `:entry` / `:exit`, addressed from the node that
+        ;; declares it rather than from the surrounding transition's states.
+        (root-lifecycle-source-key row) (root-lifecycle-source-key row)
         ;; Inline-fn path — slot stamp under the relevant state.
         (contains? #{:entry :initial-entry} phase)
         (when target-prefix (conj target-prefix :entry))
@@ -589,12 +611,18 @@
   (entry / post-entry phases); falls back across the two when the
   phase-preferred slot is absent (best-effort enrichment). Returns nil when
   neither state was stamped — the view then omits the ` for <state> `
-  clause and renders just the action name. Pure-data."
-  [{:keys [phase source-state target-state]}]
-  (let [exit-phase? (contains? #{:exit :destroy-exit :transition} phase)]
-    (if exit-phase?
-      (or source-state target-state)
-      (or target-state source-state))))
+  clause and renders just the action name.
+
+  A tree ROOT's own `:entry` / `:exit` belongs to the root, not to a state:
+  `:rf/root` for the machine root (the name registration diagnostics give
+  it) and the region name for a parallel region body. Pure-data."
+  [{:keys [phase source-state target-state region] :as row}]
+  (if (root-lifecycle-source-key row)
+    (if (some? region) region :rf/root)
+    (let [exit-phase? (contains? #{:exit :destroy-exit :transition} phase)]
+      (if exit-phase?
+        (or source-state target-state)
+        (or target-state source-state)))))
 
 (defn cascade-guard-for-state
   "The state a `:guard` cascade row gates, for the

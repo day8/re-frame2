@@ -928,6 +928,15 @@
       ;; reconstructing from source-state / event / phase.
       (common/tag-of ev :transition-slot)
       (assoc :transition-slot (common/tag-of ev :transition-slot))
+      ;; The node that DECLARES the action — `[]` for a tree root, with
+      ;; `:region` inside a parallel region. `cascade-row-source-key` and
+      ;; `cascade-action-for-state` address a root's own `:entry` / `:exit`
+      ;; from it, where the surrounding transition's states would name a
+      ;; child.
+      (some? (common/tag-of ev :decl-path))
+      (assoc :decl-path (common/tag-of ev :decl-path))
+      (some? (common/tag-of ev :region))
+      (assoc :region (common/tag-of ev :region))
       (common/tag-of ev :exception)
       (assoc :exception (common/tag-of ev :exception))
       (seq action-fx)
