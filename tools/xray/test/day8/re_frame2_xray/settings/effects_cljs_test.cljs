@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.settings.effects-cljs-test
-  "CLJS tests for the Settings popup's side-effect appliers
-  (rf2-9poxq).
+  "CLJS tests for the Settings popup's side-effect appliers.
 
   Asserts:
   - `apply-text-size!` writes the CSS custom property
@@ -9,9 +8,6 @@
     `apply-*!` side effect
   - The auto-open watcher edge-fires on empty→non-empty when toggle
     is on AND Xray is hidden
-
-  (The Filters tab feature-detect bullet was removed when the
-  Filters tab itself retired in rf2-wknb3.)
 
   No DOM-shell mount happens — we create a stub `#rf-xray-root`
   element + a stub `<html>` for the CSS-var assertions; the auto-
@@ -31,14 +27,12 @@
 
 ;; ---- fixture -----------------------------------------------------------
 
-;; `ensure-stub-shell-root!` went to the dom sibling with the rows that
-;; needed it (rf2-r51p). Its comment here used to read "Some node test
-;; runtimes provide js/document" — this one does not, and the helper
-;; opened with `(exists? js/document)` itself, so on node it created
-;; nothing and every row that depended on it asserted inside a nil
-;; binding. `remove-stub-shell-root!` stays: the fixture and the three
-;; missing-root tests below still call it, and it is a no-op on node by
-;; design rather than by accident.
+;; `ensure-stub-shell-root!` lives in the dom sibling with the rows that
+;; need it: it opens with `(exists? js/document)`, and this node runtime
+;; provides no `js/document`, so here it would create nothing and every
+;; row depending on it would assert inside a nil binding.
+;; `remove-stub-shell-root!` serves the fixture and the missing-root
+;; tests below, and it is a no-op on node by design.
 
 (defn- remove-stub-shell-root! []
   (when (exists? js/document)
@@ -47,7 +41,7 @@
         (.removeChild (.-parentNode el) el)))))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom adapter + the
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the
   ;; `:runtime` reset tier (sentinels + trace rings + persisted settings);
   ;; `:post-reset` detaches the auto-open watcher + tears down the stub shell
   ;; root so neither leaks between tests.
@@ -63,15 +57,14 @@
 
 ;; ---- DOM helpers --------------------------------------------------------
 ;;
-;; `shell-root` and `html-root` went to the dom sibling with every row
-;; that read them (rf2-r51p). Both returned nil on node — each opened
-;; with `(exists? js/document)` — so every `(when-let [el (shell-root)]
-;; (is ...))` here asserted nothing. Nothing in this namespace reads the
-;; DOM any more.
+;; `shell-root` and `html-root` live in the dom sibling with every row
+;; that reads them. Both return nil on node — each opens with
+;; `(exists? js/document)` — so a `(when-let [el (shell-root)] (is ...))`
+;; here would assert nothing. Nothing in this namespace reads the DOM.
 
 ;; ---- text-size ----------------------------------------------------------
 
-;; THE REAL-DOM ROWS MOVED TO THE DOM SIBLING (rf2-r51p).
+;; THE REAL-DOM ROWS LIVE IN THE DOM SIBLING.
 ;;
 ;; `apply-text-size-writes-css-var`, `apply-theme-toggles-class`,
 ;; `update-event-applies-text-size-effect`,
@@ -81,25 +74,25 @@
 ;; `apply-use-system-colors-stamps-and-clears-attribute`,
 ;; `apply-all-restores-use-system-colors`,
 ;; `apply-density-font-size-writes-css-var` and
-;; `apply-all-restores-density-font-size` now live in
+;; `apply-all-restores-density-font-size` live in
 ;; `day8.re-frame2-xray.settings.effects-dom-cljs-test`.
 ;;
-;; Each asserted inside `(when-let [el (shell-root)] ...)`, and
+;; Each asserts inside `(when-let [el (shell-root)] ...)`, and
 ;; `shell-root` / `html-root` are themselves `(when (exists? js/document)
 ;; ...)`. `ensure-stub-shell-root!` looks like it supplies the host but
 ;; opens with the same `(exists? js/document)` test, so on node it
 ;; creates nothing and every `when-let` binds nil. `:browser-test`'s
-;; `.*-dom-cljs-test$` `:ns-regexp` never matched this file's name, so
-;; those rows executed in NEITHER lane. Their new home ends
+;; `.*-dom-cljs-test$` `:ns-regexp` does not match this file's name, so
+;; such rows here would execute in NEITHER lane. The sibling's name ends
 ;; `-dom-cljs-test`, which BOTH builds select.
 ;;
-;; THREE TESTS WERE SPLIT RATHER THAN MOVED, because they mixed dead DOM
-;; claims with assertions that really do run here:
+;; THREE TESTS KEEP A HOST-FREE HALF HERE, because they mix DOM claims
+;; with assertions that really do run on node:
 ;; `apply-use-system-colors-handles-missing-shell-root`,
 ;; `update-event-applies-use-system-colors-effect` and
 ;; `update-event-applies-density-font-size-effect` keep their host-free
-;; halves below; only their DOM halves crossed over. Moving them whole
-;; would have taken live assertions OFF the node lane.
+;; halves below; their DOM halves live in the sibling. That keeps the
+;; live assertions ON the node lane.
 
 (deftest apply-text-size-handles-missing-shell-root
   (remove-stub-shell-root!)
@@ -110,13 +103,10 @@
 
 ;; ---- update-setting! drives the side effect ----------------------------
 
-;; ---- filters feature detect (removed rf2-wknb3) ------------------------
+;; ---- filters ------------------------------------------------------------
 ;;
-;; The Settings popup Filters tab was retired in rf2-wknb3 — the
-;; ribbon strip + per-pill edit popup + mute manager are the
-;; canonical pill-management surfaces. The view's
-;; `filters-feature-present?` helper that the previous test
-;; exercised is gone with the tab.
+;; The Settings popup has no Filters tab — the ribbon strip + per-pill
+;; edit popup + mute manager are the canonical pill-management surfaces.
 
 ;; ---- auto-open watcher --------------------------------------------------
 ;;
@@ -165,12 +155,11 @@
         "toggle off → never open, even on edge")))
 
 (deftest install-is-defensive-without-xray-frame
-  ;; rf2-9poxq follow-up: the Story testbed CI failures
-  ;; `No protocol method IWatchable.-add-watch defined for type null`
-  ;; came from `install-auto-open-watcher!` running at preload before
-  ;; `:rf/xray` was lazy-registered. `rf/subscribe` returned nil and
-  ;; `(add-watch nil ...)` threw. The install is now guarded; a call
-  ;; with no `:rf/xray` frame is a silent no-op.
+  ;; `install-auto-open-watcher!` can run at preload before `:rf/xray`
+  ;; is lazy-registered. `rf/subscribe` then returns nil, and an
+  ;; unguarded `(add-watch nil ...)` throws `No protocol method
+  ;; IWatchable.-add-watch defined for type null`. The install is
+  ;; guarded; a call with no `:rf/xray` frame is a silent no-op.
   (effects/detach-auto-open-watcher!)
   (is (nil? (effects/install-auto-open-watcher!))
       "install without `:rf/xray` frame is a silent no-op (no throw)"))
@@ -192,14 +181,14 @@
   (is (false? (config/get-setting :general :auto-open-on-error?))
       "config carries the flipped value"))
 
-;; ---- auto-open reopen preserves the realized surface (rf2-kggzi4) -------
+;; ---- auto-open reopen preserves the realized surface --------------------
 ;;
-;; rf2-j538f7.41 made the two GLOBAL reopen routes (Ctrl+Shift+C toggle +
-;; Cmd/Ctrl+K palette) preserve the last-realized mount surface via
-;; `mount/toggle!`. The auto-open-on-error watcher was the THIRD reopen
-;; route and still hard-coded `mount/open!` — a surface CHANGE that would
-;; revert a hidden overlay to inline on auto-open. rf2-kggzi4 routes it
-;; through the shared `reopen-preserving-surface!` helper (→ `toggle!`).
+;; All three reopen routes — the two GLOBAL ones (Ctrl+Shift+C toggle +
+;; Cmd/Ctrl+K palette) and the auto-open-on-error watcher — preserve the
+;; last-realized mount surface via `mount/toggle!`. The watcher goes
+;; through the shared `reopen-preserving-surface!` helper (→ `toggle!`);
+;; a hard-coded `mount/open!` would be a surface CHANGE that reverts a
+;; hidden overlay to inline on auto-open.
 ;;
 ;; We unit-test that helper's routing directly (mirroring how
 ;; mount_cljs_test's `toggle!-*` suite unit-tests the mount layer's own
@@ -207,10 +196,9 @@
 ;; toggle-on + hidden — is covered by the watcher tests above. The full
 ;; `install-auto-open-watcher!` `add-watch` path can't be driven under THIS
 ;; suite's headless plain-atom adapter (its derived subscriptions reify
-;; `IDeref`/`IDisposable` only, not `IWatchable`), and the claim that "the
-;; browser suites exercise that reactive glue" was false — no suite did, which
-;; is how rf2-lynzk (the missing `activate-derived-value!`) survived. It is now
-;; pinned on a ratom-family adapter, in this same directory:
+;; `IDeref`/`IDisposable` only, not `IWatchable`), and no browser suite
+;; exercises that reactive glue either; it is pinned on a ratom-family
+;; adapter, in this same directory:
 ;; `settings.auto-open-watcher-activates-ratom-node-cljs-test`.
 
 (defn- with-recording-mount-exports
@@ -237,11 +225,11 @@
             (js-delete js/globalThis "window")))))))
 
 (deftest reopen-preserving-surface-routes-through-toggle-not-open
-  (testing "rf2-kggzi4 — the auto-open-on-error reopen route
+  (testing "the auto-open-on-error reopen route
             (`reopen-preserving-surface!`) invokes the surface-preserving
             `mount/toggle!` export, never the surface-changing `mount/open!`
-            (which would revert a hidden overlay to inline). Mirrors the
-            rf2-j538f7.41 fix on the Ctrl+Shift+C + palette routes."
+            (which would revert a hidden overlay to inline), as the
+            Ctrl+Shift+C + palette routes do."
     (with-recording-mount-exports
       (fn [invoked]
         (#'effects/reopen-preserving-surface!)
@@ -252,10 +240,10 @@
 
 ;; ---- apply-all! ---------------------------------------------------------
 
-;; ---- epoch-history (rf2-3zyyx) -----------------------------------------
+;; ---- epoch-history ------------------------------------------------------
 
 (deftest apply-epoch-history-writes-substrate-depth
-  (testing "rf2-3zyyx — apply-epoch-history! routes through
+  (testing "apply-epoch-history! routes through
             `(rf/configure! {:epoch-history {:depth N}})` so the
             substrate's per-frame ring buffer matches the user's
             saved capacity. Reads the live depth from
@@ -279,7 +267,7 @@
           (rf/configure! {:epoch-history {:depth orig}}))))))
 
 (deftest update-event-applies-epoch-history-effect
-  (testing "rf2-3zyyx — dispatching `:rf.xray/settings-update :general
+  (testing "dispatching `:rf.xray/settings-update :general
             :epoch-history N` writes through to the substrate via the
             matching effect."
     (setup!)
@@ -296,7 +284,7 @@
           (rf/configure! {:epoch-history {:depth orig}}))))))
 
 (deftest apply-all-restores-epoch-history
-  (testing "rf2-3zyyx — the boot path re-applies the persisted depth
+  (testing "the boot path re-applies the persisted depth
             so the substrate ring matches the user's saved capacity
             BEFORE first dispatch."
     (let [orig (rf.epoch.state/depth)]
@@ -308,7 +296,7 @@
         (finally
           (rf/configure! {:epoch-history {:depth orig}}))))))
 
-;; ---- cascades-retained (rf2-5u03ig) ------------------------------------
+;; ---- cascades-retained --------------------------------------------------
 ;;
 ;; The Buffer-tab `:events-retained` knob writes through to the
 ;; framework trace ring via `(rf/configure! {:trace-buffer
@@ -319,7 +307,7 @@
 ;; the Settings BRIDGE is what these tests guard.
 
 (deftest apply-cascades-retained-writes-through-to-configure
-  (testing "rf2-5u03ig — apply-events-retained! routes through
+  (testing "apply-events-retained! routes through
             `(rf/configure! {:trace-buffer {:events-retained N}})`.
             Non-positive / non-numeric input is a no-op at the effect
             boundary (the UI :min 1 keeps the framework's 0-disables
@@ -336,7 +324,7 @@
             "nil / zero / negative are dropped at the effect boundary")))))
 
 (deftest update-event-applies-cascades-retained-effect
-  (testing "rf2-5u03ig — dispatching `:rf.xray/settings-update :buffer
+  (testing "dispatching `:rf.xray/settings-update :buffer
             :events-retained N` writes through to the substrate via
             the matching effect and persists the value."
     (setup!)
@@ -351,7 +339,7 @@
             "the dispatch reaches configure! with the :trace-buffer key")))))
 
 (deftest apply-all-restores-cascades-retained
-  (testing "rf2-5u03ig — the boot path re-applies the persisted
+  (testing "the boot path re-applies the persisted
             cascades-retained count so the substrate trace ring matches
             the user's saved capacity BEFORE first dispatch."
     (let [calls (atom [])]
@@ -361,26 +349,27 @@
         (is (some #{{:trace-buffer {:events-retained 21}}} @calls)
             "apply-all! routes the persisted value to the substrate")))))
 
-;; ---- panel width (rf2-x8h9y) -------------------------------------------
+;; ---- panel width --------------------------------------------------------
 ;;
-;; The `<html>` CSS-var rows live in the dom sibling (rf2-r51p). The rows
+;; The `<html>` CSS-var rows live in the dom sibling. The rows
 ;; below are about the CLAMP, which is deliberately outside the `<html>`
-;; guard and so is the half this node lane CAN see (rf2-y8doi.17).
+;; guard and so is the half this node lane CAN see.
 ;;
-;; Before the fix `:rf.xray/set-panel-width-px` (the drag handler) was the
-;; only clamp site, so a width dragged wide on a large monitor replayed
-;; VERBATIM at boot on a narrow one: `apply-all!` handed the persisted
-;; number straight to `<html>` and the host's `flex-basis` could squeeze the
-;; app itself to nothing, on a surface whose resize handle had gone off the
+;; The boot path clamps as well as the drag handler
+;; (`:rf.xray/set-panel-width-px`). With the drag handler as the only clamp
+;; site, a width dragged wide on a large monitor would replay VERBATIM at
+;; boot on a narrow one: `apply-all!` would hand the persisted number
+;; straight to `<html>` and the host's `flex-basis` could squeeze the app
+;; itself to nothing, on a surface whose resize handle had gone off the
 ;; side of the screen with it.
 
 (deftest apply-panel-width-clamps-persisted-width-to-viewport
-  (testing "rf2-y8doi.17 — a persisted width wider than the viewport
+  (testing "a persisted width wider than the viewport
             allows is clamped to viewport × `max-panel-width-fraction`
             before it is applied, and the clamped value is written BACK
             through `update-setting!` so storage converges rather than
             re-clamping on every boot (the same posture the drag path
-            already takes)."
+            takes)."
     (config/update-setting! :general :panel-width-px 1700)
     (is (= 1700 (config/get-setting :general :panel-width-px))
         "precondition: the oversize width is persisted")
@@ -404,7 +393,7 @@
          from a usable width")))
 
 (deftest apply-panel-width-leaves-an-in-range-width-alone
-  (testing "rf2-y8doi.17 — the write-back is guarded on the value
+  (testing "the write-back is guarded on the value
             actually moving, so the drag path (which clamps before it
             calls here) triggers no second storage round-trip, and a
             width that fits is persisted unchanged."
@@ -418,10 +407,10 @@
         "and storage still carries it")))
 
 (deftest apply-panel-width-never-persists-an-inherited-width
-  (testing "rf2-3x7nj.27.1 — with NO persisted width, the width being
+  (testing "with NO persisted width, the width being
             applied is inherited (here the compiled default 560). The
             clamp fits it to a 600px viewport in the live map, and leaves
-            storage untouched: saving that 540 as an override used to
+            storage untouched: saving that 540 as an override would
             outrank every later host width, even on a wide screen."
     (is (nil? (#'config/storage-get config/settings-storage-key))
         "precondition: nothing persisted")
@@ -438,9 +427,9 @@
         "a later host `configure!` width lands")))
 
 (deftest apply-all-clamps-the-persisted-width
-  (testing "rf2-y8doi.17 — the repair reaches the boot path, which is
+  (testing "the clamp reaches the boot path, which is
             where it matters: `apply-all!` is what the preload and
-            `core/init!` call, and it is the caller that replayed the
+            `core/init!` call, and it is the caller that would replay an
             unclamped value."
     (config/update-setting! :general :panel-width-px 4000)
     (effects/apply-all!)
@@ -450,17 +439,17 @@
     (is (= 1800 (config/get-setting :general :panel-width-px))
         "apply-all! clamped the oversize persisted width")))
 
-;; ---- init! loads + applies persisted Settings (rf2-y8doi.17) ------------
+;; ---- init! loads + applies persisted Settings ---------------------------
 ;;
 ;; `core/init!` is the MANUAL install path — the documented alternative to
-;; wiring `day8.re-frame2-xray.preload` into `:devtools/preloads`. The
-;; preload's boot block has always called `load-settings-from-storage!`
-;; then `apply-all!`; `init!` called neither, so a host that installed
-;; manually showed compiled-in defaults however many times the user had
-;; changed them in the Settings popup.
+;; wiring `day8.re-frame2-xray.preload` into `:devtools/preloads`. Like the
+;; preload's boot block it calls `load-settings-from-storage!` then
+;; `apply-all!`; without them a host that installed manually would show
+;; compiled-in defaults however many times the user had changed them in
+;; the Settings popup.
 
 (deftest init-loads-and-applies-persisted-settings
-  (testing "rf2-y8doi.17 — `core/init!` loads the persisted Settings and
+  (testing "`core/init!` loads the persisted Settings and
             applies their effects, exactly as the preload's boot block
             does"
     (#'config/storage-set! config/settings-storage-key
@@ -479,8 +468,8 @@
            to the substrate"))))
 
 (deftest init-opts-still-win-over-persisted-settings
-  (testing "rf2-y8doi.17 — the load runs FIRST and the explicit opts
-            last, so `init! opts` remains the last-mile injection seam
+  (testing "the load runs FIRST and the explicit opts
+            last, so `init! opts` is the last-mile injection seam
             spec/015 §`configure!` vs `init!` vs persisted Settings
             describes"
     (#'config/storage-set! config/settings-storage-key
@@ -490,7 +479,7 @@
     (is (= :light (config/get-setting :theme nil))
         "the explicit opt beat the persisted :dark")))
 
-;; ---- density → font-size knob (rf2-i40us) ------------------------------
+;; ---- density → font-size knob -------------------------------------------
 
 (deftest density->font-size-px-mapping
   (testing "density keyword resolves to the canonical px value the
@@ -530,30 +519,28 @@
               (str "stored " stored " → sub reports " reported
                    "; the effect must write that tier's px")))))))
 
-;; ---- use-system-colors? (rf2-846h2) ------------------------------------
+;; ---- use-system-colors? -------------------------------------------------
 
 (deftest apply-use-system-colors-handles-missing-shell-root
-  (testing "rf2-846h2 — no-op when shell root absent; no throw."
-    ;; rf2-r51p — the `<html>`-still-written half of this test asserted
-    ;; inside `(when-let [html (html-root)] ...)`, which binds nil on
-    ;; node, so it executed in neither lane. It moved to
+  (testing "no-op when shell root absent; no throw."
+    ;; The `<html>`-still-written half of this claim needs a real
+    ;; `<html>` (`html-root` binds nil on node), so it lives in
     ;; `settings.effects-dom-cljs-test/apply-use-system-colors-stamps-
     ;; html-without-a-shell-root`. The no-op return claim below is
-    ;; host-free and genuinely runs here, so it stayed.
+    ;; host-free and genuinely runs here.
     (remove-stub-shell-root!)
     (is (nil? (effects/apply-use-system-colors! true)))
     ;; Clean up so unrelated tests don't see the stamped <html>.
     (effects/apply-use-system-colors! false)))
 
 (deftest update-event-applies-use-system-colors-effect
-  (testing "rf2-846h2 — dispatching `:rf.xray/settings-update :general
+  (testing "dispatching `:rf.xray/settings-update :general
             :use-system-colors? true` stamps the chrome attribute via
             the matching effect."
-    ;; rf2-r51p — the two attribute claims asserted inside `(when-let
-    ;; [el (shell-root)] ...)`, which binds nil on node, so they
-    ;; executed in neither lane. They moved to
+    ;; The two attribute claims need a real shell root (`shell-root`
+    ;; binds nil on node), so they live in
     ;; `settings.effects-dom-cljs-test`. The settings-slot claim below
-    ;; is host-free and genuinely runs here, so it stayed.
+    ;; is host-free and genuinely runs here.
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update
@@ -577,9 +564,8 @@
   (testing "Dispatching `[:rf.xray/settings-update :general :density
             :compact]` flips `--rf-xray-font-size` to 12px so the
             whole `type-scale` rescales on the next paint."
-    ;; rf2-r51p — the two CSS-var claims asserted inside `(when-let [el
-    ;; (shell-root)] ...)`, which binds nil on node, so they executed in
-    ;; neither lane. They moved to `settings.effects-dom-cljs-test`. The
+    ;; The two CSS-var claims need a real shell root (`shell-root` binds
+    ;; nil on node), so they live in `settings.effects-dom-cljs-test`. The
     ;; settings-atom claims below are host-free and genuinely run here.
     (setup!)
     (rf/with-frame :rf/xray
@@ -597,21 +583,20 @@
     (is (= :cosy (config/get-setting :general :density))
         "settings atom follows the flip to cosy")))
 
-;; ---- Keybindings tab "Handle keys?" reactive dual-write (rf2-8i1tg3) ----
+;; ---- Keybindings tab "Handle keys?" reactive dual-write -----------------
 ;;
-;; Was: the Keybindings tab's master toggle read `config/keybinding-
-;; attach-enabled?` directly (a bare atom) and wrote via `config/set-
-;; keybinding-enabled!` — no dispatch, no app-db mirror, unlike every
-;; other toggle in this popup. The controlled checkbox's `:checked`
-;; never re-fired reactively off a change. The fix routes the toggle
-;; through `:rf.xray/keybinding-enabled-update` (flips the atom AND
-;; mirrors app-db) + a new `:rf.xray/keybinding-enabled?` sub the
-;; checkbox reads.
+;; Like every other toggle in this popup, the Keybindings tab's master
+;; toggle goes through `:rf.xray/keybinding-enabled-update` (flips the
+;; `config/keybinding-attach-enabled?` atom AND mirrors app-db), and the
+;; controlled checkbox reads the `:rf.xray/keybinding-enabled?` sub. Read
+;; straight off the bare atom and written via
+;; `config/set-keybinding-enabled!` — no dispatch, no app-db mirror — the
+;; checkbox's `:checked` would never re-fire reactively off a change.
 
 (deftest keybinding-enabled-update-flips-atom-and-mirrors-app-db
-  (testing "rf2-8i1tg3 — dispatching :rf.xray/keybinding-enabled-update
+  (testing "dispatching :rf.xray/keybinding-enabled-update
             flips the canonical config atom AND the app-db mirror the
-            new sub reads, in one atomic step"
+            sub reads, in one atomic step"
     (setup!)
     (rf/with-frame :rf/xray
       (is (true? @(rf/subscribe [:rf.xray/keybinding-enabled?]))
@@ -627,7 +612,7 @@
       (is (true? @(rf/subscribe [:rf.xray/keybinding-enabled?]))))))
 
 (deftest keybinding-enabled-sub-falls-back-to-atom-pre-first-dispatch
-  (testing "rf2-8i1tg3 — before any :rf.xray/keybinding-enabled-update
+  (testing "before any :rf.xray/keybinding-enabled-update
             dispatch, the sub falls back to the live config atom
             (mirrors every other `:rf.xray/setting`-style sub's pre-
             first-open fallback) rather than a hardcoded default"
@@ -638,22 +623,22 @@
           "sub reads the atom directly when app-db has never mirrored it"))
     (config/set-keybinding-enabled! true)))
 
-;; ---- the slot flip is REACTIVE (rf2-y8doi.17) ---------------------------
+;; ---- the slot flip is REACTIVE -------------------------------------------
 ;;
 ;; `keybinding/attach!` reads the slot ONCE, at attach time. On the
 ;; `:devtools/preloads` install path — the documented one — shadow-cljs
 ;; loads preloads before the app's `:init-fn`, so the listener is already
-;; on `js/document` by the time the host's `configure!` runs, and
-;; `(configure! {:rf.xray/keybinding-enabled? false})` was a silent no-op:
-;; the host declared its intent, nothing was printed, and Xray's
-;; capture-phase listener carried on swallowing the host's own Cmd/Ctrl+K.
-;; `keybinding.cljs` now watches the slot. The attach / detach themselves
+;; on `js/document` by the time the host's `configure!` runs. Without a
+;; watch, `(configure! {:rf.xray/keybinding-enabled? false})` would be a
+;; silent no-op: the host declares its intent, nothing is printed, and
+;; Xray's capture-phase listener carries on swallowing the host's own
+;; Cmd/Ctrl+K. So `keybinding.cljs` watches the slot. The attach / detach themselves
 ;; need a `js/document` this lane does not have, so the rows below pin the
 ;; WIRING — that a flip reaches the runtime at all — and leave the
 ;; listener mechanics to `keybinding_cljs_test`'s stub-driven rows.
 
 (deftest keybinding-enabled-flip-detaches-and-reattaches
-  (testing "rf2-y8doi.17 — flipping the slot drives the runtime rather
+  (testing "flipping the slot drives the runtime rather
             than only mutating an atom nothing re-reads"
     (let [calls (atom [])]
       (with-redefs [keybinding/attach! (fn [] (swap! calls conj :attach) nil)
@@ -671,15 +656,14 @@
              current value — no change, so no redundant attach")))))
 
 (deftest keybinding-enabled-flip-through-configure-is-reactive
-  (testing "rf2-y8doi.17 — and it works through the host-facing surface,
-            which is the call that was a no-op: `(configure!
-            {:rf.xray/keybinding-enabled? false})` landing AFTER the
-            preload attached"
+  (testing "and it works through the host-facing surface:
+            `(configure! {:rf.xray/keybinding-enabled? false})` landing
+            AFTER the preload attached"
     (let [calls (atom [])]
       (with-redefs [keybinding/attach! (fn [] (swap! calls conj :attach) nil)
                     keybinding/detach! (fn [] (swap! calls conj :detach) nil)]
         (config/configure! {:rf.xray/keybinding-enabled? false})
         (is (= [:detach] @calls)
-            "the embed host's surrender switch now reaches the listener")
+            "the embed host's surrender switch reaches the listener")
         (config/configure! {:rf.xray/keybinding-enabled? true})
         (is (= [:detach :attach] @calls))))))
