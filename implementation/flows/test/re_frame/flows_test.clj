@@ -91,13 +91,13 @@
     (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :area)
         "the flow lives under :rf/default's slot of the per-frame registry")
-    ;; Per rf2-en00bk the per-frame `flows` store is the SOLE store — the flow
+    ;; The per-frame `flows` store is the SOLE store — the flow
     ;; is introspectable via the frame-scoped `flow-meta`, NOT a frame-blind
     ;; registrar `:flow` slot (which is RESERVED-but-empty).
     (is (some? (rf.flows/flow-meta {:frame :rf/default :id :area}))
         "the flow is discoverable via the frame-scoped flow-meta")
     (is (nil? (rf.registrar/lookup :flow :area))
-        "the :flow registrar kind is RESERVED-but-empty — no slot is written (rf2-en00bk)")))
+        "the :flow registrar kind is RESERVED-but-empty — no slot is written")))
 
 (deftest clear-flow-removes-from-registry-and-vacates-output-slot
   (testing "clear-flow removes the flow and dissoc-in's its output path"
@@ -200,7 +200,7 @@
       (rf/clear :flow :pending)
       (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (identical? db-ref-before db-ref-after)
-            "the app-db container reference is UNCHANGED — clear-flow skipped replace-container! for the no-op dissoc (rf2-2vpac)"))))
+            "the app-db container reference is UNCHANGED — clear-flow skipped replace-container! for the no-op dissoc"))))
   (testing "clearing a single-element-path flow whose top-level key is absent also skips the rewrite"
     ;; The length-1 branch (`(dissoc db (first path))`) is a no-op when the
     ;; key is absent — `(identical? new-db db)` holds, so the guard skips
@@ -261,7 +261,7 @@
     (is (= 4 (:bar (rf/app-db-value :rf/default))))))
 
 (deftest clear-flow-handles-single-element-path
-  (testing "rf2-aqt7: clear-flow with a single-element :output-path dissocs the top-level key"
+  (testing "clear-flow with a single-element :output-path dissocs the top-level key"
     ;; A flow whose :output-path is a one-element vector [:area]. A naïve
     ;; (update-in cur [] dissoc :area) would leave :area in app-db (and
     ;; silently introduce an {nil nil} entry); the length-1 special-case
@@ -299,7 +299,7 @@
   ;; (which pins the :inputs / cycle discriminators) and the dedicated
   ;; bad-inputs / bad-path tests. The two remaining `validate-flow`
   ;; rules — `:rf.error/flow-missing-id` and `:rf.error/flow-bad-output`
-  ;; — had only bare `(thrown? Throwable ...)` coverage, so a regression
+  ;; — would otherwise have only bare `(thrown? Throwable ...)` coverage, so a regression
   ;; that changed EITHER discriminator id (read by `:on-error` policies
   ;; and Xray's error widget keyed on `:rf.error/id`, per Spec 009 §The
   ;; thrown-error shape) would pass silently. Pin both ids + the
@@ -406,7 +406,7 @@
 (deftest reg-flow-error-carries-canonical-rf-error-id-slot
   ;; Per Spec 009 §The thrown-error shape: every thrown runtime error
   ;; carries the discriminator under the canonical `:rf.error/id` slot
-  ;; (NOT the legacy `:error` slot), and the message string is the
+  ;; (NOT an `:error` slot), and the message string is the
   ;; stringified kw so `.getMessage` pivots to the same category.
   (testing "flow validation throw stamps :rf.error/id (canonical discriminator)"
     (let [ex (try
@@ -420,7 +420,7 @@
       (is (re-find #"\[:rf\.error/flow-bad-inputs\]" (ex-message ex))
           "message carries the [:rf.error/flow-bad-inputs] token")
       (is (nil? (:error data))
-          "the legacy :error slot is gone (rename, not back-compat shim)")
+          "ex-data carries no :error slot — :rf.error/id is the discriminator")
       (is (= 'rf/reg-flow (:where data)) ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
       (is (string? (:reason data)) ":reason is a human-readable sentence")))
@@ -434,7 +434,7 @@
           data (ex-data ex)]
       (is (= :rf.error/flow-cycle (:rf.error/id data))
           "cycle throw carries :rf.error/id (topo.cljc inlined shape)")
-      (is (nil? (:error data)) "legacy :error slot is gone on the cycle throw"))))
+      (is (nil? (:error data)) "the cycle throw carries no :error slot"))))
 
 (deftest reg-flow-rejects-bare-keyword-inputs
   (testing ":inputs [:foo :bar] is rejected (vector of bare keywords, not vector-of-paths)"
@@ -507,14 +507,14 @@
   (= :rf.error/flow-reserved-output-path (:rf.error/id (ex-data t))))
 
 (deftest reg-flow-rejects-runtime-partition-rooted-output-path
-  ;; rf2-923gl4 — a flow `:output-path` may NOT be rooted at the reserved
+  ;; A flow `:output-path` may NOT be rooted at the reserved
   ;; runtime-db partition key (`:rf.db/runtime`). The leading key is reserved
   ;; for the INPUT side (`runtime-input?`); a flow output is always an app-db
   ;; write, and `evaluate-flow!` `assoc-in`s the derived value into the app-db
   ;; partition — so a `[:rf.db/runtime …]` output would write the reserved key
   ;; INSIDE app-db, enabling namespace-squat / spurious-topo-edge / false-cycle
-  ;; footguns and leaving the flows.cljc prose invariant unenforced. Pre-fix
-  ;; the registration was accepted; the rule rejects it at the API boundary.
+  ;; footguns and leaving the flows.cljc prose invariant unenforced. The rule
+  ;; rejects it at the API boundary.
   (testing "a multi-segment :rf.db/runtime-rooted :output-path is rejected"
     (let [ex (try
                (rf/reg-flow :bad {:inputs [[:n]] :output-path [rf.flows.registry/runtime-partition-key :cur]} identity)
@@ -545,9 +545,8 @@
 
 (deftest reg-flow-accepts-shared-domain-path-elements
   (testing "path elements across the SHARED EP-0012 segment domain all pass
-            (keyword / string / integer / symbol / boolean — and, after the
-            rf2-t3cfil widening to re-frame.path/segment?, UUID / instant /
-            nil too)"
+            (keyword / string / integer / symbol / boolean — and, via
+            re-frame.path/segment?, UUID / instant / nil too)"
     ;; Flow `valid-path-element?` delegates to the shared
     ;; `re-frame.path/segment?` rather than a flows-private scalar enumeration,
     ;; so a flow path may focus through any concrete EDN identity segment the
@@ -573,7 +572,7 @@
     ;; The well-formedness checks reject malformed entries inside :inputs,
     ;; but an empty :inputs vector itself remains valid — a zero-arg flow
     ;; that fires once and stays put (no path can change to dirty it). Pin
-    ;; this so the new every?-based checks don't accidentally reject the
+    ;; this so the every?-based checks don't accidentally reject the
     ;; legitimate empty-inputs case.
     (is (some? (rf/reg-flow :constant {:inputs [] :output-path [:k]} (fn [] 42))))))
 
@@ -597,8 +596,7 @@
 ;; sibling `flow-missing-id` / `flow-bad-id` / `flow-bad-inputs` /
 ;; `flow-bad-output` / `flow-bad-path` / `flow-cycle` families are covered
 ;; above and in flows_destroy_frame_teardown_test; this block backstops the
-;; EP-0025-added `:rf.error/flow-bad-marks` family, which had ZERO coverage
-;; (rf2-r87zhb). Spec 015:325 names `:rf.error/flow-bad-marks` normatively.
+;; EP-0025 `:rf.error/flow-bad-marks` family. Spec 015:325 names `:rf.error/flow-bad-marks` normatively.
 ;;
 ;; Branch on the canonical `:rf.error/id` discriminator, never on the
 ;; (human-sentence) message string.
@@ -611,7 +609,7 @@
   throw). Centralises the try/catch so each malformation test reads as a
   single assertion against the canonical id + ex-data shape."
   [flow-map]
-  ;; rf2-bqstzr — the 3-slot grammar: id is slot 1, :derive is the value slot,
+  ;; The 3-slot grammar: id is slot 1, :derive is the value slot,
   ;; the remaining reflection keys are the metadata middle slot.
   (try (rf/reg-flow (:id flow-map) (dissoc flow-map :id :derive) (:derive flow-map)) nil
        (catch Throwable t t)))
@@ -689,8 +687,8 @@
   (testing "the boolean :sensitive? spelling is rejected on a flow output
             (EP-0025) — :rf.error/flow-bad-marks, with :use :sensitive pointing
             at the correct whole-output spelling :sensitive [[]]"
-    ;; EP-0025 removed flow input→output propagation; the boolean :sensitive?
-    ;; spelling stays rejected (use :sensitive [[]] for a whole-output mark).
+    ;; EP-0025: flows carry no input→output propagation; the boolean :sensitive?
+    ;; spelling is rejected (use :sensitive [[]] for a whole-output mark).
     (let [ex (reg-flow-throwing {:id          :bad/sensitive?-spelling
                                  :inputs      [[:n]]
                                  :derive      identity
@@ -838,7 +836,7 @@
     ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
     ;; closes the cycle. This specifically exercises the REPLACEMENT-introduced
     ;; MULTI-node cycle path (single-node self-cycles are covered separately in
-    ;; the self-cycle tests, rf2-j538f7.6), so we set :a's :inputs to point at
+    ;; the self-cycle tests), so we set :a's :inputs to point at
     ;; :b's :output-path. After replacement of :b's inputs to point at :a's
     ;; :output-path, the cycle :a → :b → :a closes.
     ;;
@@ -881,20 +879,20 @@
             "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
         (is (identical? original-b-output (:derive b-after))
             "prior :b's :derive fn has the SAME identity (not the rejected new fn)"))
-      ;; And the per-frame store — the single source of truth (rf2-en00bk) —
+      ;; And the per-frame store — the single source of truth —
       ;; must still resolve the prior :b for this frame.
       (is (some? (rf.flows/flow-meta {:frame :rf/default :id :b}))
           "the per-frame flow store for :b is still populated"))))
 
 ;; ---------------------------------------------------------------------------
-;; 1c. Self-referential (single-node) dependency cycles — rf2-j538f7.6
+;; 1c. Self-referential (single-node) dependency cycles
 ;;
 ;; A flow whose own :inputs overlap its own :output-path depends on itself.
 ;; A flow is a pure derivation of independently-owned facts, NOT a recurrence
 ;; over its own prior output (Spec 013 §Dependency rule), so a self-overlap is
 ;; a single-node cycle and must be rejected at registration — with the same
 ;; canonical `:rf.error/flow-cycle` used for multi-node cycles, closing-repeat
-;; `[id id]`. Without this, the flow silently becomes a stateful oscillator/
+;; `[id id]`. Without this, the flow would silently become a stateful oscillator/
 ;; reducer that every UNRELATED event advances (1 → 2 → 3 …).
 ;; ---------------------------------------------------------------------------
 
@@ -946,7 +944,7 @@
 (deftest reg-flow-self-cycle-replacement-preserves-prior-registration-and-output
   (testing "a hot-reload REPLACEMENT that introduces self-dependency is rejected
             and preserves the prior working flow, its dirty-check row, and its
-            materialized output (rf2-j538f7.6 AC-4)"
+            materialized output"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     (let [original-derive (fn [n] (* 2 n))]
@@ -979,8 +977,8 @@
 
 (deftest reg-flow-self-cycle-blocks-recurrence-before-first-dispatch
   (testing "because registration fails BEFORE the first dispatch, unrelated
-            events can no longer drive the 1 → 2 → 3 recurrence the accepted
-            self-cycle produced (rf2-j538f7.6 AC-6)"
+            events cannot drive the 1 → 2 → 3 recurrence an accepted
+            self-cycle would produce"
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db (assoc db :x v)}))
     (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :other (fnil inc 0))}))
     ;; The reproduction flow: reads [:x], writes [:x], (inc). Registration must
@@ -997,7 +995,7 @@
 
 (deftest flow-acyclic-diamond-registers-and-drains-correctly
   (testing "a valid acyclic diamond (B,C read A; D reads B and C) registers and
-            settles in one drain — the self-cycle fix introduces no
+            settles in one drain — self-cycle detection introduces no
             false-positive rejection of legitimate multi-node graphs"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2}}))
     ;; B reads [:a] → [:b]; C reads [:a] → [:c]; D reads [:b] and [:c] → [:d].
@@ -1168,10 +1166,10 @@
     (rf/dispatch-sync [:foo! 5])
     (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow ran on this drain with 5 + 4 = 9")
-    ;; Now clear via fx. The registry removal was always immediate; per
-    ;; Spec 013 §Sequencing the app-db vacate now lands on the SAME
+    ;; Now clear via fx. The registry removal is immediate, and per
+    ;; Spec 013 §Sequencing the app-db vacate lands on the SAME
     ;; dispatch, so the registry row and the value it owned disappear
-    ;; together rather than one drain apart.
+    ;; together.
     (rf/dispatch-sync [:leave])
     (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed))
         "registry slot removed")
@@ -1185,7 +1183,7 @@
   ;; event is required.
   ;;
   ;; Both arms matter. The first is the contract. The second is the
-  ;; compatibility half: an app that still hand-writes the old follow-up
+  ;; idempotence half: an app that hand-writes a follow-up no-op
   ;; `:dispatch` gets the same answer, because settling is idempotent — the
   ;; dirty check makes the second pass recompute nothing.
   (rf/reg-event :init (fn [{:keys [db]} _] {:db {:wizard {:foo 3 :bar 4}}}))
@@ -1193,8 +1191,8 @@
   (rf/reg-event :enter-bare
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]]}))
-  ;; Register + the follow-up `:dispatch` the old contract required. Now
-  ;; redundant rather than required.
+  ;; Register + a follow-up no-op `:dispatch` — redundant, not
+  ;; required.
   (rf/reg-event :enter-with-legacy-nudge
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]
@@ -1209,7 +1207,7 @@
     (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "and :result carries 3 + 4 = 7 with no follow-up event"))
 
-  (testing "an app still dispatching the old no-op nudge gets the same result"
+  (testing "an app dispatching a redundant no-op nudge gets the same result"
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:enter-with-legacy-nudge])
     (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
@@ -1217,7 +1215,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 6. clean-state interaction: the per-frame store is the single source of
-;;    truth (rf2-en00bk — the `:flow` registrar slot is RESERVED-but-empty)
+;;    truth (the `:flow` registrar slot is RESERVED-but-empty)
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-store-is-the-single-source-of-truth
@@ -1229,7 +1227,7 @@
     (is (some? (rf.flows/flow-meta {:frame :rf/default :id :two})))
     ;; The registrar `:flow` slot is RESERVED-but-empty — never written.
     (is (nil? (rf.registrar/lookup :flow :one))
-        ":flow registrar slot is empty — flows own their per-frame store (rf2-en00bk)")
+        ":flow registrar slot is empty — flows own their per-frame store")
     (is (nil? (rf.registrar/lookup :flow :two)))
     ;; `reset-flows!` (NOT registrar/clear-all!) is what clears the flow store.
     (rf.flows/reset-flows!)
@@ -1254,7 +1252,7 @@
     (is (empty? (rf.flows/flows-snapshot))
         "flow registry is empty after reset-flows!")
     (is (empty? (rf.flows/last-inputs-snapshot))
-        "last-inputs is ALSO empty after reset-flows! (rf2-mb65w)")))
+        "last-inputs is ALSO empty after reset-flows!")))
 
 (deftest reset-flows-allows-re-registration-without-stale-skip
   ;; The footgun guard: re-register the same flow id with the same inputs
@@ -1302,14 +1300,14 @@
 ;;    id is registered against two frames, clearing it from one frame leaves
 ;;    the other frame's per-frame entry authoritative in place, and clearing
 ;;    the second frame drops the final entry. Under the single store
-;;    (rf2-en00bk) the `:flow` registrar slot is RESERVED-but-empty — never
+;;    the `:flow` registrar slot is RESERVED-but-empty — never
 ;;    written, so there is nothing to retain or unregister; the assertions
 ;;    below pin it `nil` throughout.
 ;; 3. app-db `dissoc-in` is frame-local: clearing on `:left` only
 ;;    dissoc-in's `:left`'s app-db; `:right`'s app-db is untouched.
 ;;
 ;; Spec 013 §Frame-scoping calls all three properties out normatively.
-;; This deftest pins them inside the flows slice's own gate so the
+;; This deftest pins them inside the flows artefact's own gate so the
 ;; artefact doesn't rely on smoke_test.clj catching regressions.
 ;; ---------------------------------------------------------------------------
 
@@ -1361,7 +1359,7 @@
     (is (= 700 (:result (rf/app-db-value :right)))
         ":right's :compute still active — 7 * 100 = 700"))
 
-  (testing "single-store (rf2-en00bk): clear on :left leaves :right's per-frame entry intact; no frame-blind slot to realign"
+  (testing "single-store: clear on :left leaves :right's per-frame entry intact; no frame-blind slot to realign"
     ;; Under the per-frame single store, :right's entry is authoritative in
     ;; place — there is no shared registrar `:flow` slot to keep aligned. Per-
     ;; frame introspection shows :left cleared, :right still owning the id.
@@ -1370,7 +1368,7 @@
     (is (some? (rf.flows/flow-meta {:frame :right :id :compute}))
         ":right's per-frame flow entry is intact — it still registers the id")
     (is (nil? (rf.registrar/lookup :flow :compute))
-        "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk)"))
+        "the :flow registrar slot is RESERVED-but-empty throughout"))
 
   (testing "clearing from the second (last) frame drops the final per-frame entry"
     (rf/clear :flow :compute {:frame :right})
@@ -1379,18 +1377,18 @@
     (is (nil? (rf.flows/flow-meta {:frame :right :id :compute}))
         ":right's per-frame flow entry is gone")
     (is (nil? (rf.registrar/lookup :flow :compute))
-        "the :flow registrar slot stays empty — single-store, nothing to unregister (rf2-en00bk)")))
+        "the :flow registrar slot stays empty — single-store, nothing to unregister")))
 
 ;; ---------------------------------------------------------------------------
-;; 7b. rf2-8mxnnk — reg-flow / clear-flow normalize a FRAME-VALUE `:frame`
+;; 7b. reg-flow / clear-flow normalize a FRAME-VALUE `:frame`
 ;;
 ;; The public frame-target contract (EP-0024) admits a frame VALUE
 ;; (make-frame's return token) EVERYWHERE a frame-id keyword is accepted; the
 ;; internal normalization seam (`frame/frame-target->id`) funnels a value to
-;; its id. The flows READ path (`flow-meta`) already normalized; the WRITE
-;; paths (`reg-flow` / `clear-flow`) did NOT, so an explicit `{:frame <value>}`
-;; keyed the per-frame store by the raw map — a live frame read as not-live at
-;; registration, and a clear silently missed the flow. This pins that both
+;; its id. The flows READ path (`flow-meta`) normalizes, and so must the WRITE
+;; paths (`reg-flow` / `clear-flow`): keying the per-frame store by the raw map
+;; of an explicit `{:frame <value>}` would read a live frame as not-live at
+;; registration and make a clear silently miss the flow. This pins that both
 ;; write paths normalize, so register-by-value + read-by-id + read-by-value +
 ;; clear-by-value all observe the SAME flow.
 ;; ---------------------------------------------------------------------------
@@ -1402,9 +1400,9 @@
     (let [frame-val (rf/make-frame {:id :fv/host})]
       (is (rf.frame/frame-value? frame-val)
           "make-frame returns a frame VALUE, not a bare keyword")
-      ;; Pre-fix this THREW :rf.error/flow-frame-not-live because the raw
-      ;; value keyed the `frame/frame` liveness probe (which keys `@frames`
-      ;; by the bare id) and missed the live frame.
+      ;; Keying the `frame/frame` liveness probe (which keys `@frames` by the
+      ;; bare id) with the raw value would miss the live frame and THROW
+      ;; :rf.error/flow-frame-not-live.
       (is (= :area
              (rf/reg-flow :area
                           {:frame       frame-val
@@ -1438,20 +1436,6 @@
             "the per-frame store slot is gone after the value-keyed clear")))))
 
 ;; ---------------------------------------------------------------------------
-;; 8. (removed) `_hot-reload-hook` defonce-idempotency on namespace reload
-;;
-;; This section formerly pinned `defonce` idempotency of a registrar
-;; replacement-hook that the flows registry installed at namespace load. No
-;; such hook exists under the single store (rf2-en00bk): `reg-flow` drops the
-;; re-registered `[frame-id flow-id]` last-inputs row directly. The hook-count
-;; check therefore asserted nothing about flows — reloading a namespace that
-;; installs no hook trivially leaves the unrelated hook vector unchanged — so
-;; it was removed (rf2-y678a). The re-registration behaviour it nominally
-;; guarded is proved causally by section 9a below: a same-frame replacement
-;; invalidates only that frame's last-inputs row, and the sibling's survives.
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
 ;; 9. Frame-scoping coverage lives in `clear-flow-routes-via-frame-opt`
 ;; above (registration routing, app-db dissoc, per-frame sibling isolation,
 ;; AND the post-clear re-drain check).
@@ -1468,7 +1452,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-on-one-frame-does-not-invalidate-sibling-frames-last-inputs
-  (testing "Per rf2-jfpf3: re-register :shared on :left; :right's last-inputs row survives"
+  (testing "re-register :shared on :left; :right's last-inputs row survives"
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
@@ -1490,25 +1474,20 @@
       (is (nil? (get-in li [:shared :left]))
           "after re-registration on :left: :left's last-inputs row was dropped (re-evaluate on next drain)")
       (is (some? (get-in li [:shared :right]))
-          ":right's last-inputs row is PRESERVED — re-registration on :left did not invalidate :right (rf2-jfpf3)"))))
+          ":right's last-inputs row is PRESERVED — re-registration on :left did not invalidate :right"))))
 
 ;; ---------------------------------------------------------------------------
-;; 9b. SINGLE-STORE (rf2-en00bk): per-frame entries are independent and
+;; 9b. SINGLE-STORE: per-frame entries are independent and
 ;;     authoritative; there is no frame-blind registrar `:flow` slot.
 ;;
-;; The double-store kept a frame-BLIND registrar `:flow` slot carrying the
-;; MOST-RECENTLY-REGISTERED frame's metadata, which had to be hand-realigned to
-;; a surviving owner on clear / destroy — a workaround forced ONLY because the
-;; single slot could not represent FRAME-DIVERGENT-PER-ID flows. With the
-;; per-frame `flows` atom as the SOLE store (the rf2-0frdi schemas precedent
-;; applied to flows), each frame's entry is authoritative in place: the SAME
-;; flow-id registered against two frames returns each frame's OWN divergent
-;; definition via `flow-meta`, and a clear / destroy on one frame never
-;; disturbs the other. The frame-attribution + `:different-fn?` hot-reload
-;; signals the realignment used to serve are now driven directly by `reg-flow`
-;; (see `flow-hot-reload-different-fn?-reflects-real-body-swap`). The whole
-;; realignment cluster of tests is REPLACED by the single-store invariant
-;; below.
+;; A frame-BLIND registrar `:flow` slot could carry only one frame's metadata
+;; per id, so it could not represent FRAME-DIVERGENT-PER-ID flows. With the
+;; per-frame `flows` atom as the SOLE store (as for schemas), each frame's
+;; entry is authoritative in place: the SAME flow-id registered against two
+;; frames returns each frame's OWN divergent definition via `flow-meta`, and a
+;; clear / destroy on one frame never disturbs the other. The
+;; frame-attribution + `:different-fn?` hot-reload signals are driven directly
+;; by `reg-flow` (see `flow-hot-reload-different-fn?-reflects-real-body-swap`).
 ;; ---------------------------------------------------------------------------
 
 (deftest per-frame-store-keeps-frame-divergent-definitions
@@ -1529,10 +1508,10 @@
       (is (= [:result-right] (:output-path (rf.flows/flow-meta {:frame :right :id :shared}))))
       ;; The registrar `:flow` slot is RESERVED-but-empty throughout.
       (is (nil? (rf.registrar/lookup :flow :shared))
-          "no frame-blind registrar :flow slot is written (rf2-en00bk)"))))
+          "no frame-blind registrar :flow slot is written"))))
 
 (deftest clear-flow-of-one-frame-leaves-sibling-authoritative-in-place
-  (testing "clearing one frame's entry leaves the sibling's per-frame entry intact and authoritative; no slot to re-point (rf2-en00bk)"
+  (testing "clearing one frame's entry leaves the sibling's per-frame entry intact and authoritative; no slot to re-point"
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (let [f-left  (fn [n] (* 2 (or n 0)))
@@ -1546,10 +1525,10 @@
       (is (= f-left (:derive (rf.flows/flow-meta {:frame :left :id :shared})))
           ":left's entry is intact and authoritative IN PLACE — no realignment needed")
       (is (nil? (rf.registrar/lookup :flow :shared))
-          "registrar :flow slot stays empty (rf2-en00bk)"))))
+          "registrar :flow slot stays empty"))))
 
 (deftest clear-flow-non-owner-frame-leaves-owner-intact
-  (testing "clearing a frame that does NOT register the id leaves the registering frame's entry untouched (rf2-en00bk)"
+  (testing "clearing a frame that does NOT register the id leaves the registering frame's entry untouched"
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:result]} (fn [n] n))
@@ -1562,7 +1541,7 @@
         ":left never held :shared")))
 
 (deftest clear-flow-last-frame-drops-the-final-per-frame-entry
-  (testing "clearing the only registering frame drops the final per-frame entry; the registrar slot was empty all along (rf2-en00bk)"
+  (testing "clearing the only registering frame drops the final per-frame entry; the registrar slot was empty all along"
     (rf/reg-flow :solo {:inputs [[:n]] :output-path [:result]} (fn [n] n))
     (is (some? (rf.flows/flow-meta {:frame :rf/default :id :solo})))
     (is (nil? (rf.registrar/lookup :flow :solo))
@@ -1571,7 +1550,7 @@
     (is (nil? (rf.flows/flow-meta {:frame :rf/default :id :solo}))
         "the per-frame entry is gone after the clear")
     (is (nil? (rf.registrar/lookup :flow :solo))
-        "registrar :flow slot remains empty — nothing to unregister (rf2-en00bk)")))
+        "registrar :flow slot remains empty — nothing to unregister")))
 
 ;; ---------------------------------------------------------------------------
 ;; 9b-ii. Same-frame re-registration with a CHANGED :output-path vacates the
@@ -1584,7 +1563,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest same-frame-reregister-changed-path-vacates-old-path
-  (testing "Per rf2-73pi1: re-registering on the same frame with a new :output-path
+  (testing "re-registering on the same frame with a new :output-path
             clears the OLD path from app-db; the new path computes on the
             next drain"
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
@@ -1597,7 +1576,7 @@
     ;; Re-register the SAME id on the SAME frame at a DIFFERENT path.
     (rf/reg-flow :move {:inputs [[:n]] :output-path [:new]} (fn [n] (* 3 (or n 0))))
     (is (not (contains? (rf/app-db-value :rf/default) :old))
-        ":old was vacated from app-db on the same-frame :output-path change (rf2-73pi1)")
+        ":old was vacated from app-db on the same-frame :output-path change")
     ;; Drive a drain so the re-registered flow (last-inputs invalidated)
     ;; recomputes at the new path.
     (rf/dispatch-sync [:tick])
@@ -1608,7 +1587,7 @@
           ":old stays absent — no stale derived state at the abandoned slot"))))
 
 (deftest same-frame-reregister-same-path-leaves-app-db-untouched
-  (testing "Per rf2-73pi1: a same-frame re-registration that KEEPS the :output-path
+  (testing "a same-frame re-registration that KEEPS the :output-path
             does NOT vacate the value (negative control — only a :output-path
             CHANGE triggers the vacate)"
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
@@ -1630,7 +1609,7 @@
 ;;       stored `:derive` values, so a real body swap tags `:different-fn? true`
 ;;       and an unchanged body tags `false`.
 ;;
-;;   (2) Hot-reload dedup by shape (rf2-soyqfn) — decided per FRAME from the
+;;   (2) Hot-reload dedup by shape — decided per FRAME from the
 ;;       prior/new stored flow values, NOT the frame-blind process-global
 ;;       registrar dedup table (which would let one frame's shape suppress
 ;;       another's genuine replacement). Identical shape on re-register within a
@@ -1644,7 +1623,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
-  (testing "Per rf2-soyqfn per-frame shape dedup: a real `:derive` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
+  (testing "Per-frame shape dedup: a real `:derive` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
     (let [captured (atom [])]
       (re-frame.trace.tooling/register-listener!
         ::handler-replaced-recorder
@@ -1655,7 +1634,7 @@
         (let [body-v1 (fn [n] (* 2 n))]
           (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} body-v1)
           ;; (a) Real body swap — the frame's prior/new `:derive` differ, so the
-          ;; per-frame shape compare (rf2-soyqfn) sees a change and allows the
+          ;; per-frame shape compare sees a change and allows the
           ;; emit. Exactly one `:rf.registry/handler-replaced` fires with
           ;; `:different-fn? true`.
           (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 100 n)))
@@ -1677,29 +1656,29 @@
             ;; per-frame prior/new shape compare must suppress.
             (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} body-v2)
             (is (empty? @captured)
-                "per-frame shape dedup (rf2-soyqfn) suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
+                "per-frame shape dedup suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
         (finally
           (re-frame.trace.tooling/unregister-listener! ::handler-replaced-recorder))))))
 
 ;; ---------------------------------------------------------------------------
-;; 9c-ii. rf2-soyqfn: flow replacement evidence is scoped to the AUTHORITATIVE
+;; 9c-ii. Flow replacement evidence is scoped to the AUTHORITATIVE
 ;;        frame slot, not the frame-blind process-global registrar dedup table.
 ;;
 ;; The same flow-id is an INDEPENDENT definition per frame (Spec 013
 ;; §Frame-scoping). Deciding replacement suppression from a process-global
-;; `[:flow flow-id]` dedup key (PR #5912) let one frame's recorded shape suppress
-;; a sibling frame's genuine replacement, emitted one unattributable event (no
+;; `[:flow flow-id]` dedup key would let one frame's recorded shape suppress
+;; a sibling frame's genuine replacement, emit one unattributable event (no
 ;; `:frame`), and let a destroyed frame's shape bleed into its same-id successor.
-;; These tests pin the per-frame decision and the `:frame` attribution — each is
-;; RED on the pre-fix process-global path and GREEN after.
+;; These tests pin the per-frame decision and the `:frame` attribution — each
+;; would be RED on a process-global dedup path.
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-replacement-evidence-is-per-frame-not-process-global
-  (testing "rf2-soyqfn: two LIVE frames replacing the same flow-id from the SAME
+  (testing "two LIVE frames replacing the same flow-id from the SAME
             prior derive to the SAME new derive each emit their OWN
-            :rf.registry/handler-replaced, attributed to their frame. Pre-fix the
-            process-global [:flow flow-id] dedup key let :left's recorded shape
-            suppress :right's genuine replacement — 1 unattributable emit."
+            :rf.registry/handler-replaced, attributed to their frame. A
+            process-global [:flow flow-id] dedup key would let :left's recorded
+            shape suppress :right's genuine replacement — 1 unattributable emit."
     (let [captured (atom [])
           f1       (fn [n] (* 2 (or n 0)))
           f2       (fn [n] (* 3 (or n 0)))]
@@ -1735,7 +1714,7 @@
           (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
 
 (deftest flow-replacement-identical-reload-suppresses-independently-per-frame
-  (testing "rf2-soyqfn: after both frames record their real replacement, an
+  (testing "after both frames record their real replacement, an
             IDENTICAL subsequent reload (same derive object, same inputs/path)
             suppresses within EACH frame independently — 0 further emits."
     (let [captured (atom [])
@@ -1767,11 +1746,11 @@
           (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
 
 (deftest flow-replacement-reincarnation-does-not-inherit-predecessor-shape
-  (testing "rf2-soyqfn: destroying a frame and recreating it under the SAME id
+  (testing "destroying a frame and recreating it under the SAME id
             does not let the dead incarnation's recorded replacement shape
-            suppress the new incarnation's genuine replacement. Pre-fix the
-            process-global [:flow flow-id] table persisted across destroy and
-            suppressed the successor's real replacement."
+            suppress the new incarnation's genuine replacement. A
+            process-global [:flow flow-id] table would persist across destroy
+            and suppress the successor's real replacement."
     (let [captured (atom [])
           f1       (fn [n] (* 2 (or n 0)))
           f2       (fn [n] (* 3 (or n 0)))]
@@ -1826,7 +1805,7 @@
 ;;     BEFORE the `:db` install + BEFORE `:fx` (Spec 013 §Drain integration).
 ;;
 ;; These pin the observable consequences of that ordering:
-;;   (a) `:fx` sees the flow-derived app-db (preserved guarantee);
+;;   (a) `:fx` sees the flow-derived app-db;
 ;;   (b) the reactive cascade (subs) sees the flow-derived db;
 ;;   (c) flows run BEFORE the `:db` install (the value installed already
 ;;       carries flow output — single install of the flow-augmented db);
@@ -1839,7 +1818,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest user-after-interceptor-precedes-flow-transform
-  (testing "rf2-u0zz5 (e): a user `:after` runs BEFORE the outermost flow transform"
+  (testing "(e) a user `:after` runs BEFORE the outermost flow transform"
     ;; The flow doubles :n into [:doubled]. A user `:after` interceptor —
     ;; which runs BEFORE the outermost flow transform — captures the
     ;; effects' :db. It must see the handler's write but the PRE-flow
@@ -1873,15 +1852,14 @@
           "the user :after saw the handler's own write")
       (is (= 0 (:doubled @seen-db))
           "the user :after saw the PRE-flow :doubled (0, carried from the prior
-           drain) — it ran BEFORE the outermost flow transform recomputed it
-           (rf2-u0zz5 ordering)")
+           drain) — it ran BEFORE the outermost flow transform recomputed it")
       ;; The recomputed flow output IS in app-db after install — the
       ;; deliverable path for consumers that need flow output.
       (is (= 14 (:doubled (rf/app-db-value :rf/default)))
           "the recomputed flow output (7 * 2 = 14) landed in the installed app-db"))))
 
 (deftest fx-sees-flow-derived-app-db
-  (testing "rf2-u0zz5 (b): an :fx entry reading app-db sees the flow output (preserved)"
+  (testing "(b) an :fx entry reading app-db sees the flow output"
     (let [fx-saw (atom :unset)]
       ;; A custom fx reads the live app-db when it runs; since :fx walks
       ;; after the flow-augmented install, it must see :doubled.
@@ -1900,7 +1878,7 @@
           ":fx read the flow-derived :doubled (5 * 2 = 10) from app-db"))))
 
 (deftest reactive-cascade-sees-flow-derived-db
-  (testing "rf2-u0zz5 (c): a subscription over the flow's :output-path sees the flow output"
+  (testing "(c) a subscription over the flow's :output-path sees the flow output"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
@@ -1911,7 +1889,7 @@
         "the sub recomputed against the flow-augmented db install (9 * 2 = 18)")))
 
 (deftest flow-reads-full-db-under-path-scoped-handler
-  (testing "rf2-u0zz5: a flow reading a full-db path sees the FULL reshaped db
+  (testing "a flow reading a full-db path sees the FULL reshaped db
             even when the triggering handler is `[:rf.interceptor/path …]`-scoped"
     ;; The handler writes the :counter slice (path-scoped). The flow reads
     ;; the FULL-DB path [:counter :n] and writes [:counter :doubled]. The
@@ -1939,15 +1917,14 @@
           "second increment: flow recomputed 2 * 2 = 4 off the full db"))))
 
 (deftest flow-runs-before-db-install
-  (testing "rf2-u0zz5 (c): a single :db install carries the flow output, AND
+  (testing "(c) a single :db install carries the flow output, AND
             the :rf.event/db-changed trace fires once with the flow output"
     ;; Flows transform the pending :db effect, so the cascade performs
     ;; exactly ONE app-db install — of the flow-augmented value. We pin
     ;; this by (1) capturing app-db AT the :rf.event/db-changed trace emit
     ;; (which fires at install) and asserting it already carries the flow
     ;; output, and (2) asserting db-changed fired exactly once (no second
-    ;; install from a separate post-install flow mutation, as the prior
-    ;; design produced).
+    ;; install from a separate post-install flow mutation).
     (let [db-at-changed (atom :unset)
           changed-count (atom 0)]
       (re-frame.trace.tooling/register-listener!
@@ -1968,9 +1945,9 @@
         (rf/dispatch-sync [:set-n 6])
         (is (= 1 @changed-count)
             "exactly one :rf.event/db-changed fired — a single, flow-augmented install
-             (the prior design produced a separate post-install flow mutation)")
+             (no separate post-install flow mutation)")
         (is (= 12 (:doubled @db-at-changed))
             "the db installed at :rf.event/db-changed already carried the flow output —
-             flows ran before install (rf2-u0zz5)")
+             flows ran before install")
         (finally
           (re-frame.trace.tooling/unregister-listener! ::db-changed-recorder))))))
