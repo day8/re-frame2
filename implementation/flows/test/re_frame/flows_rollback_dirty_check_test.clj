@@ -1,5 +1,5 @@
 (ns re-frame.flows-rollback-dirty-check-test
-  "An app-db schema REJECTION (rf2-uhk9ko — the candidate transition is
+  "An app-db schema REJECTION (the candidate transition is
   validated BEFORE install) rolls the flow dirty-check (`last-inputs`)
   bookkeeping back in lock-step with the discarded candidate.
 
@@ -66,7 +66,7 @@
      :explain  (fn [schema value] (when-not (schema value) {:failed value}))}))
 
 ;; ---------------------------------------------------------------------------
-;; Finding 1 — app-db rollback restores the flow's last-inputs, and a later
+;; App-db rollback restores the flow's last-inputs, and a later
 ;; clean drain re-materialises the flow output WITHOUT an input change.
 ;; ---------------------------------------------------------------------------
 
@@ -107,7 +107,7 @@
       ;; (No :out, no :other land.)
       (rf/dispatch-sync [:touch-other])
 
-      ;; --- Post-rejection state (the bug's trigger) ---------------------
+      ;; --- Post-rejection state -----------------------------------------
       (is (= {:n 1} (rf/app-db-value :rf/default))
           "app-db keeps {:n 1} — the rejected :out write was discarded")
       (is (not (contains? (rf/app-db-value :rf/default) :out))
@@ -117,8 +117,8 @@
       ;; up-to-date despite its output never reaching app-db.
       (is (not (contains? (rf.flows/last-inputs-snapshot) :double))
           (str "flow :double's last-inputs row was rolled back with the "
-               "rejected candidate (pre-fix it stayed advanced to "
-               "{:double {:rf/default [1]}}, permanently suppressing the "
+               "rejected candidate (a row left advanced at "
+               "{:double {:rf/default [1]}} would permanently suppress the "
                "flow). Got "
                (pr-str (rf.flows/last-inputs-snapshot))))
 
@@ -129,11 +129,11 @@
       (reset! reject-out? false)
       (rf/dispatch-sync [:touch-other])
 
-      ;; --- Acceptance: the flow re-materialised on a no-input-change drain
+      ;; --- The flow re-materialised on a no-input-change drain
       (is (= 2 (:out (rf/app-db-value :rf/default)))
           (str "the next clean drain re-materialised :out = 2 × :n = 2 "
-               "WITHOUT an input change. Pre-fix the stale dirty-check row "
-               "skipped the flow and :out stayed absent. Got "
+               "WITHOUT an input change. A stale dirty-check row would "
+               "skip the flow and leave :out absent. Got "
                (pr-str (rf/app-db-value :rf/default))))
       (is (:other (rf/app-db-value :rf/default))
           "the no-op event's own write also landed")
@@ -142,7 +142,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Companion — a DURABLE commit (no rejection) leaves the dirty-check advanced
-;; as normal. Pins that the fix only rolls back the bookkeeping on an actual
+;; as normal. Pins that the bookkeeping rolls back only on an actual
 ;; rejection (no over-restore on the happy path).
 ;; ---------------------------------------------------------------------------
 
@@ -160,23 +160,24 @@
         "last-inputs advanced normally on a durable commit (no over-restore)")))
 
 ;; ===========================================================================
-;; rf2-1b8yxb — a CHAIN error (`:error` outcome) rolls back the flow dirty-
+;; A CHAIN error (`:error` outcome) rolls back the flow dirty-
 ;; check + in-drain vacation state exactly like the post-commit rollback
 ;; above. `execute-chain` runs the FULL `:after` pass for teardown even after
-;; a `:before` / handler / cofx / user-`:after` throw, so the framework-
-;; outermost flows `:after` would (pre-fix) run the flow transform against a
+;; a `:before` / handler / cofx / user-`:after` throw, so an unguarded framework-
+;; outermost flows `:after` would run the flow transform against a
 ;; DOOMED pending db — advancing `last-inputs` + draining vacations that
 ;; `commit-and-flow!`'s `:error` short-circuit then discards WITHOUT restoring.
-;; Fix (1) guards the flows `:after` on `:rf/interceptor-error`; fix (2)
-;; restores the ctx-stashed snapshots on the in-band legacy-root / class-defect
-;; aborts (which run the `:after` CLEANLY, then abort at the final-effects
-;; boundary). Manifestations a–d + the fix-(2) abort arm are covered below.
+;; Two mechanisms prevent it: the flows `:after` is guarded on
+;; `:rf/interceptor-error`, and the ctx-stashed snapshots are restored on the
+;; in-band legacy-root / class-defect aborts (which run the `:after` CLEANLY,
+;; then abort at the final-effects boundary). Manifestations a–d + the
+;; restore-on-abort arm are covered below.
 ;; ===========================================================================
 
 ;; ---- (a) output-loss: a fresh flow first-firing during a handler-throw ----
 
 (deftest chain-error-handler-throw-does-not-poison-fresh-flow-first-firing
-  (testing "a handler-throw event runs the flows :after; pre-fix it advances the fresh flow's last-inputs against the doomed db and discards the output, so a later same-input drain skips forever. The guard leaves the row unadvanced so the next clean drain materialises the output."
+  (testing "a handler-throw event's flows :after must not advance the fresh flow's last-inputs against the doomed db — an advanced row with a discarded output would make a later same-input drain skip forever. The guard leaves the row unadvanced so the next clean drain materialises the output."
     (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
     (rf/dispatch-sync [:seed])
     (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
@@ -186,13 +187,13 @@
     (rf/dispatch-sync [:boom])
     (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
         (str "the errored event did NOT advance :derived's dirty-check row "
-             "(pre-fix it stayed advanced to [1], suppressing the flow). Got "
+             "(a row left advanced at [1] would suppress the flow). Got "
              (pr-str (rf.flows/last-inputs-snapshot))))
     (is (nil? (:out (rf/app-db-value :rf/default)))
         ":out was not committed by the aborted event")
 
-    ;; A later CLEAN drain with the SAME :n must recompute — pre-fix the stale
-    ;; row skipped the flow on =-equal inputs and :out stayed nil forever.
+    ;; A later CLEAN drain with the SAME :n must recompute — a stale row
+    ;; would skip the flow on =-equal inputs and leave :out nil forever.
     (rf/dispatch-sync [:seed])
     (is (= 10 (:out (rf/app-db-value :rf/default)))
         (str "the fresh flow finally materialised :out = 10 × :n on the next "
@@ -246,15 +247,15 @@
     (is (= #{[:stale]} (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
         "[:stale] is queued for vacation on the next drain")
 
-    ;; An errored event. Pre-fix its flows :after drains-and-clears the queued
-    ;; [:stale], applies it to the pending db, then the event aborts and the
-    ;; pending db is discarded — the vacation is LOST (queue emptied, :stale
+    ;; An errored event. An unguarded flows :after would drain-and-clear the
+    ;; queued [:stale] and apply it to the pending db; the event aborts and the
+    ;; pending db is discarded — the vacation LOST (queue emptied, :stale
     ;; stranded). The guard leaves the queue intact for the next drain.
     (rf/reg-event :boom (fn [_ _] (throw (ex-info "boom" {:src :test}))))
     (rf/dispatch-sync [:boom])
     (is (= #{[:stale]} (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
         (str "the queued [:stale] vacation was NOT consumed by the aborted "
-             "event (pre-fix it was drained-and-lost). Got "
+             "event (a drained-but-discarded vacation would be lost). Got "
              (pr-str (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))))
     (is (= 99 (:stale (rf/app-db-value :rf/default)))
         ":stale not yet vacated (the aborted event committed nothing)")
@@ -289,7 +290,7 @@
         (finally
           (rf/unregister-listener! :trace ::spurious))))))
 
-;; ---- fix (2): the in-band legacy-runtime-root abort (clean chain) ----------
+;; ---- the in-band legacy-runtime-root abort (clean chain) ------------------
 ;;      restores the dirty-check the flows :after advanced before the abort.
 
 (deftest legacy-root-abort-restores-flow-dirty-check
@@ -311,7 +312,7 @@
 
     (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
         (str "the in-band legacy-root abort restored :derived's dirty-check "
-             "row (pre-fix#2 it stayed advanced to [4]). Got "
+             "row (a row left advanced at [4] would suppress the flow). Got "
              (pr-str (rf.flows/last-inputs-snapshot))))
     (is (nil? (:out (rf/app-db-value :rf/default)))
         ":out not committed (the whole event aborted, no partial commit)")
