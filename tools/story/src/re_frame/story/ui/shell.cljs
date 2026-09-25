@@ -13,12 +13,12 @@
       │          │                          │ status     │
       └──────────┴──────────────────────────┴────────────┘
 
-  The RHS hosts Xray as the primary inspector. The
-  Story-shipped scrubber / trace / actions panels were retired —
-  Xray's L1 ribbon (◀ ▶ ⏭ + L2 event list) replaces the scrubber;
-  the Trace tab replaces the trace panel; the Event-tab cascade view
-  + filtered Trace replace the actions panel. The 3 surviving Story
-  panels are kept because they're Story-unique:
+  The RHS hosts Xray as the primary inspector. Story ships no
+  scrubber / trace / actions panel of its own —
+  Xray's L1 ribbon (◀ ▶ ⏭ + L2 event list) is the scrubber;
+  the Trace tab is the trace panel; the Event-tab cascade view
+  + filtered Trace are the actions panel. Story ships 3
+  panels because they're Story-unique:
 
   - Dispatch Console — free-form dispatch into the variant frame
   - Controls         — per-variant arg controls
@@ -40,7 +40,7 @@
   The canvas / workspace components watch the tick and re-mount the
   variant on change.
 
-  A `setInterval`-driven poll is the current mechanism.
+  A `setInterval`-driven poll is the mechanism.
 
   ## Elision
 
@@ -62,7 +62,7 @@
             [re-frame.story.ui.backgrounds-switcher :as rf.story.ui.backgrounds-switcher]
             [re-frame.story.ui.canvas :as rf.story.ui.canvas]
             [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]
-            ;; rf2-88f1: the target-frame gesture goes through Xray's
+            ;; The target-frame gesture goes through Xray's
             ;; host-facing facade, not a hand-rolled dispatch into
             ;; Xray's own frame. Direct :require against the declared
             ;; `day8/re-frame2-xray` dep, per `xray_preset.cljc`.
@@ -104,8 +104,8 @@
             [re-frame.story.theme.motion :as rf.story.theme.motion]))
 
 ;; Styles live in `re-frame.story.ui.shell-styles` (pure-data leaf,
-;; no Reagent dep). Required as `styles` above so the in-file call
-;; sites (`(:root styles)` etc.) stay textually identical.
+;; no Reagent dep), referred as `styles` above for the in-file call
+;; sites (`(:root styles)` etc.).
 
 ;; ---- hot-reload trigger --------------------------------------------------
 
@@ -114,15 +114,15 @@
   stale in it: `{:decorators <decorator fingerprint map> :body <hash>}`.
   Pure data → data.
 
-  rf2-eyrpr — thread each frame's per-run opts (`:active-modes` +
+  Threads each frame's per-run opts (`:active-modes` +
   per-variant `:cell-overrides`) into `resolution-fingerprints` so the
   plan compile that yields the decorator ref list substitutes `[:arg]`
   keys resolvable only through a mode / cell layer rather than throwing
   on the 500ms hot-reload poll. Fingerprints are body-derived and run-
   layer-invariant; the opts only let the ref collection's compile succeed.
 
-  rf2-0ae7o.14 — `:body` is the variant's snapshot-identity content hash,
-  the existing per-variant hash over its registered render inputs
+  `:body` is the variant's snapshot-identity content hash,
+  the per-variant hash over its registered render inputs
   (`re-frame.story.identity`), so an edit to a mounted variant's own
   `:args`, `:setup`, `:script` and the rest re-mounts it, while a hot
   reload that re-registers it unchanged (only its `:source` / `:doc` move)
@@ -165,12 +165,12 @@
   recorded fingerprints; if anything drifted, bump the hot-reload tick
   and stamp the new fingerprints.
 
-  The Story registrar's mutation tick rides the same comparison
-  (rf2-yemtm). A registration that no running frame reflects — a hot
+  The Story registrar's mutation tick rides the same comparison.
+  A registration that no running frame reflects — a hot
   reload adding a variant, a `:script` landing on a variant nobody has
-  open — changes no fingerprint, so nothing reached the shell state and
-  the sidebar, test widget and Tests pane kept rendering the old registry
-  until some unrelated click. Stamping `:registry-tick` re-renders every
+  open — changes no fingerprint, so without it nothing would reach the shell
+  state and the sidebar, test widget and Tests pane would keep rendering the
+  old registry until some unrelated click. Stamping `:registry-tick` re-renders every
   pane that reads the shell state. It is not drift: nothing re-mounts or
   re-runs.
 
@@ -190,7 +190,7 @@
               drift? rf.story.ui.state/bump-hot-reload-tick)))
         drift?))))
 
-;; ---- watch-mode detector (rf2-z1h0f) -------------------------------------
+;; ---- watch-mode detector -------------------------------------------------
 ;;
 ;; The chrome-level test widget's eye-icon toggles `[:tests :watch-mode?]`
 ;; in the shell state. When on, `detect-watch-drift!` polls a snapshot-
@@ -202,9 +202,9 @@
 ;;
 ;; The compute + its hot-path cache live in `re-frame.story.ui.watch` — a
 ;; leaf that requires neither `shell` nor `sidebar`, so the toggle seed
-;; (`rf.story.ui.sidebar/set-watch-mode!`, rf2-asp2op) can share the SAME compute
+;; (`rf.story.ui.sidebar/set-watch-mode!`) can share the SAME compute
 ;; without a `sidebar → shell` load cycle. See that ns for the cache-key
-;; rationale (incl. the rf2-3y7l7u view-schema-digest signal).
+;; rationale (incl. the view-schema-digest signal).
 
 (defn detect-watch-drift!
   "When watch mode is on, compute the current testable-variant content
@@ -238,9 +238,8 @@
     (catch :default e
       ;; Swallow + breadcrumb. A transient hashing error shouldn't
       ;; take down the chrome widget (the next tick re-tries), but
-      ;; the exception itself MUST be observable — per rf2-dd5ze
-      ;; audit (SH2): silent swallows on the watch-mode hot-loop hide
-      ;; real bugs. `emit-error!` gates on `interop/debug-enabled?`
+      ;; the exception itself MUST be observable: silent swallows on
+      ;; the watch-mode hot-loop hide real bugs. `emit-error!` gates on `interop/debug-enabled?`
       ;; so the call DCE's to a no-op in production builds.
       (rf.trace/emit-error!
         :rf.story.shell/watch-mode-tick-failed
@@ -252,11 +251,11 @@
 (defn- hot-reload-tick!
   "One pass of the hot-reload fingerprint detector. Wraps
   `detect-and-tick!` in the same try / `emit-error!` shape as
-  `watch-mode-tick!` (rf2-k8mz). `resolution-fingerprints` can throw on
-  this very poll (`:rf.error/story-missing-arg`, rf2-eyrpr — see
-  `compute-fingerprint-snapshot`), and a bare throw here used to abort
-  `poll-tick!` before `watch-mode-tick!` ran: one bad frame silently
-  stopped watch mode while its eye icon still read 'watching'. The next
+  `watch-mode-tick!`. `resolution-fingerprints` can throw on
+  this very poll (`:rf.error/story-missing-arg` — see
+  `compute-fingerprint-snapshot`), and a bare throw here would abort
+  `poll-tick!` before `watch-mode-tick!` ran: one bad frame would silently
+  stop watch mode while its eye icon still read 'watching'. The next
   tick retries."
   []
   (try
@@ -277,7 +276,7 @@
   watch-mode detector (per-testable-variant watch-hash drift →
   dispatch `rf.story.ui.sidebar/watch-rerun!` when watch mode is on). Two
   detectors, one cadence — each guarded on its own, so a throw in one
-  never starves the other (rf2-k8mz)."
+  never starves the other."
   []
   (hot-reload-tick!)
   (watch-mode-tick!))
@@ -309,10 +308,9 @@
 
 (defn- ensure-listeners-for-variant!
   "Wire the trace-buffer listener for `variant-id` if not already wired.
-  Per rf2-sgdd3 the scrubber listener was retired alongside the
-  scrubber panel (Xray's L1 ribbon + L2 event list replace it); the
-  trace-buffer listener stays because the schema-validation panel
-  consumes the per-variant buffer."
+  There is no scrubber listener (Xray's L1 ribbon + L2 event list are
+  the scrubber); the trace-buffer listener exists because the
+  schema-validation panel consumes the per-variant buffer."
   [variant-id]
   (when (and rf.story.config/enabled?
              (some? variant-id)
@@ -334,25 +332,24 @@
   (rf.story.ui.trace-buffer/clear-buffer!))
 
 (defn- ensure-variant-frame!
-  "PREPARE `variant-id`'s one run owner (rf2-j538f7.34) on the selection
+  "PREPARE `variant-id`'s one run owner on the selection
   edge: allocate the frame and run loaders + setup (phases 0-2) so React's
   first canvas render is safe — WITHOUT executing the play script. The
   single resume owner (the canvas post-commit lifecycle) runs the script
   exactly once after commit.
 
-  Per rf2-zme7: clicking a variant row used to leave the variant's
-  frame unallocated until the canvas's `:component-did-mount` lifecycle
-  fired — which happens AFTER React's first commit. The first render
-  thus tried to deref subscriptions against a non-existent frame, threw
-  `IDeref.-deref defined for type null`, and React unmounted the shell
-  (blank page). Preparing the variant on the *selection edge* puts the
-  frame in place before any view code runs.
+  Leaving the variant's frame unallocated until the canvas's
+  `:component-did-mount` lifecycle fired — which happens AFTER React's
+  first commit — would make the first render deref subscriptions against
+  a non-existent frame, throw `IDeref.-deref defined for type null`, and
+  make React unmount the shell (blank page). Preparing the variant on the
+  *selection edge* puts the frame in place before any view code runs.
 
   `prepare-run!` is idempotent per `:run-key`, so this selection-edge
   prepare and the canvas's post-commit prepare for the same logical run
-  collapse to ONE frame reset + ONE generation — the shell no longer runs
+  collapse to ONE frame reset + ONE generation — the shell does not run
   the play-script here (which, with the canvas run and the post-commit
-  auto-run, made it execute up to three times)."
+  auto-run, would make it execute up to three times)."
   [variant-id]
   (when (and rf.story.config/enabled? variant-id)
     (let [shell @rf.story.ui.state/shell-state-atom
@@ -366,10 +363,10 @@
           ;; Swallow + breadcrumb. The canvas re-tries via
           ;; :component-did-mount / :component-did-update, and the
           ;; result-map's error path will surface inline — but the
-          ;; exception itself MUST be observable. Per rf2-dd5ze audit
-          ;; (SH3): a silent catch on a fundamental-write path (the
+          ;; exception itself MUST be observable: a silent catch on a
+          ;; fundamental-write path (the
           ;; variant-frame allocation that the very next render reads)
-          ;; was hiding errors. `emit-error!` gates on `interop/debug-
+          ;; would hide errors. `emit-error!` gates on `interop/debug-
           ;; enabled?` so the call DCE's to a no-op in production
           ;; builds (where the chrome itself is elided anyway).
           (rf.trace/emit-error!
@@ -380,7 +377,7 @@
              :recovery   :canvas-retry})
           nil)))))
 
-;; Per rf2-dd5ze audit (SH3, P1): the prev-selection tracker lives at
+;; The prev-selection tracker lives at
 ;; module scope. The shell is a singleton (`shell-singleton`, below)
 ;; but its lifecycle is install / tear-down / re-install — a fresh
 ;; local `(atom ...)` on every `selection-watcher` invocation hides the
@@ -393,8 +390,8 @@
 
 (defn- selection-watcher
   "Install a watch on the shell state atom that fires on every
-  `:selected-variant` change; on selection edge ensure trace / scrubber
-  listeners are wired and the variant's frame is pre-allocated.
+  `:selected-variant` change; on selection edge ensure the trace-buffer
+  listener is wired and the variant's frame is pre-allocated.
 
   Idempotent: re-installing replaces the previous watch (same key
   `::shell-selection`, so `add-watch` overwrites). The cross-mount
@@ -418,7 +415,7 @@
                      nil)
                    (when now
                      (ensure-listeners-for-variant! now)
-                     ;; rf2-zme7: pre-allocate the variant's frame
+                     ;; Pre-allocate the variant's frame
                      ;; before React commits a canvas render that
                      ;; would otherwise deref subscriptions against a
                      ;; non-existent frame.
@@ -442,73 +439,72 @@
                      ;; list, App-DB diff and downstream subs all flip
                      ;; in one frame.
                      ;;
-                     ;; rf2-88f1 — through Xray's FACADE, not a
+                     ;; Through Xray's FACADE, not a
                      ;; hand-rolled `(rf/with-frame :rf/xray (rf/dispatch-
                      ;; sync [:rf.xray/set-target-frame now]))`. A host
                      ;; has no business knowing that `:rf/xray` is Xray's
                      ;; frame, nor that its lifecycle is tied to substrate-
-                     ;; adapter readiness — and knowing it was wrong here in
-                     ;; the measurable sense too: Story's boot runs
+                     ;; adapter readiness — and the raw dispatch would be
+                     ;; wrong in the measurable sense too: Story's boot runs
                      ;; `rf/init!`, mounts the shell and selects a variant
-                     ;; inside the preload's 50ms seat poll, so the raw
-                     ;; dispatch reached a frame that did not exist yet and
-                     ;; emitted `:rf.error/frame-destroyed` once per page.
+                     ;; inside the preload's 50ms seat poll, so it would
+                     ;; reach a frame that does not exist yet and emit
+                     ;; `:rf.error/frame-destroyed` once per page.
                      ;; `set-target-frame!` seats `:rf/xray` first, so the
-                     ;; gesture is correct at boot instant. This call site
-                     ;; was the last exception: Story already uses the
-                     ;; facade for the sibling gesture below and already has
-                     ;; the ensure-before-dispatch pattern for its OWN
-                     ;; frames (`ensure-variant-frame!`, rf2-zme7).
+                     ;; gesture is correct at boot instant. Story uses the
+                     ;; facade for the sibling gesture below too, and the
+                     ;; same ensure-before-dispatch pattern for its OWN
+                     ;; frames (`ensure-variant-frame!`).
                      ;;
-                     ;; The facade rides the async queue, as the rf2-q9kv5
+                     ;; The facade rides the async queue, as the
                      ;; sibling dispatches in `rf.story.xray-preset/on-
-                     ;; variant-selected!` below already do. Queue order is
+                     ;; variant-selected!` below do. Queue order is
                      ;; what the panels need and FIFO preserves it: the
                      ;; re-orientation is enqueued before the preset applies
                      ;; and lands before them.
-                     ;; rf2-n7lql — Story does not drive Xray in a
+                     ;; Story does not drive Xray in a
                      ;; published static export. Under `static-mode?`
                      ;; the bundle is a `release`, and Xray is
                      ;; non-functional there BY CONSTRUCTION, for two
                      ;; independent reasons: the `:devtools/preloads`
                      ;; slot is ignored by `release`, so nothing
                      ;; registers Xray's `:rf.xray/*` instruction set;
-                     ;; and rf2-y8doi.60 gates Xray's four top-level
+                     ;; and Xray gates its four top-level
                      ;; `rf/reg-view` forms on `debug-enabled?`, which
                      ;; leaves those symbols UNDEFINED in a release
                      ;; build because `reg-view` carries its `def`
                      ;; inside the gate.
                      ;;
-                     ;; Driving it anyway threw twice over: core's
+                     ;; Driving it anyway would throw twice over: core's
                      ;; deliberate `:rf.error/image-zero-match` guard on
                      ;; the seat (Xray's image globs
                      ;; `day8.re-frame2-xray.**` over a pool with no
                      ;; Xray registration in it), and then a render
                      ;; TypeError on the undefined view. BOTH guards are
                      ;; correct and neither is weakened here — the
-                     ;; defect was the ASKING: a host requesting a dev
+                     ;; defect would be the ASKING: a host requesting a dev
                      ;; tool from a build that deliberately elides it.
                      ;; See `tools/story/spec/013-Static-Build.md`
                      ;; §Static-mode runtime semantics.
                      (when-not rf.story.config/static-mode?
                        (xray-core/set-target-frame! now)
-                       ;; rf2-v1ach: Xray now mounts per-panel into the
+                       ;; Xray mounts per-panel into the
                        ;; RHS via `rf.story.ui.xray-embed/xray-embed-panel`. The
                        ;; embed owns its own React lifecycle — selecting
                        ;; a variant rebuilds the panel-host component
                        ;; (keyed on `variant-id::panel-id`) which drives
-                       ;; the Xray mount-fn on commit. We retain the
+                       ;; the Xray mount-fn on commit. We wire the
                        ;; per-variant project-root + keybinding bridges
-                       ;; so the popout escape hatch + Xray's source-
+                       ;; here so the popout escape hatch + Xray's source-
                        ;; coord chips honour Story's configured
                        ;; `:rf.story/project-root`. Per-variant Xray bridges
                        ;; live on a separate seam from the embed mount.
                        (rf.story.xray-preset/wire-cross-host!)
-                       ;; rf2-q9kv5: apply any per-story Xray preset
+                       ;; Apply any per-story Xray preset
                        ;; (focus tab, configure filters) + seed the RHS chip-row's user-
                        ;; override slot from the story's `:xray-panel`.
                        (rf.story.xray-preset/on-variant-selected! now))
-                     ;; rf2-8i2a9 / rf2-j538f7.34: RESUME the one run owner —
+                     ;; RESUME the one run owner —
                      ;; run the auto-plays exactly once per prepared
                      ;; generation. Yields one tick via setTimeout so React
                      ;; commits the canvas before the script's first dispatch
@@ -530,7 +526,7 @@
   ;; value held over from the previous mount.
   (reset! selection-prev nil))
 
-;; rf2-chi9j3: `component-did-mount` schedules a mount-time auto-run for an
+;; `component-did-mount` schedules a mount-time auto-run for an
 ;; already-selected variant (deep-link / persisted selection) AFTER
 ;; `hydrate-url-state!` runs. But `hydrate-url-state!` may ITSELF change
 ;; `:selected-variant` (a `?variant=…` deep link) — and that selection
@@ -563,7 +559,7 @@
 
 ;; ---- url-state apply-fn ---------------------------------------------------
 ;;
-;; rf2-o4u18: bridge between the pure `url-state` engine and the live
+;; Bridge between the pure `url-state` engine and the live
 ;; registrar / preset tables. `rf.story.ui.url-state/apply-parsed-to-state` takes a
 ;; validators map; we build it here so the engine ns stays portable
 ;; (CLJC) and the live wiring sits in one place.
@@ -583,7 +579,7 @@
                                    (or (nil? v) (rf.story.viewport/valid-selection? v)))
                     :background? (fn [b]
                                    (or (nil? b) (rf.story.backgrounds/valid-selection? b)))
-                    ;; rf2-dxz4sg: validate the URL substrate against the live
+                    ;; Validate the URL substrate against the live
                     ;; substrate registry so a stale/unregistered `substrate=`
                     ;; degrades to the `:reagent` default rather than pinning a
                     ;; substrate the host app never registered. nil (omitted)
@@ -597,7 +593,7 @@
 
 (defn- hydrate-url-state!
   "One-shot URL → shell-state hydration on mount, in two passes with a
-  CLEAR single-owner split (rf2-ovb1en):
+  CLEAR single-owner split:
 
     1. `rf.story.ui.url-state/hydrate-from-url!` is the AUTHORITATIVE owner of every
        URL-owned slot it writes — selection (variant / workspace),
@@ -610,10 +606,10 @@
        focused-variant cell-overrides slice on mount: it applies the
        declared-key DRIFT filter `url-state` cannot run (renamed / removed
        args), writing the filtered slice (or CLEARING it when all overrides
-       are stale) and recording the share-import drift hint (rf2-9jthx).
+       are stale) and recording the share-import drift hint.
        It reads — never rewrites — `url-state`'s validated selection and
        substrate, so the second pass can never undo the first pass's
-       validation (the bug rf2-ovb1en fixed).
+       validation.
 
   The selection-watcher's preallocate-frame branch fires on pass 1's swap
   (it sets `:selected-variant`), so deep-linked variants still preallocate
@@ -622,7 +618,7 @@
   The popstate handler (below, `install-popstate-listener!`) runs the SAME
   two passes for Back/Forward navigation — pass 1 as its `apply-fn`, pass 2
   as its `post-apply-fn` — so a stale override survives no better via
-  history navigation than it would via a fresh mount (rf2-cmjly3 finding 8)."
+  history navigation than it would via a fresh mount."
   []
   (rf.story.ui.url-state/hydrate-from-url! rf.story.ui.state/shell-state-atom (url-state-apply-fn))
   (rf.story.ui.share/hydrate-from-url!))
@@ -633,21 +629,21 @@
   "The right-side pane — Xray mount + controls + dispatch console +
   registered story panels stacked vertically.
 
-  Xray is the primary RHS inspector: the Story-shipped
-  scrubber / trace / actions panels were retired in favour of Xray's
-  ribbon + L2 event list (replaces scrubber), Trace tab (replaces trace
-  panel), and Event-tab cascade view (replaces actions panel). Xray
-  mounts into the `[data-rf-xray-host]` slot below via its standard
-  `mount/open!` flow — driven from the selection-watcher whenever a
-  variant becomes focused (config bridges via
-  `rf.story.xray-preset/wire-cross-host!`).
+  Xray is the primary RHS inspector: Story ships no
+  scrubber / trace / actions panel, because Xray's
+  ribbon + L2 event list (the scrubber), Trace tab (the trace
+  panel), and Event-tab cascade view (the actions panel) cover them. Xray
+  mounts one panel at a time into the Xray band below via
+  `rf.story.ui.xray-embed/xray-embed-panel` (config bridges via
+  `rf.story.xray-preset/wire-cross-host!`, wired from the
+  selection-watcher whenever a variant becomes focused).
 
   `rf.story.ui.panels/render-panels-at-placement` ensures any
   `reg-story-panel` registration with `:placement :right` appears here.
   The built-in v1.0 panels (a11y, layout-debug toggles, schema
   validation) ride this path.
 
-  Renders as an `<aside>` landmark (per rf2-xc65) so screen readers can
+  Renders as an `<aside>` landmark so screen readers can
   jump straight to the inspectors and so axe-core's
   `region`/`landmark-one-main` rules pass. `tabindex=\"0\"` makes the
   scrollable container reachable for keyboard users."
@@ -665,10 +661,9 @@
              :role       "complementary"
              :aria-label "Inspectors"
              :tab-index  "0"}
-     ;; rf2-v1ach — Xray-in-Story per-panel embed. Replaces the
-     ;; pre-rf2-v1ach whole-shell mount that crammed Xray's 4-layer
-     ;; chrome into a 320px column. The new shape: ONE Xray panel
-     ;; mounted at a time, chip-row picker for runtime swap, popout
+     ;; Xray-in-Story per-panel embed: ONE Xray panel mounted at a
+     ;; time (a whole-shell mount would cram Xray's 4-layer chrome
+     ;; into a 320px column), chip-row picker for runtime swap, popout
      ;; chip for the full-shell escape hatch. Per-story author
      ;; intent rides the `:xray-panel` slot (or legacy
      ;; `:xray :panel`); user clicks override for the session.
@@ -676,15 +671,15 @@
      ;; Feature-detect-safe: `xray-embed-panel` renders a graceful
      ;; empty state when Xray is not on the classpath.
      ;;
-     ;; rf2-n7lql — and the whole band is OMITTED from a published
+     ;; The whole band is OMITTED from a published
      ;; static export. `static-mode?` is a `release` build, where Xray
      ;; cannot render at all: nothing registers its instruction set
      ;; (the `:devtools/preloads` slot is a dev-build slot) and
-     ;; rf2-y8doi.60's `debug-enabled?` gates leave its four
+     ;; Xray's `debug-enabled?` gates leave its four
      ;; `rf/reg-view` symbols undefined, so mounting a panel throws a
      ;; render TypeError. Omitting the band is what makes the export
      ;; "dev-tool-free" as `implementation/shadow-cljs.edn`'s
-     ;; `:story-static/counter-with-stories` comment already claims.
+     ;; `:story-static/counter-with-stories` comment claims.
      ;; See `tools/story/spec/013-Static-Build.md` §Static-mode runtime
      ;; semantics; the selection-watcher gate above is the other half.
      (when-not rf.story.config/static-mode?
@@ -701,7 +696,7 @@
          [:span {:style (:rhs-section-sub-xray styles)}
           "diagnostic"]]
         [rf.story.ui.xray-embed/xray-embed-panel]])
-     ;; rf2-ba86n.9 — Explain panel. The Story-owned provenance +
+     ;; Explain panel. The Story-owned provenance +
      ;; lowering surface over `story/explain` data (spec/020 §4). Sits
      ;; directly under the Xray embed: same RHS inspector rail, but a
      ;; STATIC-plan lens (where did this plan come from / how was it
@@ -724,12 +719,12 @@
          [:span {:style (:rhs-section-sub styles)}
           "provenance + lowering"]]
         [rf.story.ui.explain-panel/explain-panel]])
-     ;; rf2-ba86n.10 — Evidence spine. The Story-owned narrative/evidence
+     ;; Evidence spine. The Story-owned narrative/evidence
      ;; DISPLAY over the retained epoch tape (spec/020 §3 + spec/021 §2).
      ;; Sits under Explain in the RHS inspector rail: script spans over
      ;; epoch beats, each beat labelled with its evidence strength (direct
      ;; vs attributed) + a compact summary, and per-beat "open in Xray"
-     ;; focus links that drive the closed rf2-crtmq focus API. Story owns
+     ;; focus links that drive Xray's focus API. Story owns
      ;; the narrative; the focus links open Xray's detailed diagnostics —
      ;; the spine LINKS via the host-facing `day8.re-frame2-xray.core/focus!`
      ;; entry point, it never embeds Xray panel interiors (spec/020 §1.2).
@@ -746,7 +741,7 @@
         [:div {:style (:rhs-section-h styles)}
          [:span "Evidence"]
          [:span {:style (:rhs-section-sub styles)}
-          ;; rf2-n440v — the section STAYS in a static export (the
+          ;; The section renders in a static export too (the
           ;; narrative is the publishable half), but its focus links do
           ;; not, so the subtitle must not promise them. The spine's
           ;; `focus-available?` is the same predicate that decides
@@ -763,7 +758,7 @@
          [:span {:style (:rhs-section-sub styles)}
           "args + modes"]]
         [rf.story.ui.controls/panel variant-id]])
-     ;; rf2-q9kv5 — Dispatch Console panel. Free-form event dispatch into
+     ;; Dispatch Console panel. Free-form event dispatch into
      ;; the running variant's frame. Default HIDDEN; opt-in via
      ;; `:dispatch-console? true` on the story or variant body. The
      ;; per-story flag wins over the chrome-level `:panel-visibility`
@@ -772,14 +767,14 @@
      ;; flip it without editing the story body; the story-body flag is the
      ;; default visibility for that variant.
      ;;
-     ;; Default-off chosen so the chrome-level toolbar chip starts in the
+     ;; Default-off so the chrome-level toolbar chip starts in the
      ;; un-pressed state. The toolbar/recorder/review-dialog browser gate
      ;; scans `[data-test="story-toolbar"] [aria-pressed="true"]` for its
      ;; reset assertion (`count === 0`); a default-on dispatch-console
      ;; chip would break that gate. Toolbar real-estate is precious too —
      ;; opt-in is the more polite default.
      ;;
-     ;; rf2-qpvk: resolved by `rf.story.ui.state/dispatch-console-visible?` —
+     ;; Resolved by `rf.story.ui.state/dispatch-console-visible?` —
      ;; the one rule the toolbar chip's pressed state reads too, so a
      ;; story-body opt-in never shows this panel beside an un-pressed chip.
      (when (rf.story.ui.state/dispatch-console-visible? shell variant-id)
@@ -800,27 +795,27 @@
 
 (defn- framed-canvas
   "Render the variant `rf.story.ui.canvas/canvas` wrapped with the effective
-  viewport + background framing (rf2-zll4h).
+  viewport + background framing.
 
-  Per rf2-zgu68 also surfaces a viewport-px chip at the bottom-right
+  Also surfaces a viewport-px chip at the bottom-right
   when a non-`:full` viewport mode is active. The chip self-elides
   for `:full`.
 
-  rf2-j8hklm: `[rf.story.ui.canvas/canvas]` sits behind a STABLE always-present
+  `[rf.story.ui.canvas/canvas]` sits behind a STABLE always-present
   `:div` wrapper regardless of `sized?` — only the wrapper's OWN style
   varies (the real `vp-style` sizing box when sized, `display: contents`
   otherwise so the wrapper drops out of layout and `rf.story.ui.canvas/canvas`'s own
   `:flex \"1\"` sizes it against the outer flex container exactly as
-  when it rendered unwrapped). Previously `sized?` picked between TWO
+  it would render unwrapped). If `sized?` picked between TWO
   DIFFERENT hiccup shapes at this tree position — `[:div ... [rf.story.ui.canvas/
-  canvas]]` vs bare `[rf.story.ui.canvas/canvas]` — so toggling the viewport across
-  the `:full`-vs-sized boundary changed the React element TYPE at this
-  slot (`:div` vs the canvas class) and forced React to unmount + remount
-  the canvas subtree. `rf.story.ui.canvas/canvas`'s `component-will-unmount` cleared
-  the run-key sentinel, so the fresh mount's `component-did-mount` always
-  re-ran `run-variant` — wiping the live variant's interactive app-db even
+  canvas]]` vs bare `[rf.story.ui.canvas/canvas]` — toggling the viewport across
+  the `:full`-vs-sized boundary would change the React element TYPE at this
+  slot (`:div` vs the canvas class) and force React to unmount + remount
+  the canvas subtree. `rf.story.ui.canvas/canvas`'s `component-will-unmount` clears
+  the run-key sentinel, so the fresh mount's `component-did-mount` would
+  re-run `run-variant` — wiping the live variant's interactive app-db even
   though the viewport is deliberately excluded from `run-key` precisely
-  so a viewport toggle should NOT re-run it. Keying `[rf.story.ui.canvas/canvas]` at
+  so a viewport toggle does NOT re-run it. Keying `[rf.story.ui.canvas/canvas]` at
   an identical tree position across both branches keeps React's
   reconciler on the SAME component instance, so the toggle only ever
   updates the wrapper's style — never a remount."
@@ -837,7 +832,7 @@
                            :justify-content "center"
                            :overflow   "auto"
                            :box-sizing "border-box"
-                           ;; rf2-zgu68 — position relative so the
+                           ;; Position relative so the
                            ;; viewport-px chip's absolute slot anchors
                            ;; against the framed region.
                            :position   "relative"}
@@ -850,26 +845,25 @@
      [:div (cond-> {:style (or vp-style {:display "contents"})}
              sized? (assoc :data-test "story-canvas-frame-sized"))
       [rf.story.ui.canvas/canvas]]
-     ;; rf2-zgu68 — viewport-px indicator chip. Self-elides for `:full`.
+     ;; Viewport-px indicator chip. Self-elides for `:full`.
      [rf.story.ui.canvas/viewport-indicator vp]]))
 
 (defn- main-pane
   "The main content pane — workspace if one is selected, otherwise the
   variant canvas.
 
-  Renders as a `<main>` landmark (per rf2-xc65) so the rendered variant
+  Renders as a `<main>` landmark so the rendered variant
   has a containing landmark and axe-core's `region` /
   `landmark-one-main` rules pass.
 
-  Per rf2-9hc8 a Canvas | Docs | Tests mode-tab strip sits at the top
+  A Canvas | Docs | Tests mode-tab strip sits at the top
   of the pane when a variant is selected; selection is per-variant and
-  persists across reloads in localStorage. Per rf2-rodx the `:docs`
+  persists across reloads in localStorage. The `:docs`
   pane renders `rf.story.ui.docs/docs-view` — the read-only AutoDocs surface
   composed of header / prose / args / decorators / parameters / tags
-  sections. Per rf2-qmjo the `:test` pane renders `rf.story.ui.test-mode.view/test-view`
+  sections. The `:test` pane renders `rf.story.ui.test-mode.view/test-view`
   — the in-canvas aggregated pass/fail summary of the variant's
-  `:script` sequence + assertions. `:dev` preserves the existing canvas
-  / workspace behaviour."
+  `:script` sequence + assertions. `:dev` renders the framed canvas."
   []
   (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)
@@ -880,13 +874,13 @@
     [:main {:style (merge (:main styles)
                           {:animation (rf.story.theme.motion/stagger-animation :main)})
             :aria-label "Story canvas"}
-     ;; rf2-9hc8: top-of-shell mode-tab strip — only when a single
+     ;; Top-of-shell mode-tab strip — only when a single
      ;; variant is selected (workspaces enumerate multiple variants and
      ;; have their own layout switcher; mixing mode-tabs into that pane
      ;; conflates two unrelated UX axes).
      (when (and variant-id (not ws-id))
        [rf.story.ui.mode-tabs/mode-tabs-strip variant-id])
-     ;; rf2-8i2a9: play-script failure banner. Lives ABOVE the canvas
+     ;; Play-script failure banner. Lives ABOVE the canvas
      ;; so a failed run is the first thing the user sees. Self-elides
      ;; when the run is not in `:fail`. Click-to-highlight points the
      ;; user at the failing DOM selector.
@@ -897,12 +891,12 @@
        variant-id (case mode-tab
                     :docs [rf.story.ui.docs/docs-view variant-id]
                     :test [rf.story.ui.test-mode.view/test-view variant-id]
-                    ;; rf2-zll4h — wrap the canvas with viewport sizing
+                    ;; Wrap the canvas with viewport sizing
                     ;; + background colour. The :docs and :test panes
                     ;; are NOT framed (they're shell chrome, not the
                     ;; variant render surface).
                     [framed-canvas])
-       ;; rf2-8j7wg (audit C-4) — per-story rollup docs page. The
+       ;; Per-story rollup docs page. The
        ;; sidebar's story-header rows dispatch `select-story` which
        ;; lands here. Variant + workspace selection take precedence
        ;; (the user navigated FROM the rollup into a leaf).
@@ -926,7 +920,7 @@
   "The top-level shell component. Composes the sidebar, main pane, and
   right panel into a three-pane layout.
 
-  Per rf2-xc65 each pane is rendered as a semantic HTML5 landmark
+  Each pane is rendered as a semantic HTML5 landmark
   (`<nav>` sidebar, `<main>` canvas, `<aside>` inspectors) so axe-core's
   `region` / `landmark-*` rules pass and screen-reader users can
   navigate the shell by landmark."
@@ -936,7 +930,7 @@
      :component-did-mount
      (fn [_]
        (when rf.story.config/enabled?
-         ;; rf2-2rwdc: inject IBM Plex `@font-face` rules into the
+         ;; Inject IBM Plex `@font-face` rules into the
          ;; document head BEFORE the first render so the chrome's
          ;; `font-family: "IBM Plex Sans"` / `"IBM Plex Mono"`
          ;; declarations resolve immediately. Idempotent — the helper's
@@ -945,7 +939,7 @@
          ;; rf.story.config/enabled?; the helper renders <style>@font-face..</style>
          ;; which static export captures correctly).
          (rf.story.theme.typography/inject-font-faces!)
-         ;; rf2-3lt89: inject motion @keyframes + prefers-reduced-motion
+         ;; Inject motion @keyframes + prefers-reduced-motion
          ;; override stylesheet. Defines the `rf-story-mount-in` /
          ;; `rf-story-overlay-in` / `rf-story-chip-press` keyframes the
          ;; chrome refers to via inline `:animation` slots, plus the
@@ -954,15 +948,15 @@
          ;; Idempotent. Behind rf.story.config/enabled? — production short-
          ;; circuits before the DOM touch.
          (rf.story.theme.motion/inject-motion-css!)
-         ;; rf2-ypd6h: inject grain overlay stylesheet — an SVG-feTurbulence
+         ;; Inject grain overlay stylesheet — an SVG-feTurbulence
          ;; noise sheet on the `[data-rf-story-grain]` layer the root
-         ;; renders first (rf2-w72ij) so the bare slate grounds carry studio
+         ;; renders first so the bare slate grounds carry studio
          ;; texture rather than reading as 'editor pane'. Self-elides on
          ;; prefers-contrast more / when rf.story.config/enabled? is false.
          ;; Idempotent.
          (rf.story.theme.depth/inject-grain-css!)
-         ;; rf2-96y71s: seed chrome-wide :active-modes from the
-         ;; localStorage FALLBACK only. The toolbar no longer reads the
+         ;; Seed chrome-wide :active-modes from the
+         ;; localStorage FALLBACK only. The toolbar does not read the
          ;; URL — URL-derived :active-modes hydration is owned solely by
          ;; the url-state engine (hydrate-url-state! below, via
          ;; apply-parsed-to-state). This localStorage seed runs FIRST so
@@ -971,7 +965,7 @@
          ;; mount — the URL-over-localStorage precedence (spec/022
          ;; §Share semantics). Idempotent and one-shot.
          (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-         ;; rf2-zll4h: hydrate the chrome-wide viewport + background
+         ;; Hydrate the chrome-wide viewport + background
          ;; selections from localStorage. Both are idempotent and
          ;; one-shot; they no-op when the slot is already populated
          ;; (e.g. a programmatic test fixture seeded them). Same
@@ -980,7 +974,7 @@
          (rf.story.ui.backgrounds-switcher/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
-         ;; rf2-chi9j3: capture the selection BEFORE `hydrate-url-state!`
+         ;; Capture the selection BEFORE `hydrate-url-state!`
          ;; runs — the same value `selection-watcher` just seeded
          ;; `selection-prev` from. When the URL carries a deep-linked
          ;; `?variant=…`, `hydrate-url-state!` swaps `:selected-variant`
@@ -991,28 +985,27 @@
          ;; time block never double-schedules a deep-linked variant's
          ;; `:script`.
          (let [pre-hydrate-vid (:selected-variant @rf.story.ui.state/shell-state-atom)]
-           ;; rf2-o4u18 / rf2-ovb1en: hydrate the URL-state slots (workspace +
+           ;; Hydrate the URL-state slots (workspace +
            ;; mode-tab + viewport + background + tag-filter + variant / modes /
            ;; substrate) — `rf.story.ui.url-state/hydrate-from-url!` is the authoritative,
            ;; VALIDATING owner of all of them and sets the focused selection.
            ;; `rf.story.ui.share/hydrate-from-url!` then owns ONLY the focused-variant
            ;; cell-overrides slice (declared-key drift filter + share-import
-           ;; hint, rf2-9jthx); it reads — never rewrites — the validated
+           ;; hint); it reads — never rewrites — the validated
            ;; selection / substrate, so the second pass can't undo the first
            ;; pass's validation. Selection runs through the same shell-state-atom
            ;; swap path the user's click would take, so the selection-watcher's
            ;; preallocate-frame branch fires for deep-linked variants.
            (hydrate-url-state!)
-           ;; rf2-o4u18: subscribe to popstate so the back-button restores
+           ;; Subscribe to popstate so the back-button restores
            ;; prior URL state, and watch shell-state-atom so user-driven
            ;; selection / viewport / background / tag-filter changes
            ;; pushState the canonical URL. The focused variant's
-           ;; cell-override edits ARE pushed (rf2-5fyo3 — the share popover
-           ;; that once owned override serialisation was retired by
-           ;; rf2-ymnfx, so the live address bar is the only sharing
-           ;; surface) and restored on popstate via apply-parsed-to-state
-           ;; (rf2-j0hwf — closes the override round-trip on back/forward).
-           ;; rf2-cmjly3 finding 8: `apply-parsed-to-state` alone installs
+           ;; cell-override edits ARE pushed (no share popover serialises
+           ;; overrides, so the live address bar carries them) and
+           ;; restored on popstate via apply-parsed-to-state, which
+           ;; closes the override round-trip on back/forward.
+           ;; `apply-parsed-to-state` alone installs
            ;; the RAW parsed overrides — it's pure/registrar-free, so it
            ;; can't run the declared-key stale-override drop-and-report
            ;; filter `rf.story.ui.share/hydrate-from-url!` runs on mount. Passing it as
@@ -1024,13 +1017,13 @@
              (url-state-apply-fn)
              rf.story.ui.share/hydrate-from-url!)
            (rf.story.ui.url-state/install-state-watcher! rf.story.ui.state/shell-state-atom)
-           ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
+           ;; Install the Test Codegen recorder's trace-bus
            ;; listener once at shell mount. The listener short-circuits
            ;; on every emit when no recording is in flight, so leaving
            ;; it installed is free; we only need to make sure it
            ;; exists before the user clicks REC.
            (rf.story.ui.recorder/install-trace-listener!)
-           ;; rf2-d5u89: install the recorder's DOM-capture listeners
+           ;; Install the recorder's DOM-capture listeners
            ;; on the canvas root so :click / :input / :change / :submit
            ;; events translate into [:dom/click ...] / [:dom/type ...]
            ;; / [:dom/submit ...] entries on the recorder's :entries
@@ -1042,7 +1035,7 @@
            (js/setTimeout
              (fn []
                (rf.story.recorder.dom-capture/install!)
-               ;; rf2-h0jc0: element-level click-to-code inspector. Hooks
+               ;; Element-level click-to-code inspector. Hooks
                ;; mousemove / click / keydown on the same canvas root the
                ;; recorder uses. Listener gates on `(inspector/active?)`
                ;; so the install is free when the chip is off — install
@@ -1052,59 +1045,59 @@
                ;; frame DOM node before the install tries to find it.
                (rf.story.ui.element-inspector/install!))
              0)
-           ;; rf2-one3t: install the save-as-variant dialog-open callback
+           ;; Install the save-as-variant dialog-open callback
            ;; against the pure ns so `save-variant/save-current-as-variant!`
            ;; can drive the modal without coupling the .cljc helper to
            ;; Reagent / DOM. Idempotent.
            (rf.story.ui.save-variant/install!)
            (rf.story.ui.shell.rails/hydrate!)
-           ;; rf2-g8l8x — hydrate per-panel chrome-visibility map from
+           ;; Hydrate per-panel chrome-visibility map from
            ;; localStorage BEFORE the embed-flag pass (embed is URL-
            ;; driven, must not be clobbered by stale persisted slot).
            (rf.story.ui.keybindings/hydrate!)
-           ;; rf2-pucku — hydrate the `:embed?` slot from the
+           ;; Hydrate the `:embed?` slot from the
            ;; `?embed=1` URL flag. One-shot at mount.
            (rf.story.ui.url-state/hydrate-embed-flag! rf.story.ui.state/shell-state-atom)
-           ;; rf2-g8l8x / rf2-p3i0t — install the chrome-level hotkey
+           ;; Install the chrome-level hotkey
            ;; listener. Cmd-K palette ships its own listener.
            (rf.story.ui.keybindings/install!)
            (when-let [vid (:selected-variant @rf.story.ui.state/shell-state-atom)]
              (ensure-listeners-for-variant! vid)
-             ;; rf2-n440v — the MOUNT-TIME half of the rf2-n7lql
+             ;; The MOUNT-TIME half of the static-export Xray
              ;; boundary. The selection-watcher above is gated on
              ;; `(not static-mode?)`, but it only fires on a CHANGE of
              ;; selection; `hydrate-url-state!` runs earlier in this
              ;; same `component-did-mount`, so an ordinary deep link
              ;; arrives with the variant ALREADY selected and reaches
              ;; the two calls below without passing the watcher. In a
-             ;; published static export that drove Xray from a surface
+             ;; published static export they would drive Xray from a surface
              ;; the export deliberately omits — see
              ;; `tools/story/spec/013-Static-Build.md` §Static-mode
-             ;; runtime semantics, and rf2-cljo6, which ruled the
-             ;; missing inspector ACCEPTED rather than a gap to close.
+             ;; runtime semantics; a static export has no inspector by
+             ;; design, not as a gap to close.
              ;;
              ;; Only the two Xray drives are gated. `ensure-listeners-
              ;; for-variant!` above and the autorun below are Story's
              ;; own behaviour and run in a static export exactly as
              ;; they do in dev.
              (when-not rf.story.config/static-mode?
-               ;; rf2-v1ach: per-panel embed manages its own mount on
+               ;; The per-panel embed manages its own mount on
                ;; commit. The cross-host bridges (project-root +
                ;; keybinding detach) still need to fire so the popout
                ;; escape hatch + Xray's source-coord chips resolve
                ;; against Story's `:rf.story/project-root`.
                (rf.story.xray-preset/wire-cross-host!)
-               ;; rf2-q9kv5: apply per-story preset on the mount-time
+               ;; Apply per-story preset on the mount-time
                ;; selection too (the selection-watcher only fires on
                ;; change, so a pre-selected variant would otherwise miss
                ;; the preset).
                (rf.story.xray-preset/on-variant-selected! vid))
-             ;; rf2-8i2a9 / rf2-chi9j3 / rf2-j538f7.34: mount-time RESUME for
+             ;; Mount-time RESUME for
              ;; an already-selected variant (deep-link / persisted selection).
-             ;; The `mount-time-autorun-vid` guard (rf2-chi9j3) is retained so
+             ;; The `mount-time-autorun-vid` guard ensures
              ;; a deep-link that `hydrate-url-state!` just selected is resumed
-             ;; only by the selection-watcher, not twice — but the one run
-             ;; owner's generation guard is now the structural backstop: even
+             ;; only by the selection-watcher, not twice — and the one run
+             ;; owner's generation guard is the structural backstop: even
              ;; if both scheduled a `resume-run!` for the same generation, only
              ;; ONE would execute. Yields a tick so the canvas has committed
              ;; before the script's first DOM-sensitive step runs.
@@ -1116,21 +1109,21 @@
      (fn [_]
        (stop-hot-reload-poll!)
        (remove-selection-watcher!)
-       ;; rf2-g8l8x / rf2-p3i0t — tear down the chrome-level hotkey
+       ;; Tear down the chrome-level hotkey
        ;; listener so a re-mount doesn't accumulate handlers.
        (rf.story.ui.keybindings/remove!)
        (rf.story.ui.recorder/remove-trace-listener!)
-       ;; rf2-d5u89: tear down DOM-capture listeners alongside the
+       ;; Tear down DOM-capture listeners alongside the
        ;; trace listener so we don't leak listeners across re-mounts.
        (rf.story.recorder.dom-capture/remove!)
-       ;; rf2-h0jc0: tear down the element-inspector listeners +
+       ;; Tear down the element-inspector listeners +
        ;; reset its mode flag. Mirrors the recorder-dom shape — both
        ;; rides the canvas-root listener install lifecycle.
        (rf.story.ui.element-inspector/remove!)
-       ;; rf2-o4u18: drop popstate + shell-state URL watchers so a
+       ;; Drop popstate + shell-state URL watchers so a
        ;; re-mount doesn't accumulate listeners.
        (rf.story.ui.url-state/tear-down! rf.story.ui.state/shell-state-atom)
-       ;; rf2-j538f7.34: clear the one-run-owner registry so a fresh shell
+       ;; Clear the one-run-owner registry so a fresh shell
        ;; mount starts every variant's run generation from a clean slate.
        (rf.story.runtime/reset-run-owner!)
        (teardown-all-listeners!))
@@ -1138,7 +1131,7 @@
      (fn []
        (let [widths     (rf.story.ui.shell.rails/current-widths)
              narrow?    (rf.story.ui.shell.rails/narrow-viewport?)
-             ;; rf2-p3i0t / rf2-g8l8x / rf2-pucku — chrome visibility
+             ;; Chrome visibility
              ;; resolution. Embed-mode + full-screen both hide every
              ;; chrome pane; per-pane toggles win when neither absolute
              ;; mode is on.
@@ -1150,21 +1143,21 @@
                 :data-rf-story-root true
                 :data-rf-chrome-fullscreen (str (get-in shell [:chrome-visibility :full-screen?] false))
                 :data-rf-chrome-embed      (str (get-in shell [:chrome-visibility :embed?] false))}
-          ;; rf2-w72ij: the grain overlay is its own layer, not a `::before`
+          ;; The grain overlay is its own layer, not a `::before`
           ;; pseudo on this root. axe grades no text node that has a
           ;; positioned background pseudo on ANY ancestor, and this root is
           ;; every subject's ancestor; a sibling layer is nobody's. Styled
           ;; by `rf.story.theme.depth/grain-css`.
           [:div {:data-rf-story-grain true
                  :aria-hidden         "true"}]
-          ;; rf2-g8l8x — `t` key + embed/full-screen suppress the strip.
+          ;; `t` key + embed/full-screen suppress the strip.
           (when show-tb?
             [:div {:style {:animation (rf.story.theme.motion/stagger-animation :toolbar)
                            :flex-shrink "0"}}
              [rf.story.ui.toolbar/toolbar-strip]])
           [:div {:style (merge (:body styles)
                                (when narrow? (:body-narrow styles)))}
-           ;; rf2-g8l8x / rf2-p3i0t / rf2-pucku — sidebar visibility.
+           ;; Sidebar visibility.
            (when show-sb?
              [rf.story.ui.sidebar/sidebar {:style (merge {:width       (str (:left widths) "px")
                                               :flex-basis  (str (:left widths) "px")
@@ -1179,51 +1172,51 @@
            [main-pane]
            (when (and show-rhs? (not narrow?))
              [rf.story.ui.shell.rails/splitter :right])
-           ;; rf2-g8l8x / rf2-p3i0t / rf2-pucku — RHS visibility.
+           ;; RHS visibility.
            (when show-rhs?
              [right-panel])]
-          ;; rf2-381i: first-time help overlay + persistent re-open chip.
+          ;; First-time help overlay + persistent re-open chip.
           ;; The chip lives in a fixed-position slot so it floats above the
-          ;; chrome regardless of which panels are visible. Per rf2-pxeko
-          ;; the slot is top-LEFT — the top-right corner is reserved for
+          ;; chrome regardless of which panels are visible. The slot is
+          ;; top-LEFT — the top-right corner is reserved for
           ;; the Test-Codegen REC chip + recording-overlay banner; a
-          ;; floating `?` on the right occluded the REC affordance.
+          ;; floating `?` on the right would occlude the REC affordance.
           [:div {:style (:help-slot styles)}
            [rf.story.ui.help/help-button]]
           [rf.story.ui.help/help-host]
-          ;; rf2-5fc15: Test Codegen recording overlay (top-right banner
+          ;; Test Codegen recording overlay (top-right banner
           ;; while a recording is in flight) + save-as-variant dialog
           ;; (opens after stop). Both are fixed-position so they float
-          ;; above the three-pane layout. rf2-39u9e adds the mid-recording
+          ;; above the three-pane layout, beside the mid-recording
           ;; assertion picker — a modal that opens off the overlay's
           ;; `+ assert` button.
           [rf.story.ui.recorder/recording-overlay]
           [rf.story.ui.recorder/assertion-picker]
           [rf.story.ui.recorder/save-dialog]
-          ;; rf2-h0jc0: element-inspector hover overlay. Self-elides
+          ;; Element-inspector hover overlay. Self-elides
           ;; when inspect mode is off OR no element is currently
           ;; hovered. Lives in the chrome layer (fixed positioning)
           ;; so it floats above the three-pane layout regardless of
           ;; which panels are visible.
           [rf.story.ui.element-inspector/overlay]
-          ;; rf2-x9zsr — Test Codegen :script export dialog. Opens
+          ;; Test Codegen :script export dialog. Opens
           ;; off the recorder save-dialog's [export as :script]
           ;; button; stacks above via a higher z-index. Lives in its own
           ;; ratom so dismiss / reopen doesn't disturb the parent dialog.
           [rf.story.ui.recorder-export-dialog/export-dialog]
-          ;; rf2-ba86n.16 — human share / export / copy egress dialog.
+          ;; Human share / export / copy egress dialog.
           ;; Opens off the toolbar SHARE chip. Surfaces share URL · copy
           ;; EDN · screenshot · static build, each labelled with its
           ;; reproducibility status (full / partial / view-only). Human
-          ;; egress is NOT privacy-gated (the reframe — local dev has the
+          ;; egress is NOT privacy-gated (local dev already has the
           ;; secrets); the contract is reproducibility honesty.
           [rf.story.ui.share/share-export-dialog]
-          ;; rf2-one3t: save-current-canvas-state-as-variant dialog. Lives
+          ;; Save-current-canvas-state-as-variant dialog. Lives
           ;; alongside the recorder's save dialog — both float above the
           ;; three-pane layout via fixed positioning; both surface the
           ;; generated EDN snippet for review-then-commit.
           [rf.story.ui.save-variant/save-dialog]
-          ;; rf2-ba86n.13: generated-failure promotion dialog. Opens from the
+          ;; Generated-failure promotion dialog. Opens from the
           ;; Test pane's 'promote run' button + the sidebar's 'Captured
           ;; artifacts' rows. Distinct from save-current-state (different
           ;; entry point, captured-artifact source); floats above the layout
@@ -1231,9 +1224,9 @@
           [rf.story.ui.promotion/promotion-dialog]
           [rf.story.ui.command-palette.view/command-palette-host]]))}))
 
-;; ---- error ownership while a shell is mounted (rf2-8yyd, rf2-kuky.18) ----
+;; ---- error ownership while a shell is mounted -----------------------------
 ;;
-;; `re-frame.error-emit`'s dev console fallback (rf2-fu75) prints a promoted
+;; `re-frame.error-emit`'s dev console fallback prints a promoted
 ;; `:rf.error/*` record to `console.error` when NOTHING ROUTED IT. Its whole
 ;; point is the UNTOOLED dev build, where a captured refusal would otherwise
 ;; reach no channel at all. A mounted Story shell is the opposite case: Story
@@ -1243,8 +1236,8 @@
 ;; pane's per-row verdict and the embedded Xray Trace tab. The refusal is
 ;; owned, asserted on, and already on screen.
 ;;
-;; Left unowned, the fallback printed one console line per captured refusal
-;; — 227 of them in a single Story feature-load browser run — which reds
+;; Left unowned, the fallback would print one console line per captured refusal
+;; — hundreds of them in a single Story feature-load browser run — which reds
 ;; `examples/scripts/run-story-feature-load-tests.cjs` (console errors are
 ;; fatal there, not just `pageerror`).
 ;;
@@ -1258,16 +1251,15 @@
 ;; frames on the same page keep their console lines, because they declared
 ;; no policy and Story registered nothing on their behalf.
 ;;
-;; That scoping is the whole reason this is a sink rather than the corpus-
-;; wide `:errors` listener it used to be. The old form registered
-;; `(fn [_record] nil)` purely to claim the stream: a no-op listener on a
-;; door nobody reads, silencing the console for EVERY frame on the page
-;; including ones Story neither mounted nor looked at. A listener existing
-;; only to suppress a console fallback is the tell that the fallback was
-;; keyed on the wrong thing, and rf2-kuky.18 moved the key rather than
-;; keeping the workaround.
+;; That scoping is the whole reason this is a sink rather than a corpus-
+;; wide `:errors` listener. A listener registering
+;; `(fn [_record] nil)` purely to claim the stream would be a no-op listener
+;; on a door nobody reads, silencing the console for EVERY frame on the page
+;; including ones Story neither mounted nor looked at. The fallback keys on
+;; whether a record was routed, so routing Story's own frames to a sink is
+;; the claim that matches it.
 ;;
-;; The sink body is empty on purpose, and that is now honest rather than a
+;; The sink body is empty on purpose, and that is honest rather than a
 ;; claim in disguise: Story's capture path is the trace axis, which carries
 ;; the per-variant frame scope Story's assertions need, so buffering the
 ;; projected record here would be a second copy nothing reads. What the sink
@@ -1340,11 +1332,11 @@
   ([] (unmount-shell! @shell-singleton))
   ([handle]
    (when handle
-     ;; rf2-fq1yg: `rdc/unmount` requires the React Root, NOT the DOM
+     ;; `rdc/unmount` requires the React Root, NOT the DOM
      ;; node — `(.unmount root)` is the React 19 client-Root contract. Passing the
-     ;; DOM node here silently no-op'd (DOM nodes have no `.unmount`
-     ;; method), so the shell's root stayed alive on `#app` and a
-     ;; subsequent `mount-app!` → `create-root` on the same node fired
+     ;; DOM node here would silently no-op (DOM nodes have no `.unmount`
+     ;; method), so the shell's root would stay alive on `#app` and a
+     ;; subsequent `mount-app!` → `create-root` on the same node would fire
      ;; React's "container has already been passed to createRoot before"
      ;; warning. Pass the handle's `:root` slot so React tears down
      ;; cleanly and releases the container.
