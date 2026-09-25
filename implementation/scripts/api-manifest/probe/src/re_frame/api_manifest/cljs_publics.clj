@@ -1,15 +1,14 @@
 (ns re-frame.api-manifest.cljs-publics
   "Compile-time enumeration of a ClojureScript namespace's public vars
-  (rf2-2mtte — the CLJS-side companion to the JVM manifest generator).
+  (the CLJS-side companion to the JVM manifest generator).
 
   THE PROBLEM. The JVM manifest generator (`re-frame.api-manifest.gen`)
   introspects every JVM-loadable public namespace with `clojure.core/
   ns-publics`. The Reagent / UIx adapter namespaces and the Xray
   `mount` host-embed surface are ClojureScript-ONLY — they cannot be
   `require`d on the JVM, so the generator carries their rows verbatim in
-  `spec/api-manifest-metadata.edn` under `:cljs-only` with
-  `:runtime-verified? false`. The existence half of the drift-guard does
-  not reach them.
+  `spec/api-manifest-metadata.edn` under `:cljs-only`, and the JVM
+  existence half of the drift-guard does not reach them.
 
   THE MECHANISM. CLJS has no *runtime* `ns-publics` (vars are erased to
   plain JS at `:advanced`). The portable, deterministic, headless way to
@@ -73,7 +72,7 @@
 ;; filesystem, so the sidecar is read from the JVM side of the macro and
 ;; the relevant rows are emitted as a literal into the ClojureScript.
 ;;
-;; WHY THE READ GOES THROUGH THE SHARED BUILD-TIME READER (rf2-ze3ai).
+;; WHY THE READ GOES THROUGH THE SHARED BUILD-TIME READER.
 ;; Inlining at macro-expansion time by itself HIDES the sidecar from the
 ;; build: a compile that caches this probe's namespace has no dependency
 ;; edge back to the `.edn` whose bytes it froze, so a SIDECAR-ONLY edit —
@@ -94,7 +93,7 @@
 ;; That reader is SHARED rather than reimplemented here because resolving
 ;; shadow's reader is a cold-load race, and two independent resolvers race
 ;; each other however carefully each one guards itself — see the reader's
-;; namespace docstring. The JVM lanes were never affected: the manifest
+;; namespace docstring. The JVM lanes are unaffected: the manifest
 ;; generator re-reads the sidecar on every `clojure -M -m
 ;; re-frame.api-manifest.gen --check`, so it has no cache to invalidate,
 ;; and it does not go through this reader at all — it locates the same
