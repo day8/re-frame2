@@ -7,12 +7,12 @@
   same per-test reset: clear Story's side-table, reset the framework
   runtime (registrar / frames / adapter / trace listeners), re-install
   the canonical Story vocabulary, ensure the default frame, and wipe the
-  per-variant play run-state. Before this helper, every consumer
-  hand-rolled that sequence — and a subtle divergence (clearing the
-  registrar without re-installing the framework's `:rf/machine`
-  subscription, or forgetting `ensure-default-frame!`) leaves the
-  lifecycle machine's handler off the registry and traps every
-  subsequent variant at `:pre-mount`. This failure is silent: the run does
+  per-variant play run-state. A consumer hand-rolling that sequence
+  invites a subtle divergence (clearing the registrar without
+  re-installing the framework's `:rf/machine` subscription, or
+  forgetting `ensure-default-frame!`) that leaves the lifecycle
+  machine's handler off the registry and traps every subsequent
+  variant at `:pre-mount`. This failure is silent: the run does
   not error, it just never reaches
   `:ready`, and the assertions vector comes back empty / green-but-wrong.
 
@@ -113,8 +113,8 @@
   [install]
   ;; Mirror `re-frame.story/clear-all!`: reset the side-table, reset every
   ;; leakable process-global config atom
-  ;; global-args/global-decorators/editor/project-root/egress-profile/
-  ;; suppressed-counters; so a `configure!` in one test cannot leak into
+  ;; (global-args/global-decorators/editor/project-root/egress-profile/
+  ;; suppressed-counters, so a `configure!` in one test cannot leak into
   ;; the next), reset the canonical-vocab auto-install gate, and clear the
   ;; two per-process play atoms (`pending-exceptions` + `stepper-state`).
   ;; Goes beyond `clear-all!` by also wiping the per-variant
