@@ -2147,8 +2147,8 @@
                 extras))
        ;; Return the framework's `false` on failure — the MCP
        ;; restore-epoch tool turns that into a structured envelope at
-       ;; the wire boundary, where `app-db-reset!` builds its
-       ;; soft-failure envelope here on the runtime side.
+       ;; the wire boundary. (`app-db-reset!`, by contrast, builds its
+       ;; soft-failure envelope here on the runtime side.)
        false))))
 
 (defn replay-epoch
