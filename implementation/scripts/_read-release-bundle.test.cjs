@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
- * Tests for `lib/read-release-bundle.cjs` (rf2-ynjts.15 coverage pass).
+ * Tests for `lib/read-release-bundle.cjs`.
  *
  * This module is the shared release-bundle reader + grep primitives for
  * the six check-* scanners (bundle-isolation, reagent-slim, uix-reagent-free,
- * schemas-bundle, perf-bundle, elision). It had no dedicated unit test;
- * its contracts are subtle and load-bearing, and a regression in any of
+ * schemas-bundle, perf-bundle, elision). Its contracts are subtle and
+ * load-bearing, and a regression in any of
  * them produces a SILENT false-GREEN in a production-elision / bundle-
  * isolation gate — the worst failure mode. The behaviours pinned here:
  *
@@ -14,7 +14,7 @@
  *     "did you run shadow-cljs release?" message and exit 1; an empty
  *     string would make every `countSubstring(blob, sentinel) === 0`
  *     sentinel check pass vacuously against a non-existent bundle.
- *   - the reader returns ONLY top-level *.js (rf2-z9a06 trap): a stale
+ *   - the reader returns ONLY top-level *.js: a stale
  *     `cljs-runtime/` dev-source subdir from a prior `shadow-cljs
  *     compile` must NOT be walked, or dev-only sentinels trip false FAILs.
  *   - countMatches resets a caller-supplied /g RegExp's `lastIndex` so
@@ -158,12 +158,12 @@ test('readReleaseBlob returns "" for a present dir with no *.js (distinct from m
   // release simply emitted no JS. Distinct from the null missing-dir case.
   // NOTE: this is the low-level reader's contract; gates MUST NOT branch
   // on this alone — they use classifyReleaseBundle to reject the empty
-  // case (rf2-utvst non-vacuous floor) so an empty bundle is not a
+  // case (the non-vacuous floor) so an empty bundle is not a
   // vacuous GREEN. See the classifyReleaseBundle tests below.
   assert.equal(readReleaseBlob(dir), '');
 });
 
-// ----- classifyReleaseBundle (rf2-utvst non-vacuous floor) -------------------
+// ----- classifyReleaseBundle (non-vacuous floor) -----------------------------
 
 test('classifyReleaseBundle reports status "missing" for a missing dir', () => {
   const c = classifyReleaseBundle(missingDir());
