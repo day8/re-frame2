@@ -25,10 +25,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; `re-frame.core` publishes no `redact-interceptor` (EP-0015
-            ;; §7); it is an internal helper in its home ns, exercised here
-            ;; directly.
-            [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
@@ -594,42 +590,39 @@
     (rf.story.recorder/remove-trace-listener!)))
 
 (deftest trace-listener-redacts-sensitive-dispatches-end-to-end
-  (testing "a `redact-interceptor`-interceptor handler appears in the
-            recording with the payload scrubbed. There is no
-            handler-meta `:sensitive?` annotation, so sensitivity
-            flows via the `redact-interceptor` interceptor (or
-            schema-marked paths)."
+  (testing "an event whose REGISTRATION classifies payload paths
+            (`{:sensitive [[:password] [:totp]]}`) is recorded in position
+            with `:rf/redacted` at each classified path, while an
+            unclassified sibling key rides raw. The recorder reads the
+            dispatched-event trace, whose `:rf.event/v` the framework's
+            registration redaction has already projected."
     (reset-rf-state!)
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
-    ;; Interceptor chains carry references only (EP-0022), so register the
-    ;; interceptor value then reference it by id (the value's `:id`).
-    (rf/reg-interceptor :rf/redact-interceptor
-      (rf.privacy/redact-interceptor [[:password] [:totp]]))
     (rf/reg-event :auth/login
-      {:interceptors [:rf/redact-interceptor]}
+      {:sensitive [[:password] [:totp]]}
       (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.recorder/sens-end-to-end {})
     (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/sens-end-to-end) 5000)
     (rf.story.recorder/install-trace-listener!)
     (rf.story.recorder/start-recording! :story.recorder/sens-end-to-end)
     (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
-    (rf/dispatch-sync [:auth/login {:password "shh"
-                                    :totp "123456"}]
+    (rf/dispatch-sync [:auth/login {:user "ada" :password "shh" :totp "123456"}]
                       {:frame :story.recorder/sens-end-to-end})
     (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
     (rf.story.recorder/stop-recording!)
-    (let [events (rf.story.recorder/recorded-events)]
-      ;; The `:auth/login` event vector survives in position; the
-      ;; redact-interceptor interceptor scrubbed the secret-bearing keys
-      ;; on the trace surface.
-      (is (= 3 (count events)) "all three dispatches captured in position")
-      ;; Belt-and-braces: no slice of the captured trace contains either secret literal.
-      (is (not-any? (fn [ev] (and (vector? ev)
-                                  (some #{"shh" "123456"} (map str ev))))
-                    events)
-          "no captured event vector echoes the sensitive payload literals"))
+    (let [events (rf.story.recorder/recorded-events)
+          tape   (pr-str events)]
+      (is (= [[:counter/inc]
+              [:auth/login {:user "ada" :password :rf/redacted :totp :rf/redacted}]
+              [:counter/inc]]
+             events)
+          "the login row keeps its position; each classified path is
+           :rf/redacted and the unclassified :user rides raw")
+      (is (not (str/includes? tape "shh"))
+          "the recorded tape carries no password literal")
+      (is (not (str/includes? tape "123456"))
+          "the recorded tape carries no one-time-code literal"))
     (rf.story/destroy-variant! :story.recorder/sens-end-to-end)
     (rf.story.recorder/remove-trace-listener!)))
 
