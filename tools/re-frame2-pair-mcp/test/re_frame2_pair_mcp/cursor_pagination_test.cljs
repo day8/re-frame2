@@ -88,7 +88,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cursor-round-trips-integer-after-id
-  ;; The headline fix: an integer :after-id survives encode→decode and
+  ;; The headline case: an integer :after-id survives encode→decode and
   ;; is NOT rejected as malformed.
   (let [payload {:v 1 :after-id 7 :ms 1000 :until-ms 1234567890 :frame :rf/default}
         encoded (cursor/encode-cursor payload)
@@ -316,7 +316,7 @@
                  pages
                  (let [decoded (cursor/decode-cursor cursor-str)
                        _       (when (= malformed decoded)
-                                 (throw (ex-info "integer cursor decoded as malformed — the rf2-ee38b.18 regression"
+                                 (throw (ex-info "integer cursor decoded as malformed"
                                                  {:cursor cursor-str})))
                        after-id (:after-id decoded)
                        out (runtime-form-output hist {:after-id after-id
@@ -517,8 +517,7 @@
                                (is (some? form-str) "a runtime form was emitted")
                                ;; The emitted epoch-matches? call carries
                                ;; the sticky predicate from the cursor —
-                               ;; QUOTED, since a cursor is caller data
-                               ;; (rf2-3x7nj.32.2).
+                               ;; QUOTED, since a cursor is caller data.
                                (is (re-find #"epoch-matches\? \(quote \{:event-id :ev/login\}\)"
                                             form-str)
                                    "page-2 form filters by the sticky pred from the cursor")
@@ -529,7 +528,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Handler-level noncanonical-cursor rejection — the END-TO-END counterpart
-;; to the shared mcp-base codec pin (rf2-3fc89f.19 / #5519, AC#5).
+;; to the shared mcp-base codec pin.
 ;;
 ;; The mcp-base codec rejects a NONCANONICAL Base64 cursor alias: a
 ;; re-spelled token that decodes to the SAME logical cursor on the
@@ -564,7 +563,7 @@
 (defn- inserted-char-alias
   "A GUARANTEED noncanonical alias: splice two non-alphabet chars into the
   canonical `token`. `js/Buffer` DROPS them on decode — the exact
-  host-lenient family the bug report flagged (`ez!!p2…`) — so the alias
+  host-lenient family (`ez!!p2…`) — so the alias
   decodes to the SAME bytes (thus the SAME logical cursor) under a DIFFERENT
   wire string. No pad-slack dependency: it always exists. Mirrors the
   construction the mcp-base CLJS suite proves rejected at the codec unit."
