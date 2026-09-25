@@ -232,7 +232,7 @@ total_count="$(printf '%s\n' "$all_nses" | grep -c . || true)"
 printf '==> implementation/routing under the REAL production gate\n'
 printf '    jvm property : -Dre-frame.debug=false (implementation/routing/deps.edn, :prod-gate :jvm-opts)\n'
 printf '    posture pin  : re-frame.routing-prod-gate-lane-pin-test (red if the property did not arrive)\n'
-printf '    namespaces   : %s of %s (%s excluded as known-red — rf2-o5dbf)\n' \
+printf '    namespaces   : %s of %s (%s excluded as known-red)\n' \
   "$runnable_count" "$total_count" "$excluded_count"
 
 if [ "${1:-}" = "--plan" ]; then
@@ -265,8 +265,8 @@ if ! clojure -M:test:prod-gate "${args[@]}"; then
   printf '\nFAIL implementation/routing under -Dre-frame.debug=false\n' >&2
   printf 'repro: bash scripts/test-routing-prod-gate.sh\n' >&2
   printf 'A namespace that is green in `clojure -M:test` and red here is asserting\n' >&2
-  printf 'DEV INSTRUMENTATION, or it is a genuine production defect (rf2-9c2jf was\n' >&2
-  printf 'the latter). Decide which before touching the known_red roster.\n' >&2
+  printf 'DEV INSTRUMENTATION, or it is a genuine production defect. Decide which\n' >&2
+  printf 'before touching the known_red roster.\n' >&2
   exit 1
 fi
 
