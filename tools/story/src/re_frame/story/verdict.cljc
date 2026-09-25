@@ -11,16 +11,16 @@
   `re-frame.story.result` is the canonical assembly, but it pulls in
   `re-frame.story.assertions` (and through it `re-frame.core`, the
   runtime). A pure UI-state / test-mode helper cannot require `result`
-  without dragging the runtime onto its require path, so the four-verdict
-  set and the record-normalization rule used to be COPIED by hand into
-  those leaves — a copy that had already drifted once and mis-classified
-  a thrown-handler record as a false-green `:pass` (rf2-fslmh /
-  rf2-o6toyw).
+  without dragging the runtime onto its require path, so without a leaf
+  the four-verdict set and the record-normalization rule would be COPIED
+  by hand into those leaves — and a drifted copy would mis-classify, for
+  one, a thrown-handler record as a false-green `:pass`.
 
-  This ns lifts those two things — `statuses` and `record-status` — to a
-  single owner every side can consume directly. `result` re-exports the
-  vars to preserve its public contract; the UI-state + test-mode helpers
-  consume the leaf. One implementation, no mirror, no parity test.")
+  This ns is the single owner of those two things — `statuses` and
+  `record-status` — and every side consumes it directly. `result`
+  re-exports the vars as part of its public contract; the UI-state +
+  test-mode helpers consume the leaf. One implementation, no mirror, no
+  parity test.")
 
 ;; ===========================================================================
 ;; STATUS — the four verdicts (spec/017 §Run result)
@@ -47,8 +47,8 @@
   record was minted by a status-aware path); otherwise:
 
   - `:cannot-run?` true   → `:cannot-run` (the runner could not prove it);
-  - `:skipped?` true      → `:cannot-run` (§`:cannot-run` generalizes the
-                            shipping `:skipped?`);
+  - `:skipped?` true      → `:cannot-run` (§`:cannot-run` generalizes
+                            `:skipped?`);
   - `:exception` / `:error` truthy → `:error` (a thrown handler / fx / step
                             — a derived record carrying `:exception`/`:error`
                             but no explicit `:status` counts as `:error`,
@@ -61,7 +61,7 @@
   (cond
     (contains? statuses status) status
     cannot-run?                 :cannot-run
-    skipped?                    :cannot-run   ; §`:cannot-run` generalizes the shipping :skipped?
+    skipped?                    :cannot-run   ; §`:cannot-run` generalizes :skipped?
     (or exception error)        :error
     (true? passed?)             :pass
     (false? passed?)            :fail
