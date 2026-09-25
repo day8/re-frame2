@@ -1,28 +1,27 @@
 'use strict';
-// THE PER-KEYSTROKE WITNESS'S ADJUDICATOR — rf2-0qj9w.
+// THE PER-KEYSTROKE WITNESS'S ADJUDICATOR.
 //
 // `clock_run.cjs` drives the keystroke row; this file decides what its Event
 // Timing entries and its recompute census MEAN. It is a separate module for
 // `seam.cjs`'s and `order_guard.cjs`'s reason: an adjudicator that can only be
 // exercised by opening a browser is an adjudicator nobody has seen refuse.
 // Everything here is pure, its refusals are fixtures ([[selfTest]]), and those
-// fixtures run in the fast-PR spine via `clock_witness.test.cjs`.
+// fixtures run in the lane's `npm run check` via `clock_witness.test.cjs`.
 //
-// ## THE DEFECT THIS REPAIRS
+// ## THE DEFECT THIS GUARDS AGAINST
 //
-// The runner sent 540 measured keys — 6 rounds x 3 segments x 10 samples x 3
-// non-plumb arms — and reported `totalKeys` as 180, because the arithmetic it
-// printed omitted the arm axis entirely. Worse, each substrate arm received 60
-// measured keys and the published table called 109-115 records
-// "interactions". The cause was the grouping key
+// A runner that sends 540 measured keys — 6 rounds x 3 segments x 10 samples
+// x 3 non-plumb arms — reports `totalKeys` as 180 if the arithmetic it prints
+// omits the arm axis. Worse, a substrate arm that receives 60 measured keys
+// publishes 109-115 records as "interactions" under the grouping key
 //
 //     `${seg}/${arm}#${round}#${sampleIndex}#${e.interactionId || 0}`
 //
 // inside an already-known physical sample. One keypress raises several events;
 // Chrome gives the ones that belong to the interaction a shared NONZERO
 // `interactionId` and leaves the others at 0. Folding `|| 0` into the key
-// therefore minted a SECOND pseudo-interaction — the zero-id `beforeinput` /
-// `input` entries — beside the real keyboard interaction, and roughly doubled
+// therefore mints a SECOND pseudo-interaction — the zero-id `beforeinput` /
+// `input` entries — beside the real keyboard interaction, and roughly doubles
 // the count. A row cannot report `n` it does not have.
 //
 // ## THE RULE, and it is web-vitals'
@@ -56,8 +55,8 @@
 // ## WHAT IT REFUSES
 //
 // Every fault below exits the driver non-zero and names itself. That is the
-// point of the file: this lane has repeatedly found instruments that printed a
-// remark about their own incoherence and returned success anyway.
+// point of the file: an instrument that prints a remark about its own
+// incoherence and returns success anyway is the failure this lane refuses.
 //
 //   collapsed-physical-keys  two keys the driver pressed share one identity,
 //                            so their entries cannot be told apart. This is
@@ -338,7 +337,7 @@ function format(v) {
 }
 
 // ---------------------------------------------------------------------------
-// The fixtures — every refusal, plus the defect this file repairs
+// The fixtures — every refusal, plus the defect this file guards against
 // ---------------------------------------------------------------------------
 
 const SHAPE = { cells: 100, fields: 4, substrate: ['fresco'], floors: ['floor', 'ctl-50ms'] };
@@ -366,7 +365,7 @@ function selfTest() {
   const key = (round, sampleIndex, arm = 'fresco') => ({ seg: 's', arm, round, sampleIndex, field: sampleIndex % 4 });
 
   // 1. THE DEFECT ITSELF. One physical key, one nonzero interaction, two
-  //    zero-id entries beside it. The old grouping minted TWO records here.
+  //    zero-id entries beside it. A `|| 0` grouping would mint TWO records here.
   {
     const k = key(0, 0);
     const v = adjudicate({
@@ -407,7 +406,7 @@ function selfTest() {
   }
 
   // 4. THE MUTATION. Two physical keys sharing one identity — what a grouping
-  //    that dropped `sampleIndex` produces — is refused by name.
+  //    that drops `sampleIndex` produces — is refused by name.
   {
     const k = key(0, 0);
     const v = adjudicate({ sent: [k, { ...k }], entries: [], census: cleanCensus('fresco'), shape: SHAPE });
