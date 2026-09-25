@@ -799,27 +799,31 @@
                        (long (+ micro-total region-micro))
                        (into cascade region-cascade))))))))))
 
+(defn- lead-with
+  "Run `descend` against the snapshot `lead-r` leaves. `lead-r`'s fx and
+  cascade steps lead the descent's, and the descent's handled / microstep
+  counts ride through. A `:fail` from either short-circuits."
+  [lead-r descend]
+  (if (rf.machines.result/fail? lead-r)
+    lead-r
+    (rf.machines.result/with-ok [snap0 lead-fx] lead-r
+      (let [descent-r (descend snap0)]
+        (if (rf.machines.result/fail? descent-r)
+          descent-r
+          (rf.machines.result/with-ok [snap fx] descent-r
+            (-> (rf.machines.result/ok snap (into (vec lead-fx) fx))
+                (rf.machines.result/with-handled (rf.machines.result/handled? descent-r))
+                (rf.machines.result/with-microsteps (rf.machines.result/microsteps descent-r))
+                (rf.machines.result/with-cascade
+                  (into (vec (rf.machines.result/cascade lead-r))
+                        (rf.machines.result/cascade descent-r))))))))))
+
 (defn- with-root-entry
   "Run the tree root's own `:entry` (`rf.machines.transition/run-root-entry`
   — the machine root's, or the region body's when `machine` is a region
-  spec), then `descend` against the snapshot it leaves. The root's fx and
-  cascade step lead the descent's, and the descent's handled / microstep
-  counts ride through. A `:fail` from either short-circuits."
+  spec), then `descend` against the snapshot it leaves."
   [machine snapshot descend]
-  (let [root-r (rf.machines.transition/run-root-entry machine snapshot)]
-    (if (rf.machines.result/fail? root-r)
-      root-r
-      (rf.machines.result/with-ok [snap0 root-fx] root-r
-        (let [descent-r (descend snap0)]
-          (if (rf.machines.result/fail? descent-r)
-            descent-r
-            (rf.machines.result/with-ok [snap fx] descent-r
-              (-> (rf.machines.result/ok snap (into (vec root-fx) fx))
-                  (rf.machines.result/with-handled (rf.machines.result/handled? descent-r))
-                  (rf.machines.result/with-microsteps (rf.machines.result/microsteps descent-r))
-                  (rf.machines.result/with-cascade
-                    (into (vec (rf.machines.result/cascade root-r))
-                          (rf.machines.result/cascade descent-r)))))))))))
+  (lead-with (rf.machines.transition/run-root-entry machine snapshot) descend))
 
 (defn- region-birth-step
   "Enter one region at birth: the region body's own `:entry`, then the
@@ -857,25 +861,30 @@
 
   Per Spec 005 §State nodes (the machine root): the machine root's own
   `:entry` runs FIRST, before the initial descent of any state or region —
-  its fx and its cascade step lead the Result's. Each region body's own
-  `:entry` then runs as that region is entered, before the region's initial
-  descent (`region-birth-step`)."
+  its fx and its cascade step lead the Result's — and the root's own `:spawn`
+  child is spawned next (`rf.machines.transition/run-root-spawn`), still
+  before the descent. Each region body's own `:entry` then runs as that
+  region is entered, before the region's initial descent
+  (`region-birth-step`)."
   [machine initial-snapshot]
   (with-root-entry
     machine initial-snapshot
     (fn [snap0]
-      (if (parallel? machine)
-        (let [regions-r (reduce-regions machine snap0 region-birth-step)]
-          (if (rf.machines.result/fail? regions-r)
-            regions-r
-            (rf.machines.result/with-ok [snap fx] regions-r
-              (let [[snap' root-after-fx]
-                    (rf.machines.transition/schedule-root-after-fx machine snap false)]
-                (-> (rf.machines.result/ok snap' (into (vec fx) root-after-fx))
-                    (rf.machines.result/with-handled (rf.machines.result/handled? regions-r))
-                    (rf.machines.result/with-microsteps (rf.machines.result/microsteps regions-r))
-                    (rf.machines.result/with-cascade (rf.machines.result/cascade regions-r)))))))
-        (bootstrap-step machine snap0)))))
+      (lead-with
+        (rf.machines.transition/run-root-spawn machine snap0)
+        (fn [snap1]
+          (if (parallel? machine)
+            (let [regions-r (reduce-regions machine snap1 region-birth-step)]
+              (if (rf.machines.result/fail? regions-r)
+                regions-r
+                (rf.machines.result/with-ok [snap fx] regions-r
+                  (let [[snap' root-after-fx]
+                        (rf.machines.transition/schedule-root-after-fx machine snap false)]
+                    (-> (rf.machines.result/ok snap' (into (vec fx) root-after-fx))
+                        (rf.machines.result/with-handled (rf.machines.result/handled? regions-r))
+                        (rf.machines.result/with-microsteps (rf.machines.result/microsteps regions-r))
+                        (rf.machines.result/with-cascade (rf.machines.result/cascade regions-r)))))))
+            (bootstrap-step machine snap1)))))))
 
 (declare machine-transition)
 ;; `drain-parent-queue` consults the parallel root `:on` ancestor fallback for a
@@ -1625,6 +1634,21 @@
       (apply-root-parallel-transition machine snapshot event
                                       (:transition match)))))
 
+(defn- root-spawn-seed
+  "Per Spec 005 §The machine root: resolve a carrier for the parallel ROOT's
+  own `:spawn` child (`rf.machines.transition/root-spawn-carrier?`). The child
+  belongs to no region, so the carrier is not broadcast: the root's
+  `:spawn :on-error` / transition-shaped `:on-done`, else its own `:on` for
+  the reserved id, is applied with the root `:on` grammar — the action once
+  against the shared `:data`, region-qualified targets moved. Returns that
+  Result, or the unchanged snapshot marked unhandled when nothing matches.
+  The seed is stabilized by the same parent-owned loop as every other
+  parallel transition."
+  [machine snapshot event]
+  (if-let [t (rf.machines.transition/root-spawn-carrier-match machine event snapshot)]
+    (apply-root-parallel-transition machine snapshot event t)
+    (rf.machines.result/with-handled (rf.machines.result/ok snapshot []) false)))
+
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
   event, run the parallel MACROSTEP — broadcast the event to every region,
@@ -1689,11 +1713,14 @@
   (let [;; A parallel-ROOT `:after` timer (`[]` decl-path) is
         ;; root-owned, not region-scoped: resolve it through the root `:on`
         ;; apply path rather than broadcasting it to the regions (which key off
-        ;; a region-name-prefixed decl-path and would all decline it).
+        ;; a region-name-prefixed decl-path and would all decline it). A
+        ;; carrier for the root's own `:spawn` child is root-owned the same way.
         root-after?   (rf.machines.transition/root-after-elapsed? event)
-        first-r       (if root-after?
-                        (root-after-seed machine snapshot event)
-                        (broadcast-once machine snapshot event))
+        root-spawn?   (rf.machines.transition/root-spawn-carrier? event)
+        first-r       (cond
+                        root-after? (root-after-seed machine snapshot event)
+                        root-spawn? (root-spawn-seed machine snapshot event)
+                        :else       (broadcast-once machine snapshot event))
         ;; Root parallel `:on` ancestor fallback. When no region
         ;; handled the event, consult the root `:on`; if it fires, its result
         ;; (handled, region targets moved) BECOMES the macrostep seed and is
@@ -1701,10 +1728,11 @@
         ;; / `:raise` continue the macrostep). When no region handled AND the
         ;; root declines, `seed` == `first-r` and the all-regions-declined
         ;; no-op path runs.
-        ;; A root-`:after` firing already IS the root-owned seed, so the `:on`
-        ;; fallback is skipped (the `:after` reserved-namespace event is not an
-        ;; unhandled user event `root-fallback-seed` would consult `:on` for).
-        seed          (if root-after?
+        ;; A root-`:after` firing or a root-child carrier already IS the
+        ;; root-owned seed, so the `:on` fallback is skipped (a reserved-
+        ;; namespace event is not an unhandled user event `root-fallback-seed`
+        ;; would consult `:on` for).
+        seed          (if (or root-after? root-spawn?)
                         first-r
                         (root-fallback-seed machine snapshot event first-r))
         settled       (drain-parent-queue machine snapshot event seed)

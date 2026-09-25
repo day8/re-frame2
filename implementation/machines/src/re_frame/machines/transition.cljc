@@ -1393,8 +1393,11 @@
   Per Spec 005 §Stale suppression a stale carrier gets no `:on-done` fold, no
   `:on-error`, and no engine step. `invoke-id` is the carrier's own path, which
   is region-qualified on a parallel machine (head = region name) — the same key
-  `handle-spawn-decl` bumps. Child finality is NOT staleness: the child and its
-  registry slot are always gone by the time its carrier arrives."
+  `handle-spawn-decl` bumps. The machine root's child sits at `[]`, on a flat
+  and a parallel machine alike: the root is active while the machine lives, so
+  only the attempt can make its carrier stale. Child finality is NOT
+  staleness: the child and its registry slot are always gone by the time its
+  carrier arrives."
   [snapshot invoke-id carried-attempt]
   (let [state       (:state snapshot)
         invoke-id   (vec invoke-id)
@@ -1403,11 +1406,24 @@
                        (vec (rest invoke-id))]
                       [(state-path state) invoke-id])]
     (cond
-      (not (and path (prefix-of? rel path)))
+      (and (seq invoke-id) (not (and path (prefix-of? rel path))))
       :rf.machine.spawn/state-exited
 
       (not= carried-attempt (get-in snapshot [:rf/spawn-attempts invoke-id]))
       :rf.machine.spawn/attempt-superseded)))
+
+(defn- live-spawn-node
+  "The `:spawn`-bearing node a spawn carrier's `invoke-id` names, while that
+  spawn is live: the node at `invoke-id` while it is on the active `path`, or,
+  for the empty `invoke-id` of the machine root's child, the machine itself,
+  which is active for its whole life. Nil otherwise. `region` is the region
+  name when `machine` is a region spec; a region body declares no `:spawn`."
+  [machine region path invoke-id]
+  (when (vector? invoke-id)
+    (if (seq invoke-id)
+      (when (prefix-of? invoke-id path)
+        (node-at machine invoke-id))
+      (when-not region machine))))
 
 (defn- pick-spawn-error-transition
   "Per Spec 005 §Final states §`:on-error` — child-failure control flow
@@ -1425,7 +1441,9 @@
   single transition map `{:target :guard :actions}`, or guarded candidate
   vector) — normalised + guard-resolved through the SAME candidate machinery as
   an `:on` clause. The error payload rides on `:event` (`(nth ev 2)`) so a
-  guard / action can branch on it.
+  guard / action can branch on it. The machine root's child carries the empty
+  `<invoke-id>`, so its `:on-error` resolves at the root, where a keyword
+  target names a top-level state.
 
   Two resolution arms, in priority order — symmetric with
   `pick-done-transition`:
@@ -1488,10 +1506,7 @@
         ;; the active `path` — a transition that already exited the spawning
         ;; state cannot land an `:on-error` (the spawn is gone). `prefix-of?`
         ;; mirrors the `:after` staleness check.
-        spawn-node     (when (and (vector? invoke-id)
-                                  (seq invoke-id)
-                                  (prefix-of? invoke-id path))
-                         (node-at machine invoke-id))
+        spawn-node     (live-spawn-node machine region path invoke-id)
         on-error       (get-in spawn-node [:spawn :on-error])
         on-error-cands (when (and spawn-node (some? on-error))
                          (normalise-candidates on-error
@@ -1524,7 +1539,9 @@
       vector-path target, single transition map or guarded candidate vector
       on the `:spawn`-bearing state at `<invoke-id>`, resolved at THAT state's
       level (a keyword target is a sibling of the spawning state), only while
-      the parent's active path still includes it. The region head is stripped
+      the parent's active path still includes it (the machine root's `[]`
+      always does, and there a keyword target names a top-level state). The
+      region head is stripped
       and a FOREIGN region declines this arm, and `(nth event 1)` is re-stamped
       region-relative for the guard, exactly as on the error side. A fn
       `:on-done` is the `:data` fold the handler boundary already applied
@@ -1552,11 +1569,8 @@
         region-event    (if (and region (vector? raw-invoke-id))
                           (assoc (vec event) 1 invoke-id)
                           event)
-        spawn-node      (when (and (not decline-region?)
-                                   (vector? invoke-id)
-                                   (seq invoke-id)
-                                   (prefix-of? invoke-id path))
-                          (node-at machine invoke-id))
+        spawn-node      (when-not decline-region?
+                          (live-spawn-node machine region path invoke-id))
         on-done         (get-in spawn-node [:spawn :on-done])
         on-done-hit     (when (and (some? on-done) (not (fn? on-done)))
                           (when-let [cands (seq (normalise-candidates
@@ -3102,6 +3116,72 @@
   `[:rf.machine/destroy-exit]`, as the rest of that cascade."
   [machine snap]
   (run-root-action machine snap :exit :exit :destroy-exit [:rf.machine/destroy-exit]))
+
+;; ---- the machine root's own :spawn ----------------------------------------
+;;
+;; Per Spec 005 §The machine root: a root `:spawn` is a child that lives as
+;; long as the machine. It is spawned once at birth, under invoke-id `[]`,
+;; after the root's `:entry` and before the initial descent; it is never
+;; destroyed by a transition, because the root is never exited by one; and it
+;; ends with its owner — `teardown-live-actor!`'s reap of the owner's tracked
+;; slots on destroy, `root-destroy-fx` on whole-machine finality. Its carriers
+;; resolve at the root: through `pick-transition` on a flat machine, and
+;; through `root-spawn-carrier-match` on a `:type :parallel` machine, whose
+;; regions own no part of the root.
+
+(defn run-root-spawn
+  "Spawn the machine root's `:spawn` child at birth, against `snap` — the
+  snapshot the root's `:entry` left, before any state is entered — exactly as
+  an entered state's `:spawn` is spawned (`handle-spawn-decl`): its attempt at
+  `[:rf/spawn-attempts []]`, its id from the in-snapshot counter, the
+  `[:data :rf/spawned []]` mirror and one `[:rf.machine/spawn …]` fx. A root
+  that declares no `:spawn` returns `snap` unchanged; a throwing `:data` fn
+  returns its `:fail`."
+  [machine snap]
+  (if-not (:spawn machine)
+    (rf.machines.result/ok snap [])
+    (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
+          step      (handle-spawn-decl parent-id nil snap [] [] machine [start-marker])]
+      (if (reduced? step)
+        @step
+        (let [[snap' fx] step]
+          (rf.machines.result/ok snap' fx))))))
+
+(defn root-destroy-fx
+  "The `:rf.machine/destroy` fx that ends the machine root's `:spawn` child
+  (the tracked form at invoke-id `[]`), for a machine finishing as a whole.
+  `parent-id` is the finishing actor's own id, the key its child's registry
+  slot sits under. `[]` when the root declares no `:spawn`."
+  [machine parent-id]
+  (build-destroy-fx parent-id [[[] machine]] false))
+
+(defn root-spawn-carrier?
+  "True iff `event` is a carrier for the machine root's own child —
+  `[:rf.machine.spawn/error [] …]` or `[:rf.machine.spawn/done [] …]`."
+  [event]
+  (and (vector? event)
+       (contains? #{spawn-error-event-id spawn-done-event-id} (first event))
+       (= [] (nth event 1 nil))))
+
+(defn root-spawn-carrier-match
+  "Resolve a carrier for a `:type :parallel` root's own child
+  (`root-spawn-carrier?`) to the root transition it takes: the root
+  `:spawn :on-error` for a failure or a transition-shaped root
+  `:spawn :on-done` for a completion, then the root's own `:on` for the
+  carrier's reserved id. Selected against `snapshot`, the frozen pre-event
+  view, as a root `:on` is. Returns the transition map or nil; the parallel
+  layer applies it with the root's region-qualified target grammar."
+  [machine event snapshot]
+  (let [event-id (first event)
+        error?   (= spawn-error-event-id event-id)
+        v        (get-in machine [:spawn (if error? :on-error :on-done)])
+        cands    (when (and (some? v) (not (fn? v)))
+                   (normalise-candidates v (if error?
+                                             :rf.error/machine-bad-on-error-clause
+                                             :rf.error/machine-bad-on-done-clause)))]
+    (or (when (seq cands)
+          (select-passing-candidate machine cands snapshot event))
+        (match-on-clause machine machine event-id event snapshot))))
 
 ;; ---- apply-transition-once: cascade phases --------------------------------
 ;;
