@@ -21,7 +21,7 @@
  :fixture/handlers
  {:machine-action
   ;; Each action returns {:fx [[:log {...}]]} via the handler-body DSL.
-  ;; Action signature: (fn [{:keys [data event]}] {:data {...} :fx [...]}) per rf2-grw4i / rf2-v0rrr.
+  ;; Action signature: (fn [{:keys [data event]}] {:data {...} :fx [...]}).
   {:traffic-light/log-yellow [[:fx :log {:level :info :msg "yellow"}]]
    :traffic-light/log-red    [[:fx :log {:level :info :msg "red"}]]
    :traffic-light/log-green  [[:fx :log {:level :info :msg "green"}]]}}
