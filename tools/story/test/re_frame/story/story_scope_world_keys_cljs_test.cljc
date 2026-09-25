@@ -80,8 +80,7 @@
 
 (deftest a-story-level-substrate-reaches-the-plan
   (testing "A story declares the authoring layer once; its variants inherit
-            it and declare
-            nothing. `[:world :substrates]` is where
+            it and declare nothing. `[:world :substrates]` is where
             `canonical/render-host-scope` reads it, so an absent slot is a
             silent Reagent render."
     (rf.story.registrar/reg-story* :story.scope-sub
