@@ -57,8 +57,8 @@ const DEFAULT_PORT = 8050;
 const parseExplicitPort = makeParseExplicitPort('EXAMPLES_PORT', { actionable: true });
 
 // Wrap the shared scanner with the examples-specific exhausted-port
-// wording (actionable, like every error this module raises) so the
-// public signature is unchanged.
+// wording (actionable, like every error this module raises), keeping the
+// shared scanner's `(startPort, opts)` signature.
 function findAvailablePort(startPort, opts = {}) {
   return findAvailablePortShared(startPort, {
     ...opts,
