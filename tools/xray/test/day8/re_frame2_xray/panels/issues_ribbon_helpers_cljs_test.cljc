@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.issues-ribbon-helpers-cljs-test
-  "Pure-data tests for Xray's Issues panel helpers (rf2-jio48 rebuild).
+  "Pure-data tests for Xray's Issues panel helpers.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -23,7 +23,7 @@
     6. **project-feed** — top-level composite over a focused epoch
        record; empty-kind classifier (:no-focus, :epoch-evicted,
        :no-issues branches per spec/021 §10.7). No filtering
-       (rf2-ad7zx.9 — pure rows per the Figma design).
+       (pure rows per the Figma design).
     7. **resolve-focus-status / find-epoch-record** — focus + history
        resolver.
     8. **format-time** — renders a stable HH:MM:SS.mmm string."
@@ -59,7 +59,7 @@
     :tags      tags}))
 
 (defn- info-ev
-  "An `:op-type :info` row — ACTIVITY, not an issue (rf2-3x7nj.24.1)."
+  "An `:op-type :info` row — ACTIVITY, not an issue."
   ([id operation]
    (info-ev id operation {}))
   ([id operation {:keys [time tags] :or {time 1000 tags {}}}]
@@ -105,17 +105,17 @@
 
 (deftest severity-colour-mapping-honours-tokens
   (testing "each severity gets the shell.cljs token-equivalent colour
-            (resolved through `theme/tokens` so the rf2-0fr6v
-            `:text-tertiary` contrast bump round-trips automatically).
+            (resolved through `theme/tokens` so a change to the
+            `:text-tertiary` contrast round-trips automatically).
             Drives both the row's 3px left-border and the text badge
-            per the Figma design (rf2-ad7zx.9)."
+            per the Figma design."
     (is (= (:error    tokens/tokens) (h/severity-colour :error)))
     (is (= (:warning  tokens/tokens) (h/severity-colour :warning)))
     (is (= (:advisory tokens/tokens) (h/severity-colour :advisory)))
     (is (= (:text-tertiary tokens/tokens) (h/severity-colour :unknown)))))
 
 (deftest severity-badge-label-uppercase
-  (testing "rf2-ad7zx.9 — the per-row TEXT badge is uppercase
+  (testing "the per-row TEXT badge is uppercase
             ERROR / WARNING / ADVISORY per the Figma design
             (design-reference/xray_devtools_reference.cljs, the issues-panel component)"
     (is (= "ERROR"    (h/severity-badge-label :error)))
@@ -166,19 +166,17 @@
       (is (= :error                     (:op-type row)))
       (is (= :rf.error/handler-exception    (:operation row)))
       (is (= "handler-exception"        (:category row))
-          "rf2-ad7zx.9 — the muted category cell is the unqualified op name")
+          "the muted category cell is the unqualified op name")
       (is (= "rf.error"                 (:category-prefix row)))
       (is (re-find #"kaboom"            (:description row)))
       (is (some?                        (:raw row))))))
 
 ;; ---- (5) category-label / category-prefix ----------------------------
 ;;
-;; rf2-ad7zx.9 — the chip-filter helpers (`passes-severity?`,
-;; `passes-category-prefix?`, `apply-filters`) and the
-;; `distinct-prefixes` enumeration were removed with the Issues panel's
-;; filter-chrome reconcile to the Figma design (pure rows, no filtering
-;; — spec/021 §8.2). The Figma row's muted `category` cell is the
-;; unqualified op name; `category-prefix` still carries the domain
+;; There are no chip-filter helpers and no `distinct-prefixes`
+;; enumeration: the Issues panel renders pure rows with no filtering, per
+;; the Figma design (spec/021 §8.2). The Figma row's muted `category` cell
+;; is the unqualified op name; `category-prefix` carries the domain
 ;; provenance (used for the row's title affordance).
 
 (deftest category-label-is-unqualified-op-name
@@ -203,7 +201,7 @@
     (is (= :no-focus (h/resolve-focus-status nil nil)))))
 
 (deftest resolve-focus-status-head-fallback
-  (testing "rf2-h0120 — focus nil but history non-empty → head-fallback
+  (testing "focus nil but history non-empty → head-fallback
             (resolves to :focused; the find-epoch-record lookup returns
             the most-recent record). This is the natural debugging UX —
             show the latest unless the operator explicitly picks an
@@ -239,7 +237,7 @@
     (is (nil? (h/find-epoch-record 99 hist)))))
 
 (deftest find-epoch-record-head-fallback
-  (testing "rf2-h0120 — focus nil + history non-empty returns the HEAD
+  (testing "focus nil + history non-empty returns the HEAD
             (most-recent) record. epoch-history is oldest-first per
             re-frame.epoch/epoch-history, so the head is the last
             element."
@@ -306,7 +304,7 @@
       (is (= 42 (:epoch-id feed))))))
 
 (deftest project-feed-head-fallback-end-to-end
-  (testing "rf2-h0120 — exercise the panel's sub call-site shape: when
+  (testing "exercise the panel's sub call-site shape: when
             :rf.xray/focus carries no :epoch-id but :rf.xray/epoch-
             history has records, resolve-focus-status returns :focused,
             find-epoch-record returns the head, and project-feed
@@ -329,15 +327,15 @@
       (is (= [1] (mapv :id (:issues feed))))
       (is (= 6 (:epoch-id feed)) "feed epoch-id reflects the head"))))
 
-;; ---- (6b) feed-under-cascade-scope: SSR hydration-mismatch (rf2-djuf3) --
+;; ---- (6b) feed-under-cascade-scope: SSR hydration-mismatch --------------
 ;;
-;; Pins the regression the `hydration mismatch debugger` feature-gate
-;; scenario surfaces: the Issues panel is the focused-epoch (cascade)
+;; Pins what the `hydration mismatch debugger` feature-gate scenario
+;; relies on: the Issues panel is the focused-epoch (cascade)
 ;; lens, so a `:rf.ssr/hydration-mismatch` error that LANDS in a cascade's
 ;; `:trace-events` MUST project into the feed under that cascade's scope.
 ;;
 ;; (When `verify-hydration!` emits the mismatch OUTSIDE any dispatch the
-;; framework's epoch capture drops the orphan — rf2-avvwm — so it never
+;; framework's epoch capture drops the orphan, so it never
 ;; reaches an epoch record. That out-of-cascade case is exercised by the
 ;; orphan-drop epoch-capture tests, not here; this test pins the in-
 ;; cascade projection that the panel's contract guarantees.)
@@ -375,8 +373,8 @@
       (is (= 2 (:epoch-id feed)) "feed epoch-id reflects the focused cascade"))))
 
 (deftest project-feed-hydration-mismatch-head-fallback-sub-call-site
-  (testing "rf2-djuf3 — the panel's sub call-site shape: nil focus +
-            non-empty history head-falls-back (rf2-h0120) onto the
+  (testing "the panel's sub call-site shape: nil focus +
+            non-empty history head-falls-back onto the
             cascade carrying the hydration-mismatch, and the feed
             renders that issue under cascade scope"
     (let [hist           [(epoch-record 1 [])
@@ -391,8 +389,8 @@
       (is (= [9] (mapv :id (:issues feed)))))))
 
 (deftest project-feed-always-renders-feed-or-empty-state
-  (testing "rf2-djuf3 invariant (rf2-ad7zx.9 — :no-matches dropped with
-            the filter chrome) — under EVERY focus-status the panel sub
+  (testing "invariant (there is no :no-matches kind: the panel has no
+            filter chrome) — under EVERY focus-status the panel sub
             yields a renderable shape: either the feed (empty-kind nil)
             or exactly one of the three empty-state discriminators. The
             feature-gate scenario waits on this union; an unhandled
@@ -428,7 +426,7 @@
       (is (= [3 2 1] (mapv :id (:issues feed)))))))
 
 (deftest project-feed-no-filtering-renders-every-issue
-  (testing "rf2-ad7zx.9 — the panel renders pure rows with NO filtering;
+  (testing "the panel renders pure rows with NO filtering;
             every issue in the focused epoch surfaces, :rendered = :total"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
                                   (warning-ev 2 :rf.warning/missing-doc)
@@ -440,13 +438,13 @@
       (is (= #{1 2 4} (set (map :id (:issues feed))))
           "every ISSUE renders; the :info activity row is not one"))))
 
-;; ---- (9) an :info lifecycle row is activity, never an issue (rf2-3x7nj.24.1)
+;; ---- (9) an :info lifecycle row is activity, never an issue
 ;;
 ;; The runtime emits `:rf.http/issued` at `:info` inside the issuing fx
 ;; handler on EVERY managed request, so it lands in the issuing bundle —
-;; and while `:info` classed as an `:advisory` issue, every healthy
-;; HTTP-issuing epoch put one issue on the ribbon (tripping the
-;; auto-open-on-error watcher's empty→non-empty edge) and washed its L2
+;; and if `:info` classed as an `:advisory` issue, every healthy
+;; HTTP-issuing epoch would put one issue on the ribbon (tripping the
+;; auto-open-on-error watcher's empty→non-empty edge) and wash its L2
 ;; row pink beside a green status. The row below is the producer's shape.
 
 (deftest info-lifecycle-row-is-not-an-issue
@@ -461,7 +459,7 @@
       (is (= 0 (:total feed)))
       (is (= :no-issues (:empty-kind feed))
           "the ribbon stays EMPTY, so auto-open-on-error has no edge to fire on")))
-  (testing "CONTROLS — the two issue tiers still project, so the drop above is
+  (testing "CONTROLS — the two issue tiers do project, so the drop above is
             about :info and not about the projection having gone blank"
     (let [warn  (teb/ev :warning :rf.fx/skipped-on-platform {:rf.fx/id :app/clip})
           err   (teb/handler-exception-ev :app/load "boom")
@@ -516,12 +514,11 @@
              (error-ev 1 :rf.error/handler-exception {:tags {}}))))))
 
 (deftest short-description-surfaces-no-such-sub-under-spec-009-shape
-  ;; rf2-qn9ss — agpv2.3 (#3107) re-shaped the `:rf.error/no-such-sub`
-  ;; emit tags from the legacy `{:rf.sub/query-v _}` to spec/009's
+  ;; The `:rf.error/no-such-sub` emit tags are spec/009's
   ;; `{:rf.sub/id _ :unresolved-input _ :resolved-inputs _ :frame _}`
-  ;; (verified against the `re-frame.subs` emit site). The ribbon's
-  ;; description reader now reads `:unresolved-input` so the row surfaces
-  ;; WHICH sub failed to resolve, rather than the bare op keyword.
+  ;; (the `re-frame.subs` emit site); there is no `:rf.sub/query-v` slot.
+  ;; The ribbon's description reader reads `:unresolved-input` so the row
+  ;; surfaces WHICH sub failed to resolve, rather than the bare op keyword.
   (testing "the failing sub's query-vector is lifted from :unresolved-input"
     (let [ev   (error-ev 1 :rf.error/no-such-sub
                          {:tags {:rf.sub/id        :cart/total
@@ -532,10 +529,10 @@
       (is (re-find #":cart/total" desc)
           "the unresolved sub query-vector reads into the description")
       (is (re-find #":rf.error/no-such-sub" desc)
-          "the operation keyword still leads the line")))
-  (testing "the legacy :rf.sub/query-v slot is NOT read — it is no longer
-            emitted post-agpv2.3, so a description carrying ONLY the legacy
-            slot falls through to the bare-op fallback (regression guard)"
+          "the operation keyword leads the line")))
+  (testing "a :rf.sub/query-v slot is NOT read — nothing emits it, so a
+            description carrying ONLY that slot falls through to the
+            bare-op fallback"
     (is (= ":rf.error/no-such-sub"
            (h/short-description
              (error-ev 1 :rf.error/no-such-sub
@@ -571,7 +568,7 @@
               :operation :rf.error/handler-exception
               :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"}}})))))
 
-;; ---- (14) the effect-map refusal reads on the GENERIC row (rf2-04tx) -----
+;; ---- (14) the effect-map refusal reads on the GENERIC row ---------------
 ;;
 ;; The refusal ships NO bespoke Xray UI, and that is the claim under test: an
 ;; operator diagnosing a refused event reads the ordinary issue row and gets
