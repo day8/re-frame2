@@ -1,20 +1,15 @@
 (ns day8.re-frame2-xray.theme.tokens
   "Shared design tokens for the Xray shell + every panel view.
 
-  ## Single source of truth (rf2-rclvn)
+  ## Single source of truth
 
-  Phase 1 / Phase 2 / Phase 3 panel views each carried a private copy
-  of the dark-theme palette plus the `mono-stack` + `sans-stack` font
-  defs. Drift had already started — `:orange` was unique to the
-  performance panel (since deleted, in the rf2-qy0nu sweep) even
-  though `spec/007-UX-IA.md` §Colour system catalogues it as part of
-  the canonical perf scale. One source of
-  truth — this ns — removes the duplication and makes the v1.0
-  CSS-variable migration a one-file change.
+  Every panel view reads its palette and the `mono-stack` +
+  `sans-stack` font defs from this ns, so no private per-panel copy
+  can drift from `spec/007-UX-IA.md` §Colour system.
 
-  Per `tools/xray/spec/007-UX-IA.md` §Dark theme tokens. Phase 1 uses
-  inline styles so the foundation ships without a CSS asset pipeline;
-  the v1.0 styling pass replaces these with CSS variables.
+  Per `tools/xray/spec/007-UX-IA.md` §Dark theme tokens. Panels use
+  inline styles whose values are CSS variables (see `tokens`), so the
+  foundation ships without a CSS asset pipeline.
 
   ## How panels consume this
 
@@ -22,23 +17,22 @@
                  :refer [tokens mono-stack sans-stack]])
 
   …then `(:bg-1 tokens)` / `mono-stack` resolve as if locally defined.
-  The `:refer` form keeps every existing use-site working without
-  rename churn.
 
   ## What lives here
 
-  - **`tokens`** — the dark-theme palette. Keys are stable token
-    names; values are hex strings.
+  - **`tokens`** — the palette as CSS-variable strings
+    (`var(--rf-xray-<key>)`); the per-theme hexes live in
+    `dark-palette` / `light-palette`.
   - **`mono-stack`** — the JetBrains Mono font stack for code /
     EDN / mono-column rendering.
   - **`sans-stack`** — the Inter font stack for chrome / labels /
     prose.
   - **`type-scale`** — typography sizes (px strings) + base
-    line-height. The shell's default density (rf2-pcitk) — denser
+    line-height. The shell's default density — denser
     than the spec's cosy baseline, closer to compact, because Xray
     is an info-dense dev tool. One-knob tuning lives here; raise the
-    sizes one number to bring the shell back to spec-cosy.
-  - **`layout`** — chrome dimensions (sidebar width, etc.) consumed
+    sizes one number to bring the shell to spec-cosy.
+  - **`layout`** — chrome dimensions (the ribbon heights) consumed
     by the shell. Single source for the density knob.
 
   ## What does not live here
@@ -53,19 +47,16 @@
 (def dark-palette
   "Dark-theme colour tokens — the GitHub-style blue/neutral palette the
   Figma export ships (the `devtools-css` block embedded in
-  `tools/xray/design-reference/xray_devtools_reference.cljs`,
-  rf2-ad7zx.13). The default Xray palette; `tokens` is
-  an alias of this map so the inline `(:bg-1 tokens)` call sites keep
-  resolving without a runtime switch (the CSS-variable migration is the
-  v1.0 styling pass).
+  `tools/xray/design-reference/xray_devtools_reference.cljs`).
+  `tokens` holds a CSS variable for each of its keys, which the
+  active theme class resolves to this map's hex at paint time.
 
-  ## Single accent (rf2-ad7zx.13)
+  ## Single accent
 
-  The earlier orange-identity scheme (`brand`=orange, per-mode
-  `accent-dynamic`/`accent-static` with a Dynamic-orange/Static-cyan
-  swap) is removed — the Figma design carries a SINGLE accent (blue
-  `#539bf5` dark / `#0969da` light). The Dynamic/Static MODE stays as a
-  functional mode; it no longer drives accent colour."
+  The Figma design carries a SINGLE accent (blue
+  `#539bf5` dark / `#0969da` light); there is no per-mode accent. The
+  Dynamic/Static MODE is a functional mode and does not drive accent
+  colour."
   {;; ── surfaces ──
    ;; Neutral GitHub-dark ramp anchored on the Figma chrome-bg (#1c1c1c).
    :bg-0           "#161616"   ; deepest recess (below chrome)
@@ -74,7 +65,7 @@
    :bg-3           "#2a2a2a"   ; popovers / strip (= Figma --devtools-hover)
    :bg-active      "#2a2a2a"
 
-   ;; ── chrome ribbon (rf2-xawwb · Figma-Make surface) ──
+   ;; ── chrome ribbon (Figma-Make surface) ──
    ;; The chrome ribbon + tabs ribbon read a DEDICATED dark-chrome
    ;; band that is dark in BOTH themes — the Figma-Make surface paints
    ;; the top chrome bar and the tab strip on a near-black band with
@@ -115,27 +106,27 @@
    :dim            "#6e7681"   ; dimmed / inert / unchanged (Figma --devtools-unchanged)
    :hover          "#2a2a2a"   ; hover background (Figma --devtools-hover, = bg-3)
 
-   ;; ── L2 selected-row background (rf2-hga49) ──
+   ;; ── L2 selected-row background ──
    ;; The L2 event row's SELECTED (focused) background — a step DARKER
    ;; than `:hover` so selection reads as a distinct state from mere
-   ;; hover AND survives under the issue-row pink wash (which previously
-   ;; drowned the `:hover`-grey selection on an error row — the selected
-   ;; error row was indistinguishable from an unselected one). Paired
-   ;; with the now-paler `:bg-issue-row` below + the leading ">" caret
+   ;; hover AND survives under the issue-row pink wash (which would
+   ;; drown a `:hover`-grey selection on an error row, leaving the
+   ;; selected error row indistinguishable from an unselected one). Paired
+   ;; with the pale `:bg-issue-row` below + the leading ">" caret
    ;; the row paints when focused, so selection is unmistakable on any
    ;; row state (clean / issue, focused / not).
    :selected-row-bg "#3a3a3a"  ; darker than :hover (#2a2a2a) — selection (dark)
 
-   ;; ── violation wash (rf2-xgeag) ──
+   ;; ── violation wash ──
    ;; Soft pink wash for the inline SCHEMA VIOLATION sub-block that
    ;; rides under its owning pipeline step. Distinct from the
    ;; `:magenta-pink` SUBSCRIPTIONS badge (a saturated chip) and from
-   ;; `:warning`'s amber (the retired aggregate step's chrome).
+   ;; `:warning`'s amber.
    ;; The dark-theme value is a deeply muted rose — alert-grade
    ;; without overpowering the cascade.
    :bg-violation   "#3a1f25"   ; deep-rose-muted (dark)
 
-   ;; ── L2 issue-row wash (rf2-b8guz) ──
+   ;; ── L2 issue-row wash ──
    ;; Light-pink LOW-OPACITY wash painted as the background of an L2
    ;; event row whose epoch CONTAINS AN ISSUE (any error / warning /
    ;; schema-violation / hydration-mismatch / perf-overrun trace — the
@@ -146,11 +137,10 @@
    ;; Same rose hue as `:bg-violation` but as an 8-digit-hex wash
    ;; (#RRGGBBAA, mirroring the `:diff-*-wash` pattern) so it COMPOSES
    ;; over the focused-row / hover background without clobbering it.
-   ;; Alpha `1a` = 26/255 ≈ 10% (rf2-hga49 — paled from the prior `26`
-   ;; ≈ 15% so the darker `:selected-row-bg` grey reads THROUGH the wash
-   ;; on a selected error row; the wash stays an operator-noticeable
-   ;; cross-epoch cue while no longer fighting the selection signal on
-   ;; the same channel).
+   ;; Alpha `1a` = 26/255 ≈ 10% — pale enough that the darker
+   ;; `:selected-row-bg` grey reads THROUGH the wash on a selected error
+   ;; row; the wash stays an operator-noticeable cross-epoch cue without
+   ;; fighting the selection signal on the same channel.
    :bg-issue-row   "#f851491a"  ; :error rose @ ~10% (dark)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
@@ -163,28 +153,26 @@
    :yellow         "#d29922"
    :orange         "#FB923C"   ; functional amber — long-task / perf-slow tier
    :red            "#F87171"
-   ;; Two pink/violet-family hues differentiated by hue, not just lightness
-   ;; (rf2-cgm4f). The original Epoch-panel mock split COEFFECT (violet
-   ;; #a855f7) and SUBSCRIPTIONS (pink #ec4899); pre-rf2-cgm4f both were
-   ;; collapsed onto the lighter fuchsia `#E879F9`, which made the two
-   ;; pipeline pills near-indistinguishable. Mike-ruled 2026-05-26: the
-   ;; visual-distinguishability win earns one new token. Other consumers
+   ;; Two pink/violet-family hues differentiated by hue, not just
+   ;; lightness. The Epoch-panel mock splits COEFFECT (violet
+   ;; #a855f7) and SUBSCRIPTIONS (pink #ec4899); collapsing both onto one
+   ;; fuchsia would make the two pipeline pills near-indistinguishable.
+   ;; Other consumers
    ;; (redacted sentinel chip, filter "out" mode, palette frame indicator,
    ;; diff colour, static-routes/schemas letter chips, machine-inspector)
-   ;; read `:magenta` as the "exotic / categorical" hue — `#a855f7` reads
-   ;; the same role with marginally more purple saturation.
+   ;; read `:magenta` as the "exotic / categorical" hue.
    :magenta        "#a855f7"   ; violet-500 — Epoch COEFFECT mock; redacted sentinel
-   :magenta-pink   "#ec4899"   ; pink-500 — Epoch SUBSCRIPTIONS mock (rf2-cgm4f)
+   :magenta-pink   "#ec4899"   ; pink-500 — Epoch SUBSCRIPTIONS mock
    :info           "#79c0ff"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
-   ;; ── syntax-highlighter palette (rf2-79ojx · One Dark / Calva default) ──
+   ;; ── syntax-highlighter palette (One Dark / Calva default) ──
    ;; Dedicated tokens for CLJS-value rendering in the edn-inspector widget
    ;; (`views/edn_inspector.cljs`) AND the in-bundle Clojure source-text
    ;; highlighter (`views/edn_widget.cljs`). One palette, shared by
    ;; both surfaces, so a `:foo` keyword in the source-text panel paints
    ;; the same hue as `:foo` rendered as a value in the App-DB panel.
    ;;
-   ;; ## Palette base (rf2-79ojx)
+   ;; ## Palette base
    ;;
    ;; Derives from the **One Dark / Atom One Dark** palette — the lineage
    ;; behind Calva's default theme + Cursive's Material/One Dark + the
@@ -193,12 +181,11 @@
    ;; constants gold), so the inspector reads as syntax-highlighted at a
    ;; glance instead of demanding the eye decode a hue-distinct scheme.
    ;;
-   ;; The pre-rf2-79ojx mapping inherited GitHub Primer's blue-heavy
-   ;; `.syntax-*` palette — keywords salmon-red (an outlier), strings AND
-   ;; numbers both in the blue family. Three of five scalar types painted
-   ;; in the same hue with only luminance varying; the inspector looked
-   ;; monochrome to a programmer whose eye expects keyword magenta + number
-   ;; orange + string green.
+   ;; GitHub Primer's blue-heavy `.syntax-*` palette puts strings AND
+   ;; numbers both in the blue family, so three of five scalar types
+   ;; would paint in the same hue with only luminance varying; the
+   ;; inspector would look monochrome to a programmer whose eye expects
+   ;; keyword magenta + number orange + string green.
    ;;
    ;; ## Hue families — the five scalar types MUST span at least four
    ;;
@@ -221,7 +208,7 @@
    :syntax-builtin "#61afef"   ; One Dark .function/variable (blue) — macro emphasis
    :syntax-punctuation "#abb2bf" ; One Dark .text (near-foreground; subtle)
 
-   ;; ── deep variants (rf2-5kfxe.4) ──
+   ;; ── deep variants ──
    ;; Darker variant of `:red` used as a danger-button background. The
    ;; default `:red` is the standard text-on-bg accent (high lightness
    ;; for readability over the dark canvas); a button surface that
@@ -229,8 +216,8 @@
    ;; stays AA-grade.
    :red-deep       "#a83a3a"
 
-   ;; ── diff row chrome (rf2-awqts) ──
-   ;; Diff signalling moved off the per-token text-colour channel so
+   ;; ── diff row chrome ──
+   ;; Diff signalling lives off the per-token text-colour channel so
    ;; type semantics (`:syntax-*`) stay legible inside changed rows.
    ;; Operator's eye reads diff at row-level (gutter glyph + wash +
    ;; stripe); syntax at token-level (numbers orange, booleans gold,
@@ -248,7 +235,7 @@
    ;; same hue family — reinforces the row-level signal at the
    ;; column-1 anchor without competing with text colour.
    ;; Wash values use 8-digit hex (#RRGGBBAA) so the palette-hex-map
-   ;; invariant holds — the var-resolution gate (rf2-on4cm) requires
+   ;; invariant holds — the var-resolution gate requires
    ;; every value match `^#[0-9A-Fa-f]+$`. Alpha bytes:
    ;;   `1a` = 26/255 ≈ 10%  (added / removed)
    ;;   `1f` = 31/255 ≈ 12%  (modified — slightly stronger to clear
@@ -271,7 +258,7 @@
 (def light-palette
   "Light-theme colour tokens — the GitHub-style blue/neutral light
   palette the Figma export ships (the `devtools-css` block embedded in
-  `design-reference/xray_devtools_reference.cljs`, rf2-ad7zx.13).
+  `design-reference/xray_devtools_reference.cljs`).
 
   Surfaces invert (bg-0 is the *lightest* deepest-canvas tone, bg-3
   the chrome strip); text inverts so primary is near-black; borders are
@@ -290,7 +277,7 @@
    :bg-3           "#e8e8e8"   ; popovers / strip (= Figma --devtools-hover)
    :bg-active      "#e8e8e8"
 
-   ;; ── chrome ribbon (rf2-xawwb · Figma-Make surface) ──
+   ;; ── chrome ribbon (Figma-Make surface) ──
    ;; Dark chrome band even under the LIGHT theme — the Figma-Make
    ;; surface keeps the top chrome ribbon + tab strip dark (#2a2a2a)
    ;; with white text in light mode, so the chrome reads as a distinct
@@ -325,26 +312,26 @@
    :dim            "#8c959f"   ; Figma --devtools-unchanged
    :hover          "#e8e8e8"   ; Figma --devtools-hover
 
-   ;; ── L2 selected-row background (rf2-hga49) ──
+   ;; ── L2 selected-row background ──
    ;; Light-theme mirror of the dark `:selected-row-bg` — a step DARKER
    ;; than `:hover` so selection reads distinctly from hover and shows
-   ;; through the paled `:bg-issue-row` wash on a selected error row.
+   ;; through the pale `:bg-issue-row` wash on a selected error row.
    :selected-row-bg "#d4d4d4"  ; darker than :hover (#e8e8e8) — selection (light)
 
-   ;; ── violation wash (rf2-xgeag) ──
+   ;; ── violation wash ──
    ;; Light-theme mirror of the dark `:bg-violation`. A soft rose
    ;; pink — alert-grade on white without overpowering the cascade.
    :bg-violation   "#fde0e3"   ; soft-rose (light)
 
-   ;; ── L2 issue-row wash (rf2-b8guz) ──
+   ;; ── L2 issue-row wash ──
    ;; Light-theme mirror of the dark `:bg-issue-row`. The light-pink
    ;; wash painted behind an L2 row whose epoch contains an issue. An
    ;; 8-digit-hex wash (#RRGGBBAA) so it composes over the focused-row
    ;; / hover background. Light-theme washes need a touch more alpha
    ;; than dark ones to read over the near-white canvas — alpha `1f` =
-   ;; 31/255 ≈ 12% (rf2-hga49 — paled from the prior `2e` ≈ 18% so the
-   ;; darker `:selected-row-bg` grey reads through the wash on a selected
-   ;; error row; moves in lock-step with the dark variant above).
+   ;; 31/255 ≈ 12%, pale enough that the darker `:selected-row-bg` grey
+   ;; reads through the wash on a selected error row, in lock-step with
+   ;; the dark variant above.
    :bg-issue-row   "#c844441f"  ; :error rose @ ~12% (light)
 
    ;; ── functional categorical hues (spec/022 carve-out · spec 007) ──
@@ -352,7 +339,7 @@
    :yellow         "#9a6700"
    :orange         "#C2570F"   ; functional amber — long-task / perf-slow tier
    :red            "#C84444"
-   ;; Two pink/violet-family hues for the rf2-cgm4f Epoch-pill split — see
+   ;; Two pink/violet-family hues for the Epoch-pill split — see
    ;; the dark-palette `:magenta` / `:magenta-pink` block for rationale.
    ;; Light values are darkness-shifted to clear WCAG AA on the white canvas
    ;; while keeping the same hue family as the dark variants so a theme
@@ -361,7 +348,7 @@
    :magenta-pink   "#db2777"   ; pink-600 — AA on white; mock #ec4899 hue family
    :info           "#0550ae"   ; cool categorical blue ≠ accent (Figma syntax-number)
 
-   ;; ── syntax-highlighter palette (rf2-79ojx · One Light / Atom-One-Light) ──
+   ;; ── syntax-highlighter palette (One Light / Atom-One-Light) ──
    ;; Light-theme mirror of the dark-palette `:syntax-*` family, taken
    ;; from the **Atom One Light** companion to One Dark (Calva's default
    ;; light theme inherits the same family). Each hex is darkness-shifted
@@ -386,7 +373,7 @@
    ;; semantic red — depth is signalled by saturation, not lightness.
    :red-deep       "#9A3030"
 
-   ;; ── diff row chrome (rf2-awqts) ──
+   ;; ── diff row chrome ──
    ;; Light-theme mirror of the dark-palette diff tokens. See the dark
    ;; palette's `:diff-*` block for the contract + rationale.
    ;; `:diff-gutter` darkens to clear WCAG AA on the white canvas;
