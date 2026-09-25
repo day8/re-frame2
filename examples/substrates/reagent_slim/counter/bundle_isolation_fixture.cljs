@@ -9,7 +9,7 @@
    `bundle-isolation-entry`, the `:init-fn` of the dedicated
    `:reagent-slim-ssr-isolation-fixture` build, so everything below is
    compiled into THAT artefact and is absent from the runnable
-   `:examples/counter-slim-and-fast` one (rf2-kjx1). The other half — the
+   `:examples/counter-slim-and-fast` one. The other half — the
    script that judges the result — is
    `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` (run via
    `npm run test:reagent-slim:bundle-isolation`), and it owns the contract.
