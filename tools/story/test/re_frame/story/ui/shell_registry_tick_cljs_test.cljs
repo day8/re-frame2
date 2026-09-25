@@ -1,16 +1,16 @@
 (ns re-frame.story.ui.shell-registry-tick-cljs-test
-  "rf2-yemtm — a registration that no running frame reflects must still
-  reach the shell state, or every pane that renders the registry (sidebar,
-  test widget, Tests pane) stays stale until an unrelated click.
+  "A registration that no running frame reflects must still reach the
+  shell state, or every pane that renders the registry (sidebar, test
+  widget, Tests pane) stays stale until an unrelated click.
 
-  `detect-and-tick!` compared only the running frames' decorator
-  fingerprints, so a hot reload that added a variant, or a `:script` on a
-  variant nobody had open, changed nothing it looked at: no swap, so no
-  re-render. The registrar's mutation tick now rides the same comparison.
+  Comparing only the running frames' decorator fingerprints, a hot reload
+  that added a variant, or a `:script` on a variant nobody had open, would
+  change nothing `detect-and-tick!` looked at: no swap, so no re-render.
+  The registrar's mutation tick rides the same comparison.
 
-  rf2-0ae7o.14 — the other half: a hot reload that edits a MOUNTED
-  variant's own body is stale-variant drift, so the canvas re-mounts and
-  shows the edit. An edit to a variant with no running frame is not."
+  The other half: a hot reload that edits a MOUNTED variant's own body is
+  stale-variant drift, so the canvas re-mounts and shows the edit. An edit
+  to a variant with no running frame is not."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.story.frames :as rf.story.frames]
             [re-frame.story.registrar :as rf.story.registrar]
