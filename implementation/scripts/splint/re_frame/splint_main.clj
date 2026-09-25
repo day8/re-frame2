@@ -89,7 +89,7 @@
         ;; Every run that linted returns `:diagnostics` (possibly empty).
         ;; Splint's early returns — a multi-value `.splint.edn`, a bad
         ;; argv, an empty path list — carry none: they checked nothing, so
-        ;; their failure exit must survive the gate (rf2-3x7nj.21.1).
+        ;; their failure exit must survive the gate.
         never-linted? (not (contains? result :diagnostics))]
     (System/exit
      (cond
