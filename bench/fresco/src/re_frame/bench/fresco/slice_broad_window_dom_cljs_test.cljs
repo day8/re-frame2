@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.slice-broad-window-dom-cljs-test
-  "THE BROAD-UPDATE CLOCK'S OWN SELF-TEST (rf2-9wmqd, item (b)).
+  "THE BROAD-UPDATE CLOCK'S OWN SELF-TEST.
 
   [[re-frame.bench.fresco.slice-broad-clock-app]] times one broad
   application operation on the slice's feed page, on the Fresco arm and
@@ -9,14 +9,13 @@
   a latency**, no figure is published, and nothing is compared to `U3`,
   `C3` or `C4`.
 
-  It is the browser-suite row PR #8599 left owed. That driver already
-  carries six instrument-integrity controls that run IN it — a
+  The driver carries six instrument-integrity controls that run IN it — a
   canonical-DOM parity gate with its own negative control, four echo
   negative controls, the tally, the arm-order guard and the additive
   positive control — and in-driver is the stronger place for them, by the
   sibling `slice-echo-window-dom-cljs-test`'s own argument: the driver is
   what a quiet-box window runs and a suite is not. What a suite is for is
-  proving a REPAIR, and this file proves two.
+  a claim the driver cannot check about itself, and this file proves two.
 
   ## THE TWO CLAIMS, AND WHY CANONICAL DOM CANNOT CARRY EITHER
 
@@ -26,26 +25,27 @@
 
   **Do the two arms make the same READS?** Two pages can serialise
   identically while one of them subscribes to a value the other reads only
-  in a branch it never takes. PR #8599's donor did exactly that with
-  `[::rf.fresco.examples.slice.subs/t :feed/empty]`, on a seed that is never empty, so the donor
-  carried a subscription and a hook the Fresco arm did not — work in the
+  in a branch it never takes. A donor reading
+  `[::rf.fresco.examples.slice.subs/t :feed/empty]` unconditionally, on a seed that is never empty, would
+  carry a subscription and a hook the Fresco arm does not — work in the
   DENOMINATOR, moving `Fresco / UIx` in the numerator's favour.
   [[the-donor-reads-nothing-the-fresco-arm-does-not]] compares the two
   frames' subscription caches, and
-  [[the-roster-gate-catches-an-unconditional-branch-local-read]] replants
-  the removed read and requires the comparison to catch it.
+  [[the-roster-gate-catches-an-unconditional-branch-local-read]] plants
+  that read and requires the comparison to catch it.
 
   **Do PAIRED ARMS see the same page STATE?** The parity gate runs once,
   on the seeded page, before the first window; every arm moves its own
-  page afterwards. The audit's replay of `rf.bench.fresco.lane/visit-plan` found `:theme`
-  running in the non-seed locale on 4 of its 12 measured visits per round
-  against `:donor-theme`'s 8 of 12, so the comparative theme figure was a
-  ratio between two populations.
-  [[paired-arms-see-the-same-governed-state-mix]] asserts the repair over
-  the schedule itself, and
+  page afterwards. If each arm inherited whatever the arms before it left,
+  a replay of `rf.bench.fresco.lane/visit-plan` puts `:theme` in the
+  non-seed locale on 4 of its 12 measured visits per round against
+  `:donor-theme`'s 8 of 12, and the comparative theme figure would be a
+  ratio between two populations. Each arm therefore establishes its own
+  pre-state; [[paired-arms-see-the-same-governed-state-mix]] asserts that
+  over the schedule itself, and
   [[the-mix-gate-catches-a-rig-whose-arms-inherit-each-others-state]] is
-  its negative control: it models the rig PR #8599 shipped and requires
-  the same comparison to report the same 4-against-8.
+  its negative control: it models a rig whose arms establish nothing and
+  requires the same comparison to report the same 4-against-8.
 
   ## WHAT THIS FILE DELIBERATELY DOES NOT RE-ADJUDICATE
 
@@ -62,9 +62,9 @@
   **The control's own verdict**, for the sibling's reason:
   `control-verdict-strict` adjudicates a difference of per-round medians,
   and adjudicating it on a shared runner would be a latency threshold in a
-  PR gate by another name.
+  correctness gate by another name.
 
-  ## THE HARNESS HALF, WHICH COST A CI CYCLE TO FIND
+  ## THE HARNESS HALF
 
   Every DOM row here boots on FRESH frame ids. That is not hygiene: a
   second mount on a used id leaves the Fresco arm rendered and DEAF,
@@ -73,21 +73,21 @@
   the disposal hook that repairs those cells. [[with-both-arms]] and
   `rf.bench.fresco.slice-broad-clock-app/boot!`'s §MOUNTING TWICE carry the mechanism and the measurement.
 
-  Two of the rows below are what found it, and they were written for
-  something else — which is the argument for having them. The read-roster
-  row reported the Fresco arm's cache as `#{}` against the donor's 34,
-  and the schedule row reported `9 unverified of 18`, exactly the nine
-  Fresco-side windows. The same schedule row also caught a real
-  disagreement in the driver's own contract: `rf.bench.fresco.slice-broad-clock-app/visits` published the
-  last visit INDEX under a docstring promising a COUNT.
+  Two of the rows below catch a used id though they are written for
+  something else — which is the argument for having them. On a used id
+  the read-roster row reads the Fresco arm's cache as `#{}` against the
+  donor's 34, and the schedule row reads `9 unverified of 18`, exactly
+  the nine Fresco-side windows. The same schedule row also holds
+  `rf.bench.fresco.slice-broad-clock-app/visits` to the COUNT its docstring promises, where a last
+  visit INDEX would fail it.
 
   ## Runtime
 
-  The DOM rows need a real browser and the `-dom-cljs-test` suffix puts
-  them on `:browser-test`; each degrades to a stated skip under
-  `:node-test`, which is the posture every other `*-dom` suite in this
-  tree keeps. The schedule rows are pure arithmetic over
-  `rf.bench.fresco.lane/visit-plan` and run on both."
+  The DOM rows need a real browser and carry the `-dom-cljs-test` suffix,
+  the mark of a suite that needs a real DOM; each degrades to a stated
+  skip where there is none, which is the posture every other `*-dom`
+  suite in this tree keeps. The schedule rows are pure arithmetic over
+  `rf.bench.fresco.lane/visit-plan` and run anywhere."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -168,9 +168,9 @@
   a used id therefore renders once and is then DEAF — empty sub-cache, no
   watches, no re-render — while looking perfectly healthy on the glass.
 
-  This suite's first cut booted on `rf.bench.fresco.slice-broad-clock-app/`'s two default ids and CI read
-  exactly that: the mount row green, and every row after it red. It is the
-  discipline `slice-echo-window-dom-cljs-test` already keeps."
+  Booting on `rf.bench.fresco.slice-broad-clock-app/`'s two default ids would read exactly that: the
+  mount row green, and every row after it red. It is the discipline
+  `slice-echo-window-dom-cljs-test` keeps too."
   [f]
   (-> (rf.bench.fresco.slice-broad-clock-app/boot! (fresh-frame-ids))
       (.then (fn [_] (f)))
@@ -216,11 +216,11 @@
 (defui empty-label-probe
   "One UNCONDITIONAL read of `[::rf.fresco.examples.slice.subs/t :feed/empty]` on the donor frame.
 
-  This is exactly the shape `slice-donor-views/feed-page` carried before
-  rf2-9wmqd's repair — a hook cannot be conditional, so a branch-local
-  string read beside the rows and the heading became a read the arm makes
-  on every render of a feed that is never empty. It is replanted here, in
-  the suite rather than in the arm, so
+  This is exactly the shape a transcription of `slice-donor-views/feed-page`
+  that read it beside the rows and the heading would take — a hook cannot
+  be conditional, so a branch-local string read becomes a read the arm
+  makes on every render of a feed that is never empty. It is planted here,
+  in the suite rather than in the arm, so
   [[the-roster-gate-catches-an-unconditional-branch-local-read]] has a
   fault to catch."
   [_]
@@ -275,9 +275,9 @@
   (first (remove #(= % now) roster*)))
 
 (defn- inherited-runs
-  "The same replay under a model of the rig PR #8599 SHIPPED: no arm
-  establishes anything, so what an arm reads is whatever the arms
-  scheduled before it left on ITS OWN FRAME.
+  "The same replay under a model of a rig whose arms ESTABLISH NOTHING:
+  what an arm reads is whatever the arms scheduled before it left on ITS
+  OWN FRAME.
 
   The asymmetry the model carries is the driver's own roster, not an
   invention: `:locale` and `:ctl-blocked` both move the Fresco frame's
@@ -321,9 +321,9 @@
 (defn- non-seed-themes [runs id]
   (count (remove #(= rf.bench.fresco.slice-broad-clock-app/seed-theme (:theme %)) (get runs id))))
 
-;; The audit's own schedule, written out rather than read off the module,
-;; so the numbers below stay the numbers the audit measured however the
-;; module's knobs move afterwards.
+;; The schedule the 4-against-8 figures are stated at, written out rather
+;; than read off the module, so those figures hold however the module's
+;; knobs move.
 (def ^:private audit-sampling {:warmup 8 :samples 12})
 (def ^:private audit-rounds 5)
 
@@ -339,7 +339,7 @@
 
            Asserted over several schedules, and the last two are the
            point: `rf.bench.fresco.slice-broad-clock-app/sampling`'s own docstring says a run reading this
-           instrument will raise `:samples`, so a repair that held at 12
+           instrument will raise `:samples`, so a property that held at 12
            and failed at 13 would fail exactly when it was first relied
            on."
     (doseq [[sampling rounds] [[audit-sampling audit-rounds]
@@ -358,11 +358,11 @@
                    (pr-str sampling) " over " rounds " rounds")))))))
 
 (deftest the-mix-gate-catches-a-rig-whose-arms-inherit-each-others-state
-  (testing "ANTI-VACUITY for the row above, and the audit's finding
-           reproduced. Replay the identical schedule under a model of the
-           rig PR #8599 shipped — every arm reading whatever the arms
-           before it left on its own frame — and the same comparison has
-           to REFUSE, with the numbers the audit measured.
+  (testing "ANTI-VACUITY for the row above. Replay the identical schedule
+           under a model of a rig whose arms establish nothing — every arm
+           reading whatever the arms before it left on its own frame — and
+           the same comparison has to REFUSE, with the 4-against-8
+           numbers.
 
            A green here would mean the row above passes whatever the arms
            see, and every state-mix claim this instrument could make would
@@ -381,10 +381,10 @@
           ":ctl-blocked runs in the non-seed THEME on 8 of 12 per round")
       (is (= (* audit-rounds 4) (non-seed-themes runs :locale))
           "against :locale's 4 of 12 — the same divergence with the
-           dimensions swapped, which the audit did not name and the replay
-           finds"))
-    (testing "and the repair closes both at the same schedule, so the
-             refusals above are about the rig and not about the replay"
+           dimensions swapped"))
+    (testing "and established pre-states close both at the same schedule,
+             so the refusals above are about the rig and not about the
+             replay"
       (let [runs (established-runs rf.bench.fresco.slice-broad-clock-app/arms audit-sampling audit-rounds)]
         (is (= (mix runs :theme) (mix runs :donor-theme)))
         (is (= (mix runs :ctl-blocked) (mix runs :locale)))))))
@@ -455,7 +455,7 @@
            work in the denominator and moves the ratio in the numerator's
            favour. On the seeded page there must be none.
 
-           The one asymmetry that remains runs the other way and is
+           The one asymmetry runs the other way and is
            documented at `slice-donor-views/app`: this arm renders no route
            branch, so it does not read `[:rf.route/id]`. An arm doing LESS
            is the arm the ratio divides BY, so the omission cannot flatter
@@ -493,7 +493,7 @@
                   (is (not (contains? don [::rf.fresco.examples.slice.subs/t :feed/empty]))
                       "in particular the empty-state string, which the Fresco
                        body reads only in its empty branch and the seed is never
-                       empty (rf2-9wmqd's repair)")
+                       empty")
                   (is (not (contains? hic [::rf.fresco.examples.slice.subs/t :feed/empty]))
                       "and the Fresco arm does not read it either — so the two
                        agree by BOTH not reading it, rather than by the donor
@@ -508,11 +508,11 @@
             (.then (fn [_] (done)) (fail-async done)))))))
 
 (deftest the-roster-gate-catches-an-unconditional-branch-local-read
-  (testing "THE SABOTAGE on the row above, and it is the audit's finding
-           replanted rather than an invented fault: one UIx boundary on the
-           donor frame reading `[::rf.fresco.examples.slice.subs/t :feed/empty]` unconditionally,
-           which is what `slice-donor-views/feed-page` did before the
-           repair.
+  (testing "THE SABOTAGE on the row above, and it is a realistic fault
+           rather than an invented one: one UIx boundary on the donor frame
+           reading `[::rf.fresco.examples.slice.subs/t :feed/empty]` unconditionally, which is what a
+           transcription of `slice-donor-views/feed-page` that read it beside
+           its rows would do.
 
            The comparison must go from EMPTY to naming exactly that read.
            A green here — no difference detected with the read plainly
@@ -622,12 +622,11 @@
 
 (deftest the-arm-roster-is-the-six-rows-the-file-documents
   (testing "The namespace docstring names six rows and says which estimands
-           they can and cannot serve, and each row now also declares the
-           SIDE it runs on and the state dimension it MOVES. A seventh
-           added silently, or an arm whose declaration drifted from what
-           its plan does, would leave that prose describing an instrument
-           that no longer exists — the drift class this lane keeps paying
-           for."
+           they can and cannot serve, and each row also declares the SIDE
+           it runs on and the state dimension it MOVES. A seventh added
+           silently, or an arm whose declaration drifted from what its plan
+           does, would leave that prose describing an instrument that does
+           not exist."
     (is (= [:idle-frame :locale :donor-locale :theme :donor-theme :ctl-blocked]
            (mapv :id rf.bench.fresco.slice-broad-clock-app/arms))
         "floor first, so it leads the schedule")
