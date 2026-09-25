@@ -62,7 +62,7 @@
                           :data             {:rf/spawned {[:outer]         :leaf#1
                                                           [:outer :inner]  :leaf#2}}
                           :rf/spawn-counter {:leaf 2}
-                          ;; rf2-3x7nj.9.3 — each invoke's own attempt token.
+                          ;; Each invoke's own attempt token.
                           :rf/spawn-attempts {[:outer] 1 [:outer :inner] 1}}
    ;; Effect ORDER is the assertion: the SHALLOWER node's spawn fx fires first.
    :expect-effects
