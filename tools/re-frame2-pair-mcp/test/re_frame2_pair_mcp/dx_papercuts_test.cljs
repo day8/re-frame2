@@ -140,7 +140,7 @@
   ;; isn't plain-EDN-readable — assert on the emitted source instead.
   (let [snapshot-call (ef/rt-call 'snapshot :rf/default)
         paths         [[:cart :total] [:user :id]]
-        ;; rf2-kuky.88 — the builder takes the RENDERED egress opts, so
+        ;; The builder takes the RENDERED egress opts, so
         ;; feed it the real renderer rather than a bare `"{}"`. A literal
         ;; empty map still type-checks and still folds, but it names no
         ;; boundary, so every assertion below would pass over a form that
@@ -159,14 +159,14 @@
     ;; The batch form projects each read through the door; the
     ;; per-iteration path `p` is the marker handle.
     (is (re-find #"project-egress raw-v" form))
-    ;; And it NAMES the boundary. The door fires unconditionally now, so
-    ;; "did the walk run?" is no longer the question a caller can get
-    ;; wrong — "which boundary is this?" is, and that answer has to reach
+    ;; And it NAMES the boundary. The door fires unconditionally, so
+    ;; "did the walk run?" is not a question a caller can get wrong —
+    ;; "which boundary is this?" is, and that answer has to reach
     ;; the rendered form or the app-side door has nothing to resolve.
     (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
         "the rendered batch form carries the named off-box boundary")
     (is (not (re-find #"elide-wire-value" form))
-        "and never the retired walker export")))
+        "and never the bare walker export")))
 
 (deftest get-path-rejects-path-and-paths-together
   ;; Mutual exclusion: supplying both is a structured usage error, not a
@@ -219,12 +219,11 @@
                    (done)))))))
 
 (deftest get-path-blank-runtime-result-is-isError
-  ;; rf2-acckgr regression: a nil / non-map envelope back from the
-  ;; runtime (e.g. a dead runtime after a page reload answering blank)
-  ;; must NOT silently ship as ok-text. `(:ok? nil)` is `nil`, not
-  ;; `false`, so the old `(if (false? (:ok? rebuilt)) err-text ok-text)`
-  ;; check let a nil envelope fall through to ok-text — masking the
-  ;; failure as a success.
+  ;; A nil / non-map envelope back from the runtime (e.g. a dead runtime
+  ;; after a page reload answering blank) must NOT silently ship as
+  ;; ok-text. `(:ok? nil)` is `nil`, not `false`, so an
+  ;; `(if (false? (:ok? rebuilt)) err-text ok-text)` check would let a nil
+  ;; envelope fall through to ok-text — masking the failure as a success.
   (async done
     (let [conn (fresh-conn)
           _    (swap! conn update :probed-builds (fnil conj #{}) :app)]
