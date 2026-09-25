@@ -1,17 +1,18 @@
 (ns day8.re-frame2-xray.panels.click-to-source-consolidation-test
-  "Guard test for rf2-vw5pi — the click-to-source consolidation.
+  "Guard test for the click-to-source consolidation.
 
   Every panel-side 'open in editor' affordance routes through ONE of
   two shared helpers: `panels/shared/coord_chip.cljs` (icon-only chip)
   or `panels/shared/coord_link.cljs` (label-as-link + the shared
-  `open-in-editor!` dispatch action). No panel file may re-inline the
+  `open-in-editor!` dispatch action). No panel file may inline the
   `[:rf.xray/open-in-editor …]` dispatch — that boilerplate-and-its-
-  fallback-branch pattern was hand-rolled ~11 times before rf2-vw5pi.
+  fallback-branch pattern lives in the shared helpers, not hand-rolled
+  per panel.
 
   This is a SOURCE-TEXT guard (JVM, runs in the fast `clojure -M:test`
   gate): it greps the panel source tree for the dispatch literal and
-  asserts it appears ONLY in the sanctioned homes. A future
-  contributor who hand-rolls a new bespoke open-in-editor button trips
+  asserts it appears ONLY in the sanctioned homes. A
+  contributor who hand-rolls a bespoke open-in-editor button trips
   this immediately — the fix is to route through `coord-chip` /
   `coord-link` (or, for an SVG-node click that can't mount a button,
   bind `coord-link/open-in-editor!` to `:on-click`)."
@@ -32,14 +33,14 @@
 (def ^:private sanctioned
   "Files allowed to carry the open-in-editor dispatch CALL:
 
-  - `panels/shared/coord_chip.cljs` — the icon-only chip (rf2-xjgdk).
+  - `panels/shared/coord_chip.cljs` — the icon-only chip.
   - `panels/shared/coord_link.cljs` — the label-as-link companion +
-    the shared `open-in-editor!` dispatch action (rf2-vw5pi). Every
+    the shared `open-in-editor!` dispatch action. Every
     panel-side affordance funnels its dispatch through here (or
     through `coord-chip`).
 
   `open_in_editor.cljs` (the reg-event-fx receiver + the static-page
-  `<a href>` anchor, excluded by design per rf2-evgf5 / rf2-g5q8d) is
+  `<a href>` anchor, excluded by design) is
   NOT listed because it never emits a `dispatch`-CALL form — it
   DEFINES the event (`reg-event-fx :rf.xray/open-in-editor`), so the
   `dispatch [:` pattern never matches it."
