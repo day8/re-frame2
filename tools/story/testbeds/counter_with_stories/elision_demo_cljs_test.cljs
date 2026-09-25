@@ -7,17 +7,17 @@
      consumers (Xray, error-monitor forwarders) to filter on.
   2. The handler runs cleanly under `dispatch-sync`; the password
      does NOT leak into app-db.
-  3. The schema-driven `:large?` branch — `rf.elision/elide-wire-value`
+  3. The classified `:large` branch — `rf.elision/elide-wire-value`
      substitutes the `:user/avatar-pdf` slot with a
      `:rf.size/large-elided` marker carrying byte-count + path +
-     `:hint` from the schema.
-  4. The runtime auto-detect branch — dispatching an event with a
-     ≥ 16 kB inline string in the payload causes the event-emit
-     listener to receive the elided marker instead of the raw blob.
+     `:reason :effect`.
+  4. Inline event payloads are not size-elided — dispatching an event
+     with a 20 kB inline string leaves the blob raw in the event-emit
+     listener's record.
   5. The always-on event-emit substrate fires once per processed
      event under the dev runtime.
 
-  Runs under the top-level `node-test` build alongside the existing
+  Runs under the top-level `node-test` build alongside
   `stories_cljs_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
@@ -36,18 +36,18 @@
 
 ;; ---- fixtures -------------------------------------------------------------
 ;;
-;; DO NOT migrate this fixture onto `make-reset-runtime-fixture` (rf2-vyzqca
-;; / rf2-y90h6h). This ns is NOT a story test (EP-0025 elision, no variants)
+;; DO NOT move this fixture onto `make-reset-runtime-fixture`. This ns is
+;; NOT a story test (EP-0025 elision, no variants)
 ;; and `:require`s ONLY `counter-with-stories.elision-demo` — NOT the sibling
 ;; `counter-with-stories.{events,subs,stories}` app slices. So a
-;; `make-reset-runtime-fixture` here captures its source-store baseline from
-;; THIS ns's require chain, which MISSES the counter app descriptors, and
-;; then restores the SHARED process-global source store to that incomplete
-;; baseline on teardown — dropping `:counter/initialise` / `:count` for the
-;; sibling `stories_cljs_test`'s variant-frame images and breaking 16
-;; run-order-coupled tests (the exact regression rf2-vyzqca / #5578 hit and
-;; reverted). This ns therefore stays on a plain registrar snapshot/restore
-;; that leaves the accumulated source store untouched. See
+;; `make-reset-runtime-fixture` here would capture its source-store baseline
+;; from THIS ns's require chain, which MISSES the counter app descriptors,
+;; and would then restore the SHARED process-global source store to that
+;; incomplete baseline on teardown — dropping `:counter/initialise` /
+;; `:count` for the sibling `stories_cljs_test`'s variant-frame images and
+;; breaking its run-order-coupled tests. This ns therefore uses a plain
+;; registrar snapshot/restore that leaves the accumulated source store
+;; untouched. See
 ;; `stories_cljs_test`'s fixture header for the cluster-wide rationale.
 
 (def ^:private registrar-snapshot (atom nil))
@@ -57,9 +57,8 @@
   ;; Xray's preload-time trace-cb registers its bookkeeping
   ;; handlers with `:rf.trace/no-emit? true`, so the framework
   ;; short-circuits emission for them and the collector never
-  ;; re-enters itself. The previous workaround that wiped the
-  ;; trace-cb registry per fixture is obsolete — Xray's cb runs
-  ;; as production preload wires it.
+  ;; re-enters itself. So this fixture leaves the trace-cb registry
+  ;; alone — Xray's cb runs as production preload wires it.
   (reset! rf.frame/frames {})
   ;; Clear cross-namespace schemas from the per-frame registry
   ;; before re-registering this demo's
@@ -144,7 +143,7 @@
       (is (not (contains? feedback :password))
           "password never reached app-db"))))
 
-;; ---- 3. :large? schema slot drives the wire-walker substitution ----------
+;; ---- 3. :large-classified slot drives the wire-walker substitution -------
 
 (deftest large-schema-slot-becomes-wire-marker
   (testing "The `:user/avatar-pdf` slot is classified `:large` via the
@@ -154,7 +153,7 @@
             at the slot substitutes the value with a `:rf.size/large-elided`
             marker map carrying byte-count + path + `:reason :effect` (the
             commit-plane classification provenance). Schema-attached `:hint`
-            no longer propagates — the schema describes shape, not durable
+            does not propagate — the schema describes shape, not durable
             egress policy."
     (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
     (let [db     (rf/app-db-value :rf/default)
@@ -171,16 +170,15 @@
             "marker carries the index-free :rf/path of the elided slot")
         (is (= :effect (:reason marker))
             "the marker's :reason is :effect — the EP-0025 commit-plane
-             classification source (schema-attached props no longer feed the
-             registry; the frame annotation is removed)")))))
+             classification source (schema-attached props do not feed the
+             registry, and there is no frame annotation)")))))
 
 ;; ---- 4. unschema'd inline event payloads are not size-elided -------------
 
 (deftest event-emit-listener-leaves-unschema'd-inline-large-payload
-  (testing "Path D removes runtime size auto-elision. Inline event
-            payloads without schema `{:large? true}` metadata ride
-            through unchanged; authors declare large app-db slots in
-            schemas instead."
+  (testing "There is no runtime size auto-elision. Inline event
+            payloads ride through unchanged; authors classify large
+            app-db slots with the commit-plane `:large` effect instead."
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener!
         ::test-recorder
@@ -197,7 +195,7 @@
         (is (= :user.avatar/upload (:event-id r)))
         (is (= :ok (:outcome r)))
         (is (string? slot)
-            ":blob remains raw because no schema declared it large")
+            ":blob rides raw because nothing classified it large")
         (is (= 20000 (count slot))
             "the listener received the original inline payload")))))
 
@@ -205,11 +203,10 @@
 
 (deftest event-emit-listener-fires-on-every-dispatch
   (testing "The always-on event-emit substrate fires one record per
-            processed event. The handler-meta `:sensitive?` annotation
-            has been removed, so substrate-level drop based on handler
-            sensitivity is gone — all three dispatches now deliver a
-            record. Per-path elision still applies inside the record's
-            `:event` slot."
+            processed event. The substrate does not consult handler-meta
+            `:sensitive?`, so there is no drop based on handler
+            sensitivity — all three dispatches deliver a record.
+            Per-path elision applies inside the record's `:event` slot."
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener!
         ::test-recorder
