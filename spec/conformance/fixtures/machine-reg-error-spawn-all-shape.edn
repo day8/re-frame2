@@ -1,18 +1,17 @@
 ;; Conformance fixture: machine/reg-error-spawn-all-shape
 ;;
 ;; Per [005 §Spawn-and-join via `:spawn-all`](../../005-StateMachines.md#spawn-and-join-via-spawn-all)
-;; and rf2-6vmw. A `:spawn-all`-bearing state node is shape-validated at
+;; A `:spawn-all`-bearing state node is shape-validated at
 ;; registration:
 ;;
 ;;   - A state node MUST NOT declare BOTH `:spawn` and `:spawn-all` (they
 ;;     are mutually exclusive) — `:rf.error/machine-spawn-all-with-spawn`.
 ;;   - Two children inside one `:spawn-all` block MUST NOT share an `:id`
 ;;     keyword — `:rf.error/machine-spawn-all-duplicate-id`.
-;;   - The `:join` grammar is a CLOSED two-member enum (`:all` / `:any` —
-;;     rf2-w8gxxz cut the `{:n N}` / `{:fn pred}` modes). A removed mode,
-;;     and the removed `:cancel-on-decision?` key, are rejected as an
-;;     unknown join spec / unknown block key —
-;;     `:rf.error/machine-spawn-all-bad-shape`.
+;;   - The `:join` grammar is a CLOSED two-member enum (`:all` / `:any`).
+;;     Any other mode (`{:n N}` / `{:fn pred}`), and `:cancel-on-decision?`,
+;;     which is not a block key, are rejected as an unknown join spec /
+;;     unknown block key — `:rf.error/machine-spawn-all-bad-shape`.
 ;;   - The RETIRED child-vocabulary keys `:on-child-done` / `:on-child-error`
 ;;     are likewise unknown block keys. A child completes by entering a
 ;;     `:final?` state, so a `:spawn-all` declares only how RESULTS COMBINE
@@ -32,7 +31,7 @@
 {:fixture/id           :machine/reg-error-spawn-all-shape
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:actor/spawn-and-join :fsm/registration-validation}
- :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id; a removed :join {:n N} / {:fn pred} mode, the removed :cancel-on-decision? key, or the retired :on-child-done / :on-child-error child-vocabulary keys throw :rf.error/machine-spawn-all-bad-shape; :on-error on a child spec throws :rf.error/machine-unknown-spawn-key; a non-fn child :on-done throws :rf.error/machine-bad-on-done-clause. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
+ :fixture/doc          "A state node declaring both :spawn and :spawn-all throws :rf.error/machine-spawn-all-with-spawn; two :spawn-all children sharing an :id throw :rf.error/machine-spawn-all-duplicate-id; a :join {:n N} / {:fn pred} mode, the :cancel-on-decision? key, or the retired :on-child-done / :on-child-error child-vocabulary keys throw :rf.error/machine-spawn-all-bad-shape; :on-error on a child spec throws :rf.error/machine-unknown-spawn-key; a non-fn child :on-done throws :rf.error/machine-bad-on-done-clause. The control case — a well-formed :spawn-all with distinct child :ids — validates silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -56,7 +55,7 @@
                                          :on-all-complete [:all/done]}}}}
    :expect-error :rf.error/machine-spawn-all-duplicate-id}
 
-  ;; (3) The removed :join {:n N} quorum mode — rejected as an unknown join spec.
+  ;; (3) A :join {:n N} quorum mode is not in the enum — rejected as an unknown join spec.
   {:call         :reg-machine
    :definition   {:initial :gathering
                   :states  {:gathering
@@ -65,7 +64,9 @@
                                          :on-some-complete [:some/done]}}}}
    :expect-error :rf.error/machine-spawn-all-bad-shape}
 
-  ;; (4) The removed :cancel-on-decision? key — rejected as an unknown block key.
+  ;; (4) :cancel-on-decision? is not a :spawn-all block key (sibling
+  ;; cancellation on a join decision is unconditional) — rejected as an
+  ;; unknown block key.
   {:call         :reg-machine
    :definition   {:initial :gathering
                   :states  {:gathering
@@ -77,9 +78,9 @@
 
   ;; (5) The retired :on-child-done / :on-child-error child-vocabulary keys —
   ;; rejected as unknown block keys. A child completes by entering a :final?
-  ;; state, so a :spawn-all declares only how RESULTS COMBINE; a spec still
-  ;; naming the retired keys is a migration a reader must be told about rather
-  ;; than have silently ignored (per 005 §Child completion protocol).
+  ;; state, so a :spawn-all declares only how RESULTS COMBINE; a spec naming
+  ;; the retired keys fails loud rather than having them silently ignored
+  ;; (per 005 §Child completion protocol).
   {:call         :reg-machine
    :definition   {:initial :gathering
                   :states  {:gathering
