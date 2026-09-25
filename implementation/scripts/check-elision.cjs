@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Production-elision verifier (Spec 009 §Production builds, bead rf2-11hn).
+ * Production-elision verifier (Spec 009 §Production builds).
  *
  * Runs after `shadow-cljs release elision-probe` (and optionally
  * `release elision-probe-control`) and asserts:
@@ -17,7 +17,7 @@
  *      without the control, a refactor that moved the strings somewhere
  *      else would silently turn the negative assertion into a vacuous
  *      pass. The control is therefore REQUIRED, not optional: a missing
- *      control bundle is a FAILURE (rf2-udro3). `npm run test:elision`
+ *      control bundle is a FAILURE. `npm run test:elision`
  *      — the only wired entry point — builds both bundles in one
  *      command, so its absence means the build did not run, not that a
  *      lane cannot produce one. A local production-arm-only run says so
@@ -59,7 +59,7 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.schemas — validate-app-schema! reason string.
   { source: 're-frame.schemas/validate-app-schema!',
     sentinel: 'App-db at path ' },
-  // re-frame.schemas — the rf2-xpd8 PR1 app-db candidate-REJECTION record's
+  // re-frame.schemas — the app-db candidate-REJECTION record's
   // reason string. Distinct from the trace reason above: this sentence rides
   // the always-on `:errors` stream (through the `:error-emit/dispatch-error-
   // record` hook) so a rejected transaction is not silent in an untooled dev
@@ -70,10 +70,10 @@ const DEV_ONLY_SENTINELS = [
   // the check rather than merely beside it.
   { source: 're-frame.schemas/validate-app-schema! (:errors rejection record)',
     sentinel: 'the candidate transition was rejected and nothing installed.' },
-  // re-frame.schemas — the rf2-vkn8 MALFORMED-SCHEMA candidate-rejection
+  // re-frame.schemas — the MALFORMED-SCHEMA candidate-rejection
   // record's reason string. A registered app-db schema whose FORM is
   // malformed makes the validator throw; `validate-app-schema!` isolates that
-  // per entry and REJECTS the candidate fail-closed, and rf2-vkn8 fans the
+  // per entry and REJECTS the candidate fail-closed, and fans the
   // same dev-gated `:errors` record for it that the value-failure arm above
   // gets. Its tail is deliberately distinct from that arm's so this sentinel
   // discriminates: it proves THIS call site elided, not merely that one of
@@ -81,7 +81,7 @@ const DEV_ONLY_SENTINELS = [
   // `(if interop/debug-enabled? ...)` gate.
   { source: 're-frame.schemas/validate-app-schema! (:errors malformed-schema record)',
     sentinel: 'is malformed and could not be evaluated; the candidate transition was rejected fail-closed and nothing installed.' },
-  // re-frame.router — the rf2-vkn8 validator-THROW backstop record's reason
+  // re-frame.router — the validator-THROW backstop record's reason
   // string. `run-candidate-validation!` is NOT itself dev-gated (it runs in
   // every build), so this record's emit carries an EXPLICIT
   // `rf.interop/debug-enabled?` check; this sentinel is what proves that
@@ -89,12 +89,12 @@ const DEV_ONLY_SENTINELS = [
   // sitting in the source. Note the DEV TRACE beside it is unaffected —
   // `rf.trace/emit-error!` gates internally, but it is a FN, so its argument
   // strings are built at the call site and the trace's own reason literal
-  // survives; this record's does not, which is the difference the campaign
-  // is claiming.
+  // survives; this record's does not, which is the difference this sentinel
+  // proves.
   { source: 're-frame.router/run-candidate-validation! (:errors throw-reject record)',
     sentinel: ' boundary; the candidate transition was rejected fail-closed and nothing was installed.' },
-  // re-frame.schemas — validate-event! reason string. Per rf2-dz71l
-  // the distinctive per-surface slot-tail (" payload failed schema ")
+  // re-frame.schemas — validate-event! reason string. The
+  // distinctive per-surface slot-tail (" payload failed schema ")
   // is pinned at the call site to the centralised `reason-string`
   // builder — survives Closure as a single string literal inside
   // the (if interop/debug-enabled? ...) gated branch.
@@ -107,13 +107,13 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.schemas/validate-fx!',
     sentinel: ' args failed schema ' },
   // re-frame.machines.data-validation — :where :machine-data reason
-  // string (rf2-jbbp7). The post-commit / spawn-time machine `:data`
+  // string. The post-commit / spawn-time machine `:data`
   // validators both sit inside `(when interop/debug-enabled? ...)`
   // gates; the distinctive substring " :data failed schema at boundary
   // :where :machine-data " must elide under :advanced + goog.DEBUG=false.
   { source: 're-frame.machines.data-validation/emit-failure!',
     sentinel: ' :data failed schema at boundary :where :machine-data ' },
-  // re-frame.machines.data-validation — the rf2-vkn8 `:where :machine-data`
+  // re-frame.machines.data-validation — the `:where :machine-data`
   // candidate-REJECTION record's reason string. Distinct from the trace
   // reason above: this sentence rides the always-on `:errors` stream (through
   // the `:error-emit/dispatch-error-record` hook) so a rejected machine
@@ -135,7 +135,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.registrar/unregister! / clear-kind! (handler-cleared)',
     sentinel: 'rf.registry/handler-cleared' },
   // re-frame.registrar — :rf.warning/missing-doc trace op (Spec 001
-  // §`:doc` is dev-warned when absent, rf2-45kaz). Emitted from
+  // §`:doc` is dev-warned when absent). Emitted from
   // maybe-emit-missing-doc! when a public macro-path reg-* call
   // carries no usable :doc. The emit call sits inside the outermost
   // `(when interop/debug-enabled? ...)` gate in register!; under
@@ -145,19 +145,19 @@ const DEV_ONLY_SENTINELS = [
     sentinel: 'rf.warning/missing-doc' },
   // re-frame.registrar — :rf.warning/registration-collision trace op
   // (Spec 001 §Re-registration of a different function — collision
-  // warning, rf2-45kaz). Emitted from maybe-emit-collision! when a
+  // warning). Emitted from maybe-emit-collision! when a
   // re-registration swaps in a different :handler-fn. Sits inside
   // the same gated branch as handler-replaced; the operation
   // keyword's string fragment must elide under :advanced +
   // goog.DEBUG=false.
   { source: 're-frame.registrar/register! (rf.warning/registration-collision)',
     sentinel: 'rf.warning/registration-collision' },
-  // re-frame.router — :event/dispatched trace op (rf2-smee dispatch-id
+  // re-frame.router — :event/dispatched trace op (dispatch-id
   // correlation).  Emitted via trace/emit! whose body is gated; the
   // operation keyword should not survive.
   { source: 're-frame.router/emit-dispatched-trace! (event/dispatched)',
     sentinel: 'event/dispatched' },
-  // re-frame.router — :rf.event/run-start trace op (rf2-9vx0jk). The
+  // re-frame.router — :rf.event/run-start trace op. The
   // run-start TRACE emit (distinct from the always-on flat event-emit
   // record — Spec 009 §Emit-gate summary) rides `trace/emit!`, whose body
   // is gated on `interop/debug-enabled?`, so the whole emit DCEs under
@@ -167,7 +167,7 @@ const DEV_ONLY_SENTINELS = [
   // construction that feeds its `:tags` (built only by
   // `re-frame.router/override-summary`) — is proven elided. (The
   // `:rf.interceptor/override-summary` KEYWORD itself legitimately survives
-  // via the marks chokepoint — see the rf2-9vx0jk NOTE below — but the run-
+  // via the marks chokepoint — see the override-summary NOTE below — but the run-
   // start op keyword has no such always-reachable referent and elides
   // cleanly, so it is the load-bearing grep for the whole-emit DCE.) The
   // trailing `"` pins the op keyword exactly and avoids matching any
@@ -181,22 +181,17 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.http.managed/maybe-retry! (rf.http/retry-attempt)',
     sentinel: 'rf.http/retry-attempt' },
   // re-frame.http.managed — :rf.http/aborted-on-actor-destroy trace op
-  // (Spec 014 §Abort on actor destroy, rf2-wvkn). Emitted by
+  // (Spec 014 §Abort on actor destroy). Emitted by
   // abort-on-actor-destroy when the cancellation-cascade hook fires.
   // The emit site is `(when interop/debug-enabled? ...)`; the string
   // fragment must elide in production.
   { source: 're-frame.http.managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
     sentinel: 'rf.http/aborted-on-actor-destroy' },
   //
-  // NOTE — rf2-cdmle removed the canned-stub fx-id sentinels
+  // NOTE — there are no canned-stub fx-id sentinels
   // (`rf.http/managed-canned-success`, `rf.http/managed-canned-failure`)
-  // that used to live here. Earlier the gate was
-  // `(when interop/debug-enabled? ...)` inside re-frame.http.managed,
-  // and the probe rooted both branches via `:require [re-frame.http.managed]`
-  // — the `goog.DEBUG=true` control build saw the literals, the
-  // `goog.DEBUG=false` counter build saw them DCE'd.
-  //
-  // The new gate is the require boundary: the canned-stub fxs register
+  // here, because their gate is the require boundary, not
+  // `interop/debug-enabled?`: the canned-stub fxs register
   // from the sibling `re-frame.http.test-support` namespace. The
   // elision probe MUST NOT require that namespace (doing so would
   // smuggle the canned-stub fx-id keyword literals into BOTH
@@ -204,10 +199,10 @@ const DEV_ONLY_SENTINELS = [
   // test-support module is unreferenced from any production module —
   // the `:advanced + goog.DEBUG=false` counter build trims it
   // wholesale, but the control build trims it too because nothing
-  // references it. The elision check's positive-presence methodology
-  // assertion no longer applies.
+  // references it, so the elision check's positive-presence methodology
+  // assertion cannot apply.
   //
-  // The replacement contract:
+  // Their contract is pinned elsewhere:
   //   - JVM/SSR absence: pinned by re-frame.http-test-support-absent-test
   //     (negative assertion: requiring re-frame.http.managed alone does
   //     NOT register the canned-stub fxs).
@@ -216,16 +211,13 @@ const DEV_ONLY_SENTINELS = [
   //   - CLJS counter-bundle absence: pinned by check-bundle-isolation.cjs
   //     (the `rf.http/managed-canned-failure` sentinel must not appear
   //     in the no-feature counter bundle).
-  //
-  // Together these subsume what the two removed sentinels here used to
-  // assert.
   // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
   // travel, Spec 009 §register-epoch-listener). Emitted by settle! after a
   // drain-settle commits a record. The whole settle! body sits inside
   // `(when interop/debug-enabled? ...)`; the string fragment must elide.
   { source: 're-frame.epoch/settle! (rf.epoch/snapshotted)',
     sentinel: 'rf.epoch/snapshotted' },
-  // re-frame.epoch — :rf.epoch/outcome trace op (rf2-18g1w / rf2-jppad —
+  // re-frame.epoch — :rf.epoch/outcome trace op (the
   // consumer-facing {:ok :blocked :error} summary paired with
   // :rf.epoch/snapshotted at the cascade trailer). Emitted at the same
   // call site as :rf.epoch/snapshotted (settle! commit-record! + the
@@ -265,8 +257,8 @@ const DEV_ONLY_SENTINELS = [
   // from the currently-registered machine's :version. Must elide.
   { source: 're-frame.epoch/restore-epoch! (rf.epoch/restore-version-mismatch)',
     sentinel: 'rf.epoch/restore-version-mismatch' },
-  // re-frame.epoch — :rf.epoch/restore-non-ok-record failure mode
-  // (rf2-v0jwt). Emitted when restore-epoch! targets an epoch record
+  // re-frame.epoch — :rf.epoch/restore-non-ok-record failure mode.
+  // Emitted when restore-epoch! targets an epoch record
   // whose :outcome is not :ok (a halted-cascade record). Same
   // elision gate as the other restore failure modes.
   { source: 're-frame.epoch/restore-epoch! (rf.epoch/restore-non-ok-record)',
@@ -279,15 +271,15 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.epoch/replace-app-db! (rf.epoch/db-replaced)',
     sentinel: 'rf.epoch/db-replaced' },
   // re-frame.epoch — :rf.epoch/replace-during-drain failure mode
-  // (EP-0001 rf2-tfepxu). Same elision gate as the success path.
+  // (EP-0001). Same elision gate as the success path.
   { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-during-drain)',
     sentinel: 'rf.epoch/replace-during-drain' },
   // re-frame.epoch — :rf.epoch/replace-schema-mismatch failure
-  // mode (EP-0001 rf2-tfepxu). Same elision gate.
+  // mode (EP-0001). Same elision gate.
   { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-schema-mismatch)',
     sentinel: 'rf.epoch/replace-schema-mismatch' },
-  // re-frame.epoch — :rf.epoch/replace-history-disabled failure mode
-  // (rf2-unpldn). The four mutators refuse under depth 0 (the synthetic
+  // re-frame.epoch — :rf.epoch/replace-history-disabled failure mode.
+  // The four mutators refuse under depth 0 (the synthetic
   // undo-anchor cannot land in the disabled ring). Emitted from the shared
   // `check-replace-preconditions!` skeleton, reached via the same
   // debug-gated `(if-not interop/debug-enabled? false ...)` early-return as
@@ -296,7 +288,7 @@ const DEV_ONLY_SENTINELS = [
     sentinel: 'rf.epoch/replace-history-disabled' },
   // re-frame.epoch — :rf.epoch.cb/silenced-on-frame-destroy listener
   // silencing trace (Tool-Pair §Surface behaviour against destroyed
-  // frames, rf2-d656). Emitted by on-frame-destroyed! once per
+  // frames). Emitted by on-frame-destroyed! once per
   // (frame-id, cb-id) pair when a previously-firing cb's observed
   // frame is destroyed. The entire on-frame-destroyed! body sits
   // inside `(when interop/debug-enabled? ...)`; the string fragment
@@ -304,7 +296,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.epoch/on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
     sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
   // re-frame.views — :rf.view/render trace op (Spec 009 §`:op-type`
-  // vocabulary, rf2-piag / rf2-t5tx). Emitted by the reg-view*
+  // vocabulary). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit
   // body sits inside `(when interop/debug-enabled? ...)`. The
   // operation keyword's string fragment must elide in production —
@@ -314,31 +306,31 @@ const DEV_ONLY_SENTINELS = [
   // The sentinel includes the trailing keyword-terminator quote
   // (`rf.view/render"`) so it matches ONLY the `:rf.view/render` op
   // keyword and NOT the longer `:rf.view/render-args` slot keyword
-  // (rf2-rpgq8) that legitimately survives in production via the
+  // that legitimately survives in production via the
   // always-reachable `re-frame.classification/project-trace-event` chokepoint.
   // A bare `view/render` substring would superstring-collide with
   // `rf.view/render-args` and fire a false production-leak positive.
   { source: 're-frame.views/reg-view* frame-aware-view (rf.view/render)',
     sentinel: 'rf.view/render"' },
-  // re-frame.views — :rf.view/rendered cascade-attribution op (rf2-25zo2).
+  // re-frame.views — :rf.view/rendered cascade-attribution op.
   // Emitted alongside :view/render from the same `(when interop/debug-
   // enabled? ...)`-gated emit-render-trace! body; carries :view-id,
   // :frame, :render-key, and (when available) :cause-event-id +
   // :cause-subs for Xray's Reactive panel cascade graphing. The
   // operation keyword's string fragment must elide under :advanced +
-  // goog.DEBUG=false alongside the existing view/render sentinel.
+  // goog.DEBUG=false alongside the view/render sentinel.
   { source: 're-frame.views/reg-view* frame-aware-view (rf.view/rendered)',
     sentinel: 'rf.view/rendered' },
-  // re-frame.views — :rf.view/render-args (rf2-rpgq8). The view's
+  // re-frame.views — :rf.view/render-args. The view's
   // positional render args/props are captured in the views.cljs
   // frame-aware-view wrapper under `(when interop/debug-enabled? args)`
   // and stamped under `:rf.view/render-args` inside the SAME gated
   // emit-view-rendered-trace! body as the `rf.view/rendered` op keyword
   // above. Both the capture and the assoc DCE under :advanced +
   // goog.DEBUG=false, so NO raw user render-args reach the production
-  // bundle — that absence rides the existing `rf.view/rendered` sentinel
+  // bundle — that absence rides the `rf.view/rendered` sentinel
   // (same gated emit body, no separate sentinel needed, exactly like the
-  // rf2-9hoos `:mount?` / `:deref-subs` slots).
+  // `:mount?` / `:deref-subs` slots).
   //
   // NOTE — we deliberately do NOT add a `rf.view/render-args` keyword
   // sentinel: the keyword literal LEGITIMATELY survives in production via
@@ -352,7 +344,7 @@ const DEV_ONLY_SENTINELS = [
   // `view/render` sentinel, so a keyword sentinel here would be a
   // self-defeating false positive.)
   //
-  // NOTE (rf2-9vx0jk) — the dev-only `:rf.interceptor/override-summary` tag on
+  // NOTE — the dev-only `:rf.interceptor/override-summary` tag on
   // `:rf.event/run-start` (Spec 009 §`:tags` interceptor family) follows the
   // SAME precedent as `:rf.view/render-args` above: we deliberately do NOT add
   // a keyword sentinel for it. The `:rf.interceptor/override-summary` keyword
@@ -379,7 +371,7 @@ const DEV_ONLY_SENTINELS = [
   // whole-emit elision that drops the run-start trace body, not by a
   // standalone bundle-grep sentinel.
   //
-  // rf2-yigokd — the SAME `:rf.event/run-start` emit call also carries the
+  // The SAME `:rf.event/run-start` emit call also carries the
   // envelope's per-call `:fx-overrides` / `:interceptor-overrides` under
   // `:rf.event/fx-overrides` / `:rf.event/interceptor-overrides` (Spec-Schemas
   // §`:rf/epoch-record`, Tool-Pair §Replay), each behind its OWN `(when
@@ -390,11 +382,11 @@ const DEV_ONLY_SENTINELS = [
   // would legitimately survive via the marks chokepoint's pass-through (no
   // `project-trace-event` branch redacts an unrecognised `:tags` key), and
   // their id-keyword VALUES are the caller's OWN dispatch-opts literals,
-  // already present in source. The ONE genuinely new literal is the
+  // already present in source. The ONE literal these slots add is the
   // `:rf/fn-override` sentinel below.
   { source: 're-frame.router/serializable-fx-overrides (:rf/fn-override sentinel)',
     sentinel: 'rf/fn-override' },
-  // re-frame.views — :rf.view/unmounted teardown op (rf2-9hoos). Emitted
+  // re-frame.views — :rf.view/unmounted teardown op. Emitted
   // by `emit-view-unmounted!` (via the per-render-instance reaction
   // dispose installed by `install-unmount-hook!`) when a registered view
   // instance tears down; carries :view-id, :frame and the :render-key
@@ -403,13 +395,13 @@ const DEV_ONLY_SENTINELS = [
   // the in-render deref that arms it all sit inside
   // `(when interop/debug-enabled? ...)`; the operation keyword's string
   // fragment must elide under :advanced + goog.DEBUG=false. (The
-  // rf2-9hoos `:mount?` flag and the `:deref-subs` per-view read-set
-  // ride the existing `rf.view/rendered` sentinel above — same gated
+  // `:mount?` flag and the `:deref-subs` per-view read-set
+  // ride the `rf.view/rendered` sentinel above — same gated
   // emit body, no separate sentinel needed.)
   { source: 're-frame.views/emit-view-unmounted! (rf.view/unmounted)',
     sentinel: 'rf.view/unmounted' },
   // re-frame.views — source-coord DOM annotation (Spec 006 §Source-coord
-  // annotation, rf2-z7f7 / rf2-z9n1). The reg-view* wrapper merges
+  // annotation). The reg-view* wrapper merges
   // `:data-rf2-source-coord` onto the rendered root DOM element when
   // `interop/debug-enabled?` is true. The format-source-coord helper
   // and the entire inject-source-coord-attr branch sit inside the
@@ -418,7 +410,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.views/reg-view* (data-rf2-source-coord injection)',
     sentinel: 'data-rf2-source-coord' },
   // re-frame.views — view-id DOM annotation (Spec 006 §View tagging
-  // contract, rf2-01il5). The reg-view* wrapper ALSO merges
+  // contract). The reg-view* wrapper ALSO merges
   // `:data-rf-view` onto the rendered root DOM element when
   // `interop/debug-enabled?` is true — the runtime view-id capture
   // surface, read forward (id → rendered root) and in reverse (node →
@@ -428,17 +420,15 @@ const DEV_ONLY_SENTINELS = [
   // :advanced + goog.DEBUG=false bundles.
   { source: 're-frame.views/reg-view* (data-rf-view injection)',
     sentinel: 'data-rf-view' },
-  // Note (rf2-rohdn): the `_jsxFileName` sentinel was removed when
-  // Option A dropped the JSX dev-source-coord prop injection (the
-  // feature never worked — Reagent passed the props through as DOM
-  // attributes triggering React warnings, and DevTools' "View source"
-  // reads `__source` off React.createElement's third arg, not element
-  // props). The injection branch is gone; `data-rf2-source-coord` +
-  // `data-rf-view` (the real DOM API used by re-frame-pair and Xray's
-  // hover-highlight) ride the same wrapper unchanged and remain covered
-  // by their own sentinels above.
+  // Note: there is no `_jsxFileName` sentinel because there is no
+  // JSX dev-source-coord prop injection (Reagent would pass the props
+  // through as DOM attributes, triggering React warnings, and DevTools'
+  // "View source" reads `__source` off React.createElement's third arg,
+  // not element props). `data-rf2-source-coord` + `data-rf-view` (the
+  // real DOM API used by re-frame-pair and Xray's hover-highlight) are
+  // covered by their own sentinels above.
   // re-frame.frame/safe-call-hook! — :rf.warning/teardown-hook-exception
-  // per-hook DEV DIAGNOSTIC trace (EP-0008 R2, rf2-x3m8c / rf2-inkdqh).
+  // per-hook DEV DIAGNOSTIC trace (EP-0008 R2).
   // When a late-bound cleanup hook throws during destroy-frame!,
   // safe-call-hook! emits this per-hook diagnostic AT ITS CAUSAL POSITION
   // via trace/emit-error!, whose body is gated on
@@ -452,7 +442,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.frame/safe-call-hook! (rf.warning/teardown-hook-exception)',
     sentinel: 'rf.warning/teardown-hook-exception' },
   // re-frame.adapter.context — Context displayName for React DevTools'
-  // Context inspector (Spec 006 §React DevTools support, rf2-fa4ly).
+  // Context inspector (Spec 006 §React DevTools support).
   // The "rf2-frame" literal sits inside `(when interop/debug-enabled?
   // (set! (.-displayName frame-context) "rf2-frame"))` and must elide
   // in production bundles. The literal is deliberately distinct from
@@ -461,13 +451,12 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.adapter.context (frame-context displayName)',
     sentinel: 'rf2-frame' },
   // re-frame.core/reg-machine — co-located per-element + reference-site
-  // source stamping (Spec 005 §Source-coord stamping, rf2-npvsx + rf2-vqja2,
-  // supersedes rf2-8bp3 / rf2-ypu5i). The reg-machine macro emits an
+  // source stamping (Spec 005 §Source-coord stamping). The reg-machine macro emits an
   // `(if interop/debug-enabled? <dev> <prod>)` branch: the DEV arm co-locates
   // `{:fn .. :source-coords .. :source-code ..}` onto each `:guards` /
   // `:actions` entry AND co-locates a reference-site `:source-coords` onto
-  // each `:states`-tree map node (state-node / transition map; rf2-vqja2
-  // dropped the old flat `:rf.machine/state-coords` side-index); the PROD arm
+  // each `:states`-tree map node (state-node / transition map; there is no
+  // flat `:rf.machine/state-coords` side-index); the PROD arm
   // collapses each element entry to `{:fn <fn>}` and runs NO state-source
   // splice. Under :advanced + goog.DEBUG=false the closure compiler constant-
   // folds the gate to false and DCEs the entire dev arm — every co-located
@@ -483,8 +472,8 @@ const DEV_ONLY_SENTINELS = [
   // sequence unambiguous under a global grep. If either survives, the
   // per-element source-code strings are still reachable from the prod bundle.
   //
-  // Note (rf2-vqja2): there is no state-specific sentinel keyword anymore —
-  // `:rf.machine/state-coords` is gone, and the state-node / transition-map
+  // Note: there is no state-specific sentinel keyword — the state-node /
+  // transition-map
   // `:source-coords` co-location rides the SAME dev arm as the guards/actions
   // co-location. The fn-body sentinels below therefore transitively prove the
   // state-source splice DCE'd (they share the one `interop/debug-enabled?`
@@ -495,7 +484,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.core/reg-machine (:actions :source-code fn-body literal)',
     sentinel: '(fn probe-noop-action [_] {})' },
   // re-frame.core/{dispatch,dispatch-sync,subscribe,inject-cofx} —
-  // call-site source-coord stamping (rf2-ts1a, Q3=B dev-only elision).
+  // call-site source-coord stamping (dev-only elision).
   // Each macro emits an `(if interop/debug-enabled? <stamp-branch>
   // <no-stamp-branch>)` expansion; under :advanced + goog.DEBUG=false
   // the closure compiler constant-folds the gate to false and the
@@ -504,9 +493,9 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.core/{dispatch,subscribe,inject-cofx} (rf.trace/call-site stamping)',
     sentinel: 'rf.trace/call-site' },
   // re-frame.core/reg-event — handler form-source capture (Spec 009
-  // §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch, rf2-xgfuy).
-  // EP-0018 collapsed public event registration to the ONE `reg-event`
-  // macro (the per-kind `reg-event-{db,fx,ctx}` forms are removed —
+  // §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch).
+  // Public event registration is the ONE `reg-event` macro (EP-0018; there
+  // are no per-kind `reg-event-{db,fx,ctx}` forms —
   // calling them is a hard error). The defreg-event-macro emission wraps
   // the bound source
   // string in `(if interop/debug-enabled? ~src-string nil)` and the
@@ -531,7 +520,7 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.core/reg-event macro (form-source pr-str literal)',
     sentinel: ':probe/cs-event (fn [{:keys [db]} _ev]' },
   // re-frame.core/reg-* macros — pure-documentation registration metadata
-  // (`:doc`) elision (Spec 001 §Production elision contract, rf2-9wwkcm).
+  // (`:doc`) elision (Spec 001 §Production elision contract).
   // `:doc` is the one PURE-documentation registration-metadata key: zero
   // production runtime use, zero production observability use. Two mechanisms
   // pin its production absence:
@@ -558,13 +547,13 @@ const DEV_ONLY_SENTINELS = [
   // enough that a global grep is unambiguous.
   { source: 're-frame.core/reg-* macros (:doc pure-documentation metadata literal)',
     sentinel: 'rf2-9wwkcm-doc-elision-sentinel' },
-  // re-frame.core/reg-machine — LITERAL opts-map `:doc` elision (rf2-tfiutq).
+  // re-frame.core/reg-machine — LITERAL opts-map `:doc` elision.
   // The 3-arg `reg-machine` macro (`(reg-machine :id {:doc "…"} spec)`)
-  // previously forwarded its `opts` map VERBATIM into the emitted registration
-  // call, so a literal doc-bearing opts map's `:doc` STRING survived :advanced
-  // (the splice-through `defreg-macro` / `defreg-event-macro` surfaces gate
-  // every literal doc-bearing arg via `gate-doc-args`, but `expand-reg-machine`
-  // bypassed that path). rf2-tfiutq routes the opts-form through `gate-doc-arg`
+  // is expanded by `expand-reg-machine`, not by the splice-through
+  // `defreg-macro` / `defreg-event-macro` surfaces that gate every literal
+  // doc-bearing arg via `gate-doc-args`; forwarding its `opts` map VERBATIM
+  // would let a literal doc-bearing opts map's `:doc` STRING survive
+  // :advanced. So it routes the opts-form through `gate-doc-arg`
   // when it is a literal map, emitting the same
   // `(if interop/debug-enabled? <full-opts> <opts-without-:doc>)` gate Closure
   // constant-folds under goog.DEBUG=false. The elision-probe's
@@ -574,11 +563,11 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.core/reg-machine (literal opts-map :doc elision)',
     sentinel: 'rf2-tfiutq-machine-opts-doc-sentinel' },
   // re-frame.core/image — LITERAL inline `:registrations` metadata `:doc`
-  // elision (rf2-v2j8e). `rf/image` is a value CONSTRUCTOR, so a literal inline
+  // elision. `rf/image` builds a VALUE, so a literal inline
   // registration metadata map `{:doc "…"}` is built AT THE CALL SITE before the
   // runtime `image-assembly/strip-descriptor-documentation` normalization runs;
   // per Spec 001 §Production elision contract a runtime strip cannot DCE those
-  // call-site string bytes. rf2-v2j8e makes `rf/image` a MACRO that runs each
+  // call-site string bytes. So `rf/image` is a MACRO that runs each
   // literal doc-bearing inline metadata slot through `gate-image-spec` →
   // `gate-doc-arg`, emitting the same `(if interop/debug-enabled? <full>
   // <stripped>)` gate Closure constant-folds under :advanced + goog.DEBUG=false.
@@ -597,7 +586,7 @@ const DEV_ONLY_SENTINELS = [
     sentinel: 'rf2-v2j8e-image-inline-fx-doc-sentinel' },
   { source: 're-frame.core/image (inline :reg-cofx literal :doc elision)',
     sentinel: 'rf2-v2j8e-image-inline-cofx-doc-sentinel' },
-  // ---- rf2-tfiutq: ungated DIRECT-CALL dev-only diagnostic prose ----------
+  // ---- ungated DIRECT-CALL dev-only diagnostic prose ----------------------
   //
   // The ~18 app-facing dev-only warning/diagnostic emits (resources /
   // routing / machines / ssr-client) call `trace/emit!` / `trace/emit-error!`
@@ -613,10 +602,10 @@ const DEV_ONLY_SENTINELS = [
   // `(when interop/debug-enabled? …)` call-site gate, pinned by the
   // keyword-op sentinels above.)
   //
-  // Before rf2-tfiutq the probe pinned dev-only prose absence ONLY inside
-  // already-gated branches and via the require boundary — it never rooted an
-  // UNGATED direct-emit site, so the FOLD path's production absence was
-  // UNVERIFIED. The elision-probe's `touch-direct-emit-diagnostics!` now
+  // Pinning dev-only prose absence ONLY inside already-gated branches and
+  // via the require boundary would never root an UNGATED direct-emit site,
+  // leaving the FOLD path's production absence UNVERIFIED. So the
+  // elision-probe's `touch-direct-emit-diagnostics!`
   // roots one representative direct-emit site per shape:
   //
   //   1. routing `advise-query-promotion!` — `emit!` :warning whose `:advice`
@@ -635,37 +624,33 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.machines.lifecycle-fx.traces/emit-destroy-exit-failure! (direct emit-error! :reason prose)',
     sentinel: 'An :exit action threw during destroy-time cascade' },
   // re-frame.router/handle-depth-exceeded! — the drain-depth halt's dev-only
-  // `:reason` prose (rf2-fcbrjo). The halt was PROMOTED to the always-on axis:
+  // `:reason` prose. The halt is on the always-on axis:
   // the structural record (`error-emit/dispatch-error-record!`, ids/counts/the
   // cycle-evidence ring only) SURVIVES production, but the rich human `:reason`
   // built with `(str … (pr-str tail-event-ids))` must NOT. Because
   // `handle-depth-exceeded!` ALSO makes the live always-on call, it is not a
-  // sole-statement leaf Closure folds on the emit body's nil-return (the exact
-  // rf2-cprm0q / #5107 leak), so the dev-trace `emit-error!` carries an EXPLICIT
+  // sole-statement leaf Closure folds on the emit body's nil-return, so the
+  // dev-trace `emit-error!` carries an EXPLICIT
   // `(when interop/debug-enabled? …)` call-site gate. The elision-probe's
   // `touch-drain-depth!` triggers a real halt so the control build (DEBUG=true)
   // contains this prose and the production build (DEBUG=false) must elide it.
   { source: 're-frame.router/handle-depth-exceeded! (drain-depth :reason prose, always-on-promoted)',
     sentinel: 'likely a dispatch loop. Cycle (last settled ids)' },
   // re-frame.subs.override-schema/validate-sub-override! — the Story
-  // `:sub-overrides` schema-failure reason string (rf2-vxgfnd.21). The ONE
+  // `:sub-overrides` schema-failure reason string. The ONE
   // shared override validator is reached from the Reagent-family consult
   // `re-frame.subs/resolve-sub-override`, inside subscribe's
   // `interop/debug-enabled?` gate. Under :advanced + goog.DEBUG=false that
   // call site DCEs, dropping the validator's last referent so its
   // reason-string literal must NOT survive; the control build (DEBUG=true)
   // contains it via the same consult. The fragment is the distinctive middle
-  // of the reason string, unambiguous under a global grep.
-  //
-  // rf2-0yp7w: a SECOND consult used to reach this validator from the retired
-  // compiled-view substrate, rooted by the elision probe's
-  // `touch-ui-sub-overrides!`. Both are gone; the surviving Reagent-family
-  // consult is what this row now pins, and it is sufficient — the validator
-  // is the shared primitive, not a per-substrate copy.
+  // of the reason string, unambiguous under a global grep. Pinning one
+  // consult is sufficient — the validator is the shared primitive, not a
+  // per-substrate copy.
   { source: 're-frame.subs.override-schema/validate-sub-override! (:sub-override schema-failure reason)',
     sentinel: ' :sub-override value failed schema ' },
   // re-frame.core/configure! — the :rf.warning/unknown-configure-key reason
-  // string (rf2-kuky.2). `configure!` itself SHIPS (it applies production
+  // string. `configure!` itself SHIPS (it applies production
   // knobs and the elision probe calls it, so the fn is rooted in the bundle),
   // which is exactly why this row is worth having: the unknown-bare-key
   // diagnostic sits inside `configure!`'s own
@@ -676,27 +661,26 @@ const DEV_ONLY_SENTINELS = [
   // reliable pin.
   { source: 're-frame.core/configure! (rf.warning/unknown-configure-key reason)',
     sentinel: 'rf/configure! was given unrecognised top-level ' }
-  // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
-  // once warning + its emit helper were RETIRED (EP-0002; superseded by
-  // the always-on :rf.error/no-frame-context). There is no longer any
-  // gated emit site to elide-probe; the browser-test
+  // Note: there is no :rf.warning/plain-fn-under-non-default-frame-
+  // once warning to elide-probe — the always-on :rf.error/no-frame-context
+  // covers that case (EP-0002), and the browser-test
   // (re-frame.cross-spec-dom-cljs-test/plain-fn-under-non-default-frame)
-  // pins the replacement no-frame-context contract.
+  // pins the no-frame-context contract.
 ];
 
-// ----- EP-0023 image-loaded frames (rf2-32siq3.40) ---------------------------
+// ----- EP-0023 image-loaded frames -------------------------------------------
 //
-// EP-0023 introduces TWO elision contracts that run in the OPPOSITE direction
+// Image-loaded frames (EP-0023) carry TWO elision contracts that run in the OPPOSITE direction
 // from the dev-only sentinels above (which must be ABSENT in production):
 //
 //   1. PROD_SURVIVING_SENTINELS — strings that MUST be PRESENT in the
 //      production bundle. `:rf.provenance/ns` is a PRODUCTION descriptor field,
 //      not optional debug metadata (EP-0023 §Namespace-Selected Images):
 //      `:include-ns` image assembly reads it, so it MUST survive :advanced +
-//      goog.DEBUG=false or namespace-selected images cannot work. Before the
-//      `re-frame.elision-probe/touch-image-frame-provenance!` touch this was
-//      only HAND-MODELED (source_store_cljs_test binds *pending-coords* and
-//      hand-strips :ns); now it runs under a real elision gate. The probe roots
+//      goog.DEBUG=false or namespace-selected images cannot work. The
+//      `re-frame.elision-probe/touch-image-frame-provenance!` touch puts it
+//      under a real elision gate rather than a HAND MODEL (source_store_cljs_test
+//      binds *pending-coords* and hand-strips :ns): the probe roots
 //      the keyword through the same `record-descriptor!` path `reg-*` walks.
 //
 //   2. PROD_ABSENT_WHEN_UNUSED_SENTINELS — strings inside EP-0023 image-ASSEMBLY
@@ -736,12 +720,11 @@ const PROD_ABSENT_WHEN_UNUSED_SENTINELS = [
   // literal must DCE from the production bundle (reachability DCE —
   // image_assembly.cljc docstring: "an app that never assembles an image never
   // reaches these fns"). The fragment is the distinctive head of the error
-  // message, unambiguous under a global grep. (EP-0026, rf2-dlvmpc retired the
-  // former check-capabilities! sentinel with the image-capability feature.)
+  // message, unambiguous under a global grep.
   { source: 're-frame.image-assembly/resolve-within-image (assembly-only, DCE when unused)',
     sentinel: 'is selected from' },
   // re-frame.late-bind.directory/hooks — the ~150 paragraph-length
-  // `:description` strings in the hook-directory inventory (rf2-tfiutq).
+  // `:description` strings in the hook-directory inventory.
   // This is plain ungated CLJC DATA — no `interop/debug-enabled?` gate — so
   // it is NOT kept out of production by goog.DEBUG DCE. It is kept out by
   // REACHABILITY DCE: the directory is required ONLY by drift/publication
@@ -751,9 +734,9 @@ const PROD_ABSENT_WHEN_UNUSED_SENTINELS = [
   // any production boot path and Closure trims it. The probe deliberately does
   // NOT require it either, so the `:description` strings must be ABSENT.
   //
-  // No sentinel guarded that absence before rf2-tfiutq. This pins it (mirroring
+  // This sentinel pins that absence (mirroring
   // the EP-0023 `'is selected from'` image-assembly reachability guard): an
-  // accidental future production `:require` of the directory — or a refactor
+  // accidental production `:require` of the directory — or a refactor
   // that pulls `hooks` into a reachable boot path — would surface this
   // distinctive `:description` head and fail CI. The fragment is the exact text
   // of the `:router/dispatch!` row's one-line `:description`, unique under a
@@ -765,7 +748,7 @@ const PROD_ABSENT_WHEN_UNUSED_SENTINELS = [
 // ----- helpers ---------------------------------------------------------------
 
 // Bundle reading is shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). Top-level *.js
+// scripts/lib/read-release-bundle.cjs. Top-level *.js
 // only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function checkBundle(label, bundlePath, mustContain) {
@@ -776,7 +759,7 @@ function checkBundle(label, bundlePath, mustContain) {
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
   if (status === 'empty') {
-    // Non-vacuous floor (rf2-utvst): a present-but-empty bundle satisfies
+    // Non-vacuous floor: a present-but-empty bundle satisfies
     // every sentinel-absence check and would false-GREEN the production
     // elision assertion.
     console.error(`[elision] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
@@ -803,8 +786,8 @@ function checkBundle(label, bundlePath, mustContain) {
 // true ⇒ every sentinel must be PRESENT; false ⇒ every sentinel must be
 // ABSENT. Returns { ok, passed, checked }. Shared by the dev-only ABSENT
 // check and the EP-0023 PROD-SURVIVING (present) / PROD-ABSENT-WHEN-UNUSED
-// (absent) checks (rf2-32siq3.40). The loop + tally are the shared
-// `assertSentinelSet` (lib/sentinel-scan.cjs, rf2-j552l2); this wrapper
+// (absent) checks. The loop + tally are the shared
+// `assertSentinelSet` (lib/sentinel-scan.cjs); this wrapper
 // supplies the elision gate's exact diagnostic line format.
 function assertSentinels(blob, sentinels, mustContain) {
   return assertSentinelSet(blob, sentinels, {
@@ -829,12 +812,12 @@ function main() {
   // Production bundle: dev-only sentinels MUST be absent.
   const prod = checkBundle('production (goog.DEBUG=false)', probeDir, false);
 
-  // EP-0023 image-loaded frames (rf2-32siq3.40) — the two OPPOSITE-direction
+  // EP-0023 image-loaded frames — the two OPPOSITE-direction
   // contracts, asserted against the SAME production bundle blob.
   let ep23 = { ok: true, surviving: { passed: 0, checked: 0 }, absent: { passed: 0, checked: 0 } };
   if (!prod.missing && !prod.empty) {
     const { blob } = classifyReleaseBundle(probeDir);
-    report.detail('[elision] EP-0023 image-loaded frames (rf2-32siq3.40):');
+    report.detail('[elision] EP-0023 image-loaded frames:');
     report.detail('          PROD_SURVIVING — :rf.provenance/ns must be PRESENT (survives :advanced):');
     const surviving = assertSentinels(blob, PROD_SURVIVING_SENTINELS, true);
     report.detail('          PROD_ABSENT_WHEN_UNUSED — image-assembly fns must DCE when unused:');
@@ -843,7 +826,7 @@ function main() {
   }
 
   // Control bundle: dev-only sentinels MUST be present. The control IS the
-  // methodology (rf2-udro3) — the production arm is a pure absence assertion,
+  // methodology — the production arm is a pure absence assertion,
   // and a sentinel that was renamed, moved out of its gated branch, or whose
   // rooting probe was deleted is absent for the WRONG reason and passes. So a
   // missing control bundle is a VIOLATED precondition, not an honest skip: the
@@ -890,7 +873,7 @@ function main() {
       console.error('re-frame.interop/debug-enabled? so DCE removes it.');
     }
     if (!ep23.ok) {
-      console.error('EP-0023 elision contract broke (rf2-32siq3.40):');
+      console.error('EP-0023 elision contract broke:');
       console.error('  - PROD_SURVIVING: :rf.provenance/ns MUST survive :advanced —');
       console.error('    it is a production descriptor field :include-ns assembly reads');
       console.error('    (EP-0023 §Namespace-Selected Images). If absent, namespace-');
