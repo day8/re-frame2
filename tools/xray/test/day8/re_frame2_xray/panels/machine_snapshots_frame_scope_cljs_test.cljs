@@ -1,25 +1,27 @@
 (ns day8.re-frame2-xray.panels.machine-snapshots-frame-scope-cljs-test
   "The `:rf.xray/machine-snapshots` sub must classify a live snapshot against
-  the frame WHOSE DATA IT IS (rf2-6ev6j).
+  the frame WHOSE DATA IT IS.
 
-  ## The defect these rows pin
+  ## What these rows pin
 
-  The sub took TWO INPUTS FROM DIFFERENT FRAME SLOTS:
+  The sub's DATA comes from `:rf.xray/target-frame-runtime-db`, which pivots
+  on `:rf.xray/observed-frame` — `(or (:frame focus) target)`, the
+  FOCUS-selected frame first. The collector target, `:rf.xray/target-frame`,
+  is a DIFFERENT slot, which `defaults/default-target-frame` leaves `nil`
+  until something selects it (EP-0002). Classifying against the collector
+  target would pair two inputs from different frame slots:
 
       {:inputs [[:rf.xray/target-frame] [:rf.xray/target-frame-runtime-db]]}
 
-  The CLASSIFICATION frame came from `:rf.xray/target-frame` — the collector
-  target, which `defaults/default-target-frame` leaves `nil` until something
-  selects it (EP-0002). The DATA came from `:rf.xray/target-frame-runtime-db`,
-  which pivots on `:rf.xray/observed-frame` — `(or (:frame focus) target)`, the
-  FOCUS-selected frame first. Nothing kept the two equal.
+  and nothing keeps the two equal.
 
   In the posture the panel OPENS in, the composed focus resolves a real host
   frame (`compose-focus` takes `:frame` from the head event-bundle's own record
-  in LIVE mode) while the picker is untouched, so `:target-frame` is still nil.
+  in LIVE mode) while the picker is untouched, so `:target-frame` is nil.
   `frame-snapshot-classification` returns nil for a nil frame, and with no
-  author classification `project-machine-tags` returns the tags UNCHANGED — so a
-  `:data` path the frame had EXPLICITLY DECLARED sensitive was surfaced RAW.
+  author classification `project-machine-tags` returns the tags AS THEY ARE —
+  so classifying against the collector target would surface a `:data` path the
+  frame had EXPLICITLY DECLARED sensitive RAW.
 
   That is a missed EXPLICIT declaration, not a blanket security-boundary claim,
   and nothing here scrubs anything the author did not declare —
@@ -27,13 +29,11 @@
 
   ## Why these rows drive the real sub
 
-  The pre-existing coverage
-  (`machine_inspector_view_cljs_test/live-snapshots-sub-redacts-sensitive-data-rf2-kq8nac`)
+  `machine_inspector_view_cljs_test/live-snapshots-sub-redacts-sensitive-data-rf2-kq8nac`
   calls `#'machine-inspector/redact-live-snapshots` DIRECTLY with a
-  hand-supplied frame-id. That fn was always correct — it redacts against
-  whatever frame it is handed. The defect lived one level up, in WHICH frame
-  the sub handed it, so a helper-level row cannot see it and the chain was
-  never exercised end to end. Every row here reads
+  hand-supplied frame-id. That fn redacts against whatever frame it is
+  handed; the question here is one level up, in WHICH frame the sub hands
+  it, so a helper-level row cannot see it. Every row here reads
   `@(rf/subscribe [:rf.xray/machine-snapshots])` so the whole production chain
   (`:rf.xray/focus` -> `:rf.xray/observed-frame` ->
   `:rf.xray/target-frame-runtime-db` -> the sub) runs for real.
@@ -48,7 +48,7 @@
   `rf.elision/swap-elision-slot!` + `add-claims` — the substrate the EP-0025
   commit-plane `:sensitive` effect writes through. A hand-redacted snapshot
   injected through the override seam would carry no registry at all and would
-  pass against the unfixed sub."
+  pass against a sub classifying against the wrong frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -163,11 +163,11 @@
 ;; ---- (0) controls: the rig is live before anything is asserted ----------
 
 (deftest control-the-two-slots-genuinely-diverge-rf2-6ev6j
-  (testing "rf2-6ev6j CONTROL — the shipping posture really does put a REAL
+  (testing "CONTROL — the shipping posture really does put a REAL
             frame on the observed axis while the collector target is nil. A
             redaction row below could otherwise pass for the wrong reason: if
-            the two slots happened to agree, the defect could not manifest and
-            a green row would say nothing."
+            the two slots happened to agree, a wrong-frame classification
+            could not manifest and a green row would say nothing."
     (seed-host-runtime-db! host-b)
     (declare-secret-sensitive! host-b)
     (setup-xray!)
@@ -178,10 +178,10 @@
     (is (= host-b (observed-frame))
         "the observed frame resolves host-b off the focus slot")
     (is (not= (target-frame) (observed-frame))
-        "the two axes diverge — which is the precondition this item is about")))
+        "the two axes diverge — the precondition these rows are about")))
 
 (deftest control-the-host-snapshot-is-raw-in-process-rf2-6ev6j
-  (testing "rf2-6ev6j CONTROL — the seeded snapshot really carries the secret
+  (testing "CONTROL — the seeded snapshot really carries the secret
             in the host frame's own runtime-db, and the declaration really
             landed. Without this a redaction assertion could pass because the
             seed was empty or the registry write no-opped (swap-elision-slot!
@@ -199,9 +199,9 @@
 ;; ---- (1) PROPERTY ONE: correct classification --------------------------
 
 (deftest redacts-against-the-observed-frame-when-the-target-is-unselected-rf2-6ev6j
-  (testing "rf2-6ev6j — target nil / focus host-b. The snapshot is host-b's, so
-            host-b's declaration governs it. RED against the unfixed sub, which
-            classified against the nil collector target and surfaced the
+  (testing "target nil / focus host-b. The snapshot is host-b's, so
+            host-b's declaration governs it. RED against a sub classifying
+            against the nil collector target, which would surface the
             declared-sensitive slot RAW."
     (seed-host-runtime-db! host-b)
     (declare-secret-sensitive! host-b)
@@ -227,12 +227,13 @@
 ;; ---- (2) PROPERTY TWO: no collateral change ----------------------------
 
 (deftest leaves-an-undeclared-frames-snapshot-untouched-rf2-6ev6j
-  (testing "rf2-6ev6j — a frame declaring NO matching `:data` path leaves the
+  (testing "a frame declaring NO matching `:data` path leaves the
             snapshot UNTOUCHED and REFERENCE-PRESERVING (the fast path inside
-            `project-machine-tags` that the sub's own comment names). This is
-            the invariant the fix must not disturb; it is green either side of
-            the change BY DESIGN, and it is the half that says the fix did not
-            buy its correctness with a blanket scrub."
+            `project-machine-tags` that the sub's own comment names). This
+            invariant holds whichever frame the sub classifies against, BY
+            DESIGN, and it is the half that says the observed-frame
+            classification does not buy its correctness with a blanket
+            scrub."
     (seed-host-runtime-db! host-b)
     ;; deliberately NO declare-secret-sensitive!
     (setup-xray!)
@@ -244,16 +245,16 @@
           "the reference-preserving fast path was lost — an undeclared
            snapshot was rebuilt rather than passed through")
       (is (= secret (get-in snaps [machine-id :data :secret]))
-          "an UNDECLARED slot was withheld — over-scrub; this item is
+          "an UNDECLARED slot was withheld — over-scrub; these rows are
            explicitly not a claim that undeclared carriers are a boundary"))))
 
 ;; ---- (3) the differing-frame controls ----------------------------------
 
 (deftest redacts-against-the-observed-frame-not-the-selected-target-rf2-6ev6j
-  (testing "rf2-6ev6j — collector target host-a (declaring NOTHING), focus
+  (testing "collector target host-a (declaring NOTHING), focus
             host-b (declaring the slot sensitive). The data is host-b's, so
-            host-b's declaration must govern. RED against the unfixed sub,
-            which asked host-a and got no declaration, leaking the slot."
+            host-b's declaration must govern. RED against a sub asking
+            host-a, which gets no declaration and leaks the slot."
     (seed-host-runtime-db! host-b)
     (declare-secret-sensitive! host-b)
     (rf/make-frame {:id host-a})
@@ -261,7 +262,7 @@
     (select-target-frame! host-a)
     (focus-frame! host-b)
     (is (= host-a (target-frame)) "the collector target is host-a")
-    (is (= host-b (observed-frame)) "the observed frame is still host-b")
+    (is (= host-b (observed-frame)) "the observed frame is host-b")
     (let [snaps (machine-snapshots)]
       (is (= :rf/redacted (get-in snaps [machine-id :data :secret]))
           (str "classified against the COLLECTOR TARGET instead of the frame
@@ -270,11 +271,11 @@
           (str "the declared-sensitive value leaked: " (pr-str snaps))))))
 
 (deftest stops-redacting-against-the-collector-target-rf2-6ev6j
-  (testing "rf2-6ev6j, the item's own words — collector target host-a DECLARES
+  (testing "collector target host-a DECLARES
             the slot sensitive, focus host-b does NOT, and the snapshot is
             host-b's. host-a's declaration governs host-a's data and nothing
-            else, so the value must ride verbatim. RED against the unfixed sub,
-            which applied host-a's policy to host-b's value — the borrowed-
+            else, so the value must ride verbatim. RED against a sub
+            applying host-a's policy to host-b's value — the borrowed-
             policy failure `panels/routing.cljs`'s own `current-route-slice`
             comment names, reached from the other direction."
     (seed-host-runtime-db! host-b)
