@@ -1,24 +1,22 @@
 (ns re-frame.bench.fresco.arm1.presence-dom-cljs-test
-  "PRESENCE, MOUNTED — the toast tray written INLINE (rf2-2rtt6.37,
-  HD-025).
+  "PRESENCE, MOUNTED — the toast tray written INLINE (HD-025).
 
-  `front/presence_cljs_test` proves the machine and the phase transform
-  with no clock, which is itself one of the ruling's claims. This file
+  `re-frame.fresco.presence-cljs-test` proves the machine and the phase
+  transform with no clock, which is itself one of HD-025's claims. This file
   proves the part only a browser can: that React drives that machine,
   that the exit attributes reach the real DOM on the real node, that
   re-entry takes them off again, and that the node is gone after
   `:timeout-ms` with nothing retained behind it.
 
-  **The whole point is that there is no child view here.** The
-  predecessor's guide requires one — `[:div.toast …]` extracted into a
-  declared, keyed `defview` purely so a dynamic var resolves against the
-  right child, with reading the phase inline in the parent recorded as a
-  trap that silently yields the parent's phase. The tray below is written
+  **The whole point is that there is no child view here.** A design that
+  reads the phase from a dynamic var needs one — `[:div.toast …]`
+  extracted into a declared, keyed `defview` purely so the var resolves
+  against the right child, because reading the phase inline in the parent
+  silently yields the parent's phase. The tray below is written
   inline, in the parent, in one form.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM; under `:node-test` every DOM claim degrades to a stated
-  skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -64,9 +62,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defview toast-tray
-  "The census-real shape, ported. Compare the predecessor's: two views, an
-  ambient `presence-phase` read, and three separate `(when exiting? …)`
-  attributes on the extracted child."
+  "The census-real shape, in one view. A dynamic-phase-var design needs
+  two views, an ambient `presence-phase` read, and three separate
+  `(when exiting? …)` attributes on the extracted child."
   [_]
   [presence {:timeout-ms timeout-ms}
    (for [t (rf.bench.fresco.arm1.runtime/sub [:toasts/visible])]
@@ -240,7 +238,7 @@
                               animation on insertion for enter and keeps the
                               override for exit")
                          (finally (rf.bench.fresco.arm1.mount/release! handle)))))
-              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; Reports and RELEASES; it never finishes. `done` runs
               ;; the whole remainder of the run synchronously, so a `.catch`
               ;; downstream of it would claim a later namespace's throw as this
               ;; row's and fire `done` a second time.
