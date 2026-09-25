@@ -308,11 +308,12 @@
                         (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!
                           machine-id frame-id (rf.machines.result/info exit-result)))]
   (let [;; A's exact-frame-incarnation continuation predicate. The
-        ;; completion-output validator, the
-        ;; `:rf.machine/done` trace fan-out, and the parent `:on-done` callback
-        ;; are all APPLICATION / listener code that can synchronously destroy
-        ;; the frame incarnation A that owns the in-flight event and publish a
-        ;; same-id successor B. Every subsequent framework-owned action —
+        ;; completion-output validator and the parent `:on-done` callback are
+        ;; APPLICATION code that can synchronously destroy the frame
+        ;; incarnation A that owns the in-flight event and publish a same-id
+        ;; successor B; so is a `:rf.machine/done` trace listener when finalize
+        ;; runs outside any drain (inside the event's drain, that trace's
+        ;; listeners run after the drain). Every subsequent framework-owned action —
         ;; teardown, registrar unregister, HTTP/timer cancellation,
         ;; rf.machines.classification/spawn-order drop, the `:on-error` dispatch, and the
         ;; runtime-db / fx publication — is A-derived tail; running it after A

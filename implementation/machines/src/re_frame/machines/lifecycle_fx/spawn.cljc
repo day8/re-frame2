@@ -564,17 +564,19 @@
   have provoked is already reflected in the reference this stamps.
 
   The pre-install emission named above — the caller's
-  `:rf.machine.spawn/spawned` trace — does not fan synchronously to
-  application listeners: trace listeners are OBSERVERS, and internal
-  drain-owned emits deliver at the POST-DRAIN boundary, so no listener body
-  can unregister or replace the child's TYPE between the caller's bindings and
-  this write; that window is closed BY CONSTRUCTION. The late placement
-  matters anyway: it costs nothing, it is the honest place to read a
-  registrar-derived value, and it is load-bearing for in-drain application
-  code that CAN run ahead of the write — a prepared child's own
-  `[:schemas :data]` validator runs after its `:type-spec` is retained, so the
-  definition-lifetime rule must decide against the registrar as it stands at
-  COMMIT."
+  `:rf.machine.spawn/spawned` trace — reaches application listeners at the
+  POST-DRAIN boundary when the spawn fx runs inside a drain, its ordinary
+  path: trace listeners are OBSERVERS, so on that path no listener body can
+  unregister or replace the child's TYPE between the caller's bindings and
+  this write. When `spawn-fx` is called directly, outside any drain, the same
+  trace fans out synchronously on the emitting stack, and a listener there
+  runs ahead of the write. The late placement serves both paths: it is the
+  honest place to read a registrar-derived value, it decides against whatever
+  a direct-call listener did to the registrar, and it is load-bearing for
+  in-drain application code that runs ahead of the write — a prepared child's
+  own `[:schemas :data]` validator runs after its `:type-spec` is retained, so
+  the definition-lifetime rule must decide against the registrar as it stands
+  at COMMIT."
   [frame-id rt-after-alloc spec spawned-id initial-snap
    {:keys [parent-id invoke-id track? type-ref-fn continue? owner-token]}]
   ;; The caller's `:rf.machine.spawn/spawned` trace is
@@ -617,13 +619,15 @@
           ;; SPLIT (a prepared-v1 snapshot driven by an unrelated current-v2
           ;; handler).
           ;;
-          ;; That emit is internal and drain-owned, so its listeners run at the
-          ;; post-drain boundary and no listener body can act here at all. The
-          ;; late force still matters because it is the correct reading point
-          ;; for a registrar-derived value, and because in-drain application
-          ;; code — notably a prepared child's own `[:schemas :data]` validator,
-          ;; which `prepare-spawn-all-child` runs AFTER retaining `:type-spec` —
-          ;; can diverge the registrar ahead of this write.
+          ;; Inside a drain that emit's listeners run at the post-drain
+          ;; boundary, so no listener body can act here; when `spawn-fx` is
+          ;; called directly, outside any drain, they run synchronously on the
+          ;; emitting stack, before this write. The late force is the correct
+          ;; reading point for a registrar-derived value on both paths, and
+          ;; in-drain application code — notably a prepared child's own
+          ;; `[:schemas :data]` validator, which `prepare-spawn-all-child` runs
+          ;; AFTER retaining `:type-spec` — can diverge the registrar ahead of
+          ;; this write too.
           ;;
           ;; Deferring the CHOICE — rather than re-checking anything — is the
           ;; whole mechanism: `type-ref-fn` reads the registrar as it stands at
@@ -1304,11 +1308,13 @@
         ;; against the registrar as it stands at COMMIT rather than at this
         ;; binding.
         ;;
-        ;; The `:rf.machine.spawn/spawned` trace below is an internal
-        ;; drain-owned emit, delivered at the post-drain boundary, so no TRACE
-        ;; LISTENER body runs between here and the write. The thunk matters
-        ;; because the late read is correct and load-bearing for ordinary
-        ;; in-drain application code — a prepared child's `[:schemas :data]`
+        ;; Inside a drain the `:rf.machine.spawn/spawned` trace below is
+        ;; delivered at the post-drain boundary, so no TRACE LISTENER body runs
+        ;; between here and the write; a direct `spawn-fx` call outside any
+        ;; drain fans it out synchronously, so its listeners run before the
+        ;; write. The late read is correct on both paths, and it is
+        ;; load-bearing for ordinary in-drain application code — a prepared
+        ;; child's `[:schemas :data]`
         ;; validator runs after `prepare-spawn-all-child` retained `:type-spec`,
         ;; so a registrar it mutates must be the one the rule sees.
         ;; `machine-type-ref` is pure over `args` and reads no registrar, so the
@@ -1416,8 +1422,10 @@
                     :parent-id  parent-id
                     :invoke-id  invoke-id})
       ;; The `:rf.machine.spawn/spawned` trace above is
-      ;; callback-bearing: a trace LISTENER can synchronously destroy A /
-      ;; publish same-id B before returning. Recheck the exact-incarnation
+      ;; callback-bearing when `spawn-fx` is called directly, outside any
+      ;; drain: its trace LISTENERS then run synchronously and can destroy A /
+      ;; publish same-id B before the emit returns (inside a drain they run
+      ;; after the drain). Recheck the exact-incarnation
       ;; continuation HERE, after the trace fanout and before ANY framework-
       ;; owned bookkeeping — the install / classification / spawn-order record /
       ;; `:rf.machine.lifecycle/spawned` trace / `:start` dispatch tail is all
@@ -1448,8 +1456,8 @@
                                          :continue?   continue?
                                          :owner-token owner-token})]
         ;; The emissions ahead of `install-spawn!`'s swap are
-        ;; callback-bearing: a listener can destroy A / publish
-        ;; same-id B on the trace's own stack. Run the framework-owned tail —
+        ;; callback-bearing: on the direct-call path a listener can destroy A /
+        ;; publish same-id B on the trace's own stack. Run the framework-owned tail —
         ;; per-instance classification, the spawn-order record, and the
         ;; `:rf.machine.lifecycle/spawned` trace — ONLY when install COMMITTED
         ;; AND the exact owner is STILL current after those callbacks. Otherwise
