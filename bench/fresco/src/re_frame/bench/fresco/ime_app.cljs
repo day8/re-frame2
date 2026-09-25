@@ -1,14 +1,13 @@
 (ns re-frame.bench.fresco.ime-app
   "THE IME COMPOSITION PAGE — the in-browser half of the real-CompositionEvent
-  harness (rf2-o27h3). `ime_run.cjs` is the other half and the only caller.
+  harness. `ime_run.cjs` is the other half and the only caller.
 
   ## Why this page exists
 
-  The `:ime-composition-commits-nothing` row of the controlled grid was
-  probed with synthetic `Event`s named `compositionstart`/`compositionend`,
-  which exercise neither React's composition plumbing nor the browser's own
-  composition state, and the row was left deliberately unasserted
-  (rf2-n3dxw, rf2-m6if4). A real IME exchange is browser machinery — a
+  Synthetic `Event`s named `compositionstart`/`compositionend` exercise
+  neither React's composition plumbing nor the browser's own composition
+  state, so the controlled grid's `:ime-composition-commits-nothing` row
+  cannot establish the value path with them. A real IME exchange is browser machinery — a
   composition RANGE the IME owns, `input` events carrying
   `inputType \"insertCompositionText\"` and `isComposing true`, keydowns
   whose `isComposing` reflects live composition state — and nothing
@@ -23,8 +22,8 @@
   ## The three input implementations, one per page load
 
   `?impl=` selects exactly one, so no row can inherit another's machinery
-  (the rf2-n3dxw discipline — two rows were once green while measuring
-  UIx's Reagent-port and reading it as React):
+  (a page hosting two could measure UIx's Reagent-port and read it as
+  React):
 
   | `?impl=` | what mounts | pin |
   |---|---|---|
@@ -178,7 +177,7 @@
   "One controlled cell on the arm's own authoring surface: a `:value` read
   through the ambient collector, an `:on-input` intent carrying the value
   marker — which is what makes the codec install the converge around it
-  (rf2-fki5d) — and a key-map whose `\"Enter\"` branch is what the
+  — and a key-map whose `\"Enter\"` branch is what the
   composition gate has to stop. The composition probes are `event`
   callbacks; each returns nil deliberately, because an event callback's
   returned VECTOR is dispatched."
