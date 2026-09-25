@@ -1,19 +1,17 @@
 (ns day8.re-frame2-xray.views.edn-inspector-default-formatters
-  "Default `IXrayEdnInspector` formatters for common CLJS types
-  (rf2-x16b1 · follow-on to rf2-0qrcr phase 7).
+  "Default `IXrayEdnInspector` formatters for common CLJS types.
 
   ## Why this exists
 
-  Phase 7 of rf2-oqa60 shipped the `IXrayEdnInspector` protocol as the
-  single extension seam for the closed phase-1 renderer. The widget
-  ships ZERO default protocol implementations — consuming apps must
-  opt in per domain type via `extend-type`.
+  The `IXrayEdnInspector` protocol is the single extension seam for
+  the closed renderer; consuming apps opt in per domain type via
+  `extend-type`.
 
   For common Clojure(Script) types where the raw repr is genuinely
   cramped or unhelpful, shipping opinionated defaults serves the
   primary lenses of CLARITY and ELEGANCE without forcing every app
-  to repeat the same boilerplate. Mike's 2026-05-26 ruling: ship the
-  curated set `uuid + inst (+ uri)`.
+  to repeat the same boilerplate. The curated set is `uuid` and
+  `inst`.
 
   ## Coverage
 
