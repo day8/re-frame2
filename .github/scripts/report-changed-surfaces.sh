@@ -552,7 +552,7 @@ is_story_full_gate_path() {
 # be. It only ever SETS `implementation_jvm`, so it can narrow nothing.
 #
 # WHY `implementation_jvm` AND NOT AN OUTPUT OF ITS OWN. An output of its own
-# would fire one job instead of twenty-two, which is the honest argument for
+# would fire one job instead of the whole JVM tier, which is the honest argument for
 # it — but `scripts/test-fast-pr.sh` gates the local JVM tier on
 # `implementation_jvm` too, so a second predicate would have to be taught to
 # the spine as well and then held in step with this one: a gate's inputs and
@@ -1350,7 +1350,7 @@ else
         # scripts/test-jvm-implementation.sh's roster. That job is
         # UNCONDITIONAL, so it needs no arm, and arming this root would be
         # wrong twice over:
-        # 22 OTHER jobs read `implementation_jvm`, so a fresco-only diff
+        # every OTHER JVM job reads `implementation_jvm`, so a fresco-only diff
         # would schedule all of them to run one five-second one-namespace
         # lane; and the arm would still not cover the lane's own inputs —
         # `implementation/fresco/deps.edn` and `test_kit/src/**` are on
@@ -1556,21 +1556,16 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
-      # ─── PROSE THAT A test.yml SUITE PINS (rf2-61ar) ──────────────────────
+      # ─── PROSE THAT A test.yml SUITE PINS ─────────────────────────────────
       #
-      # THE HOLE. A docs/spec-only diff classified to NOTHING: measured on
-      # main, `report-changed-surfaces.sh docs/machines/parallel-states.md
-      # docs/machines/concepts.md` printed all 32 outputs `false`. But a
-      # growing family of suites inside test.yml jobs `slurp` repo PROSE and
-      # assert on its text — guide-truth pins, terminology pins, schema
-      # extracts, doc-example evaluators. Every one of them was armed by its
-      # CODE surface and by nothing on the PROSE side, so a prose-only edit
-      # could red them and merge green, with the red landing on `main` for the
-      # next unrelated PR to discover. That is not hypothetical: PR #8068 (the
-      # machines-guide rewrite, 13 files, docs-only) skipped `jvm-machines` —
-      # the very lane pinning the pages it rewrote — and left five assertions
-      # across four deftests red on main until an unrelated PR happened to arm
-      # `implementation_jvm` (rf2-s41i, PR #8082, the prose+test half).
+      # THE HOLE. A family of suites inside test.yml jobs `slurp` repo PROSE
+      # and assert on its text — guide-truth pins, terminology pins, schema
+      # extracts, doc-example evaluators. Armed only by its CODE surface, each
+      # could be reddened by a prose-only edit that merges green, with the red
+      # landing on `main` for the next unrelated PR to discover: a docs-only
+      # rewrite of the machines guide would skip `jvm-machines`, the very lane
+      # pinning the pages it rewrote. So the prose each suite reads arms that
+      # suite's tier.
       #
       # THE MEASURED ROSTER — the prose each test.yml suite reads, and the job
       # that reads it. Established by walking every `.clj`/`.cljc` under
@@ -1614,53 +1609,48 @@ else
       #                                        its own arm below.
       #
       # WHY `implementation_jvm` AND NOT SOMETHING NARROWER. There is nothing
-      # narrower. `implementation_jvm` is the single output every one of the 22
-      # per-artefact JVM jobs gates on; a per-lane arm would mean 22 new outputs
-      # and 22 `if:` widenings in test.yml for a saving the spec roster above
-      # would not even collect (its pins already span jvm-core, jvm-machines,
-      # jvm-epoch, jvm-ssr and jvm-routing). The precedent is directly
-      # overhead: prose a suite reads arms the JVM tier. So the
-      # narrowing this bead buys is bought on the PATH axis instead: prose a
-      # suite reads arms the JVM tier, and prose nothing reads still arms
-      # nothing, exactly as today.
+      # narrower. `implementation_jvm` is the single output every
+      # per-artefact JVM job gates on; a per-lane arm would mean one new
+      # output and one `if:` widening in test.yml per JVM job, for a saving
+      # the spec roster above would not even collect (its pins span jvm-core,
+      # jvm-machines, jvm-epoch, jvm-ssr and jvm-routing). So the narrowing is
+      # on the PATH axis instead: prose a suite reads arms the JVM tier, and
+      # prose nothing reads arms nothing.
       #
       # NONE of these arms `cljs_browser`, `cljs_prod` or any Playwright
-      # output. Markdown cannot change what React puts on a page — the same
-      # line rf2-drpa3.70 drew for `implementation/freehand/*.md`. The one
-      # exception is `spec/Spec-Schemas.md`, and it is a COMPILE-TIME edge
-      # rather than a runtime one; its own arm below says why.
+      # output. Markdown cannot change what React puts on a page.
       docs/machines/*.md)
         # The two pinned pages are `concepts.md` (the §Self-transitions
         # terminology `transition_geometry_terminology_jvm_test.clj` holds to
         # spec/005) and `parallel-states.md` (the guide-truth walk). The arm is
         # the TREE rather than those two names, and deliberately:
-        #   * the incident was a 13-file tree-wide rewrite, which is how a
-        #     guide is actually edited — page by page is the exception;
+        #   * a guide is actually edited tree-wide, many pages in one diff —
+        #     page by page is the exception;
         #   * `concepts.md` and `parallel-states.md` are the terminology spine
         #     every other page in the guide restates, so a rewrite that moves a
         #     definition between pages is the shape most likely to red them;
         #   * unlike `docs/api/**` below, this tree has NO other gate — it
         #     reaches docs.yml, which stages it into the site and executes not
         #     one line of the suites that read it. Under-arming here is what
-        #     cost the red, and TESTING.md's rule for exactly this doubt is
-        #     "when in doubt, over-classify".
+        #     lets a red through, and TESTING.md's rule for exactly this doubt
+        #     is "when in doubt, over-classify".
         # `.md` rather than `*`: both pins read Markdown, and the tree carries
-        # no other file today. An image dropped beside a page should not queue
+        # no other file. An image dropped beside a page should not queue
         # a JVM tier.
         implementation_jvm=true
         ;;
       docs/api/re-frame.adapter.uix.md|docs/api/re-frame.ssr.md)
         # Named files, NOT `docs/api/*` — the one place in this block where the
         # narrow answer is the right one, for a reason the other trees lack:
-        # `docs/api/**` is ALREADY on lint.yml's `paths:` filter, so all 25
-        # pages carry the api-manifest `doc-api-check` projection gate. The
+        # `docs/api/**` is on lint.yml's `paths:` filter, so every page
+        # carries the api-manifest `doc-api-check` projection gate. The
         # tree is not an unwatched surface; the hole is two pages that two
         # test.yml JVM suites additionally name as literals —
         # `scope_ensure_authority_test.clj` (jvm-core) reads the uix adapter
         # page's scope/ensure row, and `ssr_doc_example_projector_test.clj`
-        # (jvm-ssr) EVALUATES the projector example off the ssr page. Arming 25
-        # pages' worth of edits into a 22-job JVM tier when 23 of them have no
-        # JVM pin at all is the "coarse rules clutter the matrix" TESTING.md
+        # (jvm-ssr) EVALUATES the projector example off the ssr page. Arming
+        # the whole tree's edits into the JVM tier when every other page has
+        # no JVM pin at all is the "coarse rules clutter the matrix" TESTING.md
         # warns about. Add the page here when a new JVM suite names one.
         implementation_jvm=true
         ;;
@@ -1674,12 +1664,12 @@ else
         # opt and the launcher transcript that echoes them. The other nine
         # pages carry no JVM pin, and the tree's own coverage is docs.yml plus
         # check_doc_slugs.py, neither of which reads inside a fence. Add a page
-        # here when a new JVM suite names one (rf2-8arzr.6).
+        # here when a new JVM suite names one.
         implementation_jvm=true
         ;;
       docs/design/fresco/product/async-routing-recipes.md)
-        # One named file, and emphatically not its tree: `docs/design/**` is 159
-        # files of working design records, deliberately excluded from the site
+        # One named file, and emphatically not its tree: `docs/design/**` is
+        # working design records, deliberately excluded from the site
         # build (`exclude_docs` in mkdocs.yml) and validated only by
         # scripts/check_doc_slugs.py + check_provenance_pins.py. Exactly one of
         # them is read by a test.yml suite — `recipes/async_nav_doc_test.clj`
@@ -1698,18 +1688,10 @@ else
         # — jvm-core, jvm-epoch and jvm-machines, all on
         # `implementation_jvm`.
         #
-        # It armed `cljs_node_test` as well until 2026-08-21, and no longer
-        # does. That arm rested ENTIRELY on one compile-time edge:
-        # `observation_schema_extract.clj` was a JVM MACRO namespace and
-        # `observation_port_cljs_test.cljc` pulled it in through
-        # `:require-macros`, so the ObservationOnChangeFailedTags schema was
-        # inlined into the consolidated `:node-test` build. Both namespaces
-        # went with the internal observation port (rf2-63t1i), and the schema
-        # went with them, so nothing extracts from this Markdown at
-        # macro-expansion time any more — every remaining reader is a JVM suite
-        # that slurps it at RUN time. (The Freehand corpus arm was the other
-        # case built on the same reasoning; it retired with the tree that read
-        # it — rf2-0yp7w.6. This file now arms no CLJS output at all.)
+        # It arms no CLJS output: nothing extracts from this Markdown at
+        # macro-expansion time — every reader is a JVM suite that slurps it at
+        # RUN time. Arm `cljs_node_test` here only if a CLJS build comes to
+        # inline a form from it through a macro.
         #
         # Must precede the `spec/*` catch-all below: a POSIX `case` takes the
         # FIRST match. Both set `implementation_jvm`, but this arm is kept
@@ -1719,19 +1701,17 @@ else
       spec/*)
         # The catch-all, and WHOLESALE on purpose.
         #
-        # Eleven spec documents are pinned today by suites in six artefacts
-        # (the roster above), and every one of them arrived as its own bead —
-        # rf2-qyvyes, rf2-4go8s, rf2-qgsp2o, rf2-vxgfnd.97.3 and friends. A
-        # named list of eleven would therefore be a list that is wrong again by
-        # the next bead, and being wrong is precisely this hole: an unarmed
-        # normative document whose pin runs in no lane. `spec/` is the
-        # artefact of this repo — the implementation is downstream of it — and
-        # it is edited prose-only routinely, which is the exact diff shape that
-        # classified to nothing.
+        # Spec documents are pinned by suites across several artefacts (the
+        # roster above), and new pins arrive one at a time. A named list would
+        # therefore be wrong again by the next pin, and being wrong is
+        # precisely this hole: an unarmed normative document whose pin runs in
+        # no lane. `spec/` is the artefact of this repo — the implementation
+        # is downstream of it — and it is edited prose-only routinely, which
+        # is the exact diff shape that would otherwise classify to nothing.
         #
         # The cost is explicit and accepted: a typo fix in an unpinned spec
-        # page now queues the JVM tier. That is TESTING.md's "when in doubt,
-        # over-classify", and the tier is 22 cached `clojure -M:test` jobs — no
+        # page queues the JVM tier. That is TESTING.md's "when in doubt,
+        # over-classify", and the tier is cached `clojure -M:test` jobs — no
         # Chromium, no `:advanced` compile, no Playwright.
         #
         # It is a CATCH-ALL, so its POSITION is load-bearing twice over. A
@@ -1741,21 +1721,14 @@ else
         #   spec/api-manifest{,-metadata}.edn + spec/API.md  (cljs_node_test)
         #   spec/conformance/fixtures/*
         #   spec/Spec-Schemas.md                             (immediately above)
-        # Two more used to sit here. The Freehand corpus arm
-        # (spec/conformance/freehand/fixtures/* + conformance-index.md) retired
-        # with the tree that read it, and the S{3,4,5}-view-conformance-profile
-        # arm retired with the jvm-ui job whose drift guards it armed — both
-        # rf2-0yp7w. The profile docs themselves survive and now fall to this
-        # catch-all, which arms implementation_jvm: over-classification, the
-        # safe direction.
         # A new narrower `spec/` arm goes ABOVE this one or it is dead code.
         implementation_jvm=true
         ;;
       implementation/scripts/serve-and-run-reagent-slim-smoke.cjs|implementation/scripts/_reagent-slim-smoke-policy.test.cjs)
-        # rf2-5v0dg7 — false-green fix, mirroring the xray-feature-gate
+        # Mirrors the xray-feature-gate
         # launcher case below. serve-and-run-reagent-slim-smoke.cjs IS the
         # executable orchestration for `npm run test:reagent-slim:smoke`,
-        # the command the cljs-reagent-slim-bundle-isolation PR job now runs
+        # the command the cljs-reagent-slim-bundle-isolation PR job runs
         # (.github/workflows/test.yml). A break in this launcher (compile,
         # staging, port resolution, ownership-token readiness, the browser
         # drive) can break the slim client-runtime smoke gate — yet the
@@ -1775,8 +1748,8 @@ else
         reagent_slim_bundle=true
         ;;
       implementation/scripts/serve-and-run-xray-feature-gate.cjs)
-        # rf2-rcepku — false-green fix, mirroring rf2-y9o5e3 for the
-        # examples/scripts launchers. This launcher IS the executable
+        # Mirrors the examples/scripts launcher cases.
+        # This launcher IS the executable
         # orchestration for `npm run test:xray-feature-gate:smoke`, the
         # command the story-xray-browser PR job runs (.github/workflows/
         # test.yml). A break in this launcher (compile step, surface
@@ -1799,7 +1772,7 @@ else
         story_xray_browser=true
         ;;
       implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs)
-        # rf2-h5e3v7 — false-green fix, mirroring the xray-feature-gate +
+        # Mirrors the xray-feature-gate +
         # reagent-slim-smoke launcher cases above. This launcher IS the
         # executable orchestration for `npm run test:testbed-tenant-switcher`,
         # the command the tenant-switcher-testbed-smoke PR job runs
@@ -1822,7 +1795,7 @@ else
         tenant_switcher_smoke=true
         ;;
       implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs)
-        # rf2-ga8m — self-protection, mirroring the launcher cases above.
+        # Self-protection, mirroring the launcher cases above.
         # This file IS the three-engine controlled-input gate: it compiles
         # `:fresco/testbed`, serves it, drives `fresco/testbed/spec.cjs`
         # once per engine, and owns the two pieces of verdict logic that
@@ -1842,7 +1815,7 @@ else
         fresco_controlled=true
         ;;
       implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs)
-        # rf2-hic-015 — self-protection, exactly as for the controlled-input
+        # Self-protection, exactly as for the controlled-input
         # launcher above. This file IS the HMR gate: it starts the
         # `shadow-cljs watch`, owns the HOT-LINE rewriter that makes a save a
         # save at all, and owns the two pieces of verdict logic that make the
@@ -1866,9 +1839,8 @@ else
         fresco_hmr=true
         ;;
       implementation/scripts/check-story-static.cjs|implementation/scripts/story-build.cjs)
-        # rf2-9n2cv — self-protection, the same shape as the two freehand
-        # checker arms that used to sit above (both retired with their tree
-        # under rf2-0yp7w) and for the same reason. `npm run test:story-static`
+        # Self-protection, the same shape as the launcher arms above and for
+        # the same reason. `npm run test:story-static`
         # IS `node scripts/check-story-static.cjs`: the mounted-shell
         # assertions, the first-visit-overlay suppression check, the
         # ownership-token verification and the non-vacuity floor all live in
@@ -1881,7 +1853,7 @@ else
         #
         # story-build.cjs is in the roster because it is this gate's build
         # orchestration, the exact analogue of the run/serve launchers
-        # rf2-65ajl armed for the feature-load gate: check-story-static.cjs
+        # armed for the feature-load gate: check-story-static.cjs
         # spawns it by name (`path.join(__dirname, 'story-build.cjs')`) to
         # produce the export it then serves and asserts against. It is also
         # `npm run story:build`, and NO workflow runs that script directly —
@@ -1896,20 +1868,20 @@ else
         # required by run-browser-tests.cjs,
         # serve-and-run-xray-feature-gate.cjs and serve-and-run-reagent-slim-
         # smoke.cjs — all PR-time gates — and each carries its own dedicated
-        # policy test in the fast spine. A break in one already reds a job that
+        # policy test in the fast spine. A break in one reds a job that
         # runs at PR time, so paying for the static gate on top buys no signal.
         #
         # This arm WIDENS and never narrows: it re-sets every output the
         # generic case below would have set, so there is no fall-through to
         # worry about and no tier is lost. That is why it can be a plain `case`
-        # arm here, where rf2-65ajl needed a predicate dispatched in the loop
-        # body — its roster straddled two trees that already had arms and could
-        # be shadowed; this roster is two files in one tree, sitting directly
-        # above the only other arm that matches them.
+        # arm here, where the feature-load gate needs a predicate dispatched in
+        # the loop body — its roster straddles two trees that have arms and
+        # could be shadowed; this roster is two files in one tree, sitting
+        # directly above the only other arm that matches them.
         #
-        # rf2-xurxw — this arm is no longer the whole of story_static_gate's
+        # This arm is not the whole of story_static_gate's
         # roster, and the sentence above describes THIS ARM rather than the
-        # surface. Story/Xray runtime source and testbeds now arm the same
+        # surface. Story/Xray runtime source and testbeds arm the same
         # output through is_story_xray_runtime_path in the tools/* arm below,
         # and implementation/shadow-cljs.edn through a nested case in the arm
         # directly beneath this one. Read those two for the rest of it.
@@ -1921,7 +1893,6 @@ else
         story_static_gate=true
         ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
-        # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
         # adapter_testbed_smokes and story_xray_browser are NOT fired
         # here. The Playwright gates are triggered ONLY by direct
         # source-tree changes (adapter source for adapter-testbed-
@@ -1931,8 +1902,8 @@ else
         # nightly cron + post-merge gate (both run the full matrix on
         # main). shadow-cljs.edn + package-lock.json directly determine
         # the :node-test build, so cljs_node_test fires here too.
-        # rf2-xurxw — that nightly sentence still holds for every tier
-        # except one: shadow-cljs.edn now also arms story_static_gate at
+        # That nightly sentence holds for every tier
+        # except one: shadow-cljs.edn also arms story_static_gate at
         # PR time, through the nested case below, because the static
         # export's own build is declared in it.
         cljs_node_test=true
@@ -1940,7 +1911,7 @@ else
         cljs_prod=true
         bundle_isolation=true
         reagent_slim_bundle=true
-        # rf2-6yuzo4 — template npm-pin lockstep. The template's hooks.clj
+        # Template npm-pin lockstep. The template's hooks.clj
         # pins :shadow-version + :react-version, and version_lockstep_test
         # asserts those emitted pins match implementation/package.json's
         # react / react-dom / shadow-cljs entries (the source of truth).
@@ -1961,7 +1932,7 @@ else
           implementation/package.json|implementation/package-lock.json)
             template_expensive=true ;;
         esac
-        # rf2-ga8m — the three-engine controlled-input gate is DEFINED by
+        # The three-engine controlled-input gate is DEFINED by
         # this trio in the same way, and scoped identically. shadow-cljs.edn
         # declares the `:fresco/testbed` build the gate compiles; package.json
         # carries the `test:fresco-controlled` script AND the `playwright`
