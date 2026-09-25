@@ -133,8 +133,8 @@ runWithWatchdog.skip = function skip(reason) {
 // emission, so a regression that swapped `-32602` and `-32603` turns
 // RED rather than shipping unobserved.
 //
-// Coverage today: two of the five codes are reliably reachable from
-// the SDK Client.
+// Coverage: two of the five codes are reliably reachable from the SDK
+// Client.
 //
 //   - `-32601 MethodNotFound` — exercised via a deliberately-unknown
 //     JSON-RPC method. Both servers MUST emit this canonically; a
@@ -257,7 +257,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
   for (const t of tools) {
     if (!t.outputSchema || typeof t.outputSchema !== 'object') {
       throw new Error(
-        'tool ' + t.name + ' MUST declare :outputSchema (rf2-3l3be); got: ' +
+        'tool ' + t.name + ' MUST declare :outputSchema; got: ' +
           JSON.stringify(t.outputSchema),
       );
     }
@@ -267,7 +267,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
   for (const t of tools) {
     if (!t.annotations || typeof t.annotations !== 'object') {
       throw new Error(
-        'tool ' + t.name + ' MUST declare :annotations (rf2-94p8q); got: ' +
+        'tool ' + t.name + ' MUST declare :annotations; got: ' +
           JSON.stringify(t.annotations),
       );
     }
@@ -303,7 +303,7 @@ function assertClassificationRatchet(tools, expected) {
     const missing = liveNames.filter((n) => !table[n]);
     const stale = pinnedNames.filter((n) => !tools.some((t) => t.name === n));
     throw new Error(
-      'classification ratchet (rf2-yi451): the fixture must pin every live ' +
+      'classification ratchet: the fixture must pin every live ' +
         'tool exactly.\n  unclassified live tools (add a row): ' +
         JSON.stringify(missing) +
         '\n  stale fixture rows (no such tool): ' +
@@ -317,7 +317,7 @@ function assertClassificationRatchet(tools, expected) {
   );
   if (staleClosedWorld.length > 0) {
     throw new Error(
-      'classification ratchet (rf2-yi451): the fixture `closed-world` list ' +
+      'classification ratchet: the fixture `closed-world` list ' +
         'names a tool absent from `classifications` (dangling row — the ' +
         'tool was renamed or removed; update or delete the row): ' +
         JSON.stringify(staleClosedWorld),
@@ -339,8 +339,8 @@ function assertClassificationRatchet(tools, expected) {
             'live descriptor has readOnlyHint=' + JSON.stringify(a.readOnlyHint) +
             ', destructiveHint=' + JSON.stringify(a.destructiveHint) +
             '. annotations are the trust signal an agent host uses to ' +
-            'auto-approve a call — a misclassification is a safety regression ' +
-            '(rf2-yi451). Got annotations: ' + JSON.stringify(a),
+            'auto-approve a call — a misclassification is a safety regression. ' +
+            'Got annotations: ' + JSON.stringify(a),
         );
       }
     } else if (posture === 'destructive') {
@@ -352,7 +352,7 @@ function assertClassificationRatchet(tools, expected) {
             ', destructiveHint=' + JSON.stringify(a.destructiveHint) +
             '. A destructive write tool silently re-labelled read-only would ' +
             'be auto-approved by an agent host — the exact false-green this ' +
-            'ratchet exists to turn RED (rf2-yi451). Got annotations: ' +
+            'ratchet exists to turn RED. Got annotations: ' +
             JSON.stringify(a),
         );
       }
@@ -365,14 +365,14 @@ function assertClassificationRatchet(tools, expected) {
             'readOnlyHint=' + JSON.stringify(a.readOnlyHint) +
             ', destructiveHint=' + JSON.stringify(a.destructiveHint) +
             '. A side-effecting tool that gained readOnlyHint would be ' +
-            'wrongly auto-approved (rf2-yi451). Got annotations: ' +
+            'wrongly auto-approved. Got annotations: ' +
             JSON.stringify(a),
         );
       }
     } else {
       throw new Error(
         'tool ' + t.name + ' fixture posture ' + JSON.stringify(posture) +
-          ' is not one of read-only / destructive / neither (rf2-yi451 fixture bug)',
+          ' is not one of read-only / destructive / neither (a fixture bug)',
       );
     }
 
@@ -383,7 +383,7 @@ function assertClassificationRatchet(tools, expected) {
         throw new Error(
           'tool ' + t.name + ' is pinned closed-world (inline / no runtime ' +
             'reach) but the live descriptor has openWorldHint=' +
-            JSON.stringify(a.openWorldHint) + ' (MUST be false). rf2-yi451.',
+            JSON.stringify(a.openWorldHint) + ' (MUST be false).',
         );
       }
     } else {
@@ -395,7 +395,7 @@ function assertClassificationRatchet(tools, expected) {
             'descriptor has openWorldHint=' + JSON.stringify(a.openWorldHint) +
             ' (MUST be true). A live-reaching tool mislabelled as contained ' +
             'weakens the MCP client trust/confirmation boundary — the ' +
-            'false-green this side exists to turn RED (rf2-ppk6hy). Got ' +
+            'false-green this side exists to turn RED. Got ' +
             'annotations: ' + JSON.stringify(a),
         );
       }
@@ -409,7 +409,7 @@ function assertClassificationRatchet(tools, expected) {
         'tool ' + t.name + " 'max-tokens' property MUST carry a non-empty " +
           'budget-hint description (TOKEN-BUDGETS.md §"Per-call override slot"; ' +
           'a dropped hint ships green under the prop-presence-only check). ' +
-          'rf2-yi451. Got: ' + JSON.stringify(mt),
+          'Got: ' + JSON.stringify(mt),
       );
     }
   }
@@ -427,7 +427,7 @@ function assertCallCoverageRatchet({ advertised, called, exclusions = {} }) {
   const staleAlsoCalled = excludedNames.filter((n) => calledSet.has(n));
   if (staleNotAdvertised.length > 0 || staleAlsoCalled.length > 0) {
     throw new Error(
-      'callTool coverage ratchet (rf2-ke5n56): the exclusion table has ' +
+      'callTool coverage ratchet: the exclusion table has ' +
         'stale rows.\n  excluded but no longer advertised (remove the row): ' +
         JSON.stringify(staleNotAdvertised) +
         '\n  excluded yet ALSO SDK-called (the row contradicts the ' +
@@ -442,7 +442,7 @@ function assertCallCoverageRatchet({ advertised, called, exclusions = {} }) {
   );
   if (blankRationale.length > 0) {
     throw new Error(
-      'callTool coverage ratchet (rf2-ke5n56): these exclusion rows MUST ' +
+      'callTool coverage ratchet: these exclusion rows MUST ' +
         'carry a non-empty rationale naming WHERE the tool is otherwise ' +
         'covered (a live-only gate, a hermetic harness, a unit/fixture ' +
         'pin); a blank exclusion is an unreviewed hole: ' +
@@ -457,7 +457,7 @@ function assertCallCoverageRatchet({ advertised, called, exclusions = {} }) {
   );
   if (uncovered.length > 0) {
     throw new Error(
-      'callTool coverage ratchet (rf2-ke5n56): these advertised tools are ' +
+      'callTool coverage ratchet: these advertised tools are ' +
         'NEITHER invoked through Client.callTool() NOR listed in the ' +
         'reviewed exclusion table.\n  uncovered: ' +
         JSON.stringify(uncovered.sort()) +
@@ -518,13 +518,13 @@ function assertIsErrorMatchesOk(label, resp) {
         JSON.stringify(resp.isError) + ') — violates the universal ' +
         'spec/003 §381 contract (every :ok? false is isError:true). ' +
         'A failure that is not flagged isError is cache-eligible and ' +
-        'can mask a later success (rf2-87h71e / rf2-q7cavs).',
+        'can mask a later success.',
     );
   }
   if (ok === true && resp.isError === true) {
     throw new Error(
       label + ' carries :ok? true but isError is true — a success ' +
-        'envelope must not be flagged a fault (rf2-87h71e converse).',
+        'envelope must not be flagged a fault.',
     );
   }
 }

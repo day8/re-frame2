@@ -82,7 +82,7 @@ test('RED: a read-only live tool that DROPS openWorldHint ⇒ throws + names it'
   tools[0].annotations = { readOnlyHint: true };
   assert.throws(
     () => assertClassificationRatchet(tools, FIXTURE),
-    /read-live is open-world[\s\S]*MUST be true[\s\S]*rf2-ppk6hy/,
+    /read-live is open-world[\s\S]*MUST be true[\s\S]*trust\/confirmation boundary/,
   );
 });
 
