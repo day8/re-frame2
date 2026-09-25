@@ -5,7 +5,7 @@
 # scripts/remove-worker-worktree.sh. IDENTICAL CONTRACT - same stdout lines,
 # same exit codes, same refusals.
 #
-# WHY THIS SCRIPT EXISTS (rf2-rxkht - second recorded occurrence).
+# WHY THIS SCRIPT EXISTS.
 #   A worker worktree cannot compile without a node_modules, so the
 #   established convention is to point `<worktree>\implementation\node_modules`
 #   at the mayor checkout's REAL node_modules - a directory junction. `git
@@ -20,9 +20,9 @@
 #     cmd /c rmdir <junction>                     target 5 entries -> 5
 #     [IO.Directory]::Delete(<junction>, $false)  target 5 entries -> 5
 #
-#   The hazard was written down twice - in the hygiene procedure and in an
-#   agent memory - and recurred anyway. Prose does not disarm a junction, so
-#   the guard lives here, in the tooling the hygiene path has to run through.
+#   Prose does not disarm a junction - a hazard written down in a procedure
+#   still recurs - so the guard lives here, in the tooling the hygiene path
+#   has to run through.
 #
 # WHAT IT DOES, in the one order that is safe:
 #   1. Snapshot every real node_modules in the MAYOR checkout (the canary).
@@ -50,7 +50,7 @@
 #   ... -SelfTest   prove the disarm against a throwaway junction in a temp dir
 #   -MayorRoot <path> / RF2_MAYOR_ROOT   override mayor-root derivation
 #
-# THE ARGUMENT IS A PATH, NOT A WORKTREE NAME (rf2-u62e).
+# THE ARGUMENT IS A PATH, NOT A WORKTREE NAME.
 #   Targets resolve exactly as any other path does: absolute, or relative to the
 #   CURRENT DIRECTORY. A BARE WORKTREE NAME IS NOT resolved against the worktree
 #   parent - `remove-worker-worktree.ps1 xraygate-a` run from the mayor checkout
@@ -66,19 +66,19 @@
 #   count alone cannot see files vanishing from under packages whose
 #   directories survive.
 #
-#   A FAILED removal is classified rather than guessed at (rf2-p0m6m). Nine
-#   worktrees were read as file-locked and waited out for two days; every one
-#   was simply dirty, and no amount of waiting adds a flag. So:
+#   A FAILED removal is classified rather than guessed at: a dirty tree read
+#   as file-locked would be waited out for ever, because no amount of waiting
+#   adds a flag. So:
 #     REMOVE_REFUSED_DIRTY=  git refused; the paths are listed and tagged
 #                            [build output] or [KEEP].
 #     REMOVE_REFUSED_KEEP=   -ForceDisposable stopped at unreviewed work.
 #     REMOVE_FAILED=         the tree is CLEAN and INTACT, so this really is a
 #                            file lock and really is worth retrying.
-#     REMOVE_PARTIAL=        a HUSK (rf2-k3j2w) - see below. Exit 3.
+#     REMOVE_PARTIAL=        a HUSK - see below. Exit 3.
 #   -DryRun reports the same partition up front as WOULD_NEED_FORCE= (all
 #   build output, sweepable) or WOULD_REFUSE_KEEP= (needs a human first).
 #
-#   THE FOURTH OUTCOME: A PARTIAL REMOVAL (rf2-k3j2w). `git worktree remove`
+#   THE FOURTH OUTCOME: A PARTIAL REMOVAL. `git worktree remove`
 #   is not atomic on Windows. It can deregister the worktree and delete its
 #   `.git`, then hit a file lock on the directory itself and stop - leaving a
 #   HUSK: every source file still on disk, no worktree behind it. Measured on
@@ -91,12 +91,12 @@
 #     <wt>/.git                          ->  ALREADY DELETED
 #     <wt>/**                            ->  every other file still present
 #
-#   The state is genuinely hard to see, which is why it earned a name here:
+#   The state is genuinely hard to see, which is why it has a name here:
 #     - `git worktree list` does not mention it - already deregistered;
 #     - `git worktree prune` does not clear it - prune drops ADMIN records for
 #       directories that vanished, and here the opposite happened;
-#     - `git -C <husk> status --porcelain` FAILS and prints nothing, which the
-#       clean/dirty split above read as "tree is CLEAN" and therefore as
+#     - `git -C <husk> status --porcelain` FAILS and prints nothing, which a
+#       clean/dirty split alone reads as "tree is CLEAN" and therefore as
 #       REMOVE_FAILED, "safe to retry once it clears". Retrying is futile: the
 #       registered-worktree check refuses it, forever;
 #     - to a human `ls` it is indistinguishable from a live worktree.
@@ -105,18 +105,16 @@
 #   unaffected". Both entry points report it: a removal that fails this way,
 #   and a later invocation handed a path that is already a husk.
 #
-#   AND WHAT A HUSK IS *NOT*: MERELY AN UNREGISTERED DIRECTORY (rf2-k3j2w,
-#   second pass). "git does not list it and it has no `.git`" is true of a
+#   AND WHAT A HUSK IS *NOT*: MERELY AN UNREGISTERED DIRECTORY. "git does not
+#   list it and it has no `.git`" is true of a
 #   husk - and equally true of an ordinary project, a mistyped argument, and a
-#   directory that has never been anything else. The first version of the
-#   later-invocation path read that negative as proof. Handed a temp directory
-#   created seconds earlier it unlinked any node_modules inside it, declared it
-#   a DESTROYED TREE and recommended Remove-Item -Recurse -Force: a destructive
-#   script confidently recommending the destruction of something it had
-#   misidentified. Reproduced on demand, -DryRun against a fresh ordinary
-#   directory, exit 3.
+#   directory that has never been anything else. A later-invocation path that
+#   read that negative as proof would, handed a temp directory created seconds
+#   earlier, unlink any node_modules inside it, declare it a DESTROYED TREE and
+#   recommend Remove-Item -Recurse -Force: a destructive script confidently
+#   recommending the destruction of something it had misidentified.
 #
-#   So the two entry points are no longer symmetric, because their EVIDENCE is
+#   So the two entry points are not symmetric, because their EVIDENCE is
 #   not symmetric:
 #     - SAME INVOCATION - we called `git worktree remove` on a REGISTERED
 #       worktree and watched it fail. Provenance is known first-hand, so the
@@ -128,8 +126,8 @@
 #       so the flag alone does not license the delete; and the content test is
 #       a read of git's own object database rather than a guess about names,
 #       shapes or locations. Bytes rather than a file count, because tiny files
-#       coincide - a throwaway package.json reading `{}` matched a blob of ours
-#       on the first run. HUSK_PROVENANCE= prints what was established.
+#       coincide - a throwaway package.json reading `{}` can match a blob a
+#       repository has committed. HUSK_PROVENANCE= prints what was established.
 #   A REFUSAL TOUCHES NOTHING - no disarm, no advice, no delete. Every one of
 #   those acts presumes the identification that has just failed.
 #
@@ -180,15 +178,14 @@ function Normalize-Path([string]$Path) {
 # disagrees: with $ErrorActionPreference = "Stop" (set above, and wanted for
 # every cmdlet) a native command that writes ANYTHING to stderr raises a
 # terminating NativeCommandError, and neither `2>$null` nor `2>&1` reliably
-# suppresses it. Observed while adding the husk probes: `git status` inside a
-# husk aborted the script with a NativeCommandError instead of returning empty,
-# and the same latent trap sat under `git worktree remove` — the one call in
-# this file guaranteed to write to stderr on the very path that must be
-# classified rather than crashed on (rf2-k3j2w).
+# suppresses it. So `git status` inside a husk would abort the script with a
+# NativeCommandError instead of returning empty, and the same trap sits under
+# `git worktree remove` - the one call in this file guaranteed to write to
+# stderr on the very path that must be classified rather than crashed on.
 #
 # Lowering the preference INSIDE a function is scoped to that function's
 # dynamic extent, so the strict setting is restored on return with no
-# bookkeeping, and cmdlet errors elsewhere keep terminating as before.
+# bookkeeping, and cmdlet errors elsewhere keep terminating.
 function Invoke-GitQuiet([string[]]$GitArgs) {
   $ErrorActionPreference = 'Continue'
   $out = & git @GitArgs 2>&1
@@ -249,7 +246,7 @@ function Get-NodeModulesSignature([string]$Path) {
 
 # What `git worktree remove` will refuse over: modified or untracked files.
 # Empty means clean. This is the discriminator behind a failed removal
-# (rf2-p0m6m) - see Write-RemoveFailure.
+# - see Write-RemoveFailure.
 # CALLERS MUST WRAP THIS IN @(). PowerShell unrolls an array on the way out of
 # a function, so a single dirty path arrives at the call site as a bare string
 # and `.Count` on it throws under Set-StrictMode - which is exactly the
@@ -269,10 +266,10 @@ function Get-WorktreeDirt([string]$Path) {
 
 # Is there still a git worktree behind this directory?
 #
-# The one honest discriminator for a HUSK (rf2-k3j2w): a partially failed
+# The one honest discriminator for a HUSK: a partially failed
 # `git worktree remove` deletes the worktree's `.git` before it deletes the
 # files, so a husk's files survive with nothing behind them. Seen in the wild
-# twice on 2026-08-05, sitting in a worktree parent - `ls` shows a full
+# sitting in a worktree parent - `ls` shows a full
 # checkout, `rev-parse` exits 128, `git worktree list` has never heard of them
 # and `git worktree prune` reports nothing to do.
 #
@@ -295,7 +292,7 @@ function Test-WorktreeIsIntact([string]$Path) {
 
 # Does this directory hold content that belongs to THIS repository?
 #
-# THE POSITIVE HALF of husk identification (rf2-k3j2w). "Unregistered, and no
+# THE POSITIVE HALF of husk identification. "Unregistered, and no
 # `.git`" is a pair of NEGATIVES, and every ordinary directory on the machine
 # satisfies both. What actually distinguishes a husk is what it still CONTAINS:
 # the files git had checked out and did not get to delete.
@@ -310,9 +307,9 @@ function Test-WorktreeIsIntact([string]$Path) {
 # a husk was checked out at whatever commit its worker was on, and ANY
 # historical version counts.
 #
-# A MATCH COUNT IS NOT THE MEASURE; MATCHED BYTES ARE. Tiny files coincide: the
-# first version counted files, and a throwaway directory holding a three-byte
-# `package.json` reading `{}` scored a hit against this repository. So the
+# A MATCH COUNT IS NOT THE MEASURE; MATCHED BYTES ARE. Tiny files coincide:
+# counted by files, a throwaway directory holding a three-byte `package.json`
+# reading `{}` can score a hit against a repository. So the
 # criterion is a VOLUME of recognised content - see $script:HuskProvenanceMinBytes.
 $script:HuskProvenanceMinBytes = 1024
 
@@ -356,16 +353,15 @@ function Get-RepoContentMatch([string]$Path) {
 # Is one `git status --porcelain` line safe to delete unreviewed?
 #
 # Only UNTRACKED (`??`) build and gate output qualifies. A modified tracked
-# file never does, whatever its path: three worktrees were carrying uncommitted
-# source and doc edits when this was written, and a blanket force would have
-# taken them silently. Neither does a hand-written note - band-ymi6j held four
-# `ladder-*.md` analysis files for an OPEN bead. A worktree that will not reap
-# is clutter; deleting somebody's unreviewed work is not.
+# file never does, whatever its path: it is uncommitted source or doc work, and
+# a blanket force would take it silently. Neither does a hand-written note,
+# such as the analysis files a worker keeps for an OPEN bead. A worktree that
+# will not reap is clutter; deleting somebody's unreviewed work is not.
 #
-# The patterns are shape-based rather than a roster of names on purpose: four
-# different log directories (`logs/`, `bench-logs/`, `.gate-logs/`, `.wtlogs/`)
-# turned up across nine worktrees, because every worker invents its own, and a
-# roster would have missed two of them. Anything unmatched is NOT disposable -
+# The patterns are shape-based rather than a roster of names on purpose: the
+# log directories workers leave (`logs/`, `bench-logs/`, `.gate-logs/`,
+# `.wtlogs/`) vary, because every worker invents its own, and a roster of
+# names would miss the next one. Anything unmatched is NOT disposable -
 # the rule fails closed.
 #
 # StartsWith, not -like: in a PowerShell wildcard `?` matches ANY character, so
@@ -445,8 +441,8 @@ function Find-NodeModules([string]$Root) {
 # [IO.Directory]::Delete($p, $false) is NON-RECURSIVE - the $false is the
 # whole point. It drops the junction and never touches what the junction
 # points at. It is deliberately not Remove-Item -Recurse and never `rm -rf`,
-# which follows the reparse point and empties the target - the incident this
-# script exists to prevent, reproduced in the measurements above.
+# which follows the reparse point and empties the target - the failure this
+# script exists to prevent, shown in the measurements above.
 #
 # Returns $false if the link survives, so the caller aborts rather than
 # falling through to a removal that would delete through.
@@ -463,8 +459,8 @@ function Disarm-Link([string]$Path) {
 # Disarm every node_modules link under one worktree, before anything recursive
 # runs over it.
 #
-# Extracted from the main loop so the HUSK path gets the identical protection
-# (rf2-k3j2w). A husk left behind by a bare `git worktree remove` - one that
+# A function of its own so the HUSK path gets the identical protection. A husk
+# left behind by a bare `git worktree remove` - one that
 # never went through this script - can still hold an ARMED junction, and the
 # only remedy left for a husk is a plain recursive delete, which is precisely
 # what empties the target. Disarming before we recommend that delete is the
@@ -492,7 +488,7 @@ function Disarm-WorktreeLinks([string]$Root) {
   if (-not $foundAny) { Write-Output "NO_LINKS=$Root" }
 }
 
-# Say WHY the removal failed instead of guessing (rf2-p0m6m).
+# Say WHY the removal failed instead of guessing.
 #
 # `git worktree remove` has two failure modes with OPPOSITE remedies:
 #
@@ -503,13 +499,12 @@ function Disarm-WorktreeLinks([string]$Root) {
 #   lock   the tree is clean but a live process still holds a handle under it
 #          (Windows shadow-cljs/Node) - genuinely transient; retry later.
 #
-# This script used to report both as "safe to retry once the lock clears".
-# Nine worktrees were then read as locked and waited out across two days and
-# a full session of other workers; every one of them was simply dirty, holding
-# a single untracked `logs/`, `bench-logs/`, `PRBODY.md` or `*-exit.txt` the
-# worker left behind. Telling the two apart is the whole fix.
+# Reporting both as "safe to retry once the lock clears" would have a dirty
+# tree - typically one holding a single untracked `logs/`, `bench-logs/`,
+# `PRBODY.md` or `*-exit.txt` the worker left behind - waited out for ever.
+# Telling the two apart is the point.
 # A partially removed worktree - a HUSK. Says what was already done TO the
-# tree, and why this script is the wrong tool from here on (rf2-k3j2w).
+# tree, and why this script is the wrong tool from here on.
 function Write-Husk([string]$Path) {
   Write-Warning "REMOVE_PARTIAL=$Path"
   # One Write-Warning per line: a multi-line string gets the WARNING prefix
@@ -530,8 +525,8 @@ function Write-Husk([string]$Path) {
   }
 }
 
-# The refusals for a path this script declines to IDENTIFY (rf2-k3j2w, second
-# pass). Each says what was established and what was not, and each is followed
+# The refusals for a path this script declines to IDENTIFY. Each says what
+# was established and what was not, and each is followed
 # by nothing at all: no disarm, no classification, no delete advice.
 function Write-RefusedUnidentified([string]$Path, [string]$Provenance) {
   Write-Warning "REFUSED_UNREGISTERED=$Path"
@@ -564,7 +559,7 @@ function Write-RefusedNotAHusk([string]$Path, [string]$Provenance) {
 
 function Write-RemoveFailure([string]$Path) {
   # A husk reads as CLEAN below - the git call fails and prints nothing - so
-  # it has to be ruled out before the dirty/locked split runs (rf2-k3j2w).
+  # it has to be ruled out before the dirty/locked split runs.
   if (-not (Test-WorktreeIsIntact $Path)) {
     Write-Husk $Path
     $script:partial = $true
@@ -606,13 +601,13 @@ function Write-RemoveFailure([string]$Path) {
 #   1. Builds a throwaway target with a known signature, junctions a
 #      node_modules at it, disarms, and requires BOTH: the link is gone AND
 #      the target is untouched.
-#   2. Proves the canary SEES the damage the old immediate-entry count was
+#   2. Proves the canary SEES the damage an immediate-entry count alone is
 #      blind to: files vanish from under every package while each package
 #      directory stays standing.
 #   3. Proves the husk DETECTOR against three husk shapes.
 #   4. Proves the later-invocation GUARD by invoking this script, for real,
 #      against fixtures a wrong answer would destroy - the negative direction
-#      first, because refusing is the behaviour that was missing.
+#      first, because refusing is the behaviour under test.
 #
 # Never touches a real node_modules, and never this repository.
 # ---------------------------------------------------------------------------
@@ -666,14 +661,14 @@ if ($SelfTest) {
     }
     Write-Output "SELF_TEST nested_loss top_level_entries_unchanged=$shallowBefore signature $nBefore -> $nAfter"
 
-    # The HUSK detector (rf2-k3j2w), in a throwaway repo; never touches this one.
+    # The HUSK detector, in a throwaway repo; never touches this one.
     #
     # THREE fixtures, because Test-WorktreeIsIntact has two clauses and each
     # catches a husk the other misses:
     #   outside  - a husk with no repo above it (the shape seen in the wild).
     #              rev-parse fails; this is the one whose dirt reads EMPTY, i.e.
     #              identical to a clean tree, which is how a gutted worktree
-    #              came to be reported as a retryable file lock.
+    #              would be reported as a retryable file lock.
     #   nested   - a husk inside another checkout. rev-parse WALKS UP, finds the
     #              enclosing repo and answers happily; only the missing `.git`
     #              gives it away.
@@ -724,11 +719,11 @@ if ($SelfTest) {
       }
       Write-Output "SELF_TEST husk detected=yes for all three shapes (outside a repo, where Get-WorktreeDirt reads EMPTY - the trap; nested inside one, where rev-parse walks up and is fooled; and a dangling .git, where the Test-Path check is fooled)"
 
-      # ---- THE LATER-INVOCATION GUARD (rf2-k3j2w, second pass), END TO END ----
+      # ---- THE LATER-INVOCATION GUARD, END TO END ----
       #
-      # Helper-level assertions cannot reach this one. What failed was not a
-      # predicate but what the MAIN LOOP did with it: unlink a stranger's
-      # junction and recommend a recursive delete on a directory it had never
+      # Helper-level assertions cannot reach this one. The risk is not a
+      # predicate but what the MAIN LOOP does with it: unlink a stranger's
+      # junction and recommend a recursive delete on a directory it has never
       # seen. So these fixtures go through REAL invocations of this script,
       # against a throwaway repository, and the assertions are on exit codes
       # and output - including, for the negatives, that the fixture is still
@@ -793,8 +788,8 @@ if ($SelfTest) {
       $null = Invoke-GitQuiet @('-C', $gRepo, 'worktree', 'prune')
       New-Item -ItemType Junction -Path $gLink -Target $gTarget | Out-Null
 
-      # NEGATIVE 1 - an ordinary directory, unacknowledged. This is the case
-      # reproduced against main: exit 3, "DESTROYED TREE", a recursive delete.
+      # NEGATIVE 1 - an ordinary directory, unacknowledged. The failure it
+      # guards against is exit 3, "DESTROYED TREE", a recursive delete.
       $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, $gPlain)
       $gText = ($g.Output -join "`n")
       if ($g.ExitCode -ne 1) {
@@ -848,7 +843,7 @@ if ($SelfTest) {
       }
 
       # NEGATIVE 3 - an ordinary directory whose one tiny file DOES match a
-      # blob of ours. This is the case a match count called provenance.
+      # blob of ours. This is the case a match count would call provenance.
       $g = Invoke-SelfQuiet @('-MayorRoot', $gRepo, '-Husk', $gTiny)
       $gText = ($g.Output -join "`n")
       if ($g.ExitCode -ne 1) {
@@ -895,20 +890,20 @@ if ($SelfTest) {
 
       Write-Output "SELF_TEST later_invocation guard=yes (ordinary dir REFUSED untouched; -Husk alone REFUSED on the evidence; a lone tiny coincidental blob REFUSED by the byte floor; -Husk on a live worktree REFUSED; a real husk still classified exit 3 with provenance named)"
 
-      # ---- THE ARGUMENT CONTRACT (rf2-u62e), END TO END ----
+      # ---- THE ARGUMENT CONTRACT, END TO END ----
       #
       # A bare worktree name is a path like any other and resolves against the
-      # CURRENT DIRECTORY, so from the mayor checkout it names nothing. The
-      # refusal used to fire inside the per-target loop - after the canary - and
-      # onto the warning stream, so a refused run ENDED with the CANARY_AFTER
-      # block and the explanation sat above it, out of reach of a caller who
-      # tailed the output.
+      # CURRENT DIRECTORY, so from the mayor checkout it names nothing. A
+      # refusal fired inside the per-target loop - after the canary - and onto
+      # the warning stream would leave a refused run ENDING with the
+      # CANARY_AFTER block and the explanation above it, out of reach of a
+      # caller who tailed the output.
       #
       # THE LOAD-BEARING ASSERTION IS THAT THE RUN NEVER REACHED `MAYOR_ROOT=`.
       # Exit 2 and the refusal line can both come from a check that runs late;
       # only "no tree had been examined yet" separates refusing up front from
       # doing the work and declining afterwards, which is the distinction this
-      # bead turned on.
+      # contract draws.
       #
       # `MAYOR_ROOT=` rather than the CANARY_ lines, and the difference is the
       # difference between a check and a vacuous one: these fixtures point
@@ -993,31 +988,29 @@ if ($Worktree.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
-# THE ARGUMENT CONTRACT, enforced FIRST (rf2-u62e).
+# THE ARGUMENT CONTRACT, enforced FIRST.
 #
 # A target is a PATH. Normalize-Path resolves it with GetFullPath, which is
 # CWD-RELATIVE, so a BARE WORKTREE NAME run from the mayor checkout names
 # `<mayor-checkout>\<name>` and matches nothing. That is correct behaviour for a
-# path argument and is not what was wrong.
+# path argument.
 #
-# WHAT WAS WRONG IS WHERE THE REFUSAL FIRED. It sat inside the per-target loop,
-# which runs AFTER the mayor root is derived and the canary taken, and it writes
-# to the warning stream while the canary writes to stdout. So the last lines of
-# a refused run were the CANARY_AFTER block with the explanation stranded above
-# it, and a caller who tailed the output saw a script that had done work and
-# then stopped without a verdict. Reproduced on the POSIX primary: exit 1, six
-# CANARY_AFTER lines, the refusal two lines above the tail window, nothing
-# destroyed.
+# WHERE THE REFUSAL FIRES IS THE POINT. Inside the per-target loop it would run
+# AFTER the mayor root is derived and the canary taken, and write to the
+# warning stream while the canary writes to stdout. So the last lines of a
+# refused run would be the CANARY_AFTER block with the explanation stranded
+# above it, and a caller who tailed the output would see a script that had
+# done work and then stopped without a verdict.
 #
 # An argument fault is knowable before anything is examined, so it is settled
 # here, with the documented usage code, and every bad target is named in one
 # pass so one re-run fixes the whole command line. It is expressed ONCE: the
-# loop's own no-such-directory branch is gone, because nothing reaches it now.
+# loop has no no-such-directory branch, because nothing reaches it.
 #
 # ALL-OR-NOTHING IS DELIBERATE. A sweep list carrying one path that names
 # nothing is a list the caller should correct, not one this script should
 # half-run: partial work under a wrong command line is the shape of failure
-# this whole bead is about.
+# this contract exists to prevent.
 # ---------------------------------------------------------------------------
 $badArgs = $false
 foreach ($rawTarget in $Worktree) {
@@ -1127,15 +1120,15 @@ foreach ($rawTarget in $Worktree) {
   # deletes a directory itself; if git will not remove it, neither will we.
   #
   # AND REFUSING IS THE DEFAULT HERE, because "git does not list it" is a fact
-  # about git, not about the directory (rf2-k3j2w, second pass). A husk is
+  # about git, not about the directory. A husk is
   # deregistered by definition - and so is every directory that was never a
-  # worktree. The version that inferred a husk from that negative alone
-  # disarmed and condemned an ordinary temp directory. Identification now needs
-  # a positive: the caller's -Husk AND content this repository recognises.
+  # worktree. Inferring a husk from that negative alone would disarm and
+  # condemn an ordinary temp directory, so identification needs a positive:
+  # the caller's -Husk AND content this repository recognises.
   #
   # A target that is not a directory at all never reaches here: the argument
-  # contract at the top of the script refuses it with exit 2, before the canary
-  # (rf2-u62e). So every path below is one that EXISTS and is merely not ours.
+  # contract at the top of the script refuses it with exit 2, before the canary.
+  # So every path below is one that EXISTS and is merely not ours.
   if ($roster -notcontains $wt.ToLowerInvariant()) {
     if (Test-WorktreeIsIntact $wt) {
       Write-Warning "REFUSED_UNREGISTERED=$wt"
@@ -1243,7 +1236,7 @@ run from $mayorRootPath, then re-check the counts before dispatching anything.
 }
 
 # A partial removal outranks a plain failure: both are non-zero, but only one
-# of them means "stop calling this script about that path" (rf2-k3j2w).
+# of them means "stop calling this script about that path".
 if ($script:partial) { exit 3 }
 
 if ($failed) { exit 1 }
