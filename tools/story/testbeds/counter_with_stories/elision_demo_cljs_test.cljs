@@ -2,9 +2,10 @@
   "Integration tests for the privacy + size elision demo. Asserts each
   branch of the elision arc actually fires:
 
-  1. `:auth/sign-in` carries `:sensitive? true` in its registration
-     metadata — `rf/handler-meta` returns the flag for trace-surface
-     consumers (Xray, error-monitor forwarders) to filter on.
+  1. `:auth/sign-in`'s registration classifies its `:password` payload
+     path (`:sensitive [[:password]]`), and the framework's registration
+     redaction — the projection the dispatched-event trace carries —
+     replaces that path with `:rf/redacted` while `:email` rides raw.
   2. The handler runs cleanly under `dispatch-sync`; the password
      does NOT leak into app-db.
   3. The classified `:large` branch — `rf.elision/elide-wire-value`
@@ -21,6 +22,7 @@
   `stories_cljs_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [re-frame.classification :as rf.classification]
             [re-frame.core         :as rf]
             [re-frame.elision      :as rf.elision]
             [re-frame.event-emit   :as rf.event-emit]
@@ -114,16 +116,20 @@
         (test-fn))
       (finally (after!)))))
 
-;; ---- 1. :sensitive? registration metadata is queryable -------------------
+;; ---- 1. the registration classification redacts the payload path --------
 
-(deftest auth-sign-in-carries-sensitive-flag
-  (testing "The :auth/sign-in handler registered by elision-demo carries
-            `:sensitive? true` in its registry-meta — Xray / re-frame2-pair /
-            error-monitor forwarders read this off `(rf/handler-meta {:source :store :kind :event :id :auth/sign-in})` and apply tool-side policy."
+(deftest auth-sign-in-registration-redacts-password
+  (testing "The :auth/sign-in registration classifies the payload's
+            `:password` path, and the framework's registration redaction
+            (what the dispatched-event trace carries) replaces it with
+            `:rf/redacted` while the unclassified `:email` rides raw."
     (let [m (rf/handler-meta {:source :store :kind :event :id :auth/sign-in})]
-      (is (some? m) ":auth/sign-in registration meta is populated")
-      (is (true? (:sensitive? m))
-          "the registrar copied :sensitive? true from the metadata map"))))
+      (is (= [[:password]] (:sensitive m))
+          "the registration classifies the :password payload path")
+      (is (= [:auth/sign-in {:email "u@example.com" :password :rf/redacted}]
+             (rf.classification/redact-event-by-registration
+               [:auth/sign-in {:email "u@example.com" :password "secret"}]))
+          "the classified path is :rf/redacted; the :email sibling is raw"))))
 
 ;; ---- 2. handler doesn't leak the password into app-db --------------------
 

@@ -24,8 +24,9 @@
             ;; every reg-* expansion elides to nil.
             [counter-with-stories.views :as views]
             ;; Privacy + Size elision demo. Requiring the ns fires
-            ;; the `:auth/sign-in` :sensitive? handler reg,
-            ;; the `:user/avatar-pdf` :large? schema reg, the demo
+            ;; the `:auth/sign-in` reg (its registration classifies the
+            ;; `:password` payload path sensitive), the
+            ;; `:user/avatar-pdf` shape-only schema reg, the demo
             ;; subs, and exposes `install-listener!` for the boot
             ;; sequence below.
             [counter-with-stories.elision-demo :as elision]
@@ -103,10 +104,11 @@
     ;; Classify the avatar-pdf slot large (EP-0025 commit-plane effect).
     (rf/dispatch-sync [:counter/classify-avatar-large])
     ;; Install the always-on event-emit listener. The listener prints
-    ;; every dispatched event's elided record to the browser console —
-    ;; visitors can see `:rf/redacted` substitution for the `:sensitive?`
-    ;; handler and the `:rf.size/large-elided` marker for the `:large?`
-    ;; schema slot without needing the trace surface or Xray attached.
+    ;; one record per dispatched event to the browser console,
+    ;; without needing the trace surface or Xray attached. The
+    ;; `:auth/sign-in` password shows raw there: its registration
+    ;; classification redacts it on the trace surface (Xray, the Story
+    ;; recorder), not in this implementation-tier record.
     (elision/install-listener!))
   ;; Install the CI-as-test global hook the Playwright
   ;; play-script runner reads. Inert until the runner polls it; safe

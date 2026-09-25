@@ -211,23 +211,24 @@
 ;; This test ns requires `counter-with-stories.events` + `.stories`
 ;; (which itself requires events + views) — but NOT
 ;; `counter-with-stories.elision-demo`. The recorder-redaction-card
-;; dispatches `:counter/sign-in`, a `:sensitive?` handler owned by the
-;; counter events slice. The card depends only on the counter events
-;; slice, not on elision-demo's `:auth/sign-in`, so this handler-meta
-;; probe resolves without booting elision-demo.
+;; dispatches `:counter/sign-in`, a handler owned by the counter events
+;; slice whose registration classifies the `:password` payload path. The
+;; card depends only on the counter events slice, not on elision-demo's
+;; `:auth/sign-in`, so this handler-meta probe resolves without booting
+;; elision-demo.
 
 (deftest recorder-redaction-sensitive-handler-registered-self-contained
   (testing "the `:counter/sign-in` handler the recorder-redaction-card
             dispatches is registered by the counter events slice — the
-            same requires that bring in the variant — and carries
-            `:sensitive? true` in its registry meta, with NO reliance on
+            same requires that bring in the variant — and its registration
+            classifies the `:password` payload path, with NO reliance on
             elision-demo being booted by core.cljs."
     (let [m (rf/handler-meta {:source :store :kind :event :id :counter/sign-in})]
       (is (some? m)
           ":counter/sign-in registration meta is populated by
            counter-with-stories.events (required here; elision-demo is not)")
-      (is (true? (:sensitive? m))
-          "the registrar copied :sensitive? true from the handler metadata"))))
+      (is (= [[:password]] (:sensitive m))
+          "the registration classifies the :password payload path"))))
 
 (deftest recorder-redaction-variant-runs-self-contained
   (testing ":story.counter-matrix/recorder-redaction runs to :ready and its

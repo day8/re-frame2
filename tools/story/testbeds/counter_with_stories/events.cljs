@@ -1,8 +1,9 @@
 (ns counter-with-stories.events
   "Counter events. The events module is the canonical app slice the
   stories namespace pivots around — a set of plain `reg-event`
-  handlers (the ONE event registrar, EP-0018) + a `:sensitive?` sign-in
-  handler the recorder-redaction variant pivots on. Nothing
+  handlers (the ONE event registrar, EP-0018) + a sign-in handler whose
+  registration classifies its `:password` payload path sensitive, which
+  the recorder-redaction variant pivots on. Nothing
   Story-specific lives here; the same handlers run in the live
   counter app and in the Story playground.
 
@@ -84,7 +85,7 @@
     {:db (assoc db :saving? true)
      :fx [[:counter/sync-to-server {:value (:count db)}]]}))
 
-;; A counter-owned `:sensitive?` handler so the recorder-redaction
+;; A counter-owned sign-in handler so the recorder-redaction
 ;; variant (`:story.counter-matrix/recorder-redaction`) is
 ;; self-contained: the variant references views + events from this
 ;; slice only, and the stories namespace's requires
@@ -94,21 +95,21 @@
 ;; place `:auth/sign-in` lives) — a hidden cross-namespace load-order
 ;; coupling a reference testbed should exclude.
 ;;
-;; `:sensitive? true` is the whole-handler privacy escape hatch
-;; (Spec 009 §`:sensitive?`): the registrar copies the flag into the
-;; registry slot's meta, the runtime stamps every trace event emitted
-;; inside this handler's scope, and the Story recorder emits
-;; `[:rf/redacted]` in place of the password in the generated `:script`
-;; snippet while preserving the row position. The handler sees the
-;; unredacted payload (redaction is a trace-consumer concern, not a
-;; handler concern); we stash only a redacted placeholder in app-db —
-;; the password never lives in app-db.
+;; `:sensitive [[:password]]` classifies the payload's `:password` path
+;; on the registration (Spec 015 §Registration-owned transient
+;; classification), so the dispatched-event trace carries
+;; `:password :rf/redacted` and the Story recorder records
+;; `[:counter/sign-in {:email … :password :rf/redacted}]` in the row's
+;; position. A handler-metadata `:sensitive? true` would not do this: it
+;; plays no part in privacy (Spec 009 §Privacy) and the password would
+;; record raw. The handler sees the unredacted payload (redaction is an
+;; egress concern, not a handler concern); we stash only non-secret
+;; feedback in app-db — the password never lives in app-db.
 (rf/reg-event :counter/sign-in
-  {:doc        "Demo sign-in handler — the password rides the event
-                vector. `:sensitive? true` tells trace consumers and
-                always-on substrates to suppress or redact these
-                events."
-   :sensitive? true}
+  {:doc       "Demo sign-in handler — the password rides the event
+               vector. The `:sensitive [[:password]]` classification
+               redacts that payload path on the trace surface."
+   :sensitive [[:password]]}
   (fn handler-counter-sign-in [{:keys [db]} [_ {:keys [email password]}]]
     ;; In a real app this is where you'd dispatch the http request
     ;; carrying `email` + `password`. We reference `password` so the

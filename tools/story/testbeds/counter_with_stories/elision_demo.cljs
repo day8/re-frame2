@@ -9,22 +9,23 @@
 
   ## The four pieces
 
-  1. **`:sensitive?` handler metadata** — `:auth/sign-in` carries a
-     password in its event-vector payload. The registration declares
-     `:sensitive? true` in its `:rf/registration-metadata` map so the
-     runtime stamps `:sensitive? true` on every TRACE event emitted
-     inside the handler's scope (per Spec 009 §Privacy). Xray's
-     trace collector reads that top-level stamp and drops the event
-     from the buffer (default posture); the bottom rail surfaces a
-     `[● REDACTED N]` hint.
+  1. **`:sensitive` registration classification** — `:auth/sign-in`
+     carries a password in its event-vector payload. The registration
+     declares `:sensitive [[:password]]`, which classifies that payload
+     path (Spec 015 §Registration-owned transient classification): the
+     dispatched-event trace carries `:password :rf/redacted`, so Xray
+     and the Story recorder see the sentinel while the handler still
+     receives the raw value. A handler-metadata `:sensitive? true`
+     would not redact anything — it plays no part in privacy (Spec 009
+     §Privacy).
 
   2. **Path-level redaction rides the commit-plane effect** — a
      handler returning `:sensitive [[…path]]` alongside `:db` classifies
      an app-db path sensitive (EP-0025). A schema's per-slot
      `{:sensitive? true}` prop is not a route into that registry: it
      redacts only that schema's own validation-failure traces (see the
-     SCHEMAS block below). This event payload is intentionally modeled
-     with handler metadata because it is not an app-db path-scoped
+     SCHEMAS block below). The sign-in payload is classified on its
+     registration instead, because it is not an app-db path-scoped
      write.
 
   3. **`:large` classified app-db slot** — the `:user/avatar-pdf`
@@ -56,12 +57,11 @@
   Open the browser console + (optionally) the Xray panel.
 
   - **Click 'Sign in (sensitive)'** — dispatches `:auth/sign-in`.
-    In Xray the event is absent from the trace panel (filtered out
-    by the `:sensitive?` top-level stamp); the bottom rail shows
-    `[● REDACTED N]`. The console line from the always-on listener
-    is honest about its scope: it shows the original event vector
-    because the event-emit substrate does not consult handler-meta
-    `:sensitive?` (its sensitive marking is path-based).
+    In Xray the event's `:password` reads `:rf/redacted` while its
+    `:email` rides raw. The console line from the always-on listener
+    is honest about its scope: it shows the original event vector,
+    because the registration classification redacts on the trace
+    surface, not in the implementation-tier event-emit record.
 
   - **Click 'Upload large avatar (inline)'** — dispatches
     `:user.avatar/upload` with a 20 kB string in the event payload.
@@ -127,21 +127,20 @@
                      [:maybe :string]))
 
 ;; ============================================================================
-;; EVENTS  (Spec 009 §`:sensitive?`)
+;; EVENTS  (Spec 015 §Registration-owned transient classification)
 ;; ============================================================================
 ;;
-;; Handler metadata is the cross-cutting escape hatch for event payloads
-;; that cannot be represented as classified-sensitive app-db paths.
+;; An event payload is not an app-db path, so the registration that
+;; introduces its shape classifies it.
 
 (rf/reg-event :auth/sign-in
-  ;; Registration metadata — the registrar copies `:sensitive? true`
-  ;; into the registry slot's meta; the runtime hoists it to the
-  ;; TOP level of every trace event emitted within this handler's
-  ;; scope. Xray filters on the top-level stamp.
-  {:doc        "Demo sign-in handler — the password rides the event
-                vector. `:sensitive? true` tells trace consumers and
-                always-on substrates to suppress or redact these events."
-   :sensitive? true}
+  ;; `:sensitive [[:password]]` is relative to the event payload (the
+  ;; arg-map): the dispatched-event trace carries `:password
+  ;; :rf/redacted`, and the `:email` sibling rides raw.
+  {:doc       "Demo sign-in handler — the password rides the event
+               vector. The `:sensitive [[:password]]` classification
+               redacts that payload path on the trace surface."
+   :sensitive [[:password]]}
 
   (fn handler-auth-sign-in [{:keys [db]} [_ {:keys [email password]}]]
     ;; In a real app this is where you'd dispatch the http request
@@ -235,9 +234,11 @@
 (defn- log-record! [record]
   ;; Format the record terse for browser-console readability. The
   ;; `:event` slot has already been passed through
-  ;; `rf.elision/elide-wire-value` with off-box defaults — declared-sensitive
-  ;; paths are :rf/redacted; unschema'd / unnominated large leaves ride
-  ;; through raw (there is no runtime size auto-elision).
+  ;; `rf.elision/elide-wire-value` against the frame's app-db
+  ;; classification. A registration-classified payload path (the
+  ;; `:auth/sign-in` password) is redacted on the trace surface, not
+  ;; here, and unnominated large leaves ride through raw (there is no
+  ;; runtime size auto-elision).
   (js/console.log "[event-emit demo]" (pr-str record)))
 
 (defn install-listener!
@@ -299,7 +300,7 @@
           " record. Each button drives a different branch of the elision "
           "contract."]
 
-         ;; -- 1. :sensitive? handler (trace-surface scrub) ---------
+         ;; -- 1. registration-classified payload (trace-surface redaction)
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"
                         :margin-bottom "0.6em"}}
           [:button {:on-click   #(dispatch [:auth/sign-in @form])
@@ -309,8 +310,8 @@
           [:span {:style {:font-size "12px" :color "#595959"}}
            (if last-sign-in
              (str "submitted for " (:email last-sign-in)
-                  " — trace surface redacted, [● REDACTED N] in Xray")
-             "dispatch :auth/sign-in — handler :sensitive? escape hatch")]]
+                  " — :password is :rf/redacted on the trace surface")
+             "dispatch :auth/sign-in — its registration classifies :password")]]
 
          ;; -- 2. inline large payload (rides through raw — no auto-detect) ---
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"

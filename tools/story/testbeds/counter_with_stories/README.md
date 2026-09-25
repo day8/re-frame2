@@ -48,7 +48,7 @@ counter_with_stories/
 ├── subs.cljs                                ; :count, :count-doubled, :count-parity
 ├── views.cljs                               ; counter-card, counter-buttons, parity-badge
 ├── stories.cljs                             ; seven of the nine reg-* macros (no fragment/check)
-├── elision_demo.cljs                        ; :sensitive? + :large? + event-emit
+├── elision_demo.cljs                        ; :sensitive + :large + event-emit
 ├── stories_cljs_test.cljs                   ; integration tests (npm run test:cljs)
 ├── elision_demo_cljs_test.cljs              ; elision-pipeline tests (npm run test:cljs)
 ├── counter_with_stories.spec.cjs            ; Playwright smoke (npm run test:adapter-smokes)
@@ -61,11 +61,14 @@ The live app embeds an "elision card" underneath the counter. Each
 button drives one branch of the privacy + size elision arc the
 README markets as a headline feature:
 
-- **Sign in (sensitive)** dispatches `:auth/sign-in` — registered
-  with `:sensitive? true` handler metadata as the whole-handler
-  privacy escape hatch. The metadata stamps every trace event emitted
-  inside the handler's scope with `:sensitive? true` (Xray filters
-  those out and surfaces `[● REDACTED N]` in the bottom rail).
+- **Sign in (sensitive)** dispatches `:auth/sign-in`, whose
+  registration classifies the payload's `:password` path
+  (`{:sensitive [[:password]]}`, the registration-owned classification
+  of [Spec 015](../../../../spec/015-Data-Classification.md)). The
+  dispatched-event trace carries `:password :rf/redacted`, so Xray and
+  the Story recorder see the sentinel while the handler receives the raw
+  value. Handler-metadata `:sensitive? true` would not redact: it plays
+  no part in privacy.
 - **Upload large avatar (inline)** dispatches `:user.avatar/upload`
   with a 20 kB string in the event payload. Path D removed runtime
   size auto-elision, so an unschema'd / unclassified event-vector blob
@@ -100,8 +103,8 @@ chapter-22 recipe.
 Tests at [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs)
 assert every branch — commit-plane-classified `:large` app-db elision
 (`:reason :effect`), unschema'd inline payloads riding through raw, the
-`:sensitive?` registration-meta read-back, and the event-emit listener
-firing per dispatch.
+registration classification redacting the sign-in `:password`, and the
+event-emit listener firing per dispatch.
 
 ## Running
 
