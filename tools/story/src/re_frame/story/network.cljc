@@ -8,11 +8,11 @@
   :rf.http/managed-test-stub}` redirect at `[:world :frame :fx-overrides]`.
   Naming the stub id REGISTERS NOTHING — `re-frame.http.test-support/
   install-managed-request-stubs!` is what creates the fx over a route map.
-  Before rf2-shx4 the only executable call to it in Story was
+  Without this namespace the only executable call to it in Story would be
   `rf.story.artifact/with-network-stubs!` (artifact REPLAY), so a live
-  registered-variant run reached the real `:rf.http/managed` transport and a
-  live inline-plan run redirected to an unregistered fx id. This namespace is
-  the missing realization step; the runtime calls it either side of a frame's
+  registered-variant run would reach the real `:rf.http/managed` transport and a
+  live inline-plan run would redirect to an unregistered fx id. This namespace is
+  the realization step; the runtime calls it either side of a frame's
   lifetime.
 
   ## Why one install, and why a frame-scoped route map
@@ -21,12 +21,12 @@
   (`:rf.http/managed-test-stub`) with a route map CLOSED OVER at install
   time, and its stack is snapshot/restore (LIFO), not a merge. So the naive
   \"install per mounted variant\" makes the second variant's routes answer for
-  BOTH — exactly the silent cross-variant overwrite rf2-shx4 forbids.
+  BOTH — exactly the silent cross-variant overwrite Story must prevent.
 
   Two facts make per-frame isolation reachable from inside Story, with NO
-  second HTTP simulator, no change to the lowered fx id (so the recorded
-  `:fx-decisions` redirect, `spec/017` and the artifact replay path all stay
-  as they are) and no change to the `re-frame.http` artefact:
+  second HTTP simulator, the one lowered fx id (the id the recorded
+  `:fx-decisions` redirect, `spec/017` and the artifact replay path all name)
+  and nothing added to the `re-frame.http` artefact:
 
   - `re-frame.http.test-support/stub-handler` reads its route map with a
     plain `(get stubs [method url])`, so `stubs` need only satisfy `ILookup`
@@ -44,10 +44,10 @@
 
   A frame with no fixture (or a request from no frame at all) resolves to
   `nil`, so `stub-handler` falls through to its own canned
-  `\"no stub matched\"` transport failure — spec/017 §Network stubs, preserved
+  `\"no stub matched\"` transport failure — spec/017 §Network stubs, reused
   rather than reimplemented.
 
-  ## Reaching the stub through a selected image (rf2-shx4, rf2-3x7nj.5.2)
+  ## Reaching the stub through a selected image
 
   `install-managed-request-stubs!` registers into the process SOURCE STORE
   through the fn-alias `reg-fx` path, so the descriptor carries no
@@ -55,23 +55,24 @@
   whole store (EP-0026's DEFAULT image), so it sees that registration. A
   variant that DECLARES an app image (or inherits one from its parent story)
   resolves through a SELECTED, sealed generation instead, and an image selects
-  by `:rf.provenance/ns`, so no namespace glob can select the stub. When the
-  rf2-shx4 audit of PR #9398 met this, nothing else supplied it either: the
-  frame received the `:fx-overrides` redirect, could not resolve the target,
-  and the request fell through to the REAL `:rf.http/managed` transport.
+  by `:rf.provenance/ns`, so no namespace glob can select the stub. With
+  nothing else supplying it, the
+  frame would receive the `:fx-overrides` redirect, fail to resolve the target,
+  and the request would fall through to the REAL `:rf.http/managed` transport.
 
-  Since rf2-3x7nj.5.2 (PR #10300) an explicit composition is layered over the
+  An explicit composition is layered over the
   FRAMEWORK BASE (`:rf/framework`): every loaded registration with no source
   namespace whose id sits under the reserved `:rf` root. The stub id,
   `:rf.http/managed-test-stub`, is one of them, so the base alone makes it
   resolvable from a selected generation.
 
-  `fixture-image` predates the base and stays (the rf2-3x7nj.5.2 ruling keeps
-  it): a library-owned image carrying EXACTLY ONE inline `:reg-fx` — the very
+  `fixture-image` is a library-owned image carrying EXACTLY ONE inline
+  `:reg-fx` — the very
   handler the install just registered, over the very same `FrameScopedRoutes`
   object. `frames/compose-variant-images` layers it after the app images (so
   nothing authored can shadow it) whenever the frame being allocated owns a
-  fixture. It is now redundant but harmless: it shadows the base's entry for
+  fixture. It duplicates the base's entry and is harmless: it shadows the
+  base's entry for
   the same handler, and the shadow report names `:rf/framework` as the loser.
   One implementation, one route map, two projections."
   (:require [re-frame.core     :as rf]
@@ -89,9 +90,9 @@
   "The fx id `rf.story.plan/lower-network` points `:rf.http/managed` at, and
   the one `re-frame.http.test-support/install-managed-request-stubs!`
   registers. Named here so `fixture-image` can read the installed handler back
-  out of the source store; the id itself is unchanged (the recorded
+  out of the source store; the recorded
   `:fx-decisions` redirect, `spec/017` and `plan_network_cljs_test` all
-  still pin it)."
+  pin the id."
   :rf.http/managed-test-stub)
 
 (def fixture-image-id
@@ -121,7 +122,7 @@
   `re-frame.frame/*current-frame*` may carry a frame VALUE (`with-frame` /
   `with-new-frame` bind `make-frame`'s token) where the router binds the
   id, so normalize through `frame-value->id` exactly as the framework's own
-  `:frame/current-frame-id` late-bind hook does (rf2-h1vqa4). Keying the
+  `:frame/current-frame-id` late-bind hook does. Keying the
   registry on an un-normalized value would miss every value-bound extent."
   []
   (rf.frame/frame-value->id (rf.frame/current-frame)))
@@ -192,7 +193,7 @@
 (defn fixture-image
   "The library-owned image that projects the installed stub fx into a frame's
   SELECTED generation — `nil` when no Story fixture is installed. The framework
-  base now carries the same fx as well, so this is redundant but kept.
+  base carries the same fx as well, so this image duplicates it.
 
   Read the ns docstring §Reaching the stub through a selected image for the
   why. The what is one line of image: a single inline `:reg-fx` republishing the handler
@@ -215,5 +216,5 @@
        :registrations {:reg-fx [[stub-fx-id
                                  {:doc (str "Story :network fixture — the frame-scoped "
                                             "managed-request stub, projected into a "
-                                            "selected image generation (rf2-shx4).")}
+                                            "selected image generation.")}
                                  handler]]}})))
