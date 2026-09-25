@@ -53,7 +53,7 @@
   were a plain function component with no value-equality bail-out.
   Reagent's default `shouldComponentUpdate` compares argv and stops
   exactly this cascade, and the bail-out is the Fresco boundary default
-  too (HD-006), so the same write re-runs the page and no card at all.
+  too (HD-028), so the same write re-runs the page and no card at all.
   `narrow_dom_cljs_test` measures it rather than leaving it to be
   discovered on a clock; see that file's
   `a-page-chrome-write-re-renders-no-unchanged-row`.
