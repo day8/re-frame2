@@ -5,15 +5,14 @@
 ;; lifecycle and asserts each of the five events fires with the documented
 ;; payload shape.
 ;;
-;; Event vocabulary (rf2-2s1o):
+;; Event vocabulary:
 ;;   :rf.flow/registered  — reg-flow ran successfully
 ;;   :rf.flow/computed    — recompute ran (inputs differed by =-equality)
-;;   :rf.flow/skip        — recompute suppressed (inputs =-equal — rf2-719e)
+;;   :rf.flow/skip        — recompute suppressed (inputs =-equal)
 ;;   :rf.flow/cleared     — clear-flow ran
 ;;   :rf.flow/failed      — :derive fn threw (re-raised after this trace)
 ;;
-;; Required for re-frame-10x v2's flow panel (per the rf2-2s1o discovery
-;; from the rf2-nfyf Tool-Pair audit).
+;; Required for re-frame-10x v2's flow panel.
 
 {:fixture/id           :flow/lifecycle-emits-traces
  :fixture/spec-version "1.0"
