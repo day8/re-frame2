@@ -50,6 +50,8 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `state.value` | snapshot `:state` |
 | `state.context` | snapshot `:data` |
 | `actor.getSnapshot()` | `@(rf/subscribe [:rf/machine id])` |
+| `actor.getPersistedSnapshot()` | `(rf/frame-state-value frame)` — the machines, spawned children and spawn registry are its `[:rf.db/runtime :rf.runtime/machines]` subtree; see [Persist and restore](#persist-and-restore) |
+| `createActor(machine, { snapshot })` | `(rf/dispatch-sync [:rf/install-frame-state saved] {:frame f})` at boot — no entry replay, children restored, live `:after` timers re-armed; see [Persist and restore](#persist-and-restore) |
 | `actor.send(event)` | `(rf/dispatch [machine-id [event …]])` |
 | `createActor(machine).start()` | nothing to create: the first event, or `(rf/dispatch [machine-id [:rf.machine/start]])`, starts a registered machine |
 | `actor.stop()` | `:fx [[:rf.machine/destroy machine-id]]` — runs the active states' `:exit` actions before teardown, where `stop()` runs none, and destroys the children its `:spawn` / `:spawn-all` states track, as `stop()` stops children |
@@ -217,6 +219,58 @@ This is an ordinary subscription, so projections are ordinary subscriptions too:
 
 Because the snapshot is data in the frame, time-travel and SSR do not need a
 separate actor serialization story.
+
+## Persist and restore
+
+XState persists with `actor.getPersistedSnapshot()` and restores with
+`createActor(machine, { snapshot })`. In re-frame2 the machines are part of the
+frame-state, so you read the frame, keep what you want, and install it back with
+one event:
+
+```clojure
+(ns app.persist
+  (:require [cljs.reader]
+            [re-frame.core :as rf]))
+
+;; Save: any time. The app decides what to keep.
+(defn save! [frame]
+  (let [{app :rf.db/app runtime :rf.db/runtime} (rf/frame-state-value frame)]
+    (.setItem js/localStorage "checkout"
+              (pr-str {:rf.db/app     app
+                       :rf.db/runtime (select-keys runtime [:rf.runtime/machines])}))))
+
+;; Load: at boot, before the app's own boot events.
+(defn load! [frame]
+  (when-let [stored (.getItem js/localStorage "checkout")]
+    (when-let [saved (try (cljs.reader/read-string stored)
+                          (catch :default _ nil))]
+      (rf/dispatch-sync [:rf/install-frame-state saved] {:frame frame}))))
+```
+
+`:rf/install-frame-state` replaces app-db with `:rf.db/app` and replaces only the
+runtime-db subtrees you saved, so the route slice and anything else the frame
+booted with stay as they are. As with XState's `snapshot` option, entry actions
+are not re-run and spawned children come back with their state. Each restored
+machine's live `:after` timer is armed again for its full delay.
+
+The app owns the rest:
+
+- **Storage and selection.** Where the string goes and which subtrees it keeps
+  are yours. Leave the resource runtime (`:rf.runtime/resources`,
+  `:rf.runtime/work-ledger`, `:rf.runtime/mutations`) out: the install refuses
+  it, because a resource cache is not persisted. Resources refetch.
+- **Versioning and migration.** A saved snapshot whose `:state` a later deploy
+  removed restarts from `:initial` on its first event, with
+  `:rf.error/machine-state-not-in-definition`; a changed
+  `:meta :rf/snapshot-version` does the same, with
+  `:rf.error/machine-snapshot-version-mismatch`. Migrating old data forward is
+  the app's job, as it is in XState.
+- **Reading it back.** `read-string` on stored text is your code, so guard it,
+  as `load!` does. A payload that is not a map, or that carries a non-map
+  partition, is refused with `:rf.error/handler-exception` and changes
+  nothing.
+
+The full contract is [Spec 002 §Installing a persisted frame-state](../../spec/002-Frames.md#installing-a-persisted-frame-state).
 
 ## Tags
 

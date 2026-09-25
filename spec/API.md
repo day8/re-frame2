@@ -207,6 +207,13 @@ To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-i
 
 **Canonical `event` / `query-v` shape (best practice).** `[<id>]` (trivial), `[<id> <single-scalar>]` (single-arg), `[<id> {<k> <v>}]` (multi-arg → single map payload). Variadic `[<id> a b c]` is tolerated by the runtime for v1-migration and caller convenience; the linter nudges new code toward the map form. Full rationale and cross-refs: [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice).
 
+Standard frame events (registered by core in the regular registrar and the image standard registry, so every frame resolves them):
+
+| Event | What it does | Spec |
+|---|---|---|
+| `:rf/set-db` | Replace the whole app-db partition with one map argument — the app-db seed step of `:initial-events`. A missing / `nil` / non-map argument, or an extra one, throws `:rf.error/set-db-bad-value`. | 002 / EP-0027 |
+| `:rf/install-frame-state` | Install a persisted frame-state `{:rf.db/app <map>? :rf.db/runtime <map>?}`, read earlier with `frame-state-value`: a present `:rf.db/app` replaces app-db, each runtime-db subtree a present `:rf.db/runtime` carries replaces that subtree while the rest are preserved, and restored machines' `:after` timers are re-armed after the commit. A malformed payload or a resource-runtime subtree throws and surfaces as `:rf.error/handler-exception`. Per [002 §Installing a persisted frame-state](002-Frames.md#installing-a-persisted-frame-state). | 002 |
+
 ### `dispatch-*` family taxonomy
 
 The `dispatch-*` family has two sub-shapes that look alike on first read but answer different questions. Both *are* dispatch operations — the family-prefix is honest — but they sit in different sub-families.
@@ -562,7 +569,7 @@ For tooling, agents, story tools, 10x.
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | tooling | ✓ | 002 |
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | tooling | ✓ | 002 |
 | `app-db-value` | Fn | `(app-db-value frame-id)` → the **app-db** partition value (plain map) — the out-of-band value read. The front-porch read is `subscribe`; `app-db-value` is the non-reactive snapshot read for tools, tests, REPL, and fx/handler bodies. | v1 | advanced | ✓ | 002 |
-| `frame-state-value` | Fn | `(frame-state-value frame-id)` → the coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The full-frame read for SSR / epoch / time-travel / Xray (EP-0001). The runtime-db-only read (there is no `runtime-db-value`) is `(:rf.db/runtime (frame-state-value frame-id))`. | v1 | tooling | ✓ | 002 |
+| `frame-state-value` | Fn | `(frame-state-value frame-id)` → the coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The full-frame read for SSR / epoch / time-travel / Xray (EP-0001), and the supported production read for persistence — the value an app saves and installs back with `:rf/install-frame-state`. The runtime-db-only read (there is no `runtime-db-value`) is `(:rf.db/runtime (frame-state-value frame-id))`. | v1 | tooling | ✓ | 002 |
 
 The static subscription-topology query and the runtime sub-cache snapshot are **subscription-tooling** surfaces, not `re-frame.core` facade reads. Reach them through their owning namespace `re-frame.subs.tooling` — `(sub-topology)` (static dependency graph over the registrar) and `(sub-cache-snapshot frame-id)` (live cache state) — with `subs/sub-topology` / `subs/sub-cache-snapshot` as JVM aliases.
 
