@@ -169,7 +169,7 @@
   (when-not (some #(contains? args-map %) rf.http.encoding/reply-address-keys)
     (throw (rf.error/thrown-ex-info
              :rf.error/http-no-reply-target :rf.http/managed
-             "`:rf.http/managed` must address its reply — supply `:reply-to` (one target for both success and failure; the app branches on the canonical envelope's `:status`), or `:on-success` / `:on-failure` (an explicit `nil` silences a branch). The co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha. Per Spec 014 §Reply addressing"
+             "`:rf.http/managed` must address its reply — supply `:reply-to` (one target for both success and failure; the app branches on the canonical envelope's `:status`), or `:on-success` / `:on-failure` (an explicit `nil` silences a branch). The framework never addresses a reply implicitly, because an implicit target can swallow failures. Per Spec 014 §Reply addressing"
              {:extra {:args-keys (vec (keys args-map))}})))
   (rf.http.encoding/validate-reply-addressing! args-map)
   (doseq [k rf.http.encoding/reply-address-keys]
