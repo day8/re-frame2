@@ -1,17 +1,17 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-fresco-boundary-dom-cljs-test
-  "THE CANCELLATION-CASCADE POPOVER RE-AUTHORED IN THE RE-FRAME-NATIVE
-  VIEW LAYER, read off a real React commit (rf2-k97c.3, step 2).
+  "THE CANCELLATION-CASCADE POPOVER IN THE RE-FRAME-NATIVE VIEW LAYER,
+  read off a real React commit.
 
-  `cancellation-cascade/PopoverView` is now an `rf.fresco/defview`
+  `cancellation-cascade/PopoverView` is an `rf.fresco/defview`
   reading through Fresco's shipped collector rather than an
   `rf/reg-view` reading through whatever view build the installed
   substrate adapter supplies. This file is the behavioural evidence for
-  that swap, following the merged template
+  that, following the template
   (`module_view_fresco_boundary_dom_cljs_test`).
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
-  This panel is the first migrated one that DISPATCHES, so unlike the
+  This panel DISPATCHES, so unlike the
   template it can answer criterion 3 — and W5 is the whole reason this
   file is worth more than a copy of the template:
 
@@ -29,10 +29,9 @@
 
   ## Why W5 matters beyond this panel
 
-  The template panel dispatches nothing, so increment 1 left open the
-  question of how a dispatch behaves inside a boundary. The answer was
-  read out of Fresco's own shipped code before a line moved:
-  `re-frame.fresco.impl.intent/with-frame` — which
+  The template panel dispatches nothing, so it cannot say how a
+  dispatch behaves inside a boundary. The answer is in Fresco's own
+  shipped code: `re-frame.fresco.impl.intent/with-frame` — which
   `collector/run-once` wraps every body in — binds core's refusal tier,
   so an AMBIENT dispatch refuses, while an explicitly carried
   `{:frame <id>}` still answers, because that tier deletes the ambient
@@ -255,11 +254,11 @@
 ;; ===========================================================================
 
 (deftest w1-popover-paints-and-its-reads-land-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated cancellation-cascade popover commits
+  (testing "the cancellation-cascade popover commits
             real DOM through the head `shell.cljs` mounts, and its
             `rf.fresco/sub` reads resolve against the frame the enclosing
-            `frame-provider` named rather than the ambient one. Epic
-            criteria 1 and 4."
+            `frame-provider` named rather than the ambient one.
+            Criteria 1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -299,9 +298,9 @@
 ;; ===========================================================================
 
 (deftest w2-popover-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted popover re-renders itself and commits
+  (testing "the mounted popover re-renders itself and commits
             new DOM when a read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control
+            nothing it watches moved. Criterion 2, with the control
             that makes the update mean liveness rather than a commit that
             simply had not happened yet."
     (if-not (browser?)
@@ -374,9 +373,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated popover
+  (testing "rendering the popover
             contributes NOTHING to the substrate's view-trace stream, even
-            when it is mounted INSIDE an application frame. Epic criterion
+            when it is mounted INSIDE an application frame. Criterion
             5, proven structurally rather than by the `:rf/xray` frame gate:
             a Fresco boundary is not a substrate view render, so there is no
             event to gate. The control is an ordinary `reg-view` in the same
@@ -444,12 +443,12 @@
   (zero? (ref-count-of :rf/xray open?-q)))
 
 (deftest w4-unmount-releases-the-reads-and-reopen-does-not-grow-them
-  (testing "rf2-k97c.3 — unmounting the popover releases its subscription
+  (testing "unmounting the popover releases its subscription
             references completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed 22 → 25 → 32 across
-            renders and never fell on unmount.
+            count rather than a higher one. Criterion 6, and the number a
+            leaky binding shows on: a four-call interop binding would make
+            the `:rf/xray` ref-count climb across renders and never fall on
+            unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once. `impl.collector`'s `cell-reapers` gives a cell
@@ -513,16 +512,16 @@
 ;;      dispatches into the frame the tree NAMED
 ;; ===========================================================================
 ;;
-;; This is the row the template could not carry, and it is the reason this
+;; This is the row the template cannot carry, and it is the reason this
 ;; file exists rather than a second copy of module_view's. See the ns
 ;; docstring for the contract it is putting in front of a browser.
 
 (deftest w5-a-click-inside-the-boundary-dispatches-into-the-named-frame
-  (testing "rf2-k97c.3 — clicking the collapse expander inside the migrated
+  (testing "clicking the collapse expander inside the
             popover dispatches `:rf.xray/cancellation-cascade-toggle-expand`,
             the DOM follows, and the event lands in the frame the enclosing
             `frame-provider` NAMED rather than in the ambient one or in a
-            neighbouring application frame. Epic criterion 3."
+            neighbouring application frame. Criterion 3."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
