@@ -9,7 +9,7 @@
   The deterministic flow tests in `flows_test.clj` cover correctness
   single-shot; this namespace pins the surface under parallel
   registration, dirty-evaluation, and clear from many threads. The
-  invariants carry over from rf2-35rgj / rf2-1gpx8: every dispatched
+  invariants are the ones those stress suites pin: every dispatched
   event ran exactly once (no drops) and every flow `:derive` invocation
   fired exactly once per dirty evaluation (no doubles).
 
@@ -23,7 +23,7 @@
       `:rf.error/dispatch-sync-in-handler` via the `:in-sync-drain?`
       guard, so we deliberately partition by frame. Per-frame `flows`
       / `last-inputs` slots are independent, and under the single store
-      (rf2-en00bk) they are the SOLE store — the `:flow` registrar slot
+      they are the SOLE store — the `:flow` registrar slot
       is RESERVED-but-empty, so no frame-blind slot is shared between
       threads (Spec 013 §Frame-scoping).
     - **Per iter**, the thread runs the reg-flow → dispatch-drain →
@@ -80,8 +80,8 @@
        nothing to vacate).
 
   Threads start in lockstep via `CountDownLatch.countDown` — the same
-  shape rf2-35rgj / rf2-1gpx8 use to maximise contention. Per-thread
-  iters default to 5000 (rf2-ynk7 / rf2-35rgj / rf2-1gpx8 standard);
+  shape the machine-actor and router stress suites use to maximise
+  contention. Per-thread iters default to 5000 (the stress-suite standard);
   env-overridable via `RF2_ZTW5P_STRESS_ITERS`.
 
   CLJS is single-threaded; the JVM is the only runtime where the flows
@@ -310,7 +310,7 @@
               (is (nil? per-frame-slot)
                   (str "Frame " frame-id ": expected the per-frame flow "
                        "registry key to be PRUNED after teardown "
-                       "(no {frame-id {}} husk, rf2-4bbaw); got "
+                       "(no {frame-id {}} husk); got "
                        (pr-str per-frame-slot))))
             (is (not (contains? last-inputs-snapshot flow-id))
                 (str "Flow id " flow-id " must not retain a "
@@ -325,15 +325,15 @@
             ;; populates it before the cycle check fails loudly.
             (is (not (contains? last-inputs-snapshot cyc-b))
                 (str "Cycle-probe id " cyc-b " never registered "
-                     "(cycle rolled back per rf2-7csri); must not "
+                     "(cycle rolled back); must not "
                      "appear in `last-inputs`"))
-            ;; SINGLE-STORE (rf2-en00bk): the `:flow` registrar slot is
+            ;; SINGLE-STORE: the `:flow` registrar slot is
             ;; RESERVED-but-empty — never written — so it is `nil` throughout,
             ;; not "vacated on last release". The per-frame store check above is
             ;; the real cleanup assertion.
             (is (nil? (rf.registrar/lookup :flow flow-id))
                 (str ":flow registrar slot for " flow-id
-                     " is RESERVED-but-empty (rf2-en00bk)"))
+                     " is RESERVED-but-empty"))
             (is (nil? (rf.registrar/lookup :flow cyc-a))
                 (str ":flow registrar slot for cycle-probe " cyc-a
-                     " is RESERVED-but-empty (rf2-en00bk)"))))))))
+                     " is RESERVED-but-empty"))))))))
