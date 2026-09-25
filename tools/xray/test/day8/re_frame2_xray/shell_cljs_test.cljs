@@ -2742,75 +2742,12 @@
           "no-opt render re-defaults the slot to :fixed"))))
 
 ;; -------------------------------------------------------------------------
-;; (N) L2 row — time chip + the relative-time helpers
+;; (N) L2 row — time chip
 ;; -------------------------------------------------------------------------
 ;;
 ;; The L2 row's `timestamp` column renders the ABSOLUTE wall-clock time
 ;; (`HH:MM:SS.mmm`, via `format-clock-time`), right-aligned inline on the
 ;; row, with the full ISO walltime + epoch-ms on the chip's `:title`.
-;;
-;; The pure `format-relative-time` helper and its anchor sub
-;; `:rf.xray/relative-time-now-ms` are pinned here too. The anchor is the
-;; dispatched-time of the most recent cascade, so it flips on event
-;; arrival rather than on a per-second tick — relative time is meaningful
-;; BETWEEN events, and a per-second tick would re-render the L2 list
-;; constantly.
-;;
-;; `format-relative-time` bucket contract:
-;;
-;;   diff < 1s   → "now"
-;;   diff < 60s  → "Ns"     (1s-resolution between events)
-;;   diff < 60m  → "Nm"     (minute-bucket)
-;;   diff < 24h  → "Nh"
-;;   diff ≥ 24h  → "Nd"
-
-(deftest format-relative-time-now-bucket
-  (testing "diff < 1s collapses to the 'now' silent-by-
-            default bucket so jitter at the millisecond boundary never
-            renders to the user."
-    (is (= "now" (shell/format-relative-time 1000 1000)))
-    (is (= "now" (shell/format-relative-time 1500 1000)))
-    (is (= "now" (shell/format-relative-time 1999 1000)))))
-
-(deftest format-relative-time-seconds-bucket
-  (testing "diff in [1s, 60s) renders as 'Ns'."
-    (is (= "1s"  (shell/format-relative-time 2000   1000)))
-    (is (= "5s"  (shell/format-relative-time 6000   1000)))
-    (is (= "59s" (shell/format-relative-time 60000  1000)))))
-
-(deftest format-relative-time-minutes-bucket
-  (testing "diff in [60s, 60m) renders as 'Nm' — the minute
-            bucket so an old timestamp's label does not jitter per tick."
-    (is (= "1m" (shell/format-relative-time 61000     1000)))
-    (is (= "1m" (shell/format-relative-time 90000     1000)))
-    (is (= "2m" (shell/format-relative-time 121000    1000)))
-    (is (= "5m" (shell/format-relative-time 301000    1000)))
-    (is (= "59m" (shell/format-relative-time 3541000  1000)))))
-
-(deftest format-relative-time-hours-bucket
-  (testing "diff in [60m, 24h) renders as 'Nh'."
-    (is (= "1h" (shell/format-relative-time 3601000      1000)))
-    (is (= "1h" (shell/format-relative-time 3700000      1000)))
-    (is (= "2h" (shell/format-relative-time 7300000      1000)))
-    (is (= "23h" (shell/format-relative-time (+ 1000 (* 23 3600 1000)) 1000)))))
-
-(deftest format-relative-time-days-bucket
-  (testing "diff ≥ 24h renders as 'Nd'."
-    (is (= "1d" (shell/format-relative-time (+ 1000 (* 24 3600 1000)) 1000)))
-    (is (= "3d" (shell/format-relative-time (+ 1000 (* 72 3600 1000)) 1000)))))
-
-(deftest format-relative-time-clamps-negative-diff
-  (testing "a then-ms larger than now-ms (clock skew /
-            test stub ordering) clamps to 0 → 'now' rather than rendering
-            a negative chip."
-    (is (= "now" (shell/format-relative-time 1000 5000)))))
-
-(deftest format-relative-time-nil-safe
-  (testing "nil inputs short-circuit so the caller can decide
-            whether to render anything."
-    (is (= "" (shell/format-relative-time nil  1000)))
-    (is (= "" (shell/format-relative-time 1000 nil)))
-    (is (= "" (shell/format-relative-time nil  nil)))))
 
 (deftest format-clock-time-renders-hhmmssmmm
   (testing "`format-clock-time` renders the absolute
@@ -2924,52 +2861,6 @@
             chip (find-by-testid tree "rf-xray-row-time-chip")]
         (is (nil? chip)
             "chip is absent when the cascade has no dispatched :time")))))
-
-(defn- sync-trace-buffer!
-  "Mirror `trace-collector/buffer-for-test`'s current contents into Xray's app-db
-  slot so reactive sub re-runs see the latest cascades. Mirrors the
-  production `request-mirror-sync!` path (which dispatches the same
-  event asynchronously in shadow-cljs sessions)."
-  []
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-collector/buffer-for-test)])))
-
-(deftest relative-time-now-ms-sub-derives-from-cascades
-  (testing "`:rf.xray/relative-time-now-ms` is derived
-            from `:rf.xray/event-bundles`: it returns the dispatched-time
-            of the MOST RECENT cascade. Returns nil when there are no
-            cascades (or none carrying a `:dispatched :time` stamp);
-            the L2 view's render-time fallback covers that edge."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (is (nil? @(rf/subscribe [:rf.xray/relative-time-now-ms]))
-          "no cascades → nil anchor"))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] 1000))
-    (sync-trace-buffer!)
-    (rf/with-frame :rf/xray
-      (is (= 1000 @(rf/subscribe [:rf.xray/relative-time-now-ms]))
-          "single cascade → its dispatched-time is the anchor"))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:foo/baz] 5000))
-    (sync-trace-buffer!)
-    (rf/with-frame :rf/xray
-      (is (= 5000 @(rf/subscribe [:rf.xray/relative-time-now-ms]))
-          "anchor flips to the newest cascade's dispatched-time"))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 3 [:foo/qux] 3000))
-    (sync-trace-buffer!)
-    (rf/with-frame :rf/xray
-      (is (= 5000 @(rf/subscribe [:rf.xray/relative-time-now-ms]))
-          "older arrival (lower :time) leaves the anchor at the max"))))
-
-(deftest relative-time-now-ms-sub-nil-when-no-dispatched-time
-  (testing "cascades that carry no `:dispatched :time`
-            contribute nothing; the sub returns nil so the view falls
-            back to `(interop/now-ms)` at render time."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (sync-trace-buffer!)
-    (rf/with-frame :rf/xray
-      (is (nil? @(rf/subscribe [:rf.xray/relative-time-now-ms]))
-          "no `:dispatched :time` anywhere → nil anchor"))))
 
 ;; -------------------------------------------------------------------------
 ;; chrome + ribbon + event-list + tab AUTHORITY fidelity
