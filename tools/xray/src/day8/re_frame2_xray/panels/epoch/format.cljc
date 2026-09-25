@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch.format
-  "View-presentation string formatters for the Epoch panel (rf2-qkygs).
+  "View-presentation string formatters for the Epoch panel.
 
   ## Why a separate ns from `projection`
 
@@ -8,14 +8,14 @@
   data-out). These fns are the OTHER side of that boundary: they turn
   a projected row's slots into the display STRINGS the view paints
   (`0.1ms` / `:my-ns/foo` / `guard :x` / `cancelled (on-exit)`). Parking them
-  in the projection ns blurred the data/presentation line — a reader
+  in the projection ns would blur the data/presentation line — a reader
   could not tell load-bearing derivation from cosmetic formatting, and
-  the projection ns carried two jobs.
+  the projection ns would carry two jobs.
 
   This matches the rest of the codebase's pure-data / helpers split
   (`spec/Conventions.md` §Pure-data helpers as `.cljc`; the
   `*_helpers.cljc` per-theme convention). The view requires this ns
-  for its per-row labels; the projection ns now reads as the pure
+  for its per-row labels; the projection ns reads as the pure
   step-derivation engine only.
 
   ## Pure-data + JVM-portable
@@ -63,22 +63,22 @@
 
 (def inline-verb-label
   "The synthetic verb a cascade row paints for an ANONYMOUS (inline-fn)
-  action / guard (rf2-982212). An inline `(fn …)` declared directly in an
+  action / guard. An inline `(fn …)` declared directly in an
   `:on` / `:always` / `:entry` / `:exit` / `:after` slot has a FUNCTION
   OBJECT — not a keyword — as its `:action-id` / `:guard-id` (the runtime
   carries the bare fn; impl: `re-frame.machines.transition` resolve-guard /
-  resolve-action), so `ns-keyword`'s `str` fallthrough rendered the raw
+  resolve-action), so `ns-keyword`'s `str` fallthrough would render the raw
   fn-object toString (`#object[Function …]` / a minified blob). Inline fns
   are first-class in every slot (Spec 005), so the case is common; this
   legible placeholder stands in for the un-nameable fn. The row's
   KIND+PHASE badge, per-row outcome chip, and (in dev builds) the
-  interleaved SOURCE BODY + click-to-source still carry WHAT it is — the
+  interleaved SOURCE BODY + click-to-source carry WHAT it is — the
   verb only needs to read as 'an inline declaration', not garbage."
   "⟨inline⟩")
 
 (defn verb-label
   "Render a cascade row's VERB id (an `:action-id` / `:guard-id`) as a
-  legible label (rf2-982212). A keyword (a NAMED action/guard registered in
+  legible label. A keyword (a NAMED action/guard registered in
   the machine's `:actions` / `:guards` map) renders cleanly via `ns-keyword`
   (`:my-guard` / `:my-ns/foo`). A non-keyword id — an ANONYMOUS inline `(fn
   …)` carried bare by the runtime — renders the synthetic
@@ -102,7 +102,7 @@
        s
        (str (subs s 0 n) "…")))))
 
-;; -- render-args size elision (rf2-yi0nr) --------------------------------
+;; -- render-args size elision --------------------------------------------
 ;;
 ;; The VIEWS step's col-2 render-args cell mounts the args VECTOR through
 ;; the shared `ei/edn-inspector`. The framework's wire-elision walker
@@ -111,14 +111,14 @@
 ;; `{:large? true}`. View props are arbitrary positional render args, not
 ;; a schema-addressed db path, so they ride through un-elided AND Xray
 ;; reads RAW epoch records in-process (the egress walk never touches what
-;; Xray sees — see `panels.app-db-diff-helpers` head comment). Net: a view
-;; that takes a substantial map/collection prop — which ANY real app does —
-;; dumped its FULL value into the cell.
+;; Xray sees — see `panels.app-db-diff-helpers` head comment). Unguarded, a
+;; view that takes a substantial map/collection prop — which ANY real app
+;; does — would dump its FULL value into the cell.
 ;;
-;; The fix mirrors the App-db panel's large-state treatment: oversized
+;; So the cell mirrors the App-db panel's large-state treatment: oversized
 ;; values render as the framework's canonical `{:rf.size/large-elided …}`
-;; sentinel, which the edn-inspector already paints as a yellow `● large ·
-;; N bytes` chip (drill-in deferred per rf2-ndb13 — same affordance App-db
+;; sentinel, which the edn-inspector paints as a yellow `● large ·
+;; N bytes` chip (no drill-in — the same affordance App-db
 ;; gets). The cap is purely a DISPLAY guard (Xray is read-only, in-process);
 ;; we reuse the framework's WIRE VOCABULARY (`:rf.size/large-elided` + the
 ;; `:bytes :type :reason :hint :path :handle` body keys per spec/015) so the
@@ -128,7 +128,7 @@
 (def render-args-byte-budget
   "Byte budget (UTF-8 `pr-str` length) above which a single render-arg
   ELEMENT is elided to the `:rf.size/large-elided` chip in the VIEWS
-  col-2 cell (rf2-yi0nr). 512 bytes ≈ a small-to-mid prop map renders
+  col-2 cell. 512 bytes ≈ a small-to-mid prop map renders
   inline / browsable; a fat props payload (the machine-epochs runner's
   26-map steps vector is ~thousands of bytes) collapses to the size chip.
   Public so the unit test pins the threshold without re-deriving it."
@@ -142,14 +142,12 @@
   Bytes on BOTH hosts, and that is load-bearing twice over: the figure is
   PUBLISHED (the edn-inspector's `● large · N bytes` chip) and it is
   ENFORCED (`render-args-byte-budget` decides whether an arg is elided at
-  all). Until rf2-2rtt6.131 the CLJS arm was `(count s)` — UTF-16 CODE
-  UNITS — beneath a docstring claiming byte-exactness 'isn't available' on
-  CLJS. That premise was FALSE, and the false premise is why the defect
-  survived: `TextEncoder` is UTF-8 by definition, is present in every
+  all). A CLJS arm of `(count s)` would count UTF-16 CODE UNITS, giving one
+  budget two rulers — the same render arg could ride through inline in the
+  browser panel and elide under the JVM test. Byte-exactness IS available
+  on CLJS: `TextEncoder` is UTF-8 by definition, is present in every
   browser and in Node, and carries no encoding argument a later edit could
-  silently drop. While it stood, one budget had two rulers — the same
-  render arg could ride through inline in the browser panel and elide under
-  the JVM test.
+  silently drop.
 
   Code units agree with UTF-8 bytes only for ASCII, which is what makes the
   mistake fail open: on an ASCII payload the wrong expression prints the
@@ -161,7 +159,7 @@
   `TextEncoder` and not `Buffer.byteLength`: this ns compiles into the
   BROWSER panel bundle (and under `:advanced`), where `Buffer` is not
   there. Same helper shape as `re-frame.ssr.hash` and the fresco lane's
-  `utf8-bytes` (rf2-2rtt6.121)."
+  `utf8-bytes`."
   [v]
   (let [s (pr-str v)]
     #?(:clj  (alength (.getBytes ^String s "UTF-8"))
@@ -198,7 +196,7 @@
 
 (defn elide-large-render-args
   "Size-guard a VIEWS-row render-args VECTOR before it mounts in the
-  shared edn-inspector (rf2-yi0nr). Walks the TOP-LEVEL positional args:
+  shared edn-inspector. Walks the TOP-LEVEL positional args:
   any element whose `pr-str` exceeds `render-args-byte-budget` is replaced
   by the `:rf.size/large-elided` size-marker (the SAME sentinel + chip the
   App-db panel surfaces for large state); small elements pass through
@@ -257,7 +255,7 @@
 
 (def ^:private start-cause->label
   "Map a `:rf.machine/started` `:cause` enum → the short tag rendered on
-  the `[START]` badge (rf2-it4vt). The cause tells the operator HOW the
+  the `[START]` badge. The cause tells the operator HOW the
   machine came to life:
 
     :explicit — a deliberate eager `[:machine-id [:rf.machine/start]]` kick
@@ -273,7 +271,7 @@
 
 (defn start-cause-label
   "Render a `:rf.machine/started` `:cause` enum as the short tag string the
-  `[START]` badge carries (rf2-it4vt). Falls through `name` for an unknown
+  `[START]` badge carries. Falls through `name` for an unknown
   cause keyword so a future enum value still paints, nil for non-keywords."
   [cause]
   (or (get start-cause->label cause)
@@ -281,7 +279,7 @@
 
 (defn start-cause-smell?
   "True iff a `[START]` row's `:cause` is the ORDERING SMELL `:lazy`
-  (rf2-it4vt) — something dispatched to the machine before it was explicitly
+  — something dispatched to the machine before it was explicitly
   started, so init folded into that event's epoch. The view paints the
   `:lazy` cause tag with a warning tone to flag it; `:explicit` / `:spawned`
   ride the muted/neutral tone (clean birth)."
@@ -289,41 +287,38 @@
   (= :lazy cause))
 
 (defn cascade-row-label
-  "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
+  "Render a cascade row's human-readable verb. Used by the
   view's per-row header. Pure-data; the view never reaches into a
   row's slots to compute its label."
-  ;; rf2-iu3no — `:event` is no longer destructured: the `:no-op` verb
-  ;; (the only case that read it) collapsed to "staying in {state}" and no
-  ;; longer echoes the event (the focused-epoch Event header names it).
+  ;; `:event` is not destructured: the `:no-op` verb reads "staying in
+  ;; {state}" and does not echo the event (the focused-epoch Event header
+  ;; names it).
   [{:keys [kind action-id guard-id from-state to-state state reason
            machine-id show-machine-name? cause]}]
   (case kind
-    ;; rf2-h710p item B — the GUARD verb is JUST the guard-id. The leading
-    ;; "guard" word DUPLICATED the `[GUARD]` kind-pill (which already says
-    ;; GUARD), so it is dropped. The state the guard gates rides the
-    ;; `for <state>` clause (the item-6 pattern; `cascade-guard-for-state`)
+    ;; The GUARD verb is JUST the guard-id: a leading "guard" word would
+    ;; duplicate the `[GUARD]` kind-pill. The state the guard gates rides the
+    ;; `for <state>` clause (the action rows' pattern; `cascade-guard-for-state`)
     ;; rendered alongside the verb in the view — `[GUARD] for :open :may-close?`.
-    ;; rf2-982212 — a NAMED guard renders its keyword; an INLINE `(fn …)`
+    ;; A NAMED guard renders its keyword; an INLINE `(fn …)`
     ;; guard (a bare fn id) renders the `⟨inline⟩` placeholder via
     ;; `verb-label` rather than the raw fn-object toString.
     :guard       (verb-label guard-id)
-    ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
-    ;; phase, so the verb is JUST the action-id (the pill + chip + source body
-    ;; carry the rest). rf2-982212 — a NAMED action renders its keyword; an
+    ;; The ACTION kind-pill + phase chip convey kind + phase, so the verb is
+    ;; JUST the action-id, with no "{phase} action " prefix (the pill + chip +
+    ;; source body carry the rest). A NAMED action renders its keyword; an
     ;; INLINE `(fn …)` action renders the `⟨inline⟩` placeholder via
-    ;; `verb-label` (was: the raw fn-object toString); a nil action-id renders
-    ;; empty. The redundant "{phase} action " prefix is dropped.
+    ;; `verb-label`; a nil action-id renders empty.
     :action      (verb-label action-id)
-    ;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb is JUST the state
-    ;; change `<before> → <after>`, made the focal point. The redundant
-    ;; leading "transition" word (the KIND pill already says TRANSITION)
-    ;; and the machine-name echo (`:door/main` — already the cascade
-    ;; context) are DROPPED; the lower-line state/event repetition is
-    ;; dropped in the view (`cascade-row-transition-details`).
+    ;; The TRANSITION row's verb is JUST the state change `<before> →
+    ;; <after>`, the focal point. It carries no leading "transition" word
+    ;; (the KIND pill says TRANSITION) and no machine-name echo
+    ;; (`:door/main` — the cascade context); the view omits the lower-line
+    ;; state/event repetition too (`cascade-row-transition-details`).
     :transition  (str (if from-state (pr-str from-state) "?")
                       " → "
                       (if to-state (pr-str to-state) "?"))
-    ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+    ;; A parent-owned parallel `:always` ROUND's regional
     ;; transition. The verb is the region-relative state change `<from> →
     ;; <to>`; the `[ALWAYS]` pill + the `for <region> · round <n>` clause
     ;; (rendered in the view) carry the region + round index.
@@ -332,25 +327,23 @@
                       (if to-state (pr-str to-state) "?"))
     :timer       (str "timer " (when state (pr-str state))
                       (when reason (str " · " (name reason))))
-    ;; rf2-iu3no — the benign unhandled-user-event no-op. The verb is the
+    ;; The benign unhandled-user-event no-op. The verb is the
     ;; CONSEQUENCE only: "staying in {state}" (the machine matched no
     ;; transition, so its state is unchanged). The `[NO OP]` kind-pill is
-    ;; the sole marker; the focused-epoch Event header already names the
-    ;; event — so the rf2-ugdas "no-op — <machine> received <event> in
-    ;; <state>, no transition" sentence (badge + prefix + event echo +
-    ;; suffix, all saying the same thing) is collapsed away.
+    ;; the sole marker and the focused-epoch Event header names the
+    ;; event, so the verb restates neither.
     ;;
-    ;; The machine name is kept ONLY when >1 machine is in play this epoch
+    ;; The machine name appears ONLY when >1 machine is in play this epoch
     ;; (broadcast event / parallel regions) so the operator can tell WHICH
     ;; machine stood pat — `machine-cascade-rows` stamps `:show-machine-name?`
     ;; on the no-op row when the cascade spans multiple machine-ids. The
-    ;; single-machine case drops it (the EVENT HANDLER section names the
+    ;; single-machine case omits it (the EVENT HANDLER section names the
     ;; machine above).
     :no-op       (str (when (and show-machine-name? machine-id)
                         (str (ns-keyword machine-id) " "))
                       "staying in "
                       (if state (pr-str state) "?"))
-    ;; rf2-it4vt — the machine's BIRTH verb: "<machine-id> started in
+    ;; The machine's BIRTH verb: "<machine-id> started in
     ;; {state}". The `[START]` kind-pill is the badge; the verb names WHICH
     ;; machine was born and its INITIAL logical state (`:state` off the
     ;; `:rf.machine/started` trace — a keyword / path-vector for flat /
@@ -363,7 +356,7 @@
     (str (when kind (name kind)))))
 
 (defn transition-slot->spec-prefix
-  "rf2-lai1qv — turn the substrate's EXACT spec-path discriminator
+  "Turn the substrate's EXACT spec-path discriminator
   (`:transition-slot`, stamped by `re-frame.machines.transition/
   transition-slot` on a selected transition's `:rf.machine/action-ran`
   emit) into the inline-source spec-path PREFIX — the path up to and
@@ -375,9 +368,9 @@
   index-free single-map / keyword / vector-target forms, matching the
   macro's bare-slot keying), the `:after` delay-key, and the root-vs-state
   distinction — so this resolves the EXACT slot that the
-  reconstruct-from-`source-state`/`event`/`phase` path could not (it
-  hardcoded candidate 0, could not name the `:after` delay-key, and
-  assumed a `:states` prefix even for a root `:on`).
+  reconstruct-from-`source-state`/`event`/`phase` path cannot (it
+  hardcodes candidate 0, cannot name the `:after` delay-key, and
+  assumes a `:states` prefix even for a root `:on`).
 
     {:slot :on :event-key :submit :decl-path [:idle] :candidate-idx nil}
       => [:states :idle :on :submit]
@@ -388,7 +381,7 @@
     {:slot :always :decl-path [:loading] :candidate-idx 1}
       => [:states :loading :always 1]
     {:slot :always :decl-path [:loading] :candidate-idx nil}
-      => [:states :loading :always]          ;; single-map :always (k7yqod shape)
+      => [:states :loading :always]          ;; single-map :always
     {:slot :after :delay-key 1000 :decl-path [:idle] :candidate-idx nil}
       => [:states :idle :after 1000]
 
@@ -408,7 +401,7 @@
       (cond-> slot-path
         ;; A vector-candidate form carries the matched index; index-free
         ;; forms (candidate-idx nil) stay at the bare-slot path, matching
-        ;; the macro's keying (rf2-k7yqod / rf2-lai1qv).
+        ;; the macro's keying.
         (some? candidate-idx) (conj candidate-idx)))))
 
 (defn cascade-row-source-key
@@ -417,15 +410,15 @@
   coord lookup so the source-link affordance reads off ONE authoritative
   key.
 
-  rf2-lai1qv — when the row carries an EXACT spec-path (`:spec-path`, an
+  When the row carries an EXACT spec-path (`:spec-path`, an
   explicit tuple) or the substrate's spec-path discriminator
   (`:transition-slot`, for an inline transition `:action`), those WIN over
   the reconstruct-from-`source-state`/`event`/`phase` path below. The
   reconstruction is the fallback for rows lacking the carried slot
   (named-handler keys, `:exit` / `:entry` boundary actions, timers, and
-  legacy traces without the discriminator).
+  traces without the discriminator).
 
-  Per rf2-npvsx / rf2-vqja2 the lookup target differs by tuple shape:
+  The lookup target differs by tuple shape:
   - Named `[:guards <id>]` / `[:actions <id>]` keys resolve to the
     co-located element entry's `:source-coords` / `:source-code`.
   - Reference-site `[:states ...]` keys resolve to the `:source-coords`
@@ -433,7 +426,7 @@
     (`projection/state-node-source-coords`).
   The view's `named-element-key` discriminator routes between the two.
 
-  Dispatch (rf2-u69j7 baseline + rf2-wwc3j inline-fn extensions):
+  Dispatch:
 
   - `:action` with a keyword `:action-id` → `[:actions <id>]`
     (definition-site stamp; the named-handler path).
@@ -449,15 +442,16 @@
     - `:always`                   → `[:states <state>... :always :action]`
       (the index-free single-map shape, mirroring the single-map `:on`
       convention — the macro keys a single-map `:always` at the bare
-      `:always` path, rf2-k7yqod). The view read-back PROBES BOTH this
+      `:always` path). The view read-back PROBES BOTH this
       index-free path AND the index-0 vector-candidate path
       (`[:states <state>... :always 0 :source-code :action]`) so a
-      vector `:always [{…}]` still resolves; richer per-candidate index
-      resolution (carrying the matched always-index from the substrate)
-      is the rf2-lai1qv follow-on.
+      vector `:always [{…}]` resolves too; the `:transition-slot`
+      discriminator above carries the matched always-index when
+      present.
     - `:after-action`             → `[:states <state>... :after :action]`
-      (best-effort: timer fn-form path; the macro doesn't yet stamp
-      per-delay `:after` coords; D2 follow-on bead handles richer index).
+      (best-effort: the timer fn-form path, with no per-delay index; the
+      `:transition-slot` discriminator carries the `:after` delay-key
+      when present).
   - `:guard` with a keyword `:guard-id` → `[:guards <id>]`
     (definition-site stamp; the named-guard path).
   - `:guard` with an inline `:guard-id` (fn) — derive from state +
@@ -468,18 +462,18 @@
     (the transition map's spec-path; opens the operator on the
     transition literal in the spec).
   - `:timer` → `[:states <state>...]`
-    (D1 minimum-viable: the parent state's source-coord chip; richer
-    per-`:after` coord is the D2 follow-on bead's surface)."
+    (the parent state's source-coord chip; there is no per-`:after`
+    coord)."
   [{:keys [kind action-id guard-id phase source-state target-state event-id
            spec-path transition-slot]
     timer-state :state}]
   (let [source-prefix (proj/state-spec-path-prefix source-state)
         target-prefix (proj/state-spec-path-prefix target-state)
         timer-prefix  (proj/state-spec-path-prefix timer-state)
-        ;; rf2-lai1qv — the EXACT slot prefix the substrate's discriminator
+        ;; The EXACT slot prefix the substrate's discriminator
         ;; resolves to (candidate index / `:after` delay-key / root), or nil
         ;; when the row carries no discriminator (boundary actions, named
-        ;; handlers, legacy traces).
+        ;; handlers, traces without it).
         slot-prefix   (when (map? transition-slot)
                         (transition-slot->spec-prefix transition-slot))]
     (case kind
@@ -487,9 +481,9 @@
       (cond
         ;; Named-handler path (keyword id) — definition-site stamp.
         (keyword? action-id) [:actions action-id]
-        ;; rf2-lai1qv — an EXACT carried spec-path wins outright.
+        ;; An EXACT carried spec-path wins outright.
         (vector? spec-path) spec-path
-        ;; rf2-lai1qv — the substrate's spec-path discriminator addresses
+        ;; The substrate's spec-path discriminator addresses
         ;; the precise inline-source slot for the transition `:action`
         ;; (candidate-vector `:on`, nonzero `:always` candidate, `:after`
         ;; delay-key, root `:on`) — append the `:action` leaf.
@@ -503,12 +497,12 @@
         (when (and source-prefix event-id)
           (conj source-prefix :on event-id :action))
         (= :always phase)
-        ;; Fallback for a row WITHOUT the discriminator (legacy trace): the
-        ;; index-free single-map shape (rf2-k7yqod). The macro keys a
+        ;; Fallback for a row WITHOUT the discriminator: the
+        ;; index-free single-map shape. The macro keys a
         ;; single-map `:always` at the bare `:always` path; the view's
         ;; read-back additionally probes the index-0 vector-candidate path
         ;; so a `:always [{…}]` vector resolves too. The discriminator path
-        ;; above carries the EXACT matched index when present (rf2-lai1qv).
+        ;; above carries the EXACT matched index when present.
         (when source-prefix (conj source-prefix :always :action))
         (= :after-action phase)
         (when source-prefix (conj source-prefix :after :action))
@@ -517,7 +511,7 @@
       :guard
       (cond
         (keyword? guard-id) [:guards guard-id]
-        ;; rf2-lai1qv — an EXACT carried spec-path wins (the substrate may
+        ;; An EXACT carried spec-path wins (the substrate may
         ;; stamp `:spec-path` on the `:rf.machine/guard-evaluated` trace for
         ;; an inline candidate-vector guard; `guard-cascade-row` carries it).
         (vector? spec-path) spec-path
@@ -531,26 +525,26 @@
 
       :timer
       ;; The row's `:state` is the cancelled state vector (substrate
-      ;; payload). D1 minimum-viable shape: point at the parent state's
+      ;; payload). Point at the parent state's
       ;; spec-path so the operator orients on the `:after`-bearing node.
       (or timer-prefix source-prefix target-prefix)
 
       nil)))
 
 (defn cascade-outcome-label
-  "Render a cascade row's outcome for the view's outcome chip
-  (rf2-u69j7). Pure-data.
+  "Render a cascade row's outcome for the view's outcome chip.
+  Pure-data.
 
     :guard       → `pass | fail | threw`
     :action      → `ok | threw` (the action's outcome map is rich;
                                  the chip carries only the headline)
     :timer       → `cancelled (<reason>)`
 
-  rf2-cdgva — the `:transition` row no longer carries an outcome label.
-  The prior `N microstep(s)` summary was redundant: every `:always`
+  The `:transition` row carries no outcome label. An
+  `N microstep(s)` summary would be redundant: every `:always`
   microstep (N>0) is itself a first-class cascade row in the same
-  mini-pipeline (post akvfe/2hj0h), so the count merely tallied rows
-  already present; when N=0 (the common case) it was pure noise. The
+  mini-pipeline, so the count would merely tally rows
+  already present, and when N=0 (the common case) it would be pure noise. The
   prominent `<before> → <after>` header verb is the transition's whole
   story, so a `:transition` row returns nil here (the no-op default)."
   [{:keys [kind outcome threw? reason]}]
@@ -564,12 +558,12 @@
                   :else                 nil)
     :timer      (str "cancelled"
                      (when reason (str " (" (name reason) ")")))
-    ;; rf2-iu3no — the benign no-op carries NO outcome chip. The "[NO OP]"
+    ;; The benign no-op carries NO outcome chip. The "[NO OP]"
     ;; kind-pill + the "staying in {state}" verb (`cascade-row-label`) are
-    ;; the whole story; the rf2-ugdas "ignored" chip was a third restatement.
+    ;; the whole story; an "ignored" chip would be a third restatement.
     nil))
 
-;; rf2-2hj0h item 6 — the merged ACTION badge is followed by ` for <state> `
+;; The merged ACTION badge is followed by ` for <state> `
 ;; then the action name, so an action row's header reads
 ;; `[EXIT ACTION] for :closed :clear-hold` / `[ENTRY ACTION] for :open
 ;; :count-open`. `<state>` is the state the action BELONGS TO:
@@ -589,7 +583,7 @@
 ;; parallel machines), matching the transition headline's state rendering.
 
 (defn cascade-action-for-state
-  "The state an `:action` cascade row belongs to (rf2-2hj0h item 6), for
+  "The state an `:action` cascade row belongs to, for
   the ` for <state> ` clause of the merged-action-badge header. Reads the
   row's `:phase` to pick `:source-state` (exit phases) vs `:target-state`
   (entry / post-entry phases); falls back across the two when the
@@ -603,7 +597,7 @@
       (or target-state source-state))))
 
 (defn cascade-guard-for-state
-  "The state a `:guard` cascade row gates (rf2-h710p item B), for the
+  "The state a `:guard` cascade row gates, for the
   ` for <state> ` clause of the GUARD-row header — `[GUARD] for <state>
   <guard-name>` (e.g. `[GUARD] for :open :may-close?`). A guard gates the
   ENTRY into / fire of a transition OUT OF its source state, so the
@@ -626,7 +620,7 @@
 
 (defn history-restored-headline
   "Render the headline string for a `:rf.machine.history/restored` record
-  (rf2-mle6e.5) — the one-line answer to 'why did this re-entry land HERE?':
+  — the one-line answer to 'why did this re-entry land HERE?':
 
     :recorded → 'restored [:player] from DEEP history · [:player :paused] → [:player :paused]'
     :default  → 'restored [:player] from DEFAULT (no recording) via :default-target → [:player :playing]'
@@ -651,7 +645,7 @@
 
 (defn history-recorded-headline
   "Render the headline string for a `:rf.machine.history/recorded` record
-  (rf2-mle6e.5) — 'this exit wrote the compound's config into :rf/history':
+  — 'this exit wrote the compound's config into :rf/history':
 
     first write   → 'history recorded [:player] = [:player :paused]'
     later write   → 'history advanced [:player] from [:player :playing] to [:player :paused]'
@@ -671,18 +665,18 @@
   "Human-readable label for a handler flavour keyword — the HANDLER step's
   verb.
 
-  EP-0018 collapsed the three public event registrars onto the ONE public
-  `reg-event` form, so the verb the panel surfaces is `reg-event` for BOTH
+  There is ONE public event registrar, `reg-event`, so the verb the panel
+  surfaces is `reg-event` for BOTH
   the db-only and the fx-bearing event flavours. The internal
   `:db-only` / `:effectful` discriminator (read off the trace stream
-  by `projection/handler-flavour`) still drives WHICH sections the HANDLER
+  by `projection/handler-flavour`) drives WHICH sections the HANDLER
   body renders (a `:db`-only diff vs a `:db` diff plus per-fx blocks) — that
   observed effect-shape distinction is real and useful — but it is a
   behavior-based internal classification (what the handler returned), not a
   user-facing registrar name.
 
-  `:reg-machine` keeps its own verb: machines are a distinct registration
-  concept (`reg-machine`), untouched by the event-registration collapse."
+  `:reg-machine` has its own verb: machines are a distinct registration
+  concept (`reg-machine`)."
   [flavour]
   (case flavour
     :db-only      "reg-event"
@@ -692,29 +686,24 @@
 
 (def machine-start-marker
   "The reserved synthetic marker a machine receives as its creation kick
-  (`[<machine-id> [:rf.machine/start]]`). It is NOT a real trigger — per F‴
-  (rf2-gl588) it runs the initial-entry cascade then STOPS (a PURE init-kick,
-  xstate's `createActor(m).start()` / `xstate.init`)
-  (ai/findings/2026-06-03.machine-creation-bootstrap-review.md §1). Renamed
-  from `:rf.machine/bootstrap` (pre-alpha, no back-compat shim). The EVENT
-  HANDLER orientation line (rf2-akvfe) suppresses itself for a pure creation
+  (`[<machine-id> [:rf.machine/start]]`). It is NOT a real trigger — it
+  runs the initial-entry cascade then STOPS (a PURE init-kick,
+  xstate's `createActor(m).start()` / `xstate.init`). The EVENT
+  HANDLER orientation line suppresses itself for a pure creation
   kick — the birth story rides the `[START]` cascade row, not a
   'Processing …' line."
   :rf.machine/start)
 
-;; rf2-akvfe — the rf2-18oe3 DISPATCH gloss (`machine-event-gloss`, the
-;; 'this means the machine <id> received the trigger <trigger>' sub-line)
-;; is RETIRED. It is superseded by the structured EVENT HANDLER orientation
-;; line — `Processing [TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>`
-;; — projected by `projection/machine-event-orientation` and rendered with
-;; grey chip-labels + code-formatted values under the EVENT HANDLER heading
-;; (a better location, more scannable, and it carries the pre-transition
-;; STATE the gloss never showed). The value-display formatting is below.
+;; The structured EVENT HANDLER orientation line — `Processing [TRIGGER]
+;; <vec> for [MACHINE] <id> in [STATE] <state>` — is projected by
+;; `projection/machine-event-orientation` and rendered with grey
+;; chip-labels + code-formatted values under the EVENT HANDLER heading; it
+;; carries the pre-transition STATE. Its value-display formatting is below.
 
 (defn orientation-value
   "Render an EVENT HANDLER orientation-line VALUE (the trigger vector, the
   machine id, or the pre-transition state) as its code-formatted display
-  string (rf2-akvfe). A keyword renders via `ns-keyword` (`:door/main`); a
+  string. A keyword renders via `ns-keyword` (`:door/main`); a
   vector / other value renders via `pr-str` (the full trigger vector incl.
   args, `[:door/close 42]`). nil renders the muted em-dash placeholder so a
   missing slot stays visible rather than collapsing. Pure-data."
