@@ -3,62 +3,57 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Seven renames have merged,
-so seven retired spellings are now lintable:
+repo source is a CI failure, not a doc note. Seven retired spellings are
+lintable:
 
-  (a) The bare `:frame` event-context COEFFECT (sweep item 1, rf2-1m6rf1).
-      EP-0002 R3 "one carrier, one name" retired the duplicate `:frame`
-      coeffect: the frame stamp travels in the event context under
-      `:rf.frame/id` ONLY. The framework once injected `:frame` beside it
-      and ~10 internal sites read it back.
+  (a) The bare `:frame` event-context COEFFECT (sweep item 1).
+      Under EP-0002 R3 "one carrier, one name" there is no duplicate
+      `:frame` coeffect: the frame stamp travels in the event context under
+      `:rf.frame/id` ONLY.
 
   (b) The redirect-target keys `:url` / `:to` on an SSR redirect effect
-      (sweep item 4, rf2-vngir). The `:rf.server/redirect` /
+      (sweep item 4). The `:rf.server/redirect` /
       `:rf.server/safe-redirect` fx writes an HTTP `Location` response
       header, so it uses header vocabulary — the canonical (and only)
-      target key is `:location`. `:url` / `:to` are retired and now throw
+      target key is `:location`. `:url` / `:to` are retired and throw
       `:rf.error/redirect-retired-target-key`.
 
-  (c) Route metadata `:query-retain` (EP-0037 R5, rf2-jlmgt). A destination
-      address is taken LITERALLY: the router no longer folds ambient
+  (c) Route metadata `:query-retain` (EP-0037 R5). A destination
+      address is taken LITERALLY: the router does not fold ambient
       current-route query state into a route the caller authored. The key is
       retired with NO alias — `reg-route` rejects it as an unknown bare key —
-      and it no longer widens the query-key promotion vocabulary. Carrying
+      and it does not widen the query-key promotion vocabulary. Carrying
       query state across routes is application policy spelled as a pure
       function over the destination address.
 
   (d) A fresco BENCH-TREE coordinate — `front.<ns>/<name>` or
-      `arm1.<ns>/<name>` (rf2-hic-007, rf2-r4jy). The shipped
+      `arm1.<ns>/<name>`. The shipped
       `implementation/fresco` package was measured as the prototype
       `re-frame.bench.fresco.{front,arm1}.*` and carries that tree's
       provenance all through its prose, but the prototype is NOT in this
-      repo and no consumer can follow a coordinate into it. rf2-hic-007
-      moved 42 `:where` coordinates onto the package's own
+      repo and no consumer can follow a coordinate into it. The package's
+      `:where` coordinates name its own
       `re-frame.fresco.impl.*` namespaces; a coordinate naming `front.*`
       or `arm1.*` is retired.
 
-  (e) The facade fn `machine-has-tag?` (rf2-il99l3, reversing rf2-2cmcas).
-      The named-read sugar over a machine's tag set was REMOVED so a machine
+  (e) The facade fn `machine-has-tag?`.
+      There is no named-read sugar over a machine's tag set, so a machine
       read has ONE grammar: the shipped surface is the subscription
       `[:rf.machine/has-tag? …]`, registered at
       `implementation/machines/src/re_frame/machines.cljc`. No `src`
-      namespace defines `machine-has-tag?` any more, and
+      namespace defines `machine-has-tag?`, and
       `spec/api-manifest-metadata.edn` records the removal.
 
-  (f) The `reg-sub` input-chain keyword `:<-` (rf2-kuky.50, ruled on
-      rf2-kuky.45). A subscription declares its dependencies ONCE, under
+  (f) The `reg-sub` input-chain keyword `:<-`. A subscription declares its
+      dependencies ONCE, under
       `:inputs` in the registration metadata map, and a declared dependency
       list always reaches the body as a VECTOR at every count. The v1 `:<-`
       chain is retired with NO alias: `reg-sub` refuses it at registration
       with `:rf.error/reg-sub-bad-args` naming `:inputs` and MIGRATION §M-75.
-      193 registration sites moved off it across implementation/ and bench/,
-      after three sibling beads swept examples/, tools/, testbeds/, docs/,
-      skills/ and the migration corpus.
 
-  (g) The retired PRODUCT NAME `hicasso`, in every case form (rf2-d1nr,
-      PR #9568). Mike ruled the view layer renamed Hicasso -> Fresco before
-      first publish; the sweep touched 1052 files and landed a hard zero.
-      This rule makes that zero stick. It is the one rule here whose subject
+  (g) The retired PRODUCT NAME `hicasso`, in every case form. The view
+      layer is named Fresco, and this rule holds the retired name at zero
+      across the repo. It is the one rule here whose subject
       is a NAME rather than a code shape, and every consequence below follows
       from that — see WHY RULE (g) IS THE ONLY WIDE ONE.
 
@@ -71,25 +66,25 @@ cross-layer vocabulary rules that make those uses correct:
   * `:frame` is the public dispatch/subscribe opt, the dispatch envelope
     key, the binary fx-handler ctx key (Spec 002 §The binary fx-handler
     signature) + the HTTP-interceptor ctx key (Spec 014), and the
-    trace / error-record tag. ALL sanctioned. Only the *coeffect read* was
+    trace / error-record tag. ALL sanctioned. Only the *coeffect read* is
     retired.
 
   * `:url` is the canonical CLIENT-navigation key (routing / `navigate`
     surfaces) per the HTTP-response-vs-navigation vocabulary rule in
     spec/Conventions.md §The naming rules. Only its use as an SSR
-    redirect-TARGET key was retired.
+    redirect-TARGET key is retired.
 
 So this gate does NOT grep for the bare keyword. It scopes to the exact
 retired SHAPES:
 
-  (a) the coeffect-READ forms the rf2-1m6rf1 rename removed —
+  (a) the coeffect-READ forms —
         - (get-coeffect <ctx> :frame ...)        ;; the canonical accessor
         - (:frame (:coeffects <x>))              ;; keyword-fn off :coeffects
         - (get-in <ctx> [:coeffects :frame] ...) ;; get-in path via :coeffects
       None of these can match the public opt, the trace tag, the dispatch
       envelope, or the fx-handler `{:keys [frame]}` destructuring (which is
       an fx-CONTEXT read, sanctioned). The framework reads coeffects through
-      these three forms and nothing else (verified against the rename diff).
+      these three forms and nothing else.
 
   (b) a `:url` / `:to` KEY appearing in a map that is — in the same form —
       tagged as an SSR redirect: a literal `{... :url ...}` (or `:to`) whose
@@ -132,13 +127,11 @@ retired SHAPES:
         - the STRING   `"front.codec/"`
 
       A `:where` is a symbol, so a symbol-shaped check is the obvious rule and
-      it is the one that misses. rf2-hic-007 moved the 42 coordinates, and CI
-      went red on `test_kit_runtime_parity_cljs_test`, whose row asserted
-      `(str/starts-with? (str (:where …)) "front.codec/")` — a GREEN test
-      holding a shipped refusal to a benchmark coordinate no consumer could
-      follow. It was a string; every `'front.` scan was blind to it, including
-      the two the sweep's own verification used. It surfaced only in CI, from
-      an assertion, in a file the sweep's author had already edited.
+      it is the one that misses. A test row asserting
+      `(str/starts-with? (str (:where …)) "front.codec/")` would be a GREEN
+      test holding a shipped refusal to a benchmark coordinate no consumer
+      can follow — and it is a string, so every `'front.` scan is blind to
+      it.
 
       SYMBOL: the namespace segment carries a MANDATORY dot and the coordinate
       a mandatory `/` (member optional, so the bare-prefix string `front.codec/`
@@ -175,24 +168,20 @@ retired SHAPES:
 
       Both delimiters must be REAL — a `"` preceded by a backslash is an
       escaped quote INSIDE a larger literal, not a boundary of one. Without
-      that constraint the pattern read `\"front.codec/\"` in
+      that constraint the pattern would read `\"front.codec/\"` in
       `(def msg "the old assertion used \"front.codec/\" here")` as a whole
-      literal and reported quoted PROSE about the retirement as a
+      literal and report quoted PROSE about the retirement as a
       reintroduction of it — the mirror image of the miss above, and the more
-      annoying failure of the two, since it reds a correct edit.
+      annoying failure of the two, since it would red a correct edit.
 
   (e) TWO shapes, and BOTH are read on the RAW line — rule (e) is the one
       rule here that does NOT mask comments. That is a deliberate departure,
-      decided on measured evidence rather than taste (rf2-4gjt).
+      decided on evidence rather than taste.
 
-      WHY RAW. Every carrier of this spelling that anyone has actually found
-      was found BY HAND, across three separate censuses, and the gate was
-      green throughout. The reason was NOT that the roster lacked the name —
-      adding it to rules (a)-(c) would have changed nothing. It was that both
-      carriers lived exactly where those rules cannot look: one in a `.md`
-      file (a suffix this gate never opens), and one inside a `;;` COMMENT in
-      `examples/patterns/websocket/connection.cljs`, masked before any
-      pattern ran —
+      WHY RAW. This spelling's carriers live exactly where rules (a)-(c)
+      cannot look, so adding the name to those rules would change nothing:
+      in a `.md` file (a suffix this gate never opens), or inside a `;;`
+      COMMENT, masked before any pattern runs —
 
           ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
 
@@ -204,8 +193,8 @@ retired SHAPES:
       SYMBOL (the shape that fires): a NAMESPACE-QUALIFIED
       `<ns-or-alias>/machine-has-tag?` — `rf/machine-has-tag?`,
       `re-frame.core/machine-has-tag?`. This is the *public* spelling: how a
-      consumer writes the retired sugar, and how the one real carrier wrote
-      it. Three token boundaries do the whole job of an allow-list, so this
+      consumer writes the retired sugar, as the comment above does. Three
+      token boundaries do the whole job of an allow-list, so this
       rule ships with NO allow-list and needs none:
 
         * A preceding `:` is DENIED, so the separately-retired KEYWORD
@@ -217,8 +206,8 @@ retired SHAPES:
           keeps the rule off the ~60 private `defn-` test helpers in
           `implementation/adapters/reagent/test/` — `machine-has-tag?`,
           `settings-machine-has-tag?`, `tags-machine-has-tag?` and their call
-          sites are all UNQUALIFIED, and rf2-1e8m classified them correct and
-          DO NOT TOUCH. It also keeps it off every prose roster that lists the
+          sites are all UNQUALIFIED, and they are correct — DO NOT
+          TOUCH. It also keeps it off every prose roster that lists the
           name after a slash-and-space (a prose roster of API names), which is
           how the playground README and `sci/deps.edn` spell it.
         * The shipped subscription `:rf.machine/has-tag?` carries `/has-tag?`,
@@ -232,11 +221,11 @@ retired SHAPES:
       that. A public def carrying metadata (`(defn ^{:doc …} machine-has-tag?`)
       is a documented miss, not worth the false-positive surface.
 
-      MEASURED BEFORE SHIPPING, in both directions: the needle fires on the
-      real historical carrier quoted above, and on NONE of the eight sites
-      that name the spelling at tip. Those eight are pinned verbatim as
-      self-test negatives below, so a future widening that would red a real
-      file fails here first rather than in someone else's PR.
+      PINNED IN BOTH DIRECTIONS: the needle fires on the carrier shape
+      quoted above, and on NONE of the in-tree sites that name the
+      spelling. Those sites are pinned verbatim as self-test negatives
+      below, so a widening that would red a real file fails here first
+      rather than in someone else's PR.
 
   (f) TWO SURFACES, because the retired arrow has two carriers and a
       source-only rule would see one of them.
@@ -251,26 +240,25 @@ retired SHAPES:
       tree is added to this rule's roster rather than to the shared default so
       widening it does not re-scope rules (a)-(e) as a side effect. It matters
       here specifically: `bench/fresco` is a hand-run project that no per-PR
-      lane compiles (rf2-6c12m.1), so a retired registration there goes SILENT
+      lane compiles, so a retired registration there goes SILENT
       rather than red, and silent is the worse shape.
 
       PROSE — the same token inside a ``` FENCED CODE BLOCK under `spec/`,
       `skills/`, `migration/` and `docs/`. This is the carrier a source rule
-      cannot see, and the one the retirement was found in last: rf2-kuky.49
-      fixed nine teaching sites that no arrow census had flagged, two of them
-      blocks where an earlier PR had corrected the RULE while leaving the FORM.
+      cannot see: a teaching page can correct the RULE in its prose while its
+      fenced sample keeps the FORM.
       Fenced-only is the whole prose defence, since Markdown gets no masking: a
       retirement NOTE — the Spec 009 error-catalogue row, the API manifest's
       justification, the EP's record — is prose, and prose is not read.
 
-      `docs/` is on the roster and SUBTRACTED FROM, rather than left off. It
-      was left off originally, and that traded one true reason for a wider
+      `docs/` is on the roster and SUBTRACTED FROM, rather than left off,
+      because leaving it off would trade one true reason for a wider
       exclusion than the reason carries: mkdocs stages `spec/` and `migration/`
       into `docs/spec/` and `docs/migration/`, so scanning THOSE TWO would
       double-report — and would report at a path that does not exist in version
       control, since both staged copies are gitignored. That argument reaches
-      the staged copies and nothing else. Dropping all of `docs/` also dropped
-      the independent authored pages beside them — `docs/core/`, `docs/api/`,
+      the staged copies and nothing else. Dropping all of `docs/` would also
+      drop the independent authored pages beside them — `docs/core/`, `docs/api/`,
       the per-capability guides — which are sources, not copies, and are
       exactly where a reader COPIES a sample from. So the roster names `docs/`
       and `ARROW_PROSE_EXCLUDE_PATHS` subtracts the two staged trees plus
@@ -289,8 +277,7 @@ retired SHAPES:
         * `ARROW_PROSE_ALLOWLIST` is the v1 -> v2 migration corpus: the
           README's M-75 rule and the migration skill's two reference pages,
           whose SEARCH blocks must keep quoting v1 spelling to stay findable by
-          someone migrating FROM v1 (rf2-kuky.49 enumerated all 21 deliberate
-          survivors; these three files carry them). Only a migration document
+          someone migrating FROM v1. Only a migration document
           has a reason to show the retired form, and a new teaching page
           showing it is wrong by definition.
 
@@ -309,11 +296,10 @@ scoping above is buying discrimination against a legitimate neighbour.
 English word, no Clojure form and no third-party identifier, so the substring
 IS the violation and no shape scoping is needed or wanted. What the rule needs
 instead is REACH, and for the same reason: a product name is not confined to
-Clojure source. The rename moved 24,312 lowercase / 2,995 capitalised / 391
-upper-case occurrences AND 741 PATHS, across `.md`, `.edn`, `.json`, `.cjs`,
-`.yml`, `.html` and `.sh` as well as `.clj*`. A rule scoped to
-`DEFAULT_SCAN_DIRS` and `_SOURCE_SUFFIXES` would have been blind to most of the
-sweep it exists to protect, so rule (g) scans THE WHOLE REPO WITH NO ROSTER OF
+Clojure source. It is carried in content AND in PATHS, across `.md`, `.edn`,
+`.json`, `.cjs`, `.yml`, `.html` and `.sh` as well as `.clj*`. A rule scoped to
+`DEFAULT_SCAN_DIRS` and `_SOURCE_SUFFIXES` would be blind to most of the
+surface it exists to protect, so rule (g) scans THE WHOLE REPO WITH NO ROSTER OF
 SCANNABLE SUFFIXES AT ALL. Such a roster is a list that silently narrows when a
 new file type arrives; the absence of one cannot. Read that as the argument
 against an INCLUSION list specifically: `PRODUCT_EXCLUDE_SUFFIXES` subtracts
@@ -324,7 +310,7 @@ below.
 TWO CARRIERS, and the second is not redundant. A file's CONTENT is the obvious
 one. A file's PATH is the other, and a content-only rule cannot see it: an
 `implementation/hicasso/` tree of `.json` alloc records or `.png` assets
-reintroduces the name in 741 places without a single scannable line. Both
+reintroduces the name in every path without a single scannable line. Both
 report under the same `retired-product-name` family, so one fix hint serves.
 
 THE MECHANICS THE WIDTH FORCES are three, all small, and each is argued where
@@ -342,9 +328,9 @@ supersession block quotes the superseded ruling VERBATIM, because a decisions
 log preserves what was decided rather than a retconned version of it; and
 `bench/fresco`'s archive boundary pins the pre-rename PATH its run corpus is
 archived at, the three translation rows that ARE the retired spellings, and the
-one assertion that reads an archived record's raw bytes (rf2-d1nr.2). Prose
+one assertion that reads an archived record's raw bytes. Prose
 explaining a rename is NOT on that roster and should not be: it can say what it
-means without spelling the retired name, and where it did, it was reworded.
+means without spelling the retired name.
 `PRODUCT_EXEMPTIONS` carries the measurement, the reasoning and the procedure
 for adding another.
 
@@ -360,17 +346,17 @@ carries `lad/hicasso` keys and the corpus-recovery command must name
 main cannot rename a path inside an older commit. Those are historical facts in
 the same category as a git SHA. They belong in `PRODUCT_EXEMPTIONS` with a
 reason, which is exactly what the mechanism is for — not in a hole cut through
-the tree that needs them most. That case arrived (rf2-d1nr.2) and is on the
+the tree that needs them most. Those facts are on the
 roster: three entries, four constructs, two files, and no prose.
 
 AND THE LINE THAT SEPARATES THAT FROM THE ONE HOLE UNDER `bench/`, because the
-paragraph above rules against a hole and `PRODUCT_EXCLUDE_PATHS` now carries
-one (rf2-20h4). The distinction is SOURCE against RESTORED ARCHIVE, and it is
-not a softening of the rule. What the paragraph anticipated is tracked bench
+paragraph above rules against a hole and `PRODUCT_EXCLUDE_PATHS` carries
+one. The distinction is SOURCE against RESTORED ARCHIVE, and it is
+not a softening of the rule. What the paragraph covers is tracked bench
 SOURCE that must NAME the archive — the recovery command's pre-rename path, the
 translation table's left column, the assertion that reads an archived record's
 raw bytes. That is three entries in two files, it stays exempted per line and
-per construct, and the whole bench source tree stays scanned. What arrived
+per construct, and the whole bench source tree stays scanned. What sits
 beside it is the archive ITSELF: `data_archive.cjs --restore` writes 237 whole
 files of pre-rename bytes into a gitignored tree, and 41,106 lines of them are
 not a construct anything can name. An exemption is a PATH plus a LINE CONSTRUCT
@@ -406,7 +392,7 @@ code without unacceptable false-positive noise:
     back IN even if a read of it slipped past this gate.
 
   * THE SECOND RETIRED `reg-sub` SPELLING — the POSITIONAL two-fn form
-    `(reg-sub id input-fn computation-fn)`, retired by rf2-kuky.50 alongside
+    `(reg-sub id input-fn computation-fn)`, retired alongside
     the arrow. It carries NO TOKEN AT ALL and is recognisable only
     STRUCTURALLY, which already puts it past a line-oriented regex; but the
     reason it is not linted is sharper than that, and it would defeat a
@@ -414,14 +400,12 @@ code without unacceptable false-positive noise:
     is a SYMBOL holding a runtime metadata map, is INDISTINGUISHABLE at rest
     from `(reg-sub id input-fn body)` where the symbol is a producer — the
     runtime tells them apart with `(map? (first args))`, which a static reader
-    cannot evaluate. Measured while sweeping this repo: a rewrite-clj
-    classifier reported 38 positional two-fn forms under `implementation/`, of
-    which 8 were exactly that shape — four conformance runners and three bench
-    drivers threading a metadata map through positionally. A gate with a 21%
-    false-positive rate on framework code is a gate people learn to route
-    around.
+    cannot evaluate. Framework code that threads a metadata map through
+    positionally — a conformance runner, a bench driver — would read to a
+    static classifier as a positional two-fn form, and a gate with false
+    positives on framework code is a gate people learn to route around.
 
-    The backstop here is stronger than the lint would have been, and it is the
+    The backstop here is stronger than a lint would be, and it is the
     same argument this section makes for the `:url` redirect case: `reg-sub`
     REFUSES two trailing fns at registration with
     `:rf.error/reg-sub-bad-args`, naming `:inputs` and MIGRATION §M-75. That
@@ -432,22 +416,18 @@ code without unacceptable false-positive noise:
 
   * A retired bench coordinate inside a `;` COMMENT. Rule (d) masks comments,
     which is the same treatment rules (a)-(c) get and is decided on evidence
-    rather than convention. rf2-r4jy proposed allowlisting the one line the
-    audit had found — `impl/state.cljc:104`, the section header
-    `;; Errors — the lane's shape (front.presence/fail!)`, prose provenance
-    kept verbatim by the freeze manifest and carried by no refusal. Scanning
-    the real surface with comments UNMASKED finds THREE such lines, not one:
-    that header, plus `impl/presence_react.cljs:64` and `:121`, both
-    `[[front.presence/step]]` / `[[front.presence/settle]]` wiki-links whose
-    `[` grants token start exactly as the header's `(` does. So the allowlist
-    was never one line; it was three, and it would grow with every future
+    rather than convention. The alternative is allowlisting the provenance
+    comments that name a prototype coordinate — a section header such as
+    `;; Errors — the lane's shape (front.presence/fail!)`, or a
+    `[[front.presence/step]]` wiki-link whose `[` grants token start exactly
+    as the header's `(` does. That allowlist would grow with every
     provenance comment — an allowlist that a correct edit keeps having to
     extend is a maintenance tax that teaches people to extend it.
 
     The cost is real and worth stating: masking blinds rule (d) to a comment
     that LIES about where a refusal is raised. That is a documentation defect,
     and this gate is not the thing that catches documentation defects — the
-    failure it exists to close was an EXECUTABLE assertion holding a shipped
+    failure it exists to close is an EXECUTABLE assertion holding a shipped
     refusal to a dead coordinate, which is a different and worse animal. A
     stale comment misleads a reader; a stale assertion turns green and reds
     someone else's PR. Note the asymmetry inside rule (d): comments are masked
@@ -458,8 +438,8 @@ SCAN SURFACE
 Every Clojure source tree in the repo — `.clj` / `.cljc` / `.cljs` under
 `implementation/`, `examples/`, `tools/`, `skills/`, `testbeds/`, `migration/`
 and `docs/tools/`. See `DEFAULT_SCAN_DIRS` for the roster, the two trees
-deliberately left off it, and why `implementation/` alone was not enough
-(rf2-kqxe6.25). The default excludes `test/` trees: tests legitimately ASSERT
+deliberately left off it, and why `implementation/` alone is not enough.
+The default excludes `test/` trees: tests legitimately ASSERT
 the retired spelling is gone (the `event_context_coeffect_keys_test` checks
 `(not (contains? cofx :frame))`, and the SSR end-to-end test feeds `:url` /
 `:to` to assert the throw). A test fixture deliberately exercising a retired
@@ -470,18 +450,17 @@ Rule (d) has its OWN surface (`COORD_SCAN_PATHS`) and its own suffix filter,
 and both differences are load-bearing:
 
   * It scans `implementation/fresco/test/**` — with no `--include-tests` opt,
-    unconditionally. The demonstrated regression WAS a test assertion, so a
-    coordinate rule that skipped test trees would be a rule that skips the only
-    place the failure has ever occurred. The other rules' reason for excluding
-    tests does not transfer: a fresco test has no reason to assert that a
-    refusal still names the prototype, which is precisely what rf2-hic-007
-    found one doing.
+    unconditionally. The shape this rule exists to catch is a test assertion,
+    so a coordinate rule that skipped test trees would skip the likeliest
+    place for it. The other rules' reason for excluding tests does not
+    transfer: a fresco test has no reason to assert that a refusal names the
+    prototype.
   * It adds `.md`, for the single file `spec/009-Instrumentation.md` — the spec
     that owns the `:where` coordinate contract, where a worked example naming a
     prototype coordinate would teach the retired spelling. Markdown gets no
     comment/string masking (it has neither), so on `.md` the backtick token
-    boundary is the entire prose defence, which is why rule (d)'s symbol
-    pattern denies a preceding backtick everywhere rather than only there.
+    boundary is the entire prose defence, which is why rule (d)'s Markdown
+    symbol pattern denies a preceding backtick.
   * It does NOT scan the whole repo. `docs/design/fresco/**` is a working
     design record of the prototype and names `front.*` / `arm1.*` throughout
     on purpose; so does `implementation/fresco`'s own freeze manifest. The
@@ -536,15 +515,10 @@ from typing import Iterable, NamedTuple
 # --------------------------------------------------------------------------
 
 # EVERY Clojure source tree in the repo, minus the two documented exclusions
-# below. rf2-kqxe6.25: the surface used to be `implementation/` alone, on the
-# reasoning that `tools/` is bundle-isolated dev tooling and `examples/` is
-# consumer-shaped, so only framework source needed the ratchet. That reasoning
-# does not survive EP-0037 R5, which retired `:query-retain` with NO alias and
-# then had rf2-kqxe6.12 / .13 migrate `examples/` and `skills/` off it. A
-# reintroduction in the trees a reader COPIES FROM is the likeliest
-# reintroduction there is, and it was the one the ratchet could not see: the
-# rule fired correctly on a planted `examples/` occurrence the moment it was
-# pointed at it, so only the invocation was scoped.
+# below. `implementation/` alone is not enough: that `tools/` is
+# bundle-isolated dev tooling and `examples/` is consumer-shaped does not
+# exempt them, because a reintroduction in the trees a reader COPIES FROM is
+# the likeliest reintroduction there is.
 #
 # The roster covers every top-level directory that carries a tracked
 # `.clj`/`.cljc`/`.cljs` file today, so no tree is unratcheted. Verify with:
@@ -593,8 +567,8 @@ DEFAULT_SCAN_DIRS = (
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 
 # Rule (d)'s surface — the four paths a shipped fresco refusal's `:where` can
-# reach: the package source, its tests (where rf2-hic-007's regression lived),
-# its test-kit, and the spec that owns the coordinate contract. Deliberately NOT
+# reach: the package source, its tests, its test-kit, and the spec that owns
+# the coordinate contract. Deliberately NOT
 # the whole repo; see SCAN SURFACE in the module docstring. Rostered paths are
 # required to exist for the same reason `DEFAULT_SCAN_DIRS` are: a skipped tree
 # reports success for a surface it never opened.
@@ -605,9 +579,7 @@ COORD_SCAN_PATHS = (
     "spec/009-Instrumentation.md",
 )
 
-# ...minus the PROTOTYPE ITSELF, which since rf2-0yp7w P0 lives inside
-# `implementation/fresco/test`: the fresco benchmark harness was re-homed out
-# of `implementation/freehand/test/` to sit beside what it measures.
+# ...minus the PROTOTYPE ITSELF, at the bench root below.
 #
 # Rule (d)'s subject is a SHIPPED refusal whose `:where` names a coordinate the
 # consumer cannot reach — `front.codec/realize-deep` resolves to nothing,
@@ -615,13 +587,13 @@ COORD_SCAN_PATHS = (
 # measured as is somewhere else. The prototype naming its OWN coordinates is
 # not that. It is the definition of them, in the files that carry them, and
 # `front.state/reg-state` inside `front/state.cljc` is simply that function's
-# name. Scanning it reports 40-odd findings for the one tree where the spelling
-# is not retired at all — and the fix hint would be telling the prototype to
+# name. Scanning it would report dozens of findings for the one tree where the
+# spelling is not retired at all — and the fix hint would be telling the prototype to
 # stop being the prototype.
 #
 # Scoped to the bench root and no wider, so every real surface the roster names
-# is still scanned: the package source, the package's own tests (where
-# rf2-hic-007's regression lived), the test kit, and Spec 009.
+# is still scanned: the package source, the package's own tests, the test
+# kit, and Spec 009.
 COORD_EXCLUDE_PATHS = (
     "implementation/fresco/test/re_frame/bench",
 )
@@ -632,7 +604,7 @@ _COORD_SUFFIXES = _SOURCE_SUFFIXES + (".md",)
 # `bench/`. The bench tree is added HERE and not to `DEFAULT_SCAN_DIRS`
 # deliberately: widening the default would re-scope rules (a)-(e) as a side
 # effect of this one, and `bench/fresco` is a hand-run project that no
-# per-PR lane compiles (rf2-6c12m.1) — which is exactly why a retired
+# per-PR lane compiles — which is exactly why a retired
 # registration there would go SILENT rather than red, and exactly why this
 # rule wants it.
 ARROW_SCAN_DIRS = DEFAULT_SCAN_DIRS + ("bench",)
@@ -650,7 +622,7 @@ ARROW_SOURCE_ALLOWLIST = (
 # Rule (f)'s PROSE surface: the teaching corpus, inside fenced code blocks
 # only — INCLUDING the authored public docs corpus. `docs/core/subscriptions.md`
 # and `docs/api/re-frame.core.md` are the pages a reader copies a `reg-sub` out
-# of, and a copied v1 registration there now THROWS at namespace load, so a
+# of, and a copied v1 registration there THROWS at namespace load, so a
 # retirement gate that cannot see them is missing the surface with the shortest
 # path from sample to breakage.
 ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration", "docs")
@@ -672,7 +644,7 @@ ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration", "docs")
 #   * `docs/design` is the dated design record: `docs/design/fresco/studio/`
 #     and its siblings are measurement write-ups pinned to the day they were
 #     taken, and a design record quoting the shape it decided against is doing
-#     its job. This is the audit's stated intent and it is DELIBERATELY not
+#     its job. This is DELIBERATELY not
 #     `mkdocs.yml`'s `exclude_docs` roster, which names only three of the
 #     design subtrees and names them for a different reason (what the built
 #     site publishes, not what is authored prose). Excluding the tree by
@@ -693,8 +665,7 @@ ARROW_PROSE_EXCLUDE_PATHS = (
 #   * the migration README's M-75 rule — its "what to look for" samples ARE the
 #     v1 shapes a reader greps their own codebase for;
 #   * the migration skill's SEARCH blocks — an agent matches these against v1
-#     source, so rewriting them breaks the lookup the page exists for
-#     (rf2-kuky.49 enumerated all 21 survivors; these carry them).
+#     source, so rewriting them breaks the lookup the page exists for.
 ARROW_PROSE_ALLOWLIST = (
     "migration/from-re-frame-v1/README.md",
     "skills/re-frame-migration/references/auto-call-site-rewrites.md",
@@ -718,11 +689,11 @@ ARROW_PROSE_ALLOWLIST = (
 # .cpcache). These three are added for rule (g) ALONE rather than to the shared
 # set, because widening the shared set would re-scope rules (a)-(f) as a side
 # effect — the same reason `ARROW_SCAN_DIRS` adds `bench` locally, and the
-# reason `_EXCLUDE_DIR_NAMES` deliberately still does not carry `out`.
+# reason `_EXCLUDE_DIR_NAMES` deliberately does not carry `out`.
 #
-# All three are gitignored build output carrying ZERO tracked files (measured
-# 2026-09-09: `git ls-files | grep -cE '(^|/)(out|site|__pycache__)/'` reads 0
-# for each), so pruning them by name cannot hide a source tree:
+# All three are gitignored build output carrying ZERO tracked files
+# (`git ls-files | grep -cE '(^|/)(out|site|__pycache__)/'` reads 0), so
+# pruning them by name cannot hide a source tree:
 #
 #   * `out`          — cljs build output (`/out/`, `skills/*/out/`).
 #   * `site`         — the mkdocs build, a whole second copy of the docs corpus
@@ -776,8 +747,8 @@ PRODUCT_EXTRA_EXCLUDE_DIR_NAMES = frozenset({
 #     deliberately NOT as a directory name on `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES`:
 #     `.clj-kondo/` also holds `config.edn` and `hooks/re_frame/core.clj`, which
 #     are TRACKED, are exactly where a stale namespace name would do real
-#     damage, and stay in scope. That distinction is the whole of rf2-20h4, and
-#     both halves are pinned in `_PRODUCT_ROSTER_SELF_TEST_CASES`.
+#     damage, and stay in scope. That distinction is the point, and both
+#     halves are pinned in `_PRODUCT_ROSTER_SELF_TEST_CASES`.
 #   * `bench/fresco/src/re_frame/bench/fresco/data` — the Fresco run corpus,
 #     restored on demand and never on main (`bench/fresco/.gitignore:7`;
 #     `git ls-files` reads 0 under it). It is the THIRD carrier of the same
@@ -786,16 +757,16 @@ PRODUCT_EXTRA_EXCLUDE_DIR_NAMES = frozenset({
 #     project's own ADVERTISED command, quoted in `bench/fresco/README.md`, and
 #     it writes 237 files that are byte-identical to blobs archived BEFORE the
 #     rename. So every record names the product as it was named when the run
-#     was taken, and the walk grades those historical bytes as current source.
-#     Measured at rf2-20h4 on a restored corpus: exit 1 with 41,106 findings,
-#     EVERY one inside this tree and 0 from any tracked file. Since
-#     `scripts/test-fast-pr.sh` runs this gate unconditionally, following the
-#     documented restore made the local pre-checkin spine unusable.
+#     was taken, and an unpruned walk would grade those historical bytes as
+#     current source: on a restored corpus every finding would come from this
+#     tree and none from any tracked file. Since `scripts/test-fast-pr.sh`
+#     runs this gate unconditionally, following the documented restore would
+#     make the local pre-checkin spine unusable.
 #
 #     THE BYTES CANNOT BE THE THING THAT CHANGES. The corpus is the measured
 #     evidence the Fresco verdicts were taken from, `data_archive.cjs` says in
 #     terms that it "is never rewritten", and the reader translates the
-#     archived vocabulary on the way IN rather than on disk (rf2-d1nr.2). A
+#     archived vocabulary on the way IN rather than on disk. A
 #     record renamed to please this gate is a record that no longer matches its
 #     archived blob hash, so the only correct move is to stop reading it as
 #     source — the same conclusion as the two subtractions above, reached from
@@ -841,11 +812,8 @@ PRODUCT_EXCLUDE_PATHS = (
 #     code survives), and the merge-audit harness writes one per PR into the
 #     checkout root. A gate transcript quotes the retired name back — that is
 #     what a finding line IS — so on any checkout that has been worked in, rule
-#     (g) re-reads its own prior output as if it were source and reports every
-#     line of it. Measured at rf2-20h4 on a built checkout: 36,388 of 36,423
-#     findings came from 83 such transcripts, and 0 from any tracked file, so
-#     this subtraction and the `.clj-kondo/.cache` one above account for the
-#     whole of that count between them.
+#     (g) would re-read its own prior output as if it were source and report
+#     every line of it.
 PRODUCT_EXCLUDE_SUFFIXES = frozenset({
     ".log",
 })
@@ -877,22 +845,21 @@ PRODUCT_EXCLUDE_SUFFIXES = frozenset({
 # instead of deleting it, and the superseding block quotes the original ruling
 # verbatim — retired product name, Picasso derivation and all — because a
 # decisions log preserves what was decided rather than a retconned version of
-# it (rf2-d1nr.3). The quotation is the file's ONLY nested blockquote: measured
-# on the landed file, `^> > ` matches 8 contiguous lines, all of them that one
-# quotation, 3 of which carry the retired name. So the construct identifies the
+# it. The quotation is the file's ONLY nested blockquote: `^> > ` matches 8
+# contiguous lines, all of them that one quotation, 3 of which carry the
+# retired name. So the construct identifies the
 # passage exactly, and new prose elsewhere in the file is still graded.
 #
-# THE BENCH ARCHIVE ENTRIES (rf2-d1nr.2) are the case WHY `bench/` IS IN SCOPE
-# in the module docstring anticipates by name. The run corpus was deleted from
-# main and lives in git history; `data_archive.cjs` restores it. Two things
-# about it were fixed on the day it was archived and no commit on main can
-# reach either, so both are historical facts in the same category as the SHA
-# they sit beside:
+# THE BENCH ARCHIVE ENTRIES are the case WHY `bench/` IS IN SCOPE in the
+# module docstring names. The run corpus is not on main; it lives in git
+# history and `data_archive.cjs` restores it. Two things about it are fixed in
+# the archived commit and no commit on main can reach either, so both are
+# historical facts in the same category as the SHA they sit beside:
 #
 #   * ITS PATH inside the archived commit. A directory rename on main cannot
 #     rename a path inside an older commit, and the restore resolves that exact
-#     string — rename it and the restore exits 1, which is the regression this
-#     bead fixed. One line, `ARCHIVE_PATH`.
+#     string — rename it and the restore would exit 1. One line,
+#     `ARCHIVE_PATH`.
 #   * ITS VOCABULARY. Every record names the product as it was named when the
 #     run was taken, so the reader translates on the way in. The three
 #     `LEGACY_TOKENS` rows ARE the retired spellings: the left column is the
@@ -900,11 +867,9 @@ PRODUCT_EXCLUDE_SUFFIXES = frozenset({
 #     controls the translation reads the archived BYTES and must name the arm
 #     key as those bytes name it.
 #
-# Four constructs, three entries, two files, and NO exemption for prose: the
-# seven remaining occurrences under `bench/fresco` were sentences EXPLAINING the
-# rename, and a sentence explaining a rename does not need to spell the name it
-# retired. They were reworded instead, which is what keeps this roster the size
-# the facts require.
+# Four constructs, three entries, two files, and NO exemption for prose: a
+# sentence explaining a rename does not need to spell the name it retired,
+# which is what keeps this roster the size the facts require.
 PRODUCT_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
     (
         "docs/design/fresco/decisions.md",
@@ -965,8 +930,8 @@ _TEST_DIR_NAMES = frozenset({"test", "tests"})
 # Retired-shape patterns
 # --------------------------------------------------------------------------
 
-# (a) The retired `:frame` event-context COEFFECT read. Three forms, each of
-#     which the rf2-1m6rf1 rename removed. `\b` after `:frame` forbids
+# (a) The retired `:frame` event-context COEFFECT read. Three forms.
+#     `\b` after `:frame` forbids
 #     matching `:frame/id` or `:frame-foo`; a `:rf.frame/id` read never
 #     matches because the keyword there is `:rf.frame/id`, not `:frame`.
 
@@ -1021,7 +986,7 @@ _RETIRED_QUERY_RETAIN_RE = re.compile(
     r"(?=[\s)\]},]|$)"           # keyword-token end
 )
 
-# (e) The retired facade fn `machine-has-tag?` (rf2-il99l3), in its TWO shapes.
+# (e) The retired facade fn `machine-has-tag?`, in its TWO shapes.
 #     Both are matched on the RAW line — see (e) under "WHY THE SHAPES ARE
 #     SCOPED PRECISELY" for why this rule alone does not mask comments.
 #
@@ -1087,8 +1052,8 @@ _RETIRED_COORD_SYMBOL_MD_RE = re.compile(
 # the opening quote is immediately followed by `front.`/`arm1.` (so a leading
 # backtick denies it), and the literal closes with no whitespace anywhere in
 # between (so a prose sentence naming the coordinate can never match). This is
-# the `(str/starts-with? (str (:where …)) "front.codec/")` shape that went red
-# in CI — the one a symbol-shaped check cannot see.
+# the `(str/starts-with? (str (:where …)) "front.codec/")` shape — the one a
+# symbol-shaped check cannot see.
 #
 # BOTH delimiters must be REAL. `(?<!\\)` refuses a backslash-escaped quote,
 # which is a character inside a larger literal and not a boundary of one, and
@@ -1100,9 +1065,9 @@ _RETIRED_COORD_STRING_RE = re.compile(
     r'(?<!\\)"(?:front|arm1)\.[^"\s\\]*/[^"\s\\]*(?<!\\)"'
 )
 
-# (f) The retired `reg-sub` input-chain keyword `:<-` (rf2-kuky.50). Matched as
+# (f) The retired `reg-sub` input-chain keyword `:<-`. Matched as
 #     a delimited Clojure KEYWORD TOKEN, the same shape rule (c) uses and for
-#     the same reason: the retired keyword has no sanctioned CODE use left at
+#     the same reason: the retired keyword has no sanctioned CODE use at
 #     all, so a token IS the violation wherever it appears in a scanned surface.
 #
 #     Two surfaces, two boundaries, for exactly rule (d)'s reason:
@@ -1125,7 +1090,7 @@ _RETIRED_ARROW_MD_RE = re.compile(
 # (g) The retired PRODUCT NAME. No token boundary, no shape scoping, no
 #     masking — the substring IS the violation. `hicasso` is a coined name that
 #     collides with no English word, no Clojure form and no third-party
-#     identifier, so every carrier the rename touched reduces to one
+#     identifier, so every carrier of the name reduces to one
 #     case-insensitive needle: `hicasso`, `Hicasso`, `HICASSO`, `hicasso_`, the
 #     munged path segment `re_frame/hicasso/`, the artifact coordinate
 #     `io.github.day8/re-frame2-hicasso` and the adapter keyword
@@ -1133,9 +1098,10 @@ _RETIRED_ARROW_MD_RE = re.compile(
 #
 #     TWO COMPILATIONS OF ONE NEEDLE, and they are not redundant. The BYTES
 #     form is a prefilter: it runs over the file as read, before any decode or
-#     line split, and 4878 of this repo's 4878 text files skip the line walk on
-#     its verdict (~1s versus ~137s over 110 MB, measured both ways 2026-09-09).
-#     The TEXT form then finds the offending LINE in the handful that survive.
+#     line split, and all but a handful of text files skip the line walk on
+#     its verdict — without it a whole-repo line walk would take minutes
+#     rather than seconds. The TEXT form then finds the offending LINE in the
+#     handful that survive.
 _RETIRED_PRODUCT_BYTES_RE = re.compile(rb"hicasso", re.IGNORECASE)
 _RETIRED_PRODUCT_TEXT_RE = re.compile(r"hicasso", re.IGNORECASE)
 
@@ -1277,25 +1243,25 @@ def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
     Excludes generated/vendor dirs always, and `test`/`tests` dirs unless
     `include_tests` is set.
 
-    PRUNED, not filtered-after (rf2-76c76; method proven by rf2-e1xx0 in
-    `check_retired_image_keys.py`). `_EXCLUDE_DIR_NAMES` is dropped from
+    PRUNED, not filtered-after, the same method as
+    `check_retired_image_keys.py`. `_EXCLUDE_DIR_NAMES` is dropped from
     `os.walk`'s dirnames IN PLACE, so a built checkout never descends into
-    `implementation/.shadow-cljs` (34.8k entries), `node_modules` (3.4k) or
-    `target`. `rglob("*")` enumerated all 51.6k entries under
-    `implementation/` and discarded them one at a time — 4.9s of this gate's
-    8.1s wall clock on a built tree.
+    `implementation/.shadow-cljs`, `node_modules` or `target`; enumerating
+    those trees and discarding their entries one at a time would dominate
+    this gate's wall clock on a built tree.
 
-    The surviving sequence is IDENTICAL, set and order:
-      * pruning drops only what the `_EXCLUDE_DIR_NAMES` test below already
-        dropped — nothing under an excluded directory could survive either
-        path, so the sets match;
+    The yielded sequence is the one a filter over `sorted(rglob("*"))` gives,
+    set and order:
+      * pruning drops only what the `_EXCLUDE_DIR_NAMES` test below drops —
+        nothing under an excluded directory could survive either
+        way, so the sets match;
       * the collected matches go through ONE GLOBAL `sorted()`, reproducing
         `sorted(rglob("*"))`'s whole-subtree ordering rather than os.walk's
         directory-grouped order.
 
     Note `_EXCLUDE_DIR_NAMES` here deliberately does NOT carry `out` (unlike
     the sibling gates) — adding it would narrow this gate's scope, which is a
-    scope decision and not this change's business.
+    scope decision.
     """
     if scan_root.is_file():
         # Direct-file mode (used by --self-test fixtures pointing at one file).
@@ -1310,8 +1276,8 @@ def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
             if os.path.splitext(name)[1] in _SOURCE_SUFFIXES:
                 matches.append(Path(dirpath) / name)
     for path in sorted(matches):
-        # Kept as the belt to the pruning's braces, and now on string ops:
-        # `Path.relative_to` was pure pathlib object churn for a prefix strip.
+        # The belt to the pruning's braces, on string ops: `Path.relative_to`
+        # would be pure pathlib object churn for a prefix strip.
         parts = set(path.as_posix()[scan_prefix_len:].split("/"))
         if parts & _EXCLUDE_DIR_NAMES:
             continue
@@ -1326,11 +1292,11 @@ def _iter_coordinate_files(scan_root: Path) -> Iterable[Path]:
     Two deliberate differences from `_iter_source_files`, both argued in the
     module docstring's SCAN SURFACE section: `.md` is scannable (for
     `spec/009-Instrumentation.md`), and there is NO test-dir exclusion and no
-    opt to reinstate one — the regression this rule exists to close was a test
+    opt to reinstate one — the shape this rule exists to catch is a test
     assertion.
 
     `COORD_EXCLUDE_PATHS` is subtracted, and it is not a third difference of
-    the same kind: it removes the re-homed PROTOTYPE, whose own coordinates
+    the same kind: it removes the PROTOTYPE, whose own coordinates
     this rule is not about. See that constant for the argument.
     """
     if scan_root.is_file():
@@ -1420,9 +1386,9 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
             )
 
     # (e) The retired facade fn `machine-has-tag?`. RAW lines, not masked —
-    #     this rule's only real-world carrier to date was inside a `;;`
-    #     comment, and the qualified shape has no legitimate prose use. See
-    #     (e) in the module docstring for the measurement behind that choice.
+    #     a carrier can sit inside a `;;` comment, and the qualified shape has
+    #     no legitimate prose use. See (e) in the module docstring for the
+    #     reasoning behind that choice.
     for line_no, line in enumerate(raw, start=1):
         if _RETIRED_MACHINE_HAS_TAG_QUALIFIED_RE.search(line):
             findings.append(
@@ -1753,8 +1719,8 @@ def scan_product_name(repo_root: Path) -> list[Finding]:
 
 _FIX_HINTS = {
     "retired-frame-coeffect": (
-        "The bare `:frame` event-context coeffect was retired by EP-0002 R3 / "
-        "rf2-1m6rf1 (one carrier, one name). Read the frame stamp from the "
+        "The bare `:frame` event-context coeffect is retired by EP-0002 R3 "
+        "(one carrier, one name). Read the frame stamp from the "
         "`:rf.frame/id` coeffect instead — e.g. "
         "`(interceptor/get-coeffect ctx :rf.frame/id)`. (The public `:frame` "
         "dispatch/subscribe opt, the dispatch envelope key, the binary "
@@ -1762,7 +1728,7 @@ _FIX_HINTS = {
         "sanctioned and unaffected.)"
     ),
     "retired-redirect-target-key": (
-        "The redirect-target keys `:url` / `:to` were retired by rf2-vngir / "
+        "The redirect-target keys `:url` / `:to` are retired by "
         "EP-0007. The SSR redirect fx writes an HTTP `Location` header, so it "
         "uses header vocabulary: the canonical (and only) redirect-target key "
         "is `:location`. Rewrite the `:rf.server/redirect` / "
@@ -1771,9 +1737,9 @@ _FIX_HINTS = {
         "concept, different word, per spec/Conventions.md §The naming rules.)"
     ),
     "retired-query-retain-key": (
-        "Route metadata `:query-retain` was retired by EP-0037 R5 with no "
+        "Route metadata `:query-retain` is retired by EP-0037 R5 with no "
         "alias — `reg-route` rejects it as an unknown bare key, it is not in "
-        "the accepted-key roster, and it no longer widens the query-key "
+        "the accepted-key roster, and it does not widen the query-key "
         "promotion vocabulary. A destination address is taken LITERALLY. "
         "Declare the keys the route owns in `:query` / `:query-defaults`; "
         "carry query state across routes with an ordinary pure function over "
@@ -1782,8 +1748,8 @@ _FIX_HINTS = {
         "in-place `:query` / `:query-merge` request."
     ),
     "retired-bench-coordinate": (
-        "A fresco BENCH-TREE coordinate — `front.*` / `arm1.*` — was retired "
-        "by rf2-hic-007. The shipped package was measured as the prototype "
+        "A fresco BENCH-TREE coordinate — `front.*` / `arm1.*` — is "
+        "retired. The shipped package was measured as the prototype "
         "`re-frame.bench.fresco.{front,arm1}.*`, which is NOT in this repo: a "
         "refusal whose `:where` names it points a consumer at nothing. Raise "
         "from the package's own namespace — e.g. "
@@ -1800,8 +1766,8 @@ _FIX_HINTS = {
         "string rule fires only on a whole literal that IS the coordinate."
     ),
     "retired-reg-sub-arrow": (
-        "The `reg-sub` input-chain keyword `:<-` was retired by rf2-kuky.50 "
-        "(ruled on rf2-kuky.45) with no alias. A subscription declares its "
+        "The `reg-sub` input-chain keyword `:<-` is retired "
+        "with no alias. A subscription declares its "
         "dependencies ONCE, under `:inputs` in the metadata map, and a "
         "declared dependency list ALWAYS reaches the body as a VECTOR. "
         "Rewrite by MIGRATION §M-75: "
@@ -1819,8 +1785,8 @@ _FIX_HINTS = {
         "is read."
     ),
     "retired-machine-has-tag": (
-        "The facade fn `machine-has-tag?` was retired by rf2-il99l3 (reversing "
-        "rf2-2cmcas) so a machine read has ONE grammar. No `src` namespace "
+        "The facade fn `machine-has-tag?` is retired so that a machine "
+        "read has ONE grammar. No `src` namespace "
         "defines it. Read a machine's tag set through the shipped "
         "SUBSCRIPTION instead — `@(rf/subscribe [:rf.machine/has-tag? "
         "<machine-id> <tag>])` — registered in "
@@ -1830,19 +1796,19 @@ _FIX_HINTS = {
         "is a separate spelling and is not what this rule matches. "
         "If you are writing PROSE about the retirement, spell the name "
         "UNQUALIFIED (`` `machine-has-tag?` ``) as every in-tree deny-site and "
-        "API roster already does — this rule fires only on a "
+        "API roster does — this rule fires only on a "
         "NAMESPACE-QUALIFIED reference (`rf/machine-has-tag?`), which is the "
         "live-call shape, so a retirement note cannot trip it. A PRIVATE "
         "`defn-` helper of the same name in a test is untouched and "
-        "deliberately so (rf2-1e8m classified those correct)."
+        "deliberately so (those helpers are correct)."
     ),
     "retired-product-name": (
-        "The product was renamed Hicasso -> Fresco before first publish "
-        "(rf2-d1nr, PR #9568). Spell it `fresco`: namespace "
+        "The product is Fresco; Hicasso is its retired name and has no "
+        "alias. Spell it `fresco`: namespace "
         "`re-frame.fresco`, munged path `re_frame/fresco/`, artifact "
         "`io.github.day8/re-frame2-fresco`, adapter keyword "
         "`:rf.adapter/fresco`. The conventional alias `h` is for HICCUP and "
-        "did NOT change — leave every `h/...` call site alone. A finding at "
+        "is unaffected — leave every `h/...` call site alone. A finding at "
         "line 0 is the file's PATH, not its content. If your occurrence is a "
         "HISTORICAL FACT that must keep the old spelling to work — a path "
         "inside a pre-rename commit, a key in an archived record — it belongs "
@@ -1952,8 +1918,8 @@ def main(argv: list[str]) -> int:
 
     # A rostered tree that has been renamed or deleted is NOT skipped. Skipping
     # is how a widened gate quietly narrows again — it would report success for
-    # a tree it never opened, which is the whole defect class rf2-kqxe6.25 is
-    # about. Same posture as the test-lane bijection gate's phantom-path rule.
+    # a tree it never opened, which is the defect class this ratchet exists to
+    # close. Same posture as the test-lane bijection gate's phantom-path rule.
     # Rule (d)'s roster gets the identical treatment, and needs it more: three
     # of its four entries are fresco subtrees, and a package reorganisation
     # that renamed one would otherwise silently unratchet the rule.
@@ -2058,16 +2024,16 @@ _SANCTIONED_PROSE_MENTIONS: tuple[tuple[str, str], ...] = (
 # point of this rule is its SHAPE, so the cases are pinned verbatim rather than
 # carried in `.cljc` fixtures whose masking would hide what is being asserted.
 #
-# The negatives are the whole census of sites naming this spelling at tip (8
-# files, `git grep -F machine-has-tag?` excluding the tracker export), plus the
+# The negatives are the in-tree sites naming this spelling (`git grep -F
+# machine-has-tag?` excluding the tracker export), plus the
 # private-helper and lookalike shapes. Every one must stay GREEN — this is the
 # allow-list's replacement: the rule earns its zero red from its SHAPE, so if a
 # future widening would red a real file it fails HERE, in this repo, rather
 # than in someone else's PR.
 _MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     # --- positives: the retired facade spelling must FIRE ---
-    ("examples/patterns/websocket/connection.cljs (the real carrier, in a "
-     ";; comment, removed by 26f0b5df59 — found BY HAND, three censuses)",
+    ("the carrier shape: a qualified call to the retired sugar inside a "
+     ";; comment, which rule (e) reads RAW",
      "  ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection "
      ":open)`)", 1),
     ("a live qualified call",
@@ -2079,7 +2045,7 @@ _MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
      1),
     ("the facade var reintroduced as a public def",
      "(def machine-has-tag? some-other-fn)", 1),
-    # --- negatives: every site naming the spelling at tip, verbatim ---
+    # --- negatives: every in-tree site naming the spelling, verbatim ---
     ("docs/machines/tags.md:101 — the DENY-SITE, names it only to forbid it",
      "There is no `machine-has-tag?` function and no `[:rf/machine-has-tag? …]`",
      0),
@@ -2101,7 +2067,7 @@ _MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     ("spec/api-manifest-metadata.edn:816 — the retirement RECORD itself",
      "  ;; `re-frame.machines` (already classified below). The "
      "`machine-has-tag?` /", 0),
-    # --- negatives: the private test helpers rf2-1e8m classified DO NOT TOUCH ---
+    # --- negatives: the private test helpers, which are correct: DO NOT TOUCH ---
     ("a private defn- helper (implementation/adapters/reagent/test/*)",
      "(defn- machine-has-tag? [m tag] (contains? (:tags m) tag))", 0),
     ("a prefixed private defn- helper",
@@ -2125,22 +2091,22 @@ _COORD_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- positives: BOTH shapes must fire, in source AND in Markdown ---
     ("coord/positive/where_symbol_front.cljc",     1),
     ("coord/positive/where_symbol_arm1.cljc",      1),
-    # The two that a symbol-shaped check cannot see — the rf2-hic-007 blind
-    # spot, which is the entire reason rule (d) exists.
+    # The two that a symbol-shaped check cannot see — the blind spot that is
+    # the entire reason rule (d) exists.
     ("coord/positive/assertion_string_front.cljc", 1),
     ("coord/positive/assertion_string_arm1.cljc",  1),
     ("coord/positive/spec_prose.md",               1),
     ("coord/positive/spec_code_block.md",          1),
-    # The third executable shape, and the one the PR #7867 audit found escaping
-    # rule (d): a syntax-quoted coordinate is live Clojure, not prose.
+    # The third executable shape: a syntax-quoted coordinate is live Clojure,
+    # not prose.
     ("coord/positive/syntax_quoted_symbol.cljc",   1),
     # --- negatives: the corpus's real provenance prose must stay GREEN ---
     ("coord/negative/bare_comment_provenance.cljc", 0),
     ("coord/negative/refusal_message_prose.cljc",   0),
     ("coord/negative/shipped_coordinates.cljc",     0),
     ("coord/negative/spec_boundary_cases.md",       0),
-    # The false positive that shipped alongside the miss above: a retired
-    # coordinate quoted, with escaped quotes, inside a larger prose literal.
+    # The mirror-image false positive: a retired coordinate quoted, with
+    # escaped quotes, inside a larger prose literal.
     ("coord/negative/escaped_quote_in_prose_string.cljc", 0),
 )
 
@@ -2148,9 +2114,8 @@ _COORD_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
 # Rule (f) fixtures. Two surfaces, so two rosters and two scanners — the
 # source rule masks comments and strings, the prose rule reads fenced code only.
 # The `.md` positive is the one that matters most: it is the shape a
-# source-only rule cannot see, and the teaching corpus is where the retired
-# spelling was found last (rf2-kuky.49 fixed nine sites that no arrow census
-# had flagged).
+# source-only rule cannot see, and the teaching corpus is where a reader
+# copies a sample from.
 _ARROW_SOURCE_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- positives: the retired keyword token must FIRE ---
     ("arrow/positive/arrow_single_input.cljc",     1),
@@ -2183,10 +2148,9 @@ _ARROW_ALLOWLIST_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 
 # Rule (f)'s PROSE ROSTER, exercised through `main` rather than through
 # `scan_arrow_prose`. This phase exists because a direct-scanner test cannot
-# see the defect it is here to catch: rule (f) shipped with a correct scanner
-# and a roster that omitted `docs/`, so every direct `_scan_arrow_prose` case
-# passed while the real invocation never opened the authored docs corpus at
-# all. The surface a gate SCANS is a different claim from the shape it MATCHES,
+# see the defect it is here to catch: with a correct scanner and a roster that
+# omitted `docs/`, every direct `_scan_arrow_prose` case would pass while the
+# real invocation never opened the authored docs corpus at all. The surface a gate SCANS is a different claim from the shape it MATCHES,
 # and only the CLI route asserts the first one.
 #
 # Each case is (repo-relative path for the planted sample, expected exit).
@@ -2283,8 +2247,7 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 # `ARROW_SCAN_DIRS`. Legitimate historical occurrences there belong in
 # `PRODUCT_EXEMPTIONS` with a reason, not in a hole cut through the tree.
 #
-# The `.clj-kondo` PAIR is the point of rf2-20h4 and is stated as a pair on
-# purpose: the cache below it is subtracted, the two TRACKED config files beside
+# The `.clj-kondo` PAIR is stated as a pair on purpose: the cache below it is subtracted, the two TRACKED config files beside
 # it are not, and a future repair that reached for a directory NAME instead of a
 # path would pass the first three rows and fail these two. The `notes.log.md`
 # row is the matching near-miss for `PRODUCT_EXCLUDE_SUFFIXES` — it proves the
@@ -2293,8 +2256,8 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 #
 # THE RUN-CORPUS ROWS pin a hole whose edge four different wrong repairs would
 # each put somewhere else, so there is one row per wrong repair. Three of them
-# are stated as pairs sharing a path shape, and each pair was RUN in both
-# directions against the wrong repair it names, not merely reasoned about:
+# are stated as pairs sharing a path shape, and each pair fails under the
+# wrong repair it names:
 #
 #   * `data_archive.cjs` against a record under `data/` — the near-miss for a
 #     SUBSTRING or bare-prefix match. The reader's name begins with the
@@ -2309,18 +2272,18 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 #     repair reaching for `alloc-legorder`, or for any record-directory name,
 #     fails.
 #   * `bench/fresco/README.md` against a `README.md` inside the corpus — the
-#     near-miss for a SUFFIX or file-name match, and the one the audit of
-#     PR #9571 actually planted in: a retired-name line added to the tracked
-#     README raised the live count by exactly one and named that line.
+#     near-miss for a SUFFIX or file-name match: a retired-name line added to
+#     the tracked README raises the live count by exactly one and names that
+#     line.
 #   * `implementation/core/src/re_frame/data/registry.cljc` — the one row with
 #     no partner, and the one that costs the most to get right. A repair that
 #     put `data` on `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES` instead of the path here
-#     passes ALL SIX rows above (measured: the three subtracted rows go green
+#     passes ALL SIX rows above (the three subtracted rows go green
 #     under it, because in the synthetic tree the only `data/` directory is the
 #     corpus one), so without this row the name/path distinction — which is the
 #     whole of the `.clj-kondo` precedent — would be pinned by nothing. No
-#     tracked file sits under any directory named `data` today; that is what
-#     makes the wrong repair invisible now and expensive later, so the row is
+#     tracked file sits under any directory named `data`; that is what makes
+#     the wrong repair invisible until one does, so the row is
 #     representative rather than real, exactly as the eight rows above it are.
 _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- the whole repo MUST be reached, including the trees no lane compiles ---
@@ -2390,8 +2353,8 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     A fourth phase runs `_MACHINE_HAS_TAG_SELF_TEST_CASES` as raw single
     lines. Rule (e) reads RAW lines (it does not mask comments), so a pinned
-    line is the honest surface for it — and its negatives are the WHOLE census
-    of sites naming that spelling at tip, which is what lets the rule ship with
+    line is the honest surface for it — and its negatives are the in-tree
+    sites naming that spelling, which is what lets the rule ship with
     no allow-list at all.
 
     A third phase runs `_COORD_SELF_TEST_CASES` through `scan_coordinates`.
@@ -2409,8 +2372,7 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     TWO phases do not test a scanner at all. Both drive `main --repo-root` over
     a synthetic repo to assert what a rule REACHES — the claim every
-    direct-scanner phase above takes for granted, and the one that was wrong
-    when rule (f) shipped. Phase 8 does it for rule (f)'s prose roster; phase 10
+    direct-scanner phase above takes for granted. Phase 8 does it for rule (f)'s prose roster; phase 10
     does it for rule (g)'s whole-repo surface, where each entry in
     `PRODUCT_EXCLUDE_PATHS` is pinned as a path the same planted sample must not
     reach.
