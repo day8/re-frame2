@@ -1,16 +1,14 @@
 (ns re-frame.story.backgrounds-test
-  "Tests for the backgrounds switcher's pure state model (rf2-zll4h).
+  "Tests for the backgrounds switcher's pure state model.
 
   Runs on the JVM under `clojure -M:test`. This namespace ends `-test`
   rather than `cljs-test`, so NO CLJS build selects it: `:node-test`'s
   `:ns-regexp` is `cljs-test$` and `:browser-test`'s is
   `.*-dom-cljs-test$`, and nothing else requires it.
 
-  This docstring used to say \"Runs on both JVM and CLJS — the CLJS arm
-  exercises the localStorage round-trip\". That was never true, and the
-  four `#?(:cljs ...)` rows it described were unreachable rather than
-  merely skipped. They now live in
-  `re-frame.story.backgrounds-storage-dom-cljs-test` (rf2-r51p).
+  The localStorage round-trip rows need a real `window.localStorage`, so
+  they live in `re-frame.story.backgrounds-storage-dom-cljs-test`, which
+  the browser lane loads.
 
   Coverage layers:
 
@@ -18,20 +16,20 @@
   - Custom hex-colour validation.
   - Selection precedence (story-override > toolbar selection > default).
   - `wrap-style` shape for flat colour + transparent / checkerboard.
-  - localStorage round-trip — moved out; see the dom sibling named above."
+  - localStorage round-trip — see the dom sibling named above."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.backgrounds :as rf.story.backgrounds]))
 
 ;; ---- preset table --------------------------------------------------------
 
 (deftest preset-table-includes-every-bead-mandated-id
-  (testing "every preset id called out by rf2-zll4h is present"
+  (testing "every canonical preset id is present"
     (let [expected #{:light :dark :paper :midnight :transparent}]
       (is (= expected (set (keys rf.story.backgrounds/presets))))
       (is (= expected (set rf.story.backgrounds/preset-order))))))
 
 (deftest preset-dark-has-canonical-colour
-  (testing ":dark is #1a1a1a (bead-mandated)"
+  (testing ":dark is #1a1a1a"
     (is (= {:label "Dark" :color "#1a1a1a"}
            (get rf.story.backgrounds/presets :dark)))))
 
@@ -96,7 +94,7 @@
       (is (= "#1a1a1a" (:color r))))))
 
 (deftest resolve-story-override-beats-toolbar
-  (testing "rf2-zll4h precedence: story-override wins"
+  (testing "precedence: story-override wins"
     (let [r (rf.story.backgrounds/resolve :midnight :dark)]
       (is (= "Midnight" (:label r))))))
 
@@ -141,15 +139,13 @@
 
 ;; ---- localStorage round-trip: see the dom sibling ----------------------
 ;;
-;; rf2-r51p MOVED the four `storage-*` rows to
-;; `re-frame.story.backgrounds-storage-dom-cljs-test`. They were written as
-;; `#?(:cljs (deftest ...))` here, and THIS namespace ends `-test` rather
-;; than `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`) never
-;; selected it, `:browser-test`'s (`.*-dom-cljs-test$`) never matched it,
-;; and nothing else requires it. Those rows were therefore UNREACHABLE --
-;; not guarded-false, but never compiled by any CLJS build at all. The
-;; docstring above used to claim "the CLJS arm exercises the localStorage
-;; round-trip"; it never did.
+;; The `storage-*` rows live in
+;; `re-frame.story.backgrounds-storage-dom-cljs-test`. A `#?(:cljs
+;; (deftest ...))` row here would be UNREACHABLE — not guarded-false, but
+;; never compiled by any CLJS build at all — because THIS namespace ends
+;; `-test` rather than `cljs-test`: `:node-test`'s `:ns-regexp`
+;; (`cljs-test$`) does not select it, `:browser-test`'s
+;; (`.*-dom-cljs-test$`) does not match it, and nothing else requires it.
 ;;
-;; The JVM half of this file is unaffected: every row above is a bare
-;; unconditional `deftest` and this file carries no `#?(:clj ...)` form.
+;; Every row above is a bare unconditional `deftest` and this file carries
+;; no `#?(:clj ...)` form.
