@@ -541,7 +541,7 @@ report_husk() {
   printf 'files you can still see have no worktree behind them.\n' >&2
   printf 'THIS IS A DESTROYED TREE, NOT AN UNTOUCHED ONE. If an agent was using it,\n' >&2
   printf 'its build or gate run has already been broken; a partial removal kills a\n' >&2
-  printf 'running gate exactly as a complete one does (rf2-k3j2w).\n' >&2
+  printf 'running gate exactly as a complete one does.\n' >&2
   printf 'Retrying this script will not finish the job — there is no registered\n' >&2
   printf "worktree left to remove, and 'git worktree prune' has nothing to clear.\n" >&2
   printf 'Any node_modules link has been disarmed, so what remains is an ordinary\n' >&2
@@ -906,7 +906,7 @@ if [ "$SELF_TEST" -eq 1 ]; then
     grep -q '^REFUSED_BAD_ARGUMENT=' "$ST_G_OUT" \
       || die "SELF_TEST=FAILED a bad argument was not refused by name: $ST_A_BAD. Output: $(cat "$ST_G_OUT")"
     if grep -q '^MAYOR_ROOT=' "$ST_G_OUT"; then
-      die "SELF_TEST=FAILED a bad argument was refused only AFTER the script began examining trees, which is how the explanation came to be stranded above the canary block: $ST_A_BAD. Output: $(cat "$ST_G_OUT")"
+      die "SELF_TEST=FAILED a bad argument was refused only AFTER the script began examining trees, which strands the explanation above the canary block: $ST_A_BAD. Output: $(cat "$ST_G_OUT")"
     fi
   done
 
