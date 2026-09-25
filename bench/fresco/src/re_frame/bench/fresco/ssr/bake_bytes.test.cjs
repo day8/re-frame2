@@ -1,28 +1,25 @@
 #!/usr/bin/env node
 'use strict';
-// THE BAKE MANIFEST COUNTS BYTES, NOT CODE UNITS — rf2-2rtt6.114.
+// THE BAKE MANIFEST COUNTS BYTES, NOT CODE UNITS.
 //
-//     node fresco/test/re_frame/bench/fresco/ssr/bake_bytes.test.cjs
+//     node bench/fresco/src/re_frame/bench/fresco/ssr/bake_bytes.test.cjs
 //
-// THE DEFECT THIS PINS. `driver.cjs bake` wrote a manifest whose
+// THE DEFECT THIS PINS. A `driver.cjs bake` manifest whose
 // `documentBytes`, `bodyBytes` and `payloadBytes` were `String.prototype
-// .length` — UTF-16 CODE UNITS — while the field names, the console
-// column's ` B` suffix and the live server's response log all said bytes.
-// The two agree only for ASCII. They did not agree here: the corpus gives
-// every row an em dash in its title and the `defhost` fallback an
-// ellipsis, so `dogfood-snapshot` claimed 3101 for a document of which
-// 3119 bytes were written, and `defhost-ssr-policy` claimed 485 against
-// 491. rf2-2rtt6.86's own merged-PR audit prescribed the repair and it was
-// never filed; the rf2-2rtt6.88 dossier then had to publish NO size figure
-// from that manifest, and said so on the page.
+// .length` would count UTF-16 CODE UNITS while the field names, the
+// console column's ` B` suffix and the live server's response log all say
+// bytes. The two agree only for ASCII, and this corpus is not ASCII: it
+// gives every row an em dash in its title and the `defhost` fallback an
+// ellipsis, so a code-unit count reads `dogfood-snapshot` as 3101 for a
+// document of 3119 bytes, and `defhost-ssr-policy` as 485 against 491.
 //
-// WHY THIS FILE, AND NOT A BAKE ASSERTION ALONE. `bake` now checks each
+// WHY THIS FILE, AND NOT A BAKE ASSERTION ALONE. `bake` checks each
 // manifest column against `fs.statSync` of the file it just wrote, which
 // is the strongest possible witness — but it costs a shadow-cljs compile
 // and cannot run in a unit gate. So the arithmetic is pinned here, over
 // inputs chosen to DISCRIMINATE:
 //
-//   - an ASCII control, where the old and new answers agree, so the file
+//   - an ASCII control, where the code-unit and byte answers agree, so the file
 //     cannot pass by being vacuous;
 //   - the two characters this corpus actually contains, U+2014 and U+2026,
 //     each 1 code unit and 3 bytes;
@@ -40,7 +37,7 @@
 // against a second call to the same function. `Buffer.byteLength` agreeing
 // with itself is not evidence about a file.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Run by `npm run check` in bench/fresco/.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -69,9 +66,7 @@ const CASES = [
   { what: 'an astral-plane character', s: `a${CLEF}b`, units: 4, bytes: 6 },
   {
     // COUNTED FROM THE STRING BELOW, not from a remembered figure: the
-    // title carries the product name, so a rename moves both numbers
-    // (rf2-d1nr.2 — the retired name was one character longer than `Fresco`,
-    // which cost one code unit and one byte).
+    // title carries the product name, so a rename moves both numbers.
     what: 'the corpus mix — a title, a fallback and a clef',
     s: `<title>Fresco SSR ${EM_DASH} defhost</title><span>loading${ELLIPSIS}</span>${CLEF}`,
     units: 58,
@@ -91,7 +86,7 @@ test('the fixtures are not accidentally ASCII — the escapes survived the file'
   assert.strictEqual(Buffer.byteLength(CLEF, 'utf8'), 4, 'four UTF-8 bytes');
 });
 
-test('every non-ASCII case would give a DIFFERENT answer under the old code', () => {
+test('every non-ASCII case gives a DIFFERENT answer under a code-unit count', () => {
   const discriminating = CASES.filter((c) => c.units !== c.bytes);
   assert.strictEqual(
     discriminating.length,
@@ -124,7 +119,7 @@ test('utf8Bytes equals the bytes ACTUALLY WRITTEN, for every case', () => {
       const onDisk = fs.statSync(file).size;
       assert.strictEqual(utf8Bytes(s), onDisk, `${what}: the claim disagrees with the file`);
       if (units !== onDisk) {
-        assert.notStrictEqual(s.length, onDisk, `${what}: the OLD claim must not match the file`);
+        assert.notStrictEqual(s.length, onDisk, `${what}: a code-unit claim must not match the file`);
       }
     }
   } finally {
@@ -177,12 +172,12 @@ test('the bake CHECKS each column against the file it just wrote, and refuses', 
   assert.match(refusal, /bytes on disk/);
 });
 
-// --- the fence: the digest rows were correct and must stay correct ---------
+// --- the fence: the digest rows are correct and must stay correct ----------
 
-test('sha256 still hashes with an explicit utf8 encoding — untouched by this repair', () => {
+test('sha256 hashes with an explicit utf8 encoding', () => {
   assert.match(SRC, /crypto\.createHash\('sha256'\)\.update\(s, 'utf8'\)\.digest\('hex'\)/);
-  // The digest is a function of BYTES, so it always was right; the pin is
-  // here so a future "make it consistent" pass cannot take it with them.
+  // The digest is a function of BYTES, so it is right by construction; the
+  // pin is here so a future "make it consistent" pass cannot take it with them.
   assert.strictEqual(
     sha256(CLEF),
     require('node:crypto').createHash('sha256').update(Buffer.from(CLEF, 'utf8')).digest('hex'),
