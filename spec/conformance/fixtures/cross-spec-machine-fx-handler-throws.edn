@@ -17,7 +17,7 @@
 ;; transition. NB: ordering ≠ dependency — independent fx don't suppress
 ;; each other.
 ;;
-;; Pinned by rf2-msd4 (conformance runner :reg-machine).
+;; Driven by the conformance runner's :reg-machine op.
 
 {:fixture/id           :cross-spec/machine-fx-handler-throws
  :fixture/spec-version "1.0"
