@@ -1,21 +1,19 @@
 (ns re-frame.bench.fresco.adoption-witness-app
   "THE ADOPTION WITNESS — does the commit adopt the render-phase build on a
   PUBLIC mount schedule, on a page whose clock is fast enough to say?
-  (rf2-2rtt6.80; the ruling on rf2-2rtt6.71's ruling (a).)
 
   ## What this is, and what it deliberately is not
 
-  It is a DIAGNOSTIC, run on demand:
+  It is a DIAGNOSTIC, run on demand (from `bench/fresco/`):
 
-      node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs
+      node src/re_frame/bench/fresco/adoption_witness_run.cjs
 
-  It is NOT a gate. Nothing in CI invokes it, and that is the ruling, not an
-  omission. rf2-2rtt6.71 wanted a standing tripwire and the browser suite could
-  not be one: that runner's render-to-passive-flush gap measures > 128 ms, two
-  to three orders of magnitude past any shippable reap horizon, so its row
-  witnesses the RUNNER's schedule and can say nothing about a consumer's. The
-  obvious repair — gate a representative page instead — was examined and
-  refused, because at drift an oversized gap has two indistinguishable causes
+  It is NOT a gate. Nothing in CI invokes it, by design. The browser suite
+  cannot be a standing tripwire: that runner's render-to-passive-flush gap
+  measures > 128 ms, two to three orders of magnitude past any shippable reap
+  horizon, so its row witnesses the RUNNER's schedule and can say nothing
+  about a consumer's. Gating a representative page instead does not work
+  either, because at drift an oversized gap has two indistinguishable causes
   (a React scheduling change, or a loaded host) and the regression itself
   manifests AS a bigger gap. A gate whose measurement is confounded with the
   thing it guards either reds on load or declines to adjudicate exactly when
@@ -38,7 +36,7 @@
   ## THE ORDER IS THE POINT: gap first, integers second
 
   The reap horizon is `re-frame.substrate.spine/provisional-horizon-ms`
-  (`setTimeout 4`, ruled by rf2-2rtt6.71). Adoption happens iff React's passive
+  (`setTimeout 4`). Adoption happens iff React's passive
   `useSyncExternalStore` subscribe reaches the escrowed reference before that
   timer fires. So the ONLY quantity that makes an adoption reading meaningful
   is the page's own render-to-passive-flush gap.
@@ -49,14 +47,13 @@
   again and read the integers. If the gap cannot be bounded, it prints REFUSED
   and the measured gap — never pass, never fail. A noisy box costs a printout.
 
-  That asymmetry is deliberate and it is what the whole instrument is for. This
-  repository has been repairing fail-open instruments all week — gates that
-  could not fail on the thing they claimed to cover. The failure mode available
-  to a timing diagnostic is the mirror image: DEGRADING, quietly widening its
-  own tolerance until any page passes. A horizon in the hundreds of
-  milliseconds would have greened the browser row; it would also have bought
-  the green by holding every abandoned render's reactive graph for a quarter of
-  a second. The refusal path exists so that trade is never available here.
+  That asymmetry is deliberate and it is what the whole instrument is for. The
+  failure mode available to a timing diagnostic is the mirror image of a
+  fail-open gate: DEGRADING, quietly widening its own tolerance until any page
+  passes. A horizon in the hundreds of milliseconds would green the browser
+  row; it would also buy the green by holding every abandoned render's
+  reactive graph for a quarter of a second. The refusal path exists so that
+  trade is never available here.
 
   THE GAP IS THE PRIMARY DATUM; the verdict is downstream of it. Gap statistics
   print on EVERY run, including refusals — a maintainer re-running this after a
@@ -78,7 +75,7 @@
     REFUSED       the gap could not be bounded under the horizon with margin.
                   Nothing is adjudicated. Read the printed gap.
 
-  ## The reading is CAUSAL, not timed (rf2-2rtt6.71's probe design)
+  ## The reading is CAUSAL, not timed
 
   Every integer is read from the probe's OWN mount `use-effect`, declared after
   the `use-sub` call. React pushes `useSyncExternalStore`'s
@@ -113,7 +110,7 @@
   race, and it does not — a lost race costs a construction and nothing else,
   which is exactly what makes a timed horizon acceptable at all.
 
-  ## PHASE 3 — THE HYDRATION SCHEDULE (rf2-2rtt6.87, X3)
+  ## PHASE 3 — THE HYDRATION SCHEDULE (X3)
 
   The same question, asked of the door an SSR route takes: `(render tree
   mount {:hydrate? true})`, the Spec 006 client mount entry's hydrate
@@ -129,13 +126,11 @@
   first-post-subscribe reading says the commit adopted the render's
   build; the SETTLED reading says the reaper then left it alone. A
   hydrated mount that adopts and is reaped a moment later would pass the
-  first and fail the second, and the difference is exactly the defect the
-  0 → 4 ms horizon was moved for.
+  first and fail the second, and the difference is exactly the defect a
+  4 ms horizon, rather than 0, exists to prevent.
 
   Phase 3 refuses on its own gap, independently of phase 2, and a
-  refusal publishes no figure for it.
-
-  Owner: rf2-2rtt6.80; phase 3 rf2-2rtt6.87."
+  refusal publishes no figure for it."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
@@ -171,7 +166,7 @@
 ;; (`settle-past-the-horizon!`, 24 ms). The SETTLED ref-count is read here
 ;; — outside the measured gap, which ends at the mount effect — so a mount
 ;; that adopted and was then reaped is a different reading from one that
-;; adopted and kept its entry. rf2-2rtt6.87, X3.
+;; adopted and kept its entry (X3).
 (def ^:private settle-past-horizon-ms 24)
 
 (def ^:private query-v [::cell])
@@ -246,7 +241,7 @@
   (let [fid ::server-render]
     (reset! at-render nil)
     (reset! at-commit nil)
-    (rf/make-frame {:id fid :doc "rf2-2rtt6.87 adoption-witness server render"})
+    (rf/make-frame {:id fid :doc "adoption-witness server render"})
     (rf/dispatch-sync [::seed] {:frame fid})
     (reset! target-frame fid)
     (let [html (rdom-server/renderToString ($ Boundary))]
@@ -280,7 +275,7 @@
         snap          (volatile! nil)
         resolve!      (volatile! nil)
         committed     (js/Promise. (fn [resolve _] (vreset! resolve! resolve)))]
-    (rf/make-frame {:id frame-id :doc "rf2-2rtt6.80 adoption-witness trial frame"})
+    (rf/make-frame {:id frame-id :doc "adoption-witness trial frame"})
     (rf/dispatch-sync [::seed] {:frame frame-id})
     (reset! builds 0)
     (reset! target-frame frame-id)
@@ -440,7 +435,7 @@
 (defn- settled-refcounts [rows] (mapv :ref-count-settled rows))
 
 (defn- parity-faults
-  "PHASE 3's own row (rf2-2rtt6.87, X3): the hydrated mounts' settled
+  "PHASE 3's own row (X3): the hydrated mounts' settled
   ref-counts against the COLD mounts'.
 
   Stated as a comparison rather than as a second copy of the constant `1`
@@ -526,7 +521,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- adjudicate-hydration!
-  "PHASE 3 (rf2-2rtt6.87, X3) — the same question on the HYDRATE arm of the
+  "PHASE 3 (X3) — the same question on the HYDRATE arm of the
   same public door, reached only from an ADOPTED phase 2.
 
   Gap first, exactly as phase 2: an over-ceiling hydration mount publishes
