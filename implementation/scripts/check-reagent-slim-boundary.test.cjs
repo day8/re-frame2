@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Tests for `examples/scripts/check-reagent-slim-boundary.cjs` — the STATIC
- * stock-Reagent / slim-Reagent source-boundary gate (rf2-hekqp).
+ * stock-Reagent / slim-Reagent source-boundary gate.
  *
  * Two jobs, both with teeth:
  *
@@ -9,9 +9,7 @@
  *     FAIL if it reports any slim-wiring violation. This is what gives the
  *     always-run `test:scripts` gate its teeth: a `reagent2.*` or
  *     `re-frame.adapter.reagent-slim` require leaking into the stock tree turns
- *     this gate RED in CI. (Today the real tree is clean, so the live scan
- *     passes — see the teeth-proof in the PR: add a slim require to a stock
- *     example → RED → restore → GREEN.)
+ *     this gate RED in CI.
  *
  *  2. UNIT TEETH — pin the pure detector against synthetic fixtures so the
  *     behaviours the gate relies on cannot silently regress to a vacuous pass:
@@ -51,7 +49,7 @@ function it(label, fn) {
   }
 }
 
-console.log('check-reagent-slim-boundary tests (rf2-hekqp)');
+console.log('check-reagent-slim-boundary tests');
 
 // ---------------------------------------------------------------------------
 // 1) LIVE GATE — the teeth in CI. Scan the real stock-Reagent tree; any slim
@@ -78,17 +76,16 @@ it('LIVE: no stock-Reagent example source requires slim wiring', () => {
   );
 });
 
-// ---- FAIL-CLOSED source enumeration (rf2-3fc89f.31) ----------------------
+// ---- FAIL-CLOSED source enumeration --------------------------------------
 //
 // A missing/unreadable DECLARED ROOT (core / capabilities / patterns / real-apps)
 // — or any unreadable nested subtree — must FAIL CLOSED (throw, naming the root)
-// rather than silently return a smaller array. The old catch-and-continue let a
+// rather than silently return a smaller array. A catch-and-continue would let a
 // forbidden slim import in an unwalked root stay INVISIBLE while the count floor
-// of 20 still passed (measured on origin/main: a missing core root dropped 18 of
-// 69 sources, still >20). EACH root is thus validated INDEPENDENTLY of the
-// aggregate count. On OLD code listStockReagentSources ignored the injected io
-// and returned an array, so `assert.throws` here fails on old code (regression
-// teeth).
+// of 20 still passed (a missing core root drops a whole root's sources and can
+// still leave more than 20). EACH root is thus validated INDEPENDENTLY of the
+// aggregate count. A walk that ignores the injected io returns an array, so
+// `assert.throws` here fails on it (regression teeth).
 
 // An io that delegates to the real fs but throws EACCES for ONE declared root,
 // reproducing an unreadable/torn root without touching real disk.
