@@ -1531,7 +1531,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
                  [:data  :any]
                  [:event [:vector :any]]]]
    [:outcome    :any]                       ;; <return-value> | :ok | :rf.error/action-threw
-   [:exception  {:optional true} :any]])    ;; present only on the throw path
+   [:exception  {:optional true} :any]      ;; present only on the throw path
+   [:decl-path  {:optional true} [:vector :any]] ;; path of the node DECLARING the action; [] for a tree root (the machine root or a region body); region-relative inside a region
+   [:region     {:optional true} :keyword]])    ;; the parallel region the action ran in; present only inside a region
 
 ;; --- runtime: machine `:after` timer cancelled trace payload
 ;;     (per [005 §Trace events]) ---
