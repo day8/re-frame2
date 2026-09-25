@@ -542,7 +542,8 @@
   `frames` registry (clearing every record + its `:generation`), run the
   pre/post-dispose late-bind hook phases, dispose then (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
-  standards (`:rf/set-db`; the machine runtime when loaded), apply
+  standards (`:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
+  loaded), apply
   `:clear-kinds` / `:clear-app-schemas?`, and LAST reinstate the `:app-ns`
   rows the fixture removed at build time. Establishes everything EXCEPT the
   ambient frame scope — each shape owns how it makes that scope survive (see
@@ -564,6 +565,7 @@
     (rf.substrate.adapter/install-adapter! adapter)
     (rf.frame/ensure-default-frame!))
   (rf.events/register-set-db-standard!)
+  (rf.events/register-install-frame-state-standard!)
   (when-let [install (rf.late-bind/get-fn :machines/install-runtime!)]
     (install))
   (doseq [k clear-kinds]

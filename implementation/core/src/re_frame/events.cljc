@@ -1250,6 +1250,139 @@
 ;; test path. Mirrors `std-interceptors`' load-time + `init!` re-seed.
 (register-set-db-standard!)
 
+;; ---- :rf/install-frame-state — install a persisted frame-state -----------
+;;
+;; The write half of app-authored persistence (Spec 002 §Installing a
+;; persisted frame-state). The read half is `re-frame.core/frame-state-value`:
+;; the app serialises the partitions and subtrees it chooses to keep, and at
+;; boot dispatches the deserialised value back as `[:rf/install-frame-state
+;; saved]`. It rides the ordinary event lane — a recorded event, one atomic
+;; frame-state transition, the router's candidate validation — and core
+;; registers it with framework-write authority, so the `:rf.db/runtime` it
+;; returns is in-bounds rather than an app write into a framework partition.
+;;
+;; A saved frame is RAW, unprojected state, so the handler installs supplied
+;; runtime subtrees as saved — restore semantics: no entry action, no init
+;; event, the snapshot IS the state. The host work a subtree implies (machine
+;; `:after` timers) is rebuilt AFTER the commit by the owning artefact's fx,
+;; which core names by id without requiring the artefact. The handler body is
+;; pure: it reads its coeffects and returns effects.
+
+(def install-frame-state-event-id
+  "The framework-standard persisted-frame-state install event id. Lives in the
+  single-root `:rf/*` namespace beside `:rf/set-db`."
+  :rf/install-frame-state)
+
+(def ^:private unpersistable-runtime-subtrees
+  "Runtime-db subtrees `:rf/install-frame-state` refuses. The resource cache,
+  the work ledger and the mutation runtime carry in-flight work and active
+  owners that belong to the page session that wrote them: installed as saved,
+  a pending mutation would stay busy and an entry would stay pinned by owners
+  that no longer exist. A resource cache is not persisted; it refetches."
+  #{:rf.runtime/resources :rf.runtime/work-ledger :rf.runtime/mutations})
+
+(defn- install-frame-state-refusal
+  "nil when `payload` is an installable frame-state, else the ex-data the
+  handler throws: `{:reason <string>}`, plus `:subtrees` naming any refused
+  runtime-db subtrees. Deliberately never prints the payload, which is a whole
+  saved frame-state."
+  [payload]
+  (let [non-map-partition (fn [k]
+                            (when (and (contains? payload k)
+                                       (not (map? (get payload k))))
+                              k))]
+    (cond
+      (not (map? payload))
+      {:reason (str "`[:rf/install-frame-state payload]` requires a map payload "
+                    "`{:rf.db/app <map>? :rf.db/runtime <map>?}`; got "
+                    (if (nil? payload) "nil" "a non-map value")
+                    ". Nothing was installed.")}
+
+      (or (non-map-partition :rf.db/app) (non-map-partition :rf.db/runtime))
+      {:reason (str "`[:rf/install-frame-state payload]`: a present `"
+                    (or (non-map-partition :rf.db/app)
+                        (non-map-partition :rf.db/runtime))
+                    "` partition must be a map. Nothing was installed.")}
+
+      :else
+      (when-let [refused (seq (filter unpersistable-runtime-subtrees
+                                      (keys (get payload :rf.db/runtime))))]
+        {:reason   (str "`[:rf/install-frame-state payload]` does not install "
+                        "the resource runtime (" (vec refused) "): a resource "
+                        "cache is not persisted, it refetches. Leave these "
+                        "subtrees out of the saved frame-state. Nothing was "
+                        "installed.")
+         :subtrees (set refused)}))))
+
+(defn install-frame-state-handler
+  "The `:rf/install-frame-state` event handler (Spec 002 §Installing a
+  persisted frame-state). A pure `(fn [coeffects event-vec] effect-map)` over
+  the payload `{:rf.db/app <map>? :rf.db/runtime <map>?}`:
+
+    - a present `:rf.db/app` REPLACES app-db (`:db`);
+    - a present `:rf.db/runtime` is applied PER TOP-LEVEL SUBTREE: each
+      subtree it carries replaces that subtree of the live runtime-db, and
+      every subtree it omits is preserved — runtime-db is a map of subtrees
+      each owned by a different subsystem, so an app that persists only
+      `:rf.runtime/machines` keeps the route slice, SSR metadata and elision
+      state its boot seeded;
+    - an absent partition is untouched.
+
+  When the payload carries `:rf.runtime/machines` and the machines artefact is
+  loaded, `:fx` requests `[:rf.machine/hydrate-rearm {}]`, which runs after
+  the commit and re-arms each restored machine's live `:after` timers at the
+  epoch its snapshot carries, without replaying entry.
+
+  A non-map payload, a present non-map partition, or a resource-runtime
+  subtree (`:rf.runtime/resources`, `:rf.runtime/work-ledger`,
+  `:rf.runtime/mutations`) THROWS an ex-info carrying `{:reason …}`. The
+  router reports it as `:rf.error/handler-exception` and discards the event's
+  effects, so the frame-state is left exactly as it was."
+  [{runtime-db :rf.db/runtime} [_ payload]]
+  (when-let [refusal (install-frame-state-refusal payload)]
+    (throw (ex-info (:reason refusal) refusal)))
+  (let [saved-runtime (get payload :rf.db/runtime)
+        rearm-machines? (and (contains? saved-runtime :rf.runtime/machines)
+                             (some? (rf.late-bind/get-fn
+                                      :machines/rearm-after-hydration!)))]
+    (cond-> {}
+      (contains? payload :rf.db/app)
+      (assoc :db (get payload :rf.db/app))
+
+      (contains? payload :rf.db/runtime)
+      (assoc :rf.db/runtime (merge runtime-db saved-runtime))
+
+      rearm-machines?
+      (assoc :fx [[:rf.machine/hydrate-rearm {}]]))))
+
+(def ^:private install-frame-state-standard-meta
+  "The registration metadata the `:rf/install-frame-state` standard ships:
+  framework-write authority over runtime-db, shared by the regular registrar
+  and the image standard registry so both carry the same descriptor."
+  {:doc "Framework-standard frame-state install event. `[:rf/install-frame-state
+        {:rf.db/app <map>? :rf.db/runtime <map>?}]` replaces app-db with a
+        present :rf.db/app, replaces each runtime-db subtree a present
+        :rf.db/runtime carries (omitted subtrees are preserved), and re-arms
+        restored machine :after timers after the commit. A non-map payload,
+        a non-map partition or a resource-runtime subtree throws."
+   :rf/framework-authority? true})
+
+(defn register-install-frame-state-standard!
+  "Register the framework-standard `:rf/install-frame-state` event into the
+  active registrar AND the image framework-standard registry, exactly as
+  `register-set-db-standard!` does for `:rf/set-db`, so every frame resolves it
+  whether or not an image generation is in scope. Idempotent — called at
+  namespace load and from `re-frame.core/init!`."
+  []
+  (let [descriptor (event-handler-meta install-frame-state-standard-meta []
+                                       install-frame-state-handler)]
+    (rf.registrar/register! :event install-frame-state-event-id descriptor)
+    (rf.image-assembly/register-standard! :event install-frame-state-event-id
+                                          descriptor))
+  install-frame-state-event-id)
+
+(register-install-frame-state-standard!)
+
 ;; ---- the framework-private flow-settle event (Spec 013 §Sequencing) -------
 ;;
 ;; `:rf.fx/reg-flow` and `:rf.fx/clear-flow` are walked by `:fx`, the LAST drain
