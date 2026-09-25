@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 /*
  * Tests for `examples/scripts/examples-staging.cjs` — the shared staging
- * helpers + the standalone-example manifest derived from shadow-cljs.edn
- * (rf2-pdo5mx).
+ * helpers + the standalone-example manifest derived from shadow-cljs.edn.
  *
  * What these pin
  * --------------
  *   - parseExampleBuilds reads EVERY `:examples/<name>` build def, including
- *     the brace-on-the-NEXT-line shape shadow-cljs.edn actually uses (the
- *     parser's first cut used a single non-greedy regex + lookahead that
- *     silently skipped every OTHER entry — the consume-the-delimiter bug;
- *     these tests would have caught it).
+ *     the brace-on-the-NEXT-line shape shadow-cljs.edn actually uses (a
+ *     single non-greedy regex + lookahead would silently skip every OTHER
+ *     entry — the consume-the-delimiter bug).
  *   - each parsed build recovers its :output-dir and :init-fn.
  *   - the real-repo derivation is non-vacuous (the project ships well over a
  *     dozen example builds) and every DOCUMENTED build — core, capability and
@@ -46,7 +44,7 @@ const {
 } = require('../../examples/scripts/examples-asset-manifest.cjs');
 
 // A SYNTHETIC manifest, injected so the staging projection + consumer are pinned
-// without restating the production data (rf2-phpbo8). It carries a vendored-CSS
+// without restating the production data. It carries a vendored-CSS
 // entry (both assets html-linked, node_modules-sourced) and a staging-only
 // colocated-fixture entry (not html-linked).
 const SYNTHETIC_MANIFEST = [
@@ -92,13 +90,13 @@ function itAsync(label, f) {
   asyncTests.push([label, f]);
 }
 
-console.log('examples-staging tests (rf2-pdo5mx)');
+console.log('examples-staging tests');
 
 // ---- parser: synthetic fixture, both brace placements --------------------
 
 // Mirrors shadow-cljs.edn shape: a top-level map of build defs, with the
 // build-id key on its OWN line and the opening `{` on the FOLLOWING line
-// (the shape that broke the first parser cut), plus an inline-brace variant
+// (the shape the consume-the-delimiter bug skips), plus an inline-brace variant
 // to prove both are read. Adjacent example builds must BOTH be recovered.
 const FIXTURE = `{:builds
  {:node-test {:target :node-test}
@@ -167,7 +165,7 @@ it('parseExampleBuilds recovers :target, and a :node-library build keeps no :ini
 // The out+init invariant is asserted of the PAGE builds — the `:browser` ones
 // listStandaloneExamples turns into runnable entries. A server-side example
 // build (`:node-library`, publishing an `:exports-var` for a Node sidecar to
-// require — rf2-8arzr.5) is not a page and correctly declares neither, so
+// require) is not a page and correctly declares neither, so
 // holding it to the page invariant asserts something false of the domain.
 // Every build must still declare a `:target`: a null one would silently drop a
 // real page build out of the loop below, which is the vacuity this pins shut.
@@ -187,15 +185,14 @@ it('parseExampleBuilds(shadow-cljs.edn) is non-vacuous and every :browser build 
   }
 });
 
-// ---- FAIL-CLOSED ns-index enumeration (rf2-3fc89f.31) --------------------
+// ---- FAIL-CLOSED ns-index enumeration ------------------------------------
 //
 // buildNsIndex feeds listStandaloneExamples: an unreadable examples/ subtree (or
 // an unreadable source file whose head we read for its ns) must FAIL CLOSED
 // (throw, naming the path) rather than hide the ns and make the dev runner
-// advertise the build as merely "not runnable". The old catch-and-continue
-// swallowed BOTH the readdirSync AND the readFileSync failure. On OLD code
-// buildNsIndex was not even exported and ignored an injected io, so these tests
-// fail on old code (regression teeth).
+// advertise the build as merely "not runnable". A catch-and-continue would
+// swallow BOTH the readdirSync AND the readFileSync failure. buildNsIndex takes
+// an injected io, so these tests fail one path at a time.
 
 // An io that delegates to the real fs but fails for ONE path: EACCES on
 // readdirSync of `badDir`, or throws on readFileSync of `badFile`.
@@ -258,7 +255,7 @@ it('buildNsIndex builds the full index with a clean io (no false failure) (rf2-3
   assert.ok(idx.size >= 30, `expected a non-vacuous ns-index, got ${idx.size}`);
 });
 
-// ---- the documented run recipes resolve to a real host page (rf2-iacw2, rf2-ujdn0)
+// ---- the documented run recipes resolve to a real host page
 //
 // Every core and capability README tells the reader to run exactly
 // `npm run dev:example -- <build-id>`. That recipe only reaches a page if the
@@ -297,7 +294,7 @@ const DOCUMENTED_SUBSTRATE_BUILDS = [
   'examples/counter-uix',
   'examples/login-uix',
   'examples/dashboard-uix',
-  // rf2-fmns2 — the Fresco login, the third arm of the one-model
+  // The Fresco login, the third arm of the one-model
   // three-view-layer comparison examples/substrates/README.md documents.
   'examples/login-fresco',
 ];
@@ -335,11 +332,11 @@ for (const [family, builds] of [
   });
 }
 
-// ---- clean-stage boundary (rf2-bf4vdy) ----------------------------------
+// ---- clean-stage boundary ------------------------------------------------
 //
-// The examples + Story harnesses share implementation/out/examples and used to
-// OVERLAY staged fixtures onto it, so a file a previous run staged could remain
-// under the served root (a stale-file false green). cleanStageDirs removes +
+// The examples + Story harnesses share implementation/out/examples. OVERLAYING
+// staged fixtures onto it would let a file a previous run staged remain under
+// the served root (a stale-file false green). cleanStageDirs removes +
 // recreates only the SELECTED output dirs, path-guarded so it can never touch
 // the shared root or an out-of-tree path.
 
@@ -418,22 +415,22 @@ it('cleanStageDirs (re)creates a not-yet-existing selected dir (first run)', () 
   }
 });
 
-// ---- serve-example dev-runner clean-stage boundary (rf2-rg2tze) ----------
+// ---- serve-example dev-runner clean-stage boundary -----------------------
 //
-// `npm run dev:example` / serve-example.cjs used to overlay index.html +
-// _shared onto whatever a PRIOR run left in the selected output dir — so a
-// stale main.js (or a retired asset) stayed serveable, and in watch mode the
-// browser could render that old bundle while the runner had already printed a
-// live URL. The fix pins serve-example to the SAME clean-then-stage boundary
-// the CI/Story orchestrators use: cleanStageDirs([entry.outDir], OUT_ROOT)
-// BEFORE stageExample(entry). These tests pin both the behaviour (a stale
+// Overlaying index.html + _shared onto whatever a PRIOR run left in the
+// selected output dir would leave a stale main.js (or a stale asset)
+// serveable, and in watch mode the browser could render that old bundle while
+// the runner had already printed a live URL. So `npm run dev:example` /
+// serve-example.cjs uses the SAME clean-then-stage boundary the CI/Story
+// orchestrators use: cleanStageDirs([entry.outDir], OUT_ROOT) BEFORE
+// stageExample(entry). These tests pin both the behaviour (a stale
 // main.js is removed, siblings survive, assets land) and the call-site (the
 // clean precedes the stage), so a refactor that drops the clean fails here.
 
 it('dev-runner clean-then-stage removes a stale main.js and re-stages the example (rf2-rg2tze)', () => {
   // Seed a temp OUT_ROOT with a selected dir holding a STALE main.js + retired
   // asset from a "prior run", plus a sibling output another build relies on.
-  // Run the EXACT sequence serve-example.cjs now performs — clean the selected
+  // Run the EXACT sequence serve-example.cjs performs — clean the selected
   // dir, then stageExample — and prove the stale bundle is gone, the example's
   // index.html landed fresh, and the sibling survived.
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-serve-'));
@@ -490,12 +487,12 @@ it('serve-example.cjs calls cleanStageDirs on the selected outDir BEFORE stageEx
   assert.ok(cleanAt < stageAt, 'the clean must precede the stage so no stale file survives into the served dir');
 });
 
-// ---- serve-example dev-runner exit-code decision (rf2-35lfqo) ------------
+// ---- serve-example dev-runner exit-code decision -------------------------
 //
-// serve-example.cjs used to return 0 unconditionally once the http-server
-// exited — so a `shadow-cljs watch` that crashed (compile loop / JVM error)
-// or an http-server that fell over false-greened the dev runner. The pure
-// decideRunnerExit helper now maps the observed child outcomes to the runner's
+// Returning 0 unconditionally once the http-server exits would let a
+// `shadow-cljs watch` that crashed (compile loop / JVM error) or an
+// http-server that fell over false-green the dev runner. The pure
+// decideRunnerExit helper maps the observed child outcomes to the runner's
 // exit code: clean/interrupted shutdown -> 0, any unexpected child crash -> 1.
 
 const { decideRunnerExit } = require('../../examples/scripts/serve-example.cjs');
@@ -518,7 +515,7 @@ it('decideRunnerExit returns 0 on a clean interrupted shutdown (Ctrl+C)', () => 
 
 it('TEETH: decideRunnerExit returns 1 when shadow-cljs watch crashes unexpectedly', () => {
   // The watch died with a non-zero code while the user did NOT interrupt —
-  // the exact false-green the prior unconditional `return 0` masked.
+  // the exact false-green an unconditional `return 0` would mask.
   assert.strictEqual(
     decideRunnerExit({
       server: { code: 0, signal: null },
@@ -568,19 +565,19 @@ it('decideRunnerExit treats a teardown-signal kill during interrupt as expected 
   );
 });
 
-// ---- per-example static assets (rf2-cq6va5) ------------------------------
+// ---- per-example static assets -------------------------------------------
 //
 // The clean-stage boundary recreates the selected output dir EMPTY, so any
 // per-example static asset an example references via a flat (output-root-
 // relative) href / fetch URL must be re-staged each run or it 404s after a
-// clean. `stageExample` now stages index.html + _shared + the declared
+// clean. `stageExample` stages index.html + _shared + the declared
 // per-example assets; these tests prove the declared assets land after a clean
 // stage and that a missing source fails LOUD (not a silent skip that ships an
 // unstyled / 404ing / broken-image page).
 
-// ---- manifest projection: staging consumer (rf2-phpbo8) ------------------
+// ---- manifest projection: staging consumer -------------------------------
 //
-// The staging PER_EXAMPLE_ASSETS map is no longer a literal declaration — it is
+// The staging PER_EXAMPLE_ASSETS map is not a literal declaration — it is
 // the projection of the single examples asset/exception manifest, the shared
 // owner the static scanner also consumes. These pin the projection against a
 // SYNTHETIC manifest (so the logic is exact, not a restated copy of production
@@ -731,13 +728,13 @@ function noopIo() {
   };
 }
 
-// ---- serve-example first-build readiness (rf2-qwy3) ----------------------
+// ---- serve-example first-build readiness ---------------------------------
 //
-// The dev runner used to print `<build> is live at <url>` the moment
-// http-server proved it owned the staged root. In WATCH mode that root has just
-// been cleaned (rf2-rg2tze) and `shadow-cljs watch` is asynchronous, so the
-// advertised page served its host HTML + _shared assets while the `main.js` it
-// requires was still absent: a blank, non-booted app, with no bundle loaded and
+// Printing `<build> is live at <url>` the moment http-server proves it owns the
+// staged root would be premature. In WATCH mode that root has just been
+// cleaned and `shadow-cljs watch` is asynchronous, so the advertised page
+// would serve its host HTML + _shared assets while the `main.js` it requires
+// was still absent: a blank, non-booted app, with no bundle loaded and
 // therefore no shadow client to turn the later compile into a live reload.
 // Server ownership and application-build readiness are different facts;
 // serve-example composes them via waitForFirstBuild.
@@ -787,8 +784,8 @@ itAsync('TEETH: waitForFirstBuild does NOT report ready on a zero-length artifac
   const result = await waitForFirstBuild({
     fetchBody: async () => {
       probes++;
-      // Empty for the first three probes (the acceptance criterion's
-      // "zero-length" case), then real content.
+      // Empty for the first three probes (the "zero-length" case), then
+      // real content.
       return probes < 4 ? '' : 'console.log("booted");';
     },
     isAborted: () => false,
@@ -843,8 +840,8 @@ itAsync('waitForFirstBuild reports ready off a REAL http server once a delayed p
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const port = server.address().port;
 
-    // Before any build: the entrypoint is genuinely unserved — the window the
-    // old code advertised as live.
+    // Before any build: the entrypoint is genuinely unserved — the window an
+    // unwaited banner would advertise as live.
     assert.strictEqual(
       await fetchServedBody(port, { host: '127.0.0.1', path: `/${BUILD_ENTRYPOINT}` }),
       null,
@@ -876,9 +873,9 @@ itAsync('waitForFirstBuild reports ready off a REAL http server once a delayed p
 });
 
 it('TEETH: serve-example awaits the first build BEFORE printing the live URL (rf2-qwy3)', () => {
-  // The call-site pin. On the pre-fix ordering there is no wait at all between
-  // startLocalHttpServer's ready result and the `is live` banner, so this test
-  // fails against it — which is the whole point.
+  // The call-site pin. With no wait between startLocalHttpServer's ready
+  // result and the `is live` banner this test fails — which is the whole
+  // point.
   const waitAt = SERVE_EXAMPLE_SRC.indexOf('await waitForFirstBuild(');
   const liveAt = SERVE_EXAMPLE_SRC.indexOf('is live at http://127.0.0.1:');
   assert.ok(waitAt !== -1, 'serve-example must await the first-build readiness wait');
@@ -909,24 +906,24 @@ it('serve-example keeps the wait on the WATCH path only, and tears down on first
   );
 });
 
-// ---- watch termination before the first build (rf2-qwy3, merged-PR audit) --
+// ---- watch termination before the first build ----------------------------
 //
-// The first-build wait above closed the "live URL, absent bundle" window, but
-// the watch exit handler that ABORTS that wait only fired on a NON-ZERO exit.
-// A `shadow-cljs watch` that terminated with code 0 before publishing main.js
-// therefore left the server up, the abort flag false and waitForFirstBuild
-// polling forever: the runner hung silently, with no URL, no diagnostic and no
-// exit — the one outcome the acceptance criterion ("any watch-child exit before
-// readiness must tear down and exit non-zero") rules out.
+// The first-build wait above closes the "live URL, absent bundle" window, and
+// the watch exit handler must ABORT that wait on every exit before readiness,
+// a clean one included. Treating a code-0 exit as benign would leave a
+// `shadow-cljs watch` that terminated before publishing main.js with the server
+// up, the abort flag false and waitForFirstBuild polling forever: the runner
+// would hang silently, with no URL, no diagnostic and no exit. Any watch-child
+// exit before readiness must tear down and exit non-zero.
 //
-// The classification now lives in the pure, exported watchExitAbortsRun, and
+// The classification lives in the pure, exported watchExitAbortsRun, and
 // the handler holds none of its own — which is what makes these cases
 // authoritative for the handler, and is pinned as such below.
 
 const { watchExitAbortsRun } = require('../../examples/scripts/serve-example.cjs');
 
 it('TEETH: a CLEAN (code 0) watch exit BEFORE the first build ends the run (rf2-qwy3)', () => {
-  // The audit's case, stated on its own: exiting 0 is not "nothing to see" while
+  // The clean early exit, stated on its own: exiting 0 is not "nothing to see" while
   // the watcher is still the only thing that can publish the entrypoint.
   assert.strictEqual(
     watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: false }),
@@ -938,7 +935,7 @@ it('TEETH: a CLEAN (code 0) watch exit BEFORE the first build ends the run (rf2-
 it('TEETH: every unasked-for watch termination before the first build is terminal (rf2-qwy3)', () => {
   for (const outcome of [
     { code: 1, signal: null }, // compile-loop crash / JVM error
-    { code: 0, signal: null }, // the audit's case: a clean early exit
+    { code: 0, signal: null }, // a clean early exit
     { code: null, signal: 'SIGKILL' }, // OOM-killed
     { code: null, signal: null }, // gone, with nothing to say
   ]) {
@@ -951,13 +948,13 @@ it('TEETH: every unasked-for watch termination before the first build is termina
 });
 
 it('after the first build, a clean watch exit is an ordinary shutdown (rf2-qwy3)', () => {
-  // The repair is bounded to the pre-readiness phase on purpose: once the bundle
-  // is served the page works, and decideRunnerExit already grades a clean exit 0.
+  // The rule is bounded to the pre-readiness phase on purpose: once the bundle
+  // is served the page works, and decideRunnerExit grades a clean exit 0.
   assert.strictEqual(
     watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: true }),
     false,
   );
-  // ...but an UNEXPECTED termination still tears the server down, as before.
+  // ...but an UNEXPECTED termination still tears the server down.
   assert.strictEqual(watchExitAbortsRun({ code: 2, firstBuildReady: true }), true);
   assert.strictEqual(
     watchExitAbortsRun({ code: null, signal: 'SIGKILL', firstBuildReady: true }),
@@ -979,15 +976,15 @@ itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait ra
   // The runner's own composition, driven by a fake watch child: its exit
   // handler classifies the outcome with watchExitAbortsRun and flips the abort
   // flag the first-build wait reads. This is the behaviour the injected
-  // `watchDied = true` witness above could not reach, because it skipped the
+  // `watchDied = true` witness above cannot reach, because it skips the
   // classification entirely.
   const preAudit = ({ code }, interrupted) =>
     !interrupted && !(typeof code === 'number' && code === 0);
   assert.strictEqual(
     preAudit({ code: 0, signal: null }, false),
     false,
-    'control: the pre-audit classification read this exact outcome as benign, ' +
-      'which is why the wait below used to poll forever',
+    'control: a code-0-is-benign classification reads this exact outcome as benign, ' +
+      'which would leave the wait below polling forever',
   );
 
   let watchDied = false;
@@ -998,10 +995,10 @@ itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait ra
     }
   };
 
-  // The regression's SIGNATURE is an unbounded poll, so the witness bounds it:
+  // The defect's SIGNATURE is an unbounded poll, so the witness bounds it:
   // a misclassified exit must fail this test loudly rather than spin the suite
-  // until CI times out. (Measured — with the pre-audit classification planted,
-  // an unbounded version of this case hangs instead of reporting.)
+  // until CI times out. (With the code-0-is-benign classification planted, an
+  // unbounded version of this case hangs instead of reporting.)
   let probes = 0;
   const PROBE_CEILING = 50;
   const result = await waitForFirstBuild({
@@ -1040,7 +1037,7 @@ it('TEETH: the watch exit handler delegates its classification to watchExitAbort
   );
   assert.ok(
     !/!\(typeof code === 'number' && code === 0\)/.test(SERVE_EXAMPLE_SRC),
-    'the pre-audit inline "a code-0 exit is benign" test must not survive in the handler',
+    'the handler must not carry an inline "a code-0 exit is benign" test',
   );
   // And the phase flag must only be asserted AFTER the wait proves the bundle
   // is served — set it earlier and the code-0 hole reopens under a new name.
@@ -1054,21 +1051,19 @@ it('TEETH: the watch exit handler delegates its classification to watchExitAbort
 });
 
 // ---------------------------------------------------------------------------
-// HISTORY-ROUTE DOCUMENT FALLBACK (rf2-fzbj.35).
+// HISTORY-ROUTE DOCUMENT FALLBACK.
 //
-// The runner served the staged output dir over a PLAIN static server, so a
-// history-routed example (examples/routing registers `/`, `/articles` and
-// `/articles/:id`) was reloadable only at `/`. A refresh, a bookmark, a copied
-// link or a direct hit on `/articles/intro` asked that server for a file no
-// build ever emits: 404, the app never booted, and the URL synchronisation that
-// would have resolved the route never ran. Measured against the real spawn path
-// before the repair — `GET /` 200 with the host body, `GET /articles/intro` 404
-// without it.
+// Over a PLAIN static server a history-routed example (examples/routing
+// registers `/`, `/articles` and `/articles/:id`) is reloadable only at `/`. A
+// refresh, a bookmark, a copied link or a direct hit on `/articles/intro` asks
+// that server for a file no build ever emits: 404, the app never boots, and the
+// URL synchronisation that would resolve the route never runs.
 //
-// These pin BOTH halves of the repair, because each without the other is a
-// defect: an HTML document navigation now gets the staged host page, and
-// EVERYTHING ELSE still 404s. A blanket fallback would hand waitForFirstBuild
-// above a host page in place of a compiled main.js and resurrect rf2-qwy3.
+// These pin BOTH halves of the fallback, because each without the other is a
+// defect: an HTML document navigation gets the staged host page, and
+// EVERYTHING ELSE 404s. A blanket fallback would hand waitForFirstBuild above a
+// host page in place of a compiled main.js and reopen the "live URL, absent
+// bundle" window.
 const {
   isDocumentNavigationRequest,
   startDocumentFallbackServer,
@@ -1128,7 +1123,7 @@ it('TEETH: an ASSET request is never a document navigation, however it asks (rf2
 });
 
 itAsync('the document fallback serves the host page for a history route and 404s every asset (rf2-fzbj.35)', async () => {
-  // The POLICY half of the repair, over real HTTP against the real responder
+  // The POLICY half of the fallback, over real HTTP against the real responder
   // serve-example starts. Node builtins only, so it runs in every lane —
   // including `js-harness-self-tests`, which installs no packages at all. The
   // composition with http-server's `--proxy` is pinned by the argv row in
@@ -1265,13 +1260,13 @@ itAsyncWithHttpServer('a history route is RELOADABLE through the real runner ser
     });
     assert.strictEqual(ready, true, 'the staged root must reach owned readiness');
 
-    // The defect, repaired: a deep history route serves the host document.
+    // A deep history route serves the host document.
     for (const url of ['/articles/intro', '/articles', '/realworld/profile/bob']) {
       const r = await get(port, url, HTML_ACCEPT);
       assert.strictEqual(r.status, 200, `${url} must serve the host page, not 404`);
       assert.ok(r.body.includes(HOST_SENTINEL), `${url} must serve the STAGED host page`);
     }
-    // Unchanged: the root and a real emitted asset.
+    // The root and a real emitted asset are served from disk, not the fallback.
     const rootRes = await get(port, '/', HTML_ACCEPT);
     assert.strictEqual(rootRes.status, 200);
     assert.ok(rootRes.body.includes(HOST_SENTINEL));
@@ -1279,8 +1274,8 @@ itAsyncWithHttpServer('a history route is RELOADABLE through the real runner ser
     assert.strictEqual(bundle.status, 200);
     assert.ok(bundle.body.includes('booted'), 'a real asset must still be served from disk');
 
-    // TEETH: a MISSING asset must not become a successful HTML body. This is
-    // the rf2-qwy3 guard — the runner's first-build probe fetches /main.js with
+    // TEETH: a MISSING asset must not become a successful HTML body. This
+    // guards the first-build wait — the runner's first-build probe fetches /main.js with
     // no Accept header, so a fallback that answered it would let the runner
     // advertise a live URL over a build that never landed.
     for (const [url, accept] of [
@@ -1307,7 +1302,7 @@ itAsyncWithHttpServer('a history route is RELOADABLE through the real runner ser
 it('TEETH: serve-example wires the document fallback into its own server (rf2-fzbj.35)', () => {
   // The call-site pin. The helpers above can be perfect and the runner still
   // serve a 404 on refresh if it never hands the fallback origin to the server
-  // it starts — which is exactly the pre-fix state.
+  // it starts.
   assert.ok(
     /startDocumentFallbackServer\(/.test(SERVE_EXAMPLE_SRC),
     'serve-example must stand up the document fallback',
