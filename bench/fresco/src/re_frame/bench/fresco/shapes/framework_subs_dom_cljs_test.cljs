@@ -1,13 +1,13 @@
 (ns re-frame.bench.fresco.shapes.framework-subs-dom-cljs-test
-  "**FRAMEWORK SUBS, EXERCISED THROUGH THE ARM** (rf2-2rtt6.53).
+  "**FRAMEWORK SUBS, EXERCISED THROUGH THE ARM**.
 
   The charter counts framework subs at **27% of census read traffic** and
   says \"the index serves them first-class\" — the dependency edges, which
-  since rf2-dabt3 are the cell table's own reader lists. The roster ports read the
-  same *shape* through plain `reg-sub`s (`:conduit/favorite-pending?`),
-  so until this file nothing witnessed that a real framework sub reads
-  identically to an app sub through the collector. Two things went
-  unchecked, and each has a test here named for it:
+  are the cell table's own reader lists. The roster ports read the same
+  *shape* through plain `reg-sub`s (`:conduit/favorite-pending?`), so
+  nothing there witnesses that a real framework sub reads identically to
+  an app sub through the collector. Two things would go unchecked, and
+  each has a test here named for it:
 
   1. **The query vector's arg is a MAP.** The cell table's sub-key
      identity is value equality on `[frame-kw query-v]`, and every roster
@@ -24,14 +24,12 @@
      output `=` cutoff keeps its readers quiet. Both clocks are driven
      here and judged against the same narrow law the roster's own
      witnesses state — **one commit → one body** (per reader) — with the
-     roster's one documented rider, now repaired: a commit the PAGE reads
-     re-runs the page once and **no** child boundary beneath it, because a
-     value-equality bail-out is the boundary default (HD-028,
-     rf2-2rtt6.52). This restated the cascade when the cascade was still
-     there; it restates its absence now
+     roster's one documented rider: a commit the PAGE reads re-runs the
+     page once and **no** child boundary beneath it, because a
+     value-equality bail-out is the boundary default (HD-028). That
+     absence is restated here on the resource clock
      (`narrow_dom_cljs_test/a-page-chrome-write-re-renders-no-unchanged-row`
-     pins on the roster; the same number here, on the resource clock, not
-     contradicted).
+     pins it on the roster; the same number here, not contradicted).
 
   The page is deliberately NOT one of the measured roster pages
   (`shapes/ordinary` / `shapes/feed` / `shapes/large_template` carry the
@@ -160,7 +158,8 @@
 
 (defn- mutation-read
   "The census's per-row status read, verbatim
-  (`examples/real-apps/realworld_resources/ui_views.cljs:119`). Built
+  (`examples/real-apps/realworld_resources/views.cljs`, its
+  `article-preview`). Built
   fresh at every call site — never shared through a def — so every read
   and every assertion exercises VALUE equality on the map arg rather than
   object identity."
@@ -281,10 +280,10 @@
                 "the map arg is a value, not an object identity")
             (is (some? (rf.bench.fresco.arm1.runtime/cell-reaction [frame-id resource-read]))
                 "and so is the resource read's"))
-          (testing "and finds the readers the cell holds for it (rf2-dabt3:
-                   the reverse edge is the cell's own reader list now, so
-                   this counts memberships on the table rather than a
-                   second map's reader set)"
+          (testing "and finds the readers the cell holds for it (the
+                   reverse edge is the cell's own reader list, so this
+                   counts memberships on the table rather than a second
+                   map's reader set)"
             (is (= 2 (count (rf.bench.fresco.arm1.runtime/cell-readers [frame-id (mutation-read slug-0)])))
                 "card 0 and the detail both hold the shared instance's edge")
             (is (= 1 (count (rf.bench.fresco.arm1.runtime/cell-readers [frame-id (mutation-read (:slug (rf.bench.fresco.shapes.model/article 1)))])))
@@ -374,19 +373,18 @@
           (ensure-feed!)
           (testing "ensure's :loading install is one commit → one PAGE body,
                    and nothing beneath it: a value-equality bail-out is the
-                   boundary default (HD-028, rf2-2rtt6.52), so a write the
-                   PAGE reads re-renders the page and NOT the children whose
-                   props and reads did not move. Both rows below read 1 when
-                   this suite was first written, against the cascade
+                   boundary default (HD-028), so a write the PAGE reads
+                   re-renders the page and NOT the children whose props and
+                   reads did not move — the same 0
                    `narrow_dom_cljs_test/a-page-chrome-write-re-renders-no-unchanged-row`
-                   pinned on the roster — the same number, restated here on the
-                   resource clock rather than contradicted, and it is now 0"
+                   pins on the roster, restated here on the resource clock
+                   rather than contradicted"
             (is (= "loading" (text handle "fw-feed-status"))
                 "the page's own DOM moved, so the two 0s below are not passing
                  because the write did nothing")
             (is (= 1 (runs :page)) "the dirty walk answered for exactly one boundary")
-            (is (= 0 (runs slug-0)) "…and the card bailed out — this read 1 before the repair")
-            (is (= 0 (runs :detail)) "as did the detail — this read 1 before the repair"))
+            (is (= 0 (runs slug-0)) "…and the card bailed out — without the bail-out this reads 1")
+            (is (= 0 (runs :detail)) "as did the detail — without the bail-out this reads 1"))
           (reset-runs!)
           (settle-feed! 42)
           (testing "the decoded reply is one more commit → one more page body,
@@ -395,8 +393,9 @@
             (is (= "42" (text handle "fw-feed-total")))
             (is (= 1 (runs :page)))
             (is (= 0 (runs :detail))
-                "its read did not move, so the bail-out held it quiet — this
-                 read 1 before the repair, on the cascade rather than the edges"))
+                "its read did not move, so the bail-out held it quiet —
+                 without the bail-out this reads 1, on the cascade rather
+                 than the edges"))
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
