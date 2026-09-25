@@ -1,13 +1,11 @@
 (ns re-frame.api-manifest.doc-api-check-test
-  "Regression tests for the human-doc API-reference projection check
-  (rf2-vzupmg).
+  "Regression tests for the human-doc API-reference projection check.
 
-  THE GAP. The keystone manifest drift-check and its existing projection
-  checks scan spec/API.md, docs/core/**, the two tool API specs, and
-  skills/ — but NOT the three human-facing API-reference trees
-  (spec/Privacy.md, docs/core/api/**, docs/story/api/**). EP-0025 stale prose
-  slipped into exactly those trees and passed every CI check. This check
-  extends the same call-position discipline to them.
+  THE SURFACE. The manifest drift-check and the other projection checks
+  scan spec/API.md, docs/core/**, the two tool API specs, and skills/; this
+  check extends the same call-position discipline to the three
+  human-facing API-reference trees (spec/Privacy.md, docs/api/**,
+  docs/story/api/**), which none of the others reach.
 
   THE CONTRACT these tests pin (through the pure `reconcile` reconciler with
   synthetic references, plus a live smoke that the committed trees reconcile
@@ -23,9 +21,9 @@
 
 (def ^:private manifest-vars
   ;; A small synthetic stand-in spanning several namespaces, exercising the
-  ;; bare-name latitude: `configure!` lives on re-frame.story,
-  ;; `machine-by-system-id` on re-frame.machines, the rest on re-frame.core —
-  ;; all resolve by name.
+  ;; bare-name latitude: `configure!` stands for a re-frame.story var,
+  ;; `machine-by-system-id` for a re-frame.machines one, the rest for
+  ;; re-frame.core — all resolve by name.
   #{"reg-event" "reg-sub" "dispatch" "configure!" "reg-story" "machine-by-system-id"})
 
 (def ^:private scoped-allow
@@ -73,17 +71,16 @@
       (is (re-find #"removed API named outside its approved" (:detail (first probs)))))))
 
 (deftest live-doc-api-reconciles-clean
-  (testing "the committed spec/Privacy.md + docs/core/api + docs/story/api
+  (testing "the committed spec/Privacy.md + docs/api + docs/story/api
             reconcile against the committed manifest with zero problems
-            (the CI contract — #4887/#4888 cleaned these trees + this PR
-            corrected the residual path/unwrap drift the gate surfaced)"
+            (the CI contract)"
     (is (true? (rf.api-manifest.doc-api-check/check!))
         "live drift: a human-doc API-reference tree names a removed/renamed public surface")))
 
 (deftest story-api-references-reach-the-check-under-rf-story
   (testing "docs/story/api/** calls re-frame.story under its canonical rf.story
-            alias, and the extraction still reaches those references
-            (rf2-0ae7o.9). The aggregate floor sits far below the live count,
+            alias, and the extraction reaches those references.
+            The aggregate floor sits far below the live count,
             so dropping the alias from the extraction would narrow the gate
             without turning it red; this is the test that notices."
     (let [files (rf.api-manifest.projection/require-markdown-files
@@ -95,14 +92,14 @@
 
 (deftest scoped-allowlist-sidecar-key-is-present-and-a-map
   (testing "the committed sidecar carries the file-scoped allowlist key as a
-            map (empty today; the tombstone uses bare-backtick names, not
-            call-position forms, so no entry is needed)"
+            map (it may be empty: the tombstone uses bare-backtick names,
+            not call-position forms, so it needs no entry)"
     (let [scoped (:doc-api-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar))]
       (is (map? scoped)
           "the scoped allowlist must be a {name -> #{files}} map"))))
 
 ;; ---------------------------------------------------------------------------
-;; Page + member coverage reconciler (rf2-e5692s).
+;; Page + member coverage reconciler.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private cov-rows
@@ -158,7 +155,7 @@
 
 (deftest coverage-exempt-sidecar-key-defaults-empty
   (testing "the coverage-exempt sidecar key, when present, is a collection of
-            [namespace var] pairs (absent today → the checker defaults to #{})"
+            [namespace var] pairs (absent → the checker defaults to #{})"
     (let [exempt (:doc-api-coverage-exempt (rf.api-manifest.gen/read-sidecar))]
       (is (or (nil? exempt) (coll? exempt))
           "the coverage-exempt allowlist must be a collection of [ns var] pairs (or absent)"))))
