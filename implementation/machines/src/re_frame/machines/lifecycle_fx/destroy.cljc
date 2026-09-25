@@ -395,8 +395,7 @@
 
   Every coordinate must agree: parent, invoke path, logical child id, spawned
   actor id, and opaque attempt token. A stale/replaced/forged membership is not
-  join authority and returns nil. Membership in `:done ∪ :failed` then proves
-  that this exact attempt already published its terminal reply."
+  join authority and returns nil."
   [runtime-db actor-id]
   (let [join-child (get-in runtime-db
                            (conj (rf.machines.paths/snapshot-path actor-id)
@@ -548,10 +547,10 @@
       ;; double-destroy. The emit is also gated on `destroy-single-actor!`'s
       ;; return, so a child whose teardown aborts on owner loss gets none.
       ;;
-      ;; A child already present
-      ;; in `:done ∪ :failed` has published its terminal reply, so parent exit
-      ;; tears it down with the post-terminal cleanup reason; only an
-      ;; in-progress sibling is an explicit cancellation.
+      ;; A child that completed destroyed itself with
+      ;; `:rf.machine/finished` when it folded, so it has no snapshot and
+      ;; fails `owned-join-child?`. Every child torn down here is an
+      ;; in-progress sibling, and its teardown is an `:explicit` cancellation.
       (when (owned-join-child? (rf.frame/frame-runtime-db-value frame-id)
                                spawned-id parent-id invoke-id child-id)
         (when-let [{:keys [reason join-child]}
@@ -609,8 +608,8 @@
   callback-bearing teardown boundary is rechecked and the durable writes ride
   A's token. Before teardown, `prepare-join-child-teardown!` authenticates the
   child's private membership against the durable live join. Its exact work
-  generation feeds the reply identity; an already-folded child selects
-  post-terminal cleanup, while an in-progress explicit teardown durably closes
+  generation feeds the reply identity. The trace carries the requested
+  reason, and an `:explicit` teardown of an authenticated child durably closes
   the attempt before callbacks can release a queued completion."
   [frame-id actor-id requested-reason parent-id invoke-id old-db fence]
   (when (actor-live? frame-id actor-id old-db)
