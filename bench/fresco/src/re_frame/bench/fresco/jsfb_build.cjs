@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 //
-// BUILD THE TWO ARMS AS js-framework-benchmark ENTRIES (rf2-rguy1).
+// BUILD THE THREE ARMS AS js-framework-benchmark ENTRIES.
 //
-// Produces `frameworks/keyed/rf2-reagent/` and `frameworks/keyed/rf2-fresco/`
+// Produces `frameworks/keyed/rf2-reagent/`, `frameworks/keyed/rf2-fresco/`
+// and `frameworks/keyed/rf2-uix/`
 // inside a CLONE of krausest/js-framework-benchmark. It never writes inside
 // this repository, and the clone is never committed here: it is somebody
 // else's repository and it stays outside our tree.
 //
-//   node fresco/test/re_frame/bench/fresco/jsfb_build.cjs --dest <clone>
+//   node src/re_frame/bench/fresco/jsfb_build.cjs --dest <clone>     (from bench/fresco/)
 //
-// ## Why both arms are built here rather than taken from upstream
+// ## Why the arms are built here rather than taken from upstream
 //
 // Upstream already ships `frameworks/keyed/reagent` (Reagent 0.10, lein,
 // React 16-era) and `frameworks/keyed/re-frame` (re-frame 1.4.3). Either
@@ -19,21 +20,21 @@
 // gap would measure five years of React as much as it measured a
 // substrate.
 //
-// So both arms are compiled here, from one repository, at one React, by one
+// So the arms are compiled here, from one repository, at one React, by one
 // shadow-cljs, at `:advanced` with `goog.DEBUG false` — the `:fresco-bench`
 // build the clock harness uses, reached through `--config-merge` only, so
-// `implementation/shadow-cljs.edn` is untouched and no build id is added.
+// no build id is added.
 //
-// ## One build id, two arms — the cache is cleared between them
+// ## One build id, several arms — the cache is cleared between them
 //
 // `:fresco-bench` is a single build id and each arm overrides its
 // `:init-fn` and `:output-dir`. shadow-cljs caches per build id, so building
 // the second arm without clearing would risk serving the first arm's
-// analysis. rf2-2rtt6.20 records that trap in this lane. The cache directory
-// is removed before EACH build, so neither arm can inherit the other's.
+// analysis (`lane_cache.cjs`). The cache directory
+// is removed before EACH build, so no arm can inherit another's.
 //
 // Every bundle is hashed and the digest printed, because a stale bundle
-// silently measured is this session's rf2-6t03c and the cheapest guard
+// can be measured silently and the cheapest guard
 // against it is a digest the run log carries.
 
 const crypto = require('node:crypto');
@@ -41,7 +42,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 
@@ -61,9 +62,9 @@ const ARMS = [
     initFn: 're-frame.bench.fresco.jsfb-fresco-app/-main',
     title: 're-frame2 Fresco Arm 1',
   },
-  // Added after the first two had run, because the contested bulk-broad
-  // row is `UIx / Reagent` and a Reagent-and-Fresco pair cannot speak to
-  // it. See `jsfb_uix_app`'s docstring.
+  // The contested bulk-broad row is `UIx / Reagent`, and a
+  // Reagent-and-Fresco pair cannot speak to it. See `jsfb_uix_app`'s
+  // docstring.
   {
     dir: 'rf2-uix',
     initFn: 're-frame.bench.fresco.jsfb-uix-app/-main',
@@ -86,9 +87,9 @@ if (!fs.existsSync(path.join(DEST, 'frameworks'))) {
   process.exit(2);
 }
 
-// The reference implementation's markup, element for element. The two arms
-// render into `#main`; everything outside it is the benchmark's own
-// chrome and is identical in both files.
+// The reference implementation's markup, element for element. Every arm
+// renders into `#main`; everything outside it is the benchmark's own
+// chrome and is identical in every arm's file.
 function indexHtml(title) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -118,7 +119,7 @@ function packageJson(dir, title) {
         name: `js-framework-benchmark-${dir}`,
         version: '1.0.0',
         private: true,
-        description: `${title} — local cross-check arm, not an upstream entry (rf2-rguy1)`,
+        description: `${title} — local cross-check arm, not an upstream entry`,
         'js-framework-benchmark': {
           frameworkVersion: version,
           frameworkHomeURL: 'https://github.com/day8/re-frame',
@@ -144,10 +145,9 @@ function packageJson(dir, title) {
 // `package-lock.json` to be present before a directory appears in `/ls`,
 // and a directory that does not appear in `/ls` cannot be benchmarked —
 // silently, with no error anywhere. Verified by reading
-// `server/src/frameworks/frameworksServices.ts`, after the first run
-// listed 248 frameworks and neither of these.
+// `server/src/frameworks/frameworksServices.ts`.
 //
-// There are no npm dependencies to lock: both bundles are compiled by
+// There are no npm dependencies to lock: every bundle is compiled by
 // shadow-cljs from this repository and the directory ships only the
 // emitted JavaScript. So this is the empty-but-valid lockfile that
 // satisfies the check without claiming a dependency tree that does not
@@ -191,7 +191,7 @@ for (const arm of ARMS) {
   // reason above.
   //
   // The cache clear goes through `resetLaneBuildCache` rather than this file's
-  // own `rmrf` (rf2-d19nf). Both remove the same directory, but the shared
+  // own `rmrf`. Both remove the same directory, but the shared
   // helper carries the Windows retry loop — a scanner or a just-exited JVM can
   // hold a handle for a moment, and a bare `rmSync` throws where the helper
   // waits. One rule, one implementation.
@@ -206,8 +206,8 @@ for (const arm of ARMS) {
   console.error(`[jsfb-build] ${arm.dir}: :advanced release -> ${outDir}`);
   // The verdict form, not the exiting one: this loop reports every arm before
   // it gives up. A WARNED build fails here too — shadow-cljs exits 0 on
-  // warnings, so the old `r.status !== 0` let a renamed def through with the
-  // arm still publishing a number (rf2-2rtt6.73).
+  // warnings, so a bare `r.status !== 0` would let a renamed def through with
+  // the arm still publishing a number.
   const verdict = shadowBuildVerdict({
     project: PROJECT,
     mode: 'release',
@@ -238,7 +238,7 @@ for (const arm of ARMS) {
 }
 
 console.log('');
-console.log(';; BUILT ARMS — the digest is the anti-stale-bundle guard (rf2-6t03c)');
+console.log(';; BUILT ARMS — the digest is the anti-stale-bundle guard');
 console.log(';; arm            bytes      sha256');
 for (const b of built) {
   console.log(`;; ${b.dir.padEnd(14)} ${String(b.bytes).padStart(9)}  ${b.digest}`);
