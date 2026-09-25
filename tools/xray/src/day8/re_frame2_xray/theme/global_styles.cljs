@@ -435,42 +435,35 @@
     ":where(html, body).rf-xray-motion-override-never {\n"
     "  --rf-xray-motion-scale: 1;\n"
     "}\n"
-    ;; rf2-5kfxe.3 — L4 tab cross-fade. Opacity 0 → 1 with a 2px
+    ;; L4 tab cross-fade. Opacity 0 → 1 with a 2px
     ;; translateY (the new tab rises *into* place rather than appearing
     ;; statically). Subtle enough to feel like a settle, not a slide;
     ;; characterful enough to read as a beat rather than a hard cut.
-    ;; The wrapper around the case-switch in shell.cljs `detail-panel`
-    ;; carries `:animation rf-xray-fade-in 180ms ease-out forwards`
-    ;; on a `^{:key selected}` div so a tab switch unmounts + remounts
-    ;; → keyframes auto-play from frame 0.
+    ;; The panel wrapper in shell.cljs `detail-panel-tree`
+    ;; carries `:animation rf-xray-fade-in <duration> ease-out forwards`
+    ;; on a div keyed by the selected tab so a tab switch unmounts +
+    ;; remounts → keyframes auto-play from frame 0.
     "@keyframes rf-xray-fade-in {\n"
     "  from { opacity: 0; transform: translateY(2px); }\n"
     "  to   { opacity: 1; transform: translateY(0); }\n"
     "}\n"
-    ;; rf2-fxde5 — global `:focus-visible` focus ring. Xray-wide
+    ;; Global `:focus-visible` focus ring. Xray-wide
     ;; keyboard-only focus indicator scoped to descendants of the
     ;; shell roots (`[data-testid="rf-xray-shell"]` for Dynamic,
     ;; `[data-testid="rf-xray-static-shell"]` for Static). Many
     ;; interactive elements set `:border "none"` and rely on the
     ;; UA outline, which is suppressed by various theme resets and
     ;; reads weakly against the dark `#0E0F12` background. The
-    ;; palette input explicitly sets `outline: none` (palette/view
-    ;; line 107). Without this rule keyboard-only users have no
+    ;; palette input explicitly sets `outline: none` (palette/view).
+    ;; Without this rule keyboard-only users have no
     ;; reliable focus indicator anywhere in Xray.
     ;;
-    ;; rf2-y8doi.24 — the ring is the ACCENT, read through
+    ;; The ring is the ACCENT, read through
     ;; `--rf-xray-accent` so it resolves per theme at paint time (the
-    ;; same var the event-list seam's focus ring below already uses).
-    ;;
-    ;; It was a hardcoded `#FBBF24`, described here as "token `:yellow`
-    ;; from `theme/tokens.cljc`" — and that hex appears NOWHERE in
-    ;; `tokens.cljc`: `:yellow` is `#d29922` dark / `#9a6700` light. So
-    ;; the ring painted a colour in neither palette, at roughly 1.8:1
-    ;; against the light theme, which is under any contrast floor for a
-    ;; focus indicator. `022-Design-Tokens.md`'s token table names
+    ;; same var the event-list seam's focus ring below uses).
+    ;; `022-Design-Tokens.md`'s token table names
     ;; `accent` as the single source for "active tab · chrome stripe ·
-    ;; selected states · FOCUS RING · L4 header stripe", so the accent
-    ;; is what the spec asked for all along.
+    ;; selected states · FOCUS RING · L4 header stripe".
     ;;
     ;; 2px outline + 2px offset is the documented high-contrast hit
     ;; threshold. `:focus-visible` (rather than `:focus`) ensures
@@ -483,7 +476,7 @@
     "  outline-offset: 2px;\n"
     "  border-radius: 3px;\n"
     "}\n"
-    ;; rf2-wxepo — Windows High Contrast Mode (forced-colors). The UA
+    ;; Windows High Contrast Mode (forced-colors). The UA
     ;; strips inline `:background` and `:color` declarations and forces
     ;; its own palette (Canvas / CanvasText / Highlight / …), which
     ;; collapses every author-encoded signal across the Xray chrome:
@@ -493,7 +486,7 @@
     ;;     trailing edge — box-shadow itself is also dropped in HCM)
     ;;   - L2 row gutter causal-chain thread (1px accent inset)
     ;;   - L4 panel header accent stripes (3px left border — the single
-    ;;     GitHub-blue accent, rf2-ad7zx.13)
+    ;;     GitHub-blue accent)
     ;;   - Focus-visible accent outline (the `--rf-xray-accent` ring
     ;;     above; the UA forces this to its own Highlight regardless of
     ;;     author intent)
@@ -531,7 +524,7 @@
     ;; below preserves those distinctions even when every author hex
     ;; is forced.
     "@media (forced-colors: active) {\n"
-    ;; Focus-visible amber → Highlight. The UA already forces the
+    ;; Focus-visible accent → Highlight. The UA already forces the
     ;; outline colour, but writing it explicitly guarantees the
     ;; correct semantic system-token is requested (some UAs honour
     ;; author-specified system colours and skip the forced override).
@@ -540,11 +533,6 @@
     "  [data-testid=\"rf-xray-palette-backdrop\"] *:focus-visible {\n"
     "    outline-color: Highlight !important;\n"
     "  }\n"
-    ;; rf2-4yemd — the L1 ribbon left-edge stripe was retired
-    ;; (rf2-o5f5f.1 mode-signal mechanism #2 dropped to match the Figma
-    ;; authority chrome). The HCM `border-left-color` rule on
-    ;; `rf-xray-ribbon` that recoloured it to `Highlight` has been
-    ;; removed alongside — nothing left to recolour.
     ;; L2 focused event row — `aria-pressed=\"true\"` rides on the
     ;; focused row's `<li>`. The 1px solid mode-accent border becomes a
     ;; Highlight outline (outline composes over the existing border
@@ -612,7 +600,7 @@
     "    color: LinkText !important;\n"
     "  }\n"
     "}\n"
-    ;; rf2-846h2 — operator-controlled "Use system colors" opt-in.
+    ;; Operator-controlled "Use system colors" opt-in.
     ;; The Settings popup's Theme tab stamps `data-rf-force-colors=
     ;; \"active\"` on the shell root + `<html>` when the toggle is
     ;; on (see `settings/effects.cljs/apply-use-system-colors!`).
@@ -628,14 +616,14 @@
     ;; hyperlinks). Selectors carry the `[data-rf-force-colors=
     ;; \"active\"]` ancestor predicate so the rules only fire under
     ;; opt-in — the OS HCM path is owned by the sibling `@media`
-    ;; block landing under rf2-wxepo. Both paths produce the same
+    ;; block. Both paths produce the same
     ;; painted chrome; this block does NOT need `!important` because
     ;; the attribute selector adds specificity beyond the inline-
     ;; style baseline (a `[attr=\"v\"]` ancestor + the per-element
     ;; predicate compose stronger than the default rule shape).
     ;;
     ;; The sister `@media (forced-colors: active)` block above
-    ;; (landed under rf2-wxepo / #1700) and this attribute-selector
+    ;; and this attribute-selector
     ;; block coexist by design — the OS path and the operator opt-in
     ;; are independent activators of the same underlying chrome. A
     ;; future consolidation can fold them via `:is(...)`.
@@ -646,8 +634,6 @@
     "[data-testid=\"rf-xray-static-shell\"][data-rf-force-colors=\"active\"] *:focus-visible {\n"
     "  outline-color: Highlight !important;\n"
     "}\n"
-    ;; rf2-4yemd — parallel removal of the operator-opt-in HCM rule that
-    ;; recoloured the (now-retired) L1 ribbon left-edge stripe.
     "[data-rf-force-colors=\"active\"] [data-testid^=\"rf-xray-event-row-\"][aria-pressed=\"true\"] {\n"
     "  outline: 2px solid Highlight !important;\n"
     "  outline-offset: -1px !important;\n"
@@ -679,13 +665,7 @@
     "[data-rf-force-colors=\"active\"] [data-testid=\"rf-xray-static-shell\"] a {\n"
     "  color: LinkText !important;\n"
     "}\n"
-    ;; rf2-6r9j.24 — the rf2-f026h hover-reveal rules for the universal
-    ;; EDN-widget `⎘` copy button are DELETED with the affordance itself.
-    ;; They had been unmatchable as well as unused: their selector prefix
-    ;; `rf-xray-edn-widget-browse-` named a render container the rf2-oqa60
-    ;; rebuild replaced with `rf-xray-edn-inspector-…`.
-    ;; rf2-8l03l — view-row hover-highlight (supersedes the flat grey
-    ;; :bg-3 inline tint). When the operator hovers a view-row in the
+    ;; View-row hover-highlight. When the operator hovers a view-row in the
     ;; Views / Reactive panel, `apply-highlight!` toggles this class on
     ;; the hovered view's rendered DOM node (matched via the framework's
     ;; `data-rf-view` attribute; Spec 006). The rule layers a translucent
@@ -695,7 +675,7 @@
     ;; would vanish on a light page), and translucent so the view's own
     ;; content + background show through.
     ;;
-    ;; LAYOUT-SAFE (rf2-e33ad / Mike-direction 2026-05-21): background
+    ;; LAYOUT-SAFE: background
     ;; ONLY. No border / outline / box-shadow / box-model change → ZERO
     ;; pixel shift on surrounding content. A `background-image` (gradient)
     ;; paints inside the existing box without reflow. `!important` beats
@@ -716,7 +696,7 @@
     "    rgba(236, 72, 153, 0.30) 0 6px,\n"
     "    rgba(236, 72, 153, 0.10) 6px 12px) !important;\n"
     "}\n"
-    ;; rf2-xawwb — L3 tabs-ribbon hover (Figma-Make dark tabs ribbon).
+    ;; L3 tabs-ribbon hover (Figma-Make dark tabs ribbon).
     ;; Inactive rounded-top tabs sit on the DARK chrome band with a faint
     ;; translucent-white fill; on hover the fill brightens and the ink
     ;; lifts to full white. Keyed off the `rf-xray-tab-*` testid + the
@@ -727,27 +707,25 @@
     "  background-color: rgba(255,255,255,0.22);\n"
     "  color: " (:chrome-ribbon-text tokens/tokens) ";\n"
     "}\n"
-    ;; rf2-tha26 — Trace-panel rounded hover-pill rows. The Figma
+    ;; Trace-panel rounded hover-pill rows. The Figma
     ;; `design-reference/xray_devtools_reference.cljs` (the `trace-panel`
     ;; component) renders each trace
     ;; row as a discrete `rounded` pill lit by a
     ;; `hover:bg-[var(--devtools-hover)]` fill (no flat hairline
     ;; dividers). Inline styles can't carry a `:hover` pseudo-class
-    ;; (mirrors the L3 tab-bar + EDN-copy hover handling above), so the
+    ;; (mirrors the L3 tab-bar hover handling above), so the
     ;; hover fill is a scoped CSS rule keyed off the row's testid +
-    ;; the `data-rf-xray-area` attribute the row stamps (rf2-jnxfj —
-    ;; rows are now `div`s wrapped by `rt/resizable-table` so the
-    ;; pre-conversion `li` qualifier no longer scopes; the `area`
+    ;; the `data-rf-xray-area` attribute the row stamps (rows are
+    ;; `div`s inside the shared resizable table; the `area`
     ;; attribute is present only on row containers, not on inner
-    ;; cells / wrappers, so it scopes the rule equivalently to the
-    ;; pre-conversion `li` qualifier). The op-family 3px left-border +
-    ;; the rounded corners are the per-row inline styles; this rule
-    ;; only adds the hover fill.
+    ;; cells / wrappers, so it scopes the rule to rows). The op-family
+    ;; 3px left-border + the rounded corners are the per-row inline
+    ;; styles; this rule only adds the hover fill.
     "[data-testid^=\"rf-xray-trace-row-\"][data-rf-xray-area]:hover,\n"
     "[data-testid^=\"rf-xray-trace-group-\"]:hover {\n"
     "  background-color: " (:hover tokens/tokens) ";\n"
     "}\n"
-    ;; rf2-cplj8 / rf2-xawwb — borderless chrome icon-buttons hover. The
+    ;; Borderless chrome icon-buttons hover. The
     ;; settings / close / theme-toggle icons + the blue-filled nav
     ;; chevrons live on the DARK chrome band (Figma-Make surface), so the
     ;; hover lift is a faint translucent-white wash that keeps the white
@@ -765,7 +743,7 @@
     "  background-color: rgba(255,255,255,0.12);\n"
     "  color: " (:chrome-ribbon-text tokens/tokens) ";\n"
     "}\n"
-    ;; rf2-pjjwh + rf2-8zd80 — `filters:` (bar-2) conditional reveal
+    ;; `filters:` (bar-2) conditional reveal
     ;; animation. The events-ribbon is HIDDEN when there are zero filters
     ;; and animates OPEN when the first filter is added / CLOSED when the
     ;; last is removed. The collapse track is a CSS grid whose single row
@@ -778,11 +756,11 @@
     ;; `--rf-xray-motion-scale` so the reduced-motion seam collapses it
     ;; to an instant resolve.
     ;;
-    ;; rf2-8zd80 — pinned both transitions to exactly 250ms (was 200ms +
-    ;; 160ms) so OPEN and CLOSE share one duration; the bar's bottom edge
-    ;; and the column flex below it now travel in lock-step.
+    ;; Both transitions are exactly 250ms so OPEN and CLOSE share one
+    ;; duration; the bar's bottom edge and the column flex below it
+    ;; travel in lock-step.
     ;;
-    ;; rf2-8zd80 — `min-height: 0 !important` on the inner child is
+    ;; `min-height: 0 !important` on the inner child is
     ;; load-bearing: the events-ribbon's inner toolbar carries an inline
     ;; `:min-height "34px"` so the OPEN bar holds its design height (and
     ;; grows under `flex-wrap` when pills overflow). Inline styles beat
@@ -810,7 +788,7 @@
     ".rf-xray-filters-collapse[data-open=\"false\"] > * {\n"
     "  min-height: 0 !important;\n"
     "}\n"
-    ;; rf2-8zd80 — horizontal sibling of the row-collapse track. Used by
+    ;; Horizontal sibling of the row-collapse track. Used by
     ;; the chrome ribbon's `[+ filter]` button: when the events-ribbon
     ;; is visible (≥1 filter), the chrome `[+ filter]` is redundant
     ;; (the events-ribbon carries its own `[+]` icon button) and
@@ -836,7 +814,7 @@
     "  overflow: hidden;\n"
     "  white-space: nowrap;\n"
     "}\n"
-    ;; rf2-6ni62 — L2 event-list column-divider hover affordance.
+    ;; L2 event-list column-divider hover affordance.
     ;; The divider is a 5px-wide transparent strip between cells; the
     ;; always-visible signal is the `cursor: col-resize` style on the
     ;; element itself. On hover we paint a soft 1px accent stripe down
@@ -860,7 +838,7 @@
     "    transparent\n"
     "  ) !important;\n"
     "}\n"
-    ;; rf2-fcy5 — shared resizable-table header-gutter hover affordance.
+    ;; Shared resizable-table header-gutter hover affordance.
     ;; The 4px track between adjacent header columns IS the drag handle
     ;; (`views/resizable_table.cljs` §Header gutter): `cursor: col-resize`
     ;; on the element is the always-visible signal, the accent fill is the
@@ -871,20 +849,18 @@
     ;; body to hold one, and `rf.fresco/reg-state` CONSUMES an instance key
     ;; without minting one — so keeping the hover as STATE would force a
     ;; stable instance key onto every `resizable-table` call site. Pure CSS
-    ;; needs none, and the gutter already stamps a stable `data-testid`, so
-    ;; this selector matched with no markup change at all.
+    ;; needs none: the gutter stamps a stable `data-testid` this selector
+    ;; matches.
     ;;
     ;; `!important` because the gutter carries `background: transparent`
     ;; INLINE and an inline declaration beats a stylesheet rule without it
     ;; — the same reason the column-divider rule above carries one. The
-    ;; fill is the WHOLE 4px track rather than that rule's 1px stripe
-    ;; because that is what the retired Ratom painted: this is a faithful
-    ;; port of the widget's existing look, not a redesign. The 0.15s
-    ;; cross-fade stays inline on the element, where it already was.
+    ;; fill is the WHOLE 4px track rather than that rule's 1px stripe.
+    ;; The 0.15s cross-fade is inline on the element.
     "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover {\n"
     "  background: var(--rf-xray-accent) !important;\n"
     "}\n"
-    ;; rf2-t2dsh — L2/L3 seam handle hover treatment. The seam ships
+    ;; L2/L3 seam handle hover treatment. The seam ships
     ;; with an always-visible 1px accent hairline at 33% alpha (inline
     ;; `box-shadow` in `resize_handle.cljs` §seam-handle-style). On
     ;; hover the hairline intensifies to a 1px stripe along the seam
@@ -918,7 +894,7 @@
   [doc]
   (inject-style-node! doc motion-style-id motion-css))
 
-;; ---- React Flow base stylesheet (rf2-5qsxo) -----------------------------
+;; ---- React Flow base stylesheet -----------------------------------------
 ;;
 ;; The Machines topology charts (both the Dynamic Machine Inspector and
 ;; the Static→Machines Topology body) render via `@xyflow/react`'s
@@ -936,8 +912,8 @@
 ;; JS modules), so the stylesheet has to be injected as a `<style>` block —
 ;; the same dev-only `<head>`-write path this ns already owns for fonts +
 ;; keyframes. The verbatim contents of `@xyflow/react/dist/style.css` are
-;; bundled as the string below (verified byte-for-byte against the
-;; on-disk `@xyflow/react@12.4.2` `style.css` at authoring time); the
+;; bundled as the string below (byte-for-byte the
+;; `@xyflow/react@12.4.2` `style.css`); the
 ;; node-test `react-flow-base-css-carries-structural-rules`
 ;; (`global_styles_cljs_test`) pins the load-bearing selectors so an
 ;; `@xyflow/react` version bump that drops or renames a structural rule
@@ -954,12 +930,13 @@
 ;;
 ;; ## Xray palette layer
 ;;
-;; xyflow's `style.css` defaults to a light palette (white node fill,
-;; #b1b1b7 edges, #fefefe Controls buttons). Xray is a dark surface, so
+;; xyflow's `style.css` carries its own fixed palette (white node fill,
+;; #b1b1b7 edges, #fefefe Controls buttons). Xray paints from its own
+;; theme tokens, so
 ;; a thin override block (`react-flow-xray-theme-css`) remaps the xyflow
 ;; `--xy-*` custom properties to Xray tokens AFTER the base sheet — the
 ;; per-node/per-edge `:style` props (`xyflow_style.cljs` + the
-;; machines-viz custom node/edge components) still layer their own
+;; machines-viz custom node/edge components) layer their own
 ;; theming on top of this baseline.
 
 (def ^:private react-flow-style-id
@@ -1573,20 +1550,20 @@
 "}\n"))
 
 (def ^:private react-flow-xray-theme-css
-  "Xray dark-palette override layer. xyflow's `style.css` defaults to a
-  light palette (white node fill, #b1b1b7 edges, #fefefe Controls). Xray
-  is a dark surface, so this block remaps the `--xy-*` custom properties
-  to Xray tokens — authored AFTER the base sheet so it wins on equal
-  specificity. The per-node/per-edge `:style` props (`xyflow_style.cljs`
-  + the machines-viz custom node/edge components) still layer their own
-  theming on top of this baseline; this only fixes the chrome xyflow
-  paints itself (Controls buttons, the default-node fallback, attribution
-  backplate, edge fallback stroke).
+  "Xray palette override layer. xyflow's `style.css` carries its own
+  fixed palette (white node fill, #b1b1b7 edges, #fefefe Controls). Xray
+  paints from its own theme tokens, so this block remaps the `--xy-*`
+  custom properties to Xray tokens — authored AFTER the base sheet so it
+  wins on equal specificity. The per-node/per-edge `:style` props
+  (`xyflow_style.cljs` + the machines-viz custom node/edge components)
+  layer their own theming on top of this baseline; this only fixes the
+  chrome xyflow paints itself (Controls buttons, the default-node
+  fallback, attribution backplate, edge fallback stroke).
 
-  Every rule sits under `[data-rf-xray-mode]` (rf2-3x7nj.25.7), the
+  Every rule sits under `[data-rf-xray-mode]`, the
   attribute the shell root and every mount root carry. `install!` appends
-  this sheet to the HOST document's `<head>`, so an unscoped rule
-  re-themed, and hid the attribution of, every React Flow the host
+  this sheet to the HOST document's `<head>`, so an unscoped rule would
+  re-theme, and hide the attribution of, every React Flow the host
   renders itself."
   (str
     "[data-rf-xray-mode] .react-flow {\n"
@@ -1607,12 +1584,12 @@
     "  --xy-attribution-background-color-default: transparent;\n"
     "}\n"
     ;; xyflow renders no attribution (proOptions hideAttribution true) but
-    ;; belt-and-braces hide it so it never flashes against the dark canvas.
+    ;; belt-and-braces hide it so it never flashes against the canvas.
     "[data-rf-xray-mode] .react-flow__attribution { display: none !important; }\n"))
 
 (defn- inject-react-flow-style!
   "Append the React Flow base stylesheet + the Xray palette override to
-  `doc`'s `<head>` (rf2-5qsxo). Idempotent — id-keyed DOM probe before
+  `doc`'s `<head>`. Idempotent — id-keyed DOM probe before
   write. Dev-only: only ever called from `install!` on the Xray preload
   path."
   [doc]
@@ -1636,7 +1613,7 @@
   probe) so repeated calls converge to one node per style block.
 
   `install!` targets `js/document` (the host page); the second-window
-  pop-out (rf2-czcg5) targets its own `window.document` so the shell's
+  pop-out targets its own `window.document` so the shell's
   `var(--rf-xray-*)` reads resolve in the detached window. Unlike
   `install!` there is no `defonce` short-circuit here — the per-document
   DOM probe is the only guard, because a pop-out document is a distinct
@@ -1647,7 +1624,7 @@
   (when (some? doc)
     (inject-fonts! doc)
     (inject-motion-style! doc)
-    ;; rf2-5qsxo — React Flow's base stylesheet (the structural node /
+    ;; React Flow's base stylesheet (the structural node /
     ;; edge / Controls chrome) so the Machines topology charts render the
     ;; Stately/xstate look instead of unstyled stacked boxes. Dev-only —
     ;; this preload path never runs in a production bundle.
@@ -1658,8 +1635,8 @@
 
 (defn install!
   "Idempotent — call from `ShellView`'s body (`shell.cljs`), a
-  `rf.fresco/defview` boundary rather than an `rf/reg-view`
-  (rf2-k97c.3). Injects the full Xray stylesheet set (see
+  `rf.fresco/defview` boundary rather than an `rf/reg-view`.
+  Injects the full Xray stylesheet set (see
   `install-into!`) into the host page's `js/document` on first paint
   of the shell. The `defonce @installed?` guard saves the per-render
   work; the per-style DOM probe inside each injector is the real
@@ -1671,7 +1648,7 @@
     (reset! installed? true))
   nil)
 
-;; ---- host-supplied theme override (rf2-ee38b.2) -------------------------
+;; ---- host-supplied theme override ---------------------------------------
 ;;
 ;; The public `core/load-theme!` entry point lets an embedding host swap the
 ;; Xray shell's palette by handing in a CSS string (e.g. editor-driven
