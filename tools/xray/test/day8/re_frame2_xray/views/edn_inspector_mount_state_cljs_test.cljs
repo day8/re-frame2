@@ -1,16 +1,16 @@
 (ns day8.re-frame2-xray.views.edn-inspector-mount-state-cljs-test
-  "THE PER-MOUNT STORE — the three pieces of state that used to live in the
-  form-2 closure (rf2-k97c.3), and the key it is held under (rf2-d2aj).
+  "THE PER-MOUNT STORE — the three pieces of per-mount state, and the key
+  they are held under.
 
-  `edn-inspector` was a form-2 component, so its ResizeObserver, its width
-  debounce and its Editscript projection cache lived in an outer body that
-  ran once per mount and was collected with it. `edn-inspector-view` is a
+  A form-2 component could keep its ResizeObserver, its width debounce and
+  its Editscript projection cache in an outer body that runs once per
+  mount and is collected with it. `edn-inspector-view` is a
   Fresco boundary — a real React function component — and has no such
-  body: everything in it runs on every render. So the three moved into one
+  body: everything in it runs on every render. So the three live in one
   module-level store keyed by mount-id, with an EXPLICIT release.
 
-  Moving state out of a closure and into a module-level map is exactly the
-  change that passes its happy path and leaks on unmount, so the rows here
+  State held in a module-level map rather than a closure is exactly the
+  shape that passes its happy path and leaks on unmount, so the rows here
   are written against the two ways it goes wrong rather than against the
   way it goes right:
 
@@ -33,13 +33,13 @@
         calls a ref with nil twice, which it is entitled to do.
     R7  a RETAINED callback re-attached after a nil call still dispatches
         — React StrictMode's setup → cleanup → setup cycle, which every
-        other row here misses by construction (rf2-9go2).
+        other row here misses by construction.
     R8  and the store answers that retained callback again afterwards,
         so the re-attachment does not cost R1's memo.
     R9  two live mounts of ONE logical surface — the case a stable
         `:mount-id` makes routine and which every row above misses by
-        giving each mount an id of its own (rf2-d2aj). Positive half and
-        negative control, the control being the defect written out.
+        giving each mount an id of its own. Positive half and
+        negative control, the control being the failure written out.
 
   ## No DOM here, deliberately
 
@@ -60,7 +60,7 @@
   (ref-fn nil))
 
 (deftest r1-the-ref-callback-is-memoised-per-mount
-  (testing "rf2-k97c.3 — two asks for the same mount's ref answer the
+  (testing "two asks for the same mount's ref answer the
             IDENTICAL function.
 
             This is the row that matters most and the one nothing else
@@ -83,7 +83,7 @@
       (unmount! ref1))))
 
 (deftest r2-a-different-mount-gets-a-different-ref
-  (testing "rf2-k97c.3 — the memo is KEYED. Two mounts must not share a
+  (testing "the memo is KEYED. Two mounts must not share a
             ref, or they would share an observer and a width slot."
     (let [ref-a (ei/container-ref-for "r2-a" identity)
           ref-b (ei/container-ref-for "r2-b" identity)]
@@ -93,7 +93,7 @@
       (unmount! ref-b))))
 
 (deftest r3-release-drops-the-whole-entry
-  (testing "rf2-k97c.3 — calling the ref with nil, which is what React
+  (testing "calling the ref with nil, which is what React
             does at unmount, releases everything the mount held and the
             store returns to the size it was."
     (let [before (ei/mount-state-count)
@@ -116,7 +116,7 @@
         (unmount! ref-again)))))
 
 (deftest r4-release-is-per-mount
-  (testing "rf2-k97c.3 — releasing one mount leaves its siblings standing.
+  (testing "releasing one mount leaves its siblings standing.
             The negative half of R3: a teardown that reset the whole store
             would pass R3 and fail here, and this widget is mounted dozens
             of times on one page (the epoch panel alone)."
@@ -132,7 +132,7 @@
       (unmount! keeper))))
 
 (deftest r5-the-projection-cache-lives-and-dies-with-the-mount
-  (testing "rf2-k97c.3 — a diff render stores its Editscript projection
+  (testing "a diff render stores its Editscript projection
             under the mount's key, and unmount takes it with everything
             else. This is the piece with real bytes behind it: the
             projection of a large app-db diff is not small, and one that
@@ -161,7 +161,7 @@
           "and the store is back where it started"))))
 
 (deftest r6-releasing-nothing-is-a-no-op
-  (testing "rf2-k97c.3 — a ref called with nil for a mount the store does
+  (testing "a ref called with nil for a mount the store does
             not hold does nothing and dispatches nothing.
 
             React is entitled to detach a ref it has already detached, and
@@ -186,15 +186,15 @@
           "and the store is still empty for it"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-9go2 — RETAINED-CALLBACK RE-ATTACHMENT.
+;; RETAINED-CALLBACK RE-ATTACHMENT.
 ;;
 ;; Every row above either asks for a NEW callback after the release (R3) or
 ;; never re-attaches at all (R6). React does neither: StrictMode runs a
 ;; callback ref setup → cleanup → setup with the SAME function, and the
 ;; cleanup half calls `release-mount!`, which drops the WHOLE entry —
-;; dispatcher included. The second setup then rebuilds measurement and
-;; observer state around a store that has no dispatcher in it, so width
-;; dispatch stops while everything else goes on looking healthy.
+;; dispatcher included. A second setup that rebuilt measurement and
+;; observer state around a store with no dispatcher in it would stop width
+;; dispatch while everything else went on looking healthy.
 ;;
 ;; The two rows below are split so each failure names one thing: R7 is the
 ;; dispatcher, R8 is the memo.
@@ -210,14 +210,14 @@
   #js {:clientWidth w})
 
 (deftest r7-a-retained-ref-callback-reattaches-with-its-dispatcher
-  (testing "rf2-9go2 — element → nil → the SAME element still dispatches.
+  (testing "element → nil → the SAME element still dispatches.
 
             This is the sequence React StrictMode performs on every
-            callback ref, so it is routine rather than adversarial. Before
-            the fix the third step below dispatched NOTHING: the entry came
-            back carrying its width measurement and its observer, but not
-            the dispatcher that had gone with the release, and nothing on
-            screen or in the store said so."
+            callback ref, so it is routine rather than adversarial. An
+            entry that came back carrying its width measurement and its
+            observer, but not the dispatcher that went with the release,
+            would dispatch NOTHING at the third step below, and nothing on
+            screen or in the store would say so."
     (let [before     (ei/mount-state-count)
           dispatched (atom [])
           mid        "r7-mount"
@@ -234,7 +234,7 @@
           "the nil call released the mount and cleared the width slot")
       (is (nil? (ei/mount-state-held mid))
           "and the entry really went, dispatcher with it")
-      ;; setup again, with the RETAINED callback — the path that failed
+      ;; setup again, with the RETAINED callback — the path under test
       (reset! dispatched [])
       (set! (.-clientWidth el) 200)
       (ref-fn el)
@@ -258,7 +258,7 @@
           "store back to the size it started at"))))
 
 (deftest r8-re-attachment-restores-the-memo
-  (testing "rf2-9go2 — after a retained callback re-attaches, the store
+  (testing "after a retained callback re-attaches, the store
             answers THAT callback again.
 
             R1's memo is what stops React tearing the ResizeObserver down
@@ -279,7 +279,7 @@
           "and the mount still releases cleanly afterwards"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-d2aj — TWO LIVE MOUNTS OF ONE LOGICAL SURFACE.
+;; TWO LIVE MOUNTS OF ONE LOGICAL SURFACE.
 ;;
 ;; Every row above hands each mount an id of its own, so none of them can see
 ;; the case that actually reaches this store. A panel's `:mount-id` is a
@@ -288,12 +288,11 @@
 ;; several live mounts routinely present the SAME id at once: the gallery
 ;; renders twelve variants of a panel side by side, and each embedded panel is
 ;; another. R2 looks like the row that covers this and does not: it asks
-;; whether the memo is KEYED, which it always was, not whether the key names
-;; a live mount.
+;; whether the memo is KEYED, not whether the key names a live mount.
 ;;
 ;; R9 is that case, in both directions. The positive half is two mounts under
 ;; two frames; the negative half is the same two keyed on the logical name
-;; alone, which is what the defect was — and it is written out rather than
+;; alone, which is the failure — and it is written out rather than
 ;; described because the symptom is not "the second mount is missing" but
 ;; "the second mount's width is dispatched into the FIRST one's frame", which
 ;; is the reading that makes a green browser lane look correct.
@@ -305,7 +304,7 @@
   "app-db-state/top")
 
 (deftest r9-two-live-mounts-of-one-logical-id-stay-independent
-  (testing "rf2-d2aj — two panels rendering the same stable `mount-id` under
+  (testing "two panels rendering the same stable `mount-id` under
             two different frames get two refs, two entries and two
             dispatchers, and releasing one leaves the other whole."
     (let [before (ei/mount-state-count)
@@ -342,9 +341,9 @@
       (is (nil? (ei/mount-state-held k-b))
           "the released mount is gone")
       (is (contains? (ei/mount-state-held k-a) :ref)
-          "and the mount that is still on screen is untouched — releasing the
-           survivor is what the shared key did, and it disconnected an
-           observer of a node still in the document")
+          "and the mount that is still on screen is untouched — a shared
+           key would release the survivor, disconnecting an observer of a
+           node still in the document")
       (is (= [[:rf.xray.edn-inspector/clear-width shared-logical-id]] @sink-b)
           "the clear went to the leaving mount's own frame")
       (is (= [] @sink-a)
@@ -354,7 +353,7 @@
       (is (= before (ei/mount-state-count))
           "both released, store back where it started")))
 
-  (testing "rf2-d2aj — THE NEGATIVE CONTROL, and it is the defect verbatim:
+  (testing "THE NEGATIVE CONTROL, and it is the failure verbatim:
             keyed on the logical name ALONE the same two mounts share one ref,
             the second one's width is dispatched into the FIRST one's frame,
             and detaching the second releases the first."
