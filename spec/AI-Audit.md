@@ -411,4 +411,4 @@ _As-of 2026-07-04._
 
 **Current state.** Fifteen numbered/companion docs carry a `## Open questions` heading (000, 001, 002, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016, and Design-TransducerRouter). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — does **not exist**; generating it is the open SA-8 obligation. SA-4 compliance is verified per-Spec by narrative review, not mechanically through this table.
 
-**Audit cadence.** This report is regenerated per AI-Audit run. A `:resolved` item still sitting under `## Open questions`, or a `:post-v1 tracked` item lacking a tracker reference, is an SA-4 violation surfaced here once the per-item enumeration is in place.
+**Audit cadence.** This report is regenerated per AI-Audit run. A `:resolved` item still sitting under `## Open questions`, or a `:post-v1 tracked` item lacking its "deferred to …" framing, is an SA-4 violation surfaced here once the per-item enumeration is in place.
