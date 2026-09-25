@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.state.filters
   "Pure data → data helpers for the sidebar's faceted tag-filter UI and
-  story-grouped variant listing. Split from
-  `re-frame.story.ui.state` to honor the leaf-size ceiling.
+  story-grouped variant listing. A separate ns from
+  `re-frame.story.ui.state` (which re-exports it) to honor the leaf-size ceiling.
 
   ## What lives here
 
@@ -96,7 +96,7 @@
     OR-within rule.
   - Empty filter → every variant passes.
 
-  The pure 2-arity (without `tag->axis`) keeps the OR-only semantics so
+  The pure 2-arity (without `tag->axis`) has OR-only semantics so
   callers that don't have an axis-index handy (tests, downstream tools)
   work; the 3-arity is the facet-aware form the sidebar uses.
 
