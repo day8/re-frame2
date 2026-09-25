@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Re-authoring/spec drift gate for skills/re-frame2-pair (rf2-pok18).
+"""Re-authoring/spec drift gate for skills/re-frame2-pair.
 
 The `skills/re-frame2-pair/spec/*` meta-docs and `docs/initial-spec.md` are
 the material a future session uses to *re-author* the skill (per
 `spec/authoring-prompt.md`). They are NOT loaded during normal skill
 operation, so the sibling gates (`check_skill_mcp_drift.py`, the doc-slug
-gate) don't read them — which is exactly how they silently fell behind the
-shipped contract: a retired `inject-runtime` tool, a "two transport" /
-bash-shim-as-fallback model, and a "six restore failure modes" count where
-the live Tool-Pair §Time-travel table lists seven. A re-author from stale
-material would reintroduce removed tools / stale allow-list guidance into
-the AI-facing skill, undoing the MCP-only / default-gated posture.
+gate) don't read them, and nothing else notices when they fall behind the
+shipped contract: an `inject-runtime` tool that does not exist, a "two
+transport" / bash-shim-as-fallback model, or a "six restore failure modes"
+count where the Tool-Pair §Time-travel table lists seven. A re-author from
+stale material would reintroduce absent tools / stale allow-list guidance
+into the AI-facing skill, undoing the MCP-only / default-gated posture.
 
 This gate scans the re-authoring materials for **retired names in a
 live-contract framing** and fails when one reappears. It is deliberately
@@ -39,8 +39,8 @@ Rules:
                                     breakdown is explicitly allowed.)
   R3  bash-shim transport        — bash shims framed as a skill-facing /
                                     fallback / back-compat *transport*. The
-                                    shims are retired from the skill surface
-                                    (harness-only); only that framing is allowed.
+                                    shims are harness-only, outside the skill
+                                    surface; only that framing is allowed.
 
 Exit code:
     0  no drift
@@ -52,8 +52,6 @@ Usage:
     python scripts/check_skill_pair_authoring_drift.py --verbose
     python scripts/check_skill_pair_authoring_drift.py --ci          # CI-shaped
     python scripts/check_skill_pair_authoring_drift.py --self-test    # fixtures
-
-rf2-pok18.
 """
 
 from __future__ import annotations
@@ -147,7 +145,7 @@ RULES: tuple[Rule, ...] = (
         message=(
             "bash shims framed as a skill-facing / fallback / back-compat "
             "transport — the MCP server is the ONLY skill transport; the "
-            "shims are retired (harness-only)."
+            "shims are harness-only."
         ),
     ),
 )
@@ -265,7 +263,7 @@ def main(argv: Iterable[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Fail on retired tool/transport names reappearing in the "
-            "re-frame2-pair re-authoring/spec docs (rf2-pok18)."
+            "re-frame2-pair re-authoring/spec docs."
         ),
     )
     parser.add_argument("--verbose", action="store_true",
