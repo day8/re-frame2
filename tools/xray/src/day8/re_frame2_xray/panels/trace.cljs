@@ -82,8 +82,8 @@
   classification, the stage column + edge colour (via
   `panels.epoch.badge`), epoch-scoped feed, empty-state classification —
   lives in `trace_helpers.cljc` so the algebra runs under the JVM
-  unit-test target. (The band-projection helpers there serve
-  cross-panel consumers + tests; the flat panel does not render them.)"
+  unit-test target. (The band-projection helpers there are covered by
+  their unit tests; the flat panel does not render them.)"
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -949,7 +949,7 @@
 
   `feed` is the whole `:rf.xray/trace-feed` map — only `:rows` and
   `:empty-kind` are rendered (the `:envelope` / `:bands` / `:outcome`
-  slots serve cross-panel consumers, per `install!` below).
+  slots are not, per `install!` below).
 
   `instance` is OPTIONAL and is the ALREADY-TOKENISED per-mount
   name — `Panel` below runs [[instance-token]] once and hands the result
@@ -1200,8 +1200,8 @@
   ;; up the record. `h/project-feed-from-epoch` projects that record's
   ;; `:trace-events` into the feed shape. The flat panel
   ;; reads only `:rows` + `:empty-kind`; the `:envelope` / `:bands` /
-  ;; `:outcome` slots serve cross-panel consumers + the
-  ;; band-projection helper tests, and the view does not render them.
+  ;; `:outcome` slots are covered by the band-projection helper tests,
+  ;; and the view does not render them.
   ;;
   ;; Shape of `:rf.xray/trace-feed`:
   ;;
