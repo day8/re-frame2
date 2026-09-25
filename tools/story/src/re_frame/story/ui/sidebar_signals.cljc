@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.sidebar-signals
   "Pure data → data derivation of the sidebar's per-variant SIGNAL CHIPS
-  (rf2-ba86n.4, spec/018 §7.1 Sidebar + §12.6 Status and colour).
+  (spec/018 §7.1 Sidebar + §12.6 Status and colour).
 
   ## Five DISTINCT chip axes — never collapsed into 'fidelity'
 
@@ -51,7 +51,7 @@
 ;; AXIS 1 — STATUS
 ;; ===========================================================================
 ;;
-;; The run-level verdict for the variant. The shipping run record carries
+;; The run-level verdict for the variant. The run record carries
 ;; one of `requirements`' / `state.tests`' status keywords; spec/018 §12.6
 ;; names three further signal states the navigation surface MUST keep
 ;; distinguishable (`:blocked` / `:dirty` / `:redacted`) which ride
@@ -68,7 +68,7 @@
   `:error` is a tool/runtime/schema problem DISTINCT from a failed
   expectation (`:fail`); `:blocked` / `:dirty` / `:redacted` are the
   additional signal states the spec names. Derived (not re-encoded) so the
-  sidebar can never drift from the tool-wide order (rf2-8fr3yd)."
+  sidebar can never drift from the tool-wide order."
   rf.story.theme.status/order)
 
 (def status-labels
@@ -77,7 +77,7 @@
   status vocabulary (spec/018 §12.6 — pending / pass / fail / error /
   cannot-run / blocked / dirty / redacted MUST be distinguishable in text,
   not only colour). Single-sourced (not re-encoded) so the sidebar chip
-  label can never drift from the canonical status label (rf2-8fr3yd)."
+  label can never drift from the canonical status label."
   (into {} (map (fn [[k d]] [k (:label d)])) rf.story.theme.status/descriptors))
 
 (defn status-signal
@@ -195,7 +195,7 @@
 ;; The cheapest concrete runner KIND that can prove the variant's declared
 ;; steps + assertions (spec/018 §7.1 — 'runner-requirement chips: headless,
 ;; hiccup, DOM, browser'; the optional `:cljs-reactive` rung is included
-;; because the substrate now advertises a real reactive-counts seam,
+;; because the substrate advertises a real reactive-counts seam,
 ;; spec/017 §1a). Derived from the canonical capability-token registry in
 ;; `re-frame.story.requirements` (the SAME source the plan compiler reads
 ;; for `:required-runner`), NOT a re-encoded mapping. Runner requirement is
@@ -318,9 +318,9 @@
 ;; The fidelity, world-input and runner chips read world inputs, and the plan
 ;; compiler does not take those from the variant's own body alone: `:extends`
 ;; passes each ancestor's world down (spec/017 §`:extends`) and `:compose`
-;; folds each fragment's in. Reading the raw body lost both, so an `:extends`
-;; child of a pinned variant showed no "sub overrides" chip while its plan
-;; said `#{:sub-overrides :real-setup}` (rf2-3x7nj.28.5). Compiling a plan per
+;; folds each fragment's in. Reading the raw body would lose both, so an `:extends`
+;; child of a pinned variant would show no "sub overrides" chip while its plan
+;; says `#{:sub-overrides :real-setup}`. Compiling a plan per
 ;; row would cost the sidebar hot path, so `resolved-body` folds only the
 ;; slots the chips read: one registrar lookup per ancestor (the watch hash's
 ;; `extends-ancestors` walk) and one per composed id.
