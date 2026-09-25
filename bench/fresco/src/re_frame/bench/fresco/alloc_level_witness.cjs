@@ -1,18 +1,18 @@
 'use strict';
-// THE FLOOR ARM'S WITHIN-RUN LEVEL WITNESS — rf2-a233t.
+// THE FLOOR ARM'S WITHIN-RUN LEVEL WITNESS.
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs <dataset.json>...
-//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs --corpus
-//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs --self-test
+//     node src/re_frame/bench/fresco/alloc_level_witness.cjs <dataset.json>...
+//     node src/re_frame/bench/fresco/alloc_level_witness.cjs --corpus
+//     node src/re_frame/bench/fresco/alloc_level_witness.cjs --self-test
 //
 // ## THE DEFECT THIS REFUSES
 //
 // The floor arm is MULTI-MODAL. Most runs settle at 19,100 / 19,540 B per
 // write; some settle 2,532 B higher, and one level 3,792 B higher has been
-// seen. `rf2-c4hhk`'s seventy-run window established that the levels are real
+// seen. The seventy-run `alloc-c4hhk` window shows that the levels are real
 // — an armed run and an unarmed run trace the elevated ramp byte for byte —
-// and `rf2-77gz8` established that the work count is identical across them, so
-// neither the instrument nor different-work-per-write explains the step.
+// and the `alloc-77gz8` window shows that the work count is identical across
+// them, so neither the instrument nor different-work-per-write explains the step.
 //
 // BOTH MODES STILL CERTIFY. The leg witness in `p0_run.cjs` asks whether a
 // window's legs are ALIKE, and in both modes they are: an elevated window is
@@ -39,7 +39,7 @@
 //
 // AFTER is not a new quantity: it is the PUBLISHED ESTIMATOR, verbatim — the
 // median over certified windows at round index >= 6, per segment, declared in
-// `rf2-77gz8`'s pre-registration and carried unchanged by `rf2-c4hhk`. The
+// the `alloc-77gz8` window's pre-registration and shared by `alloc-c4hhk`. The
 // witness therefore adjudicates exactly the number the records quote, which is
 // the only number a level gate has any business gating.
 //
@@ -92,11 +92,11 @@
 //   | median(r4-6) - median(r1-3)                |   90..896 B  | 1,655..4,083 B|
 //   | r4 - r3, one round against one round       |   80..2,312 B|   860..4,946 B|
 //
-// THE LAST ONE DOES NOT SEPARATE THE POPULATIONS AT ALL. It is the form
-// `rf2-77gz8`'s re-analysis quoted as -43 to +158 B normal against 3,912-3,948
+// THE LAST ONE DOES NOT SEPARATE THE POPULATIONS AT ALL. It is the form the
+// `alloc-77gz8` re-analysis quotes as -43 to +158 B normal against 3,912-3,948
 // B in the mode, and on the larger corpus its normal band reaches +2,312 B
 // while its mode band descends to +860 B — they OVERLAP by 1,452 B. A bound
-// set from that quoted band would have refused legitimate runs. It is also
+// set from that quoted band would refuse legitimate runs. It is also
 // undefined on at least one segment in 95 of the 101 admissible runs, and on
 // BOTH segments in 16 of them, because one round is not always certified —
 // a definition that cannot be evaluated is not a gate. The median(r4-6) form
@@ -131,8 +131,8 @@
 // populations sit far from it.
 //
 // THE BOUND DOES NOT DEPEND ON THE MODE'S RATE, which matters because that
-// rate is not stable — `rf2-6kxub` measured 0%, 10% and 53% across three
-// windows at ONE revision. Nothing here is sized against a rate: the witness
+// rate is not stable — it reads 0%, 10% and 53% across three windows at ONE
+// revision. Nothing here is sized against a rate: the witness
 // scores each run against that run's own earlier rounds, so a window of one
 // run and a window of seventy are adjudicated identically, and a window taken
 // on a day when the mode never appears is scored by the same rule as one taken
@@ -143,14 +143,14 @@
 // A witness that adjudicates whatever segments it FINDS cannot refuse a record
 // that carries fewer than it should: with nothing to compare against, an absent
 // segment is indistinguishable from one that was never meant to be there. That
-// is not hypothetical — this file shipped that way. `segmentsOf` created an
-// entry only for a segment name that OCCURRED, the consumer loop iterated only
-// over what existed, and the one guard fired only when ZERO segments occurred.
-// So a record carrying `reagent-subs` alone CERTIFIED, silently, with half the
-// arm's measurement gone and the verdict line still reading "every segment
-// holds its level across the transition". Measured on the committed
-// `alloc-77gz8/run01` with `uix-subs` deleted from every round: CERTIFIED, and
-// not a word about the missing half.
+// is not hypothetical. If `segmentsOf` created an entry only for a segment name
+// that OCCURS, the consumer loop iterated only over what exists, and the one
+// guard fired only when ZERO segments occur, then a record carrying
+// `reagent-subs` alone would CERTIFY, silently, with half the arm's measurement
+// gone and the verdict line still reading "every segment holds its level across
+// the transition". Measured on the committed `alloc-77gz8/run01` with
+// `uix-subs` deleted from every round, such a witness CERTIFIES, with not a
+// word about the missing half.
 //
 // So the roster is PINNED, like the windows and the bound above:
 //
@@ -183,8 +183,8 @@
 //                       window in ANY round. Half a measurement is not a
 //                       measurement, so the run has no figure that is the
 //                       ARM's, whatever the surviving half certifies.
-//   * `no-alloc`      — the record carries no `alloc` object. `rf2-c4hhk`'s
-//                       `armed-25` is the corpus example: Chromium failed to
+//   * `no-alloc`      — the record carries no `alloc` object.
+//                       `alloc-c4hhk/armed-25` is the corpus example: Chromium failed to
 //                       launch, nothing was measured, and the driver still
 //                       exited 1.
 //   * `inadmissible`  — the positive control failed or a read-back went
@@ -192,10 +192,10 @@
 //
 // ## WHY THIS IS ANALYSIS-SIDE, AND NOT A CHANGE TO THE RUNNER
 //
-// `implementation/core/test/re_frame/bench/` has not changed since
-// `408dfb0aa8`. Every dataset in `alloc-77gz8`, `alloc-c4hhk` and
-// `workcount-n1b9h` was produced by that one instrument, and `rf2-6kxub` leans
-// on exactly that when it compares rates across windows. A witness computable
+// Every dataset in `alloc-77gz8`, `alloc-c4hhk` and `workcount-n1b9h` was
+// produced by one instrument — `implementation/core/test/re_frame/bench/` at
+// `408dfb0aa8` — and comparing rates across windows leans on exactly that
+// constancy. A witness computable
 // from data ALREADY RECORDED costs that constancy nothing; the same witness
 // soldered into `p0_run.cjs` would end it, and would put a gate inside the rig
 // whose invariance the published series rests on. So this file reads records
@@ -212,7 +212,7 @@ const BEFORE_ROUNDS = [1, 5];
 const BEFORE_PRE_RAMP_MAX = 3; // rounds above this are the transition; see the header
 const AFTER_ROUND_MIN = 6;
 const LEVEL_STEP_BOUND = 0.05;
-const HIGH_MODE_FLOOR_B = 21000; // rf2-77gz8's classification criterion, for reporting only
+const HIGH_MODE_FLOOR_B = 21000; // the alloc-77gz8 window's classification criterion, for reporting only
 
 // THE SEGMENTS THE FLOOR ARM MEASURES, declared rather than discovered — see
 // the header. A record missing one of these is REFUSED rather than adjudicated
@@ -232,8 +232,8 @@ function median(xs) {
 // different absolute levels (19,100 against 19,540), so they are never pooled.
 // A run is refused on EITHER segment's step rather than on the pair agreeing.
 //
-// THE MAP IS SEEDED FROM THE DECLARED ROSTER, and that is the whole of the fix
-// for the fail-open described in the header: a declared segment the record
+// THE MAP IS SEEDED FROM THE DECLARED ROSTER, and that is what closes the
+// fail-open described in the header: a declared segment the record
 // never mentions gets an EMPTY row list rather than no entry at all, so it
 // reaches the consumer loop and is refused there. Seeding rather than
 // intersecting is deliberate — a segment that occurs but was not declared is
@@ -256,7 +256,7 @@ const inWindow = (rows, lo, hi) =>
 // ADMISSIBILITY IS THE RECORD'S, NOT THE EXIT CODE'S. `--only alloc` exits
 // non-zero as a matter of course — it exits on any refused window and on any
 // collection inside a measured one, and both are routine at this page. All
-// seventy of rf2-c4hhk's runs exited 1, including the one that measured
+// seventy `alloc-c4hhk` runs exited 1, including the one that measured
 // nothing. The two run-level gates are the positive control and the read-back
 // verification; the per-window certificate is inside the estimator above.
 function admissibility(alloc) {
@@ -343,7 +343,7 @@ function adjudicate(record, { bound = LEVEL_STEP_BOUND, expected = MEASURED_SEGM
     }
   }
 
-  // The roster is seeded, so this is now reachable only when the CALLER
+  // The roster is seeded, so this is reachable only when the CALLER
   // declared an empty one. That is a programming error rather than a data
   // condition, and it would otherwise certify every record it was handed.
   if (!segments.length) fault('level-segment', 'no segment roster was declared, so nothing was adjudicated.');
@@ -353,7 +353,7 @@ function adjudicate(record, { bound = LEVEL_STEP_BOUND, expected = MEASURED_SEGM
 
 function format(v, label) {
   const out = [];
-  out.push(`;; ${label || 'run'} — within-run LEVEL witness (rf2-a233t)`);
+  out.push(`;; ${label || 'run'} — within-run LEVEL witness`);
   for (const s of v.segments) {
     if (s.absent) {
       out.push(`;;   ${s.segment.padEnd(14)} ABSENT — the record carries no window for this segment in any round`);
@@ -380,8 +380,9 @@ function format(v, label) {
 // The claim the bound rests on is that it refuses EXACTLY the elevated runs and
 // nothing else. That claim is checkable against every dataset this repository
 // has committed, so it is checked rather than asserted, and
-// `alloc_level_witness.test.cjs` runs it on every fast-PR spine. Classification
-// is rf2-77gz8's criterion — either segment's published estimator at or above
+// `alloc_level_witness.test.cjs` runs it under the lane's `npm run check`.
+// Classification is the `alloc-77gz8` window's criterion — either segment's
+// published estimator at or above
 // 21,000 B/write — which is INDEPENDENT of the step this witness measures.
 
 const CORPORA = ['alloc-c4hhk', 'alloc-77gz8', 'alloc-9jrhi', 'workcount-n1b9h'];
@@ -523,7 +524,7 @@ function selfTest() {
   }
 
   // 6. A HALF WITH NO CERTIFIED WINDOW IS A REFUSAL, NOT A PASS. The silent
-  //    failure this replaces is a witness that computes a step from an empty
+  //    failure this prevents is a witness that computes a step from an empty
   //    window and reports NaN as "within bound".
   {
     const noBefore = adjudicate(synth({ certifyBefore: [], certifyRamp: false }));
@@ -582,8 +583,8 @@ function selfTest() {
 
   // 11. THE ROSTER IS A FLOOR. A record missing one whole declared segment is
   //     refused rather than adjudicated on the half that survives. This is the
-  //     fail-open the header describes, and every check here failed before it
-  //     was closed: a one-segment record certified, silently.
+  //     fail-open the header describes, and every check here fails against an
+  //     unseeded map, where a one-segment record certifies silently.
   {
     const half = adjudicate(synth({ segments: ['reagent-subs'] }));
     check('a record missing one whole declared segment REFUSES', !half.ok && has(half, 'level-segment'));
