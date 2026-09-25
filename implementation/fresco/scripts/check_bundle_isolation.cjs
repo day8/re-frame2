@@ -3,8 +3,9 @@
  * THE ZERO-RENT PROOF FOR EVERY ISOLATED SURFACE, read off a real
  * production bundle.
  *
- * Four surfaces are measured here — the optional MOTION, OVERLAY, FORMS
- * and SERVER modules — and the law they answer to is `invariants.md` §1:
+ * Five surfaces are measured here — the optional MOTION, OVERLAY, FORMS,
+ * SERVER and SUBSTRATE modules — and the law they answer to is
+ * `invariants.md` §1:
  * *optional libraries: named consumer required; zero reachable production
  * code when absent*. They share this file because they share one
  * instrument and one bundle; each surface's own reasoning is with its
@@ -82,7 +83,8 @@
  *     minted by the codec the public door reaches and one by a module it
  *     never names.
  *   - `rf-uix-sub-` (present) — and this one is the interesting control.
- *     See the next section.
+ *     See the next section. It is also the substrate row's pair, against
+ *     `rf-hic-sub-` (absent); that module's section says why.
  *
  * ## `zero UIx` does not hold, and the reason is worth a control
  *
@@ -249,6 +251,33 @@
  * the public door never names. The pair differs by reachability and by
  * nothing else, which is what this file asks of a pairing.
  *
+ * ## The substrate module: the UIx control's twin, one adapter over
+ *
+ * `re-frame.fresco.substrate` is Fresco's own reactive-substrate adapter,
+ * the option a consumer takes INSTEAD of Reagent, reagent-slim or UIx.
+ * The exemplar takes UIx, so on this bundle the module must be absent:
+ * an application that installs somebody else's adapter must not pay for
+ * this one, nor for the React-hook spine it is built on.
+ *
+ * THE SENTINEL IS `rf-hic-sub-`, the `:gensym-prefix-sub` the module
+ * hands `re-frame.substrate.spine/make-react-spine` — the same key, in
+ * the same spine call, that puts the `rf-uix-sub-` control into this
+ * bundle. It is a runtime VALUE on the live subscribe path: the spine's
+ * `subscribe-container` passes it to `gensym` for the watch key of every
+ * subscription it attaches, so `:advanced` cannot drop it while the
+ * adapter can subscribe, and the control proves that idiom survives
+ * `:advanced` in this very bundle. The pair differs by reachability and
+ * by nothing else. The string is emitted by this one namespace alone,
+ * and `implementation/scripts/check-login-bundle-isolation.cjs` reads it
+ * as PRESENT in the Fresco login example's `:advanced` bundle, which
+ * installs this adapter.
+ *
+ * ONE ROW, because the module has one reachability shape: `spine-fns`
+ * and the `adapter` built from it are both computed at namespace load,
+ * so nothing about the module is conditionally reachable. The spine's
+ * sibling prefixes, `rf-hic-derived-` and `rf-hic-use-sub-`, ride the
+ * same call and name no second route in.
+ *
  * ## The live half is a test, not a comment
  *
  * A sentinel that has quietly stopped being emitted is absent from every
@@ -394,6 +423,28 @@ const SENTINELS = [
       'look at `bench/fresco/src/re_frame/bench/fresco/ssr/entry.cljs`: the ' +
       'prototype mints the identical keyword namespace, and a bench ' +
       'fixture in the release bundle is its own defect.',
+  },
+  {
+    surface: 'substrate module — the gensym prefix its spine mints subscription watch keys under',
+    sentinel: 'rf-hic-sub-',
+    source: 'src/re_frame/fresco/substrate.cljs',
+    premise: ':gensym-prefix-sub     "rf-hic-sub-"',
+    why:
+      'The `:gensym-prefix-sub` `re-frame.fresco.substrate` hands ' +
+      '`make-react-spine` at namespace load. The spine passes it to ' +
+      '`gensym` for every subscription\'s watch key, so it is a runtime ' +
+      'VALUE on the path the adapter subscribes through. It is the same key ' +
+      'in the same spine call that puts the `rf-uix-sub-` control into this ' +
+      'bundle, one adapter over, so the pair differs by reachability and by ' +
+      'nothing else.',
+    remedy:
+      'Find the `:require` of `re-frame.fresco.substrate` that made the ' +
+      'module reachable. Nothing under implementation/fresco/src/ may name ' +
+      'it and the release entry must not either — the entry installs UIx; ' +
+      'an application that wants this adapter requires it and passes ' +
+      '`substrate/adapter` to `rf/init!`, and ' +
+      '`check_optional_module_reachability.py` decides the source half ' +
+      'exhaustively.',
   },
 ];
 
@@ -592,6 +643,11 @@ function selfTest() {
     // reaches no bundle even when the module leaks.
     `${green} … re-frame.fresco.server/render re-frame.ssr.payload-policy ` +
       `rf.ssr.payload/whole-app-db rf.ssr/hydration-mismatch myapp.ssr/request …`,
+    // The substrate row's near-miss is the adapter the entry DOES install:
+    // UIx's spine prefixes are the sentinel's shape under another adapter's
+    // tag, and they are in this bundle by design. The door SYMBOL is here
+    // for the motion row's reason.
+    `${green} … rf-uix-use-sub- rf-uix-derived- re-frame.fresco.substrate/adapter …`,
   ];
   for (const bundle of legal) {
     const problems = scan(bundle);
