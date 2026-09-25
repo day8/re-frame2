@@ -44,7 +44,7 @@
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
          ;; The Fresco tab reads the Fresco TOOL-TIER door
-         ;; (`re-frame.fresco.tool` — rf2-hic-023) for the four evidence
+         ;; (`re-frame.fresco.tool`) for the four evidence
          ;; envelopes its six views project.
          ;; The dependency points THIS way only: Fresco never depends on
          ;; Xray, and production applications never pull Xray
@@ -55,13 +55,9 @@
          ;; running Fresco, and a production build, both project the honest
          ;; no-evidence state.
          ;;
-         ;; THE ONE VIEW-SUBSTRATE COORDINATE Xray carries, since rf2-l86mm
-         ;; retired the Views panel's Mounted Views + Declared View Sites
-         ;; sections and dropped `day8/re-frame2-freehand` with them. That
-         ;; coordinate sat at top-level `:deps` only because
-         ;; `day8.re-frame2-xray.mounted-views` was in `src`.
+         ;; THE ONE VIEW-SUBSTRATE COORDINATE Xray carries.
          ;;
-         ;; PUBLISHED, as of rf2-gra70: `implementation/fresco/deps.edn`
+         ;; PUBLISHED: `implementation/fresco/deps.edn`
          ;; carries a `:clein/build` for `day8/re-frame2-fresco`, so
          ;; `release-xray.yml` rewrites this coordinate like every other
          ;; in-repo one, and `.github/scripts/preflight-xray-package.sh`
@@ -81,34 +77,31 @@
          ;; (re-frame.views late-binds via `:adapter/current-component`), so
          ;; every artefact that requires reagent.* must declare it.
          ;;
-         ;; SINCE rf2-7ds8 `src` HAS EXACTLY ONE PRODUCTION REQUIRE, in
+         ;; `src` HAS EXACTLY ONE PRODUCTION REQUIRE, in
          ;; `day8.re-frame2-xray.substrate`, and it is the FALLBACK arm of
          ;; the hiccup->React-element crossing — taken only when no
          ;; ratom-family adapter answers `:adapter/as-element`, which is a
          ;; REAL case rather than a defensive flourish: Xray can own its own
          ;; React root, and the acceptance harness mounts the Static surface
-         ;; through Fresco's root with UIx installed. Before that bead, nine
-         ;; sites across six view sources named `reagent.core/as-element`
-         ;; statically, so under the reagent-slim adapter the islands were
-         ;; rendered by the wrong ratom build and Xray came up BLANK.
+         ;; through Fresco's root with UIx installed. A view source naming
+         ;; `reagent.core/as-element` statically would, under the
+         ;; reagent-slim adapter, render its islands with the wrong ratom
+         ;; build and bring Xray up BLANK.
          ;;
-         ;; RETIRING THAT ONE REQUIRE WOULD BUY NO BUNDLE BYTES — measured
-         ;; under rf2-99qn, and said here because the previous wording
-         ;; invited exactly that wasted errand. `day8/re-frame2-machines-viz`
-         ;; above requires `reagent.core` in its chart tree and calls
-         ;; `reagent.core/as-element` at ten sites of its own, and the edge
-         ;; `preload -> registry -> panels.machine-inspector ->
+         ;; REMOVING THAT ONE REQUIRE WOULD BUY NO BUNDLE BYTES.
+         ;; `day8/re-frame2-machines-viz` above requires `reagent.core` in
+         ;; its chart tree and calls `reagent.core/as-element` itself, and
+         ;; the edge `preload -> registry -> panels.machine-inspector ->
          ;; panels.machine-canvas -> machines-viz.chart` is live, so stock
          ;; Reagent lands in every Xray-carrying build whether this door
-         ;; requires it or not. THAT — not the nine retired crossings — is
-         ;; why a reagent-slim page carrying Xray ships both ratom runtimes,
-         ;; and the work to change it is in the machines-viz chart tree, not
-         ;; here.
+         ;; requires it or not. THAT is why a reagent-slim page carrying
+         ;; Xray ships both ratom runtimes, and the work to change it is in
+         ;; the machines-viz chart tree, not here.
          ;;
          ;; This is dev-only (Xray is a devtools panel excluded from
          ;; production bundles) and independent of the reagent-slim adapter
          ;; above, which carries no stock Reagent.
-         ;; Test code still requires reagent.* freely.
+         ;; Test code requires reagent.* freely.
          reagent/reagent {:mvn/version "2.0.1"}
 
          ;; Editscript is the shared pure-data diff representation for
