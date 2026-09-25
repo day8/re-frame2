@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.panels.resources-fresco-boundary-dom-cljs-test
-  "THE RESOURCES TAB RE-AUTHORED IN THE RE-FRAME-NATIVE VIEW LAYER, read off
-  a real React commit (rf2-k97c.3, step 2).
+  "THE RESOURCES TAB IN THE RE-FRAME-NATIVE VIEW LAYER, read off a real
+  React commit.
 
-  `resources/Panel` is now an `rf.fresco/defview` reading through Fresco's
+  `resources/Panel` is an `rf.fresco/defview` reading through Fresco's
   shipped collector rather than an `rf/reg-view` reading through whatever
   view build the installed substrate adapter supplies. This file is the
-  behavioural evidence for that swap. Its first four rows are the merged
+  behavioural evidence for that. Its first four rows follow the
   `module_view_fresco_boundary_dom_cljs_test` template, claim for claim;
   the fifth is this panel's own and is described below.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes
@@ -25,15 +25,15 @@
   READ-ONLY by contract (Spec 016 §Active owners and causes — opening it
   pins nothing, and it registers no `:rf.resource/*` event), so a click
   row would assert about a control the panel does not have. The
-  `resources_cljs_test` suite already pins the read-only claim
+  `resources_cljs_test` suite pins the read-only claim
   structurally, against the registrar.
 
   ## W5 IS THIS PANEL'S OWN ROW, AND IT IS THE ADVERSARIAL ONE
 
   The template's four rows all mount ONE subtree and watch it live or
-  die. They cannot see the change this migration actually made to the
-  panel's interior: all 24 of its `for`-row React keys moved out of
-  vector METADATA and into each row's own ATTRIBUTE MAP, because
+  die. They cannot see the panel's interior keying: every one of its
+  `for`-row React keys lives in the row's own ATTRIBUTE MAP rather than
+  in vector METADATA, because
   metadata is a Reagent reading of `:key` that Fresco's codec does not
   share (`re-frame.fresco.impl.codec`'s head table). Nothing else in the
   tree tests that, and a lost key does not fail — it DEGRADES, silently,
@@ -61,7 +61,7 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is a family Xray supports —
   because the claim being made is that the boundary is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing exactly as it is in the template:
   the fixture's default ambient `:rf/default` scope would otherwise
@@ -72,7 +72,7 @@
 
   The ns ends in `-dom-cljs-test`, so it runs under the `:browser-test`
   build (real DOM + React via Chromium) per
-  `implementation/shadow-cljs.edn`, whose `:source-paths` already carry
+  `implementation/shadow-cljs.edn`, whose `:source-paths` carry
   `tools/xray/test`. The `:node-test` build's `cljs-test$` regex also
   matches, so it LOADS under Node — where every row short-circuits
   through [[browser?]] and reports the skip rather than passing silently."
@@ -203,7 +203,7 @@
        (some? (.-createElement js/document))))
 
 ;; NO `flush-render!` HELPER HERE, and its absence is a finding rather than an
-;; omission — the template records it and it cost that worker a red row. A
+;; omission — the template records why. A
 ;; Fresco boundary is NOT in Reagent's render queue: its update is scheduled by
 ;; the collector through React, so draining Reagent's queue commits nothing of
 ;; this panel's and a row written that way reads a DOM that has not moved and
@@ -284,9 +284,9 @@
 
 (defn- ref-count-of
   "The sub-cache ref-count the frame holds for `query-v`, or 0 when the
-  entry is absent. The spike measured the rejected design's binding by
-  watching this number climb across renders and never fall on unmount
-  (22 → 25 → 32), so it is the number the migration is answerable on."
+  entry is absent. A leaky binding shows as this number climbing across
+  renders and never falling on unmount, so it is the number the boundary
+  is answerable on."
   [frame-id query-v]
   (or (:ref-count (get (cache-of frame-id) query-v)) 0))
 
@@ -295,10 +295,10 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-read-lands-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Resources panel commits real DOM through
+  (testing "the Resources panel commits real DOM through
             the registry entry the shell mounts, and its `rf.fresco/sub` read
             resolves against the frame the enclosing `frame-provider` named
-            rather than the ambient one. Epic criteria 1 and 4."
+            rather than the ambient one. Criteria 1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -344,9 +344,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panel re-renders itself and commits new DOM
+  (testing "the mounted panel re-renders itself and commits new DOM
             when its read's value really changes, and does NOT when nothing it
-            watches moved. Epic criterion 2, with the control that makes the
+            watches moved. Criterion 2, with the control that makes the
             update mean liveness rather than a commit that simply had not
             happened yet."
     (if-not (browser?)
@@ -381,7 +381,7 @@
                 (fn [_]
                   (is (not (row?))
                       "CONTROL: given a full settling window, the committed DOM
-                       still does NOT carry the row. A panel that re-rendered
+                       does NOT carry the row. A panel that re-rendered
                        here would make phase 3 pass for a reason that is not
                        liveness")
                   ;; ---- phase 3: a declared input moves, the read re-runs ---
@@ -413,9 +413,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated panel contributes
+  (testing "rendering the panel contributes
             NOTHING to the substrate's view-trace stream, even when it is
-            mounted INSIDE an application frame. Epic criterion 5, proven
+            mounted INSIDE an application frame. Criterion 5, proven
             structurally rather than by the `:rf/xray` frame gate: a Fresco
             boundary is not a substrate view render, so there is no event to
             gate. The control is an ordinary `reg-view` in the same root, the
@@ -476,12 +476,12 @@
   (zero? (ref-count-of :rf/xray tab-data-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the panel releases its subscription
+  (testing "unmounting the panel releases its subscription
             reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed 22 → 25 → 32 across
-            renders and never fell on unmount.
+            count rather than a higher one. Criterion 6, and the number that
+            catches a leaky design: with a four-call interop binding the
+            `:rf/xray` ref-count would climb across renders and never fall
+            on unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once. `impl.collector`'s `cell-reapers` gives a cell
@@ -540,12 +540,12 @@
 ;; ===========================================================================
 
 (deftest w5-row-keys-survive-a-removal-from-the-head-of-the-list
-  (testing "rf2-k97c.3 — removing the FIRST of two sorted registry rows leaves
+  (testing "removing the FIRST of two sorted registry rows leaves
             the survivor in the SAME DOM node. This is the row that can see the
-            interior change this migration made: all 24 of the panel's `for`-row
-            keys moved from vector METADATA into each row's own attribute map,
+            panel's interior keying: every one of the panel's `for`-row keys
+            lives in the row's own attribute map rather than in vector METADATA,
             because Fresco's codec reads only the literal `:key` in the attr map
-            (`re-frame.fresco.impl.codec`'s head table) where Reagent also read
+            (`re-frame.fresco.impl.codec`'s head table) where Reagent also reads
             the metadata form.
 
             A LOST KEY DOES NOT FAIL, IT DEGRADES — into index-based
