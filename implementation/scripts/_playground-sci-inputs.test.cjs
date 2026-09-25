@@ -4,29 +4,26 @@
 
 /**
  * _playground-sci-inputs.test.cjs — close the Playground SCI input authority
- * over its REAL inputs and firing surfaces (rf2-nyjml).
+ * over its REAL inputs and firing surfaces.
  *
  * WHAT THIS GUARDS. `scripts/playground-sci-input-digest.mjs` declares ROSTER:
  * the source/config/lock inputs the shadow-cljs :advanced SCI bundle bakes in.
- * Two independent things must stay true of that declaration, and neither was
- * covered anywhere before this file (`_changed-surfaces.test.cjs`, 1964 lines,
- * did not mention `playground` once):
+ * Two independent things must stay true of that declaration:
  *
  *   1. CLOSURE. Every declared input must select the `playground` changed
  *      surface, so a PR touching a baked-in input actually rebuilds and renders
  *      the bundle. If an input is in the digest but not in the firing surface,
  *      that input can change with no proof the bundle still builds.
  *   2. SENSITIVITY. Every declared input must individually move the digest, and
- *      every entry must keep matching tracked files. A roster entry that matched
- *      nothing used to pass silently (see the vacuity arm below).
+ *      every entry must keep matching tracked files. A roster entry that matches
+ *      nothing must RED rather than pass silently (see the vacuity arm below).
  *
- * NOTE ON SCOPE. rf2-tzy13 untracked docs/cljs/playground-rf2.js — it is
- * generated at each consumption boundary, so there is no committed snapshot to
- * go stale and the old freshness verifier was deleted with it. The digest is now
- * build PROVENANCE, and the `playground` job (build + live render under headless
- * Chromium) is the proof. This file therefore checks that the provenance claim
- * is honest and that the job fires for everything the claim covers; it does NOT
- * resurrect a committed-artefact comparison.
+ * NOTE ON SCOPE. docs/cljs/playground-rf2.js is untracked — it is generated at
+ * each consumption boundary, so there is no committed snapshot to go stale and
+ * no freshness verifier. The digest is build PROVENANCE, and the `playground`
+ * job (build + live render under headless Chromium) is the proof. This file
+ * therefore checks that the provenance claim is honest and that the job fires
+ * for everything the claim covers; there is no committed artefact to compare.
  *
  * DERIVED, NOT RE-DECLARED. Every arm below expands the REAL ROSTER rather than
  * carrying a second hardcoded list, so a roster edit is checked automatically
@@ -81,7 +78,7 @@ function trackedFiles(pathspec, cwd = REPO_ROOT) {
  * Per-file classification is the only honest closure check: the classifier ORs
  * its outputs, so handing it the whole list at once would let a single selecting
  * file mask every other. But a `bash -lc` per file sources the login profile and
- * cost 56s for 144 files; one `bash -c` driver looping over "$@" is ~3s for the
+ * costs ~56s for 144 files; one `bash -c` driver looping over "$@" is ~3s for the
  * same work. `set -euo pipefail` keeps a classifier failure fatal instead of
  * being swallowed by the `sed` that extracts the field.
  */
@@ -229,7 +226,7 @@ async function main() {
 
   // --- ARM 2: table-driven per-class firing ---------------------------------
   //
-  // The closure arm proves today's TRACKED files fire. This arm proves the CASE
+  // The closure arm proves the currently TRACKED files fire. This arm proves the CASE
   // PATTERNS do, using paths that do not exist yet: a newly added source file in
   // any baked-in tree must select the job on the PR that adds it. The coverage
   // assertion below ties the table back to ROSTER so it cannot rot into a stale
@@ -356,11 +353,11 @@ async function main() {
     }
   });
 
-  // --- ARM 5: per-entry vacuity (the drift this bead found) ------------------
+  // --- ARM 5: per-entry vacuity ----------------------------------------------
   //
-  // Before rf2-nyjml the guard expanded the whole roster as ONE pathspec set and
-  // only failed when the UNION was empty. Renaming implementation/flows/src left
-  // 140 of 144 files, so the guard stayed silent while an entire input class had
+  // A guard that expanded the whole roster as ONE pathspec set would fail only
+  // when the UNION was empty: renaming implementation/flows/src would leave 140
+  // of 144 files, and the guard would stay silent while an entire input class
   // left the digest. These teeth use a SUFFIX rename (src -> src_renamed)
   // deliberately: git pathspecs match at directory boundaries, so this really
   // does drop the entry — a rename that merely CONTAINED the old name would be a
@@ -388,7 +385,7 @@ async function main() {
         assert.match(
           drifted.stderr,
           /roster matched no tracked files/,
-          'the original drift message must be preserved',
+          'a drifted roster must report that it matched no tracked files',
         );
         assert.ok(
           drifted.stderr.includes(entry),
