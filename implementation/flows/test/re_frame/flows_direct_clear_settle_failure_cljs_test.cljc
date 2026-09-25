@@ -10,13 +10,12 @@
   unwritten, and the ordinary `:rf.error/flow-eval-exception` propagates to
   the direct caller. No rollback, no new error category.
 
-  ## What was wrong, and why a message is worth a test file
+  ## Why a message is worth a test file
 
-  The behaviour above was correct from the day the direct settle landed. The
-  DIAGNOSTIC was not. `settle-frame-flows!` runs the ordinary
-  `run-flows-on-db`, and its failure sentence was written for the only caller
-  that then existed — the router. So the exception handed to a direct
-  `clear-flow` caller asserted three things that are each false for it:
+  `settle-frame-flows!` runs the ordinary `run-flows-on-db`, whose drain
+  failure sentence describes the router's event. Handed verbatim to a direct
+  `clear-flow` caller, that sentence would assert three things that are each
+  false for it:
 
     - that the evaluation ran \"during the drain\" — no drain ran, and there
       was no event at all;
@@ -32,11 +31,11 @@
   assertion below is therefore made against the sentence a caller actually
   receives, not against behaviour alone.
 
-  The repair is confined to the sentence. The error id, the `:derive` /
+  Only the sentence differs by caller. The error id, the `:derive` /
   `:output-write` phase discrimination, the trace tags and the thrown ex-data
   are identical for every caller, and the tests here assert that identity as
-  hard as they assert the difference — a message fix that quietly forked the
-  taxonomy would be a worse bug than the one it replaced.
+  hard as they assert the difference — a context-aware message that quietly
+  forked the taxonomy would be a worse bug than a wrong sentence.
 
   ## Shape
 
@@ -111,22 +110,22 @@
             "the dependent was evaluated exactly once, inside the clear — this
              counter is what makes the assertions below non-vacuous")
 
-        ;; --- the taxonomy is UNCHANGED -----------------------------------
+        ;; --- the taxonomy is SHARED --------------------------------------
         (let [data (ex-data thrown)]
           (is (= :rf.error/flow-eval-exception (:rf.error/id data))
-              "the existing aggregate category is reused — a direct caller's
-               failure is not a new error id")
+              "the aggregate category is shared — a direct caller's failure
+               has no error id of its own")
           (is (= :probe/b (:rf.flow/failed-id data))
-              "flow attribution is unchanged")
+              "flow attribution names the failing flow")
           (is (= :derive (:rf.flow/failed-phase data))
-              "the phase discriminator is unchanged: the authored :derive fn
+              "the phase discriminator says the authored :derive fn
                threw")
           (is (= [:b] (:rf.flow/output-path data))
               "the failing flow's declared output path rides the ex-data")
           (is (some? (:cause data))
               "the original exception is preserved under :cause")
           (is (= :no-recovery (:recovery data))
-              "the recovery classification is unchanged"))
+              "the recovery classification is :no-recovery"))
 
         ;; --- the SENTENCE is context-aware -------------------------------
         (let [msg (:reason (ex-data thrown))]
@@ -145,7 +144,7 @@
           (is (some? (re-find #"discarded unwritten" msg))
               "and that the settle's candidate db was dropped")
           (is (some? (re-find #"Fix the :derive fn" msg))
-              "the actionable advice for a :derive throw is unchanged"))
+              "the message carries the actionable advice for a :derive throw"))
 
         ;; --- the intended POST-FAILURE state -----------------------------
         (is (not (registered? :rf/default :probe/a))
@@ -173,7 +172,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The framework's own output write throws while a direct clear settles.
-;;    The bead's note records this branch carrying the same false wording.
+;;    The drain's wording would be just as false on this branch.
 ;; ---------------------------------------------------------------------------
 
 (deftest direct-clear-settle-output-write-throw-reports-the-direct-boundary
@@ -218,11 +217,11 @@
               "the declared output path rides the ex-data")
 
           (is (nil? (re-find #":derive fn threw" msg))
-              "the message does not claim the :derive fn threw (rf2-gpj9r)")
+              "the message does not claim the :derive fn threw")
           (is (nil? (re-find #"Fix the :derive fn" msg))
               "nor advise fixing it")
           (is (nil? (re-find #"the event aborts" msg))
-              "and it no longer claims an event aborted — there was no event")
+              "and it does not claim an event aborted — there was no event")
           (is (nil? (re-find #"app-db unchanged" msg))
               "nor that app-db is unchanged")
           (is (nil? (re-find #"pending app-db" msg))
@@ -240,15 +239,15 @@
              still holds the vector, with no partial write under it")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Control — the DRAIN's wording is untouched.
-;;    Without this, "the direct message no longer says 'during the drain'"
+;; 3. Control — the DRAIN keeps its own wording.
+;;    Without this, "the direct message does not say 'during the drain'"
 ;;    would also be satisfied by deleting the drain's sentence outright.
 ;; ---------------------------------------------------------------------------
 
 (deftest in-drain-failure-keeps-the-drain-wording
-  (testing "the same failure reached through the router still describes the
-            event's abort — the fix narrows the drain's sentence to the drain,
-            it does not retire it"
+  (testing "the same failure reached through the router describes the
+            event's abort — the drain's sentence is scoped to the drain,
+            not retired"
     (let [errors (atom [])]
       (rf.error-emit/register-error-listener! ::error-recorder
                              (fn [record] (swap! errors conj record)))
@@ -269,13 +268,13 @@
           (is (= :rf.error/flow-eval-exception (:error record))
               "same category through the drain")
           (is (some? (re-find #"during the drain" msg))
-              "the drain still says so")
+              "the drain says so")
           (is (some? (re-find #"the event aborts before the :db install" msg))
-              "and still states the event's abort, which IS true here")
+              "and states the event's abort, which IS true here")
           (is (some? (re-find #"app-db unchanged" msg))
               "and that app-db is unchanged, which is also true here")
           (is (nil? (re-find #"clear-flow" msg))
               "and does not mention a clear-flow the caller never made"))
         (is (= before (rf/app-db-value :rf/default))
-            "the drain's atomicity is untouched: the aborted event installed
+            "the drain is atomic: the aborted event installed
              nothing")))))
