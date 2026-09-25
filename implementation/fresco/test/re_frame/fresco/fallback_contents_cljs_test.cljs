@@ -51,9 +51,11 @@
   non-nil, the shape a walk that confused \"an element\" with \"a
   deferring head\" would have) and every row in §3 goes red — one row per
   legitimate fallback position, so the failure names which position was
-  taken away. §1 stays green under BOTH mutations, which is why it is
+  taken away. §1 stays green under the first mutation, which is why it is
   separate: it is about the walk's own evaluation and not about this
-  refusal at all.
+  refusal at all. (The second reaches its intent and empty-vector rows
+  too, because the structural refusal runs ahead of the walk and would
+  claim those forms first.)
 
   Runtime: `-cljs-test`, not `-dom-`. Every claim is a declaration or a
   `renderToString`, so there is nothing here a DOM would add."
@@ -146,8 +148,9 @@
 ;; 1 — what the mint-time WALK can see, it refuses
 ;;
 ;; These three rows are about `as-element`'s own evaluation and not about
-;; the structural refusal beside it. They are green under both mutations
-;; named in the ns docstring — which is why they are a separate deftest.
+;; the structural refusal beside it. They are green with the refusal
+;; removed (the ns docstring's first mutation) — which is why they are a
+;; separate deftest.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fallback-refuses-what-the-mint-time-walk-can-see
