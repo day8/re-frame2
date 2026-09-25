@@ -11,7 +11,7 @@
 
   Each `defview` publishes ONE registrar `:view` entry under
   `(keyword \"fresco-counter.views\" \"<sym>\")` carrying its minted head
-  at `:handler-fn` (rf2-5qaf4, rf2-kuky.60). A variant in `stories.cljs`
+  at `:handler-fn`. A variant in `stories.cljs`
   therefore names `:fresco-counter.views/tally` exactly as a Reagent
   variant names a `reg-view` id, and the `:fresco` render fn the shell
   registers reads the head back with `rf/view` — the same lookup the
