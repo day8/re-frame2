@@ -2,26 +2,25 @@
 'use strict';
 
 /*
- * rf2-u0cy4 (audit of merged PR #7343). serve-and-run-browser-tests.cjs
+ * serve-and-run-browser-tests.cjs
  * forwards RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE to its runner child ONLY
  * when the orchestrator's own `--duplicate-done-drift-unverifiable` CLI flag
  * is present — the declaration must come from THIS process's command line,
  * never from an ambient environment variable a parent shell happened to
  * export.
  *
- * `{ ...baseEnv, ...(cond ? {K: v} : {}) }` (the pre-fix shape) only ever
- * ADDS the key — it never REMOVES one `baseEnv` already carried. An ambient
- * RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE=1 therefore rode straight through to
- * the unflagged default `test:browser` lane's runner child, which took the
- * waiver branch in run-browser-tests.cjs and skipped the fail-closed drift
+ * `{ ...baseEnv, ...(cond ? {K: v} : {}) }` only ever ADDS the key — it
+ * never REMOVES one `baseEnv` already carries. Built that way, an ambient
+ * RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE=1 would ride straight through to the
+ * unflagged default `test:browser` lane's runner child, which would take the
+ * waiver branch in run-browser-tests.cjs and skip the fail-closed drift
  * verdict entirely.
  *
  * This is a DYNAMIC (not merely static-source) test, unlike most of
  * `_impl-browser-runners-verdict-policy.test.cjs`'s sibling assertions,
- * because a source-regex check that this file still contains a `delete`
+ * because a source-regex check that the orchestrator contains a `delete`
  * call cannot tell whether that delete actually fires on the code path that
- * matters — exactly the class of gap a prior audit found in the matcher-
- * drift check itself. computeRunnerEnv is a pure function extracted to its
+ * matters. computeRunnerEnv is a pure function extracted to its
  * own module (scripts/lib/browser-runner-drift-env.cjs) for exactly this:
  * both halves are pinned by actually calling it, not by reading its source.
  */
@@ -61,7 +60,7 @@ test('no flag, AMBIENT value present: the var is STRIPPED, not forwarded (the bu
     !Object.prototype.hasOwnProperty.call(env, DRIFT_UNVERIFIABLE_ENV_VAR),
     'an ambient value must be stripped when the orchestrator was not passed the flag — ' +
       'a naive `{ ...baseEnv, ...(cond ? {K: v} : {}) }` construction leaves it in place, ' +
-      'which is exactly the PR #7343 regression',
+      'which is exactly the leak this pins',
   );
   // baseEnv itself must not be mutated — computeRunnerEnv returns a new object.
   assert.equal(baseEnv[DRIFT_UNVERIFIABLE_ENV_VAR], '1', 'the input object must be left untouched');
