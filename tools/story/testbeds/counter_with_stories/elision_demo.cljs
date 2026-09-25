@@ -42,7 +42,7 @@
      the RAW record the wire walker acts on. The listener receives one
      record per processed event and fires under `:advanced` +
      `goog.DEBUG=false` where the trace surface is DCE'd. It is NOT the
-     production observability door: since rf2-kuky.69 that is
+     production observability door: that is
      `rf/register-observability-sink!` against a frame's `:observability`
      policy, or the `(rf/configure! {:observability …})` process default,
      which deliver the PROJECTED `:rf.observe/*` record.
@@ -56,13 +56,13 @@
     by the `:sensitive?` top-level stamp); the bottom rail shows
     `[● REDACTED N]`. The console line from the always-on listener
     is honest about its scope: it shows the original event vector
-    because the event-emit substrate consults handler-meta for
-    `:sensitive?` before fan-out.
+    because the event-emit substrate does not consult handler-meta
+    `:sensitive?` (its sensitive marking is path-based).
 
   - **Click 'Upload large avatar (inline)'** — dispatches
     `:user.avatar/upload` with a 20 kB string in the event payload.
     The console line from the listener shows the inline blob raw and
-    intact: Path D removed runtime size auto-elision, so an
+    intact: there is no runtime size auto-elision, so an
     unschema'd / unnominated inline blob is never substituted. Large
     egress is declared on app-db slots via the frame's `:large`
     classification, not auto-detected on arbitrary event-vector blobs.
@@ -104,7 +104,7 @@
 ;; commit-plane effects — the `:counter/classify-avatar-large` event returns
 ;; `:large [[:user/avatar-pdf]]` alongside `:db` (see `core/run`) and that is
 ;; what makes this slot elide to the `:rf.size/large-elided` marker at wire
-;; egress. Schemas no longer carry `:large?` / `:sensitive?` app-db egress
+;; egress. Schemas carry no `:large?` / `:sensitive?` app-db egress
 ;; markers.
 ;;
 ;; The runtime ROLLS BACK on a post-commit app-db schema failure — the slot
@@ -173,7 +173,7 @@
 
 (rf/reg-event :user.avatar/upload
   {:doc "Demo: dispatch a 20 kB blob INLINE inside the event vector.
-         The blob is NOT declared large anywhere — Path D removed
+         The blob is NOT declared large anywhere — there is no
          runtime size auto-elision, so an unschema'd / unnominated
          inline payload rides through the event-emit listener UNCHANGED
          (no `:rf.size/large-elided` substitution). Large-value egress
@@ -215,7 +215,7 @@
 ;;
 ;; That door delivers the PROJECTED `:rf.observe/handled-event` record
 ;; under the owning frame's classification and the entry's egress
-;; profile, and it is the ONLY production observation door (rf2-kuky.69).
+;; profile, and it is the ONLY production observation door.
 ;;
 ;; This demo is about the RAW record instead — what the wire walker itself
 ;; substitutes into, one layer under projection — so it registers a
@@ -223,8 +223,8 @@
 ;; and visitors can watch the frame-driven substitution (declared-large
 ;; app-db slots become markers; unschema'd inline payloads ride through
 ;; raw). `re-frame.event-emit` is IMPLEMENTATION tier: the framework's own
-;; fan-out, kept for the framework's capture sites, for tests, and for a
-;; demo like this one. An app reaches the same records through the sink.
+;; fan-out, serving the framework's capture sites, tests, and a demo
+;; like this one. An app reaches the same records through the sink.
 
 (def listener-id ::elision-demo)
 
@@ -233,7 +233,7 @@
   ;; `:event` slot has already been passed through
   ;; `rf.elision/elide-wire-value` with off-box defaults — declared-sensitive
   ;; paths are :rf/redacted; unschema'd / unnominated large leaves ride
-  ;; through raw (Path D removed runtime size auto-elision).
+  ;; through raw (there is no runtime size auto-elision).
   (js/console.log "[event-emit demo]" (pr-str record)))
 
 (defn install-listener!
