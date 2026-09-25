@@ -16,8 +16,7 @@
   and feeds it through the rendering layers that FEED the devtools render:
 
     - `proj/machine-cascade-rows`        — the Epoch panel's per-epoch machine
-      cascade (the exit/action/entry/no-op/timer rows; canonical sort;
-      no-op-transition suppression).
+      cascade (the exit/action/entry/no-op/timer rows; canonical sort).
     - the structured `:cascade` off the transition row (`proj/cascade-regions`
       / `cascade-microsteps` / `cascade-step-count`) — the LCA + microstep
       walk.
@@ -179,7 +178,7 @@
       (is (= 1 (count (rows-of-kind rows :no-op)))
           "(b) the blocked guard is a no-op — one [NO OP] row")
       (is (empty? (rows-of-kind rows :transition))
-          "(c) blocked → NO transition row (suppressed beside the no-op)")
+          "(c) blocked → NO transition row beside the no-op")
       ;; The blocking guard is SURFACED in the cascade LIST (the
       ;; shared lens + Epoch mini-pipeline), not only on the chart: the LIST
       ;; carries a [GUARD] row NAMING the blocking guard with its fail outcome
@@ -247,7 +246,7 @@
           no-op  (first no-ops)]
       (is (= 1 (count no-ops)) "(b) exactly one no-op row (single signal)")
       (is (empty? (rows-of-kind rows :transition))
-          "(b) NO transition row beside the no-op (the no-op transition-row suppression)")
+          "(b) NO transition row beside the no-op (the source suppresses the no-change transition)")
       (is (= :alarming (:state no-op)))
       (is (false? (:show-machine-name? no-op)) "(c) single machine → drop name")
       (let [verb (fmt/cascade-row-label no-op)]
