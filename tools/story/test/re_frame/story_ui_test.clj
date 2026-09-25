@@ -1,5 +1,5 @@
 (ns re-frame.story-ui-test
-  "JVM tests for Stage 4 (rf2-ekai) pure logic.
+  "JVM tests for the Story shell's pure logic.
 
   The shell's reactive layer (Reagent ratom, component lifecycles,
   Reagent renders) is CLJS-only — those tests live in
@@ -10,7 +10,7 @@
   - sidebar tag collection + variant grouping
   - workspace layout resolution (:grid, :variants-grid, :prose, :tabs)
 
-  These tests run alongside the Stage 2 + 3 JVM corpus via
+  These tests run alongside the rest of the JVM corpus via
   `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
@@ -38,7 +38,7 @@
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-fixture [test-fn]
-  ;; Mirror the Stage 3 runtime test fixture — rf.story/clear-all! drops
+  ;; Mirror the runtime test fixture — rf.story/clear-all! drops
   ;; the side-table; framework registrar is wiped + the machines ns is
   ;; reloaded to re-register its framework-shipped sub; canonical
   ;; vocabulary is reinstalled so :tag membership validates correctly.
@@ -80,8 +80,8 @@
       (is (= :Workspace.demo/y (:selected-workspace s2)))
       (is (= :story.a/x (:selected-variant s2))))))
 
-;; rf2-hscut — sidebar variant-row click composes select-variant with
-;; select-workspace nil so workspace mode is no longer a one-way door.
+;; The sidebar variant-row click composes select-variant with
+;; select-workspace nil so workspace mode is not a one-way door.
 ;; The click handler is a private Reagent closure inside `sidebar.cljs`;
 ;; we exercise the same pure composition the closure performs so the
 ;; JVM corpus catches a regression without booting Reagent.
@@ -125,17 +125,16 @@
       (is (= 42 (get-in s1 [:cell-overrides :story.a/x :n])))
       (is (nil? (get-in s2 [:cell-overrides :story.a/x]))))))
 
-;; ---- repeater stable row-ids (rf2-c8kfy) --------------------------------
+;; ---- repeater stable row-ids --------------------------------------------
 ;;
-;; Per rf2-c8kfy the controls-panel repeater MUST key each row on a
+;; The controls-panel repeater MUST key each row on a
 ;; stable per-entry id (not on its positional index). The shell-state
 ;; carries a parallel `[id0 id1 ...]` vector at
 ;; `[:rf.story/repeater-row-ids [variant-id path]]` synced in lockstep
 ;; with the entries vector. JVM-side we test the pure transitions
 ;; (`ensure-repeater-row-ids`, `append-repeater-row-id`,
 ;; `remove-repeater-row-id`); the CLJS suite exercises the rendered
-;; hiccup keys end-to-end. Same fix-class as rf2-kgn0c / rf2-z4fza /
-;; rf2-c56hr.
+;; hiccup keys end-to-end.
 
 (deftest repeater-row-ids-default-empty-rf2-c8kfy
   (testing "default state carries the counter + the empty row-ids map"
@@ -190,11 +189,11 @@
 (deftest repeater-row-ids-remove-mid-list-rf2-c8kfy
   (testing "remove-repeater-row-id drops the id at position i — surviving
             ids retain their original identity. THIS is the regression
-            pinned by rf2-c8kfy: pre-fix the renderer keyed rows on
-            their index so the surviving ids' React keys shifted up by
-            one and React reused the original DOM nodes (focus + cursor
-            leakage onto neighbouring rows). Post-fix the row ids ARE
-            stable across the delete."
+            pinned: a renderer keying rows on their index would shift
+            the surviving ids' React keys up by one, and React would
+            reuse the original DOM nodes (focus + cursor leakage onto
+            neighbouring rows). The row ids ARE stable across the
+            delete."
     (let [s     rf.story.ui.state/default-shell-state
           s1    (rf.story.ui.state/ensure-repeater-row-ids s :story.x/v [:items] 4)
           before (rf.story.ui.state/repeater-row-ids s1 :story.x/v [:items])
@@ -333,7 +332,7 @@
     (is (= 0 (rf.story.ui.command-palette/move-active-index 0 1 0)))))
 
 (deftest command-palette-carries-save-current-command
-  (testing "rf2-ba86n.6 — the save-current-state flow is reachable from the
+  (testing "The save-current-state flow is reachable from the
             command palette (spec/019 §3), as a synthetic :command entry"
     (let [entries (rf.story.ui.command-palette/command-entries)
           save    (first (filter #(= :save-current-as-variant (:id %)) entries))]
@@ -347,7 +346,7 @@
         (is (= :save-current-as-variant (:id hit))
             "searching 'save variant' surfaces the save-current command")))))
 
-;; ---- mode-tabs (rf2-9hc8) ------------------------------------------------
+;; ---- mode-tabs -----------------------------------------------------------
 
 (deftest mode-tabs-canonical-set
   (testing "the three canonical mode tabs ship in stable order"
@@ -410,7 +409,7 @@
       (is (contains? devs :story.f2/a)))))
 
 (deftest group-variants-by-story-keeps-untagged
-  (testing "variants with no story namespace still appear under their derived parent"
+  (testing "variants with no story namespace appear under their derived parent"
     (rf.story/reg-variant :story.g/a {:setup []})
     (rf.story/reg-variant :story.g/b {:setup []})
     (let [vs       (rf.story.registrar/registrations :variant)
@@ -424,7 +423,7 @@
     (is (= :story.foo (rf.story.predicates/parent-story-id :story.foo/bar)))
     (is (nil? (rf.story.predicates/parent-story-id :unqualified)))))
 
-;; ---- faceted filter (rf2-7ncf9 — SB9 facet taxonomy) -------------------
+;; ---- faceted filter (SB9 facet taxonomy) -------------------------------
 
 (deftest partition-tag-filter-by-axis-bucketed
   (testing "partition splits the filter set into per-axis buckets"
@@ -529,7 +528,7 @@
       (is (= [:status :role :alpha :zeta
               :re-frame.story.registrar/no-axis]
              (rf.story.ui.state/ordered-axes by-axis)))))
-  (testing "missing canonical axes are skipped, no-axis still trails"
+  (testing "missing canonical axes are skipped, no-axis trails"
     (is (= [:status :re-frame.story.registrar/no-axis]
            (rf.story.ui.state/ordered-axes
              {:status                              [:s/a]
@@ -618,7 +617,7 @@
   (testing "unknown layouts degrade gracefully"
     (is (= [] (rf.story.ui.workspace/resolve-layout :Workspace.x/y {:layout :weird})))))
 
-;; ---- rf2-gqid4 :isolation slot ------------------------------------------
+;; ---- :isolation slot ----------------------------------------------------
 
 (deftest variants-grid-isolation-default-is-isolated
   (testing "absent :isolation slot resolves cells identically to baseline (data-shape)"
@@ -648,12 +647,12 @@
       (is (= isolated shared))
       (is (= 2 (count shared))))))
 
-;; ---- rf2-ugmrg :for anchor + :columns template --------------------------
+;; ---- :for anchor + :columns template ------------------------------------
 
 (deftest variants-grid-for-anchor-is-read
   (testing ":variants-grid reads the spec-authoritative :for anchor
-            (rf2-ugmrg — previously :for was silently ignored and only
-            :story / the namespace derivation worked)"
+            (ignoring it would leave only :story / the namespace
+            derivation to supply the anchor)"
     (rf.story/reg-variant :story.for-anchor/a {:setup []})
     (rf.story/reg-variant :story.for-anchor/b {:setup []})
     (rf.story/reg-variant :story.other-anchor/x {:setup []})
@@ -672,7 +671,7 @@
 
 (deftest grid-template-columns-honours-columns
   (testing "grid-template-columns emits a fixed repeat(N, …) template when
-            :columns is a positive int (rf2-ugmrg)"
+            :columns is a positive int"
     (is (= "repeat(3, minmax(280px, 1fr))"
            (rf.story.ui.workspace/grid-template-columns 3)))
     (is (= "repeat(1, minmax(280px, 1fr))"
@@ -686,9 +685,9 @@
     (is (= "repeat(auto-fit, minmax(280px, 1fr))"
            (rf.story.ui.workspace/grid-template-columns -2)))))
 
-;; ---- docs mode (rf2-rodx) -----------------------------------------------
+;; ---- docs mode ----------------------------------------------------------
 
-;; rf2-ee38b.3: the `rf.story.ui.docs/parent-story-id` re-export was dropped; the
+;; There is no `rf.story.ui.docs/parent-story-id` re-export; the
 ;; canonical helper lives in `re-frame.story.predicates` (covered there).
 ;; The docs header chip calls `rf.story.predicates/parent-story-id` directly.
 
@@ -706,7 +705,7 @@
     (is (= [:dev :docs] (rf.story.ui.docs/variant-tags :story.t2/a)))))
 
 (deftest docs-variant-tags-resolves-removal-marker
-  (testing "rf2-n0vmq2 — a child that :extends a :dev-tagged parent and
+  (testing "A child that :extends a :dev-tagged parent and
             declares :!dev shows NO :dev and NO :!dev chip (effective set)"
     (rf.story/reg-variant :story.tm/base  {:tags #{:dev :test} :setup []})
     (rf.story/reg-variant :story.tm/child {:extends :story.tm/base :tags #{:!dev} :setup []})
@@ -821,9 +820,9 @@
       ;; before :b/b.
       (is (= ["alpha" "beta"] bodies)))))
 
-;; ---- test mode (rf2-qmjo) -----------------------------------------------
+;; ---- test mode ----------------------------------------------------------
 
-;; rf2-ee38b.3: the `rf.story.ui.test-mode.pure/parent-story-id` re-export was dropped;
+;; There is no `rf.story.ui.test-mode.pure/parent-story-id` re-export;
 ;; the canonical `parent-story-id` lives in `re-frame.story.predicates`
 ;; (covered by its own tests). The view calls `rf.story.predicates/parent-story-id`
 ;; directly.
@@ -838,17 +837,17 @@
     (rf.story/reg-variant :story.tm/has
       {:setup [] :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]})
     (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/has)))
-  (testing "rf2-ee38b.3: variant-has-tests? recognises the :plays slot too"
+  (testing "variant-has-tests? recognises the :plays slot too"
     (rf.story/reg-variant :story.tm/plays
       {:setup [] :plays [{:name "happy"
                            :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]}]})
     (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/plays)
-        "a :plays-only variant is testable (was false before the fix)"))
+        "a :plays-only variant is testable"))
   (testing "variant-has-tests? returns false for an unknown variant-id"
     (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/unknown)))))
 
 (deftest test-mode-variant-has-tests?-declarative-expectations
-  (testing "rf2-uiihg: variant-has-tests? is true for a variant whose only
+  (testing "variant-has-tests? is true for a variant whose only
             tests are declarative :assertions or :checks — the Tests pane
             runs it instead of reading 'No tests registered'"
     (rf.story/reg-check :story.tm/c-is-zero
@@ -865,7 +864,7 @@
     (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/empty-expectations)))))
 
 (deftest run-all-runs-declarative-expectation-variants
-  (testing "rf2-uiihg: Run all — the sidebar's `testable-variant-ids`
+  (testing "Run all — the sidebar's `testable-variant-ids`
             selection driven through its per-variant pipeline
             (`run-one-test!`: run-variant → aggregate-summary + the run's
             `:status` → record-test-run) — executes an :assertions-only and a
@@ -916,11 +915,11 @@
           "declarative records carry the same keys as a script assert record"))))
 
 (deftest run-all-records-the-run-level-status
-  (testing "rf2-3x7nj.28.1: Run all and watch mode record the run's `:status`,
+  (testing "Run all and watch mode record the run's `:status`,
             as the Tests pane does. A thrown fx after the `:db` commits is
             agreement-floor evidence, so the run fails while its one
             assertion passes; folded from the assertion counts alone, the
-            sidebar dot read a green `:pass`. The pipeline below is
+            sidebar dot would read a green `:pass`. The pipeline below is
             `run-one-test!`'s — CLJS-only, so its own witness is
             `re-frame.story.ui.run-all-status-cljs-test`."
     (rf/reg-fx :story.rstat/boom {:platforms #{:client :server}}
@@ -958,7 +957,7 @@
     (rf.story/destroy-variant! :story.rstat/clean)))
 
 (deftest inherited-and-composed-checks-select-and-run
-  (testing "rf2-ckpm4: :checks a variant receives only through :extends or a
+  (testing ":checks a variant receives only through :extends or a
             :compose of a check id RUN (the compiler merges them into
             [:expect :checks]), so the Tests pane's variant-has-tests? and
             Run all's selection — fed the sidebar's own registry-snapshot —
@@ -1010,9 +1009,9 @@
           "a composed failing check fails the run, never a silent skip"))))
 
 (deftest composed-fragment-script-selects-and-runs
-  (testing "rf2-dt9xf: a :script a variant receives only through a :compose of
+  (testing "A :script a variant receives only through a :compose of
             a fragment RUNS (the compiler prepends it onto the primary play, or
-            synthesizes one — spec/017 §Total merge order, rf2-k23efg), so the
+            synthesizes one — spec/017 §Total merge order), so the
             Tests pane's variant-has-tests? and Run all's selection select the
             variant and its verdict is honest in both directions; composing a
             fragment with no :script still prunes"
@@ -1160,7 +1159,7 @@
           "nil record defaults to fail — a missing passed? slot can't be 'pass'")
       (is (some? (:label row)))))
   (testing "assertion-row stamps :row-key = :label so the view can key
-            :expanded on stable identity instead of positional index (rf2-tistm).
+            :expanded on stable identity instead of positional index.
             A re-run that reorders or inserts assertions would otherwise open
             the wrong row."
     (let [a (rf.story.ui.test-mode.pure/assertion-row
@@ -1176,8 +1175,8 @@
            on a re-run that inserts a sibling path-equals on a different path"))))
 
 (deftest test-mode-assertion-row-unified-status
-  (testing "rf2-ba86n.11 — assertion-row PREFERS the unified `:status` over
-            the legacy :passed? read (spec/021 §1 migration)"
+  (testing "assertion-row PREFERS the unified `:status` over
+            the :passed? read (spec/021 §1)"
     (is (= :cannot-run (:status (rf.story.ui.test-mode.pure/assertion-row
                                   {:assertion :rf.assert/caused
                                    :status    :cannot-run
@@ -1193,7 +1192,7 @@
                              :status    :pass
                              :passed?   false})))
         "the stamped :status wins even when :passed? disagrees")
-    (testing "unstamped records still derive :cannot-run / :error from flags"
+    (testing "unstamped records derive :cannot-run / :error from flags"
       (is (= :cannot-run (:status (rf.story.ui.test-mode.pure/assertion-row
                                     {:assertion :rf.assert/caused
                                      :cannot-run? true}))))
@@ -1202,7 +1201,7 @@
                                 :error "boom"})))))))
 
 (deftest test-mode-run-status
-  (testing "rf2-ba86n.11 — run-status prefers the unified run-level :status"
+  (testing "run-status prefers the unified run-level :status"
     (is (= :pass       (rf.story.ui.test-mode.pure/run-status {:status :pass} {})))
     (is (= :fail       (rf.story.ui.test-mode.pure/run-status {:status :fail} {})))
     (is (= :error      (rf.story.ui.test-mode.pure/run-status {:status :error} {})))
@@ -1215,7 +1214,7 @@
     (is (= :cannot-run (rf.story.ui.test-mode.pure/run-status {} {:total 2 :failed 0 :cannot-run 1})))))
 
 (deftest test-mode-check-rows
-  (testing "rf2-ba86n.11 — check-rows groups the result's :checks by id, with
+  (testing "check-rows groups the result's :checks by id, with
             pass/fail counts + the underlying assertion rows (spec/021 §1)"
     (let [result {:checks [{:check  :auth/logged-in
                             :status :fail
@@ -1237,7 +1236,7 @@
     (is (= [] (rf.story.ui.test-mode.pure/check-rows {:checks []})))))
 
 (deftest test-mode-schema-rows
-  (testing "rf2-ba86n.11 — schema-rows marks consumed vs unconsumed
+  (testing "schema-rows marks consumed vs unconsumed
             violations (spec/021 §1 — incl. consumed expected violations)"
     (let [result {:schema-violations
                   [{:selector [:event :auth/login] :where :event
@@ -1253,12 +1252,12 @@
       (is (true?  (:consumed? (first rows)))  "exactly-consumed expected violation")
       (is (false? (:consumed? (second rows))) "unconsumed → agreement-floor failure")
       (is (= "invalid role" (:reason (second rows))))))
-  (testing "rf2-5mrnwx — schema-rows uses the EXACT MULTISET consumption from
+  (testing "schema-rows uses the EXACT MULTISET consumption from
             the `:pass` schema-error records, so a partially-consumed selector
             marks exactly M of N (not all) and AGREES with the agreement floor"
     ;; TWO same-selector violations, ONE matching expectation → exactly one
     ;; consumed, one unconsumed. A set-keyed mark would falsely show BOTH
-    ;; consumed and disagree with the (now multiset) floor.
+    ;; consumed and disagree with the (multiset) floor.
     (let [result {:schema-violations
                   [{:selector [:event :x] :where :event :failing-id :x :epoch-id 1}
                    {:selector [:event :x] :where :event :failing-id :x :epoch-id 2}]
@@ -1272,7 +1271,7 @@
           "first of the two same-selector violations is the consumed one")
       (is (false? (:consumed? (second rows)))
           "second same-selector violation left UNCONSUMED → floor failure cause")))
-  (testing "rf2-uyebc — a consumed-selector with NO matching `:pass` record is
+  (testing "A consumed-selector with NO matching `:pass` record is
             a caller-supplied escape hatch and excuses every same-selector
             violation (set-keyed, mirroring the floor)"
     (let [result {:schema-violations
@@ -1287,7 +1286,7 @@
       (is (true?  (:consumed? (first rows)))  "escape-hatch selector excused")
       (is (false? (:consumed? (second rows)))
           "selector absent from :consumed-selectors → unconsumed")))
-  (testing "rf2-uyebc — empty `:consumed-selectors`: a `:pass` record still
+  (testing "Empty `:consumed-selectors`: a `:pass` record
             carries the multiset consumption (one matched expectation = one
             consumed violation), so the matched violation reads consumed"
     (let [result {:schema-violations
@@ -1303,7 +1302,7 @@
     (is (= [] (rf.story.ui.test-mode.pure/schema-rows {})))))
 
 (deftest test-mode-cannot-run-rows
-  (testing "rf2-ba86n.11 — cannot-run-rows surfaces required vs available
+  (testing "cannot-run-rows surfaces required vs available
             evidence/runner for each refusal (spec/021 §1; spec/018 §12.6)"
     (let [result {:cannot-run
                   [{:status :cannot-run
@@ -1325,7 +1324,7 @@
     (is (= [] (rf.story.ui.test-mode.pure/cannot-run-rows {})))))
 
 (deftest test-mode-filter-rows
-  (testing "rf2-ba86n.11 — failed-only filter keeps only actionable rows
+  (testing "failed-only filter keeps only actionable rows
             (:fail/:error/:cannot-run) when on (spec/021 §1)"
     (let [rows [{:status :pass}  {:status :fail}  {:status :error}
                 {:status :cannot-run} {:status :skip} {:status :pass}]]
@@ -1337,7 +1336,7 @@
             ":pass / :skip rows are filtered out")))))
 
 (deftest test-mode-evidence-available?
-  (testing "rf2-ba86n.11 — evidence-available? gates the graceful pending
+  (testing "evidence-available? gates the graceful pending
             affordance on a retained tape/narrative (spec/021 §2)"
     (is (true?  (rf.story.ui.test-mode.pure/evidence-available? {:epoch-tape [{:epoch-id 1}]})))
     (is (true?  (rf.story.ui.test-mode.pure/evidence-available? {:narrative [{:span 1}]})))
@@ -1364,7 +1363,7 @@
     (is (= "" (rf.story.ui.test-mode.pure/format-timestamp-ms nil)))
     (is (= "" (rf.story.ui.test-mode.pure/format-timestamp-ms "no")))))
 
-;; ---- step-through scrubber (rf2-lc36w) ----------------------------------
+;; ---- step-through scrubber ----------------------------------------------
 
 (deftest test-mode-play-step-label-renders-event-id
   (testing "play-step-label stringifies the event-id only"
@@ -1417,7 +1416,7 @@
                        {:epoch-id 11 :trigger-event [:b]}
                        {:epoch-id 12 :trigger-event [:c]}]]
       (is (= [10 11 12] (rf.story.ui.test-mode.pure/epoch-id-slice tape play-events)))))
-  (testing "rf2-4e545l finding 4 — a non-dispatch step (:click/:type) that
+  (testing "A non-dispatch step (:click/:type) that
             ALSO commits an epoch interleaves a tape record whose
             :trigger-event is not among play-events; epoch-id-slice
             skips it rather than misattributing it to the next
