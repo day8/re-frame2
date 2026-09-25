@@ -49,7 +49,9 @@ see `run_commands` below for what counts and why.
 with the bead that will give it a home.  It is deliberately NOT an error, and
 deliberately NOT stale-checked when the gate later gains a scheduled home:
 that transition is the hole CLOSING, and reddening main for it would punish the
-fix.  Deleting the entry afterwards is tidy-up, not an obligation.
+fix.  Delete the entry in the change that schedules the gate all the same: a
+declared hole that outlives its gate's schedule is a false claim, and nothing
+but its author removes it.
 
 WHY IT LIVES IN `scripts/` AND RUNS PER-PR
 ------------------------------------------

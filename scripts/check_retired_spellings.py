@@ -30,8 +30,9 @@ lintable:
       `arm1.<ns>/<name>`. The shipped
       `implementation/fresco` package was measured as the prototype
       `re-frame.bench.fresco.{front,arm1}.*` and carries that tree's
-      provenance all through its prose, but the prototype is NOT in this
-      repo and no consumer can follow a coordinate into it. The package's
+      provenance all through its prose, but the prototype lives in
+      `bench/fresco`, a hand-run project that ships in no artefact, so no
+      consumer can follow a coordinate into it. The package's
       `:where` coordinates name its own
       `re-frame.fresco.impl.*` namespaces; a coordinate naming `front.*`
       or `arm1.*` is retired.
@@ -571,31 +572,14 @@ _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 # the coordinate contract. Deliberately NOT
 # the whole repo; see SCAN SURFACE in the module docstring. Rostered paths are
 # required to exist for the same reason `DEFAULT_SCAN_DIRS` are: a skipped tree
-# reports success for a surface it never opened.
+# reports success for a surface it never opened. The prototype itself,
+# `bench/fresco`, is off the roster on purpose: its own `front.*` / `arm1.*`
+# names are the definition of those coordinates, not a retired spelling.
 COORD_SCAN_PATHS = (
     "implementation/fresco/src",
     "implementation/fresco/test",
     "implementation/fresco/test_kit",
     "spec/009-Instrumentation.md",
-)
-
-# ...minus the PROTOTYPE ITSELF, at the bench root below.
-#
-# Rule (d)'s subject is a SHIPPED refusal whose `:where` names a coordinate the
-# consumer cannot reach — `front.codec/realize-deep` resolves to nothing,
-# because the package is `re-frame.fresco.impl.*` and the prototype it was
-# measured as is somewhere else. The prototype naming its OWN coordinates is
-# not that. It is the definition of them, in the files that carry them, and
-# `front.state/reg-state` inside `front/state.cljc` is simply that function's
-# name. Scanning it would report dozens of findings for the one tree where the
-# spelling is not retired at all — and the fix hint would be telling the prototype to
-# stop being the prototype.
-#
-# Scoped to the bench root and no wider, so every real surface the roster names
-# is still scanned: the package source, the package's own tests, the test
-# kit, and Spec 009.
-COORD_EXCLUDE_PATHS = (
-    "implementation/fresco/test/re_frame/bench",
 )
 
 _COORD_SUFFIXES = _SOURCE_SUFFIXES + (".md",)
@@ -628,9 +612,9 @@ ARROW_SOURCE_ALLOWLIST = (
 ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration", "docs")
 
 # ...minus three subtrees, subtracted EXPLICITLY rather than by leaving `docs/`
-# off the roster wholesale. Matched on the repo-relative TAIL like
-# `COORD_EXCLUDE_PATHS`, so the same roster holds under the real checkout and
-# under a synthetic tree handed in by the self-test — and, unlike a roster
+# off the roster wholesale. Matched on the repo-relative TAIL, so the same
+# roster holds under the real checkout and under a synthetic tree handed in by
+# the self-test — and, unlike a roster
 # entry, an exclusion is NOT required to exist: `docs/spec/` and
 # `docs/migration/` are absent from a clean checkout by design.
 #
@@ -708,8 +692,8 @@ PRODUCT_EXTRA_EXCLUDE_DIR_NAMES = frozenset({
 })
 
 # ...and the path-scoped subtractions, matched as a ROOT-ANCHORED PREFIX of the
-# repo-relative path — not on the tail, the way `COORD_EXCLUDE_PATHS` and the
-# arrow rosters are. Rule (g)'s surface IS the repo root, so every entry here is
+# repo-relative path — not on the tail, the way the arrow rosters are.
+# Rule (g)'s surface IS the repo root, so every entry here is
 # a real root and anchoring is both narrower and exactly what is meant: `ai`
 # subtracts the repo's `ai/` tree and could never be read as some future
 # `implementation/ai/`. The same roster holds under the real checkout and under
@@ -830,8 +814,8 @@ PRODUCT_EXCLUDE_SUFFIXES = frozenset({
 #
 # HOW TO ADD ONE (this is the whole procedure):
 #   1. Add a tuple here — the repo-relative path, a regex matching the CONSTRUCT
-#      that makes the occurrence legitimate, and a one-line reason naming the
-#      bead.
+#      that makes the occurrence legitimate, and a one-line reason saying WHY
+#      the retired spelling is legitimate there.
 #   2. Prefer a construct to a line range: a range moves silently under an edit
 #      above it, a construct does not.
 #   3. Add the file's real content as a fixture under
@@ -875,25 +859,25 @@ PRODUCT_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
         "docs/design/fresco/decisions.md",
         r"^> > ",
         "HD-001's superseded ruling, quoted verbatim inside the supersession "
-        "block's nested blockquote (rf2-d1nr.3).",
+        "block's nested blockquote.",
     ),
     (
         "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs",
         r"^const ARCHIVE_PATH = '",
         "The run corpus's path INSIDE the pre-rename commit it is archived at; "
-        "the restore resolves that literal string (rf2-d1nr.2).",
+        "the restore resolves that literal string.",
     ),
     (
         "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs",
         r"^  \['\w+', '(?:fresco|Fresco|FRESCO)'\],$",
         "A `LEGACY_TOKENS` row: the retired spelling mapped to the current one, "
-        "which is the substitution the archive reader applies (rf2-d1nr.2).",
+        "which is the substitution the archive reader applies.",
     ),
     (
         "bench/fresco/src/re_frame/bench/fresco/data_archive.test.cjs",
         r"^\s*assert\.ok\(raw\.includes\('lad/",
         "The control that proves an archived record really is in the old "
-        "vocabulary, asserted over its raw bytes (rf2-d1nr.2).",
+        "vocabulary, asserted over its raw bytes.",
     ),
 )
 
@@ -1294,30 +1278,14 @@ def _iter_coordinate_files(scan_root: Path) -> Iterable[Path]:
     `spec/009-Instrumentation.md`), and there is NO test-dir exclusion and no
     opt to reinstate one — the shape this rule exists to catch is a test
     assertion.
-
-    `COORD_EXCLUDE_PATHS` is subtracted, and it is not a third difference of
-    the same kind: it removes the PROTOTYPE, whose own coordinates
-    this rule is not about. See that constant for the argument.
     """
     if scan_root.is_file():
         if scan_root.suffix in _COORD_SUFFIXES:
             yield scan_root
         return
-    # Matched on the repo-relative TAIL rather than against an absolute repo
-    # root, so the same rule holds under the real checkout and under the
-    # self-test's synthetic trees, which have a different root and are handed
-    # in directly.
-    def is_excluded(p: Path) -> bool:
-        posix = p.as_posix()
-        return any(posix == e or posix.endswith("/" + e)
-                   for e in COORD_EXCLUDE_PATHS)
-
     matches: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(scan_root):
         dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
-        if is_excluded(Path(dirpath)):
-            dirnames[:] = []
-            continue
         for name in filenames:
             if os.path.splitext(name)[1] in _COORD_SUFFIXES:
                 matches.append(Path(dirpath) / name)
@@ -1480,8 +1448,8 @@ def scan_coordinates(scan_root: Path) -> list[Finding]:
 def _allowlisted(path: Path, roster: Iterable[str]) -> bool:
     """True when `path` ends with a rostered repo-relative path.
 
-    Matched on the TAIL, like `COORD_EXCLUDE_PATHS`, so the same roster holds
-    under the real checkout and under a self-test's synthetic tree.
+    Matched on the TAIL, so the same roster holds under the real checkout and
+    under a self-test's synthetic tree.
     """
     posix = path.as_posix()
     return any(posix == e or posix.endswith("/" + e) for e in roster)
@@ -1568,10 +1536,9 @@ def scan_arrow(scan_root: Path, include_tests: bool = False) -> list[Finding]:
 def scan_arrow_prose(scan_root: Path) -> list[Finding]:
     """Scan rule (f)'s PROSE surface (fenced samples) under scan_root.
 
-    `ARROW_PROSE_EXCLUDE_PATHS` is subtracted, on the repo-relative tail, the
-    way `_iter_coordinate_files` subtracts `COORD_EXCLUDE_PATHS`. In direct-file
-    mode the same subtraction applies, so a self-test that hands in an excluded
-    page gets the same answer the walk would give it.
+    `ARROW_PROSE_EXCLUDE_PATHS` is subtracted, on the repo-relative tail. In
+    direct-file mode the same subtraction applies, so a self-test that hands in
+    an excluded page gets the same answer the walk would give it.
     """
     if scan_root.is_file():
         paths: Iterable[Path] = (
@@ -1750,8 +1717,9 @@ _FIX_HINTS = {
     "retired-bench-coordinate": (
         "A fresco BENCH-TREE coordinate — `front.*` / `arm1.*` — is "
         "retired. The shipped package was measured as the prototype "
-        "`re-frame.bench.fresco.{front,arm1}.*`, which is NOT in this repo: a "
-        "refusal whose `:where` names it points a consumer at nothing. Raise "
+        "`re-frame.bench.fresco.{front,arm1}.*`, which lives in the hand-run "
+        "`bench/fresco` project and ships in no artefact: a refusal whose "
+        "`:where` names it points a consumer at code they do not have. Raise "
         "from the package's own namespace — e.g. "
         "`:where 're-frame.fresco.impl.collector/shell` — and "
         "assert against the PACKAGE prefix `\"re-frame.fresco.impl.\"` rather "

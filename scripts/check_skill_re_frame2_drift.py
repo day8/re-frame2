@@ -83,28 +83,28 @@ no-bead-id arms cover other skills' leaves):
      `:reply-to`), the `[:rf.http/managed-abort …]` dispatch, and legitimate
      durable-ledger `:work/id` prose are deliberately allowed.
 
-  6. **UIx/Helix hooks stateful-component guidance, causally exact.** The
-     hooks adapters (UIx / Helix) bridge a
-     stateful component with an ordinary `defui` / `defnc` plus the adapter's
+  6. **UIx hooks stateful-component guidance, causally exact.** The
+     UIx hooks adapter bridges a
+     stateful component with an ordinary `defui` plus the adapter's
      `use-sub` (read subs) and `use-frame` (carry the frame) hooks — NOT
      the Reagent `reg-view` macro, a render-time / bare no-arg `capture-frame`,
      or a `:contextType`. `use-frame` is `capture-frame` in hook position,
      reading the surrounding frame-provider / frame-root through React context;
-     `reg-view*` on these adapters is optional registry addressing, never the
+     `reg-view*` on UIx is optional registry addressing, never the
      frame wiring. Simpler checks are not causally exact: a WHOLE-FILE presence
      check for `use-frame` / `use-sub` passes a token-only
      semantic reversal ("Do not use use-frame or use-sub; use reg-view
      instead."), and a line rule suppressed by ANY broad negation
      cue passes "UIx is not special: reg-view* gives it :contextType." on
      the stray far "not" while falsely rejecting the valid comparison
-     "UIx/Helix differ from Reagent's :contextType mechanism." So the rule is
+     "UIx differs from Reagent's :contextType mechanism." So the rule is
      SENTENCE-scoped (a bounded recipe-sentence carve, NOT a general prose
      parser — a mixed Reagent+hooks line is checked per sentence): (6a) each
      authoritative leaf (`patterns/stateful-components.md`, `references/
      fundamentals/frames.md`, and `references/fundamentals/
      views.md`, whose per-adapter recipe table can drift while its own
      paragraph stays lawful) MUST carry a COHERENT recipe sentence naming an
-     ordinary `defui`/`defnc`, `use-sub`, AND `use-frame` together; (6b)
+     ordinary `defui`, `use-sub`, AND `use-frame` together; (6b)
      no hooks-recipe sentence may carry a residue shape — a `:contextType`
      ATTRIBUTED to a hooks adapter (fires even under a stray far "not"; a
      Reagent-owned/comparative `:contextType` and a tightly-scoped "no
@@ -472,15 +472,15 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
-# --- Rule 6: UIx/Helix hooks stateful-component recipe guidance, causally exact.
-#     The hooks adapters (UIx / Helix) bridge a stateful component with an
-#     ordinary `defui` / `defnc` plus the adapter's `use-sub` (read subs)
+# --- Rule 6: UIx hooks stateful-component recipe guidance, causally exact.
+#     The UIx hooks adapter bridges a stateful component with an
+#     ordinary `defui` plus the adapter's `use-sub` (read subs)
 #     and `use-frame` (carry the frame) hooks — NOT the Reagent `reg-view` macro,
 #     a render-time / bare no-arg `capture-frame`, or a `:contextType`.
 #     `use-frame` is `capture-frame` in hook position, reading the surrounding
 #     frame-provider / frame-root through React context (which a bare no-arg
-#     `capture-frame` in a plain hooks component cannot); `reg-view*` on these
-#     adapters is optional registry addressing, never the frame wiring.
+#     `capture-frame` in a plain hooks component cannot); `reg-view*` on UIx
+#     is optional registry addressing, never the frame wiring.
 #
 #     Simpler checks are NOT causally exact. A WHOLE-FILE presence check for
 #     `use-frame` / `use-sub` passes a token-only semantic reversal
@@ -488,7 +488,7 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 #     tokens are present. A line rule that suppresses ANY line carrying a
 #     broad negation cue passes "UIx is not special: reg-view* gives it
 #     :contextType." on the stray far-away "not", while falsely REJECTING the
-#     valid comparison "UIx/Helix differ from Reagent's :contextType mechanism."
+#     valid comparison "UIx differs from Reagent's :contextType mechanism."
 #     So the rule is SENTENCE-scoped (a bounded recipe-sentence
 #     carve — NOT a general prose parser): a mixed Reagent+hooks physical line is
 #     checked per sentence, so a `:contextType` attributed to the Reagent wrapper
@@ -499,8 +499,8 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 #          stateful-components.md, references/fundamentals/frames.md, and
 #          references/fundamentals/views.md — the per-adapter recipe table
 #          leaf) MUST carry
-#          at least one COHERENT recipe sentence naming an ordinary `defui` /
-#          `defnc`, `use-sub`, AND `use-frame` together — proving the
+#          at least one COHERENT recipe sentence naming an ordinary
+#          `defui`, `use-sub`, AND `use-frame` together — proving the
 #          relationship, not just the scattered presence of two tokens.
 #     6b — no RESIDUE SHAPE in any hooks-recipe sentence (scanned leaf-wide; a
 #          hooks-recipe sentence names a hooks adapter or one of the two hooks):
@@ -522,17 +522,17 @@ HOOKS_LEAF_REQUIRED = (
     ("references", "fundamentals", "frames.md"),
     # The views leaf carries the per-adapter recipe table. A table row can
     # drift (an ordinary hooks view classified as `reg-view*` on a
-    # `defui` / `defnc`) while its own paragraph teaches the lawful ordinary
-    # `defui`/`defnc` + `use-sub` + `use-frame` recipe, so the coherence
+    # `defui`) while its own paragraph teaches the lawful ordinary
+    # `defui` + `use-sub` + `use-frame` recipe, so the coherence
     # floor anchors this leaf too.
     ("references", "fundamentals", "views.md"),
 )
-HOOKS_ADAPTER_RE = re.compile(r"\b(?:UIx|Helix)\b")
-# A "hooks-recipe sentence" names a hooks adapter OR one of the two hooks — so a
+HOOKS_ADAPTER_RE = re.compile(r"\bUIx\b")
+# A "hooks-recipe sentence" names the hooks adapter OR one of the two hooks — so a
 # semantic reversal naming only `use-frame` / `use-sub` (no adapter) is in
 # scope too.
-HOOKS_CTX_RE = re.compile(r"\b(?:UIx|Helix)\b|\buse-frame\b|\buse-sub\b")
-COMPONENT_FORM_RE = re.compile(r"\bdef(?:ui|nc)\b")
+HOOKS_CTX_RE = re.compile(r"\bUIx\b|\buse-frame\b|\buse-sub\b")
+COMPONENT_FORM_RE = re.compile(r"\bdefui\b")
 USE_SUBSCRIBE_RE = re.compile(r"\buse-sub\b")
 USE_FRAME_RE = re.compile(r"\buse-frame\b")
 
@@ -644,10 +644,10 @@ BARE_CAPTURE_NEGATED_RE = re.compile(
 
 HOOKS_CONTEXTTYPE_MSG = (
     'HOOKS-CONTEXTTYPE: this clause attributes a Reagent `:contextType` to a '
-    'hooks adapter (UIx / Helix) — "{clause}". `:contextType` is Reagent\'s '
-    "class-component mechanism; the hooks adapters read the frame through the "
+    'hooks adapter (UIx) — "{clause}". `:contextType` is Reagent\'s '
+    "class-component mechanism; UIx reads the frame through the "
     "`use-sub` / `use-frame` hooks (React context in hook position) and "
-    "have NO `:contextType`. `reg-view*` on these adapters is optional registry "
+    "has NO `:contextType`. `reg-view*` on UIx is optional registry "
     "addressing, never a source of a `:contextType`. Either say the hooks "
     "adapter has *no* `:contextType`, or split the Reagent comparison into a "
     "separate clause (`;`, an em dash, or `, while` / `, whereas` / `, but`) so "
@@ -656,30 +656,30 @@ HOOKS_CONTEXTTYPE_MSG = (
 HOOKS_CONTEXTTYPE_AMBIGUOUS_MSG = (
     "HOOKS-CONTEXTTYPE-OWNERLESS: this clause of a hooks-recipe sentence "
     'attributes a `:contextType` but names neither adapter — "{clause}". '
-    "Inside a sentence that names UIx / Helix, an ownerless attribution reads "
+    "Inside a sentence that names UIx, an ownerless attribution reads "
     "as the hooks adapter's, and `:contextType` is Reagent-only. Name the owner "
     "in the clause (e.g. \"Reagent's `:contextType`\"), or split the sentence so "
     "the clause carries its own subject."
 )
 HOOKS_REVERSAL_MSG = (
-    "HOOKS-REVERSAL: this hooks-recipe sentence steers UIx / Helix authors AWAY "
+    "HOOKS-REVERSAL: this hooks-recipe sentence steers UIx authors AWAY "
     "from the hook idiom — discouraging `use-frame` / `use-sub`, or "
-    "sending them to the Reagent `reg-view` macro instead. On the hooks adapters "
-    "an ordinary `defui` / `defnc` reads subs with `use-sub` and carries "
+    "sending them to the Reagent `reg-view` macro instead. On UIx "
+    "an ordinary `defui` reads subs with `use-sub` and carries "
     "the frame with the `use-frame` hook; `reg-view` is Reagent-only."
 )
 HOOKS_REGVIEW_MSG = (
-    "HOOKS-REGVIEW-MACRO: this hooks-recipe sentence registers the UIx / Helix "
+    "HOOKS-REGVIEW-MACRO: this hooks-recipe sentence registers the UIx "
     "component via the Reagent `reg-view` MACRO. `reg-view` (and its injected "
     "locals / `:contextType` wiring) is Reagent-only; a hooks component is an "
-    "ordinary `defui` / `defnc` that reads the frame through `use-sub` / "
+    "ordinary `defui` that reads the frame through `use-sub` / "
     "`use-frame`. `reg-view*` (the plain-fn surface) is optional registry "
     "addressing only — never the frame wiring."
 )
 HOOKS_CAPTURE_MSG = (
     "HOOKS-BARE-CAPTURE: this hooks-recipe sentence carries the frame with a "
-    "bare no-arg `capture-frame` (e.g. `(:dispatch (rf/capture-frame))`). On the "
-    "hooks adapters a no-arg `capture-frame` reads only the dynamic-var tier and "
+    "bare no-arg `capture-frame` (e.g. `(:dispatch (rf/capture-frame))`). On "
+    "UIx a no-arg `capture-frame` reads only the dynamic-var tier and "
     "raises under a context-only frame — carry the frame with the `use-frame` "
     "hook (capture-frame in hook position, which reads React context) instead."
 )
@@ -690,7 +690,7 @@ def contexttype_attribution_problem(sentence: str) -> str | None:
 
     Clause-scoped, not sentence-scoped and not proximity-suppressed: a sentence
     may lawfully hand `:contextType` to Reagent in one clause and the hooks
-    spelling to UIx / Helix in the next, so each clause is judged on the subject
+    spelling to UIx in the next, so each clause is judged on the subject
     it names. Only a sentence that mentions a hooks adapter is in scope at all.
     """
     if not HOOKS_ADAPTER_RE.search(sentence):
@@ -747,8 +747,8 @@ def hooks_sentence_problems(sentence: str) -> list[str]:
 
 
 def _coherent_recipe_sentence(text: str) -> str | None:
-    """The first sentence co-locating an ordinary `defui`/`defnc`, `use-sub`,
-    and `use-frame` — the canonical UIx/Helix stateful recipe block."""
+    """The first sentence co-locating an ordinary `defui`, `use-sub`,
+    and `use-frame` — the canonical UIx stateful recipe block."""
     for _lineno, sent in _hooks_sentences(text):
         if (
             HOOKS_ADAPTER_RE.search(sent)
@@ -762,7 +762,7 @@ def _coherent_recipe_sentence(text: str) -> str | None:
 
 def hooks_leaf_incoherent(text: str) -> bool:
     """Rule 6a — True when NO sentence in the leaf co-locates an ordinary
-    `defui`/`defnc`, `use-sub`, AND `use-frame` (the coherent recipe went
+    `defui`, `use-sub`, AND `use-frame` (the coherent recipe went
     missing or was scattered across sentences)."""
     return _coherent_recipe_sentence(text) is None
 
@@ -770,13 +770,13 @@ def hooks_leaf_incoherent(text: str) -> bool:
 # --- Rule 6c: BOUNDED BLOCK anchors on the three concrete recipe
 #     blocks. Rule 6a is a leaf-wide floor, so it is satisfied by ANY coherent
 #     sentence in the leaf: the views leaf's per-adapter TABLE can regress to
-#     the false "required `reg-view*` on a `defui`/`defnc`" cell while its own
+#     the false "required `reg-view*` on a `defui`" cell while its own
 #     adjacent paragraph stays lawful and the floor passes. And two of the
 #     bounded authorities (the setup skill's greenfield warning, the Spec 006
 #     paragraph) are not in `scanned_files()` at all, so no other rule reaches them.
 #
 #     Each anchor names ONE block by a stable lead-in and checks it in place:
-#       * the block MUST itself be a coherent recipe (ordinary `defui`/`defnc` +
+#       * the block MUST itself be a coherent recipe (ordinary `defui` +
 #         `use-sub` + `use-frame` in one sentence) — the same Rule 6a
 #         predicate, applied at block scope rather than leaf scope; and
 #       * no sentence of the block may carry a Rule 6b residue shape.
@@ -789,8 +789,6 @@ HOOKS_ANCHORED_BLOCKS = (
         "the per-adapter table's UIx ordinary-view row",
         re.compile(r"^\|\s*\*\*UIx\*\*\s*\|"),
     ),
-    # (The per-adapter table has no Helix row: Helix is not on the adapter
-    # roster.)
     (
         ("skills", "re-frame2-setup", "references", "first-counter.md"),
         "the 'Reagent only' greenfield warning",
@@ -799,9 +797,7 @@ HOOKS_ANCHORED_BLOCKS = (
     (
         ("spec", "006-ReactiveSubstrate.md"),
         "the canonical UIx hooks paragraph under the adapter inventory",
-        # Matches "The UIx row(s) ..." and the "The UIx and Helix rows ..."
-        # spelling alike.
-        re.compile(r"^The UIx (?:and Helix )?rows?\b"),
+        re.compile(r"^The UIx rows?\b"),
     ),
 )
 
@@ -835,11 +831,11 @@ def anchored_block_problems(label: str, block: str) -> list[str]:
     if _coherent_recipe_sentence(block) is None:
         problems.append(
             f"HOOKS-BLOCK-INCOHERENT: {label} does not state the hooks recipe "
-            "in place — an ordinary `defui` / `defnc` that reads subs with "
+            "in place — an ordinary `defui` that reads subs with "
             "`use-sub` and carries the frame with `use-frame`. This block "
             "is a bounded authority: it is the concrete recipe a programmer or "
             "a model copies, so a correct paragraph elsewhere in the file does "
-            "NOT cover it. `reg-view*` on these adapters is OPTIONAL registry "
+            "NOT cover it. `reg-view*` on UIx is OPTIONAL registry "
             "addressing (see examples/substrates/uix/counter/core.cljs — a "
             "plain `defui` with `use-sub` + `use-frame` and no "
             "`reg-view*`); it is never required, and never the frame wiring."
@@ -1528,7 +1524,7 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
                 problems.append(f"{rel}:{lineno}: {label}\n    {sent.strip()}")
 
     # Rule 6a — COHERENCE FLOOR. The authoritative hooks-guidance leaves must
-    # each carry a single COHERENT recipe sentence (ordinary `defui`/`defnc` +
+    # each carry a single COHERENT recipe sentence (ordinary `defui` +
     # `use-sub` + `use-frame` together), proving the relationship — not just
     # the scattered presence of two tokens (which a semantic reversal that names
     # both would satisfy).
@@ -1537,17 +1533,17 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         rel = leaf.relative_to(REPO_ROOT)
         if not leaf.is_file():
             problems.append(
-                f"{rel}: SETUP: authoritative UIx/Helix hooks-guidance leaf "
+                f"{rel}: SETUP: authoritative UIx hooks-guidance leaf "
                 "missing — the Rule 6a anchor drifted from the skill layout."
             )
             continue
         if hooks_leaf_incoherent(_slurp(leaf)):
             problems.append(
-                f"{rel}: HOOKS-RECIPE-INCOHERENT: this authoritative UIx/Helix "
+                f"{rel}: HOOKS-RECIPE-INCOHERENT: this authoritative UIx "
                 "stateful-component leaf does not carry a single coherent "
-                "recipe sentence naming an ordinary `defui`/`defnc`, "
-                "`use-sub`, AND `use-frame` together. The hooks adapters "
-                "read subs with `use-sub` and carry the frame with the "
+                "recipe sentence naming an ordinary `defui`, "
+                "`use-sub`, AND `use-frame` together. UIx reads "
+                "subs with `use-sub` and carries the frame with the "
                 "`use-frame` hook (the hook-position spelling of capture-frame) "
                 "on an ordinary component — not the Reagent reg-view / "
                 "render-time capture-frame idiom. Restore the coherent recipe."
@@ -1651,7 +1647,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     if verbose:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
-            "machine-handler-recipe + managed-http-recipe + uix-helix-hooks + "
+            "machine-handler-recipe + managed-http-recipe + uix-hooks + "
             "form-action-csrf + withframe-thunk + canonical-frame-recipe "
             "guard: scanned "
             f"{len(files)} user-facing leaves ({lines_checked} lines), "
@@ -1666,8 +1662,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "re-frame2-drift: no bead-id leaks, the gate-running grants are "
                 "in the front-matter with no author-hand-off residue in the "
                 "leaves, no bare reg-event + make-machine-handler recipe, "
-                "no co-located Managed-HTTP reply-contract teaching, the UIx/Helix "
-                "hooks leaves each carry a coherent defui/defnc + use-sub + "
+                "no co-located Managed-HTTP reply-contract teaching, the UIx "
+                "hooks leaves each carry a coherent defui + use-sub + "
                 "use-frame recipe with no residue shape (no :contextType "
                 "attribution, semantic reversal, reg-view-macro registration, or "
                 "bare no-arg capture-frame carry), the bounded recipe blocks "
@@ -1700,8 +1696,8 @@ def run(*, verbose: bool, ci: bool) -> int:
         "the grants stay in the front-matter), author machines with reg-machine (not a "
         "bare reg-event + make-machine-handler recipe), address every Managed-"
         "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
-        "co-located `:rf/reply` default exists), keep each UIx/Helix hooks "
-        "stateful-component leaf carrying a coherent defui/defnc + use-sub "
+        "co-located `:rf/reply` default exists), keep each UIx hooks "
+        "stateful-component leaf carrying a coherent defui + use-sub "
         "+ use-frame recipe (never a reg-view-macro / bare-capture-frame / "
         ":contextType-attribution / semantic-reversal residue), keep each "
         "bounded recipe block stating that recipe IN PLACE (a correct paragraph "
@@ -2087,14 +2083,14 @@ def _self_test() -> int:
     )
     expect(
         hooks_sentence_problems,
-        "UIx/Helix differ from Reagent's :contextType mechanism.",
+        "UIx differs from Reagent's :contextType mechanism.",
         dirty=False, label="S3 valid Reagent :contextType comparison stays green",
     )
     # CLEAN — wording of the kind the leaves use.
     expect(
         hooks_sentence_problems,
-        "The hooks adapters (UIx / Helix) read the frame via `use-sub` / `use-frame` and need no `:contextType`.",
-        dirty=False, label="S4 hooks adapters explicitly have no :contextType",
+        "The UIx adapter reads the frame via `use-sub` / `use-frame` and needs no `:contextType`.",
+        dirty=False, label="S4 the hooks adapter explicitly has no :contextType",
     )
     expect(
         hooks_sentence_problems,
@@ -2103,7 +2099,7 @@ def _self_test() -> int:
     )
     expect(
         hooks_sentence_problems,
-        "On **Reagent** register it via `reg-view*`, then capture `(rf/capture-frame)` from the body; on UIx / Helix an ordinary `defui` / `defnc` reads subs with `use-sub` and carries the frame with `use-frame`.",
+        "On **Reagent** register it via `reg-view*`, then capture `(rf/capture-frame)` from the body; on UIx an ordinary `defui` reads subs with `use-sub` and carries the frame with `use-frame`.",
         dirty=False, label="S6 lawful mixed recipe (reg-view* + Reagent capture) stays green",
     )
 
@@ -2114,7 +2110,7 @@ def _self_test() -> int:
     #     IT names, so S7/S8 are red and S12 is green.
     expect(
         hooks_sentence_problems,
-        "On UIx / Helix, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
+        "On UIx, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
         dirty=True,
         label="S7 attribution hiding beside a lawful Reagent clause (proximity false negative)",
     )
@@ -2148,7 +2144,7 @@ def _self_test() -> int:
     )
     expect(
         hooks_sentence_problems,
-        "On Reagent register it via `reg-view*`, which gives the class a `:contextType`; on UIx / Helix carry the frame with `use-frame`.",
+        "On Reagent register it via `reg-view*`, which gives the class a `:contextType`; on UIx carry the frame with `use-frame`.",
         dirty=False,
         label="S12 per-adapter semicolon HOUSE STYLE is green",
     )
@@ -2175,7 +2171,7 @@ def _self_test() -> int:
     # sentence carve must not hand the attribution away before 6b(i) sees it).
     expect(
         _leaf_scan,
-        "On UIx / Helix, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
+        "On UIx, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
         dirty=True, label="S14 proximity false negative caught at leaf-scan scope",
     )
     # ACCEPTED BOUNDARY, pinned so a future reader knows it is a decision and
@@ -2188,15 +2184,34 @@ def _self_test() -> int:
         label="S15 ACCEPTED BOUNDARY: pronoun attribution in a split-off sentence",
     )
 
+    # The coherence floor accepts the UIx recipe only: `defui` is the UIx
+    # component macro and UIx the one hooks adapter, so a recipe spelled with
+    # Helix's `defnc`, or naming Helix, teaches an API nobody ships.
+    expect(
+        hooks_leaf_incoherent,
+        "On UIx an ordinary `defui` reads subs with `use-sub` and carries the frame with `use-frame`.",
+        dirty=False, label="S16 the UIx `defui` recipe is coherent",
+    )
+    expect(
+        hooks_leaf_incoherent,
+        "On UIx an ordinary `defnc` reads subs with `use-sub` and carries the frame with `use-frame`.",
+        dirty=True, label="S17 a UIx recipe on `defnc` is NOT coherent",
+    )
+    expect(
+        hooks_leaf_incoherent,
+        "On Helix an ordinary `defui` reads subs with `use-sub` and carries the frame with `use-frame`.",
+        dirty=True, label="S18 a recipe naming Helix is NOT coherent",
+    )
+
     residue_mutations = (
         ("reg-view-macro",
-         "On UIx / Helix, register the component via `reg-view` to carry the frame."),
+         "On UIx, register the component via `reg-view` to carry the frame."),
         ("bare-capture",
-         "On UIx / Helix, dispatch via `(:dispatch (rf/capture-frame))` captured above the callback."),
+         "On UIx, dispatch via `(:dispatch (rf/capture-frame))` captured above the callback."),
         ("semantic-reversal",
-         "On UIx / Helix, do not use use-frame or use-sub; use reg-view instead."),
+         "On UIx, do not use use-frame or use-sub; use reg-view instead."),
         ("contexttype-attribution",
-         "On UIx / Helix, `reg-view*` gives the component a `:contextType`."),
+         "On UIx, `reg-view*` gives the component a `:contextType`."),
     )
     for parts in HOOKS_LEAF_REQUIRED:
         leaf = SKILL_DIR.joinpath(*parts)
@@ -2293,15 +2308,15 @@ def _self_test() -> int:
          "| **UIx** | ordinary `defui`; subs via `use-sub`, frame via "
          "`use-frame`; `reg-view*` optional (registry addressing only) |"),
         ("V2 Reagent-owned :contextType comparison",
-         "On UIx / Helix an ordinary `defui` / `defnc` reads subs with "
+         "On UIx an ordinary `defui` reads subs with "
          "`use-sub` and carries the frame with `use-frame`, unlike a "
          "Reagent `reg-view` component's `:contextType` wiring."),
         ("V3 tightly-scoped negation",
-         "On UIx / Helix an ordinary `defui` / `defnc` uses `use-sub` and "
+         "On UIx an ordinary `defui` uses `use-sub` and "
          "`use-frame` and has no `:contextType`."),
         ("V4 warning to avoid the Reagent macro",
-         "On UIx / Helix do not reach for `reg-view` — an ordinary `defui` / "
-         "`defnc` reads subs with `use-sub` and carries the frame with "
+         "On UIx do not reach for `reg-view` — an ordinary `defui` "
+         "reads subs with `use-sub` and carries the frame with "
          "`use-frame`."),
     )
     for lawful_label, lawful in lawful_blocks:

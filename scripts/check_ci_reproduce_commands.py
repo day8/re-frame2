@@ -187,12 +187,6 @@ def discover_checker_steps(steps: list[dict]) -> list[dict]:
     return [s for s in steps if is_checker_step(s)]
 
 
-def parse_checker_steps(text: str) -> tuple[bool, list[dict]]:
-    """(found, checker_steps) -- parse the job, then keep only the checkers."""
-    found, steps = parse_job_steps(text)
-    return (found, discover_checker_steps(steps) if found else [])
-
-
 def emit_command(step_id: str, text: str) -> str | None:
     """The exact single-line `run:` command for `step_id`, or None if it has no
     single-line run (unknown id, or a block-scalar run)."""

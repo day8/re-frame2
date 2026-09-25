@@ -21,10 +21,12 @@
 #
 # THE FAILURE MODE THIS EXISTS TO STOP
 #
-#   `bd` auto-stages the full-database JSONL export in EVERY checkout. A
-#   worker worktree therefore carries a snapshot of the tracker as it stood
-#   when that worktree was created. Committing it TIME-TRAVELS the tracker:
-#   beads closed since the snapshot reopen, beads filed since it vanish.
+#   A worker worktree carries `.beads/issues.jsonl` as it stood at the commit
+#   the worktree was created from, and that snapshot goes stale as the
+#   tracker moves on: an ordinary `bd` write lands in the database and does
+#   not rewrite the file, which only scripts/beads-checkpoint.sh installs.
+#   Committing the snapshot TIME-TRAVELS the tracker: beads closed since the
+#   snapshot reopen, beads filed since it vanish.
 #
 #   The tracker database is the MAYOR checkout's to commit. Worker PRs carry
 #   code, spec, docs and tests — never the tracker database.
@@ -32,7 +34,7 @@
 # WHY NOT `git update-index --skip-worktree`?
 #
 #   Setting `--skip-worktree` on `.beads/issues.jsonl` in every new worker
-#   checkout, so the auto-export could never be staged at all, is STRICTLY
+#   checkout, so a changed snapshot could never be staged at all, is STRICTLY
 #   WORSE than refusing the commit:
 #
 #     skip-worktree hides the local edit from `git status` (clean tree), but
@@ -204,10 +206,10 @@ check_beads_boundary() {
   done < "$_rf2b_refused"
   printf '\n' >&2
   printf '  This is the STALE WORKER-SNAPSHOT failure mode.\n' >&2
-  printf '  `bd` auto-stages the full-database JSONL export in EVERY checkout,\n' >&2
-  printf '  so a worker worktree carries the tracker as it stood when that\n' >&2
-  printf '  worktree was created. Committing it TIME-TRAVELS the tracker: beads\n' >&2
-  printf '  closed since the snapshot reopen, beads filed since it vanish.\n' >&2
+  printf '  A worker worktree carries the tracker export as it stood when that\n' >&2
+  printf '  worktree was created; `bd` writes the database, not this file.\n' >&2
+  printf '  Committing it TIME-TRAVELS the tracker: beads closed since the\n' >&2
+  printf '  snapshot reopen, beads filed since it vanish.\n' >&2
   printf '\n' >&2
   if [ "$_rf2b_context" = "ci" ]; then
     printf '  Fix — take the beads paths out of this branch, then force-push:\n' >&2
@@ -220,7 +222,7 @@ check_beads_boundary() {
   fi
   printf '\n' >&2
   printf '  To stop it recurring: stage explicit paths. `git add -A` and\n' >&2
-  printf '  `git commit -a` sweep up the bd auto-export every time.\n' >&2
+  printf '  `git commit -a` sweep up any rewrite of the export with your work.\n' >&2
   printf '\n' >&2
   printf '  Tracker state is the MAYOR checkout to commit. Worker branches carry\n' >&2
   printf '  code, spec, docs and tests — never the tracker database.\n' >&2
