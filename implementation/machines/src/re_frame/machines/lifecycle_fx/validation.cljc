@@ -1620,9 +1620,10 @@
       `:rf.error/machine-bad-on-clause` / `:rf.error/machine-bad-after-spec`,
       the categories the runtime raises for a malformed transition value.
 
-  Each refusal carries `:state`, the `:slot` and the offending `:value`, and a
-  region body adds `:region`. nil is the absent value in every one of these
-  slots."
+  A `:rf.error/machine-bad-structure` or clause refusal carries `:state`, the
+  `:slot` and the offending `:value`, and a region body adds `:region`; a
+  parallel-root refusal carries what `validate-parallel!`'s does. nil is the
+  absent value in every one of these slots."
   [machine]
   (let [refuse!
         (fn [error-id reason extras slot v]
