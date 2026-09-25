@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.views.edn-inspector-popup-wireup-cljs-test
-  "Wire-up tests for the edn-inspector popup affordance + shell mount
-  (rf2-l4625, follow-on from phase 6 / rf2-s0x6x).
+  "Wire-up tests for the edn-inspector popup affordance + shell mount.
 
   ## What's under test
 
@@ -25,8 +24,8 @@
   Driving the on-click through a captured dispatch-fn stub avoids the
   router's `next-tick` drain in node-test mode — the affordance's
   contract is the event vector it dispatches, not the router round-
-  trip (that's already covered by the popup ns's own tests + the
-  registry-wiring test below)."
+  trip (the popup ns's own tests + the registry-wiring test below
+  cover that)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -37,8 +36,8 @@
             [day8.re-frame2-xray.views.edn-inspector-popup :as edn-inspector-popup]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
-  ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
+  ;; `make-xray-runtime-fixture` folds
+  ;; `make-reset-runtime-fixture` + the `reset-all!` init into one owner:
   ;; plain-atom adapter + the default `:all` reset tier.
   (xray-test-support/make-xray-runtime-fixture))
 
@@ -78,9 +77,9 @@
 ;; =========================================================================
 
 (deftest popup-affordance-opt-in-renders-button
-  (testing "rf2-l4625 — `[ei/edn-inspector value {:popup-affordance? true}]`
-            renders a top-right ↗ icon button (rf2-7sdja — glyph was
-            ⊕; ↗ reads as 'open in new pane')"
+  (testing "`[ei/edn-inspector value {:popup-affordance? true}]`
+            renders a top-right ↗ icon button (↗ reads as 'open in new
+            pane')"
     (let [h (invoke-edn-inspector
               {:cart [1 2 3]}
               {:panel-id :rf.xray/app-db :popup-affordance? true})
@@ -92,10 +91,10 @@
       (is (fn? (:on-click (second btn)))
           "button carries an on-click handler")
       (is (= "↗" (last btn))
-          "rf2-7sdja — glyph is ↗ (north-east arrow), not ⊕"))))
+          "glyph is ↗ (north-east arrow)"))))
 
 (deftest popup-affordance-default-off
-  (testing "rf2-l4625 — without `:popup-affordance?` (or with `false`)
+  (testing "without `:popup-affordance?` (or with `false`)
             the widget renders NO affordance button"
     (let [h-default (invoke-edn-inspector
                      {:cart [1 2 3]}
@@ -110,7 +109,7 @@
           "no affordance when opt is explicitly false"))))
 
 (deftest popup-affordance-button-carries-stable-testid
-  (testing "rf2-l4625 — the button testid includes the per-mount popup
+  (testing "the button testid includes the per-mount popup
             id (`ddp-<mount-id>`) so panel-level tests can target it"
     (let [outer (ei/edn-inspector {:a 1}
                                  {:panel-id :rf.xray/app-db
@@ -129,7 +128,7 @@
           "button surfaces the popup-mount-id as a data attr too"))))
 
 (deftest popup-affordance-button-contributes-positioning-context
-  (testing "rf2-l4625 — when the affordance is enabled the outer
+  (testing "when the affordance is enabled the outer
             container carries `position: relative` so the absolute-
             positioned button anchors correctly"
     (let [h-on  (invoke-edn-inspector
@@ -152,11 +151,11 @@
   the dispatched event vector WITHOUT spinning up the router. Returns
   the captured event vector.
 
-  Per rf2-r0o63 — the post-fix `popup-affordance-button` dispatches
+  `popup-affordance-button` dispatches
   through the SUPPLIED frame-aware dispatcher (the one the surrounding
   `reg-view` body captured via `(:dispatch (rf/capture-frame))`), NOT a bare
   `rf/dispatch` with a `{:frame :rf/xray}` literal. The dispatcher
-  closure already bound the instance frame at render time, so this stub
+  closure binds the instance frame at render time, so this stub
   stands in for it; the affordance's contract is the single-arg event
   vector it hands the dispatcher."
   [make-btn]
@@ -168,7 +167,7 @@
     {:event @captured :btn btn}))
 
 (deftest popup-affordance-button-onclick-dispatches-through-captured-dispatcher
-  (testing "rf2-r0o63 — clicking the affordance dispatches
+  (testing "clicking the affordance dispatches
             `[:rf.xray.edn-inspector-popup/open popup-mount-id payload]`
             through the SUPPLIED frame-aware dispatcher (captured by the
             surrounding reg-view at render time), so the popup-open write
@@ -196,18 +195,18 @@
       (is (= :rf.xray/app-db (:panel-id (:opts payload)))
           "other opts (`:panel-id`, `:default-expanded-depth`) survive")
       (is (= 3 (:default-expanded-depth (:opts payload))))
-      ;; rf2-r0o63 — the dispatch goes through the captured dispatcher's
+      ;; The dispatch goes through the captured dispatcher's
       ;; SINGLE-ARG form (the spy is `(fn [ev] …)`); the frame is baked
       ;; into the dispatcher closure, NOT passed as a `{:frame …}` opts
       ;; literal at the call site. The event vector is all the affordance
       ;; hands the dispatcher.
       (is (= 3 (count event))
-          "rf2-r0o63 — dispatch is a single-arg event vector; the frame
+          "dispatch is a single-arg event vector; the frame
            is captured in the dispatcher closure, not a `{:frame :rf/xray}`
            literal at the call site"))))
 
 (deftest popup-affordance-button-onclick-preserves-nil-opts
-  (testing "rf2-l4625 — when the caller supplies no opts, the affordance
+  (testing "when the caller supplies no opts, the affordance
             still produces a sane payload (just `:popup-affordance? false`
             in the popup's downstream opts map)"
     (let [{:keys [event]}
@@ -226,11 +225,11 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; rf2-k97c.3 — `edn-inspector-popup-stack` is now an
+;; `edn-inspector-popup-stack` is an
 ;; `rf.fresco/as-component` bridge and answers an interop vector, not a
 ;; tree to walk. `popup-stack-tree` below reproduces the boundary's gate
 ;; and reads EXACTLY — same gate, same order, same query vectors — so the
-;; rows in this section assert on the hiccup they always did, and a
+;; rows in this section assert on the hiccup the boundary renders, and a
 ;; boundary that stopped reading one of these slots would diverge from
 ;; this helper rather than silently agreeing with it.
 ;;
@@ -240,8 +239,8 @@
 ;; is the browser lane's subject.
 
 (defn- popup-stack-tree
-  "What calling the stack view directly returned before the migration:
-  nil while the stack is empty, the container otherwise."
+  "The hiccup the stack boundary renders: nil while the stack is
+  empty, the container otherwise."
   []
   (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
     (when (seq stack)
@@ -259,7 +258,7 @@
            cost is one subscribe + a when-gate)"))))
 
 (deftest popup-stack-view-renders-active-popup
-  (testing "rf2-l4625 — when one popup is open the stack view renders
+  (testing "when one popup is open the stack view renders
             its chrome (backdrop / dialog / body)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -276,7 +275,7 @@
             "popup chrome rendered for m1")))))
 
 (deftest popup-stack-view-renders-each-active-mount
-  (testing "rf2-l4625 — every mount-id on the stack gets a chrome"
+  (testing "every mount-id on the stack gets a chrome"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
@@ -294,7 +293,7 @@
 ;; =========================================================================
 
 (deftest registry-wires-popup-handlers
-  (testing "rf2-l4625 — `register-xray-handlers!` installs the popup
+  (testing "`register-xray-handlers!` installs the popup
             events so `:open` lands a real entry without a separate
             install call from a test fixture"
     (setup-xray-frame!)
@@ -307,41 +306,36 @@
             "open event resolved through the registry-installed handler")))))
 
 ;; =========================================================================
-;; rf2-1yif8 — frame-context regression
+;; frame context
 ;; =========================================================================
 ;;
-;; Before rf2-1yif8 `edn-inspector-popup-stack` was a plain Reagent `defn`.
-;; Plain fns are substrate-level Reagent components: they do not carry the
-;; `:rf/frame` React-context that `reg-view` automatically wires up, so the
-;; body's `rf/subscribe` calls could not see the frame the component was
-;; mounted under (the shell mounts the stack under `:rf/xray`). On the
-;; runtime of the day that meant a silent fall-through to `:rf/default`,
-;; flagged by `:rf.warning/plain-fn-under-non-default-frame-once`. BOTH
-;; HALVES OF THAT SENTENCE ARE HISTORY: EP-0002 removed the `:rf/default`
-;; floor and retired the warning, so the same plain `defn` today RAISES
-;; `:rf.error/no-frame-context` instead (Spec 006 §Plain-fn footgun).
+;; A plain Reagent `defn` is a substrate-level Reagent component: it does
+;; not carry the `:rf/frame` React context that `reg-view` wires up, so
+;; its body's `rf/subscribe` calls cannot see the frame the component is
+;; mounted under (the shell mounts the stack under `:rf/xray`). Such a
+;; plain `defn` RAISES `:rf.error/no-frame-context` (Spec 006 §Plain-fn
+;; footgun).
 ;;
-;; rf2-1yif8's fix registered the symbol via `rf/reg-view`. rf2-k97c.3
-;; replaced that with an `rf.fresco/defview` BOUNDARY, and the frame
-;; reasoning is unchanged: a boundary reads its frame from the same
-;; `re-frame.adapter.context` React context `reg-view` consulted, so the
-;; reads still resolve through the surrounding `:rf/xray`. What moved is
-;; the observer — Fresco's collector rather than the installed adapter's.
+;; `edn-inspector-popup-stack` is an `rf.fresco/defview` BOUNDARY: a
+;; boundary reads its frame from the same `re-frame.adapter.context`
+;; React context `reg-view` consults, so the reads resolve through the
+;; surrounding `:rf/xray`. The observer is Fresco's collector rather than
+;; the installed adapter's.
 ;;
-;; So the row below pins the same property one layer down, and pins it
-;; where it now bites: a `reg-view` head and a plain `defn` head grade
+;; So the row below pins that property one layer down, where it
+;; bites: a `reg-view` head and a plain `defn` head grade
 ;; `:invalid` down the IDENTICAL codec arm, so once the shell root is a
 ;; boundary either one is a hard failure rather than a degradation. The
 ;; assertion is that the stack view, and the head it embeds the value
 ;; under, both grade `:boundary`.
 
 (deftest popup-stack-view-is-a-fresco-boundary
-  (testing "rf2-k97c.3 — `edn-inspector-popup-stack-view` is an
-            `rf.fresco/defview` boundary, so the shell root becoming a
-            Fresco tree mounts it rather than refusing it. A revert to
-            `rf/reg-view` (or to a plain `defn`) grades `:invalid` down
-            the same codec arm and reds this row — which is the point,
-            since that revert is silent under Reagent."
+  (testing "`edn-inspector-popup-stack-view` is an
+            `rf.fresco/defview` boundary, so a Fresco shell root
+            mounts it rather than refusing it. An `rf/reg-view` (or a
+            plain `defn`) head grades `:invalid` down the same codec
+            arm and reds this row — which is the point, since such a
+            head is silent under Reagent."
     (setup-xray-frame!)
     (is (= :boundary
            (rf.fresco.impl.codec/head-kind
@@ -357,20 +351,18 @@
            (rf.fresco.impl.codec/head-kind
              (first (edn-inspector-popup/reagent-inspector
                       "m1" {:a 1} {}))))
-        "and the Reagent head it replaced grades :invalid, so the row
-         above is not vacuous")))
+        "and the Reagent head grades :invalid, so the row above is
+         not vacuous")))
 
 (deftest popup-stack-view-subscribes-route-to-surrounding-frame
-  (testing "rf2-1yif8 — when the stack view is rendered under `:rf/xray`,
+  (testing "when the stack view is rendered under `:rf/xray`,
             its subscribes read `:rf/xray`'s app-db, NOT `:rf/default`.
             We open a popup in `:rf/xray` and confirm the rendered chrome
             reflects `:rf/xray`'s stack; a popup written into
             `:rf/default` MUST NOT leak in.
-            A plain-fn regression cannot read the surrounding frame at
-            all: under EP-0002 it raises `:rf.error/no-frame-context`
-            and this row's tree never renders — that is the bug this
-            test pins, and on the pre-EP-0002 runtime it presented as
-            `:rf/default`'s entry rendering instead."
+            A plain-fn head cannot read the surrounding frame at
+            all: it raises `:rf.error/no-frame-context` and this row's
+            tree never renders."
     (setup-xray-frame!)
     ;; `:rf.xray/modal-positioning` is already registered by
     ;; `register-xray-handlers!` inside `setup-xray-frame!`.
@@ -384,7 +376,7 @@
       (rf/dispatch-sync
         [:rf.xray.edn-inspector-popup/open
          "xray-only" {:value :xray-payload :opts {}}]))
-    ;; Drive the stack under :rf/xray. Since rf2-k97c.3 the view is a
+    ;; Drive the stack under :rf/xray. The view is a
     ;; Fresco boundary, whose body may only run inside a React render
     ;; window, so the node lane reads the slots itself and hands them to
     ;; the pure `popup-stack-tree` — the same slots in the same order the
