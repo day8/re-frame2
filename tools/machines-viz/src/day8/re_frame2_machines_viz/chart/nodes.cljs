@@ -1134,7 +1134,7 @@
 (defn- region-node
   "The parallel-region container: `chart.nodes.parallel-region-node` paints
   it, closing its header with this ns's `container-lifecycle-band` — handed
-  in, because this ns requires that one and so it cannot require the band."
+  in, because that ns cannot require this one, which requires it."
   [props]
   (parallel-region-node/parallel-region-node props container-lifecycle-band))
 

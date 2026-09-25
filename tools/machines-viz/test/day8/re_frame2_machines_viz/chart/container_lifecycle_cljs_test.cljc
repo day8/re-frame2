@@ -176,8 +176,8 @@
 
 (deftest root-padding-reserves-its-lifecycle-band
   (testing "the machine root's frame reserves its lifecycle band on TOP, on
-            top of the Context band; a lifecycle-free root keeps the padding
-            it had"
+            top of the Context band; a lifecycle-free root keeps the plain
+            frame padding"
     (doseq [[density chart-vc] densities]
       (let [root-id  layout/root-container-id
             dw       (:container-divider-width chart-vc)
