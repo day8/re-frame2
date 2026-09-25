@@ -3,19 +3,19 @@
 
   Per `tools/xray/spec/007-UX-IA.md` §Command palette:
   - 560px centred modal
-  - 40px row layout (compact 32, comfy 48 — Phase 1 ships 40)
+  - 40px row layout (compact 32, comfy 48 — the palette renders 40)
   - 16px type icon · label · right-aligned hint (epoch / coord / shortcut)
   - Arrows navigate · Enter invokes · Ctrl+Enter pops out
 
-  ## rf2-k97c.3 — this namespace is PURE, and the reads live one level up
+  ## This namespace is PURE, and the reads live one level up
 
   [[palette-view]] is a plain fn that takes its reads' VALUES and answers
   hiccup. Nothing here subscribes. The facade `palette.cljs` owns the
   `rf.fresco/defview` BOUNDARY — it reads the four palette keys through
   `rf.fresco/sub` and calls [[palette-view]] with the values plus a
   frame-bound dispatcher. That read-and-call split is `defview`'s own
-  documented extract-a-helper spelling and the shape every migrated Xray
-  view in this epic uses.
+  documented extract-a-helper spelling and the shape Xray's other
+  `defview` boundaries use.
 
   THE PURITY IS LOAD-BEARING, not incidental. `rf.fresco/sub` refuses
   outside a boundary render, naming the query
@@ -84,8 +84,7 @@
   So each deferred handler captures the SURROUNDING instance frame:
   `palette.cljs`'s `ModalView` boundary binds it through
   `(:dispatch (rf/capture-frame))` — core's own door, which answers the
-  boundary's declared frame inside a body and replaces the `dispatch`
-  the `reg-view` era injected lexically (rf2-nesy9; `defview` binds no
+  boundary's declared frame inside a body (`defview` binds no `dispatch`
   name). It threads that dispatcher into [[palette-view]], which fans it
   out to every row + key handler. Each deferred handler calls that
   captured `dispatch` (never the global `rf/dispatch`, never a
@@ -226,31 +225,22 @@
   "The empty-results `<li>`, as a pure function of the `query` its
   message quotes.
 
-  TAKES `query` RATHER THAN READING IT, AND IS CALLED RATHER THAN HEADED
-  (rf2-ap5w). It used to do neither: `palette-view` HEADED it, and it
-  re-read `:rf.xray/palette-query` ambiently. A head makes Reagent mint a
-  component for this plain `defn`, a plain `defn` carries no
-  `:contextType`, so `(.-context cmp)` is React's empty default,
-  `current-frame` coerces that to nil and the ambient read RAISES
-  `:rf.error/no-frame-context` — Spec 006 §Plain-fn footgun, and the
-  mechanism [[handle-input-keydown]] records below for the deferred-
-  handler seam. React discards the whole subtree, so the palette painted
-  NOTHING: `empty_row_frame_context_dom_cljs_test` measured the dialog
-  and this row both absent, with the refusal reaching a window `error`
-  listener.
+  TAKES `query` RATHER THAN READING IT, AND IS CALLED RATHER THAN HEADED.
+  A head would make Reagent mint a component for this plain `defn`, a
+  plain `defn` carries no `:contextType`, so `(.-context cmp)` is React's
+  empty default, `current-frame` coerces that to nil and an ambient read
+  RAISES `:rf.error/no-frame-context` — Spec 006 §Plain-fn footgun, and
+  the mechanism [[handle-input-keydown]] records below for the deferred-
+  handler seam. React would discard the whole subtree and the palette
+  would paint NOTHING — the dialog and this row both absent, the failure
+  `empty_row_frame_context_dom_cljs_test` pins.
 
-  `palette-view` already binds `query`, so passing it removes the
-  duplicate read outright rather than donating it upward into the
-  enclosing boundary's window — strictly better than a bare
-  `(empty-row)` inline, which is the other spelling of the repair.
+  `palette-view` already binds `query`, so passing it avoids a duplicate
+  read outright rather than donating it upward into the enclosing
+  boundary's window, as a reading `(empty-row)` called inline would.
 
-  rf2-k97c.3 — THAT REPAIR IS WHY THIS HELPER NEEDED NOTHING FROM THE
-  FRESCO MIGRATION, and it is worth saying because a census taken before
-  #9657 still names this fn as the one ambient read among Xray's plain-
-  `defn` head targets. It reads nothing now. The migration's hoist landed
-  one level up instead, on `palette-view`'s three reads, which moved into
-  the `palette/ModalView` boundary; this fn was already in the shape that
-  hoist produces."
+  This fn reads nothing; the reads live one level up, in the
+  `palette/ModalView` boundary, which hands them to `palette-view`."
   [query]
   [:li {:data-testid "rf-xray-palette-empty"
         :style       (merge (row-style false)
@@ -307,14 +297,13 @@
 ;; ---- key handling -------------------------------------------------------
 
 (defn- handle-input-keydown
-  ;; EP-0002 — a deferred key handler fires at CLICK time,
+  ;; Per EP-0002, a deferred key handler fires at CLICK time,
   ;; after render has committed and the frame context has unwound, so it
   ;; carries NO ambient frame stamp. It must therefore not read the
-  ;; cursor itself. Under rf2-k97c.3 that is doubly true and the refusal
-  ;; is a different one: `rf.fresco/sub` is legal ONLY inside a boundary
+  ;; cursor itself: `rf.fresco/sub` is legal ONLY inside a boundary
   ;; render and raises `:rf.error/fresco-sub-outside-render` naming the
-  ;; query, where the `reg-view` era's ambient `rf/subscribe` raised
-  ;; `:rf.error/no-frame-context` instead. Both refuse; neither falls
+  ;; query, and an ambient `rf/subscribe` raises
+  ;; `:rf.error/no-frame-context`. Both refuse; neither falls
   ;; through to a synthesised `:rf/default`.
   ;;
   ;; The `cursor` is read at RENDER time by the `palette/ModalView`
@@ -353,7 +342,7 @@
   `:rf.xray/palette-open?` — this fn assumes it's open and always
   renders.
 
-  ## The arguments are the boundary's reads (rf2-k97c.3)
+  ## The arguments are the boundary's reads
 
   `dispatch`   — the frame-bound dispatcher the boundary captured with
                  `(:dispatch (rf/capture-frame))`, threaded into every
@@ -446,8 +435,7 @@
               :id          listbox-id
               :style       (list-style)}
          ;; CALLED, not headed, and handed the `query` this body already
-         ;; bound — see [[empty-row]] for why a head here refuses
-         ;; (rf2-ap5w).
+         ;; bound — see [[empty-row]] for why a head here refuses.
          (empty-row query)]
         (into [:ul {:data-testid "rf-xray-palette-list"
                     :id          listbox-id
