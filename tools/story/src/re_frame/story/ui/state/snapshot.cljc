@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.state.snapshot
   "Registry-snapshot leaf — single-call helper that builds a map of
-  every Story-side artefact kind in one walk. Split from
+  every Story-side artefact kind in one walk. Re-exported by
   `re-frame.story.ui.state`.
 
   The shell takes a fresh snapshot of the Story registrar on every
