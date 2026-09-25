@@ -33,7 +33,8 @@
   - **`unregister!` removes a slot from the side-table.** The MCP
     `unregister-variant` tool consumes this.
   - **`clear-kind!` clears a single kind without affecting siblings.**
-    Used by MCP's `clear-variants` / `clear-stories` tools.
+    Part of spec/006's public write surface; the MCP jar ships no
+    clear tool.
   - **`reg-story-panel` is the late-bind hook spec/006 §Late-bind
     `reg-story-panel` contract describes.** A stub registration under
     `:rf.story/xray-epoch` is replaced by a second registration under
@@ -168,8 +169,8 @@
 
 (deftest clear-kind-leaves-siblings-untouched
   (testing "clear-kind! :variant clears all variants but leaves modes,
-            workspaces, and tags untouched — the contract MCP needs for
-            a 'clear all variants' tool that doesn't nuke the rest of
+            workspaces, and tags untouched — the contract a 'clear all
+            variants' tool would need so it doesn't nuke the rest of
             the registry"
     (rf.story/reg-variant :story.kindA/v {:setup []})
     (rf.story/reg-variant :story.kindB/w {:setup []})
