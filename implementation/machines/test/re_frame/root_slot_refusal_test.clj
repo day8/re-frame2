@@ -92,7 +92,7 @@
                (catch clojure.lang.ExceptionInfo ex ex))]
     (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id (ex-data e))))))
 
-;; ---- controls: what the root reads still registers -------------------------
+;; ---- controls: the slots the root reads register ---------------------------
 
 (deftest honoured-root-slots-register
   (is (nil? (refusal (assoc flat-root :entry (fn [_] nil) :exit (fn [_] nil) :tags #{:whole}))))
