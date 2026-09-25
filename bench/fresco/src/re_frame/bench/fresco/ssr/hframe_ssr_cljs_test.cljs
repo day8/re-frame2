@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.ssr.hframe-ssr-cljs-test
-  "`h/frame` ON THE SERVER (rf2-841vn — the design's W8 and W11).
+  "`h/frame` ON THE SERVER (the design's W8 and W11).
 
   The body runs on Node through the same shell path, so `h/frame` answers
   the request's own per-request gensym and per-request isolation holds by
@@ -16,20 +16,19 @@
   stops the first from being a green gate over a check that could not
   fail.
 
-  **W11 — RE-GROUNDED on the post-rf2-2rtt6.122 tree.** As designed the
-  row contrasted `h/frame` answering against the ambient chain throwing
-  *server-side for a renderer-specific reason*: the raw React-context read
-  the adapters publish is client-renderer-only. That contrast no longer
-  describes the tree. Since rf2-2rtt6.122 the ambient chain refuses on
-  BOTH sides for ONE reason — the arm's own refusal, established by
-  `rf.bench.fresco.front.intent/with-frame` over every render extent, client or server. The
-  contrast survives; its explanation changed, and a row asserting a
-  renderer-specific server-side throw would now be asserting the wrong
-  fact for the wrong reason.
+  **W11 — the ambient carry answers the same frame as `h/frame`.** The
+  raw React-context read the adapters publish is client-renderer-only,
+  so a row contrasting `h/frame` against the ambient chain throwing
+  *server-side for a renderer-specific reason* would assert the wrong
+  fact for the wrong reason. The core answers `(rf/capture-frame)` with
+  the extent's declared frame, and
+  `rf.bench.fresco.front.intent/with-frame` declares it over every render
+  extent, client or server — so on the server the ambient carry answers
+  the request's own frame, and `h/frame` answers the same one in the same
+  body.
 
-  Runtime: `-cljs-test`, i.e. the consolidated `:node-test` build, which
-  is where `react-dom/server` resolves and where the rest of the SSR entry
-  is proved (`ssr/entry_cljs_test`)."
+  Runtime: Node, where `react-dom/server` resolves — the same home as
+  `ssr/entry_cljs_test`; `npm run check` in bench/fresco/ compiles it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -145,14 +144,13 @@
           "and the id is visibly in the markup, which is the mistake"))))
 
 ;; ---------------------------------------------------------------------------
-;; W11 — the ambient chain refuses on BOTH sides, for ONE reason
+;; W11 — the ambient carry answers the request's own frame, server-side too
 ;; ---------------------------------------------------------------------------
 
 (deftest the-ambient-carry-is-admitted-server-side-to-the-requests-own-frame
-  (testing "FLIPPED under rf2-t32wg, which admits the pure doors. This row
-           asserted the arm's refusal for the carry; the shipped core now
-           answers `(rf/capture-frame)` the extent's declared frame, and the
-           arm's `with-frame` declares it over the server render extent
+  (testing "the core answers `(rf/capture-frame)` with the extent's
+           declared frame, and the arm's `with-frame` declares it over the
+           server render extent
            exactly as over the client's — so what the server reports is the
            request's own frame, and not a fact about `react-dom/server`"
     (reset! !ambient ::unset)
@@ -165,8 +163,7 @@
       (is (str/includes? document "class=\"row\"")
           "and the render completed")))
 
-  (testing "while `h/frame` answers in the same body — the contrast the
-           design's W11 exists for, with its explanation updated"
+  (testing "and `h/frame` answers the same request frame in the same body"
     (reset! !seen [])
     (let [{:keys [frame-id]} (rf.bench.fresco.ssr.entry/render (request [discreet {}]))]
       (is (= [frame-id] @!seen)))))
