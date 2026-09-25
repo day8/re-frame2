@@ -1357,15 +1357,22 @@
 
 (def ^:private install-frame-state-standard-meta
   "The registration metadata the `:rf/install-frame-state` standard ships:
-  framework-write authority over runtime-db, shared by the regular registrar
-  and the image standard registry so both carry the same descriptor."
+  framework-write authority over runtime-db, and the whole payload classified
+  `:sensitive`, because it is a saved frame-state whose own classification the
+  event cannot see — so every trace and egress record of the event carries
+  `:rf/redacted` in its place, while the installed state stays readable in the
+  frame. Shared by the regular registrar and the image standard registry so
+  both carry the same descriptor."
   {:doc "Framework-standard frame-state install event. `[:rf/install-frame-state
         {:rf.db/app <map>? :rf.db/runtime <map>?}]` replaces app-db with a
         present :rf.db/app, replaces each runtime-db subtree a present
-        :rf.db/runtime carries (omitted subtrees are preserved), and re-arms
-        restored machine :after timers after the commit. A non-map payload,
-        a non-map partition or a resource-runtime subtree throws."
-   :rf/framework-authority? true})
+        :rf.db/runtime carries (omitted subtrees are preserved), and after the
+        commit re-arms restored machine :after timers and restores their
+        machine classification claims. The payload is sensitive as a whole. A
+        non-map payload, a non-map partition or a resource-runtime subtree
+        throws."
+   :rf/framework-authority? true
+   :sensitive [[]]})
 
 (defn register-install-frame-state-standard!
   "Register the framework-standard `:rf/install-frame-state` event into the

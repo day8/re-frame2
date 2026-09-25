@@ -242,9 +242,13 @@
 ;; authority via the general `:rf/framework-authority?` registration-meta key
 ;; (Conventions §Reserved registration meta) — without it, every hydrate
 ;; dispatch would trip the `:rf.warning/app-handler-runtime-effect`
-;; ownership diagnostic in development.
+;; ownership diagnostic in development. Its payload is a whole frame-state,
+;; which can carry a value the host permits onto the wire raw, so it is
+;; classified `:sensitive` as a whole: every trace and egress record of the
+;; event carries `:rf/redacted` in its place.
 (rf.events/reg-event :rf/hydrate
-                     {:rf/framework-authority? true}
+                     {:rf/framework-authority? true
+                      :sensitive               [[]]}
                      rf.ssr.hydrate/hydrate-event-handler)
 
 (rf.fx/reg-fx :rf.ssr/check-version
