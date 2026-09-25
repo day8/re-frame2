@@ -1,14 +1,14 @@
 (ns re-frame.story.ui.cofx-cljs-test
-  "Regression guard for rf2-gg4dz — the `:story/active-modes` and
-  `:story/active-args` cofx suppliers must RETURN the right value
-  (EP-0017 value-returning `reg-cofx`). The runtime delivers a supplier's
-  return value flat under the declared cofx-id; if a supplier regressed to
-  returning the wrong shape the consuming handler binds nil silently and
-  the chrome's mode/arg awareness disappears.
+  "Regression guard: the `:story/active-modes` and `:story/active-args`
+  cofx suppliers must RETURN the right value (EP-0017 value-returning
+  `reg-cofx`). The runtime delivers a supplier's return value flat under
+  the declared cofx-id; if a supplier returned the wrong shape the
+  consuming handler would bind nil silently and the chrome's mode/arg
+  awareness would disappear.
 
-  EP-0017 retired the ctx→ctx shape: both suppliers are now value-returning
-  nullary fns (ambient grade — a snapshot of shell UI state, never
-  recorded). The runtime does the `[:coeffects <id>]` placement; the
+  Both suppliers are value-returning nullary fns (ambient grade — a
+  snapshot of shell UI state, never recorded); there is no ctx→ctx
+  supplier shape. The runtime does the `[:coeffects <id>]` placement; the
   supplier just returns the value."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
