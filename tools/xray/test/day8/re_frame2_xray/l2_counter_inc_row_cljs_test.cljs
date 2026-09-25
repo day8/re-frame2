@@ -1,36 +1,26 @@
 (ns day8.re-frame2-xray.l2-counter-inc-row-cljs-test
-  "Regression coverage for rf2-j8m01 — a landed counter-inc epoch must
-  surface as a row in Xray's L2 event list.
+  "Coverage that a landed counter-inc epoch surfaces as a row in Xray's
+  L2 event list.
 
-  ## The bug (rf2-j8m01)
+  ## The shape at risk
 
-  Live on the parallel-frames testbed: clicking `+` on the `:below`
-  frame incremented the counter and created a new epoch (eid 8), but
-  NO new cascade appeared in `:rf.xray/event-bundles` — the L2 event list
-  showed no new row.
-
-  ## Root cause (rf2-avvwm, #1961) — verified DUP
-
-  Under the per-event epoch model (#1952) a `:frame/created` trace
-  event emitted OUTSIDE any dequeued-event run was mis-attributed
-  into the NEXT dequeued event's `:rf/epoch-record :trace-events`. So
-  eid 8's `:trace-events` began with an orphan `[:frame :frame/created]`
-  carrying eid 8's `:dispatch-id`.
-
-  That orphan poisoned Xray's cascade grouping. `group-by-event`
-  groups by `[frame dispatch-id]`; the orphan `:frame/created` carried
-  the SAME `:dispatch-id` as the real `:rf.event/dispatched`, so it folded
-  into the same cascade record — fine. The real failure mode the bead
-  observed is the inverse: when the orphan's `:dispatch-id` did NOT
-  match (the per-frame harvest split it), the real `:rf.event/dispatched`
-  could land in a cascade whose `:event` vector never resolved, so
-  `shell/event-bundle-has-event?` returned false and the L2 filter
-  (`shell/l2-event-bundle-visible?`) dropped the row entirely.
-
-  avvwm's fix (#1961) keeps out-of-cascade emits UNCORRELATED — the
-  `:frame/created` never rides the next epoch's `:trace-events`. So a
-  post-fix counter-inc epoch's trace stream begins with the real
+  Under the per-event epoch model a `:frame/created` trace event emitted
+  OUTSIDE any dequeued-event run stays UNCORRELATED — it never rides the
+  NEXT dequeued event's `:rf/epoch-record :trace-events`. So a
+  counter-inc epoch's trace stream begins with the real
   `:rf.event/dispatched` and the cascade surfaces normally.
+
+  Were such an emit mis-attributed, the next epoch's `:trace-events`
+  would begin with an orphan `[:frame :frame/created]` carrying that
+  epoch's `:dispatch-id`. `group-by-event` groups by
+  `[frame dispatch-id]`, so an orphan carrying the SAME `:dispatch-id`
+  as the real `:rf.event/dispatched` folds into the same cascade record
+  — harmless. The failure mode is the inverse: an orphan whose
+  `:dispatch-id` did NOT match (a per-frame harvest splitting it) could
+  leave the real `:rf.event/dispatched` in a cascade whose `:event`
+  vector never resolved, so `shell/event-bundle-has-event?` would
+  return false and the L2 filter (`shell/l2-event-bundle-visible?`)
+  would drop the row entirely — a counter increment with no L2 row.
 
   ## What this test pins
 
@@ -41,13 +31,11 @@
       → `self-noise/xray-internal-event-bundle?` (the shared hard-filter)
       → `shell/l2-event-bundle-visible?` (the L2 visibility predicate)
 
-  and assert the POST-avvwm counter-inc epoch surfaces as exactly one
-  visible L2 cascade row carrying the `:counter/inc` event vector. The
-  PRE-avvwm shape (leading orphan `:frame/created` with the next
-  epoch's `:dispatch-id`) is kept as a contrast case documenting how
-  the orphan used to corrupt the grouping.
-
-  Verdict: DUP of rf2-avvwm — the post-fix epoch surfaces correctly."
+  and assert a clean counter-inc epoch surfaces as exactly one visible
+  L2 cascade row carrying the `:counter/inc` event vector. The
+  mis-attributed shape (leading orphan `:frame/created` with the
+  epoch's `:dispatch-id`) is a contrast case showing how the orphan
+  folds into the grouping."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.shell :as shell]
@@ -59,7 +47,7 @@
 (def ^:private dispatch-id-8 8)
 
 (defn- counter-inc-trace-events
-  "The trace stream for a clean (POST-avvwm) `:counter/inc` epoch on
+  "The trace stream for a clean `:counter/inc` epoch on
   the `:below` frame. Begins with the real `:rf.event/dispatched` (the
   cascade root) — NO leading orphan `:frame/created`. Mirrors the
   six-domino shape the framework emits per Spec 009 §`:op-type`
@@ -81,9 +69,9 @@
     :tags {:rf.trace/dispatch-id dispatch-id-8 :rf.view/render-key [:counter/root nil] :frame frame-below}}])
 
 (defn- orphan-frame-created-event
-  "The mis-attributed `:rf.frame/created` orphan that — pre-avvwm —
+  "A mis-attributed `:rf.frame/created` orphan — a frame-lifecycle emit
   leaked into the NEXT epoch's `:trace-events` carrying that epoch's
-  `:dispatch-id`. Represents the pre-fix corruption shape."
+  `:dispatch-id`. The corruption shape the contrast case feeds in."
   []
   {:id 49 :op-type :rf.frame :operation :rf.frame/created
    :tags {:rf.trace/dispatch-id dispatch-id-8 :frame frame-below}})
@@ -99,10 +87,10 @@
         (remove self-noise/xray-internal-event-bundle?)
         (filterv #(shell/l2-event-bundle-visible? % show-ungrouped?)))))
 
-;; ---- 1. POST-avvwm: counter-inc epoch surfaces as an L2 row -------------
+;; ---- 1. a counter-inc epoch surfaces as an L2 row ------------------------
 
 (deftest counter-inc-epoch-surfaces-as-l2-row
-  (testing "a clean post-avvwm :counter/inc epoch surfaces as exactly
+  (testing "a clean :counter/inc epoch surfaces as exactly
             one visible L2 cascade row carrying the event vector"
     (let [rows (visible-l2-rows (counter-inc-trace-events))]
       (is (= 1 (count rows))
@@ -119,17 +107,17 @@
         (is (false? (shell/ungrouped-event-bundle? c))
             "the row is a real cascade, not the :ungrouped pseudo-bucket")))))
 
-;; ---- 2. PRE-avvwm contrast: the orphan used to fold in -----------------
+;; ---- 2. contrast: a mis-attributed orphan folds in ----------------------
 ;;
-;; Pre-avvwm the orphan :frame/created leaked into the epoch's
-;; :trace-events carrying the SAME :dispatch-id as the real
-;; :rf.event/dispatched. Because group-by-event keys by [frame
-;; dispatch-id], the orphan folded into the SAME cascade record — the
-;; real :rf.event/dispatched still populated :event, so even the corrupted
-;; stream resolves a visible row (the orphan rides in :other). This
-;; contrast case documents that grouping is robust even WITH the orphan
-;; present — confirming the visible-row defect was upstream (the orphan
-;; never reaching the cascade) rather than in group-by-event itself.
+;; A mis-attributed orphan :frame/created in the epoch's :trace-events
+;; carries the SAME :dispatch-id as the real :rf.event/dispatched. Because
+;; group-by-event keys by [frame dispatch-id], the orphan folds into the
+;; SAME cascade record — the real :rf.event/dispatched still populates
+;; :event, so even the corrupted stream resolves a visible row (the orphan
+;; rides in :other). This contrast case shows grouping is robust even WITH
+;; the orphan present — what keeps an L2 row from going missing is
+;; upstream (the orphan never reaching the cascade), not group-by-event
+;; itself.
 
 (deftest pre-avvwm-orphan-folds-into-same-cascade-still-visible
   (testing "with the leading orphan :frame/created sharing the epoch's
@@ -151,17 +139,17 @@
 ;;
 ;; The only shape the L2 filter legitimately drops is a group with NO
 ;; :rf.event/dispatched — i.e. a frame-lifecycle emit with no in-flight
-;; cascade. Post-avvwm such an orphan carries NO :dispatch-id, so it
+;; cascade. Such an uncorrelated orphan carries NO :dispatch-id, so it
 ;; lands in the :ungrouped bucket and is correctly hidden by default.
 ;; This pins that the drop is scoped to event-less groups, never to a
 ;; real counter-inc epoch.
 
 (deftest uncorrelated-frame-created-stays-ungrouped-and-hidden
-  (testing "a post-avvwm uncorrelated :frame/created (no :dispatch-id)
+  (testing "an uncorrelated :frame/created (no :dispatch-id)
             lands in :ungrouped and is hidden from L2 by default, while
             the sibling counter-inc epoch still surfaces"
     (let [events (into [{:id 49 :op-type :rf.frame :operation :rf.frame/created
-                         :tags {:frame frame-below}}] ; NO :dispatch-id (avvwm)
+                         :tags {:frame frame-below}}] ; NO :dispatch-id
                        (counter-inc-trace-events))
           all    (rf.trace.projection/group-by-event events)
           rows   (visible-l2-rows events)]
