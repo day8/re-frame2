@@ -1,7 +1,7 @@
 (ns fresco-counter.stories
   "The deck — Story variants over views authored in Fresco.
 
-  This is Phase D of rf2-5czki, and its whole claim is one sentence: a
+  Its whole claim is one sentence: a
   view a programmer wrote on the NATIVE substrate is storyable inside
   Story, on the same PR-path gate every Reagent deck rides. Not \"a
   Fresco boundary can be embedded in a Reagent testbed\" — the deck below
@@ -22,10 +22,9 @@
   ## What is deliberately NOT here
 
   No expected-fail fixture, and no four-row inventory. The counter
-  testbed owns proof of the runner's pass/fail semantics and keeps its
-  both-sides invariant unchanged; manufacturing a failing fresco variant
-  would test the runner twice and the substrate no harder (ruled,
-  rf2-kttom). This deck's floor is ONE meaningful play, and the roster
+  testbed owns proof of the runner's pass/fail semantics and its
+  both-sides invariant; a failing fresco variant would test the runner
+  twice and the substrate no harder. This deck's floor is ONE meaningful play, and the roster
   entry in `examples/scripts/serve-and-run-story-play-scripts.cjs` says so.
 
   No app image either. `login-form.stories` declares one because its
@@ -66,7 +65,7 @@
   ;; -------------------------------------------------------------------------
   ;; The gate's row — one meaningful play through the live Story shell.
   ;;
-  ;; Sleep-free by construction (rf2-n0sz4): the runner holds each step
+  ;; Sleep-free by construction: the runner holds each step
   ;; until its preconditions hold — the frame's event queue drained and
   ;; the named node present — committing the substrate through the live
   ;; adapter's `flush-render!` between attempts. `[:wait ms]` is spec/017's
