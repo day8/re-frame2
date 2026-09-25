@@ -4,7 +4,7 @@
   The vocabulary matrix checks raw, data-only reply envelopes. This suite
   independently checks the shared projection primitives used by trace and
   record-level egress. It does not claim coverage of every tool or log
-  consumer; those consumers remain responsible for calling these boundaries.
+  consumer; those consumers are responsible for calling these boundaries.
 
   Reply `:value`, `:error`, `:correlation`, and `:meta` slots may carry
   family-specific data, including fields classified as sensitive or large.
@@ -23,7 +23,7 @@
 
   This is pure-function and live-frame conformance over `re-frame.reply`
   (`trace-summary`, `complete`, `map-completed-event`, `durable-target`) and
-  `re-frame.core/project-egress`. Reply-target functor laws remain owned by core and the
+  `re-frame.core/project-egress`. Reply-target functor laws are owned by core and the
   timer probe; mapping is used here only to distinguish ephemeral and durable
   target representations. The `.cljc` namespace runs in both the CLJS node
   gate and the JVM test alias.
@@ -110,7 +110,7 @@
 (defn- large-marker? [value] (and (map? value) (contains? value :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
-;; Recursive raw-value-absence predicate (Finding 2, rf2-3fc89f.7).
+;; Recursive raw-value-absence predicate.
 ;;
 ;; `large-marker?` proves a marker is PRESENT; it does NOT prove the raw value
 ;; LEFT — a leaking marker representation or a reply-slot projection regression
@@ -154,8 +154,8 @@
   (testing "trace-summary projects each wire slot under the explicit frame"
     (mk-frame!)
     (let [reply   (assoc (ok-reply)
-                         ;; The SAME `raw-token` the absence predicate hunts for
-                         ;; (rf2-fzbj.23). A private per-slot secret would leave
+                         ;; The SAME `raw-token` the absence predicate hunts for.
+                         ;; A private per-slot secret would leave
                          ;; the recursive checks below searching for a string the
                          ;; fixture never supplied — they would pass vacuously,
                          ;; and a regression retaining the correlation secret
@@ -301,12 +301,12 @@
             "the explicit unresolved frame wins and fails closed")))))
 
 ;; ---------------------------------------------------------------------------
-;; Explicit `{:frame nil}` — "no frame governs this summary" — is SAYABLE
-;; (rf2-gwye.64). `elide-wire-value` reads `:frame` by KEY PRESENCE and fails
-;; closed on an explicit nil; `trace-summary` seeded the carried stamp on
-;; `(nil? (:frame opts))`, which made explicit nil indistinguishable from an
-;; omitted key, so the caller's frameless request silently ran under the
-;; carried frame's policy and shipped RAW wire values.
+;; Explicit `{:frame nil}` — "no frame governs this summary" — is SAYABLE.
+;; `elide-wire-value` reads `:frame` by KEY PRESENCE and fails closed on an
+;; explicit nil. Seeding the carried stamp on `(nil? (:frame opts))` would make
+;; explicit nil indistinguishable from an omitted key, so the caller's
+;; frameless request would silently run under the carried frame's policy and
+;; ship RAW wire values.
 ;; ---------------------------------------------------------------------------
 
 (deftest explicit-nil-frame-is-honoured-and-fails-closed
@@ -461,7 +461,7 @@
             "the shared walker redacts the token")))))
 
 ;; ---------------------------------------------------------------------------
-;; Adversarial control (Finding 2): a marker map that STILL embeds the raw
+;; Adversarial control: a marker map that STILL embeds the raw
 ;; large value passes the superficial `large-marker?` presence check but is
 ;; caught by the recursive sentinel predicate — proving the raw-value-absence
 ;; gate has teeth that marker-presence alone lacks.
@@ -473,7 +473,7 @@
     (let [leaking {:rf.size/large-elided true :raw big-string}]
       ;; The fail-open gap: the superficial marker-presence check is satisfied.
       (is (large-marker? leaking)
-          "large-marker? returns true for the leaking marker (the gap Finding 2 closes)")
+          "large-marker? returns true for the leaking marker (the gap the recursive predicate closes)")
       ;; The recursive sentinel predicate catches the embedded raw value, so a
       ;; raw-value-absence assertion built on it FAILS on this leaking shape.
       (is (embeds-raw-blob? leaking)
