@@ -339,6 +339,10 @@
               :b {}}}
    ;; root-level (whole-machine) timeout
    {:initial :a :timeout 3000 :on-timeout :expired :states {:a {}}}
+   ;; the root :spawn's own timeout, lowered onto the root :after
+   {:type    :parallel
+    :spawn   {:machine-id :child :timeout 500 :on-timeout {:target [:r1 :y]}}
+    :regions {:r1 {:initial :x :states {:x {} :y {}}}}}
    ;; nested compound
    {:initial :outer
     :states  {:outer {:initial :inner
