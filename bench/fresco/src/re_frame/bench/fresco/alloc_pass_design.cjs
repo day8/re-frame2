@@ -1,26 +1,25 @@
 'use strict';
-// THE DESIGN CONTROL FOR rf2-fk6pj's PASS-POSITION WINDOW — does the schedule
+// THE DESIGN CONTROL FOR THE PASS-POSITION WINDOW — does the schedule
 // this window is about to run let the estimator it is about to be read on
 // SEPARATE the pass column from the parity column at all?
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --controls
-//     node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --select [rounds] [runs]
-//     node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --schedule <rounds> <seed>
+//     node src/re_frame/bench/fresco/alloc_pass_design.cjs --controls   (from bench/fresco/)
+//     node src/re_frame/bench/fresco/alloc_pass_design.cjs --select [rounds] [runs]
+//     node src/re_frame/bench/fresco/alloc_pass_design.cjs --schedule <rounds> <seed>
 //
 // ## WHY THIS EXISTS, AND IT IS NOT A REFINEMENT
 //
-// `rf2-fk6pj`'s phase-2 window (PR #8601, record `the pass order drawn
-// independently of parity`) argued its two seeds were admissible because the
-// parity indicator and the pass indicator are ORTHOGONAL over the pooled
-// twelve blocks. That is correct arithmetic on the indicator COLUMNS. It does
-// not deliver what it was used for, because THE BLOCK STATISTIC IS A MEDIAN
+// The phase-2 window (record `the pass order drawn independently of parity`)
+// argues its two seeds are admissible because the parity indicator and the
+// pass indicator are ORTHOGONAL over the pooled twelve blocks. That is
+// correct arithmetic on the indicator COLUMNS. It does not deliver what it
+// is used for, because THE BLOCK STATISTIC IS A MEDIAN
 // AND A MEDIAN IS NOT A LINEAR FUNCTIONAL: orthogonal design columns do not
 // give independent median contrasts.
 //
-// The merged-PR audit of #8601 proved the gap by construction rather than by
-// argument. On that window's run-2 schedule — `page, page, all, page, all,
-// all` over six rounds, symmetric difference 4 from parity, the very schedule
-// its successor was told to use for BOTH runs — feed the shipped `decompose` a
+// The gap shows by construction rather than by argument. On that window's
+// run-2 schedule — `page, page, all, page, all, all` over six rounds,
+// symmetric difference 4 from parity — feed the shipped `decompose` a
 // corpus with a PURE PARITY effect and no pass effect at all, and it reports
 // `PASS = -1`. Feed it a PURE PASS effect and it reports `PARITY = -1`. Two
 // marginal median contrasts that merely DIFFER are not two separated terms.
@@ -43,13 +42,13 @@
 //      holds `R/4` even rounds and `R/4` odd ones, so a pure parity effect
 //      enters both pass groups symmetrically and the median of each group sits
 //      at the level. That is what makes the median contrast identify, and it is
-//      why the round count moved to twelve rather than the count alone.
+//      why the round count is twelve: the balance, not the count alone.
 //   3. `q · l = 0` WITHIN THE RUN, equivalently the `page`-first rounds and the
 //      `all`-first rounds have equal index sums. Elapsed session time is a
 //      MEASURED term on this instrument (`the mode rate tracks elapsed session
 //      time`), so a linear within-run drift is a named nuisance rather than a
 //      hypothetical, and a design that let it load onto the pass contrast would
-//      be repeating this bead's own mistake one column over.
+//      be repeating the pooled-orthogonality mistake one column over.
 //
 // ## WHAT IT DOES NOT BALANCE, NAMED RATHER THAN CONSTRAINED AWAY
 //
@@ -84,9 +83,9 @@ const {
   supportSize,
 } = require('./alloc_pass_position.cjs');
 
-// The window this file was written for. Both are re-derivable from the record
-// and neither is a threshold: the round count is what buys criterion 2 an exact
-// 2 x 2 balance, and the run count is what the phase-2 window said it owed.
+// The window this file serves. Both are re-derivable from the record and
+// neither is a threshold: the round count is what buys criterion 2 an exact
+// 2 x 2 balance, and the run count is what the phase-2 window's record calls for.
 const ROUNDS = 12;
 const RUNS = 4;
 // Seeds are enumerated in integer order under this prefix, so the selection is
@@ -232,31 +231,24 @@ function identifies(flips) {
 
 // --- run admissibility, and it FAILS CLOSED ----------------------------------
 //
-// The merged-PR audit of #8601's second finding: `alloc_pass_position.cjs`'s
-// `report()` PRINTS `controlVerdict`, `verification.unverified`, `passOrder`,
-// `parityTied` and `scheduleDrove` and then feeds every row to the blocks, the
-// headline and both decompositions REGARDLESS. A copy of a real record with
-// `controlVerdict.ok = false` still produces the headline. The arbiters do not
-// arbitrate.
-//
-// This is the boundary that does, and it is declared BEFORE the window rather
-// than repaired inside it. The shipped reader is left exactly as it is: an
-// estimator must not change between a pre-registration and the runs it will be
-// read on, and the reader's own defect belongs to the bead rather than to this
-// window. What runs here is a gate in FRONT of it — a run that fails any clause
-// contributes no figure, and the clause it failed is published beside it.
+// A reader that PRINTS `controlVerdict`, `verification.unverified`,
+// `passOrder`, `parityTied` and `scheduleDrove` and then feeds every row to the
+// blocks, the headline and both decompositions REGARDLESS lets a copy of a
+// real record with `controlVerdict.ok = false` produce the headline: arbiters
+// that do not arbitrate. So admissibility is a boundary, decided before a
+// single figure is read — a run that fails any clause contributes no figure,
+// and the clause it failed is published beside it.
 //
 // Every clause is a DECLARED PARAMETER of this window or a control the record
 // already carries. Nothing here is a tolerance and nothing is compared against
 // a byte threshold.
-// THE ESTIMATOR PARAMETERS ARE DECLARED HERE TOO, and the audit of #8615 is
-// why. It found this boundary admitting a record with `plan`, `roots`,
-// `boundaries` or `writes` changed, although all four are declared fixed — and
-// `boundaries` is the `B` every `d` is divided by, so a run that moved it is
-// not a run of the same estimator at all. The clause list lives in
-// `alloc_pass_position.cjs`, but a clause is only checked against a parameter
-// something DECLARES, so omitting them here left the checks inert. All four are
-// phase 3's committed values, so its four runs are admitted exactly as before.
+// THE ESTIMATOR PARAMETERS ARE DECLARED HERE TOO. A boundary that did not
+// declare `plan`, `roots`, `boundaries` and `writes` would admit a record with
+// any of them changed, although all four are fixed — and `boundaries` is the
+// `B` every `d` is divided by, so a run that moved it is not a run of the same
+// estimator at all. The clause list lives in `alloc_pass_position.cjs`, but a
+// clause is only checked against a parameter something DECLARES. All four are
+// phase 3's committed values, so its four runs are admitted.
 const WINDOW = {
   rounds: ROUNDS,
   passOrder: 'seeded',
@@ -270,14 +262,13 @@ const WINDOW = {
   writes: 6,
 };
 
-// IT DELEGATES, AND THAT IS THE REPAIR THE AUDIT OF #8615 ASKED FOR. This file
-// used to carry its own copy of the clause list while `alloc_pass_position.cjs`
-// carried none, so the boundary sat in FRONT of the reader instead of inside
-// it and the two could drift. The clauses now live in the reader — including
-// the completeness check that closes this file's own `scheduleDrove` hole,
-// where a `perRound` truncated to one row returned `true` vacuously — and this
-// front door adds the one clause that cannot live there: `identifies`, which
-// drives the fixtures through `decompose` and would make the import circular.
+// IT DELEGATES. The clause list lives in the reader, `alloc_pass_position.cjs`,
+// so the boundary sits inside the reader rather than in front of it and no
+// second copy can drift from it — including the completeness check that
+// refuses a `perRound` truncated to one row, which `scheduleDrove` alone would
+// pass vacuously. This front door adds the one clause that cannot live there:
+// `identifies`, which drives the fixtures through `decompose` and would make
+// the import circular.
 function admissibleRun(row, expect = {}) {
   const want = { ...WINDOW, ...expect };
   const { reasons } = readerAdmissibleRun(row, want);
@@ -324,7 +315,7 @@ function syntheticRow(pick) {
 function reportSelection(rounds = ROUNDS, runs = RUNS) {
   const picks = selectSeeds(rounds, runs);
   const out = [];
-  out.push(`;; THE SELECTED SCHEDULES — ${rounds} rounds, ${runs} runs (rf2-fk6pj)`);
+  out.push(`;; THE SELECTED SCHEDULES — ${rounds} rounds, ${runs} runs`);
   out.push(';;   run | seed | flips | page-first rounds | q·parity | q·linear | q·(r mod 4) | identifies');
   picks.forEach((p, i) => {
     out.push(
@@ -358,8 +349,8 @@ function reportSchedule(rounds, seed) {
 // --- the control, which arbitrates -------------------------------------------
 //
 // Positive: every schedule this window will run recovers all three fixtures
-// exactly. Negative: the schedule the phase-2 window ran, and the one its own
-// successor plan named, does NOT — which is what proves the fixture bites
+// exactly. Negative: the schedule the phase-2 window ran does NOT — which is
+// what proves the fixture bites
 // rather than passing everything handed to it. A control that cannot fail is
 // not a control.
 function designControl() {
@@ -389,10 +380,10 @@ function designControl() {
   }
 
   // AND THE RULE'S OUTPUT IS A POINT OF THE BAND'S OWN SUPPORT, which is where
-  // `rf2-t4vu1` found the two disagreeing. This file draws TWO free schedules
-  // and forces the other two as their exact complements; the band in
-  // `alloc_pass_position.cjs` was re-drawing each run's schedule independently
-  // from the 48, a support of 48⁸ that admits quadruples this rule cannot
+  // two statements of one design can disagree. This file draws TWO free
+  // schedules and forces the other two as their exact complements; a band
+  // re-drawing each run's schedule independently from the 48 would have a
+  // support of 48⁸ that admits quadruples this rule cannot
   // produce. The rule is what MAKES the support what it is, so the two
   // statements of one design are pinned against each other here rather than
   // only over there.
@@ -412,10 +403,10 @@ function designControl() {
   assert.ok(keyed.has(generatorKeys.join('|')), 'and the rule\'s own draw is one of them');
 
   // THE NEGATIVE CONTROL. Phase 2's run-2 schedule over six rounds:
-  // `page, page, all, page, all, all`, symmetric difference 4 from parity —
-  // the schedule its successor plan named for BOTH runs. Its columns are not
-  // orthogonal (q·parity = -2), it is not admissible here, and the shipped
-  // decomposition mis-attributes both pure fixtures on it.
+  // `page, page, all, page, all, all`, symmetric difference 4 from parity.
+  // Its columns are not orthogonal (q·parity = -2), it is not admissible
+  // here, and the shipped decomposition mis-attributes both pure fixtures on
+  // it.
   const phase2Run2 = [false, false, true, false, true, true];
   const p2 = scheduleProps(phase2Run2);
   assert.strictEqual(p2.parityDot, -2, 'phase-2 run 2: q·parity is -2, not 0');
@@ -431,8 +422,8 @@ function designControl() {
   assert.strictEqual(purePass.pass, 1, 'phase-2 run 2 does recover the pass term');
   assert.strictEqual(identifies(phase2Run2), false, 'and therefore does not identify');
 
-  // AND SO DOES THE PARITY SCHEDULE, which is the tie this bead was filed
-  // about — both groupings are one partition and the two terms are one number.
+  // AND SO DOES THE PARITY SCHEDULE, which is the tie the design exists to
+  // break — both groupings are one partition and the two terms are one number.
   const parity6 = [false, true, false, true, false, true];
   const tied = readTerms(parity6, { parity: 1 });
   assert.strictEqual(tied.pass, tied.parity, 'a parity schedule returns one number twice');
@@ -467,13 +458,13 @@ function designControl() {
     ['control slot', (r) => { r.controlSlot = 'last'; }],
     ['drive against draw', (r) => { r.perRound[0].writeLegs = ['all', 'page']; }],
     ['the declared schedule', (r) => { r.passSchedule.flips = picks[1].flips.slice(); }],
-    // THE FOUR THE AUDIT OF #8615 FOUND ADMITTED. `boundaries` is the divisor
+    // THE FOUR ESTIMATOR PARAMETERS. `boundaries` is the divisor
     // of every `d`, so a run that moved it is a different estimator.
     ['the plan', (r) => { r.plan = { ...r.plan, name: 'narrow' }; }],
     ['the root count', (r) => { r.roots = 2; }],
     ['the boundary count', (r) => { r.boundaries = 8; }],
     ['the write count', (r) => { r.writes = 5; }],
-    // AND THE THREE CORPUS SHAPES `scheduleDrove` USED TO BLESS VACUOUSLY.
+    // AND THE THREE CORPUS SHAPES `scheduleDrove` ALONE WOULD BLESS VACUOUSLY.
     ['an empty drive', (r) => { r.perRound = []; }],
     ['a truncated drive', (r) => { r.perRound = r.perRound.slice(0, 1); }],
     ['a duplicated round', (r) => { r.perRound[1] = { ...r.perRound[0] }; }],
@@ -518,11 +509,11 @@ if (require.main === module) {
   if (args[0] === '--admit') {
     const picks = selectSeeds();
     let worst = 0;
-    // AN EMPTY OR SHORT CORPUS IS A REFUSAL, NOT A PASS. The audit of #8615
-    // found this CLI exiting 0 for no files at all and for one of the declared
-    // four: the loop below only ever reports on files it was handed, so
-    // "nothing was refused" read as "everything was admitted". The run count is
-    // declared, so a corpus that does not carry it never reaches the loop.
+    // AN EMPTY OR SHORT CORPUS IS A REFUSAL, NOT A PASS. The loop below only
+    // ever reports on files it was handed, so without this a CLI handed no
+    // files, or one of the declared four, would exit 0 — "nothing was refused"
+    // read as "everything was admitted". The run count is declared, so a
+    // corpus that does not carry it never reaches the loop.
     const files = args.slice(1);
     if (files.length !== RUNS) {
       console.log(`;;   REFUSED — the corpus holds ${files.length} run(s), not the declared ${RUNS}.`);
