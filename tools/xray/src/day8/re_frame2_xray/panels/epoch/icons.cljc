@@ -1,15 +1,13 @@
 (ns day8.re-frame2-xray.panels.epoch.icons
-  "Inline SVG glyphs used by the Epoch panel (rf2-sc3r1). Two icons
-  are required per the bead body's §Icon Requirements:
+  "Inline SVG glyphs used by the Epoch panel:
 
   - **ExternalLink** — 13×13 lucide glyph trailing click-to-source
-    affordances. The hiccup form lives in `panels/event/icons` (a
-    leftover ns from the retired Event panel that is now re-exported
-    from here); the re-export keeps a single Figma-authority glyph
-    while preserving the existing import path.
+    affordances. The hiccup form lives in `panels/event/icons` and is
+    re-exported from here, so both import paths render one
+    Figma-authority glyph.
   - **CornerDownRight** — 13×13 lucide-style arrow used in the
-    handler step's `:db` diff / `:fx` sub-headers (per the bead body's
-    §3 HANDLER row design — DB CHANGES + FX sub-blocks).
+    handler step's `:db` diff / `:fx` sub-headers (the HANDLER row's
+    DB CHANGES + FX sub-blocks).
 
   Pure data → hiccup (a static svg vector); JVM-portable so panel
   tests can render the tree via `clojure -M:test`."
@@ -31,8 +29,7 @@
   "Lucide `corner-down-right` icon as a hiccup-shaped svg. 13×13
   square, `viewBox 0 0 24 24`, `stroke: currentColor` so the glyph
   rides the surrounding text colour. Used in the HANDLER step's
-  sub-headers (`:db diff` / `:fx`) to signal indented continuation
-  per the bead body."
+  sub-headers (`:db diff` / `:fx`) to signal indented continuation."
   [:svg {:width            "13"
          :height           "13"
          :viewBox          "0 0 24 24"
@@ -50,20 +47,11 @@
   "Render the lucide `corner-down-right` glyph. Inherits its colour
   from the enclosing element via `currentColor` so the arrow reads
   as part of the section header. Always returns the same static
-  hiccup vector — the fn-form is preserved so call sites read as
-  a component."
+  hiccup vector — the fn-form lets call sites read as a component."
   []
   corner-down-right-svg)
 
-;; ---- Warning triangle (retired with rf2-xgeag) --------------------------
+;; ---- Warning triangle ---------------------------------------------------
 ;;
-;; The `alert-triangle` SVG was used by the now-retired aggregate
-;; SCHEMA-VIOLATIONS step's header (rf2-17vxj). With rf2-xgeag's
-;; inline sub-block + tail-step shape the title row uses the Unicode
-;; `⚠` glyph inline; no SVG required.
-;;
-;; ---- Arrow right (retired with rf2-zkiu5) -------------------------------
-;;
-;; The `arrow-right` SVG drove the CHILD-DISPATCHES section's per-child
-;; 'jump to' affordance (rf2-yx1ae). rf2-zkiu5 retired that step (the FX
-;; step already surfaces dispatch-family fx), so the glyph is gone.
+;; There is no warning-triangle SVG: the schema-violation title row uses
+;; the Unicode `⚠` glyph inline.
