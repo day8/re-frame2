@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/parallel-root-on-no-region-handles
 ;;
 ;; Per [005 §Transition broadcast §Root parallel `:on`]
-;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (../../005-StateMachines.md#transition-broadcast)
 ;; (XState v5 / SCXML gold standard — verified against xstate@5.32.0).
 ;;
 ;; The parallel ROOT's own `:on` is the ANCESTOR FALLBACK for its regions
