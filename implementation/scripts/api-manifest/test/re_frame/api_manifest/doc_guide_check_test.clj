@@ -1,15 +1,14 @@
 (ns re-frame.api-manifest.doc-guide-check-test
   "Regression tests for the docs/core projection check's FILE-SCOPED
-  removed-name allowlist (rf2-hk6wd2).
+  removed-name allowlist.
 
-  THE BUG. `:doc-guide-known-unmanifested` was a BARE-NAME set: a name
-  listed there was silenced ANYWHERE in the guide tree. EP-0017 removed
-  `inject-cofx` and live teaching prose must use `:rf.cofx/requires` — but
-  because `inject-cofx` was on the bare allowlist for the from-v1 migration
-  chapter, a future live `(rf/inject-cofx …)` in ANY teaching chapter would
-  have passed the gate green.
+  THE HAZARD. A BARE-NAME allowlist silences a listed name ANYWHERE in the
+  guide tree. `inject-cofx` is not a re-frame2 API — live teaching prose
+  uses `:rf.cofx/requires` — yet the from-v1 migration chapter must name
+  it, so a bare allowlist entry for that chapter would let a live
+  `(rf/inject-cofx …)` in ANY teaching chapter pass the gate green.
 
-  THE FIX. The allowlist is now `:doc-guide-known-unmanifested-scoped` —
+  THE CONTRACT. The allowlist is `:doc-guide-known-unmanifested-scoped` —
   `{removed-name -> #{approved repo-relative file paths}}`. A call-position
   reference to a removed name is silenced ONLY in its approved migration
   file(s); the SAME reference in any other guide file is RED. These tests
@@ -45,8 +44,8 @@
                     :file "docs/core/concepts/effects-and-coeffects.md"}])))))
 
 (deftest removed-name-in-live-teaching-file-is-red
-  (testing "THE BUG (rf2-hk6wd2): a removed name in a NON-approved teaching
-            file is flagged — the bare global allowlist would have passed it"
+  (testing "a removed name in a NON-approved teaching
+            file is flagged — a bare global allowlist would pass it"
     (let [probs (problems-for
                   [{:var "inject-cofx" :line 50 :raw "rf/inject-cofx"
                     :file "docs/core/interceptors.md"}])]
