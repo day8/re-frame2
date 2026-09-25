@@ -1,7 +1,6 @@
 (ns re-frame.story.meta-fixtures-test
   "JVM meta-check guarding against the map-form `use-fixtures` silent-skip
-  trap in dual-target `.cljc` tests (rf2-k2g3i; surfaced in PR #2420 review,
-  refs rf2-qkltn + rf2-5x1wt.25).
+  trap in dual-target `.cljc` tests.
 
   THE TRAP. The JVM `clojure.test` runner does NOT support the map-form
   fixture
@@ -13,8 +12,8 @@
   `deftest` in that namespace is SILENTLY SKIPPED on the JVM — no error,
   zero assertions run. The `cljs.test` runtime DOES honour the map form,
   so a `.cljc` test using it passes on node but is a no-op on the JVM half
-  of `clojure -M:test`. That asymmetric silent skip is exactly the
-  rf2-gc7la failure mode.
+  of `clojure -M:test`. That asymmetric silent skip is the failure this
+  guard catches.
 
   In a pure-`.cljs` test the map form is LEGITIMATE (cljs.test supports it)
   and common — so this guard scopes itself to `.cljc` files ONLY. The
@@ -23,10 +22,8 @@
       (use-fixtures :each (fn [t] (reset-all!) (t)))
       ;; or a named fn that ends by calling its `t` argument
 
-  This is a PREVENTATIVE guard: as of 2026-05-30 zero tracked `.cljc`
-  tests use the map form (verified via `git grep`). It exists to catch a
-  future author who copies the map idiom from a `.cljs` sibling and
-  silently loses JVM coverage.
+  This is a PREVENTATIVE guard: it catches an author who copies the map
+  idiom from a `.cljs` sibling and silently loses JVM coverage.
 
   This is a `.cljc` file so the guard travels with the artefact's
   dual-target test set, but the scan itself is JVM-only — it reads source
@@ -101,7 +98,7 @@
      (deftest no-map-form-use-fixtures-in-cljc-tests
        (testing "no tracked .cljc test may use the map form
 (use-fixtures :each {:before ...}) — it SILENTLY SKIPS every deftest in
-the ns on the JVM half of `clojure -M:test` (rf2-k2g3i / rf2-gc7la)"
+the ns on the JVM half of `clojure -M:test`"
          (let [files     (cljc-test-files)
                offending (keep offences files)]
            (is (seq files)
