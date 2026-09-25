@@ -63,7 +63,7 @@
 
 (def ^:const chrome-root-selector
   "CSS selector for the chrome root element stamped by
-  `re-frame.story.ui.shell/shell` (line ~862, `:data-rf-story-root
+  `re-frame.story.ui.shell/shell` (its root `:div`, `:data-rf-story-root
   true`). Single-instance: the shell-singleton mounts exactly one root
   per page so this selector resolves to at most one element."
   "[data-rf-story-root]")
@@ -287,8 +287,9 @@
   "Restore the persisted 'Use system colors' opt-in by stamping /
   clearing `data-rf-force-colors=\"active\"` on the live chrome root +
   `<html>`. Idempotent — safe to call on every shell mount + on the
-  first lookup of the in-memory atom. Intended caller: `shell.cljs`
-  after the chrome root is in the DOM but before first paint settles."
+  first lookup of the in-memory atom. Called one tick after
+  `install-canonical-chrome-a11y!` registers the panel, once the chrome
+  root is in the DOM."
   []
   (apply-force-colors-attribute! (force-colors-opt-in?))
   nil)
@@ -334,7 +335,7 @@
        (js/Promise.resolve nil))
 
      :else
-     ;; SUPERSESSION FENCE (rf2-2amkm) — the variant panel's fence over
+     ;; SUPERSESSION FENCE — the variant panel's fence over
      ;; this panel's singleton slot. Every mutation on the far side of an
      ;; await is gated on the token claimed here, in the same synchronous
      ;; turn as the mutation it guards.
