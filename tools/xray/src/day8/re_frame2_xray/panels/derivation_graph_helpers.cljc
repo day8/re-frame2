@@ -1,10 +1,10 @@
 (ns day8.re-frame2-xray.panels.derivation-graph-helpers
   "Pure-data projection algebra for the Derivation-Graph panel (EP-0014
-  prop-3, rf2-9ett2d) + the OFF-BOX EGRESS REDACTION call site (rf2-yjarv6).
+  prop-3) + the OFF-BOX EGRESS REDACTION call site.
 
   ## What this panel renders
 
-  The composer `re-frame.derivation.graph` (EP-0014 slice-7) assembles the
+  The composer `re-frame.derivation.graph` assembles the
   five algebra-view siblings (subs / flows / resources / routes / machines)
   into ONE `{:mode :nodes :edges}` `DerivationGraph` view — the unified
   derivation/process graph the EP names. Xray is the NAMED FIRST CONSUMER
@@ -18,7 +18,7 @@
   These helpers are the pure-data projection layer (the view-side hiccup
   lives in `derivation_graph.cljs`): they classify each node by the TWO
   closed superkinds, group nodes by family, summarize value-bearing fields
-  for on-box display, and — the rider task — project the graph through the
+  for on-box display, and project the graph through the
   frame's egress policy when a tool ships it OFF-BOX.
 
   ## The two superkinds are the contract (EP-0014 §Algebra Declaration Shape)
@@ -36,21 +36,21 @@
 
   The panel renders in the developer's own browser, in the `:rf/xray`
   frame, against the developer's own app. On-box inspection sees raw values
-  — that is the in-process truth (the TAIL-2 correctness ruling on
-  rf2-6y7wnb: raw-on-box is correct-as-designed for read-only projections;
-  the composer composes nodes verbatim by design and does NO redaction).
+  — that is the in-process truth (raw-on-box is correct for read-only
+  projections; the composer composes nodes verbatim by design and does NO
+  redaction).
   So `summarize-graph` produces bounded, render-safe PREVIEWS purely for
   display ergonomics (a 4MB value would wreck the panel), NOT for privacy —
   it is a size/shape projection, not an egress boundary.
 
-  ## OFF-BOX egress is REDACTED, per-frame, FAIL-CLOSED (rf2-yjarv6)
+  ## OFF-BOX egress is REDACTED, per-frame, FAIL-CLOSED
 
-  `redact-graph-for-egress` is the EGRESS REDACTION CALL SITE the EP-0014
-  tail-2 redaction ruling says is BORN HERE — the wire boundary where a
+  `redact-graph-for-egress` is the EGRESS REDACTION CALL SITE — the wire
+  boundary where a
   tool ships the graph OFF the developer's box (an MCP surface streaming the
   graph to a remote agent, a serialized capture written to disk / posted to
-  a service). Per [Derivations.md] §Redaction metadata and the EP-0014
-  issue-1 disposition, the graph SHOULD be useful WITHOUT exposing sensitive
+  a service). Per [Derivations.md] §Redaction metadata,
+  the graph SHOULD be useful WITHOUT exposing sensitive
   raw values: each node's value-bearing summary fields are projected through
   the frame's `project-egress` walker under the FRAME's own elision policy
   (per-frame, fail-closed when frameless), and identity-embedded resource
@@ -60,10 +60,10 @@
   consuming tool's egress obligation, not the composer's.
 
   The redaction ALGORITHM itself is OWNED by the bundle-isolated core tooling
-  ns `re-frame.derivation.egress` (rf2-mm3y49) — `redact-graph-for-egress`
+  ns `re-frame.derivation.egress` — `redact-graph-for-egress`
   is a thin DELEGATE to `rf.derivation.egress/project-graph`, so this call site and the
   derivation-conformance suite share ONE implementation rather than drifting
-  copies. This panel remains the named CALL SITE; the projection lives in
+  copies. This panel is the named CALL SITE; the projection lives in
   core (built from `implementation/`-resident primitives only, so no
   `tools/` → `implementation/` dependency inversion).
 
@@ -71,7 +71,7 @@
   by the JVM test corpus without a CLJS runtime."
   (:require [clojure.string :as str]
             ;; Off-box egress redaction is owned by the bundle-isolated core
-            ;; tooling ns `re-frame.derivation.egress` (rf2-mm3y49); this panel
+            ;; tooling ns `re-frame.derivation.egress`; this panel
             ;; DELEGATES to it. Xray is a dev tool, so reaching an
             ;; implementation/ ns preserves the tools → implementation
             ;; dependency arrow (nothing in implementation/ requires Xray).
@@ -222,11 +222,11 @@
   `\"\"` when it writes none.
 
   Only a RECORD has one, and records satisfy `map?` — so a record whose key
-  had to be shortened takes the rendered window below, which opened with a
-  hard-coded `{` and printed `{:body \"short\", ...` where the printer would
-  have written `#my.ns.Rec{:body \"short\", ...`. That drops the type out of
+  had to be shortened takes the rendered window below, where a
+  hard-coded `{` would print `{:body \"short\", ...` where the printer
+  writes `#my.ns.Rec{:body \"short\", ...`. That drops the type out of
   the operator's first `preview-limit` characters, which are the ones the
-  panel shows (rf2-xpitj).
+  panel shows.
 
   ASKED OF THE PRINTER rather than reconstructed, because the tag is the
   printer's to spell and the two runtimes spell it from different places:
@@ -257,11 +257,11 @@
 
 (defn- bound-long-strings
   "Bound the print INPUT: replace every long STRING the print walk can REACH
-  with its first `preview-limit` characters (rf2-3hnvn).
+  with its first `preview-limit` characters.
 
   `*print-length*` / `*print-level*` bound the printer's BREADTH and DEPTH
   but neither reaches INSIDE a string, so bounding only a string at the ROOT
-  left `{:body <500k-char string>}` handing the whole 500k to `pr-str` on
+  would leave `{:body <500k-char string>}` handing the whole 500k to `pr-str` on
   every coalesced tick to keep 80 characters — the exact cost the bound
   exists to remove.
 
@@ -278,7 +278,7 @@
   rebuilt lazily, which prints identically and realises nothing extra.)
 
   A bounded KEY or SET MEMBER is NEVER put back, because there is no way to
-  put one back that preserves the print (rf2-kbo64). The `dissoc`/`assoc`
+  put one back that preserves the print. The `dissoc`/`assoc`
   and `disj`/`conj` that would do it MOVE the entry — on an array-map, to
   the end — so the preview stops opening where the real print opens; and two
   keys sharing a `preview-limit`-character prefix COLLAPSE into one, which
@@ -287,7 +287,7 @@
   exactly as it is and the printer is handed the walked window ALREADY
   RENDERED, in the collection's own order, one printed entry per entry,
   behind the collection's own printed type tag — so a RECORD still opens
-  with `#my.ns.Rec` rather than a bare `{` (rf2-xpitj, `printed-type-prefix`
+  with `#my.ns.Rec` rather than a bare `{` (`printed-type-prefix`
   above). So the print is bounded without the caller's collection being
   rebuilt at all, and nothing outside the window can appear in it.
 
@@ -314,11 +314,11 @@
           ;; this window is rendered instead — see the docstring: putting a
           ;; shortened key back MOVES its entry and COLLAPSES colliding
           ;; keys, and a collapse drags an unwalked entry into the print
-          ;; window with its value still unbounded (rf2-kbo64).
+          ;; window with its value still unbounded.
           (printed-as
             (str ;; A RECORD opens with its printed type tag, and the tag is
                  ;; the first thing the operator reads. Rendering the window
-                 ;; under a bare `{` erased it (rf2-xpitj); the tag is read
+                 ;; under a bare `{` would erase it; the tag is read
                  ;; back from the printer without printing an entry.
                  (printed-type-prefix v)
                  "{"
@@ -365,7 +365,7 @@
 
 (defn bounded-pr-str
   "`pr-str` with the WORK of the print bounded — its BREADTH, its DEPTH, and
-  the length of every STRING it can reach (rf2-y8doi.25, rf2-3hnvn).
+  the length of every STRING it can reach.
 
   The Graph tab re-summarises every cached value-bearing field on every
   coalesced tick, so the cost here is the SERIALISATION, not the 80
@@ -382,8 +382,8 @@
   STRINGS are bounded on the way IN by `bound-long-strings`, because
   `*print-length*` does not reach inside one. That bound reaches EVERY
   string the print walk can, not only a string at the ROOT — a root-only
-  bound left an ordinary `{:body <large string>}` serialising in full
-  (rf2-3hnvn), and the two are indistinguishable from the preview, which
+  bound would leave an ordinary `{:body <large string>}` serialising in
+  full, and the two are indistinguishable from the preview, which
   agrees to the character either way.
 
   Public because that is the only place the cost is observable: `summarize`
@@ -417,7 +417,7 @@
   `:size` is the element count for a COUNTED collection (every vector, map,
   set and list), and is ABSENT otherwise — notably for a lazy seq, where
   `count` is a full realisation of the very walk `bounded-pr-str` exists to
-  avoid (rf2-y8doi.25). A sub body ending in `map` / `filter` returns one, so
+  avoid. A sub body ending in `map` / `filter` returns one, so
   this is the ordinary case rather than an exotic one, and an unknown size is
   the honest answer: the alternative is to walk 50k elements per coalesced
   tick to put a number beside an 80-character preview."
@@ -437,7 +437,7 @@
 ;; metadata names as egress-bearing off-box). ON-BOX `summarize-node` bounds
 ;; them for display; OFF-BOX `redact-graph-for-egress` walks them through the
 ;; frame's elision policy. ONE source of truth: the list is owned by the
-;; core egress algorithm ns (rf2-mm3y49) and aliased here for the on-box
+;; core egress algorithm ns and aliased here for the on-box
 ;; summary path so the two never drift.
 (def value-bearing-node-keys rf.derivation.egress/value-bearing-node-keys)
 
@@ -461,16 +461,15 @@
   (update graph :nodes update-vals summarize-node))
 
 ;; ===========================================================================
-;; OFF-BOX EGRESS REDACTION (rf2-yjarv6, centralized rf2-mm3y49).
+;; OFF-BOX EGRESS REDACTION.
 ;;
 ;; The redaction ALGORITHM — scoped-key / work-id / host-transient /
 ;; resource-node / edge-endpoint / dead-frame fail-closed / opaque-handle /
 ;; idempotent whole-graph projection — is OWNED by the bundle-isolated core
-;; tooling ns `re-frame.derivation.egress`. It previously existed as two
-;; drifting copies (this call site + the derivation-conformance suite's
-;; in-tree mirror); a fix had to land in both and Xray lagged. Both now
-;; DELEGATE to the one owner (rf2-mm3y49). This panel is still the EGRESS
-;; CALL SITE the EP-0014 tail-2 ruling names — the wire boundary where a tool
+;; tooling ns `re-frame.derivation.egress`. This call site and the
+;; derivation-conformance suite both DELEGATE to that one owner, so a fix
+;; lands once rather than in two drifting copies. This panel is the EGRESS
+;; CALL SITE — the wire boundary where a tool
 ;; ships the graph OFF the developer's box (an MCP surface streaming to a
 ;; remote agent, a serialized capture written to disk / posted to a service)
 ;; — but the projection itself is `rf.derivation.egress/project-graph`.
@@ -479,7 +478,7 @@
 (def redact-graph-for-egress
   "Project a `DerivationGraph` through the observed FRAME's egress policy for
   the off-box wire boundary — a thin DELEGATE to the core-owned algorithm
-  `re-frame.derivation.egress/project-graph` (rf2-mm3y49). See that ns for
+  `re-frame.derivation.egress/project-graph`. See that ns for
   the full contract: per-frame `project-egress` value redaction; dead-frame
   fail-closed (never borrowing an ambient frame and shipping raw); stable
   opaque live-resource-identity handles across every identity position (node
