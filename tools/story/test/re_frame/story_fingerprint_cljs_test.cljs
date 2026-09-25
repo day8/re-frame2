@@ -1,6 +1,6 @@
 (ns re-frame.story-fingerprint-cljs-test
-  "CLJS host-portability companion for the canonical fingerprint primitive
-  (rf2-5x1wt.3). The JVM file `re-frame.story-fingerprint-test` carries the
+  "CLJS host-portability companion for the canonical fingerprint
+  primitive. The JVM file `re-frame.story-fingerprint-test` carries the
   full adversarial corpus + projection/plan/run-hash coverage; this file
   pins the cross-host invariants that only matter on CLJS:
 
@@ -8,7 +8,7 @@
   - volatile-strip equivalence and semantic sensitivity hold under the
     CLJS `hash` + `pr-str`;
   - the snapshot-identity content-hash fold is strip-free on CLJS too;
-  - the rf2-5x1wt.8 per-run stamp strip (epoch-record `:frame`, trace-event
+  - the per-run stamp strip (epoch-record `:frame`, trace-event
     `:id` / `:time` / volatile tags) is host-portable too."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.story.fingerprint :as rf.story.fingerprint]))
@@ -56,8 +56,8 @@
               (rf.story.fingerprint/run-hash (assoc-in base [:app-db :n] 2))))))
 
 (deftest determinism-stamp-strip-on-cljs
-  (testing "epoch records differing only in per-run stamps canonicalize = on CLJS
-            (rf2-5x1wt.8): :epoch-id / :frame / :committed-at / :schema-digest"
+  (testing "epoch records differing only in per-run stamps canonicalize = on CLJS:
+            :epoch-id / :frame / :committed-at / :schema-digest"
     (let [rec (fn [eid frame]
                 {:epoch-id eid :frame frame :committed-at 1 :schema-digest "d"
                  :outcome :ok :db-after {:n 1} :trace-events [] :effects []})]
@@ -90,7 +90,7 @@
         "semantic app-db data on common keys survives canonicalization")))
 
 (deftest fx-error-stamps-canonicalize-equal-on-cljs
-  (testing "rf2-3x7nj.31.3: a thrown error is projected to data on CLJS, so two
+  (testing "a thrown error is projected to data on CLJS, so two
             replays of one failing fx canonicalize = (the :error-trace pointer
             is stripped on the effect row)"
     (let [run (fn [trace-id err]
@@ -112,7 +112,7 @@
 
 (deftest collection-types-do-not-collide-on-cljs
   (testing "map / set / vector type tags keep the kinds distinct on CLJS
-            (rf2-lvrqa) — host-portable structural tagging"
+            — host-portable structural tagging"
     (is (not= (rf.story.fingerprint/content-hash {}) (rf.story.fingerprint/content-hash [])))
     (is (not= (rf.story.fingerprint/content-hash #{}) (rf.story.fingerprint/content-hash [])))
     (is (not= (rf.story.fingerprint/content-hash {:k 1}) (rf.story.fingerprint/content-hash [:k 1])))
@@ -121,7 +121,7 @@
               (rf.story.fingerprint/canonical-hash {:effects [[:k 1]]})))))
 
 (deftest fn-slot-deterministic-on-cljs
-  (testing "a fn folds to the opaque sentinel on CLJS (rf2-4gwja) — a JS fn
+  (testing "a fn folds to the opaque sentinel on CLJS — a JS fn
             in a hashed slot hashes stably, keywords/colls are not folded"
     (is (= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form (fn [] 1))))
     (is (= (rf.story.fingerprint/run-hash {:status :pass :app-db {:cb (fn [] 1)}})
@@ -138,7 +138,7 @@
              (rf.story.fingerprint/canonical-hash (assoc tuple :variant-id :story.y/v)))))))
 
 ;; ===========================================================================
-;; CROSS-HOST SCALAR STABILITY (rf2-vvqeo) — the CLJS side of the equivalence
+;; CROSS-HOST SCALAR STABILITY — the CLJS side of the equivalence
 ;; ===========================================================================
 ;;
 ;; These canonical-form + content-hash literals are EXACTLY those asserted on
@@ -151,9 +151,8 @@
 ;; for a given logical double.
 
 (deftest ordinary-value-canonical-forms-are-unchanged-on-cljs
-  (testing "REGRESSION GUARD (rf2-vvqeo): ordinary-value content-hashes match
-            the SAME pre-change baseline the JVM pins — no golden rebase, and
-            the cross-host hash agreement for ordinary values too"
+  (testing "ordinary-value content-hashes match the SAME literals the JVM
+            pins — the cross-host hash agreement for ordinary values"
     (is (= "211a4621" (rf.story.fingerprint/content-hash 42)))
     (is (= "3409cbf2" (rf.story.fingerprint/content-hash "hello")))
     (is (= "3ac20368" (rf.story.fingerprint/content-hash :foo/bar)))
@@ -186,7 +185,7 @@
 
 (deftest large-integers-canonicalize-host-portably-on-cljs
   (testing "an integer beyond the IEEE-754 safe-integer range takes the lossy
-            bit-double path on CLJS (rf2-7w1vp) — CLJS has no exact integer
+            bit-double path on CLJS — CLJS has no exact integer
             past 2^53, so `1e20` (what CLJS reads `100000000000000000000` as)
             canonicalises to the SAME `[:rf/double <hex>]` form + hash the JVM
             large bigint reaches. This pairing IS the cross-host proof."
@@ -194,7 +193,7 @@
     (is (= "8a4b7ac2" (rf.story.fingerprint/content-hash 1e20))
         "matches the JVM `(rf.story.fingerprint/content-hash (bigint 100000000000000000000))`"))
   (testing "an integer AT max-safe-integer passes through verbatim on CLJS —
-            no golden rebase for safe-range integers"
+            a safe-range integer hashes as itself"
     (is (= rf.story.fingerprint/max-safe-integer (rf.story.fingerprint/canonical-form rf.story.fingerprint/max-safe-integer)))
     (is (= "9f16836d" (rf.story.fingerprint/content-hash rf.story.fingerprint/max-safe-integer))
         "matches the JVM `(rf.story.fingerprint/content-hash 9007199254740991)` literal")))
@@ -215,7 +214,7 @@
 
 (deftest nan-set-and-opaque-fn-tiebreak-stable-on-cljs
   (testing "a NaN-bearing set hashes stably across builds on CLJS (the NaN
-            ordering hole is closed — every NaN is the `:rf/nan` sentinel)"
+            ordering cannot vary — every NaN is the `:rf/nan` sentinel)"
     (is (= (rf.story.fingerprint/content-hash (set [js/NaN :a 1]))
            (rf.story.fingerprint/content-hash (set [1 :a js/NaN])))))
   (testing "a set of two distinct JS fns (both fold to `:rf/opaque-fn`, equal
