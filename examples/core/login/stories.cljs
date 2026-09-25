@@ -104,8 +104,8 @@
 ;; `:auth.login/submit-form`. Same real fx (right there in Xray's Side
 ;; Effects panel), and a stub answers it.
 ;;
-;; WHICH stub is the variant's business, not this driver's — and it matters
-;; (rf2-hz8u). The reply comes home to `:auth.login/succeeded`, whose schema
+;; WHICH stub is the variant's business, not this driver's — and it matters.
+;; The reply comes home to `:auth.login/succeeded`, whose schema
 ;; requires `[:value :token]`, so the framework's GENERIC canned success
 ;; (`{:stubbed true}`) is refused at the schema boundary and the flow never
 ;; leaves `:submitting`. The `:success` variant therefore carries its own
@@ -156,9 +156,9 @@
    action reads: `{:status :error :error <classified-failure-map>}`, the message
    riding under `:error`. This is exactly what `:rf.http/managed-canned-failure`
    delivers on a real 4xx, so driving `:auth.login/failure` with it is faithful
-   to the live cascade. A bare `{:failure …}` map — the retired shape — leaves
-   `:record-error` reading a nil `:error`, so the flow falls back to its generic
-   \"Login failed.\" message instead of the server's."
+   to the live cascade. A bare `{:failure …}` map — a shape the machine never
+   reads — leaves `:record-error` reading a nil `:error`, so the flow falls back
+   to its generic \"Login failed.\" message instead of the server's."
   [status message]
   {:status :error
    :error  {:kind :rf.http/http-4xx :status status :message message}})
@@ -355,7 +355,7 @@
                  auth-submit cascade — submit → `:rf.http/managed` →
                  canned reply → `:success` — runs through real events;
                  inspect it in Xray. The canonical screenshot."
-     ;; THE FIXTURE, AND WHY THE GENERIC PRESET STUB IS NOT ENOUGH (rf2-hz8u).
+     ;; THE FIXTURE, AND WHY THE GENERIC PRESET STUB IS NOT ENOUGH.
      ;; Every variant here runs in its OWN `:preset :story` frame, which
      ;; redirects `:rf.http/managed` to the framework's generic canned-success
      ;; stub. That stub answers `{:status :ok :value {:stubbed true}}` when the
