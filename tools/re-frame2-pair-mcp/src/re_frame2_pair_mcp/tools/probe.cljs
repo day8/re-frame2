@@ -904,8 +904,8 @@
       `:no-target-arg` — never as a legitimate-but-empty answer (those
       are `:ok? true`, e.g. read-dom's `{:ok? true :count 0 :nodes []}`).
       So branching on `:ok?` flags every fault `isError:true` per
-      spec/003-Tool-Catalogue.md §381 \"every `:ok? false` is
-      `isError:true`\" and keeps it out of the response cache (cache
+      spec/003-Tool-Catalogue.md §*Every `:ok? false` response is
+      `isError: true`* and keeps it out of the response cache (cache
       eligibility bypasses isError), with no legitimate structured-answer
       false-positive. This is the read-family analogue of the sibling
       `:ok?` branches in read_sub / dispatch / operating_frame — NOT the
