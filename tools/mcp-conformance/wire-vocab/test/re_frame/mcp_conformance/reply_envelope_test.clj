@@ -11,10 +11,9 @@
   `tools/mcp-conformance` is the client-side MCP gate for re-frame2-pair-mcp's
   `trace-window` / `watch-epochs` surfaces — the off-box delivery path over the
   authoritative per-frame trace rings (Tool-Pair §Reading the per-frame
-  trace ring). But the surface validated only the MCP wrapper / event-bundle
-  envelope and a simple counter dispatch — it pinned NO managed-async
-  reply-envelope trace content. `rg \"EP-0011|reply-envelope|rf\\.reply\"
-  tools/mcp-conformance` returned no matches before this gate.
+  trace ring). Without this gate the surface would validate only the MCP
+  wrapper / event-bundle envelope and a simple counter dispatch — no
+  managed-async reply-envelope trace content.
 
   This is the wire-vocab counterpart to the live turn-shaped end-to-end
   path (`live-re-frame2-pair-turn-observation.cjs`): a pure-JVM schema + fixture + source-pin gate (the same shape as
@@ -35,17 +34,16 @@
                                 outcome; `:stale` on a suppression).
     - `:rf.reply/work-id`     — the CANONICAL `[:rf.work/* …]` attempt-identity
                                 tuple; the join key the uniform work/reply
-                                view groups on (rf2-o6c2jr).
+                                view groups on.
     - `:rf.reply/work-status` — the operational `:work/status`
                                 (`:suppressed` on a stale row).
     - `:rf.reply/carried` / `:rf.reply/current` — the carried-vs-current
                                 stale-suppression correlation gate.
 
-  rf2-o6c2jr — ONE NAME PER FACT. The bare `:work/id` duplicate that used to
-  ride alongside `:rf.reply/work-id` on these reply-envelope rows was DROPPED;
-  the namespaced `:rf.reply/work-id` is the canonical (and only) work-identity
-  spelling on a reply-envelope trace row. (The bare `:work/id` still lives on
-  the REPLY MAP itself and on non-reply resource-lifecycle rows — the durable
+  ONE NAME PER FACT. A reply-envelope row carries no bare `:work/id` beside
+  `:rf.reply/work-id`; the namespaced `:rf.reply/work-id` is the canonical
+  (and only) work-identity spelling on a reply-envelope trace row. (The bare
+  `:work/id` lives on the REPLY MAP itself and on non-reply resource-lifecycle rows — the durable
   work-ledger identity — but NOT as a duplicate on a reply-envelope row.) An
   MCP consumer joins on `:rf.reply/work-id`.
 
@@ -107,8 +105,8 @@
 ;; rides its bespoke family facts ALONGSIDE the additive `:rf.reply/*`
 ;; vocabulary (the row is NOT a single-key wrapper; it is a trace event's tag
 ;; map). The load-bearing contract is the additive `:rf.reply/*` keys + their
-;; shapes. rf2-o6c2jr — the work identity rides ONLY as `:rf.reply/work-id`;
-;; the bare `:work/id` duplicate was dropped (one name per fact).
+;; shapes. The work identity rides ONLY as `:rf.reply/work-id`; there is no
+;; bare `:work/id` duplicate (one name per fact).
 ;; ---------------------------------------------------------------------------
 
 (def ReplyEnvelopeTraceRow
@@ -120,8 +118,8 @@
   Required additive reply-envelope slots (the MCP-visible contract):
     :rf.reply/status      — closed reply `:status`.
     :rf.reply/work-id     — the CANONICAL `[:rf.work/* …]` attempt-identity
-                            tuple; the join key (rf2-o6c2jr — one name per
-                            fact; the bare `:work/id` duplicate was dropped).
+                            tuple; the join key (one name per fact; no bare
+                            `:work/id` duplicate).
     :rf.reply/work-status — closed `:work/status`.
 
   Optional (present on a stale-suppression row):
@@ -141,7 +139,7 @@
    [:rf.reply/stale-reason {:optional true} [:maybe :any]]])
 
 ;; ---------------------------------------------------------------------------
-;; Fixtures — the REAL production emission shapes. Each mirrors a landed
+;; Fixtures — the REAL production emission shapes. Each mirrors a production
 ;; `trace/emit!` call so a drift in the production tag map (a dropped key, a
 ;; renamed key, a scalar work-id) trips this gate.
 ;; ---------------------------------------------------------------------------
@@ -243,19 +241,19 @@
 (deftest reply-envelope-work-id-is-the-canonical-tuple-and-no-bare-duplicate
   (testing "the :rf.reply/work-id is the canonical [:rf.work/* …] tuple an MCP
             consumer joins on, and the row carries NO bare :work/id duplicate
-            (rf2-o6c2jr — one name per fact on a reply-envelope row)"
+            (one name per fact on a reply-envelope row)"
     (doseq [[family fixture] all-fixtures]
       (is (work-id-tuple? (:rf.reply/work-id fixture))
           (str family " :rf.reply/work-id is not a canonical [:rf.work/* …] tuple"))
       (is (not (contains? fixture :work/id))
           (str family " reply-envelope row carries a bare :work/id duplicate of "
-               ":rf.reply/work-id — the one-name-per-fact cull (rf2-o6c2jr) "
-               "dropped it")))))
+               ":rf.reply/work-id — the one-name-per-fact rule "
+               "forbids it")))))
 
 (deftest stale-rows-carry-the-suppression-correlation-and-reason
   (testing "a stale-suppression row pins :work/status :suppressed + the
             carried/current correlation gate + a stale reason (the
-            stale/cancelled outcome fields the bead names)"
+            stale/cancelled outcome fields)"
     (doseq [family [:http :resource]
             :let [fixture (all-fixtures family)]]
       (is (= :stale (:rf.reply/status fixture))
@@ -317,8 +315,8 @@
 
 (deftest the-canonical-reply-work-id-is-emitted-as-the-namespaced-spelling
   (testing "the canonical reply work-identity is emitted as :rf.reply/work-id
-            (rf2-o6c2jr — an MCP consumer joins reply rows by it; the bare
-            :work/id duplicate was dropped from reply-envelope rows)"
+            (an MCP consumer joins reply rows by it; reply-envelope rows
+            carry no bare :work/id duplicate)"
     (let [stripped (map (comp rf.mcp-conformance.fixtures/strip-comments-and-strings rf.mcp-conformance.fixtures/read-source) emit-source-files)]
       (is (some #(str/includes? % (pr-str :rf.reply/work-id)) stripped)
           ":rf.reply/work-id (the canonical reply join key) must be emitted as DATA"))))
