@@ -1,26 +1,25 @@
 (ns re-frame.story.ui.a11y-stale-settlement-cljs-test
-  "rf2-2amkm — STALE SETTLEMENT of an a11y scan, in both axe-core panels.
+  "STALE SETTLEMENT of an a11y scan, in both axe-core panels.
 
   `run-axe!` is asynchronous twice over: it awaits the CDN load, then
   awaits the scan. Across either gap the surface it is scanning can stop
   being its own — the variant frame torn down (`drop-frame-state!`), the
   panel reset (`reset-state!`), or a newer `run-axe!` claiming the same
-  slot. Every mutation in the `.then` / `.catch` callbacks used to run
-  unconditionally, so a settlement landed on whatever occupied the slot
+  slot. If the mutations in the `.then` / `.catch` callbacks ran
+  unconditionally, a settlement would land on whatever occupied the slot
   by then.
 
-  WHAT THAT COSTS, and why it is not a crash. The mutation does not
+  WHAT THAT WOULD COST, and why it would not crash. The mutation does not
   throw under teardown: `(swap! run-state assoc frame-id :done)` over a
   map the frame was dissoc'd from RESURRECTS the entry rather than
-  failing — the a11y analogue of the `(inc nil)` resurrection rf2-6pfpt
-  measured on the play-runner's `record-result!` path (#6405). The
-  phantom slot reads `:done`, and the resurrected `violations-by-frame`
-  entry beside it is what the below-the-UI executor seam
-  (`browser/register-a11y-reader!`) serves to `:rf.assert/a11y`. A scan
-  of a frame that is GONE reporting a clean verdict: a fabricated green,
-  not a hang and not an exception. `no-throw-and-no-resurrection` below
-  asserts BOTH halves — that it does not throw is exactly why the defect
-  was invisible.
+  failing — the a11y analogue of the `(inc nil)` resurrection on the
+  play-runner's `record-result!` path. The phantom slot would read
+  `:done`, and the resurrected `violations-by-frame` entry beside it is
+  what the below-the-UI executor seam (`browser/register-a11y-reader!`)
+  serves to `:rf.assert/a11y`. A scan of a frame that is GONE reporting a
+  clean verdict: a fabricated green, not a hang and not an exception.
+  `no-throw-and-no-resurrection` below asserts BOTH halves — that it does
+  not throw is exactly what would keep the defect invisible.
 
   DETERMINISM. Every test here places its own interleaving. The fake
   axe-core's `run` is called synchronously by the code under test, so a
@@ -142,7 +141,7 @@
   (testing "POSITIVE CONTROL, and the premise the refusals rest on. A
             fence that simply stopped recording settled scans would pass
             every staleness test below while breaking every real scan.
-            The run that still owns the slot records exactly as before"
+            The run that owns the slot records its scan"
     (async done
       (let [scans (atom 0)]
         (install-axe! (fn [_] (swap! scans inc)
@@ -157,13 +156,13 @@
                      (done))))))))
 
 (deftest no-throw-and-no-resurrection
-  (testing "THE BUG (rf2-2amkm): the frame is torn down while the scan is
-            in flight. Settling must not throw — and the reason this
-            defect was invisible is that it never did: `assoc` over a map
+  (testing "THE HAZARD: the frame is torn down while the scan is in
+            flight. Settling must not throw — and an unfenced settlement
+            would be invisible because it never throws: `assoc` over a map
             the frame was dissoc'd from RESURRECTS the entry, fabricating
             a `:done` slot and a violations bag for a frame that is gone,
-            which the executor seam then serves to `:rf.assert/a11y` as a
-            clean verdict"
+            which the executor seam would then serve to `:rf.assert/a11y`
+            as a clean verdict"
     (async done
       (install-axe!
         (fn [_]
@@ -186,8 +185,7 @@
           ;; continuation that runs the WHOLE remainder of the run
           ;; synchronously, so a rejection handler downstream of the step that
           ;; finished the row claims whatever a LATER namespace throws, prints
-          ;; it against this row's label, and fires `done` a second time
-          ;; (rf2-e8kc).
+          ;; it against this row's label, and fires `done` a second time.
           (.catch (fn [e]
                     (is false (str "settling after teardown threw: " e))
                     nil))
@@ -342,7 +340,7 @@
                    (done)))))))
 
 (deftest chrome-reset-is-not-undone-by-a-pending-scan
-  (testing "rf2-2amkm — the panel is reset while a scan is in flight.
+  (testing "the panel is reset while a scan is in flight.
             The settlement must not reinstate its verdict over the
             cleared panel: the operator would be shown violations for a
             scan they had already dismissed, and a `:done` status for a
@@ -362,7 +360,7 @@
                    (done)))))))
 
 (deftest chrome-stale-settlement-does-not-clobber-the-replacement-run
-  (testing "rf2-2amkm — run A parks, run B claims the chrome scan, A
+  (testing "run A parks, run B claims the chrome scan, A
             settles late. A's findings must not land in B's slot"
     (async done
       (let [b-scanning (signal)]
