@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panel-registry-cljs-test
-  "Pure-data tests for the internal L4-tab registry (rf2-2moh1).
+  "Pure-data tests for the internal L4-tab registry.
 
   ## Why `.cljc` + `_cljs_test` naming
 
