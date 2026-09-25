@@ -1,6 +1,5 @@
 // Completeness / anti-drift guard for the shared live-test inventory
-// (`scripts/live-test-inventory.cjs`) against the live gate files on disk
-// (rf2-79qmsw, rf2-phveub).
+// (`scripts/live-test-inventory.cjs`) against the live gate files on disk.
 //
 // Uses Node's built-in `node:test` (same posture as
 // `inner-test-close-grading.test.cjs` — no extra dev-dependency). Runs in
@@ -10,17 +9,12 @@
 //
 // ## The drift this pins
 //
-// The live gates live in `test/live-re-frame2-pair-*.cjs`. They used to be
-// named in TWO separate, hand-maintained lists (the hermetic runner's
-// `INNER_TESTS` and `test-all.cjs`'s live rows), and nothing cross-checked
-// the two against each other or against disk — so a forgotten entry could
-// ride perpetually green (never launched on CI) or never be spawned at all.
-//
-// rf2-phveub collapsed those two lists onto ONE owner: the shared inventory
-// (`scripts/live-test-inventory.cjs`). BOTH runners now DERIVE their rows from
-// that array (the hermetic runner resolves each `basename` to an absolute
-// path; `test-all.cjs` derives a SKIP-by-default row), so they can no longer
-// disagree with each other. The only remaining drift is inventory-versus-disk:
+// The live gates live in `test/live-re-frame2-pair-*.cjs`. BOTH runners
+// DERIVE their rows from ONE owner, the shared inventory
+// (`scripts/live-test-inventory.cjs`): the hermetic runner resolves each
+// `basename` to an absolute path, and `test-all.cjs` derives a
+// SKIP-by-default row. So the runners cannot disagree with each other, and
+// the only drift left is inventory-versus-disk:
 //   - a new `live-re-frame2-pair-<new>.cjs` added to disk but forgotten in the
 //     inventory → never spawned by `npm test`, never LAUNCHED on CI (the
 //     hermetic job is the only place the live path fires) — rides perpetually
