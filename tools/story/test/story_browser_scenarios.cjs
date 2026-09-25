@@ -16,9 +16,9 @@ const {
 } = require('../../../examples/scripts/spec-helpers.cjs');
 const assert = require('assert/strict');
 
-// rf2-taj9b — every navigation in this spec carried no timeout and so took
-// Playwright's undocumented 30s default. Named here instead, at the same
-// number, so nothing green changes and a failure says which ceiling fired.
+// Every navigation in this spec carries this explicit timeout — the same
+// number as Playwright's undocumented 30s default — so a failure says which
+// ceiling fired.
 //
 // Deliberately NOT the driver's budget: `run-story-feature-load-tests.cjs`
 // caps the WHOLE spec at STORY_FEATURE_LOAD_TIMEOUT_MS (default 300000ms),
@@ -26,7 +26,7 @@ const assert = require('assert/strict');
 // trade a mislabelled failure for a silent one. This is the navigation's own
 // budget, and 30s is generous for a staged Story shell on loopback.
 //
-// `waitUntil: 'load'` is KEPT throughout (the helper's default). Every
+// `waitUntil: 'load'` is used throughout (the helper's default). Every
 // navigation here is followed by 10s locator budgets that assume a booted
 // shell, and by a `primeHelpDismissed` write that the shell reads on mount.
 const NAV_TIMEOUT_MS = 30000;
@@ -251,7 +251,7 @@ module.exports = {
         '/counter-with-stories/?variant=story.missing%2Fghost&modes=Mode.app%2Fghost&overrides=label%3A%22Ghost%22#/stories',
       );
 
-      // The canvas-first shell rework (rf2-ba86n.3) renders the calm
+      // The canvas-first shell renders the calm
       // empty state under [data-test="story-canvas-empty"] with the copy
       // "Pick a story, variant, or workspace from the sidebar to render
       // it here." A stale share URL pointing at an unregistered variant
@@ -274,14 +274,13 @@ module.exports = {
 
     await scenario(page, 'share-url-hydrates-variant-modes-and-props', async () => {
       await primeHelpDismissed(page);
-      // rf2-j0hwf switched the `overrides=` wire form from the legacy
-      // `key:value` token to a single pr-str-printed EDN map
-      // (`{:label "Shared Label"}`), percent-encoded as one token. This URL
-      // carries that current form: `URLSearchParams.get("overrides")` decodes
+      // The `overrides=` wire form is a single pr-str-printed EDN map
+      // (`{:label "Shared Label"}`), percent-encoded as one token.
+      // `URLSearchParams.get("overrides")` decodes
       // `%7B%3Alabel%20%22Shared%20Label%22%7D` back to `{:label "Shared Label"}`,
       // which `share/parse-overrides-param*` reads as a map and keeps (the
-      // `:label` key is declared by `:story.counter/loaded`). The pre-rf2-j0hwf
-      // `label:"Shared Label"` token no longer parses as EDN and was being
+      // `:label` key is declared by `:story.counter/loaded`). A `key:value`
+      // token such as `label:"Shared Label"` does not parse as EDN and would be
       // classified `:dropped`, tripping the degraded-mode banner.
       await gotoStory(
         page,
@@ -345,13 +344,9 @@ module.exports = {
       }
     });
 
-    // rf2-ymnfx Issue B retired the per-variant Share button + QR popover:
-    // the variant URL was already live in the browser's address bar via
-    // `url-state` pushState (Cmd-L Cmd-C copies it). The two previous
-    // scenarios — `share-popover-and-qr-preserve-variant-id` and
-    // `share-url-follows-current-variant-and-per-variant-props` — were
-    // popover-shape assertions over an affordance that no longer exists.
-    // The underlying URL-builder contract is still covered by
+    // There is no per-variant Share button or QR popover: the variant URL is
+    // live in the browser's address bar via `url-state` pushState (Cmd-L
+    // Cmd-C copies it). The URL-builder contract is covered by
     // `share-url-hydrates-variant-modes-and-props` (hydrate side) and by
     // the JVM/CLJS unit suite for `re-frame.story.share`. Per-variant
     // override isolation is covered by the snapshot-hash scenario above
@@ -426,12 +421,10 @@ module.exports = {
       const a = canvas(page, ':story.counter-matrix/isolation-a');
       await a.locator('[data-test="inc"]').first().click();
       await expectTextEquals(a.locator('[data-test="count"]').first(), '2', 10000);
-      // Per rf2-sgdd3 the Story-side scrubber + trace panels were
-      // retired in favour of Xray's L1 ribbon + L2 event list +
-      // Trace tab; the time-travel sub-assertion that polled
-      // `[data-test="story-trace-panel"][data-scrubbed-epoch]`
-      // moved out with them. Xray carries its own time-travel
-      // contract — covered by tools/xray/testbeds/*.
+      // There are no Story-side scrubber or trace panels — Xray's L1
+      // ribbon + L2 event list + Trace tab cover that ground, so this
+      // scenario asserts no time-travel. Xray's time-travel contract is
+      // covered by tools/xray/testbeds/*.
 
       await clickVariant(page, '/isolation-b');
       await waitForCanvas(page, ':story.counter-matrix/isolation-b');
@@ -439,18 +432,14 @@ module.exports = {
       await expectTextEquals(b.locator('[data-test="count"]').first(), '100', 10000);
     });
 
-    // 'recorder-redacts-sensitive-events' scenario removed per rf2-hjs2d:
-    // the reverse of rf2-pisq6 dropped the handler-meta `:sensitive?`
-    // annotation and the `:rf.event/dispatched` queue-time emit no longer
-    // stamps `:sensitive?` from any source (the schema-overlap path stamps
-    // only AFTER handler-scope binding, which is established AFTER the
-    // queue-time emit fires). The recorder's redaction substrate is still
-    // present and gates on `(privacy/sensitive? ev)`, but there is no
-    // longer a mechanism that flips that bit on the `:rf.event/dispatched`
-    // trace event the recorder listens for. The replacement classification
-    // surface (add-marks / set-marks) lands in a separate impl PR; the
-    // browser-side assertion will be rewritten there once a triggering
-    // mechanism exists.
+    // There is no browser scenario for recorder redaction of sensitive
+    // events. Handler-meta `:sensitive?` is not consulted, and the
+    // `:rf.event/dispatched` queue-time emit stamps `:sensitive?` from no
+    // source (the schema-overlap path stamps only AFTER handler-scope
+    // binding, which is established AFTER the queue-time emit fires). The
+    // recorder's redaction gates on `(privacy/sensitive? ev)`, but no
+    // mechanism flips that bit on the `:rf.event/dispatched` trace event
+    // the recorder listens for.
 
     await scenario(page, 'a11y-known-good-and-known-bad-fixtures', async () => {
       await setMode(page, 'dev');
@@ -497,8 +486,8 @@ module.exports = {
 
     await scenario(page, 'force-fx-stub-redirect-and-stub-miss-rf2-6hauy', async () => {
       /*
-       * Case-1 follow-on (rf2-6hauy) — force-fx-stub feature-gate beyond
-       * the matrix bookkeeping baseline.
+       * force-fx-stub feature-gate beyond the matrix bookkeeping
+       * baseline.
        *
        * The `:story.counter/save-stubbed` variant decorates with
        * `[force-fx-stub :counter/sync-to-server {:ok? true}]`. The
@@ -520,21 +509,17 @@ module.exports = {
        *     effect-emitted assertion; we navigate to it and confirm
        *     three passing rows + zero stub leak (no rogue fx-id
        *     emitted from a previous variant survives into a new
-       *     frame's `:emitted-fx` accumulator — rf2-vu5w isolation
+       *     frame's `:emitted-fx` accumulator — the frame-isolation
        *     guarantee).
-       *   - the actions panel surfaces the redirected stub-event id
-       *     (`:rf.story.fx-stub/...`) as an action row, proving the
-       *     redirect happened at dispatch time rather than the real
-       *     `:counter/sync-to-server` fx running
+       *   - no real network call escapes the stub.
        *
-       * Source-side follow-on (filed separately): a dedicated
-       * `:story.counter-matrix/failing-fx-stub-miss` variant that asserts
-       * `:rf.assert/effect-emitted :never-stubbed` so the failing
-       * row's reason text ("fx :never-stubbed was not emitted during
-       * play") is directly visible. The current testbed has no such
-       * variant — adding one would touch source. This walk proves the
-       * runtime invariants the panel relies on; the dedicated failing
-       * fixture proves the empty-state row rendering.
+       * The failing row's reason text ("fx :never-stubbed was not
+       * emitted during play") is pinned by the dedicated
+       * `:story.counter-matrix/failing-fx-stub-miss` variant, which
+       * asserts `:rf.assert/effect-emitted :never-stubbed` (see
+       * testbeds/counter_with_stories/stories.cljs and its
+       * stories_cljs_test.cljs). This walk proves the runtime
+       * invariants the test pane relies on.
        */
       await primeHelpDismissed(page);
       await gotoStory(page, '/counter-with-stories/#/stories');
@@ -624,22 +609,19 @@ module.exports = {
       assertNoThirdPartyRequests(page);
     });
 
-    // Scenario `lifecycle-phase-happy-path-order-rf2-rrw6o` retired per
-    // rf2-sgdd3 — it polled `[data-test="story-actions-row"]` rows in
-    // chronological order to validate Spec 008 four-phase ordering, but
-    // the Story-side actions panel was retired in favour of Xray's
-    // Event-tab cascade view + filtered Trace tab. The four-phase
-    // ordering contract is still validated by the JVM/CLJS unit suite
-    // for `re-frame.story.lifecycle` directly; cross-variant isolation
-    // is covered by `substrate-decorator-and-frame-isolation` above. A
-    // Xray-side equivalent (reading the spine projection rather than
-    // the Story actions panel rows) belongs in tools/xray/testbeds/
-    // and is out of scope for rf2-sgdd3.
+    // There is no browser scenario for Spec 008 four-phase ordering: Story
+    // has no actions panel (Xray's Event-tab cascade view + filtered Trace
+    // tab cover that ground). The four-phase ordering contract is
+    // validated by the JVM/CLJS unit suite for `re-frame.story.lifecycle`
+    // directly; cross-variant isolation is covered by
+    // `substrate-decorator-and-frame-isolation` above. A browser
+    // equivalent reading the spine projection belongs in
+    // tools/xray/testbeds/.
 
     await scenario(page, 'reg-story-panel-for-filter-and-toggle-rf2-pv9xu', async () => {
       /*
-       * Case-1 follow-on (rf2-pv9xu) — reg-story-panel feature-gate
-       * beyond the matrix bookkeeping baseline.
+       * reg-story-panel feature-gate beyond the matrix bookkeeping
+       * baseline.
        *
        * Panels are registered with optional `:for` (set of story ids
        * the panel applies to) and an implicit visibility flag in the
@@ -668,7 +650,7 @@ module.exports = {
        *     the toggle without mutating app state (panel visibility
        *     lives on shell state, not the variant frame's app-db).
        *
-       * Broken-render fallback (rf2-76wo5): the testbed registers
+       * Broken-render fallback: the testbed registers
        * :Panel.counter-with-stories/broken-render whose :render
        * points at the never-registered view id
        * :counter-with-stories.views/not-registered. When the panel
@@ -776,7 +758,7 @@ module.exports = {
         },
       );
 
-      // (d) rf2-76wo5 — broken-render fallback. The testbed
+      // (d) Broken-render fallback. The testbed
       // registers :Panel.counter-with-stories/broken-render whose
       // :render points at an unregistered view id. The panel-host
       // renders the fallback text "panel ... has no registered
@@ -806,8 +788,8 @@ module.exports = {
 
     await scenario(page, 'reg-workspace-layouts-and-unknown-rf2-u2ztw', async () => {
       /*
-       * Case-1 follow-on (rf2-u2ztw) — reg-workspace feature-gate
-       * beyond the matrix bookkeeping baseline.
+       * reg-workspace feature-gate beyond the matrix bookkeeping
+       * baseline.
        *
        * The counter testbed registers five workspaces covering
        * every Spec 008 §Workspace layout:
@@ -817,7 +799,7 @@ module.exports = {
        *   - :Workspace.counter/prose          :prose
        *   - :Workspace.counter/custom         :custom
        *
-       * The terminal :kgn0c walk already exercises grid /
+       * The terminal workspace-switch walk exercises grid /
        * variants-grid / tabs round-trips for the stale-subscribe
        * regression. This walk targets the remaining layouts (prose,
        * custom) plus the unknown-workspace empty branch:
@@ -947,8 +929,8 @@ module.exports = {
 
     await scenario(page, 'controls-nested-edit-by-path-rf2-57ikh', async () => {
       /*
-       * Case-1 follow-on (rf2-57ikh) — Controls nested edit-by-path
-       * feature-gate beyond the matrix bookkeeping baseline.
+       * Controls nested edit-by-path feature-gate beyond the matrix
+       * bookkeeping baseline.
        *
        * The :story.counter-matrix/nested-controls variant carries a
        * nested :settings map ({:title "Nested title" :enabled? true})
@@ -998,7 +980,7 @@ module.exports = {
       const settingsGroup = aside.locator('[data-controls-arg=":settings"]').first();
       await settingsGroup.waitFor({ state: 'visible', timeout: 5000 });
 
-      // Summarise-before-expand (rf2-ba86n.5, spec/019 §4): a :map group
+      // Summarise-before-expand (spec/019 §4): a :map group
       // renders collapsed by default (a ▸ disclosure header + a one-line
       // summary), so the nested child rows are NOT in the DOM until the
       // group is expanded. Click the group's toggle-expand disclosure
@@ -1125,10 +1107,10 @@ module.exports = {
 
     await scenario(page, 'async-fx-machine-state-and-retry-rf2-ksw18', async () => {
       /*
-       * Case-1 follow-on (rf2-ksw18) — Async/fx machine-state +
-       * retry feature-gate beyond the matrix bookkeeping baseline.
+       * Async/fx machine-state + retry feature-gate beyond the matrix
+       * bookkeeping baseline.
        *
-       * The login-form testbed (rf2-0sg12) registers five variants
+       * The login-form testbed registers five variants
        * that walk a deterministic FSM (:login/flow) through every
        * state from the Story tutorial:
        *
@@ -1282,8 +1264,8 @@ module.exports = {
 
     await scenario(page, 'args-precedence-5-layer-chain-rf2-6fry8', async () => {
       /*
-       * Case-1 follow-on (rf2-6fry8) — args-precedence 5-layer
-       * chain feature-gate beyond the matrix bookkeeping baseline.
+       * args-precedence 5-layer chain feature-gate beyond the matrix
+       * bookkeeping baseline.
        *
        * Per Spec 007 §Args (and args.cljc resolve-args) the
        * precedence chain is:
@@ -1331,11 +1313,10 @@ module.exports = {
        *       variant's :label "Total", proving the controls layer
        *       didn't mutate any other layer.
        *
-       * Source-side follow-on: the canvas-visible :label is the
-       * load-bearing observable per layer; a deeper read of all 5
-       * layers via the docs pane's args table would need an
-       * argtypes-aware label-row but the current panel only shows
-       * one row per top-level key (covered).
+       * The canvas-visible :label is the load-bearing observable per
+       * layer. The docs pane's args table shows one row per top-level
+       * key, so a deeper read of all 5 layers through it would need an
+       * argtypes-aware label-row.
        */
       await primeHelpDismissed(page);
       await gotoStory(page, '/counter-with-stories/#/stories');
@@ -1364,7 +1345,7 @@ module.exports = {
           const vid = kw(ns, name);
           // Read the shell's active-modes + cell-overrides for this
           // variant — matches what canvas-inner passes to
-          // resolve-args (rf2-wb4y3 hot-path threading).
+          // resolve-args.
           const shell = state.get_state.call(null);
           const get = cljs.get;
           const getIn = cljs.get_in;
@@ -1496,23 +1477,22 @@ module.exports = {
         );
       }
       // Cleanup: clear globals + modes so downstream scenarios
-      // (the terminal :kgn0c walk) see a fresh shell.
+      // (the terminal workspace-switch walk) see a fresh shell.
       await setGlobal([]);
       await setActiveModes([]);
     });
 
     await scenario(page, 'render-shell-mount-unmount-no-leak-rf2-3vvzy', async () => {
       /*
-       * Case-1 follow-on (rf2-3vvzy) — Render shell mount/unmount
-       * double-mount diagnostics beyond the matrix bookkeeping
-       * baseline.
+       * Render shell mount/unmount double-mount diagnostics beyond
+       * the matrix bookkeeping baseline.
        *
        * Per Spec 008 §Render shell mount/unmount the shell exposes
        * `mount-shell!`, `unmount-shell!`, and `active-shell` —
        * v1 lifecycle is one-shell-at-a-time. The contract:
        *
        *   - calling mount-shell! while a shell is already mounted
-       *     unmounts the previous root first (rf2-fq1yg fix); no
+       *     unmounts the previous root first; no
        *     React "container has already been passed to createRoot"
        *     warning; no duplicate landmarks
        *   - calling mount-shell! with nil / undefined returns nil
@@ -1538,8 +1518,9 @@ module.exports = {
        *   (d) unmount → remount round-trip: after unmount the
        *       `<nav>` landmark is gone (DOM cleaned); after
        *       mount-shell! against #app the landmark reappears
-       *       singleton'd; no listener leak (the variant scrubber
-       *       slot returns nil for a freshly-allocated frame)
+       *       singleton'd; no shell-state leak (the selected-variant
+       *       and selected-workspace slots read nil on the freshly
+       *       mounted shell)
        */
       await primeHelpDismissed(page);
       await gotoStory(page, '/counter-with-stories/#/stories');
@@ -1662,10 +1643,9 @@ module.exports = {
       // Shell-state leak guard: the selected-variant / selected-
       // workspace slots should both be nil since the shell was just
       // freshly mounted and no variant has been selected on this
-      // session. Per rf2-sgdd3 the scrubber-selection slot was
-      // retired alongside the scrubber panel (Xray is the RHS
-      // primary now); the unmount-then-mount round-trip is still
-      // expected to leave the default shell state shape behind.
+      // session. There is no scrubber-selection slot (Xray is the
+      // RHS primary); the unmount-then-mount round-trip leaves the
+      // default shell state shape behind.
       const remountState = await page.evaluate(() => {
         const state = window.re_frame.story.ui.state;
         const cur = state.get_state.call(null);
@@ -1688,15 +1668,13 @@ module.exports = {
 
     await scenario(page, 'mid-tier-umbrella-helper-strong-rows-rf2-s75sy', async () => {
       /*
-       * Case-1 follow-on (rf2-s75sy) — Mid-tier umbrella deepening
-       * helper-strong rows beyond the matrix bookkeeping baseline.
+       * Mid-tier umbrella: deeper assertions for helper-strong rows
+       * beyond the matrix bookkeeping baseline.
        *
-       * Per the rf2-txb72 audit, 6 rows in the deferred set are
-       * helper-strong (the framework runtime is well-tested
-       * elsewhere) but the feature-load gate only opens the panel.
-       * Mike's Q3 default was "deepen assertions rather than ease
-       * criteria — pre-alpha quality bar". This walk picks the
-       * three highest-leverage deepenings:
+       * Helper-strong rows are features whose framework runtime is
+       * well-tested elsewhere but which the feature-load gate only
+       * opens. This walk deepens assertions rather than easing
+       * criteria, on three of them:
        *
        *   (i)   reg-tag AND-across-axes / OR-within-axis
        *         Counter testbed registers faceted tags on multiple
@@ -1709,13 +1687,9 @@ module.exports = {
        *         AND-across-axes (status AND role both required).
        *         Per Spec 008 §Sidebar filters.
        *
-       *   (ii)  Trace panel phase grouping + cascade columns
-       *         The trace-cascade-row renders six columns
-       *         (event / handler / fx / effects / subs / renders).
-       *         After a :counter/inc on /loaded, the cascade row
-       *         for that dispatch shows non-zero counts in
-       *         several columns. Anchor on the row's children
-       *         text count + the event-cell shape.
+       *   (ii)  Trace panel phase grouping + cascade columns —
+       *         not walked here: Story ships no trace panel (see
+       *         the (ii) note in the body).
        *
        *   (iii) Open-in-editor chip render
        *         Per Spec 005-SOTA §Open in editor every assertion
@@ -1823,8 +1797,8 @@ module.exports = {
         { timeoutMs: 5000, description: ':status/stable chip deactivated' },
       );
 
-      // (ii) Trace panel phase grouping — retired per rf2-sgdd3.
-      // The Story-side trace panel was replaced by Xray's Trace tab.
+      // (ii) Trace panel phase grouping — Story ships no trace panel;
+      // Xray's Trace tab is the trace view.
       // The six-domino cascade projection contract lives in the JVM
       // `re-frame.trace.projection` unit suite; the visual surface is
       // exercised by Xray's own browser tests under tools/xray/.
@@ -1857,21 +1831,19 @@ module.exports = {
       // source-coord chip's open-in-editor button text reads "open"
       // alongside the file:line.
       //
-      // rf2-ak6re — match the classpath-relative TAIL, not the whole
-      // `:file`. This assertion originally pinned the leading edge of
-      // the path, which held only while Story's macro stamped the
-      // reader's `:file` verbatim. rf2-3xq1v routed
-      // `re-frame.story.macros/coords-form` through
+      // Match the classpath-relative TAIL, not the whole `:file`.
+      // `re-frame.story.macros/coords-form` delegates to
       // `re-frame.source-coords/coords-form`, which absolutises at
-      // macro-expansion time (rf2-wvsxg), so the renderer now emits
+      // macro-expansion time, so the renderer emits
       // `at <checkout>/tools/story/testbeds/counter_with_stories/
       // stories.cljs:438` — an on-disk location whose prefix differs
-      // per machine. The tail is what carries the signal this
+      // per machine, so pinning the leading edge of the path would
+      // fail on other hosts. The tail is what carries the signal this
       // scenario exists to check (the coord names the play's own
       // source file, with a line), and it is stable across hosts;
       // `[\\/]` accepts the Windows separator, and the leading `\S*`
       // is optional so a host that cannot resolve a root (in-jar
-      // source, synthetic coord) still passes on the relative
+      // source, synthetic coord) passes on the relative
       // spelling that path ships verbatim.
       if (!/\bat\s+\S*counter_with_stories[\\/]stories\.cljs:\d+/.test(detailText)) {
         throw new Error(
@@ -1894,17 +1866,19 @@ module.exports = {
 
     await scenario(page, 'workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c', async () => {
       /*
-       * Regression gate for rf2-kgn0c. Pre-fix, clicking from one
-       * workspace to another within the same browser session let
-       * React's reconciler reuse the prior workspace's variant-cell
-       * components when keys collided (`(str "v-" i)` was position-
-       * only); the cell's `r/with-let` initialiser ran once with the
-       * OLD variant id, the NEW variant's frame was never allocated
-       * by `run-variant-with-shell-opts!`, and the rendered view's
-       * subscribe returned nil — `@nil` then threw
+       * Regression gate for stale subscribe derefs on workspace
+       * switch. The variant cells key on the variant id. With
+       * position-only keys (`(str "v-" i)`), clicking from one
+       * workspace to another within the same browser session would
+       * let React's reconciler reuse the prior workspace's
+       * variant-cell components when keys collided; the cell's
+       * `r/with-let` initialiser would run once with the OLD variant
+       * id, the NEW variant's frame would never be allocated by
+       * `run-variant-with-shell-opts!`, and the rendered view's
+       * subscribe would return nil — `@nil` then throws
        * `No protocol method IDeref.-deref defined for type null`.
        *
-       * The fix keys variant cells on the variant id. This walkthrough
+       * This walkthrough
        * clicks through every workspace in the counter testbed in a
        * single browser session — NO fresh page per workspace. Any
        * stale-subscribe-deref would surface as a pageerror, and the
@@ -1934,8 +1908,8 @@ module.exports = {
         const ws = page.locator(`main section[aria-label="Workspace :${name}"]`);
         await ws.waitFor({ state: 'visible', timeout: 10000 });
         // Workspace MUST render at least one variant root after the
-        // swap. The bug pre-fix left the new workspace blank /
-        // partially rendered around the throw.
+        // swap. A stale-key reconcile would leave the new workspace
+        // blank / partially rendered around the throw.
         await waitForValue(
           () => ws.locator('[data-rf-story-variant-root]').count(),
           (count) => count >= 1,
