@@ -56,8 +56,7 @@
 
   localStorage key `re-frame2.xray.frame-switcher.v1` (per-instance
   overridable via the direct setter `frame-switcher/set-storage-key!`;
-  a future `configure! :rf.xray/frame-switcher-storage-key` plumb
-  is straightforward but not wired today). Value is a one-key EDN map
+  no `configure!` key reaches it). Value is a one-key EDN map
   `{:frame :rf/cart-frame}` — wrapping
   a bare keyword would force callers to handle 'literal nil means no
   selection' vs 'no entry means no selection' separately; the map
@@ -88,8 +87,8 @@
 
 (def internal-frames
   "Frames Xray filters out of the picker per spec/018 §8 I1.
-  `:rf/xray` is Xray's own state; `:rf/re-frame2-pair` is the future
-  MCP-pair frame.
+  `:rf/xray` is Xray's own state; `:rf/re-frame2-pair` is the name
+  reserved for the MCP-pair tool's frame.
 
   THIS SET IS THE WHOLE PROMISE. The exclusion is unconditional: there
   is no toggle behind it and no setting to read.
