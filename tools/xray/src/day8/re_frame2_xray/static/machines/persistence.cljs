@@ -87,8 +87,9 @@
   nil)
 
 (defn load-sub-mode-by-id
-  "Read + parse the persisted sub-mode map. Returns `{}` when the slot
-  is empty / unparseable. Every value normalises through
+  "Read + parse the persisted sub-mode map. Returns nil when the slot
+  is empty or holds EDN that is not a map, and `{}` when it does not
+  parse; every caller treats the two alike. Every value normalises through
   `helpers/normalise-sub-mode` so a corrupted entry falls back to
   `:topology` rather than crashing the render."
   []

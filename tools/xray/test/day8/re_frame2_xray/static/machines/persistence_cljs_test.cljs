@@ -26,16 +26,12 @@
 
   ## The empty-slot read
 
-  There is a doc-vs-implementation tension on the EMPTY-slot read: the
-  `load-sub-mode-by-id` docstring says it 'returns `{}` when the slot is
-  empty / unparseable', but the body wraps the whole read in `when-let`,
-  so an empty slot actually returns `nil`.
-  `load-empty-slot-returns-nil-not-empty-map` PINS the AS-BUILT
-  behaviour (nil) and documents the asymmetry: `nil` and `{}` are
-  observationally identical to every consumer (`get`/`merge`/`into`
-  treat them the same, and the hydrate event seeds the slot either
-  way), so the implementation is correct as written — only the
-  docstring overstates. Pinning the real value keeps a refactor
+  The body wraps the whole read in `when-let`, so an empty slot returns
+  `nil`, and only EDN that does not parse reaches the `{}` catch.
+  `load-empty-slot-returns-nil-not-empty-map` PINS that branch (nil):
+  `nil` and `{}` are observationally identical to every consumer
+  (`get`/`merge`/`into` treat them the same, and the hydrate event seeds
+  the slot either way), and pinning the real value keeps a refactor
   honest about which branch fires."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.local-storage :as ls]
@@ -68,11 +64,10 @@
 ;; -------------------------------------------------------------------------
 
 (deftest load-empty-slot-returns-nil-not-empty-map
-  (testing "AS-BUILT: an empty / unavailable sub-mode slot
-            reads back nil (the outer `when-let` short-circuits before
-            the `{}` fallback). nil and {} are observationally identical
-            to every consumer, so this pins the real branch rather than
-            the docstring's overstated `{}`."
+  (testing "an empty / unavailable sub-mode slot reads back nil (the
+            outer `when-let` short-circuits before the `{}` fallback).
+            nil and {} are observationally identical to every consumer;
+            this pins the real branch."
     (with-stub-storage*
       (fn []
         ;; store is empty → get-item returns nil → when-let is falsey.
