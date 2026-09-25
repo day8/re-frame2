@@ -443,7 +443,8 @@ framework's own suite uses:
     (let [traces (atom [])
           fired  (atom [])]
       ;; register-listener!'s first arg is the *stream*: :trace is the
-      ;; dev tap, :errors the always-on production channel (more below).
+      ;; dev tap. The always-on production channel is a different verb
+      ;; (more below).
       (rf/register-listener! :trace ::collect #(swap! traces conj %))
       (try
         (rf/reg-fx :checkout/analytics

@@ -147,9 +147,9 @@ So why can the `:exception` be absent? Most failures carry the host throwable, b
 
 Because these have no throwable, your bridge falls through to `captureMessage` — the `if-let` handles it automatically. And there's a second reason to branch on the category keyword rather than the message: human-facing prose is allowed to change between releases. The structured slots are the contract; lean on those, not the prose.
 
-!!! note "Producer attribution rides the corpus-wide record, not the sink"
+!!! note "Producer attribution rides the sink record"
 
-    Two categories fail a component **distinct** from the dispatched event: `:rf.error/interceptor-exception` (a user [interceptor](../glossary.md#interceptor) in the chain threw) and `:rf.error/coeffect-exception` (a [coeffect](../glossary.md#coeffect) supplier threw while assembling the handler's inputs). For both, `:event-id` still names the dispatched event while the *actually broken* component is something else — and the slots that name it (`:failing-id`, the human `:reason`, and the `:source-coord` definition site) ride the corpus-wide `:errors` record only; the sink route does not carry them. So if grouping by "*this* interceptor is failing across many events" is what you need, §8's listener is the seat that has it.
+    Two categories fail a component **distinct** from the dispatched event: `:rf.error/interceptor-exception` (a user [interceptor](../glossary.md#interceptor) in the chain threw) and `:rf.error/coeffect-exception` (a [coeffect](../glossary.md#coeffect) supplier threw while assembling the handler's inputs). For both, `:event-id` still names the dispatched event while the *actually broken* component is something else — and the record your sink receives names it: `:failing-id` and the `:source-coord` definition site ride at its top level, and the human `:reason` rides its `:tags`, projected under the frame's classification like any other tree slot. So if grouping by "*this* interceptor is failing across many events" is what you need, group on `:failing-id`.
 
 ??? note "Going deeper"
 
@@ -234,7 +234,7 @@ One honest caveat about the default. The projector walks the exception as it wal
 It is also worth being precise about what is still running in production, because the line isn't obvious from outside. ([Observability](../observability.md) is the full account of what [elision](../glossary.md#elide) removes and spares; here's the short version a monitor needs.)
 
 - **Gone** from an `:advanced` + `goog.DEBUG=false` bundle: every trace emit, `register-listener! :trace` delivery, the per-frame trace rings, [epoch](../glossary.md#epoch) history and [time-travel](../glossary.md#time-travel), dispatch-id correlation, source-coords, [Xray](../glossary.md#xray), and the pair tooling. Zero code, zero cost.
-- **Still firing:** this error substrate — both its frame-sink route and the corpus-wide `:errors` stream of §8; the `:handled-events` metrics sibling (§7); and an opt-in Performance API channel behind its own compile-time flag.
+- **Still firing:** this error substrate — its frame-sink route and the process default of §8; the `:handled-events` metrics sibling (§7); and an opt-in Performance API channel behind its own compile-time flag.
 - **The sink observes; it never steers.** What to *do* about a failure — recover, retry, fall back — is decided by the framework's typed per-category default ([Errors: dossiers, not log lines](../errors.md)), not by your sink: frame-destroyed recovers and emits, a failed subscription returns `nil`, a thrown handler [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. There is no error *hook* that swallows, substitutes, or re-runs. Your sink is a read-only seat, full stop.
 
 !!! note "Recovery and observation are separate"
