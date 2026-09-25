@@ -31,21 +31,16 @@ build (`shadow-cljs.edn`) and Node runs `out/server-test.js`. Every
 `*_test.cljs` namespace under `test/re_frame2_pair_mcp/` is picked up
 by the `:ns-regexp "-test$"` rule.
 
-**Only the Node run is a verdict (rf2-7r9w).** The `:server-test` build
+**Only the Node run is a verdict.** The `:server-test` build
 sets `:autorun true`, so `shadow-cljs compile server-test` runs the suite
 and prints its failures -- and then exits 0 anyway, because the COMPILE
 succeeded, which is the whole of what a compile exit code claims.
-Measured: the compile printed `Ran 1120 tests containing 4068
-assertions. 2 failures, 0 errors.` and exited 0, while
-`node out/server-test.js` over that same build printed the identical
-tally and exited 1. (Those two failures were local to the measuring
-machine -- a live nREPL server that this suite's deliberately no-port
-harness discovered -- not a red in this repo. The cause is beside the
-point: the two runs disagree on nothing but the exit code.) So read the exit
-code of `npm test` (which chains both and ends on Node) or of
-`node out/server-test.js` -- never of the compile alone. `clojure -M:test`
-in this directory now refuses and says so; before rf2-7r9w it ran the bare
-compile and handed back that fail-open 0.
+`node out/server-test.js` over that same build prints the identical
+tally and exits 1 on any failure: the two runs disagree on nothing but
+the exit code. So read the exit code of `npm test` (which chains both
+and ends on Node) or of `node out/server-test.js` -- never of the
+compile alone. `clojure -M:test` in this directory refuses and says so,
+rather than running the bare compile and handing back that fail-open 0.
 
 What this layer covers:
 
@@ -61,7 +56,7 @@ What this layer covers:
   concern's public surface.
 - Pipeline glue — `invoke_test.cljs` covers build resolution →
   precheck → dispatch → cache → cap.
-- Conformance corpus — `conformance_test.cljs` (rf2-xkxbv): one
+- Conformance corpus — `conformance_test.cljs`: one
   inline-fixture corpus driving every tool through `tools/invoke`
   against a stub conn, asserting recorded wire-shape EDN. Sibling
   to `re-frame.ssr-conformance-test` / `re-frame.machines-conformance-test`
@@ -119,8 +114,8 @@ Requires a running nREPL on the port read from `$NREPL_TEST_PORT`
 documented as a smoke harness. Exercises:
 
 - The persistent socket survives multiple ops on one server instance
-  (the original pilot bug — bencode@2's `decode.position` cursor —
-  would resurface here, not in the CLJS unit suite).
+  (a bencode stream-cursor defect would surface here, not in the CLJS
+  unit suite).
 - bencode multi-frame parsing on a real wire (status frame separate
   from value frame in nREPL's normal output stream).
 - `eval-cljs` degrades cleanly when the runtime preload is absent —
@@ -133,10 +128,8 @@ Run with: `NREPL_TEST_PORT=17778 node test/live-nrepl.js`
 
 The end-to-end live gate. Spawns `out/server.js` and drives it with real
 MCP frames against the browser-hosted pair fixture
-(`skills/re-frame2-pair/tests/fixture/`), exercising the three flows the
-retired `skills/re-frame2-pair/tests/e2e/` suite used to drive through the
-`scripts/ops.clj` bash transport — now through the one implementation, the
-MCP server:
+(`skills/re-frame2-pair/tests/fixture/`), exercising three flows through
+the one implementation, the MCP server:
 
 - connect — `discover-app` finds the preloaded runtime and returns a
   healthy snapshot (`:ok?`, `:debug-enabled?`, `:frames [:rf/default]`).
@@ -148,8 +141,7 @@ MCP server:
   reload, and confirm `tail-build {probe … baseline "<pre-edit value>"
   wait-ms …}` reports `:soft? false` once a sample leaves that baseline.
   The baseline is captured before the edit on purpose: it is what keeps
-  a reload that lands before `tail-build`'s first sample recognizable
-  (rf2-1f60u).
+  a reload that lands before `tail-build`'s first sample recognizable.
 
 Requires an already-running fixture (`npx shadow-cljs watch app` in the
 fixture dir) plus a resolvable Playwright (for the browser that hosts the
@@ -163,17 +155,18 @@ Run with: `npm run test:live-e2e-fixture` (after `npm run build` and booting
 the fixture; `RE_FRAME2_PAIR_FIXTURE_URL` / `SHADOW_CLJS_NREPL_PORT`
 override discovery).
 
-#### `live-fresco-wire.cjs` — the Fresco evidence door, actually run (rf2-hic-059)
+#### `live-fresco-wire.cjs` — the Fresco evidence door, actually run
 
 The one witness in this tree that executes a Pair tool against a real
 Fresco provider. `fresco_tool_test.cljs` stubs the eval with canned
 envelopes and `fresco_wire_test.cljs` compares emitted strings with the
-provider's source; both are static seam checks, and neither had ever sent
-the emitted form, compiled it, evaluated it in a runtime, or carried a
+provider's source; both are static seam checks, and neither sends the
+emitted form, compiles it, evaluates it in a runtime, or carries a
 result back through the schema gate.
 
-This one does. It boots the `rf2-hic-025` slice application through its
-own `-main` over `eval-cljs`, then calls `read-mounted-boundaries`,
+This one does. It boots the Fresco slice example application
+(`re-frame.fresco.examples.slice`) through its own `-main` over
+`eval-cljs`, then calls `read-mounted-boundaries`,
 `read-read-attribution` and `explain-render` as MCP tools, asserting per
 read that the envelope is `:ok? true` stamped with the schema this build
 consumes, that it names the slice's own frame and its `::subs/draft`
@@ -182,16 +175,15 @@ secret seeded into that draft. Non-vacuity comes first: `read-sub`, the
 same server on the same socket, returns the secret, so the absence rows
 are about the door rather than about an empty runtime.
 
-It also witnesses the door-absent rung, and that row runs first
-(rf2-t2ec). Before anything pulls `re-frame.fresco.tool` in, the same
-three tools must answer `:reason :evidence-tier-unavailable` with the
+It also witnesses the door-absent rung, and that row runs first.
+Before anything pulls `re-frame.fresco.tool` in, the same three tools
+must answer `:reason :evidence-tier-unavailable` with the
 load-the-door hint — the population being a Fresco build that has never
 compiled the door, which is what a Reagent or UIx app is permanently.
-This is the row that found the original defect: the tools answered a raw
-`:rf.error/eval-cljs-compile-error` instead, because a form referencing a
-var in an unloaded namespace is rejected by shadow's analyzer before any
-branch of it runs. No stubbed suite can see that, because no stub
-compiles anything.
+A form referencing a var in an unloaded namespace would answer a raw
+`:rf.error/eval-cljs-compile-error` instead, because shadow's analyzer
+rejects it before any branch of it runs. No stubbed suite can see that,
+because no stub compiles anything.
 
 The row's population is self-restoring: the script's own
 `(require 're-frame.fresco.tool)` reaches the RUNTIME rather than the
@@ -218,7 +210,7 @@ nREPL port file or Playwright is absent. Run with:
 `npm run test:live-fresco-wire` (`RF2_FRESCO_WIRE_URL` /
 `SHADOW_CLJS_NREPL_PORT` override discovery).
 
-#### `stdin-eof-shutdown.cjs` — EOF lifecycle contract (rf2-j538f7.32)
+#### `stdin-eof-shutdown.cjs` — EOF lifecycle contract
 
 The self-contained lifecycle grader. Spawns `out/server.js` and drives it
 over real stdio against a fake bencode nREPL the script itself boots —
@@ -233,7 +225,8 @@ cases:
   connection close) AND exit the process `0` within a short bound. The
   success path never calls `child.kill()` — force-kill lives only in the
   cleanup `finally`, so a leaked/hung process surfaces as a red instead of
-  being masked. Before the fix the child stayed alive indefinitely.
+  being masked. Without the stdin `end` listener the child would stay
+  alive indefinitely.
 - no nREPL — a closed-world session (discovery never resolves a port)
   still exits `0` promptly on EOF.
 - early EOF — EOF before the first tool call (no socket ever opened) is
@@ -246,7 +239,7 @@ counterparts in `re_frame2_pair_mcp/shutdown_test.cljs`.
 
 Run with: `npm run test:stdin-eof-shutdown` (after `npm run build`).
 
-#### `post-merge-hook-test.cjs` — stale-binary post-merge hook (rf2-6jj3r)
+#### `post-merge-hook-test.cjs` — stale-binary post-merge hook
 
 Unit + smoke tests for the repo's `post-merge` git hook (source lives
 under `scripts/git-hooks/`). The hook is pure POSIX sh (no CLJS source
