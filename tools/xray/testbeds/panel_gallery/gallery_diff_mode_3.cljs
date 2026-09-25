@@ -1,11 +1,10 @@
 (ns panel-gallery.gallery-diff-mode-3
-  "Story coverage for the **mode-3 diff grammar** (rf2-n2jig).
+  "Story coverage for the **mode-3 diff grammar**.
 
-  Mike's bead acceptance lists 22+ Story variants covering every
-  R-rule (R1-R8 per the findings doc), every combination + edge case,
-  and theme + density. Each variant is one Story entry the operator
-  can navigate independently; the Workspace at the bottom collects
-  them all in a single auto-grid so Mike can step through the
+  The Story variants cover every R-rule (R1-R8), every combination +
+  edge case, and theme + density. Each variant is one Story entry the
+  operator can navigate independently; the Workspace at the bottom
+  collects them all in a single auto-grid so Mike can step through the
   grammar end-to-end in a logical order:
 
       Single-rule (R1-R8)
@@ -21,14 +20,11 @@
 
   ## Where the variants live
 
-  Per Mike's bead, the choice is either `tools/xray/stories/diff-
-  mode-3/` (new dir) OR fold into the existing
-  `tools/xray/testbeds/panel_gallery/` (alongside the other
-  gallery namespaces). We picked the latter — re-using the
-  existing fixture seed event + Panel mount keeps the variant set
-  surface uniform with the rest of the widget gallery, and the
-  workspace can interleave mode-3 with the broader edn-inspector
-  Story set."
+  The variants live in `tools/xray/testbeds/panel_gallery/`,
+  alongside the other gallery namespaces. Re-using the fixture seed
+  event + Panel mount keeps the variant set surface uniform with the
+  rest of the widget gallery, and the workspace can interleave mode-3
+  with the broader edn-inspector Story set."
   (:require [re-frame.core :as rf]
             [re-frame.story :as rf.story]
             [panel-gallery.fixtures-diff-mode-3 :as fixtures]
@@ -51,9 +47,9 @@
 
   (rf.story/reg-tag :feature/xray-diff-mode-3
     {:axis :feature
-     :doc  "Xray edn-inspector mode-3 diff grammar (rf2-n2jig) —
+     :doc  "Xray edn-inspector mode-3 diff grammar —
             full data tree with inline diff annotations per the
-            R1-R8 rules from the findings doc."})
+            R1-R8 rules."})
 
   (rf.story/reg-story :story.xray.diff-mode-3
     {:doc        "Mode-3 grammar visual reference — full data tree
@@ -76,7 +72,7 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.diff-mode-3/r2-new-map-key
-    {:doc        "R2 (refined rf2-zpeyv) — new map key.
+    {:doc        "R2 — new map key.
                   `{:a 1} → {:a 1 :b 2}`. Slot-anchored chrome: the
                   green wash spans the WHOLE row (`:b` key cell +
                   value cell). `+` glyph sits at column 1 of the key
@@ -88,7 +84,7 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.diff-mode-3/r2-removed-map-key
-    {:doc        "R2 (refined rf2-zpeyv) — removed map key.
+    {:doc        "R2 — removed map key.
                   `{:a 1 :b 2} → {:a 1}`. Slot-anchored chrome: the
                   red wash spans the WHOLE row, and the strike-through
                   reaches the KEY text (`:b`) — not just the value.
@@ -100,7 +96,7 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.diff-mode-3/r3-collapsed-chip
-    {:doc        "R3 (revised) — collapsed `[N∆]` chip. A nested
+    {:doc        "R3 — collapsed `[N∆]` chip. A nested
                   `:user` map with three modified leaves, collapsed
                   via `:default-expanded-depth 1`. Operator sees
                   `▸ :user {…} [3∆]`. Click the triangle to expand
@@ -121,7 +117,7 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.diff-mode-3/r5-wholly-new-subtree
-    {:doc        "R5 (revised) — wholly-new subtree. `:flash` didn't
+    {:doc        "R5 — wholly-new subtree. `:flash` didn't
                   exist before; parent gets `+` glyph + green
                   triangle + green rail. Descendant gutter glyphs +
                   stripes SUPPRESSED; descendant row washes RETAINED
@@ -132,7 +128,7 @@
      :substrates #{:reagent}})
 
   (rf.story/reg-variant :story.xray.diff-mode-3/r5-wholly-removed-subtree
-    {:doc        "R5 (revised) — wholly-removed subtree. Inverse of
+    {:doc        "R5 — wholly-removed subtree. Inverse of
                   the new-subtree case; parent gets `−` glyph + red
                   triangle + red rail. Descendants paint red wash
                   but no per-leaf glyphs/stripes."
@@ -206,7 +202,7 @@
   ;; -- Combination + edge-case demonstrations -----------------------------
 
   (rf.story/reg-variant :story.xray.diff-mode-3/combo-all-ops-cascade
-    {:doc        "All-ops cascade — the §2 canonical example: counter
+    {:doc        "All-ops cascade — the canonical example: counter
                   modified + user/name modified + flash added +
                   legacy-flag removed. The full grammar in one mount."
      :setup     [[:panel-gallery.edn-inspector/seed!
