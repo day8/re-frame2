@@ -893,16 +893,16 @@ run "lockstep version drift" "./.github/scripts/verify-version-lockstep.sh" \
 run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_mcp_drift.py" --verbose --ci
 
-# Cite-integrity guard (rf2-1nb8k): every M-id the re-frame-migration skill
-# cites must name a consistent rule in MIGRATION.md.  Catches the id-collision /
-# phantom-cite class (skill cited M-66/M-67 for rules MIGRATION.md assigned to
-# History-states / Xray-static-mode).  Runs unconditionally — fast pure-Python,
+# Cite-integrity guard: every M-id the re-frame-migration skill cites must name
+# a consistent rule in MIGRATION.md.  Catches the id-collision / phantom-cite
+# class (a skill citing an M-id that MIGRATION.md assigns to a different
+# rule).  Runs unconditionally — fast pure-Python,
 # and the drift can be introduced by a MIGRATION.md *heading* edit that the
 # documentation-surface gate below also sees but doesn't semantically check.
 run "skill migration cite-integrity" "python scripts/check_skill_migration_cites.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_migration_cites.py" --verbose --ci
 
-# Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must keep
+# Foundation-order guard: the re-frame2-implementor skill must keep
 # Spec 015 (Data Classification — v1-required) inside the core-complete gate.
 # Catches the drift where an entry point reads "001 -> ... -> 009 -> optional"
 # (gate BEFORE 015), which would let a fresh session declare v1-core-complete
@@ -914,11 +914,10 @@ run "implementor order-guard self-test" "python scripts/check_skill_implementor_
 run "implementor foundation-order" "python scripts/check_skill_implementor_order.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_implementor_order.py" --verbose --ci
 
-# Eval-docs drift guard (rf2-r2xswa; generalised rf2-xw7ra9): each packaged
-# skill's eval harness README carries a hand-maintained coverage table, total
-# count, and per-axis breakdowns that silently fell behind evals.json (the
-# re-frame2 harness: a 7th eval while the README still said "Six evals …"; the
-# re-frame2-improver harness: 26/10 while prose still said "9 behavioural").
+# Eval-docs drift guard: each packaged skill's eval harness README carries a
+# hand-maintained coverage table, total count, and per-axis breakdowns that can
+# silently fall behind evals.json (a new eval while the README still gives the
+# old count).
 # The gate is multi-target — it scans the re-frame2 AND re-frame2-improver
 # harnesses.  Self-test first (proves it fires on count/name/tally drift across
 # both README shapes), then the live scan asserts each README agrees with its
@@ -929,7 +928,7 @@ run "eval-docs guard self-test" "python scripts/check_skill_eval_docs.py --self-
 run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_eval_docs.py" --verbose --ci
 
-# SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f).  Guards the
+# SKILL.md description-budget gate.  Guards the
 # SKILL.md description limits: the portable 1,024 and the Claude 1,536.  It
 # hard-fails a description over the 1,024-char Agent Skills packaging cap -- the
 # portable contract skills/README.md advertises via `npx skills add` -- and
@@ -956,25 +955,24 @@ run "SKILL.md description-budget self-test" "python scripts/check_skill_descript
 run "SKILL.md descriptions fit listing budget" "python scripts/check_skill_description_budget.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_description_budget.py" --verbose --ci
 
-# README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
+# README inventory ratchet: layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
 # documentation diff) because the drift it catches can be triggered by a *dir*
 # add/remove that never touches an .md file.  Fast + pure-Python.
 run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
   python "$spine_root/scripts/check_readme_inventories.py"
 
-# EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w): a retired spelling
-# reappearing in repo source is a CI failure, not a doc note.  THREE retired
-# spellings are lintable — the bare `:frame` event-context coeffect read
-# (retired by rf2-1m6rf1 for `:rf.frame/id`), the `:url` / `:to`
-# redirect-target key on an SSR redirect fx (retired by rf2-vngir for
-# `:location`), and route metadata `:query-retain` (retired by EP-0037 R5 /
-# rf2-jlmgt with no alias).  Scoped precisely to the retired SHAPES so it never
+# EP-0007 §Enforcement retired-spelling gate: a retired spelling reappearing in
+# repo source is a CI failure, not a doc note.  Among the retired spellings it
+# lints are the bare `:frame` event-context coeffect read (the stamp is
+# `:rf.frame/id`), the `:url` / `:to` redirect-target key on an SSR redirect fx
+# (the key is `:location`), and route metadata `:query-retain` (retired by
+# EP-0037 R5, with no alias).  Scoped precisely to the retired SHAPES so it never
 # fires on the sanctioned public `:frame` opt, the trace `:frame` tag, the
 # fx-handler ctx `:frame`, or client-navigation `:url`.  Runs unconditionally,
-# and over EVERY Clojure source tree — not just implementation/ (rf2-kqxe6.25:
-# the `examples/` + `skills/` corpus a reader copies from was the one place the
-# ratchet could not see).  The roster lives in the script, so this invocation
+# and over EVERY Clojure source tree — not just implementation/, but also the
+# `examples/` + `skills/` corpus a reader copies from.  The roster lives in the
+# script, so this invocation
 # and test.yml's cannot widen apart.  Self-test first (proves the gate fires on
 # each retired shape and stays green on every sanctioned counterpart), then the
 # live scan asserts the corpus is clean.  See
@@ -985,12 +983,11 @@ run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py
 run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py --verbose" \
   python "$spine_root/scripts/check_retired_spellings.py" --verbose
 
-# Thrown-error human-message corpus gate (rf2-6bb3pg, Spec 009 §The thrown-error
-# shape / rf2-vvixub): a framework `(ex-info …)` whose MESSAGE is a bare
-# `:rf.*` discriminator keyword is the keyword-only shape rf2-vvixub abolished —
-# a CI failure, not a doc note. Replaces the curated allow-list conformance
-# test (thrown_error_message_conformance_cljs_test) with a CORPUS sweep so a
-# new/never-converted keyword-only throw-site cannot ride back in invisibly.
+# Thrown-error human-message corpus gate (Spec 009 §The thrown-error shape): a
+# framework `(ex-info …)` whose MESSAGE is a bare `:rf.*` discriminator keyword
+# is the keyword-only shape that section rules out — a CI failure, not a doc
+# note.  A CORPUS sweep rather than a curated allow-list, so a new keyword-only
+# throw-site cannot ride in invisibly.
 # Self-test first (proves it FIRES on each bare-keyword shape + stays GREEN on
 # the conformant counterparts), then the live scan asserts framework source is
 # clean.  See scripts/check_thrown_error_messages.py.
@@ -1000,7 +997,7 @@ run "thrown-error message gate self-test" "python scripts/check_thrown_error_mes
 run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_messages.py --verbose" \
   python "$spine_root/scripts/check_thrown_error_messages.py" --verbose
 
-# EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151): a
+# EP-0010 §Validation/Conformance ambient-durable-read gate: a
 # direct ambient host read (clock / RNG / browser fact) written into a DURABLE
 # frame-state field inside a durable-write namespace (resource reducers,
 # work-ledger writers, reply handlers, mutation handlers, restore/hydration
@@ -1019,12 +1016,12 @@ run "ambient-durable-read gate self-test" "python scripts/check_ambient_durable_
 run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_reads.py --verbose" \
   python "$spine_root/scripts/check_ambient_durable_reads.py" --verbose
 
-# Require-alias dialect ratchet (rf2-ydpr).  Conventions §Require-alias dialect
-# gives every framework namespace ONE alias — `re-frame.core` keeps the bare
-# root `rf`, every other `re-frame.<tail>` takes the full dotted `rf.<tail>`,
-# and the bare leaf form is reserved for APPLICATION namespaces.  ONE repo-wide
-# instrument rather than one per artefact: machines went unowned between the
-# core and routing sweeps precisely because each fenced its own tree, so the
+# Require-alias dialect ratchet.  Conventions §Require-alias dialect gives
+# every framework namespace ONE alias — `re-frame.core` keeps the bare root
+# `rf`, every other `re-frame.<tail>` takes the full dotted `rf.<tail>`, and the
+# bare leaf form is reserved for APPLICATION namespaces.  ONE repo-wide
+# instrument rather than one per artefact: per-artefact sweeps each fence their
+# own tree, so a surface between them would go unowned.  The
 # checker reads every git-tracked Clojure file and refuses to run over a
 # surface `scripts/require-alias-baseline.edn` does not name.  Runs
 # unconditionally — a bare alias arrives in a `.cljc` the diff classifier has
@@ -1037,11 +1034,11 @@ run "require-alias dialect self-test" "python scripts/check_require_alias_dialec
 run "require-alias dialect ratchet" "python scripts/check_require_alias_dialect.py --verbose" \
   python "$spine_root/scripts/check_require_alias_dialect.py" --verbose
 
-# Test-lane bijection (rf2-4hc9p, follows the rf2-qqzmf per-lane floor).  The
-# floor makes a lane that ran ZERO tests red; it cannot see a lane that ran
-# SOME of what it should — nine `.cljc` suites once sat on the `:node-test`
-# classpath with namespaces the `cljs-test$` selector could not match, and the
-# lane still reported thousands of passing tests (rf2-ezbzvm).  This gate reads
+# Test-lane bijection.  The per-lane floor makes a lane that ran ZERO tests red;
+# it cannot see a lane that ran SOME of what it should — a `.cljc` suite on the
+# `:node-test` classpath whose namespace the `cljs-test$` selector cannot match
+# never runs, while the lane still reports thousands of passing tests.  This
+# gate reads
 # every lane from the file that DEFINES it (each shadow-cljs.edn's test builds,
 # each artefact's `deps.edn` `:test` alias via the two JVM rosters) and asserts
 # the bijection both ways: every file defining a top-level `deftest` is reached
@@ -1055,25 +1052,25 @@ run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py
 run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.py" \
   python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
 
-# WORKFLOW YAML WELL-FORMEDNESS (rf2-cb7hs) — placed AHEAD of all four gates
-# below that read `.github/workflows/`, deliberately.
+# WORKFLOW YAML WELL-FORMEDNESS — placed AHEAD of all four gates below that
+# read `.github/workflows/`, deliberately.
 #
 # Every one of those is a hand-rolled line reader, and over a file PyYAML
-# refuses they all come back GREEN.  Measured at tip 959c34204a with an
-# unmatched quote planted on line 1 of test.yml: `check_jvm_lane_rosters`,
-# `check_fast_pr_gap`, `check_ci_reproduce_commands` and `check_gate_scheduling`
-# each exited 0 over a file `yaml.safe_load` rejects with "while parsing a block
-# mapping".  `check_gate_scheduling` cannot see the class at all — it strips
-# comments by design (rf2-6ckzl) — and `actionlint` appears nowhere in the
-# tracked tree, so before this line NOTHING at any tier asserted that a workflow
-# even parsed.  Validating the file before four gates parse it by hand is the
+# refuses they all come back GREEN: with an unmatched quote planted on line 1
+# of test.yml, `check_jvm_lane_rosters`, `check_fast_pr_gap`,
+# `check_ci_reproduce_commands` and `check_gate_scheduling` each exit 0 over a
+# file `yaml.safe_load` rejects with "while parsing a block mapping".
+# `check_gate_scheduling` cannot see the class at all — it strips comments by
+# design — and `actionlint` appears nowhere in the tracked tree, so without
+# this line NOTHING at any tier asserts that a workflow even parses.
+# Validating the file before four gates parse it by hand is the
 # ordering that makes their greens mean something.  (All four sit below this
 # line: the two roster/gap pairs immediately following, then
 # `check_ci_reproduce_commands` and `check_gate_scheduling` further down.)
 #
 # NOT A MIRROR OF A CI JOB.  Every other line in this always-on block pairs with
-# a required check; this one has no CI counterpart, and that absence IS the
-# bead.  Nor is it a safety gate: a workflow that fails to parse does not run,
+# a required check; this one has no CI counterpart, and that absence is the
+# point.  Nor is it a safety gate: a workflow that fails to parse does not run,
 # so the PR's rollup comes back SHORT of the required band and the merge
 # criterion refuses it.  What it buys is the ROUND TRIP — a local error naming
 # the file and the line, instead of a push, a CI wait, and a confusing partial
@@ -1110,12 +1107,11 @@ else
   note_skipped "workflow YAML well-formedness — PyYAML unimportable, so no local lane parsed .github/workflows/ this run (rf2-cb7hs)"
 fi
 
-# JVM roster <-> CI required-job bijection (rf2-as6bg).  The gate above READS
-# the two JVM rosters to discover the JVM lanes, so an artefact missing from a
-# roster is not a violation to it — it is simply not a lane.  That blind spot
-# is how `tools/machines-viz` (632 tests) and `tools/testbed-support` (32) sat
-# on the local roster with no CI job at all, and how `tools/template` had a CI
-# job and no local lane.  This gate asserts the two agree in BOTH directions:
+# JVM roster <-> CI required-job bijection.  The gate above READS the two JVM
+# rosters to discover the JVM lanes, so an artefact missing from a roster is
+# not a violation to it — it is simply not a lane.  That blind spot would let
+# an artefact sit on the local roster with no CI job at all, or have a CI job
+# and no local lane.  This gate asserts the two agree in BOTH directions:
 # every rostered artefact is run by a job in `all-required-passed`'s `needs:`,
 # and every required job running `clojure -M:test` is on a roster.  Self-test
 # first, then the live scan.
@@ -1125,14 +1121,13 @@ run "JVM roster/CI bijection self-test" "python scripts/check_jvm_lane_rosters.p
 run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_rosters.py" \
   python "$spine_root/scripts/check_jvm_lane_rosters.py"
 
-# Fast-PR gap map (rf2-13zre).  The two gates above assert that a JVM lane
-# exists in both places; NOTHING asserted anything about the required checks that
-# have no local lane at all — and on 2026-08-04 three workers in a row shipped a
-# green spine into a red required check, each a different one.  The nastiest was
-# not a job this spine skips but a STEP INSIDE a job it runs: the EP-0036
-# a `git grep` boundary step that runs last in a JVM job and so
-# reports under that job's display name — a test-suite
-# name for something that is not a test.  The skipped-tier enumeration at the
+# Fast-PR gap map.  The two gates above assert that a JVM lane exists in both
+# places; they say nothing about the required checks that have no local lane at
+# all, so a green spine can ship into any of those going red.  The nastiest is
+# not a job this spine skips but a STEP INSIDE a job it runs: a `git grep`
+# boundary step that runs last in a JVM job reports under that job's display
+# name — a test-suite name for something that is not a test.  The
+# skipped-tier enumeration at the
 # bottom of this script cannot see that class by construction: the tier is not
 # skipped and the step is not a suite.
 #
@@ -1149,7 +1144,7 @@ run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose
   python "$spine_root/scripts/check_fast_pr_gap.py" --check
 
 # ---------------------------------------------------------------------------
-# THE REST OF CI'S ALWAYS-ON INVARIANT CHECKERS (rf2-ejm7m).
+# THE REST OF CI'S ALWAYS-ON INVARIANT CHECKERS.
 #
 # The gate above NAMED these; this block RUNS them.  Every line below is a
 # required check from a job CI runs UNCONDITIONALLY — `verify-skill-mcp-drift`
@@ -1157,18 +1152,14 @@ run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose
 # `if:` and no `needs: detect`, so no diff can fail to reach them.  Always-on
 # here is therefore the faithful mirror, not a local choice.
 #
-# MEASURED BEFORE ADDING, because "cheap" was an assumption worth checking
-# (rf2-ejm7m ruling).  The first 29 invocations below, timed individually from a
-# clean checkout: 4.46s cold / 4.58s warm as a batch.  The largest single one is
-# `check_keyword_catalogue_drift --verbose` at ~1.0s; twenty-five of the
-# remaining twenty-eight are under 0.15s, which is barely more than the ~0.02s
-# interpreter start each one pays.  Against a 14.3s always-on block that is
-# ~30%, for thirteen live scans and sixteen self-test arms that previously had
-# NO way to be run locally at all.
+# COST, measured rather than assumed "cheap".  Timed individually from a clean
+# checkout, the invocations below take a few seconds as a batch.  The largest
+# single one is `check_keyword_catalogue_drift --verbose` at ~1.0s; most of the
+# rest are under 0.15s, which is barely more than the ~0.02s interpreter start
+# each one pays.
 #
-# The `check_gate_scheduling` pair at the end was measured the same way before
-# being added (rf2-k78o2): 0.75s / 0.86s / 0.93s for the pair over three warm
-# runs on Windows, the two arms within ~50ms of each other.  Both read the same
+# The `check_gate_scheduling` pair at the end takes under 1s for the pair on a
+# warm Windows run, the two arms within ~50ms of each other.  Both read the same
 # two inputs — implementation/package.json and every file in
 # .github/workflows/ — so neither can grow with the size of the tree.
 #
@@ -1183,8 +1174,8 @@ run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose
 #
 # Each pairs CI's self-test arm with CI's live arm, in CI's own order and with
 # CI's own flags, so this block and the `verify-skill-mcp-drift` job log read
-# the same way.  The rationale for each individual gate lives where it was
-# written — in that job's step comments in `.github/workflows/test.yml`.
+# the same way.  The rationale for each individual gate lives in that job's
+# step comments in `.github/workflows/test.yml`.
 run "MCP/skill title-safety self-test" "python scripts/check_skill_mcp_drift.py --self-test --ci" \
   python "$spine_root/scripts/check_skill_mcp_drift.py" --self-test --ci
 
@@ -1275,10 +1266,10 @@ run "gate-scheduling audit self-test" "python scripts/check_gate_scheduling.py -
 run "gate-scheduling audit (rf2-6ckzl)" "python scripts/check_gate_scheduling.py --verbose" \
   python "$spine_root/scripts/check_gate_scheduling.py" --verbose
 
-# Conformance-corpus EDN well-formedness (rf2-x91a).  Always-on rather than
-# tiered: `spec/conformance/fixtures/*.edn` is not an `.md` path so it never
-# arms the documentation tier, and the classifier routes it only to the heavy
-# JVM/CLJS lanes.  A stdlib bracket scan over 247 small files costs
+# Conformance-corpus EDN well-formedness.  Always-on rather than tiered:
+# `spec/conformance/fixtures/*.edn` is not an `.md` path so it never arms the
+# documentation tier, and the classifier routes it only to the heavy JVM/CLJS
+# lanes.  A stdlib bracket scan over a few hundred small files costs
 # milliseconds, so it runs on every diff, mirroring its always-on step in the
 # invariant job.
 run "conformance fixture EDN gate self-test" "python scripts/check_conformance_fixture_edn.py --self-test --verbose" \
@@ -1287,7 +1278,7 @@ run "conformance fixture EDN gate self-test" "python scripts/check_conformance_f
 run "conformance fixture EDN gate (rf2-x91a)" "python scripts/check_conformance_fixture_edn.py --verbose" \
   python "$spine_root/scripts/check_conformance_fixture_edn.py" --verbose
 
-# Egress-walker residue (rf2-kuky.90).  Always-on for the same reason as the
+# Egress-walker residue.  Always-on for the same reason as the
 # conformance-EDN gate above: the subject is `tools/*/src` + `skills/*/preload`
 # SOURCE, which is not an `.md` path and so never arms the documentation tier,
 # and the classifier routes those trees only to heavy lanes.  A stdlib call-site
@@ -1301,8 +1292,8 @@ run "egress-walker residue (rf2-kuky.90)" "python scripts/check_egress_walker_re
 
 # The last three are `verify-readme-links`', not the invariant job's.  Note that
 # CI runs `check_readme_links --ci` ALWAYS-ON while this spine runs it in the
-# documentation tier; only the self-test arm is added here, so the live scan
-# keeps its existing tier and nothing gets slower for a code-only diff.
+# documentation tier; only the self-test arm runs here, so the live scan stays
+# in that tier and a code-only diff pays nothing for it.
 run "README link validator self-test" "python scripts/check_readme_links.py --self-test --verbose" \
   python "$spine_root/scripts/check_readme_links.py" --self-test --verbose
 
@@ -1315,21 +1306,21 @@ run "adapter-disposition self-test" "python scripts/check_adapter_disposition.py
 run "adapter disposition" "python scripts/check_adapter_disposition.py --verbose --ci" \
   python "$spine_root/scripts/check_adapter_disposition.py" --verbose --ci
 
-# The lockstep gate's OWN self-test (rf2-ejm7m).  The live scan above is the
-# spine's oldest always-on gate; its self-test arm — the thing that proves the
-# lockstep checkers still fire — is a separate required step of the same job and
-# had no lane.  ~1.7s.  Same CRLF-stripping dance as the live invocation: this
+# The lockstep gate's OWN self-test.  The live scan runs first in this block;
+# its self-test arm — the thing that proves the lockstep checkers still fire —
+# is a separate required step of the same job.  ~1.7s.  Same CRLF-stripping
+# dance as the live invocation: this
 # checkout is Windows, and the script is `bash`, not `python`.
 run "lockstep gate self-test" "./.github/scripts/verify-version-lockstep.sh --self-test" \
   bash -lc "tmp='$spine_root/.github/scripts/.verify-version-lockstep.selftest.tmp.'\$\$; trap 'rm -f \"\$tmp\"' EXIT; tr -d '\r' < '$spine_root/.github/scripts/verify-version-lockstep.sh' > \"\$tmp\"; bash \"\$tmp\" --self-test"
 
 # ---------------------------------------------------------------------------
-# The spine's OWN self-test — armed only when the spine's own tree changed
-# (rf2-fhdd3).  Every other gate above pairs a self-test with a live scan; the
-# runner had neither.  `run-self-test.sh` drives this script in `--plan` mode
-# against disposable fixture repos and asserts the tier decision and the mkdocs
+# The spine's OWN self-test — armed only when the spine's own tree changed.
+# Every other gate above pairs a self-test with a live scan; this is the
+# runner's.  `run-self-test.sh` drives this script in `--plan` mode against
+# disposable fixture repos and asserts the tier decision and the mkdocs
 # resolution, so it is the only thing that catches a reworked classifier that
-# routes wrongly — including one that disarms the documentation tier again.
+# routes wrongly — including one that disarms the documentation tier.
 #
 # No recursion: the self-test invokes `--plan`, which exits above this line.
 #
