@@ -500,10 +500,9 @@
 ;; The Epoch history slider in Settings → General writes through to the
 ;; substrate's per-frame ring depth via `(rf/configure! {:epoch-history
 ;; {:depth N}})` — the same runtime knob `re-frame.epoch.state/merge-config!`
-;; gates on. The substrate reads the depth on every `record!` so the new
-;; cap takes effect on the next drain settle; existing oversize histories
-;; are NOT retroactively trimmed (pre-alpha posture — the substrate
-;; comment on `elide-just-crossed-trace-events` documents this exactly).
+;; gates on. `merge-config!` enforces an accepted `:depth` against the
+;; rings that already exist as well as future appends (`enforce-depth!`),
+;; so lowering the cap trims oversize histories.
 ;;
 ;; ## Why route through `rf/configure!` rather than reach into epoch.state
 ;;
@@ -513,10 +512,11 @@
 ;; internal seam; the `configure` fn late-binds through the hook table
 ;; so production builds that DCE the epoch artefact silently no-op.
 ;;
-;; Non-positive values are clamped to 1 at the substrate boundary
-;; (`merge-config!`'s `non-neg-int?` predicate accepts 0, but a 0 ring
-;; would defeat Xray's reason for existing). The slider's min is 10 so
-;; the boundary case is mostly defensive.
+;; Non-positive values are dropped at the effect boundary
+;; (`apply-epoch-history!` requires `pos?`): `merge-config!`'s
+;; `non-neg-int?` predicate accepts 0, but a 0 ring would defeat Xray's
+;; reason for existing. The slider's min is 5, so the boundary case is
+;; mostly defensive.
 
 (defn apply-epoch-history!
   "Write `n` (the epoch-history depth) through to the substrate's
