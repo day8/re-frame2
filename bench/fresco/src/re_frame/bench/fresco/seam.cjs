@@ -1,21 +1,20 @@
 #!/usr/bin/env node
 'use strict';
-// THE SEGMENT SEAM, ITS NULL, AND THE BAND A MAGNITUDE MUST CLEAR (rf2-cvvb7).
+// THE SEGMENT SEAM, ITS NULL, AND THE BAND A MAGNITUDE MUST CLEAR.
 //
-//   node .../seam.cjs            the deterministic self-test
+//   node src/re_frame/bench/fresco/seam.cjs     the deterministic self-test (from bench/fresco/)
 //
 // ## The finding this module exists to carry
 //
-// `the-candidates-clock.md` §6 refused three rows, and one of its three
-// grounds was the cross-segment floor seam: the SAME floor arm — identical
-// work, no substrate, untouched by which adapter is installed — read
-// 3.147 / 2.437 / 2.349 ms across the three segments on one run's
-// `bulk300`, a 34% spread, while a later run on a quieter box read 3.8% on
-// the same row. The ground reasoned that floor-normalisation cancels a
-// MULTIPLICATIVE seam and not an ADDITIVE one, so a bar row formed across
-// segments that disagree by 34% is quoting the seam.
+// The cross-segment floor seam: the SAME floor arm — identical work, no
+// substrate, untouched by which adapter is installed — read 3.147 / 2.437 /
+// 2.349 ms across the three segments on one run's `bulk300`, a 34% spread,
+// while another run on a quieter box read 3.8% on the same row. If
+// floor-normalisation cancels a MULTIPLICATIVE seam and not an ADDITIVE
+// one, a bar row formed across segments that disagree by 34% is quoting the
+// seam (`the-candidates-clock.md` §6.1).
 //
-// A load ladder settled it. Nineteen runs of `bulk300` at a stated number
+// A load ladder settles it. Nineteen runs of `bulk300` at a stated number
 // of competing busy cores — 0, 2, 4, 8, 12 and 20 of this box's 24 —
 // produced:
 //
@@ -41,24 +40,22 @@
 //     segment: by rung, ROUND 8–41% against SEGMENT 4.0–6.1% and
 //     POSITION-in-round 3.2–9.9%. The three are orthogonal by construction
 //     (see [[effects]]).
-//   * ~~THE PERTURBATION IS MULTIPLICATIVE, so floor-normalisation cancels it
-//     and the arithmetic is exact: `(k·H)/(k·F) = H/F`.~~ **WITHDRAWN
-//     (rf2-ymi6j).** The evidence was `ctl-2x / floor` correlating +0.41 with
-//     the floor, read as the wrong sign for an additive `c` because
-//     `(2W+c)/(W+c)` FALLS as `c` grows. That reasoning holds `W` fixed and
-//     varies `c` — but load varies `W` and leaves `c` roughly where it is, and
-//     under THAT the additive model predicts a ratio that RISES toward 2.00
-//     with the floor. The sign was never diagnostic. What is diagnostic is the
-//     LEVEL: a purely multiplicative perturbation predicts `ctl-2x / floor` =
+//   * THE PERTURBATION IS NOT PURELY MULTIPLICATIVE, so floor-normalisation
+//     does NOT cancel it exactly. The diagnostic is the LEVEL of
+//     `ctl-2x / floor`: a purely multiplicative perturbation predicts
 //     **2.00 exactly, at every rung, with no variance at all**, and the
-//     re-taken ladder reads **1.71 [1.62 – 1.84]** on the published clock over
-//     nineteen runs across 0–20 competing cores. Floor-normalisation therefore
-//     does NOT cancel exactly, `(k·H)/(k·F) = H/F` is not free, and the
-//     residue is a per-sample cost that does not scale with the page —
-//     measured at `c` = 0.91–1.74 ms by rung, and independently at 0.79–1.04
-//     ms (rf2-emvod) and 1.0397 ms (rf2-7iqb5). The BAND is the measurement of
-//     what fails to cancel; `rf2-7iqb5`'s difference-of-differences control is
-//     the arm that removes it rather than bounding it.
+//     `TaskDuration` ladder reads **1.71 [1.62 – 1.84]** on the published
+//     clock over nineteen runs across 0–20 competing cores. So
+//     `(k·H)/(k·F) = H/F` is not free, and the residue is a per-sample cost
+//     that does not scale with the page — measured at `c` = 0.91–1.74 ms by
+//     rung, and independently at 0.79–1.04 ms and 1.0397 ms. The SIGN of
+//     `ctl-2x / floor`'s correlation with the floor (+0.41) is NOT
+//     diagnostic: `(2W+c)/(W+c)` falls as `c` grows with `W` held fixed, but
+//     load varies `W` and leaves `c` roughly where it is, and under THAT the
+//     additive model predicts a ratio that RISES toward 2.00 with the floor.
+//     The BAND is the measurement of what fails to cancel; a
+//     difference-of-differences control is the arm that removes it rather
+//     than bounding it.
 //
 // **So the seam is the wrong statistic to gate on**, and gating on it would
 // refuse good runs on a tail draw while passing a genuinely additive seam
@@ -94,21 +91,21 @@
 //     carries, slightly conservatively, which is the direction a gate
 //     should err in.
 //
-//     THE CALIBRATION WAS RE-TAKEN ON THE PUBLISHED CLOCK (rf2-ymi6j), and
-//     the 8.9% above is `rf2-cvvb7`'s, on `taskNet`. A fresh nineteen-run
-//     ladder of the same design — 0 / 2 / 4 / 8 / 12 / 20 competing cores on
-//     the same 24-core box, silent throughout — reads, on raw `TaskDuration`:
+//     ON THE PUBLISHED CLOCK THE BAND IS WIDER. The 8.9% above is the
+//     `taskNet` ladder's. A nineteen-run ladder of the same design on raw
+//     `TaskDuration` — 0 / 2 / 4 / 8 / 12 / 20 competing cores on the same
+//     24-core box, silent throughout — reads:
 //
 //       band 4.4% – 31.1%, mean 14.0%, median 11.7%
 //
-//     against `rf2-cvvb7`'s 4.4% – 18.5%, mean 8.9%. The band on this
-//     instrument is HALF AGAIN as wide as the one the ceiling was set above,
-//     and the frame-only reading is wider again (4.9% – 32.6%, mean 15.3%).
-//     A gate set above the widest of nineteen draws has no margin for the
-//     instrument moving, and it moved.
-//   * THE BAND IS WIDEST ON AN IDLE BOX, which is the opposite of what
-//     `rf2-h8o80` expected and is the single most useful thing the re-take
-//     found. By rung on raw `TaskDuration`: **24.6%** at zero load, then
+//     against the `taskNet` ladder's 4.4% – 18.5%, mean 8.9%. The band on
+//     this instrument is HALF AGAIN as wide, and the frame-only reading is
+//     wider again (4.9% – 32.6%, mean 15.3%). A gate set above the widest of
+//     nineteen draws on one instrument has no margin for a change of
+//     instrument.
+//   * THE BAND IS WIDEST ON AN IDLE BOX, which is the opposite of the
+//     intuitive expectation and is the single most useful thing the
+//     `TaskDuration` ladder shows. By rung on raw `TaskDuration`: **24.6%** at zero load, then
 //     11.8 / 8.3 / 12.8 / 13.2 / **9.6%** at 2 / 4 / 8 / 12 / 20 competing
 //     cores — `corr(band, floor) = -0.49`. The per-sample dispersion of the
 //     floor inside a block falls monotonically with load over the same rungs,
@@ -122,16 +119,15 @@
 //     at all, whatever its margin. The ceiling is **35%**, and it is a
 //     JUDGEMENT rather than a quantile — see [[BAND_CEILING]], which carries
 //     the arithmetic. Its measured per-run false-fire rate is **2.7%**
-//     against the 25% predecessor's **9.1%**, and **2 of the nineteen**
-//     re-take runs breach 25% where **0 of 19** breach 35%, both breaches at
+//     against **9.1%** at 25%, and **2 of the nineteen** `TaskDuration`
+//     ladder runs breach 25% where **0 of 19** breach 35%, both breaches at
 //     ZERO load.
 //
-//     THAT IS WHY 25% FIRED THREE TIMES IN TWO DAYS after being calibrated
-//     never to fire — 26.2% on an earlier `bulk300` ensemble (rf2-yd52q),
-//     then 26.2% on `bulk300` and 28.4% on `narrow` in one run of
-//     rf2-emvod's. Not a regime departure and not, mainly, the clock: a
-//     threshold that was above nineteen draws of a tail was never above the
-//     tail, and roughly one run in eleven crosses it.
+//     A 25% ceiling is too low even though it sits above all nineteen
+//     `taskNet` draws: a threshold above nineteen draws of a tail is not
+//     above the tail, and roughly one run in eleven crosses it. Real runs
+//     have read 26.2% on `bulk300` and 28.4% on `narrow`, which is neither a
+//     regime departure nor, mainly, the clock.
 //   * THE GATE ADJUDICATES THE CLOCK THE ROWS ARE STATED ON. `clock_run.cjs`
 //     refuses a run whose band on raw `TaskDuration` breaches; the frame-only
 //     band is computed, printed and stored on every run and is never the
@@ -149,24 +145,22 @@ const SEGMENT_PERMUTATIONS = [
 /**
  * A run whose band exceeds this has no reportable magnitude. See the header.
  *
- * **35%, AND IT IS NOT A QUANTILE OF ANYTHING.** `rf2-ymi6j` published it as
- * "the statistic's own bootstrap q99, at a measured `P(fire)` of 0.2%" and
- * `rf2-nk1hq` withdrew that derivation: the bootstrap it was read off pooled
- * all 342 of the ladder's blocks and drew each synthetic run's eighteen from
- * across unrelated runs and load rungs, which estimates a mixed-regime block
- * sample rather than a future run. Resampling run-preservingly — draw one of
- * the nineteen runs, then resample THAT run's own eighteen blocks — the band's
+ * **35%, AND IT IS NOT A QUANTILE OF ANYTHING.** A bootstrap that pools all
+ * 342 of the ladder's blocks, drawing each synthetic run's eighteen from
+ * across unrelated runs and load rungs, reads 35% as "the statistic's own
+ * q99, at a `P(fire)` of 0.2%" — but it estimates a mixed-regime block sample
+ * rather than a future run. Resampling run-preservingly — draw one of the
+ * nineteen runs, then resample THAT run's own eighteen blocks — the band's
  * run-level distribution on raw `TaskDuration` reads q90 23.4%, q95 31.0%,
  * q99 **41.4%**, and 35% false-fires at **2.7%** per run, thirteen times the
- * advertised 0.2%. (`ladder_band.cjs --from data/ladder-ymi6j.json` prints
- * both models; its `--self-test` fails if the pooled one is reinstated.)
+ * pooled model's 0.2%. (`ladder_band.cjs --from data/ladder-ymi6j.json` prints
+ * both models; its `--self-test` fails if the pooled one is made operative.)
  *
- * IT STAYS AT 35% ANYWAY, deliberately, and as a judgement now stated as one:
+ * IT IS 35% ANYWAY, deliberately, and as a judgement stated as one:
  *
- *   * The comparison the change was made for survives untouched. 25%
- *     false-fires at **9.1%** per run, so 35% is a 3.4x improvement — and it
- *     is the ceiling in force, breached by 0 of the nineteen calibration runs
- *     where 25% is breached by 2.
+ *   * Against 25% it is a clear gain. 25% false-fires at **9.1%** per run, so
+ *     35% is a 3.4x improvement — and it is the ceiling in force, breached by
+ *     0 of the nineteen calibration runs where 25% is breached by 2.
  *   * Moving to 41% would RELAX the gate, which is the direction that needs
  *     the stronger evidence, on the strength of the noisiest number in the
  *     table: a 1% quantile whose whole tail above 35% is carried by one or
@@ -308,8 +302,8 @@ function effects(cells) {
  * half-width of the p10–p90 interval of `fixed / floor`, relative to its
  * median — a range and not a standard deviation, because this lane quotes
  * ranges, and an interior quantile and not a max/min, because a max/min
- * over eighteen blocks is the very tail-heavy statistic this module was
- * written to stop trusting.
+ * over eighteen blocks is the very tail-heavy statistic this module exists
+ * to stop trusting.
  */
 function band(pairs) {
   const ratios = pairs.map((p) => p.fixed / p.floor).filter(Number.isFinite);
@@ -441,10 +435,11 @@ function selfTest() {
 
   check('a flat floor has no seam', Math.abs(seam(flat()).spread) < 1e-12, `${seam(flat()).spread}`);
 
-  // 1. A PURELY MULTIPLICATIVE PERTURBATION CANCELS EXACTLY. This is the
-  //    header's central claim and it is arithmetic, not a measurement: scale
-  //    every reading in a block by k and the block's floor-normalised ratio
-  //    is unchanged to the last bit.
+  // 1. A PURELY MULTIPLICATIVE PERTURBATION CANCELS EXACTLY. This half of
+  //    the header's model is arithmetic, not a measurement: scale every
+  //    reading in a block by k and the block's floor-normalised ratio is
+  //    unchanged to the last bit — so a `ctl-2x / floor` off 2.00 is the
+  //    part that is not multiplicative.
   {
     const H = 13.7, F = 10.0;
     const ks = [1, 1.34, 0.8, 2.5, 1.05];
@@ -457,8 +452,8 @@ function selfTest() {
   }
 
   // 2. AN ADDITIVE ONE DOES NOT, and the band SEES it. `ctl-2x/floor` under
-  //    an additive c reads (2W+c)/(W+c) and falls as c grows — which is the
-  //    signature the ladder looked for and did not find.
+  //    an additive c reads (2W+c)/(W+c) and, with W held fixed, falls as c
+  //    grows — a departure from 2.00 that the band measures.
   {
     const W = 5;
     const rat = (c) => (2 * W + c) / (W + c);
@@ -564,7 +559,8 @@ function selfTest() {
     );
     // Stated against BAND_CEILING rather than a literal, so moving the
     // ceiling cannot leave this check silently testing nothing — which is
-    // exactly what a literal 0.2 did when the ceiling moved from 15% to 25%.
+    // exactly what a literal would do: 0.2 tests nothing once the ceiling is
+    // above 20%.
     const v2 = adjudicate({ wide: 1.35 }, BAND_CEILING + 0.05);
     check(
       'a band above the ceiling takes EVERY magnitude with it, however wide the margin',
@@ -612,7 +608,7 @@ function selfTest() {
   // 6. THE LADDER'S OWN HEADLINE, replayed as a fixture: the published run's
   //    three floors. The seam is 34% and the decomposition is the point —
   //    with one round of data there is nothing to attribute it to, which is
-  //    why the instrument now takes the null alongside.
+  //    why the instrument takes the null alongside.
   {
     const published = [3.147, 2.437, 2.349];
     check(
