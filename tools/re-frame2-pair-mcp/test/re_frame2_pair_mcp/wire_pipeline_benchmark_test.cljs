@@ -17,17 +17,17 @@
        could surface as GC pressure.
 
     2. **`count-elided-markers` full-payload walk** at every emit-
-       site. The `:snapshot-map` and `:scalar-value` arms carry a
-       server-side count on the eval form and skip the walk; the
-       `:epoch-vector` arm (trace-window, watch-epochs) walks
-       locally. This benchmark pins the
-       per-walk cost so a future optimisation (e.g. server-side
-       count for runtime drains) has a baseline.
+       site. The `:scalar-value` arm (get-path) carries a
+       server-side count on the eval form and skips the walk; the
+       `:epoch-vector` arm (trace-window, watch-epochs) and the
+       `:snapshot-map` arm walk locally, over what ships. This
+       benchmark pins the per-walk cost so a future optimisation
+       (e.g. server-side count for runtime drains) has a baseline.
 
     3. **Dedup pass on 50-record epoch payloads** — equality-based
-       structural dedup over a 50-epoch slice with a 256-key shared
-       `:db-before`. The compression ratio (89.5% reduction) is
-       pinned by `dedup_test/reduction-ratio-shared-subtrees`. The
+       structural dedup over a 50-epoch slice with a 1K-key shared
+       `:db-before`. The compression ratio (a ≥50% reduction floor)
+       is pinned by `dedup_test/reduction-ratio-shared-subtrees`. The
        wall-clock cost is what we measure here — does the dedup pass
        fit in the per-call budget (rough rule of thumb: < 10ms for an
        interactive read-tool).
@@ -132,8 +132,7 @@
 (defn- make-snapshot
   "Three-frame snapshot with `:app-db` + 50-epoch `:epochs` slice
   each carrying a full `:db-before`. Mirrors the `dedup_test`
-  load-bearing shape — the slice the audit flagged as the dedup
-  worst-case."
+  load-bearing shape — the dedup worst-case."
   []
   (let [epochs (vec (for [i (range 50)]
                       {:event-id   (keyword (str "e" i))
@@ -148,8 +147,7 @@
 (defn- make-snapshot-with-markers
   "Snapshot whose `:app-db` carries scattered `:rf.size/large-elided`
   markers — the worst case for a local walker doing
-  `count-elided-markers`. Twenty markers per frame in the audit
-  reference shape."
+  `count-elided-markers`. Twenty markers per frame."
   []
   (let [marker (fn [path]
                  {:rf.size/large-elided
@@ -177,7 +175,7 @@
 (deftest bench-snapshot-map-pipeline
   ;; 3-frame snapshot with 50-epoch / 1K-app-db / shared-:db-before.
   ;; Run 30 times; report min/median/max; pin median to a generous
-  ;; 100ms ceiling on a dev workstation.
+  ;; 1s ceiling on a dev workstation.
   (let [snap    (make-snapshot)
         opts    {:kind        :snapshot-map
                  :incl?       false
@@ -214,8 +212,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Bench 2 — count-elided-markers walk over a marker-rich payload.
 ;;
-;; snapshot+get-path carry a server-side count and skip this walker;
-;; the `:epoch-vector` arm still walks locally.
+;; get-path carries a server-side count and skips this walker; the
+;; `:epoch-vector` and `:snapshot-map` arms walk locally.
 ;; The bench pins the per-walk cost so a future "server-side count for
 ;; runtime drains" optimisation has a baseline to claim against.
 ;; ---------------------------------------------------------------------------
@@ -250,8 +248,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Bench 3 — dedup pass over a 50-epoch payload.
 ;;
-;; `dedup_test/reduction-ratio-shared-subtrees` already pins the
-;; compression RATIO at 89.5%. This bench pins the WALL-CLOCK cost so
+;; `dedup_test/reduction-ratio-shared-subtrees` pins the compression
+;; RATIO (a ≥50% reduction floor). This bench pins the WALL-CLOCK cost so
 ;; the per-call latency budget surfaces here.
 ;; ---------------------------------------------------------------------------
 
