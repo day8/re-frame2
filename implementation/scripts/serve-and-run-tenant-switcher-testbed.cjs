@@ -1,24 +1,23 @@
 #!/usr/bin/env node
 /*
  * Browser smoke runner for the top-level tenant-switcher testbed
- * (testbeds/tenant_switcher/, rf2-5e22yc). The shared framework testbeds
+ * (testbeds/tenant_switcher/). The shared framework testbeds
  * under testbeds/** are normally Xray observation targets driven by CLJS
  * unit tests; the tenant-switcher additionally carries its OWN colocated
- * spec.cjs (testbeds are exempt from the examples-test-free rule — per
- * CLAUDE.md "Framework testbeds carry their own non-adapter spec.cjs for
- * cross-cutting surfaces"). This runner is its gate.
+ * spec.cjs (testbeds are exempt from the examples-test-free rule). This
+ * runner is its gate.
  *
  * It mirrors serve-and-run-browser-tests.cjs end-to-end:
  *   1. Compile the :testbeds/tenant-switcher shadow-cljs build, shell-free
  *      under THIS node binary (process.execPath + the resolved shadow-cljs
- *      JS entry-point) — never npx/npx.cmd under a shell (rf2-wn4o1).
+ *      JS entry-point) — never npx/npx.cmd under a shell.
  *   2. Stage the hand-written index.html into the build's :output-dir next
  *      to main.js.
  *   3. Serve the output dir over http-server (also shell-free), bound to
- *      127.0.0.1, with the per-run ownership-token handshake (rf2-gkf9).
+ *      127.0.0.1, with the per-run ownership-token handshake.
  *   4. Drive the colocated spec.cjs in headless Chromium: navigate, run its
- *      assertions, and fail on any uncaught pageerror (rf2-mwx08 discipline:
- *      pageerrors are tracked in a dedicated array and flip the verdict).
+ *      assertions, and fail on any uncaught pageerror (pageerrors are
+ *      tracked in a dedicated array and flip the verdict).
  *   5. Always tear the server down.
  *
  * Cross-platform: same hardened spawn posture as the implementation/scripts
@@ -67,7 +66,7 @@ const SPEC_TIMEOUT_MS = parseInt(process.env.TESTBED_SPEC_TIMEOUT_MS || '30000',
 const POLL_MS = 200;
 
 // Resolve the shadow-cljs + http-server JS entry-points so they can be
-// spawned shell-free under process.execPath (rf2-wn4o1). Rooted at IMPL_ROOT
+// spawned shell-free under process.execPath. Rooted at IMPL_ROOT
 // regardless of this script's cwd.
 let SHADOW_CLJS_RUNNER;
 let HTTP_SERVER_BIN;
@@ -132,7 +131,7 @@ function withTimeout(promise, ms, label) {
 
 async function runSpec(baseUrl) {
   const browser = await chromium.launch({ headless: true });
-  // rf2-mwx08 discipline: pageerrors are tracked in a DEDICATED array (not
+  // Pageerrors are tracked in a DEDICATED array (not
   // merely the diagnostic buffer) and flip the verdict to fail, even if the
   // assertions otherwise pass.
   const pageErrors = [];
