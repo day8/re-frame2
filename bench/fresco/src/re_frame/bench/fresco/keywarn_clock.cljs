@@ -1,13 +1,12 @@
 (ns re-frame.bench.fresco.keywarn-clock
-  "THE KEY WARNING'S DEV PRE-PASS, CLOCKED (rf2-2rtt6.104).
+  "THE KEY WARNING'S DEV PRE-PASS, CLOCKED.
 
-  This file exists because of a standing rule and a lane history. The
-  rule is [[re-frame.bench.fresco.front.codec/realize-deep]]'s: figures
-  in the codec are **clocked rather than asserted**. The history is
-  rf2-2rtt6.32, whose \"impossible result\" is what an unclocked
-  micro-claim did in this lane last time. The design that ruled the
-  warning derived ~1-4% of dev lowering analytically; that number does
-  not go into a docstring without a measurement beside it, so here is the
+  This file exists because of a standing rule,
+  [[re-frame.bench.fresco.front.codec/realize-deep]]'s: figures in the
+  codec are **clocked rather than asserted**, because an unclocked
+  micro-claim can publish an impossible result. The warning's design
+  derives ~1-4% of dev lowering analytically; that number does not go
+  into a docstring without a measurement beside it, so here is the
   measurement.
 
   ## The ablation
