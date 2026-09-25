@@ -13,18 +13,17 @@
 ;; (:rf.resource/gc-fired). After removal the public state sub projects the
 ;; documented :idle empty-state (the entry is gone; a sub NEVER re-fetches).
 ;;
-;; rf2-bbpu11 (Option A, ruled 2026-07-07) — default-arming row: a SECOND
+;; Default-arming row: a SECOND
 ;; resource (`:res/no-gc-policy`) declares NO `:gc-after-ms` at all. Absent
 ;; normalizes AT REGISTRATION to the framework's finite default (300000ms) —
-;; a settle now arms a REAL GC timer (`:rf.resource/schedule-timers` routed
-;; with `:timers {:gc 300000}`) instead of silently arming nothing. The full
-;; reconcile names stale + poll too, both nil (this resource declares neither),
-;; rf2-3fc89f.10.
+;; a settle arms a REAL GC timer (`:rf.resource/schedule-timers` routed
+;; with `:timers {:gc 300000}`) rather than silently arming nothing. The full
+;; reconcile names stale + poll too, both nil (this resource declares neither).
 
 {:fixture/id           :resources/owner-release-gc
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/owner-gc}
- :fixture/doc          "ensure :res/article (owner [:article/opened \"w\"], gc-after 60s) → :loaded; release-owner drops the owner (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the rf2-bbpu11 default-arming rule: its settle routes schedule-timers with the framework's default GC delay via :timers {:gc 300000}."
+ :fixture/doc          "ensure :res/article (owner [:article/opened \"w\"], gc-after 60s) → :loaded; release-owner drops the owner (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the default-arming rule: its settle routes schedule-timers with the framework's default GC delay via :timers {:gc 300000}."
 
  :fixture/registry
  {:resource
@@ -32,7 +31,7 @@
                  :params-schema [:map [:slug :string]]
                  :gc-after-ms   60000
                  :url-template  "/api/articles/"}
-   ;; rf2-bbpu11 — no :gc-after-ms declared at all; absent normalizes at
+   ;; No :gc-after-ms declared at all; absent normalizes at
    ;; registration to the framework's finite default (300000ms).
    :res/no-gc-policy {:scope         :rf.scope/global
                        :params-schema [:map [:slug :string]]
@@ -65,7 +64,7 @@
   ;; entry. (The internal gc-fired event is what the armed timer dispatches.)
   [:rf.resource.internal/gc-fired {:resource/key [:rf.scope/global :res/article {:slug "w"}]}]
 
-  ;; Step 5: rf2-bbpu11 default-arming row — a SECOND resource declaring NO
+  ;; Step 5: default-arming row — a SECOND resource declaring NO
   ;; :gc-after-ms. The frame-wide generation allocator is monotone (shared
   ;; across every resource in the frame, not per resource-id), so this
   ;; frame's SECOND ensure mints generation 2.
@@ -88,7 +87,7 @@
   {[:rf/resource {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :idle :data nil :error nil :refresh-error nil
     :loading? false :fetching? false :stale? false :has-data? false :previous? false}
-   ;; rf2-bbpu11 — the default-GC'd resource is still :loaded (nothing fired
+   ;; The default-GC'd resource is still :loaded (nothing fired
    ;; its GC timer in this fixture; only its ARMING is under test here).
    [:rf/resource {:resource :res/no-gc-policy :scope :rf.scope/global :params {:slug "d"}}]
    {:status :loaded :data {:title "Defaulted"} :error nil :refresh-error nil
@@ -101,12 +100,12 @@
    ;; The fired GC re-check reaped the owner-free + idle entry.
    {:operation :rf.resource/gc-fired}]
 
-  ;; rf2-bbpu11 default-arming row: the settle of the NO-:gc-after-ms
+  ;; Default-arming row: the settle of the NO-:gc-after-ms
   ;; resource routes :rf.resource/schedule-timers carrying the framework's
   ;; finite default (300000), not nil — the corpus-level proof that "no
-  ;; policy declared" no longer means "arms nothing".
+  ;; policy declared" does not mean "arms nothing".
   :effects-routed
-  ;; rf2-3fc89f.10: the settle is a FULL reconcile — it names ALL three timer
+  ;; The settle is a FULL reconcile — it names ALL three timer
   ;; kinds in the `:timers` map (a present key with a positive delay arms, a
   ;; present nil cancels; an absent key would preserve). Here stale + poll are
   ;; nil (undeclared → cancel/none) and gc carries the finite default.
