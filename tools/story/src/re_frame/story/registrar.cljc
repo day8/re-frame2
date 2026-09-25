@@ -10,11 +10,10 @@
 
   ## Closed framework registrar, Story-owned side-table
 
-  /spec/007-Stories.md §Story-tool extension hook says 'the framework registrar already supports new
-  kinds via the existing reg- machinery', while the implementation's
-  registrar (`re-frame.registrar/kinds`) is a **closed** set. The
-  side-table here is the reconciliation: Story-only registrations
-  live in Story's own atom; the framework registrar stays closed. A
+  The framework registrar (`re-frame.registrar/kinds`) is a **closed**
+  set, so Story-only registrations live in Story's own atom, the
+  tool-owned side-table /spec/007-Stories.md §Story-tool extension hook
+  describes; the framework registrar stays closed. A
   bridge (`story/registrations`) preserves the /spec/007-Stories.md §Public-query-surfaces
   contract without crossing the framework boundary.
 
@@ -259,8 +258,8 @@
   "Pull the `:malli.core/extra-key` errors out of a malli `explain`, keyed
   by the full `:in` path. The path's LAST element is the unknown key; what
   precedes it locates the closed map that rejected it — empty for a
-  top-level slot, `[:script]` / `[:plays 0]` for a nested play map
-  (rf2-uys9). Each value is that map's subschema, from which its declared
+  top-level slot, `[:script]` / `[:plays 0]` for a nested play map.
+  Each value is that map's subschema, from which its declared
   key set is read. Dedups by path (an `:or` schema reports one per branch)."
   [explain]
   (->> (:errors explain)
@@ -292,7 +291,7 @@
                             (pr-str (vec (declared (val (first group))))) ". "))]
         (str "re-frame2-story: unknown " (name kind) " slot(s) "
              (str/join ", " clauses)
-             " — the " (name kind) " authoring body is closed (rf2-mantt). "
+             " — the " (name kind) " authoring body is closed. "
              (apply str allowed)
              "Remove the slot, or fix the typo.")))))
 
@@ -315,22 +314,15 @@
       ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
       ;; the human sentence + a trailing `[:rf.error/<id>]` token IS the
       ;; ex-message, with `:rf.error/id` the sole machine discriminator.
-      ;; NOT decorative here (rf2-jquiy): story-mcp relays `(ex-message e)`
+      ;; NOT decorative here: story-mcp relays `(ex-message e)`
       ;; verbatim onto the MCP tool surface — `tools/write.cljc`
       ;; register-variant
       ;; wraps this call in `(str "… " (ex-message e))` — so the consumer AI
       ;; on the other end of the wire reads THIS text. A bare `(str error-kw)`
-      ;; shipped it `:rf.error/variant-shape` and nothing else.
-      ;; Caveat, until rf2-2z9u3 lands: a client cannot yet SEE this
-      ;; particular message. Both relays also copy `:explain` (below) into
-      ;; the tool result, and the live malli schema objects it holds are not
-      ;; JSON-encodable, so the response collapses into a protocol-level
-      ;; -32603 before the text ships. That is an ex-DATA defect; the message
-      ;; is correct here and correct the moment the relay stops shipping raw
-      ;; `:explain`. Sibling paths without `:explain` are unaffected.
+      ;; would ship `:rf.error/variant-shape` and nothing else.
       ;; The central `re-frame.error` builder is NOT used: `tools/` is
       ;; bundle-isolated and MUST NOT `:require re-frame.*`, so the shape is
-      ;; hand-rolled inline (as `re-frame.story/configure!` already does).
+      ;; hand-rolled inline (as `re-frame.story/configure!` does).
       (throw (ex-info (str reason " [" error-kw "]")
                       {:rf.error/id error-kw
                        :where    'rf.story/reg-story
@@ -395,13 +387,12 @@
               keyword?)]
     (when-not (ok? id)
       ;; Canonical thrown-error shape — see `validate-shape!` above.
-      ;; The reachability here is NARROWER than its siblings', and rf2-jquiy
-      ;; established that by driving the wire rather than reading the call
-      ;; graph: the story-mcp entry point (`tools/write.cljc`
+      ;; The reachability here is NARROWER than its siblings': the story-mcp
+      ;; entry point (`tools/write.cljc`
       ;; register-variant) pre-checks
       ;; the id grammar on the STRING shape — `fresh-keyword-checked` against
       ;; `story/valid-variant-id?`, single-sourced with the `rf.story.schemas/…-id?`
-      ;; predicates below — before interning, and answer with their own
+      ;; predicates below — before interning, and answers with its own
       ;; conformant message. So an MCP client does not reach this throw; a
       ;; library / REPL caller passing an already-keyword id does, and the
       ;; shape is theirs to read.
@@ -486,7 +477,7 @@
   that still reaches this helper — a def'd or merged map handed to the
   macro, or a programmatic call — is desugared HERE through the same
   `reg-variant*` rail, under the same `<story-id>/<variant-name>` ids and
-  the same bound source coords, rather than dropped (rf2-pjay). The stored
+  the same bound source coords, rather than dropped. The stored
   story body never carries `:variants`."
   [id body]
   (maybe-auto-install!)
