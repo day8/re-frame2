@@ -3,13 +3,10 @@
 
 WHY THIS EXISTS, and why it checks TWO numbers rather than one.
 
-rf2-cupfi observed that six of nine `skills/*/SKILL.md` descriptions exceeded
-1,024 characters and asked whether that truncates at runtime.  A worker measured
-the SHIPPED Claude Code runtime and found 1,024 is *not* what that runtime
-enforces — it slices at 1,536.  The first version of this gate therefore checked
-only 1,536, and the merged-PR audit of #9051 reopened rf2-cupfi for exactly that:
-**a particular runtime not enforcing a validation does not make an over-limit
-package conforming.**  `skills/README.md` advertises every skill here as
+The SHIPPED Claude Code runtime does not enforce 1,024 on a `skills/*/SKILL.md`
+description — it slices at 1,536 — but **a particular runtime not enforcing a
+validation does not make an over-limit package conforming.**
+`skills/README.md` advertises every skill here as
 distributable as an Agent Skill via `npx skills add`, and the canonical Agent
 Skills specification requires `description` to be 1-1,024 characters:
 
@@ -72,8 +69,8 @@ WHAT THIS GATE CHECKS, and why each is the severity it is.
 
   C1  PER-DESCRIPTION CAP (hard fail) at **1,024**, the portable package ceiling.
       Every skill's resolved description must be <= 1,024 characters.  The remedy
-      is local: shorten or reorder ONE description.  All nine currently pass, so
-      the gate lands green and stays a regression guard rather than a backlog.
+      is local: shorten or reorder ONE description.  All nine pass, so the
+      gate is a regression guard rather than a backlog.
       A failure escalates its message when the description is ALSO past Claude
       Code's 1,536 slice, because then it is not merely non-portable — it is
       being silently truncated in the listing today.
@@ -86,16 +83,16 @@ WHAT THIS GATE CHECKS, and why each is the severity it is.
       family still costs well over the entire listing budget (see the summary
       the gate prints) — before the consumer installs a single skill of their
       own and before Claude Code's own bundled commands take their share.
-      Failing at 8,000 would red this repo on day one with no in-repo remedy,
-      because the remedy is not "shorten a description": nine skills each
-      carrying a routing contract cannot all fit in 8,000 no matter how they are
-      written — bringing every one of them under 1,024 did not achieve it and
-      could not have.  That is a product
+      Failing at 8,000 would red this repo with no in-repo remedy, because the
+      remedy is not "shorten a description": nine skills each carrying a
+      routing contract cannot all fit in 8,000 no matter how they are
+      written — every one of them is under 1,024 and the family still does
+      not fit.  That is a product
       decision (ship fewer skills, or accept that the lowest-priority ones render
       bare), and a gate cannot make it.
 
       What a gate CAN do here is stop the family getting worse, so C2 is a
-      ratchet against the measured footprint, in the idiom this repo already uses
+      ratchet against the measured footprint, in the idiom this repo uses
       for `check-ai-tracking-ratchet.sh`.  The absolute comparison against 8,000
       is PRINTED on every run, passing or failing, so the number is never lost
       behind a green tick.
@@ -105,7 +102,7 @@ WHAT THIS GATE DOES NOT CHECK — stated because a gate's silence reads as cover
   DISQUALIFIER-FIRST ORDERING IS NOT MECHANICALLY CHECKABLE HERE, and pretending
   otherwise would be worse than omitting it.  Ordering is the half that makes a
   truncation survivable — whatever is last is what a slice removes, which is why
-  every description in this family now leads with its disqualifier and trails
+  every description in this family leads with its disqualifier and trails
   its trigger phrases.  But detecting the two halves requires agreed markers,
   and there are none: disqualifiers are spelled variously ("Do not use", "Not
   for", "Never", "Activates only on explicit pull", "... instead"), several
@@ -192,11 +189,9 @@ DEFAULT_CONTEXT_WINDOW = 200_000
 #: `"- "` + `": "` — the fixed per-entry overhead around name and description.
 ENTRY_OVERHEAD_CHARS = 4
 
-#: Ratchet ceiling for the family's listing footprint (see C2 above).
-#: Re-measured 2026-09-03 at 8,864, after rf2-cupfi brought all nine
-#: descriptions under the portable 1,024 cap (was 10,727).  LOWER this when
-#: descriptions shrink; RAISING it is a deliberate act that says the family now
-#: costs the listing more, and wants a reason in the commit message.
+#: Ratchet ceiling for the family's listing footprint (see C2 above).  LOWER
+#: this when descriptions shrink; RAISING it is a deliberate act that says the
+#: family costs the listing more, and wants a reason in the commit message.
 FAMILY_FOOTPRINT_CEILING = 8_864
 
 
@@ -602,7 +597,7 @@ def main(argv: Iterable[str]) -> int:
             "(skillListingMaxDescChars), which is otherwise only reported. "
             "Separately hard-fails the family's listing footprint against a "
             "pinned ratchet, not against the absolute listing budget, which is "
-            "printed on every run (rf2-w9p2)."
+            "printed on every run."
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true",
