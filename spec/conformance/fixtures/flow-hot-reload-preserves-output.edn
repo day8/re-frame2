@@ -40,7 +40,7 @@
  {:initial-events [[:doubled/init]]}
 
  ;; Sequence:
- ;;   on-create [:doubled/init]   — :n 7
+ ;;   :initial-events [:doubled/init] — :n 7
  ;;   [:doubled/reg-v1]           — register v1; flow first-fires on next drain
  ;;   [:doubled/poke 1]           — drives a drain; v1 fires → :doubled 14
  ;;   [:doubled/reg-v2]           — re-register with (+ n n); last-inputs cleared
