@@ -62,10 +62,11 @@
   [spec k]
   (get-in spec (conj (pop k) :source-code (peek k))))
 
-(defn- enclosing-coords
-  "The `:source-coords` of `k`'s enclosing node on `spec`."
-  [spec k]
-  (:source-coords (get-in spec (pop k))))
+#?(:cljs
+   (defn- enclosing-coords
+     "The `:source-coords` of `k`'s enclosing node on `spec`."
+     [spec k]
+     (:source-coords (get-in spec (pop k)))))
 
 (deftest root-lifecycle-rows-resolve-against-registered-source
   (rf/reg-machine :lsl/flat
