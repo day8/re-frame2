@@ -24,7 +24,8 @@ census
 verify
     For every file under the given paths that differs between <base-rev> and
     the working tree (committed, staged, unstaged and untracked alike), proves
-    that everything except comments and string contents is identical.  Prints
+    that everything except comments and, where the file type's lexer blanks
+    them, string contents is identical.  Prints
     each file's verdict with its line-ending counts, and names the file and
     the first differing token of every file that fails.
 
@@ -44,8 +45,9 @@ verify
       Anything else                        compared byte for byte.
 
     Where it is conservative:
-      * a changed string is not told apart from a changed docstring, so an
-        edited error message passes; tests and review guard emitted strings;
+      * where strings are blanked, a changed string is not told apart from a
+        changed docstring, so an edited error message passes; tests and review
+        guard emitted strings.  Under the line lexer an edited string fails;
       * adding or deleting a whole string, a whole Python docstring or a whole
         file fails; rewrite the text instead;
       * a quote the line lexer misreads (shell, PowerShell, YAML) turns a
