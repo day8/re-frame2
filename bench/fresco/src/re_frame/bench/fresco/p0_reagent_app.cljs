@@ -1,9 +1,9 @@
 (ns re-frame.bench.fresco.p0-reagent-app
   "THE P0 REAGENT-ON-SUBS BASELINE RUN — mount and bulk, browser,
-  `:advanced` (rf2-2rtt6.2; EP-0038 P0; the bar is HD-012).
+  `:advanced` (EP-0038 P0; the bar is HD-012).
 
   The `:init-fn` of the `:fresco-bench` build. Driven by
-  `implementation/fresco/test/re_frame/bench/fresco/run.cjs`, which
+  `bench/fresco/src/re_frame/bench/fresco/run.cjs`, which
   builds this entry, serves it, drives Chromium, prints every record and
   turns an arm-order refusal into exit code 2.
 
@@ -46,10 +46,9 @@
 
   ## What is NOT here
 
-  No UIx arm (rf2-2rtt6.4 owns the frontier comparator), no narrow-write
-  leg (rf2-2rtt6.3), no heap ladder (rf2-2rtt6.5). All three ride this
-  lane's `lane.cljs` and this build id; none of them needs to touch
-  `shadow-cljs.edn`."
+  No UIx arm (the frontier comparator is its own driver), no narrow-write
+  leg, no heap ladder. All three ride this lane's `lane.cljs` and this
+  build id; none of them needs to touch `shadow-cljs.edn`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -83,9 +82,9 @@
   "`scale` is how many times the witness's own page this arm builds, and it
   is ONE fact rather than two: an arm that builds a different page is
   exactly the arm the canonical-DOM gate must exempt, so
-  `:parity-exempt?` is DERIVED from it. The two used to be independent
-  and the control was the arm that carried `exempt?` without anything
-  carrying the size — which is how its doubled page went unchecked."
+  `:parity-exempt?` is DERIVED from it. Were the two independent, the
+  control would carry `exempt?` without anything carrying the size, and
+  its doubled page would go unchecked."
   [id element-of cells-of & [scale]]
   (let [scale (or scale 1)]
     {:id             id
@@ -123,9 +122,9 @@
 
   A page that committed only its head would pass a single-probe check at
   index 0. A CONTROL that rendered only its base prefix would pass a check
-  at index 299 — which is what the probe was, fixed at the witness's
-  `cells-n` for every arm, so the one arm whose whole purpose is to be
-  twice the page was the one arm nothing checked past its first half."
+  at index 299 — a probe fixed at the witness's `cells-n` for every arm —
+  so the one arm whose whole purpose is to be twice the page would be the
+  one arm nothing checked past its first half."
   [n]
   (fn [container]
     (and (= "0" (rf.bench.fresco.lane/text-at container 0))
@@ -133,8 +132,8 @@
 
 (defn- verify-m2
   "The first and last field AT THE ARM'S OWN SIZE — `n` fields, so the far
-  probe is `#f(n-1)`. Fixed at the witness's `fields-n` it read the SHARED
-  PREFIX and could not tell a doubled form from a base one."
+  probe is `#f(n-1)`. Fixed at the witness's `fields-n` it would read the
+  SHARED PREFIX and could not tell a doubled form from a base one."
   [n]
   (fn [container]
     (and (= (rf.bench.fresco.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
@@ -145,11 +144,10 @@
   "What THIS arm's page must contain: the witness's own arithmetic applied
   to the arm's `:scale`, as `{:elements n :verify f}`.
 
-  There is no exemption. `measure-mount!` used to read
-  `(if (:parity-exempt? arm) nil elements)` and skip the element count for
-  the control, while the probes read indices that exist in the base page —
-  so the `:ctl-2x` arm was the ONE arm in the plan whose page was never
-  checked, and a control that rendered only its base prefix passed. The
+  There is no exemption. Skipping the element count for a parity-exempt
+  arm, while the probes read indices that exist in the base page, would
+  leave the `:ctl-2x` arm the ONE arm in the plan whose page is never
+  checked, and a control that rendered only its base prefix would pass. The
   control's whole claim is that it is exactly twice the page; scaling both
   the count and the far probe is what makes that claim load-bearing rather
   than asserted."
@@ -180,20 +178,20 @@
    {:id          :M2
     :verify-of   verify-m2
     :elements-of rf.bench.fresco.p0-reagent-views/m2-elements
-    ;; ONE mount per sample, and the batching that would have lifted this
-    ;; witness clear of Chrome's 100 µs clamp is NOT USED. It was tried —
-    ;; eight mounts in one `flushSync` — and THE ARM-ORDER GUARD REFUSED
-    ;; THE WHOLE RUN, exit 2: with eight 51-element roots standing in the
-    ;; document at once, all four M2 arms read 3.2×–5.4× slower in the last
-    ;; third of the run than in the first, ranges DISJOINT, while the
-    ;; predecessor factor stayed clean on every one of them. That is the
-    ;; recorded position-dominates-adjacency class exactly, and it is a
-    ;; property of the batched arm rather than of anything under test — the
-    ;; unbatched M1 row, running immediately before it in the same page,
-    ;; drifted 1.13×–1.16× with ranges overlapping.
+    ;; ONE mount per sample, and the batching that would lift this witness
+    ;; clear of Chrome's 100 µs clamp is NOT USED. Eight mounts in one
+    ;; `flushSync` make THE ARM-ORDER GUARD REFUSE THE WHOLE RUN, exit 2:
+    ;; with eight 51-element roots standing in the document at once, all
+    ;; four M2 arms read 3.2×–5.4× slower in the last third of the run than
+    ;; in the first, ranges DISJOINT, while the predecessor factor stays
+    ;; clean on every one of them. That is the recorded
+    ;; position-dominates-adjacency class exactly, and it is a property of
+    ;; the batched arm rather than of anything under test — the unbatched M1
+    ;; row, running immediately before it in the same page, drifts
+    ;; 1.13×–1.16× with ranges overlapping.
     ;;
-    ;; The repair is therefore the ARM, never the tolerance: the batch is
-    ;; withdrawn and the resulting clock coarseness is STATED on the row.
+    ;; The answer is therefore the ARM, never the tolerance: no batch, and
+    ;; the resulting clock coarseness is STATED on the row.
     ;; A refused figure and a quantised figure are not the same thing —
     ;; the first may not be published at all, the second may be published
     ;; with its resolution attached, and it is published as DIAGNOSTIC
@@ -312,15 +310,14 @@
   "Release every bulk arm. A throw is RECORDED, never swallowed — and a
   normal return is not taken at its word.
 
-  `(catch :default _ nil)` was here, and the arm it hid is the one that
-  matters most: the bulk arms stand for a whole row, so an unmount that
-  threw leaves three hundred subscribing boundaries watching the app-db
-  while every later sample is measured on top of them. The second audit
-  then proved the remaining half by mutation: an unmount that RETURNED
-  NORMALLY without releasing left the ratom arm's root standing on a
-  detached tree, rooted in `rf.bench.fresco.p0-reagent-views/ratom-cells` where neither the body census
-  nor the frame's sub-cache could see it — so `rf.bench.fresco.lane/container-released!`
-  now reads each container before it is removed, exactly as
+  A swallowing `(catch :default _ nil)` would hide the arm that matters
+  most: the bulk arms stand for a whole row, so an unmount that threw
+  leaves three hundred subscribing boundaries watching the app-db while
+  every later sample is measured on top of them. And an unmount that
+  RETURNS NORMALLY without releasing leaves the ratom arm's root standing
+  on a detached tree, rooted in `rf.bench.fresco.p0-reagent-views/ratom-cells` where neither the body
+  census nor the frame's sub-cache can see it — so
+  `rf.bench.fresco.lane/container-released!` reads each container before it is removed, exactly as
   `rf.bench.fresco.lane/release!` does. The caller adjudicates with
   `rf.bench.fresco.lane/assert-teardown-clean!` and proves the reference census with
   `rf.bench.fresco.lane/assert-residue!`."
@@ -375,10 +372,10 @@
                   ;; EVERY mount in the batch is read back out of the
                   ;; document, against THIS ARM'S OWN arithmetic. `verify` is
                   ;; per witness because the probe has to exist in the witness
-                  ;; — the first cut of this instrument read a `data-i` cell in
-                  ;; both witnesses, the form has no such attribute, and the M2
-                  ;; row published `400 unverified of 400` while the page was in
-                  ;; fact perfectly correct. A read-back that cannot pass is
+                  ;; — a `data-i` probe in both witnesses would fail on the
+                  ;; form, which has no such attribute, and publish `400
+                  ;; unverified of 400` for a page that is perfectly correct.
+                  ;; A read-back that cannot pass is
                   ;; worse than none: it manufactures a defect and would hide a
                   ;; real one behind it. It is per ARM because the control is
                   ;; twice the page and a probe fixed at the witness's size
@@ -462,8 +459,8 @@
   A broad write changes every cell, so the probe rotates with the value
   AND the far end of the grid is checked: a stale page can still carry one
   fresh cell from the previous write, and a single fixed probe would
-  accept it. The rule is `rf.bench.fresco.lane/bulk-probes`, not a literal here — HD-008's
-  bulk row probed cell 0 alone while this one probed three (rf2-f5roa)."
+  accept it. The rule is `rf.bench.fresco.lane/bulk-probes`, not a literal here, so HD-008's
+  bulk row and this one probe the same cells."
   [t mnt]
   (let [n   (:cells (:arm mnt))
         val (next-gen!)]
@@ -581,9 +578,9 @@
   "Canonical-DOM equality across the judged arms, and the element count of
   EVERY arm — the control included — against its own arithmetic.
 
-  The count used to be checked only over `rf.bench.fresco.lane/parity`'s `counts` map,
-  which excludes the parity-exempt arms by design, so the one arm building
-  a deliberately different page had that page checked nowhere. Exempt from
+  Checked only over `rf.bench.fresco.lane/parity`'s `counts` map, which excludes the
+  parity-exempt arms by design, the one arm building a deliberately
+  different page would have that page checked nowhere. Exempt from
   the EQUALITY is not exempt from arithmetic: the control is exempt
   because its page differs, and the size it differs BY is the claim it
   exists to make."
