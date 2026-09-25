@@ -887,8 +887,8 @@ async function main() {
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(artefact, null, 2));
   fs.writeFileSync(path.join(OUT, 'report.txt'), lines.join('\n') + '\n');
   say(`producing commit  ${sha}`);
-  say(`reproduce         node implementation/adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs`);
-  say(`artefacts         implementation/out/fresco-narrow/report.{json,txt}`);
+  say(`reproduce         node bench/fresco/src/re_frame/bench/fresco_narrow_run.cjs`);
+  say(`artefacts         bench/fresco/out/fresco-narrow/report.{json,txt}`);
   say('');
 
   // --- the verdict --------------------------------------------------------

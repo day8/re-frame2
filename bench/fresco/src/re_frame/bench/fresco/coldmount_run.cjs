@@ -230,7 +230,7 @@ async function runRow(browser, row) {
   console.log(`;; one row per page; ${ROWS.length} pages; 4 rounds (balanced 2:2 segment order)`);
   console.log(
     `;; reproduce  ${ONLY ? `COLDMOUNT_ONLY=${ONLY} ` : ''}node ` +
-      `implementation/fresco/test/re_frame/bench/fresco/coldmount_run.cjs`
+      `bench/fresco/src/re_frame/bench/fresco/coldmount_run.cjs`
   );
   console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (COLDMOUNT_ONLY=${ONLY})` : ''}`);
   for (const o of outcomes) {

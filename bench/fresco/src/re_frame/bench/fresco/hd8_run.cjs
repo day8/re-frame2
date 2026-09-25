@@ -1033,7 +1033,7 @@ async function main() {
   // bare command: a published figure whose repro command does not reproduce it
   // is a figure nobody can check.
   console.log(
-    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}${ROWS ? `HD8_ROWS=${ROWS} ` : ''}node implementation/fresco/test/re_frame/bench/fresco/hd8_run.cjs`
+    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}${ROWS ? `HD8_ROWS=${ROWS} ` : ''}node bench/fresco/src/re_frame/bench/fresco/hd8_run.cjs`
   );
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);

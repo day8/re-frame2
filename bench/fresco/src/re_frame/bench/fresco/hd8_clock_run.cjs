@@ -242,11 +242,11 @@ function revision() {
 }
 
 const BLOB_FILES = [
-  'implementation/fresco/test/re_frame/bench/fresco/hd8_clock_app.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/hd8_clock_run.cjs',
-  'implementation/fresco/test/re_frame/bench/fresco/hd8_rows.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/hd8_witnesses.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/lane.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/hd8_clock_app.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/hd8_clock_run.cjs',
+  'bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/hd8_witnesses.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/lane.cljs',
   'implementation/core/src/re_frame/substrate/spine.cljs',
 ];
 
@@ -971,7 +971,7 @@ async function drive() {
   console.log(';;   bead        rf2-2rtt6.31 (HD-008 donor re-take; EP-0038)');
   console.log(`;;   commit      ${sha}`);
   for (const [f, h] of Object.entries(bl)) console.log(`;;   blob        ${h}  ${f}`);
-  console.log(`;;   reproduce   node implementation/fresco/test/re_frame/bench/fresco/hd8_clock_run.cjs`);
+  console.log(`;;   reproduce   node bench/fresco/src/re_frame/bench/fresco/hd8_clock_run.cjs`);
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(

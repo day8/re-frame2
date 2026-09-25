@@ -276,7 +276,7 @@ async function runPage(browser, horizonMs, ceilingMs) {
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; horizon ${horizonMs} ms   qualifying ceiling ${ceilingMs} ms`);
   console.log(
-    `;; reproduce  node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs`,
+    `;; reproduce  node bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs`,
   );
   for (const [k, v] of Object.entries(outcome.results)) {
     console.log(`;; ==== ADOPTION WITNESS ${k} ====`);

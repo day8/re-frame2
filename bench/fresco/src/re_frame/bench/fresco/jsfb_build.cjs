@@ -130,9 +130,9 @@ function packageJson(dir, title) {
           // sources live there. These exist so the directory is shaped like
           // a framework entry; they are NOT an upstream-conformant build and
           // the message says so rather than exiting 0 and looking built.
-          dev: 'echo "build from the re-frame2 repo: node fresco/test/re_frame/bench/fresco/jsfb_build.cjs" && exit 1',
+          dev: 'echo "build from the re-frame2 repo: node bench/fresco/src/re_frame/bench/fresco/jsfb_build.cjs" && exit 1',
           'build-prod':
-            'echo "build from the re-frame2 repo: node fresco/test/re_frame/bench/fresco/jsfb_build.cjs" && exit 1',
+            'echo "build from the re-frame2 repo: node bench/fresco/src/re_frame/bench/fresco/jsfb_build.cjs" && exit 1',
         },
       },
       null,
