@@ -1,21 +1,20 @@
 (ns day8.re-frame2-xray.palette
-  "Facade for the Xray command palette (rf2-wm7z4).
+  "Facade for the Xray command palette.
 
   Per the canonical Xray panel-facade pattern: the facade owns the view
   that `shell.cljs` mounts, and an `install!` fn that wires the
-  palette's subs / events / fxs through the Xray-side registry. Since
-  rf2-k97c.3 that view is a FRESCO BOUNDARY reading through the shipped
-  collector, and the hiccup itself is a pure projection in
-  `palette/view` — the same read-and-call split every migrated Xray view
-  uses.
+  palette's subs / events / fxs through the Xray-side registry. That
+  view is a FRESCO BOUNDARY reading through the shipped collector, and
+  the hiccup itself is a pure projection in `palette/view` — the same
+  read-and-call split every Fresco Xray view uses.
 
   The three names, in the order a reader meets them:
 
   - [[ModalView]] — the `rf.fresco/defview` BOUNDARY. Reads the four
                     palette subs and calls `view/palette-view`.
-  - [[Modal]]     — the callable a still-`reg-view` shell mounts as a
-                    hiccup head. Scaffolding with a defined end (see its
-                    own docstring).
+  - [[Modal]]     — the callable the shell calls at its root: the
+                    `as-component` bridge to [[ModalView]] (see its own
+                    docstring).
   - [[install!]]  — idempotent install for the palette's subs + events.
 
   ## Modal vs Panel
@@ -24,8 +23,8 @@
   list and no canvas slot. [[Modal]] is mounted at the shell-view root
   (so it overlays the chrome and panels) and short-circuits to `nil`
   when the palette is closed. The render cost when closed is the
-  open-state read plus a `when` — cheap, and cheaper than it was: the
-  other three reads now sit INSIDE the `when`, and `rf.fresco/sub`
+  open-state read plus a `when` — cheap, because the
+  other three reads sit INSIDE the `when`, and `rf.fresco/sub`
   records an edge where the read happens, so a closed palette
   subscribes to exactly one key rather than four (HD-002).
 
@@ -44,7 +43,7 @@
             [day8.re-frame2-xray.palette.view :as view]))
 
 (rf.fresco/defview ^:private ModalView
-  "The palette modal's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The palette modal's root — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Renders only when `:rf.xray/palette-open?` is true;
   closed-state is one read plus a `when`.
 
@@ -61,19 +60,18 @@
   THE THREE INNER READS SIT INSIDE THE `when` DELIBERATELY. `sub` is
   legal anywhere in a body and records its edge where the read happens,
   so a branch not taken contributes no edge (HD-002). A closed palette
-  therefore holds ONE subscription, not four — which is the same
-  short-circuit the `reg-view` era got by not calling `palette-view` at
-  all, expressed in the collector's own terms.
+  therefore holds ONE subscription, not four — the short-circuit that
+  not calling `palette-view` at all gives, expressed in the collector's
+  own terms.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
-  which answers the boundary's DECLARED frame inside a body and replaces
-  the `dispatch` the `reg-view` body used to inject lexically (rf2-nesy9;
-  `defview` binds no name). Every deferred `:on-*` handler in the tree
+  which answers the boundary's DECLARED frame inside a body (`defview`
+  binds no `dispatch` name). Every deferred `:on-*` handler in the tree
   below closes over it, so a click landing after render scope has
   unwound still reaches the surrounding instance frame rather than a
   `{:frame :rf/xray}` literal — or, absent it, raising
-  `:rf.error/no-frame-context`, since EP-0002 left no `:rf/default`
-  floor to absorb an unframed dispatch.
+  `:rf.error/no-frame-context`, since under EP-0002 there is no
+  `:rf/default` floor to absorb an unframed dispatch.
 
   The raw `:rf.xray/palette-query` value is passed through rather than
   defaulted here: `view/palette-view` owns the `(or … \"\")` so the pure
@@ -88,11 +86,11 @@
                        (rf.fresco/sub [:rf.xray/palette-results])
                        (rf.fresco/sub [:rf.xray/palette-cursor]))))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the `as-component` bridge -------------------------------------------
 ;;
-;; Since rf2-k97c.3 `shell.cljs`'s tree is a Fresco one and CALLS the
+;; `shell.cljs`'s tree is a Fresco one and CALLS the
 ;; palette — `(palette/Modal)` at the shell-view root — while the shipped
-;; boundary witness suite still HEADS it from a Reagent parent, which is
+;; boundary witness suite HEADS it from a Reagent parent, which is
 ;; the crossing this bridge exists for. `defview`'s contract is that
 ;; a boundary is mounted as `[head props]` inside a Fresco body or
 ;; through `as-component` from OUTSIDE, never as a hiccup render fn in a
@@ -105,11 +103,10 @@
 ;; second root. So there is no second root here, no adapter-kind branch,
 ;; and no props ABI.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
-;; this comment used to name has ARRIVED: `mount.cljs` owns a Fresco root
-;; and `shell-view` lowers to a boundary. The pair stayed anyway, because
-;; a Reagent parent still heads it on purpose — the shipped boundary
-;; witness suite. The chain is `[:>]` -> `as-component` -> [[ModalView]].
+;; NOT SCAFFOLDING. `mount.cljs` owns a Fresco root and `shell-view`
+;; lowers to a boundary; the pair is kept because a Reagent parent heads
+;; it on purpose — the shipped boundary witness suite. The chain is
+;; `[:>]` -> `as-component` -> [[ModalView]].
 
 (def ^:private Modal-component
   "The React component [[ModalView]] presents as, for a non-Fresco
@@ -123,14 +120,13 @@
   "The palette's public callable — what `shell.cljs` mounts as a hiccup
   head at the shell-view root.
 
-  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  It is the `as-component` bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component [[ModalView]]
-  presents as. The shell's enclosing `rf/frame-provider` is what puts
-  the instance frame in React context for it.
+  presents as. The shell's enclosing `rf.fresco/frame-provider` is what
+  puts the instance frame in React context for it.
 
   The open/closed gate is inside [[ModalView]], so this is always
-  mounted and renders nothing while the palette is closed — the same
-  shape a mounted `reg-view` returning nil had.
+  mounted and renders nothing while the palette is closed.
 
   Callers wanting the MARKUP as data — the node-lane view rows — build
   it from `view/palette-view` with the reads' values instead (the
