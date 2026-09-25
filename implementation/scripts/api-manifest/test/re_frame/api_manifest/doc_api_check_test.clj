@@ -38,11 +38,11 @@
   (testing "a live manifest var resolves in any reference tree with no problem"
     (is (empty? (problems-for
                   [{:var "reg-event" :line 13 :raw "rf/reg-event"
-                    :file "docs/core/api/01-core.md"}
+                    :file "docs/api/re-frame.core.md"}
                    {:var "configure!" :line 7 :raw "story/configure!"
                     :file "docs/story/api/registration.md"}
                    {:var "machine-by-system-id" :line 259 :raw "rf/machine-by-system-id"
-                    :file "docs/core/api/10-testing.md"}
+                    :file "docs/api/re-frame.machines.md"}
                    {:var "reg-event" :line 88 :raw "rf/reg-event"
                     :file "spec/Privacy.md"}])))))
 
@@ -51,9 +51,9 @@
             prose is flagged"
     (let [probs (problems-for
                   [{:var "path" :line 85 :raw "rf/path"
-                    :file "docs/core/api/03-effects.md"}])]
+                    :file "docs/api/re-frame.core.md"}])]
       (is (= 1 (count probs)))
-      (is (= "docs/core/api/03-effects.md" (:file (first probs))))
+      (is (= "docs/api/re-frame.core.md" (:file (first probs))))
       (is (re-find #"no manifest row" (:detail (first probs)))))))
 
 (deftest scoped-removed-name-silenced-only-in-approved-file
@@ -65,9 +65,9 @@
             is RED — it leaked into live reference prose"
     (let [probs (problems-for
                   [{:var "reg-sub-raw" :line 50 :raw "rf/reg-sub-raw"
-                    :file "docs/core/api/01-core.md"}])]
+                    :file "docs/api/re-frame.core.md"}])]
       (is (= 1 (count probs)))
-      (is (= "docs/core/api/01-core.md" (:file (first probs))))
+      (is (= "docs/api/re-frame.core.md" (:file (first probs))))
       (is (re-find #"removed API named outside its approved" (:detail (first probs)))))))
 
 (deftest live-doc-api-reconciles-clean
@@ -104,18 +104,18 @@
 
 (def ^:private cov-rows
   ;; Synthetic eligible manifest rows spanning two namespaces.
-  [{:namespace "re-frame.ui"      :var "defview"}
-   {:namespace "re-frame.ui"      :var "sub"}
-   {:namespace "re-frame.ui.test" :var "render"}
-   {:namespace "re-frame.ui.test" :var "find"}])
+  [{:namespace "re-frame.fresco.overlay" :var "modal"}
+   {:namespace "re-frame.fresco.overlay" :var "popover"}
+   {:namespace "re-frame.fresco.forms"   :var "buffered-field"}
+   {:namespace "re-frame.fresco.forms"   :var "drafts"}])
 
 (deftest coverage-clean-when-every-eligible-var-has-a-member
   (testing "a namespace with a page whose member set covers every eligible var
             (bare or ns-qualified, both reduced to the bare name) reconciles clean"
     (is (empty? (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
-                   :members {"re-frame.ui"      #{"defview" "sub"}
-                             "re-frame.ui.test" #{"render" "find"}}
+                   :members {"re-frame.fresco.overlay" #{"modal" "popover"}
+                             "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
                    :exempt #{}})))))
 
 (deftest coverage-flags-a-namespace-with-no-page
@@ -123,28 +123,28 @@
             yields ONE :page-missing problem that subsumes its members"
     (let [probs (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
-                   :members {"re-frame.ui" #{"defview" "sub"}} ; ui.test page absent
+                   :members {"re-frame.fresco.overlay" #{"modal" "popover"}} ; forms page absent
                    :exempt #{}})]
-      (is (= [{:kind :page-missing :namespace "re-frame.ui.test"}] probs)))))
+      (is (= [{:kind :page-missing :namespace "re-frame.fresco.forms"}] probs)))))
 
 (deftest coverage-flags-a-member-whose-heading-was-removed
   (testing "deleting a member's heading (an eligible var not in its page's member
             set) turns the check RED — the teeth proof"
     (let [probs (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
-                   :members {"re-frame.ui"      #{"defview"} ; `sub` heading removed
-                             "re-frame.ui.test" #{"render" "find"}}
+                   :members {"re-frame.fresco.overlay" #{"modal"} ; `popover` heading removed
+                             "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
                    :exempt #{}})]
-      (is (= [{:kind :member-missing :namespace "re-frame.ui" :var "sub"}] probs)))))
+      (is (= [{:kind :member-missing :namespace "re-frame.fresco.overlay" :var "popover"}] probs)))))
 
 (deftest coverage-exempt-silences-a-facade-pointer-member
   (testing "an explicit :doc-api-coverage-exempt [namespace var] pair silences a
             member that is intentionally documented only as a facade pointer"
     (is (empty? (rf.api-manifest.doc-api-check/coverage-problems
                   {:eligible-rows cov-rows
-                   :members {"re-frame.ui"      #{"defview"}
-                             "re-frame.ui.test" #{"render" "find"}}
-                   :exempt #{["re-frame.ui" "sub"]}})))))
+                   :members {"re-frame.fresco.overlay" #{"modal"}
+                             "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
+                   :exempt #{["re-frame.fresco.overlay" "popover"]}})))))
 
 (deftest live-doc-api-coverage-reconciles-clean
   (testing "the committed manifest reconciles against docs/api/ with full page +

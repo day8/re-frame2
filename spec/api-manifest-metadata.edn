@@ -668,10 +668,7 @@
  ;; wholesale (it names removed old APIs by design — see
  ;; re-frame.api-manifest.skills-check).
  :skills-known-unmanifested
- #{"redact-interceptor"}  ; EP-0015 §7: not a public façade var — privacy is
-                          ; the registration-owned `:sensitive`
-                          ; classification + project-egress model. No
-                          ; checked skill names it in call position.
+ #{}
 
  ;; docs/core/ call-position `(rf/<var>` references the manifest does not
  ;; carry. Every entry here names a REMOVED API whose only legitimate guide
