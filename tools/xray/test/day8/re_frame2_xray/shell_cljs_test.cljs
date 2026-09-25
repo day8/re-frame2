@@ -1,24 +1,23 @@
 (ns day8.re-frame2-xray.shell-cljs-test
   "CLJS-side wiring + render tests for Xray's 4-layer-chrome shell
-  (rf2-xy4yb, per spec/018-Event-Spine.md §2 + §3 + §5).
+  (per spec/018-Event-Spine.md §2 + §3 + §5).
 
   ## Why this file exists
 
-  The 4-layer-chrome refactor replaced the legacy 16-panel sidebar
-  with four stacked regions: L1 ribbon, L2 event list, L3 tab bar,
-  L4 detail panel. The contracts this file asserts:
+  The shell is four stacked regions: L1 ribbon, L2 event list, L3 tab
+  bar, L4 detail panel. The contracts this file asserts:
 
     1. The shell mounts the four layers (`rf-xray-ribbon`,
        `rf-xray-event-list`, `rf-xray-tab-bar`, `rf-xray-detail-
-       panel-<tab>`) and the palette modal — and does NOT mount any
-       legacy sidebar or bottom rail.
+       panel-<tab>`) and the palette modal — and does NOT mount a
+       sidebar or bottom rail.
 
     2. The L1 ribbon carries four clusters in fixed order: nav,
        frame, filter pills, right icons. The REDACTED indicator
        sits inline next to the right-icons cluster when the
-       suppressed-sensitive count is positive. (Round-3 rf2-g9pee
-       dropped the explicit `● LIVE` / `◐ RETRO` mode pill — the
-       state is derivable, and Space / l / G preserve toggles.)
+       suppressed-sensitive count is positive. (There is no explicit
+       `● LIVE` / `◐ RETRO` mode pill — the state is derivable, and
+       Space / l / G toggle it.)
 
     3. The L3 tab bar renders one button per registered Dynamic tab
        (Epoch / app-db / Views / Trace / Machine / Routes / Resources /
@@ -29,25 +28,23 @@
        row dispatches `:rf.xray/focus-event` so the spine rebinds
        atomically per spec/018 §6.
 
-    5. The REDACTED indicator (rf2-azls9) preserves its render gate
+    5. The REDACTED indicator keeps its render gate
        `(pos? redacted-count)` and pluralises 'event' / 'events' in
-       the tooltip. Post-Round-3 (rf2-g9pee) the indicator sits next
-       to the right-icons cluster — the previous mode-pill neighbour
-       was dropped along with the pill itself.
+       the tooltip. It sits next to the right-icons cluster.
 
     6. The frame picker excludes `:rf/xray` (and other tool frames)
        per spec/018 §8 I1.
 
   ## Pure hiccup walk
 
-  Same approach as the original shell test — we walk the view's
-  hiccup tree by `data-testid` rather than mounting to a DOM."
+  We walk the view's hiccup tree by `data-testid` rather than
+  mounting to a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; rf2-k97c.3 — the codec's own hiccup->element door, so the
+            ;; The codec's own hiccup->element door, so the
             ;; L2 row key is graded by the SHIPPED renderer rather than by
             ;; reading the attribute map back.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -58,7 +55,7 @@
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
-            ;; rf2-lh98m — the nav boundary is graded against the REAL step
+            ;; The nav boundary is graded against the REAL step
             ;; reducer, not against a restatement of the boundary's own
             ;; arithmetic. That is the whole point of the comparison.
             [day8.re-frame2-xray.spine :as spine]
@@ -74,19 +71,17 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` clears the
-  ;; suppressed-count. (`trace-collector` is still required for the
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + the `:all`
+  ;; tier, which includes the trace-collector rings); `:post-reset` clears
+  ;; the suppressed-count. (`trace-collector` is required for the
   ;; `seed-trace-for-test!` seeding throughout this suite.)
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn [] (config/reset-suppressed-count!))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / find-by-testid / find-all-by-testid-prefix /
-;; find-all-by-testid copies were semantically identical to
-;; `re-frame.test-helpers` and alias straight through (rf2-vj80u8 — no Xray
-;; walker facade). `hiccup-seq` (depth-first nodes over the expanded tree) is
+;; `find-by-testid` / `find-all-by-testid` / `find-all-by-testid-prefix`
+;; alias `re-frame.test-helpers` straight through — there is no Xray
+;; walker facade. `hiccup-seq` (depth-first nodes over the expanded tree) is
 ;; not exposed by test-helpers, so it is kept as a thin wrapper over
 ;; `rf.test-helpers/expand-tree` for the `:option`-node filter below. `text-nodes` is left
 ;; bespoke: it collects STRING leaves only, whereas `rf.test-helpers/text-content` also
@@ -118,9 +113,9 @@
     (rf/dispatch-sync [:rf.xray/select-tab tab-id])))
 
 (defn- note-suppressed!
-  "Drive the redaction counter through the production reactive path
-  (rf2-0vxdn): one `:rf.xray/note-sensitive-suppressed` carries a task's
-  per-frame counts (rf2-p03xh). The one-arg form is a task holding a single
+  "Drive the redaction counter through the production reactive path:
+  one `:rf.xray/note-sensitive-suppressed` carries a task's
+  per-frame counts. The one-arg form is a task holding a single
   bump; `n` delivers a burst of `n` bumps from one task."
   ([frame-id] (note-suppressed! frame-id 1))
   ([frame-id n]
@@ -156,16 +151,16 @@
             "L2 event list present")
         (is (some? (find-by-testid tree "rf-xray-tab-bar"))
             "L3 tab bar present")
-        ;; default tab is :epoch (post rf2-5gl5r) → detail panel
+        ;; default tab is :epoch → detail panel
         ;; testid carries the tab name.
         (is (some? (find-by-testid tree "rf-xray-detail-panel-epoch"))
             "L4 detail panel present (default :epoch tab)")))))
 
 (deftest shell-root-carries-lens-mode-class
-  (testing "rf2-ad7zx.13 — the shell root carries the `mode-dynamic` /
+  (testing "the shell root carries the `mode-dynamic` /
             `mode-static` class driven by `:rf.xray/mode`. The class
-            still gates functional behaviour (motion / pulse dampening
-            in Static); post rf2-ad7zx.13 it no longer re-points
+            gates functional behaviour (motion / pulse dampening
+            in Static); it does not re-point
             `--rf-xray-accent` — the Figma export carries a SINGLE
             accent (GitHub blue) in both modes."
     (xray-setup!)
@@ -180,8 +175,8 @@
             "Static mode → mode-static root class")))))
 
 (deftest shell-no-longer-mounts-legacy-sidebar
-  (testing "spec/018 §2 'no L0' rewrite — the legacy sidebar is gone.
-            None of the historical sidebar-item testids may surface."
+  (testing "spec/018 §2 'no L0' — there is no sidebar.
+            No sidebar-item testid may surface."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
@@ -191,32 +186,28 @@
             "no bottom rail")))))
 
 ;; -------------------------------------------------------------------------
-;; (1b) rf2-uu3lp — every shell reg-view returns a DOM-rooted tree
+;; (1b) every shell reg-view returns a DOM-rooted tree
 ;; -------------------------------------------------------------------------
 ;;
-;; Before rf2-uu3lp the four shell views had non-DOM roots and the
-;; substrate emitted `:rf.warning/non-dom-root` (warn-once per id) on
-;; every step-deck testbed load:
+;; A non-DOM root makes the substrate emit `:rf.warning/non-dom-root`
+;; (warn-once per id) and leaves the source-coord wrapper no DOM node to
+;; annotate. The shapes that would trip it:
 ;;
-;;   - `shell-view`         → root was `rf/frame-provider` (fn component)
-;;   - `surface-composer`   → root was a fn-component head (`[dynamic-chrome]`)
-;;   - `dynamic-chrome`     → root was a React Fragment (`:<>`)
-;;   - `ribbon-theme-toggle` → plain `defn-` rendered under `:rf/xray`
-;;                              (frame leak: subscribe routed to `:rf/default`)
+;;   - `shell-view`         → rooting at `rf/frame-provider` (fn component)
+;;   - `surface-composer`   → rooting at a fn-component head (`[dynamic-chrome]`)
+;;   - `dynamic-chrome`     → rooting at a React Fragment (`:<>`)
 ;;
-;; This regression test asserts the FIX shape — each view's hiccup root
-;; is a keyword (DOM tag), so the source-coord wrapper has a real DOM
-;; node to annotate. `ribbon-theme-toggle` is now `reg-view`-registered
-;; so its surrounding `:rf/xray` frame-provider reaches its subscribe
-;; through React-context (no more plain-fn frame leak).
+;; This test asserts each view's hiccup root is a keyword (DOM tag).
+;; `ribbon-theme-toggle` is view-registered so its surrounding `:rf/xray`
+;; frame-provider reaches its subscribe through React-context; a plain fn
+;; rendered there would route its subscribe to `:rf/default`.
 
 (deftest shell-views-have-dom-rooted-hiccup
-  (testing "rf2-uu3lp — every shell-level reg-view returns a keyword-
+  (testing "every shell-level reg-view returns a keyword-
             headed (DOM) hiccup tree so the source-coord annotation
             walk has a DOM node to land on. Non-DOM roots (function
             components, Fragments) emit a one-shot warning per Spec
-            006 §Documented exemption — the four shell views below
-            previously triggered it."
+            006 §Documented exemption."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [shell-tree (dynamic-shell-tree/shell-view-tree)]
@@ -236,21 +227,19 @@
                  (pr-str (first chrome-tree))))))))
 
 (deftest ribbon-theme-toggle-is-view-registered
-  (testing "rf2-uu3lp — the theme toggle's `:theme` setting lives in
-            `:rf/xray`, so its read + dispatch must route to that frame.
-            As a plain `defn` it was leaking subscribes into
+  (testing "the theme toggle's `:theme` setting lives in
+            `:rf/xray`, so its read + dispatch must route to that frame;
+            as a plain `defn` it would leak subscribes into
             `:rf/default`.
 
-            rf2-k97c.3 — it is an `rf.fresco/defview` now rather than an
-            `rf/reg-view`, which is a STRONGER guarantee of the same
-            thing: a boundary DECLARES its frame, so an ambient read
-            inside its body is a loud refusal rather than a silent
-            fall-through to `:rf/default`. The registry entry survives
-            the change and is what this row asserts — `defview` publishes
-            one under `(keyword \"<ns>\" \"<sym>\")`, the id `reg-view`
-            derives from its own symbol, so `(rf/view id)` answers a
-            boundary exactly as it answered the `reg-view`. The entry is
-            debug-gated, which the node lane satisfies."
+            It is an `rf.fresco/defview`: a boundary DECLARES its frame,
+            so an ambient read inside its body is a loud refusal rather
+            than a silent fall-through to `:rf/default`. `defview`
+            publishes a registry entry under `(keyword \"<ns>\" \"<sym>\")`,
+            the same id `reg-view` derives from its own symbol, so
+            `(rf/view id)` answers the boundary — which is what this row
+            asserts. The entry is debug-gated, which the node lane
+            satisfies."
     (xray-setup!)
     (is (some? (rf/view ::shell/ribbon-theme-toggle))
         "ribbon-theme-toggle is registered under its namespaced id")))
@@ -260,7 +249,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest ribbon-mounts-all-clusters-across-two-strata
-  (testing "rf2-3f2di A5 — the top of the shell is TWO strata. The chrome
+  (testing "the top of the shell is TWO strata. The chrome
             ribbon (bar-1) carries the nav cluster + Frame + Dynamic/Static
             selectors + right-icons; the events ribbon (bar-2) carries the
             committed filter pills. All clusters mount somewhere in the
@@ -269,24 +258,22 @@
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-ribbon-nav"))
-            "nav cluster present (now in the chrome ribbon, bar-1)")
+            "nav cluster present (in the chrome ribbon, bar-1)")
         (is (or (find-by-testid tree "rf-xray-ribbon-frame")
                 (find-by-testid tree "rf-xray-ribbon-frame-picker"))
             "frame selector present (label or dropdown) in the chrome ribbon")
         (is (some? (find-by-testid tree "rf-xray-mode-pill"))
             "Dynamic/Static mode dropdown present in the chrome ribbon")
         (is (some? (find-by-testid tree "rf-xray-ribbon-filters"))
-            "committed filter cluster present (now in the events ribbon, bar-2)")
+            "committed filter cluster present (in the events ribbon, bar-2)")
         (is (some? (find-by-testid tree "rf-xray-ribbon-icons"))
             "right-icons cluster present in the chrome ribbon")))))
 
 (deftest ribbon-mounts-visible-popout-button
-  (testing "rf2-czcg5 — the second-window UX has landed, so the
-            right-icons cluster now mounts a VISIBLE `⛶` pop-out button
+  (testing "the right-icons cluster mounts a VISIBLE `⛶` pop-out button
             (the canonical chrome launch per spec/011-Launch-Modes.md)
-            alongside Settings + Close. The prior rf2-u3qm1 'omit the
-            broken-claim button' posture is superseded — the button is
-            now backed by `:rf.xray/popout-shell` → `mount/popout!`."
+            alongside Settings + Close, backed by `:rf.xray/popout-shell`
+            → `mount/popout!`."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree   (dynamic-shell-tree/shell-view-tree)
@@ -303,7 +290,7 @@
             "no `stubbed` copy — the button is a real affordance")))))
 
 (deftest popout-icon-dispatches-popout-shell
-  (testing "rf2-czcg5 — the chrome `⛶` button dispatches the
+  (testing "the chrome `⛶` button dispatches the
             `:rf.xray/popout-shell` event (which lowers to mount/popout!
             via the :rf.xray.fx/popout-shell bridge); it does NOT call
             mount directly — mirrors the close-icon → close-shell shape."
@@ -322,35 +309,33 @@
           "`⛶` click dispatches :rf.xray/popout-shell"))))
 
 ;; -------------------------------------------------------------------------
-;; (2b) Two-ribbon redesign — chrome ribbon + events ribbon (rf2-4vp5j)
+;; (2b) Two ribbons — chrome ribbon + events ribbon
 ;; -------------------------------------------------------------------------
 
 (deftest chrome-ribbon-carries-events-nav-filters-and-selectors
-  (testing "rf2-3f2di A4/A5 — reconciled to the authority reference
-            chrome-ribbon. The chrome ribbon (rf-xray-ribbon) now leads
-            with the `Events` label, then the nav cluster + the add(+) on
-            the left, and carries the Frame + Dynamic/Static selectors +
-            the right-icons cluster on the right. The committed filter
-            pills moved DOWN to the events ribbon (bar-2). rf2-pjjwh
-            retired the focus button + chip."
+  (testing "the chrome ribbon (rf-xray-ribbon) matches the authority
+            reference chrome-ribbon: it leads with the `Event History`
+            label, then the nav cluster + the add(+) on the left, and
+            carries the Frame + Dynamic/Static selectors + the
+            right-icons cluster on the right. The committed filter pills
+            live on the events ribbon (bar-2)."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [ribbon (dynamic-shell-tree/ribbon-tree)]
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-selectors"))
             "left cluster present")
-        ;; A4 — the `Events` label leads the left cluster (the `❖ Xray`
-        ;; wordmark was dropped).
+        ;; The `Event History` label leads the left cluster; there is no
+        ;; `❖ Xray` wordmark.
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-events-label"))
-            "`Events` label leads the chrome ribbon")
+            "`Event History` label leads the chrome ribbon")
         (is (nil? (find-by-testid ribbon "rf-xray-ribbon-logo"))
-            "the `❖ Xray` wordmark is GONE (A4)")
-        ;; A2/A5 — the nav cluster + add affordance now live in the chrome
-        ;; ribbon. rf2-xawwb — the prior `Filters:` label + plus-icon is
-        ;; replaced by the single `+ filter` text button (same testid).
+            "there is no `❖ Xray` wordmark")
+        ;; The nav cluster + add affordance live in the chrome ribbon; the
+        ;; add affordance is the single `+ filter` text button.
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-nav"))
-            "nav cluster IS in the chrome ribbon (A5)")
+            "nav cluster IS in the chrome ribbon")
         (is (some? (find-by-testid ribbon "rf-xray-filter-add"))
-            "the `+ filter` add affordance is in the chrome ribbon (rf2-xawwb)")
+            "the `+ filter` add affordance is in the chrome ribbon")
         ;; right cluster — scope selectors + icons.
         (is (or (find-by-testid ribbon "rf-xray-ribbon-frame")
                 (find-by-testid ribbon "rf-xray-ribbon-frame-picker"))
@@ -365,9 +350,8 @@
             "committed filter pills are NOT in the chrome ribbon")))))
 
 (deftest chrome-ribbon-leads-with-events-label-not-logo
-  (testing "rf2-xawwb — the chrome ribbon's LEFT cluster opens with an
-            `Event History` label (Figma-Make surface renamed `Events` →
-            `Event History`); the `❖ Xray` wordmark was DROPPED. The
+  (testing "the chrome ribbon's LEFT cluster opens with an
+            `Event History` label; there is no `❖ Xray` wordmark. The
             label renders inside the left cluster, ahead of the nav
             cluster."
     (xray-setup!)
@@ -378,19 +362,16 @@
         (is (some? label) "the `Event History` label renders in the chrome ribbon")
         (is (some? selectors) "the left cluster is present")
         (is (re-find #"Event History" (text-nodes label))
-            "the label text reads `Event History` (rf2-xawwb)")
+            "the label text reads `Event History`")
         (is (nil? (find-by-testid ribbon "rf-xray-ribbon-logo"))
-            "the `❖ Xray` wordmark is gone (A4)")
+            "there is no `❖ Xray` wordmark")
         (is (not (re-find #"❖" (text-nodes ribbon)))
             "no diamond `❖` glyph anywhere in the chrome ribbon")))))
 
 (deftest chrome-ribbon-has-no-left-edge-stripe
-  (testing "rf2-4yemd — the chrome ribbon must NOT paint a left-edge
-            accent stripe. The prior `rf2-o5f5f.1 mode-signal mechanism
-            #2` (a 2-px `:accent` `border-left`) was retired to match the
-            Figma authority chrome (no left-edge accent on the ribbon);
-            this is also the fix for the `blue left edge on chrome ribbon`
-            observed live 2026-05-24."
+  (testing "the chrome ribbon must NOT paint a left-edge accent stripe
+            (a 2-px `:accent` `border-left`): the Figma authority chrome
+            has no left-edge accent on the ribbon."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [ribbon (dynamic-shell-tree/ribbon-tree)
@@ -401,11 +382,11 @@
             "chrome ribbon root has no :border-left in its inline style")))))
 
 (deftest chrome-ribbon-left-cluster-does-not-wrap
-  (testing "rf2-axpq2 — the chrome ribbon's LEFT cluster must NOT carry
+  (testing "the chrome ribbon's LEFT cluster must NOT carry
             `:flex-wrap \"wrap\"`. At narrow viewports (~420px) wrapping
-            pushed the [+] add-pill (the cluster's last child) onto a
-            second line that overflowed the fixed 34px ribbon height,
-            where it was vertically occluded by the events-ribbon below
+            would push the [+] add-pill (the cluster's last child) onto a
+            second line that overflows the fixed 34px ribbon height,
+            where it is vertically occluded by the events-ribbon below
             and click-blocked. The Figma authority chrome-ribbon does NOT
             wrap (`design-reference/xray_devtools_reference.cljs`
             `chrome-ribbon` uses plain non-wrapping flex), so the LEFT
@@ -419,7 +400,7 @@
         (is (some? selectors)
             "the LEFT cluster (rf-xray-ribbon-selectors) renders")
         (is (not= "wrap" (:flex-wrap style))
-            "the LEFT cluster must NOT wrap (rf2-axpq2) — `wrap` pushes the [+] add-pill into an occluded second row at narrow viewports")
+            "the LEFT cluster must NOT wrap — `wrap` pushes the [+] add-pill into an occluded second row at narrow viewports")
         ;; positive assertion: nowrap is explicit so future edits that drop
         ;; the prop entirely also stay safe (flex's default is nowrap, but
         ;; making it explicit documents the intent + survives lint sweeps
@@ -434,10 +415,10 @@
             "the [+] add-pill is nested INSIDE the LEFT cluster (so the nowrap covers it)")))))
 
 (deftest events-ribbon-carries-warning-and-committed-pills
-  (testing "rf2-3f2di A5/A6 — reconciled to the authority reference
-            events-ribbon (bar-2). It carries the `N events filtered out`
+  (testing "the events ribbon (bar-2) matches the authority reference
+            events-ribbon: it carries the `N events filtered out`
             warning + the committed green/red filter pills. The nav
-            cluster + add(+) moved UP to the chrome ribbon (bar-1)."
+            cluster + add(+) live on the chrome ribbon (bar-1)."
     (xray-setup!)
     ;; one filtered-out event so the warning + a pill render. Raw
     ;; collect-trace! maps (matching the neighbouring filter tests) so the
@@ -452,22 +433,22 @@
       (let [tree   (dynamic-shell-tree/shell-view-tree)
             ribbon (find-by-testid tree "rf-xray-events-ribbon")]
         (is (some? ribbon) "events ribbon mounts as its own stratum")
-        ;; A6 — the committed pills cluster lives here.
+        ;; The committed pills cluster lives here.
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-filters"))
             "committed filter pills present in the events ribbon")
-        ;; A5 — the nav cluster + add(+) are NOT here (moved to bar-1).
+        ;; The nav cluster + add(+) are NOT here (they live on bar-1).
         (is (nil? (find-by-testid ribbon "rf-xray-ribbon-nav"))
-            "nav cluster is NOT in the events ribbon (moved to bar-1)")
+            "nav cluster is NOT in the events ribbon (it lives on bar-1)")
         (is (nil? (find-by-testid ribbon "rf-xray-filter-add"))
-            "the add(+) is NOT in the events ribbon (moved to bar-1)")
+            "the add(+) is NOT in the events ribbon (it lives on bar-1)")
         ;; the bar-2 warning reads `N events filtered out`.
         (is (re-find #"filtered out" (text-nodes ribbon))
             "the `N events filtered out` warning renders on bar-2")))))
 
 (deftest events-ribbon-hidden-when-no-filters
-  (testing "rf2-pjjwh — with no filters the `filters:` ribbon is collapsed
+  (testing "with no filters the `filters:` ribbon is collapsed
             (data-open=false on the collapse track) and carries no action
-            cluster / warning. Clear Filters is retired entirely."
+            cluster / warning. There is no Clear Filters button."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
@@ -480,12 +461,12 @@
         (is (nil? (find-by-testid tree "rf-xray-events-ribbon-actions"))
             "no action cluster when no filter is active")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "no Clear Filters button (retired)")
+            "no Clear Filters button")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
             "no N-hidden message when no filter is active")))))
 
 (deftest events-ribbon-opens-when-first-filter-added
-  (testing "rf2-pjjwh — the `filters:` ribbon animates OPEN once the first
+  (testing "the `filters:` ribbon animates OPEN once the first
             filter is created. The collapse track flips data-open
             false → true; the pills cluster carries the new pill."
     (xray-setup!)
@@ -508,9 +489,9 @@
             "the committed-pills cluster carries the new pill")))))
 
 (deftest events-ribbon-warning-without-clear-filters-when-filter-active
-  (testing "rf2-pjjwh — when a filter is active the `N events filtered
-            out` warning appears (when N>0), but the `Clear Filters`
-            button is RETIRED. The collapse track opens (data-open=true)."
+  (testing "when a filter is active the `N events filtered
+            out` warning appears (when N>0), but there is no `Clear
+            Filters` button. The collapse track opens (data-open=true)."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
@@ -528,14 +509,14 @@
         (is (some? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
             "N-hidden message present (the OUT pill hides 1 row → N>0)")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "Clear Filters button is RETIRED (rf2-pjjwh)")
+            "there is no Clear Filters button")
         (is (not (re-find #"Clear Filters" (text-nodes tree)))
             "no `Clear Filters` copy anywhere in the shell")))))
 
-;; ---- rf2-8zd80 — chrome `+ filter` ⇄ events-ribbon mutual exclusion ----
+;; ---- chrome `+ filter` ⇄ events-ribbon mutual exclusion ----------------
 
 (deftest chrome-add-filter-button-open-when-no-filters
-  (testing "rf2-8zd80 — with zero filters the events-ribbon is hidden,
+  (testing "with zero filters the events-ribbon is hidden,
             so the chrome ribbon's `+ filter` button is the SOLE add
             affordance and its horizontal collapse track is OPEN
             (data-open=true). The button itself stays in the tree
@@ -556,7 +537,7 @@
             "the chrome `+ filter` button stays mounted (only the track collapses)")))))
 
 (deftest chrome-add-filter-button-collapsed-when-events-ribbon-visible
-  (testing "rf2-8zd80 — once ≥1 filter is committed the events-ribbon's
+  (testing "once ≥1 filter is committed the events-ribbon's
             own `[+]` icon takes over as the add affordance, so the
             chrome `+ filter` is REDUNDANT and its horizontal collapse
             track flips closed (data-open=false). The events-ribbon's
@@ -581,7 +562,7 @@
             "the events-ribbon's own `[+]` add affordance remains available")))))
 
 (deftest chrome-add-filter-track-reopens-when-last-filter-removed
-  (testing "rf2-8zd80 — the mutual-exclusion is symmetric: removing the
+  (testing "the mutual-exclusion is symmetric: removing the
             last filter closes the events-ribbon and re-opens the chrome
             `+ filter` track so the add affordance is never lost in either
             transition."
@@ -602,8 +583,8 @@
             "events-ribbon re-closes after the last filter is removed")))))
 
 (deftest close-icon-dispatches-close-shell
-  (testing "rf2-4vp5j Workstream A — the chrome ribbon `✕` dispatches the
-            existing `:rf.xray/close-shell` event (landed by rf2-fq491);
+  (testing "the chrome ribbon `✕` dispatches the
+            `:rf.xray/close-shell` event;
             it does NOT reimplement the hide logic."
     (xray-setup!)
     (let [dispatches (atom [])]
@@ -620,7 +601,7 @@
           "`✕` click dispatches :rf.xray/close-shell"))))
 
 (deftest mode-dropdown-change-dispatches-set-mode
-  (testing "rf2-4vp5j Workstream A — selecting Static in the mode
+  (testing "selecting Static in the mode
             dropdown dispatches `:rf.xray/set-mode :static`."
     (xray-setup!)
     (let [dispatches (atom [])]
@@ -642,7 +623,7 @@
   (testing "spec/018 §3 — ribbon `◀ ▶ ⏭` dispatch focus-cascade-prev /
             -next / follow-head. Driven in RETRO (focus pinned to an
             older row) so ⏭ is ENABLED — it's the way back to head
-            (rf2-x5tro disables ⏭ only at-head? + live?)."
+            (⏭ is disabled only at-head? + live?)."
     (xray-setup!)
     ;; Two events + pin focus to the older one ⟹ RETRO, ⏭ enabled.
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event
@@ -681,38 +662,21 @@
   hand-maintained mirror of the registry, not a read of it: the point
   of the assertions below is to fail when a tab is added or removed
   without the shell test noticing, which a live read could not do.
-  It drifted to a stale seven exactly that way (rf2-gui26) — the
-  three newest tabs shipped while this whitelist silently filtered
-  them out of its own count. Re-derive from `focus.cljc`
-  `valid-panels` when you touch it.
+  Re-derive from `focus.cljc` `valid-panels` when you touch it.
 
-  (Routing promoted to its own L3 tab per rf2-nrbs9). rf2-5gl5r retired the
-  Event/Handler tab in favour of the Epoch panel — `:epoch` now
-  occupies the leftmost position (the same default-landing slot the
-  prior `:event` tab held). rf2-gbz39 removed the Issues tab (Mike
-  RULED Option (c) — issues surface inline in the Epoch + the L2
-  event-row pink-wash + the always-on issues ribbon signal; the
-  session-wide aggregate triage list was consciously dropped).
-  (rf2-4v67l — Chrome A11y was removed in favour of Story's already-
-  shipped chrome-a11y dogfood per rf2-18t6p; a11y dogfooding is
-  properly Story's domain. rf2-ga16q — the Machines Canvas tab was
-  removed; its spine-INDEPENDENT browse-all canvas relocated to the
-  Static Machines sub-tab. Resources — Spec 016 §Xray and AI tooling —
-  earns its own L3 tab after Routing per Mike's cohesive-sub-domain
-  ruling. rf2-9ett2d added Graph per EP-0014; rf2-wtg9z4 added Frames
-  per EP-0013; rf2-hic-023 added Fresco.)"
+  `:epoch` occupies the leftmost, default-landing position. Issues
+  surface inline in the Epoch panel + the L2 event-row pink-wash + the
+  always-on issues ribbon signal rather than in a tab of their own. The
+  spine-INDEPENDENT browse-all machine canvas lives in the Static
+  Machines sub-tab. Resources (Spec 016 §Xray and AI tooling) has its
+  own L3 tab after Routing; Graph is per EP-0014 and Frames per EP-0013."
   [:epoch :app-db :views :trace :machines :routing :resources
    :derivation-graph :module-view :fresco])
 
 (deftest tab-bar-renders-every-registered-dynamic-tab
   (testing "spec/018 §5 — Epoch / app-db / Views / Trace / Machine /
-            Routes / Resources / Graph / Frames / Fresco (Epoch
-            supersedes the retired Event/Handler tab per rf2-5gl5r;
-            rf2-gbz39 removed the Issues tab per Option (c)). rf2-4v67l
-            removed the Chrome A11y dogfood in favour of Story's
-            shipped panel; rf2-ga16q removed the Machines Canvas tab
-            (relocated to Static); Resources added per Spec 016; Graph
-            / Frames / Fresco per EP-0014 / EP-0013 / rf2-hic-023."
+            Routes / Resources / Graph / Frames / Fresco (Resources per
+            Spec 016; Graph / Frames per EP-0014 / EP-0013)."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree     (dynamic-shell-tree/shell-view-tree)
@@ -737,13 +701,11 @@
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-xray-tab-" (name tab-id))))
               (str "tab button for " tab-id)))
-        ;; ADVERSARIAL — the negative half, and the one that was missing.
-        ;; The prior assertion counted only buttons already named in
-        ;; `expected-tab-ids`, so the count was computed from the
-        ;; whitelist and could never disagree with it: a tab REGISTERED
-        ;; but not whitelisted was filtered out before it was counted.
-        ;; Three shipped that way (Graph / Frames / Fresco) and this
-        ;; deftest stayed green throughout (rf2-gui26). Comparing the
+        ;; ADVERSARIAL — the negative half. A count taken only over
+        ;; buttons already named in `expected-tab-ids` is computed from
+        ;; the whitelist and can never disagree with it: a tab REGISTERED
+        ;; but not whitelisted would be filtered out before it was
+        ;; counted. Comparing the
         ;; rendered set against the expected set fails in BOTH
         ;; directions — a tab dropped from the bar, and a tab added to
         ;; the registry that nobody taught this suite about.
@@ -755,14 +717,14 @@
                  (pr-str (sort (remove rendered (set expected-tab-ids))))))))))
 
 (deftest tab-bar-uses-tablist-aria-pattern
-  (testing "rf2-lvf8t (rf2-q7who Thread B) — the L3 tab strip uses the
+  (testing "the L3 tab strip uses the
             proper ARIA tab pattern: a generic container with
             role='tablist', per-tab buttons with role='tab' and
-            aria-selected matching the active tab. The previous
-            wrapping <nav> element was wrong (tabs aren't site
-            navigation) AND collided with host-app `<nav>` landmarks
-            under Playwright's `getByRole('navigation')` strict-mode
-            lookups when Xray was embedded in Story."
+            aria-selected matching the active tab. A wrapping <nav>
+            element would be wrong (tabs aren't site navigation) AND
+            would collide with host-app `<nav>` landmarks under
+            Playwright's `getByRole('navigation')` strict-mode lookups
+            when Xray is embedded in Story."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree   (dynamic-shell-tree/shell-view-tree)
@@ -777,8 +739,7 @@
         (is (string? (:aria-label attrs))
             "aria-label present so the tablist has an accessible name"))
       ;; Per-tab ARIA: role='tab' on every button, aria-selected matching
-      ;; the active state. The active tab is the default :epoch
-      ;; (post rf2-5gl5r — previously :event).
+      ;; the active state. The active tab is the default :epoch.
       (let [tree (dynamic-shell-tree/shell-view-tree)]
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
@@ -804,7 +765,7 @@
                      " aria-selected reflects the new active tab"))))))))
 
 (deftest tab-bar-is-rounded-top-dark-tabs
-  (testing "rf2-xawwb — the L3 tab strip renders as ROUNDED-TOP folder
+  (testing "the L3 tab strip renders as ROUNDED-TOP folder
             tabs on the DARK tabs ribbon (Figma-Make surface), NOT
             underline tabs and NOT radio-circle glyphs. Each tab is a
             borderless `<button>` with `border-radius 4px 4px 0 0`; the
@@ -826,7 +787,7 @@
             (is (not (re-find #"[◉○●]" txt))
                 (str "tab " tab-id " carries no radio-circle glyph"))))
         ;; (b) Every tab is a `<button>` with rounded-TOP corners (folder
-        ;; tab), not the prior square underline tab.
+        ;; tab), not a square underline tab.
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
                 style (:style (second btn))]
@@ -834,7 +795,7 @@
                 (str "tab " tab-id " is a <button>"))
             (is (= rounded-top (:border-radius style))
                 (str "tab " tab-id " has rounded-top corners (4px 4px 0 0)"))))
-        ;; (c) The ACTIVE tab (default :epoch — post rf2-5gl5r)
+        ;; (c) The ACTIVE tab (default :epoch)
         ;; carries the light fill + dark ink (the folder tab lifting
         ;; onto the panel below).
         (let [active (find-by-testid tree "rf-xray-tab-epoch")
@@ -887,7 +848,7 @@
             changes. Verified via the panel's testid which carries
             the selected tab name."
     (xray-setup!)
-    ;; default tab → :epoch (post rf2-5gl5r — supersedes :event)
+    ;; default tab → :epoch
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-detail-panel-epoch"))
@@ -900,8 +861,7 @@
             "detail panel rebinds to :app-db after select-tab")
         (is (nil? (find-by-testid tree "rf-xray-detail-panel-epoch"))
             "previous panel testid is gone")))
-    ;; flip to :machines (rf2-gbz39 — the Issues tab was removed under
-    ;; Option (c); flip to another real tab to pin the rebind)
+    ;; flip to :machines to pin the rebind on a second tab
     (select-tab! :machines)
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
@@ -909,7 +869,7 @@
             "detail panel rebinds to :machines")))))
 
 (deftest detail-panel-cross-fade-wrapper-carries-fade-in-animation
-  (testing "rf2-5kfxe.3 — the inner wrapper around the case-switch
+  (testing "the inner wrapper around the case-switch
             carries an `rf-xray-fade-in` :animation prop. The
             wrapper's `:key selected` makes Reagent re-mount it on tab
             change, which auto-plays the keyframes."
@@ -932,32 +892,30 @@
 (def ^:private expected-detail-fn
   "Authoritative tab-id → Panel-fn mapping. Mirrors the case-switch in
   `shell/detail-panel`. The `:views` tab key routes to the Reactive
-  panel (rf2-wyvf2 · display label rebased to 'Reactive' per spec/021
-  §11.5; tab key unchanged). The Routing tab routes to the lens panel
-  per rf2-nrbs9 — promoted from 'lives in App-db + Trace'. The
-  `:epoch` tab supersedes the retired `:event` tab post rf2-5gl5r
-  (Epoch panel is the canonical 'what happened in this epoch' surface)."
+  panel (display label 'Reactive' per spec/021 §11.5; the tab key
+  stays `:views`). The Routing tab routes to the lens panel. The
+  `:epoch` tab routes to the Epoch panel, the canonical 'what happened
+  in this epoch' surface."
   {:epoch           epoch-panel/Panel-bridge
-   ;; rf2-k97c.3 — the app-db and Views panels' roots are now Fresco
-   ;; boundaries (React function components); `reg-l4-tab!` stores the
-   ;; `as-component` BRIDGE, which is what `detail-panel` mounts as a
-   ;; hiccup head. The routing entry stays `Panel` because that slice
-   ;; kept the natural name ON the bridge (the divergence the mayor
-   ;; ruled on 2026-09-10; step 3 converges both onto this spelling).
+   ;; The app-db and Views panels' roots are Fresco boundaries (React
+   ;; function components); `reg-l4-tab!` stores the `as-component`
+   ;; BRIDGE, which is what `detail-panel` mounts as a hiccup head. The
+   ;; routing entry is `Panel` because the routing panel carries the
+   ;; natural name ON the bridge.
    :app-db          app-db-diff/Panel-bridge
    :views           reactive-panel/Panel-bridge
-   ;; rf2-fcy5 slice 3 — the Trace panel's root is a Fresco boundary now
-   ;; too, so `reg-l4-tab!` stores its `as-component` bridge.
+   ;; The Trace panel's root is a Fresco boundary too, so `reg-l4-tab!`
+   ;; stores its `as-component` bridge.
    :trace           trace/Panel-bridge
-   ;; rf2-k97c.3 — the Epoch and Machine-inspector roots are boundaries
-   ;; now too, so `:epoch` above and `:machines` below store their bridges.
+   ;; The Epoch and Machine-inspector roots are boundaries too, so
+   ;; `:epoch` above and `:machines` below store their bridges.
    :machines        machine-inspector/Panel-bridge
    :routing         routing/Panel})
 
 (deftest detail-panel-routes-each-tab-to-its-view-fn
   (testing "spec/018 §5 — each tab routes to the expected Panel fn.
             The outer panel <div> wraps an inner cross-fade <div>
-            (rf2-5kfxe.3) whose last child is the routed Panel vector."
+            whose last child is the routed Panel vector."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (doseq [[tab-id expected-fn] expected-detail-fn]
@@ -965,7 +923,7 @@
         (let [rendered (dynamic-shell-tree/detail-panel-tree)
               ;; outer = [:div {outer-style} fade-wrapper]
               ;; fade-wrapper = [:div {fade-style} [Panel-fn]]
-              ;; rf2-5kfxe.3 — peel one extra level to reach the Panel.
+              ;; peel one extra level to reach the Panel.
               wrapper  (last rendered)
               child    (last wrapper)]
           (is (vector? rendered)
@@ -992,9 +950,9 @@
 
 (defn- run-end-trace-ev
   "A `:rf.event/run-end` trace event carrying the handler duration under
-  `:rf.event/elapsed-ms`, the key the producer stamps (rf2-3x7nj.22.5),
+  `:rf.event/elapsed-ms`, the key the producer stamps,
   bucketed into the cascade's `:handler` slot by `group-by-event`. Used
-  to drive the L2 row's trailing `duration` column (rf2-lnod7)."
+  to drive the L2 row's trailing `duration` column."
   [id duration-ms]
   {:id           (+ id 1000)
    :op-type      :rf.event
@@ -1023,14 +981,12 @@
         (is (= 2 (count rows))
             "one row per cascade")))))
 
-;; ---- the L2 row key, graded at the renderer (rf2-k97c.3) -----------------
+;; ---- the L2 row key, graded at the renderer ------------------------------
 ;;
-;; `event-row` used to be a hiccup HEAD, so the React key rode the `:key`
-;; slot of the opts map at `event-list`'s call site and React read it off
-;; the head's props. Fresco grades a plain fn in head position a loud
-;; error, so `event-list-tree` CALLS it — the opts map is now an ordinary
-;; argument React never sees, and the key moved one level down into the
-;; `<li>` the fn returns.
+;; Fresco grades a plain fn in head position a loud error, so
+;; `event-list-tree` CALLS `event-row` rather than using it as a hiccup
+;; HEAD. The opts map is therefore an ordinary argument React never sees,
+;; and the key lives one level down, on the `<li>` the fn returns.
 ;;
 ;; A LOST KEY DOES NOT FAIL, IT DEGRADES into index-based reconciliation,
 ;; which paints identically and corrupts row identity only once the list
@@ -1049,8 +1005,8 @@
 
 (defn- reagent-row-key
   "The key Reagent hands React. It reads metadata AND props, so it cannot
-  see the defect alone; it pins the move as a no-op under the substrate
-  Xray ships on today."
+  see the defect alone; it pins the key under the substrate Xray ships
+  on."
   [node]
   (.-key (r/as-element (subvec node 0 2))))
 
@@ -1061,9 +1017,9 @@
   (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
 
 (deftest l2-rows-reach-react-with-a-key-on-both-renderers
-  (testing "rf2-k97c.3 — every L2 row's React key survives `event-row`
-            becoming a CALL. Graded at both renderers: Reagent's answer
-            pins today's behaviour, and the codec's is the one that can
+  (testing "every L2 row reaches React with a key although `event-row`
+            is a CALL. Graded at both renderers: Reagent's answer pins
+            the shipped substrate's behaviour, and the codec's is the one that can
             see the key go missing, because it reads the attribute map
             and Clojure metadata nowhere.
 
@@ -1094,12 +1050,10 @@
                  (pr-str (mapv fresco-row-key rows))))))))
 
 (deftest event-list-renders-figma-column-header
-  (testing "rf2-ad7zx.12 + rf2-lnod7 — the L2 list carries the Figma
+  (testing "the L2 list carries the Figma
             EventList column-header row naming ALL FOUR columns (source ·
-            event id · timestamp · duration) above the rows. It was
-            MISSING pre-Figma (Mike: 'does not match the Figma mock') and
-            the `duration` column was clipped off the right edge until the
-            gap audit (rf2-4297k). Rendered only with rows present."
+            event id · timestamp · duration) above the rows. Rendered
+            only with rows present."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
@@ -1113,7 +1067,7 @@
         (is (some? (find-by-testid tree "rf-xray-event-list-col-timestamp"))
             "the `timestamp` column label is present")
         (is (some? (find-by-testid tree "rf-xray-event-list-col-duration"))
-            "the `duration` column label is present (rf2-lnod7)")
+            "the `duration` column label is present")
         (is (re-find #"duration"
                      (text-nodes (find-by-testid
                                    tree "rf-xray-event-list-col-duration")))
@@ -1125,20 +1079,18 @@
   (get-in node [1 :style]))
 
 (deftest event-list-header-shares-row-column-layout
-  (testing "rf2-ad7zx.15 — the column-header row and the data rows share
+  (testing "the column-header row and the data rows share
             ONE column structure (per design-reference/xray_devtools_reference.cljs,
             the event-list component). The header's `event id` / `source` /
             `timestamp` columns MUST sit directly above the rows' columns,
             so the header cells and the row cells reference the same fixed
             widths and the containers share the same flex gap + horizontal
-            padding. rf2-pjjwh retired the leading focus-gutter (and its
-            header spacer) per the Figma mock."
+            padding. Neither carries a leading focus-gutter, per the
+            Figma mock."
     (xray-setup!)
     ;; A cascade with a dispatched-time so the row renders its trailing
     ;; relative-time chip (the column the header's `timestamp` aligns to),
-    ;; and an :after-timer source (post-rf2-1ve9h — collapsed from the
-    ;; prior `:rf/dispatch-origin :timer`) so the `source` column tag
-    ;; renders.
+    ;; and an :after-timer source so the `source` column tag renders.
     (trace-collector/seed-trace-for-test!
       (-> (dispatch-trace-ev 1 [:poll/tick])
           (assoc :time 1000)
@@ -1161,9 +1113,9 @@
         (is (some? row)         "the :after-timer data row renders")
         (is (some? r-source)    "the row's source-tag cell renders")
         (is (some? r-time)      "the row's time chip renders (it carries :time)")
-        ;; rf2-pjjwh — no leading focus gutter on either surface.
+        ;; no leading focus gutter on either surface.
         (is (empty? (find-all-by-testid-prefix tree "rf-xray-row-gutter-"))
-            "no row gutter (the focus gutter was retired)")
+            "no row focus gutter")
         ;; SOURCE column — header label width == row tag width
         (is (= (:width (style-of h-source))
                (:width (style-of r-source)))
@@ -1174,9 +1126,9 @@
             "header `event id` column and row event-id both flex-grow")
         ;; TIMESTAMP / time column — header label width == chip width,
         ;; both right-aligned, so the timestamp header sits over the chip.
-        ;; rf2-6ni62 moved this column to an explicit `:width` (user-
-        ;; resizable, no longer a min-width slot); header + row both read
-        ;; from the same `:rf.xray/event-list-col-widths` sub.
+        ;; This column carries an explicit, user-resizable `:width`;
+        ;; header + row both read from the same
+        ;; `:rf.xray/event-list-col-widths` sub.
         (is (= (:width (style-of h-timestamp))
                (:width (style-of r-time)))
             "header `timestamp` width == row time-chip width")
@@ -1184,8 +1136,8 @@
                (:text-align (style-of h-timestamp))
                (:text-align (style-of r-time)))
             "header timestamp and row time chip both right-align")
-        ;; the chip carries NO extra margin-left (it used to push the chip
-        ;; 4px past the header column — the shared flex gap is the spacing)
+        ;; the chip carries NO extra margin-left (one would push the chip
+        ;; past the header column — the shared flex gap is the spacing)
         (is (nil? (:margin-left (style-of r-time)))
             "row time chip has no margin-left that would drift it past the header")
         ;; CONTAINER — header + row share the same column gap + h-padding
@@ -1207,7 +1159,7 @@
               "row is border-box"))))))
 
 (deftest event-list-omits-column-header-when-empty
-  (testing "rf2-ad7zx.12 — the empty state stays a clean `No events.`
+  (testing "the empty state stays a clean `No events.`
             message with no column-header chrome above it."
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -1218,11 +1170,10 @@
             "no column header on the empty state")))))
 
 (deftest event-row-source-tag-surfaces-non-user-origin
-  (testing "rf2-ad7zx.12 — a non-default `:source` value renders a text
+  (testing "a non-default `:source` value renders a text
             SOURCE tag (the Figma `source` column) carrying the source
-            name. Per rf2-1ve9h the prior `:rf/dispatch-origin` axis was
-            collapsed into `:source` — the single closed-enum
-            functional-origin axis."
+            name. `:source` is the single closed-enum functional-origin
+            axis."
     (xray-setup!)
     ;; An `:after-timer`-source cascade — the source column should read
     ;; `after-timer`.
@@ -1237,11 +1188,10 @@
             "the source tag reads the source name `after-timer`")))))
 
 (deftest event-row-source-tag-surfaces-ui-origin
-  (testing "rf2-lnod7 — a default (:user / untagged) ui-origin row renders
-            a concrete `ui` SOURCE tag rather than a blank cell. The gap
-            audit (rf2-4297k) flagged that http-origin rows showed their
-            tag while ui-origin rows rendered blank; the reference tags
-            EVERY row, so the dominant app-code origin reads `ui`."
+  (testing "a default (:user / untagged) ui-origin row renders
+            a concrete `ui` SOURCE tag rather than a blank cell. The
+            reference tags EVERY row, so the dominant app-code origin
+            reads `ui` just as an http-origin row reads its own tag."
     (xray-setup!)
     ;; A plain (:user / untagged) cascade — source column reads `ui`.
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:foo/bar]))
@@ -1254,9 +1204,9 @@
             "the source tag reads `ui` for the default app-code origin")))))
 
 (deftest event-row-renders-duration-value
-  (testing "rf2-lnod7 — a row whose cascade carries a measured handler
+  (testing "a row whose cascade carries a measured handler
             duration renders the trailing `duration` column value
-            (`N.N ms`), restoring the Figma EventList's fourth column."
+            (`N.N ms`), the Figma EventList's fourth column."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
     (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 1.234))
@@ -1268,12 +1218,11 @@
             "the duration value reads the handler wall-time as `1.2 ms`")))))
 
 (deftest event-list-duration-column-aligns-header-and-row
-  (testing "rf2-lnod7 / rf2-6ni62 — the header `duration` label and the
+  (testing "the header `duration` label and the
             row's duration cell share the SAME width source so the value
-            sits directly under the header label. rf2-6ni62 promoted the
-            column to a user-resizable explicit `:width` (no longer the
-            min-width slot); header + row both read from the same
-            `:rf.xray/event-list-col-widths` sub so they never drift."
+            sits directly under the header label. The column carries a
+            user-resizable explicit `:width`; header + row both read from
+            the same `:rf.xray/event-list-col-widths` sub so they never drift."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
     (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 0.4))
@@ -1291,7 +1240,7 @@
                (:text-align (style-of r-duration)))
             "header duration and row duration both right-align")))))
 
-;; ---- rf2-b8guz — light-pink row bg for issue-bearing epochs -------------
+;; ---- light-pink row bg for issue-bearing epochs -------------------------
 ;;
 ;; The L2 row paints a light-pink WASH (`:bg-issue-row` token, painted as a
 ;; flat `:background-image` gradient layer so it composes OVER the focus /
@@ -1314,7 +1263,7 @@
                   :rf.trace/dispatch-id id}})
 
 (deftest event-row-issue-epoch-gets-pink-wash
-  (testing "rf2-b8guz — a row whose epoch carries an issue trace gets the
+  (testing "a row whose epoch carries an issue trace gets the
             light-pink `:bg-issue-row` wash (painted as a `:background-
             image` layer) + the `data-rf-xray-issue-row` flag. A clean row
             carries neither — the wash is the per-event 'something went
@@ -1345,12 +1294,12 @@
             "clean row paints no wash")))))
 
 (deftest event-list-suppresses-ungrouped-cascade-placeholder
-  (testing "per rf2-639lc Bug 1 the L2 list filters out the `:ungrouped`
+  (testing "the L2 list filters out the `:ungrouped`
             cascade produced by group-by-event for registry-time emits /
             frame lifecycle outside a drain / REPL evals. Without the
-            filter the list rendered a leading `<no event>` placeholder
-            row that leaked the projection's internal bucket into the
-            user-facing event timeline.
+            filter the list would render a leading `<no event>`
+            placeholder row, leaking the projection's internal bucket
+            into the user-facing event timeline.
 
             Synthesise a real cascade plus a stray registry-time emit
             (no :dispatch-id tag → :ungrouped bucket). The L2 list
@@ -1371,7 +1320,7 @@
             "no `<no event>` placeholder leaks into the rendered list")))))
 
 (deftest event-list-empty-when-only-ungrouped-cascades
-  (testing "per rf2-639lc Bug 1 a buffer that carries ONLY :ungrouped
+  (testing "a buffer that carries ONLY :ungrouped
             cascades (no routed events) collapses to the empty-state
             container — the `<no event>` placeholder is never the
             user's first impression of the L2 list."
@@ -1387,13 +1336,13 @@
             "no event rows render — the :ungrouped bucket is filtered out")))))
 
 ;; -------------------------------------------------------------------------
-;; rf2-r9lyy — :ungrouped opt-in surface (Option B)
+;; :ungrouped opt-in surface
 ;;
 ;; The `:settings/show-ungrouped?` knob (Settings → General → Power user)
-;; flips the bucket from "always filtered" to "revealed as a muted L2
-;; row". Default OFF preserves silent-by-default. The opt-in:
-;;   - reveals the :ungrouped bucket as an L2 row carrying
-;;     `data-rf-xray-ungrouped="true"`;
+;; flips the bucket from "always filtered" to "revealed as an L2 row".
+;; Default OFF preserves silent-by-default. The opt-in:
+;;   - reveals the :ungrouped bucket as a plain L2 row (testid
+;;     `rf-xray-event-row-:ungrouped`);
 ;;   - the row's body-click dispatches `:rf.xray/focus-event
 ;;     :ungrouped` so the spine pins to the bucket;
 ;;   - the spine reducer + composer accept the pin under the opt-in
@@ -1401,10 +1350,9 @@
 ;; -------------------------------------------------------------------------
 
 (deftest event-list-reveals-ungrouped-bucket-when-opt-in
-  (testing "rf2-r9lyy — `:show-ungrouped? true` reveals the :ungrouped
-            row in L2. rf2-pjjwh retired the muted pseudo-row treatment
-            (the special italic/data-attribute styling), but the power-user
-            opt-in still surfaces the bucket as a plain row."
+  (testing "`:show-ungrouped? true` reveals the :ungrouped
+            row in L2. The power-user opt-in surfaces the bucket as a
+            plain row, with no muted pseudo-row styling."
     (xray-setup!)
     (config/update-setting! :general :show-ungrouped? true)
     (try
@@ -1424,7 +1372,7 @@
         (config/update-setting! :general :show-ungrouped? false)))))
 
 (deftest event-list-hides-ungrouped-bucket-by-default
-  (testing "rf2-r9lyy — silent-by-default. The opt-in defaults OFF; the
+  (testing "silent-by-default. The opt-in defaults OFF; the
             :ungrouped bucket is not rendered in L2."
     (xray-setup!)
     ;; Belt-and-braces: assert the default; do not flip the knob.
@@ -1443,7 +1391,7 @@
             ":ungrouped row is absent by default")))))
 
 (deftest event-list-ungrouped-row-click-dispatches-focus-cascade
-  (testing "rf2-r9lyy — clicking the revealed :ungrouped row dispatches
+  (testing "clicking the revealed :ungrouped row dispatches
             `:rf.xray/focus-event :ungrouped` so the spine pins the
             bucket and downstream panels populate"
     (xray-setup!)
@@ -1489,21 +1437,21 @@
           ":rf.xray/focus-event fired with the cascade's dispatch-id"))))
 
 ;; -------------------------------------------------------------------------
-;; (4b) L2 event-list polish — slim scrollbar + auto-scroll (rf2-ieg6d)
+;; (4b) L2 event-list polish — slim scrollbar + auto-scroll
 ;; -------------------------------------------------------------------------
 ;;
-;; Bug 2 — the L2 container `:style` carries the Firefox standardised
+;; Slim scrollbar — the L2 container `:style` carries the Firefox standardised
 ;; `scrollbar-width`/`scrollbar-color` props (the WebKit/Blink pseudo-
 ;; element rules ship via a one-shot `<style>` injection — node-test
 ;; has no `js/document` so we only assert the inline-style branch here).
 ;;
-;; Bug 1 — in LIVE+head mode the focused row carries a `:ref` callback
+;; Auto-scroll — in LIVE+head mode the focused row carries a `:ref` callback
 ;; that calls `scrollIntoView` when the focused id transitions. The
 ;; callback is suppressed in RETRO (user clicked → already visible)
 ;; and in paused-LIVE (user inspecting a frozen cascade).
 
 (deftest event-list-carries-slim-scrollbar-style
-  (testing "rf2-ieg6d Bug 2 — the L2 container :style includes the
+  (testing "the L2 container :style includes the
             Firefox slim-scrollbar props. WebKit rules ship via a
             <style> injection (DOM-side, not assertable in node-test)."
     (xray-setup!)
@@ -1518,7 +1466,7 @@
             ":scrollbar-color is set (Firefox slim, thumb + track)")))))
 
 (deftest event-list-focused-row-carries-ref-in-live-head
-  (testing "rf2-ieg6d Bug 1 — in LIVE+head the focused row's hiccup
+  (testing "in LIVE+head the focused row's hiccup
             map carries a callable `:ref`. Cold-start auto-snaps to
             head in :live mode (per spec/018 §4 Defaults), so the only
             row rendered is also the focused-LIVE-head row."
@@ -1535,7 +1483,7 @@
             ":ref callback present on the LIVE+head focused row")))))
 
 (deftest event-list-focused-row-omits-ref-in-retro
-  (testing "rf2-ieg6d Bug 1 — clicking a row flips spine to :retro.
+  (testing "clicking a row flips spine to :retro.
             The focused row in RETRO must NOT carry a `:ref` callback
             (the user clicked → already visible; scrolling would
             steal the cursor)."
@@ -1554,7 +1502,7 @@
             ":ref absent on the RETRO focused row")))))
 
 (deftest event-list-non-focused-row-has-no-ref
-  (testing "rf2-ieg6d Bug 1 — only the focused row gets a `:ref`. Non-
+  (testing "only the focused row gets a `:ref`. Non-
             focused rows must not carry one (would scroll on every
             attachment cycle)."
     (xray-setup!)
@@ -1573,7 +1521,7 @@
             "focused-head row 2 carries the :ref callback")))))
 
 (deftest focused-row-ref-scrolls-on-focus-change-only
-  (testing "rf2-ieg6d Bug 1 — the ref callback fires `scrollIntoView`
+  (testing "the ref callback fires `scrollIntoView`
             once when called with a new id, no-ops when called with
             the same id (so React's normal re-render cycles don't
             re-scroll). Drive the callback directly with a stub DOM
@@ -1600,7 +1548,7 @@
         (is (= 2 @scroll-calls) "new focus id triggers a fresh scroll")))))
 
 (deftest focused-row-ref-nil-when-not-auto-tracking
-  (testing "rf2-ieg6d Bug 1 — `focused-row-ref` returns nil when the
+  (testing "`focused-row-ref` returns nil when the
             spine is NOT in the auto-tracking branch. The row's hiccup
             map then omits `:ref` (cond->) and React attaches no
             callback."
@@ -1608,7 +1556,7 @@
         "auto-track? false → nil ref")))
 
 (deftest focused-row-ref-is-referentially-stable-across-rerenders
-  (testing "rf2-8i1tg3 — `event-row` is a plain fn re-invoked on every
+  (testing "`event-row` is a plain fn re-invoked on every
             parent re-render (not a stateful component), so calling
             `focused-row-ref` repeatedly for the SAME still-focused row
             simulates every re-render while focus doesn't change. React
@@ -1616,8 +1564,8 @@
             very next commit — a fresh closure per call would fire the
             ref with `nil` (resetting the dedup atom) immediately before
             re-attaching, permanently defeating the not= guard in
-            `focused-row-ref-scrolls-on-focus-change-only` above. The
-            fix memoizes on `id`: the SAME `[id auto-track?]` must
+            `focused-row-ref-scrolls-on-focus-change-only` above.
+            `focused-row-ref` memoizes on `id`: the SAME `[id auto-track?]` must
             return the IDENTICAL fn object so React sees no ref change
             and never detaches/reattaches for a row that stays focused."
     (reset! @#'shell/focused-row-ref-cache nil)
@@ -1633,7 +1581,7 @@
           "a different focus id produces a fresh fn object"))))
 
 ;; -------------------------------------------------------------------------
-;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1
+;; (4a) Ribbon nav button enable/disable state
 ;; -------------------------------------------------------------------------
 ;;
 ;; The nav cluster's ◀ / ▶ / ⏭ buttons disable themselves at the
@@ -1643,7 +1591,7 @@
 ;; `at-head?` = focus is on the most recent (latest) cascade ⟹ ▶ disabled.
 ;; `at-tail?` = focus is on the oldest cascade in the buffer ⟹ ◀ disabled.
 ;;
-;; rf2-x5tro — `⏭` (fast-forward / resume-LIVE) is disabled only when
+;; `⏭` (fast-forward / resume-LIVE) is disabled only when
 ;; `at-head? AND live?` (the spine is already tracking head in `:live`
 ;; mode + unpaused), where the snap is a true no-op. At head but PAUSED
 ;; (frozen inspection) `⏭` STAYS enabled — pressing it resumes LIVE.
@@ -1662,7 +1610,7 @@
 (deftest ribbon-nav-buttons-disabled-on-cold-start
   (testing "empty cascade list → no boundary to walk. All three disable:
             prev + next have no target; ⏭ is at-head? in :live mode
-            (rf2-x5tro) so fast-forward is a no-op too."
+            so fast-forward is a no-op too."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
@@ -1672,7 +1620,7 @@
             "⏭ disabled — empty buffer + :live = nothing to fast-forward to")))))
 
 (deftest ribbon-nav-buttons-at-head-disable-forward
-  (testing "rf2-htik0 Bug 1 + rf2-x5tro — focus on the most recent event
+  (testing "focus on the most recent event
             in :live (unpaused) mode ⟹ ▶ disabled, ◀ enabled (older
             events exist), ⏭ disabled (already tracking head live)."
     (xray-setup!)
@@ -1692,7 +1640,7 @@
             "⏭ DISABLED at head + live — fast-forward is a no-op")))))
 
 (deftest ribbon-nav-buttons-at-tail-disable-back
-  (testing "rf2-htik0 Bug 1 — focus on the oldest event in the buffer
+  (testing "focus on the oldest event in the buffer
             ⟹ ◀ disabled, ▶ enabled (newer events exist), ⏭ enabled."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
@@ -1725,19 +1673,19 @@
             "⏭ stays enabled in RETRO — it's the way back to head")))))
 
 (deftest ribbon-nav-boundaries-come-from-the-spine-not-the-rendered-rows
-  (testing "rf2-cqpj4 — `nav-boundary-state`'s domain is the SPINE's
+  (testing "`nav-boundary-state`'s domain is the SPINE's
             focusable vector, never the filtered rows L2 renders. A mute
             that hides EVERY row empties the rendered vector while the
             spine still carries three steppable events; deriving the
-            boundary from the rendered vector made `(empty? ids)` true
-            and disabled BOTH chevrons.
+            boundary from the rendered vector would make `(empty? ids)`
+            true and disable BOTH chevrons.
 
             The last assertion is the measurement that settles it: the
-            step the disabled `›` refused really does move focus, because
+            step behind `›` really does move focus, because
             `spine/focus-step-reducer` walks the RAW projection
-            (`db->event-bundles`). So the buttons contradicted the
-            keyboard `j` / `k` bound to the very same events — one
-            affordance inert, the other live."
+            (`db->event-bundles`). A rendered-vector boundary would
+            therefore contradict the keyboard `j` / `k` bound to the
+            very same events — one affordance inert, the other live."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:noisy/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:noisy/event]))
@@ -1764,24 +1712,25 @@
       (rf/dispatch-sync [:rf.xray/focus-event-next]))
     (rf/with-frame :rf/xray
       (is (= 3 (:dispatch-id @(rf/subscribe [:rf.xray/focus])))
-          "the step `›` refused is live — it lands on id 3"))))
+          "the step behind `›` is live — it lands on id 3"))))
 
 ;; -------------------------------------------------------------------------
-;; (3c) The nav boundary vs the REAL step reducer — rf2-lh98m
+;; (3c) The nav boundary vs the REAL step reducer
 ;;
-;; rf2-cqpj4 (above) put both selectors on the raw spine vector and said the
-;; boundary and the reducer now share one domain. They do NOT, in the one
-;; state where the two can differ: `compose-focus` fills its `:frame` in
-;; from the CURRENT ROW when the stored `[:focus :frame]` is nil, so a
-;; boundary scoped by the COMPOSED frame sees one frame's rows while
-;; `focus-step-reducer`, scoped by the STORED frame, walks every frame.
+;; Sharing the raw spine vector (above) does not by itself give the
+;; boundary and the reducer one domain. In the one state where the two can
+;; differ, `compose-focus` fills its `:frame` in from the CURRENT ROW when
+;; the stored `[:focus :frame]` is nil, so a boundary scoped by the
+;; COMPOSED frame would see one frame's rows while `focus-step-reducer`,
+;; scoped by the STORED frame, walks every frame.
 ;;
 ;; These rows grade the boundary against the SHIPPED reducer rather than
 ;; against a second copy of the boundary's arithmetic, and they run it twice:
 ;; unscoped, where the reducer moves, and the explicitly scoped control,
 ;; where it does not. The control is what makes this a domain disagreement
-;; rather than an off-by-one — pre-fix the boundary reported the SAME state
-;; for both, because `:app/b` is the composed frame either way.
+;; rather than an off-by-one — a boundary scoped by the composed frame would
+;; report the SAME state for both, because `:app/b` is the composed frame
+;; either way.
 ;; -------------------------------------------------------------------------
 
 (def ^:private cross-frame-spine
@@ -1811,14 +1760,14 @@
     (not= db (spine/focus-step-reducer db cross-frame-spine delta))))
 
 (deftest nav-boundary-domain-is-the-stored-scope-not-the-resolved-frame-rf2-lh98m
-  (testing "rf2-lh98m — the boundary's DOMAIN is the stored `[:focus :frame]`
+  (testing "the boundary's DOMAIN is the stored `[:focus :frame]`
             restriction, which is what the spine walks; the composed focus's
             `:frame` is the RESOLVED current-row coordinate and scopes
             nothing. Case 1 is an unscoped cross-frame sequence, where the
             reducer steps into the previous frame; case 2 is its explicitly
             scoped control, where the reducer correctly does not move. The
-            boundary must agree with the reducer in BOTH, and pre-fix it
-            reported case 1 exactly as it reported case 2."
+            boundary must agree with the reducer in BOTH; one scoped by
+            the composed frame would report case 1 exactly as case 2."
     (let [unscoped {:mode :live}
           scoped   {:mode :live :frame :app/b}
           composed (spine/compose-focus unscoped cross-frame-spine)
@@ -1841,12 +1790,12 @@
            nothing is stored; without this the assertion below would be
            vacuous")
       (is (false? (:at-tail? b-unscoped))
-          "so `‹` must be ENABLED — pre-fix the boundary scoped its domain
-           to the composed :app/b, saw one row, and greyed out a control
-           whose event moves focus")
+          "so `‹` must be ENABLED — a boundary scoped to the composed
+           :app/b would see one row and grey out a control whose event
+           moves focus")
       (is (true? (:at-head? b-unscoped))
-          "while `›` IS correctly disabled — focus is on the newest row, and
-           the fix must not turn every boundary off indiscriminately")
+          "while `›` IS correctly disabled — focus is on the newest row, so
+           the stored-scope domain does not simply enable every control")
       (is (= (reducer-moves? unscoped -1) (not (:at-tail? b-unscoped)))
           "prev: boundary == reducer")
       (is (= (reducer-moves? unscoped +1) (not (:at-head? b-unscoped)))
@@ -1856,8 +1805,8 @@
       (is (false? (reducer-moves? scoped -1))
           "CONTROL — with :app/b stored, :app/a is out of the walk's domain")
       (is (true? (:at-tail? b-scoped))
-          "so `‹` is correctly DISABLED — this case passed before the fix
-           and must keep passing after it")
+          "so `‹` is correctly DISABLED — the stored-scope domain still
+           disables a genuine edge")
       (is (= (reducer-moves? scoped -1) (not (:at-tail? b-scoped)))
           "prev: boundary == reducer")
       (is (= (reducer-moves? scoped +1) (not (:at-head? b-scoped)))
@@ -1866,9 +1815,9 @@
       ;; ---- the discriminator, stated as one comparison
       (is (not= (:at-tail? b-unscoped) (:at-tail? b-scoped))
           "THE MEASUREMENT: stored scope is the only difference between the
-           two cases, so the boundary must differ between them. Pre-fix both
-           read true, because both took their domain from the composed
-           :frame — one answer for two different domains")
+           two cases, so the boundary must differ between them. Taking the
+           domain from the composed :frame would read true for both — one
+           answer for two different domains")
 
       ;; ---- and the step keeps frame + id in lockstep across the boundary
       (let [r (spine/focus-step-reducer {:focus unscoped} cross-frame-spine -1)]
@@ -1879,7 +1828,7 @@
              the walk spans frames")))))
 
 (deftest ribbon-nav-head-enabled-when-paused-at-head
-  (testing "rf2-x5tro nuance — at head but PAUSED (frozen inspection):
+  (testing "at head but PAUSED (frozen inspection):
             `live?` is false, so ⏭ stays ENABLED. Pressing it resumes
             LIVE, which is not a no-op. Only at-head? + live? (unpaused)
             disables ⏭."
@@ -1899,7 +1848,7 @@
             "⏭ ENABLED — paused-at-head, pressing it resumes LIVE")))))
 
 (deftest ribbon-nav-disabled-button-has-inert-styling
-  (testing "rf2-x5tro + rf2-xawwb — a disabled nav button READS as inert,
+  (testing "a disabled nav button READS as inert,
             not just cursor: not-allowed. With the blue-filled treatment
             (Figma-Make chrome-ribbon) the inert signal is a strong
             opacity drop (the filled blue fades) + not-allowed cursor. The
@@ -1929,11 +1878,11 @@
             "cursor: not-allowed telegraphs the no-op")))))
 
 ;; -------------------------------------------------------------------------
-;; (4a-bis) rf2-fzbrw — ribbon nav at the boundary is a TRUE no-op
+;; (4a-bis) ribbon nav at the boundary is a TRUE no-op
 ;;
-;; The bead: 'When I'm on the first event and I click [<] I am still
-;; taken to a state where I see all subs, all handlers, etc.' Three
-;; fix layers in concert:
+;; Clicking [<] on the first event must not move focus anywhere — in
+;; particular not onto the :ungrouped bucket, where every sub and every
+;; handler would show. Three layers in concert:
 ;;   (A) ribbon's at-tail? / at-head? predicates walk the user-visible
 ;;       (event-only) cascade vector, not the raw projection that
 ;;       includes the :ungrouped bucket — so a buffer of 1 real event
@@ -1941,13 +1890,13 @@
 ;;   (B) the disabled button drops its `:on-click` entirely AND carries
 ;;       `cursor: not-allowed` + `aria-disabled` — defense in depth on
 ;;       top of the native `:disabled` block.
-;;   (C) (covered in spine-cljs-test §10) — the spine reducer is a true
+;;   (C) (covered in spine-cljs-test §11) — the spine reducer is a true
 ;;       no-op at the edge so a keyboard j/k that bypasses the ribbon
 ;;       cannot bypass the invariant either.
 ;; -------------------------------------------------------------------------
 
 (deftest ribbon-prev-disabled-on-single-event-with-ungrouped-bucket
-  (testing "rf2-fzbrw — buffer has 1 real event PLUS the :ungrouped
+  (testing "buffer has 1 real event PLUS the :ungrouped
             bucket (registry-time emits, lifecycle, REPL evals). The
             ribbon's at-tail? predicate must align with the user-visible
             L2 list (which filters :ungrouped) — clicking [<] on the
@@ -1968,7 +1917,7 @@
             "▶ DISABLED — focus is also at head (single real event)")))))
 
 (deftest ribbon-prev-disabled-button-has-no-onclick-and-not-allowed-cursor
-  (testing "rf2-fzbrw — the disabled button drops its :on-click and
+  (testing "the disabled button drops its :on-click and
             paints cursor: not-allowed plus aria-disabled. The native
             :disabled attribute already blocks clicks at the DOM layer
             but the visual + a11y signal must match the functional
@@ -1988,7 +1937,7 @@
             "cursor: not-allowed telegraphs the no-op")))))
 
 (deftest ribbon-prev-click-on-first-event-does-not-dispatch
-  (testing "rf2-fzbrw — exercise the disabled-button no-op path. Even
+  (testing "exercise the disabled-button no-op path. Even
             if a synthetic click somehow fires the on-click slot, it
             must not dispatch any spine event because the slot is nil."
     (xray-setup!)
@@ -2010,7 +1959,7 @@
           "no :rf.xray/focus-event-prev dispatched"))))
 
 (deftest ribbon-prev-keyboard-equivalent-on-first-event-is-noop
-  (testing "rf2-fzbrw layer C — keyboard j (the [<] equivalent) routes
+  (testing "layer (C) — keyboard j (the [<] equivalent) routes
             through the spine reducer. At the boundary the reducer
             returns db unchanged, so focus persists on the first event
             and never slides into nil / :ungrouped."
@@ -2029,7 +1978,7 @@
               "focus never goes nil with a non-empty buffer"))))))
 
 ;; -------------------------------------------------------------------------
-;; (4c) L2 sticky newer-events marker — rf2-y8doi.30
+;; (4c) L2 sticky newer-events marker
 ;;
 ;; spec/018 §LIVE-tracking + sticky rules rows 2 and 3: when selection
 ;; stays on an older row, or LIVE is paused, and newer events have
@@ -2057,7 +2006,7 @@
   (find-by-testid tree "rf-xray-newer-events"))
 
 (deftest newer-events-marker-absent-in-live-at-head
-  (testing "rf2-y8doi.30 — LIVE and following head: nothing is stale, so
+  (testing "LIVE and following head: nothing is stale, so
             the L2 list paints NO marker. Control: the list itself and
             its rows ARE found in the same tree, so an absent marker is
             an absence and not a broken walk."
@@ -2076,7 +2025,7 @@
             "no newer-events marker while following head")))))
 
 (deftest newer-events-marker-in-retro-counts-newer
-  (testing "rf2-y8doi.30 — a RETRO pin two rows back paints the marker,
+  (testing "a RETRO pin two rows back paints the marker,
             reporting the count of newer events and naming the `»`
             control that clears it."
     (xray-setup!)
@@ -2100,7 +2049,7 @@
               "does NOT use the spec's `⏭` glyph — the chrome paints `»`"))))))
 
 (deftest newer-events-marker-appears-only-once-paused-falls-behind
-  (testing "rf2-y8doi.30 — Space at head pauses LIVE but nothing is stale
+  (testing "Space at head pauses LIVE but nothing is stale
             yet, so NO marker. The next arrival makes the pinned read
             stale and the marker appears, singular at one."
     (xray-setup!)
@@ -2128,7 +2077,7 @@
               "not the plural form"))))))
 
 (deftest newer-events-marker-click-follows-head
-  (testing "rf2-y8doi.30 — invoking the marker's :on-click dispatches
+  (testing "invoking the marker's :on-click dispatches
             `:rf.xray/follow-head` and nothing else; running that event
             leaves the spine LIVE, unpaused, at head, and the marker
             gone.
@@ -2137,7 +2086,7 @@
             marker's dispatcher is the frame-aware one the boundary
             captures, and `rf/dispatch` is ASYNC — reading the spine
             straight after `(handler nil)` reads the pre-click state and
-            would have graded the wiring on the router's timing. So the
+            would grade the wiring on the router's timing. So the
             WIRING is captured through `rf/dispatch-impl` (the suite's
             own idiom, see `ribbon-prev-click-on-first-event-does-not-
             dispatch`) and the EFFECT is then driven synchronously
@@ -2170,7 +2119,7 @@
             "marker is gone once following again")))))
 
 (deftest newer-events-count-comes-from-the-spine-not-the-rendered-vector
-  (testing "rf2-y8doi.30 — the count's domain is the SPINE's focusable
+  (testing "the count's domain is the SPINE's focusable
             vector, never the filtered vector the list renders. Handed a
             rendered vector holding ONLY the focused bundle (every newer
             row filtered out by a pill / mute / view scope) the marker
@@ -2197,16 +2146,16 @@
       (is (some? marker) "marker renders off the spine, not the rendered rows")
       (is (str/includes? (text-nodes marker) "2 newer events")
           "N is the spine's count, which index arithmetic over the
-           rendered vector would have read as zero"))))
+           rendered vector would read as zero"))))
 
 (deftest newer-events-marker-survives-a-filter-that-hides-every-row
-  (testing "rf2-cqpj4 — the raw-nonempty / rendered-empty case. PRESENCE
+  (testing "the raw-nonempty / rendered-empty case. PRESENCE
             has the same domain as the count: a pill or a mute that hides
             EVERY row empties the rendered vector while the spine still
             carries newer events, and telling the user so is the whole
             job of this marker. Gating presence on `(seq event-bundles)`
-            — the locally rebound FILTERED vector — suppressed it exactly
-            there. The row above pins the count against a rendered vector
+            — the locally rebound FILTERED vector — would suppress it
+            exactly there. The row above pins the count against a rendered vector
             of one; this one empties it."
     (let [spine  [{:dispatch-id 1 :frame :rf/default :event [:first/event]}
                   {:dispatch-id 2 :frame :rf/default :event [:second/event]}
@@ -2233,7 +2182,7 @@
           "and N is still the spine's count"))))
 
 (deftest newer-events-marker-drops-the-digit-for-an-evicted-pin
-  (testing "rf2-y8doi.30 — a RETRO pin whose bundle has aged out of the
+  (testing "a RETRO pin whose bundle has aged out of the
             spine vector still paints the marker (the read IS stale) but
             without a number, rather than with a wrong one."
     (let [spine  [{:dispatch-id 8 :frame :rf/default :event [:eighth/event]}
@@ -2257,7 +2206,7 @@
           "no digit is invented for a pin the spine vector cannot locate"))))
 
 (deftest newer-events-marker-absent-when-the-list-is-empty
-  (testing "rf2-y8doi.30 — the marker never rides the empty state."
+  (testing "the marker never rides the empty state."
     (let [tree (shell/event-list-tree
                  (fn [_ev])
                  {:col-widths          {:source 52 :timestamp 60 :duration 52}
@@ -2274,7 +2223,7 @@
           "no marker beside `No events.`"))))
 
 (deftest newer-count-locates-the-focused-row-by-frame-and-id-rf2-lh98m
-  (testing "rf2-lh98m — the counting domain shares the boundary's stored
+  (testing "the counting domain shares the boundary's stored
             scope, and shares its identity rule too. With no restriction
             stored the domain spans frames, where a dispatch-id repeats; an
             id-only scan for the focused row finds the EARLIER frame's
@@ -2283,14 +2232,12 @@
             newer — an id-only scan would find index 0 and say three.
 
             WHICH DEFECT THIS ROW DISCRIMINATES, stated because a green
-            assertion that could not have failed is worth nothing: it does
-            NOT red on the pre-fix code, where the domain was narrowed to
-            `:app/b` and the id-only scan happened to land on the right row
-            inside it. It reds on the HALF-FIX — stored scope threaded
-            through, identity left as a bare id — which is the near-miss
-            this bead's own fence names, and the state the tree would be in
-            if the two halves were separated. The row above is the one that
-            reds on pre-fix."
+            assertion that could not fail is worth nothing: it does NOT
+            red on a domain narrowed to the composed `:app/b`, where the
+            id-only scan happens to land on the right row inside it. It
+            reds on stored scope threaded through with identity left as a
+            bare id — the state the tree would be in if the two halves
+            were separated."
     (let [spine-rows [{:dispatch-id :cx   :frame :app/a :event [:a/cx]}
                       {:dispatch-id :mid  :frame :app/b :event [:b/mid]}
                       {:dispatch-id :cx   :frame :app/b :event [:b/cx]}
@@ -2320,17 +2267,16 @@
            drift past it unnoticed"))))
 
 ;; -------------------------------------------------------------------------
-;; (4b) Row density + minimal default-row rendering — rf2-htik0 Bug 2 +
-;;      Round-3 rf2-cmtkw (replaces rf2-htik0 Bug 3 inline event-vector).
+;; (4b) Row density + minimal default-row rendering
 ;;
-;; Round-3 rf2-cmtkw — the default L2 row body is one line: gutter +
-;; bare event-id + ⚠/🌐/🤖 badge cluster. Args + sequence number +
-;; frame + source coordinate + handler duration appear in the row's
-;; :title hover tooltip and in the L4 Event detail tab on click.
+;; The default L2 row body is one line of four columns: bare event-id,
+;; source, timestamp, duration. Args + sequence number + frame + source
+;; coordinate + handler duration appear in the row's :title hover tooltip
+;; and in the L4 Epoch panel on click.
 ;; -------------------------------------------------------------------------
 
 (deftest event-row-density-tight
-  (testing "rf2-htik0 Bug 2 — row height tightens to 22px so Xray's
+  (testing "row height is a tight 22px so Xray's
             info-dense L2 list reclaims vertical canvas. Padding stays
             generous enough to keep the row clickable."
     (xray-setup!)
@@ -2341,17 +2287,16 @@
             style (:style (second row))]
         (is (some? row) "row renders")
         (is (= "22px" (:height style))
-            "row height is the tightened 22px (was 28px)")
+            "row height is the tight 22px")
         (is (= "1px 6px" (:padding style))
-            "row padding is the tightened 1px 6px (was 4px 8px)")))))
+            "row padding is the tight 1px 6px")))))
 
 (deftest event-list-container-height-matches-tight-rows
-  (testing "rf2-htik0 Bug 2 — container default height stays at ~8
-            rows of the new 22px row × 2px gap + padding (≈200px, was
-            224px). Post rf2-t2dsh the value reads from the
-            `:rf.xray/events-list-height-px` sub instead of the
-            literal — fresh xray-setup! resets settings to the
-            default, so the rendered style at `:height` is still the
+  (testing "container default height is ~8
+            rows of the 22px row × 2px gap + padding (≈200px). The
+            value reads from the `:rf.xray/events-list-height-px`
+            sub — fresh xray-setup! resets settings to the
+            default, so the rendered style at `:height` is the
             default 200px."
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -2362,16 +2307,16 @@
             "list container is ~8 rows × 22px + gaps + padding")))))
 
 ;; -------------------------------------------------------------------------
-;; rf2-6gstp — L2 event-list rows are keyboard-operable buttons + menu
+;; L2 event-list rows are keyboard-operable buttons + menu
 ;; -------------------------------------------------------------------------
 
 (deftest event-row-exposes-keyboard-button-semantics
-  (testing "rf2-6gstp — every L2 event-row exposes `role=\"button\"` +
+  (testing "every L2 event-row exposes `role=\"button\"` +
             `tab-index=\"0\"` + an `aria-label` so keyboard-only users
             can Tab into the L2 list and operate it. Without these the
-            j/k chord covers next/prev focus but Tab-into-list / Enter-
-            to-select are absent — keyboard users can't drive L2 at
-            all. The audit (2026-05-20) flagged this as P1."
+            j/k chord would cover next/prev focus but Tab-into-list /
+            Enter-to-select would be absent — keyboard users couldn't
+            drive L2 at all."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
@@ -2395,10 +2340,8 @@
              users hear which event the row represents")))))
 
 (deftest event-row-keyboard-enter-fires-body-click
-  (testing "rf2-6gstp — Enter (and Space) on a focused row fire the
-            same selection path right-click + on-click do. The audit
-            (2026-05-20) flagged the absence of Enter-to-select as a P1
-            keyboard-a11y miss."
+  (testing "Enter (and Space) on a focused row fire the
+            same selection path right-click + on-click do."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (let [dispatches (atom [])]
@@ -2423,11 +2366,10 @@
            dispatch as the mouse click"))))
 
 (deftest event-row-keyboard-context-menu-fallback
-  (testing "rf2-6gstp — Shift+F10 (Windows / Linux platform standard)
+  (testing "Shift+F10 (Windows / Linux platform standard)
             and the dedicated ContextMenu key open the row's context
             menu so the Mute / Hide affordances are reachable without
-            right-click. The audit flagged the absence of a keyboard
-            path to these actions as a P1 a11y miss."
+            right-click."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (let [dispatches (atom [])]
@@ -2448,10 +2390,10 @@
            handler the right-click path uses"))))
 
 (deftest event-row-renders-event-id-only
-  (testing "Round-3 rf2-cmtkw — the default L2 row body renders ONLY
+  (testing "the default L2 row body renders ONLY
             the bare event-id keyword. Args / payload are NOT inline
-            in the default row (they move to hover tooltip + the L4
-            Event detail tab)."
+            in the default row (they live in the hover tooltip + the L4
+            Epoch panel)."
     (xray-setup!)
     (trace-collector/seed-trace-for-test!
       (dispatch-trace-ev 1 [:cart/add-item {:item-id "apple" :qty 2}]))
@@ -2474,8 +2416,8 @@
             "no vector brackets in the default row — bare keyword only")
         (is (not (re-find #"\]" text))
             "no vector brackets in the default row — bare keyword only")
-        ;; The dropped fields surface in the row's :title tooltip
-        ;; instead — Round-3 rf2-cmtkw.
+        ;; The fields the row omits surface in its :title tooltip
+        ;; instead.
         (let [title (:title (second row))]
           (is (string? title) ":title attribute set for hover tooltip")
           (is (re-find #":cart/add-item" title)
@@ -2488,20 +2430,20 @@
               "tooltip surfaces the click-through hint"))))))
 
 (deftest event-row-no-row-event-vector-slot
-  (testing "Round-3 rf2-cmtkw — the previous `rf-xray-row-event-vector`
-            slot is gone. The default row body slot is now
+  (testing "there is no `rf-xray-row-event-vector`
+            slot. The default row body slot is
             `rf-xray-row-event-id` and renders only the bare keyword."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:counter/inc]))
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nil? (find-by-testid tree "rf-xray-row-event-vector"))
-            "legacy event-vector slot is absent")
+            "no event-vector slot")
         (is (some? (find-by-testid tree "rf-xray-row-event-id"))
-            "new event-id slot is present")))))
+            "event-id slot is present")))))
 
 (deftest render-event-id-only-empty-payload
-  (testing "Round-3 rf2-cmtkw — render-event-id-only of a 1-element
+  (testing "render-event-id-only of a 1-element
             event vector returns hiccup containing just the event-id
             keyword."
     (let [hiccup (shell/render-event-id-only [:counter/inc])
@@ -2511,7 +2453,7 @@
       (is (not (re-find #"\]" text)) "no surrounding brackets"))))
 
 (deftest render-event-id-only-with-payload
-  (testing "Round-3 rf2-cmtkw — render-event-id-only of an event
+  (testing "render-event-id-only of an event
             vector with args returns hiccup containing ONLY the
             event-id keyword — args are dropped from the default row."
     (let [hiccup (shell/render-event-id-only [:cart/add-item {:qty 2}])
@@ -2524,15 +2466,15 @@
       (is (not (re-find #"\]" text)) "no vector brackets"))))
 
 (deftest render-event-id-only-nil-cascade
-  (testing "Round-3 rf2-cmtkw — render-event-id-only of non-vector
+  (testing "render-event-id-only of non-vector
             input returns the `<no event>` fallback chip."
     (let [hiccup (shell/render-event-id-only nil)
           text   (text-nodes hiccup)]
       (is (re-find #"no event" text)))))
 
 (deftest row-tooltip-text-carries-dropped-fields
-  (testing "Round-3 rf2-cmtkw — the row's :title tooltip carries
-            every field dropped from the minimal default row: full
+  (testing "the row's :title tooltip carries
+            every field the minimal default row omits: full
             event vector with args, sequence number (`#<dispatch-id>`),
             frame id, source coordinate, handler duration."
     (let [cascade {:dispatch-id 42
@@ -2555,7 +2497,7 @@
           "carries the click-through hint"))))
 
 (deftest row-tooltip-text-nil-safe
-  (testing "Round-3 rf2-cmtkw — row-tooltip-text safely degrades when
+  (testing "row-tooltip-text safely degrades when
             cascade slots are missing. Always renders at least the
             click-through hint so the tooltip is never empty."
     (let [tip (shell/row-tooltip-text {})]
@@ -2564,7 +2506,7 @@
           "click-through hint always present"))))
 
 ;; -------------------------------------------------------------------------
-;; (5) REDACTED indicator (preserved from pre-refactor — relocated to L1)
+;; (5) REDACTED indicator (in L1)
 ;; -------------------------------------------------------------------------
 
 (deftest redacted-indicator-absent-when-count-zero
@@ -2639,7 +2581,7 @@
 (deftest redacted-indicator-overflow-renders-large-count
   (testing "no upper-bound clipping — the indicator renders the raw
             count even at large values. A 250-event burst in one task
-            arrives as ONE coalesced dispatch (rf2-p03xh)."
+            arrives as ONE coalesced dispatch."
     (xray-setup!)
     (note-suppressed! :rf/default 250)
     (rf/with-frame :rf/xray
@@ -2653,15 +2595,15 @@
 ;; (6) Frame picker — excludes tool frames by default (spec/018 §8 I1)
 ;; -------------------------------------------------------------------------
 ;;
-;; The pure `distinct-frames` helper + the `internal-frames` set moved to
-;; `day8.re-frame2-xray.frame-switcher` per rf2-iwwou (the L1 frame-
-;; switcher slot is a single contractually-anchored ns every frame-aware
-;; feature reaches through). Pure-helper coverage now lives in
-;; `frame_switcher_cljs_test.cljs`; the shell-level smokes below verify
-;; the ribbon still mounts the picker via the contract.
+;; The pure `distinct-frames` helper + the `internal-frames` set live in
+;; `day8.re-frame2-xray.frame-switcher` (the L1 frame-switcher slot is a
+;; single contractually-anchored ns every frame-aware feature reaches
+;; through). Pure-helper coverage lives in `frame_switcher_cljs_test.cljs`;
+;; the shell-level smokes below verify the ribbon mounts the picker via
+;; the contract.
 
 (deftest frame-picker-is-strictly-single-select
-  (testing "Round-3 rf2-i74n7 + spec/018 §1 Non-goals — the frame
+  (testing "spec/018 §1 Non-goals — the frame
             picker is strictly single-select. No 'All frames (merged)'
             option; no `:multiple` attribute on the <select>; the
             options list carries exactly one entry per distinct frame
@@ -2746,7 +2688,7 @@
       "missing event → nil"))
 
 ;; -------------------------------------------------------------------------
-;; (9) :modal-positioning opt — rf2-om6fa
+;; (9) :modal-positioning opt
 ;; -------------------------------------------------------------------------
 ;;
 ;; The opt threads through `shell-view` into `:rf/xray`'s app-db so every
@@ -2800,21 +2742,21 @@
           "no-opt render re-defaults the slot to :fixed"))))
 
 ;; -------------------------------------------------------------------------
-;; (N) L2 row — relative-time chip (rf2-vbbq0 / rf2-0s2at)
+;; (N) L2 row — time chip + the relative-time helpers
 ;; -------------------------------------------------------------------------
 ;;
-;; Mike's design call (2026-05-19 Q10): bring datetime BACK to the
-;; default L2 row, but as a dynamic relative chip ("5s" / "2m" / "1h" /
-;; "3d") — NOT an absolute timestamp, NOT seq#, NOT duration. Placement
-;; is INLINE on the row, right-aligned, so active cascades stay visible
-;; without forcing a hover.
+;; The L2 row's `timestamp` column renders the ABSOLUTE wall-clock time
+;; (`HH:MM:SS.mmm`, via `format-clock-time`), right-aligned inline on the
+;; row, with the full ISO walltime + epoch-ms on the chip's `:title`.
 ;;
-;; Anchor (rf2-0s2at): the "now" each row computes against is the
-;; dispatched-time of the most recent cascade — flips on event arrival,
-;; not on a per-second tick. Mike's design call (2026-05-19) after
-;; observing constant L2 flicker on the parallel-frames testbed.
+;; The pure `format-relative-time` helper and its anchor sub
+;; `:rf.xray/relative-time-now-ms` are pinned here too. The anchor is the
+;; dispatched-time of the most recent cascade, so it flips on event
+;; arrival rather than on a per-second tick — relative time is meaningful
+;; BETWEEN events, and a per-second tick would re-render the L2 list
+;; constantly.
 ;;
-;; Bucket contract:
+;; `format-relative-time` bucket contract:
 ;;
 ;;   diff < 1s   → "now"
 ;;   diff < 60s  → "Ns"     (1s-resolution between events)
@@ -2823,7 +2765,7 @@
 ;;   diff ≥ 24h  → "Nd"
 
 (deftest format-relative-time-now-bucket
-  (testing "rf2-vbbq0 — diff < 1s collapses to the 'now' silent-by-
+  (testing "diff < 1s collapses to the 'now' silent-by-
             default bucket so jitter at the millisecond boundary never
             renders to the user."
     (is (= "now" (shell/format-relative-time 1000 1000)))
@@ -2831,14 +2773,14 @@
     (is (= "now" (shell/format-relative-time 1999 1000)))))
 
 (deftest format-relative-time-seconds-bucket
-  (testing "rf2-vbbq0 — diff in [1s, 60s) renders as 'Ns'."
+  (testing "diff in [1s, 60s) renders as 'Ns'."
     (is (= "1s"  (shell/format-relative-time 2000   1000)))
     (is (= "5s"  (shell/format-relative-time 6000   1000)))
     (is (= "59s" (shell/format-relative-time 60000  1000)))))
 
 (deftest format-relative-time-minutes-bucket
-  (testing "rf2-vbbq0 — diff in [60s, 60m) renders as 'Nm' — the minute
-            bucket so an old row's chip does not jitter per tick."
+  (testing "diff in [60s, 60m) renders as 'Nm' — the minute
+            bucket so an old timestamp's label does not jitter per tick."
     (is (= "1m" (shell/format-relative-time 61000     1000)))
     (is (= "1m" (shell/format-relative-time 90000     1000)))
     (is (= "2m" (shell/format-relative-time 121000    1000)))
@@ -2846,32 +2788,32 @@
     (is (= "59m" (shell/format-relative-time 3541000  1000)))))
 
 (deftest format-relative-time-hours-bucket
-  (testing "rf2-vbbq0 — diff in [60m, 24h) renders as 'Nh'."
+  (testing "diff in [60m, 24h) renders as 'Nh'."
     (is (= "1h" (shell/format-relative-time 3601000      1000)))
     (is (= "1h" (shell/format-relative-time 3700000      1000)))
     (is (= "2h" (shell/format-relative-time 7300000      1000)))
     (is (= "23h" (shell/format-relative-time (+ 1000 (* 23 3600 1000)) 1000)))))
 
 (deftest format-relative-time-days-bucket
-  (testing "rf2-vbbq0 — diff ≥ 24h renders as 'Nd'."
+  (testing "diff ≥ 24h renders as 'Nd'."
     (is (= "1d" (shell/format-relative-time (+ 1000 (* 24 3600 1000)) 1000)))
     (is (= "3d" (shell/format-relative-time (+ 1000 (* 72 3600 1000)) 1000)))))
 
 (deftest format-relative-time-clamps-negative-diff
-  (testing "rf2-vbbq0 — a then-ms larger than now-ms (clock skew /
+  (testing "a then-ms larger than now-ms (clock skew /
             test stub ordering) clamps to 0 → 'now' rather than rendering
             a negative chip."
     (is (= "now" (shell/format-relative-time 1000 5000)))))
 
 (deftest format-relative-time-nil-safe
-  (testing "rf2-vbbq0 — nil inputs short-circuit so the caller can decide
+  (testing "nil inputs short-circuit so the caller can decide
             whether to render anything."
     (is (= "" (shell/format-relative-time nil  1000)))
     (is (= "" (shell/format-relative-time 1000 nil)))
     (is (= "" (shell/format-relative-time nil  nil)))))
 
 (deftest format-clock-time-renders-hhmmssmmm
-  (testing "rf2-3f2di A8 — `format-clock-time` renders the absolute
+  (testing "`format-clock-time` renders the absolute
             wall-clock `HH:MM:SS.mmm` string the L2 `timestamp` column
             shows (authority reference). The exact hour/minute depends on
             the runner's timezone, so we pin the SHAPE + the
@@ -2887,12 +2829,12 @@
           "seconds + 3-digit millis are zero-padded from a known Date"))))
 
 (deftest format-clock-time-nil-safe
-  (testing "rf2-3f2di A8 — nil short-circuits to the empty string so the
+  (testing "nil short-circuits to the empty string so the
             chip caller can decide whether to render anything."
     (is (= "" (shell/format-clock-time nil)))))
 
 (deftest event-bundle-dispatched-time-ms-reads-dispatched-slot
-  (testing "rf2-vbbq0 — the chip's source-of-truth for the cascade's
+  (testing "the chip's source-of-truth for the cascade's
             walltime is `:dispatched :time`. Each trace event carries
             `:time (interop/now-ms)` per `re-frame.trace.cljc build-event`."
     (is (= 1234567 (shell/event-bundle-dispatched-time-ms
@@ -2914,10 +2856,10 @@
   (assoc (dispatch-trace-ev id event-vec) :time time-ms))
 
 (deftest event-row-renders-absolute-time-chip
-  (testing "rf2-3f2di A8 — every L2 row's `timestamp` column renders the
+  (testing "every L2 row's `timestamp` column renders the
             ABSOLUTE wall-clock time (`HH:MM:SS.mmm`) per the authority
             reference event-list, NOT a relative `1s`/`now` chip. The
-            chip's `:title` still carries the full ISO walltime + epoch-ms
+            chip's `:title` carries the full ISO walltime + epoch-ms
             for the power-user reveal."
     (xray-setup!)
     (let [then-ms 1000000]
@@ -2942,7 +2884,7 @@
               "chip stamps the source then-ms so tests can pin the value"))))))
 
 (deftest event-row-chip-is-absolute-regardless-of-recency
-  (testing "rf2-3f2di A8 — the absolute clock chip does NOT change with
+  (testing "the absolute clock chip does NOT change with
             how recently the cascade was dispatched (no relative buckets).
             An OLD cascade and a FRESH cascade each render their own
             absolute timestamp; neither reads `now`/`Ns`/`Nm`/`Nh`."
@@ -2951,9 +2893,9 @@
           fresh-ms (+ old-ms 90000)]
       (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] old-ms))
       ;; Fixture event-id must be a genuine HOST app id — NOT a reserved
-      ;; `rf.xray.*` sub-namespace. Post rf2-y8iqe the self-noise filter
-      ;; correctly classifies any `rf.xray.*` id as xray-internal and
-      ;; drops it from the host cascade list; a `:rf.xray.test/*` fixture
+      ;; `rf.xray.*` sub-namespace. The self-noise filter classifies any
+      ;; `rf.xray.*` id as xray-internal and drops it from the host
+      ;; cascade list; a `:rf.xray.test/*` fixture
       ;; would never render its chip, defeating the assertion. `:foo/baz`
       ;; mirrors the old row's `:foo/bar` host event.
       (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:foo/baz] fresh-ms))
@@ -2970,9 +2912,9 @@
               "no relative-bucket text (now/Ns/Nm/Nh/Nd) on the old row"))))))
 
 (deftest event-row-chip-absent-when-no-dispatched-time
-  (testing "rf2-vbbq0 — defence-in-depth: a synthesised cascade carrying
+  (testing "defence-in-depth: a synthesised cascade carrying
             no `:dispatched :time` (registry-time emits, stripped-down
-            fixtures) renders no chip rather than a misleading 'now'."
+            fixtures) renders no chip rather than a misleading one."
     (xray-setup!)
     ;; dispatch-trace-ev (without time stamp) — :dispatched slot will
     ;; lack `:time`, so the chip MUST NOT render.
@@ -2993,7 +2935,7 @@
     (rf/dispatch-sync [:rf.xray/sync-trace-buffer (trace-collector/buffer-for-test)])))
 
 (deftest relative-time-now-ms-sub-derives-from-cascades
-  (testing "rf2-0s2at — `:rf.xray/relative-time-now-ms` is derived
+  (testing "`:rf.xray/relative-time-now-ms` is derived
             from `:rf.xray/event-bundles`: it returns the dispatched-time
             of the MOST RECENT cascade. Returns nil when there are no
             cascades (or none carrying a `:dispatched :time` stamp);
@@ -3019,7 +2961,7 @@
           "older arrival (lower :time) leaves the anchor at the max"))))
 
 (deftest relative-time-now-ms-sub-nil-when-no-dispatched-time
-  (testing "rf2-0s2at — cascades that carry no `:dispatched :time`
+  (testing "cascades that carry no `:dispatched :time`
             contribute nothing; the sub returns nil so the view falls
             back to `(interop/now-ms)` at render time."
     (xray-setup!)
@@ -3030,30 +2972,28 @@
           "no `:dispatched :time` anywhere → nil anchor"))))
 
 ;; -------------------------------------------------------------------------
-;; rf2-3f2di — chrome + ribbon + event-list + tab AUTHORITY fidelity
+;; chrome + ribbon + event-list + tab AUTHORITY fidelity
 ;;
-;; Reconciles shell.cljs to the authoritative reference components
+;; shell.cljs follows the authoritative reference components
 ;; (`tools/xray/design-reference/xray_devtools_reference.cljs`:
 ;; chrome-ribbon / events-ribbon / event-list / main-app tab-strip). The
 ;; structural / token contracts asserted here:
-;;   (1) chrome ribbon `Events` label → NEUTRAL :text-primary ink (A4);
-;;       chrome ribbon height → 34px (A3); settings/close → borderless
-;;       square icon-buttons.
-;;   (2) chrome ribbon nav cluster → BLUE-FILLED chevron buttons (A2);
-;;       the always-present blue `focus` button lives in the chrome
-;;       ribbon (A5).
+;;   (1) chrome ribbon `Event History` label → the white
+;;       :chrome-ribbon-text ink, NOT :accent; chrome ribbon height →
+;;       34px; settings/close → borderless square icon-buttons.
+;;   (2) chrome ribbon nav cluster → BLUE-FILLED chevron buttons; no
+;;       `focus` button and no focus chip.
 ;;   (3) event-list event-id column → explicitly LEFT-aligned (header +
-;;       row); the selected/active row → subtle :hover fill, NOT a 1px
-;;       blue ring; the `timestamp` column → absolute HH:MM:SS.mmm (A8).
+;;       row); the selected/active row → the darker :selected-row-bg
+;;       fill, NOT a 1px blue ring; the `timestamp` column → absolute
+;;       HH:MM:SS.mmm.
 ;;   (4) tabs → ROUNDED-TOP folder tabs on the dark tabs ribbon (light
 ;;       fill + dark ink for the active tab), NOT a filled pill nor an
-;;       underline (rf2-xawwb; covered by
-;;       `tab-bar-is-rounded-top-dark-tabs` above).
+;;       underline (covered by `tab-bar-is-rounded-top-dark-tabs` above).
 ;; -------------------------------------------------------------------------
 
 (deftest chrome-events-label-uses-neutral-ink-not-accent
-  (testing "rf2-xawwb — the `Event History` label (which replaced the
-            dropped `❖ Xray` wordmark) renders in the white
+  (testing "the `Event History` label renders in the white
             chrome-ribbon text colour (:chrome-ribbon-text), legible on
             the dark chrome band, NOT the :accent blue. The single accent
             is reserved for active/selected affordances."
@@ -3069,9 +3009,9 @@
             "the label ink is NOT the :accent blue")))))
 
 (deftest chrome-ribbon-height-is-reference-34px
-  (testing "rf2-3f2di A3 — the chrome ribbon is 34px tall per the authority
-            reference chrome-ribbon (`:height \"34px\"`), up from the prior
-            32px. Driven by the single `:top-strip-height` layout token."
+  (testing "the chrome ribbon is 34px tall per the authority
+            reference chrome-ribbon (`:height \"34px\"`). Driven by the
+            single `:top-strip-height` layout token."
     (is (= "34px" (:top-strip-height layout))
         "the :top-strip-height layout token is 34px (reference)")
     (xray-setup!)
@@ -3082,7 +3022,7 @@
             "the chrome ribbon paints the 34px height")))))
 
 (deftest chrome-icon-buttons-are-borderless
-  (testing "rf2-cplj8 — the settings + close icons are BORDERLESS square
+  (testing "the settings + close icons are BORDERLESS square
             icon-buttons (Figma ChromeRibbon `p-1 rounded`), muted ink,
             no border box."
     (xray-setup!)
@@ -3098,10 +3038,10 @@
             (is (= "transparent" (:background style))
                 (str label " icon-button is transparent (hover fill via CSS)"))
             (is (= (:chrome-ribbon-text-muted tokens) (:color style))
-                (str label " icon-button uses muted-white :chrome-ribbon-text-muted ink (dark band, rf2-xawwb)"))))))))
+                (str label " icon-button uses muted-white :chrome-ribbon-text-muted ink (dark band)"))))))))
 
 (deftest chrome-ribbon-nav-buttons-are-blue-filled
-  (testing "rf2-xawwb — the chrome-ribbon nav cluster renders FILLED
+  (testing "the chrome-ribbon nav cluster renders FILLED
             `:active-bg` buttons (Figma-Make chrome-ribbon: blue bg, white
             `:active-text` icon), NOT borderless icon-buttons and NOT
             bordered triangles. The active (enabled) button carries
@@ -3125,25 +3065,25 @@
                 (str tid " background is the filled :active-bg (blue)"))
             (is (= (:active-text tokens) (:color style))
                 (str tid " icon is white :active-text"))))
-        ;; the nav cluster lives in the chrome ribbon (bar-1) now.
+        ;; the nav cluster lives in the chrome ribbon (bar-1).
         (is (some? (find-by-testid (find-by-testid tree "rf-xray-ribbon")
                                    "rf-xray-ribbon-nav"))
-            "the nav cluster is mounted inside the chrome ribbon (A5)")))))
+            "the nav cluster is mounted inside the chrome ribbon")))))
 
 (deftest focus-button-and-chip-are-retired
-  (testing "rf2-pjjwh — the focus feature is retired: neither the blue
-            `focus` button nor the focus-chip appear in the chrome ribbon."
+  (testing "there is no focus feature: neither a `focus` button nor a
+            focus-chip appears in the chrome ribbon."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nil? (find-by-testid tree "rf-xray-focus-button"))
-            "no focus button (the focus feature was retired)")
+            "no focus button")
         (is (nil? (find-by-testid tree "rf-xray-focus-chip"))
-            "no focus chip (the focus feature was retired)")))))
+            "no focus chip")))))
 
 (deftest event-id-column-is-left-aligned
-  (testing "rf2-cplj8 — the `event id` column is explicitly LEFT-aligned
+  (testing "the `event id` column is explicitly LEFT-aligned
             on BOTH the header label and the row keyword (Figma EventList
             `text-left`), not centred."
     (xray-setup!)
@@ -3158,10 +3098,10 @@
             "row event-id keyword is explicitly left-aligned")))))
 
 (deftest focused-row-uses-selected-bg-not-blue-ring
-  (testing "rf2-cplj8 + rf2-hga49 — the selected/active row marks itself
-            with a darker `:selected-row-bg` background fill (rf2-hga49
-            stepped this DARKER than `:hover` so selection reads distinctly
-            from hover AND survives under the issue-row pink wash), NOT a
+  (testing "the selected/active row marks itself
+            with a `:selected-row-bg` background fill (DARKER than
+            `:hover`, so selection reads distinctly from hover AND
+            survives under the issue-row pink wash), NOT a
             full 1px blue ring. The border stays the transparent border-box
             base so the columns never drift from the header."
     (xray-setup!)
@@ -3173,16 +3113,16 @@
             row   (find-by-testid tree "rf-xray-event-row-1")
             style (:style (second row))]
         (is (some? row) "the focused row renders")
-        ;; rf2-b8guz — the row's fill moved from the `:background`
-        ;; shorthand to an explicit `:background-color` so the issue-row
-        ;; wash can ride as a separate `:background-image` layer that
-        ;; composes over (not clobbers) the focus highlight.
-        ;; rf2-hga49 — the focus fill is now the dedicated darker
-        ;; `:selected-row-bg`, NOT `:hover`.
+        ;; The row's fill is an explicit `:background-color` (not the
+        ;; `:background` shorthand) so the issue-row wash can ride as a
+        ;; separate `:background-image` layer that composes over (not
+        ;; clobbers) the focus highlight.
+        ;; The focus fill is the dedicated darker `:selected-row-bg`,
+        ;; NOT `:hover`.
         (is (= (:selected-row-bg tokens) (:background-color style))
             "focused row background is the darker :selected-row-bg fill")
         (is (not= (:hover tokens) (:background-color style))
-            "focused row background is no longer the :hover grey")
+            "focused row background is not the :hover grey")
         ;; a clean focused cascade carries NO issue wash — only the
         ;; focus-highlight background-color, no overlay layer.
         (is (nil? (:background-image style))
@@ -3193,13 +3133,13 @@
             "focused row does NOT paint the :accent blue ring")))))
 
 ;; -------------------------------------------------------------------------
-;; rf2-hga49 — tab-ribbon chrome: relabel + Reset button + selected-error-
-;; row visibility
+;; tab-ribbon chrome: context label + Reset button + selected-error-row
+;; visibility
 ;; -------------------------------------------------------------------------
 
 (deftest tab-bar-context-label-reads-selected
-  (testing "rf2-hga49 — the L3 tab-ribbon contextual label reads the terse
-            `selected` (was `for selected event`), keeping the ↳ glyph."
+  (testing "the L3 tab-ribbon contextual label reads the terse
+            `selected`, with the ↳ glyph."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree  (dynamic-shell-tree/shell-view-tree)
@@ -3208,11 +3148,11 @@
         (is (some? label) "the context label renders")
         (is (re-find #"selected" txt) "label reads `selected`")
         (is (not (re-find #"for selected event" txt))
-            "the old `for selected event` copy is gone")
-        (is (re-find #"↳" txt) "the corner-down-right glyph is kept")))))
+            "the label is not the longer `for selected event`")
+        (is (re-find #"↳" txt) "the corner-down-right glyph is present")))))
 
 (deftest tab-bar-reset-button-disabled-with-no-focus
-  (testing "rf2-hga49 — with no epoch focused the Reset button renders
+  (testing "with no epoch focused the Reset button renders
             disabled and carries no on-click (the button is the UI rewind
             affordance; nothing to rewind to until an event is selected)."
     (xray-setup!)
@@ -3227,7 +3167,7 @@
         (is (re-find #"Reset" (text-nodes reset)) "button reads `Reset`")))))
 
 (deftest tab-bar-reset-button-dispatches-restore-on-observed-frame
-  (testing "rf2-hga49 — with an epoch focused, clicking Reset dispatches
+  (testing "with an epoch focused, clicking Reset dispatches
             `:rf.xray/reset-to-epoch` with the OBSERVED frame (NOT :rf/xray)
             and the focused epoch-id, so the live app rewinds to that
             epoch's :db-after."
@@ -3268,7 +3208,7 @@
               ":rf.xray/reset-to-epoch fired with observed frame + epoch-id"))))))
 
 (deftest reset-to-epoch-event-trampolines-into-restore-fx
-  (testing "rf2-hga49 — `:rf.xray/reset-to-epoch` is a thin event-fx that
+  (testing "`:rf.xray/reset-to-epoch` is a thin event-fx that
             routes into the `:rf.xray.fx/restore-epoch` effect, which calls
             the framework's `rf/restore-epoch!` with the supplied frame +
             epoch-id (the framework call lives in the fx, not a db
@@ -3284,7 +3224,7 @@
           "the event→fx chain called rf/restore-epoch! with frame + epoch-id"))))
 
 (deftest reset-to-epoch-fx-flashes-on-restore-failure
-  (testing "rf2-hga49 — when `rf/restore-epoch!` returns false (a documented
+  (testing "when `rf/restore-epoch!` returns false (a documented
             failure mode), the fx dispatches the inline failure flash; a
             true return sets no flash."
     (xray-setup!)
@@ -3295,27 +3235,27 @@
     (rf/with-frame :rf/xray
       (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
           "a false restore sets the inline failure flash"))
-    ;; rf2-wa7tk — success path WITHOUT a manual clear: the fresh
-    ;; reset attempt must itself dissoc the stale failure flash (the
-    ;; documented "next successful reset" contract). Pre-fix the stale
-    ;; "Reset failed" string survived a subsequent successful reset —
-    ;; a silent lie on the ribbon.
+    ;; success path WITHOUT a manual clear: the fresh reset attempt
+    ;; must itself dissoc the stale failure flash (the documented "next
+    ;; successful reset" contract). Otherwise the stale "Reset failed"
+    ;; string would survive a subsequent successful reset — a silent lie
+    ;; on the ribbon.
     (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] true)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-9"])))
     (rf/with-frame :rf/xray
       (is (nil? @(rf/subscribe [:rf.xray/reset-flash]))
-          "a successful restore clears the stale failure flash (rf2-wa7tk)"))))
+          "a successful restore clears the stale failure flash"))))
 
 (deftest reset-to-epoch-clears-stale-flash-before-reattempt
-  (testing "rf2-wa7tk — `:rf.xray/reset-to-epoch` dissocs any stale
+  (testing "`:rf.xray/reset-to-epoch` dissocs any stale
             `:reset-flash` on EVERY fresh attempt, before re-running the
             restore. A second FAILED reset still shows a flash (the fx
             re-sets it); the key invariant is that the slot is cleared
             first, so a stale failure can never outlive the gesture that
-            produced it. Without the clear, the success-path test above
-            would only pass because it manually dispatched
-            `:rf.xray/clear-reset-flash` — papering over the bug."
+            produced it. A test that manually dispatched
+            `:rf.xray/clear-reset-flash` between attempts would paper
+            over a missing clear, so none of these attempts does."
     (xray-setup!)
     ;; first attempt fails → flash set
     (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
@@ -3339,10 +3279,10 @@
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-3"])))
     (rf/with-frame :rf/xray
       (is (nil? @(rf/subscribe [:rf.xray/reset-flash]))
-          "a successful reset clears the flash with no manual clear (rf2-wa7tk)"))))
+          "a successful reset clears the flash with no manual clear"))))
 
 (deftest reset-flash-failed-sets-inline-flash-and-clears
-  (testing "rf2-hga49 — a restore failure sets the inline `:rf.xray/reset-
+  (testing "a restore failure sets the inline `:rf.xray/reset-
             flash` message (surfaced on the ribbon, never a modal); the
             clear event dissocs it."
     (xray-setup!)
@@ -3366,7 +3306,7 @@
         (is (nil? el) "the inline flash is removed from the ribbon")))))
 
 (deftest selected-issue-row-is-distinguishable
-  (testing "rf2-hga49 — the bead's core bug: a SELECTED ERROR row must be
+  (testing "a SELECTED ERROR row must be
             visibly distinct from an unselected one. The three coordinated
             signals — the leading `>` caret, the darker `:selected-row-bg`
             background-color, and the (paled) issue wash on the
@@ -3400,7 +3340,7 @@
             "the issue wash still rides the :background-image layer")))))
 
 (deftest unselected-row-caret-gutter-is-empty
-  (testing "rf2-hga49 — the caret gutter is fixed-width on EVERY row but
+  (testing "the caret gutter is fixed-width on EVERY row but
             empty (no glyph) when the row is not selected, so selecting a
             row never shifts the columns."
     (xray-setup!)
