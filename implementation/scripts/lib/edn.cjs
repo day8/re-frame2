@@ -2,7 +2,7 @@
 
 /*
  * A small, complete EDN reader shared by the release-policy gates that must
- * read a `deps.edn` as STRUCTURE rather than as text (rf2-2n0cv).
+ * read a `deps.edn` as STRUCTURE rather than as text.
  *
  * Current consumers, all of them reading `deps.edn` coordinates / aliases:
  *
@@ -32,7 +32,7 @@
  * (an unterminated string, an unbalanced collection, an unknown `#` dispatch)
  * throws EdnReadError so callers can reject rather than silently mis-read. It
  * is NOT a full Clojure reader — it covers exactly the EDN grammar a deps.edn
- * can contain — but, unlike the brace counter it replaces, it never mistakes
+ * can contain — but, unlike a brace counter, it never mistakes
  * comment / string / discarded bytes for real structure.
  */
 
@@ -81,17 +81,17 @@ class Reader {
   // first significant character, which may be a closing delimiter or EOF.
   //
   // A discard is ignorable content, not a datum — that is the whole of its
-  // meaning, and putting it HERE rather than in readForm is what fixes
-  // rf2-vr11t. It used to be readForm's job: readForm consumed `#_`, read the
-  // discarded datum, then looped round to read "the real next form" — but
-  // inside a collection whose LAST element is a discard, the real next form is
-  // the CLOSING DELIMITER, and readDatum rejects that. So an entirely ordinary
+  // meaning, and it is why discards are skipped HERE rather than in readForm.
+  // Were it readForm's job — consume `#_`, read the discarded datum, then loop
+  // round to read "the real next form" — then inside a collection whose LAST
+  // element is a discard, the real next form would be the CLOSING DELIMITER,
+  // and readDatum rejects that. So an entirely ordinary
   // `#_`-commented-out final dependency
   //
   //   {:deps {org.clojure/clojure {:mvn/version "1.12.0"}
   //           #_day8/de-dupe #_{:git/url "https://example.invalid/x.git"}}}
   //
-  // threw `unexpected '}'`, and every consumer of this reader — the release
+  // would throw `unexpected '}'`, and every consumer of this reader — the release
   // lockstep gate, the bundle-isolation gate — fails CLOSED on a throw. Never a
   // false pass, but an un-runnable gate, reachable by normal editing.
   //
@@ -166,10 +166,9 @@ class Reader {
     return this.readAtom();
   }
 
-  // Elements up to `close`. Because skipIgnored() now runs BEFORE the
+  // Elements up to `close`. Because skipIgnored() runs BEFORE the
   // closing-delimiter test on every pass, a discard sitting last in the
-  // collection is gone by the time we look for `}` — the ordering rf2-vr11t
-  // turned on.
+  // collection is gone by the time we look for `}`.
   readSeq(close) {
     const items = [];
     for (;;) {
