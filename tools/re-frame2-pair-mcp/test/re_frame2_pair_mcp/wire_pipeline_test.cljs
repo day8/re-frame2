@@ -5,8 +5,8 @@
   The `:epoch-vector` arm (trace-window / watch-epochs) walks the
   payload locally for the `:elided-large` indicator — the count is NOT
   pre-shipped from the runtime (unlike `:scalar-value`, which carries
-  `:server-elided`). Since rf2-3x7nj.32.8 the `:snapshot-map` arm walks
-  locally too, over what it ships — see the section at the end.
+  `:server-elided`). The `:snapshot-map` arm walks locally too, over
+  what it ships — see the section at the end.
 
   THE CONTRACT: the arm counts markers over the PRE-dedup (`encoded`)
   payload. `re-frame.mcp-base.dedup` pools N identical `:rf.size/large-elided` maps
@@ -30,7 +30,7 @@
   "A `:rf.size/large-elided` marker as `rf/elide-wire-value` emits it
   (Spec 009 §Size elision in traces). `path` distinguishes the handle;
   pass the SAME path to all records to make the marker maps EQUAL so
-  dedup pools them — the exact pre-fix undercount trigger."
+  dedup pools them — the exact trigger for a post-dedup undercount."
   [path]
   {:rf.size/large-elided
    {:path path :bytes 102400 :type :string
@@ -69,7 +69,7 @@
       (is (= 3 (count epochs)) "fixture sanity: 3 records"))))
 
 (deftest epoch-vector-dedup-of-equal-markers-would-undercount-without-fix
-  (testing "the deduped payload genuinely pools the 3 equal markers — proving the fix is load-bearing"
+  (testing "the deduped payload genuinely pools the 3 equal markers — proving the pre-dedup count is load-bearing"
     (let [marker  (large-marker [:slot])
           epochs  (vec (for [n (range 3)] (epoch-with-marker n marker)))
           encoded (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)
@@ -77,9 +77,9 @@
       ;; Walking `deduped` returns 1 here (the undercount); walking
       ;; `encoded` — the pipeline's choice — returns the correct 3.
       (is (= 1 (rf.mcp-base.elision/count-elided-markers deduped))
-          "dedup pools the 3 equal markers → walking the deduped payload undercounts to 1 (the bug)")
+          "dedup pools the 3 equal markers → walking the deduped payload undercounts to 1 (the hazard)")
       (is (= 3 (rf.mcp-base.elision/count-elided-markers encoded))
-          "walking the pre-dedup payload counts all 3 (the fix)"))))
+          "walking the pre-dedup payload counts all 3 (the pipeline's choice)"))))
 
 (deftest epoch-vector-elided-count-stable-with-dedup-off
   (testing "dedup off → no pooling → :elided-large == 3 either way"
@@ -91,7 +91,7 @@
                                         :mode   :diff
                                         :dedup? false})]
       (is (= 3 (:elided indicators))
-          "with dedup off the count is unchanged — the fix is dedup-invariant"))))
+          "with dedup off the count is unchanged — the count is dedup-invariant"))))
 
 (deftest epoch-vector-no-markers-counts-zero
   (testing "marker-free payload → :elided-large == 0 (the common path)"
@@ -105,16 +105,16 @@
       (is (= 0 (:elided indicators))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.32.8 — snapshot's :elided-large counts the markers it SHIPS.
+;; Snapshot's :elided-large counts the markers it SHIPS.
 ;;
 ;; The snapshot eval form counts markers app-side over the WHOLE walked
-;; state (every frame's full :app-db, every :sub-cache entry, every epoch)
-;; and used to hand that figure straight to the envelope. The path slice
-;; and the summary pass both remove markers, so the default `snapshot {}`
-;; (summary mode — no app-db values at all) and a path-sliced read reported
-;; markers the response did not contain. Each witness passes the
-;; `:server-elided` figure the eval form would report, so it is RED on the
-;; pre-fix tree, which took that figure verbatim.
+;; state (every frame's full :app-db, every :sub-cache entry, every
+;; epoch). The path slice and the summary pass both remove markers, so
+;; handing that figure straight to the envelope would make the default
+;; `snapshot {}` (summary mode — no app-db values at all) and a
+;; path-sliced read report markers the response does not contain. Each
+;; witness passes the `:server-elided` figure the eval form would report,
+;; so it is RED on any tree that takes that figure verbatim.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private docs-marker (large-marker [:docs :body]))
