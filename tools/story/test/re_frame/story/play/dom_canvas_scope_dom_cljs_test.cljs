@@ -1,5 +1,5 @@
 (ns re-frame.story.play.dom-canvas-scope-dom-cljs-test
-  "rf2-3x7nj.30.5: the play runner's DOM steps resolve their selector under
+  "The play runner's DOM steps resolve their selector under
   the Story canvas root, where the recorder captured it.
 
   The recorder listens on the canvas root only, and an element with no
@@ -7,7 +7,8 @@
   `tag:nth-of-type(N)`. Resolved over the whole page, `input:nth-of-type(1)`
   is the first `<input>` in document order — Story's sidebar search box,
   which precedes the canvas — so a recorded \"type into the form, click
-  Save\" replayed into Story's chrome and left the variant's form untouched.
+  Save\" would replay into Story's chrome and leave the variant's form
+  untouched.
 
   The page here is that shape in plain DOM: a chrome strip carrying an
   input and a button, then a canvas frame (the shell's hook) carrying the
@@ -15,7 +16,7 @@
   frame's hook removed the same selectors resolve document-wide again, so
   it is the canvas root, not the fixture, that keeps the steps in the form.
 
-  rf2-ice81: the canvas is the FIRST scope, not the only one. A view can
+  The canvas is the FIRST scope, not the only one. A view can
   render outside it — a modal or popover portalled into `document.body` —
   so a selector that matches nothing under the canvas is retried against
   the document, unless it is positional. The last three tests pin the three
@@ -98,7 +99,7 @@
         (finally
           (teardown! page))))))
 
-;; ---- rf2-ice81: the document fallback ----------------------------------------
+;; ---- the document fallback ----------------------------------------
 
 (defn- button!
   "Append a `type=button` carrying `data-test` `hook` to `parent`, counting
