@@ -34,7 +34,7 @@
 ;;
 ;; A button group with a small piece of local state — whether the
 ;; hover-hint is visible. Form-2 components return a render-fn that
-;; closes over a Reagent ratom; the surrounding frame is still resolved
+;; closes over a Reagent ratom; the surrounding frame is resolved
 ;; at the render-fn site. Story handles this shape transparently —
 ;; local component state lives outside `app-db`, so assertion vocab
 ;; against the app-db doesn't see it, which is the right separation.
@@ -64,8 +64,8 @@
         "+"]
        ;; Hint span always renders; toggling visibility (not unmount) reserves
        ;; layout space so the card width stays stable on hover.
-       ;; Colour darkened from #888 (3.54:1) to #595959 (7.0:1) to clear WCAG AA
-       ;; contrast for normal text.
+       ;; Colour #595959 (7.0:1) clears WCAG AA contrast for normal text,
+       ;; where #888 (3.54:1) would not.
        [:span {:style {:margin-left "1em" :font-size "11px" :color "#595959"
                        :visibility (if @hint? "visible" "hidden")}}
         "(demo: hint state is component-local, not in app-db)"]])))
