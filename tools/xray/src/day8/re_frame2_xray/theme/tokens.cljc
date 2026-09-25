@@ -524,8 +524,8 @@
 (def font-size-var-name
   "CSS custom-property name the whole type-scale interpolates through.
   `theme/global-styles/motion-css` publishes a default
-  value of `13px` on `:root`; host pages, the settings panel's
-  density slider, or DevTools overrides can swap the value and the
+  value of `13px` on `:root`; host pages, the density setting, or
+  DevTools overrides can swap the value and the
   entire shell's type rescales in lockstep.
 
   Modelled on TanStack Query Devtools' `--tsqd-font-size` knob — one
@@ -607,13 +607,13 @@
 
   Modelled on TanStack Query Devtools' `--tsqd-font-size` knob: one
   variable scales the entire UI. Override `--rf-xray-font-size` at
-  `:root` (or under a `.rf-xray-density-compact` / `-comfy` class
-  toggle once wired) and every typographic surface rescales together
-  without a single code change.
+  `:root` and every typographic surface rescales together without a
+  single code change.
 
-  spec/007-UX-IA.md §Typography catalogues the cosy baseline and a
-  ±1px density knob (compact/cosy/comfy); the CSS-variable knob is
-  the foundation a runtime density toggle builds on.
+  The density setting is the in-shell writer of that knob:
+  `settings.effects/apply-density-font-size!` writes 12px for
+  `:compact` and 13px for `:cosy`, and any other value renders at
+  13px (spec/007-UX-IA.md §Density slider).
 
   Values are CSS strings so call sites can drop them straight into
   inline `:style` maps. The browser resolves `calc(var(--…) * N)`
