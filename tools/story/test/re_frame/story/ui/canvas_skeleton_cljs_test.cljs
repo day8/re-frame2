@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.canvas-skeleton-cljs-test
   "CLJS-side regression net for the canvas loading skeleton + viewport-
-  px indicator (rf2-0s4p1 / rf2-zgu68).
+  px indicator.
 
   Surface covered:
 
@@ -38,14 +38,14 @@
 
 (deftest loading-phase-assertions-recorded-overrides
   (testing "assertions-recorded? true → false even when phase is loading
-            (rf2-qrk2s: loader-never-completes / loader-rejects park the
+            (loader-never-completes / loader-rejects park the
             lifecycle at :loading but the user view must render)"
     (is (false? (rf.story.ui.canvas/loading-phase? :loading   false true)))
     (is (false? (rf.story.ui.canvas/loading-phase? :pre-mount false true)))
     (is (false? (rf.story.ui.canvas/loading-phase? :mounting  false true)))))
 
 (deftest loading-phase-events-only-overrides
-  (testing "rf2-043cm — events-only? true → false even when phase is in
+  (testing "events-only? true → false even when phase is in
             the loading set. Events-only variants take the lifecycle
             fast-path (`:pre-mount → :ready` via `mount-ready!`); the
             skeleton must NEVER engage for them, including the brief
@@ -60,9 +60,8 @@
     (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false false)))))
 
 (deftest loading-phase-3-arg-overload-is-back-compat
-  (testing "rf2-043cm — the 3-arg overload (phase / first? / assertions?)
-            stays a back-compat surface for callers / tests written
-            against the pre-rf2-043cm signature. It defaults
+  (testing "the 3-arg overload (phase / first? / assertions?) serves
+            callers that pass no events-only? flag. It defaults
             `events-only?` to false."
     (is (true?  (rf.story.ui.canvas/loading-phase? :loading   false false)))
     (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false)))))
