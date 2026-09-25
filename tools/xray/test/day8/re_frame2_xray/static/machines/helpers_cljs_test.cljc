@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.static.machines.helpers-cljs-test
-  "Pure-data unit tests for the Static Machines projection helpers
-  (rf2-o5f5f.2). Dual-runtime so the projection contract is covered on
-  the JVM and in the `:node-test` bundle alike (rf2-odlm3)."
+  "Pure-data unit tests for the Static Machines projection helpers.
+  Dual-runtime so the projection contract is covered on
+  the JVM and in the `:node-test` bundle alike."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.static.machines.helpers :as h]))
@@ -102,14 +102,14 @@
     (is (= 3 (count rows)))
     (is (= [:m/a :m/b :m/c] (mapv :machine-id rows)))))
 
-;; ---- state-count: flat / compound / parallel (rf2-6nx8y) ----------------
+;; ---- state-count: flat / compound / parallel ----------------------------
 ;;
 ;; The state-count drives the browse-list chip, the detail header
 ;; `<N> states`, and the `Sort: States` axis. It MUST count every state
 ;; the topology renderer paints — top-level states PLUS compound
-;; substates PLUS every parallel region's states. Pre-rf2-6nx8y it read
-;; only `(count (:states definition))`, so compound substates were
-;; omitted and parallel machines (no `:states` key) showed `0 states`.
+;; substates PLUS every parallel region's states. Reading only
+;; `(count (:states definition))` would omit compound substates and show
+;; parallel machines (no `:states` key) as `0 states`.
 ;; The count is exercised via the public `project-row` (`state-count`
 ;; itself is private).
 
@@ -124,7 +124,7 @@
       (is (= 3 (:state-count row))))))
 
 (deftest state-count-compound-includes-nested-substates
-  (testing "compound substates are counted, not omitted (rf2-6nx8y)"
+  (testing "compound substates are counted, not omitted"
     ;; :unauth + :authed + (:browsing + :paying) = 4 — the same occupiable-
     ;; state count machines-viz `semantic-counts` emits for this definition.
     (let [row (h/project-row :m/compound
@@ -151,9 +151,9 @@
           ":a + :b + :c + :d across three nesting levels"))))
 
 (deftest state-count-parallel-sums-region-states
-  (testing "a :type :parallel machine sums its regions' states (rf2-6nx8y)"
-    ;; region :r1 (:a + :b) + region :r2 (:c) = 3 — was 0 pre-fix
-    ;; because a parallel root carries no top-level :states key.
+  (testing "a :type :parallel machine sums its regions' states"
+    ;; region :r1 (:a + :b) + region :r2 (:c) = 3 — not 0, even though
+    ;; a parallel root carries no top-level :states key.
     (let [row (h/project-row :m/par
                              {:type    :parallel
                               :regions {:r1 {:initial :a :states {:a {} :b {}}}
