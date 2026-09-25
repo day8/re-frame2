@@ -1,8 +1,6 @@
 (ns panel-gallery.panel-views
   "Registered re-frame views referenced by Story variant `:component`
-  slots in the Xray panel gallery (rf2-sszlr — rebuilt for the
-  6-tab Xray shape; rf2-5gl5r retired the Event/Handler tab in
-  favour of the Epoch panel; rf2-gbz39 folded Issues inline).
+  slots in the Xray panel gallery.
 
   Story canvas resolves `:component` to a registered re-frame view
   via `(rf/view <id>)` (per
@@ -21,35 +19,30 @@
 
   Per spec/018-Event-Spine.md §5 the chrome surfaces one tab per
   registered Dynamic lens. This gallery wraps six of them, whose bodies
-  are existing per-panel Panel views (Resources · Graph · Frames ·
+  are the per-panel Panel views (Resources · Graph · Frames ·
   Fresco ship but are deliberately not galleried here):
 
-    - **Epoch**           → `epoch-panel/Panel` (rf2-sc3r1; supersedes
-                            the retired Event/Handler panel — rf2-5gl5r)
+    - **Epoch**           → `epoch-panel/Panel`
     - **App-db**          → `app-db-diff/Panel`
     - **Reactive**        → `reactive-panel/Panel`
     - **Trace**           → `trace/Panel`
     - **Machines**        → `machine-inspector/Panel`
-    - **Routing**         → `routing/Panel` (rf2-nrbs9)
+    - **Routing**         → `routing/Panel`
 
-  (rf2-gbz39 — the Issues tab + its `issues-ribbon/Panel` were removed
-  per Mike's Option (c) ruling; issues surface inline in the Epoch
+  (There is no Issues tab: issues surface inline in the Epoch
   panel + the L2 event-row pink-wash + the always-on issues ribbon
   signal, so there is no dedicated Issues panel to gallery.)
 
-  ## The chrome (rf2-xy4yb / spec/018)
+  ## The chrome (spec/018)
 
   `:panel-gallery.chrome/Shell` mounts the full 4-layer chrome
-  (`shell/shell-view`). Per rf2-1w07r the chrome cell threads the
+  (`shell/shell-view`). The chrome cell threads the
   Story per-variant frame into `[shell/shell-view {:frame-id …}]`, so
   the shell's app-db lives in the VARIANT frame — N chrome cells in one
   workspace are fully isolated and each variant's `:setup` seed THAT
-  frame directly. (Pre rf2-1w07r the shell hardcoded a scope-only
-  `[frame-provider {:frame :rf/xray}]`, so every cell's reads
-  collided on the one global `:rf/xray` app-db regardless of the
-  variant frame.)
+  frame directly.
 
-  ## Facade-mount discipline (rf2-043uz)
+  ## Facade-mount discipline
 
   Each gallery wrapper mounts the panel through its `reg-view`-
   registered Panel facade. Because facades are `reg-view`-registered,
@@ -76,7 +69,7 @@
   consistent visual shell with a labelled border so a reviewer can
   spot the panel boundary.
 
-  `:position :relative` (rf2-om6fa) — establishes the positioning
+  `:position :relative` — establishes the positioning
   context for `:modal-positioning :absolute` modal backdrops mounted
   inside the chrome shell. The shell's `:inline` mode already sets
   its outer `<div>` to `position: relative`, but pinning it on the
@@ -100,21 +93,20 @@
 
 ;; ---- per-tab wrappers ----------------------------------------------------
 ;;
-;; (rf2-5gl5r — `event-tab-panel` removed alongside the retired
-;; Event/Handler panel; the Epoch wrapper below is the canonical
-;; "what happened in this epoch" gallery surface.)
+;; (The Epoch wrapper below is the canonical "what happened in this
+;; epoch" gallery surface.)
 
 (defn- app-db-tab-panel
   "Embedded mount of the App-db tab body — the app-db-diff panel."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-app-db-card"}
-   ;; rf2-k97c.3 — `Panel-bridge`; see the Reactive cell below for why.
+   ;; `Panel-bridge`; see the Reactive cell below for why.
    [app-db-diff/Panel-bridge]])
 
 (defn- epoch-tab-panel
   "Embedded mount of the Epoch panel — `panels.epoch.view/Panel` via the
-  orchestrator's re-export (rf2-mzcwt). The panel renders the focused
+  orchestrator's re-export. The panel renders the focused
   epoch as a numbered vertical cascade per spec/021 §9.1; its composite
   sub `:rf.xray/epoch-pipeline` reads `:rf.xray/focus` +
   `:rf.xray/epoch-history` from the variant frame."
@@ -125,12 +117,12 @@
 
 (defn- reactive-tab-panel
   "Embedded mount of the Reactive tab body — the reactive panel
-  (rf2-wyvf2 · spec/021 §3 · renamed from Views per §11.5)."
+  (spec/021 §3)."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-reactive-card"}
-   ;; rf2-k97c.3 — `Panel-bridge`. This gallery cell is a Reagent tree, and
-   ;; `reactive-panel/Panel` is now a Fresco boundary (a React function
+   ;; `Panel-bridge`. This gallery cell is a Reagent tree, and
+   ;; `reactive-panel/Panel` is a Fresco boundary (a React function
    ;; component), which `defview`'s contract forbids mounting as a Reagent
    ;; hiccup head. The bridge is Fresco's `as-component` door and takes the
    ;; frame from React context, which the variant `frame-provider` above
@@ -142,9 +134,9 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-trace-card"}
-   ;; rf2-fcy5 — `Panel-bridge`, for the reason spelled out on the
+   ;; `Panel-bridge`, for the reason spelled out on the
    ;; Reactive card above: this gallery cell is a Reagent tree and
-   ;; `trace/Panel` is now a Fresco boundary, which may not be mounted as
+   ;; `trace/Panel` is a Fresco boundary, which may not be mounted as
    ;; a Reagent hiccup head. The bridge is Fresco's `as-component` door and
    ;; takes the frame from React context, which the variant
    ;; `frame-provider` above already wrote.
@@ -152,7 +144,7 @@
 
 (defn- machines-tab-panel
   "Embedded mount of the Machines tab body — the machine-inspector
-  panel (rf2-2tkza Phase 1 + rf2-v869p Phase 2)."
+  panel."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-machines-card"}
@@ -160,18 +152,17 @@
 
 (defn- routing-tab-panel
   "Embedded mount of the Routing tab body — the routing panel
-  (rf2-nrbs9; spec/016 §Routing tab + spec/018 §5.6)."
+  (spec/016 §Routing tab + spec/018 §5.6)."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-routing-card"}
    [routing/Panel]])
 
-;; (rf2-gbz39 — `issues-tab-panel` removed alongside the Issues tab.
-;; Option (c): issues surface inline in the Epoch panel + the L2
-;; event-row pink-wash + the always-on issues ribbon signal, so there
-;; is no standalone Issues panel to embed here.)
+;; (There is no Issues tab wrapper: issues surface inline in the Epoch
+;; panel + the L2 event-row pink-wash + the always-on issues ribbon
+;; signal, so there is no standalone Issues panel to embed here.)
 
-;; ---- widget gallery (rf2-hp4ow) -----------------------------------------
+;; ---- widget gallery -----------------------------------------------------
 ;;
 ;; The edn-inspector is a widget, not a tab — but the panel-views
 ;; convention is the cleanest mounting surface for it too. The
@@ -211,23 +202,20 @@
   "Embedded mount of the full Xray 4-layer chrome (`shell/shell-view`)
   per spec/018-Event-Spine.md §2.
 
-  ## Per-cell frame isolation (rf2-1w07r)
+  ## Per-cell frame isolation
 
   `chrome-shell` is `reg-view*`-registered (see `register!`), so its
   render-fn is `:contextType frame-context`-aware and `(rf/current-
-  frame)` resolves to the Story per-variant frame the canvas wrapped
+  frame-id)` resolves to the Story per-variant frame the canvas wrapped
   the cell in. We thread that frame into `[shell/shell-view {:frame-id
   …}]` so the shell's app-db (focused epoch, selected tab, theme, modal
   open-state) lives in the VARIANT frame — each chrome cell in a
   `:variants-grid` workspace is then fully isolated, and the variant's
-  `:setup` seed THAT frame directly. (Pre rf2-1w07r the shell
-  hardcoded `[frame-provider {:frame :rf/xray}]`, so every cell
-  collided on the one `:rf/xray` app-db — driving one drove all; the
-  gallery had to serialise rendering with a `:tabs` workspace + a
-  re-seed-on-activation shim. The parameterized shell retires that
-  workaround.)
+  `:setup` seed THAT frame directly. A shell that hardcoded
+  `[frame-provider {:frame :rf/xray}]` would collide every cell on the
+  one `:rf/xray` app-db, so driving one would drive all.
 
-  ## `:modal-positioning :absolute` (rf2-om6fa)
+  ## `:modal-positioning :absolute`
 
   Story workspaces mount multiple chrome cells side-by-side. With
   the production default `:fixed` positioning every cell's modal
