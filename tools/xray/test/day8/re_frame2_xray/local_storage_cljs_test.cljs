@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.local-storage-cljs-test
-  "Fail-soft contract for the shared `local-storage` seam (rf2-dwn5yn).
+  "Fail-soft contract for the shared `local-storage` seam.
 
   `local_storage.cljs`'s :33 posture promises a quota error or a
   cross-origin `SecurityError` NEVER poisons the dispatch chain that
@@ -8,7 +8,7 @@
   unguarded throw here propagates into every persistence call-site —
   and (since several fire from init / dispatch hooks) into dispatch.
 
-  The existing `init_filter_reset_cljs_test` covers the HAPPY round-trip
+  `init_filter_reset_cljs_test` covers the HAPPY round-trip
   (an in-memory stub whose methods never throw) and the absent-window
   branch. It does NOT cover the two error edges this file pins:
 
