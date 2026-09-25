@@ -1,28 +1,27 @@
 'use strict';
 // THE FLOOR ARM'S SECOND-MODE **RATE**, AGAINST ELAPSED TIME WITHIN A SESSION —
-// rf2-6kxub, read off committed datasets and nothing else.
+// read off committed datasets and nothing else.
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_mode_rate_session.cjs
-//     node fresco/test/re_frame/bench/fresco/alloc_mode_rate_session.cjs --self-test
+//     node src/re_frame/bench/fresco/alloc_mode_rate_session.cjs
+//     node src/re_frame/bench/fresco/alloc_mode_rate_session.cjs --self-test
 //
 // ## THE QUESTION
 //
 // Three windows at ONE revision, on ONE instrument, with the SAME plan and the
-// SAME estimator produced three incompatible rates for the elevated floor mode:
-// 0 of 6, 2 of 20, and 37 of 69. `rf2-6kxub` filed that as a live risk to the
-// METHOD rather than an oddity, because every window on this arm SIZES ITS RUN
-// COUNT against a prior rate and a pre-declared count cannot be revised after
-// the fact.
+// SAME estimator produce three incompatible rates for the elevated floor mode:
+// 0 of 6, 2 of 19, and 37 of 69. That is a live risk to the METHOD rather than
+// an oddity, because every window on this arm SIZES ITS RUN COUNT against a
+// prior rate and a pre-declared count cannot be revised after the fact.
 //
-// The bead's own first-named candidate is a within-window ordering effect, and
-// it is the one candidate that needs NOTHING new recorded: `generatedAt` is on
-// every dataset already. This reader tests it.
+// The first candidate is a within-window ordering effect, and it is the one
+// candidate that needs NOTHING new recorded: `generatedAt` is on every dataset.
+// This reader tests it.
 //
 // ## THE CLASSIFIER, WHICH IS NOT THIS READER'S TO CHOOSE
 //
 // A run is HIGH when either segment's estimator reads at or above 21,000
-// B/write. That is `rf2-77gz8`'s criterion, carried unchanged through
-// `does-arming-the-census-move-the-high-level.md`, and it is quoted here rather
+// B/write. That is the `alloc-77gz8` window's criterion, the one
+// `does-arming-the-census-move-the-high-level.md` uses, and it is quoted here rather
 // than invented: this reader must not be free to move the bar it counts
 // against. The estimator is the MEDIAN of `legMedian` over the run's CERTIFIED
 // floor windows, per segment.
@@ -34,19 +33,19 @@
 // ## ADMISSIBILITY, WHICH IS A SEPARATE QUESTION AND FAILS CLOSED
 //
 // The bar above says which of two MODES an admissible reading sits in. It says
-// nothing about whether there is a reading at all, and those two questions were
-// once run together here to this reader's cost.
+// nothing about whether there is a reading at all, and the two questions must
+// not be run together.
 //
 // **A FAILED POSITIVE CONTROL IS NOT A LOW-MODE OBSERVATION.** Every floor
 // record carries `alloc.controlVerdict`, the verdict of the run's own positive
 // control — a control that did not certify says the INSTRUMENT was not reading
 // correctly during that run, so the arm figures beside it are not a measurement
-// of anything. An earlier version of `runsOf` admitted every dataset carrying an
-// `alloc.perRound` array and classified anything it could not read as LOW, so
-// two control-refused runs were silently counted as low-mode observations:
+// of anything. A `runsOf` that admitted every dataset carrying an
+// `alloc.perRound` array and classified anything it could not read as LOW
+// would silently count two control-refused runs as low-mode observations:
 // `alloc-77gz8/run12-a4a1537cb71` and
 // `alloc-9jrhi/bisect-5-a-4a1537cb71-replicate`. Counting a refused control low
-// biases every rate on this record DOWNWARD, and it did.
+// biases every rate on this record DOWNWARD.
 //
 // So `admit()` below fails closed on three shapes, and `runsOf` NAMES each
 // exclusion rather than dropping it:
@@ -61,7 +60,7 @@
 //
 // ## THE BOUNDARY SENSITIVITY, WHICH IS WHY THIS READER PRINTS A SWEEP
 //
-// The headline figure an earlier read quoted — a one-tail hypergeometric
+// The headline figure — a one-tail hypergeometric
 // P(<= 5 high among the first 19 of 69) = 0.0054 — turns on where the first
 // "quarter" is cut, and the cut is a choice rather than a measurement. Over
 // k = 17, 18, 19, 20 the same statistic reads 0.0210, 0.0109, 0.0054, 0.0025:
@@ -84,10 +83,10 @@ const archive = require('./data_archive.cjs');
 
 const DATA = archive.DATA;
 
-// `rf2-77gz8`'s criterion, unchanged. See the header: quoted, not chosen.
+// The `alloc-77gz8` window's criterion. See the header: quoted, not chosen.
 const HIGH_MODE_B = 21000;
 
-// The three sessions the bead names, in the order it names them.
+// The three sessions whose rates disagree, in the order the header quotes them.
 const SESSIONS = ['workcount-n1b9h', 'alloc-77gz8', 'alloc-c4hhk'];
 
 // The corpus that BOUNDS the result rather than supporting it.
@@ -184,8 +183,8 @@ function admit(raw) {
   for (const [seg, xs] of Object.entries(perSegment)) levels[seg] = median(xs);
   const readable = Object.values(levels).filter((v) => v !== null && Number.isFinite(v));
   // Every window refused, so the run holds no level to classify. Falling through
-  // here would have produced `high: false` from an EMPTY set — the exact shape
-  // that made an unreadable run look like a low-mode one.
+  // here would produce `high: false` from an EMPTY set, making an unreadable run
+  // look like a low-mode one.
   if (!readable.length) return { ok: false, why: 'no certified segment level' };
 
   return { ok: true, levels, high: readable.some((v) => v >= HIGH_MODE_B) };
@@ -278,14 +277,14 @@ const pStr = (p) => (p >= 0.001 ? p.toFixed(4) : p.toExponential(2));
 
 function report(a) {
   const L = [];
-  L.push("THE FLOOR ARM'S SECOND-MODE RATE AGAINST SESSION ELAPSED TIME (rf2-6kxub)");
+  L.push("THE FLOOR ARM'S SECOND-MODE RATE AGAINST SESSION ELAPSED TIME");
   L.push(`high-mode criterion: either segment's median certified legMedian at or above ${HIGH_MODE_B} B/write`);
   L.push('');
   L.push(`  ${'session'.padEnd(20)}${'runs'.padStart(6)}${'high'.padStart(6)}${'rate'.padStart(8)}${'minutes'.padStart(10)}   inadmissible`);
   for (const s of [...a.sessions, a.bounding]) {
     // Every exclusion is printed WITH ITS REASON. A count of admissible runs
-    // that did not say what it left out, and why, would be the defect this
-    // reader was corrected for.
+    // that did not say what it left out, and why, would hide exactly what
+    // admissibility exists to name.
     const excl = s.skipped.map((x) => `${x.file.replace(/\.json$/, '')} (${x.why})`).join(', ') || '—';
     L.push(`  ${s.dir.padEnd(20)}${String(s.N).padStart(6)}${String(s.K).padStart(6)}${`${(100 * s.rate).toFixed(1)}%`.padStart(8)}${s.minutes.toFixed(1).padStart(10)}   ${excl}`);
   }
@@ -324,7 +323,7 @@ function report(a) {
   const hi = a.bounding.runs.findIndex((r) => r.high);
   L.push(`  session ${a.bounding.minutes.toFixed(1)} min; its single high run is number ${hi + 1} of ${a.bounding.runs.length}, at ` +
     `+${((a.bounding.runs[hi].at - b0) / 60000).toFixed(1)} min — EARLY, which is where the gradient says a high run is LEAST likely.`);
-  L.push('  So the elapsed-time account does NOT explain this run, and does not discharge rf2-9jrhi.');
+  L.push('  So the elapsed-time account does NOT explain this run, and leaves the alloc-9jrhi second mode unexplained.');
   return L;
 }
 
@@ -379,8 +378,8 @@ function selfTest() {
     return v.ok === false && v.why === 'no alloc block';
   })());
   // SHAPE 2 — the control refused. `alloc-77gz8/run12` and
-  // `alloc-9jrhi/bisect-5` are this shape, and the reason this reader was
-  // corrected: BOTH were previously counted LOW.
+  // `alloc-9jrhi/bisect-5` are this shape, and BOTH read LOW if the control
+  // is ignored.
   ok('admit: SHAPE 2 — a refused control is refused, NOT counted low', (() => {
     const v = admit(synth({ controlVerdict: { ok: false, perDouble: 11.8, differential: 14.2 } }));
     return v.ok === false && v.why === 'control refused' && v.high === undefined;
@@ -425,8 +424,8 @@ function selfTest() {
   }
   const byDir = Object.fromEntries([...a.sessions, a.bounding].map((s) => [s.dir, s]));
   ok('corpus: workcount-n1b9h reads 0 of 6', byDir['workcount-n1b9h'].K === 0 && byDir['workcount-n1b9h'].N === 6);
-  // THE CORRECTED DENOMINATOR. 2 of 20 was the figure before the admissibility
-  // repair; run12's control was refused, so the readings are 2 of 19.
+  // THE ADMISSIBLE DENOMINATOR. run12's control was refused, so the readings
+  // are 2 of 19, not the 2 of 20 a reader ignoring the control counts.
   ok('corpus: alloc-77gz8 reads 2 of 19 — NOT 2 of 20', byDir['alloc-77gz8'].K === 2 && byDir['alloc-77gz8'].N === 19);
   ok('corpus: alloc-c4hhk reads 37 of 69', byDir['alloc-c4hhk'].K === 37 && byDir['alloc-c4hhk'].N === 69);
   ok('corpus: alloc-9jrhi reads 1 of 7 — NOT 1 of 8', byDir['alloc-9jrhi'].K === 1 && byDir['alloc-9jrhi'].N === 7);
@@ -445,8 +444,8 @@ function selfTest() {
     /bisect-5-a-4a1537cb71-replicate/.test(byDir['alloc-9jrhi'].skipped[0].file) &&
     byDir['alloc-9jrhi'].skipped[0].why === 'control refused');
   ok('corpus: workcount-n1b9h excludes nothing', byDir['workcount-n1b9h'].skipped.length === 0);
-  // THE TWO REFUSED RUNS READ BELOW THE BAR, which is exactly why the old
-  // reader counted them low and why nothing but the control catches them.
+  // THE TWO REFUSED RUNS READ BELOW THE BAR, which is exactly why a
+  // readability check counts them low and why nothing but the control catches them.
   ok('corpus: both refused runs would have read LOW, so only the control excludes them', (() => {
     const raw = (d, f) => archive.readRecord(path.join(DATA, d, f));
     const check = (d, f) => {
@@ -479,17 +478,17 @@ function selfTest() {
 
   const early = a.conditioned[0];
   const pooled = a.conditioned[1];
-  // RECOMPUTED ON THE CORRECTED DENOMINATOR. 77gz8's 2 of 19 reads 0.0894 and
-  // 1.15e-4; on the stale 2 of 20 the same two figures were 0.0721 and 5.89e-5.
+  // ON THE ADMISSIBLE DENOMINATOR, 77gz8's 2 of 19 reads 0.0894 and 1.15e-4;
+  // the inadmissible 2 of 20 would read 0.0721 and 5.89e-5.
   ok('corpus: against the early rate, n1b9h reads 0.160 and 77gz8 reads 0.089',
     Math.abs(early.others[0].pAtMost - 0.160) < 5e-3 && Math.abs(early.others[1].pAtMost - 0.0894) < 5e-3);
   ok('corpus: against the pooled rate, 77gz8 reads 1.15e-04 — not the stale 5.89e-05',
     Math.abs(pooled.others[1].pAtMost - 1.149e-4) < 1e-6 && pooled.others[1].pAtMost > 6e-5);
   ok('corpus: against the pooled rate, n1b9h reads 0.0099', Math.abs(pooled.others[0].pAtMost - 0.00995) < 5e-4);
-  // AND THE DIRECTION OF THE REPAIR IS PINNED: dropping a refused run that had
-  // been counted LOW can only make the short session look LESS extreme, so both
-  // corrected figures must sit ABOVE their stale counterparts. A future change
-  // that silently re-admitted a refused control would push them back down.
+  // AND THE DIRECTION IS PINNED: dropping a refused run that would count LOW
+  // can only make the short session look LESS extreme, so both admissible
+  // figures must sit ABOVE their 2-of-20 counterparts. A change that silently
+  // re-admitted a refused control would push them back down.
   ok('corpus: the repair moved both 77gz8 figures UPWARD, as dropping a false low must',
     early.others[1].pAtMost > 0.0721 && pooled.others[1].pAtMost > 5.89e-5);
 
@@ -503,7 +502,7 @@ function selfTest() {
   ok('bound: its high run sits at +3.6 min in a 14.9 min session',
     Math.abs((b.runs[idx].at - b.runs[0].at) / 60000 - 3.6) < 0.05 && Math.abs(b.minutes - 14.9) < 0.05);
   ok('bound: it is in the EARLY half, where the gradient predicts fewest highs', idx < b.N / 2);
-  // THE BOUND SURVIVES THE ADMISSIBILITY REPAIR, and that is the point of
+  // THE BOUND SURVIVES ADMISSIBILITY, and that is the point of
   // pinning it here: the run excluded from the bisect sits at +11.3 min, LATE,
   // so removing it can only make the surviving high run look earlier still.
   ok('bound: the excluded bisect run is NOT the high one', !/bisect-5/.test(b.runs[idx].file));
