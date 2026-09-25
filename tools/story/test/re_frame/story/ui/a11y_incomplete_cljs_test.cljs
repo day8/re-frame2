@@ -3,7 +3,7 @@
   violations, and are shown rather than failed.
 
   A scan whose `.then` kept `(.-violations results)` and dropped
-  `incomplete` would make a variant axe could not fully decide read
+  `incomplete` would make a variant that axe could not fully decide read
   '0 violation(s) found in variant' and 'no violations': a clean bill over
   checks nobody had looked at (the login-form testbed's `/idle` shape: 0
   violations beside one incomplete `color-contrast` rule on 5 nodes).
