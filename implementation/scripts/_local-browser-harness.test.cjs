@@ -36,8 +36,8 @@ function test(name, fn) {
 // accepts a client connection. Most modern Windows/macOS/Linux hosts have it,
 // but minimal CI containers occasionally disable IPv6, so those tests SKIP
 // (rather than fail) where it is unavailable — the deriveProbeHost mapping
-// unit test plus the wildcard/default functional coverage still pin the fix
-// on every platform. (Per the repo's cross-platform maintainer discipline: a
+// unit test plus the wildcard/default functional coverage still pin the
+// mapping on every platform. (Per the repo's cross-platform maintainer discipline: a
 // script must not hard-require a feature a maintainer's box may lack.)
 function testIpv6(name, fn) {
   tests.push({ name, fn, needsIpv6: true });
@@ -166,8 +166,8 @@ test('cleanupSync sweeps every child when async cleanup() is mid-flight', async 
   // permanently mid-flight (modelling abandonment during process exit).
   cleanup.cleanup();
 
-  // The 'exit' handler fires. With the bug this returns without sweeping;
-  // with the fix it synchronously sweeps every tracked child.
+  // The 'exit' handler fires. It must synchronously sweep every tracked
+  // child, never return without sweeping.
   cleanup.cleanupSync();
 
   assert.deepEqual(
@@ -211,7 +211,7 @@ test('cleanup runs each addCleanup fn at most once across sync + async paths', a
   assert.equal(calls, 1);
 });
 
-// rf2-84gzw regression — free-port resolution.
+// Free-port resolution.
 test('resolveServePort returns the preferred port when it is free', async () => {
   const free = await findFreePort();
   const resolved = await resolveServePort(free);
@@ -239,7 +239,7 @@ test('resolveServePort falls back to a different free port when preferred is bus
   }
 });
 
-// rf2-84gzw regression — ownership-token verification.
+// Ownership-token verification.
 test('waitForOwnedHttpReady resolves ok when the served token matches', async () => {
   const token = crypto.randomBytes(8).toString('hex');
   const server = http.createServer((req, res) => {
@@ -285,7 +285,7 @@ test('waitForOwnedHttpReady refuses a foreign server (token mismatch)', async ()
   }
 });
 
-// rf2-vtp2er — child-exited abort path. Both migrated callers
+// Child-exited abort path. Both callers
 // (serve-and-run-browser-tests.cjs, check-story-static.cjs) and the Xray
 // gate pass `isAborted: () => <server died>` so the owned-readiness wait
 // fails fast when http-server exits before becoming reachable, instead of
@@ -314,13 +314,12 @@ test('waitForOwnedHttpReady aborts with child-exited when isAborted goes true', 
   assert.equal(result2.reason, 'child-exited');
 });
 
-// rf2-vtp2er — the exact owned-readiness happy path the migrated browser-
-// test / story-static launchers now drive: a server that starts tokenless
+// The exact owned-readiness happy path the browser-test / story-static
+// launchers drive: a server that starts tokenless
 // (http-server is up but hasn't published /.rf-harness-token yet) and then
 // begins serving the matching token. The wait must keep polling through the
 // tokenless window and resolve ok once the token appears — proving the
-// shared primitive covers the "server racing to publish the sentinel" shape
-// the bespoke per-caller waitForReady copies handled.
+// shared primitive covers the "server racing to publish the sentinel" shape.
 test('waitForOwnedHttpReady polls through a tokenless window then succeeds when the token appears', async () => {
   const token = crypto.randomBytes(8).toString('hex');
   let tokenLive = false;
@@ -367,7 +366,7 @@ test('waitForOwnedHttpReady reports token-never-served for a tokenless responder
   }
 });
 
-// rf2-0u8kz regression — explicit-port validation. An explicit preferred
+// Explicit-port validation. An explicit preferred
 // port is usable only as an integer in 1..65535; 0 / negative / overflow /
 // non-integer values must NOT bind net.listen (0 would bind an unusable
 // ephemeral port — a false "free"; the others throw ERR_SOCKET_BAD_PORT).
@@ -390,7 +389,7 @@ test('isValidExplicitPort accepts only integers 1..65535', () => {
 test('isPortFree reports false for 0 / out-of-range / non-integer without throwing', async () => {
   // Port 0 binds an ephemeral port at the OS layer, but is not a usable
   // ADVERTISED port — isPortFree must short-circuit to false rather than
-  // bind-and-release it (the bug: returning true here let callers advertise
+  // bind-and-release it (returning true here would let callers advertise
   // :0). Negative / overflow / non-integer must not reach net.listen
   // (which throws ERR_SOCKET_BAD_PORT) — the guard reports false cleanly.
   assert.equal(await isPortFree(0), false);
@@ -416,11 +415,11 @@ test('resolveServePort never returns 0 and falls back (logged) for invalid prefe
   }
 });
 
-// rf2-rcepku — XRAY_FEATURE_GATE_BASE_URL probe-target parsing. The Xray
-// feature gate's external-server escape hatch previously extracted only a
-// port and probed loopback `/`, so a base URL with a non-127.0.0.1 host,
-// an https scheme, or a meaningful base path was probed against the wrong
-// endpoint shape. probeTargetFromBaseUrl now derives {host, port, path,
+// XRAY_FEATURE_GATE_BASE_URL probe-target parsing. If the Xray feature
+// gate's external-server escape hatch extracted only a port and probed
+// loopback `/`, a base URL with a non-127.0.0.1 host, an https scheme, or a
+// meaningful base path would be probed against the wrong endpoint shape.
+// probeTargetFromBaseUrl derives {host, port, path,
 // protocol} from the parsed URL so the readiness probe hits the endpoint
 // the caller actually pointed at.
 
@@ -474,12 +473,12 @@ test('probeTargetFromBaseUrl rejects a non-http(s) scheme (rf2-rcepku)', () => {
 });
 
 test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)', async () => {
-  // rf2-p8xl35 — bind the PATH probe directly. probeHttp resolves ready on
+  // Bind the PATH probe directly. probeHttp resolves ready on
   // ANY HTTP status (liveness, not 2xx), so a regression that hard-coded
   // `/` instead of forwarding opts.path would still receive a response
-  // (a 404) and still report ready — leaving the old assertion (`ready ===
-  // true` against a server that 404s every other path) green under the
-  // bug. Observe the requested URL path directly instead: record every
+  // (a 404) and still report ready — so asserting only `ready === true`
+  // against a server that 404s every other path stays green under that
+  // regression. Observe the requested URL path directly instead: record every
   // req.url and assert the advertised basePath was the path probed (and a
   // bare `/` was NOT). This makes the path-forwarding contract load-bearing.
   const basePath = '/app/base/';
@@ -519,11 +518,11 @@ test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)'
   }
 });
 
-// rf2-pgppmu — the shared ownership-token lifecycle. The five browser-
-// harness launchers (check-story-static, serve-and-run-browser-tests,
-// reagent-slim smoke, tenant-switcher testbed, Xray feature gate) each used
-// to carry a bespoke crypto/write/unlink copy of this. They now delegate to
-// publishOwnershipToken(root) here. These tests pin its contract:
+// The shared ownership-token lifecycle. The five browser-harness launchers
+// (check-story-static, serve-and-run-browser-tests, reagent-slim smoke,
+// tenant-switcher testbed, Xray feature gate) delegate to
+// publishOwnershipToken(root) here rather than each carrying a bespoke
+// crypto/write/unlink copy. These tests pin its contract:
 // creation, basename/content, missing-root null, idempotent cleanup,
 // cleanup-error suppression, and the concurrency crux — a stale run's remove
 // must NOT delete a newer run's replacement token.
@@ -634,16 +633,16 @@ test('publishOwnershipToken remove() preserves a newer overlapping run\'s replac
   }
 });
 
-// rf2-slapfs — startLocalHttpServer, the single owner of the local
+// startLocalHttpServer, the single owner of the local
 // http-server lifecycle the two Story launchers, serve-example, and the
-// adapter-smoke orchestrator used to each re-derive (spawn the loopback/
+// adapter-smoke orchestrator share (spawn the loopback/
 // static/no-cache argv, track it for teardown, wire an early-exit abort +
 // bounded output capture, wait for readiness, print the canonical unreachable
 // diagnostic + captured tail on failure). These functional tests drive the
 // composition end-to-end with a FAKE http-server bin — so they exercise the
 // real argv/spawn/track/capture/abort/readiness behaviour without depending on
-// the http-server package. They are the "canonical-helper behaviour" coverage
-// that replaces the per-caller `-a 127.0.0.1` argv-regex policy checks.
+// the http-server package. They are the "canonical-helper behaviour" coverage,
+// pinned once rather than as per-caller `-a 127.0.0.1` argv-regex policy checks.
 
 // A fake bin that parses the http-server-shaped argv (positional root, `-a`,
 // `-p`), binds the requested host+port, and records the FULL composed argv
@@ -760,7 +759,7 @@ test('startLocalHttpServer composes the canonical loopback/static argv and reach
     assert.equal(result.ready, true, 'the composed server must become reachable on loopback');
     assert.equal(result.isDown(), false, 'the server must still be running once ready');
     // The fake recorded the EXACT argv startLocalHttpServer composed — the
-    // canonical behaviour that replaces each caller's inline argv regex:
+    // canonical behaviour, pinned once rather than per caller:
     // positional root, loopback `-a 127.0.0.1`, the resolved port, `-s`
     // (silent), `-c-1` (no cache).
     const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
@@ -772,7 +771,7 @@ test('startLocalHttpServer composes the canonical loopback/static argv and reach
 });
 
 test('startLocalHttpServer appends the unresolved-request fallback ONLY when asked (rf2-fzbj.35)', async () => {
-  // serve-example's history-route repair needs http-server to forward a request
+  // serve-example's history-route fallback needs http-server to forward a request
   // no file resolves; the seam is opt-in, so every OTHER caller's argv above
   // must be untouched. The test above pins the absent case; this pins the
   // present one — and the ORDER matters, because `--proxy` takes its value as
@@ -908,20 +907,19 @@ test('startLocalHttpServer aborts fast on an early server exit rather than burni
   }
 });
 
-// rf2-3fc89f.14 — OWNED readiness is startLocalHttpServer's DEFAULT lifecycle.
-// The prior implementation awaited unowned waitForHttpReady, so during the
-// non-atomic resolveServePort()->spawn port handoff a FOREIGN server already
-// listening on the target port could answer the liveness probe and be accepted
-// as ready:true — a latent false-green across three CI browser gates (directly
-// analogous to the Xray defect closed as rf2-84gzw). These tests pin the fix:
+// OWNED readiness is startLocalHttpServer's DEFAULT lifecycle. Awaiting an
+// unowned waitForHttpReady would let a FOREIGN server already listening on
+// the target port answer the liveness probe during the non-atomic
+// resolveServePort()->spawn port handoff and be accepted as ready:true — a
+// latent false-green across the CI browser gates. These tests pin that:
 // a foreign tree is rejected, a missing/non-directory root fails loudly, and
 // the per-run ownership token is published + torn down concurrency-safely.
 
-// The core repro as a unit test. A foreign server serving a DIFFERENT asset
+// The core case as a unit test. A foreign server serving a DIFFERENT asset
 // tree already holds the port; the spawned http-server loses the bind and
 // exits. The helper must return ready:false (never true) — refused for an
-// ownership reason (token-mismatch) or the lost-bind child exit. This assertion
-// FAILS on the pre-fix code, which returned ready:true against the foreign tree.
+// ownership reason (token-mismatch) or the lost-bind child exit. An unowned
+// readiness wait would return ready:true against the foreign tree.
 test('startLocalHttpServer refuses a foreign asset tree holding the port (rf2-3fc89f.14)', async () => {
   const { dir, binPath } = mkFakeBin(FAKE_HTTP_LOSES_BIND, 'fake-http-loses-bind.cjs');
   // Stand up the foreign server on a real loopback port; it answers every path
@@ -996,8 +994,6 @@ test('startLocalHttpServer accepts the server that serves this run\'s ownership 
 });
 
 // Missing staging root fails LOUDLY (throws) before any spawn/browser work.
-// On the pre-fix code startLocalHttpServer never validated the root and never
-// threw — so assert.rejects FAILS on old code.
 test('startLocalHttpServer throws loudly when the staging root does not exist (rf2-3fc89f.14)', async () => {
   const missing = path.join(
     os.tmpdir(),
@@ -1112,16 +1108,15 @@ test('startLocalHttpServer cleanup unlinks its own ownership token in the non-ov
   }
 });
 
-// rf2-j538f7.12 — startLocalHttpServer must PROVE owned readiness against the
-// interface the server actually bound to, not a hard-coded 127.0.0.1 default.
-// It advertises a configurable `host` (passed to http-server as `-a <host>`)
-// but previously dropped it when waiting for owned readiness: the readiness
-// call passed only `{isAborted}`, so probeHttp/fetchToken defaulted to
-// 127.0.0.1. A server bound `::1` (IPv6 loopback only) was therefore probed on
-// IPv4 loopback and falsely reported timeout — a false-red gate against a
-// healthy server, plus a cleanup that kills it. The fix threads a `probeHost`
-// (derived from `host`) through the single options object both the liveness
-// probe and the ownership-token fetch read, so they cannot diverge.
+// startLocalHttpServer must PROVE owned readiness against the interface the
+// server actually bound to, not a hard-coded 127.0.0.1 default. It advertises
+// a configurable `host` (passed to http-server as `-a <host>`); a readiness
+// wait that dropped it would let probeHttp/fetchToken default to 127.0.0.1,
+// so a server bound `::1` (IPv6 loopback only) would be probed on IPv4
+// loopback and falsely report timeout — a false-red gate against a healthy
+// server, plus a cleanup that kills it. A `probeHost` (derived from `host`)
+// is threaded through the single options object both the liveness probe and
+// the ownership-token fetch read, so they cannot diverge.
 
 test('deriveProbeHost keeps concrete binds and maps wildcards to loopback (rf2-j538f7.12)', () => {
   // Concrete binds probe THEMSELVES — the readiness check must address the
@@ -1154,9 +1149,9 @@ testIpv6('startLocalHttpServer proves owned readiness over a non-default IPv6-lo
       readyTimeoutMs: 5000,
       log: () => {},
     });
-    // THE regression: readiness is proven over the configured ::1 bind. On the
-    // pre-fix code the prove defaulted to 127.0.0.1 and TIMED OUT against this
-    // healthy IPv6-only server, so `ready` would be false here.
+    // The core case: readiness is proven over the configured ::1 bind. A
+    // prove that defaulted to 127.0.0.1 would TIME OUT against this healthy
+    // IPv6-only server, so `ready` would be false here.
     assert.equal(ready, true, 'owned readiness must be proven over the configured ::1 bind host');
     // The `-a <host>` bind host propagated to spawn (recorded argv).
     const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
