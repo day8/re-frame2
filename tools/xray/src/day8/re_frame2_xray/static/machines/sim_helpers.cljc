@@ -14,13 +14,11 @@
   pure data → data so the JVM unit-test target (`clojure -M:test`)
   drives it without a CLJS runtime.
 
-  ## Design source-of-truth
+  ## Design summary
 
-  `ai/findings/xray-uc1-simulation-design-2026-05-17.md` carries the
-  full UC1 Sim design. Quick recap:
-
-    - Sim is a **sub-mode of Mode A** — a toggle in the panel header
-      flips the chart from live-highlight to sim-highlight (amber).
+    - Sim is a **sub-mode of the Static Machines sub-strip** — its pill
+      flips the right pane to a chart that highlights the sim state
+      amber rather than the live cyan.
     - The sim **clones** the registered machine definition into Xray
       state; production registry is untouched.
     - A user picks an event from an autocomplete-style picker (a
@@ -28,22 +26,23 @@
       and clicks Step.
     - The runtime calls `re-frame.machines/machine-transition` (the
       machines artefact's pure engine entry) with the cloned definition
-      + current sim snapshot + event vector. On `:status :ok`, the snapshot advances and an
+      + current sim snapshot + event vector. On a `:status :ok` that
+      moved something, the snapshot advances and an
       audit-trail row is appended. On `:status :error`, the snapshot
       stays and an error surfaces.
-    - Reset returns to the declared initial state.
+    - Reset rewinds to the seed the slot opened with.
     - Exit disposes the sim state (per-machine slot deleted).
 
   ## Sim-state shape
 
   The Sim sub-mode keeps per-machine state on Xray's frame app-db at
-  `[:sim/by-machine <machine-id>]`. Each slot is:
+  `[:rf.xray.static.machines/sim-by-machine <machine-id>]`. Each slot is:
 
       {:active?          <bool>  ;; sub-mode toggled on?
        :definition       <map>   ;; the cloned machine definition
        :initial-snapshot <map>   ;; the seed, for an exact Reset
        :snapshot         <map>   ;; current {:state :data ...}
-       :audit-trail      <vec>   ;; [{:from :to :event :guard?} ...]
+       :audit-trail      <vec>   ;; [{:from :to :event :data :fx} ...]
        :last-error       <map>   ;; nil or {:event :info :reason}
        :pending-event    <str>   ;; the event-id text the user is typing
        :pending-data     <str>}  ;; EDN payload (optional)
@@ -60,7 +59,7 @@
                                      synthetic timer event for one of
                                      them, its epoch read back off the
                                      stored `:rf.machine/after-schedule`
-                                     fx (rf2-pzuqw)
+                                     fx
     3. `event-id-suggestions`      — definition → distinct sorted
                                      event-ids (autocomplete source)
     4. `parse-event-vector`        — string \"[:foo {:x 1}]\" → vector
@@ -117,7 +116,7 @@
   past the leaf-only policy `available-transitions` documents.
 
   Takes the STATE-MAP rather than the whole definition, so a parallel
-  region's own `:states` is walked by this same code (rf2-ky034) — the
+  region's own `:states` is walked by this same code — the
   region's states are at `[:regions <region> :states]`, not `[:states]`."
   [state-map path]
   (loop [m  state-map
@@ -142,10 +141,10 @@
   it. `available-transitions` branches on the map and calls this ONCE PER
   REGION — the same split `available-after-transitions` makes.
 
-  Do not \"fix\" this by giving the map an arm here. It used to fall through
-  to `:else []`, which handed `node-at` an empty path and made the picker
-  claim every parallel machine declared no outgoing transitions (rf2-ky034);
-  the repair was to branch at the caller, not to force a multi-valued shape
+  Do not \"fix\" this by giving the map an arm here. A map falls through
+  to `:else []`, and handing that to `node-at` as one state would make the
+  picker claim every parallel machine declared no outgoing transitions;
+  the caller branches instead, rather than forcing a multi-valued shape
   through a single-valued fn."
   [state]
   (cond
@@ -174,14 +173,13 @@
   `{:go :busy}`, `{:go {:target :busy :guard :g}}` and vector-of-candidates
   forms all list. Mirror of `after-rows-at` for the `:on` half.
 
-  EVERY candidate lists, a TARGETLESS one included (rf2-kmr2i, and
-  rf2-4cm3k for this half). `:target` is nil on such a row and the rail
+  EVERY candidate lists, a TARGETLESS one included. `:target` is nil on
+  such a row and the rail
   renders it through `format-destination` rather than inventing one.
-  This body used to carry a `:when (some? t)` — inherited verbatim from
-  the original `available-transitions` body — which dropped them
-  silently: a machine whose only handler is action-only listed nothing
-  and could not be fired from the rail, while the engine handled the
-  same event correctly when it was typed in.
+  Filtering on a present `:target` would drop them silently: a machine whose
+  only handler is action-only would list nothing and could not be fired
+  from the rail, while the engine handles the same event correctly when
+  it is typed in.
 
   Spec 005 §Self-transitions makes a targetless transition the ONLY
   geometry the runtime flags `internal?` — its `:action` runs, `:exit`
@@ -232,7 +230,7 @@
   step time what the event actually does.
 
   `:target` is **nil** for a legal targetless / action-only candidate, which
-  lists like any other (rf2-4cm3k) — the row is fired by its event id, and
+  lists like any other — the row is fired by its event id, and
   `format-destination` is what renders a row that has no target to show.
 
   Three snapshot shapes, because all three are supported machine shapes and
@@ -242,9 +240,9 @@
     - a hierarchical path vector resolves its LEAF;
     - a `:type :parallel` region-map resolves EACH region's own leaf inside
       `[:regions <region> :states]`, with `:decl-path` region-prefixed to
-      match what the engine puts on its fx (rf2-ky034). Before that, the map
-      shape matched no arm of `normalise-path`, so the lookup ran against an
-      empty path and EVERY parallel machine listed nothing.
+      match what the engine puts on its fx. The map shape matches no arm
+      of `normalise-path`, so looking it up as one state would run against
+      an empty path and list nothing for EVERY parallel machine.
 
   `:decl-path` is where the transition is DECLARED, not part of how it fires:
   an `:on` row is fired by its event-id alone and the engine routes it, which
@@ -257,7 +255,7 @@
   surfaces what the user can fire interactively from where the machine is
   resting). A `:type :parallel` ROOT's own `:on` — the ancestor fallback the
   engine consults when no region handles an event — is NOT listed either,
-  for exactly the reason a flat machine's machine-root `:on` never has been:
+  for exactly the reason a flat machine's machine-root `:on` is not:
   both are parent inheritance. That is a deliberate asymmetry with
   `available-after-transitions`, which walks ancestors BY DESIGN because an
   `:after` is commonly declared on one; each fn is consistent with its own
@@ -271,18 +269,18 @@
     (vec (mapcat (fn [[decl-path node]] (on-rows-at node decl-path))
                  (leaf-pairs definition (:state snapshot))))))
 
-;; ---- `:after` timer rows (rf2-pzuqw) ------------------------------------
+;; ---- `:after` timer rows ------------------------------------------------
 ;;
 ;; The rail lists each `:after` timer declared on the ACTIVE PATH beside the
 ;; `:on` rows, and clicking one fires the engine's own synthetic
 ;; `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]`
 ;; (Spec 005 §Timer events) through the SAME `sim-step` the Step button
-;; drives. No new registration, no clock, no chart change.
+;; drives. No registration, no clock and no chart change of its own.
 ;;
 ;; These are MANUAL TIMEOUT TRIGGERS, not an armed-timer inventory. The sim
 ;; keeps no clock and does not advance simulated time; it lists what the
 ;; definition DECLARES on the active path and lets the engine answer. A
-;; stale epoch or a declined guard therefore comes back as the existing
+;; stale epoch or a declined guard therefore comes back as the rail's
 ;; amber "No change" diagnostic and the row stays listed — where the real
 ;; runtime would have reaped a spent one-shot.
 ;;
@@ -302,12 +300,12 @@
   `{5000 :t}`, `{5000 {:target :t :guard :g}}` and vector-of-candidates
   forms all list.
 
-  EVERY candidate lists, a TARGETLESS one included (rf2-kmr2i) — see
-  `on-rows-at`, which carries the same relaxation for the same reason
-  and by the same one-clause deletion. `{5000 {:action :bump}}` is a
-  legal action-only timer; before this it never became a row, so a
-  machine declaring only such timers presented an EMPTY timer list and
-  could not fire them from the rail, even though the engine fires them
+  EVERY candidate lists, a TARGETLESS one included — see
+  `on-rows-at`, which lists them for the same reason.
+  `{5000 {:action :bump}}` is a
+  legal action-only timer; dropping it would leave a machine declaring
+  only such timers with an EMPTY timer list it could not fire from the
+  rail, even though the engine fires them
   correctly when the event is sent. Spec 005 §Parallel root `:after`
   names targetless / action-only outright as one of the three target
   grammars. A timer row is fired from its `:delay-key` and `:decl-path`
@@ -354,7 +352,7 @@
   the `:on` rows.
 
   `:target` is **nil** for a legal targetless / action-only timer, which
-  lists like any other (rf2-kmr2i) — the row is fired from its `:delay-key`
+  lists like any other — the row is fired from its `:delay-key`
   and `:decl-path`, and `format-destination` renders the missing target.
 
   Three shapes, because all three are supported machine shapes and the leaf
@@ -444,16 +442,16 @@
   root, the region->state map for a parallel one — and its snapshot
   carries the slots the runtime expects (`:rf/spawn-counter`, `:meta`,
   the initial tag union guards read). Re-deriving that here would be a
-  second copy of the initial cascade to keep in step; asking the engine
-  is the point of rf2-y8doi.21.
+  second copy of the initial cascade to keep in step, so the engine is
+  asked instead.
 
-  Without a `seed-fn` this stays the pure `:initial` read, so the JVM
+  Without a `seed-fn` this is the pure `:initial` read, so the JVM
   unit-test target drives it with no machines artefact at all. Shape:
 
       {:state <keyword | path vector | region map>
        :data  <map>}
 
-  ENTRY ACTIONS ARE STILL NOT RUN. Seeding through the engine's
+  ENTRY ACTIONS ARE NOT RUN. Seeding through the engine's
   `build-initial-snapshot` computes the initial STATE; it is not
   `apply-initial-entry-cascade`, which is the separate phase that fires
   `:entry` actions. Sim deliberately skips that at bootstrap (a pure,
@@ -514,7 +512,7 @@
 
 (defn append-audit-row
   "Push one step entry onto the trail. `row` is `{:from :to :event
-  :guard? :data}`. The trail grows newest-last (the view renders it in
+  :data :fx}`, as `step-sim` builds it. The trail grows newest-last (the view renders it in
   insertion order)."
   [sim-state row]
   (update sim-state :audit-trail (fnil conj []) row))
@@ -590,10 +588,10 @@
   Returns the next `sim-state` — either with an advanced snapshot +
   trail entry, or with `:last-error` populated.
 
-  Per the UC1 design (§4 Guards) failed-guard transitions surface
+  Failed-guard transitions surface
   inline; sim does NOT mutate the snapshot on fail.
 
-  ## `:ok` is not the same as \"a transition happened\" (rf2-y8doi.21)
+  ## `:ok` is not the same as \"a transition happened\"
 
   The engine returns `:status :ok` with the snapshot UNCHANGED and
   `:fx []` for three benign outcomes — a stale `:after`, a candidate
@@ -601,15 +599,15 @@
   (`machines.cljc`: \"An event no transition matched is `:status :ok`
   with the snapshot unchanged and `:fx []`\"; Spec 005 §Transition
   resolution makes the unhandled case an xstate-parity no-op, not an
-  error). Folding those as transitions invented a `#N :open -> :open`
-  audit row and animated a from=to edge for a step the framework never
-  took. So a step that moved NOTHING appends no row.
+  error). Folding those as transitions would invent a `#N :open -> :open`
+  audit row and animate a from=to edge for a step the framework never
+  took, so a step that moved NOTHING appends no row.
 
   WHAT THIS CAN AND CANNOT TELL APART, because the diagnostic must not
   overclaim: the public Level 1 map carries `:status` / `:snapshot` /
   `:fx` and no handled flag, so an unchanged snapshot with no effects is
   ALSO what a genuine self-transition declared with no action produces
-  (measured: a `{:on {:ping :open}}` self-loop in `:open` is
+  (a `{:on {:ping :open}}` self-loop in `:open` is
   byte-identical to the guard-blocked result). The rejection therefore
   names the three possibilities rather than asserting one."
   [sim-state event runtime-fn]
@@ -703,8 +701,7 @@
   rows and the `⌚` `:after` rows share it, so the two row kinds cannot
   drift apart on the one question they answer identically.
 
-  A TARGETED row reads `→ :done` / `→ [:auth :form]`, exactly as it always
-  has. A TARGETLESS one has no target to show and must not be handed a
+  A TARGETED row reads `→ :done` / `→ [:auth :form]`. A TARGETLESS one has no target to show and must not be handed a
   fabricated one, so it reads `↻ internal` — Spec 005's own word for the
   geometry (§Self-transitions: the `:action` runs, `:exit` / `:entry` do
   not, and the configuration including active descendants is unchanged) —
@@ -714,8 +711,8 @@
 
   A candidate with neither target nor action is the forbidden-transition
   idiom (Spec 005 §Parent fallthrough): a deliberate event CONSUMER, which
-  reads as the bare `↻ internal`. Firing one comes back as the existing
-  amber \"No change\" — the same answer a guard-declined timer already
+  reads as the bare `↻ internal`. Firing one comes back as the
+  amber \"No change\" — the same answer a guard-declined timer
   gets, and the honest one, since consuming an event that no ancestor was
   going to handle really does change nothing.
 
