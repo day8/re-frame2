@@ -1,23 +1,23 @@
 /*
  * `walk-tree` — a FAIL-CLOSED directory-walk primitive shared by the examples
- * script scanners (rf2-3fc89f.31).
+ * script scanners.
  *
- * The bug this closes
- * -------------------
- * Three examples-script enumerations each hand-rolled the SAME depth-first walk
- * with the SAME fail-OPEN flaw: a `readdirSync` that threw (EACCES / ENOENT /
- * ENOTDIR / a torn checkout) was caught and the directory silently skipped —
+ * Why fail-closed
+ * ---------------
+ * Three examples-script enumerations share this walk:
  *
  *   - check-examples-assets.cjs   listExampleIndexHtml
  *   - check-reagent-slim-boundary.cjs  listStockReagentSources
  *   - examples-staging.cjs        buildNsIndex
  *
- * so a partial walk returned an ordinary SMALLER array, indistinguishable from a
- * complete walk. Those scripts are trust gates guarded only by a global count
- * floor (10 host pages / 20 stock sources); a read failure affecting one subtree
- * could stay above the floor and green the scan while an entire promised
- * partition went unexamined (measured: a synthetic EACCES on examples/core drops
- * 13 of 35 host pages / 18 of 69 stock sources, both still above their floors).
+ * A walk that caught a throwing `readdirSync` (EACCES / ENOENT / ENOTDIR / a
+ * torn checkout) and silently skipped the directory would return an ordinary
+ * SMALLER array, indistinguishable from a complete walk. Those scripts are
+ * trust gates otherwise guarded only by a global count floor (10 host pages /
+ * 20 stock sources), so a read failure affecting one subtree could stay above
+ * the floor and green the scan while an entire promised partition went
+ * unexamined (an EACCES on examples/core alone drops over a third of the host
+ * pages and a quarter of the stock sources, both still above their floors).
  *
  * The contract
  * ------------
