@@ -3,7 +3,7 @@
 
   ## Why this lives in `panels/epoch/` as `.cljc`
 
-  The Epoch panel (rf2-sc3r1) is a faithful visual projection of a
+  The Epoch panel is a faithful visual projection of a
   single epoch's trace stream — DISPATCH → COEFFECTS → HANDLER → FLOW
   → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS as a numbered cascade. Each step is
   CONDITIONAL — a step is present iff the matching trace events
@@ -17,11 +17,11 @@
     shape, read off the trace stream (NOT the registration form):
       :db-only (db-only) / :effectful (db+fx) / :reg-machine.
     These are internal effect-shape classification keywords; they describe
-    WHAT the handler returned, not HOW it was registered. EP-0018 collapsed
-    the public event registrars onto the one `reg-event` form, so the HANDLER
+    WHAT the handler returned, not HOW it was registered. There is one
+    public event registrar, `reg-event`, so the HANDLER
     VERB the panel displays is `reg-event` (see `format/handler-flavour-label`).
 
-  Per the bead body, the panel's correctness depends on a pure-data
+  The panel's correctness depends on a pure-data
   projection layer that runs against the epoch record's `:trace-events`
   vector. The view layer mounts the rendered rows; this ns has no
   DOM dependency and is JVM-testable via `clojure -M:test`.
@@ -42,16 +42,15 @@
 
   The numbered cascade is built by `(number-steps (projection record))`
   — steps are numbered 1..N contiguously over only the steps that
-  surfaced. Absent steps consume no number (per the bead's conditional-
-  cascade contract).
+  surfaced. Absent steps consume no number (the conditional-cascade
+  contract).
 
   ## Pure-data + JVM-portable
 
   `tools/xray/spec/016-Auxiliary-Panels.md` carries the rule — pure-data
   helpers live beside their panel as a `.cljc` sibling so the algebra
   runs under the JVM unit-test target, and view files only render. The
-  projection is data-in / data-out and runs under both targets.
-  `feedback_jvm_interop_must_work.md` is binding."
+  projection is data-in / data-out and runs under both targets."
   (:require [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.resources-helpers :as rh]))
 
@@ -83,7 +82,7 @@
 (defn- after-timer-enrichment
   "Extract `:after-timer` enrichment from the dispatched event vector.
 
-  Per rf2-ejtpd, the machine `:after` timer dispatches synthetic
+  The machine `:after` timer dispatches synthetic
   triggers shaped:
 
       [<machine-id> [:rf.machine.timer/after-elapsed <delay-key>
@@ -117,7 +116,7 @@
 (defn- machine-spawn-enrichment
   "Extract `:machine-spawn` enrichment from the dispatched event vector.
 
-  Per rf2-ejtpd, the spawn fx dispatches the spawned actor's first
+  The spawn fx dispatches the spawned actor's first
   event shaped:
 
       [<spawned-actor-id> <start-event>]            ; user-supplied :start
@@ -139,13 +138,13 @@
   "Extract `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`
   enrichment from the dispatched trace event.
 
-  Per rf2-ejtpd, the `:dispatch` / `:dispatch-later` reserved fx
+  The `:dispatch` / `:dispatch-later` reserved fx
   handlers stamp `:source :fx-dispatch` / `:source :fx-dispatch-later`
-  on the child envelope. Per rf2-c3990 the same fx handlers stamp
+  on the child envelope. The same fx handlers stamp
   `:source :machine-action` when the emitting parent is a machine
   handler. All three carry the parent-dispatch-id on the emit-
-  dispatched trace under `:rf.trace/parent-dispatch-id` (already
-  wired by router.cljc per spec/018 §Dispatch correlation).
+  dispatched trace under `:rf.trace/parent-dispatch-id` (wired by
+  router.cljc per spec/018 §Dispatch correlation).
 
   For `:fx-dispatch-later` and the `:dispatch-later` variant of
   `:machine-action`, the parent's scheduled `:ms` delay is read off
@@ -165,22 +164,22 @@
 (defn- source-enrichment
   "Build the per-source-kind enrichment map for the DISPATCH row.
 
-  Closed-set source values (rf2-hxj0d + rf2-ejtpd + rf2-c3990):
+  Closed-set source values:
 
   - `:after-timer`       → `:delay-ms`, `:source-state-path`, `:machine-id`
   - `:machine-spawn`     → `:spawned-actor-id`
   - `:machine-action`    → `:parent-dispatch-id`, optional `:delay-ms`
-                           (rf2-c3990 — actor-message path; same
+                           (actor-message path; same
                            parent-epoch chrome as `:fx-dispatch`)
   - `:fx-dispatch`       → `:parent-dispatch-id`
   - `:fx-dispatch-later` → `:parent-dispatch-id`, optional `:delay-ms`
   - `:always`            → no enrichment fields (intra-macrostep; no
                            dispatched envelope normally carries it but
                            the renderer still labels the kind)
-  - other values         → no enrichment (existing labels: `:ui`,
+  - other values         → no enrichment (labels: `:ui`,
                            `:frame-init`, `:test-harness`, `:unknown`)
 
-  Per rf2-5qp4g — pure-data; the view layer reads these fields and
+  Pure-data; the view layer reads these fields and
   renders the rich chrome (state-path click-to-source, parent-epoch
   navigation, delay-ms chip)."
   [source event ev]
@@ -198,15 +197,14 @@
   fixtures that synthesise an epoch from a literal `:event` vector
   surface this path).
 
-  Per rf2-93a7s the event vector lives under `[:tags :rf.event/v]` on
+  The event vector lives under `[:tags :rf.event/v]` on
   the dispatched trace (see `re-frame.router/emit-dispatched-trace`);
-  the canonical projection-side reader is `common/tag-of`. The legacy
-  bare `:event` tag is retained as a fixture-compat fallback only —
-  trace events never carry `:event` at top-level (the pre-rf2-509pq
-  `(:event ev)` arm was dead and removed).
+  the canonical projection-side reader is `common/tag-of`. A
+  bare `:event` tag is read as a fixture-compat fallback only —
+  trace events never carry `:event` at top-level.
 
-  Per rf2-5qp4g (consuming rf2-ejtpd's substrate-internal `:source`
-  values), the row additionally carries source-kind-specific
+  Keyed on the substrate-internal `:source`
+  value, the row additionally carries source-kind-specific
   enrichment under `:source-enrichment` — a map whose shape depends
   on `:source`. The renderer reads these fields to render rich chrome
   per source kind (after-timer delay + state-path,
@@ -238,32 +236,30 @@
 
       :else nil)))
 
-;; ---- RECORDABLE COEFFECTS row (rf2-9fyn40 · EP-0010 · EP-0017 §9) --------
+;; ---- RECORDABLE COEFFECTS row (EP-0010 · EP-0017 §9) ---------------------
 ;;
 ;; EP-0010 gives every dispatch envelope a CAUSAL recordable-coeffect map —
 ;; the explicit world facts (`:rf/time-ms`, plus any app-owned recordable
 ;; leaves) the fold consumed, so durable state is a function of prior
-;; frame-state PLUS explicit tokens (no ambient host reads). EP-0017
-;; (slice-A) RENAMES the envelope field from the nested `:rf.world/inputs`
-;; to the FLAT `:rf.cofx` map — one fact per owner-qualified key, no
-;; grouping sub-maps — and the framework time fact from `:time-ms` to the
-;; flat `:rf/time-ms`. "World inputs" was the vocabulary fracture this EP
-;; closes: the recorded map IS the recordable GRADE of coeffect (EP-0017
-;; §1). The runtime stamps the flat map onto the `:rf.event/dispatched`
-;; trace under `[:tags :rf.cofx]` (rf2-alc1lf · `router/emit-dispatched-
-;; trace!`) — DEBUG-gated, so it rides the same whole-body production
-;; elision as the rest of the dispatched emit. The Event lens surfaces the
+;; frame-state PLUS explicit tokens (no ambient host reads). The envelope
+;; field is the FLAT `:rf.cofx` map (EP-0017) — one fact per
+;; owner-qualified key, no grouping sub-maps — and the framework time fact
+;; is the flat `:rf/time-ms`. The recorded map IS the recordable GRADE of
+;; coeffect (EP-0017 §1). The runtime stamps the flat map onto the
+;; `:rf.event/dispatched` trace under `[:tags :rf.cofx]`
+;; (`router/emit-dispatched-trace!`) — DEBUG-gated, so it rides the same
+;; whole-body production elision as the rest of the dispatched emit. The Event lens surfaces the
 ;; DECLARED RECORDABLE LEAVES (EP-0017 §9 — the handler's declared inputs,
 ;; the most user-relevant facts on the token) so the operator can answer
 ;; "where did this state value come from?" — the time / id / randomness
 ;; that decided a durable write is visible at the dispatch site rather than
 ;; reverse-engineered from the app-db diff.
 ;;
-;; PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11; EP-0017 §9
-;; restates per leaf). Recordable coeffects can carry user/tenant ids,
+;; PRIVACY (EP-0010 §Privacy / Open Issue 4; EP-0017 §9 per leaf).
+;; Recordable coeffects can carry user/tenant ids,
 ;; URLs, query strings, storage values, locale, and permission facts — so
 ;; they participate in the SAME marks/projection rules as event payloads.
-;; The ruling splits the map:
+;; The rule splits the map:
 ;;
 ;;   - `:rf/time-ms` is ALWAYS safe to surface (a wall-clock fact, never
 ;;     PII) — it rides verbatim as `:time-ms` on the row;
@@ -282,12 +278,12 @@
   Open Issue 4; EP-0017's framework-provided `:rf/time-ms` registration).
   A wall-clock epoch-ms fact — never PII — so the Event lens renders its
   value verbatim, outside the summarize/redact path the value-bearing
-  leaves take. EP-0017 renamed the flat key from `:time-ms` to `:rf/time-ms`."
+  leaves take."
   :rf/time-ms)
 
 (defn recordable-cofx-rows
   "Project the value-bearing (NON-`:rf/time-ms`) leaves of a flat `:rf.cofx`
-  map into privacy-summarized rows (rf2-9fyn40 · EP-0017 §9). Each row
+  map into privacy-summarized rows (EP-0017 §9). Each row
   carries the leaf id verbatim (owner-qualified vocabulary — the app's
   `:counter/delta`, a subsystem's `:rf.route/location`, … — never PII) and
   the value SUMMARIZED through `resources-helpers/summarize` (EP-0010
@@ -296,7 +292,7 @@
   stable rendering. Empty when the map carries only `:rf/time-ms` (or is
   nil/empty).
 
-  ## Declared-recordable filtering (rf2-n9v5ga · EP-0017 §9)
+  ## Declared-recordable filtering (EP-0017 §9)
 
   EP-0017 §9 (and docs/EP-0017 §661-666 · spec/009 §155): the COEFFECTS
   lens shows the handler's DECLARED RECORDABLE LEAVES — the handler's
@@ -311,9 +307,9 @@
   event (resolved by the panel from `:rf.cofx/requires` ∩ recordable cofx
   registrations — the panel's `resolve-event-recordables`). When SUPPLIED,
   only those leaves survive (the leaf key is the bare cofx id). When nil
-  (no resolver — pure JVM-projection tests, older runtimes that predate the
+  (no resolver — pure JVM-projection tests, runtimes without the
   declaration metadata), the unfiltered show-all behaviour holds as the
-  documented fallback so a cascade with no resolvable declarations still
+  documented fallback so a cascade with no resolvable declarations
   renders its surfaced leaves rather than collapsing to empty."
   ([cofx] (recordable-cofx-rows cofx nil))
   ([cofx declared-recordables]
@@ -322,7 +318,7 @@
           (filter (fn [[k _]]
                     ;; nil declared-set ⇒ fallback: keep all (no resolver).
                     ;; supplied ⇒ keep only the handler's declared recordable
-                    ;; leaves (rf2-n9v5ga).
+                    ;; leaves.
                     (or (nil? declared-recordables)
                         (contains? declared-recordables k))))
           (mapv (fn [[k v]] {:key k :value (rh/summarize v)}))
@@ -332,7 +328,7 @@
 
 (defn generated-cofx-rows
   "Project the `:rf.cofx/generated` trace events of an epoch into
-  privacy-summarized recordable rows (EP-0017 slice B.7 · spec/009 §277).
+  privacy-summarized recordable rows (EP-0017 · spec/009 §277).
 
   A generator-backed recordable supplier runs at PROCESSING-START when its
   declared recordable fact is absent from the enqueue-time token, mints the
@@ -369,14 +365,14 @@
 
 (defn recordable-cofx-row
   "Build the RECORDABLE COEFFECTS step from the epoch's
-  `:rf.event/dispatched` trace (rf2-9fyn40 · EP-0010 · EP-0017 §9) PLUS the
-  post-generation `:rf.cofx/generated` trace ops (EP-0017 slice B.7 ·
+  `:rf.event/dispatched` trace (EP-0010 · EP-0017 §9) PLUS the
+  post-generation `:rf.cofx/generated` trace ops (EP-0017 ·
   spec/009 §277). Reads the flat recordable-coeffect map off
   `[:tags :rf.cofx]` (the substrate-canonical slot
-  `router/emit-dispatched-trace!` stamps per rf2-alc1lf; `common/tag-of` is
+  `router/emit-dispatched-trace!` stamps; `common/tag-of` is
   the canonical reader). Returns nil when the epoch carries NEITHER a
-  `:rf.cofx` map NOR any `:rf.cofx/generated` op (older runtimes / fixtures /
-  the production-elided arm) — the step is silent-by-default, like the
+  `:rf.cofx` map NOR any `:rf.cofx/generated` op (runtimes that stamp
+  neither / fixtures / the production-elided arm) — the step is silent-by-default, like the
   ambient COEFFECT step, so a vanilla cascade with no surfaced recordable
   coeffects renders no section.
 
@@ -396,7 +392,7 @@
   produces a row (the time fact is worth surfacing on its own); a map with
   no `:rf/time-ms` AND no other leaves (empty map) produces nil.
 
-  ## Generated recordables (EP-0017 slice B.7 · spec/009 §277)
+  ## Generated recordables (EP-0017 · spec/009 §277)
 
   When a declared recordable fact is ABSENT from the enqueue token, its
   generator runs at processing-start, mints the value, writes it back into
@@ -410,7 +406,7 @@
   consumed; the generator does not run in that case, so a duplicate would be
   a spurious second row).
 
-  ## Declared-recordable filtering (rf2-n9v5ga)
+  ## Declared-recordable filtering
 
   `declared-recordables` (optional) is the focused event's declared
   recordable id set (`:rf.cofx/requires` ∩ recordable cofx registrations).
@@ -458,13 +454,13 @@
   "Coeffect ids the substrate stages on every event handler from the fold's
   own arguments / framework context keys — the user did not register them
   via `reg-cofx` and the operator does not benefit from seeing them.
-  Filtered out of the COEFFECT step at projection time (rf2-cq0ch).
+  Filtered out of the COEFFECT step at projection time.
 
-  Mirrors `re-frame.fx/framework-coeffect-keys`; the substrate already
+  Mirrors `re-frame.fx/framework-coeffect-keys`; the substrate
   filters these out of the `:rf.event/run-end :rf.event/coeffects`
-  stamp (rf2-9dk9y), but we filter here too as a belt-and-braces
-  defence — older runtimes / test fixtures that supply a raw cofx-map
-  through the fallback still get clean output."
+  stamp, and filtering here too is a belt-and-braces
+  defence — test fixtures that supply a raw cofx-map
+  through the fallback get clean output."
   #{:db :event :frame :source :trace-id})
 
 (defn- user-cofx?
@@ -475,7 +471,7 @@
 
 (defn- run-end-coeffects
   "Read the `:rf.event/coeffects` slot off the `:rf.event/run-end`
-  trace (rf2-9dk9y). The substrate places the post-cofx-chain
+  trace. The substrate places the post-cofx-chain
   coeffects map there — every user-injected cofx-id maps to the
   RESULT VALUE the cofx put into ctx under its id. Empty map when no
   run-end fired."
@@ -485,15 +481,15 @@
       {}))
 
 (defn- coeffect-rows-from-runs
-  "Walk every `:rf.cofx/run` event (rf2-hhh92) and project one row per
+  "Walk every `:rf.cofx/run` event and project one row per
   user-injected coeffect.
 
   Each row carries the cofx id and the PRODUCED VALUE — what the cofx
   put into the handler's `:coeffects` map under its id. The produced
-  value is read off the `:rf.event/run-end :rf.event/coeffects` map
-  (rf2-9dk9y), falling back to the `:rf.cofx/value` tag on the granular
-  `:rf.cofx/run` op when no run-end carries the coeffects map. Since
-  rf2-sepqgg these two surfaces AGREE: `:rf.cofx/value` carries the
+  value is read off the `:rf.event/run-end :rf.event/coeffects` map,
+  falling back to the `:rf.cofx/value` tag on the granular
+  `:rf.cofx/run` op when no run-end carries the coeffects map. These
+  two surfaces AGREE: `:rf.cofx/value` carries the
   supplier's PRODUCED value (redacted by the cofx's marks via
   `marks/project-cofx-run-tags`), the same value that egresses into
   `:coeffects`.
@@ -502,21 +498,21 @@
   present only for a parameterized `[id arg]` declaration in
   `:rf.cofx/requires` (e.g. `[:ui/local-theme \"theme-key\"]` runs
   `(supplier \"theme-key\")` and stamps `\"theme-key\"` under
-  `:rf.cofx/arg`). It is preserved alongside as `:input` so the operator
-  can read both 'what was asked of the cofx' and 'what it produced'. Per
-  rf2-mmlgk — the produced value is what the operator reads first; the
+  `:rf.cofx/arg`). It rides alongside as `:input` so the operator
+  can read both 'what was asked of the cofx' and 'what it produced'. The
+  produced value is what the operator reads first; the
   requirement arg is secondary.
 
   Empty seq when no `:rf.cofx/run` events fired. System-injected
   defaults (`:db`, `:event`, `:frame`, `:source`, `:trace-id`) are
-  filtered out per rf2-cq0ch."
+  filtered out."
   [events]
   (let [cofx-map (run-end-coeffects events)]
     (vec
       (for [ev (filter-op events :rf.cofx/run)
             :let [id          (common/tag-of ev :rf.cofx/id)
-                  ;; rf2-sepqgg: `:rf.cofx/value` is the PRODUCED value;
-                  ;; the requirement-arg moved to `:rf.cofx/arg`.
+                  ;; `:rf.cofx/value` is the PRODUCED value;
+                  ;; the requirement-arg rides `:rf.cofx/arg`.
                   requirement (common/tag-of ev :rf.cofx/arg)
                   ;; produced value: prefer the run-end egress (the
                   ;; authoritative `:coeffects` slot), fall back to the
@@ -529,27 +525,27 @@
                  :badge       :COEFFECT
                  :id          id
                  :value       resolved
-                 ;; rf2-w2r4p — substrate stamps the per-cofx
+                 ;; The substrate stamps the per-cofx
                  ;; invocation duration as `:rf.cofx/elapsed-ms` on
-                 ;; `:rf.cofx/run` (rf2-hhh92 · `re-frame.cofx`;
-                 ;; spec 009 §243). Legacy `:duration-ms` retained
-                 ;; as a fixture-compat fallback for older runtimes.
+                 ;; `:rf.cofx/run` (`re-frame.cofx`;
+                 ;; spec 009 §243). `:duration-ms` is read
+                 ;; as a fixture-compat fallback.
                  :duration-ms (or (common/tag-of ev :rf.cofx/elapsed-ms)
                                   (common/tag-of ev :duration-ms))}
-          ;; rf2-sepqgg — preserve the per-call requirement arg for a
+          ;; Carry the per-call requirement arg for a
           ;; parameterized `[id arg]` cofx so the view can surface it
           ;; alongside the produced value.
           (some? requirement) (assoc :input requirement))))))
 
 (defn- coeffect-rows-from-run-end
   "Fallback: read user-injected coeffects from the `:rf.event/run-end`
-  trace's `:rf.event/coeffects` stamp (rf2-9dk9y). The substrate places
+  trace's `:rf.event/coeffects` stamp. The substrate places
   the user-injected subset there so events that return only `:db`
   still surface their cofx. Returns a vec of rows in map order; this
   fallback is used only when no granular `:rf.cofx/run` events exist.
 
-  System-injected defaults are filtered out per rf2-cq0ch (belt-and-
-  braces — the substrate already filters at the run-end emit site)."
+  System-injected defaults are filtered out (belt-and-
+  braces — the substrate filters at the run-end emit site too)."
   [events]
   (when-let [run-end (find-op events :rf.event/run-end)]
     (let [m (common/tag-of run-end :rf.event/coeffects)]
@@ -563,10 +559,10 @@
 
 (defn coeffect-rows
   "All COEFFECT rows for the epoch — one per USER-defined coeffect
-  (system defaults like `:db` / `:event` are filtered out — rf2-cq0ch).
+  (system defaults like `:db` / `:event` are filtered out).
   Prefers granular `:rf.cofx/run` events; falls back to the run-end
-  coeffect stamp when no granular events exist (older runtimes / test
-  fixtures). Returns an empty vec when neither surface is present, or
+  coeffect stamp when no granular events exist (runtimes without the
+  granular op / test fixtures). Returns an empty vec when neither surface is present, or
   when every coeffect is system-injected — the latter is the typical
   db-only reg-event case where the operator gains nothing from a `:db`
   presence-pill."
@@ -581,8 +577,8 @@
 (defn- handler-flavour
   "Discriminate the handler's OBSERVED EFFECT SHAPE from the trace stream.
   Three flavours (behavior-based names — they describe what the handler
-  returned, NOT how it was registered; EP-0018 collapsed the public event
-  registrars onto the one `reg-event` form):
+  returned, NOT how it was registered; there is one public event
+  registrar, `reg-event`):
 
       :reg-machine     — the cascade carried a machine macrostep
       :effectful       — a `:rf.fx/do-fx` rode (effects were returned)
@@ -591,53 +587,53 @@
   The discriminator is the trace stream — no spec read at projection
   time. Pure-data; JVM-testable.
 
-  WHAT MARKS A MACHINE MACROSTEP (rf2-eue07). The authoritative signal is
+  WHAT MARKS A MACHINE MACROSTEP. The authoritative signal is
   `:rf.machine/transition`: the substrate's `commit-or-finalize`
   (machines · lifecycle_fx · registration.cljc) emits ONE transition
   summary per macrostep UNCONDITIONALLY — for action-firing transitions,
   pure state moves, entry-cascade-only transitions (whose `:entry`
-  actions are NOT traced as `:rf.machine/action-ran`, see rf2-n9f4z),
-  AND the post-carve-out bootstrap `:initial-entry` (rf2-t4582). The
-  prior classifier keyed ONLY on `:rf.machine/action-ran`, so any
-  macrostep that fired no action (HVAC `:hvac/power-cycle` entry cascade,
-  bootstrap) fell through to `:effectful` — the machine handler always
-  rides a `:rf.fx/do-fx` (its snapshot write) — and rendered the raw `:db`
-  diff with NO machine section. Keying on the transition closes that gap.
+  actions are NOT traced as `:rf.machine/action-ran`),
+  AND the bootstrap `:initial-entry`. Keying
+  ONLY on `:rf.machine/action-ran` would let any
+  macrostep that fires no action (HVAC `:hvac/power-cycle` entry cascade,
+  bootstrap) fall through to `:effectful` — the machine handler always
+  rides a `:rf.fx/do-fx` (its snapshot write) — and render the raw `:db`
+  diff with NO machine section.
 
   The machine predicates MUST precede the `:rf.fx/do-fx` check: a machine
   handler always rides a do-fx, so do-fx must never win for a macrostep."
   [events]
   (cond
-    ;; rf2-eue07 — a `:rf.machine/transition` summary marks a machine
+    ;; A `:rf.machine/transition` summary marks a machine
     ;; macrostep (action-firing or not, including the bootstrap
     ;; :initial-entry). This is the authoritative, action-independent
     ;; signal; it subsumes the narrow action-ran check below.
     (some #(= :rf.machine/transition (op %)) events) :reg-machine
     (some #(= :rf.machine/action-ran (op %)) events) :reg-machine
-    ;; rf2-ugdas — a cascade whose ONLY machine activity is the benign
+    ;; A cascade whose ONLY machine activity is the benign
     ;; unhandled-event no-op (an event that matched no transition, so no
-    ;; action ran AND — since rf2-coozg suppresses the no-change {X}→{X}
-    ;; commit transition at the source — no transition row either) is still
+    ;; action ran AND — since the source suppresses the no-change {X}→{X}
+    ;; commit transition — no transition row either) is still
     ;; a machine cascade: classify it :reg-machine so the EVENT HANDLER
     ;; machine section renders the no-op notice rather than collapsing to a
     ;; plain reg-event handler.
     (some #(= :rf.machine.event/unhandled-no-op (op %)) events) :reg-machine
-    ;; rf2-it4vt — an EAGER `[:rf.machine/start]` kick is a PURE init
-    ;; (rf2-gl588 / F‴): it runs the initial-entry cascade then STOPS,
+    ;; An EAGER `[:rf.machine/start]` kick is a PURE init:
+    ;; it runs the initial-entry cascade then STOPS,
     ;; emitting `:rf.machine/started` but NO `:rf.machine/transition` /
     ;; `:rf.machine/action-ran` (the initial-entry actions are not traced as
-    ;; action-ran — rf2-n9f4z) / no-op. So a standalone start would fall
+    ;; action-ran) / no-op. So a standalone start would fall
     ;; through to `:effectful` (the machine handler always rides a
     ;; do-fx — its snapshot write) and render the raw `:db` diff with NO
-    ;; machine section. Keying on the birth signal closes that gap: the
-    ;; cascade renders the `[START]` row instead.
+    ;; machine section. Keying on the birth signal makes the
+    ;; cascade render the `[START]` row instead.
     (some #(= :rf.machine/started (op %)) events)    :reg-machine
     (some #(= :rf.fx/do-fx (op %)) events)           :effectful
     :else                                            :db-only))
 
 (defn- fx-entries
   "Project the `:rf.event/fx` payload off the `:rf.fx/do-fx` trace
-  (per rf2-twt7m Change 2) into a vec of `[fx-id value]` pairs in
+  into a vec of `[fx-id value]` pairs in
   declaration order. Empty when no do-fx fired or the fx vector is
   empty/missing."
   [events]
@@ -654,52 +650,49 @@
                {:fx-id (first entry) :value (second entry)}))
         :else []))))
 
-;; ---- the handler's `:fx` vector (rf2-m2ye2) ----------------------------
+;; ---- the handler's `:fx` vector ------------------------------------------
 ;;
 ;; `:rf.event/fx` on the `:rf.fx/do-fx` marker carries the fx VECTOR, not
 ;; the effects map: `re-frame.fx/do-fx` stamps `(:fx effects)`
-;; (`implementation/core/src/re_frame/fx.cljc`). Measured live on the JVM —
-;; a handler returning `{:db {:n 1} :fx [[:probe/noop 1]]}` put
-;; `[[:probe/noop 1]]`, a PersistentVector, in that slot.
+;; (`implementation/core/src/re_frame/fx.cljc`). A handler returning
+;; `{:db {:n 1} :fx [[:probe/noop 1]]}` puts `[[:probe/noop 1]]`, a
+;; PersistentVector, in that slot.
 ;;
-;; The pre-rf2-m2ye2 reader (`effects-decomp`) guarded on `(map? fx)`, so it
-;; returned nil for every real cascade — the HANDLER body's `:fx`
-;; sub-section never rendered against the live substrate. It read GREEN
-;; because every synthetic fixture passed a MAP: the fixture-versus-producer
-;; drift rf2-y8doi.10 finding 1 names, and a shape the runtime never emits.
+;; A reader guarding on `(map? fx)` would return nil for every real
+;; cascade, so the HANDLER body's `:fx` sub-section would never render
+;; against the live substrate — while reading GREEN against synthetic
+;; fixtures that pass a MAP, a shape the runtime never emits.
 ;;
-;; ## Why the `other` half is DELETED rather than repaired
+;; ## Why there is no `other`-effects diagnostic
 ;;
-;; That reader also produced `:other-effects` — the return map MINUS a
-;; hand-copied 3-key closed set — which `other-effect-rows` rendered as
-;; ":skipped, an effect the runtime ignored". Its TRUE-POSITIVE POPULATION
-;; IS EMPTY. Both directions measured live against the router:
+;; A diagnostic reporting `:other-effects` — the return map MINUS a
+;; hand-copied closed key set — as ":skipped, an effect the runtime
+;; ignored" has an EMPTY TRUE-POSITIVE POPULATION, in both directions:
 ;;
 ;;   - A LEGAL classification return (`{:db … :sensitive [[:creds :password]]
 ;;     :fx [[…]]}`) COMMITS, emits do-fx, and the framework applies the
-;;     declaration (the frame's `:sensitive-declarations` gained the path).
+;;     declaration (the frame's `:sensitive-declarations` gains the path).
 ;;     Yet `(apply dissoc effects #{:db :fx :rf.db/runtime})` yields
-;;     `{:sensitive …}` — reported to the operator as an ignored effect. A
-;;     FALSE ACCUSATION against correct framework behaviour, and the 3-vs-7
-;;     drift against `re-frame.events/closed-effect-map-keys` IS that
-;;     accusation: the four EP-0025 commit-plane keys are legal and absent
-;;     from the copy.
+;;     `{:sensitive …}` — which would be reported to the operator as an
+;;     ignored effect: a FALSE ACCUSATION against correct framework
+;;     behaviour, because the four EP-0025 commit-plane keys are legal and
+;;     absent from such a copy.
 ;;
 ;;   - A genuinely FOREIGN top-level key (`{:db … :legacy/persist {…}}`) —
-;;     the population the diagnostic was WRITTEN for — is REFUSED pre-commit
-;;     since rf2-04tx. Its ops run `:rf.event/dispatched → :rf.event/run-start
+;;     the population such a diagnostic would target — is REFUSED
+;;     pre-commit. Its ops run `:rf.event/dispatched → :rf.event/run-start
 ;;     → :rf.event/db-pending → :rf.error/effect-map-shape →
 ;;     :rf.event/run-end`: NO `:rf.fx/do-fx` at all, nothing committed. So it
-;;     never reaches a do-fx reader however that reader is repaired.
+;;     never reaches a do-fx reader.
 ;;
-;; The two together leave nothing the diagnostic can truthfully report. The
-;; refusal it was meant to surface IS surfaced, in band and by the framework:
+;; The two together leave nothing such a diagnostic could truthfully
+;; report. The refusal IS surfaced, in band and by the framework:
 ;; `attach-unclassified-errors` routes `:rf.error/effect-map-shape` onto the
 ;; SIDE EFFECTS step. And nothing here hand-copies the framework's closed
-;; effect-key set any more — the authority is
+;; effect-key set — the authority is
 ;; `re-frame.events/closed-effect-map-keys` (seven keys: `:db`,
-;; `:rf.db/runtime`, `:fx` plus the four EP-0025 classification effects), and
-;; a copy of it that nothing keeps in step is exactly what went wrong here.
+;; `:rf.db/runtime`, `:fx` plus the four EP-0025 classification effects),
+;; and a copy of it that nothing keeps in step drifts.
 
 (defn- handler-fx-vec
   "The canonical `:fx` vector-of-vectors the handler returned, read off the
@@ -725,27 +718,22 @@
         (sequential? fx) (vec fx)
         (map? fx)        (:fx fx)))))
 
-;; rf2-bhxtr — the 4 legacy category-grouped machine builders
-;; (`machine-lifecycle-rows` / `machine-transition-row` / `machine-guard-rows`
-;; / `machine-timer-rows`) are DELETED. They fed the pre-rf2-u69j7
-;; category-grouped `:machine` map slots (`:lifecycle / :transition / :guards
-;; / :timers`), which post-rf2-u69j7 had ZERO readers — the view + every live
+;; There are no category-grouped machine builders: the view and every
 ;; consumer read ONLY `:cascade` (the time-ordered row vector built by
-;; `machine-cascade-rows` below). The per-row category data they projected is
+;; `machine-cascade-rows` below), and the per-row category data is
 ;; carried verbatim on the cascade rows (`action-cascade-row` /
 ;; `transition-cascade-row` / `guard-cascade-row` / `timer-cascade-row`).
 
-;; ---- machine cascade (time-ordered) -- rf2-u69j7 ------------------------
+;; ---- machine cascade (time-ordered) -------------------------------------
 ;;
-;; The pre-rf2-u69j7 machine-handler render grouped the substrate's per-event
-;; emit stream into 7 categories (TRANSITION / GUARDS / LIFECYCLE / AFTER-
-;; TIMERS / DATA-REDUCTION / SNAPSHOT-DIFF / FX). That layout buried the
-;; CASCADE — the operator had to read TRANSITION (top), then scroll down to
-;; LIFECYCLE, then back up to GUARDS, to reconstruct what actually happened
-;; in what order. The redesign threads the per-emit stream into a single
-;; row vector.
+;; The machine-handler render threads the substrate's per-emit stream into
+;; a single row vector. Grouping it into categories (TRANSITION / GUARDS /
+;; LIFECYCLE / AFTER-TIMERS / DATA-REDUCTION / SNAPSHOT-DIFF / FX) would
+;; bury the CASCADE — the operator would have to read TRANSITION (top),
+;; then scroll down to LIFECYCLE, then back up to GUARDS, to reconstruct
+;; what actually happened in what order.
 ;;
-;; CANONICAL PHASE ORDER (rf2-tjqd8). The rows are NOT rendered in raw
+;; CANONICAL PHASE ORDER. The rows are NOT rendered in raw
 ;; trace-INSERTION order. The substrate's live emit order is exit →
 ;; entry → transition-LAST (the `:rf.machine/transition` summary emit
 ;; trails the exit+entry actions so its `:after` reflects the accumulated
@@ -763,8 +751,8 @@
 ;; untouched (changing it would affect every consumer). See
 ;; `cascade-row-rank` + `machine-cascade-rows`.
 ;;
-;; The cascade row vector replaces the category-grouped `:machine` map
-;; entirely (rf2-u69j7). One row per substrate emit that participated in
+;; The cascade is a row vector, not a category-grouped map. One row per
+;; substrate emit that participated in
 ;; the machine cascade:
 ;;
 ;;   :rf.machine/guard-evaluated     → row :kind :guard
@@ -777,49 +765,48 @@
 ;; over the trace stream.
 
 (def machine-cascade-trace-ops
-  "Closed set of trace ops the cascade projection harvests in trace order
-  (rf2-u69j7). Each op's row builder below stamps its own `:kind` (see
+  "Closed set of trace ops the cascade projection harvests in trace
+  order. Each op's row builder below stamps its own `:kind` (see
   the guard / action / transition / microstep / timer / no-op / start
   row fns); a new op is added here AND given a row builder that stamps
   a `:kind`. The view's unknown-kind bail-out keeps drift visible.
 
-  (There was a standalone `op->row-kind` lookup table alongside this
-  set. Nothing ever read it — the row builders held the mapping — so
-  rf2-6r9j.25 removed it and this instruction with it.)"
+  (The row builders hold the op → kind mapping; there is no separate
+  lookup table.)"
   #{:rf.machine/guard-evaluated
     :rf.machine/action-ran
     :rf.machine/transition
     :rf.machine.timer/cancelled
-    ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+    ;; A parent-owned parallel `:always` ROUND's regional
     ;; transition. A parallel macrostep commits ONE aggregate
     ;; `:rf.machine/transition` (settled before/after region-map) but emits
     ;; one standalone `:rf.machine.microstep/transition` per SELECTED regional
     ;; round (`machines/parallel.cljc`), sharing an `:actor-id` +
-    ;; `:microstep-index`. Since rf2-akvfe retired the transition row's nested
-    ;; structured-cascade body, this per-emit pipeline is the sole canonical
+    ;; `:microstep-index`. The transition row carries no nested
+    ;; structured-cascade body, so this per-emit pipeline is the sole canonical
     ;; cascade display — so without harvesting these the parent-owned round is
     ;; INVISIBLE (an ACTIONLESS regional `:always` emits no `:action-ran`, so
     ;; the round trace is its only first-class evidence). `microstep-cascade-
     ;; row` keys on the REGION tag: single-active `:always` microsteps carry
     ;; no `:region` (they ride the transition row's `cascade-microsteps`) and
-    ;; produce no row, so single-active behaviour is unchanged.
+    ;; produce no row.
     :rf.machine.microstep/transition
-    ;; rf2-ugdas — the benign unhandled-event no-op. A machine received an
+    ;; The benign unhandled-event no-op. A machine received an
     ;; event with no matching transition; the snapshot is unchanged. Op-type
     ;; :rf.machine (NOT an error), so it surfaces in the EVENT HANDLER machine
     ;; cascade as a benign notice — not the red exception card, not pink.
     :rf.machine.event/unhandled-no-op
-    ;; rf2-it4vt — the machine's BIRTH. `maybe-boot` (machines · lifecycle_fx
+    ;; The machine's BIRTH. `maybe-boot` (machines · lifecycle_fx
     ;; · registration.cljc) emits ONE `:rf.machine/started` per successful
-    ;; initial-entry cascade (rf2-gl588 / F‴), in BOTH creation paths — the
+    ;; initial-entry cascade, in BOTH creation paths — the
     ;; EAGER `[:machine-id [:rf.machine/start]]` kick AND the LAZY
     ;; first-real-event fold. Op-type :rf.machine (benign birth, not a
     ;; severity). Renders the `[START]` badge row at the FRONT of the cascade.
     :rf.machine/started})
 
 (def ^:private cascade-rank
-  "Canonical (kind, phase) presentation rank for the machine cascade
-  (rf2-tjqd8). Lower sorts earlier. The order encodes the statechart
+  "Canonical (kind, phase) presentation rank for the machine cascade.
+  Lower sorts earlier. The order encodes the statechart
   reading the operator expects:
 
     guard → exit → TRANSITION → entry → always → after-action → timer
@@ -833,13 +820,13 @@
   Bootstrap / lifecycle phases slot beside their nearest sibling:
   `:initial-entry` ranks with `:entry`, `:destroy-exit` with `:exit`.
 
-  rf2-it4vt — the `:start` row (the machine's birth) ranks AHEAD of
+  The `:start` row (the machine's birth) ranks AHEAD of
   everything (rank -1). In the EAGER path it is the cascade's sole row; in
   the LAZY path the init folds into the SAME epoch as the first real event,
   so `[START]` renders at the FRONT — ahead of that event's guards /
   transition / actions — telling the operator the machine was born THEN
   took its first step, in one epoch."
-  {;; the machine's birth — leads the cascade (rf2-it4vt)
+  {;; the machine's birth — leads the cascade
    [:start nil]              -1
    ;; guards — gate the transition; read first
    [:guard nil]              0
@@ -851,7 +838,7 @@
    ;; the unhandled-event no-op — the event's resolution when nothing
    ;; matched. Ranks WITH the transition slot (it stands in for "the
    ;; state change that did not happen"); a cascade carries either a
-   ;; transition OR a no-op, never both (rf2-ugdas).
+   ;; transition OR a no-op, never both.
    [:no-op nil]              2
    ;; transition-phase actions ride WITH the transition (between exit
    ;; and entry, by intent: they fire as part of the state change)
@@ -861,7 +848,7 @@
    [:action :initial-entry]  3
    ;; always — intra-macrostep follow-ups after entry settled
    [:action :always]         4
-   ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+   ;; A parent-owned parallel `:always` ROUND's regional
    ;; transition ranks with the `:always` follow-ups (the round runs after
    ;; the event settled). The stable `:trace-index` tiebreak preserves the
    ;; substrate emit order — rounds ascend by index, regions within a round
@@ -873,7 +860,7 @@
    [:timer nil]              6})
 
 (defn cascade-row-rank
-  "Canonical presentation rank for a cascade row (rf2-tjqd8). Reads the
+  "Canonical presentation rank for a cascade row. Reads the
   row's `[:kind :phase]` against `cascade-rank`; `:phase` participates
   only for `:action` rows (other kinds key on `[kind nil]`). Unknown
   combinations fall to a high sentinel rank so a future kind/phase
@@ -885,16 +872,15 @@
     (get cascade-rank k 99)))
 
 (defn- guard-cascade-row
-  "Build a cascade row from a `:rf.machine/guard-evaluated` trace event
-  (rf2-u69j7). Outcome is one of `:pass / :fail / :threw` (rf2-82a0u
-  closed set)."
+  "Build a cascade row from a `:rf.machine/guard-evaluated` trace event.
+  Outcome is one of the closed set `:pass / :fail / :threw`."
   [ev]
   (cond-> {:kind        :guard
            :guard-id    (common/tag-of ev :guard-id)
            :outcome     (common/tag-of ev :outcome)
            :duration-ms (common/tag-of ev :duration-ms)
-           ;; rf2-yyvtk5 — guard-evaluated now addresses the live actor under
-           ;; `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+           ;; guard-evaluated addresses the live actor under `:actor-id`;
+           ;; fall back to `:machine-id` for fixtures that stamp only that.
            :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))}
     (common/tag-of ev :spec-path)
     (assoc :spec-path (common/tag-of ev :spec-path))
@@ -902,14 +888,14 @@
     (assoc :exception (common/tag-of ev :exception))))
 
 (defn- action-cascade-row
-  "Build a cascade row from a `:rf.machine/action-ran` trace event
-  (rf2-u69j7). Each row carries `:phase` (rf2-82a0u closed set:
+  "Build a cascade row from a `:rf.machine/action-ran` trace event.
+  Each row carries `:phase` (closed set:
   `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit`), the action-id, the input snapshot,
   per-action fx attribution, the data-write the action returned, and
   the threw? signal.
 
-  rf2-5hjb5 — the action's data DELTA is carried as a `[:data-before
+  The action's data DELTA is carried as a `[:data-before
   :data-write]` pair: `:data-before` is the action's INPUT `:data`
   (lifted off the `:input {:data … :event …}` snapshot the substrate
   stamps), `:data-write` is the action's RETURNED `:data` (off
@@ -930,11 +916,11 @@
              :outcome     outcome
              :threw?      (= :rf.error/action-threw outcome)
              :duration-ms (common/tag-of ev :duration-ms)
-             ;; rf2-yyvtk5 — action-ran now addresses the live actor under
-             ;; `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+             ;; action-ran addresses the live actor under `:actor-id`;
+             ;; fall back to `:machine-id` for fixtures that stamp only that.
              :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
              :input       input}
-      ;; rf2-lai1qv — the substrate stamps the selected transition's EXACT
+      ;; The substrate stamps the selected transition's EXACT
       ;; spec-path discriminator (`:transition-slot`) on the action-ran
       ;; trace for the transition `:action`; carry it onto the row so
       ;; `cascade-row-source-key` addresses the precise inline-source slot
@@ -948,36 +934,36 @@
       (assoc :fx (vec action-fx))
       (some? action-data)
       (assoc :data-write action-data)
-      ;; rf2-5hjb5 — the pre-image of the action's `:data` write, lifted
+      ;; The pre-image of the action's `:data` write, lifted
       ;; off the input snapshot so the view renders an inspector diff
       ;; without re-walking the trace.
       (some? data-before)
       (assoc :data-before data-before))))
 
 (defn- transition-cascade-row
-  "Build a cascade row from a `:rf.machine/transition` trace event
-  (rf2-u69j7). Hoists `:from-state` / `:to-state` off the `:before` /
-  `:after` snapshot maps; preserves `:event` + `:microsteps` for the
-  view's transition chrome (`{:from} → {:to}`, `{n} microstep(s)`).
+  "Build a cascade row from a `:rf.machine/transition` trace event.
+  Hoists `:from-state` / `:to-state` off the `:before` /
+  `:after` snapshot maps, and carries `:event` + `:microsteps` alongside
+  (the view's transition chrome is `{:from} → {:to}`).
 
   Per Spec 005 §Trace events the substrate fires ONE transition emit
   per macrostep — so the cascade carries at most one `:transition`
   row, and it lands AFTER the exit-phase actions + the transition-
   phase actions (substrate emit order).
 
-  rf2-52u5n — the row threads the STRUCTURED `:cascade` (the ordered
+  The row also threads the STRUCTURED `:cascade` (the ordered
   exit/action/entry/microstep step vector the substrate emits on the
-  `:rf.machine/transition` trace per rf2-n9f4z) through to the view so
-  the transition row's body renders the step-by-step entry/exit
-  cascade — per-region grouped, with the `:always` microsteps
-  sectioned — rather than only `{from}→{to} + {n} microstep(s)`.
-  Absent (`nil`) for older traces / non-structured fixtures."
+  `:rf.machine/transition` trace), which the structured-cascade helpers
+  below (`cascade-regions` etc.) group per region. The view shows those
+  steps as the EVENT HANDLER pipeline's own rows rather than as a
+  nested walk on the transition row.
+  Absent (`nil`) for non-structured traces / fixtures."
   [ev]
   (let [before (common/tag-of ev :before)
         after  (common/tag-of ev :after)]
     {:kind         :transition
-     ;; rf2-ws5thu — the transition trace now carries the live actor instance
-     ;; under `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+     ;; The transition trace carries the live actor instance under
+     ;; `:actor-id`; fall back to `:machine-id` for fixtures that stamp only that.
      :machine-id   (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
      :event        (common/tag-of ev :event)
      :before       before
@@ -992,7 +978,7 @@
 
 (defn- microstep-cascade-row
   "Build a cascade row from a `:rf.machine.microstep/transition` trace event
-  (rf2-bvwv4q) — a parent-owned parallel `:always` ROUND's regional
+  — a parent-owned parallel `:always` ROUND's regional
   transition. Carries the owning actor (`:actor-id`), the REGION, the shared
   round index (`:microstep-index`), and the regional `:from`/`:to` states so
   the view renders `[ALWAYS] for <region> · round <n>  <from> → <to>` and the
@@ -1001,13 +987,13 @@
 
   Keys on the `:region` tag: a SINGLE-ACTIVE machine's `:always` microstep
   carries no `:region` (it rides the transition row's `cascade-microsteps`),
-  so this returns nil — `keep ev->cascade-row` drops it and single-active
-  behaviour is unchanged. Only region-tagged (parallel) rounds become
-  first-class rows."
+  so this returns nil — `keep ev->cascade-row` drops it, so a single-active
+  cascade carries no microstep row. Only region-tagged (parallel) rounds
+  become first-class rows."
   [ev]
   (when-let [region (common/tag-of ev :region)]
     {:kind        :microstep
-     ;; rf2-ws5thu — addressed by the live actor INSTANCE (`:actor-id`); the
+     ;; Addressed by the live actor INSTANCE (`:actor-id`); the
      ;; parent owns the round, so every co-selected region shares it.
      :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
      :region      region
@@ -1019,14 +1005,14 @@
      :source      (or (:source ev) (common/tag-of ev :source) :always)}))
 
 (defn- timer-cascade-row
-  "Build a cascade row from a `:rf.machine.timer/cancelled` trace event
-  (rf2-u69j7). Carries the cancelled state, the original delay, and
-  the closed-set `:reason` (rf2-82a0u: `:on-exit / :on-destroy /
+  "Build a cascade row from a `:rf.machine.timer/cancelled` trace event.
+  Carries the cancelled state, the original delay, and
+  the closed-set `:reason` (`:on-exit / :on-destroy /
   :on-resolution / :on-supersede / :on-frame-destroy`)."
   [ev]
   {:kind        :timer
-   ;; rf2-ws5thu — the timer/cancelled trace now carries the owning actor
-   ;; instance under `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+   ;; The timer/cancelled trace carries the owning actor instance under
+   ;; `:actor-id`; fall back to `:machine-id` for fixtures that stamp only that.
    :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
    :state       (common/tag-of ev :state)
    :delay       (common/tag-of ev :delay)
@@ -1035,17 +1021,17 @@
 
 (defn- no-op-cascade-row
   "Build a cascade row from a `:rf.machine.event/unhandled-no-op` trace
-  event (rf2-ugdas). A machine received an event with no matching
+  event. A machine received an event with no matching
   transition at any level; the snapshot is unchanged — a benign no-op
   (xstate-v5 parity), NOT an error. Carries the machine-id, the event
-  vector, and the pre-event state. rf2-iu3no — the view collapses this to
+  vector, and the pre-event state. The view renders this as
   the CONSEQUENCE only ('[NO OP] staying in {state}'); the machine name is
   surfaced only when >1 machine is in play (the `:show-machine-name?` flag
   `machine-cascade-rows` stamps below)."
   [ev]
   {:kind       :no-op
-   ;; rf2-yyvtk5 — unhandled-no-op now addresses the live actor under
-   ;; `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+   ;; unhandled-no-op addresses the live actor under `:actor-id`;
+   ;; fall back to `:machine-id` for fixtures that stamp only that.
    :machine-id (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
    :event      (common/tag-of ev :event)
    :state      (common/tag-of ev :state)})
