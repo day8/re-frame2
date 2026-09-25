@@ -1,5 +1,5 @@
 // Shared cljs.test summary-parsing + diagnostic-buffering for the
-// browser-test runners (#1196).
+// browser-test runners.
 //
 // cljs.test's `Ran N tests containing M assertions.` / `K failures, L
 // errors.` lines arrive interleaved with arbitrary browser-console
@@ -17,36 +17,34 @@
 //                                  prelude `0 failures, 0 errors.` app
 //                                  log that PRECEDES the real `Ran ...`
 //                                  line can never be mis-paired as the
-//                                  failure summary (rf2-mwx08).
+//                                  failure summary.
 //   parseFailureCounts(failErr) → { failures, errors } or null. A gate
 //                                  is green only when both are 0 AND a
 //                                  `Ran ...` line was seen.
 //   parseRanCounts(ran)         → { tests, assertions } or null — the two
-//                                  integers RAN_RE already captures. A
+//                                  integers RAN_RE captures. A
 //                                  gate needs them because `Ran 0 tests`
 //                                  with a clean tally is a lane that
-//                                  discovered nothing, not a pass
-//                                  (rf2-qqzmf).
+//                                  discovered nothing, not a pass.
 //   formatCompactSummary(parts) → the one-line `<label>: <ran> <failErr>`.
 //   createDiagnosticBuffer()    → an ordered stdout/stderr line buffer
 //                                  flushed verbatim (with stream routing)
 //                                  only when the runner needs the trail.
-//   findFixtureAbort(errors)    → the page error that ENDED the run, or null
-//                                  (rf2-u0j8).
+//   findFixtureAbort(errors)    → the page error that ENDED the run, or null.
 //   testingNamespaces(lines)    → the namespaces cljs-test-display announced,
 //                                  in order — the trail's own answer to "how
-//                                  far did the run get?" (rf2-u0j8).
+//                                  far did the run get?"
 //   classifyTrustedInputRequest(descriptor)
 //                               → what the page published on the trusted-input
 //                                  bridge: nothing, a servable request, or one
-//                                  the runner cannot answer (rf2-il7b).
+//                                  the runner cannot answer.
 // isVerboseTests(env) is the RF2_VERBOSE_TESTS=1 escape hatch shared
 // with lib/gate-report.cjs.
 
 const RAN_RE = /Ran\s+(\d+)\s+tests?\s+containing\s+(\d+)\s+assertions?\./;
 const FAIL_RE = /(\d+)\s+failures?,\s*(\d+)\s+errors?\.?/;
 
-// rf2-u0j8 — the one uncaught page error that is TERMINAL for the whole run.
+// The one uncaught page error that is TERMINAL for the whole run.
 //
 // cljs.test refuses `async` rows in a namespace whose fixtures are POSITIONAL
 // (`(use-fixtures :once (fn [f] … (f)))`) rather than maps. `execution-strategy`
@@ -84,16 +82,16 @@ function isVerboseTests(env = process.env) {
 }
 
 // Extract the cljs.test summary as an ATOMIC, ORDERED pair rather than
-// two independent first-matches (rf2-mwx08). cljs.test always emits the
+// two independent first-matches. cljs.test always emits the
 // `Ran N tests ...` line FIRST and the `K failures, L errors.` line
 // IMMEDIATELY AFTER it. Arbitrary browser-console noise — including a
 // prior app log shaped exactly like a zero-failure summary
 // (`0 failures, 0 errors.`) — may be interleaved before the real run.
 //
-// The previous implementation took the first `Ran ...` match and the
-// first `failures, errors` match from the whole blob independently, so a
-// preceding noise line could be accepted as the failure summary and then
-// paired with the later real `Ran ...` line — false-greening a red run.
+// Taking the first `Ran ...` match and the first `failures, errors` match
+// from the whole blob independently would let a preceding noise line be
+// accepted as the failure summary and then paired with the later real
+// `Ran ...` line — false-greening a red run.
 //
 // We instead walk the lines, and for each `Ran ...` line we look for the
 // FIRST `failures, errors` line that FOLLOWS it (before the next
@@ -153,9 +151,8 @@ function parseFailureCounts(failErr) {
 }
 
 // The `Ran N tests containing M assertions.` half of the summary, as the
-// integers it already carries (rf2-qqzmf). RAN_RE has always captured both;
-// nothing read them, so every browser lane derived its verdict from the
-// failure tally alone and a lane that ran NOTHING was green.
+// integers it carries. A verdict derived from the failure tally alone
+// would pass a lane that ran NOTHING.
 function parseRanCounts(ran) {
   const match = ran && String(ran).match(RAN_RE);
   if (!match) return null;
@@ -165,7 +162,7 @@ function parseRanCounts(ran) {
   };
 }
 
-// rf2-u0j8: the first captured page error that is the cljs.test fixture abort,
+// The first captured page error that is the cljs.test fixture abort,
 // or null. Kept pure (and separate from the runner) so the classification is
 // unit-testable without launching a browser.
 function findFixtureAbort(errors) {
@@ -176,7 +173,7 @@ function findFixtureAbort(errors) {
   return null;
 }
 
-// rf2-u0j8: the namespaces the run announced, in order. `lines` may be raw
+// The namespaces the run announced, in order. `lines` may be raw
 // console texts (which carry embedded newlines) or already-split lines; both
 // are handled. The LAST entry is the namespace that was executing when a
 // terminal error fired, and the COUNT is how far the lane got — the two numbers
@@ -195,7 +192,7 @@ function testingNamespaces(lines) {
   return out;
 }
 
-// rf2-il7b — the trusted-input bridge's one classification, kept PURE and
+// The trusted-input bridge's one classification, kept PURE and
 // out of the runner for the reason `findFixtureAbort` is: the runner's own
 // half needs a live Chromium, this half does not, and the case that matters
 // is the one a healthy tree never reaches.
@@ -206,8 +203,8 @@ function testingNamespaces(lines) {
 // no function to send it to), the row never resumes, the lane never reaches
 // its summary, and the whole BROWSER_TEST_TIMEOUT_MS budget burns down to
 // "Timed out ... waiting for cljs.test summary" — which names the wait
-// rather than the cause, exactly the fail-slow shape rf2-u0j8 fixed for the
-// cljs.test abort.
+// rather than the cause, exactly the fail-slow shape `findFixtureAbort`
+// avoids for the cljs.test abort.
 //
 // `descriptor` is what the in-page probe reports about the published value:
 // deliberately a flat, serialisable summary rather than the value itself,
