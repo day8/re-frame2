@@ -1,6 +1,5 @@
 (ns re-frame.story-review-dialog-test
-  "JVM tests for the shared review-then-commit dialog primitive
-  (rf2-7jpky).
+  "JVM tests for the shared review-then-commit dialog primitive.
 
   Pure-data coverage: the dialog state machine (`initial-state` /
   `open` / `close` / `set-draft-id` / `parse-and-set-draft-id`), the
@@ -185,7 +184,7 @@
       (is (= :story.x/edited-again (:draft-id s3)))
       (is (= rf.story.review-dialog/initial-state s4)))))
 
-;; ---- indent-after (snippet-format helper, rf2-zs0w4) ---------------------
+;; ---- indent-after (snippet-format helper) --------------------------------
 
 (deftest indent-after-shape
   (testing "indent-after returns a newline followed by N spaces matching prefix width"
