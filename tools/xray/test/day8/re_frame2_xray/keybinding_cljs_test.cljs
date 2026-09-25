@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.keybinding-cljs-test
-  "Tests for Xray's global keydown listener (rf2-jbhm5; source rf2-otcbz
-  audit recommendation #5).
+  "Tests for Xray's global keydown listener.
 
   Two contract surfaces under test:
 
@@ -29,8 +28,8 @@
   test has no `js/document` of its own, so we install a hand-rolled
   stub for the duration of the test and restore the absent binding in a
   `finally`. That keeps the suite fast and host-portable — the browser-
-  level keydown-dispatch story lives in the Playwright lane (rf2-s2bhn)
-  on a real document."
+  level keydown-dispatch story lives in the Playwright lane on a real
+  document."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -68,20 +67,20 @@
   (#'keybinding/xray-toggle-key? event))
 
 (defn- palette-toggle-key?
-  "rf2-wm7z4 — the Cmd/Ctrl+K command-palette predicate."
+  "The Cmd/Ctrl+K command-palette predicate."
   [event]
   (#'keybinding/palette-toggle-key? event))
 
 (defn- spine-key-id
-  "rf2-adve5 — the spine-binding predicate (Space / l / j / k / Shift+G /
+  "The spine-binding predicate (Space / l / j / k / Shift+G /
   `,` / s). `keybinding/spine-key-id`'s `cond` arms are the roster; read
-  them rather than any count restated here (rf2-v0rw).
+  them rather than any count restated here.
   Returns the spine event id or nil."
   [event]
   (#'keybinding/spine-key-id event))
 
 (defn- mode-toggle-key?
-  "rf2-o5f5f.1 — the Cmd/Ctrl+Shift+M predicate that drives the
+  "The Cmd/Ctrl+Shift+M predicate that drives the
   Dynamic ↔ Static mode toggle."
   [event]
   (#'keybinding/mode-toggle-key? event))
@@ -126,7 +125,7 @@
   installs a stub via `set! js/document` and asserts against that
   stub silently fails in that case.
 
-  Per rf2-higwg: detect the host by writing-and-checking; if the
+  Detect the host by writing-and-checking; if the
   write didn't take effect we're inside a real browser
   (`:browser-test` build under Playwright) and the keybinding /
   mount tests' stub-driven contracts can't be exercised. The
@@ -148,7 +147,7 @@
   ;; `set!` on `js/document` installs at goog.global; restoring nil
   ;; afterwards puts the binding back to the node-test baseline (absent).
   ;;
-  ;; Per rf2-higwg: in `:browser-test` the host's `window.document` is
+  ;; In `:browser-test` the host's `window.document` is
   ;; non-configurable and the `set!` silently no-ops — the stub never
   ;; takes effect and `attach!`'s `addEventListener` lands on the real
   ;; document. Skip the body cleanly in that host; the same contracts
@@ -266,7 +265,7 @@
         (is (<= matches 1)
             (str "event " (js->clj event) " must match at most one predicate"))))))
 
-;; ---- (3) palette-toggle-key? truth table (rf2-wm7z4) ---------------------
+;; ---- (3) palette-toggle-key? truth table ---------------------------------
 
 (deftest palette-toggle-key-matches-cmd-k-and-ctrl-k
   (testing "Ctrl+K — Windows / Linux convention"
@@ -312,7 +311,7 @@
     (is (false? (palette-toggle-key?
                   (mk-event {:code "KeyJ" :ctrl? true}))))))
 
-;; ---- (3b) mode-toggle-key? truth table (rf2-o5f5f.1) --------------------
+;; ---- (3b) mode-toggle-key? truth table ----------------------------------
 
 (deftest mode-toggle-key-matches-cmd-shift-m-and-ctrl-shift-m
   (testing "Ctrl+Shift+M — Windows / Linux convention"
@@ -418,7 +417,7 @@
             "exactly one listener installed after re-attach")))))
 
 (deftest detach-removes-the-exact-attached-fn-hot-reload-safe
-  (testing "rf2-t2o6o — detach! removes the SAME fn object attach!
+  (testing "detach! removes the SAME fn object attach!
             installed, NOT the (possibly hot-reloaded) handle-keydown
             var. addEventListener / removeEventListener compare by
             reference; a shadow-cljs :after-load recompiles
@@ -438,9 +437,9 @@
         ;; Simulate the post-reload divergence: the stub's
         ;; removeEventListener matches by `identical?`, so removing a
         ;; DIFFERENT fn object (standing in for the recompiled
-        ;; handle-keydown var the OLD code would have passed) must NOT
-        ;; remove the live listener. This reproduces the exact leak the
-        ;; bare-var detach! caused after :after-load.
+        ;; handle-keydown var a bare-var detach! would pass) must NOT
+        ;; remove the live listener. This reproduces the exact leak a
+        ;; bare-var detach! would cause after :after-load.
         (let [recompiled-stand-in (fn [_] nil)]
           (.removeEventListener js/document "keydown" recompiled-stand-in true)
           (is (= 1 (count @listeners))
@@ -452,7 +451,7 @@
         ;; recompiled) handle-keydown var.
         (keybinding/detach!)
         (is (zero? (count @listeners))
-            "detach! removed the exact attached fn — no leak (rf2-t2o6o)")
+            "detach! removed the exact attached fn — no leak")
         (is (false? (keybinding/attached?))
             "sentinel flipped back to false")
         ;; A subsequent attach!/detach! cycle still round-trips cleanly,
@@ -476,7 +475,7 @@
             "no listener was added or removed")))))
 
 (deftest detach-is-idempotent
-  (testing "rf2-ycrt2 — detach! is the public embed-host escape hatch
+  (testing "detach! is the public embed-host escape hatch
             (Story calls it from wire-cross-host! after flipping
             :rf.xray/keybinding-enabled? false); calling it twice in a
             row must be safe — the second call removes nothing (the
@@ -509,14 +508,13 @@
           a subsequent stub-driven attach! would falsely think it had
           already wired up"))))
 
-;; ---- (5) spine-key-id (rf2-adve5) ---------------------------------------
+;; ---- (5) spine-key-id ---------------------------------------------------
 ;;
 ;; Per spec/018 §3 + §6. `keybinding/spine-key-id`'s `cond` arms are the
 ;; SOURCE OF TRUTH for the spine set — deliberately no count is stated
-;; here, because the wording that named one undercounted from the moment
-;; the `,` / s arms landed (rf2-v0rw). The predicate is *unmodified* —
-;; modifier-held variants must not match (so Cmd+L → focus address bar
-;; still works inside Xray). Today the arms are:
+;; here, because a restated count drifts as arms are added. The predicate
+;; is *unmodified* — modifier-held variants must not match (so Cmd+L →
+;; focus address bar still works inside Xray). The arms are:
 ;;
 ;;     Space    →  :rf.xray/toggle-live-pause
 ;;     l        →  :rf.xray/follow-head      (snap-LIVE)
@@ -556,24 +554,24 @@
          (spine-key-id (mk-event {:code "KeyK"})))))
 
 (deftest spine-key-id-comma-is-settings-toggle
-  ;; rf2-v0rw — the `,` arm was unasserted, which is why the prose above
-  ;; could undercount the roster without anything going red.
+  ;; Every arm carries its own assertion, so the roster is pinned by
+  ;; tests rather than by the prose above.
   (is (= :rf.xray/settings-toggle
          (spine-key-id (mk-event {:key ","}))))
   (is (= :rf.xray/settings-toggle
          (spine-key-id (mk-event {:code "Comma"})))))
 
 (deftest spine-key-id-s-is-settings-toggle
-  ;; rf2-v0rw — `s` is the second door onto the Settings popup; per
-  ;; spec/007-UX-IA.md §Global shortcuts both `,` and `s` open the modal.
+  ;; `s` is the second door onto the Settings popup; per
+  ;; spec/007-UX-IA.md §Shell spine keys both `,` and `s` open the modal.
   (is (= :rf.xray/settings-toggle
          (spine-key-id (mk-event {:key "s"}))))
   (is (= :rf.xray/settings-toggle
          (spine-key-id (mk-event {:code "KeyS"})))))
 
 (deftest spine-key-id-c-is-unbound
-  ;; rf2-y0z5b — Causality surface dropped entirely; `c` is now free
-  ;; (no spine handler attached). Future bead may rewire if needed.
+  ;; `c` is unbound: there is no Causality surface, and no spine handler
+  ;; is attached to the key.
   (is (nil? (spine-key-id (mk-event {:key "c"}))))
   (is (nil? (spine-key-id (mk-event {:code "KeyC"})))))
 
@@ -596,11 +594,11 @@
     (is (nil? (spine-key-id (mk-event {})))
         "empty event → nil")))
 
-;; ---- (6) :rf.xray/keybinding-enabled? toggle (rf2-4eyik — rf2-q7who.A) ----
+;; ---- (6) :rf.xray/keybinding-enabled? toggle ----------------------------
 ;;
 ;; Per Spec 015-Configuration §`:rf.xray/keybinding-enabled?` the slot
 ;; controls whether `attach!` installs the window-level capture-phase
-;; listener. Default `true` (existing hosts unaffected); embed hosts —
+;; listener. Default `true`; embed hosts —
 ;; Story mounts Xray as its RHS panel — flip it to `false` so their own
 ;; global keybindings (typically `Cmd/Ctrl+K`) aren't swallowed by the
 ;; capture-phase `stopPropagation()`.
@@ -610,7 +608,7 @@
 ;; tests in the same suite run.
 
 (deftest attach-disabled-by-config-is-noop
-  (testing "rf2-4eyik (rf2-q7who.A) — with :rf.xray/keybinding-enabled?
+  (testing "with :rf.xray/keybinding-enabled?
             false, attach! does NOT register the global listener and
             does NOT flip the sentinel; the embed-host contract"
     (with-stub-document
@@ -629,13 +627,13 @@
           (finally
             ;; Restore the default so neighbouring tests
             ;; (attach-is-idempotent, detach-round-trips) see the
-            ;; baseline they were written against.
+            ;; baseline they assume.
             (config/set-keybinding-enabled! true)))))))
 
 (deftest attach-default-is-enabled
-  (testing "rf2-4eyik (rf2-q7who.A) — default config is true; attach!
-            registers as it did pre-rf2-4eyik. Defends against an
-            accidental flip of the default."
+  (testing "default config is true; attach! registers the
+            listener. Defends against an accidental flip of the
+            default."
     (with-stub-document
       (fn [{:keys [listeners]}]
         (is (true? (config/keybinding-attach-enabled?))
@@ -644,10 +642,10 @@
         (is (true? (keybinding/attached?))
             "sentinel flipped true under default config")
         (is (= 1 (count @listeners))
-            "one keydown listener registered as before")))))
+            "one keydown listener registered")))))
 
 (deftest config-set-keybinding-enabled-nil-resets-to-true
-  (testing "rf2-4eyik — `nil` arg restores the default `true` per the
+  (testing "`nil` arg restores the default `true` per the
             convention shared with set-auto-open! / set-editor!"
     (try
       (config/set-keybinding-enabled! false)
@@ -658,7 +656,7 @@
       (finally
         (config/set-keybinding-enabled! true)))))
 
-;; ---- (7) Esc dismisses the editor-hint toast (rf2-wpvy6f) ----------------
+;; ---- (7) Esc dismisses the editor-hint toast -----------------------------
 ;;
 ;; The hint toast is a non-modal `role=status` surface that must NOT trap
 ;; focus (it would steal it from the host app), so its own in-DOM
@@ -670,7 +668,7 @@
 ;;
 ;; Unlike the pure-predicate tests above, these need a live `:rf/xray`
 ;; frame with the editor-hint events registered, so they bootstrap the
-;; re-frame runtime (mirrors editor_hint_cljs_test.cljs's fixture).
+;; re-frame runtime (mirrors settings/editor_hint_cljs_test.cljs's fixture).
 
 (defn- handle-keydown
   "Reach the private dispatcher via var access."
@@ -701,7 +699,7 @@
   (rf/make-frame {:id :rf/xray}))
 
 (deftest esc-dismisses-open-editor-hint
-  (testing "rf2-wpvy6f — when the editor-hint toast is OPEN, the global
+  (testing "when the editor-hint toast is OPEN, the global
             handle-keydown consumes Esc and dispatches
             :rf.xray/editor-hint-dismiss on :rf/xray, closing the toast"
     (setup-xray-runtime!)
@@ -725,7 +723,7 @@
         "toast is dismissed")))
 
 (deftest esc-falls-through-when-hint-closed
-  (testing "rf2-wpvy6f — when the toast is CLOSED, Esc is NOT consumed by
+  (testing "when the toast is CLOSED, Esc is NOT consumed by
             the editor-hint branch (no preventDefault / stopPropagation),
             so it falls through to the host and other Esc consumers"
     (setup-xray-runtime!)
@@ -740,7 +738,7 @@
           "closed toast → Esc not consumed (stopPropagation not called)"))))
 
 (deftest editor-hint-open-predicate-reads-frame-app-db
-  (testing "rf2-wpvy6f — the private editor-hint-open? reader reflects the
+  (testing "the private editor-hint-open? reader reflects the
             :rf/xray frame's :editor-hint-open? app-db slot, and is false
             when the frame is absent"
     (setup-xray-runtime!)
@@ -754,13 +752,13 @@
     (is (false? (#'keybinding/editor-hint-open?))
         "false when the :rf/xray frame is absent — Esc falls through")))
 
-;; ---- (8) rf2-llecpa — held toggle chords must not flap (repeat guard) ----
+;; ---- (8) held toggle chords must not flap (repeat guard) -----------------
 ;;
-;; No `event.repeat` guard meant HOLDING a toggle chord fired it at the
-;; OS key-repeat rate — the shell / palette / mode / live-pause flapped
-;; open↔closed. `handle-keydown` now swallows `.repeat` keydowns for
-;; every binding EXCEPT the j / k step keys (which WANT auto-repeat so a
-;; held key walks the feed). `step-key?` is the exemption predicate.
+;; `handle-keydown` swallows `.repeat` keydowns for every binding EXCEPT
+;; the j / k step keys (which WANT auto-repeat so a held key walks the
+;; feed). Without that guard, HOLDING a toggle chord would fire it at the
+;; OS key-repeat rate and the shell / palette / mode / live-pause would
+;; flap open↔closed. `step-key?` is the exemption predicate.
 
 (defn- step-key?
   "Reach the private step-exemption predicate via var access."
@@ -789,7 +787,7 @@
      :stopped   stopped}))
 
 (deftest step-key-exempts-only-unmodified-j-and-k
-  (testing "rf2-llecpa — step-key? is the SOLE repeat exemption: the
+  (testing "step-key? is the SOLE repeat exemption: the
             feed-stepping keys j / k (which want held-key auto-repeat)"
     (is (true? (boolean (step-key? (mk-event {:key "j"})))))
     (is (true? (boolean (step-key? (mk-event {:key "k"})))))
@@ -803,13 +801,13 @@
     (is (false? (boolean (step-key? (mk-event {:key "s"})))) "settings")
     (is (false? (boolean (step-key? (mk-event {:key ","})))) "settings"))
   (testing "MODIFIED j / k are not the bare step binding (Ctrl+j etc.) —
-            those never matched the spine anyway, so no exemption applies"
+            those never match the spine anyway, so no exemption applies"
     (is (false? (boolean (step-key? (mk-event {:key "j" :ctrl? true})))))
     (is (false? (boolean (step-key? (mk-event {:key "k" :meta? true})))))
     (is (false? (boolean (step-key? (mk-event {:key "j" :shift? true})))))))
 
 (deftest held-toggle-chords-are-ignored
-  (testing "rf2-llecpa — a repeat keydown for a toggle chord is swallowed:
+  (testing "a repeat keydown for a toggle chord is swallowed:
             handle-keydown bails at the first cond arm before the action,
             so it never preventDefaults / stopPropagations / toggles.
             Proves shell (Ctrl+Shift+C), palette (Cmd/Ctrl+K), and mode
@@ -827,7 +825,7 @@
             (str "repeat chord " chord " must not stopPropagation"))))))
 
 (deftest held-space-does-not-toggle-live-pause
-  (testing "rf2-llecpa — a HELD Space (auto-repeat) inside the shell does
+  (testing "a HELD Space (auto-repeat) inside the shell does
             not re-fire the LIVE pause toggle. The runtime + shell-visible
             plumbing that a genuine Space press needs is the browser lane;
             here we assert the repeat is swallowed at the guard (no
@@ -838,7 +836,7 @@
       (is (false? @stopped)))))
 
 (deftest held-escape-does-not-redismiss-hint
-  (testing "rf2-llecpa — a HELD Escape (auto-repeat) does not re-fire the
+  (testing "a HELD Escape (auto-repeat) does not re-fire the
             editor-hint dismiss; the first physical press already acted.
             The non-repeat Escape path stays live (see
             esc-dismisses-open-editor-hint), so this also proves a plain
@@ -851,13 +849,14 @@
       (is (false? @prevented) "repeat Escape is ignored — not consumed")
       (is (false? @stopped)))))
 
-;; ---- (9) rf2-d716o9 — Space not hijacked from focused button/summary -----
+;; ---- (9) Space not hijacked from focused button/summary ------------------
 ;;
-;; `target-editable?` only exempted INPUT/TEXTAREA/SELECT/contenteditable,
-;; so a focused shell `<button>` / `<summary>` / `[role=button]` fell into
-;; the spine branch: Space dispatched `:rf.xray/toggle-live-pause` and
-;; `.preventDefault`d, blocking the control's native Space activation. The
-;; new `target-activatable?` predicate yields the spine to those controls.
+;; `target-editable?` exempts only INPUT/TEXTAREA/SELECT/contenteditable, so
+;; on its own it would let a focused shell `<button>` / `<summary>` /
+;; `[role=button]` fall into the spine branch: Space would dispatch
+;; `:rf.xray/toggle-live-pause` and `.preventDefault`, blocking the
+;; control's native Space activation. The `target-activatable?` predicate
+;; yields the spine to those controls.
 
 (defn- mk-target-event
   "Synthetic keydown whose `.target` is a fake element with the given
@@ -876,10 +875,10 @@
   preventDefault / stopPropagation are spied so a test can see whether
   the spine consumed the keystroke.
 
-  rf2-y8doi.20 generalised this from the Space-only form below: the
-  activatable-target exemption is now scoped to Space, so the roster
-  keys need the same shell-inside target shape to assert they are NOT
-  exempted."
+  The activatable-target exemption is scoped to Space, so the roster
+  keys need the same shell-inside target shape as Space to assert they
+  are NOT exempted; `mk-shell-space-event` below is the Space-only
+  spelling."
   [{:keys [tag role key code shift?]
     :or   {key " " code "Space" shift? false}}]
   (let [prevented  (atom false)
@@ -902,13 +901,13 @@
 
 (defn- mk-shell-space-event
   "Synthetic bare Space keydown inside the shell — the Space-specific
-  spelling of `mk-shell-target-key-event`, kept so the rf2-d716o9 rows
-  below read exactly as they did."
+  spelling of `mk-shell-target-key-event`, so the Space rows below need
+  not name the key."
   [{:keys [tag role]}]
   (mk-shell-target-key-event {:tag tag :role role}))
 
 (deftest target-activatable-matches-buttons-summary-role
-  (testing "rf2-d716o9 — a focused <button> / <summary> / [role=button]
+  (testing "a focused <button> / <summary> / [role=button]
             natively consumes Space; target-activatable? flags them so the
             spine yields"
     (is (true? (boolean (#'keybinding/target-activatable?
@@ -923,8 +922,8 @@
         "tagName compared case-insensitively (lower-case host quirk)")))
 
 (deftest target-activatable-rejects-non-activatable
-  (testing "rf2-d716o9 — ordinary shell nodes are NOT activatable, so the
-            spine keys still fire on them"
+  (testing "ordinary shell nodes are NOT activatable, so the
+            spine keys fire on them"
     (is (false? (boolean (#'keybinding/target-activatable?
                            (mk-target-event {:tag "DIV"})))))
     (is (false? (boolean (#'keybinding/target-activatable?
@@ -939,7 +938,7 @@
         "an event with no target must not throw")))
 
 (deftest space-on-focused-button-is-not-hijacked
-  (testing "rf2-d716o9 — a focused shell <button> / <summary> / [role=
+  (testing "a focused shell <button> / <summary> / [role=
             button] keeps Space for its native activation: the spine
             branch yields (no preventDefault, no live-pause dispatch)."
     (setup-xray-runtime!)
@@ -955,8 +954,8 @@
               (str "Space on a focused " spec " must not stopPropagation")))))))
 
 (deftest space-on-non-activatable-shell-target-still-pauses
-  (testing "rf2-d716o9 — the guard is surgical: Space on a NON-activatable
-            focused shell node still fires the LIVE-pause binding
+  (testing "the guard is surgical: Space on a NON-activatable
+            focused shell node fires the LIVE-pause binding
             (preventDefault called), so the spine keeps working normally
             when focus is not on an activatable control."
     (setup-xray-runtime!)
@@ -966,18 +965,18 @@
         (is (true? @prevented)
             "Space consumed — the spine live-pause binding fired on a plain node")))))
 
-;; ---- rf2-y8doi.20 — the exemption is SPACE'S, not the roster's -----------
+;; ---- the exemption is SPACE'S, not the roster's -------------------------
 ;;
-;; `target-activatable?` was added for Space alone (rf2-d716o9) but sat
-;; bare in front of the whole `:else` guard, so it exempted every spine
-;; key. The most natural gesture in the tool leaves DOM focus on an
-;; activatable control — an L2 row is `role="button"` + `tab-index "0"`
-;; and the nav chevrons are `<button>`s, and browsers focus both on
-;; mousedown — after which j / k / l / Shift+G / `,` / s were all dead
-;; until the user clicked somewhere inert. The row's own `:on-key-down`
-;; handles Enter / Space / ContextMenu / Shift+F10 and nothing else, so
-;; the step keys reached no handler at all. Space (and Enter, which is
-;; not a spine key) is the whole of what a native control claims.
+;; `target-activatable?` exempts Space alone. Placed bare in front of the
+;; whole `:else` guard it would exempt every spine key — and the most
+;; natural gesture in the tool leaves DOM focus on an activatable control
+;; (an L2 row is `role="button"` + `tab-index "0"` and the nav chevrons are
+;; `<button>`s, and browsers focus both on mousedown), after which j / k /
+;; l / Shift+G / `,` / s would all be dead until the user clicked somewhere
+;; inert. The row's own `:on-key-down` handles Enter / Space / ContextMenu /
+;; Shift+F10 and nothing else, so the step keys would reach no handler at
+;; all. Space (and Enter, which is not a spine key) is the whole of what a
+;; native control claims.
 
 (def ^:private spine-roster-minus-space
   "The spine bindings a focused activatable control does NOT claim,
@@ -994,18 +993,17 @@
   what the keydown handler just dispatched.
 
   Observed at the queue rather than through a `with-redefs` on
-  `rf/dispatch`: measured under `:node-test`, that redef does not reach
-  the compiled call site in `keybinding.cljs` and the spy reads `[]` on a
-  dispatch that demonstrably happened (18 assertions, all of them the
-  spy, beside green preventDefault rows on the same events). The queue is
-  the seam `epoch_pump_coalescing_cljs_test` already reads for its
-  coalescing counts, and it observes the real envelope."
+  `rf/dispatch`: under `:node-test` that redef does not reach the
+  compiled call site in `keybinding.cljs`, so a spy reads `[]` on a
+  dispatch that demonstrably happened. The queue is the seam
+  `epoch_pump_coalescing_cljs_test` also reads for its coalescing
+  counts, and it observes the real envelope."
   []
   (mapv :event (:queue @(:router (rf.frame/frame :rf/xray)))))
 
 (deftest spine-roster-survives-focus-on-an-activatable-target
-  (testing "rf2-y8doi.20 — with focus on a shell <button> / <summary> /
-            [role=button], every spine key EXCEPT Space still fires: the
+  (testing "with focus on a shell <button> / <summary> /
+            [role=button], every spine key EXCEPT Space fires: the
             keystroke is consumed and the roster's own event is queued"
     (setup-xray-runtime!)
     (with-redefs [mount/visible? (constantly true)]
@@ -1027,10 +1025,9 @@
               (str key " on a focused " target-spec " dispatches " expect)))))))
 
 (deftest space-stays-exempt-on-an-activatable-target
-  (testing "rf2-y8doi.20 — narrowing the guard to Space must not un-fix
-            rf2-d716o9: Space on the SAME targets is still yielded, with no
+  (testing "Space on the SAME targets is yielded, with no
             preventDefault and nothing queued. This is the control that says
-            the narrowing is surgical rather than a removal."
+            the Space-only guard is surgical rather than absent."
     (setup-xray-runtime!)
     (with-redefs [mount/visible? (constantly true)]
       (doseq [target-spec [{:tag "BUTTON"}
@@ -1040,21 +1037,21 @@
               {:keys [event prevented]} (mk-shell-target-key-event target-spec)]
           (handle-keydown event)
           (is (false? @prevented)
-              (str "Space on a focused " target-spec " is still the control's"))
+              (str "Space on a focused " target-spec " is the control's"))
           (is (= [] (vec (drop before (xray-queued-events))))
               (str "Space on a focused " target-spec
                    " queues nothing — the native activation wins")))))))
 
-;; ---- (10) the pop-out document's own listener (rf2-61i5) -----------------
+;; ---- (10) the pop-out document's own listener ----------------------------
 ;;
 ;; `mount/popout!` renders a live shell into a SECOND document, and DOM key
-;; events do not cross realms — so the opener-document listener could never
-;; see a keypress made in the pop-out window, and the documented keyboard
-;; workflow was inert whenever focus was there.
+;; events do not cross realms — so the opener-document listener never sees
+;; a keypress made in the pop-out window, and without a listener of its own
+;; the documented keyboard workflow would be inert whenever focus was there.
 ;;
 ;; Two things are under test, and they fail in different ways:
 ;;
-;;   * ROUTING. `handle-keydown-on` is now surface-parameterised. Every
+;;   * ROUTING. `handle-keydown-on` is surface-parameterised. Every
 ;;     assertion below pairs the pop-out surface with the OPENER surface on
 ;;     the identical event, so a test cannot pass by the handler having
 ;;     become inert — the control shares the shape of the target.
@@ -1063,7 +1060,8 @@
 ;;     disposer that removes THAT fn object.
 ;;
 ;; The browser-level counterpart (a real second window, real keypresses)
-;; lives in the feature-matrix scenario added under the same bead.
+;; lives in the feature-matrix gate (`assertPopoutKeyboard` in
+;; `tools/xray/testbeds/feature_matrix/scenarios.cjs`).
 
 (defn- handle-keydown-on [surface event]
   (#'keybinding/handle-keydown-on surface event))
@@ -1100,11 +1098,11 @@
      :stopped   stopped}))
 
 (deftest popout-spine-keys-fire-with-no-opener-shell-visible
-  (testing "rf2-61i5 — the bug's core. `mount/visible?` reports on the
-            OPENER's in-app shell, so with no inline shell open every bare
-            spine key was refused. In the pop-out the shell IS on screen,
-            so the spine must fire; the opener surface on the SAME event
-            must still refuse. Pairing them is the control: if the handler
+  (testing "`mount/visible?` reports on the OPENER's in-app shell, so
+            with no inline shell open the opener refuses every bare spine
+            key. In the pop-out the shell IS on screen, so the spine must
+            fire; the opener surface on the SAME event must refuse.
+            Pairing them is the control: if the handler
             had merely gone inert, the pop-out half would fail too."
     (setup-xray-runtime!)
     (with-redefs [mount/visible? (constantly false)]
@@ -1119,13 +1117,13 @@
         (let [{:keys [event prevented]} (mk-shell-key-event k)]
           (handle-keydown-on opener-surface event)
           (is (false? @prevented)
-              (str "opener spine key " k " must still refuse when its own "
-                   "shell is hidden — the pre-existing contract")))))))
+              (str "opener spine key " k " must refuse when its own "
+                   "shell is hidden — the opener's contract")))))))
 
 (deftest popout-palette-does-not-touch-the-opener-shell
-  (testing "rf2-61i5 — Cmd/Ctrl+K in the pop-out opens the palette WITHOUT
+  (testing "Cmd/Ctrl+K in the pop-out opens the palette WITHOUT
             mounting, showing or reopening the opener's inline shell. The
-            opener surface on the identical event still calls `toggle!`
+            opener surface on the identical event calls `toggle!`
             when its shell is hidden, which is what makes the pop-out
             assertion mean something."
     (setup-xray-runtime!)
@@ -1141,16 +1139,16 @@
                 (str "pop-out " chord " is consumed — the palette opens here"))
             (is (zero? @toggles)
                 (str "pop-out " chord " must NOT mount or reopen the opener's "
-                     "shell — that is the accident this bead names")))
+                     "shell")))
           (reset! toggles 0)
           (let [{:keys [event]} (mk-shell-key-event chord)]
             (handle-keydown-on opener-surface event)
             (is (= 1 @toggles)
-                (str "control: the OPENER surface still shows its hidden "
+                (str "control: the OPENER surface shows its hidden "
                      "shell before opening the palette on " chord))))))))
 
 (deftest popout-shell-toggle-chord-stays-opener-owned
-  (testing "rf2-61i5 — Ctrl+Shift+C shows/hides the opener's IN-APP shell,
+  (testing "Ctrl+Shift+C shows/hides the opener's IN-APP shell,
             a surface that does not exist in the pop-out document. Pressed
             in the pop-out it must not reach across and toggle the opener's
             shell, and must not be swallowed either (no preventDefault), so
@@ -1169,11 +1167,11 @@
         (let [{:keys [event prevented]}
               (mk-shell-key-event {:key "C" :code "KeyC" :ctrl? true :shift? true})]
           (handle-keydown-on opener-surface event)
-          (is (= 1 @toggles) "control: the opener surface still owns the chord")
-          (is (true? @prevented) "and still consumes it"))))))
+          (is (= 1 @toggles) "control: the opener surface owns the chord")
+          (is (true? @prevented) "and consumes it"))))))
 
 (deftest popout-mode-chord-routes-through-the-shared-map
-  (testing "rf2-61i5 — Cmd/Ctrl+Shift+M and `,` / s are NOT surface-
+  (testing "Cmd/Ctrl+Shift+M and `,` / s are NOT surface-
             dependent: both surfaces route them identically through the one
             keyboard map. Proves the pop-out reuses the canonical roster
             rather than carrying a second table."
@@ -1192,7 +1190,7 @@
               (str chord " is a live binding on both surfaces")))))))
 
 (deftest install-popout-keydown-owns-exactly-one-listener
-  (testing "rf2-61i5 — installing on a pop-out document adds exactly ONE
+  (testing "installing on a pop-out document adds exactly ONE
             capture-phase keydown listener, and the returned disposer
             removes that exact fn object (add/removeEventListener compare
             by reference)."
@@ -1208,7 +1206,7 @@
           "the disposer removed the exact listener it installed"))))
 
 (deftest popout-listeners-do-not-accumulate-across-windows
-  (testing "rf2-61i5 — each pop-out document gets its own listener and its
+  (testing "each pop-out document gets its own listener and its
             own disposer; disposing one must not disturb the other. This is
             the reopen contract: `teardown-popout-state!` disposes, a later
             `popout!` installs one fresh listener rather than stacking
@@ -1229,13 +1227,11 @@
       (is (zero? (count @(:listeners b)))))))
 
 (deftest install-popout-keydown-installs-regardless-of-the-config-slot
-  (testing "rf2-d6gna — REPLACES the rf2-61i5 row that pinned an install-time
-            REFUSAL on a cleared :rf.xray/keybinding-enabled?. Installation no
-            longer consults the slot at all: the listener goes on for the
-            window's lifetime and the HANDLER answers the slot per keystroke
-            (section 11 below). Pinning the refusal is precisely what made the
-            switch one-way and one-shot for a pop-out, so this row had to
-            change meaning rather than merely move."
+  (testing "installation does not consult :rf.xray/keybinding-enabled? at
+            all: the listener goes on for the window's lifetime and the
+            HANDLER answers the slot per keystroke (section 11 below). An
+            install-time refusal on a cleared slot would make the switch
+            one-way and one-shot for a pop-out."
     (let [{:keys [doc listeners]} (mk-stub-document)]
       (try
         (config/set-keybinding-enabled! false)
@@ -1249,25 +1245,25 @@
           (when (fn? dispose)
             (dispose)
             (is (zero? (count @listeners))
-                "and the disposer still removes the exact listener")))
+                "and the disposer removes the exact listener")))
         (finally
           (config/set-keybinding-enabled! true)))
       ;; Control, sharing the shape: the SAME call on the SAME document with
       ;; the slot restored installs identically. It is what says the rows
-      ;; above are about the slot no longer gating installation, rather than
-      ;; about an installer that has stopped discriminating anything at all.
+      ;; above are about the slot not gating installation, rather than
+      ;; about an installer that discriminates nothing at all.
       (let [dispose (keybinding/install-popout-keydown! doc)]
         (is (= 1 (count @listeners)) "installs with the slot true too")
         (dispose)))))
 
 (deftest install-popout-keydown-refuses-a-nil-document
-  (testing "rf2-61i5 — a pop-out whose document is unreachable installs
+  (testing "a pop-out whose document is unreachable installs
             nothing and returns nil rather than throwing; `popout!` stores
             the nil and `teardown-popout-state!` skips disposal."
     (is (nil? (keybinding/install-popout-keydown! nil)))))
 
 (deftest popout-installer-is-registered-with-mount
-  (testing "rf2-61i5 — the injection that closes the mount <-> keybinding
+  (testing "the injection that closes the mount <-> keybinding
             cycle. `mount/popout!` reaches keybinding ONLY through this
             slot, so an unregistered installer means a keyboard-less
             pop-out with nothing else failing."
@@ -1277,23 +1273,24 @@
                     @@#'mount/popout-keydown-installer)
         "keybinding registered its installer into mount at load time")))
 
-;; ---- (11) the pop-out listener answers the LIVE slot (rf2-d6gna) ---------
+;; ---- (11) the pop-out listener answers the LIVE slot ---------------------
 ;;
 ;; `:rf.xray/keybinding-enabled?` is reactive for the OPENER: the watch at the
 ;; foot of `keybinding.cljs` calls `attach!` / `detach!` on every flip, so the
 ;; listener's PRESENCE is the switch there. That watch cannot reach a pop-out
 ;; listener — its lifetime belongs to `mount/popout!` and
-;; `teardown-popout-state!` — so while the pop-out read the slot only at
-;; INSTALL time the switch was one-way and one-shot in that window: one opened
-;; while the slot was true went on consuming `Cmd/Ctrl+K` and the spine after
-;; the host cleared it, and one opened while it was false stayed inert for the
-;; life of the window after the host restored it.
+;; `teardown-popout-state!` — so the pop-out handler reads the slot per
+;; keystroke. Were it to read the slot only at INSTALL time the switch would be
+;; one-way and one-shot in that window: one opened while the slot was true
+;; would go on consuming `Cmd/Ctrl+K` and the spine after the host cleared it,
+;; and one opened while it was false would stay inert for the life of the
+;; window after the host restored it.
 ;;
 ;; The rows below drive the ACTUAL INSTALLED HANDLER — the fn object the stub
 ;; document captured — and not `handle-keydown-on`. That siting is the whole
-;; point: the defect lives in the seam between a listener's lifetime and the
-;; flag, and a direct call to the shared handler cannot see it, which is why
-;; section 10's surface rows all passed while the bug shipped.
+;; point: this failure lives in the seam between a listener's lifetime and the
+;; flag, and a direct call to the shared handler cannot see it — section 10's
+;; surface rows would all pass against an install-time read.
 ;;
 ;; Each row pairs its disabled reading with an enabled reading on the IDENTICAL
 ;; event through the IDENTICAL listener, so a handler that had merely gone
@@ -1320,7 +1317,7 @@
      :queued    (vec (drop before (xray-queued-events)))}))
 
 (deftest popout-handler-goes-quiet-when-the-slot-is-cleared
-  (testing "rf2-d6gna — a pop-out installed while the slot was true must stop
+  (testing "a pop-out installed while the slot was true must stop
             consuming keys the moment the host clears it, and resume when the
             host restores it. One listener, never reinstalled, read three
             times."
@@ -1339,8 +1336,9 @@
               "enabled: Cmd/Ctrl+K is consumed in the pop-out")
           (is (= [[:rf.xray/palette-toggle]] queued)
               "enabled: and the palette toggle is dispatched on :rf/xray"))
-        ;; (b) DISABLED — the defect. The listener is still installed; the
-        ;; handler must decline without touching the event.
+        ;; (b) DISABLED — the case an install-time read gets wrong. The
+        ;; listener stays installed; the handler must decline without
+        ;; touching the event.
         (config/set-keybinding-enabled! false)
         (is (= 1 (count @listeners))
             "the slot does not remove the listener — the disposer owns that")
@@ -1360,12 +1358,12 @@
           (when (fn? dispose) (dispose)))))))
 
 (deftest popout-opened-while-disabled-goes-live-when-the-slot-returns
-  (testing "rf2-d6gna — the other direction, and the one an install-time read
-            could not express at all: a pop-out opened while the host had the
+  (testing "the other direction, and the one an install-time read
+            cannot express at all: a pop-out opened while the host had the
             slot cleared installs its listener anyway and starts answering the
-            moment the slot comes back. Before this bead nothing was installed,
-            so that window was keyboard-less for its whole lifetime however the
-            slot moved afterwards."
+            moment the slot comes back. Were nothing installed, that window
+            would be keyboard-less for its whole lifetime however the slot
+            moved afterwards."
     (setup-xray-runtime!)
     (let [{:keys [doc listeners]} (mk-stub-document)
           step                    {:key "j" :code "KeyJ"}]
@@ -1375,7 +1373,7 @@
               handler (installed-popout-handler listeners)]
           (is (fn? dispose)
               "a disposer even with the slot false — mount stores one per
-               pop-out either way, and nil made the window unrecoverable")
+               pop-out either way, and nil would make the window unrecoverable")
           (is (= 1 (count @listeners))
               "the listener is installed for the window's lifetime")
           (is (fn? handler)
