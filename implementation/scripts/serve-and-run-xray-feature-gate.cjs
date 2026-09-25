@@ -2,12 +2,13 @@
 'use strict';
 
 /*
- * Occasional Xray browser feature/load gate.
+ * Xray browser feature/load gate.
  *
- * This is intentionally not default CI. It compiles the deterministic
- * Xray-relevant testbeds, stages them under one static root, then runs a
- * high-value matrix slice plus the 20-event/load re-check from
- * tools/xray/spec/017-Test-Coverage-Matrix.md.
+ * It compiles the deterministic Xray-relevant testbeds, stages them under
+ * one static root, then runs a high-value matrix slice plus the
+ * 20-event/load re-check from tools/xray/spec/017-Test-Coverage-Matrix.md.
+ * The `--smoke` tier runs per PR; the full sweep runs nightly (see SMOKE
+ * below).
  */
 
 const { spawnSync } = require('child_process');
@@ -35,9 +36,9 @@ const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'xray-feature-gate');
 const ARTIFACT_ROOT = path.join(IMPL_ROOT, 'out', 'xray-feature-gate-artifacts');
 // Preferred port; the gate falls back to an OS-chosen free port when this
-// is busy (rf2-84gzw). The resolved port is threaded into BASE_URL at
-// runtime, so a fixed override here no longer pins the run to a possibly
-// foreign listener. XRAY_FEATURE_GATE_BASE_URL still lets a caller point
+// is busy. The resolved port is threaded into BASE_URL at
+// runtime, so a fixed preference here cannot pin the run to a possibly
+// foreign listener. XRAY_FEATURE_GATE_BASE_URL also lets a caller point
 // at an external server entirely (in which case ownership-token
 // verification is skipped — see main()).
 const PREFERRED_PORT = Number(process.env.XRAY_FEATURE_GATE_PORT || 8037);
@@ -46,7 +47,7 @@ const TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE_TESTS = isVerboseTests();
 
-// Per-run ownership token (rf2-84gzw / rf2-gkf9). publishOwnershipToken
+// Per-run ownership token. publishOwnershipToken
 // writes `${OUT_ROOT}/.rf-harness-token` before http-server is spawned
 // (OUT_ROOT is a staging dir this script owns — cleanAndStageRoot()
 // recreates it), then waitForOwnedHttpReady verifies it before any
@@ -55,19 +56,16 @@ const VERBOSE_TESTS = isVerboseTests();
 // asset tree. The whole token lifecycle (nonce + write + concurrency-safe
 // idempotent cleanup) lives in the shared local-browser-harness.cjs.
 
-// rf2-wa3oo: PR-smoke vs nightly-full split. With `--smoke` (or
+// PR-smoke vs nightly-full split. With `--smoke` (or
 // RF2_GATE_SMOKE=1) the gate runs only the scenarios tagged
 // `smoke: true` and compiles only the testbed surfaces those scenarios
 // actually load — cutting the nightly sweep down to the high-signal
 // subset on the PR critical path. Both counts are DERIVED from
 // scenarios.cjs and main() prints the live pair every run, so read that
-// rather than a number frozen here (rf2-ano54). As at 2026-08-17 the
-// split is 4 scenarios over 3 staged surfaces against 16 over 11
-// nightly — the freehand-views Views roster scenario and its staged
-// surface went with the rf2-0yp7w Freehand retirement (rf2-l86mm). The
-// full sweep keeps running nightly in expensive-tests.yml. The CLI flag
-// is the cross-platform entry point (no cross-env dependency); the env
-// var stays supported for harness composition.
+// rather than a number frozen here. The full sweep runs nightly in
+// expensive-tests.yml. The CLI flag is the cross-platform entry point
+// (no cross-env dependency); the env var is supported for harness
+// composition.
 const SMOKE =
   process.env.RF2_GATE_SMOKE === '1' || process.argv.includes('--smoke');
 
@@ -75,8 +73,8 @@ const SMOKE =
 // "/testbeds/deliberate-throw/", or
 // "/testbeds/panel-gallery/#/stories") back to the STAGED_SURFACES
 // entry that serves it, so smoke mode compiles only what the smoke
-// scenarios need. The matcher strips the hash fragment (rf2-azfct
-// added the first scenario whose URL carries a `#/...` hash route)
+// scenarios need. The matcher strips the hash fragment (a scenario URL
+// may carry a `#/...` hash route)
 // and any query string before comparing against `servedPath`, which
 // is hash-/query-free by construction.
 function surfaceForScenario(scenario) {
@@ -111,9 +109,9 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 });
 // Resolve shadow-cljs's own JS entry-point so the compile step spawns it
 // shell-free under THIS node binary (`process.execPath`) — never `npx`/
-// `npx.cmd` under a shell (rf2-wn4o1). Mirrors the http-server resolution
-// just above and the shell-free spawn the server launch already uses.
-// Sidesteps the Windows command-hijack accident class (rf2-33vvc) and the
+// `npx.cmd` under a shell. Mirrors the http-server resolution
+// just above and the shell-free spawn the server launch uses.
+// Sidesteps the Windows command-hijack accident class and the
 // `.cmd`-under-no-shell `EINVAL` from the CVE-2024-27980 mitigation.
 const SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
   paths: [IMPL_ROOT],
@@ -151,9 +149,9 @@ function cleanAndStageRoot() {
 
 function compileSurfaces() {
   const builds = [...new Set(ACTIVE_SURFACES.map((surface) => surface.build))];
-  // Spawn shadow-cljs shell-free under this node binary (rf2-wn4o1): the
+  // Spawn shadow-cljs shell-free under this node binary: the
   // resolved absolute `.js` runner is the only thing the OS interprets,
-  // so a workspace-local `npx.cmd` can no longer hijack the compile and
+  // so a workspace-local `npx.cmd` cannot hijack the compile and
   // there is no `shell:true` warning/quoting class.
   const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
@@ -166,16 +164,16 @@ function compileSurfaces() {
   }
 }
 
-// rf2-jzqs9 — shared per-substrate stylesheets + favicon + OG assets
-// (rf2-nfg15 / rf2-3zibv). Example index.html files reference these via
+// Shared per-substrate stylesheets + favicon + OG assets. Example
+// index.html files reference these via
 // relative paths like `_shared/css/reagent.css`, so any staged surface
 // whose HTML lives under `examples/` gets the `_shared/` tree mirrored
 // alongside its main.js + index.html. Mirrors the equivalent
-// `stageShared` step in implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs
-// (rf2-sivlu — without this the counter index.html 404s on its
+// `stageShared` step in implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs.
+// Without it the counter index.html 404s on its
 // stylesheet under the Xray gate, the inline layout breaks, and the
 // `source coordinates and launch-mode availability` scenario fails on
-// `Host app controls are not laid out to the left of Xray`).
+// `Host app controls are not laid out to the left of Xray`.
 const SHARED_SRC = relPath(['examples', '_shared']);
 
 function stageSharedIfReferenced(surface, outDir) {
@@ -442,18 +440,17 @@ async function runScenarios(baseUrl) {
             setTimeout(() => reject(new Error(`Scenario timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
           }),
         ]);
-        // rf2-mwx08: an uncaught browser/runtime exception is fatal even
+        // An uncaught browser/runtime exception is fatal even
         // when the scenario's visible assertions all passed. pageErrors
-        // are captured by the `pageerror` listener above (line ~430) and
-        // were previously diagnostic-only — a green verdict could ship
+        // are captured by the `pageerror` listener above; left
+        // diagnostic-only, a green verdict could ship
         // while Chromium observed an uncaught exception. Console noise
-        // stays diagnostic-only (this gate never treated it as fatal);
-        // only `pageerror` flips the verdict. Mirrors the rf2-wf5al fix
-        // for the examples/scripts Story play runner.
+        // stays diagnostic-only; only `pageerror` flips the verdict, as
+        // in the examples/scripts Story play runner.
         if (browserState.pageErrors.length > 0) {
           throw new Error(
             `Scenario emitted ${browserState.pageErrors.length} uncaught ` +
-              `browser pageerror(s) — failing the gate (rf2-mwx08). ` +
+              `browser pageerror(s) — failing the gate. ` +
               `First: ${browserState.pageErrors[0]}`,
           );
         }
@@ -506,7 +503,7 @@ async function runScenarios(baseUrl) {
 
 async function main() {
   // Fail loud rather than silently passing a zero-scenario smoke if a
-  // future scenario rename drops the `smoke: true` tag (rf2-wa3oo).
+  // future scenario rename drops the `smoke: true` tag.
   if (SMOKE && ACTIVE_SCENARIOS.length === 0) {
     throw new Error(
       'RF2_GATE_SMOKE=1 but no scenarios are tagged `smoke: true` in ' +
@@ -528,14 +525,14 @@ async function main() {
   // caller owns the asset tree it points us at. The default path below
   // is the hardened one.
   if (EXTERNAL_BASE_URL) {
-    // rf2-rcepku — probe the URL the caller actually gave us, not just a
-    // port against loopback `/`. The previous form extracted only a port
-    // and called waitForHttpReady(port) which defaults to host
+    // Probe the URL the caller actually gave us, not just a
+    // port against loopback `/`. waitForHttpReady(port) alone
+    // defaults to host
     // 127.0.0.1 + path `/`, so a base URL with a non-loopback host, an
     // https scheme, or a meaningful base path could be reported
     // unreachable while valid — or (worse) pass readiness against an
     // UNRELATED local listener on the same port before Playwright then
-    // navigated to the real external URL (a false-green). Derive the
+    // navigates to the real external URL (a false-green). So derive the
     // host/port/path from the parsed URL and probe those.
     const target = probeTargetFromBaseUrl(EXTERNAL_BASE_URL, {
       envName: 'XRAY_FEATURE_GATE_BASE_URL',
@@ -557,7 +554,7 @@ async function main() {
 
   // Publish the per-run ownership token BEFORE spawning http-server so
   // the sentinel is visible the moment the server starts serving
-  // OUT_ROOT (rf2-84gzw). The returned `remove` (idempotent, only unlinks
+  // OUT_ROOT. The returned `remove` (idempotent, only unlinks
   // our own token) is registered for teardown now that the token exists.
   const published = publishOwnershipToken(OUT_ROOT);
   if (!published) {
@@ -567,7 +564,7 @@ async function main() {
   cleanup.addCleanup(remove);
 
   // Resolve the port: prefer XRAY_FEATURE_GATE_PORT (default 8037) when
-  // free, else fall back to an OS-chosen free port (rf2-84gzw). This
+  // free, else fall back to an OS-chosen free port. This
   // stops the gate from either failing to bind or — worse — silently
   // running against a stale/foreign listener already on the fixed port.
   const port = await resolveServePort(PREFERRED_PORT, {
@@ -584,7 +581,7 @@ async function main() {
   // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the ownership-
   // token readiness probe and the headless browser only ever hit
   // loopback, so the staged Xray bundle must not be exposed on non-
-  // loopback interfaces during the gate run (rf2-utvst; matches
+  // loopback interfaces during the gate run (matches
   // serve-and-run-adapter-smokes.cjs).
   const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
@@ -600,8 +597,7 @@ async function main() {
   });
 
   // Readiness WITH ownership-token verification: refuse to run scenarios
-  // against any server on `port` that does not serve this run's token
-  // (rf2-84gzw).
+  // against any server on `port` that does not serve this run's token.
   const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
     isAborted: () => serverDown,
   });
