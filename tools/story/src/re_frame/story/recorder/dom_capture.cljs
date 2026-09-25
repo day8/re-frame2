@@ -36,7 +36,7 @@
   immediately for that selector.
 
   Default `debounce-ms` is 250ms. Tunable via `set-debounce-ms!`
-  for tests / future-tuning.
+  for tests and tuning.
 
   ## Scope
 
@@ -176,8 +176,8 @@
   keystroke survive a flush that fires AFTER the recording was stopped: the
   debounce timer (or the `remove!`/stop drain) can run once `:recording?` is
   already false without the entry being silently dropped. A defensive
-  fallback to `recording-now-ms` covers the (now-unreachable) case of a
-  buffer entry that never got a stamp."
+  fallback to `recording-now-ms` covers a buffer entry that never got a
+  stamp, which `buffer-type!` does not produce."
   ([] (flush-type-buffer! nil))
   ([selector]
    (let [snapshot @type-buffer
@@ -225,15 +225,14 @@
   "Cancel every pending debounce timer and DROP the type-buffer WITHOUT
   flushing. Unties the buffer + its live `setTimeout` timers from the
   recording boundary: called at `start-recording!` / `clear!` so a keystroke
-  buffered under a PRIOR recording can never bleed into the next one
-  (rf2-x76af2.18).
+  buffered under a PRIOR recording can never bleed into the next one.
 
   This is deliberately NOT a flush — a keystroke pending when a NEW
   recording starts (or the recorder is cleared) belongs to the recording
-  that ended, and dropping it is correct: the stop-into-SAME-recording final
-  keystroke survival (rf2-eztym.3) relies on the pending timer firing while
-  the buffer is still intact (stop-recording! does NOT drain the buffer), and
-  is unaffected — only start/clear drain here.
+  that ended, and dropping it is correct. The final keystroke of a STOPPED
+  recording survives into that same recording because its pending timer
+  fires while the buffer is intact (stop-recording! does NOT drain the
+  buffer); only start/clear drain here.
 
   Registered as the `:recorder/reset-dom-buffer` late-bind hook (below) so
   the cljc recorder — which cannot `:require` this cljs ns — can invoke it."
@@ -246,15 +245,14 @@
 ;; Register the buffer-drain seam so `rf.story.recorder/start-recording!` + `clear!`
 ;; can cancel + drop pending keystrokes at the recording boundary. Runs at
 ;; ns load (dom-capture requires recorder, so recorder is loaded first and
-;; the runtime lookup resolves this at call time). rf2-x76af2.18.
+;; the runtime lookup resolves this at call time).
 (rf.story.late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!)
 
 ;; ---- predicates ---------------------------------------------------------
 
 (def ^:private typeable-tags
   "Tags whose `input` / `change` events the debounce path consumes.
-  Anything else (e.g. a `<div contenteditable>`) is out of scope at
-  v1; file a follow-on bead if needed."
+  Anything else (e.g. a `<div contenteditable>`) is out of scope."
   #{"INPUT" "TEXTAREA" "SELECT"})
 
 (defn- typeable-element?
@@ -414,7 +412,7 @@
   delivers as a click on the form's default button. The click listener has
   already recorded that click, and replaying it submits the form again, so
   such a submit is not recorded: it would add a `[:click <form>]` step
-  nobody performed (rf2-0ae7o.11)."
+  nobody performed."
   [ev]
   (when (should-capture?)
     (when-let [el (.-target ev)]
