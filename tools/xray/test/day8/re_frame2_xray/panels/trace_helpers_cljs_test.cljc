@@ -25,18 +25,18 @@
        focused epoch record's `:trace-events` into the view shape and
        classifies the empty state across the focus-resolver statuses
        (spec/018 §6).
-    5. **Render-side redaction** (rf2-y8doi.14) — the 3-arity projects
-       the record's `:db-before` / `:db-after` through the on-box
-       local-render egress seam under the OBSERVED frame's policy before
-       the per-path diff is derived, so a declared-sensitive slot cannot
-       reach a rendered db row.
+    5. **Render-side redaction** — the 3-arity derives the per-path
+       diff from the RAW `:db-before` / `:db-after` pair and takes each
+       triple's values from the on-box local-render egress projection
+       under the OBSERVED frame's policy, so a declared-sensitive slot's
+       row renders but its value cannot reach it.
 
-  ## Why this namespace now stands up a runtime
+  ## Why this namespace stands up a runtime
 
   §1–4 are pure data → data and need none. §5 cannot be: its subject is
   `re-frame.core/project-egress` resolving a NAMED frame's `:sensitive`
   classification, and a hand-rolled stand-in for that would pin the
-  stand-in rather than the seam (rf2-y8doi.10 finding 1 — derive the
+  stand-in rather than the seam (derive the
   fixture from the producer). So the namespace carries the same
   reset-runtime fixture `local_render_cljs_test.cljc` uses, declaring the
   same two frames: one CLASSIFIED, one PLAIN. The reset is inert for
@@ -54,7 +54,7 @@
             [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
-;; ---- runtime fixture (rf2-y8doi.14) --------------------------------------
+;; ---- runtime fixture ----------------------------------------------------
 ;;
 ;; Mirrors `local_render_cljs_test.cljc`'s fixture: two frames, one with a
 ;; declared `:sensitive` app-db path and one with no classification at all.
@@ -66,8 +66,8 @@
 (def ^:private plain-frame  :trace-helpers.test/plain)
 
 ;; The THIRD frame declares the ANCESTOR `[:auth]` rather than the leaf.
-;; It is not a variation for completeness — it is the shape that defeated
-;; the path-scoped design (a walk rooted at `[:auth :token]` never matches
+;; It is not a variation for completeness — it is the shape that defeats
+;; a path-scoped design (a walk rooted at `[:auth :token]` never matches
 ;; a declaration sitting above it), and `diff-paths` descends through maps
 ;; to the leaf, so the two meet whenever an app declares a whole subtree.
 (def ^:private ancestor-frame :trace-helpers.test/ancestor)
@@ -160,7 +160,7 @@
         "project-rows keeps the events' oldest-first order")))
 
 (deftest project-rows-drops-nil-id-events
-  (testing "rf2-wh33n — a nil-:id event is a pathological, malformed
+  (testing "a nil-:id event is a pathological, malformed
             envelope with no stable identity; project-rows filters it
             out so it never reaches `row-key` (where two such rows would
             both key `t:nil`, a React-key collision) nor selection /
@@ -197,8 +197,8 @@
     (is (= :epoch    (h/area {:op-type :rf.epoch :operation :rf.epoch/snapshotted})))
     (is (= :error    (h/area {:op-type :error :operation :rf.error/x})))
     (is (= :warning  (h/area {:op-type :warning :operation :rf.warning/x}))))
-  (testing "resource ops are RESOURCE, not the generic EVENT they used to
-            fall through to (rf2-uqwbhr — :rf.resource/* emits at op-type
+  (testing "resource ops are RESOURCE, not the generic EVENT
+            (:rf.resource/* emits at op-type
             :rf.event but is discriminated by namespace)"
     (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/registered})))
     (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/cache-hit})))
@@ -216,8 +216,8 @@
     (is (= :routing (h/area {:operation :rf.route.nav-token/allocated})))
     (is (= :machine (h/area {:operation :rf.machine.timer/scheduled}))))
   (testing "the whole rf.machine* family classifies MACHINE by prefix, not
-            an enumerated set — the four sub-families the enumerated set
-            omitted (rf2-99f7eq: spawn-all / event / history / start) all
+            an enumerated set — sub-families such as spawn-all / event /
+            history / start all
             emit under their own sub-namespace and MUST NOT fall through to
             a bare EVENT"
     (is (= :machine (h/area {:operation :rf.machine.spawn-all/started})))
@@ -229,19 +229,19 @@
     (is (= :event (h/area {:op-type :totally-made-up})))))
 
 (deftest nav-token-allocated-is-routing-not-a-bare-event
-  ;; rf2-409jka — every navigation emits `:rf.route.nav-token/allocated`
+  ;; Every navigation emits `:rf.route.nav-token/allocated`
   ;; at op-type :rf.event under the `rf.route.nav-token` SUB-namespace
-  ;; (implementation/routing/.../events.cljc). The prior exact
-  ;; `= "rf.route"` match let it fall through to the generic :rf.event
+  ;; (implementation/routing/.../events.cljc). An exact
+  ;; `= "rf.route"` match would let it fall through to the generic :rf.event
   ;; branch: badged EVENT (not ROUTING), staged HANDLER (not
-  ;; SIDE-EFFECTS → wrong left-edge colour), and `target-detail` took the
+  ;; SIDE-EFFECTS → wrong left-edge colour), and `target-detail` taking the
   ;; :event branch (rendering the absent `:rf.event/v` → em-dash instead
-  ;; of the route-id). Prefix-matching the `rf.route*` family fixes all
-  ;; three symptoms at once.
+  ;; of the route-id). Prefix-matching the `rf.route*` family covers all
+  ;; three at once.
   (let [row (ev {:id 1 :op-type :rf.event
                  :operation :rf.route.nav-token/allocated
                  :tags {:route-id :dashboard :nav-token 7}})]
-    (testing "classifies as ROUTING (not the bare EVENT it fell through to)"
+    (testing "classifies as ROUTING (not a bare EVENT)"
       (is (= :routing (h/area row)))
       (is (= "ROUTING" (h/area-badge row))))
     (testing "stages effect-side — SIDE-EFFECTS + :effects phase"
@@ -251,23 +251,22 @@
       (is (= ":dashboard" (h/target-detail row))))))
 
 (deftest machine-sub-namespace-ops-are-machine-not-a-bare-event
-  ;; rf2-99f7eq — when a machine op reaches `area` WITHOUT its `:rf.machine`
+  ;; When a machine op reaches `area` WITHOUT its `:rf.machine`
   ;; op-type stamp it falls to the namespace-discrimination fallback (the
-  ;; same path the existing `:rf.machine.timer/scheduled` test above rides).
-  ;; That fallback used an ENUMERATED set of namespaces ({"rf.machine"
+  ;; same path the `:rf.machine.timer/scheduled` test above rides).
+  ;; An ENUMERATED set of namespaces there ({"rf.machine"
   ;; "rf.machine.microstep" "rf.machine.timer" "rf.machine.spawn"
-  ;; "rf.machine.lifecycle" "rf.machine.registrar"}) which OMITTED
+  ;; "rf.machine.lifecycle" "rf.machine.registrar"}) would omit
   ;; `rf.machine.spawn-all` (reply.cljc / join.cljc / spawn.cljc),
   ;; `rf.machine.event` (parallel.cljc / transition.cljc),
   ;; `rf.machine.history` (transition.cljc) and `rf.machine.start`
-  ;; (registration.cljc). Those four sub-families fell through to `:else
-  ;; :event` — badged EVENT (not MACHINE), and `op-family` resolved
-  ;; :dispatch not :machine (wrong left-edge colour). Same class as
-  ;; rf2-409jka / rf2-uxp0u5 (PR #5357, the routing prefix fix). A
-  ;; `str/starts-with? "rf.machine"` prefix match fixes the whole family at
-  ;; once and is future-proof to new sub-families. `:op-type` is left
-  ;; unstamped (nil) so the assertion exercises the namespace fallback —
-  ;; the branch the enumerated set lived in.
+  ;; (registration.cljc), and those four sub-families would fall through
+  ;; to `:else :event` — badged EVENT (not MACHINE), with `op-family`
+  ;; resolving :dispatch not :machine (wrong left-edge colour). The
+  ;; routing prefix match above has the same shape. A
+  ;; `str/starts-with? "rf.machine"` prefix match covers the whole family
+  ;; and any new sub-family. `:op-type` is left
+  ;; unstamped (nil) so the assertion exercises the namespace fallback.
   (doseq [op [:rf.machine.spawn-all/started
               :rf.machine.spawn-all/completed
               :rf.machine.spawn-all/failed
@@ -276,7 +275,7 @@
               :rf.machine.start/started]]
     (let [row (ev {:id 1 :operation op
                    :tags {:actor-id :ws/conn :from :idle :to :active}})]
-      (testing (str op " classifies MACHINE (not the bare EVENT it fell through to)")
+      (testing (str op " classifies MACHINE (not a bare EVENT)")
         (is (= :machine (h/area row)))
         (is (= "MACHINE" (h/area-badge row))))
       (testing (str op " rides the machine op-family (left-edge colour)")
@@ -344,7 +343,7 @@
   (testing "no operation → em-dash"
     (is (= "—" (h/what-happened {})))))
 
-;; ---- (4a) the derived SUB / VIEW verbs — spec/023 §5 (rf2-u7l6h) ------
+;; ---- (4a) the derived SUB / VIEW verbs — spec/023 §5 ------------------
 ;;
 ;; §5's SUB and VIEW rows are DERIVED verbs: three of them are a plain
 ;; op rename, and two are a PAIR split by a boolean tag the substrate
@@ -421,9 +420,9 @@
                                  :tags {:rf.db/path [:counter]
                                         :rf.db/old 1 :rf.db/new 2}})))))
   (testing "fx → fx-id → arg, off the framework's canonical :rf.fx/args
-            (rf2-vbadq — `re-frame.fx` emits the PLURAL key on every
-            `:rf.fx/handled` row; the singular `:rf.fx/arg` this test
-            once fabricated is a shape no producer emits)"
+            (`re-frame.fx` emits the PLURAL key on every
+            `:rf.fx/handled` row; a singular `:rf.fx/arg` is a shape no
+            producer emits)"
     (is (= ":app/audit → {:message \"saved\"}"
            (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
                                  :tags {:rf.fx/id   :app/audit
@@ -433,8 +432,7 @@
                                  :tags {:rf.fx/id   :http-xhrio
                                         :rf.fx/args "GET /api"}})))))
   (testing "fx arg presence is KEY PRESENCE, not truthiness — false and
-            nil are valid effect arguments and must stay visible
-            (rf2-vbadq)"
+            nil are valid effect arguments and must stay visible"
     (is (= ":app/toggle → false"
            (h/target-detail (ev {:id 1 :op-type :rf.fx :operation :rf.fx/handled
                                  :tags {:rf.fx/id   :app/toggle
@@ -462,7 +460,7 @@
            (h/target-detail (ev {:id 1 :op-type :rf.event :operation :rf.flow/computed
                                  :tags {:rf.flow/id :totals
                                         :rf.flow/path [:totals]}})))))
-  (testing "resource → resource-id (off the scoped key) + gen (rf2-uqwbhr)"
+  (testing "resource → resource-id (off the scoped key) + gen"
     ;; lifecycle rows carry the [scope resource-id params] scoped key
     (is (= ":article/by-slug  gen 3"
            (h/target-detail (ev {:id 1 :op-type :rf.event
@@ -474,7 +472,7 @@
            (h/target-detail (ev {:id 1 :op-type :rf.event
                                  :operation :rf.resource/registered
                                  :tags {:resource-id :article/by-slug}})))))
-  (testing "coeffect → cofx-id → PRODUCED value (rf2-sepqgg)"
+  (testing "coeffect → cofx-id → PRODUCED value"
     ;; `:rf.cofx/value` is the produced value; `:rf.cofx/arg` is the
     ;; requirement arg. The one-liner surfaces the produced value, not
     ;; the arg — mirroring `:fx`'s `fx-id → arg`.
@@ -503,18 +501,18 @@
     (is (= :gone (h/outcome-tier {:operation :rf.view/unmounted})))
     (is (= :gone (h/outcome-tier {:operation :rf.flow/cleared}))))
   (testing "gone — the remaining synonyms (cancelled / stale / released / destroyed)"
-    ;; rf2-1bk96k: these four terminals sit in the same :gone regex branch
-    ;; (trace_helpers.cljc §outcome-tier) but were never pinned; a regex
+    ;; These four terminals sit in the same :gone regex branch
+    ;; (trace_helpers.cljc §outcome-tier); a regex
     ;; edit that dropped one would tint :active instead.
     (is (= :gone (h/outcome-tier {:operation :rf.machine.timer/cancelled})))
     (is (= :gone (h/outcome-tier {:operation :rf.sub/stale})))
     (is (= :gone (h/outcome-tier {:operation :rf.resource/released})))
     (is (= :gone (h/outcome-tier {:operation :rf.machine/destroyed}))))
   (testing "pending — queued / scheduled / pending / later"
-    ;; rf2-1bk96k: the entire :pending tier was unasserted. A real
+    ;; A real
     ;; :rf.machine.timer/scheduled op (whose verb IS tested elsewhere)
-    ;; must tint :pending, NOT :active — a silent regex regression here
-    ;; would collapse pending into the active tier.
+    ;; must tint :pending, NOT :active — a regex edit here could silently
+    ;; collapse pending into the active tier.
     (is (= :pending (h/outcome-tier {:operation :rf.machine.timer/scheduled})))
     (is (= :pending (h/outcome-tier {:operation :rf.event/queued})))
     (is (= :pending (h/outcome-tier {:operation :rf.fx/later})))
@@ -527,13 +525,13 @@
   (let [row (h/project-row (ev {:id 1 :op-type :rf.sub :operation :rf.sub/dispose
                                 :tags {:rf.sub/id :cart/preview}}))]
     (is (= :gone (:outcome-tier row)))
-    ;; rf2-u7l6h — the row's verb is §5's `disposed`, while `outcome-tier`
-    ;; above still classifies off the OPERATION's terminal segment, so
+    ;; The row's verb is §5's `disposed`, while `outcome-tier`
+    ;; above classifies off the OPERATION's terminal segment, so
     ;; the two stay independent.
     (is (= "disposed" (:verb row)))
     (is (= ":cart/preview" (:target row)))))
 
-;; ---- (7) op-family band colour — retained left-border -----------------
+;; ---- (7) op-family band colour — the left border ----------------------
 
 (deftest op-family-classifies-the-band-buckets
   (is (= :dispatch (h/op-family {:op-type :rf.event :operation :rf.event/dispatched})))
@@ -579,9 +577,9 @@
          (h/outcome-colour {:operation :rf.sub/skip})))
   (is (= (:dim tokens/tokens)
          (h/outcome-colour {:operation :rf.sub/dispose})))
-  ;; rf2-1bk96k: pending rides the cool info blue; warning keeps its
-  ;; semantic yellow. Both `outcome-tier->token` rows were unpinned, so a
-  ;; token-map edit could silently retint them.
+  ;; Pending rides the cool info blue; warning keeps its
+  ;; semantic yellow. Pinning both `outcome-tier->token` rows stops a
+  ;; token-map edit silently retinting them.
   (is (= (:info tokens/tokens)
          (h/outcome-colour {:operation :rf.machine.timer/scheduled})))
   (is (= (:yellow tokens/tokens)
@@ -589,10 +587,10 @@
   (is (= (:red tokens/tokens)
          (h/outcome-colour {:op-type :error :operation :rf.error/x}))))
 
-;; ---- (7b) pipeline stage — flat list (rf2-aqusw) ----------------------
+;; ---- (7b) pipeline stage — flat list ---------------------------------
 
 (deftest stage-maps-ops-to-the-epoch-pipeline-steps
-  (testing "rf2-aqusw: each trace op classifies to one of the 7 Epoch
+  (testing "each trace op classifies to one of the 7 Epoch
             pipeline steps — DISPATCH / COEFFECT / HANDLER / FLOW /
             SIDE-EFFECTS / SUBSCRIPTIONS / VIEWS"
     (is (= :DISPATCH (h/stage {:op-type :rf.event :operation :rf.event/dispatched}))
@@ -608,14 +606,14 @@
     (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.fx :operation :rf.fx/handled})))
     (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.route/activated})))
     (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.resource/work-started}))
-        "resource lifecycle is effect-side — SIDE-EFFECTS (rf2-uqwbhr)")
+        "resource lifecycle is effect-side — SIDE-EFFECTS")
     (is (= :SUBSCRIPTIONS (h/stage {:op-type :rf.sub :operation :rf.sub/run})))
     (is (= :VIEWS (h/stage {:op-type :rf.view :operation :rf.view/render})))
     (is (= :DISPATCH (h/stage {:op-type :rf.epoch :operation :rf.epoch/snapshotted}))
         "epoch-lifecycle ops ride the DISPATCH step's muted grey")))
 
 (deftest stage-cross-cutting-error-warning-classify-by-occurrence
-  (testing "rf2-3x7nj.24.4: an error / warning row labels the step where it
+  (testing "an error / warning row labels the step where it
             OCCURRED (spec/023 §3a), not a constant EVENT HANDLER. Driven
             through `project-rows` over a fire-ordered epoch, because the
             chronology is the input"
@@ -660,7 +658,7 @@
     (is (= :COEFFECT (h/stage {:op-type :warning :operation :rf.cofx/skipped-on-platform})))))
 
 (deftest stage-label-reuses-the-epoch-badge-label
-  (testing "rf2-aqusw: the stage column label IS the Epoch panel's own
+  (testing "the stage column label IS the Epoch panel's own
             badge label (DRY via panels.epoch.badge)"
     (is (= "DISPATCH"
            (h/stage-label {:op-type :rf.event :operation :rf.event/dispatched})))
@@ -673,7 +671,7 @@
            (h/stage-label {:op-type :rf.view :operation :rf.view/render})))))
 
 (deftest stage-colour-reuses-the-epoch-badge-colour
-  (testing "rf2-aqusw: the colour-coded left edge IS the Epoch step's
+  (testing "the colour-coded left edge IS the Epoch step's
             badge colour (reused, not a parallel palette)"
     (is (= (epoch-badge/colour :DISPATCH)
            (h/stage-colour {:op-type :rf.event :operation :rf.event/dispatched})))
@@ -695,7 +693,7 @@
                (h/stage-colour {:op-type ot :operation op})))))))
 
 (deftest project-row-carries-stage-label-and-colour
-  (testing "rf2-aqusw: project-row stamps :stage / :stage-label /
+  (testing "project-row stamps :stage / :stage-label /
             :stage-colour for the flat list's stage column + edge"
     (let [row (h/project-row (ev {:id 1 :op-type :rf.fx
                                   :operation :rf.fx/handled
@@ -889,7 +887,7 @@
       (doseq [k [:filters :any-filter? :distinct :counts
                  :active-filters :cascade-dispatch-id]]
         (is (not (contains? feed k))
-            (str "removed filtering key " k " must not be in the feed shape"))))))
+            (str "filtering key " k " must not be in the feed shape"))))))
 
 ;; ---- (10) relative timing + duration — spec/023 §3 / §6 ---------------
 
@@ -906,12 +904,12 @@
       (is (= ["+0.0" "+3.0"] (mapv :rel-time rows))))))
 
 (deftest duration-ms-reads-canonical-per-area-elapsed-tags
-  ;; rf2-k7vtri — the substrate stamps the CANONICAL per-area namespaced
+  ;; The substrate stamps the CANONICAL per-area namespaced
   ;; elapsed tag (`:rf.fx/elapsed-ms`, `:rf.sub/elapsed-ms`, …), NOT a bare
   ;; `:elapsed-ms`, on each op family's run-end / handled / rendered emit.
   ;; Drive the canonical builders (the same shape `trace/emit!` stamps) so a
-  ;; reader that only read the non-canonical `:elapsed-ms` is caught: before
-  ;; the fix every one of these resolved to nil (the panel rendered `—`).
+  ;; reader of only the non-canonical `:elapsed-ms` is caught: it would
+  ;; resolve every one of these to nil (the panel rendering `—`).
   (testing "FX duration — :rf.fx/elapsed-ms (spec/009 §241)"
     (is (= 12.0 (h/duration-ms (teb/fx-handled-ev :http/post {:url "/x"} 12.0)))))
   (testing "SUB duration — :rf.sub/elapsed-ms (spec/009 §251)"
@@ -1026,12 +1024,12 @@
         (is (not (contains? row :row-index))
             (str "row " (:id row) " must not carry :row-index"))))))
 
-;; ---- (10) per-path db-changed diff — rf2-b3zw2 / rf2-8q8i4 = (b) --------
+;; ---- (10) per-path db-changed diff ------------------------------------
 ;;
 ;; The `:rf.event/db-changed` trace event carries no per-path diff (it
 ;; only ships `:event` + `:frame`). The Trace panel derives the diff
 ;; PANEL-SIDE from the focused epoch record's `:db-before` /
-;; `:db-after` slots — the rf2-8q8i4 Mike-decided shape — via
+;; `:db-after` slots via
 ;; `db-changed-diff-triples` (route through `app-db-diff-helpers/diff-paths`).
 ;; `project-feed-from-epoch` attaches the resulting triples to every
 ;; `:rf.event/db-changed` row's `:db-diff` slot so the view stays
@@ -1069,7 +1067,7 @@
       (is (= [] triples)))))
 
 (deftest db-changed-diff-triples-skip-an-equal-but-rebuilt-leaf
-  (testing "rf2-3x7nj.24.5 — the empty-diff promise holds by VALUE, as the
+  (testing "the empty-diff promise holds by VALUE, as the
             runtime's db-changed does: a leaf the handler rebuilt equal adds
             no phantom `~ [:todos] X → X` row beside the real change"
     (let [before  {:loading? true :todos [{:id 1 :done false}]}
@@ -1167,21 +1165,20 @@
         (is (contains? by-path [:counter]))
         (is (contains? by-path [:totals :sum]))))))
 
-;; ---- (11) render-side redaction — rf2-y8doi.14 --------------------------
+;; ---- (11) render-side redaction ----------------------------------------
 ;;
-;; The Trace panel printed `~ [:auth :token] "old" → "new"` for a record
-;; the App-DB tab redacts, because the two tabs shared the diff ENGINE and
-;; not the egress SEAM in front of it. `project-feed-from-epoch`'s 3-arity
-;; closes that: it projects both db slots through the same
-;; `local-render/local-render-value` under the same observed frame BEFORE
-;; `diff-paths` runs.
+;; Sharing the App-DB tab's diff ENGINE without the egress SEAM in front
+;; of it, the Trace panel would print `~ [:auth :token] "old" → "new"` for
+;; a record the App-DB tab redacts. `project-feed-from-epoch`'s 3-arity
+;; shares the seam: it derives the changed-path set from the RAW db pair,
+;; then takes each triple's values from both db slots projected through the
+;; same `local-render/local-render-value` under the same observed frame.
 ;;
-;; A declared-sensitive path therefore reads `:rf/redacted` on BOTH sides,
-;; `diff-paths` sees them equal, and NO TRIPLE is emitted — the row is
-;; ABSENT, not shown redacted. That is the elision contract behaving
-;; exactly as `tools/xray/spec/004-App-DB-Diff.md` §Count semantics
-;; describes, and the reason the same item adds the
-;; `:rf.epoch/redacted-modified-paths-count` chip on the App-DB tab.
+;; A declared-sensitive path therefore still RENDERS ITS ROW, reading
+;; `:rf/redacted` on BOTH sides. Projecting before `diff-paths` would make
+;; the two sides equal and emit NO TRIPLE — a changed secret rendering as
+;; nothing, which `tools/xray/spec/004-App-DB-Diff.md` §Count semantics
+;; rules out.
 ;;
 ;; ## The three controls, and what each one separates
 ;;
@@ -1189,9 +1186,9 @@
 ;; it passes on an empty feed, a broken fixture, and a projection that
 ;; drops everything. So each arm below is paired.
 ;;
-;;   1. `…-2-arity-…-raw` — the RAW form still carries the secret. This is
-;;      the leak being closed, stated as a live assertion rather than as
-;;      prose, and it is what proves the fixture really carries the secret
+;;   1. `…-2-arity-…-raw` — the RAW form carries the secret. This is
+;;      the leak the 3-arity prevents, stated as a live assertion rather
+;;      than as prose, and it is what proves the fixture really carries the secret
 ;;      the other arms look for.
 ;;   2. the UNDECLARED sibling path survives redaction with its real
 ;;      values — so the seam is path-scoped and the feed is not merely
@@ -1228,9 +1225,9 @@
     (into {} (map (juxt :path identity)) (:db-diff db-row))))
 
 (deftest project-feed-2-arity-keeps-the-declared-sensitive-value-raw
-  (testing "the RAW 2-arity applies no egress policy — it still prints the
-            declared-sensitive value. This is the behaviour the 3-arity
-            replaces on the render path, and the POSITIVE CONTROL for
+  (testing "the RAW 2-arity applies no egress policy — it prints the
+            declared-sensitive value. The 3-arity, not this, is the render
+            path, and this is the POSITIVE CONTROL for
             every assertion below: it proves the fixture carries the
             secret and that the probe can see it"
     (let [feed (h/project-feed-from-epoch (sensitive-diff-epoch) :focused)]
@@ -1242,7 +1239,7 @@
            :before — the exact slot db-diff-row renders"))))
 
 (deftest project-feed-3-arity-redacts-the-declared-sensitive-path
-  (testing "rf2-y8doi.14 — under the OBSERVED frame's policy the
+  (testing "under the OBSERVED frame's policy the
             declared-sensitive path still RENDERS ITS ROW, carrying the
             sentinel where the values would be, and the values reach no
             part of the feed"
@@ -1256,8 +1253,8 @@
       (is (contains? by-path [:auth :token])
           "THE ROW SURVIVES. Redacting before the diff would make
            diff-paths read both sides as equal and emit nothing, and a
-           changed secret rendering as NOTHING is the blindness this item
-           removes from the App-DB tab — not a shape to reproduce here")
+           changed secret rendering as NOTHING is the blindness spec/004
+           §Count semantics rules out — not a shape to reproduce here")
       (is (= :rf/redacted (:before (get by-path [:auth :token]))))
       (is (= :rf/redacted (:after  (get by-path [:auth :token]))))
       (is (= :modified (:op (get by-path [:auth :token])))
@@ -1271,12 +1268,12 @@
         (is (= :cart (:after  (get by-path [:ui :tab]))))))))
 
 (deftest project-feed-3-arity-redacts-under-an-ANCESTOR-declaration
-  (testing "rf2-y8doi.14 — REGRESSION GUARD, and the reason this seam
+  (testing "ANCESTOR GUARD, and the reason this seam
             projects the WHOLE db rather than each triple at its own path.
 
             With `[:auth]` declared sensitive and `[:auth :token]` the
             path that changed, the declaration sits ABOVE the changed
-            path. Measured on this tree: `local-render-value-at` rooted
+            path. `local-render-value-at` rooted
             at `[:auth :token]` returns the value VERBATIM in exactly this
             case, because a path-keyed match never fires for a declaration
             above the walk root. Whole-db projection resolves it; the
@@ -1322,9 +1319,9 @@
             its fail-closed branch, so the WHOLE image redacts — and the
             ROWS SURVIVE, every value reading the sentinel.
 
-            FAIL-CLOSED MUST NOT MEAN FAIL-SILENT. An earlier cut of this
-            seam redacted before diffing, so an unresolvable frame emptied
-            the diff entirely and the panel rendered nothing — identical
+            FAIL-CLOSED MUST NOT MEAN FAIL-SILENT. A seam that redacted
+            before diffing would let an unresolvable frame empty the diff
+            entirely, and the panel would render nothing — identical
             to an epoch that changed nothing. The operator must still be
             able to see WHICH paths moved and be told the values are
             withheld"
