@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// THE ADOPTION WITNESS — driver (rf2-2rtt6.80).
+// THE ADOPTION WITNESS — driver.
 //
-//     node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs
+//     node src/re_frame/bench/fresco/adoption_witness_run.cjs
 //
 // Does the commit adopt the render-phase build on a PUBLIC mount schedule —
 // `re-frame.substrate.adapter/render`, no `act`, no `flushSync` — on a page
@@ -10,7 +10,7 @@
 // (`adoption_witness_app.cljs`) carries the method and the reasoning; this
 // file builds it, runs it once, and turns its verdict into an exit code.
 //
-// ## PHASE 3 — THE HYDRATION SCHEDULE (rf2-2rtt6.87, X3)
+// ## PHASE 3 — THE HYDRATION SCHEDULE (X3)
 //
 // The same question asked of the HYDRATE arm of the same public door,
 // `(render tree mount {:hydrate? true})`, over markup `react-dom/server`
@@ -23,9 +23,9 @@
 //
 // ## ON DEMAND. NOTHING GATES.
 //
-// No CI workflow invokes this and none should (rf2-2rtt6.80). The fresco
-// lane's only required check is `test:fresco-compile`, which compiles this
-// page along with every other lane namespace and executes none of them.
+// No CI workflow invokes this and none should. The lane's own `npm run check`
+// compiles this page along with every other lane namespace
+// (`compile_gate.cjs`) and executes none of them.
 //
 // RE-RUN IT WHEN THE PINS MOVE: `react`, `react-dom` and `playwright` are
 // exact pins in `implementation/package.json` (Playwright pins its own
@@ -85,14 +85,14 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-// The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
+// The directory's ONE navigation, with its ceiling named.
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
-// The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
+// The directory's ONE sentinel wait, raced against the page dying.
 const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The lane's
-// one build door refuses a warned build (rf2-2rtt6.73).
+// one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -177,7 +177,7 @@ const CONFIG_MERGE =
 
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[${TAG}] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   shadowBuild({ project: PROJECT, mode: 'release', buildId: BUILD_ID, configMerge: CONFIG_MERGE, tag: TAG });
@@ -217,7 +217,7 @@ async function runPage(browser, horizonMs, ceilingMs) {
       console.log(`;; [browser ${msg.type()}] ${t}`);
     }
   });
-  // Watching starts BEFORE the navigation (rf2-f5roa): a throw before the
+  // Watching starts BEFORE the navigation: a throw before the
   // sentinel must not cost the full budget before the driver looks.
   const watch = watchPage(page, TAG);
   try {
