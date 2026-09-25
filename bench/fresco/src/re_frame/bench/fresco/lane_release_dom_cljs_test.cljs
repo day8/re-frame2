@@ -1,20 +1,18 @@
 (ns re-frame.bench.fresco.lane-release-dom-cljs-test
   "`rf.bench.fresco.lane/release!`'s claim that a NORMAL RETURN is not proof of release,
-  and the census extension that lets a family count its own references
-  (rf2-2rtt6.2, second audit).
+  and the census extension that lets a family count its own references.
 
-  The recorded fault: an arm's `:unmount` returns normally without
+  The fault: an arm's `:unmount` returns normally without
   unmounting its React root. The container is removed regardless, so the
   root lives on, standing on a DETACHED tree — outside the body-children
   count, and (for a ratom arm) outside the frame's sub-cache census too,
-  because its cursor reactions watch a namespace-level atom. The landed
-  instrument passed `residue-after-bulk` with exactly this fault planted.
+  because its cursor reactions watch a namespace-level atom. An
+  instrument that trusted the normal return would pass
+  `residue-after-bulk` with exactly this fault planted.
 
   These are correctness tests of the instrument, not benchmarks: no clock
-  is read for a figure. The real-arm, end-to-end proof is the bounded
-  mutation run recorded on the bead; what is pinned here is the two
-  mechanisms' behaviour, cheaply and deterministically, in the build every
-  PR runs.
+  is read for a figure. What is pinned here is the two mechanisms'
+  behaviour, cheaply and deterministically.
 
   Runtime: these are DOM claims. The file carries the `-dom-cljs-test`
   suffix so `:browser-test` runs it for real, and every test degrades to
@@ -46,7 +44,7 @@
 (deftest a-normally-returning-non-release-is-recorded-and-fatal
   (testing "an unmount that returns normally leaving its page standing is
            recorded at the site and adjudicated as a teardown failure —
-           the exact shape the second audit planted and watched pass"
+           the exact shape an instrument trusting the return would pass"
     (if-not (rf.bench.fresco.lane/browser?)
       (is true off-browser)
       (do (rf.bench.fresco.lane/drain-teardown-failures!) ;; a clean slate for the claim
