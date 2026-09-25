@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.schema-form-test
   "JVM-portable regression net for the schema-generated input-form pure
-  projection (rf2-xon7j, spec/019 §5.1 + §4 control empty states).
+  projection (spec/019 §5.1 + §4 control empty states).
 
   Covers the host-free surface — no host, no Reagent, no validator:
 
