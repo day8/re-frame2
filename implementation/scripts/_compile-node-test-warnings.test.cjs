@@ -3,14 +3,14 @@
 'use strict';
 
 /*
- * rf2-4a6ei — the `:node-test`-family compile gate reads shadow-cljs's own
+ * The `:node-test`-family compile gate reads shadow-cljs's own
  * tally, so the reader is what has to be held.
  *
  * WHY THE READER AND NOT THE GATE. The gate itself is three lines — a number
  * compared against zero — and it is exercised end to end by every lane on
  * every run. The part that can go wrong quietly is the extraction: a tally line
  * that stops matching reads as `null`, and a `null` that fell through to a pass
- * would restore exactly the fail-open the bead is about. It does not fall
+ * would be exactly the fail-open the gate exists to close. It does not fall
  * through (an unreadable tally REFUSES), and that direction is asserted below
  * too, because "unknown" and "clean" must never converge.
  *
@@ -75,7 +75,7 @@ test('a singular tally still reads', () => {
 // not as clean, because the caller turns `null` into a refusal. Were this to
 // return a zero-warning object instead, a shadow-cljs release that reworded the
 // line would silently disarm the gate and nothing would say so — which is the
-// defect this whole change is about, one level up.
+// defect this gate exists to catch, one level up.
 test('an output with no tally reads as unknown, never as clean', () => {
   assert.equal(buildTally(''), null);
   assert.equal(buildTally('[:node-test] Compiling ...\nBuild completed.\n'), null);
