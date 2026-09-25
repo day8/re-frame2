@@ -655,26 +655,26 @@
 ;; :final? child raises a region-local done.state.<region-compound> that
 ;; the region's :on-done takes … exactly the compound case, scoped to one
 ;; region". SCXML carries this shape (`scxml/spec->scxml` on the identical
-;; shape emits `<transition event="done.state.a" target="b" .../>`, `b`
-;; being the SIBLING region's own qualified id), so Mermaid must render it
-;; too or break the G9 cross-emitter parity invariant.
+;; shape emits `<transition event="done.state.a" target="a___a1" .../>`, the
+;; target resolving within the region as the region's own `:on` does), so
+;; Mermaid must render it too or break the G9 cross-emitter parity invariant.
 
-(deftest emit-region-on-done-target-bearing-renders-sibling-region-edge
+(deftest emit-region-on-done-target-bearing-renders-in-region-edge
   (testing "a region's own top-level :on-done with a KEYWORD
-            target renders a `<region> --> <sibling-region> : ✓ done`
-            edge, matching SCXML's `done.state.<region> -> <sibling>`
+            target renders a `<region> --> <region>__<state> : ✓ done`
+            edge, matching SCXML's `done.state.<region> -> <state>`
             transition"
     (let [m   {:type    :parallel
                :regions {:a {:initial :a1
-                             :on-done :b
+                             :on-done :a1
                              :states  {:a1 {:on {:go :a2}}
                                        :a2 {:final? true}}}
                          :b {:initial :b1
                              :states  {:b1 {:on {:go :b2}}
                                        :b2 {:final? true}}}}}
           out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "a --> b : ✓ done")
-          "region :a's on-done advances to sibling region :b on completion")
+      (is (str/includes? out "a --> a__a1 : ✓ done")
+          "region :a's on-done returns to its own :a1 on completion")
       (is (not (str/includes? out "note right of a\n"))
           "a target-bearing region on-done does NOT also render a note"))))
 

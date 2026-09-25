@@ -512,6 +512,18 @@
                                                           :states  {:i {:on {:f :fin}} :fin {:final? true}}}
                                                       :b {}}}
    :valid-region-on-done        {:type :parallel :regions {:r {:initial :a :on-done :a :states {:a {}}}}}
+   ;; A region's `:on-done` resolves within its region, so a keyword naming
+   ;; the region's own state is valid even beside a sibling region of the
+   ;; same name.
+   :valid-region-on-done-vector {:type :parallel :regions {:r {:initial :a :on-done [:p :q]
+                                                                :states  {:a {} :p {:initial :q :states {:q {}}}}}}}
+   :valid-region-on-done-shadowing {:type    :parallel
+                                    :regions {:a {:initial :a1 :on-done :b :states {:a1 {} :b {}}}
+                                              :b {:initial :b1 :states {:b1 {}}}}}
+   ;; A region body runs its `:entry` / `:exit` and joins its `:tags`.
+   :valid-region-lifecycle      {:type    :parallel
+                                 :regions {:r {:initial :a :entry (fn [_ctx] nil) :exit (fn [_ctx] nil)
+                                               :tags #{:busy} :states {:a {}}}}}
    :valid-parallel-root-on-done {:type    :parallel :actions {:announce (fn [_ctx] nil)} :on-done {:action :announce}
                                  :regions {:r {:initial :a :states {:a {:final? true}}}}}
    ;; A single spawn's `:on-done` is a fn folding `:data`, or a transition.
@@ -629,6 +641,25 @@
    :root-spawn-timeout-ms         {:initial :a :spawn {:machine-id :m :timeout-ms 1000} :states {:a {}}}
    ;; A parallel root's `:tags` is a set of keywords, as a flat root's is.
    :parallel-root-bad-tags {:type :parallel :tags [:busy] :regions {:r {:initial :a :states {:a {}}}}}
+   ;; ---- a region body's own `:on-done` / `:on` resolve within its region ----
+   :region-on-done-sibling        {:type    :parallel
+                                   :regions {:a {:initial :x :on-done :b :states {:x {} :done {:final? true}}}
+                                             :b {:initial :y :states {:y {}}}}}
+   :region-on-done-sibling-vector {:type    :parallel
+                                   :regions {:a {:initial :x :on-done [:b :y] :states {:x {} :done {:final? true}}}
+                                             :b {:initial :y :states {:y {}}}}}
+   :region-on-done-missing        {:type :parallel :regions {:r {:initial :a :on-done :nowhere
+                                                                  :states  {:a {} :done {:final? true}}}}}
+   :region-on-done-bad-target     {:type :parallel :regions {:r {:initial :a :on-done {:target 42}
+                                                                  :states  {:a {} :done {:final? true}}}}}
+   :region-root-on-sibling        {:type    :parallel
+                                   :regions {:a {:initial :x :on {:go :b} :states {:x {}}}
+                                             :b {:initial :y :states {:y {}}}}}
+   ;; ---- a region-body key the runtime never reads on a region body ----
+   :region-body-final     {:type :parallel :regions {:r {:initial :a :final? true :states {:a {}}}}}
+   :region-body-spawn     {:type :parallel :regions {:r {:initial :a :spawn {:machine-id :m} :states {:a {}}}}}
+   :region-body-two-slots {:type :parallel :regions {:r {:initial :a :final? true :spawn {:machine-id :m}
+                                                         :states  {:a {}}}}}
    ;; ---- non-Named KEYS ----
    ;;
    ;; Every entry above spells its keys as keywords, so without these rows the
@@ -873,6 +904,71 @@
             :let [m (parallel-root-with k)]]
       (is (= :accept (engine-answer m)) (str "parallel root " k ": the engine accepts"))
       (is (= :accept (viz-answer m))    (str "parallel root " k ": the viz accepts")))))
+
+;; A region body follows the machine root's rule: it refuses the keys the
+;; runtime never reads there, read off the engine so a key it starts refusing
+;; is a red row until the viz refuses it too. Its own `:on` and `:on-done`
+;; resolve within the region.
+
+(def ^:private engine-region-unread-keys @#'rf.machines.lifecycle-fx.validation/region-unread-keys)
+
+(defn- engine-refusal
+  "The ex-data `validate-machine!` refuses `m` with, or nil."
+  [m]
+  (try (rf.machines.lifecycle-fx.validation/validate-machine! m) nil
+       (catch #?(:clj Throwable :cljs :default) t (ex-data t))))
+
+(defn- region-body-with [k] {:type :parallel :regions {:r {:initial :a k nil :states {:a {}}}}})
+
+(deftest region-slot-refusal-parity
+  (testing "every key the engine refuses on a region body, the viz refuses there
+            with the engine's category, naming the same keys under the same path"
+    (doseq [[k m] (concat (for [k (sort engine-region-unread-keys)]
+                            [k (region-body-with k)])
+                          [[:two-keys (get validation-parity-corpus :region-body-two-slots)]])
+            :let [refusal (engine-refusal m)
+                  defect  (g/definition-defect m)]]
+      (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id refusal))
+          (str "region body " k ": the engine's category"))
+      (is (= :rf.error/machine-root-slot-not-supported (:category defect))
+          (str "region body " k ": the viz category"))
+      (is (= :rf.error/machine-root-slot-not-supported
+             (:category (g/definition-defect (g/desugar-grammar m))))
+          (str "region body " k ": the viz category after the boundary desugar"))
+      (is (= (:offending-keys refusal) (:keys defect))
+          (str "region body " k ": the viz names the engine's offending keys"))
+      (is (= (:path refusal) (:path defect))
+          (str "region body " k ": the viz names the engine's path")))))
+
+(def ^:private region-refusal-rows
+  "Corpus labels → the category the engine refuses each region body with."
+  {:region-on-done-sibling        :rf.error/machine-unresolved-target
+   :region-on-done-sibling-vector :rf.error/machine-unresolved-target
+   :region-on-done-missing        :rf.error/machine-unresolved-target
+   :region-on-done-bad-target     :rf.error/machine-bad-target
+   :region-root-on-sibling        :rf.error/machine-unresolved-target
+   :region-body-final             :rf.error/machine-root-slot-not-supported
+   :region-body-spawn             :rf.error/machine-root-slot-not-supported})
+
+(deftest region-refusal-category-parity
+  (testing "an in-region :on-done and a region body's lifecycle register on
+            both sides"
+    (doseq [label [:valid-region-on-done :valid-region-on-done-vector
+                   :valid-region-on-done-shadowing :valid-region-lifecycle]
+            :let [m (get validation-parity-corpus label)]]
+      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
+      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))))
+  (testing "the viz refuses a region body with the engine's own category and slot"
+    (doseq [[label category] region-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar"))
+      (is (= (:slot (engine-refusal m)) (:slot (g/definition-defect m)))
+          (str label ": the viz names the engine's slot")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine

@@ -1567,20 +1567,20 @@
 ;; :final? child raises a region-local done.state.<region-compound> that
 ;; the region's :on-done takes … exactly the compound case, scoped to one
 ;; region." Mermaid and SCXML project this, and so does the chart:
-;; `project-flat` reads a definition's own top-level `:on-done` as well as a
-;; NESTED compound's (via `collect-state-edges`), so a 2-region parallel
-;; with region `:a`'s `:on-done` targeting sibling region `:b` projects an
-;; `:on-done?` edge. Reading only the nested form would leave a G9
+;; `project-parallel` reads a region's own top-level `:on-done` as well as a
+;; NESTED compound's (via `collect-state-edges`), so a region `:on-done`
+;; projects an `:on-done?` edge. Its target resolves within the region, as
+;; the region's own `:on` does. Reading only the nested form would leave a G9
 ;; cross-emitter-parity gap (001-Topology-Parity.md).
 
-(deftest project-definition-region-on-done-target-bearing-sibling-edge
+(deftest project-definition-region-on-done-target-bearing-edge
   (testing "a region's own top-level :on-done with a KEYWORD
             target projects a ✓ done edge from the region's OWN container
-            to the SIBLING region's container, matching SCXML's
-            done.state.a -> b shape"
+            to the region's own state, matching SCXML's
+            done.state.a -> a___a1 shape"
     (let [m {:type    :parallel
              :regions {:a {:initial :a1
-                           :on-done :b
+                           :on-done :a1
                            :states  {:a1 {:on {:go :a2}}
                                      :a2 {:final? true}}}
                        :b {:initial :b1
@@ -1591,15 +1591,15 @@
       (is (= 1 (count od)) "exactly one region on-done completion edge")
       (let [e (first od)
             a-rid (layout/region-node-id :a)
-            b-rid (layout/region-node-id :b)]
+            a1-id (layout/region-scoped-id :a [:a1])]
         (is (= a-rid (:source e)) "sourced from region :a's OWN container")
-        (is (= b-rid (:target e)) "lands on SIBLING region :b's container")
+        (is (= a1-id (:target e)) "lands on region :a's own :a1 state")
         (is (= :rf.machine/done (:event e)) "carries the reserved done event")
         (is (= [:a] (:done-path e)) "the done.state node is the region's own path")
         (is (= "✓ done" (:event-label e)))
-        (is (not (:internal? e)) "a targeted region on-done is a real sibling edge")
+        (is (not (:internal? e)) "a targeted region on-done is a real edge")
         (is (contains? (set (map :id nodes)) a-rid))
-        (is (contains? (set (map :id nodes)) b-rid))))))
+        (is (contains? (set (map :id nodes)) a1-id))))))
 
 (deftest project-definition-region-on-done-action-only-self-anchors
   (testing "a region's own top-level :on-done that is
