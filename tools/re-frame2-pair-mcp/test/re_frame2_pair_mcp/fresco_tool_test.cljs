@@ -15,17 +15,17 @@
     2. Tool wiring — the schema gate, and the map-envelope-result passthrough
        of the form's envelope.
 
-  ## The absent-door rung is EXERCISED here, not asserted (rf2-t2ec)
+  ## The absent-door rung is EXERCISED here, not asserted
 
-  This suite used to satisfy itself that the emitted form CONTAINED the
-  `:evidence-tier-unavailable` branch. It did, always — and the branch was
-  unreachable in every real app, because the form referenced
-  `re-frame.fresco.tool/<read>` as a var and shadow's analyzer rejects a var
-  in a namespace the build has never loaded, before any of the form runs. A
+  Asserting that the emitted form CONTAINS the `:evidence-tier-unavailable`
+  branch would prove nothing: a form that referenced
+  `re-frame.fresco.tool/<read>` as a var would carry the branch and never
+  reach it in a real app, because shadow's analyzer rejects a var in a
+  namespace the build has never loaded, before any of the form runs. A
   string assertion about an emitted branch is the same fail-open shape as a
   census that cannot fail: it passes whether or not the branch can be reached.
 
-  So the absent path is now RUN. `re-frame.fresco.tool` is genuinely absent
+  So the absent path is RUN. `re-frame.fresco.tool` is genuinely absent
   from this Node test process — Pair must never require it, and the
   bundle-isolation fence means it never will — which makes this process a
   faithful stand-in for a Reagent/UIx app. The test lifts the door name and the
@@ -86,7 +86,7 @@
         "a throwing read degrades to :evidence-tier-error")))
 
 (deftest no-form-references-a-door-var-as-a-symbol
-  ;; rf2-t2ec, the regression fence. A fully-qualified `re-frame.fresco.tool/…`
+  ;; The regression fence. A fully-qualified `re-frame.fresco.tool/…`
   ;; symbol ANYWHERE in the emitted form is resolved by shadow's analyzer before
   ;; the form runs, so against an app without the door the whole eval comes back
   ;; :rf.error/eval-cljs-compile-error and every branch below it — including the
@@ -103,12 +103,12 @@
                "the :evidence-tier-unavailable branch never runs")))))
 
 ;; ---------------------------------------------------------------------------
-;; The absent-door rung, EXERCISED (rf2-t2ec)
+;; The absent-door rung, EXERCISED
 ;;
 ;; `re-frame.fresco.tool` is genuinely absent from this process — Pair does not
 ;; and must not require it — so the same lookup the emitted form performs can be
 ;; run here against a real absence. See the ns docstring for why a
-;; `str/includes?` on the emitted branch was not a test of this at all.
+;; `str/includes?` on the emitted branch is not a test of this at all.
 ;; ---------------------------------------------------------------------------
 
 (defn- emitted-door-ns
@@ -170,9 +170,9 @@
         "the unavailable branch carries the load-the-door instruction, not just a reason")))
 
 (deftest projection-form-carries-no-view-shaped-vocabulary
-  ;; The donor family this replaced took a `:view-id` and could answer
-  ;; `:view-not-available`. Fresco mints no boundary identity, so neither
-  ;; concept exists here and neither may leak back in as a fabricated arg.
+  ;; Fresco mints no boundary identity, so neither a `:view-id` arg nor a
+  ;; `:view-not-available` answer exists on this door, and neither may
+  ;; leak in as a fabricated arg.
   (doseq [read-fn fresco-tool/tier-reads]
     (let [form (fresco-tool/projection-form read-fn)]
       (is (not (str/includes? form "view-id"))
@@ -214,7 +214,7 @@
                                         (is (not (str/includes? form "re-frame2-pair.runtime/"))
                                             "does NOT route through the preload runtime — the door is optional")
                                         (is (not (str/includes? form "freehand"))
-                                            "no donor name survives on the wire")
+                                            "no freehand name rides on the wire")
                                         (is (nil? (resolve-door-read (emitted-door-ns form)
                                                                      (emitted-read-name form)))
                                             (str "the door is absent in this process, so the form this tool "
