@@ -3963,7 +3963,7 @@
   collapsed struck-through ghost node (`:shapes {…} (N keys)`), reusing
   the ordinary `render-container` collapse / expand / elision machinery
   — the ghost is threaded as `value` (with `before` `::missing`) so the
-  existing union walk visits every removed descendant. `:removed-
+  union walk visits every removed descendant. `:removed-
   ancestor?` is threaded down that ghost subtree so every descendant
   reads `:removed` regardless of what the projection says about the
   per-child path (the mirror of a wholly added subtree's `:added`
