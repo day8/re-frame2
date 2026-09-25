@@ -1,5 +1,5 @@
 (ns re-frame.story-share-test
-  "JVM tests for Stage 6 (rf2-zhwd) — per-variant share URL builder.
+  "JVM tests for the per-variant share URL builder.
 
   The URL-building logic lives in `re-frame.story.share` (.cljc) so
   the same encoding works on JVM and CLJS. JVM tests round-trip the
@@ -29,7 +29,7 @@
               (re-find #"mobile" modes-param))))))
 
 (deftest build-params-overrides
-  (testing "build-params encodes overrides as comma-separated k:v pairs"
+  (testing "build-params encodes overrides as one EDN-map token"
     (let [ps (rf.story.share/build-params {:variant-id     :story.foo/bar
                                   :cell-overrides {:label "Click me"
                                                    :count 5}})
@@ -49,7 +49,7 @@
       (is (some #(str/starts-with? % "substrate=") ps)))))
 
 (deftest build-params-substrate-preserves-namespace
-  (testing "rf2-j5yv6y — a qualified substrate id (e.g. a host app's
+  (testing "a qualified substrate id (e.g. a host app's
             :my.lib/uix) keeps its namespace on the wire instead of being
             collapsed to its bare name. Mirrors the namespace-preserving
             encoding used for :variant / :workspace."
@@ -89,13 +89,13 @@
                 nil)]
       (is (re-find #"\?from=index&variant=" url)))))
 
-;; ---- rf2-b7je1: owned keys REPLACE stale base-url values -----------------
+;; ---- owned keys REPLACE stale base-url values ----------------------------
 ;;
 ;; The browser hydrator (`re-frame.story.ui.url-state/params->getter`)
 ;; reads each Story key with `URLSearchParams.get`, whose FIRST-value
 ;; semantics select the oldest occurrence in the query string. An
 ;; append-only merge over a base-url that already carries `variant=` /
-;; `modes=` therefore hydrates the STALE cell — violating the share
+;; `modes=` would therefore hydrate the STALE cell — violating the share
 ;; invariant that a pasted URL lands on the exact same cell. The builder
 ;; must emit exactly one effective value per key it owns, while leaving
 ;; unrelated query entries and the hash route untouched.
@@ -129,7 +129,7 @@
             (str/split (or (query-part url) "") #"&"))))
 
 (deftest variant-share-url-replaces-stale-owned-keys
-  (testing "rf2-b7je1 — a base-url already carrying variant= and modes=
+  (testing "a base-url already carrying variant= and modes=
             gets those values REPLACED, not appended after; browser
             first-value reads and parse-params both recover the newly
             requested cell, and unrelated params + hash route survive"
@@ -160,16 +160,16 @@
       (is (str/ends-with? url "#/stories")
           "the hash route survives, after the query"))))
 
-;; ---- rf2-b7je1 (audit reopen): OMITTED slots clear their stale values ----
+;; ---- OMITTED slots clear their stale values ------------------------------
 ;;
-;; The first repair cleared only the keys the call EMITTED. `build-params`
-;; deliberately omits empty / nil / default slots, so a base-url carrying
-;; `modes=` / `overrides=` / `substrate=` survived a call that requested
-;; `[]` / `{}` / `:reagent` — the hydrator then restored state the caller
-;; never asked for, breaking the exact-cell invariant by OMISSION rather
-;; than by order. The builder is authoritative over the whole
-;; `rf.story.share/story-query-keys` vocabulary, including the slots it declines
-;; to emit.
+;; `build-params` deliberately omits empty / nil / default slots, so a
+;; builder clearing only the keys a call EMITS would let a base-url's
+;; `modes=` / `overrides=` / `substrate=` survive a call that requested
+;; `[]` / `{}` / `:reagent` — the hydrator would then restore state the
+;; caller never asked for, breaking the exact-cell invariant by OMISSION
+;; rather than by order. The builder is therefore authoritative over the
+;; whole `rf.story.share/story-query-keys` vocabulary, including the slots
+;; it declines to emit.
 
 (def ^:private stale-story-params
   "A stale, PARSEABLE wire value for every key in the Story vocabulary.
@@ -194,10 +194,10 @@
        "&from=index&embed=1#/stories"))
 
 (deftest story-query-keys-is-the-whole-build-params-vocabulary
-  (testing "rf2-b7je1 — the clear set is only correct while it equals what
+  (testing "the clear set is only correct while it equals what
             build-params can emit. A slot added to build-params without a
-            matching story-query-keys entry silently reopens the stale-value
-            hole, so pin the two against each other."
+            matching story-query-keys entry would silently leave that slot's
+            stale value standing, so pin the two against each other."
     (let [emitted (->> (rf.story.share/build-params
                          {:variant-id     :story.a/b
                           :workspace-id   :story.a/ws
@@ -214,7 +214,7 @@
           "build-params with every slot populated emits exactly the vocabulary"))))
 
 (deftest variant-share-url-clears-stale-omitted-keys
-  (testing "rf2-b7je1 audit — a base-url carrying stale values for keys this
+  (testing "a base-url carrying stale values for keys this
             call OMITS comes back carrying none of them; the browser
             first-value read and parse-params see the requested cell with no
             stale optional state; unrelated params and the hash survive."
@@ -252,16 +252,16 @@
       (is (str/ends-with? url "#/stories")
           "the hash route survives, after the query"))))
 
-;; ---- rf2-b7je1 (audit reopen 2): ownership compares DECODED key names ----
+;; ---- ownership compares DECODED key names --------------------------------
 ;;
-;; The clear set was matched against the fragment's RAW key text. The
-;; consumer is `URLSearchParams`, which compares key names after percent-
-;; decoding, so `%76ariant=` — a valid spelling of `variant=` — is the
-;; SAME key to the browser and a different string to the builder. The
-;; stale entry therefore survived, the generated `variant=` was appended
-;; behind it, and `.get` (first-value) handed the hydrator the stale
-;; value: the original bug, reached through the key half instead of the
-;; value half.
+;; The consumer is `URLSearchParams`, which compares key names after
+;; percent-decoding, so `%76ariant=` — a valid spelling of `variant=` — is
+;; the SAME key to the browser. Were the clear set matched against the
+;; fragment's RAW key text, it would be a different string to the builder:
+;; the stale entry would survive, the generated `variant=` would be
+;; appended behind it, and `.get` (first-value) would hand the hydrator the
+;; stale value — the stale-cell failure above, reached through the key
+;; half instead of the value half.
 
 (defn- escape-first-char
   "Spell `k` with its leading character percent-encoded — `\"variant\"` →
@@ -295,7 +295,7 @@
        "&from=index&embed=1#/stories"))
 
 (deftest escaped-story-keys-are-the-same-keys-to-the-browser
-  (testing "rf2-b7je1 — the fixture is only a regression if the escaped
+  (testing "the fixture is only a regression if the escaped
             spellings really are the owned keys after decoding; pin that
             before asserting anything about them"
     (doseq [k (map name rf.story.share/story-query-keys)]
@@ -306,7 +306,7 @@
             (str esc " decodes to " k))))))
 
 (deftest variant-share-url-owns-percent-encoded-key-spellings
-  (testing "rf2-b7je1 audit — a base-url spelling the Story keys with
+  (testing "a base-url spelling the Story keys with
             escapes (%76ariant=) is carrying those keys as far as the
             browser is concerned. The builder must clear them, leaving one
             effective value per owned key, while unrelated params, their
@@ -347,7 +347,7 @@
           "the hash route survives, after the query"))))
 
 (deftest apply-story-params-preserves-undecodable-and-unowned-keys
-  (testing "rf2-b7je1 audit — decoding is an ownership TEST, never a
+  (testing "decoding is an ownership TEST, never a
             rewrite. A key half that does not decode at all falls through
             and is preserved byte-for-byte; so is a key that decodes to
             something Story does not own. `mode+tab` is the sharp case:
@@ -389,7 +389,7 @@
     (is (= {:label "Shared Label" :count 9}
            (rf.story.share/parse-overrides-param "{:label \"Shared Label\", :count 9}")))))
 
-;; ---- rf2-j0hwf: overrides codec round-trip -------------------------------
+;; ---- overrides codec round-trip ------------------------------------------
 ;;
 ;; The codec prints one EDN map (delimiter-safe) and reads it back as one
 ;; map, so an EDN value containing the list separator round-trips faithfully.
@@ -402,10 +402,10 @@
   [ov]
   (rf.story.share/parse-overrides-param (url-decode (rf.story.share/build-overrides-token ov))))
 
-;; ---- rf2-j5yv6y: substrate id round-trips namespace ----------------------
+;; ---- substrate id round-trips namespace ----------------------------------
 
 (deftest substrate-round-trips-qualified
-  (testing "rf2-j5yv6y — a qualified substrate id round-trips through
+  (testing "a qualified substrate id round-trips through
             build-params → URL decoding → parse-params without losing its
             namespace. A registered custom substrate like :my.lib/uix must
             hydrate back to the SAME id, not a different bare :uix."
@@ -421,12 +421,12 @@
           "and through the full parse-params inverse"))))
 
 (deftest overrides-codec-round-trips-simple
-  (testing "rf2-j0hwf — simple overrides round-trip through build/parse"
+  (testing "simple overrides round-trip through build/parse"
     (let [ov {:label "Click me" :count 5}]
       (is (= ov (overrides-round-trip ov))))))
 
 (deftest overrides-codec-round-trips-comma-value
-  (testing "rf2-j0hwf — a string override value containing the list
+  (testing "a string override value containing the list
             separator (comma) round-trips faithfully instead of being
             shredded into malformed entries and dropped"
     (let [ov {:label "Save, continue"}]
@@ -437,7 +437,7 @@
         (is (= ov (overrides-round-trip ov)))))))
 
 (deftest overrides-codec-round-trips-collection-values
-  (testing "rf2-j0hwf — vector / map / set / nested EDN values (which all
+  (testing "vector / map / set / nested EDN values (which all
             carry internal separators) round-trip"
     (let [ov {:items [1 2 3]
               :opts  {:a 1 :b 2}
@@ -446,24 +446,24 @@
       (is (= ov (overrides-round-trip ov))))))
 
 (deftest overrides-codec-deterministic-order
-  (testing "rf2-j0hwf — the encoded token is stable across calls (keys
+  (testing "the encoded token is stable across calls (keys
             sorted) so the URL is canonical and idempotent pushes no-op"
     (let [ov {:zed 1 :alpha 2 :mid 3}]
       (is (= (rf.story.share/build-overrides-token ov)
              (rf.story.share/build-overrides-token ov))))))
 
 (deftest overrides-codec-empty-and-nil
-  (testing "rf2-j0hwf — empty/nil overrides produce no token, and blank
+  (testing "empty/nil overrides produce no token, and blank
             input parses to nil"
     (is (nil? (rf.story.share/build-overrides-token {})))
     (is (nil? (rf.story.share/build-overrides-token nil)))
     (is (nil? (rf.story.share/parse-overrides-param nil)))
     (is (nil? (rf.story.share/parse-overrides-param "")))))
 
-;; ---- rf2-9jthx: parse-overrides-param* surfaces dropped entries ----------
+;; ---- parse-overrides-param* surfaces dropped entries ---------------------
 
 (deftest parse-overrides-param*-clean-input
-  (testing "rf2-9jthx — parse-overrides-param* returns the same :overrides
+  (testing "parse-overrides-param* returns the same :overrides
             map as parse-overrides-param plus an empty :dropped vec for
             clean input"
     (let [{:keys [overrides dropped]}
@@ -472,7 +472,7 @@
       (is (= [] dropped) "no entries dropped for a clean input"))))
 
 (deftest parse-overrides-param*-mixed-input
-  (testing "rf2-9jthx — parse-overrides-param* reports the SET of dropped
+  (testing "parse-overrides-param* reports the SET of dropped
             entries alongside the surviving overrides — the share-import
             hint reads :dropped to count + name what failed. In the EDN-map
             wire form a per-entry drop is a key that cannot coerce to a
@@ -487,7 +487,7 @@
       (is (some #(re-find #"^5 " %) dropped)))))
 
 (deftest parse-overrides-param*-all-dropped
-  (testing "rf2-9jthx — when the payload is not a readable EDN map :overrides
+  (testing "when the payload is not a readable EDN map :overrides
             is nil and the whole token is dropped"
     (let [{:keys [overrides dropped]}
           (rf.story.share/parse-overrides-param* "{:label \"unterminated")]
@@ -495,7 +495,7 @@
       (is (= ["{:label \"unterminated"] dropped)))))
 
 (deftest parse-overrides-param*-blank-input
-  (testing "rf2-9jthx — blank/nil input returns the empty-shape map so
+  (testing "blank/nil input returns the empty-shape map so
             callers don't have to nil-check before destructuring"
     (is (= {:overrides nil :dropped []}
            (rf.story.share/parse-overrides-param* nil)))
@@ -505,18 +505,17 @@
            (rf.story.share/parse-overrides-param* "   ")))))
 
 (deftest parse-overrides-param*-silent-drop
-  (testing "rf2-9jthx — parse-overrides-param (silent-drop) keeps its
-            signature. The share UI hydrator switches to
-            parse-overrides-param* so the dropped count surfaces; other
-            call sites that don't care about it keep working"
+  (testing "parse-overrides-param is the silent-drop form, returning the
+            overrides map alone. The share UI hydrator uses
+            parse-overrides-param* so the dropped count surfaces"
     (is (= {:label "OK"}
            (rf.story.share/parse-overrides-param "{:label \"OK\", 5 :bad-key}")))))
 
 (deftest parse-overrides-param*-edn-map-form
-  (testing "rf2-j0hwf — parse-overrides-param* reads the EDN-map wire form
+  (testing "parse-overrides-param* reads the EDN-map wire form
             (one printed map) and reports keys it cannot coerce to a
-            keyword as :dropped, so the share-import hint still surfaces
-            on the new delimiter-safe encoding"
+            keyword as :dropped, so the share-import hint surfaces on the
+            delimiter-safe encoding"
     (let [{:keys [overrides dropped]}
           (rf.story.share/parse-overrides-param* "{:label \"OK\", :size 7}")]
       (is (= {:label "OK" :size 7} overrides))
@@ -530,7 +529,7 @@
       (is (nil? overrides) "unreadable EDN payload yields no overrides")
       (is (= 1 (count dropped)) "whole token reported dropped"))))
 
-;; ---- rf2-76l69l: stale-key overrides are dropped + reported --------------
+;; ---- stale-key overrides are dropped + reported --------------------------
 ;;
 ;; `parse-overrides-param*` only drops UNPARSEABLE entries; a perfectly
 ;; well-formed override for an arg the variant RENAMED / REMOVED parses fine
@@ -540,7 +539,7 @@
 ;; variant's declared-key contract.
 
 (deftest drop-stale-overrides-splits-by-declared-keys
-  (testing "rf2-76l69l — drop-stale-overrides keeps overrides whose key the
+  (testing "drop-stale-overrides keeps overrides whose key the
             variant still declares and moves the rest (renamed/removed args)
             into :dropped, preserving the parser's own malformed drops"
     (let [parsed {:overrides {:label "Hi" :gone 9 :count 3}
@@ -556,7 +555,7 @@
           "the stale :gone override is reported as dropped, not installed"))))
 
 (deftest drop-stale-overrides-all-stale-nils-overrides
-  (testing "rf2-76l69l — when every parsed override is stale, :overrides is
+  (testing "when every parsed override is stale, :overrides is
             nil (not an empty map) and each stale key is reported"
     (let [out (rf.story.share/drop-stale-overrides
                 {:overrides {:old-a 1 :old-b 2} :dropped []}
@@ -565,7 +564,7 @@
       (is (= 2 (count (:dropped out)))))))
 
 (deftest drop-stale-overrides-nil-declared-keeps-all
-  (testing "rf2-76l69l — a nil declared-key set (unregistered / uncompilable
+  (testing "a nil declared-key set (unregistered / uncompilable
             variant: no contract known) keeps every parsed override verbatim
             rather than dropping all — degrades to the parser's behaviour"
     (let [parsed {:overrides {:a 1 :b 2} :dropped ["bad"]}
@@ -574,7 +573,7 @@
       (is (= ["bad"] (:dropped out))))))
 
 (deftest drop-stale-overrides-empty-declared-drops-all
-  (testing "rf2-76l69l — an EMPTY (but non-nil) declared-key set means the
+  (testing "an EMPTY (but non-nil) declared-key set means the
             variant declares NO args, so every override is stale (distinct
             from the nil keep-all case)"
     (let [out (rf.story.share/drop-stale-overrides
@@ -595,7 +594,7 @@
             url
             "https://example.test/counter-with-stories/?variant=story.counter%2Floaded"))
       (is (str/includes? url "&modes=Mode.app%2Fdark"))
-      ;; rf2-j0hwf: overrides encode as one pr-str EDN map (delimiter-safe),
+      ;; Overrides encode as one pr-str EDN map (delimiter-safe),
       ;; URL-encoded: {:label "Share Slice"} → %7B%3Alabel+%22Share+Slice%22%7D.
       (is (str/includes? url "overrides=%7B%3Alabel+%22Share+Slice%22%7D"))
       (is (str/ends-with? url "#/stories")))))
@@ -611,7 +610,7 @@
       (is (re-find #"modes=" url)))))
 
 (deftest variant-share-url-public-export-opts-arity
-  (testing "rf2-0w6q2 — the facade carries the documented (variant-id opts)
+  (testing "the facade carries the documented (variant-id opts)
             arm: a no-base query fragment (no leading ?) equal to the
             underlying share builder's own 2-arity result"
     (let [opts {:active-modes [:Mode.x/y]}
@@ -623,28 +622,24 @@
 
 ;; ---- No QR endpoint --------------------------------------------------------
 ;;
-;; rf2-20w5i (security audit) + rf2-ymnfx Issue B: the per-variant
-;; Share button + QR popover were retired outright — the variant URL
-;; is the browser's live address-bar URL (`url-state` pushState).
-;; This ns must therefore expose neither the legacy third-party QR
-;; endpoint Vars nor the vendored local encoder Vars from `rf.story.share/`
-;; (the encoder ns `re-frame.story.qr` itself is gone). The literal
-;; api.qrserver.com must not appear in the share module — a future
-;; regression that re-introduced a third-party QR fetch trips here.
+;; There is no per-variant Share button or QR popover — the variant URL
+;; is the browser's live address-bar URL (`url-state` pushState). So
+;; `rf.story.share/` exposes no QR endpoint Var and no QR encoder Var, and
+;; there is no QR encoder ns. The literal api.qrserver.com, a third-party
+;; QR-image service that would receive the full share URL, must not
+;; appear in the share module; a third-party QR fetch in it trips here.
 
 (deftest no-third-party-qr-endpoint
-  (testing "share namespace exposes no QR-endpoint Var. Pre-rf2-20w5i
-            `qr-endpoint` / `qr-image-url` built URLs against
-            api.qrserver.com; rf2-20w5i eliminated those; rf2-ymnfx
-            Issue B then retired the QR popover entirely. The
-            assertions remain as a regression gate."
+  (testing "share namespace exposes no QR-endpoint Var — no
+            `qr-endpoint` / `qr-image-url` building URLs against
+            api.qrserver.com."
     (is (nil? (resolve 'rf.story.share/qr-endpoint)))
     (is (nil? (resolve 'rf.story.share/qr-image-url)))))
 
 (deftest no-qrserver-literal-in-share-source
   (testing "share.cljc carries no `api.qrserver.com` URL literal — the
-            string must not appear in the source so a future regression
-            (someone copy-pasting the old endpoint back in) is caught."
+            string must not appear in the source, so a pasted-in
+            third-party endpoint is caught."
     (let [src (slurp (clojure.java.io/resource "re_frame/story/share.cljc"))]
       (is (not (str/includes? src "api.qrserver.com"))
           "share.cljc must not reference api.qrserver.com"))))
