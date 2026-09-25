@@ -1,5 +1,5 @@
 (ns re-frame.flows-path-focused-no-db-cljs-test
-  "rf2-bw76 — DUAL-HOST router+flows integration coverage for the path
+  "DUAL-HOST router+flows integration coverage for the path
   interceptor's `:db` coeffect unwind.
 
   ## What this pins
@@ -12,31 +12,31 @@
   the pending app-db whenever the handler emitted no `:db` effect
   (`router.cljc`, `pending-db`).
 
-  With the coeffect left focused, an ordinary no-op / effect-only focused
-  event handed the flow pass its own sub-slice AS THE ROOT. The flow pass then
-  read its root input paths off that slice (getting `nil`), recomputed, and
-  staged the result as a ROOT `:db` effect — erasing every sibling key. Returning
-  `nil`, `{}` or `{:fx []}` all reproduced it, and the event need not touch a
-  flow at all.
+  Were the coeffect left focused, an ordinary no-op / effect-only focused
+  event would hand the flow pass its own sub-slice AS THE ROOT. The flow pass
+  would then read its root input paths off that slice (getting `nil`),
+  recompute, and stage the result as a ROOT `:db` effect — erasing every sibling
+  key. Returning `nil`, `{}` or `{:fx []}` would each do it, and the event need
+  not touch a flow at all.
 
   ## Why this file exists beside the JVM coverage
 
-  `implementation/core/test/re_frame/interceptor_test.clj` already pins this,
-  but it is a `.clj` namespace: it runs on the JVM ONLY. The event / path /
-  flow branches involved are shared `.cljc`, so the CLJS host was uncovered —
-  and the two existing CLJC path cases cannot reach the fallback (one has no
-  registered flow, the other emits `:db`, whose widening succeeds).
+  `implementation/core/test/re_frame/interceptor_test.clj` pins this too, but
+  it is a `.clj` namespace: it runs on the JVM ONLY. The event / path / flow
+  branches involved are shared `.cljc`, so the CLJS host needs its own
+  coverage — the two other CLJC path cases cannot reach the fallback (one has
+  no registered flow, the other emits `:db`, whose widening succeeds).
 
   This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
   (ns-regexp `cljs-test$`) discovers it AND the cognitect JVM runner runs it
   (the `-test` suffix). It lives in the FLOWS artefact's test tree because the
-  regression is the ACTUAL router driving the ACTUAL flow evaluator — core's
+  behaviour is the ACTUAL router driving the ACTUAL flow evaluator — core's
   own test tree cannot require `re-frame.flows`.
 
   ## The real-effect case
 
   `{:fx []}` pins the no-`:db` SHAPE but executes nothing, so it cannot witness
-  the ORDERING the bead asks for: an effect-only focused event must run its
+  the ORDERING the contract requires: an effect-only focused event must run its
   effect exactly ONCE, and that effect must see the intact committed root. The
   `:bw76/record-root` fx below records `app-db-value` at the moment it fires."
   (:require
@@ -77,7 +77,7 @@
 ;; ===========================================================================
 
 (deftest path-focused-no-db-preserves-root-under-flows-on-this-host
-  (testing "rf2-bw76: a path-focused handler emitting NO :db effect must not let
+  (testing "a path-focused handler emitting NO :db effect must not let
             the outermost flow pass overwrite the root with its focused slice —
             nil, {} and {:fx []} all preserve every sibling key and the flow's
             root-derived value"
@@ -117,7 +117,7 @@
 ;; ===========================================================================
 
 (deftest path-focused-real-effect-sees-committed-root-on-this-host
-  (testing "rf2-bw76: an effect-only focused event executes its effect exactly
+  (testing "an effect-only focused event executes its effect exactly
             once, and that effect observes the intact COMMITTED root — not the
             focused slice, and not a root the flow pass fabricated from nil
             inputs"
@@ -146,7 +146,7 @@
 ;; ===========================================================================
 
 (deftest path-focused-db-write-still-widens-under-flows-on-this-host
-  (testing "rf2-bw76 control: a focused handler that DOES emit :db still has its
+  (testing "control: a focused handler that DOES emit :db still has its
             slice widened back into the root (rule 5), and the flow still reads
             the root input"
     (register-fixture!)
@@ -159,7 +159,7 @@
         "the changed slice widened at [:cart]; siblings and the derived value survive")))
 
 (deftest path-focused-no-db-makes-no-root-write-on-this-host
-  (testing "rf2-bw76: with the flow already settled, a no-db focused event
+  (testing "with the flow already settled, a no-db focused event
             manufactures NO root state write — the committed app-db object is
             identical?, so the commit boundary stayed a no-op (one deferred
             install, no synthetic :db effect)"
