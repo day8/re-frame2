@@ -154,14 +154,13 @@
                                (done))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cursor-failure paths driven through the REAL watch-epochs-tool
-;; (rf2-j9i3vh).
+;; Cursor-failure paths driven through the REAL watch-epochs-tool.
 ;;
-;; The cursor-stale branches — a MALFORMED :cursor (watch_epochs.cljs L73)
-;; and an AGED-OUT ring id (L136-141) — were previously exercised ONLY
-;; against a HAND-REIMPLEMENTED copy of the server-side slice logic in
-;; cursor_pagination_test (`runtime-form-output`). A divergence in the REAL
-;; tool's emitted envelope / branch condition would stay green. These feed
+;; The cursor-stale branches — a MALFORMED :cursor and an AGED-OUT ring
+;; id — exercised ONLY against the HAND-REIMPLEMENTED copy of the
+;; server-side slice logic in cursor_pagination_test
+;; (`runtime-form-output`) would leave a divergence in the REAL tool's
+;; emitted envelope / branch condition green. These feed
 ;; a garbage :cursor and a canned {:id-aged-out? true} runtime response
 ;; through the actual `watch-epochs-tool` and assert the
 ;; :rf.mcp/cursor-stale envelope it returns.
@@ -172,8 +171,8 @@
     (async done
       ;; No eval stub installed on purpose: the malformed-cursor branch
       ;; returns before probe/eval-after-runtime!, so it must NOT touch the
-      ;; socket. If the branch regressed and fell through to the eval, the
-      ;; unstubbed nrepl call would reject and the assertions would fail.
+      ;; socket. A branch that fell through to the eval would reach the
+      ;; unstubbed nrepl call, which rejects, and the assertions would fail.
       (-> (we/watch-epochs-tool nil (tu/args->js {:cursor "not-a-valid-cursor!!!"}))
           (.then (fn [result]
                    (is (true? (tu/error? result)) "a malformed cursor rides isError")
