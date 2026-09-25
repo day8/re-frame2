@@ -1,4 +1,4 @@
-# Release workflow for the Story shipping set (rf2-wht9a, rf2-2ii52).
+# Release workflow for the Story shipping set.
 #
 # On a tag push of the form `story-v[0-9]+.[0-9]+.[0-9]+*` (e.g.
 # `story-v0.0.1.alpha`) this publishes THREE Clojars artefacts, in
@@ -10,8 +10,8 @@
 #
 # # Why one glob for three artefacts
 #
-# rf2-4u3t1 ruled that Story and its MCP surface ship as one set on the
-# EXISTING `story-v*` glob rather than each getting a tag: they are
+# Story and its MCP surface ship as one set on the `story-v*` glob rather
+# than each getting a tag: they are
 # specified as a shipping pair (tools/story/spec/006-MCP-Surface.md), and
 # a second glob would let the pair skew — an agent could resolve a
 # story-mcp built against a Story it cannot see. mcp-base joins the same
@@ -39,8 +39,8 @@
 # machines, HTTP, and Xray. A pom built from the in-tree deps.edn therefore
 # declares NONE of Story's in-repo dependencies — it carries only
 # org.clojure/clojure, reagent/reagent and metosin/malli. Publishing that
-# would recreate, at the package boundary, the exact consumer compile
-# failure rf2-r8trk fixed in source:
+# would produce, at the package boundary, the consumer compile failure a
+# missing Xray dependency causes:
 #
 #     No such namespace: day8.re-frame2-xray.mount
 #     ... in re_frame/story/xray_preset.cljc
@@ -61,11 +61,9 @@
 # .github/scripts/rewrite-in-repo-coords.sh and
 # .github/scripts/preflight-tool-package.sh — which read the coordinate
 # set out of the artefact's own committed deps.edn instead of listing it.
-# That is the shape rf2-5dut1 and rf2-7fxf8 arrived at the hard way: Xray's
-# hand-written rewrite list fell from ten coordinates to two, and the
-# lockstep inventory saw 8 of 18, both while reporting green. A roster
-# cannot report on what it does not list. The Story job keeps its inline
-# list for now; converting it is a separate change with its own risk.
+# A roster cannot report on what it does not list, so a hand-written list
+# can fall behind its deps.edn while reporting green. The Story job keeps
+# an inline list; converting it is a separate change with its own risk.
 #
 # # Dependency availability (the ordering contract)
 #
@@ -96,7 +94,7 @@
 # # Lockstep versioning
 #
 # Per spec/Conventions.md §Packaging conventions every published artefact
-# ships at the repo-root VERSION. tools/story/deps.edn already declares
+# ships at the repo-root VERSION. tools/story/deps.edn declares
 # `:clein/build :version "../../VERSION"`, and verify-version-lockstep.sh
 # asserts each of the five `:local/root` coordinates is present and
 # rewritable. A mismatched tag is refused before any deploy step runs.
@@ -107,7 +105,7 @@
 # artefact is published (e.g. a network glitch on the upload
 # acknowledgement), DO NOT re-run with the same tag — Clojars will 409.
 # Bump VERSION, retag with the bumped value, and rerun. With three
-# artefacts on one tag a partial publish is now possible (mcp-base lands,
+# artefacts on one tag a partial publish is possible (mcp-base lands,
 # story-mcp fails); the recovery is the same bump-and-supersede, and the
 # already-published members simply republish at the new VERSION.
 #
@@ -122,12 +120,12 @@
 # Mike triggers the first deploy manually by pushing the tag once the
 # framework and Xray tags for the same VERSION have published.
 #
-# CAVEAT, surfaced on rf2-2ii52 and NOT resolved by this workflow: none of
+# CAVEAT, NOT resolved by this workflow: none of
 # `day8/re-frame2-story`, `day8/re-frame2-story-mcp` or
 # `day8/re-frame2-mcp-base` exists on Clojars yet, and Clojars refuses NEW
-# projects in unverified, non-reverse-domain groups — the same 403 that
-# blocked `day8/de-dupe` on 2026-05-13 ("Group 'day8' isn't verified, so
-# can't contain new projects"). Existing projects in an old group may
+# projects in unverified, non-reverse-domain groups with a 403 ("Group
+# 'day8' isn't verified, so can't contain new projects"). Existing
+# projects in an old group may
 # publish new versions; a NEW project may not. Whether the `day8` group
 # can still take new projects is a release-wide coordinate-policy question
 # for Mike, and it applies to every unpublished `day8/re-frame2-*`
@@ -245,12 +243,11 @@ jobs:
             ${{ runner.os }}-clj-release-story-
             ${{ runner.os }}-clj-
 
-      # The canonical cross-host dedup suite lives here, and since
-      # rf2-2ii52 so does the codec it exercises: day8/de-dupe was
-      # vendored into `re-frame.mcp-base.dedup` because a `:git/url`
-      # runtime coordinate is one `clein pom` drops silently, which left
-      # this artefact and story-mcp with no publish path at all. The
-      # vendored codec is now ours to keep green.
+      # The canonical cross-host dedup suite lives here, and so does the
+      # codec it exercises: `re-frame.mcp-base.dedup` vendors day8/de-dupe,
+      # because a `:git/url` runtime coordinate is one `clein pom` drops
+      # silently, which would leave this artefact and story-mcp with no
+      # publish path at all. The vendored codec is ours to keep green.
       - name: JVM tests (mcp-base artefact)
         working-directory: tools/mcp-base
         run: clojure -M:test
@@ -336,7 +333,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       # Rewrite all FIVE :local/root coordinates → :mvn/version on the
       # throwaway runner checkout (never committed). The shared helper
-      # is comment-aware (rf2-ldkuk), which matters here: Story's
+      # is comment-aware, which matters here: Story's
       # deps.edn quotes the Xray coordinate inside its own prose
       # comment, so a raw substring count would see two occurrences and
       # abort the deploy outright.
@@ -397,9 +394,9 @@ jobs:
   # mcp-base. NO rewrite step, deliberately: tools/mcp-base/deps.edn
   # declares no in-repo `:local/root` coordinate at all. Its only runtime
   # dependency is Clojure itself, which is why the preflight below can
-  # pass on a straight `clein pom`. That is the point of rf2-2ii52's
-  # vendoring: before it, this artefact's pom silently lost day8/de-dupe
-  # and no rewrite could repair it.
+  # pass on a straight `clein pom`. That is the point of vendoring the
+  # de-dupe codec: as a git coordinate it would drop silently from this
+  # artefact's pom, and no rewrite could repair it.
   #
   # `rewrite-in-repo-coords.sh` would REFUSE here (exit 2 on zero derived
   # coordinates) rather than pass vacuously, so it is not called.
@@ -460,8 +457,8 @@ jobs:
   #
   # Rewrite -> resolve -> preflight -> deploy, with the rewrite and the
   # preflight both DERIVING their coordinate set from the committed
-  # deps.edn rather than repeating it here (rf2-5dut1 / rf2-7fxf8: the
-  # inline list is what drifted, everywhere it has been tried).
+  # deps.edn rather than repeating it here (an inline list is what
+  # drifts).
   # ─────────────────────────────────────────────────────────────────
   deploy-story-mcp:
     name: Deploy day8/re-frame2-story-mcp
