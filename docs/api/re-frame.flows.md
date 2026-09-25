@@ -262,7 +262,7 @@ The flow-transform entry point the router installs, plus the test-fixture resets
 
 ## Failure semantics
 
-**Production-survivable.** A throw during flow evaluation surfaces as `:rf.error/flow-eval-exception` on the always-on error-emit substrate. Registered `register-error-listener!` callbacks fire even under CLJS `:advanced` + `goog.DEBUG=false`. The error is not trace-only; production deployments catch it.
+**Production-survivable.** A throw during flow evaluation surfaces as `:rf.error/flow-eval-exception` on the always-on error-emit substrate, which survives CLJS `:advanced` + `goog.DEBUG=false` and routes the record to the owning frame's `:observability :errors` sinks, or the process default's. The error is not trace-only; production deployments catch it.
 
 **The record names which phase failed.** Alongside `:where :flow-eval` and `:flow-id`, the error record carries a top-level `:phase` — `:derive` when your `:derive` fn threw, or `:output-write` when it returned normally and re-frame could not install the returned value at the flow's declared `:output-path` (typically the pending `app-db` holds a container at that path that cannot accept the path's final segment). The two are told apart structurally, not by matching on the exception message, so an `:output-write` failure never gets reported as your code throwing — on `:output-write` the fix is the `:output-path` or the shape at its parent, and there is no point reading the `:derive` fn. `:phase` rides the top level of the record precisely so it survives an egress profile that drops `:exception`.
 
