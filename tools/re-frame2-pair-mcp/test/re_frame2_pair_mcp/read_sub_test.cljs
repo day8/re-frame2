@@ -251,7 +251,7 @@
                    ;; The inner runtime form is
                    ;; (rt/read-sub! (quote [:state]) :rf/xray); elision
                    ;; wraps it in a let. The query rides QUOTED as caller
-                   ;; EDN (rf2-fzbj.6); the frame is server-coerced, so it
+                   ;; EDN; the frame is server-coerced, so it
                    ;; stays a bare keyword — assert it is well-formed (not
                    ;; the malformed ::rf/xray).
                    (is (re-find #"read-sub! \(quote \[:state\]\) :rf/xray" @captured)
