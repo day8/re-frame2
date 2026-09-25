@@ -125,7 +125,7 @@
   2. Synchronous pipeline-exception capture: a non-suppressed pipeline
      exception (`:rf.error/handler-exception` /
      `:rf.error/coeffect-exception` / `:rf.error/interceptor-exception`),
-     or the no-handler refusal (`:rf.error/no-such-handler`, rf2-0ae7o.13
+     or the no-handler refusal (`:rf.error/no-such-handler`
      — the one failure the epoch tape never carries, since a refused
      dispatch settles no epoch), is stashed into `pending-exceptions`,
      which the play-runner drains
@@ -175,7 +175,7 @@
         ;; shared with `frames`' setup / teardown collector): a pipeline
         ;; exception's `:event` / pre-extracted `:exception-message` /
         ;; `:exception` / `:failing-id`, or the no-handler refusal's bare
-        ;; `:rf.event/v` (rf2-0ae7o.13), read in one place rather than
+        ;; `:rf.event/v`, read in one place rather than
         ;; once per drain site.
         (rf.story.assertions/record!
           frame-id
@@ -232,7 +232,7 @@
   (drain-pending-exceptions! frame-id :phase-4-play))
 
 ;; ---------------------------------------------------------------------------
-;; The stepped program — read from the COMPILED plan (rf2-499z)
+;; The stepped program — read from the COMPILED plan
 ;;
 ;; The step-debugger (`variant-play-steps`) and the scrubber
 ;; (`variant-play-events`) both show the program the auto-run path
@@ -240,9 +240,9 @@
 ;; plan's `[:world :scripts]`, never the raw `:script` slot. The compiler
 ;; is what substitutes `[:arg key]` placeholders, prepends `:compose`d
 ;; fragments' scripts and lowers `:plays` into named scripts. A raw read
-;; saw none of that: an `[:arg]` script stepped its placeholder verbatim,
-;; a composed variant stepped without its fragments, and a `:plays`
-;; variant stepped nothing at all.
+;; would see none of that: an `[:arg]` script would step its placeholder
+;; verbatim, a composed variant would step without its fragments, and a
+;; `:plays` variant would step nothing at all.
 ;; ---------------------------------------------------------------------------
 
 (defn- stepped-program
@@ -385,7 +385,7 @@
       (when step
         (let [idx     (count (:ran (get @stepper-state frame-id)))
               run-fn  (rf.story.late-bind/get-fn :run-play-step)
-              ;; rf2-iz0t8 — a `[:flush-presence]` against a Promise-backed
+              ;; A `[:flush-presence]` against a Promise-backed
               ;; host is the ONE step whose outcome is not known by the time
               ;; the executor returns. The executor calls this back with the
               ;; SETTLED result a microtask later, so the stepper records the
@@ -395,15 +395,15 @@
               ;; return value already recorded the final result in that case,
               ;; and there is nothing to amend.
               ;;
-              ;; STALE-SETTLEMENT FENCE (rf2-6pfpt). The gap between parking
+              ;; STALE-SETTLEMENT FENCE. The gap between parking
               ;; and settling is one a user can reset the session across
               ;; (`begin-stepper!` / `stepper-rewind!` / `stepper-step-back!` /
-              ;; `end-stepper!` / `clear-all-play-state!`). A BOUNDS guard —
-              ;; all this used to carry — is a size test, not an identity
-              ;; test: it correctly declines while a reset has left `:results`
-              ;; shorter than `idx`, then silently permits the clobber once a
-              ;; new cursor has grown back past `idx`, landing a stale
-              ;; amendment on a different session's step.
+              ;; `end-stepper!` / `clear-all-play-state!`). A BOUNDS guard
+              ;; is a size test, not an identity
+              ;; test: it would correctly decline while a reset has left
+              ;; `:results` shorter than `idx`, then silently permit the
+              ;; clobber once a new cursor has grown back past `idx`, landing
+              ;; a stale amendment on a different session's step.
               ;;
               ;; The claim a settling step actually needs is narrower than a
               ;; session: amend the record I MYSELF recorded, not whatever now
@@ -417,7 +417,8 @@
               ;; `stepper-step-back!`, which pops only the last step — an
               ;; amendment still owed for an EARLIER index remains valid, and a
               ;; session-level bump would refuse it, quietly reinstating the
-              ;; rf2-iz0t8 hazard of a clean flush shown over a failed one.
+              ;; hazard this callback exists to prevent: a clean flush shown
+              ;; over a failed one.
               recorded (atom ::none)
               settle! (fn [settled]
                         (swap! stepper-state update-in [frame-id :results]
@@ -522,8 +523,7 @@
   otherwise leave both atoms populated — a stale `stepper-state` entry makes
   `play-stepper-active?` report a session a later test never began, and a
   stale `pending-exceptions` entry could drain into a fresh frame's
-  assertions. This is the remaining un-reset per-process play state
-  alongside the config atoms and the runner-events run atoms.
+  assertions.
 
   Also unregisters every per-frame trace listener `begin-stepper!` /
   `install-trace-listener!` registered (keyed by frame-id across both
