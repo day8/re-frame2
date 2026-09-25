@@ -1,7 +1,7 @@
 (ns re-frame.story.run-result-hashes-test
   "`story/run` results carry the snapshot identity the frozen run-result
-  contract promises — `:plan-hash` and `:run-hash` (rf2-7vz97,
-  `tools/story/spec/017-Testing-Story.md` §Run result).
+  contract promises — `:plan-hash` and `:run-hash`
+  (`tools/story/spec/017-Testing-Story.md` §Run result).
 
   JVM-only (`.clj`): each run is driven to completion with
   `deref-blocking`. The CLJS runner assembles its result through the SAME
@@ -50,7 +50,7 @@
     (testing "both identity slots are present strings"
       (is (string? (:plan-hash r1)))
       (is (string? (:run-hash r1))))
-    (testing "the result still conforms to the frozen schema"
+    (testing "the result conforms to the frozen schema"
       (is (rf.story/valid-run-result? r1)
           (str (rf.story/explain-run-result r1))))
     (testing ":plan-hash is the compiled plan's, by the public primitive"
@@ -87,7 +87,7 @@
     (is (= (:run-hash r1) (:run-hash r2)))))
 
 (deftest story-level-args-run-and-render-agree
-  ;; rf2-851t0 — the run compiles WITH the ambient arg layers, so render prep
+  ;; The run compiles WITH the ambient arg layers, so render prep
   ;; must too: otherwise a story-level arg is missing from render's
   ;; `:effective-args`, and so from its `:plan-hash` (which hashes `:world`),
   ;; and a placeholder only the story resolves throws. The agreement check in
