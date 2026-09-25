@@ -20,7 +20,7 @@
 ;; so it falls through to the generic 500 (Spec 011 §Default projector
 ;; says: "anything else → 500 :internal-error").
 ;;
-;; Pinned by rf2-msd4 (conformance runner :reg-machine + :throw op).
+;; Driven by the conformance runner's :reg-machine and :throw ops.
 
 {:fixture/id           :cross-spec/ssr-machine-error
  :fixture/spec-version "1.0"
@@ -55,8 +55,8 @@
  :fixture/dispatches []
 
  :fixture/expect
- ;; Machine snapshot was NOT committed — no :rf/machines slot in app-db.
- ;; Per rf2-jbcmt the response accumulator lives in a framework-private
+ ;; Machine snapshot was NOT committed — app-db stays empty.
+ ;; The response accumulator lives in a framework-private
  ;; side-channel atom, NOT in app-db — the projector's locked 500 status
  ;; is asserted via :ssr/public-error below.
  {:final-app-db {}
