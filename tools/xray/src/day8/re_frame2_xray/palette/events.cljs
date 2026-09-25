@@ -39,7 +39,7 @@
 
 ;; ---- effect: mount-level pop-out -----------------------------------------
 ;;
-;; The pop-out semantics for palette items reuse Xray's existing
+;; The pop-out semantics for palette items reuse Xray's
 ;; `mount/popout!` — `Ctrl+Enter` on a popout-eligible result opens
 ;; the popout window (or focuses it if one already exists) and then
 ;; lowers the underlying action.
@@ -164,7 +164,7 @@
   clipboard is present (test runtimes). Returns nil."
   [target-frame]
   (try
-    ;; EP-0002 — the snapshot targets the SELECTED inspected
+    ;; Per EP-0002, the snapshot targets the SELECTED inspected
     ;; frame. When unselected (`target-frame` nil) this is a no-op: a
     ;; whole-db egress to console/clipboard is a read of a specific host
     ;; frame, never a synthesised `:rf/default` (Spec 002 §Frame target
@@ -220,7 +220,7 @@
     :never   :os
     :os))
 
-;; ---- density cycle (rf2-gwye.9) -----------------------------------------
+;; ---- density cycle ------------------------------------------------------
 
 (defn- next-density
   "Pure helper. Flip the two shipped density tiers `:cosy ↔ :compact`.
@@ -372,7 +372,7 @@
            :fx (conj base-fx [:dispatch [:rf.xray.static/select-tab (first args)]])}
 
           :palette/select-event
-          ;; rf2-gwye.8 — a recent-event pick moves the SHARED spine focus
+          ;; A recent-event pick moves the SHARED spine focus
           ;; through `:rf.xray/focus-event`, the path an L2 row click takes
           ;; (frame reseed, epoch resolution, head-aware LIVE/RETRO), and
           ;; lands on the Epoch tab, which reads that focus. The item names
@@ -399,12 +399,11 @@
            :fx (conj base-fx [:dispatch [:rf.xray/select-frame (first args)]])}
 
           :palette/inspect-handler
-          ;; Phase 1: route to a Xray-side store of the inspected
-          ;; handler choice. The handler-detail panel is itself a
-          ;; follow-on bead — for now the store is enough so the
-          ;; palette completes its part of the contract. The canonical
-          ;; "what happened in this epoch" tab is `:epoch`, so the
-          ;; selection lands there.
+          ;; Record the inspected handler choice in a Xray-side store
+          ;; (`:inspecting-handler`). No panel reads that slot;
+          ;; recording it is the palette's whole part of the contract.
+          ;; The canonical "what happened in this epoch" tab is
+          ;; `:epoch`, so the selection lands there.
           (let [[kind id] args]
             {:db (assoc close-db
                         :selected-tab :epoch
@@ -412,7 +411,7 @@
              :fx base-fx})
 
           :palette/cycle-density
-          ;; rf2-gwye.9 — flip the Settings density control (:cosy ↔
+          ;; Flip the Settings density control (:cosy ↔
           ;; :compact) through `:rf.xray/settings-update`, the path the
           ;; Settings radio takes, so persistence and the font-size apply
           ;; come with it. Reads the live atom, as `:palette/toggle-theme`
@@ -437,15 +436,14 @@
             {:db close-db
              :fx base-fx})
 
-          ;; (`:palette/clear-epoch-history` was REMOVED with its verb —
-          ;; rf2-y8doi.27. It dissoc'd Xray's `:epoch-history` slot, which
-          ;; is a MIRROR of the framework's epoch history, not the store:
-          ;; the very next recorded epoch re-seeded it wholesale from
-          ;; `(vec (rf/epoch-history target))`, so the verb lasted one
-          ;; event and then silently undid itself. The Buffer tab's
-          ;; "Clear buffer now" is the real scrub; a verb that genuinely
-          ;; cleared the substrate's epoch ring would need a Tool-Pair
-          ;; ruling, because Xray does not own that ring.)
+          ;; (There is no `:palette/clear-epoch-history` verb. Xray's
+          ;; `:epoch-history` slot is a MIRROR of the framework's epoch
+          ;; history, not the store: the next recorded epoch re-seeds it
+          ;; wholesale from `(vec (rf/epoch-history target))`, so
+          ;; dissoc'ing it would last one event and then silently undo
+          ;; itself. The Buffer tab's "Clear buffer now" is the real
+          ;; scrub; clearing the substrate's epoch ring is a Tool-Pair
+          ;; question, because Xray does not own that ring.)
 
           :palette/reset-suppressed-counters
           {:db close-db
@@ -454,7 +452,7 @@
           :palette/snapshot-app-db
           ;; Snapshot the SELECTED inspected frame's app-db
           ;; onto the console + clipboard. The target is the slot the L1
-          ;; frame-picker writes (`:target-frame`). EP-0002 —
+          ;; frame-picker writes (`:target-frame`). Per EP-0002,
           ;; pass the slot value THROUGH (nil = unselected); the
           ;; `snapshot-app-db!` fx no-ops when unselected rather than
           ;; snapshotting a synthesised `:rf/default`.
@@ -466,7 +464,7 @@
 
           :palette/toggle-theme
           ;; Flip the Settings popup's theme slot via the
-          ;; existing settings-update event. Routes through the same
+          ;; settings-update event. Routes through the same
           ;; reducer that the popup's radio uses so the popup's
           ;; reactive sub re-fires + the localStorage round-trip
           ;; lands + `apply-theme!` flips the `<html>` class. Reads
@@ -495,7 +493,7 @@
 
           :palette/jump-to-settings
           ;; Open the Settings popup. Routes through the
-          ;; existing `:rf.xray/settings-open` event so the popup's
+          ;; `:rf.xray/settings-open` event so the popup's
           ;; open path is the canonical one (lifts the atom snapshot
           ;; into app-db, defaults the active-tab to `:general`).
           {:db close-db
@@ -503,7 +501,7 @@
 
           :palette/toggle-mode
           ;; Flip Dynamic ↔ Static. Routes through the
-          ;; existing `:rf.xray/toggle-mode` event (also bound to
+          ;; `:rf.xray/toggle-mode` event (also bound to
           ;; Cmd/Ctrl+Shift+M). Single source of truth for the
           ;; mode-flip + persistence side-effect.
           {:db close-db
