@@ -38,7 +38,7 @@
   consumer can assert against."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Loads the schemas artefact's late-bind hooks (rf2-p7va).
+            ;; Loads the schemas artefact's late-bind hooks.
             [re-frame.schemas]
             ;; Public reader for the per-frame elision registry (EP-0025):
             ;; `re-frame.elision/declarations` returns the `:large` `:app-db`
@@ -109,7 +109,7 @@
       :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}
      ;; EP-0025: durable app-db `:large` egress classification rides the
      ;; commit-plane classification effect — return `:large` alongside `:db`
-     ;; (the frame annotation is removed). The three declared-large slots
+     ;; (there is no frame annotation). The three declared-large slots
      ;; elide to the `:rf.size/large-elided` marker regardless of value size.
      :large [[:declared-large-value]
              [:fx-declared-value]
@@ -268,7 +268,7 @@
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the app frame, scope the boot
   ;; dispatch, and wrap the render in a frame-provider.
   ;;
