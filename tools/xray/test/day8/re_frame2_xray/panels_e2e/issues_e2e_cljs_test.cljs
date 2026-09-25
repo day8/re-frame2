@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels-e2e.issues-e2e-cljs-test
-  "Multi-frame e2e coverage for the Issues Ribbon panel (rf2-7icrs,
-  spec/017 — Issues Ribbon row).
+  "Multi-frame e2e coverage for the Issues Ribbon panel (spec/017 —
+  Issues Ribbon row).
 
   The Issues Ribbon aggregates errors / warnings / schema violations
   / hydration mismatches into a unified feed. The `:rf.xray/issues-
