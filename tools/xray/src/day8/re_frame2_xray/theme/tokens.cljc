@@ -412,16 +412,14 @@
 
   The CSS custom-property block emitted by
   `theme/global-styles/themes-css` registers every palette key at
-  `:root` (dark default) + `.rf-xray-theme-dark` / `.rf-xray-theme-
+  `:root` (light default) + `.rf-xray-theme-dark` / `.rf-xray-theme-
   light` so the class toggle on the shell root flips every downstream
   `var(--rf-xray-…)` reference in one assignment.
 
-  The 357-site v1.0 sweep (rf2-on4cm) routes every inline-style read
-  of a palette token through this function (via the `tokens` map,
-  which now consists of `var(--…)` strings rather than hex). That
-  makes the light theme actually paint — the class toggle was wired
-  but inline styles were reading the dark-palette hex directly,
-  so the toggle had no observable effect."
+  Every inline-style read of a palette token routes through this
+  function (via the `tokens` map, whose values are `var(--…)` strings
+  rather than hex), which is what lets the theme class toggle repaint
+  every inline style."
   [k]
   (str "var(--rf-xray-" (name k) ")"))
 
@@ -429,9 +427,9 @@
   "Build a `color-mix(in srgb, var(--rf-xray-<key>) <pct>%, transparent)`
   CSS string. The CSS-Color-4 idiom for compositing a palette token
   with an alpha channel without forking the hex — Chrome 111+, Safari
-  16.2+, Firefox 113+. Use this where the old code did string
-  concatenation with a two-digit alpha suffix (`(str (:accent
-  tokens) \"55\")`).
+  16.2+, Firefox 113+. Use this rather than concatenating a two-digit
+  alpha suffix (`(str (:accent tokens) \"55\")`), which is not valid
+  CSS on a `var(--…)` string.
 
   `k`  - palette key (`:accent`, …)
   `pct` - opacity percentage (0-100). The `transparent` partner makes
@@ -451,22 +449,17 @@
   and the browser substitutes the dark or light hex at paint time
   based on the class toggle on the shell root.
 
-  ## Why a var-map rather than a hex-map (rf2-on4cm)
+  ## Why a var-map rather than a hex-map
 
-  Pre-rf2-on4cm `tokens` was an alias of `dark-palette` — every inline
-  style site (~357 of them) read a hardcoded dark-palette hex
-  regardless of the active theme class. The light-theme class toggle
-  was wired through `settings/effects/apply-theme!` and the CSS
-  variable block was emitted, but inline styles ignored both — light
-  mode was paint-only-the-edges broken.
-
-  Replacing the hex map with a CSS-variable map flips every existing
-  call site to the variable surface without per-site edits: a token
-  read like `(:bg-1 tokens)` now yields the `var(--rf-xray-bg-1)`
+  With a hex map every inline style site would read one palette's
+  hex regardless of the active theme class, so the class toggle
+  `settings/effects/apply-theme!` writes would repaint only the
+  stylesheet-driven edges. With a CSS-variable map a token
+  read like `(:bg-1 tokens)` yields the `var(--rf-xray-bg-1)`
   reference, and the active theme's class scope on the shell root
   decides which palette resolves at paint time.
 
-  ## The few sites that still need raw hex
+  ## The few sites that need raw hex
 
   Two call sites consume the literal hex rather than a CSS variable:
 
@@ -480,7 +473,7 @@
     must remain a hex string.
 
   Other consumers (SVG `:fill`, inline `:style :background`, etc.)
-  flow through `var(...)` unchanged — modern browsers (Chrome 49+,
+  flow through `var(...)` — modern browsers (Chrome 49+,
   Firefox 31+, Safari 9.1+) accept CSS custom properties in every
   paint property including SVG attributes."
   (into {}
@@ -499,23 +492,16 @@
   "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
 
 (def display-stack
-  "Fraunces stack — Xray's display face (rf2-5kfxe.9).
+  "Fraunces stack — Xray's display face.
 
   Fraunces is a variable serif (open-source, by Undercase Type) with
   optical-size + SOFT + WONK axes designed to be characterful at
   large sizes. Deliberately *not* another grotesque sans — the
   frontend-design rubric flags 'Inter at every size' as a generic
   AI-aesthetic. The body chrome stays Inter; the face is reached only
-  through this var, so its requirers are the roster — today that is
+  through this var, so its requirers are the roster — that is
   the static machines' definition-detail title, which is a `<div>`
   rendering at BODY type-scale, not a heading.
-
-  This read \"only L4 panel <h1>s reach for this face\" until
-  rf2-09c8s. Those headings are GONE — `[:h1` occurs zero times in
-  the CODE of `tools/xray/src`, comments and strings stripped
-  (controls: `[:h2` 5, `[:div` 456); the only raw hits are prose
-  quoting the needle, this sentence among them — so the scope named a
-  surface that no longer exists.
 
   Fallback chain: `ui-serif` is the modern serif system pointer
   (Safari/Chrome resolve it to the platform's native serif —
@@ -536,16 +522,16 @@
   "Fraunces, ui-serif, Georgia, Cambria, Times, serif")
 
 (def font-size-var-name
-  "CSS custom-property name the whole type-scale interpolates through
-  (rf2-n8i2c). `theme/global-styles/motion-css` publishes a default
+  "CSS custom-property name the whole type-scale interpolates through.
+  `theme/global-styles/motion-css` publishes a default
   value of `13px` on `:root`; host pages, the settings panel's
   density slider, or DevTools overrides can swap the value and the
   entire shell's type rescales in lockstep.
 
   Modelled on TanStack Query Devtools' `--tsqd-font-size` knob — one
   variable, every size derived via `calc()` with relative multipliers.
-  The 357 inline-style call sites that read `(:body type-scale)`
-  continue to resolve to a CSS string; the browser does the
+  The inline-style call sites that read `(:body type-scale)`
+  resolve to a CSS string; the browser does the
   multiplication at paint time, so changing `:root { --rf-xray-font-
   size: 16px }` rescales every typographic surface ~1.23x without a
   code change."
@@ -553,7 +539,7 @@
 
 (def font-size-default
   "Default value of `--rf-xray-font-size` published on `:root` by
-  `theme/global-styles/motion-css`. This is the historical Xray
+  `theme/global-styles/motion-css`. This is the Xray
   baseline (`:body` = 13px); the per-key multipliers below are
   expressed RELATIVE to it (e.g. `:caption` = 0.85 → ~11px at the
   default knob).
@@ -579,9 +565,9 @@
   - `:caption`     0.846  — hints, secondary labels (~11px)
   - `:micro`       0.769  — badges, tabs (~10px; spec's refused floor)
 
-  Multipliers chosen so the emitted calc-strings round to the same
-  pixel values the previous fixed-px table shipped — no perceptual
-  shift at the default knob; downstream rescales are uniform."
+  Multipliers are chosen so the emitted calc-strings round to the
+  whole-pixel sizes listed above at the default knob; downstream
+  rescales are uniform."
   {:display     1.077
    :body        1.0
    :body-tight  0.923
@@ -602,17 +588,15 @@
        multiplier ")"))
 
 (def type-scale
-  "Xray shell typography sizes (rf2-pcitk + rf2-n8i2c font-size-var
-  migration).
+  "Xray shell typography sizes.
 
-  Xray is an info-dense dev surface. Mike's UX session against the
-  testbed flagged the cosy baseline (body 14 / mono 13 / line-height
-  1.5) as too LARGE — the eye has to travel further than the data
-  warrants. This scale runs ~1px below cosy across the board and
+  Xray is an info-dense dev surface, and the spec's cosy baseline
+  (body 14 / mono 13 / line-height 1.5) is too LARGE for it — the eye
+  has to travel further than the data warrants. This scale runs ~1px below cosy across the board and
   tightens line-height to 1.35, which is the readability floor for
   monospaced data dumps.
 
-  ## One knob, whole scale (rf2-n8i2c)
+  ## One knob, whole scale
 
   Every size below resolves through the `--rf-xray-font-size` CSS
   custom property (default `13px`, published on `:root` by
@@ -628,9 +612,8 @@
   without a single code change.
 
   spec/007-UX-IA.md §Typography catalogues the cosy baseline and a
-  ±1px density knob (compact/cosy/comfy). The runtime density
-  toggle plumb-through lands as a follow-on; this commit ships the
-  CSS-variable foundation it builds on.
+  ±1px density knob (compact/cosy/comfy); the CSS-variable knob is
+  the foundation a runtime density toggle builds on.
 
   Values are CSS strings so call sites can drop them straight into
   inline `:style` maps. The browser resolves `calc(var(--…) * N)`
@@ -645,22 +628,20 @@
    :micro        (font-size-css (:micro       type-scale-multipliers))
    ;; Vertical rhythm — unitless ratios, unchanged by the font-size
    ;; knob (line-height naturally scales with the resolved font-size).
-   :line-height-tight 1.35   ; was 1.5 — denser blocks
+   :line-height-tight 1.35   ; denser blocks than cosy 1.5
    :line-height-mono  1.4    ; mono needs a touch more leading for ascender clearance
    })
 
 (def layout
-  "Xray shell layout dimensions (rf2-pcitk + rf2-g9pee). Single source
+  "Xray shell layout dimensions. Single source
   for the chrome's fixed-height layer measurements.
 
   The 4-layer chrome is L1 ribbon (top-strip) + L2 event list + L3
-  tab bar + L4 detail panel — no bottom rail, no sidebar (both dropped
-  in earlier Xray redesigns and the now-unused `:sidebar-width` /
-  `:bottom-rail-height` tokens were retired in Round-3 rf2-g9pee).
+  tab bar + L4 detail panel — no bottom rail, no sidebar.
 
-  Per rf2-4vp5j the top of the shell splits into TWO strata, reconciled
-  to the authoritative reference (`tools/xray/design-reference/xray_
-  devtools_reference.cljs`, rf2-3f2di) where every bar is a uniform
+  The top of the shell splits into TWO strata, matching
+  the authoritative reference (`tools/xray/design-reference/xray_
+  devtools_reference.cljs`) where every bar is a uniform
   34px (`chrome-ribbon` / `events-ribbon` `:height \"34px\"`):
 
   - the **chrome ribbon** (`:top-strip-height`, 34px) — bar-1, carrying
@@ -670,17 +651,14 @@
     layout).
   - the **events ribbon** (`:events-ribbon-height`, 34px) — bar-2,
     carrying the `N events filtered out` warning text + the green/red
-    filter pills (the reference events-ribbon layout).
-
-  The reference's uniform 34px rhythm (rf2-3f2di) supersedes the prior
-  32px/36px split (rf2-cplj8)."
+    filter pills (the reference events-ribbon layout)."
   {:top-strip-height     "34px"
    :events-ribbon-height "34px"})
 
-;; ---- motion (rf2-5kfxe.5) ----------------------------------------------
+;; ---- motion -------------------------------------------------------------
 
 (def motion
-  "Motion-axis tokens (rf2-5kfxe.5). Every Xray animation interpolates
+  "Motion-axis tokens. Every Xray animation interpolates
   its duration through `--rf-xray-motion-scale`, a CSS custom
   property set on `:root` by `theme/global-styles`. A single media-
   query rule overrides the property to ~0 under `prefers-reduced-
@@ -693,7 +671,7 @@
                           expressions so the seam stays one
                           identifier.
   - `:fade-duration-ms`  — the canonical 180ms tab cross-fade
-                          duration (rf2-5kfxe.3).
+                          duration.
 
   The CSS keyframes themselves live in `theme/global-styles/motion-
   css`; this map is the symbolic surface for consumers that need to
@@ -713,23 +691,21 @@
   [ms]
   (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
 
-;; ---- L4 panel accent stripe (rf2-5kfxe.8 · rf2-ad7zx.13) ---------------
+;; ---- L4 panel accent stripe --------------------------------------------
 
 (defn panel-accent
   "Resolve the L4 panel's header-stripe accent CSS-variable string.
 
-  ## Single accent (rf2-ad7zx.13 · spec/022 · spec/021 §17.1.3 ·
+  ## Single accent (spec/022 · spec/021 §17.1.3 ·
   spec/007 §L4 panel accent stripe)
 
-  The prior per-panel DOMAIN-colour mapping (`:event` violet ·
-  `:app-db`/`:views` cyan · `:trace` orange · `:machines` green ·
-  `:routing` yellow · `:issues` red) is **superseded**. The Figma
+  There is no per-panel DOMAIN-colour mapping. The Figma
   export carries a SINGLE accent identity (GitHub blue) — every panel's
   3px header stripe reads `:accent`, so the stripe is a consistent
   signal, not a per-panel domain colour. Surfaces stay neutral so the
   blue accent pops.
 
-  Domain colour still does load-bearing work where it is semantic
+  Domain colour does load-bearing work where it is semantic
   (severity `error` red on the inline Epoch exception block + the L2
   event-row issue wash, machine `green`, route `yellow`, the op-family
   bands in Trace, the per-panel header icons §021 §17.1.5) — but the
@@ -739,17 +715,12 @@
   and `nil`, resolves to the one `:accent` variable, so the stripe
   always renders.
 
-  ## This function is the re-diverge seam (rf2-9g1ea)
+  ## This function is the re-diverge seam
 
-  A future per-panel signal changes THIS BODY and no call site. It
-  does not need a per-tab map reinstated. There was one here — a
-  six-key `panel-domain->token` whose every value was already
-  `:accent`, kept so \"the per-tab inventory stays explicit\" — and it
-  had drifted to naming the retired `:event` tab while omitting five
-  shipped ones (`:epoch` · `:resources` · `:derivation-graph` ·
-  `:module-view` · `:fresco`). Nothing caught that, because this
-  function defaulted past every absent key, so the roster could not
-  drift into a wrong ANSWER, only into a wrong LIST. A hand-listed tab
+  A future per-panel signal changes THIS BODY and no call site, and
+  needs no per-tab map here. This function defaults past every absent
+  key, so a hand-listed tab map could drift into a wrong LIST but
+  never a wrong ANSWER, and nothing would catch it. A hand-listed tab
   roster with no reader is a drift attractor, not an inventory.
 
   The live roster is `panel-registry/tab-ids-for-mode`, mirrored by
@@ -757,7 +728,7 @@
   `focus-cljs-test/valid-panels-mirrors-the-live-registry`. A
   re-diverge derives from THAT rather than restating it here.
 
-  Returns a `\"var(--rf-xray-<key>)\"` string post rf2-on4cm — the
+  Returns a `\"var(--rf-xray-<key>)\"` string — the
   active theme class scope on the shell root decides which palette's
   hex (`#539bf5` dark / `#0969da` light) resolves at paint time."
   [_tab]
@@ -767,24 +738,23 @@
   "Build an inline-style map that paints the per-panel accent as a
   3px left border on whichever element the caller applies it to; its
   callers are the roster (the static machines' definition-detail
-  title `<div>` today). It named the panel's `<h1>` until rf2-09c8s,
-  but no Xray view renders an `<h1>` (see [[display-stack]]). Inline
+  title `<div>`); no Xray view renders an `<h1>`. Inline
   style so per-panel call sites stay small + the stripe is co-located
   with the header chrome.
 
-  `tab` is the L4 tab keyword (`:event` / `:app-db` / …). Returns a
-  map merge-able into an existing `:style`. Per rf2-5kfxe.8."
+  `tab` is the L4 tab keyword (`:epoch` / `:app-db` / …). Returns a
+  map merge-able into an existing `:style`."
   [tab]
   {:border-left   (str "3px solid " (panel-accent tab))
    :padding-left  "10px"})
 
-;; ---- spacing scale (rf2-ezx8w · spec/021 §17.1.1) -----------------------
+;; ---- spacing scale (spec/021 §17.1.1) -----------------------------------
 
 (def spacing
   "Xray's 4-px-base spacing scale per spec/021 §17.1.1. Density is
   binding (§0); spacing reinforces it. Every gap / pad value across
   the panels is a multiple of 4 — this map catalogues the canonical
-  steps so per-panel implementations stop guessing.
+  steps so per-panel implementations need not guess.
 
   | Key      | Pixels | Use                                                |
   |----------|--------|----------------------------------------------------|
