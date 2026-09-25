@@ -1,19 +1,19 @@
 (ns day8.re-frame2-xray.static.shell-fresco-boundary-dom-cljs-test
-  "Xray's Static SHELL re-authored in the re-frame-native view layer, read
-  off a real React commit (rf2-k97c.3).
+  "Xray's Static SHELL in the re-frame-native view layer, read off a real
+  React commit.
 
   `static.shell`'s four regions — `ribbon`, `tab-bar`, `detail-panel` and
-  `surface` — are now `rf.fresco/defview` BOUNDARIES rather than
-  `rf/reg-view`s. Every earlier increment of this epic migrated a PANEL;
-  this is the first to migrate a piece of Xray's own CHROME, and the
-  chrome is what the mount path paints. This file is the behavioural
-  evidence for that swap.
+  `surface` — are `rf.fresco/defview` BOUNDARIES rather than
+  `rf/reg-view`s. Unlike the Static panels they are Xray's own CHROME,
+  and the chrome is what the mount path paints. This file is the
+  behavioural evidence that they behave as boundaries.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1, and here that means the whole
                                     3-layer chrome, because the node lane
-                                    can no longer walk past the bridge
+                                    walks a reproduction of the chrome
+                                    rather than the boundaries themselves
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes
                                     the update mean liveness)
     3 XRAY'S OWN INTERACTIONS     — W2's phase 3 fires the shell's OWN
@@ -26,50 +26,46 @@
       EVIDENCE                    — W3, SCOPED — see below
     6 CLEAN TEARDOWN              — W4
 
-  W5 is not one of the six: it witnesses that the tab-button React key
-  the migration moved out of `^{:key …}` reader metadata and into the
-  button's own ATTRIBUTE MAP is the key React actually reconciles on.
+  W5 is not one of the six: it witnesses that the tab-button React key,
+  carried in the button's own ATTRIBUTE MAP rather than in `^{:key …}`
+  reader metadata, is the key React actually reconciles on.
   A lost key does not fail — it degrades into index-based
   reconciliation, which paints identically and corrupts identity only
   once the list changes SHAPE — so no amount of \"the tabs are on
   screen\" can see it. The key expression is the tab `id`, a keyword,
   which is DOMAIN-shaped rather than positional, so a head-removal
-  identity row can see it (the positional-key case two earlier
-  increments hit has nothing for such a row to witness).
+  identity row can see it (a positional key would give such a row
+  nothing to witness).
 
   ## W3'S ZERO IS SCOPED, AND THE SCOPE IS THE POINT
 
   A Fresco boundary emits no `:rf.view/*` op — that is the structural
   claim, and W3 makes it. The Static shell's rendered SUB-TREE is silent
-  too as of rf2-k97c.3: the L1 ribbon's
-  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` were
-  `rf/reg-view`s reached through an `as-child` REAGENT ISLAND, and that
-  slice made both of them boundaries, which deleted the seam. This is
-  the commit the paragraph here used to promise.
+  too: the L1 ribbon's `frame-switcher/frame-switcher-view` and
+  `mode-pill/mode-pill` are boundaries the ribbon heads directly, not
+  `rf/reg-view`s reached through an `as-child` REAGENT ISLAND.
 
   So W3 asserts on the view-op ids rather than on a bare count: NO op
   names a view in `day8.re-frame2-xray.static.shell`, AND the id set is
   EMPTY outright. That second half is what stops the row degrading into
   \"some ops fired, fine\" — a future change that islands a widget
-  reddens here and has to say so. It stays a SET rather than a
+  reddens here and has to say so. It is a SET rather than a
   `(zero? (count …))` so the failure message names whatever came back.
 
   ## The mount is the SHELL'S mount
 
   `shell.cljs`'s `surface-composer` mounts the Static arm as the hiccup
-  head `[static-shell/surface {}]` inside `shell-view`'s
-  `[rf/frame-provider {:frame …}]`. [[mount-shell!]] does the same
-  crossing from a Reagent root.
+  head `[static-shell/surface {}]` inside the shell's
+  `[rf.fresco/frame-provider {:frame …}]`. [[mount-shell!]] does the
+  same from a Reagent root, under `rf/frame-provider`, which writes the
+  same React context.
 
-  rf2-k97c.3 — it used to mount `[static-shell/surface-bridge]`, the
-  PUBLIC `as-component` bridge #9644 shipped for a `reg-view`
-  `surface-composer`. The composer is a Fresco BOUNDARY now, so it heads
-  `surface` directly and that bridge is deleted. This suite still mounts
-  from a REAGENT root — deliberately, see §Substrate — so the crossing
-  has to happen somewhere, and it now happens HERE, in
-  [[surface-component]] / [[mount-shell!]] below. Same door
-  (`rf.fresco/as-component`), same guarantee: a React parent mounts the
-  result under the frame it is already in.
+  The composer is a Fresco BOUNDARY, so it heads `surface` directly with
+  no bridge. This suite mounts from a REAGENT root — deliberately, see
+  §Substrate — so the crossing has to happen somewhere, and it happens
+  HERE, in [[surface-component]] / [[mount-shell!]] below, through
+  `rf.fresco/as-component`: a React parent mounts the result under the
+  frame it is already in.
 
   Nothing below ever calls a view a second time. Every assertion after
   the mount reads `container.querySelector…` — the DOM React committed
@@ -77,10 +73,10 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is the family Xray supports —
   because the claim being made is that the chrome is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing: the fixture's default ambient
-  scope is still in effect during a synchronous `flushSync`, and tier 1
+  scope is in effect during a synchronous `flushSync`, and tier 1
   of the frame resolver is the dynamic var, so an ambient frame would
   SHADOW the React-context tier W1's frame-targeting row is about and
   that row would pass while measuring nothing.
@@ -115,7 +111,7 @@
 
 (def ^:private selected-tab-q
   "The shell's one read, made by TWO of its boundaries (`tab-bar` and
-  `detail-panel`, deliberately kept apart so a tab click does not
+  `detail-panel`, deliberately separate so a tab click does not
   re-render the ribbon). Named once because three rows key off it — the
   sub-cache is keyed by the query vector itself, so this value IS the
   cache key."
@@ -130,14 +126,13 @@
 (def ^:private expected-island-views
   "The view-ids W3 EXPECTS to fire, and the whole of them: NONE. The L1
   ribbon's `frame-switcher/frame-switcher-view` and
-  `mode-pill/mode-pill` were the only two, and rf2-k97c.3 made both of
-  them boundaries. Stated as a SET rather than as a count so that
-  islanding a widget cannot slip past a row that only counted zeros in
-  one direction, and so the failure message names whatever did fire.
+  `mode-pill/mode-pill` are boundaries, not `reg-view` islands. Stated
+  as a SET rather than as a count so that islanding a widget cannot
+  slip past a row that only counted zeros in one direction, and so the
+  failure message names whatever did fire.
 
-  W3 PINS THE L4 SLOT TO :flows FOR THIS SET TO BE WELL-DEFINED, and
-  the reason is measured rather than tidy. Written against the DEFAULT
-  :machines tab the row failed with an extra id,
+  W3 PINS THE L4 SLOT TO :flows FOR THIS SET TO BE WELL-DEFINED. On the
+  DEFAULT :machines tab the row would fail with an extra id,
   `panels.machine-canvas/Chart` — the Static Machines panel's own
   Topology island, which `definition-detail` reaches through its
   `as-child` seam once a machine is selected. Whether one IS selected
@@ -145,13 +140,13 @@
   process-GLOBAL, the `:browser-test` build runs every `-dom-cljs-test`
   namespace in one page, and a neighbouring suite's `rf/reg-machine`
   is enough. So :machines would make this set depend on load order in
-  BOTH directions. The Flows tab is fully migrated with no island at
-  all, which makes the set a statement about THIS shell.
+  BOTH directions. The Flows tab has no island at all, which makes the
+  set a statement about THIS shell.
 
-  THE L4 `[(:panel tab)]` ISLAND SURVIVES and does not contribute an
-  id: every Static panel registers a plain-fn BRIDGE, which is not a
-  substrate view render and emits nothing. The pin is about the
-  Machines tab's Chart, not about it."
+  THE L4 `[(:panel tab)]` ISLAND does not contribute an id: every
+  Static panel registers a plain-fn BRIDGE, which is not a substrate
+  view render and emits nothing. The pin is about the Machines tab's
+  Chart, not about it."
   #{})
 
 (def ^:private island-free-tab
@@ -280,15 +275,14 @@
 (defn- click!
   "Click a committed node, or FAIL THIS ROW rather than aborting the lane.
 
-  MEASURED, and it is why this helper exists rather than a bare
-  `.click`. Two rows below drive the shell through its own affordances,
-  so both hold a node that a regression can make nil. A raw `.click` on
-  nil throws a `TypeError` out of the async block, and
-  `cljs.test/run-block` has no try/catch — under a sabotage plant that
-  emptied the chrome it took the WHOLE browser lane down with NO
-  cljs.test summary at all, and every namespace scheduled after this one
-  never executed. A row whose subject has vanished should redden; it
-  must not silence its neighbours. The subsequent `poll-until` then
+  This helper exists rather than a bare `.click` because two rows below
+  drive the shell through its own affordances, so both hold a node that
+  a regression can make nil. A raw `.click` on nil throws a `TypeError`
+  out of the async block, and `cljs.test/run-block` has no try/catch —
+  a regression that emptied the chrome would take the WHOLE browser
+  lane down with NO cljs.test summary at all, and every namespace
+  scheduled after this one would never execute. A row whose subject has
+  vanished should redden; it must not silence its neighbours. The subsequent `poll-until` then
   times out and reddens on its own message, which is the honest report."
   [node label]
   (if (some? node)
@@ -316,16 +310,18 @@
 ;; ===========================================================================
 
 (deftest w1-shell-paints-three-layers-and-its-read-lands-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Static shell commits its whole
-            3-layer chrome through the bridge `surface-composer` mounts,
-            and its `rf.fresco/sub` read resolves against the frame the
+  (testing "the Static shell commits its whole 3-layer chrome when
+            mounted the way `surface-composer` mounts it, and its
+            `rf.fresco/sub` read resolves against the frame the
             enclosing `frame-provider` named rather than the ambient one.
-            Epic criteria 1 and 4.
+            Criteria 1 and 4.
 
             THIS ROW CARRIES MORE THAN A PANEL'S W1 DOES, and by
-            necessity: the node lane's chrome rows now stop at the
-            bridge's `[:>]` interop head, so the assertion that all three
-            layers actually paint has nowhere else to live."
+            necessity: the node lane's chrome rows walk
+            `test-helpers.static-shell-tree`'s reproduction of the
+            chrome rather than the boundaries, so the assertion that all
+            three layers actually paint under React has nowhere else to
+            live."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -337,8 +333,8 @@
         (try
           (is (some? (testid container "rf-xray-static-surface"))
               "the Static surface committed a real DOM root under React — a
-               Fresco boundary mounted through Reagent's `:>` from the bridge
-               `surface-composer` names")
+               Fresco boundary mounted through Reagent's `:>` via
+               `rf.fresco/as-component`")
           (is (some? (testid container "rf-xray-static-ribbon"))
               "L1 ribbon painted")
           (is (some? (testid container "rf-xray-static-tab-bar"))
@@ -353,13 +349,12 @@
               "and NO L2 event list — Static is event-INDEPENDENT, which is
                the one structural claim that distinguishes this surface from
                the Dynamic one")
-          ;; The two Reagent islands crossed. `as-child` handing back
-          ;; something React drops would leave the chrome above intact and
-          ;; only these missing, which is why they are asserted separately.
+          ;; The ribbon's own widgets. A widget that commits nothing would
+          ;; leave the chrome above intact and only these missing, which is
+          ;; why they are asserted separately.
           (is (some? (testid container "rf-xray-mode-pill"))
               "the mode-pill committed — a Fresco BOUNDARY the ribbon
-               heads directly since rf2-k97c.3, where it used to be a
-               `reg-view` reached across an `as-child` seam")
+               heads directly, with no `as-child` seam")
           (is (some? (testid container "rf-xray-static-ribbon-icons"))
               "and the right-icons cluster, which is CALLED rather than
                headed, painted beside it")
@@ -386,11 +381,11 @@
 ;; ===========================================================================
 
 (deftest w2-shell-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted shell re-renders and commits new DOM
+  (testing "the mounted shell re-renders and commits new DOM
             when its read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control
+            nothing it watches moved. Criterion 2, with the control
             that makes the update mean liveness rather than a commit that
-            simply had not happened yet; and epic criterion 3, because the
+            simply had not happened yet; and criterion 3, because the
             lever in phase 3 is the shell's OWN affordance — a tab button
             clicked in the committed DOM — rather than a dispatch aimed at
             the slot from outside.
@@ -488,16 +483,16 @@
         traces))
 
 (deftest w3-the-shell-boundaries-emit-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated Static chrome
+  (testing "rendering the Static chrome
             contributes NOTHING to the substrate's view-trace stream under
             any of its own view names, even when it is mounted INSIDE an
-            application frame. Epic criterion 5, proven structurally
+            application frame. Criterion 5, proven structurally
             rather than by the `:rf/xray` frame gate: a Fresco boundary is
             not a substrate view render, so there is no event to gate.
 
             THE ZERO IS SCOPED, AND THE SCOPE IS ASSERTED. The rendered
-            sub-tree is silent too as of rf2-k97c.3, which made the
-            ribbon's two `as-child` Reagent islands boundaries — so this
+            sub-tree is silent too — the ribbon's two widgets are
+            boundaries rather than `as-child` Reagent islands — so this
             row states BOTH halves: no id names the shell's own
             namespace, and NO id fires at all. A future change that
             islands a widget reddens here rather than sliding under a
@@ -537,9 +532,9 @@
               (is (= expected-island-views ids)
                   (str "and NO view id fires at all, so the scope of the zero "
                        "above is pinned rather than assumed. The ribbon's two "
-                       "Reagent islands became boundaries in rf2-k97c.3, so a "
-                       "non-empty set here is a widget that has been islanded "
-                       "again. Expected: "
+                       "widgets are boundaries, so a "
+                       "non-empty set here is a widget that has been "
+                       "islanded. Expected: "
                        (pr-str expected-island-views)
                        " Got: " (pr-str ids)))
               (finally (teardown! root container))))
@@ -574,12 +569,13 @@
   (zero? (ref-count-of :rf/xray selected-tab-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the Static shell releases its
+  (testing "unmounting the Static shell releases its
             subscription reference completely, and mounting it again
-            returns to the SAME count rather than a higher one. Epic
-            criterion 6, and the number the spike caught the rejected
-            design on: with a four-call interop binding the `:rf/xray`
-            ref-count climbed across renders and never fell on unmount.
+            returns to the SAME count rather than a higher one.
+            Criterion 6, and the number that separates a correct binding
+            from a four-call interop binding, under which the `:rf/xray`
+            ref-count would climb across renders and never fall on
+            unmount.
 
             TWO boundaries read this one query, deliberately, so the
             count is what it is; what the row is about is that the count
@@ -640,9 +636,9 @@
 ;; ===========================================================================
 
 (deftest w5-tab-identity-survives-a-head-removal
-  (testing "rf2-k97c.3 (RULING 2) — the tab-button React key the migration
-            moved out of `^{:key …}` reader metadata and into the button's
-            own ATTRIBUTE MAP is the key React actually reconciles on.
+  (testing "the tab-button React key, carried in the button's own
+            ATTRIBUTE MAP rather than in `^{:key …}` reader metadata, is
+            the key React actually reconciles on.
             Removing the HEAD of the tab list leaves the survivor as the
             SAME DOM node; under index-based reconciliation — which is
             what a lost key silently degrades to — React would reuse the
@@ -692,9 +688,9 @@
                   (is (identical? survivor (tab-node container :routes))
                       "and the survivor is the IDENTICAL DOM node React
                        already had — which is only true if the key reached
-                       React. With the key left in metadata the codec cannot
-                       read, React reconciles by index and hands the survivor
-                       the HEAD's node instead")))
+                       React. With the key in metadata the codec cannot
+                       read, React would reconcile by index and hand the
+                       survivor the HEAD's node instead")))
               (.catch (fn [e]
                         (is false (str "W5 never settled: " (.-message e)
                                        " — DOM: " (.-textContent container)))
