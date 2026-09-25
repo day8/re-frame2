@@ -278,7 +278,7 @@ Under the **two-partition frame contract** (the canonical definition is [002 §T
      :fx  [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 ```
 
-The one boot-time rule: **never put a `:rf/runtime` key in a `:db` value** — a `:db` carrying the retired single-root `:rf/runtime` key is the hard error `:rf.error/legacy-runtime-root` (the contract is owned by [Conventions §The legacy `:rf/runtime` root](Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). Carrying `:rf/runtime` across the replace to preserve the snapshot is both unnecessary (the partition is already untouched) and forbidden (it throws). To seed or replace runtime-db state, emit the reserved `:rf.db/runtime` effect (or use `replace-frame-state!` with a `:rf.db/runtime` key), never an app-db key. The [MIGRATION guide](../migration/from-re-frame-v1/README.md) makes the same correction for any v1 full-db-replace boot event adopted into v2.
+The one boot-time rule: **never put a `:rf/runtime` key in a `:db` value** — a `:db` carrying a single-root `:rf/runtime` key is the hard error `:rf.error/legacy-runtime-root` (the contract is owned by [Conventions §The legacy `:rf/runtime` root](Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). Carrying `:rf/runtime` across the replace to preserve the snapshot is both unnecessary (the partition is already untouched) and forbidden (it throws). To seed or replace runtime-db state, emit the reserved `:rf.db/runtime` effect (or use `replace-frame-state!` with a `:rf.db/runtime` key), never an app-db key. The [MIGRATION guide](../migration/from-re-frame-v1/README.md) makes the same correction for any v1 full-db-replace boot event adopted into v2.
 
 #### 4. The eager kick commits the birth snapshot before the entry `:fx` run
 
@@ -337,7 +337,7 @@ The pattern, distilled to a worked sketch:
    :data    {:token nil :user nil :error nil}
 
    :guards
-   ;; rf2-ibksxg — the canonical reply carries the classified :rf.http/* map
+   ;; the canonical reply carries the classified :rf.http/* map
    ;; under :error; branch on (:kind error) / (:status error).
    {:got-401? (fn [{[_ {:keys [error]}] :event}]
                 (and (= :rf.http/http-4xx (:kind error))
@@ -460,7 +460,7 @@ The two boots compose cleanly because the boot state machine's snapshot is a run
 
 In dev, hot-reload re-evaluates `reg-event` forms; surgical `make-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
-This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`make-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb, rf2-lxwpob) or an **ordinary re-entry event the machine handles**, as [§Re-boot semantics](#re-boot-semantics) sets out. It is **not** `[:app/boot [:rf.machine/start]]`: that marker is spent once the machine exists, and a redundant one on an already-alive machine runs no cascade and emits nothing (per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)).
+This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`make-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb) or an **ordinary re-entry event the machine handles**, as [§Re-boot semantics](#re-boot-semantics) sets out. It is **not** `[:app/boot [:rf.machine/start]]`: that marker is spent once the machine exists, and a redundant one on an already-alive machine runs no cascade and emits nothing (per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)).
 
 ### Re-boot semantics
 
