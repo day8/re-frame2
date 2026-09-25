@@ -97,13 +97,12 @@
                            :views-rendered N
                            :flows-recomputed N}}
 
-  EP-0025: the standing derived-output declassification audit
-  (`:public-declassifications`) is REMOVED — classification no longer
-  propagates input → output, so there is no `:rf.egress/output-sensitivity
-  :rf.egress/public` declassify claim to enumerate. (A sensitive derived
-  value is now just a classified output PATH.)
+  There is no derived-output declassification audit slot: under EP-0025
+  classification does not propagate input → output, so there is no
+  `:rf.egress/output-sensitivity :rf.egress/public` declassify claim to
+  enumerate. (A sensitive derived value is a classified output PATH.)
 
-  `:sub-readers` (rf2-y23uw) is the shared-subscription edge map — for
+  `:sub-readers` is the shared-subscription edge map — for
   each sub-id, the views that deref'd it this event-bundle ('which views read
   sub X'), derived from the per-view `:rf.view/deref-subs` read-sets. The
   same list rides each sub row's `:readers` slot so the Views panel can
@@ -137,25 +136,24 @@
   "Locate the focused epoch record in `epoch-history`.
 
   Routes through the shared `panels.shared.focus-resolver/find-epoch-record`
-  (rf2-uo0rc.1) so the Views panel resolves focus identically to every
-  other L4 panel:
+  so the Views panel resolves focus identically to every other L4 panel:
 
-    - NIL `epoch-id` + non-empty history → HEAD record (rf2-h0120
-      head-fallback — the natural LIVE / cold-start debugging UX).
+    - NIL `epoch-id` + non-empty history → HEAD record (head-fallback —
+      the natural LIVE / cold-start debugging UX).
     - `epoch-id` MATCHES a record → that record.
     - `epoch-id` pinned but EVICTED from the ring → nil. The composite
       then reports `:has-event-bundle? false` and the panel renders its
       empty/§10.7-evicted placeholder rather than silently falling back
-      to HEAD and showing the LATEST event-bundle, which lied about which
-      epoch the operator was inspecting.
+      to HEAD and showing the LATEST event-bundle, which would lie about
+      which epoch the operator is inspecting.
     - empty history → nil.
 
-  ## The pinned bundle that settled no epoch (rf2-hiri8)
+  ## The pinned bundle that settled no epoch
 
   The 3-arity additionally takes the focus's pinned `dispatch-id` and
   resolves to NO record — never the head — when `epoch-id` is nil while a
   `dispatch-id` is pinned. That is the SAME class of lie the evicted case
-  above already refuses, one discriminator short: a focus the operator SET
+  above refuses, one discriminator short: a focus the operator SET
   to an event bundle that settled no epoch carries a nil `epoch-id`
   (`spine/epoch-id-for-event-bundle` answers nil for a dispatch refused
   before any handler ran, a bundle still mid-build, a bundle whose epoch
@@ -164,10 +162,10 @@
   an unset focus; handing the head to a caller who pinned a bundle that
   settled nothing renders one event's cascade under another event's row.
 
-  The 2-arity is unchanged and cannot answer that case, having nothing to
-  answer it from — it stays the form
-  `install-legacy-reactive-data-sub-for-test!` calls, which models
-  PREDECESSOR code on purpose and must not be `fixed`."
+  The 2-arity cannot answer that case, having nothing to answer it
+  from — it is the form `install-legacy-reactive-data-sub-for-test!`
+  calls, which models PREDECESSOR code on purpose and must not be
+  `fixed`."
   ([epoch-history epoch-id]
    (focused-epoch-record epoch-history epoch-id nil))
   ([epoch-history epoch-id dispatch-id]
@@ -179,7 +177,7 @@
   [event]
   (or (:operation event) (:op event)))
 
-;; ---- view action + reason (rf2-8ve8z, phase-A rf2-9hoos contract) ---------
+;; ---- view action + reason -------------------------------------------------
 
 (defn- changed-sub-id-set
   "Set of sub-ids whose value CHANGED this event-bundle — `:value-changed?`
@@ -217,7 +215,7 @@
     {:kind :structural}  — the view rendered but none of the subs it
         derefs changed (or it derefs no subs at all). The unnamed
         `← parent re-render` case — we deliberately never name the
-        parent (permanent, per rf2-8ve8z).
+        parent.
 
   Pure. nil-safe on both args."
   [deref-subs changed-set]
@@ -234,10 +232,10 @@
 
 (defn view-rows
   "Project the focused event-bundle's view-render + view-unmount trace events
-  into ordered `:view-row` maps for the Views table (rf2-8ve8z).
+  into ordered `:view-row` maps for the Views panel's view nodes.
 
   Reads `:rf.view/rendered` and `:rf.view/unmounted` ops off the raw
-  `:trace-events` (the phase-A rf2-9hoos additions). The structured
+  `:trace-events`. The structured
   `:renders` projection is intentionally NOT used here — `render-row`
   (`re-frame.epoch.capture`) projects from the same post-render
   `:rf.view/rendered` op, but its row carries no `:rf.view/deref-subs`
@@ -252,12 +250,12 @@
      :action       :mount | :rerender | :unmount
      :reason       {:kind :reactive :subs [...]} | {:kind :structural}
                    | {:kind :none}                 ; unmount
-     :triggered-by <sub-id>?    ; rf2-8wrzz.1 — the SINGLE cause sub
-     :elapsed-ms   <number>?    ; rf2-8wrzz.1 — render wall-clock
-     :deref-subs   [<query-v> ...]?}  ; rf2-3x7nj.24.3 — this render's read-set
+     :triggered-by <sub-id>?    ; the SINGLE cause sub
+     :elapsed-ms   <number>?    ; render wall-clock
+     :deref-subs   [<query-v> ...]?}  ; this render's read-set
 
   `:triggered-by` (the per-view re-render cause) + `:elapsed-ms` (render
-  timing) ride the `:rf.view/rendered` op from rf2-8wrzz.1; the flow
+  timing) ride the `:rf.view/rendered` op; the flow
   graph (spec/021 §3.2) uses them to label each sub→view edge's cause +
   the view node's timing. Both are absent on a structural re-render /
   outside an event-bundle — the slot is simply omitted.
@@ -286,7 +284,7 @@
                                :reason     (compute-view-reason deref-subs changed-set)}
                         (some? triggered-by) (assoc :triggered-by triggered-by)
                         (some? elapsed-ms)   (assoc :elapsed-ms elapsed-ms)
-                        ;; rf2-3x7nj.24.3 — THIS instance's read-set, which
+                        ;; THIS instance's read-set, which
                         ;; routes the flow graph's sub-instance edges.
                         (seq deref-subs)     (assoc :deref-subs (vec deref-subs))))
 
@@ -326,11 +324,10 @@
   §3.2) — subs cleaned up when their last reader unmounted.
 
   Reads the `:rf.sub/dispose` teardown op (the sub-dispose op spec/021
-  §3.5 pairs with view-unmount). Per rf2-uo4e2 the framework-emitted
-  op-name is `:rf.sub/dispose` (singular form per spec/023's rf2-2v3p7
-  typo fix); pre-fix this panel read the past-tense form which never
-  matched any framework-emitted trace and rendered as silent dead code.
-  Each `:rf.sub/dispose` op anchors a row `{:sub-id <kw/id>}`. First-
+  §3.5 pairs with view-unmount). The framework-emitted op-name is
+  `:rf.sub/dispose` — the present-tense form; a past-tense spelling
+  matches no framework-emitted trace and would render as silent dead
+  code. Each `:rf.sub/dispose` op anchors a row `{:sub-id <kw/id>}`. First-
   seen order, de-duplicated. nil-safe; ops without a `:sub-id` are
   skipped."
   [trace-events]
@@ -343,7 +340,7 @@
        (distinct)
        (mapv (fn [sub-id] {:sub-id sub-id}))))
 
-;; ---- shared-subscription edges (rf2-y23uw) --------------------------------
+;; ---- shared-subscription edges -------------------------------------------
 
 (defn sub-readers
   "Build the sub→readers map for this event-bundle — `{sub-id [view-id ...]}` —
@@ -390,12 +387,12 @@
         (or trace-events []))
       (->> (reduce-kv (fn [m sid entry] (assoc m sid (:order entry))) {}))))
 
-;; ---- sub-level partition (rf2-8ve8z, sub-topology contract) ---------------
+;; ---- sub-level partition (sub-topology contract) --------------------------
 
 (defn topology-coord
   "Extract the jump-to-source coord (`{:file :line :ns}`) for a sub from
   a `sub-topology` entry. Returns nil when the entry carries no `:file`
-  (degrade gracefully — the `code` column simply omits the chip)."
+  (degrade gracefully — the node simply has no source to jump to)."
   [topo-entry]
   (when-let [file (:file topo-entry)]
     (when (string? file)
@@ -410,8 +407,8 @@
   default — the conservative bucket, since a sub with no declared
   topology entry has no upstream sub edges.
 
-  Keys off `:input-kind` (rf2-e3acps): a `:parametric` sub reports
-  `:inputs :parametric` (a keyword, not a vector), so the old
+  Keys off `:input-kind`: a `:parametric` sub reports
+  `:inputs :parametric` (a keyword, not a vector), so an
   `(empty? (:inputs topo-entry))` test would throw on it. `:input-kind`
   is the precise discriminator — `:db` is Level 1, everything else
   composes upstream subs."
@@ -425,7 +422,7 @@
 
 (defn topology-input-sub-ids
   "Project a `sub-topology` entry's `:inputs` to the vector of upstream
-  SUB-IDs the Level 2+ flow-graph resolves edges against (rf2-e3acps).
+  SUB-IDs the Level 2+ flow-graph resolves edges against.
 
   The static `sub-topology` reports `:static` inputs as full query-
   vectors (`[[:items] [:filter]]`, args preserved — per Spec 002 §The
@@ -450,13 +447,13 @@
       [])))
 
 (defn partition-subs-by-level
-  "Partition the event-bundle's subs into the Level 1 / Level 2+ table rows
-  using the static `sub-topology` snapshot (rf2-8ve8z).
+  "Partition the event-bundle's subs into the Level 1 / Level 2+ rows
+  using the static `sub-topology` snapshot.
 
   `subs-ran` is the `:sub-runs` projection slice (each entry carries
   `:sub-id`, `:value-changed?`, `:value`, `:prev-value`). `topology` is
   the `re-frame.subs.tooling/sub-topology` map (`{sub-id {:input-kind _
-  :inputs [...] :ns :line :file}}`). `readers` (optional, rf2-y23uw) is
+  :inputs [...] :ns :line :file}}`). `readers` (optional) is
   the sub→readers map from `sub-readers` (`{sub-id [view-id ...]}`).
 
   Returns `{:level-1 [row ...] :level-2 [row ...]}` where each row:
@@ -467,8 +464,8 @@
               :inputs [<input-sub-id> ...] :input-query-vs [<query-v> ...]?
               :coord {...}? :readers [...]?}
 
-  Level partitioning keys off the topology entry's `:input-kind`
-  (rf2-e3acps): `:db` is Level 1 (reads app-db directly), `:static` /
+  Level partitioning keys off the topology entry's `:input-kind`:
+  `:db` is Level 1 (reads app-db directly), `:static` /
   `:parametric` are Level 2+. The Level 2 `:inputs` slot carries the
   upstream SUB-IDs (the flow-graph's edge-endpoint key space): the
   statically declared input heads for a `:static` sub, and `[]` for a `:parametric`
@@ -479,7 +476,7 @@
   sub. Realized parametric edges surface in the live/cache view.
 
   `:readers` is the views that deref this sub THIS event-bundle — the
-  shared-subscription edge (rf2-y23uw); absent when no rendered view read
+  shared-subscription edge; absent when no rendered view read
   it (e.g. a handler-side or upstream-input sub no view directly derefs).
 
   Order preserved from `subs-ran` within each level. nil-safe: a sub
@@ -498,7 +495,7 @@
                changed?   (boolean (:value-changed? sub-run))
                coord      (topology-coord topo-entry)
                sub-rdrs   (get rdrs sub-id)]
-           ;; rf2-3x7nj.24.3 — each row is one INSTANCE, so it carries its
+           ;; Each row is one INSTANCE, so it carries its
            ;; concrete `:query-v`; a `:static` Level-2 row also carries its
            ;; declared input query-vs, which name the input instance its
            ;; flow-graph edge starts from.
@@ -523,7 +520,7 @@
 ;; ---- memo-hit skip evidence (spec/021 §3.4) -------------------------------
 
 (defn- skip-query-v
-  "Concrete-query identity for a `:rf.sub/skip` op (rf2-cj2yx). The
+  "Concrete-query identity for a `:rf.sub/skip` op. The
   canonical `:rf.sub/query-v` tag names the EXACT parameterized instance
   the cache/trace short-circuited (`[:item/derived 1]` distinct from
   `[:item/derived 2]`), so it — not the registered `:rf.sub/id` — is the
@@ -549,15 +546,15 @@
   declared-input query-vectors for a layer-n sub).
 
   Each projected row `{:sub-id _ :query-v _ :reason _ :input-paths-unchanged
-  [...]}`. De-duplicated + cross-excluded by CONCRETE QUERY-V identity
-  (rf2-cj2yx), NOT the registered sub-id: the cache and trace identify a
+  [...]}`. De-duplicated + cross-excluded by CONCRETE QUERY-V identity,
+  NOT the registered sub-id: the cache and trace identify a
   short-circuited reaction by its full query vector, so a burst that
   memo-hits `[:item/derived 2]` twice collapses to one row while
   `[:item/derived 1]` and `[:item/derived 2]` stay two distinct rows.
   `ran-query-vs` is the set of concrete query-vectors that RECOMPUTED this
   epoch; a skip is excluded ONLY when its exact query recomputed (a sub
   that ran DID fire — it is a `:subs-ran` row, not an unchanged one), so
-  `[:item/derived 1]` recomputing no longer suppresses a `[:item/derived 2]`
+  `[:item/derived 1]` recomputing does not suppress a `[:item/derived 2]`
   skip. This keeps `:subs-skipped` cleanly distinct from `:subs-ran`, the
   two categories the panel must never conflate.
 
@@ -601,7 +598,7 @@
 
   `topology` (optional) is the `re-frame.subs.tooling/sub-topology`
   snapshot used to partition subs into Level 1 / Level 2+ and supply
-  the `inputs` + `code` columns. Absent / nil topology degrades every
+  each sub's inputs + source coord. Absent / nil topology degrades every
   sub to Level 1 with no inputs / no coord — the panel still renders.
 
   `:sub-runs` entries carry `:sub-id` / `:query-v` / `:recomputed?` /
@@ -610,8 +607,8 @@
   `:subs-ran` IS the run-set. Memo-hit skips are a SEPARATE slice
   (`:subs-skipped`), projected from the canonical `:rf.sub/skip` ops on
   `:trace-events` by `skipped-subs` (excluding subs that also ran, so the
-  two slices never conflate). The view rows ride the phase-A rf2-9hoos
-  fields on the view-render ops.
+  two slices never conflate). The view rows ride the `:mount?` /
+  `:deref-subs` fields on the view-render ops.
 
   Returns the map shape documented in the ns docstring (sans the
   focus / frame / dispatch-id keys; those come from the spine sub)."
@@ -626,7 +623,7 @@
          flows-comp    (count (get grouped :rf.flow/computed []))
          flows-skipped (count (get grouped :rf.flow/skip []))
          changed-set   (changed-sub-id-set ran)
-         ;; rf2-cj2yx — cross-exclude skipped subs by CONCRETE query-v, not
+         ;; Cross-exclude skipped subs by CONCRETE query-v, not
          ;; the registered sub-id: a recomputed `[:item/derived 1]` must
          ;; exclude only its own skip, never a `[:item/derived 2]` memo-hit.
          ;; Documented fallback to `[sub-id]` when a run row lacks its query-v.
@@ -659,10 +656,10 @@
                         :flows-recomputed flows-comp
                         :flows-skipped    flows-skipped}})))
 
-;; EP-0025: the standing derived-output declassification audit
-;; (`public-declassification-rows`) is REMOVED — classification no longer
-;; propagates input → output, so there is no `:rf.egress/output-sensitivity
-;; :rf.egress/public` declassify claim to enumerate.
+;; There is no derived-output declassification audit: under EP-0025
+;; classification does not propagate input → output, so there is no
+;; `:rf.egress/output-sensitivity :rf.egress/public` declassify claim to
+;; enumerate.
 
 (defn- triggered-by
   "The triggering event vector for the epoch. Reads the `:event` slot
@@ -671,12 +668,9 @@
   [record]
   (:event record))
 
-;; rf2-y8doi.25 — `seed-paths` is REMOVED, and with it the `:seed-paths`
-;; slot on `:rf.xray/reactive-data`. It read `:rf/changed-paths` off the
-;; epoch record, and nothing anywhere stamps that key: at the time of
-;; removal the literal appeared exactly ONCE in the whole tracked tree —
-;; here, at the read. So the slot was an unconditional `[]`, and no view
-;; read it. The changed-path derivation that does exist is the App-DB tab's
+;; There is no `:seed-paths` slot on `:rf.xray/reactive-data`: nothing
+;; stamps a `:rf/changed-paths` key on the epoch record for it to read.
+;; The changed-path derivation that does exist is the App-DB tab's
 ;; (`diff.engine/project` over the record's pre/post images); if the
 ;; Reactive panel ever wants seed paths, that is where they come from.
 
@@ -702,25 +696,26 @@
               [:rf.xray/reactive-show-unchanged?]
               [:rf.xray/setting :general :show-unchanged-subs?]]}
     (fn [[focus history panel-unchanged? config-unchanged?] _query]
-      ;; rf2-hiri8 — pass the PINNED `:dispatch-id` as well as the
-      ;; `:epoch-id`. Reading `:epoch-id` alone discarded the discriminator
-      ;; at this call, so a bundle that settled no epoch head-fell-back and
-      ;; the panel projected the HEAD epoch's cascade while `:dispatch-id`
-      ;; below still reported the operator's pin — one composite's two
-      ;; halves disagreeing about one selection.
+      ;; Pass the PINNED `:dispatch-id` as well as the `:epoch-id`.
+      ;; Reading `:epoch-id` alone would discard the discriminator at this
+      ;; call, so a bundle that settled no epoch would head-fall-back and
+      ;; the panel would project the HEAD epoch's cascade while
+      ;; `:dispatch-id` below reports the operator's pin — one composite's
+      ;; two halves disagreeing about one selection.
       (let [record   (focused-epoch-record history
                                            (:epoch-id focus)
                                            (:dispatch-id focus))
             ;; Static topology snapshot — read once per event-bundle. Free
             ;; (registry-only); used to partition L1 / L2+ subs and
-            ;; supply the inputs + code columns. Defensive try so a
+            ;; supply each sub's inputs + source coord. Defensive try so a
             ;; topology read never crashes the panel.
             ;;
-            ;; rf2-2jhet — resolved through the OBSERVED frame. This body
-            ;; runs inside Xray's own generation binding, and `sub-topology`
-            ;; reads whichever generation is bound, so a bare call classified
+            ;; Resolved through the OBSERVED frame. This body runs inside
+            ;; Xray's own generation binding, and `sub-topology` reads
+            ;; whichever generation is bound, so a bare call would classify
             ;; the host's subs by the INSPECTOR's image: an image-local
-            ;; derived sub came back as a Level-1 app-db reader with no edges.
+            ;; derived sub would come back as a Level-1 app-db reader with
+            ;; no edges.
             topology (try (rf.live-frame/call-with-frame-resolution
                             (:frame focus)
                             (fn [] (rf.subs.tooling/sub-topology)))
@@ -737,9 +732,9 @@
   nil)
 
 (defn install-legacy-reactive-data-sub-for-test!
-  "TEST-ONLY (rf2-sa8j3): register the PREDECESSOR two-input
-  `:rf.xray/reactive-data` sub — the shape before f012c70e6f added the
-  panel-local `:rf.xray/reactive-show-unchanged?` quick-toggle + the
+  "TEST-ONLY: register a PREDECESSOR two-input `:rf.xray/reactive-data`
+  sub — the shape without the panel-local
+  `:rf.xray/reactive-show-unchanged?` quick-toggle + the
   `[:rf.xray/setting :general :show-unchanged-subs?]` pin. The two-input body
   reads only `:rf.xray/focus` + `:rf.xray/epoch-history` and hard-codes
   `:show-unchanged? false`, so it CANNOT respond to either disclosure axis —
