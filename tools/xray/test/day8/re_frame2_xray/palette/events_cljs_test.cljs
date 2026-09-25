@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.palette.events-cljs-test
   "CLJS end-to-end tests for the palette's open/close/cursor/invoke
-  contracts (rf2-wm7z4).
+  contracts.
 
   Drives the registered events against the live registrar so the
   test exercises the same code paths the keybinding + view dispatch
@@ -11,7 +11,7 @@
   Ctrl+Enter / open-popout invocations can be asserted without
   driving the mount layer (which would need a real `window.open`).
 
-  rf2-mxzgg — the snapshot-app-db egress tests stub `js/console.log`
+  The snapshot-app-db egress tests stub `js/console.log`
   and a clipboard `writeText` so the off-box payload (both sinks) can
   be captured and asserted to carry the redacted/size-elided
   projection rather than the raw secret."
@@ -30,15 +30,14 @@
 ;; ---- fixture -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; `make-xray-runtime-fixture` owns the reset: the `:all` reset
   ;; tier — install (== preload's alias) + registry + mount sentinels + the
   ;; trace-collector rings; `:post-reset` carries this suite's tail.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (config/reset-suppressed-count!)
                    (config/set-project-root! nil)
-                   ;; rf2-ybjkx — clear palette recents between tests so each
+                   ;; Clear palette recents between tests so each
                    ;; scenario starts clean. localStorage degrades silently in
                    ;; Node (no window.localStorage); the clear is a no-op there.
                    (recents/clear!))}))
@@ -52,7 +51,7 @@
 (def ^:private popout-calls (atom 0))
 
 (defn- install-popout-counter!
-  "Install the counting stub AFTER `setup!` has run. rf2-h1vqa4: the stub
+  "Install the counting stub AFTER `setup!` has run. The stub
   rides the `:rf/xray` frame's `:fx-overrides` (fn-value form) — the
   designed per-frame fx-replacement seam — instead of re-registering the
   xray-owned fx id from this test ns, which would sit beside the
@@ -136,9 +135,8 @@
 ;; ---- invoke ------------------------------------------------------------
 
 (deftest invoke-select-panel-flips-tab-and-closes
-  ;; rf2-qy0nu — palette-panels ids are L3 tab ids; the lowering
-  ;; dispatches `:rf.xray/select-tab` so the visible tab flips. The
-  ;; legacy `:rf.xray/select-panel` slot is no longer read.
+  ;; palette-panels ids are L3 tab ids; the lowering dispatches
+  ;; `:rf.xray/select-tab` so the visible tab flips.
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open])
@@ -152,7 +150,7 @@
   (is (= :trace (:selected-tab (xray-db))))
   (is (false? (boolean (:palette-open? (xray-db))))))
 
-;; rf2-gwye.8 — a recent-event pick drives the SHARED spine focus
+;; A recent-event pick drives the SHARED spine focus
 ;; (`:rf.xray/focus-event`), which the Epoch panel reads; the palette keeps
 ;; no selection of its own. Items are built by the real source fn from
 ;; producer-shaped trace rows.
@@ -281,14 +279,12 @@
        false]))
   (is (false? (boolean (:palette-open? (xray-db))))))
 
-;; ---- rf2-ybjkx — new commands ------------------------------------------
+;; ---- command verbs -----------------------------------------------------
 
-;; (`invoke-clear-epoch-history-drops-slot` was REMOVED with the verb —
-;; rf2-y8doi.27. It passed, and it was the reason the verb looked alive:
-;; it asserted the dissoc within the SAME dispatch, which is the one
-;; moment the clear holds. `:epoch-history` is a mirror re-seeded
-;; wholesale by the next recorded epoch, so the property the test pinned
-;; was real and the FEATURE was not.)
+;; (There is no clear-epoch-history verb. `:epoch-history` is a mirror
+;; re-seeded wholesale by the next recorded epoch, so a clear would hold
+;; only within its own dispatch — a test asserting the dissoc there would
+;; pass while the feature did nothing.)
 
 (deftest invoke-toggle-theme-flips-via-settings-update
   (setup!)
@@ -335,7 +331,7 @@
       "second cycle: :always → :never"))
 
 (deftest invoke-cycle-density-drives-the-settings-control-rf2-gwye-9
-  (testing "rf2-gwye.9 — the palette's density command flips the SAME
+  (testing "the palette's density command flips the SAME
             setting the Settings radio writes (:cosy ↔ :compact), so the
             config value and the density sub agree, and closes the palette"
     (setup!)
@@ -422,7 +418,7 @@
   (is (= :rf/cart-frame (:target-frame (xray-db)))
       ":target-frame is also written by the canonical handler"))
 
-;; ---- rf2-ybjkx — recents tracking --------------------------------------
+;; ---- recents tracking --------------------------------------------------
 
 (deftest invoking-a-command-records-it-in-recents
   (setup!)
@@ -477,26 +473,26 @@
   (is (empty? (:palette-recents (xray-db)))
       "panel jumps don't pollute the recents vector"))
 
-;; ---- rf2-mxzgg — snapshot-app-db routes off-box payload through safe egress
+;; ---- snapshot-app-db routes off-box payload through safe egress
 
 ;; The `:palette/snapshot-app-db` verb fires the
 ;; `:rf.xray.palette.fx/snapshot-app-db` fx, which reads the focused
 ;; frame's app-db and ships it to TWO off-box sinks: `console.log` and
-;; `navigator.clipboard.writeText`. Pre-rf2-mxzgg it shipped the RAW
-;; `(rf/app-db-value tf)` — a frame-declared sensitive slot
-;; (`{:auth {:password "shh"}}`) crossed both sinks unredacted. The fix
-;; routes the value through `egress/egress-value` (the same fail-closed
-;; projection every Xray off-box sink uses) FIRST, so the payload carries
-;; `:rf/redacted` by default. These tests capture both sinks and assert
-;; the secret never leaves the box on the command default.
+;; `navigator.clipboard.writeText`. The fx routes the value through
+;; `egress/egress-value` (the same fail-closed projection every Xray
+;; off-box sink uses) FIRST, so the payload carries `:rf/redacted` by
+;; default; shipping the RAW `(rf/app-db-value tf)` would carry a
+;; frame-declared sensitive slot (`{:auth {:password "shh"}}`) across both
+;; sinks unredacted. These tests capture both sinks and assert the secret
+;; never leaves the box on the command default.
 
 (defn- capture-snapshot-sinks!
   "Stub `js/console.log` + a `navigator.clipboard.writeText` so the
   snapshot fx's two off-box payloads are captured rather than emitted.
-  Returns `{:console (atom []) :clipboard (atom [])}` carrying every
-  payload each sink received; the caller restores nothing because the
-  test fixture resets the runtime + the node globals are per-process
-  scratch (the real console.log is restored explicitly below)."
+  Returns `{:console (atom []) :clipboard (atom []) :restore f}`: the two
+  atoms carry every payload each sink received, and the caller invokes
+  `:restore` to put the real console.log back. The synthesised clipboard
+  is left in place, because the node globals are per-process scratch."
   []
   (let [console-payloads   (atom [])
         clipboard-payloads (atom [])
@@ -532,7 +528,7 @@
 ;; frame — the palette dispatches against `:rf/xray` but the snapshot
 ;; reads the frame the L1 picker focused (`:target-frame`). We model that
 ;; faithfully with a dedicated `:rf/host` frame: the secret + the schema
-;; declarations live on `:rf/host`, and the fix's `(with-frame tf …)`
+;; declarations live on `:rf/host`, and the fx's `(with-frame tf …)`
 ;; egress pin makes the walker resolve `:rf/host`'s declarations even
 ;; though the fx fires in the `:rf/xray` frame.
 
@@ -567,7 +563,7 @@
        false])))
 
 (deftest snapshot-app-db-redacts-sensitive-slot-on-both-off-box-sinks
-  ;; rf2-mxzgg — the command default MUST route the snapshot through
+  ;; The command default MUST route the snapshot through
   ;; safe egress before EITHER off-box sink receives it. The egress is
   ;; pinned to the focused (host) frame so that frame's own schema
   ;; declarations govern the redaction.
@@ -596,7 +592,7 @@
       (finally ((:restore sinks))))))
 
 (deftest snapshot-app-db-size-elides-large-slot-on-both-off-box-sinks
-  ;; rf2-mxzgg — size minimisation rides the same safe-egress default
+  ;; Size minimisation rides the same safe-egress default
   ;; (polarity parity with the runtime accessors): a frame-declared
   ;; `:large` slot is replaced with the `:rf.size/large-elided` marker.
   (setup!)

@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.panels-e2e.sync-epoch-focus-e2e-cljs-test
-  "Regression coverage for rf2-mdpfz — the Xray panel-gallery variants
-  seed `:epoch-history` DIRECTLY via `:rf.xray/sync-epoch-history` (no
-  live trace buffer / cascades), so nothing on the normal trace-driven
-  path selects an epoch. Pre-fix every focus-keyed Dynamic panel then
-  rendered its 'nothing focused' empty-state — the App-db panel showed
-  'app-db has no user-domain keys yet' and the Epoch panel showed 'No
+  "Regression coverage for a history-only seed — the Xray panel-gallery
+  variants seed `:epoch-history` DIRECTLY via `:rf.xray/sync-epoch-history`
+  (no live trace buffer / cascades), so nothing on the normal trace-driven
+  path selects an epoch. Unfocused, every focus-keyed Dynamic panel would
+  render its 'nothing focused' empty-state — the App-db panel would show
+  'app-db has no user-domain keys yet' and the Epoch panel 'No
   event focused.'.
 
-  The fix makes `:rf.xray/sync-epoch-history` ALSO focus the LATEST
+  So `:rf.xray/sync-epoch-history` ALSO focuses the LATEST
   seeded epoch (stamping `[:focus :epoch-id]` — the single source of
-  truth; rf2-uy7nz retired the former `:selected-epoch-id` mirror).
+  truth; there is no `:selected-epoch-id` mirror).
   This test reproduces the gallery scenario exactly — a history-only
   seed with NO trace buffer — and asserts:
 
@@ -18,9 +18,7 @@
        focused record's `:db-before` (populated diff pre-image) rather
        than nil (the empty-state trigger);
     3. the Epoch panel's `:rf.xray/epoch-pipeline` resolves `:focused`
-       on the head record (NOT `:no-focus`).
-
-  Failing-before / passing-after the rf2-mdpfz handler change."
+       on the head record (NOT `:no-focus`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -76,8 +74,8 @@
         (let [focus (e2e/sub-xray [:rf.xray/focus])]
           (is (= 32 (:epoch-id focus))
               "spine focus must carry the LATEST seeded epoch-id (32),
-               not nil — rf2-mdpfz: pre-fix focus stayed unset because
-               the sync bypassed the trace-driven auto-follow"))))))
+               not nil — the sync bypasses the trace-driven auto-follow,
+               so it must set focus itself"))))))
 
 (deftest sync-epoch-history-populates-app-db-before-image
   (testing "App-db panel resolves the focused record's :db-before (not nil)"
@@ -93,8 +91,8 @@
           (is (some? before)
               "the diff PRE-IMAGE (:before) is nil — the App-db panel
                renders its 'no user-domain keys yet' empty-state when
-               :before is absent (rf2-mdpfz / rf2-yng0y: no head-fallback
-               here, so focus MUST carry the epoch-id)")
+               :before is absent (no head-fallback here, so focus MUST
+               carry the epoch-id)")
           (is (= {:counter 6 :cart {:items []}} before)
               ":before must be epoch 32's :db-before — the populated
                pre-image, by construction"))))))
@@ -109,8 +107,8 @@
               (e2e/sub-xray [:rf.xray/epoch-pipeline])]
           (is (= :focused status)
               ":rf.xray/epoch-pipeline status must be :focused, not
-               :no-focus — the gallery Epoch panel rendered 'No event
-               focused' pre-fix")
+               :no-focus — otherwise the gallery Epoch panel renders
+               'No event focused'")
           (is (= 32 epoch-id))
           (is (= [:cart/add-item :apple] (:trigger-event record))
               "the focused record must be the head epoch (32)"))))))

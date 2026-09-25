@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.reactive-panel-disclosure-dispatch-routing-cljs-test
-  "MOUNTED click-time regression for the Views panel's unchanged-subs
-  disclosure controls (rf2-16y3x).
+  "MOUNTED click-time tests for the Views panel's unchanged-subs
+  disclosure controls.
 
   Sibling in shape to `settings/popup_dispatch_routing_cljs_test.cljs`:
   it plucks a deferred `:on-click` off the rendered hiccup and invokes it
@@ -8,44 +8,40 @@
   a React click fires AFTER render commits and the ambient frame scope has
   unwound.
 
-  rf2-k97c.3 — the facade's `Panel` is now an `rf.fresco/defview` BOUNDARY,
-  a real React function component whose body may only run inside a React
-  render window, so `reactive-panel/Panel` is no longer callable from the node
-  lane. `render-panel` below REPRODUCES THE BOUNDARY EXACTLY instead — the
-  same `(:dispatch (rf/capture-frame))` dispatcher and the same one
+  The facade's `Panel` is an `rf.fresco/defview` BOUNDARY, a real React
+  function component whose body may only run inside a React render
+  window, so `reactive-panel/Panel` is not callable from the node lane.
+  `render-panel` below REPRODUCES THE BOUNDARY EXACTLY instead — the same
+  `(:dispatch (rf/capture-frame))` dispatcher and the same one
   `:rf.xray/reactive-data` read, both under the same `with-frame` — and
-  hands them to the pure projection. The subject of these rows is
-  unchanged and is if anything sharper: the dispatcher whose frame-binding
-  they defend is now `capture-frame`'s rather than `reg-view`'s injected
-  name, and `capture-frame` is precisely the door documented for a
-  dispatch that fires long after the render extent has unwound.
+  hands them to the pure projection. The dispatcher whose frame-binding
+  these rows defend is `capture-frame`'s, and `capture-frame` is
+  precisely the door documented for a dispatch that fires long after the
+  render extent has unwound.
 
-  ## The two bugs these mounted tests defend against
+  ## The two defects these mounted tests defend against
 
-  1. **Panel-local toggle never reached `:rf/xray`.** The unchanged-subs
-     footer button installed a deferred `(fn [_e] (rf/dispatch …))` —
-     a BARE global dispatch. After render scope unwinds the two-tier
-     frame resolution (dynamic var → React-context tier) has nothing
-     beneath it — React's no-provider default is a SENTINEL, not
+  1. **A panel-local toggle that never reaches `:rf/xray`.** A deferred
+     `(fn [_e] (rf/dispatch …))` on the unchanged-subs footer button — a
+     BARE global dispatch — finds nothing beneath the two-tier frame
+     resolution (dynamic var → React-context tier) once render scope
+     unwinds — React's no-provider default is a SENTINEL, not
      `:rf/default` — so the dispatch raises `:rf.error/no-frame-context`
-     (EP-0002; before EP-0002 it silently reduced `:rf/default`'s db,
-     which is how the bug originally presented). Either way the click
-     never flipped Xray's `:reactive/show-unchanged?` and the
-     disclosure stayed collapsed.
-     The fix threads a frame-aware `dispatch` down through
-     `reactive-panel` → `unchanged-subs-section`, so the deferred click
-     lands on the surrounding instance frame. Since rf2-k97c.3 that
-     dispatcher is `(:dispatch (rf/capture-frame))`, taken inside the
-     boundary, rather than the name `reg-view` used to inject.
+     (EP-0002). The click would never flip Xray's
+     `:reactive/show-unchanged?` and the disclosure would stay collapsed.
+     So a frame-aware `dispatch` is threaded down through
+     `reactive-panel` → `unchanged-subs-section`, and the deferred click
+     lands on the surrounding instance frame. That dispatcher is
+     `(:dispatch (rf/capture-frame))`, taken inside the boundary.
 
-  2. **Settings pin had no UI.** The `:general :show-unchanged-subs?`
-     pin (spec/021 §3.4) lost its control on 2026-05-27 while the slot
-     stayed. Restored; the pin alone opens the disclosure.
+  2. **A Settings pin with no UI.** The `:general :show-unchanged-subs?`
+     pin (spec/021 §3.4) has its own control, and the pin alone opens the
+     disclosure.
 
-  The earlier registry tests dispatched inside a manually-bound
-  `:rf/xray` frame, which MASKED the click failure (they proved plumbing,
-  not the deferred-click path). These tests drive the real boundary's own dispatcher and read, then
-  fire the real deferred handler frameless, so the leak reproduces."
+  A test that dispatches inside a manually-bound `:rf/xray` frame MASKS
+  the click failure (it proves plumbing, not the deferred-click path).
+  These tests drive the real boundary's own dispatcher and read, then
+  fire the real deferred handler frameless, so a leak reproduces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -106,8 +102,8 @@
 (defn- render-panel
   "The boundary `reactive-panel/Panel` reproduced for the node lane — same
   dispatcher door, same single read, same frame — handed to the pure
-  projection. See the ns docstring's rf2-k97c.3 paragraph for why this is
-  not `reactive-panel/Panel` any more."
+  projection. See the ns docstring for why this is not
+  `reactive-panel/Panel`."
   [frame-id]
   (rf/with-frame frame-id
     (view/reactive-panel (:dispatch (rf/capture-frame))
@@ -127,7 +123,7 @@
 ;; ---- default collapsed -------------------------------------------------
 
 (deftest disclosure-default-collapsed
-  (testing "rf2-16y3x — with neither the panel-local toggle nor the
+  (testing "with neither the panel-local toggle nor the
             Settings pin set, the disclosure is collapsed: the footer
             toggle renders (2 memo-hit subs) but the dim row list does not."
     (seed-memo-hits! :rf/xray)
@@ -143,7 +139,7 @@
 ;; ---- local click expands (through the frame-bound dispatcher) ----------
 
 (deftest local-toggle-click-expands-through-frame-bound-dispatch
-  (testing "rf2-16y3x — a REAL deferred click on the panel-local toggle,
+  (testing "a REAL deferred click on the panel-local toggle,
             fired OUTSIDE the render frame scope, flips :rf/xray's
             :reactive/show-unchanged? (no leak to :rf/default, no
             no-frame-context) and a re-render then shows the dim rows."
@@ -165,7 +161,7 @@
                      ;; Re-render: the composite now folds in the flipped axis.
                      (let [tree2 (render-panel :rf/xray)]
                        (is (some? (rf.test-helpers/find-by-testid tree2 "rf-xray-reactive-unchanged-list"))
-                           "the dim memo-hit row list now renders")
+                           "after the click the dim memo-hit row list renders")
                        (is (seq (rf.test-helpers/find-by-testid-prefix
                                   tree2 "rf-xray-reactive-unchanged-row-__user_name_"))
                            "a memo-hit row renders after expand (readable slug stem, injective suffix)"))))
@@ -175,8 +171,8 @@
 ;; ---- Settings pin expands (the configured axis, alone) -----------------
 
 (deftest settings-pin-expands-disclosure
-  (testing "rf2-16y3x — the `:general :show-unchanged-subs?` Settings pin
-            alone (panel-local toggle still OFF) expands the disclosure per
+  (testing "the `:general :show-unchanged-subs?` Settings pin
+            alone (panel-local toggle OFF) expands the disclosure per
             spec/021 §3.4 — the local + configured axes compose."
     (seed-memo-hits! :rf/xray)
     ;; Flip ONLY the Settings pin (the panel-local toggle stays default OFF).
@@ -184,7 +180,7 @@
       (rf/dispatch-sync [:rf.xray/settings-update :general :show-unchanged-subs? true]))
     (let [tree (render-panel :rf/xray)]
       (is (false? (boolean (:reactive/show-unchanged? (rf/app-db-value :rf/xray))))
-          "the panel-local quick-toggle is still OFF")
+          "the panel-local quick-toggle is OFF")
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-list"))
           "the Settings pin alone opens the disclosure")
       (is (= "true"
@@ -195,7 +191,7 @@
 ;; ---- frame isolation ---------------------------------------------------
 
 (deftest local-click-changes-only-that-instance
-  (testing "rf2-16y3x — with two frame-scoped panels mounted, a click on
+  (testing "with two frame-scoped panels mounted, a click on
             instance A's toggle changes ONLY A's disclosure state; instance
             B's :reactive/show-unchanged? is untouched (per-instance frame,
             not a shared singleton)."

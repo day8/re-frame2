@@ -1,22 +1,17 @@
 (ns day8.re-frame2-xray.frame-switcher
-  "Xray's hardened L1 frame-switcher slot (rf2-iwwou) — the single
+  "Xray's hardened L1 frame-switcher slot — the single
   contractually-anchored surface every frame-aware feature reaches
   through.
 
   ## Why a dedicated ns
 
-  Xray is increasingly frame-aware: App-DB Diff, Views, Routing, the
+  Xray is frame-aware in many places: App-DB Diff, Views, Routing, the
   machine-inspector scrubber, and the Cmd-K palette's `:select-frame`
   verb all need to read 'which frame is the user currently focused on?'
   and need to write that selection back when the user picks a
-  different frame. Pre-bead the picker lived inline in `shell.cljs`'s
-  ribbon and the spine's `:rf.xray/set-frame` event was the de-facto
-  write surface; the palette dispatched the same event. That worked,
-  but the contract was implicit — nothing in source said 'this is THE
-  way to read / write frame focus' and new frame-aware features had no
-  obvious primitive to require.
-
-  This ns formalises the contract.
+  different frame. This ns makes that contract explicit — THE way to
+  read / write frame focus, and the obvious primitive for a new
+  frame-aware feature to require.
 
   ## The contract
 
@@ -40,8 +35,8 @@
     surface. Dispatches the spine's `:rf.xray/set-frame` (which
     re-seeds `:target-frame` + `:epoch-history`, see
     `spine/set-frame-reducer` docstring for the full propagation
-    story) AND persists the selection to localStorage so the next
-    Xray session restores the same focus. The Cmd-K palette's
+    story) AND persists the selection to localStorage (boot does not
+    restore it — see §Hydration). The Cmd-K palette's
     `:palette/select-frame` verb dispatches THIS event, not the spine
     primitive directly — that way every persistence / instrumentation
     layer we add lives in one place.
@@ -71,14 +66,14 @@
 
   ## Hydration
 
-  `hydrate!` runs at install time (preload) AND from
-  `mount/ensure-xray-frame!` on first open. The preload call lands before
-  `boot-on-runtime-ready!` has seated `:rf/xray`, so it still short-circuits.
-  Re-entrant — the dispatch
-  is a wholesale `(assoc db :focus (assoc focus :frame …))`. Guards
-  on `(rf.frame/frame defaults/default-frame-id)` so the pre-mount call short-circuits
-  cleanly. Mirrors the `filters/hydrate!` shape so the two surfaces
-  share an ergonomic pattern."
+  Boot does NOT restore the persisted selection: the frame pin is a
+  transient exploration filter (see `install!`), and `mount.cljs`'s
+  `::reset-transient-filters` first-mount hook clears the stale slot.
+  `hydrate!` / `load` are the data layer for tests and opt-in hosts.
+  `hydrate!` is re-entrant — the dispatch is a wholesale
+  `(assoc db :focus (assoc focus :frame …))` — and guards on
+  `(rf.frame/frame defaults/default-frame-id)` so a call before the
+  frame is seated short-circuits cleanly."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -89,16 +84,6 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack]]))
 
-;; ---- realm grouping removed (rf2-70owfr) --------------------------------
-;;
-;; The picker used to group its options by the runtime realm each frame
-;; belonged to (a `<optgroup>` per realm, via `group-frames-by-realm` +
-;; `multi-realm?` + the `:rf.xray/available-frame-realm-groups` sub). The
-;; afdlyr realm-substrate collapse leaves a single default realm, so the
-;; grouping never branched away from the flat option list — it was dead
-;; ceremony. The picker now renders the flat list directly; the public
-;; partition is image -> frame (EP-0023), not realm.
-
 ;; ---- public contract: which frames Xray filters out by default ---------
 
 (def internal-frames
@@ -107,11 +92,7 @@
   MCP-pair frame.
 
   THIS SET IS THE WHOLE PROMISE. The exclusion is unconditional: there
-  is no toggle behind it and no setting to read. A 'Show tool frames in
-  picker' toggle shipped once, lost its UI on 2026-05-27, and left a
-  setting slot nothing could write — rf2-y8doi.27 removed that slot
-  rather than leave the tree describing an override it could not
-  perform.
+  is no toggle behind it and no setting to read.
 
   Public so the palette's pure aggregator can be handed the same set as
   data (it must not require this cljs-only ns), and so tests can assert
@@ -125,9 +106,8 @@
   first-seen order. Drives the `:rf.xray/available-frames` sub.
 
   Filters `:rf/xray` (and the other tool frames in `internal-frames`)
-  out per spec/018 §8 I1 — unconditionally, since rf2-y8doi.27 removed
-  the `show-tool-frames?` parameter along with the setting that was
-  supposed to feed it. nil-frame event-bundles are dropped (an
+  out per spec/018 §8 I1 — unconditionally. nil-frame event-bundles are
+  dropped (an
   `:ungrouped` event-bundle carries nil `:frame`)."
   [event-bundles]
   (let [seen (volatile! #{})]
@@ -144,8 +124,8 @@
       event-bundles)))
 
 (defn head-frame
-  "Pure helper — the DEFAULT view-scope frame on load (rf2-4vp5j
-  Decision 1): the frame of the head (most recent) pickable event-bundle.
+  "Pure helper — the DEFAULT view-scope frame on load: the frame of the
+  head (most recent) pickable event-bundle.
 
   Walks `event-bundles` newest-first and returns the first frame that is
   pickable (non-nil, not an `internal-frames` tool frame). nil only
@@ -155,7 +135,7 @@
   on a fresh load the L2 list scopes to whichever frame produced the
   most recent event, rather than merging every frame. The user can
   override via the picker; the override lives on the dedicated
-  `:view-scope-frame` slot (NOT persisted — rf2-swclw)."
+  `:view-scope-frame` slot (NOT persisted)."
   [event-bundles]
   (some (fn [event-bundle]
           (let [f (:frame event-bundle)]
@@ -190,7 +170,7 @@
   @storage-key)
 
 ;; Raw browser access + the no-op-when-unavailable / swallow-throws
-;; posture live in the shared `local-storage` seam (rf2-jkake.24). The
+;; posture live in the shared `local-storage` seam. The
 ;; key is resolved per call through `get-storage-key` so a runtime
 ;; `set-storage-key!` re-key takes effect immediately.
 
@@ -272,13 +252,13 @@
 ;; ---- hydration -----------------------------------------------------------
 
 (defn hydrate!
-  "Drive the localStorage → `:focus :frame` slot hydration so the next
-  Xray session restores the user's last picked frame.
+  "Drive the localStorage → `:focus :frame` slot hydration, restoring
+  the user's last picked frame. Boot does not call it — the frame pin is
+  transient (see `install!`) — so it is the data layer for tests and
+  opt-in hosts.
 
-  Re-entrant. Safe to call from `install!` (preload-time, before the
-  frame is registered) AND from `mount.cljs/ensure-xray-frame!`
-  (first open, frame registered). Both invocations converge on the
-  same slot because:
+  Re-entrant. Safe to call before the frame is registered AND after it
+  is. Both invocations converge on the same slot because:
 
   - the load read is pure;
   - the hydrate dispatch is a wholesale `(assoc-in db [:focus :frame]
@@ -307,30 +287,28 @@
   reads — the `Frame ▾` dropdown BUTTON per
   the Figma design-reference (the `chrome-ribbon` component in
   `design-reference/xray_devtools_reference.cljs`) + spec/018 §3 Frame dropdown. STRICTLY single-select (spec/018
-  §1 Non-goals + Round-3 rf2-i74n7): no 'All frames (merged)' option, no
+  §1 Non-goals): no 'All frames (merged)' option, no
   `:multiple` attribute. Excludes `:rf/xray` by default per spec/018 §8
   I1.
 
-  ## Figma shape (rf2-pjjwh)
+  ## Figma shape
 
   The control's button face shows the CURRENTLY-SELECTED frame value
   (live) — the Figma mock's frame switcher surfaces the active frame, not
   a static `Frame` / `Main` placeholder. The label binds to
   `:rf.xray/current-frame`; it falls back to the literal `Frame` only when
   no frame is pickable yet (cold start). The option list also carries a
-  `✓` on the active option. (rf2-pjjwh supersedes rf2-ad7zx.12's static
-  `Frame ▾` label.)
+  `✓` on the active option.
 
   Implementation is the overlay pattern: a styled `Frame ▾` button face
   is the visible affordance; a native `<select>` is layered transparently
   on top so keyboard + screen-reader navigation + the native option
-  popup all work out of the box (rf2-lbutp). The `<select>` carries the
+  popup all work out of the box. The `<select>` carries the
   `aria-label` so assistive tech announces 'Select frame, combobox'.
 
-  The button ALWAYS renders (the chrome shows a Frame control per Figma
-  — the prior 'collapse to a flat label' branch is gone, rf2-ad7zx.12).
-  The overlaid select is interactive whenever there is at least one frame
-  (rf2-ad7zx.14): a native `<select>` with a lone option still opens and
+  The button ALWAYS renders (the chrome shows a Frame control per Figma).
+  The overlaid select is interactive whenever there is at least one
+  frame: a native `<select>` with a lone option still opens and
   shows it, so a single-frame host (e.g. the step-deck, with one
   `:step-deck` frame) gets a working 1-entry dropdown. Only a zero-frame
   state disables the control.
@@ -340,10 +318,9 @@
   documented at ns-top. Other frame-aware features (Cmd-K palette, future
   panels) reach through the same surface.
 
-  SPLIT OUT OF [[frame-switcher-view]] BY rf2-k97c.3, for the reason
-  every migrated view in this epic splits: a boundary's body may only run
-  inside a React render window, so `(frame-switcher-view {})` is no
-  longer a callable that answers hiccup. This is `defview`'s OWN
+  SPLIT OUT OF [[frame-switcher-view]] because a boundary's body may
+  only run inside a React render window, so `(frame-switcher-view {})`
+  is not a callable that answers hiccup. This is `defview`'s OWN
   documented extract-a-helper spelling, not an invention.
 
   IT TAKES THE RAW READ VALUES in the order the boundary reads them, so
@@ -352,13 +329,13 @@
   drift."
   [dispatch selected-frame frames]
   (let [active          (or selected-frame (first frames))
-        ;; rf2-v8bule — the controlled `<select>`'s value is `(str active)`,
+        ;; The controlled `<select>`'s value is `(str active)`,
         ;; so it MUST have a matching `<option>` or React warns "value not
         ;; in options" and renders blank. `active` can be a frame that is
         ;; NOT in `available-frames`: a view scope pinned to a frame with no
         ;; events yet, or a picked frame that left the stream (buffer
-        ;; cleared / frame destroyed / stopped emitting). rf2-4vp5j keeps
-        ;; that empty scope intact (the L2 list scopes to it, 0 rows) rather
+        ;; cleared / frame destroyed / stopped emitting). The view scope
+        ;; keeps that empty scope intact (the L2 list scopes to it, 0 rows) rather
         ;; than silently retargeting, so we surface the pinned frame as its
         ;; own option — the control stays consistent AND the pin is re-
         ;; selectable. In the normal case (`active` already available) the
@@ -366,11 +343,11 @@
         option-frames   (if (and active (not (some #{active} frames)))
                           (conj (vec frames) active)
                           (vec frames))
-        ;; rf2-ad7zx.14 — interactive whenever there is >=1 frame. A native
-        ;; <select> with one option opens + shows it (not inert), which is
-        ;; what Mike expects in the step-deck (a single :step-deck frame).
-        ;; The prior `(> (count frames) 1)` left the control disabled (and
-        ;; click-dead) with a lone frame. STRICTLY single-select.
+        ;; Interactive whenever there is >=1 frame. A native <select> with
+        ;; one option opens + shows it (not inert), so a single-frame host
+        ;; (the step-deck, with one :step-deck frame) gets a working
+        ;; control; requiring more than one frame would leave it disabled
+        ;; (and click-dead) with a lone frame. STRICTLY single-select.
         pickable?       (pos? (count frames))]
     [:div {:data-testid "rf-xray-ribbon-frame"
            :title       (if active
@@ -390,7 +367,7 @@
                    :line-height   "1.3"
                    :cursor        (if pickable? "pointer" "default")
                    :flex-shrink   0}}
-     ;; rf2-pjjwh — the button face shows the CURRENTLY-SELECTED frame
+     ;; The button face shows the CURRENTLY-SELECTED frame
      ;; (live), per the Figma mock's frame switcher (which surfaces the
      ;; active frame, not a static `Main` / `Frame` placeholder). Binds to
      ;; `:rf.xray/current-frame`; falls back to the literal `Frame` only
@@ -404,7 +381,7 @@
                      :color     (:text-secondary tokens)
                      :line-height "1"}}
       "▾"]
-     ;; rf2-lbutp — native `<select>` layered transparently over the
+     ;; Native `<select>` layered transparently over the
      ;; button face so keyboard + screen-reader + the native option
      ;; popup all work; the visible `Frame ▾` is the design affordance.
      [:select {:data-testid "rf-xray-ribbon-frame-picker"
@@ -416,7 +393,7 @@
                                     kw  (when (and v (.startsWith v ":"))
                                           (keyword (subs v 1)))]
                                 (when kw
-                                  ;; rf2-nesy9 / rf2-k97c.3 — dispatch
+                                  ;; Dispatch
                                   ;; through the frame-bound dispatcher
                                   ;; the boundary captured, so the frame
                                   ;; select lands on the surrounding
@@ -432,47 +409,43 @@
                              :border     "none"
                              :margin     0
                              :padding    0}}
-      ;; Flat option list — the frame is the EP-0023 public addressing unit.
-      ;; The former realm `<optgroup>` grouping was removed (rf2-70owfr): with
-      ;; a single default realm there was never more than one group.
+      ;; Flat option list — the frame is the EP-0023 public addressing unit,
+      ;; and with a single default realm there is no realm grouping.
       ;; `option-frames` always includes `active` so the controlled select's
       ;; value has a matching option even when the pinned frame has no
-      ;; events (rf2-v8bule).
+      ;; events.
       (for [f option-frames]
         [:option {:key   (str f)
                   :value (str f)}
          (str (if (= f active) "✓ " "  ") f)])]]))
 
 (rf.fresco/defview frame-switcher-view
-  "L1 chrome-ribbon frame-switcher, and a FRESCO BOUNDARY (rf2-k97c.3)
+  "L1 chrome-ribbon frame-switcher, and a FRESCO BOUNDARY
   rather than an `rf/reg-view`. [[frame-switcher-tree]] carries the
   shape, the contract and the design reasoning; this is the read set and
   the dispatcher, and nothing else.
 
-  ## rf2-k97c.3 — the boundary that deleted TWO ISLANDS
+  ## Why a boundary
 
   Both shells' L1 ribbons — Dynamic `shell.cljs` and `static/shell.cljs`
-  — are Fresco boundaries, and while this was an `rf/reg-view` each of
-  them had to reach it across an `as-child` REAGENT ISLAND, because a
-  `reg-view` grades `:invalid` as a Fresco head down the same arm a plain
-  `defn` does. Migrating it deletes both of those seams: each ribbon now
-  heads `[frame-switcher-view {}]` directly, the way it heads any other
-  boundary.
+  — are Fresco boundaries, and each heads `[frame-switcher-view {}]`
+  directly, the way it heads any other boundary. An `rf/reg-view` could
+  not be headed there — a `reg-view` grades `:invalid` as a Fresco head
+  down the same arm a plain `defn` does — so each ribbon would need an
+  `as-child` REAGENT ISLAND to reach it.
 
   The READS are `rf.fresco/sub`, plain calls the shipped collector
   records an edge for — no deref, no reaction owned by the installed
   adapter, and a re-wire that NOTIFIES when the substrate disposes the
-  underlying derived value. They keep the `reg-view` body's ORDER, which
-  is the order the node lane reproduces.
+  underlying derived value. Their ORDER is the order the node lane
+  reproduces.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
-  which answers the boundary's DECLARED frame inside a body and replaces
-  the `dispatch` the `reg-view` body used to inject lexically. It
-  supersedes the `:contextType frame-context` route rf2-in6l2 relied on:
-  a boundary resolves its frame from the same REACT CONTEXT
-  `rf/frame-provider` and `rf.fresco/frame-provider` both write, so the
-  enclosing `[rf/frame-provider {:frame :rf/xray}]` still decides where
-  these reads and writes land.
+  which answers the boundary's DECLARED frame inside a body. A boundary
+  resolves its frame from the same REACT CONTEXT `rf/frame-provider` and
+  `rf.fresco/frame-provider` both write, so the enclosing
+  `[rf/frame-provider {:frame :rf/xray}]` decides where these reads and
+  writes land.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. Both ribbons mount it with none, so it is destructured away."
@@ -497,10 +470,10 @@
     - Effects: `:rf.xray.frame-switcher/persist` — localStorage
               write fx.
 
-  Does NOT hydrate `[:focus :frame]` from localStorage (rf2-swclw): the
+  Does NOT hydrate `[:focus :frame]` from localStorage: the
   frame pin is a transient exploration filter, reset to unpinned on
   every page load. `mount.cljs`'s `::reset-transient-filters` first-
-  mount hook clears the stale slot. `hydrate!` / `load` remain as the
+  mount hook clears the stale slot. `hydrate!` / `load` are the
   data layer for tests and opt-in hosts, but init does not restore.
 
   Called from `registry/register-xray-handlers!` after `spine/install!`
@@ -534,31 +507,31 @@
   ;; already pulls in `:rf.xray/event-bundles`; the raw slot is the right
   ;; primitive.
 
-  ;; `:rf.xray/view-scope-frame` (rf2-4vp5j Workstream C) — the
+  ;; `:rf.xray/view-scope-frame` — the
   ;; dedicated VIEW-SCOPE slot. The frame is a single defaulted view
   ;; scope, NOT a filter and NOT the spine's `[:focus :frame]` slot
   ;; (which is also written by epoch auto-alignment + the focus-step
-  ;; walk — reading it for the LIST scope was the conflation bug). The
+  ;; walk — reading it for the LIST scope would conflate the two). The
   ;; picker writes `:view-scope-frame` directly; the L2 list +
   ;; hidden-count read it.
   ;;
   ;; Resolution order (first non-nil wins):
   ;;   1. the explicit picker slot (`:view-scope-frame`);
-  ;;   2. the host-seeded `:target-frame` (rf2-ulpp8 — a host calling
+  ;;   2. the host-seeded `:target-frame` (a host calling
   ;;      `core/set-target-frame!` is saying 'observe this frame', which
   ;;      IS the view scope on first mount);
-  ;;   3. the head epoch's frame (`head-frame`) — the rf2-4vp5j Decision-1
+  ;;   3. the head epoch's frame (`head-frame`) — the
   ;;      default so a fresh load with no host seed scopes to whichever
   ;;      frame produced the most recent event.
   ;; Composes off `:rf.xray/event-bundles` so the head default re-resolves
   ;; as the stream grows; once the user explicitly picks, slot #1 wins.
   ;;
-  ;; The scope INTENTIONALLY survives a frame that has no events (rf2-4vp5j
+  ;; The scope INTENTIONALLY survives a frame that has no events (an
   ;; "empty scope" — the L2 list shows 0 rows, not "hidden by filters").
   ;; So a pinned frame is NOT reconciled away when it leaves the stream;
   ;; the controlled `<select>` mismatch that a now-event-less pin causes is
-  ;; fixed at the VIEW layer instead (rf2-v8bule — see `frame-switcher-view`
-  ;; where the pinned frame is surfaced as its own `<option>`).
+  ;; handled at the VIEW layer instead (see `frame-switcher-tree`, where
+  ;; the pinned frame is surfaced as its own `<option>`).
   (rf/reg-sub :rf.xray/view-scope-frame
     {:inputs [[:rf.xray/view-scope-frame-slot]
               [:rf.xray/target-frame-slot]
@@ -581,7 +554,7 @@
       (:target-frame db)))
 
   ;; `:rf.xray/current-frame` — what the picker shows + writes against.
-  ;; Reads the resolved VIEW-SCOPE frame (rf2-4vp5j) so the dropdown
+  ;; Reads the resolved VIEW-SCOPE frame so the dropdown
   ;; reflects the single defaulted view scope, decoupled from the
   ;; spine's auto-tracking `[:focus :frame]`.
   (rf/reg-sub :rf.xray/current-frame
@@ -593,7 +566,7 @@
   ;; meaningful to pick right now' list. Composes off `:rf.xray/
   ;; event-bundles` so it re-fires as new frames appear in the trace
   ;; stream. The tool-frame exclusion is unconditional — see
-  ;; `internal-frames` (rf2-y8doi.27).
+  ;; `internal-frames`.
 
   (rf/reg-sub :rf.xray/available-frames
     {:inputs [[:rf.xray/event-bundles]]}
@@ -608,16 +581,16 @@
   ;; so every persistence / instrumentation layer we add lives in one
   ;; place. See `palette/events.cljs`'s `:palette/select-frame` clause.
 
-  ;; Writes the dedicated `:view-scope-frame` slot (rf2-4vp5j) — the
-  ;; single source of truth for the L2 list's view scope — AND still
+  ;; Writes the dedicated `:view-scope-frame` slot — the
+  ;; single source of truth for the L2 list's view scope — AND
   ;; dispatches the spine's `:rf.xray/set-frame` so the LEGITIMATE
   ;; per-frame epoch alignment (App-DB Diff / Views / machine-inspector
-  ;; reading `:epoch-history`, rf2-ulpp8) follows the picker. The two
-  ;; concerns are now distinct slots: `:view-scope-frame` scopes the
+  ;; reading `:epoch-history`) follows the picker. The two
+  ;; concerns are distinct slots: `:view-scope-frame` scopes the
   ;; LIST; `[:focus :frame]` (via set-frame) aligns the per-frame
   ;; epoch reads. nil clears the view scope back to its head-frame
-  ;; default. Persist fx is retained (the data layer); init does not
-  ;; restore it (rf2-swclw — frame is transient).
+  ;; default. The persist fx writes the data layer; init does not
+  ;; restore it (the frame pin is transient).
   (rf/reg-event :rf.xray/select-frame
     (fn [{:keys [db]} [_ frame-id]]
       {:db (if (some? frame-id)
@@ -626,14 +599,14 @@
        :fx [[:dispatch [:rf.xray/set-frame frame-id]]
             [:rf.xray.frame-switcher/persist frame-id]]}))
 
-  ;; NO hydrate from localStorage on install (rf2-swclw). The frame pin
+  ;; NO hydrate from localStorage on install. The frame pin
   ;; is a TRANSIENT exploration filter — it resets to unpinned on every
   ;; page load so a fresh session never silently scopes the inspector to
   ;; a frame chosen in a past session. The `[:focus :frame]` slot starts
   ;; at its registry default (unpinned) and `mount.cljs`'s
   ;; `::reset-transient-filters` first-mount hook clears the stale
-  ;; localStorage slot so storage matches. `hydrate!` / `load` remain as
-  ;; the data layer (exercised by the round-trip tests), but init does
-  ;; not restore.
+  ;; localStorage slot so storage matches. `hydrate!` / `load` are the
+  ;; data layer (exercised by the round-trip tests), but init does not
+  ;; restore.
 
   nil)

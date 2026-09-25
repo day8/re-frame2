@@ -1,25 +1,14 @@
 (ns day8.re-frame2-xray.panels.derivation-graph-view-cljs-test
-  "View rows for the Derivation-Graph panel (EP-0014 prop-3), added under
-  rf2-k97c.3 when the panel became a Fresco boundary.
+  "View rows for the Derivation-Graph panel (EP-0014 prop-3), a Fresco
+  boundary.
 
-  ## Why this file did not exist before, and why it does now
+  ## Why this file exists
 
-  The panel had NO view coverage at all — `derivation_graph_consumer_cljs_test`
-  exercises the sub graph and `derivation_graph_helpers_cljs_test` the pure
-  projection algebra, but nothing walked the rendered markup. That gap is
-  exactly why the panel accumulated FIVE React keys written as `^{:key …}`
-  reader metadata on CALL FORMS, where the metadata is discarded on return
-  and no key ever reaches React. The same defect #9578 found in
-  `routing.cljs`'s route table; the mayor's 2026-09-10 ruling made sweeping
-  it part of every remaining panel dispatch.
-
-  (Several comments in this tree cite `rf2-ppzid` as the record for this
-  defect. Checked at source: that id resolves to NO issue in the live
-  ledger — an identity-field scan of the export finds 0 records that ARE it
-  against 3 that merely MENTION it, and `bd show` refuses it. The #9578
-  merged-PR audit reached the same conclusion independently. So the
-  checkable citations are #9578 and rf2-vw80; the dead id is left where it
-  already sits in seven unrelated files rather than swept from them here.)
+  `derivation_graph_consumer_cljs_test` exercises the sub graph and
+  `derivation_graph_helpers_cljs_test` the pure projection algebra; this
+  file walks the rendered markup. Without it, a React key written as
+  `^{:key …}` reader metadata on a CALL FORM — where the metadata is
+  discarded on return and no key ever reaches React — would go unseen.
 
   A LOST KEY DOES NOT FAIL, IT DEGRADES — into index-based reconciliation,
   which paints identically and corrupts identity only once a list changes
@@ -156,15 +145,15 @@
 ;; CALL FORM, where it is discarded outright — is simply absent here.
 
 (deftest every-sequence-row-carries-a-react-key
-  (testing "rf2-k97c.3 — every row the panel emits from a sequence carries a
+  (testing "every row the panel emits from a sequence carries a
             LITERAL `:key` in its attribute map, distinct within its list.
 
-            Before this bead five of these keys were `^{:key …}` reader
-            metadata on CALL FORMS (`(node-row …)`, `(edge-row …)`,
-            `(family-section …)`, `(edges-section …)` and a `when-let` in
-            the role strip). Metadata on a source list is discarded when the
-            form returns a fresh vector, so none of them reached React at
-            all — silently, with the panel painting correctly throughout."
+            A `^{:key …}` reader-metadata key on a CALL FORM (`(node-row …)`,
+            `(edge-row …)`, `(family-section …)`, `(edges-section …)`, or a
+            `when-let` in the role strip) would not do: metadata on a source
+            list is discarded when the form returns a fresh vector, so such a
+            key never reaches React — silently, with the panel painting
+            correctly throughout."
     (let [tree      (render)
           node-rows (node-rows tree)
           edge-rows (edge-rows tree)
@@ -196,10 +185,10 @@
           "every keyed fragment carries an attribute-map :key"))))
 
 (deftest role-chips-and-value-summaries-carry-react-keys
-  (testing "rf2-k97c.3 — the two remaining sequence positions. The role
-            chip strip's key was metadata on a `when-let` form and so was
-            discarded; the summary chip's was metadata on a vector literal,
-            which Reagent reads and Fresco's codec does not."
+  (testing "the two other sequence positions. A role-chip key as metadata
+            on a `when-let` form would be discarded; a summary-chip key as
+            metadata on a vector literal is read by Reagent but not by
+            Fresco's codec."
     (let [tree     (render)
           counts   (first (nodes-with-testid-prefix tree "rf-xray-derivation-graph-counts"))
           chips    (->> (hiccup-seq counts)
@@ -220,14 +209,13 @@
 ;; ---- (3) the dispatcher contract ----------------------------------------
 
 (deftest mode-toggle-dispatches-through-the-supplied-dispatcher
-  (testing "rf2-k97c.3 — the mode toggle calls the dispatcher THREADED IN,
+  (testing "the mode toggle calls the dispatcher THREADED IN,
             never a bare global `rf/dispatch`.
 
             `Panel` takes that dispatcher from `(:dispatch (rf/capture-frame))`
-            now that it is a Fresco boundary and `defview` binds no
+            because it is a Fresco boundary and `defview` binds no
             `reg-view`-injected name inside a body. The property this row
-            pins is the one rf2-1w07r cared about and is unchanged by the
-            migration: the deferred click lands on the frame the panel
+            pins: the deferred click lands on the frame the panel
             rendered under, not on whatever ambient frame survives after
             render scope unwinds."
     (let [seen (atom [])
@@ -243,15 +231,13 @@
 ;; ---- (4) the boundary / bridge contract ---------------------------------
 
 (deftest l4-tab-registers-the-bridge-not-the-boundary
-  (testing "rf2-k97c.3 — `install!` registers the `as-component` BRIDGE, not
+  (testing "`install!` registers the `as-component` BRIDGE, not
             `Panel` itself.
 
             `reg-l4-tab!`'s `:pre` requires `:panel` to be CALLABLE and the
             shell mounts it as a Reagent hiccup head; a Fresco boundary is a
             React component and `defview`'s contract forbids mounting one
-            that way. The bridge is scaffolding with a defined end — it is
-            deleted in step 3, when the shell is itself a Fresco tree and
-            `reg-l4-tab!` takes `Panel` directly."
+            that way."
     (derivation-graph/install!)
     (let [tab   (panel-registry/tab-by-id :dynamic :derivation-graph)
           panel (:panel tab)]

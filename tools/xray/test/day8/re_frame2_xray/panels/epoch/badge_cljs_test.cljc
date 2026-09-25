@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch.badge-cljs-test
-  "Pure-data tests for the Epoch panel's badge taxonomy (rf2-sc3r1).
+  "Pure-data tests for the Epoch panel's badge taxonomy.
 
   ## Under test
 
@@ -31,9 +31,7 @@
   EVENT HANDLER, EFFECT HANDLERS, ...). Labels that lead with `:` are
   EDN-key-style and render through `badge-pill`'s mono-font,
   no-uppercase path. Both styles are valid; this test just pins that
-  every badge has a label. (rf2-kt6js: the pre-rf2-kt6js `:FX` badge —
-  which rendered as `\":fx\"` — became `:SIDE-EFFECTS` → `\"EFFECT
-  HANDLERS\"` (rf2-iijnx renamed the display text).)"
+  every badge has a label."
     (doseq [b proj/badge-set]
       (let [l (badge/label b)]
         (is (string? l)
@@ -54,8 +52,8 @@
     (is (= :success (badge/token-key :VIEWS)))))
 
 (deftest coeffect-and-subscriptions-pull-distinct-tokens-test
-  ;; rf2-cgm4f — pre-fix both badges shared `:magenta`, so the
-  ;; pipeline pills were near-indistinguishable in the live panel.
+  ;; Two badges sharing one token (`:magenta`) would make the pipeline
+  ;; pills near-indistinguishable in the live panel.
   ;; The 5 pipeline pills (DISPATCH / COEFFECT / HANDLER /
   ;; SUBSCRIPTIONS / VIEWS) MUST map to 5 distinct theme tokens.
   (testing "COEFFECT pulls a different token-key from SUBSCRIPTIONS"
@@ -92,13 +90,12 @@
     (is (= -44 badge/circle-left-offset-px))
     (is (= -34 badge/line-left-offset-px))))
 
-;; ---- rf2-u69j7 — machine-cascade row chrome ----------------------------
+;; ---- machine-cascade row chrome ----------------------------------------
 
 (deftest cascade-kind-set-test
-  (testing "rf2-u69j7 — the cascade-kind inventory matches the
-            substrate trace ops the projection harvests (rf2-ugdas adds
-            :no-op for the benign unhandled-event no-op; rf2-it4vt adds
-            :start for the machine's birth [START] badge; rf2-bvwv4q adds
+  (testing "the cascade-kind inventory matches the substrate trace ops
+            the projection harvests (:no-op for the benign unhandled-event
+            no-op; :start for the machine's birth [START] badge;
             :microstep for a parent-owned parallel :always round)"
     (is (= #{:guard :action :transition :microstep :timer :no-op :start}
            badge/cascade-kind-set))
@@ -111,7 +108,7 @@
     (is (badge/cascade-kind? :start))
     (is (not (badge/cascade-kind? :NOT-A-KIND))))
 
-  (testing "rf2-bvwv4q — the :microstep kind resolves to the magenta
+  (testing "the :microstep kind resolves to the magenta
             transition-family colour + an ALWAYS label"
     (is (= "ALWAYS" (badge/cascade-kind-label :microstep)))
     (is (string? (badge/cascade-kind-colour :microstep)))
@@ -119,7 +116,7 @@
            (badge/cascade-kind-colour :microstep))
         "an :always round is a state change — shares the transition hue"))
 
-  (testing "rf2-it4vt — the :start kind resolves to a green/success label +
+  (testing "the :start kind resolves to a green/success label +
             colour (a clean birth is a GOOD event), distinct from the muted
             no-op tone"
     (is (= "START" (badge/cascade-kind-label :start)))
@@ -129,10 +126,10 @@
               (badge/cascade-kind-colour :no-op))
         "the green birth is distinct from the muted no-op tone"))
 
-  (testing "rf2-ugdas / rf2-iu3no — the :no-op kind resolves to a muted (not
-            red) label + colour, distinct from the error/warning hues. The
-            label is `NO OP` (space, not hyphen — rf2-iu3no, the sole marker
-            on the collapsed `[NO OP] staying in {state}` cell)"
+  (testing "the :no-op kind resolves to a muted (not red) label +
+            colour, distinct from the error/warning hues. The label is
+            `NO OP` (space, not hyphen — the sole marker on the collapsed
+            `[NO OP] staying in {state}` cell)"
     (is (= "NO OP" (badge/cascade-kind-label :no-op)))
     (is (string? (badge/cascade-kind-colour :no-op)))
     ;; The benign no-op uses the tertiary token (same as :guard / :timer's
@@ -142,7 +139,7 @@
         "muted/tertiary tone, not an alarmist hue")))
 
 (deftest cascade-kind-resolver-test
-  (testing "rf2-u69j7 — every cascade kind resolves to a non-blank
+  (testing "every cascade kind resolves to a non-blank
             CSS-variable colour + uppercase label"
     (doseq [k badge/cascade-kind-set]
       (let [c (badge/cascade-kind-colour k)
@@ -155,16 +152,16 @@
             (str "kind label for " k " not uppercase: " l))))))
 
 (deftest cascade-kind-token-key-mappings-test
-  (testing "rf2-u69j7 — kind → token-key mappings are stable"
+  (testing "kind → token-key mappings are stable"
     (is (= :text-tertiary (badge/cascade-kind-token-key :guard)))
     (is (= :accent        (badge/cascade-kind-token-key :action)))
     (is (= :magenta       (badge/cascade-kind-token-key :transition)))
     (is (= :warning       (badge/cascade-kind-token-key :timer))))
-  (testing "rf2-u69j7 — unknown kind falls back to :text-tertiary"
+  (testing "unknown kind falls back to :text-tertiary"
     (is (= :text-tertiary (badge/cascade-kind-token-key :NOT-A-KIND)))))
 
 (deftest cascade-phase-set-test
-  (testing "rf2-u69j7 — the cascade-phase closed set matches rf2-82a0u"
+  (testing "the cascade-phase set is closed"
     (is (= #{:exit :transition :entry :always
              :after-action :initial-entry :destroy-exit}
            badge/cascade-phase-set))
@@ -173,14 +170,14 @@
     (is (not (badge/cascade-phase? :NOT-A-PHASE)))))
 
 (deftest cascade-phase-label-test
-  (testing "rf2-u69j7 — every phase produces a non-blank label"
+  (testing "every phase produces a non-blank label"
     (doseq [p badge/cascade-phase-set]
       (let [l (badge/cascade-phase-label p)]
         (is (string? l))
         (is (seq l))))))
 
 (deftest cascade-action-badge-label-test
-  (testing "rf2-2hj0h item 5 — the merged ACTION badge folds the phase + the
+  (testing "the merged ACTION badge folds the phase + the
             ACTION kind into one token"
     (is (= "EXIT ACTION"          (badge/cascade-action-badge-label :exit)))
     (is (= "ENTRY ACTION"         (badge/cascade-action-badge-label :entry)))
@@ -189,7 +186,7 @@
     (is (= "AFTER-ACTION ACTION"  (badge/cascade-action-badge-label :after-action)))
     (is (= "INITIAL-ENTRY ACTION" (badge/cascade-action-badge-label :initial-entry)))
     (is (= "DESTROY-EXIT ACTION"  (badge/cascade-action-badge-label :destroy-exit))))
-  (testing "rf2-2hj0h — every phase yields a `<PHASE> ACTION` token ending in
+  (testing "every phase yields a `<PHASE> ACTION` token ending in
             ` ACTION`; a phase-less action falls back to the bare ACTION label"
     (doseq [p badge/cascade-phase-set]
       (let [l (badge/cascade-action-badge-label p)]
@@ -198,12 +195,12 @@
     (is (= (badge/cascade-kind-label :action)
            (badge/cascade-action-badge-label nil))
         "no phase → bare ACTION label (the kind label)"))
-  (testing "rf2-2hj0h — the state-change TRANSITION ROW keeps its own single
+  (testing "the state-change TRANSITION ROW keeps its own single
             `TRANSITION` pill (distinct from a `TRANSITION ACTION`)"
     (is (= "TRANSITION" (badge/cascade-kind-label :transition)))))
 
 (deftest event-bundle-outcome-resolver-test
-  (testing "rf2-u69j7 — outcome → token-key + glyph mappings"
+  (testing "outcome → token-key + glyph mappings"
     (is (= :success       (badge/cascade-outcome-token-key :pass)))
     (is (= :success       (badge/cascade-outcome-token-key :ok)))
     (is (= :warning       (badge/cascade-outcome-token-key :fail)))
@@ -215,18 +212,16 @@
     (is (= "✗" (badge/cascade-outcome-glyph :threw)))
     (is (= "·" (badge/cascade-outcome-glyph :cancelled)))))
 
-;; rf2-9wq0v retired the per-STAGE status primitive (`step-status-set` /
-;; `step-status?` / `step-status-glyph` / `step-status-token-key` /
-;; `step-status-colour`) along with its per-stage badge glyph — a clean
-;; run painted a tick on every stage (no information) and a failure is
-;; already shown by the inline exception card under the stage. The
-;; per-EFFECT ledger glyphs (below) + the event-bundle-outcome banner glyph
-;; (above) carry the surviving, distinct signals.
+;; There is no per-STAGE status glyph: a clean run would paint a tick on
+;; every stage (no information), and the inline exception card under the
+;; stage already shows a failure. The per-EFFECT ledger glyphs (below) +
+;; the event-bundle-outcome banner glyph (above) carry the distinct
+;; signals.
 
-;; ---- flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------
+;; ---- flat SIDE EFFECTS ledger row glyphs --------------------------------
 
 (deftest fx-row-status-glyph-test
-  (testing "rf2-j630b — the flat-ledger per-effect glyph closed set:
+  (testing "the flat-ledger per-effect glyph closed set:
             ✓ :ok / ✗ :error / ✗ :rollback / ↺ :overridden / – :skipped"
     (is (= "✓" (badge/fx-row-status-glyph :ok)))
     (is (= "✗" (badge/fx-row-status-glyph :error)))
@@ -237,7 +232,7 @@
     (is (= "✓" (badge/fx-row-status-glyph :whatever)) "quiet default")))
 
 (deftest skipped-glyph-distinct-from-cancelled-test
-  (testing "rf2-j630b — the skipped en-dash avoids the :cancelled
+  (testing "the skipped en-dash avoids the :cancelled
             middle-dot (`·`) used by the machine-cascade outcome chip"
     (is (= "–" badge/skipped-glyph))
     (is (not= badge/skipped-glyph (badge/cascade-outcome-glyph :cancelled))
@@ -245,14 +240,14 @@
     (is (string? badge/skipped-hover))))
 
 (deftest overridden-hover-names-the-replacement-test
-  (testing "rf2-3x7nj.22.3 — the ↺ row's hover names the replacement and
+  (testing "the ↺ row's hover names the replacement and
             claims nothing about whether real I/O happened"
     (is (str/includes? (badge/overridden-hover :http/fake) ":http/fake"))
     (is (str/includes? (badge/overridden-hover :re-frame.fx/fn-value) "with a function"))
     (is (not (str/includes? (badge/overridden-hover :http/fake) "for real")))))
 
 (deftest fx-row-status-token-key-test
-  (testing "rf2-j630b — :error/:rollback → :error; :overridden → :accent;
+  (testing ":error/:rollback → :error; :overridden → :accent;
             :skipped → :text-tertiary (muted, NEUTRAL); else → :success"
     (is (= :error         (badge/fx-row-status-token-key :error)))
     (is (= :error         (badge/fx-row-status-token-key :rollback)))
@@ -262,7 +257,7 @@
     (is (= :success       (badge/fx-row-status-token-key nil)))))
 
 (deftest fx-row-status-colour-resolves-css-var-test
-  (testing "rf2-j630b — the row glyph colour resolver returns a
+  (testing "the row glyph colour resolver returns a
             CSS-variable string for every ledger status (theme-driven)"
     (doseq [s [:ok :error :rollback :overridden :skipped]]
       (let [c (badge/fx-row-status-colour s)]

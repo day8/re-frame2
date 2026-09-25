@@ -1,23 +1,21 @@
 (ns day8.re-frame2-xray.panels.fresco-skip-semantics-cljs-test
   "`:rf.sub/skip` means ONE thing, and both Fresco derivations have to
-  say it (rf2-hic-037, merged-PR audit #8027).
+  say it.
 
   ## The defect this namespace exists to keep out
 
   The advisor and the causal slice are two public results derived from
-  ONE window, and they disagreed about the same event. `fresco-advisor`
-  correctly recorded a skip as a memo hit — calling it *the single most
-  informative topology signal there is* — but derived `searched?` from
-  recompute runs alone, so a retained window holding nothing but one
-  tagged skip reported `:basis :cap`, said *no search happened*, and told
-  the programmer to **raise `:rf.trace/events-retained`** — enlarge a
-  window that had already retained the evidence. Meanwhile
-  `fresco-causal`'s link 2 collected every `:subs` item carrying an
-  `:rf.sub/id` without filtering the operation, so the same skip appeared
-  in a roster labelled *subscriptions recomputed* under an `evidenced`
-  chip.
-
-  Reproduced on main with exactly one skip:
+  ONE window, and they must agree about the same event. `fresco-advisor`
+  records a skip as a memo hit — *the single most informative topology
+  signal there is*. An advisor that derived `searched?` from recompute
+  runs alone would report a retained window holding nothing but one
+  tagged skip as `:basis :cap`, say *no search happened*, and tell the
+  programmer to **raise `:rf.trace/events-retained`** — enlarge a window
+  that had already retained the evidence. A link 2 that collected every
+  `:subs` item carrying an `:rf.sub/id` without filtering the operation
+  would put the same skip in a roster labelled *subscriptions
+  recomputed* under an `evidenced` chip. With exactly one skip, that
+  pair reads:
 
       {:memo-hits 1 :advisor-basis :cap :causal-holds [:a] :causal-evidenced true}
 
@@ -27,28 +25,27 @@
 
   ## Why the rows below drive BOTH views from ONE window
 
-  Two definitions of *did work happen* is what produced the disagreement,
-  so the repair is one predicate — `fresco-helpers/sub-recompute?` — and
-  the pin that keeps it one is a test that reads both public results off
-  the same fixture. A row that only checked the advisor would go green
-  against a causal slice that had drifted back, and vice versa.
+  Two definitions of *did work happen* produce the disagreement, so there
+  is one predicate — `fresco-helpers/sub-recompute?` — and the pin that
+  keeps it one is a test that reads both public results off the same
+  fixture. A row that only checked the advisor would go green against a
+  causal slice that had drifted, and vice versa.
 
-  ## And the path that still bypassed the predicate
+  ## And the path that can bypass the predicate
 
   Sharing a predicate is not enough if one consumer can decide the answer
-  before consulting it. The advisor's fold tested `(nil? sid)` FIRST, so
-  identity loss short-circuited the operation question entirely and every
-  untagged `:subs` event was counted as a real unnamed RUN — an untagged
-  `:rf.sub/skip` gave the advisor `:unnamed-runs 1` and `:by-read {}`
-  while link 2 gave `:holds []` and `:skipped {:count 1 :sub-ids []}`, and
-  an untagged `:rf.sub/dispose` gave the advisor `:unnamed-runs 1` while
-  link 2 reported no recompute and no skip at all (merged-PR audit #8063).
-  The two views still disagreed, on exactly the path where identity is
-  absent.
+  before consulting it. A fold testing `(nil? sid)` FIRST would let
+  identity loss short-circuit the operation question entirely and count
+  every untagged `:subs` event as a real unnamed RUN — an untagged
+  `:rf.sub/skip` would give the advisor `:unnamed-runs 1` and
+  `:by-read {}` while link 2 gave `:holds []` and
+  `:skipped {:count 1 :sub-ids []}`, and an untagged `:rf.sub/dispose`
+  would give the advisor `:unnamed-runs 1` while link 2 reported no
+  recompute and no skip at all. The two views would disagree on exactly
+  the path where identity is absent.
 
-  The first regression here covered an untagged RUN beside a tagged skip
-  — the adjacent case, not the failing one — which is why
-  [[operation-matrix]] is a TABLE: four operations by tagged/untagged, so
+  An untagged RUN beside a tagged skip is the adjacent case, not that
+  one, which is why [[operation-matrix]] is a TABLE: four operations by tagged/untagged, so
   the untagged non-work cells cannot be the ones nobody wrote a row for.
 
   Pure data → data, so this runs under the JVM target beside the CLJS
@@ -143,8 +140,8 @@
   {:app/main [(bundle 1 :e/tick [(sub-ev :a nil :rf.sub/skip)])]})
 
 (deftest a-skip-only-window-is-OBSERVED-activity-in-both-views
-  ;; THE REGRESSION. Both public results, off one window, in one row — so
-  ;; the two cannot drift apart again without this failing.
+  ;; Both public results, off one window, in one row — so the two cannot
+  ;; drift apart without this failing.
   (let [{:keys [row link2]} (both [[:app/main :a]] skip-only-window)
         cls (:class row)]
 
@@ -158,7 +155,7 @@
     (testing "and classifies the window as observed activity, never as a cap"
       (is (= :memo-hits-only (:observed cls)))
       (is (= :host-opaque (:basis cls))
-          (str "evidence WAS retained — reporting `:cap` said the opposite of "
+          (str "evidence WAS retained — reporting `:cap` would say the opposite of "
                "what the window held"))
       (is (not= :cap (:basis cls))))
 
@@ -190,8 +187,7 @@
   ;; operation Spec 009 routes through the projection's `:subs` slot; the
   ;; advisor's recompute COUNT and the slice's recompute ROSTER must
   ;; describe the same set of events. They are two readings of one
-  ;; predicate, so a divergence here is a second predicate having grown
-  ;; back.
+  ;; predicate, so a divergence here is a second predicate.
   (let [windows {:app/main [(bundle 1 :e/tick
                                     [(sub-ev :a 2.0 :rf.sub/run)
                                      (sub-ev :b nil :rf.sub/create)
@@ -203,11 +199,11 @@
                                   windows)]
     (is (= 1 (get-in row [:axes :frequency :runs]))
         (str "`:rf.sub/run` ALONE — the one operation that means a body ran. "
-             "`:rf.sub/create` was in this set and is not work: Spec 009 §199 "
+             "`:rf.sub/create` is not work: Spec 009 §199 "
              "and §241 put it at REGISTRATION time, fired by `reg-sub` / "
              "`reg-runtime-sub` / `reg-frame-state-sub` immediately after the "
              "registrar write, and say in terms that it is NOT a "
-             "first-reference or first-deref signal (rf2-y8doi.26)"))
+             "first-reference or first-deref signal"))
     (is (= 1 (count (:holds link2)))
         "and the slice's roster names exactly that one")
     (is (= #{:a} (set (:holds link2))))
@@ -219,8 +215,8 @@
     (testing "and `:rf.sub/create` is not a memo hit either — it is a THIRD thing"
       (is (not (contains? (set (:holds link2)) :b))
           (str "a registration is neither work nor a memo hit. Counting it as "
-               "work made a `reg-sub` inside a handler scope look like an "
-               "untimed recompute, which pushed an otherwise quiet boundary "
+               "work would make a `reg-sub` inside a handler scope look like an "
+               "untimed recompute, pushing an otherwise quiet boundary "
                "to `:unattributed` / `:host-opaque` — sending the reader to "
                "React DevTools over a registration"))
       (is (zero? (get-in row [:attributable :edges 1 :runs]))
@@ -230,7 +226,7 @@
 
     (testing "and `:rf.sub/dispose` is neither — an eviction is not a recompute"
       (is (not (contains? (set (:holds link2)) :e))
-          (str "reading the `:subs` slot unfiltered put a DISPOSE in a roster "
+          (str "reading the `:subs` slot unfiltered would put a DISPOSE in a roster "
                "labelled `subscriptions recomputed` as well"))
       (is (zero? (get-in row [:attributable :edges 4 :runs]))
           "and the advisor prices the disposed edge at no work either")
@@ -240,7 +236,7 @@
     (testing "the recompute count and the roster size are the SAME reading"
       (is (= (get-in row [:axes :frequency :runs]) (count (:holds link2)))
           (str "one predicate, `fresco-helpers/sub-recompute?`, asked twice — "
-               "two definitions of `did work happen` is what produced the "
+               "two definitions of `did work happen` is what produces the "
                "disagreement this row exists to prevent")))))
 
 ;; ---------------------------------------------------------------------------
@@ -278,28 +274,26 @@
   projection's `:subs` slot, WITH its `:rf.sub/id` and without it, and what
   each one is.
 
-  The untagged half is the half that was wrong (rf2-hic-037, merged-PR
-  audit #8063): the advisor's fold tested `(nil? sid)` BEFORE
-  `hh/sub-recompute?`, so identity loss decided the classification and
-  every untagged event became a run. The two untagged non-work rows are
-  therefore the rows this table exists for — an untagged `:rf.sub/skip`
-  read as one unnamed run against link 2's one memo hit, and an untagged
-  `:rf.sub/dispose` read as one unnamed run against link 2's nothing at
-  all.
+  The untagged half is the half a fold testing `(nil? sid)` BEFORE
+  `hh/sub-recompute?` would get wrong: identity loss would decide the
+  classification and every untagged event would become a run. The two
+  untagged non-work rows are therefore the rows this table exists for —
+  such a fold would read an untagged `:rf.sub/skip` as one unnamed run
+  against link 2's one memo hit, and an untagged `:rf.sub/dispose` as one
+  unnamed run against link 2's nothing at all.
 
   The absolute expectation is written out per row rather than only
   comparing the two views, because two views wrong the same way agree
   perfectly. The untagged RUN row is the control that keeps the table from
-  being satisfied by *everything untagged is zero* — it MUST still count
-  an unnamed run, which is the rule the repair had to leave standing.
+  being satisfied by *everything untagged is zero* — it MUST count an
+  unnamed run.
 
-  **The untagged CREATE row used to be a second such control and is not
-  one any more** (rf2-y8doi.26): `:rf.sub/create` left
-  `hh/sub-recompute-operations`, so both create rows now read all zeros
-  like the dispose rows. That is a real loss of redundancy and is stated
-  rather than left for a reader to notice — the single surviving untagged
-  control is load-bearing, and deleting it would make this whole table
-  satisfiable by a fold that counted nothing at all."
+  **The untagged CREATE row is not a second such control**:
+  `:rf.sub/create` is not in `hh/sub-recompute-operations`, so both create
+  rows read all zeros like the dispose rows. The untagged RUN row is
+  therefore the single untagged control, and it is load-bearing: deleting
+  it would make this whole table satisfiable by a fold that counted
+  nothing at all."
   [[:rf.sub/run     true  {:named-runs 1 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
    [:rf.sub/run     false {:named-runs 0 :unnamed-runs 1 :named-skips 0 :unnamed-skips 0}]
    ;; A REGISTRATION IS NOT A RUN. Spec 009 §199 / §241: emitted at
@@ -337,12 +331,12 @@
                  "loss is where it survived"))))))
 
 (deftest an-untagged-NON-WORK-event-is-uncorrelated-observation-never-work
-  ;; The audit's two reproductions, pinned with their own numbers. The
+  ;; The two untagged non-work cases, pinned with their own numbers. The
   ;; matrix above proves the counts agree; this proves the advisor states
   ;; the right KIND of absence about them — a skip that joins to nothing
   ;; is an uncorrelated observation, and an eviction is not an absence at
   ;; all.
-  (testing "an untagged `:rf.sub/skip` — was `:unnamed-runs 1`, `:by-read {}`"
+  (testing "an untagged `:rf.sub/skip` — not `:unnamed-runs 1`, `:by-read {}`"
     (let [t (advisor/sub-timing
               {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/skip)])]})]
       (is (zero? (:unnamed-runs t))
@@ -356,7 +350,7 @@
                "different fact"))
       (is (= 1 (:dropped (:unnamed-skip-loss t))))))
 
-  (testing "an untagged `:rf.sub/dispose` — was `:unnamed-runs 1` against link 2's nothing"
+  (testing "an untagged `:rf.sub/dispose` — not `:unnamed-runs 1` against link 2's nothing"
     (let [t (advisor/sub-timing
               {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/dispose)])]})]
       (is (zero? (:unnamed-runs t)))
@@ -372,18 +366,18 @@
   ;; The predicate is a public var in `fresco-helpers` precisely so both
   ;; derivations can consult it and a reader can see that they do.
   (is (= #{:rf.sub/run} hh/sub-recompute-operations)
-      (str "ONE operation means a body ran. `:rf.sub/create` was in this set "
+      (str "ONE operation means a body ran. `:rf.sub/create` is not in this set: "
            "and Spec 009 §199 / §241 say it is a REGISTRATION — fired by "
            "`reg-sub` / `reg-runtime-sub` / `reg-frame-state-sub` immediately "
            "after the registrar write, and explicitly not a first-reference "
-           "or first-deref signal (rf2-y8doi.26)"))
+           "or first-deref signal"))
   (doseq [op [:rf.sub/run]]
     (is (true? (hh/sub-recompute? {:operation op})))
     (is (false? (hh/sub-skip? {:operation op}))))
-  ;; THREE non-work operations now, and `:rf.sub/create` is the one that
-  ;; moved. It joins `:rf.sub/dispose` as a lifecycle event that is neither
-  ;; work nor a memo hit, rather than joining `:rf.sub/skip`, which is the
-  ;; cell being CONSIDERED and answering without running.
+  ;; THREE non-work operations. `:rf.sub/create` is, like `:rf.sub/dispose`,
+  ;; a lifecycle event that is neither work nor a memo hit — unlike
+  ;; `:rf.sub/skip`, which is the cell being CONSIDERED and answering
+  ;; without running.
   (doseq [op [:rf.sub/create :rf.sub/skip :rf.sub/dispose]]
     (is (false? (hh/sub-recompute? {:operation op}))))
   (is (true? (hh/sub-skip? {:operation :rf.sub/skip})))
@@ -396,24 +390,23 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest an-EMPTY-window-still-says-cap-and-still-sends-the-reader-to-the-knob
-  ;; The `:cap` sentence is right for a window that retained NOTHING, and
-  ;; the repair must not have taken it away — a boundary with no activity
-  ;; at all really does need a bigger ring.
+  ;; The `:cap` sentence is right for a window that retained NOTHING — a
+  ;; boundary with no activity at all really does need a bigger ring.
   (let [{:keys [row]} (both [[:app/main :a]] {:app/main []})
         cls (:class row)]
     (is (= :nothing (:observed cls)))
     (is (= :cap (:basis cls)))
     (is (string/includes? (:says cls) "events-retained"))
     (is (string/includes? (:says cls) "no recompute and no memo hit")
-        "and it now names both absences, because both are absent")))
+        "and it names both absences, because both are absent")))
 
 (deftest a-REGISTRATION-only-window-is-CAPPED-and-never-host-opaque
-  ;; THE USER-VISIBLE CONSEQUENCE of dropping `:rf.sub/create` from the
-  ;; recompute set, and the symptom rf2-y8doi.26 was filed on: a `reg-sub`
-  ;; evaluated inside a handler scope emits a create into that dispatch's
-  ;; bundle. A create carries no `:rf.sub/elapsed-ms` — nothing ran, so
-  ;; there is no duration to carry — so as a "recompute" it landed as an
-  ;; UNTIMED RUN, which made `searched?` true and routed the boundary to
+  ;; THE USER-VISIBLE CONSEQUENCE of keeping `:rf.sub/create` out of the
+  ;; recompute set: a `reg-sub` evaluated inside a handler scope emits a
+  ;; create into that dispatch's bundle. A create carries no
+  ;; `:rf.sub/elapsed-ms` — nothing ran, so there is no duration to carry
+  ;; — so as a "recompute" it would land as an UNTIMED RUN, make
+  ;; `searched?` true and route the boundary to
   ;; `:unattributed` / `:host-opaque`: *the window was searched and the
   ;; measured half does not account for this boundary … the owner is
   ;; lowering, React or layout.*
@@ -464,7 +457,7 @@
              "the one whose window really is empty"))))
 
 ;; ---------------------------------------------------------------------------
-;; The repair does not weaken what already held
+;; What holds independently of the skip rules
 ;; ---------------------------------------------------------------------------
 
 (deftest an-untagged-recompute-is-still-UNKNOWN-and-never-an-empty-roster
@@ -485,9 +478,9 @@
     (is (string/includes? (:says link2) "join to no subscription"))))
 
 (deftest a-window-with-both-runs-and-skips-classifies-on-the-runs
-  ;; The new arm must fire only when there is no recompute at all. A
-  ;; boundary that both ran and skipped is a searched window and keeps the
-  ;; sentence it had.
+  ;; The memo-only arm must fire only when there is no recompute at all. A
+  ;; boundary that both ran and skipped is a searched window and gets the
+  ;; searched sentence.
   (let [{:keys [row link2]}
         (both [[:app/main :a]]
               {:app/main [(bundle 1 :e [(sub-ev :a 0.05)
@@ -500,7 +493,7 @@
 
 (deftest an-oscillating-read-set-is-still-a-topology-finding-with-only-skips
   ;; Oscillation is a fact about the entry cache and holds independently
-  ;; of the clock, so it must still outrank the memo-only arm.
+  ;; of the clock, so it outranks the memo-only arm.
   (let [{:keys [row]} (both [[:app/main :a]] skip-only-window :read-orders 4)]
     (is (= :read-topology (:owner (:class row))))
     (is (= :memo-hits-only (:observed (:class row)))

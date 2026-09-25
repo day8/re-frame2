@@ -1,19 +1,20 @@
 (ns day8.re-frame2-xray.settings.auto-open-watcher-activates-ratom-node-cljs-test
-  "rf2-lynzk — `install-auto-open-watcher!` puts its `:rf.xray/issues-ribbon`
+  "`install-auto-open-watcher!` puts its `:rf.xray/issues-ribbon`
   subscription on the substrate's PUSH path ITSELF, so auto-open-on-error
   actually fires on the ratom family.
 
-  THE DEFECT THIS PINS. The installer did `subscribe` → plain deref →
-  `add-watch`, on the stated premise that \"a reagent/re-frame reaction is
-  already live the instant `subscribe` returns\". On the ratom family that is
-  false, and silently so: the subscription IS a bare Reaction, built WITHOUT
-  `:auto-run`, and a Reaction learns its sources only through `deref-capture`.
-  A plain deref taken outside `*ratom-context*` runs the body raw and leaves
-  `watching` nil — the node is in nobody's watcher set, so the installed
-  `add-watch` records a callback that CANNOT fire. Xray never auto-opened on
-  the first error under Reagent / reagent-slim, and nothing said so.
+  THE DEFECT CLASS THIS PINS. An installer that did `subscribe` → plain
+  deref → `add-watch`, on the premise that \"a reagent/re-frame reaction is
+  already live the instant `subscribe` returns\", would be wrong on the
+  ratom family, and silently so: the subscription IS a bare Reaction, built
+  WITHOUT `:auto-run`, and a Reaction learns its sources only through
+  `deref-capture`. A plain deref taken outside `*ratom-context*` runs the
+  body raw and leaves `watching` nil — the node is in nobody's watcher set,
+  so the installed `add-watch` records a callback that CANNOT fire. Xray
+  would never auto-open on the first error under Reagent / reagent-slim,
+  and nothing would say so.
 
-  WHY NO SUITE SAW IT. `:rf.xray/issues-ribbon` is a SIGNAL, never a rendered
+  WHY OTHER SUITES CANNOT SEE IT. `:rf.xray/issues-ribbon` is a SIGNAL, never a rendered
   value (`panels.cljs` §Issues: there is no Issues tab), so no component render
   ever supplies it a capture context — the one thing that hides this defect
   everywhere else. The sibling suite (`settings.effects-cljs-test`) runs the
@@ -29,7 +30,7 @@
 
   Node, no DOM: the claim is about the notification channel, not about a
   render. Template: `re-frame.observation-port-activates-ratom-node-cljs-test`,
-  the same proof for the observation port (rf2-8cnxg)."
+  the same proof for the observation port."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent2.ratom :as ratom]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -118,8 +119,8 @@
 (deftest auto-open-on-error-fires-through-the-real-watch-on-a-ratom-substrate
   (testing "the installed watcher hears a real app-db write: on the
             empty → non-empty issue edge, with the toggle on and the shell
-            hidden, Xray reopens. Before rf2-lynzk the watch was held on a
-            node that could not notify, so this never happened at all"
+            hidden, Xray reopens. A watch held on a node that cannot
+            notify would never reopen at all"
     (setup!)
     (config/update-setting! :general :auto-open-on-error? true)
     ;; Baseline — a focused epoch that carries NO issues, so the installer
@@ -135,8 +136,8 @@
                is the installer's fault and not the host's")
           (is (some? (.-watching reaction))
               "the install ACTIVATED the node: it is subscribed to its
-               sources. Before rf2-lynzk this was nil — watchable, watched,
-               and unable to notify")
+               sources. A plain-deref install leaves this nil — watchable,
+               watched, and unable to notify")
           (is (empty? @invoked)
               "activation itself reopened nothing")
 
@@ -146,7 +147,7 @@
 
           (is (= ["toggle_BANG_"] @invoked)
               "the write reached the watch and Xray reopened — through the
-               surface-preserving `toggle!` route (rf2-kggzi4), once")
+               surface-preserving `toggle!` route, once")
 
           ;; …and the edge is still an EDGE on the now-live channel.
           (sync-history! [(quiet-epoch 1) (error-epoch 2) (error-epoch 3)])

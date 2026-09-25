@@ -1,25 +1,22 @@
 (ns day8.re-frame2-xray.registry-cljs-test
-  "Dedicated CLJS tests for `day8.re-frame2-xray.registry` (rf2-5zl7l).
+  "Dedicated CLJS tests for `day8.re-frame2-xray.registry`.
 
   ## Scope
 
-  `registry.cljs` is now a thin orchestrator that owns only the
+  `registry.cljs` is a thin orchestrator that owns only the
   cross-panel primitives (trace-buffer sub, panel-selection slot,
   shared cascades projection, suppression-counter handlers) plus the
-  per-panel `install!` fan-out (rf2-d4xda). Per-panel reg-subs /
+  per-panel `install!` fan-out. Per-panel reg-subs /
   reg-events / reg-fxs live colocated with the panel ns that reads
   them. All registrations sit under the `:rf.xray/*` namespace and
-  target the `:rf/xray` frame. Prior to this file the only coverage
-  was *transitive* through per-panel view tests (each panel test
-  calls `(registry/reset-for-test!)` then drives the panel-specific
-  subset via subscribe/dispatch).
+  target the `:rf/xray` frame. Per-panel view tests cover the registry
+  only *transitively* (each panel test calls
+  `(registry/reset-for-test!)` then drives the panel-specific subset
+  via subscribe/dispatch).
 
-  Per the bead description (rf2-5zl7l) and the test-coverage audit
-  (rf2-otcbz) the transitive route does NOT isolate:
+  The transitive route does NOT isolate:
 
-    - The 3 `reg-fx` handlers as standalone units (the time-travel
-      panel test stubs two of them — it doesn't drive the registered
-      delegations themselves).
+    - The `reg-fx` handlers as standalone units.
     - The full smoke surface: that every registered name resolves to
       a handler after `register-xray-handlers!` runs.
     - Cross-panel composite subs (per-panel tests don't exercise
@@ -33,8 +30,7 @@
     (1) **Smoke registration block** — one assertion per registered
         name that the registrar resolves it (proves the orchestrator
         `register-xray-handlers!` plus each panel `install!` reached
-        every form without an early throw — the failure mode the
-        audit named).
+        every form without an early throw).
     (2) **High-value sub contracts** — defaults, composite shapes,
         override-aware readers (sub-cache, registered-flows, etc.),
         the panel-suppression / dormant-frame signal slots, and the
@@ -42,13 +38,13 @@
     (3) **High-value event contracts** — panel-select, hydration
         toggle, suppress-toggle, time-travel-scrub, filter axes
         (toggle / clear / set).
-    (4) **Reg-fx contracts** — the three fxs each receive their args
-        in the v2 `(fn [ctx args] ...)` shape. We capture the call
-        site via reg-fx replacement (same pattern as time_travel_
-        cljs_test.cljs) and assert the args round-trip.
+    (4) **Reg-fx contracts** — the fxs receive their args in the v2
+        `(fn [ctx args] ...)` shape. The tests invoke a registered fx
+        handler directly, or capture its args through the frame's
+        `:fx-overrides` seam.
     (5) **Edge cases** — empty app-db, override-takes-precedence.
 
-  Aim: ~30-50 deftests. The panel tests cover most paths transitively;
+  The panel tests cover most paths transitively;
   this file's job is the smoke surface + the registered-fx isolation
   + the cross-panel slots no single panel test owns."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -60,12 +56,12 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
-            ;; rf2-y8doi.60 — the four namespaces carrying the gated
+            ;; The four namespaces carrying the gated
             ;; top-level `rf/reg-view` sites. Required for their ALIASES, so
             ;; `dev-gated-reg-views-are-live-in-dev` below auto-resolves each
             ;; id (`::shell/event-list`) instead of hand-typing a second list.
-            ;; All four were already on the `:node-test` classpath through
-            ;; other suites, so this adds no load-time surface.
+            ;; All four are on the `:node-test` classpath through other
+            ;; suites anyway, so requiring them adds no load-time surface.
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.reactive-panel-subs :as reactive-panel-subs]
             [day8.re-frame2-xray.panels.routing :as routing]
@@ -80,14 +76,13 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; `make-xray-runtime-fixture` with the `:all` reset
   ;; tier — install (== preload's alias) + registry + mount sentinels + the
   ;; trace-collector rings; `:post-reset` carries the config resets.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (config/reset-suppressed-count!)
-                   ;; rf2-5m5n2 — reset the project-root prefix atom so a
+                   ;; Reset the project-root prefix atom so a
                    ;; sibling test that set it (e.g.
                    ;; `open_in_editor_cljs_test.cljs`) doesn't leak into the
                    ;; registry tests' URI assertions.
@@ -97,7 +92,7 @@
 
 (defn- setup-xray-frame!
   "The canonical per-test boot: register handlers, install the test-only
-  override seam (rf2-e8330v — production registration installs no
+  override seam (production registration installs no
   `-for-test` ids), allocate the :rf/xray frame, return."
   []
   (registry/register-xray-handlers!)
@@ -106,13 +101,13 @@
 
 ;; ---- focus ↔ registry single-source-of-truth cross-check ----------------
 ;;
-;; rf2-1sddi6 / rf2-7ed9ms — `focus/valid-panels` (the host-facing
+;; `focus/valid-panels` (the host-facing
 ;; focus vocabulary) is a static `.cljc` mirror of the LIVE Dynamic L4
 ;; tab registry. This test fails the build the instant the two drift:
 ;; adding/removing a `reg-l4-tab!` Dynamic tab without updating
-;; `valid-panels` (or vice-versa) breaks here. The drift this guards is
-;; exactly the rf2-1sddi6 / rf2-7ed9ms finding — focus published `:routes`
-;; (no such tab) while omitting shipped `:resources` / `:module-view`.
+;; `valid-panels` (or vice-versa) breaks here — e.g. focus publishing
+;; `:routes` (no such tab) while omitting shipped `:resources` /
+;; `:module-view`.
 
 (deftest focus-valid-panels-mirrors-live-dynamic-registry
   (testing "focus/valid-panels == panel-registry/tab-ids-for-mode :dynamic"
@@ -132,7 +127,7 @@
 (defn- xray-id?
   "True when `id` is a Xray-namespaced keyword. Used to filter the
   registrar's full per-kind registration map down to the Xray subset
-  for the snapshot test (rf2-39n8h). Covers both the bare `:rf.xray/*`
+  for the snapshot test. Covers both the bare `:rf.xray/*`
   prefix and the per-panel `:rf.xray.<panel>/*` prefixes codified in
   `tools/xray/spec/014-Registry-Catalogue.md` §Naming convention."
   [id]
@@ -144,50 +139,42 @@
 (def ^:private all-sub-names
   "Every Xray-namespaced sub registered by `register-xray-handlers!`.
   Sorted-set literal — order-independent so concurrent PRs adding subs
-  produce rebase-clean diffs (rf2-39n8h)."
+  produce rebase-clean diffs."
   (sorted-set
    :rf.xray/active-filters
-   ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
+   ;; Machine Inspector `:after` countdown rings.
    :rf.xray/active-timers-for-focused-machine
-   ;; rf2-yng0y — atomic current-state + focused-epoch before-image
-   ;; (collapses the former 5-deep focus chain so `:before` / `:epoch-id`
-   ;; move together — no stale-`before` frame on zoom navigation).
-   ;; rf2-p53m2 — the former `:rf.xray/app-db-diff` composite + its
-   ;; `:rf.xray/selected-epoch-diff` / `-flow-writes` / `-redacted-
-   ;; modified-count` inputs were PRUNED (no production view consumer);
-   ;; this atomic sub is the app-db tab's primary read-model.
+   ;; Atomic current-state + focused-epoch before-image, so `:before` /
+   ;; `:epoch-id` move together — no stale-`before` frame on zoom
+   ;; navigation. This atomic sub is the app-db tab's primary read-model.
    :rf.xray/app-db-current+diff
-   ;; rf2-okvit — app-db tab current-state inspector section model
+   ;; App-db tab current-state inspector section model
    ;; (derived from the atomic sub above).
    :rf.xray/app-db-state
    :rf.xray/event-bundles
    ;; First-class edn-inspector widget owns the WHOLE renderer contract
    ;; — browse + diff + mini — via `:rf.xray.edn-inspector/*` events &
-   ;; subs (rf2-oqa60 phase 1 + rf2-q3dzw phase 5). The pre-rf2-q3dzw
-   ;; sibling slots (`:rf.xray/edn-inspector-{expansion,node-state}`
-   ;; and `:rf.xray.data-inspector/{expansion,all-expansion}`) are
-   ;; deleted with the legacy `edn-inspector.render` +
-   ;; `theme.data-inspector` engines.
-   ;; rf2-uji72 — shared draggable column-resize. Sub returns
+   ;; subs.
+   ;; Shared draggable column-resize. Sub returns
    ;; the per-table {col-id → px} override map.
    :rf.xray.column-widths/for-table
    :rf.xray.edn-inspector/expansion
-   ;; rf2-kbdk8 — per-mount measured container widths for the width-aware
+   ;; Per-mount measured container widths for the width-aware
    ;; expansion heuristic. Keyed by mount-id; updated via ResizeObserver
    ;; in the widget's ref callback.
    :rf.xray.edn-inspector/widths
-   ;; rf2-h71e0 — per-mount zoom-into-node path. Keyed by [panel-id
+   ;; Per-mount zoom-into-node path. Keyed by [panel-id
    ;; site-or-mount-id]; non-empty vec stores the path the widget zooms
    ;; into; nil / empty renders the full tree (un-zoomed default).
    :rf.xray.edn-inspector/zoom
-   ;; rf2-l4625 — edn-inspector popup overlay subs (stack + entries +
+   ;; Edn-inspector popup overlay subs (stack + entries +
    ;; projection subs for open? / top / per-mount-id entry).
    :rf.xray.edn-inspector-popup/stack
    :rf.xray.edn-inspector-popup/entries
    :rf.xray.edn-inspector-popup/open?
    :rf.xray.edn-inspector-popup/top
    :rf.xray.edn-inspector-popup/entry
-   ;; rf2-59e7k — Cancellation-cascade visualiser subs (Machines
+   ;; Cancellation-cascade visualiser subs (Machines
    ;; tab side-panel + Trace popover). Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.
    :rf.xray/cancellation-cascade-expanded?
@@ -195,213 +182,190 @@
    :rf.xray/cancellation-cascade-for-focused-machine
    :rf.xray/cancellation-cascade-popover-focus
    :rf.xray/cancellation-cascade-popover-open?
-   ;; rf2-i39w2 Phase 3 — hiccup-diff micro-engine opt-in toggle.
+   ;; Hiccup-diff micro-engine opt-in toggle.
    :rf.xray/diff-opts
    :rf.xray/edit-popup-draft
    :rf.xray/edit-popup-open?
    :rf.xray/edit-popup-trigger
-   ;; rf2-dudqz — host-side editor default exposed to the Settings
+   ;; Host-side editor default exposed to the Settings
    ;; popup's editor-override picker so the "Project default: <name>"
    ;; hint renders. Reads `config/editor` atom directly.
    :rf.xray/editor-host-default
    :rf.xray/epoch-history
-   ;; rf2-sc3r1 — Epoch panel composite (focused epoch's pipeline
+   ;; Epoch panel composite (focused epoch's pipeline
    ;; rows) + per-row expansion-set sub.
    :rf.xray/epoch-pipeline
    :rf.xray.epoch/expanded-rows
-   ;; rf2-y8doi.19 — the Epoch panel's pipeline sub was LAYERED, so a
-   ;; settled host event no longer re-projects the 6k-line cascade while
-   ;; the operator is pinned to an older epoch. The history-dependent
+   ;; The Epoch panel's pipeline sub is LAYERED, so a settled host
+   ;; event does not re-project the 6k-line cascade while the operator
+   ;; is pinned to an older epoch. The history-dependent
    ;; half is `:rf.xray/focused-epoch-record` (focus + ring → the record;
    ;; it must still recompute per settle because it is what watches the
    ;; ring, but its VALUE is `=`-equal across settles while pinned, so
    ;; the substrate's propagation collapse stops there). The parent-epoch
-   ;; link is the one thing left that genuinely needs the ring, and it
+   ;; link is the one thing that genuinely needs the ring, and it
    ;; gets its own narrow sub keyed on the dispatch ids THIS cascade
    ;; carries — rather than riding along as the whole `:epoch-history`
-   ;; vector inside the pipeline's value, which is what guaranteed a
+   ;; vector inside the pipeline's value, which would guarantee a
    ;; fresh value on every settle.
    :rf.xray/focused-epoch-record
    :rf.xray.epoch/parent-epoch-index
-   ;; rf2-tzmmf — Epoch panel SUBSCRIPTIONS filter-mode sub
-   ;; (`[all][changed][unchanged]` button-bar; supersedes
-   ;; rf2-kfh1v's boolean `subs-show-unchanged?`).
+   ;; Epoch panel SUBSCRIPTIONS filter-mode sub
+   ;; (`[all][changed][unchanged]` button-bar).
    :rf.xray.epoch/subs-filter-mode
-   ;; rf2-vv3m6 (2026-05-29) — the per-surface diff-mode subs retired
-   ;; alongside the `[diff][full][full+diff]` toggle. The four subs that
-   ;; previously sat here (`:rf.xray.epoch/db-diff-mode`,
-   ;; `:rf.xray.epoch/subs-value-diff-mode`, `:rf.xray.app-db/diff-mode`,
-   ;; `:rf.xray.machine-inspector/diff-mode`) are gone — FULL+DIFF is
-   ;; the single rendering across every consumer surface.
-   ;; rf2-7ed9ms — renamed off the retired-panel name `:rf.xray/event-detail`
-   ;; to the behaviour name `:rf.xray/focused-event-bundle-detail`.
    :rf.xray/focused-event-bundle-detail
    :rf.xray/filtered-event-bundles
-   ;; rf2-jqqsh9 — the error-override bypass posture consulted by the
+   ;; The error-override bypass posture consulted by the
    ;; filtered-event-bundle chain (spec/018 §7 Error overrides).
    :rf.xray/filters-auto-hide-error-overrides?
-   ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
+   ;; Model behind the L2 'N hidden by filters' indicator
    ;; (raw vs filtered visible counts + the active filter cause).
    :rf.xray/hidden-by-filters
    :rf.xray/focus
-   ;; rf2-70tkv — App-DB diff subs pivot off the spine's focus
+   ;; App-DB diff subs pivot off the spine's focus
    ;; `:epoch-id` (which auto-tracks head in LIVE mode). This sub is
-   ;; the thin projection seam. (rf2-uy7nz retired the legacy
-   ;; `:selected-epoch-id` mirror slot that this superseded.)
+   ;; the thin projection seam.
    :rf.xray/focus-epoch-id
    :rf.xray/focus-slot
-   ;; rf2-iwwou — hardened L1 frame-switcher slot. Public contract
+   ;; L1 frame-switcher slot. Public contract
    ;; every frame-aware feature reaches through: the ribbon picker,
    ;; the Cmd-K palette's `:select-frame` verb, future panel-by-frame
    ;; surfaces. See `frame_switcher.cljs` for the full contract.
    :rf.xray/current-frame
    :rf.xray/available-frames
-   ;; rf2-4vp5j — the dedicated VIEW-SCOPE frame slot (frame is a view
+   ;; The dedicated VIEW-SCOPE frame slot (frame is a view
    ;; scope, not a filter): the resolved scope + its raw stored slot +
    ;; the raw target-frame slot it falls back to on a host seed.
    :rf.xray/view-scope-frame
    :rf.xray/view-scope-frame-slot
    :rf.xray/target-frame-slot
-   ;; rf2-ad7zx.9 — the `:rf.xray/issues-filters` sub was dropped with
-   ;; the Issues panel's filter-chrome reconcile to the Figma design
-   ;; (pure rows, no filtering — spec/021 §8.2).
    :rf.xray/issues-ribbon
    :rf.xray/machine-definitions
    :rf.xray/machine-inspector-data
-   ;; rf2-3d987 issue #4 — chart-collapsed slot per machine, persisted
+   ;; Chart-collapsed slot per machine, persisted
    ;; to localStorage. Lets the operator hide the chart so the snapshot
-   ;; pair has room without scrolling. (rf2-48fwsi retired the sibling
-   ;; view-mode-by-id / view-mode-for subs along with the dead
-   ;; Canvas/List toggle.)
+   ;; pair has room without scrolling.
    :rf.xray.machine-canvas/chart-collapsed-by-id
    :rf.xray.machine-canvas/chart-collapsed-for
-   ;; rf2-a9cke — focused-event lens composite consumed by the
+   ;; Focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.xray/machine-transitions-for-focused-event
-   ;; rf2-g2axio — the focused epoch's projected machine-cascade rows
+   ;; The focused epoch's projected machine-cascade rows
    ;; for the SHARED EVENT HANDLER mini-pipeline (the Machine tab
    ;; consumes the SAME renderer the Epoch panel does).
    :rf.xray/machine-focused-epoch-cascade
-   ;; rf2-y9xmf — scrubber-position slot survives the collapse; the
+   ;; Scrubber-position slot; the
    ;; `:after`-rings overlay reads it to gate ring rendering to the
-   ;; `:present` position. (rf2-nugvv removed the share-URL surface that
-   ;; previously also round-tripped it.) The scrubber UI itself is gone
-   ;; (sibling bead rf2-r4nao re-hosts it under Static).
+   ;; `:present` position.
    :rf.xray/machine-scrubber-position
    :rf.xray/machine-snapshots
-   ;; rf2-uyp86 — managed-fx wire-boundary diff composite.
+   ;; Managed-fx wire-boundary diff composite.
    :rf.xray/managed-fx-for-focused-event
-   ;; rf2-s6m6 — the record panel's per-section disclosure state. Read at
+   ;; The record panel's per-section disclosure state. Read at
    ;; `panels/ManagedFxList` and threaded to the pure renderers.
    :rf.xray/managed-fx-expanded-sections
-   ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
+   ;; `:after` ring tick driver wall-clock surface + hover slot.
    :rf.xray/now-ms
-   ;; rf2-39n8h discovered — focused-frame slot consumed across panels.
+   ;; Focused-frame slot consumed across panels.
    :rf.xray/observed-frame
    :rf.xray/palette-active-item
    :rf.xray/palette-cursor
    :rf.xray/palette-index
    :rf.xray/palette-open?
    :rf.xray/palette-query
-   ;; rf2-ybjkx — recents vector (last-used commands, persisted to
+   ;; Recents vector (last-used commands, persisted to
    ;; localStorage).
    :rf.xray/palette-recents
    :rf.xray/palette-results
    :rf.xray/registered-machines
-   ;; rf2-nrbs9 — Routes tab (7th L3 tab) sub family. (The `*-override`
-   ;; subs split out behind `install-test-overrides!` — rf2-e8330v.)
+   ;; Routes tab (7th L3 tab) sub family. (The `*-override`
+   ;; subs sit behind `install-test-overrides!`.)
    :rf.xray/registered-routes
    :rf.xray/current-route-slice
    :rf.xray/routing-tab-data
    ;; Spec 016 §Xray and AI tooling — Resources tab (8th L3 tab) sub
    ;; family. The static registry + the live runtime-db cache/ledger
    ;; slices + the view-facing composite. (The per-kind `*-override`
-   ;; subs split out behind `install-test-overrides!` — rf2-e8330v.)
+   ;; subs sit behind `install-test-overrides!`.)
    :rf.xray/registered-resources
-   ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry
-   ;; (the third resources kind).
+   ;; Named resource-scope resolver registry
+   ;; (the third resources kind; EP-0016 D3).
    :rf.xray/registered-scope-resolvers
    :rf.xray/resource-entries
    :rf.xray/resource-work-ledger
-   ;; rf2-m5u3gt — the live route/resource graph reads the routing slice.
+   ;; The live route/resource graph reads the routing slice.
    :rf.xray/resource-routing-slice
    :rf.xray/resources-tab-data
-   ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab subs: the
+   ;; Derivation-Graph tab subs (EP-0014 prop-3): the
    ;; assembled `re-frame.derivation.graph` view (static/live), the mode
    ;; toggle slot, and the view-facing composite. (The `*-override` sub
-   ;; split out behind `install-test-overrides!` — rf2-e8330v.)
+   ;; sits behind `install-test-overrides!`.)
    :rf.xray/derivation-graph
    :rf.xray/derivation-graph-mode
    :rf.xray/derivation-graph-tab-data
-   ;; rf2-32siq3.12 — EP-0023 image/frame model on the Module-view tab: the
+   ;; EP-0023 image/frame model on the Module-view tab: the
    ;; live image-loaded frames as execution contexts, each carrying its
    ;; resolved image (the generation's [kind id] descriptors). Reads the
    ;; EP-0023 live-frame registry + sealed generations via the fail-soft
    ;; `image-view-reads` seam; presents Xray itself as its OWN image
    ;; inspecting the target frame as data (EP-0023 §Xray Beside The Target).
    :rf.xray/image-view
-   ;; rf2-hic-023 — the Fresco evidence tab's two reads. `…/view` is the
+   ;; The Fresco evidence tab's two reads. `…/view` is the
    ;; selected sub-view; `…/data` takes all four evidence envelopes in ONE
    ;; turn and shapes every view's rows from them.
    :rf.xray.fresco/view
    :rf.xray.fresco/data
-   ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
-   ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
-   ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows
-   ;; to the focused-event surface and no longer owns these slots.
+   ;; Routes browse + Simulate-URL state lives under
+   ;; the Static Routes panel (the two-verbs-two-homes split). The
+   ;; Dynamic Routing lens narrows to the focused-event surface and does
+   ;; not own these slots.
    :rf.xray.static.routes/query
    :rf.xray.static.routes/sim-url
    :rf.xray.static.routes/expanded
-   ;; rf2-o5f5f.3 — Static Routes hermetic Simulate-navigation toggle
+   ;; Static Routes hermetic Simulate-navigation toggle
    ;; set + view-facing composite.
    :rf.xray.static.routes/sim-nav-open
    :rf.xray.static.routes/tab-data
-   ;; rf2-o5f5f.4 — Static Schemas sub-tab subs (browse-all over the
+   ;; Static Schemas sub-tab subs (browse-all over the
    ;; app-db schemas storage + the registrar's `:event` / `:sub`
-   ;; `:spec` slots + view-facing composite). The `*-override` sub split
-   ;; out behind `install-test-overrides!` (rf2-e8330v).
+   ;; `:spec` slots + view-facing composite). The `*-override` sub sits
+   ;; behind `install-test-overrides!`.
    :rf.xray.static.schemas/query
    :rf.xray.static.schemas/registry
    :rf.xray.static.schemas/tab-data
-   ;; rf2-uhsqb — Static Flows sub-tab subs (browse-all over the live
+   ;; Static Flows sub-tab subs (browse-all over the live
    ;; `re-frame.flows.registry/flows` atom + view-facing composite). The
-   ;; `*-override` sub split out behind `install-test-overrides!`
-   ;; (rf2-e8330v).
+   ;; `*-override` sub sits behind `install-test-overrides!`.
    :rf.xray.static.flows/query
    :rf.xray.static.flows/registered-flows
    :rf.xray.static.flows/tab-data
-   ;; rf2-o5f5f.6 — Static Interceptors sub-tab subs (pure-browse over
+   ;; Static Interceptors sub-tab subs (pure-browse over
    ;; the interceptors surfaced through registered events). The
-   ;; `*-override` sub split out behind `install-test-overrides!`
-   ;; (rf2-e8330v).
+   ;; `*-override` sub sits behind `install-test-overrides!`.
    :rf.xray.static.interceptors/query
    :rf.xray.static.interceptors/registry
    :rf.xray.static.interceptors/tab-data
-   ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the transient
+   ;; Tab-ribbon Reset rewind affordance: the transient
    ;; inline failure-flash slot the ribbon reads.
    :rf.xray/reset-flash
-   ;; rf2-p53m2 — `:rf.xray/selected-epoch-diff`,
-   ;; `:rf.xray/selected-epoch-flow-writes`, and
-   ;; `:rf.xray/selected-epoch-redacted-modified-count` were PRUNED with
-   ;; the dead `:rf.xray/app-db-diff` composite. Only
-   ;; `:rf.xray/selected-epoch-record` (the Epoch panel's `:db` diff
-   ;; source) survives in this family.
+   ;; `:rf.xray/selected-epoch-record` is the Epoch panel's `:db` diff
+   ;; source.
    :rf.xray/selected-epoch-record
    :rf.xray/selected-machine-id
-   ;; rf2-om6fa — Story-aware modal positioning opt.
+   ;; Story-aware modal positioning opt.
    :rf.xray/modal-positioning
-   ;; rf2-ikuwt — per-event-id mute filter subs.
+   ;; Per-event-id mute filter subs.
    :rf.xray/mute-manager-open?
    :rf.xray/muted-event-ids
    :rf.xray/muted-event-ids-count
    :rf.xray/row-context-menu
-   ;; rf2-o5f5f.1 — Dynamic ↔ Static mode slot + Static-scoped tab.
+   ;; Dynamic ↔ Static mode slot + Static-scoped tab.
    :rf.xray/mode
    :rf.xray.static/selected-tab
-   ;; rf2-o5f5f.2 — Static Machines sub-tab subs (browse-all + per-
+   ;; Static Machines sub-tab subs (browse-all + per-
    ;; machine sub-mode). Composite + raw slots feeding the L4 master-
    ;; detail surface.
-   ;; rf2-sxw06 — Copy Mermaid settled-outcome feedback for one machine
+   ;; Copy Mermaid settled-outcome feedback for one machine
    ;; (nil for every other machine, and for an unsettled/pending copy).
    :rf.xray.static.machines/copy-mermaid-status
    :rf.xray.static.machines/data
@@ -411,134 +375,103 @@
    :rf.xray.static.machines/sort-key
    :rf.xray.static.machines/sub-mode
    :rf.xray.static.machines/sub-mode-by-id
-   ;; rf2-x8h9y — horizontal resize handle width.
+   ;; Horizontal resize handle width.
    :rf.xray/panel-width-px
-   ;; rf2-6ni62 — L2 event-list user-resizable column widths.
+   ;; L2 event-list user-resizable column widths.
    :rf.xray/event-list-col-widths
-   ;; rf2-t2dsh — L2/L3 seam-handle event-list height.
+   ;; L2/L3 seam-handle event-list height.
    :rf.xray/events-list-height-px
-   ;; rf2-vbbq0 / rf2-0s2at — L2 row relative-time chip anchor (sub
+   ;; L2 row relative-time chip anchor (sub
    ;; composed off `:rf.xray/event-bundles` — dispatched-time of the most
    ;; recent cascade; flips on event arrival, not on a per-second tick).
    :rf.xray/relative-time-now-ms
    :rf.xray/selected-tab
-   ;; rf2-6tw7t — Machine tab fit-on-entry nonce (bumped by
+   ;; Machine tab fit-on-entry nonce (bumped by
    ;; `:rf.xray/select-tab :machines` + `:rf.xray.static/select-tab
    ;; :machines`; forwarded to MachineChart's `:fit-signal`).
    :rf.xray/machine-tab-fit-signal
-   ;; rf2-ttnst — Settings popup expansion convenience subs.
+   ;; Settings popup expansion convenience subs.
    :rf.xray/density
    :rf.xray/long-keyword-threshold
-   ;; rf2-4s08ov — open-in-editor 'pick an editor in Settings' hint
+   ;; Open-in-editor 'pick an editor in Settings' hint
    ;; toast mount-gate sub.
    :rf.xray/editor-hint-open?
-   ;; rf2-9poxq — Settings popup subs.
+   ;; Settings popup subs.
    :rf.xray/setting
    :rf.xray/settings
    :rf.xray/settings-active-tab
    :rf.xray/settings-clear-confirm-open?
    :rf.xray/settings-open?
-   ;; rf2-8i1tg3 — Keybindings tab "Handle keys?" master toggle sub.
+   ;; Keybindings tab "Handle keys?" master toggle sub.
    ;; NOT part of `:rf.xray/setting` — the underlying atom
    ;; (`config/keybinding-enabled?`) is a bare process-global
    ;; `configure!` slot, not a persisted `:settings` key.
    :rf.xray/keybinding-enabled?
-   ;; (`:rf.xray/show-tool-frames?` was REMOVED from this roster with the
-   ;; sub — rf2-y8doi.27. Its Settings UI went on 2026-05-27 and no
-   ;; surface could write the slot, so the sub could only ever answer the
-   ;; default `false`. The picker's tool-frame exclusion is
-   ;; `frame-switcher/internal-frames`, unconditionally.)
-   ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-event-bundle bucket.
+   ;; Opt-in surface for the :ungrouped pseudo-event-bundle bucket.
    :rf.xray/show-ungrouped?
-   ;; rf2-r4nao — Static Machines Sim sub-mode subs (rehost from
-   ;; rf2-v869p Phase 2; ns moved from :rf.xray/sim-* to
-   ;; :rf.xray.static.machines/sim-*).
+   ;; Static Machines Sim sub-mode subs.
    :rf.xray.static.machines/sim-active?
    :rf.xray.static.machines/sim-available-transitions
    :rf.xray.static.machines/sim-by-machine
    :rf.xray.static.machines/sim-event-suggestions
    :rf.xray.static.machines/sim-state
-   ;; rf2-u422r (epic rf2-nrrtb) — on-chart sim binding subs: the
+   ;; On-chart sim binding subs: the
    ;; current snapshot state (active-state highlight) + the last
    ;; transition (focused-edge animation).
    :rf.xray.static.machines/sim-current-state
    :rf.xray.static.machines/sim-last-transition
-   ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) + its
-   ;; per-cascade structured export (rf2-0us27) subs are removed with
-   ;; the Machine panel's Share button (the modal's sole UI entry point).
    :rf.xray/suppressed-sensitive-count
    :rf.xray/target-frame
    :rf.xray/target-frame-db
-   ;; EP-0001 (rf2-vzld77) — the observed frame's runtime-db partition value;
-   ;; sibling of target-frame-db sourcing the durable framework state (machine
-   ;; snapshots, route slice) that moved out of app-db into runtime-db.
+   ;; The observed frame's runtime-db partition value (EP-0001);
+   ;; sibling of target-frame-db sourcing the durable framework state
+   ;; (machine snapshots, route slice) that lives in runtime-db rather
+   ;; than app-db.
    :rf.xray/target-frame-runtime-db
-   ;; rf2-7hwwe — `:after` countdown ring hover slot (rich tooltip lifecycle).
+   ;; `:after` countdown ring hover slot (rich tooltip lifecycle).
    :rf.xray/timer-hover
    :rf.xray/trace-buffer
-   ;; rf2-l2f2g — per-row inline raw-EDN payload expansion state
+   ;; Per-row inline raw-EDN payload expansion state
    ;; (spec/023-Trace-Panel.md §3 — row click → raw EDN).
    :rf.xray/trace-expanded-row-ids
-   ;; rf2-aqusw — the per-band collapse state sub
-   ;; (`:rf.xray/trace-collapsed-band-ids`) was REMOVED with the phase-band
-   ;; hierarchy; the flat Trace panel has no collapsible bands.
-   ;; rf2-td380 — epoch-scoped feed (reads the focused epoch record's
-   ;; `:trace-events` directly). The `:rf.xray/trace-feed-state`
-   ;; buffer snapshot + `:rf.xray/trace-filters` chip-filter slot were
-   ;; removed with rf2-td380 + rf2-gkczt. The feed now projects the arc
-   ;; shape (envelope + 4 phase bands) per spec/023 (rf2-l2f2g).
+   ;; Epoch-scoped feed (reads the focused epoch record's
+   ;; `:trace-events` directly). The feed projects the arc
+   ;; shape (envelope + 4 phase bands) per spec/023.
    :rf.xray/trace-feed
-   ;; rf2-wcfsy — layer-3 composite over `:rf.xray/event-bundles` +
+   ;; Layer-3 composite over `:rf.xray/event-bundles` +
    ;; `:rf.xray/focus`; returns the focused cascade record (or nil
-   ;; when no focus is pinned). Replaces an inline `some` scan that
-   ;; ran on every Trace-panel render — the composite memoises on
-   ;; its input signals so the scan only re-runs when cascades /
-   ;; focus actually change. Read by the Trace panel's
-   ;; `event-bundle-status-bar`.
+   ;; when no focus is pinned). The composite memoises on its input
+   ;; signals, so the lookup only re-runs when cascades / focus actually
+   ;; change rather than on every Trace-panel render. Read by the Trace
+   ;; panel's `event-bundle-status-bar`.
    :rf.xray.trace/focused-event-bundle
-   ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
-   ;; §11.5; tab key stays `:views`, display label rebases). Reads the
+   ;; Reactive panel (spec/021 §3 · §11.5; tab key `:views`). Reads the
    ;; focused cascade's `:trace-events` for the substrate ops
    ;; (`:rf.view/rendered`, `:rf.sub/skip` memo-hit → `:subs-skipped`,
    ;; `:rf.cascade/captured`).
    :rf.xray/reactive-data
-   ;; rf2-l86mm — the three `:rf.xray/mounted-view*` reads over
-   ;; `re-frame.freehand.tool` are GONE from this roster with the Mounted
-   ;; Views + Declared View Sites sections (spec/021 §3.4.3). They retired
-   ;; with the Freehand substrate rather than moving to
-   ;; `re-frame.fresco.tool`; the schema-6 migration clause clears them from
-   ;; a live-upgraded process.
    :rf.xray/reactive-show-unchanged?))
 
 (def ^:private all-event-names
   "Every Xray-namespaced event registered by `register-xray-handlers!`.
-  Sorted-set literal (rf2-39n8h) — order-independent so concurrent PRs
+  Sorted-set literal — order-independent so concurrent PRs
   adding events produce rebase-clean diffs.
 
-  Issues-ribbon panel-internal events (rf2-nmc1f) nest under
+  Issues-ribbon panel-internal events nest under
   `:rf.xray.issues/*` so the namespace itself encodes
   \"panel-internal, no cross-panel callers\". Per the
   `:rf.xray.<panel>/*` convention codified in
   `tools/xray/spec/014-Registry-Catalogue.md` §Naming convention."
   (sorted-set
-   ;; (Pre-rf2-q3dzw `:rf.xray.data-inspector/*` events covered per-
-   ;; row toggle/set + large-value confirm flow; the ns is deleted
-   ;; with phase 5 and the edn-inspector widget's
-   ;; `:rf.xray.edn-inspector/*` events cover the same surface. Large-
-   ;; blob confirm chrome moves to the popup phase, D6=a.)
-   ;; rf2-ad7zx.9 — the `:rf.xray.issues/toggle-severity` /
-   ;; `toggle-prefix` / `clear-filters` events were dropped with the
-   ;; Issues panel's filter-chrome reconcile to the Figma design (pure
-   ;; rows, no filtering — spec/021 §8.2).
    :rf.xray/add-filter
-   ;; rf2-uji72 — shared draggable column-resize events. `resize-pair-
+   ;; Shared draggable column-resize events. `resize-pair-
    ;; tick` updates both adjacent column widths in one writeback so the
-   ;; sum is conserved; `resize-pair-commit` (rf2-xm1jy) persists the
+   ;; sum is conserved; `resize-pair-commit` persists the
    ;; settled widths to localStorage exactly once on pointerup;
    ;; `reset` clears all overrides for a table.
-   ;; rf2-xzg1y — `hydrate` lifts the persisted column-widths map from
+   ;; `hydrate` lifts the persisted column-widths map from
    ;; localStorage into app-db at first-mount time.
-   ;; rf2-hic-023 — the Fresco evidence tab's one event: the selected
+   ;; The Fresco evidence tab's one event: the selected
    ;; sub-view, normalised on write so a stale id cannot leave the panel
    ;; on a view that does not exist.
    :rf.xray.fresco/set-view
@@ -546,47 +479,38 @@
    :rf.xray.column-widths/resize-pair-commit
    :rf.xray.column-widths/resize-pair-tick
    :rf.xray.column-widths/reset
-   ;; rf2-59e7k — Cancellation-cascade visualiser events. Per
+   ;; Cancellation-cascade visualiser events. Per
    ;; `tools/xray/spec/019-Cross-Cutting-Insight.md` §M.3.
    :rf.xray/cancellation-cascade-close
    :rf.xray/cancellation-cascade-open
    :rf.xray/cancellation-cascade-set-expanded
    :rf.xray/cancellation-cascade-toggle-expand
-   ;; (The rf2-jvghz `:rf.xray/clear-all-filters` bulk reset was removed
-   ;; per rf2-rdhbk — no caller survived rf2-pjjwh's Clear Filters
-   ;; button retirement.)
    :rf.xray/clear-machine-selection
-   ;; rf2-hga49 — clear the tab-ribbon Reset failure flash.
+   ;; Clear the tab-ribbon Reset failure flash.
    :rf.xray/clear-reset-flash
    :rf.xray/clear-selected-dispatch-id
    :rf.xray/clear-trace-buffer
-   ;; rf2-7dyi8 — drop every expanded trace-row id in one shot.
+   ;; Drop every expanded trace-row id in one shot.
    :rf.xray/clear-trace-expand
    :rf.xray/close-edit-popup
    :rf.xray/close-shell
-   ;; rf2-6r9j.24 — the two dispatcher-less clipboard copy events were
-   ;; retired with the universal EDN-widget affordance that was their only
-   ;; intended caller. The fx they rode survives (see the reg-fx section).
    ;; First-class edn-inspector widget events (sticky-expansion +
    ;; reset). Per `tools/xray/spec/021-Dynamic-Panel-Designs.md` §10.4.
-   ;; The pre-rf2-q3dzw flat-shape sibling events
-   ;; (`:rf.xray/edn-inspector-*`) are deleted with the legacy
-   ;; `edn-inspector.render` engine in phase 5.
    :rf.xray.edn-inspector/reset-expansion
    :rf.xray.edn-inspector/set-node
    :rf.xray.edn-inspector/toggle-node
-   ;; rf2-kbdk8 — width-aware heuristic events. set-width records the
+   ;; Width-aware heuristic events. set-width records the
    ;; ResizeObserver measurement; clear-width is dispatched on unmount.
    :rf.xray.edn-inspector/set-width
    :rf.xray.edn-inspector/clear-width
-   ;; rf2-h71e0 — zoom-into-node + breadcrumb navigation events.
+   ;; Zoom-into-node + breadcrumb navigation events.
    ;; zoom-to stores an absolute path under the per-mount slot; zoom-up
    ;; pops one segment; zoom-reset clears (per-mount when args given,
    ;; otherwise the whole slot).
    :rf.xray.edn-inspector/zoom-to
    :rf.xray.edn-inspector/zoom-up
    :rf.xray.edn-inspector/zoom-reset
-   ;; rf2-l4625 — edn-inspector popup overlay events (open / close /
+   ;; Edn-inspector popup overlay events (open / close /
    ;; close-top / close-all).
    :rf.xray.edn-inspector-popup/open
    :rf.xray.edn-inspector-popup/close
@@ -595,55 +519,46 @@
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern
-   ;; rf2-4s08ov — open-in-editor 'pick an editor in Settings' hint
+   ;; Open-in-editor 'pick an editor in Settings' hint
    ;; toast events. Shown when an open-in-editor chip is clicked but no
    ;; editor is effectively configured (instead of a silent vscode:
    ;; no-op).
    :rf.xray/editor-hint-show
    :rf.xray/editor-hint-dismiss
    :rf.xray/editor-hint-open-settings
-   ;; rf2-sc3r1 — Epoch panel per-row expansion events.
+   ;; Epoch panel per-row expansion events.
    :rf.xray.epoch/toggle-row-expand
    :rf.xray.epoch/clear-row-expand
-   ;; rf2-tzmmf — Epoch panel SUBSCRIPTIONS filter-mode write event
-   ;; (`[all][changed][unchanged]` button-bar; supersedes
-   ;; rf2-kfh1v's `toggle-subs-show-unchanged`).
+   ;; Epoch panel SUBSCRIPTIONS filter-mode write event
+   ;; (`[all][changed][unchanged]` button-bar).
    :rf.xray.epoch/set-subs-filter-mode
-   ;; rf2-vv3m6 (2026-05-29) — the per-surface diff-mode write events
-   ;; retired alongside the `[diff][full][full+diff]` toggle. The four
-   ;; events that previously sat here
-   ;; (`:rf.xray.epoch/set-db-diff-mode`,
-   ;; `:rf.xray.epoch/set-subs-value-diff-mode`,
-   ;; `:rf.xray.app-db/set-diff-mode`,
-   ;; `:rf.xray.machine-inspector/set-diff-mode`) are gone.
    :rf.xray/epoch-recorded
-   ;; rf2-piye4 — typed-predicate filter events. Each appends a
+   ;; Typed-predicate filter events. Each appends a
    ;; typed `{:kind <kw> :params {…}}` IN pill from a right-click
    ;; affordance on the Machines / managed-fx panels.
    :rf.xray/filter-by-fx
    :rf.xray/filter-by-http-correlation
    :rf.xray/filter-by-machine
-   ;; rf2-2qtgt — `focus!`'s async continuation, queued behind a frame
+   ;; `focus!`'s async continuation, queued behind a frame
    ;; step so `:rf.xray/set-frame` lands before the spine pin.
    :rf.xray/focus-after-frame
    :rf.xray/focus-event
    :rf.xray/focus-event-next
    :rf.xray/focus-event-prev
-   ;; rf2-5qp4g — DISPATCH source-kind enrichment parent-epoch
+   ;; DISPATCH source-kind enrichment parent-epoch
    ;; navigation: the Epoch panel's :fx-dispatch / :fx-dispatch-later
    ;; parent-epoch chip dispatches this to pivot the spine by epoch-id.
    :rf.xray/focus-epoch
-   ;; rf2-uyp86 — managed-fx wire-boundary diff cross-link: the HANDLER
+   ;; Managed-fx wire-boundary diff cross-link: the HANDLER
    ;; DISPATCHED row reuses the spine's canonical `:rf.xray/focus-event`
-   ;; (listed above); rf2-fsqlgz collapsed the former panel-local
-   ;; duplicate onto it, so there is one registration.
-   ;; rf2-59e7k — Cancellation-cascade row-click jump (delegates into
+   ;; (listed above), so there is one registration.
+   ;; Cancellation-cascade row-click jump (delegates into
    ;; :rf.xray/select-dispatch-id via the spine shim).
    :rf.xray/focus-trace-entry
    :rf.xray/follow-head
    :rf.xray/hide-event-type
    :rf.xray/hydrate-filters
-   ;; rf2-ikuwt — per-event-id mute filter events.
+   ;; Per-event-id mute filter events.
    :rf.xray/clear-muted-event-ids
    :rf.xray/close-mute-manager
    :rf.xray/close-row-context-menu
@@ -652,23 +567,14 @@
    :rf.xray/open-mute-manager
    :rf.xray/open-row-context-menu
    :rf.xray/unmute-event-id
-   ;; rf2-s6m6 — toggle one managed-fx record's section disclosure.
+   ;; Toggle one managed-fx record's section disclosure.
    :rf.xray/managed-fx-toggle-section
-   ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
+   ;; ELK chart layout pulse.
    :rf.xray/machine-chart-layout-pulse
    :rf.xray/machine-state-clicked
-   ;; rf2-3d987 issue #4 — chart-collapsed events. (rf2-48fwsi retired
-   ;; the sibling set-view-mode / hydrate-view-modes events with the
-   ;; dead Canvas/List toggle.)
+   ;; Chart-collapsed events.
    :rf.xray.machine-canvas/hydrate-chart-collapsed
    :rf.xray.machine-canvas/set-chart-collapsed
-   ;; (Pre-rf2-q3dzw the legacy `edn-inspector.render` engine emitted
-   ;; `:rf.xray/navigate-to-path` from its clickable-path glyphs and
-   ;; registered a default no-op handler. The new widget ships ZERO
-   ;; path-click interactions in phase 1 — the locked B.9 / rf2-sndui
-   ;; surface ships exactly one path-click semantic which is deferred
-   ;; to a follow-on. With the legacy engine deleted in phase 5 the
-   ;; default handler is gone too.)
    :rf.xray/note-sensitive-suppressed
    :rf.xray/open-edit-popup
    :rf.xray/open-in-editor
@@ -681,19 +587,19 @@
    :rf.xray/palette-open
    :rf.xray/palette-set-query
    :rf.xray/palette-toggle
-   ;; rf2-czcg5 — chrome `⛶` pop-out button → lowers to mount/popout!
+   ;; Chrome `⛶` pop-out button → lowers to mount/popout!
    ;; via the :rf.xray.fx/popout-shell effect.
    :rf.xray/popout-shell
    :rf.xray/preview-event
    :rf.xray/remove-filter
-   ;; rf2-6ni62 — L2 event-list column-divider double-click reset.
+   ;; L2 event-list column-divider double-click reset.
    :rf.xray/reset-event-list-col-width
-   ;; rf2-x8h9y — resize-handle double-click reset.
+   ;; Resize-handle double-click reset.
    :rf.xray/reset-panel-width
-   ;; rf2-t2dsh — L2/L3 seam-handle double-click reset.
+   ;; L2/L3 seam-handle double-click reset.
    :rf.xray/reset-events-list-height
    :rf.xray/reset-suppressed-counters
-   ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the event-fx that
+   ;; Tab-ribbon Reset rewind affordance: the event-fx that
    ;; trampolines into `:rf.xray.fx/restore-epoch`, plus its inline
    ;; failure-flash setter.
    :rf.xray/reset-to-epoch
@@ -701,7 +607,7 @@
    :rf.xray/save-edit-popup
    :rf.xray/select-dispatch-id
    :rf.xray/select-epoch
-   ;; rf2-iwwou — canonical frame-switcher write surface. Dispatches
+   ;; Canonical frame-switcher write surface. Dispatches
    ;; the spine's `:rf.xray/set-frame` + fires `:rf.xray.frame-
    ;; switcher/persist` for localStorage. The L1 ribbon picker and the
    ;; Cmd-K palette's `:palette/select-frame` verb both dispatch this
@@ -710,20 +616,20 @@
    :rf.xray/select-frame
    :rf.xray/select-machine-id
    :rf.xray/select-tab
-   ;; rf2-o5f5f.1 — Dynamic ↔ Static mode events + Static-scoped tab.
+   ;; Dynamic ↔ Static mode events + Static-scoped tab.
    ;; `set-mode` writes a specific mode; `toggle-mode` flips between
    ;; them; both attach the `:rf.xray.static/persist-mode` fx so the
    ;; choice round-trips through localStorage.
    :rf.xray/set-mode
    :rf.xray/toggle-mode
    :rf.xray.static/select-tab
-   ;; rf2-o5f5f.2 — Static Machines sub-tab events. Selection +
+   ;; Static Machines sub-tab events. Selection +
    ;; search + sort + sub-mode + hydrate (post-localStorage restore) +
    ;; two no-op slots (state-clicked + open-chart-popout) reserved so
    ;; click affordances land on a known handler rather than emitting
    ;; `:rf.warning/no-handler`.
    :rf.xray.static.machines/clear-search
-   ;; rf2-sxw06 — Copy Mermaid: the definition-detail header's one-
+   ;; Copy Mermaid: the definition-detail header's one-
    ;; gesture "registered topology → fenced ```mermaid block on the
    ;; clipboard" action (emit + copy), and the settled-outcome recorder
    ;; the clipboard fx's on-success/on-failure callbacks dispatch.
@@ -737,47 +643,44 @@
    :rf.xray.static.machines/set-sub-mode
    :rf.xray.static.machines/state-clicked
    :rf.xray/set-frame
-   ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab mode toggle.
-   ;; (The `set-*-override-for-test` events across every panel split out
-   ;; behind `install-test-overrides!` — rf2-e8330v.)
+   ;; Derivation-Graph tab mode toggle (EP-0014 prop-3).
+   ;; (The `set-*-override-for-test` events across every panel sit
+   ;; behind `install-test-overrides!`.)
    :rf.xray/set-derivation-graph-mode
-   ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
+   ;; Static Routes UI-state events (search input,
    ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
-   ;; toggle, cross-link to Dynamic Routing). Promoted from the
-   ;; Dynamic `:rf.xray.routing/*` group per the two-verbs-two-homes
+   ;; toggle, cross-link to Dynamic Routing), per the two-verbs-two-homes
    ;; split.
    :rf.xray.static.routes/set-query
    :rf.xray.static.routes/set-sim-url
    :rf.xray.static.routes/toggle-row
    :rf.xray.static.routes/toggle-sim-nav
    :rf.xray.static.routes/jump-to-dynamic
-   ;; rf2-o5f5f.4 — Static Schemas sub-tab events.
+   ;; Static Schemas sub-tab events.
    :rf.xray.static.schemas/set-query
-   ;; rf2-uhsqb — Static Flows sub-tab events.
+   ;; Static Flows sub-tab events.
    :rf.xray.static.flows/set-query
-   ;; rf2-o5f5f.6 — Static Interceptors sub-tab events (search slot).
+   ;; Static Interceptors sub-tab events (search slot).
    :rf.xray.static.interceptors/set-query
-   ;; rf2-om6fa — Story-aware modal positioning opt.
+   ;; Story-aware modal positioning opt.
    :rf.xray/set-modal-positioning
-   ;; rf2-6ni62 — L2 event-list column-divider live update event.
+   ;; L2 event-list column-divider live update event.
    :rf.xray/set-event-list-col-width
-   ;; rf2-x8h9y — resize-handle live update event.
+   ;; Resize-handle live update event.
    :rf.xray/set-panel-width-px
-   ;; rf2-t2dsh — L2/L3 seam-handle live update event.
+   ;; L2/L3 seam-handle live update event.
    :rf.xray/set-events-list-height-px
-   ;; rf2-y9xmf — scrubber-position slot reducer (UI is gone; the
-   ;; `:after`-rings overlay reads the slot this event writes. The
-   ;; share-URL surface that also round-tripped it was removed in
-   ;; rf2-nugvv).
+   ;; Scrubber-position slot reducer (the `:after`-rings overlay reads
+   ;; the slot this event writes).
    :rf.xray/set-scrubber-position
-   ;; rf2-y9xmf — per-machine prev/next nav (walks the spine's epoch-
+   ;; Per-machine prev/next nav (walks the spine's epoch-
    ;; history to the prior/next epoch that ALSO touched the focused
    ;; machine).
    :rf.xray/machine-focus-prev
    :rf.xray/machine-focus-next
    :rf.xray/set-target-frame
-   ;; rf2-9poxq — Settings popup events.
-   ;; rf2-ttnst — Settings popup Buffer-tab clear-buffer family
+   ;; Settings popup events, including the
+   ;; Buffer-tab clear-buffer family
    ;; (confirm / cancel / clear).
    :rf.xray/settings-cancel-clear-buffer
    :rf.xray/settings-clear-buffer
@@ -787,113 +690,90 @@
    :rf.xray/settings-select-tab
    :rf.xray/settings-toggle
    :rf.xray/settings-update
-   ;; rf2-8i1tg3 — Keybindings tab "Handle keys?" master toggle's
+   ;; Keybindings tab "Handle keys?" master toggle's
    ;; reactive dual-write event (flips the `config/keybinding-enabled?`
    ;; atom AND mirrors app-db so the checkbox's `:rf.xray/keybinding-
    ;; enabled?` sub re-fires immediately, matching every other toggle).
    :rf.xray/keybinding-enabled-update
-   ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) + its
-   ;; per-cascade structured export (rf2-0us27) events are removed with
-   ;; the Machine panel's Share button (the modal's sole UI entry point).
-   ;; rf2-r4nao — Static Machines Sim sub-mode events (rehost from
-   ;; rf2-v869p Phase 2; ns moved from :rf.xray/sim-* to
-   ;; :rf.xray.static.machines/sim-*).
+   ;; Static Machines Sim sub-mode events.
    :rf.xray.static.machines/sim-reset
    :rf.xray.static.machines/sim-set-pending-data
    :rf.xray.static.machines/sim-set-pending-event
    :rf.xray.static.machines/sim-start
    :rf.xray.static.machines/sim-step
    :rf.xray.static.machines/sim-stop
-   ;; rf2-u422r (epic rf2-nrrtb) — on-chart edge click → step. Coerces
+   ;; On-chart edge click → step. Coerces
    ;; the clicked transition edge's fireable event-id and folds one
    ;; step through the same engine path the step-button drives.
    :rf.xray.static.machines/sim-chart-edge-clicked
    :rf.xray/sync-epoch-history
    :rf.xray/sync-trace-buffer
-   ;; rf2-7hwwe — `:after` countdown rings event family. timer-tick
+   ;; `:after` countdown rings event family. timer-tick
    ;; is the rAF pulse; timer-hover writes the per-ring hovered slot
-   ;; (v1 surfaces the tooltip via native SVG <title>; the slot is
-   ;; plumbed for a follow-on rich-tooltip).
+   ;; (the rings surface the tooltip via native SVG <title>; the slot is
+   ;; plumbed for a richer tooltip).
    :rf.xray/timer-hover
    :rf.xray/timer-tick
    :rf.xray/toggle-live-pause
-   ;; rf2-l2f2g — toggle the inline raw-EDN payload expansion for one
+   ;; Toggle the inline raw-EDN payload expansion for one
    ;; trace row (spec/023-Trace-Panel.md §3 — Row click → raw EDN).
    :rf.xray/toggle-trace-row-expand
-   ;; rf2-aqusw — the per-band collapse-toggle event
-   ;; (`:rf.xray/toggle-trace-band-collapse`) was REMOVED with the
-   ;; phase-band hierarchy; the flat Trace panel has no collapsible bands.
-   ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
-   ;; Views per §11.5; tab key stays `:views`).
+   ;; Reactive panel events (spec/021 §3 · §11.5; tab key `:views`).
    :rf.xray/reactive-set-unchanged
    :rf.xray/reactive-toggle-unchanged))
 
 (def ^:private all-fx-names
   "Every Xray-namespaced fx registered by `register-xray-handlers!`.
-  Sorted-set literal (rf2-39n8h) — order-independent so concurrent PRs
+  Sorted-set literal — order-independent so concurrent PRs
   adding fxs produce rebase-clean diffs."
   (sorted-set
    :rf.xray.fx/copy-to-clipboard
-   ;; rf2-hga49 — tab-ribbon Reset rewind affordance: calls
+   ;; Tab-ribbon Reset rewind affordance: calls
    ;; `rf/restore-epoch!` against the observed frame + focused epoch, and
    ;; dispatches the inline failure flash on a false return.
    :rf.xray.fx/restore-epoch
-   ;; rf2-nugvv (2026-06-04) — the Share affordance new-tab fx
-   ;; (`:rf.xray.fx/open-in-new-tab`, rf2-nqw0v) + the per-cascade export
-   ;; download fx (`:rf.xray.fx/download-text-file`, rf2-0us27) are
-   ;; removed with the Machine panel's Share button.
-   ;; rf2-fq491 — `✕` close button: the DOM-side shell-hide effect fired
+   ;; `✕` close button: the DOM-side shell-hide effect fired
    ;; by `:rf.xray/close-shell`. Registered via `mount/install-fx!` from
    ;; the orchestrator; calls `mount/close!`.
    :rf.xray.fx/hide-shell
-   ;; rf2-czcg5 — `⛶` pop-out button: the DOM-side second-window launch
+   ;; `⛶` pop-out button: the DOM-side second-window launch
    ;; effect fired by `:rf.xray/popout-shell`. Registered via
    ;; `mount/install-fx!` alongside hide-shell; calls `mount/popout!`.
    :rf.xray.fx/popout-shell
-   ;; rf2-xzg1y — shared draggable column-widths persistence fx.
+   ;; Shared draggable column-widths persistence fx.
    ;; Attached to every `resize-pair` + `reset` event so the
    ;; post-mutation `{table-id {col-id px}}` map round-trips to
-   ;; localStorage in one place (mirrors the filter-persistence shape
-   ;; below).
+   ;; localStorage in one place.
    :rf.xray.column-widths/persist
-   ;; (`:rf.xray.filters/persist` was REMOVED from this roster with the
-   ;; fx — rf2-y8doi.27. The rf2-ak4ms auto-filter persistence write was
-   ;; bound to every filter-mutating event, and nothing in `src` ever
-   ;; read the slot back: the IN/OUT pills are transient by policy
-   ;; (rf2-swclw), so each load cleared what the last session wrote. The
-   ;; three siblings below are real — their slots have live readers.)
-   ;; rf2-iwwou — frame-switcher slot persistence side-effect. Bound to
+   ;; Frame-switcher slot persistence side-effect. Bound to
    ;; the `:rf.xray/select-frame` handler so the user's last-picked
    ;; frame survives a reload. Lives under the frame-switcher-specific
-   ;; prefix (mirror of the filter-persistence shape).
+   ;; prefix.
    :rf.xray.frame-switcher/persist
-   ;; rf2-ikuwt — per-event-id mute filter persistence side-effect.
+   ;; Per-event-id mute filter persistence side-effect.
    ;; Bound to mute / unmute / clear handlers; writes the post-mutation
-   ;; set to localStorage in one place (mirrors the filter-persistence
-   ;; shape above).
+   ;; set to localStorage in one place.
    :rf.xray.spine-filters/persist
-   ;; rf2-3d987 issue #4 — chart-collapsed persistence side-effect.
-   ;; (rf2-48fwsi retired the sibling persist-view-mode fx with the
-   ;; dead Canvas/List toggle.)
+   ;; Chart-collapsed persistence side-effect.
    :rf.xray.machine-canvas/persist-chart-collapsed
-   ;; rf2-wm7z4 — palette pop-out side-effect. Lives under the
+   ;; Palette pop-out side-effect. Lives under the
    ;; palette-specific prefix because it wraps a mount-layer pop-out
    ;; call that no other Xray surface invokes.
    :rf.xray.palette.fx/popout
-   ;; rf2-ybjkx — palette snapshot-app-db side-effect. Drops the
+   ;; Palette snapshot-app-db side-effect. Drops the
    ;; focused frame's app-db onto the JS console + clipboard so the
    ;; user can share a session state.
    :rf.xray.palette.fx/snapshot-app-db
-   ;; rf2-ybjkx — palette recents localStorage round-trip. Bound to
+   ;; Palette recents localStorage round-trip. Bound to
    ;; every `:command` invocation so the persisted list is always
    ;; current.
    :rf.xray.palette.fx/persist-recents
-   ;; rf2-o5f5f.1 — Dynamic ↔ Static mode persistence side-effect.
+   ;; Dynamic ↔ Static mode persistence side-effect.
    ;; Bound to the `:rf.xray/set-mode` + `:rf.xray/toggle-mode`
    ;; handlers; writes the post-mutation mode to localStorage in one
-   ;; place (mirrors the filter-persistence shape above).
+   ;; place.
    :rf.xray.static/persist-mode
-   ;; rf2-o5f5f.2 — Static Machines sub-tab persistence side-effects.
+   ;; Static Machines sub-tab persistence side-effects.
    ;; Bound to the `:rf.xray.static.machines/select` +
    ;; `:rf.xray.static.machines/set-sub-mode` handlers; mirrors the
    ;; mode-persist shape above (one fx per slot so future surfaces
@@ -901,14 +781,13 @@
    ;; trip).
    :rf.xray.static.machines/persist-selection
    :rf.xray.static.machines/persist-sub-mode
-   ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Xray-owned
-   ;; and `:rf.xray.fx/*`-scoped like every other Xray fx (rf2-5ot1d
-   ;; retired the shared `:rf.editor/*` reservation: the effect closes
-   ;; over Xray's editor/project-root/navigator, so Story registers its
-   ;; own distinct `:rf.story.fx/open-in-editor`).
+   ;; Cross-panel open-in-editor side-effect. Xray-owned
+   ;; and `:rf.xray.fx/*`-scoped like every other Xray fx: the effect
+   ;; closes over Xray's editor/project-root/navigator, so Story registers
+   ;; its own distinct `:rf.story.fx/open-in-editor`.
    :rf.xray.fx/open-in-editor))
 
-;; ---- test-only override seam snapshot (rf2-e8330v / xxo3zz F3) ----------
+;; ---- test-only override seam snapshot ----------------------------------
 ;;
 ;; Production `register-xray-handlers!` installs NONE of these — the
 ;; override seam is split out per panel and installed via
@@ -956,7 +835,7 @@
    :rf.xray.static.flows/set-registered-flows-override-for-test
    :rf.xray.static.interceptors/set-registry-override-for-test))
 
-;; ---- (0) load-time registrar hygiene (rf2-y8doi.16) ---------------------
+;; ---- (0) load-time registrar hygiene -----------------------------------
 ;;
 ;; The preload's foundation block is wrapped in
 ;; `(when rf.interop/debug-enabled? …)`, which Closure folds away under
@@ -987,20 +866,20 @@
 ;; the preload's own `(when rf.interop/debug-enabled? …)` boot block RUNS
 ;; AT NS-LOAD and calls `register-xray-handlers!` itself. Every suite's
 ;; ns-load registrar baseline therefore carries the whole Xray surface,
-;; before AND after this change, and an absence assertion reads red either
-;; way — a control that looks decisive and measures nothing. (The tell is
+;; wherever the widget registers, and an absence assertion reads red
+;; either way — a control that looks decisive and measures nothing. (The tell is
 ;; in the lane's own output: `mount/boot-on-runtime-ready!`'s missing-
 ;; layout-host diagnostic prints during the load phase, before the first
 ;; `Testing …` line.)
 ;;
 ;; What DOES discriminate is the orchestrator's own write set, captured by
 ;; redefining the registrar's writer for the span of one install — the
-;; instrument `registry-registers-each-xray-event-once` below already
-;; uses, and whose docstring records the very fact this test now pins:
-;; registrations that run at ns-load are NOT in that set. Before
-;; rf2-y8doi.16 the eleven widget ids were exactly such registrations and
-;; the set held none of them; they are in it now because
-;; `register-xray-handlers!` reaches them through `edn-inspector/install!`.
+;; instrument `registry-registers-each-xray-event-once` below also
+;; uses, and whose docstring records the very fact this test pins:
+;; registrations that run at ns-load are NOT in that set. The widget ids
+;; are in it because `register-xray-handlers!` reaches them through
+;; `edn-inspector/install!`; a widget id registered at ns-load would be
+;; missing from it.
 ;;
 ;; Read off the maintained snapshot sets above rather than a second
 ;; hand-written id list, so a NEW widget registration cannot be added at
@@ -1010,7 +889,7 @@
   "Every live `:rf.xray.edn-inspector/*` registration of `kind`, as a set.
   The namespace match is EXACT so the sibling
   `:rf.xray.edn-inspector-popup/*` surface — orchestrator-installed via
-  `edn-inspector-popup/install!` since rf2-l4625 — cannot answer for the
+  `edn-inspector-popup/install!` — cannot answer for the
   widget's own."
   [kind]
   (->> (rf.registrar/registrations kind)
@@ -1029,7 +908,7 @@
   (testing "register-xray-handlers! WRITES every :rf.xray.edn-inspector/*
             sub and event — i.e. none of them is left at the top level of
             a widget namespace, where ns-load would write it into a
-            release bundle's registrar (rf2-y8doi.16)"
+            release bundle's registrar"
     (let [written            (atom #{})
           original-register! rf.registrar/register!]
       (with-redefs [rf.registrar/register!
@@ -1061,20 +940,20 @@
            (edn-inspector-widget-ids :event))
         "edn-inspector widget event drift — diff names the missing/extra ids")))
 
-;; ---- (0b) the four gated top-level reg-views (rf2-y8doi.60) -------------
+;; ---- (0b) the four gated top-level reg-views ---------------------------
 ;;
-;; rf2-y8doi.16 moved eleven widget `reg-sub` / `reg-event` writes into
-;; caller-invoked `install!` fns and deliberately LEFT four `rf/reg-view`
-;; sites, because the macro both registers the view AND `def`s the symbol
+;; The widget `reg-sub` / `reg-event` writes live in caller-invoked
+;; `install!` fns, but four `rf/reg-view` sites stay at the top level,
+;; because the macro both registers the view AND `def`s the symbol
 ;; to `(rf/view id)` — so moving the registration into an `install!` would
-;; bind the top-level symbol to nil in DEV too. rf2-y8doi.60 gates those
-;; four in place instead, wrapping each whole form in the same
+;; bind the top-level symbol to nil in DEV too. Those four are gated in
+;; place instead, each whole form wrapped in the same
 ;; `(when rf.interop/debug-enabled? …)` the preload's boot block uses, so
 ;; the `def` travels inside the gate with its registration.
 ;;
-;; WHAT THE TEST BELOW PINS, AND WHAT IT CANNOT. It is a REGRESSION GUARD,
-;; GREEN BEFORE AND AFTER rf2-y8doi.60 — deliberately NOT a red-first test.
-;; It pins the DEV HALF ONLY: that the wrap disturbed neither the
+;; WHAT THE TEST BELOW PINS, AND WHAT IT CANNOT. It is a REGRESSION GUARD
+;; that reads green with or without the gate — deliberately. It pins the
+;; DEV HALF ONLY: that the wrap disturbs neither the
 ;; registration, nor the id, nor the head any dev consumer resolves. Every
 ;; lane in this repo runs `goog.DEBUG` TRUE, so it CANNOT discriminate the
 ;; production claim — for exactly the reason the comment block above gives
@@ -1086,12 +965,12 @@
 ;; so neither the registration nor the `def` survives, and nothing in such
 ;; a bundle reaches the four anyway — every caller sits behind the boot
 ;; block or the manual verbs. Pinning that would need an `:advanced`
-;; compile of the Xray graph, which this repo does not have; rf2-y8doi.60
-;; ruled it NOT REQUIRED as disproportionate to a claim about a
-;; configuration every carrier of the advice calls a mistake.
+;; compile of the Xray graph, which this repo does not have, and which
+;; would be disproportionate to a claim about a configuration every
+;; carrier of the advice calls a mistake.
 
 (def ^:private gated-reg-view-ids
-  "The four ids rf2-y8doi.60 gated, auto-resolved from the owning
+  "The four gated ids, auto-resolved from the owning
   namespaces' own aliases rather than hand-typed, so a namespace rename
   moves them with it. Derivation is the macro's own
   `(keyword (str *ns*) (str sym))` — none of the four carries `^{:rf/id}`."
@@ -1105,15 +984,15 @@
     (doseq [id gated-reg-view-ids]
       (is (contains? (rf.registrar/registrations :view) id)
           (str id " is not registered under kind :view. Its `rf/reg-view` "
-               "form is wrapped in `(when rf.interop/debug-enabled? …)` "
-               "(rf2-y8doi.60); every lane runs goog.DEBUG TRUE, so the "
+               "form is wrapped in `(when rf.interop/debug-enabled? …)`; "
+               "every lane runs goog.DEBUG TRUE, so the "
                "gate must be transparent here. A red means the wrap "
                "changed DEV behaviour, which it must not."))))
   (testing "and each head resolves, so `rf/view` consumers still get one"
     (doseq [id gated-reg-view-ids]
       (is (some? (rf/view id))
           (str "(rf/view " id ") is nil in dev — the registration is "
-               "missing or the head no longer derives (rf2-y8doi.60)."))))
+               "missing or the head does not derive."))))
   (testing "CONTROL — an unregistered id in the same namespace reads absent,
             so the positives above mean presence rather than a registrar
             that answers yes to everything"
@@ -1142,7 +1021,7 @@
 (deftest registry-registers-each-xray-event-once
   (testing "each Xray event id `register-xray-handlers!` registers
             is registered exactly once during install. Scoped to the
-            orchestrator's surface — data-inspector + other per-ns
+            orchestrator's surface — per-ns
             registrations that run at ns-load (NOT via the orchestrator)
             are excluded; the snapshot test covers the full surface."
     (let [registered        (atom [])
@@ -1176,14 +1055,14 @@
 
 (deftest registry-snapshot-matches-expected-set
   (testing "registry's actual Xray-namespaced registrations match the
-            expected sorted-set snapshots (rf2-39n8h). Set equality
+            expected sorted-set snapshots. Set equality
             yields a precise drift message: clojure.test's default
             failure on `(= expected actual)` for sets names exactly the
             ids that differ, so concurrent PRs adding/removing subs or
             events rebase cleanly on a sorted-set literal rather than
             fighting a count-drift war on a single integer.
 
-            Per the bead description: when two concurrent PRs both add
+            When two concurrent PRs both add
             one sub, each PR adds its sub-id to the expected set; the
             rebase shows a clean diff at the level of distinct sorted-
             set entries. No `(is (= N (count ...)))` line for the second
@@ -1209,7 +1088,7 @@
           "Fx registry drift — diff names the added/removed :rf.xray/* fx-ids"))))
 
 (deftest production-registration-installs-no-for-test-ids
-  (testing "rf2-e8330v (xxo3zz F3) — register-xray-handlers! installs NO id
+  (testing "register-xray-handlers! installs NO id
             ending in -for-test, and none of the `*-override` reader subs"
     (registry/register-xray-handlers!)
     (let [actual-events (->> (rf.registrar/registrations :event) keys (filter xray-id?))
@@ -1222,7 +1101,7 @@
           (str "production registration leaked *-override subs: " override-subs)))))
 
 (deftest test-seam-installs-exactly-the-override-surface
-  (testing "rf2-e8330v — install-test-overrides! installs exactly the
+  (testing "install-test-overrides! installs exactly the
             test-override sub + event snapshot on top of production"
     (registry/register-xray-handlers!)
     (xray-test-support/install-test-overrides!)
@@ -1265,30 +1144,31 @@
             (str q-v " must resolve through rf/subscribe after
                  register-xray-handlers!"))))))
 
-;; ---- registration-schema seam: fresh-install atomicity (rf2-g2jf3) ------
+;; ---- registration-schema seam: fresh-install atomicity -----------------
 ;;
 ;; `register-xray-handlers!` flips the `registered?` umbrella BEFORE the
 ;; ~900-line bulk leaf install and stamps `installed-schema` only AFTER the
-;; last installer. Pre-fix, a throw mid-install exited with
+;; last installer. The bulk block is wrapped so a throw rolls the umbrella
+;; back to false and rethrows, leaving the fresh install RETRYABLE and the
+;; schema UNSTAMPED. Without that, a throw mid-install would exit with
 ;; `{registered? true, installed-schema nil}`: the next call's umbrella
-;; permanently skipped the unfinished bulk install, and the migration seam
-;; mis-read the nil stamp as schema 0 — stamping the registry "current" over
-;; a PARTIAL install. The fix wraps the bulk block so a throw rolls the
-;; umbrella back to false and rethrows, leaving the fresh install RETRYABLE
-;; and the schema UNSTAMPED. The observable: a THROW-ONCE mid-list leaf, then
-;; a second call that REPLAYS the whole bulk (not a bridge-only migration).
+;; would permanently skip the unfinished bulk install, and the migration
+;; seam would mis-read the nil stamp as schema 0 — stamping the registry
+;; "current" over a PARTIAL install. The observable: a THROW-ONCE mid-list
+;; leaf, then a second call that REPLAYS the whole bulk (not a bridge-only
+;; migration).
 
 (deftest fresh-install-retryable-after-partial-failure-rf2-g2jf3
-  (testing "rf2-g2jf3 — a throw mid bulk-install rolls the umbrella back so
+  (testing "a throw mid bulk-install rolls the umbrella back so
             the fresh install stays retryable and never advances the schema"
     ;; The `@calls` counter is the snapshot-independent observable: the
     ;; runtime fixture restores a registrar SNAPSHOT that already carries the
     ;; xray handlers, so 'handler present/absent' cannot distinguish a
     ;; completed install from a partial one. What DOES distinguish them is
     ;; whether the bulk block RE-RUNS — i.e. whether `compare-and-set!`
-    ;; succeeds a second time, which happens only if the umbrella was rolled
-    ;; back to false (the fix) rather than left set with a mis-stamped schema
-    ;; (the bug). `routing/install!` is a THROW-ONCE mid-list leaf.
+    ;; succeeds a second time, which happens only if the umbrella is rolled
+    ;; back to false rather than left set with a mis-stamped schema.
+    ;; `routing/install!` is a THROW-ONCE mid-list leaf.
     (let [orig-install routing/install!
           calls        (atom 0)]
       (with-redefs [routing/install!
@@ -1309,24 +1189,25 @@
           (registry/register-xray-handlers!)
           (is (= 2 @calls)
               "compare-and-set succeeded again → the bulk block re-ran
-               (pre-fix the umbrella stayed set + the schema was mis-stamped
-               current, so the retry no-ops the umbrella and runs only a
-               bridge migration — routing never re-runs and calls stalls at 1)"))
-        (testing "the completed install is now idempotent — schema stamped
+               (were the umbrella left set with the schema mis-stamped
+               current, the retry would no-op the umbrella and run only a
+               bridge migration — routing would never re-run and calls would
+               stall at 1)"))
+        (testing "the completed install is idempotent — schema stamped
                   current, so a further reload no-ops"
           (registry/register-xray-handlers!)
           (is (= 2 @calls)
               "a third call no-ops — umbrella set + migration at current
                schema, no re-run"))))))
 
-;; ---- registration-schema seam: changed handlers migrate too (rf2-sa8j3) --
+;; ---- registration-schema seam: changed handlers migrate too ------------
 ;;
 ;; The `registered?` umbrella + the name-set snapshots above cover ADDED
 ;; registrations. They do NOT cover a CHANGED body: a sub that gains inputs
 ;; keeps its id, so the umbrella no-ops it and the name set is untouched.
-;; `:rf.xray/reactive-data` went two → four inputs inside
-;; `reactive-panel/install!` (f012c70e6f), so an already-registered process
-;; retained the OLD two-input body until a page reload. The schema-3
+;; `:rf.xray/reactive-data` has four inputs from schema 3 and two before
+;; it, so an already-registered process would retain the OLD two-input
+;; body until a page reload. The schema-3
 ;; migration re-runs the owning `reactive-panel` facade `install!`, replacing
 ;; the sub (and evicting its stale cache) so the four-input topology reaches a
 ;; live-upgraded process.
@@ -1340,7 +1221,7 @@
     (mapv #(if (vector? %) (first %) %) (or inputs []))))
 
 (deftest changed-reactive-data-migrates-as-a-schema-delta-rf2-sa8j3
-  (testing "rf2-sa8j3 — a live process holding the PREDECESSOR two-input
+  (testing "a live process holding the PREDECESSOR two-input
             reactive-data upgrades to the current four-input topology via the
             schema migration, invalidating the held cache — no page reload"
     ;; 1. Full current boot: reactive-data is the four-input sub; frame live.
@@ -1360,7 +1241,7 @@
     (testing "PRECONDITION — the cached two-input predecessor ignores the axis"
       (is (= [:rf.xray/focus :rf.xray/epoch-history]
              (reactive-data-input-ids))
-          "downgraded to the pre-f012c70e6f two-input topology")
+          "downgraded to the predecessor two-input topology")
       (is (false? (rf/with-frame :rf/xray
                     (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data]))))
           "the two-input body hard-codes show-unchanged? false — the toggle is
@@ -1383,15 +1264,15 @@
           "the replaced four-input sub resolves show-unchanged? through the
            reactive axis — the stale two-input reaction was evicted"))))
 
-;; ---- schema 4: the donor cutover's live upgrade (rf2-7gth0) -------------
+;; ---- schema 4: the donor cutover's live upgrade -------------------------
 ;;
-;; Merged-PR audit #7038 reopened rf2-7gth0 on this seam. The cutover deleted
-;; the donor ownership plane from SOURCE, but deleting a namespace does not
-;; execute teardown in a process that already loaded it. A schema-3 process
+;; Schema 4 is the donor cutover: the donor ownership plane is absent from
+;; SOURCE, but deleting a namespace does not execute teardown in a process
+;; that already loaded it. A schema-3 process
 ;; that hot-reloads into schema-4 code carries two distinct residues:
 ;;
 ;;   1. FIVE registrar entries — four subs + one event — installed by a fn
-;;      that no longer exists. Nothing re-registers or replaces them, so the
+;;      absent from this build. Nothing re-registers or replaces them, so the
 ;;      umbrella cannot notice, and they resolve forever as phantom ids.
 ;;   2. The donor `re-frame.ui.tool.evidence` projection, still OWNED by
 ;;      `:rf.xray/viewcell-evidence`, sink armed, entries retained, and
@@ -1409,7 +1290,7 @@
 ;; because the donor reads they closed over are precisely what is
 ;; unreachable. (2) is reproduced through its observable — the byte-identical
 ;; `js/globalThis` key the deleted `viewcell_evidence.cljs` wrote on a
-;; successful acquire (`sync-sentinel!`, commit 46577c549a^). That key is
+;; successful acquire (`sync-sentinel!`). That key is
 ;; spelled out as a literal here rather than read off `registry`, so a
 ;; rename on the production side fails this test instead of silently
 ;; agreeing with it.
@@ -1429,10 +1310,10 @@
   :rf.xray/viewcell-evidence-ownership-changed)
 
 (def ^:private schema-4-sub-ids
-  "The three ids schema 4 ADDED and schema 6 REMOVED (rf2-l86mm) — the Views
-  panel's reads over `re-frame.freehand.tool`. They are now a set no current
-  boot registers and every behind process must be relieved of, so the schema-4
-  tests below assert their ABSENCE where they once asserted their arrival."
+  "The three ids schema 4 ADDED and schema 6 REMOVED — the Views
+  panel's reads over `re-frame.freehand.tool`. No current boot registers
+  them and every behind process must be relieved of them, so the schema-4
+  tests below assert their ABSENCE."
   [:rf.xray/mounted-views
    :rf.xray/mounted-views-schema
    :rf.xray/mounted-view-sites])
@@ -1474,9 +1355,9 @@
                     "installed" (.now js/Date))))
 
 (deftest schema-4-migrates-the-registrar-half-of-the-donor-cutover-rf2-7gth0
-  (testing "rf2-7gth0 / rf2-l86mm — a schema-3 process that never claimed the
+  (testing "a schema-3 process that never claimed the
             donor projection upgrades fully in place: the five donor-era ids
-            go, the three Freehand reads schema 4 once added do NOT arrive
+            go, the three Freehand reads schema 4 added do NOT arrive
             (schema 6 removed them), and the process is stamped current"
     (setup-xray-frame!)
     (pose-schema-3-registry!)
@@ -1494,8 +1375,8 @@
     ;; The live upgrade: `:after-load` re-runs `register-xray-handlers!`.
     (registry/register-xray-handlers!)
 
-    (testing "the three Freehand reads STILL do not exist — schema 4 used to
-              install them here and schema 6 removed them (rf2-l86mm), so a
+    (testing "the three Freehand reads STILL do not exist — schema 6 removes
+              what schema 4 added, so a
               process crossing 3 → 6 in one step must never acquire an id it
               would immediately have to be relieved of"
       (is (= #{} (registered-ids :sub schema-4-sub-ids))))
@@ -1508,7 +1389,7 @@
       (is (= registry/schema-version (registry/installed-schema-version))))))
 
 (deftest schema-4-refuses-to-stamp-a-donor-resident-process-rf2-7gth0
-  (testing "rf2-7gth0 (audit #7038) — a schema-3 process that DID claim the
+  (testing "a schema-3 process that DID claim the
             donor evidence projection migrates its registrar half, is told
             once and loudly to reload, and is NOT stamped current"
     (setup-xray-frame!)
@@ -1530,7 +1411,7 @@
         (testing "the registrar half migrated anyway — the panel is left as
                   current as a live process can be"
           (is (= #{} (registered-ids :sub schema-4-sub-ids))
-              "the three Freehand reads are not installed (rf2-l86mm)")
+              "the three Freehand reads are not installed")
           (is (= #{} (registered-ids :sub schema-3-donor-sub-ids))
               "the four donor-era subs were cleared")
           (is (nil? (rf.registrar/handler :event schema-3-donor-event-id))
@@ -1539,7 +1420,7 @@
         (testing "the process is NOT stamped current — the donor projection
                   it still owns cannot be released by this build, and a
                   registry that stamped 4 here would be asserting an upgrade
-                  that did not finish (audit #7038)"
+                  that did not finish"
           (is (= 3 (registry/installed-schema-version)))
           (is (not= registry/schema-version (registry/installed-schema-version))))
 
@@ -1571,7 +1452,7 @@
           (set! (.-warn js/console) prior-warn)
           (gobj/remove js/globalThis donor-ownership-marker-key))))))
 
-;; ---- schema 6: the Freehand tool-door reads REMOVED (rf2-l86mm) ---------
+;; ---- schema 6: the Freehand tool-door reads REMOVED ---------------------
 ;;
 ;; The mirror image of schema 4's clear, and it exists for the same reason.
 ;; `reactive-panel-subs/install-mounted-views-subs!` is deleted, so a process
@@ -1587,14 +1468,14 @@
 (defn- pose-schema-5-mounted-view-reads!
   "Register the three ids a schema-4/5 process holds, with stand-in bodies.
   Only the IDS are the subject — the real bodies closed over
-  `re-frame.freehand.tool`, which is precisely what no longer exists."
+  `re-frame.freehand.tool`, which is precisely what is absent."
   []
   (doseq [q-id schema-4-sub-ids]
     (rf/reg-sub q-id (fn [_db _query] [])))
   nil)
 
 (deftest schema-6-clears-the-retired-freehand-reads-rf2-l86mm
-  (testing "rf2-l86mm — a schema-5 process holding the three Freehand
+  (testing "a schema-5 process holding the three Freehand
             tool-door reads has them cleared in place and is stamped current;
             no reload, because a reader door leaves nothing behind to release"
     (setup-xray-frame!)
@@ -1614,7 +1495,7 @@
       (is (= registry/schema-version (registry/installed-schema-version))))))
 
 (deftest schema-6-clear-is-a-no-op-for-a-process-that-never-had-them-rf2-l86mm
-  (testing "rf2-l86mm — clearing an id the process never registered is inert,
+  (testing "clearing an id the process never registered is inert,
             which is what lets the schema-6 clause run unconditionally for
             every behind process rather than branching on how far behind"
     (setup-xray-frame!)
@@ -1626,7 +1507,7 @@
     (is (= registry/schema-version (registry/installed-schema-version))
         "the process is stamped current regardless")))
 
-;; ---- schema-delta governance pin (rf2-sa8j3) ----------------------------
+;; ---- schema-delta governance pin ----------------------------------------
 ;;
 ;; The name-set snapshots catch ADDED registrations; this pin catches CHANGED
 ;; ones. It ties `schema-version` to the shipped reactive-data topology, so
@@ -1643,7 +1524,7 @@
         (str "registration-schema version changed. If you ADDED or CHANGED a "
              "gated registration, bump schema-version, pair a migrate-schema! "
              "clause (or document why no migration is needed), then update "
-             "expected-schema-version. rf2-sa8j3.")))
+             "expected-schema-version.")))
   (testing "the schema-3 reactive-data topology is the current shipped shape"
     (setup-xray-frame!)
     (is (= [:rf.xray/focus :rf.xray/epoch-history
@@ -1651,9 +1532,9 @@
            (reactive-data-input-ids))
         (str "reactive-data topology drifted from the schema-" expected-schema-version
              " pin. A changed sub topology is a schema delta — bump "
-             "schema-version + add a migrate-schema! clause. rf2-sa8j3."))))
+             "schema-version + add a migrate-schema! clause."))))
 
-;; ---- Machine tab fit-on-entry signal (rf2-6tw7t) ------------------------
+;; ---- Machine tab fit-on-entry signal ------------------------------------
 ;;
 ;; Entering / activating the Machine tab must auto fit-to-view the
 ;; topology. The mechanism: `:rf.xray/select-tab :machines` (and the
@@ -1667,7 +1548,7 @@
 ;; the sub reads it back.
 
 (deftest machine-tab-fit-signal-default-zero
-  (testing "rf2-6tw7t — a fresh :rf/xray frame reports fit-signal 0 (no
+  (testing "a fresh :rf/xray frame reports fit-signal 0 (no
             activation yet). The chart's `::unfit` sentinel start means
             the FIRST activation (→ 1) is still a change, so the initial
             entry frames the graph."
@@ -1677,7 +1558,7 @@
           "no Machine-tab activation yet → 0"))))
 
 (deftest machine-tab-fit-signal-bumps-on-dynamic-activation
-  (testing "rf2-6tw7t — `:rf.xray/select-tab :machines` bumps the fit-
+  (testing "`:rf.xray/select-tab :machines` bumps the fit-
             signal so the Machine panel re-fits on entry; re-clicking the
             already-active Machine tab still bumps it (re-entry re-frames
             even without a tab change), and the counter increases
@@ -1695,7 +1576,7 @@
           "the tab selection itself is unchanged"))))
 
 (deftest machine-tab-fit-signal-steady-on-non-machine-tabs
-  (testing "rf2-6tw7t — activating a NON-Machine tab must NOT bump the
+  (testing "activating a NON-Machine tab must NOT bump the
             fit-signal (only Machine-tab entry re-frames the topology).
             A round-trip away and back bumps exactly once on the return."
     (setup-xray-frame!)
@@ -1713,7 +1594,7 @@
           "re-entering the Machine tab re-frames (one bump)"))))
 
 (deftest machine-tab-fit-signal-bumps-on-static-activation
-  (testing "rf2-6tw7t — Static shares the `:machines` tab id +
+  (testing "Static shares the `:machines` tab id +
             `machine-canvas/Chart`, so `:rf.xray.static/select-tab
             :machines` bumps the SAME fit-signal counter the Dynamic
             select-tab does. A non-machine Static tab activation does
@@ -1731,8 +1612,8 @@
 
 (deftest sub-trace-buffer-empty-by-default
   (testing "a fresh :rf/xray frame with an empty `:trace-buffer` slot
-            yields `[]` from the `:rf.xray/trace-buffer` sub. Per
-            rf2-43koh — the sub reads directly from the app-db slot
+            yields `[]` from the `:rf.xray/trace-buffer` sub. The
+            sub reads directly from the app-db slot
             (no atom fall-through; the slot is populated by the
             task-coalesced `:rf.xray/sync-trace-buffer` dispatch
             from `trace-collector/refresh-trace-rings!`)."
@@ -1743,7 +1624,7 @@
           "empty rings + empty slot → sub returns []"))))
 
 (deftest sub-trace-buffer-reads-from-app-db-slot
-  (testing "Per rf2-43koh — the sub reads off the `:trace-buffer` slot
+  (testing "the sub reads off the `:trace-buffer` slot
             in Xray's app-db, populated by the
             `:rf.xray/sync-trace-buffer` dispatch carrying the snapshot
             from `trace-collector/refresh-trace-rings!`."
@@ -1759,7 +1640,7 @@
               "events are oldest-first, matching the snapshot sort order"))))))
 
 (deftest sub-trace-buffer-clear-event-drops-mirror-slot
-  (testing "Per rf2-43koh — `:rf.xray/clear-trace-buffer` (dispatched
+  (testing "`:rf.xray/clear-trace-buffer` (dispatched
             from `trace-collector/retroactive-scrub!` on privacy
             toggle-off / the Settings clear affordance) drops the
             mirrored slot in lockstep with the rings reset."
@@ -1773,7 +1654,7 @@
           "clear-trace-buffer drops the slot"))))
 
 (deftest sub-trace-buffer-sync-event-overwrites-slot
-  (testing "Per rf2-43koh — `:rf.xray/sync-trace-buffer` overwrites the
+  (testing "`:rf.xray/sync-trace-buffer` overwrites the
             slot wholesale; used by `mount.cljs/open!` to seed at first
             paint and by `trace-collector/refresh-trace-rings!` on every
             coalesced task drain."
@@ -1791,7 +1672,7 @@
 
 (deftest sub-trace-buffer-frameless-ring-overflow
   (testing "frameless emits (no `:frame` / no `:dispatch-id`) land in
-            Xray's secondary ring per the rf2-3g9nw D2=a ruling. The
+            Xray's secondary ring. The
             ring's depth caps the secondary capture independent of the
             framework's per-frame ring depth."
     (setup-xray-frame!)
@@ -1809,7 +1690,7 @@
         (trace-collector/set-frameless-ring-depth!
           trace-collector/default-frameless-ring-depth)))))
 
-;; ---- :rf.xray/event-bundles — xray-internal filter (rf2-g1pt8) ------------
+;; ---- :rf.xray/event-bundles — xray-internal filter ------------------------
 
 (defn- mk-cascade
   "Build a minimal cascade record for the data-layer filter test —
@@ -1839,7 +1720,7 @@
                      :frame       :rf/default}})))
 
 (deftest sub-cascades-filters-xray-internal-events
-  (testing "per rf2-g1pt8 — `:rf.xray/event-bundles` hard-filters cascades
+  (testing "`:rf.xray/event-bundles` hard-filters cascades
             whose event-id is in the `rf.xray` namespace at the
             data-layer so every downstream consumer (filtered-event-bundles,
             L2 event list, spine, popovers, all tabs) inherits the
@@ -1864,7 +1745,7 @@
             "no Xray-internal cascade leaks past the data-layer filter")))))
 
 (deftest sub-cascades-filter-also-applies-to-filtered-event-bundles
-  (testing "per rf2-g1pt8 — because `:rf.xray/filtered-event-bundles`
+  (testing "because `:rf.xray/filtered-event-bundles`
             composes against `:rf.xray/event-bundles`, the data-layer
             filter propagates automatically. Synthetic Xray-internal
             cascades are gone before the auto-filter facade even sees
@@ -1882,7 +1763,7 @@
             "the :rf.xray/select-tab cascade is filtered out at the data-layer")))))
 
 (deftest sub-cascades-pure-user-app-pass-through
-  (testing "per rf2-g1pt8 — a buffer with only user-app cascades is
+  (testing "a buffer with only user-app cascades is
             untouched by the data-layer filter (count + ordering
             preserved). Symmetry guard: the filter is narrow, not a
             blanket rejection."
@@ -1900,9 +1781,9 @@
 
 (deftest sub-suppressed-sensitive-count-reads-app-db
   (testing ":rf.xray/suppressed-sensitive-count reads from Xray's
-            app-db at `:suppressed-counters` (rf2-0vxdn) — first deref
+            app-db at `:suppressed-counters` — first deref
             returns 0; each `:rf.xray/note-sensitive-suppressed`
-            dispatch carries one task's per-frame counts (rf2-p03xh)
+            dispatch carries one task's per-frame counts
             and re-fires the sub on the standard write path
             (immediate reactive update, no clear-sub-cache!
             workaround required)."
@@ -1922,7 +1803,7 @@
           "reset event drops every bucket"))))
 
 (deftest sub-target-frame-defaults-to-unselected
-  (testing "EP-0002 (rf2-bd4div) — :rf.xray/target-frame defaults to
+  (testing "EP-0002 — :rf.xray/target-frame defaults to
             `default-target-frame` = nil = UNSELECTED (not :rf/default)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -1937,17 +1818,15 @@
     (rf/with-frame :rf/xray
       (is (= [] @(rf/subscribe [:rf.xray/epoch-history]))))))
 
-;; rf2-e9tb0 — :rf.xray/pinned-slices-store sub was dropped when the
-;; pinned-watches strip was superseded by the segment-inspector popup.
-;; rf2-y8doi.29 then retired that popup unreached, so its four subs
-;; (`open?` / `path` / `slot` / `value`), its open + close events and
-;; the slice-focus pair are gone from the rosters above too. The
-;; snapshot test is what pins their absence; this is the explicit read.
+;; The segment-inspector popup's subs and open + close events, the
+;; show-me-when walker's sub and the slice-focus pair are not part of the
+;; surface. The snapshot test pins their absence; this is the explicit
+;; read.
 
 (deftest retired-path-click-handlers-stay-gone
-  (testing "rf2-y8doi.29 — the segment-inspector popup, the
-            show-me-when walker's sub and the slice-focus pair were
-            deleted unreached. `:rf.xray/epoch-history` is the positive
+  (testing "the segment-inspector popup, the
+            show-me-when walker's sub and the slice-focus pair are not
+            registered. `:rf.xray/epoch-history` is the positive
             control that `register-xray-handlers!` really ran."
     (registry/register-xray-handlers!)
     (is (some? (rf.registrar/handler :sub :rf.xray/epoch-history))
@@ -1960,14 +1839,9 @@
     (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
     (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))))
 
-;; rf2-ad7zx.9 — `sub-issues-filters-default-disabled` was removed with
-;; the Issues panel's filter-chrome reconcile to the Figma design (pure
-;; rows, no filtering — spec/021 §8.2). The `:rf.xray/issues-filters`
-;; sub no longer exists.
-
 (deftest sub-reactive-show-unchanged-defaults-false
   (testing ":rf.xray/reactive-show-unchanged? defaults to false
-            (rf2-wyvf2 — Reactive panel disclosure slot per spec/021
+            (Reactive panel disclosure slot per spec/021
             §3.4; default OFF means the panel hides unchanged-subs
             behind a footer disclosure)"
     (setup-xray-frame!)
@@ -1988,19 +1862,16 @@
         (is (nil? (:selected-dispatch-id data)))
         (is (nil? (:selected-event-bundle data)))))))
 
-;; rf2-p53m2 — `sub-app-db-diff-shape-on-empty-history` was removed: the
-;; `:rf.xray/app-db-diff` composite it exercised had no production view
-;; consumer and was pruned. The app-db tab's empty-history shape is
-;; pinned via `:rf.xray/app-db-current+diff` / `:rf.xray/app-db-state`
-;; in app_db_diff_cljs_test.
+;; The app-db tab's empty-history shape is pinned via
+;; `:rf.xray/app-db-current+diff` / `:rf.xray/app-db-state` in
+;; app_db_diff_cljs_test.
 
 (deftest sub-issues-ribbon-shape-on-empty-buffer
   (testing ":rf.xray/issues-ribbon returns :no-focus empty-kind when
-            no focused epoch yet (rf2-jio48 — focused-epoch-scoped
+            no focused epoch yet (focused-epoch-scoped
             projection per spec/021 §1.2; cold-start surfaces :no-focus.
-            rf2-gbz39 — the Issues tab was removed under Option (c), but
-            this composite survives as the auto-open-on-error signal
-            source + now lives in registry.cljs)"
+            There is no Issues tab; this composite is the
+            auto-open-on-error signal source and lives in registry.cljs)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/issues-ribbon])]
@@ -2009,22 +1880,21 @@
         (is (= 0 (:rendered data)))
         (is (= :no-focus (:empty-kind data)))))))
 
-;; ---- rf2-hiri8 — the PINNED-NO-EPOCH focus ------------------------------
+;; ---- the PINNED-NO-EPOCH focus ------------------------------------------
 ;;
 ;; A focus the operator SET to an event bundle that settled no epoch carries
 ;; a nil `:epoch-id` beside a pinned `:dispatch-id` —
 ;; `spine/epoch-id-for-event-bundle` answers nil for a dispatch refused before
 ;; any handler ran, for a bundle still mid-build, for a bundle whose epoch
 ;; aged out of the ring, and for an `:ungrouped` pin alike. That shape is
-;; IDENTICAL to the cold-start UNSET focus rf2-h0120's head-fallback exists to
+;; IDENTICAL to the cold-start UNSET focus the head-fallback exists to
 ;; serve, so a consumer reading `:epoch-id` alone gets the HEAD record back and
 ;; projects a DIFFERENT event's state underneath the operator's selection.
 ;;
-;; The shared resolver's 3-arities (rf2-y8doi.19) take the pinned
-;; `:dispatch-id` and separate the two. rf2-c4abp threaded it through Trace and
-;; the Machine Inspector; the two rows below cover the consumers that were
-;; still reading `:epoch-id` alone — `:rf.xray/issues-ribbon` (this file) and
-;; `:rf.xray/reactive-data` (the Views panel).
+;; The shared resolver's 3-arities take the pinned `:dispatch-id` and
+;; separate the two. Trace and the Machine Inspector pass it through; the
+;; rows below cover `:rf.xray/issues-ribbon` (this file) and
+;; `:rf.xray/reactive-data` (the Views panel), which pass it too.
 ;;
 ;; The spine slots are seeded DIRECTLY, which is the route
 ;; `evicted_epoch_all_panels_cljs_test` uses for its pinned-evicted state: the
@@ -2042,9 +1912,9 @@
 (def ^:private pin-history
   "A single REAL epoch survives in the ring, carrying an issue-bearing trace
   event, a sub-run and a render. That is what makes the rows below
-  discriminating: head-fallback has something to fall back TO, so the pre-fix
-  failure surfaces as epoch 11's issues / cascade rather than as an empty
-  projection that happens to look right."
+  discriminating: head-fallback has something to fall back TO, so a consumer
+  reading `:epoch-id` alone would surface epoch 11's issues / cascade rather
+  than an empty projection that happens to look right."
   [{:epoch-id      11
     :dispatch-id   11
     :event         [:test/event]
@@ -2085,16 +1955,16 @@
   {:mode :retro :dispatch-id dispatch-id :epoch-id epoch-id :frame nil})
 
 (deftest sub-issues-ribbon-rejects-pinned-bundle-that-settled-no-epoch
-  (testing "rf2-hiri8 — `:rf.xray/issues-ribbon` takes the WHOLE focus map as
-            an input and then destructured `:epoch-id` alone, throwing the
-            pinned `:dispatch-id` away. So a bundle that settled no epoch fell
-            through to head-fallback and the ribbon projected the HEAD epoch's
-            issues under the operator's selection — and this composite is the
-            auto-open-on-error SIGNAL (settings/effects.cljs), so the lie is
-            not merely cosmetic: the watcher fires on an unrelated epoch's
-            issues. Passing the discriminator into the shared resolver's
-            3-arities resolves no record and reports the cause-neutral
-            `:no-epoch`."
+  (testing "`:rf.xray/issues-ribbon` takes the WHOLE focus map as
+            an input and passes the pinned `:dispatch-id` into the shared
+            resolver's 3-arities, which resolve no record for a bundle that
+            settled no epoch and report the cause-neutral `:no-epoch`.
+            Destructuring `:epoch-id` alone would throw the pin away, fall
+            through to head-fallback and project the HEAD epoch's issues
+            under the operator's selection — and this composite is the
+            auto-open-on-error SIGNAL (settings/effects.cljs), so the lie
+            would not be merely cosmetic: the watcher would fire on an
+            unrelated epoch's issues."
     (setup-xray-frame!)
     (install-pin-seeder!)
     (rf/with-frame :rf/xray
@@ -2125,10 +1995,10 @@
                  "epoch resolved at all"))))))
 
 (deftest sub-issues-ribbon-rejects-only-the-pinned-no-epoch-shape
-  (testing "rf2-hiri8 POSITIVE CONTROL — the discriminator must change NOTHING
-            else. Without this row the fix could pass by emptying the ribbon
-            outright: an UNSET focus over a non-empty ring must still
-            head-fall-back (rf2-h0120), and an ordinary pinned epoch must still
+  (testing "POSITIVE CONTROL — the discriminator must change NOTHING
+            else. Without this row an implementation could pass by emptying
+            the ribbon outright: an UNSET focus over a non-empty ring must still
+            head-fall-back, and an ordinary pinned epoch must still
             project its own issues."
     (setup-xray-frame!)
     (install-pin-seeder!)
@@ -2152,14 +2022,14 @@
             "a resolved epoch carrying an issue has no empty-kind")))))
 
 (deftest sub-reactive-data-rejects-pinned-bundle-that-settled-no-epoch
-  (testing "rf2-hiri8 — the Views composite `:rf.xray/reactive-data` reads the
-            whole focus map and passed only `(:epoch-id focus)` to its
-            `focused-epoch-record` helper, so the pinned `:dispatch-id` was
-            discarded AT THE CALL. Pre-fix the panel rendered the HEAD epoch's
-            cascade while the composite's own `:dispatch-id` slot still
-            reported the operator's pin — the two disagreeing about one
+  (testing "the Views composite `:rf.xray/reactive-data` reads the
+            whole focus map and hands the pinned `:dispatch-id` to its
+            `focused-epoch-record` helper. Passing only `(:epoch-id focus)`
+            would discard the pin AT THE CALL, and the panel would render the
+            HEAD epoch's cascade while the composite's own `:dispatch-id` slot
+            still reported the operator's pin — the two disagreeing about one
             selection. This is the `:no-epoch` sibling of the pinned-EVICTED
-            case rf2-uo0rc.1 fixed for this same panel."
+            case for this same panel."
     (setup-xray-frame!)
     (install-pin-seeder!)
     (rf/with-frame :rf/xray
@@ -2176,10 +2046,10 @@
         (is (= pin-dispatch-id (:dispatch-id data))
             (str "the composite must still report the operator's pin — it is "
                  "the disagreement between this slot and the projection that "
-                 "made the pre-fix render a lie rather than merely stale"))))))
+                 "would make the render a lie rather than merely stale"))))))
 
 (deftest sub-reactive-data-rejects-only-the-pinned-no-epoch-shape
-  (testing "rf2-hiri8 POSITIVE CONTROL for Views — an UNSET focus over a
+  (testing "POSITIVE CONTROL for Views — an UNSET focus over a
             non-empty ring still head-falls-back to the head epoch's cascade,
             and an ordinary pinned epoch still projects its own."
     (setup-xray-frame!)
@@ -2199,7 +2069,7 @@
 
 (deftest sub-trace-feed-shape-on-empty-buffer
   (testing ":rf.xray/trace-feed returns :no-focus empty-kind initially
-            (rf2-td380 — epoch-scoped: no focused epoch + empty history
+            (epoch-scoped: no focused epoch + empty history
             → :no-focus / 0 rows)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -2226,13 +2096,12 @@
 
 (deftest sub-reactive-data-shape-empty
   (testing ":rf.xray/reactive-data returns empty defaults when no
-            cascade is focused (rf2-wyvf2 · spec/021 §3 · renamed from
-            :rf.xray/views-data per §11.5)"
+            cascade is focused (spec/021 §3 · §11.5)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/reactive-data])]
         (is (contains? data :subs-ran))
-        ;; rf2-ty5r5o — the memo-hit `:subs-skipped` slice is a real slot
+        ;; The memo-hit `:subs-skipped` slice is a real slot
         ;; (fed by canonical `:rf.sub/skip` ops); empty when no cascade is
         ;; focused, DISTINCT from `:subs-ran`.
         (is (contains? data :subs-skipped))
@@ -2241,7 +2110,7 @@
         (is (false? (:has-event-bundle? data)))))))
 
 (deftest sub-reactive-data-show-unchanged-resolves-both-axes
-  (testing "rf2-ty5r5o — the §3.4 disclosure open-state (`:show-unchanged?`
+  (testing "the §3.4 disclosure open-state (`:show-unchanged?`
             on :rf.xray/reactive-data, the flag the panel view reads) is the
             OR of the panel-local quick-toggle
             (:rf.xray/reactive-toggle-unchanged) AND the
@@ -2266,10 +2135,9 @@
 ;; ---- (4) high-value event contracts -------------------------------------
 
 (deftest event-select-dispatch-id-and-clear
-  (testing ":rf.xray/select-dispatch-id + clear round-trip — rf2-ee38b.2
-            reads focus off the canonical spine `:rf.xray/focus` sub
-            (the dead standalone :rf.xray/selected-dispatch-id sub is
-            gone; focus is the single source of truth)"
+  (testing ":rf.xray/select-dispatch-id + clear round-trip — reads
+            focus off the canonical spine `:rf.xray/focus` sub
+            (focus is the single source of truth)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 42])
@@ -2277,17 +2145,17 @@
       (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
       (is (nil? (:dispatch-id @(rf/subscribe [:rf.xray/focus])))))))
 
-;; ---- rf2-pqt7cb — select-dispatch-id head-id must thread show-ungrouped? --
+;; ---- select-dispatch-id head-id must thread show-ungrouped? ------------
 ;;
 ;; `:rf.xray/select-dispatch-id`'s head-id computation must match the
 ;; sibling `:rf.xray/focus-event` handler's — both feed the same
 ;; `focus-event-bundle-reducer`, whose LIVE/RETRO mode selection is
-;; `(= dispatch-id head-id)`. Pre-fix `select-dispatch-id` called
-;; `focusable-head-id` with the 1-arg form (hard-codes `show-ungrouped?
-;; false`), so with the opt-in ON it could compute a DIFFERENT head-id
-;; than `focus-event` for the identical buffer — diverging LIVE/RETRO.
+;; `(= dispatch-id head-id)`. Calling `focusable-head-id` with the 1-arg
+;; form (which hard-codes `show-ungrouped? false`) would, with the opt-in
+;; ON, compute a DIFFERENT head-id than `focus-event` for the identical
+;; buffer — diverging LIVE/RETRO.
 ;;
-;; Repro: show-ungrouped? on, buffer [routed-a routed-b ungrouped]. The
+;; Scenario: show-ungrouped? on, buffer [routed-a routed-b ungrouped]. The
 ;; :ungrouped bucket sorts last (highest raw :id) so it's the user-
 ;; visible head under the opt-in. Selecting routed-b (a non-head row)
 ;; must pin RETRO on BOTH handlers.
@@ -2316,15 +2184,15 @@
      :tags {:frame :rf/default}}))
 
 (deftest select-dispatch-id-mode-matches-focus-event-with-show-ungrouped-rf2-pqt7cb
-  (testing "rf2-pqt7cb — with show-ungrouped? on, selecting a non-head
+  (testing "with show-ungrouped? on, selecting a non-head
             (per the full, :ungrouped-inclusive contract) row via
             :rf.xray/select-dispatch-id must pin RETRO, matching what
             :rf.xray/focus-event computes for the identical buffer +
-            dispatch-id. Pre-fix select-dispatch-id excluded :ungrouped
-            from its own head-id computation, so it picked :routed-b
-            itself as head and wrongly stayed LIVE — the spine would
-            then auto-advance away from the pinned selection on the
-            next trace, breaking the programmatic pin."
+            dispatch-id. Excluding :ungrouped from select-dispatch-id's
+            own head-id computation would pick :routed-b itself as head
+            and wrongly stay LIVE — the spine would then auto-advance
+            away from the pinned selection on the next trace, breaking
+            the programmatic pin."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update :general :show-ungrouped? true])
@@ -2335,7 +2203,7 @@
             "select-dispatch-id must pin RETRO — :ungrouped (not
              :routed-b) is the show-ungrouped? head")
         ;; Parity check: focus-event on the identical dispatch-id/buffer
-        ;; must compute the SAME mode (the divergence rf2-pqt7cb named).
+        ;; must compute the SAME mode.
         (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
         (rf/dispatch-sync [:rf.xray/focus-event :routed-b :rf/default])
         (is (= select-mode (:mode @(rf/subscribe [:rf.xray/focus])))
@@ -2344,27 +2212,19 @@
 
 (deftest event-select-epoch-passive-scrub
   (testing ":rf.xray/select-epoch pins the spine focus epoch (passive
-            scrub) — rf2-uy7nz: the single source of truth is
+            scrub) — the single source of truth is
             `[:focus :epoch-id]`, surfaced by `:rf.xray/focus-epoch-id`"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-epoch :e-7])
       (is (= :e-7 @(rf/subscribe [:rf.xray/focus-epoch-id])))
-      ;; nil resets the focus epoch — equivalent to the dropped explicit
-      ;; `:rf.xray/clear-selected-epoch` event (deleted with rf2-qy0nu
-      ;; alongside the Time Travel panel).
+      ;; nil resets the focus epoch.
       (rf/dispatch-sync [:rf.xray/select-epoch nil])
       (is (nil? @(rf/subscribe [:rf.xray/focus-epoch-id]))))))
 
-;; rf2-ad7zx.9 — `event-toggle-issues-severity-roundtrip` and
-;; `event-clear-issues-filters` were removed with the Issues panel's
-;; filter-chrome reconcile to the Figma design (pure rows, no filtering
-;; — spec/021 §8.2). The `:rf.xray.issues/toggle-severity` /
-;; `toggle-prefix` / `clear-filters` events no longer exist.
-
 (deftest event-reactive-toggle-unchanged-flips-slot
   (testing ":rf.xray/reactive-toggle-unchanged toggles the panel's
-            disclosure slot (rf2-wyvf2 · spec/021 §3.4)"
+            disclosure slot (spec/021 §3.4)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (is (false? @(rf/subscribe [:rf.xray/reactive-show-unchanged?])))
@@ -2374,8 +2234,7 @@
       (is (false? @(rf/subscribe [:rf.xray/reactive-show-unchanged?]))))))
 
 (deftest event-reactive-set-unchanged-writes-slot
-  (testing ":rf.xray/reactive-set-unchanged writes the slot directly
-            (rf2-wyvf2)."
+  (testing ":rf.xray/reactive-set-unchanged writes the slot directly."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/reactive-set-unchanged true])
@@ -2393,22 +2252,21 @@
       (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id]))))))
 
 (deftest event-open-in-editor-routes-through-editor-fx
-  (testing "rf2-g5q8d — `:rf.xray/open-in-editor` is now a reg-event handler
-            that returns `:fx` — it resolves the coord through the rf2-cm93v allowlist and
+  (testing "`:rf.xray/open-in-editor` is a reg-event handler
+            that returns `:fx` — it coerces the coord and
             fires `:rf.xray.fx/open-in-editor`. It does NOT write to app-db (the
-            click is pure navigation; the prior stub's
-            `:last-open-in-editor-coord` slot is gone). Detailed
+            click is pure navigation). Detailed
             contract assertions live in `open_in_editor_cljs_test.cljs`;
             here we pin the registry-level shape only."
     (setup-xray-frame!)
-    ;; rf2-4s08ov — model a wired host: explicitly set an editor so the
+    ;; Model a wired host: explicitly set an editor so the
     ;; click navigates (fires `:rf.xray.fx/open-in-editor`) rather than surfacing
     ;; the unconfigured-host DX hint. The unconfigured-host branch is
     ;; covered in `open_in_editor_cljs_test.cljs`.
     (config/set-editor! :vscode)
     (let [captured (atom [])]
       ;; Capture via the frame's :fx-overrides seam (fn-value form) —
-      ;; rf2-h1vqa4: a cross-ns re-registration of the xray-owned fx id
+      ;; a cross-ns re-registration of the xray-owned fx id
       ;; fails the frame's default-image assembly loud.
       (rf/make-frame {:id :rf/xray
                       :fx-overrides {:rf.xray.fx/open-in-editor
@@ -2420,24 +2278,22 @@
             "the event-fx emits exactly one :rf.xray.fx/open-in-editor fx")
         (is (= {:file "src/x.cljs" :line 10 :column 5}
                (:source-coord (first @captured)))
-            "rf2-wn3bh — the fx carries the structured :source-coord so
+            "the fx carries the structured :source-coord so
              :rf.xray.fx/open-in-editor can prefer the dev-server endpoint and fall
              back to the editor:// URI")
         (is (nil? (:last-open-in-editor-coord
                     (rf.frame/frame-app-db-value :rf/xray)))
-            "Xray's app-db is NOT written — the stub's
-             `:last-open-in-editor-coord` slot is intentionally
-             gone (rf2-g5q8d)")))))
+            "Xray's app-db is NOT written — there is no
+             `:last-open-in-editor-coord` slot")))))
 
 ;; ---- (5) test-only override events --------------------------------------
 
 (deftest event-override-events-set-then-clear
-  (testing "every :set-*-override-for-test event sets a value AND clears on nil"
+  (testing "a :set-*-override-for-test event sets a value AND clears on nil"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      ;; rf2-qy0nu — only the Machine Inspector's registered-machines
-      ;; override survives the dead-panel sweep. The flows / fxs /
-      ;; routes overrides were retired with their panels.
+      ;; Exercised on the Machine Inspector's registered-machines
+      ;; override.
       (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test [:m]])
       (is (= [:m] (:registered-machines-override (rf.frame/frame-app-db-value :rf/xray))))
       (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test nil])
@@ -2448,20 +2304,17 @@
 ;; The :rf.xray.fx/* handlers each follow re-frame v2's `(fn [ctx args] ...)`
 ;; signature.
 ;;
-;; rf2-6r9j.24 — the two event-level clipboard round-trip tests went with
-;; the dispatcher-less events they drove, and the `:fx-overrides` capture
-;; stub they shared went with them. The fx itself keeps its pins: its
-;; node-target contract directly below, and its full reachable gesture (the
-;; Static Machines `Copy Mermaid` action, including the REAL registered fx
-;; on this node target) in `static/machines/copy_mermaid_cljs_test.cljs`.
+;; The clipboard fx is pinned by its node-target contract directly below,
+;; and by its full reachable gesture (the Static Machines `Copy Mermaid`
+;; action, including the REAL registered fx on this node target) in
+;; `static/machines/copy_mermaid_cljs_test.cljs`.
 
 (deftest fx-copy-to-clipboard-handles-non-browser-target
   (testing ":rf.xray.fx/copy-to-clipboard does not throw on a node-test
             target (no js/navigator.clipboard); contract is best-effort.
 
-            rf2-6r9j.24 — driven by invoking the REGISTERED fx handler
-            directly rather than through a retired event, so the contract
-            keeps its pin without depending on any particular caller."
+            Driven by invoking the REGISTERED fx handler directly, so the
+            contract holds without depending on any particular caller."
     (setup-xray-frame!)
     ;; Re-register the LIVE handler (the registry's, not our capture).
     (registry/reset-for-test!)
@@ -2476,11 +2329,6 @@
 
 ;; ---- (7) override-aware reader semantics --------------------------------
 
-;; The legacy :rf.xray/sub-cache sub + :rf.xray/set-sub-cache-
-;; override-for-test event retired with the Subs panel under rf2-21ob3
-;; (Views panel reads :rf.xray/epoch-history directly per spec/012-
-;; Views.md §Data sources; no separate sub-cache surface).
-
 (deftest sub-registered-machines-honours-override
   (testing ":rf.xray/registered-machines returns the override when set"
     (setup-xray-frame!)
@@ -2490,25 +2338,22 @@
       (is (= [:m-1 :m-2]
              @(rf/subscribe [:rf.xray/registered-machines]))))))
 
-;; ---- (8) frame isolation (rf2-tijr Option C) ----------------------------
+;; ---- (8) frame isolation ------------------------------------------------
 
 (deftest events-write-to-xray-frame-not-default
   (testing "every :rf.xray/* event-db handler writes to :rf/xray, never :rf/default"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      ;; :event is an arbitrary live L3 tab id (rf2-xy4yb — the 4-layer
-      ;; shell switches via `:rf.xray/selected-tab`, not the legacy
-      ;; `:selected-panel` slot deleted with rf2-qy0nu).
+      ;; :event is an arbitrary tab id — the handler writes the
+      ;; `:selected-tab` slot the 4-layer shell switches on.
       (rf/dispatch-sync [:rf.xray/select-tab :event])
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (rf/dispatch-sync [:rf.xray/select-epoch :e]))
     (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
           default-db (rf.frame/frame-app-db-value :rf/default)]
       (is (= :event (:selected-tab xray-db)))
-      ;; rf2-ee38b.2 — :rf.xray/select-dispatch-id writes focus to the
-      ;; spine `:focus` slot (the dead :selected-dispatch-id mirror is
-      ;; gone); rf2-uy7nz — :select-epoch writes the spine `[:focus
-      ;; :epoch-id]` (the :selected-epoch-id mirror is retired too).
+      ;; :rf.xray/select-dispatch-id writes focus to the spine `:focus`
+      ;; slot; :select-epoch writes the spine `[:focus :epoch-id]`.
       (is (= 1 (get-in xray-db [:focus :dispatch-id])))
       (is (= :e (get-in xray-db [:focus :epoch-id])))
       (is (nil? (:selected-tab default-db)))
@@ -2519,25 +2364,22 @@
 
 (deftest composite-subs-non-throwing-on-empty-frame
   (testing "every composite sub returns SOMETHING (no throw) on a fresh
-            :rf/xray frame — the smoke contract the audit named"
+            :rf/xray frame — the smoke contract"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       ;; Each `is` proves the subscribe + deref completes without throwing.
       ;; The contract is that the registry's composites tolerate empty
       ;; inputs; per-panel tests cover the populated cases.
       (doseq [sub-id [:rf.xray/focused-event-bundle-detail
-                      ;; rf2-p53m2 — `:rf.xray/app-db-diff` pruned (dead
-                      ;; surface); the app-db tab's composite is now
+                      ;; The app-db tab's composite:
                       ;; `:rf.xray/app-db-current+diff` → `:rf.xray/app-db-state`.
                       :rf.xray/app-db-current+diff
-                      ;; rf2-okvit — current-state inspector section model.
+                      ;; Current-state inspector section model.
                       :rf.xray/app-db-state
                       :rf.xray/issues-ribbon
                       :rf.xray/trace-feed
                       :rf.xray/machine-inspector-data
-                      ;; rf2-wyvf2 — Reactive-panel composite (was
-                      ;; `:rf.xray/views-data`; renamed to `:rf.xray/
-                      ;; reactive-data` per spec/021 §11.5 / §3).
+                      ;; Reactive-panel composite (spec/021 §11.5 / §3).
                       ;; Empty-frame contract: returns map with
                       ;; `:has-event-bundle? false`.
                       :rf.xray/reactive-data]]
@@ -2548,14 +2390,13 @@
   (testing ":rf.xray/epoch-recorded only writes when frame-id matches target-frame"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      ;; rf2-y8doi.20 — SELECT A TARGET FIRST. What this pins is the
-      ;; `frame-id ≠ target` drop, and since cold-start adoption landed a
-      ;; nil target no longer reaches that arm: an UNSELECTED slot adopts
-      ;; the recording frame instead (see the sibling test below). The
-      ;; assertion would not have gone red without this line — an
-      ;; unregistered frame's ring is `[]`, so `:epoch-history` stayed
-      ;; empty either way — it would simply have been exercising the
-      ;; adoption arm while its name claimed otherwise.
+      ;; SELECT A TARGET FIRST. What this pins is the
+      ;; `frame-id ≠ target` drop, and a nil target does not reach that
+      ;; arm: an UNSELECTED slot adopts the recording frame instead (see
+      ;; the sibling test below). The assertion would not go red without
+      ;; this line — an unregistered frame's ring is `[]`, so
+      ;; `:epoch-history` stays empty either way — it would simply
+      ;; exercise the adoption arm while its name claimed otherwise.
       (rf/dispatch-sync [:rf.xray/set-target-frame :rf/some-target])
       ;; A non-target frame-id is dropped — :epoch-history stays empty.
       ;; (We can't easily produce a real :rf/default epoch under
@@ -2566,28 +2407,29 @@
       (is (= :rf/some-target @(rf/subscribe [:rf.xray/target-frame]))
           "a non-target recording frame must not move the selected target"))))
 
-;; ---- rf2-y8doi.20 — cold-start adoption ---------------------------------
+;; ---- cold-start adoption ------------------------------------------------
 ;;
 ;; Mount Xray BEFORE the host's first cascade — the preload's
 ;; `boot-on-runtime-ready!`, or any app whose first dispatch is user-driven
 ;; — and `spine/focusable-head-frame-id` has no pre-mount cascade to
-;; resolve, so the mount seed leaves `:target-frame` UNSELECTED. Pre-fix
-;; `:rf.xray/epoch-recorded` then compared every recording frame against
-;; nil and dropped it, so `:epoch-history` never filled: `compose-focus`
-;; yielded `:epoch-id nil` and the L4 Epoch panel rendered its no-focus
-;; line while the L2 list filled and auto-follow highlighted the head row.
-;; The user's first click repaired it (`reseed-epoch-history-for-frame`
-;; adopts out of the unselected state), which is why the symptom reads as
-;; "the panel is empty until you click something".
+;; resolve, so the mount seed leaves `:target-frame` UNSELECTED.
+;; `:rf.xray/epoch-recorded` therefore adopts the recording frame. Comparing
+;; every recording frame against nil and dropping it would leave
+;; `:epoch-history` empty: `compose-focus` would yield `:epoch-id nil` and
+;; the L4 Epoch panel would render its no-focus line while the L2 list
+;; filled and auto-follow highlighted the head row — until the user's
+;; first click (`reseed-epoch-history-for-frame` adopts out of the
+;; unselected state), so the symptom would read as "the panel is empty
+;; until you click something".
 
 (deftest epoch-recorded-adopts-the-recording-frame-when-target-unselected
-  (testing "rf2-y8doi.20 — an ingest onto an UNSELECTED target adopts the
+  (testing "an ingest onto an UNSELECTED target adopts the
             frame that recorded, aligning `:target-frame` and
             `[:focus :frame]` exactly as `:rf.xray/set-target-frame` does"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
-          "precondition: the target starts UNSELECTED (EP-0002 rf2-bd4div)")
+          "precondition: the target starts UNSELECTED (EP-0002)")
       ;; Stub the framework ring so the adopted frame has something to
       ;; seed from — the same seam `mount_cljs_test.cljs` drives for its
       ;; pre-mount `:cart-frame` records.
@@ -2600,14 +2442,14 @@
           "the frame that RECORDED is adopted — unique resolution from
            observed evidence, NOT the `:rf/default` synthesis EP-0002 rules out")
       (is (= [:e-above] (mapv :epoch-id @(rf/subscribe [:rf.xray/epoch-history])))
-          ":epoch-history fills from the adopted frame's ring — pre-fix it
-           stayed [] until the user clicked something")
+          ":epoch-history fills from the adopted frame's ring rather than
+           staying [] until the user clicks something")
       (is (= :above (:frame @(rf/subscribe [:rf.xray/focus])))
-          "[:focus :frame] moves in lockstep (rf2-ulpp8), so the L2 frame
+          "[:focus :frame] moves in lockstep, so the L2 frame
            filter and `compose-focus`'s scoping agree with the slot"))))
 
 (deftest epoch-recorded-never-adopts-xrays-own-frame
-  (testing "rf2-y8doi.20 — the epoch listener is registered process-wide, so
+  (testing "the epoch listener is registered process-wide, so
             `:rf/xray` records epochs like any other frame; at cold start,
             with the host quiet, Xray's own chrome events are the likeliest
             first settle of all. Adopting one would point the inspector at

@@ -1,8 +1,5 @@
 (ns day8.re-frame2-xray.panel-enum-guard-cljs-test
-  "SINGLE-SOURCE GUARD for the Xray panel enumeration (rf2-rapnr;
-  absorbs the guard-half of rf2-7b1z4; follow-on to the rf2-3nbl5.2
-  API-governance keystone + rf2-jhn46's #2786 Xray manifest rows + the
-  rf2-2mtte CLJS enumeration probe).
+  "SINGLE-SOURCE GUARD for the Xray panel enumeration.
 
   ## What this guards
 
@@ -21,24 +18,23 @@
       spec enumerates in `007-UX-IA.md` §Mountable surface inventory +
       `008-Embedding-Contract.md`. Reconciled BIDIRECTIONALLY:
         - a spec-named `mount-*!` with no enum entry → RED (the spec
-          drifted ahead / kept a stale name — e.g. the pre-fix
-          `mount-views!` ghost);
+          drifted ahead / kept a stale name);
         - an enum `:mount` name the spec never mentions → RED (a panel
           shipped but undocumented).
 
   The third projection — the api-manifest `:cljs-only` rows for
   `day8.re-frame2-xray.panels` — is reconciled against the LIVE vars by
-  the rf2-2mtte CLJS probe and the rf2-gkp0t `xray_spec_check`. Because
+  the CLJS enumeration probe and `xray_spec_check`. Because
   PROJECTION A pins the live facade to the enum, the manifest inherits
   enum coherence transitively; this guard adds the enum↔facade and
-  enum↔spec edges those checks did not cover.
+  enum↔spec edges those checks do not cover.
 
   ## Mechanism
 
   Both extra projections are read at COMPILE time so the test stays a
   headless pure-data reconciliation (no DOM, no runtime filesystem):
-    - the live facade surface via `emit-ns-publics` (the rf2-2mtte
-      analyzer enumeration macro);
+    - the live facade surface via `emit-ns-publics` (the analyzer
+      enumeration macro);
     - the spec references via `emit-spec-mount-fn-names` (the JVM-side
       slurp macro in `panel_enum_spec_refs.clj`).
 
@@ -73,21 +69,21 @@
   "PROJECTION A — the live public `mount-<panel>!` vars of
   `day8.re-frame2-xray.panels`, captured at compile time. Filtered to
   the `mount-*!` shape (the ns has other publics — `render-panel!` is
-  private; `ManagedFxList` is an `rf.fresco/defview` boundary since
-  rf2-fcy5, with `ManagedFxList-bridge` and `managed-fx-list-tree` beside
-  it; the mount fns are the panel facade)."
+  private; `ManagedFxList` is an `rf.fresco/defview` boundary, with
+  `ManagedFxList-bridge` and `managed-fx-list-tree` beside it; the mount
+  fns are the panel facade)."
   (into #{}
         (comp (map first)
               (filter #(re-matches #"mount-[a-z][a-z0-9-]*!" %)))
         (emit-ns-publics day8.re-frame2-xray.panels)))
 
-;; INCREMENTAL BUILDS RE-EXPAND THIS (rf2-uttbj, repairing rf2-863tl).
+;; INCREMENTAL BUILDS RE-EXPAND THIS.
 ;; `emit-spec-mount-fn-names` slurps the spec markdown on the JVM side at
 ;; macro-expansion time, but it reads through `re-frame.build.spec-resource`,
 ;; which registers each file against the compiling namespace's cache key — so
 ;; correcting a drifted spec row recompiles this call site rather than leaving
-;; the reconciliations below grading a PREVIOUS expansion, as it did until
-;; rf2-uttbj. `panel_enum_spec_refs.clj` owns the mechanism and that history.
+;; the reconciliations below grading a PREVIOUS expansion.
+;; `panel_enum_spec_refs.clj` owns the mechanism.
 (def ^:private spec-mount-names
   "PROJECTION B — the `mount-<panel>!` names the Xray API spec
   enumerates, captured at compile time."

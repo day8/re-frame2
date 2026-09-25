@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.managed-fx-helpers-cljs-test
-  "Pure-data tests for the managed-fx wire-boundary helpers
-  (rf2-uyp86, parent rf2-5aw5v).
+  "Pure-data tests for the managed-fx wire-boundary helpers.
 
   ## Coverage
 
@@ -82,7 +81,7 @@
 
 ;; ---- (2a) HTTP adapter on success --------------------------------------
 
-;; The record is narrowed to ISSUANCE (rf2-y8doi.18, ruled B corrected).
+;; The record describes ISSUANCE.
 ;; Almost nothing the runtime emits AFTER issuance can reach the issuing
 ;; event-bundle: `:rf.http/replied`, the retries and the stale-suppressions all
 ;; fire from a transport callback with no `*handler-scope*` (so the grouper
@@ -96,8 +95,7 @@
 ;;   2. the `:rf.http/aborted` the issuance itself FIRES at the attempt it
 ;;      replaces. `managed-handler` calls `registry/supersede!` synchronously
 ;;      while issuing, and that fires the OLD handle's abort-fn — so the row
-;;      is about a DIFFERENT attempt and carries the SAME `:request-id`
-;;      (rf2-n3sx9).
+;;      is about a DIFFERENT attempt and carries the SAME `:request-id`.
 ;;
 ;; A cancellation can also arrive from a non-HTTP effect in the same drain (an
 ;; actor destroy walking its in-flight handles), naming a request this bundle
@@ -132,7 +130,7 @@
   `dispatch-aborted!` builds the failure through `self-identify` (`:request`
   / `:request-id` / `:attempt` / `:work/id`), adds `:url` and `:recovery`,
   redacts it, and emits `(rf.trace/emit! :info :rf.http/aborted redacted)`
-  through `emit-failure-trace!` — every abort reason is `:info` (rf2-s8kcj).
+  through `emit-failure-trace!` — every abort reason is `:info`.
   So the OPERATION is `:rf.http/aborted`, the `:op-type` is `:info` with no
   merged `:category` (only the `:error` branch merges one), `:recovery` is
   hoisted out of `:tags` to the top level by `build-event`, and the `reason`
@@ -176,7 +174,7 @@
             request was ISSUED — the fx handler returned and the transport was
             entered. Every field that would describe an OUTCOME is nil, because
             no completion row reaches this bundle; the outcome comes from the
-            cross-buffer join (rf2-6ooch), pinned on producer captures in
+            cross-buffer join, pinned on producer captures in
             `managed_fx_http_join_cljs_test`."
     (let [args   {:request {:method :get :url "/api/users/42"
                             :headers {:accept "application/json"}}
@@ -227,7 +225,7 @@
             SYNCHRONOUS request-body-prep failure — `prepare-body!` runs inside
             the fx handler's stack, so its failure routes through the same
             dynamic `emit-error!` while the issuing drain is still on the stack
-            (regression: implementation/http/test/re_frame/http_body_prep_failure_test.clj)."
+            (pinned by implementation/http/test/re_frame/http_body_prep_failure_test.clj)."
     (let [args   {:request {:method :get :url "/api/x"}
                   :request-id :req-2
                   :on-failure [:x/failed]}
@@ -262,7 +260,7 @@
           "one of several HTTP effects, no id to match on → not attributable"))))
 
 (deftest http-record-is-not-reddened-by-the-supersede-it-fired
-  (testing "REGRESSION rf2-n3sx9 — a replacement request must not inherit the
+  (testing "a replacement request must not inherit the
             abort IT fired at the attempt it replaced. The whole chain is
             synchronous and runs inside the NEW request's own issuing fx
             handler: `managed-handler` calls `registry/supersede!` while
@@ -289,7 +287,7 @@
       (is (nil? (:failure rec)))))
 
   (testing "CONTROL — the SAME row shape with a reason that IS this attempt's
-            still reddens the record. Without it, the row above could be passing
+            reddens the record. Without it, the row above could be passing
             because the fixture never reached the collector at all. On CLJS an
             already-aborted external `:abort-signal` fires this request's own
             abort-fn synchronously inside `run-attempt!`
@@ -307,11 +305,11 @@
           rec    (first (h/event-bundle->managed-fx-records bundle))]
       (is (= :cancelled (:status rec))
           "a same-attempt cancellation is kept — and reads CANCELLED, its own
-           closed reply status, no longer folded into ERROR (rf2-6ooch)")
+           closed reply status, not ERROR")
       (is (= :user (:cancel-cause rec))))))
 
 (deftest anonymous-http-record-ignores-a-strangers-cancellation
-  (testing "REGRESSION rf2-n3sx9 — `:request-id` is OPTIONAL per Spec 014, and a
+  (testing "`:request-id` is OPTIONAL per Spec 014, and a
             record without one falls back to arithmetic: sole HTTP effect in the
             bundle, so an HTTP row here can have come from nothing else. That
             reasoning holds for a body-prep FAILURE, which only this bundle's own
@@ -338,7 +336,7 @@
       (is (nil? (:cancel-cause rec))
           "a stranger's cancellation is not this record's")))
 
-  (testing "CONTROL — the arithmetic branch still attributes a row this bundle's
+  (testing "CONTROL — the arithmetic branch attributes a row this bundle's
             own HTTP effects could have produced. Same bundle shape, but the
             surface row is the anonymous body-prep failure, which reddens."
     (let [bundle  {:dispatch-id 7
@@ -351,28 +349,27 @@
           records (h/event-bundle->managed-fx-records bundle)
           rec     (first (filterv #(= :http (:surface %)) records))]
       (is (= :error (:status rec))
-          "sole HTTP effect, both ids nil → still attributable")
+          "sole HTTP effect, both ids nil → attributable too")
       (is (= :rf.http/transport (-> rec :failure :kind))))))
 
-;; `http-adapter-aborted-record` and `http-adapter-synthesised-wire-timing` were
-;; DELETED here (rf2-y8doi.18). Both injected a shape that does not belong to
-;; the record the issuing bundle can build:
+;; There is no in-bundle aborted-record row and no in-bundle HTTP wire-timing
+;; row: neither shape belongs to the record the issuing bundle can build.
 ;;
 ;;   - `:rf.http/aborted-on-actor-destroy` is emitted inside the DESTROYING
 ;;     run's drain (`re-frame.http.registry`). It reaches the issuing bundle
 ;;     only when the destroy rides the SAME event's `:fx` vector, and then it
 ;;     names a request this bundle never issued — see the anonymous-record row
-;;     above. `surface-events->cancel-cause` itself is KEPT and still pinned
-;;     below — `http-row-for-this-record?` reads it to decide which rows are
+;;     above. `surface-events->cancel-cause` is pinned below —
+;;     `http-row-for-this-record?` reads it to decide which rows are
 ;;     cancellations at all.
-;;   - the wire-timing fixture injected the PHANTOM `:rf.http/handled` as a
-;;     surface event. HTTP `:wire` is never synthesised in-bundle: the only in-bundle
-;;     HTTP row is the sync failure above, and `:rf.fx/handled` is emitted AFTER
-;;     the fx handler returns, so the failure row never post-dates the issue row
-;;     and no elapsed window exists to synthesise. (An HTTP record's elapsed
-;;     comes from the cross-buffer join instead, rf2-6ooch.) The non-HTTP wire-timing
-;;     coverage for the four surfaces that DO get end events in-bundle is
-;;     unchanged (see the machine-destroy and websocket rows below).
+;;   - there is no `:rf.http/handled` surface event. HTTP `:wire` is never
+;;     synthesised in-bundle: the only in-bundle HTTP row is the sync failure
+;;     above, and `:rf.fx/handled` is emitted AFTER the fx handler returns, so
+;;     the failure row never post-dates the issue row and no elapsed window
+;;     exists to synthesise. (An HTTP record's elapsed comes from the
+;;     cross-buffer join instead.) The non-HTTP wire-timing coverage for the
+;;     four surfaces that DO get end events in-bundle is in the rows below
+;;     (see the machine-destroy and websocket rows).
 
 ;; ---- (2b) WebSocket adapter --------------------------------------------
 
@@ -419,17 +416,17 @@
     (is (= :error (:status rec)))
     (is (= :rf.machine/invoke-failed (-> rec :failure :kind)))))
 
-;; ---- (2c′) rf2-off92 — command-vs-trace law for machine destroy --------
+;; ---- (2c′) command-vs-trace law for machine destroy ---------------------
 ;;
 ;; `:rf.machine/destroy` (no trailing `-ed`) is the reserved fx-id — a
 ;; COMMAND the runtime consumes — and never appears as a trace `:operation`.
 ;; The real fx-substrate terminal is `:rf.machine/destroyed`. These tests pin
 ;; that law at the collector, at the cancel-cause reader, and at the terminal
-;; projection so the impossible command-as-trace branch cannot return.
+;; projection so a command-as-trace branch has a row to fail.
 
 (deftest machine-collector-excludes-command-includes-terminal
   (testing "the machine-invoke collector drops the fx-id COMMAND and keeps
-            the real fx-substrate terminal (rf2-off92)"
+            the real fx-substrate terminal"
     (is (not (contains? h/machine-invoke-trace-operations :rf.machine/destroy))
         ":rf.machine/destroy is a command, never a trace operation")
     (is (contains? h/machine-invoke-trace-operations :rf.machine/destroyed)
@@ -446,11 +443,11 @@
   (testing "surface-events->cancel-cause must not read the impossible
             command-as-trace `:rf.machine/destroy` as :actor-destroyed —
             machine-disappearance cancellation is the cancellation-cascade
-            projection's job, not this HTTP-abort reader (rf2-off92)"
+            projection's job, not this HTTP-abort reader"
     (is (nil? (#'h/surface-events->cancel-cause
                [(surface-ev :rf.machine/destroy {:id :some/actor})]))
-        "the impossible command-as-trace branch must be gone"))
-  (testing "the HTTP-abort causes this reader really owns still resolve"
+        "there is no command-as-trace branch"))
+  (testing "the HTTP-abort causes this reader really owns resolve"
     (is (= :actor-destroyed
            (#'h/surface-events->cancel-cause
             [(surface-ev :rf.http/aborted-on-actor-destroy {:request-id :r})])))
@@ -461,7 +458,7 @@
 (deftest machine-destroy-terminal-projection-is-successful-non-cancelled
   (testing "a handled destroy plus a timestamped real `:rf.machine/destroyed`
             terminal yields a successful, non-cancelled record whose duration
-            derives from the terminal timing (rf2-off92)"
+            derives from the terminal timing"
     (let [args      {:machine-id :checkout/main :fixed-actor-id :m-001}
           fx-ev     (fx-handled :rf.machine/destroy args)          ; issued @1000
           destroyed (surface-ev :rf.machine/destroyed
@@ -574,9 +571,10 @@
             (panels/managed_fx_subs, the composite sub) — supplies no
             `paths-by-dispatch-id`, so `:paths-touched` is nil, meaning
             UNTRACKED. It must not be `[]`, which means 'measured, and nothing
-            changed': the panel drew an amber 'app-db wasn't updated' warning off
-            that empty vector on every successful record, telling authors their
-            handler was broken when nothing had been measured at all."
+            changed': a panel reading that empty vector would draw an amber
+            'app-db wasn't updated' warning on every successful record, telling
+            authors their handler was broken when nothing had been measured at
+            all."
     (let [cascade {:dispatch-id 9
                    :frame :rf/default
                    :effects [(fx-handled :rf.http/managed
@@ -585,8 +583,8 @@
           rec     (first (h/event-bundle->managed-fx-records cascade))]
       (is (nil? (:paths-touched rec))
           "absent diff feed → nil (untracked), never [] (measured-empty)")))
-  (testing "CONTROL — supplying the feed with an EMPTY path set still yields [],
-            so nil and [] remain distinguishable and this is not simply nil
+  (testing "CONTROL — supplying the feed with an EMPTY path set yields [],
+            so nil and [] are distinguishable and this is not simply nil
             everywhere"
     (let [cascade {:dispatch-id 9
                    :frame :rf/default
@@ -618,12 +616,12 @@
                    :other []}]
       (is (= [] (h/event-bundle->managed-fx-records cascade))))))
 
-;; ---- (3b) an overridden effect (rf2-3x7nj.23.5) -------------------------
+;; ---- (3b) an overridden effect -------------------------------------------
 ;;
-;; The walker used to drop `:rf.fx/override-applied` (it keys on `:rf.fx/id`,
-;; which that row never carries) and derive the STUB marker from a status
-;; nothing could produce: a no-op stub read `ISSUED` like a real request, and a
-;; keyword redirect's record vanished (its handled row carries the TARGET id).
+;; `:rf.fx/override-applied` never carries `:rf.fx/id`, and a redirected
+;; handled row carries the TARGET id. A walker keying on `:rf.fx/id` alone
+;; would drop the override row, read a no-op stub as `ISSUED` like a real
+;; request, and lose a keyword redirect's record.
 ;;
 ;; Every row below is the PRODUCER's shape, captured from the real runtime
 ;; (core + http on the plain-atom substrate, a local HttpServer counting
@@ -688,9 +686,9 @@
     b nil (h/http-join-context (concat (:effects b) (:other b) extra-buffer-rows) [b])))
 
 (deftest overridden-no-op-function-reads-overridden
-  (testing "REGRESSION — a function override that makes no request (0 network
-            hits, no issued row) reads OVERRIDDEN, marked, target the function;
-            it used to read ISSUED, unmarked, exactly like a real request"
+  (testing "a function override that makes no request (0 network
+            hits, no issued row) reads OVERRIDDEN, marked, target the function —
+            not ISSUED, unmarked, exactly like a real request"
     (let [recs (records-with-join
                  (ovr-bundle [(override-applied 42 :rf.http/managed :re-frame.fx/fn-value)
                           (handled-at 43 :rf.http/managed)]
@@ -706,9 +704,9 @@
       (is (nil? (:completion r))))))
 
 (deftest overridden-no-op-redirect-keeps-its-record
-  (testing "REGRESSION — a keyword redirect to a no-op is listed under the id
-            the handler EMITTED, target as detail; its record used to vanish,
-            because the handled row carries the target id"
+  (testing "a keyword redirect to a no-op is listed under the id
+            the handler EMITTED, target as detail; the handled row carries the
+            target id, so keying on it alone would lose the record"
     (let [recs (records-with-join
                  (ovr-bundle [(override-applied 48 :rf.http/managed :app/fake-http)
                           (handled-at 49 :app/fake-http :rf.http/managed)]
@@ -723,9 +721,9 @@
       (is (= :app/fake-http (:override-to r))))))
 
 (deftest overridden-delegating-function-reads-what-it-did
-  (testing "REGRESSION — an override replaces the HANDLER, not the I/O: a
+  (testing "an override replaces the HANDLER, not the I/O: a
             function that delegates to the real handler issued one real request
-            (its issued row pairs to it) and reads the joined OK, still marked"
+            (its issued row pairs to it) and reads the joined OK, marked"
     (let [recs (records-with-join
                  (ovr-bundle [(override-applied 54 :rf.http/managed :re-frame.fx/fn-value)
                           (handled-at 56 :rf.http/managed)]
@@ -769,7 +767,7 @@
           r (first (h/event-bundle->managed-fx-records b))]
       (is (= :overridden (:status r)))
       (is (true? (:overridden? r)))))
-  (testing "…and a measured failure still wins over the override"
+  (testing "…and a measured failure wins over the override"
     (let [b (ovr-bundle [(override-applied 10 :rf.ws/connect :re-frame.fx/fn-value)
                      (assoc (fx-handled :rf.ws/connect {:socket-id :s}) :id 11)]
                     [(surface-ev :rf.ws/transport {:socket-id :s :message "ECONNRESET"})])
@@ -784,8 +782,8 @@
              ((juxt :status :overridden?) (first (records-with-join b [(replied-at 35)])))))
       (is (= [:issued false]
              ((juxt :status :overridden?) (first (h/event-bundle->managed-fx-records b)))))))
-  (testing "CONTROL — an unoverridden record with NO issued row (aged out, or a
-            capture from before the row existed) stays plain ISSUED, unmarked:
+  (testing "CONTROL — an unoverridden record with NO issued row (aged out, or
+            never captured) stays plain ISSUED, unmarked:
             a missing issued row is never read as an override"
     (let [r (first (records-with-join (ovr-bundle [(handled-at 33 :rf.http/managed)] []) []))]
       (is (= :issued (:status r)))
@@ -806,12 +804,12 @@
   (is (= "—"                (h/format-fx-id nil))))
 
 (def ^:private panel-status-taxonomy
-  "The panel's closed status set. `:issued` joined it with rf2-y8doi.18 and is
-  HTTP-only today: 'the fx handler returned and the transport was entered;
-  nothing later is visible in this bundle'. It is a NEW status rather than `:ok`
-  relabelled, so `(= status :ok)` can never again mean 'completed' by accident.
-  `:cancelled` and `:stale` joined with rf2-6ooch: the framework's closed reply
-  statuses an HTTP record reads once its completion is joined."
+  "The panel's closed status set. `:issued` is HTTP-only: 'the fx handler
+  returned and the transport was entered; nothing later is visible in this
+  bundle'. It is a status of its own rather than `:ok` relabelled, so
+  `(= status :ok)` never means 'completed' by accident. `:cancelled` and
+  `:stale` are the framework's closed reply statuses an HTTP record reads once
+  its completion is joined."
   [:issued :ok :error :cancelled :stale :in-flight :overridden :skipped :stub])
 
 (deftest format-status-label-covers-taxonomy
@@ -819,7 +817,7 @@
     (is (some? (h/format-status-label s)) (str "label for " s))
     (is (not= "—" (h/format-status-label s))
         (str "a real label for " s ", not the unknown-status dash")))
-  (testing "CONTROL — an unknown status still falls through to the dash, so the
+  (testing "CONTROL — an unknown status falls through to the dash, so the
             row above is a statement about the taxonomy rather than about the
             fn always answering"
     (is (= "—" (h/format-status-label :no-such-status)))))
@@ -854,16 +852,9 @@
       (is (some? (get h/surface->glyph s))   (str "glyph for " s))
       (is (some? (get h/surface->adapter s)) (str "adapter for " s)))))
 
-;; ---- (5) bug-class coverage table --------------------------------------
+;; ---- (5) bug-class coverage --------------------------------------------
 ;;
-;; DELETED with the `bug-class-coverage` def it pinned (rf2-y8doi.12 #9,
-;; rf2-y8doi.18). The map was a panel-local claim that each 019 bug class was
-;; addressed by a named record field, read by nothing but this row — and its
-;; F.4 entry (`[:paths-touched :status]`) was the only anchor for the amber
-;; "app-db wasn't updated" warning, which this bead removes.
-;;
-;; The 019 bug-class catalogue is still audited, by a DIFFERENT and unrelated
-;; map: `tools/xray/test/day8/re_frame2_xray/coverage_matrix_metadata_test.clj`
-;; carries its own `^:private bug-class-coverage` (a `:covered` / `:deferred`
-;; audit over every catalogued id) and never referred to the helpers' var, so
-;; deleting this one leaves that audit standing.
+;; The helpers carry no bug-class coverage table. The 019 bug-class catalogue
+;; is audited by `tools/xray/test/day8/re_frame2_xray/coverage_matrix_metadata_test.clj`,
+;; which carries its own `^:private bug-class-coverage` (a `:covered` /
+;; `:deferred` audit over every catalogued id).

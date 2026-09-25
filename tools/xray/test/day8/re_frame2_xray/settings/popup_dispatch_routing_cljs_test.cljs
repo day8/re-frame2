@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.settings.popup-dispatch-routing-cljs-test
-  "Click-time frame-routing tests for the Xray Settings popup (rf2-smvvz).
+  "Click-time frame-routing tests for the Xray Settings popup.
 
   Sibling to `popup_cljs_test.cljs`. Lives in a separate ns so the
   `use-fixtures` map shape required by `cljs.test/async` does not
-  conflict with the fn-form `make-reset-runtime-fixture` the existing
+  conflict with the fn-form `make-reset-runtime-fixture` the
   render / open-state tests use.
 
   ## The bug these tests defend against
@@ -22,13 +22,12 @@
   tiers (dynamic var → React-context tier) and nothing beneath them:
   the sentinel coerces to nil, so a bare unscoped dispatch RAISES
   `:rf.error/no-frame-context` (EP-0002) rather than routing anywhere.
-  Either way the `:rf.xray/settings-*` handler never reduces
-  `:rf/xray`'s db — before EP-0002 it silently reduced `:rf/default`'s
-  db instead, which is how this defect originally presented. Symptom:
+  Without an explicit frame, then, the `:rf.xray/settings-*` handler
+  never reduces `:rf/xray`'s db. Symptom:
   X button does nothing, tabs do not switch, Esc
   does not close — the modal is stuck.
 
-  The fix in `view.cljs` is mechanical: every `rf/dispatch` from a
+  So in `view.cljs` every `rf/dispatch` from a
   deferred handler carries `{:frame :rf/xray}` so the envelope's
   `:frame` is set at call time and never depends on the click-time
   React-context read.
@@ -62,7 +61,7 @@
             [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
+;; `make-xray-runtime-fixture` composes core
 ;; `make-reset-runtime-fixture` (snapshot/restore + frames-reset + adapter
 ;; dispose/install) with Xray's own reset tier. `:tier :runtime` folds the
 ;; sentinel + trace-collector + persisted-settings reset; `:async? true` is the
@@ -78,9 +77,8 @@
                    (rf/make-frame {:id :rf/xray}))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade.
 
 ;; ---- click-time helpers ------------------------------------------------
 
@@ -115,7 +113,7 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest x-button-click-closes-modal-from-default-frame-context
-  (testing "rf2-smvvz — clicking the ✕ button from OUTSIDE the
+  (testing "clicking the ✕ button from OUTSIDE the
             :rf/xray frame-provider's render context still flips
             :rf/xray's :settings-open? to false. Without the explicit
             `{:frame :rf/xray}` opt on the dispatch, the click would
@@ -139,7 +137,7 @@
             (.then (fn [_] (done))))))))
 
 (deftest backdrop-click-closes-modal-from-default-frame-context
-  (testing "rf2-smvvz — clicking the backdrop from OUTSIDE the
+  (testing "clicking the backdrop from OUTSIDE the
             :rf/xray frame-provider's render context still closes the
             modal."
     (let [rendered (render-open-modal)
@@ -157,7 +155,7 @@
             (.then (fn [_] (done))))))))
 
 (deftest esc-keydown-closes-modal-from-default-frame-context
-  (testing "rf2-smvvz — Esc keydown from OUTSIDE the :rf/xray frame-
+  (testing "Esc keydown from OUTSIDE the :rf/xray frame-
             provider's render context still closes the modal."
     (let [rendered (render-open-modal)
           dialog   (rf.test-helpers/find-by-testid rendered "rf-xray-settings-dialog")
@@ -174,17 +172,16 @@
             (.then (fn [_] (done))))))))
 
 (deftest tab-click-switches-section-from-default-frame-context
-  (testing "rf2-smvvz — clicking a tab button from OUTSIDE the
+  (testing "clicking a tab button from OUTSIDE the
             :rf/xray frame-provider's render context still updates
             :rf/xray's :settings-active-tab. Without the explicit
             frame opt, every tab click would reduce the fixture's
             ambient :rf/default db instead (and raise in the browser),
             so the popup would stay frozen on the :general default.
 
-            Targets the Buffer tab (rf2-wknb3 retired the Filters
-            tab that this test originally exercised; the routing
-            assertion is independent of which tab is clicked as long
-            as it differs from the default :general)."
+            Targets the Buffer tab (the routing assertion is
+            independent of which tab is clicked as long as it differs
+            from the default :general)."
     (let [rendered (render-open-modal)
           tab-node (rf.test-helpers/find-by-testid rendered "rf-xray-settings-tab-buffer")
           handler  (on-click tab-node)]

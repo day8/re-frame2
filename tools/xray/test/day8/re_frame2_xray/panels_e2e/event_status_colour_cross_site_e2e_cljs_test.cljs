@@ -1,7 +1,6 @@
 (ns day8.re-frame2-xray.panels-e2e.event-status-colour-cross-site-e2e-cljs-test
   "Multi-frame end-to-end coverage for the canonical event-lifecycle
-  status-colour helper's cross-site contract (rf2-b8pui, parent
-  rf2-b76v4).
+  status-colour helper's cross-site contract.
 
   ## Why this suite exists
 
@@ -11,30 +10,29 @@
   pure-data layer is covered by `event_status_colour_cljs_test.cljc`
   on the JVM.
 
-  What was missing: a cross-site assertion that survives the REAL
+  This suite adds an assertion that survives the REAL
   trace bus → cascade projection → spine focus → hiccup render
   pipeline. A regression in any of those layers (e.g. the trace cb
   drops the host's `:frame` tag, the cascade projection routes the
   error trace into the wrong cascade, the spine focus auto-track
   desyncs) would leave the synthetic-trace test green while the
-  production devtool reads three different colours at the three
-  consumer sites.
+  production devtool reads the wrong colour.
 
   This suite uses `with-host-and-xray-frames` — REAL `:rf/default`
   host frame, REAL `:rf/xray` panel frame, REAL trace-bus mirror
   + REAL `:rf.xray/select-dispatch-id` event — then walks the
-  consumer-site hiccup trees and asserts the SAME
-  `data-rf-xray-status` keyword surfaces at every site.
+  consumer-site hiccup tree and asserts the expected
+  `data-rf-xray-status` keyword surfaces there.
 
   ## Consumer site under test
 
-  Post rf2-pjjwh the status-colour vocabulary has a SINGLE render site —
+  The status-colour vocabulary has a SINGLE render site —
   the L4 Trace event-bundle-status bar (`trace/Panel` <div>
   `data-testid='rf-xray-trace-event-bundle-status-bar-<status>'`). The L2
-  event-row's trailing status stripe was retired (it was not in the Figma
-  mock); the L4 Event header dot was removed earlier (rf2-ad7zx.17). This
+  event row carries no status stripe (it is not in the Figma mock) and
+  the L4 Event header carries no status dot. This
   suite exercises the REAL trace bus → cascade projection → spine focus →
-  hiccup render pipeline end-to-end against the surviving site.
+  hiccup render pipeline end-to-end against that site.
 
   ## Cascades exercised
 
@@ -80,11 +78,10 @@
 
 (defn- read-trace-status
   "Render the L4 Trace panel under `:rf/xray` and return the cascade-
-  status bar's `:data-rf-xray-status` (or nil when absent). Post rf2-pjjwh
-  the Trace bar is the single status-colour render site (the L2 row stripe
-  was retired). Reads only — no state mutation.
+  status bar's `:data-rf-xray-status` (or nil when absent). The Trace bar
+  is the single status-colour render site. Reads only — no state mutation.
 
-  rf2-fcy5 — `trace/Panel` is an `rf.fresco/defview` now, a real React
+  `trace/Panel` is an `rf.fresco/defview`, a real React
   function component whose body refuses a read outside a render extent
   (`:rf.error/fresco-sub-outside-render`); `trace/panel-tree` is the same
   body as a pure fn of the four values the boundary reads. And the scan is
@@ -113,10 +110,9 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest success-event-bundle-status-rides-trace-bar
-  (testing "rf2-b8pui / rf2-pjjwh — happy-path host dispatch settles to
+  (testing "happy-path host dispatch settles to
             :settled-success at the L4 Trace event-bundle-status bar through
-            the REAL trace bus → projection → spine → render pipeline.
-            (The L2 row stripe + Event header dot are both retired.)"
+            the REAL trace bus → projection → spine → render pipeline."
     (e2e/with-host-and-xray-frames
       {:install-host install-counter+throws!}
       (fn []
@@ -128,7 +124,7 @@
               "L4 Trace event-bundle-status bar did not classify a clean :counter/inc as :settled-success"))))))
 
 (deftest error-event-bundle-status-rides-trace-bar
-  (testing "rf2-b8pui / rf2-pjjwh — a host handler-exception settles to
+  (testing "a host handler-exception settles to
             :settled-error at the L4 Trace event-bundle-status bar. Catches
             the regression class where the trace projection drops the
             error trace, the spine focuses on the wrong cascade, or the

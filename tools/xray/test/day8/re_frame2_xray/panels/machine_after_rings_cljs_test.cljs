@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.machine-after-rings-cljs-test
   "CLJS-side wiring tests for Xray's Machine Inspector `:after`
-  countdown rings (rf2-7hwwe).
+  countdown rings.
 
   Covers:
 
@@ -8,20 +8,20 @@
        event family.
     2. `:rf.xray/active-timers-for-focused-machine` composes trace
        buffer + the FOCUSED-EVENT record's machine + the target frame
-       into an active-timers vector. Buffer-keyed since rf2-y8doi.23 —
-       the now-keyed eviction is `overlay-tree`'s, and row (5e) is what
+       into an active-timers vector. The sub is buffer-keyed — the
+       now-keyed eviction is `overlay-tree`'s, and row (5e) is what
        pins it.
     3. `:rf.xray/now-ms` is driven by the timer-tick event AND by the
        test-only override slot.
     4. `:rf.xray/timer-hover` writes / clears the slot.
-    5. The rings overlay component (rf2-uv1on xyflow Phase 2) projects
+    5. The rings overlay component (xyflow) projects
        the trace buffer into ring-specs + delegates positioning + paint
        to the machines-viz `AfterRingsOverlay` (renders nothing without
        active timers; one ring-spec per active timer; hover keys the
        timer-hover slot by node-id).
     6. The rAF tick loop's `needs-ticking?` gate stops the loop when
        nothing on screen has a deadline left — no armed timer, and no
-       `:cancelled` ring still inside its retention window (rf2-q9x6h)."
+       `:cancelled` ring still inside its retention window."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -33,7 +33,7 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
-            ;; rf2-y8doi.23 — `cancelled-retention-ms` is read from the
+            ;; `cancelled-retention-ms` is read from the
             ;; helper rather than retyped, so the row below cannot drift
             ;; from the window it is pinning.
             [day8.re-frame2-xray.panels.machine-after-rings-helpers
@@ -44,13 +44,13 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` stops any
+  ;; `make-xray-runtime-fixture` folds the reset (plain-atom + `:all` tier,
+  ;; which also resets the trace-collector rings) into one owner;
+  ;; `:post-reset` stops any
   ;; armed rAF tick loop. (`trace-collector` stays required for seeding.)
   (xray-test-support/make-xray-runtime-fixture
     ;; `:async? true` is the map-form `cljs.test/async` shape, needed by
-    ;; `hover-dispatch-lands-on-the-render-frame` below (rf2-k97c.3),
+    ;; `hover-dispatch-lands-on-the-render-frame` below,
     ;; which polls a real async dispatch rather than racing the drain.
     {:async?     true
      :post-reset (fn [] (after-rings/stop-tick!))}))
@@ -77,15 +77,13 @@
   `:rf.xray/machine-transitions-for-focused-event` answers a record
   targeting it and the rings sub folds for THAT machine.
 
-  rf2-y8doi.23 — the rows below used to need nothing but
-  `override-machines!`, because the rings sub read `:selected-id` off
-  `:rf.xray/machine-inspector-data`, whose default is the
-  ALPHABETICALLY-FIRST registered machine. That default is precisely the
-  defect: the Dynamic panel has bound to the focused event's first
-  transition record since rf2-y9xmf and reads no picker, so with two
-  machines registered the rings described one machine while the chart
-  drew another. The sub now reads the focused record, which is why every
-  row that wants a ring has to say which machine is focused.
+  The rings sub reads the focused event's record, which is why every row
+  that wants a ring has to say which machine is focused. A sub that read
+  `:selected-id` off `:rf.xray/machine-inspector-data` would default to
+  the ALPHABETICALLY-FIRST registered machine; the Dynamic panel binds to
+  the focused event's first transition record and reads no picker, so
+  with two machines registered the rings would describe one machine
+  while the chart drew another.
 
   The trace shape is the producer's — `:rf.machine/transition` with the
   `:before` / `:after` snapshot pair `commit-or-finalize` emits, which is
@@ -146,21 +144,21 @@
             :epoch epoch
             :reason :on-exit}}))
 
-;; rf2-a28eo — FRAME-STAMPED fixtures. Read off the PRODUCERS rather than
+;; FRAME-STAMPED fixtures. Read off the PRODUCERS rather than
 ;; composed by hand: `machines/timer.cljc`'s `:rf.machine.timer/scheduled`
 ;; + `/cancelled` emits and `machines/transition.cljc`'s `/fired`,
 ;; `/stale-after` and `/skipped-on-server` emits all stamp `:frame
 ;; frame-id`, and so does `machines/lifecycle_fx/registration.cljc`'s
 ;; `:rf.machine/transition`. The UNSTAMPED fixtures above omit it
-;; DELIBERATELY: that is what a legacy replay looks like, and the
-;; no-filter branch must still fold one — `active-timers-still-fold-when-
+;; DELIBERATELY: that is what an unstamped replay looks like, and the
+;; no-filter branch must fold one — `active-timers-still-fold-when-
 ;; no-frame-can-be-resolved` below is what keeps that honest.
 
 (defn- focus-machine-in!
   "[[focus-machine!]] with the focused transition trace carrying its
   owning FRAME, exactly as the producer's `:rf.machine/transition` emit
   stamps it. That stamp is the DISPLAY coordinate the rings sub resolves
-  its frame scope from (rf2-a28eo) — the same record that already names
+  its frame scope from — the same record that already names
   which machine the chart is drawing."
   [frame machine-id]
   (rf/dispatch-sync
@@ -216,7 +214,7 @@
     (is (some? (rf.registrar/handler :sub :rf.xray/timer-hover)))
     (is (some? (rf.registrar/handler :event :rf.xray/timer-tick)))
     (is (some? (rf.registrar/handler :event :rf.xray/timer-hover))))
-  (testing "rf2-e8330v — the test-only now-ms override is NOT installed by
+  (testing "the test-only now-ms override is NOT installed by
             production registration; the test seam installs it"
     (registry/register-xray-handlers!)
     (is (nil? (rf.registrar/handler :event :rf.xray/set-now-ms-override-for-test))
@@ -228,8 +226,7 @@
 ;; ---- (2) active-timers composite ---------------------------------------
 
 (deftest active-timers-empty-when-nothing-is-focused
-  ;; rf2-y8doi.23 — was `active-timers-empty-when-no-selection`. There is
-  ;; no selection to be empty of any more: the sub reads the focused
+  ;; There is no selection to be empty of: the sub reads the focused
   ;; event's record, and an empty epoch history focuses nothing.
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
@@ -237,15 +234,15 @@
     (is (= [] @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])))))
 
 (deftest active-timers-follow-the-focused-machine-not-the-alphabetical-first
-  (testing "rf2-y8doi.23 — TWO machines registered, the timer armed on
+  (testing "TWO machines registered, the timer armed on
             `:auth/main`, and the focused event targets `:checkout`. The
             rings sub must answer for the machine the CHART is drawing —
             `:checkout` — which has no armed timer, so ZERO rings.
 
-            Before the fix it read `(:selected-id mi-data)`, and with no
-            picker set that is `pick-selected`'s fallback: the first row
-            of an ALPHABETICALLY sorted list, i.e. `:auth/main`. So the
-            panel drew `:checkout`'s topology with `:auth/main`'s
+            A sub reading `(:selected-id mi-data)` would, with no picker
+            set, get `pick-selected`'s fallback: the first row of an
+            ALPHABETICALLY sorted list, i.e. `:auth/main`. The panel
+            would then draw `:checkout`'s topology with `:auth/main`'s
             countdown ring swept over it — a ring belonging to a machine
             not on screen, keyed to a state node that happens to share a
             name or, worse, silently mis-anchored."
@@ -270,10 +267,10 @@
           (is (= 1 (count active)))
           (is (= :auth/main (-> active first :machine-id))))))))
 
-;; ---- (2b) rf2-a28eo — display scope vs the collector's target ----------
+;; ---- (2b) display scope vs the collector's target ----------------------
 
 (deftest active-timers-scope-to-the-focused-frame-with-no-target-selected
-  (testing "rf2-a28eo — ONE singleton actor `:m` instantiated in TWO
+  (testing "ONE singleton actor `:m` instantiated in TWO
             frames, with `:rf.xray/target-frame` at its DEFAULT of nil
             (UNSELECTED, EP-0002). Frame A arms at 1000, frame B arms at
             1500, frame A cancels at 2000 — all `:idle`, epoch 0, delay
@@ -281,16 +278,15 @@
             IDENTICAL across the two frames and a singleton's actor-id is
             identical too.
 
-            rf2-y8doi.23 gave the helper a frame filter, but the sub fed
-            it `:rf.xray/target-frame` raw — and that slot is nil in the
-            posture the panel OPENS in, which takes the no-filter branch.
-            So the narrowing was off exactly when it was needed: frame A's
-            `/cancelled` closed the record frame B's `/scheduled` had
-            opened, and B's LIVE countdown was drawn as a grey crossed
-            CANCELLED ring — a timer still armed in another runtime
-            reported as torn down.
+            A sub feeding the helper's frame filter `:rf.xray/target-frame`
+            raw would take the no-filter branch here, because that slot is
+            nil in the posture the panel OPENS in. The narrowing would be
+            off exactly when it is needed: frame A's `/cancelled` would
+            close the record frame B's `/scheduled` had opened, and B's
+            LIVE countdown would be drawn as a grey crossed CANCELLED ring
+            — a timer still armed in another runtime reported as torn down.
 
-            The fix supplies a frame rather than removing the guard: the
+            The sub supplies a frame instead: the
             focused transition record carries its own `:frame-id`, so the
             coordinate that names the machine on screen names its INSTANCE
             too."
@@ -312,7 +308,7 @@
                         [:rf.xray/active-timers-for-focused-machine])]
           (is (= 1 (count active)))
           (is (= :armed (-> active first :status))
-              "pre-fix this read :cancelled — frame A's teardown closing
+              "reading :cancelled here means frame A's teardown closed
                frame B's live arm")
           (is (= 1500 (-> active first :armed-at))
               "and it is B's OWN arm at 1500, not A's at 1000")))
@@ -329,10 +325,9 @@
           (is (= 2000 (-> active first :closed-at))))))))
 
 (deftest active-timers-fall-back-to-the-target-frame-when-the-record-carries-none
-  (testing "rf2-a28eo — `:rf.xray/target-frame` remains a LEGITIMATE
-            input, demoted to the FALLBACK. When the focused record
-            carries no `:frame-id` (a legacy replay predating the
-            producer's `:frame` stamp) the collector's target still
+  (testing "`:rf.xray/target-frame` is a LEGITIMATE input, as the
+            FALLBACK. When the focused record carries no `:frame-id` (a
+            replay with no producer `:frame` stamp) the collector's target
             answers the display question.
 
             `:rf.xray/set-target-frame` re-seeds `:epoch-history` from the
@@ -360,13 +355,13 @@
         (is (= 1000 (-> active first :armed-at)))))))
 
 (deftest active-timers-still-fold-when-no-frame-can-be-resolved
-  (testing "rf2-a28eo — the no-filter branch is KEPT, not removed. With a
-            legacy replay stamping no `:frame` anywhere, the focused
+  (testing "the no-filter branch exists for this case. With a
+            replay stamping no `:frame` anywhere, the focused
             record carries no `:frame-id` AND the collector target is
             unselected, so there is genuinely nothing to disambiguate
             against. Dropping every event would BLANK the rings on the
             default posture, which is the failure that branch exists to
-            prevent — and it is still prevented."
+            prevent."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -377,7 +372,7 @@
       (let [active @(rf/subscribe
                       [:rf.xray/active-timers-for-focused-machine])]
         (is (= 1 (count active))
-            "the unselected posture still renders a ring; nothing blanked")
+            "the unselected posture renders a ring; nothing blanked")
         (is (= :armed (-> active first :status)))))))
 
 (deftest active-timers-folds-scheduled-into-armed
@@ -436,21 +431,19 @@
     (rf/dispatch-sync [:rf.xray/timer-hover nil])
     (is (nil? @(rf/subscribe [:rf.xray/timer-hover])))))
 
-;; ---- (5) overlay view (rf2-uv1on xyflow Phase 2) -----------------------
+;; ---- (5) overlay view (xyflow) -----------------------------------------
 ;;
-;; Post-migration the Xray overlay is the DATA owner: it projects the
+;; The Xray overlay is the DATA owner: it projects the
 ;; trace buffer into ring-specs + delegates positioning + paint to the
 ;; machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
-;; Per rf2-fkpuv the Xray overlay returns
+;; The Xray overlay returns
 ;; `[:div {... :style {:display "contents"}}
 ;;   [mv-after-rings/AfterRingsOverlay {...}]]` (or nil when no active
 ;; timers) — the `display: contents` wrapper gives Spec 006
 ;; §Source-coord annotation a DOM root to stamp `data-rf2-source-coord`
 ;; on. The helpers below dig past the wrapper to the delegated head +
 ;; props. The DOM-walk geometry is exercised by the machines-viz
-;; overlay's own suite + the geometry helper's JVM tests. (The old
-;; SVG-positioned-graph + viewport-transform tests are gone with the
-;; elk renderer.)
+;; overlay's own suite + the geometry helper's JVM tests.
 
 (defn- overlay-tree
   "Drive `after-rings/overlay-tree` with EXACTLY the reads the
@@ -458,13 +451,11 @@
   order, and the frame taken the same way — so what these rows assert on
   is the tree the mounted boundary actually renders.
 
-  rf2-k97c.3 — the rows below used to call `(overlay-tree)`
-  directly. A migrated view is a real React component and cannot be
-  called, so the markup moved into `overlay-tree`, which can. `:as-child`
-  is left at its `identity` default so the delegated machines-viz child
-  stays HICCUP here and every assertion below reads exactly what it read
-  before; the boundary passes `reagent.core/as-element` instead, and the
-  new `machine_after_rings_fresco_boundary_dom_cljs_test` is what proves
+  The view is a real React component and cannot be called, so the
+  markup lives in `overlay-tree`, which can. `:as-child` is left at its
+  `identity` default so the delegated machines-viz child stays HICCUP
+  here; the boundary passes `reagent.core/as-element` instead, and
+  `machine_after_rings_fresco_boundary_dom_cljs_test` is what proves
   that half against a real React commit.
 
   Call inside `(rf/with-frame :rf/xray ...)`, as every row here does.
@@ -483,7 +474,7 @@
 
 (defn- delegated-child
   "Pull the inner `[mv-after-rings/AfterRingsOverlay {...}]` hiccup
-  past the `display: contents` wrapper `:div` (rf2-fkpuv)."
+  past the `display: contents` wrapper `:div`."
   [tree]
   (when (and (vector? tree) (= :div (first tree)))
     (nth tree 2)))
@@ -519,7 +510,7 @@
           specs (:ring-specs props)]
       (is (= :div (first tree))
           "root is a `display: contents` wrapper :div so Spec 006
-           §Source-coord annotation has a DOM root to stamp (rf2-fkpuv)")
+           §Source-coord annotation has a DOM root to stamp")
       (is (= mv-after-rings/AfterRingsOverlay (first child))
           "delegates to the machines-viz xyflow overlay")
       (is (= 1 (count specs)))
@@ -557,16 +548,16 @@
       (is (= 2 (count specs)))
       (is (= #{"idle" "authing"} (set (map :node-id specs)))))))
 
-;; ---- (5e) cancelled-ring retention (rf2-y8doi.23) ----------------------
+;; ---- (5e) cancelled-ring retention -------------------------------------
 
 (deftest overlay-evicts-a-cancelled-ring-once-its-retention-window-passes
-  (testing "rf2-y8doi.23 — a `:cancelled` ring is a MOMENTARY fade +
-            diagonal cross. It had no retention at all: the projection
-            returned every cancelled record the buffer held, so a state
-            the operator entered and left left a PERMANENT grey crossed
-            ring, one per visit — and the machines-viz overlay keys a ring
-            by its `:node-id` (`^{:key node-id}`), so all of them sat
-            under ONE React key.
+  (testing "a `:cancelled` ring is a MOMENTARY fade + diagonal cross.
+            Without retention, a projection returning every cancelled
+            record the buffer held would leave a PERMANENT grey crossed
+            ring for a state the operator entered and left, one per visit
+            — and the machines-viz overlay keys a ring by its `:node-id`
+            (`^{:key node-id}`), so all of them would sit under ONE React
+            key.
 
             The eviction runs in `overlay-tree`, against the SAME anchor
             `resolve-now-ms` hands the ring geometry — so a retrospective
@@ -628,15 +619,15 @@
       (is (nil? (do (on-hover "idle") (on-leave "idle") nil))
           "known node-id hover + leave run cleanly"))))
 
-;; ---- (5b) retro now-ms anchor (rf2-8i1tg3 · xray/003 §M.2) -------------
+;; ---- (5b) retro now-ms anchor (xray/003 §M.2) --------------------------
 ;;
 ;; "Retro mode (scrubber-driven): the ring is static at the elapsed-
 ;; fraction the timer had reached at the focused-cascade's timestamp."
-;; Before this fix the view fed the LIVE `now-ms` into the ring
-;; projection regardless of `machine-scrubber-position` — the scrubber
-;; only gated whether the rAF loop kept ticking, so leaving `:present`
-;; froze the ring wherever the live clock last sat instead of anchoring
-;; to the cascade the operator is looking at.
+;; A view feeding the LIVE `now-ms` into the ring projection regardless
+;; of `machine-scrubber-position` — the scrubber only gating whether the
+;; rAF loop kept ticking — would freeze the ring, on leaving `:present`,
+;; wherever the live clock last sat instead of anchoring to the cascade
+;; the operator is looking at.
 
 (defn- dispatch-trace-ev
   "Minimal :rf.event/dispatched trace event so the L2 projector builds
@@ -652,7 +643,7 @@
                :rf.trace/dispatch-id id}})
 
 (deftest overlay-retro-mode-anchors-tick-to-focused-cascade-timestamp
-  (testing "rf2-8i1tg3 — scrubber-position leaving :present anchors the
+  (testing "scrubber-position leaving :present anchors the
             ring's :tick to the FOCUSED CASCADE's dispatched time, not
             the stale live clock"
     (setup-xray-frame!)
@@ -674,15 +665,14 @@
       (let [props (-> (overlay-tree) delegated-props)]
         (is (= 4242 (:tick props))
             "RETRO tick anchors to the focused cascade's dispatched
-             time (4242) — NOT the pinned live now-ms (9999), which is
-             the exact rf2-8i1tg3 regression"))
+             time (4242) — NOT the pinned live now-ms (9999)"))
       (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
       (let [props (-> (overlay-tree) delegated-props)]
         (is (= 9999 (:tick props))
             "returning to :present restores the live clock as the tick
              anchor")))))
 
-;; ---- (5c) the substrate seam (rf2-k97c.3) ------------------------------
+;; ---- (5c) the substrate seam -------------------------------------------
 
 (defn- crossed-by-identity?
   "True when `props` is reachable from React element `el`'s props object
@@ -690,10 +680,9 @@
   or array at a slot.
 
   Written to the QUESTION rather than to one Reagent version's field
-  layout, and that is the point: the first draft of this asserted
-  `(aget (.-argv (.-props el)) 1)`, copied from
-  `tools/machines-viz`'s `react_chart_cljs_test`, and read nil. The
-  copy was wrong in a way worth recording, because the two cases look
+  layout, and that is the point: `(aget (.-argv (.-props el)) 1)`, the
+  probe `tools/machines-viz`'s `react_chart_cljs_test` uses, would read
+  nil here. The two cases look
   identical and are not — `react_chart.cljs` builds its bridge props by
   hand as `#js {:argv #js [...]}`, a JS ARRAY, so `aget` is right there;
   `reagent.core/as-element` carries the hiccup vector itself, a CLJS
@@ -711,11 +700,11 @@
               (array-seq (js/Object.values p)))))))
 
 (deftest as-child-lifts-the-reagent-delegate-to-a-react-element
-  (testing "rf2-k97c.3 — the machines-viz `AfterRingsOverlay` is a REAGENT
+  (testing "the machines-viz `AfterRingsOverlay` is a REAGENT
             component, so a Fresco body can neither take it as a hiccup
             head (a plain function in head position is a loud error,
             HD-016) nor CALL it (it answers a Reagent CLASS, not hiccup —
-            which is why the migration's usual `(mini v 40)` repair does
+            which is why the `(mini v 40)` call pattern does
             not apply). `overlay-tree`'s `:as-child` is the seam:
             `identity` leaves the delegate as hiccup for a Reagent parent
             and for every row above, while `reagent.core/as-element`
@@ -724,8 +713,8 @@
 
             The row that matters is the last one: `as-element` carries the
             hiccup vector itself as Reagent's `argv`, so the CLJS props map
-            reaches machines-viz BY IDENTITY. That is the whole reason this
-            route was taken over `[:> ...]`, whose host walk camelCases the
+            reaches machines-viz BY IDENTITY. That is the whole reason for
+            this route over `[:> ...]`, whose host walk camelCases the
             top-level key and `clj->js`es a collection value — under which
             `:ring-specs` would arrive as `:ringSpecs` holding a JS array
             and the overlay would destructure nil."
@@ -761,23 +750,22 @@
              A `[:> ...]` crossing would fail this — its host walk
              camelCases the top-level key and `clj->js`es the value")))))
 
-;; ---- (5d) deferred hover dispatch routing (rf2-nesy9 / rf2-k97c.3) -----
+;; ---- (5d) deferred hover dispatch routing ------------------------------
 ;;
 ;; Sibling in shape to `reactive_panel_disclosure_dispatch_routing_cljs_test`:
 ;; pluck the deferred handler off the rendered tree and fire it OUTSIDE any
 ;; `with-frame`, reproducing the browser reality that a mouseenter fires
 ;; AFTER render commits and the ambient frame scope has unwound.
 ;;
-;; The rows in (5) above deliberately declined this claim — "the production
+;; The rows in (5) above deliberately decline this claim — "the production
 ;; callback dispatches async, so racing the router drain here would be
-;; flaky" — and asserted only that the callbacks are wired and don't throw.
+;; flaky" — and assert only that the callbacks are wired and don't throw.
 ;; Polling rather than racing makes the claim available, and it is the one
-;; the migration most needs: `reg-view` used to INJECT a frame-aware
-;; `dispatch`, `defview` binds no name inside a body, and this row is what
-;; says the replacement targets the same frame.
+;; that matters most: `defview` injects no frame-aware `dispatch` into a
+;; body, so this row is what says the dispatcher targets the render frame.
 
 (deftest hover-dispatch-lands-on-the-render-frame
-  (testing "rf2-nesy9 — the hover dispatch lands on the frame the TREE
+  (testing "the hover dispatch lands on the frame the TREE
             named, and does NOT leak to :rf/default, even though it fires
             long after the render extent has unwound. That is the
             'carrying' half of the boundary contract: the dispatcher holds

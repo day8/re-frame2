@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.sensitive-trace-loop-cljs-test
-  "Loop-proof tests for the `:sensitive?` trace-callback path
-  (rf2-nk01x → rf2-qsjda).
+  "Loop-proof tests for the `:sensitive?` trace-callback path.
 
   ## Why this file exists
 
@@ -9,28 +8,27 @@
   `:sensitive?` trace event arrives, `collect-trace!` calls
   `config/note-suppressed!`, which schedules a task-coalesced
   `:rf.xray/note-sensitive-suppressed` into the `:rf/xray` frame (one
-  per task, not one per event — rf2-p03xh) so the reactive
-  `[● REDACTED N]` indicator updates on the standard app-db-write path
-  (rf2-0vxdn).
+  per task, not one per event) so the reactive
+  `[● REDACTED N]` indicator updates on the standard app-db-write path.
 
-  Pre-fix that dispatch was the root of an infinite loop because the
-  bookkeeping handler's `:rf.event/dispatched` trace would re-enter the
-  collector. The fix landed `:rf.trace/no-emit? true` on the
-  bookkeeping handlers' registration metadata; the framework's
+  That dispatch would be the root of an infinite loop if the
+  bookkeeping handler's `:rf.event/dispatched` trace re-entered the
+  collector. The bookkeeping handlers carry `:rf.trace/no-emit? true`
+  in their registration metadata; the framework's
   trace-emit fns short-circuit on the flag (Spec 009 §Trace-emission
   opt-out).
 
-  NOTE: The handler-meta `:sensitive?` annotation has been removed in
-  favour of path-marked sensitive classification. Sensitive trace
-  events now come exclusively from the schema-derived overlap (the
-  router's `prepare-handler-ctx` schema-sensitive computation drives
-  the scope's `:sensitive?` stamp). The legacy end-to-end tests in
-  this file that drove sensitivity via handler-meta `:sensitive? true`
-  on user handlers are skipped — the loop-guard contract they covered
-  is now exercised at the framework-trace level
-  (`re-frame.trace-test`) and at the schemas-loaded story-side tests.
+  Sensitive trace events come from path-marked, schema-derived
+  classification (the router's `prepare-handler-ctx` schema-sensitive
+  computation drives the scope's `:sensitive?` stamp), which needs the
+  schemas artefact this Xray CLJS test build does not load. The
+  loop-guard contract for sensitive handler cascades is therefore
+  exercised at the framework-trace level (`re-frame.trace-test`) and at
+  the schemas-loaded story-side tests; the sensitive rows here drive
+  frameless sub reads, which sub-tag classification fails closed to
+  `:sensitive? true`.
 
-  The non-sensitive-mirror loop test remains relevant: it pins that
+  The non-sensitive-mirror loop test pins that
   trace events fanning out from the collector's bookkeeping handler
   do NOT re-enter the collector when the bookkeeping handler carries
   `:rf.trace/no-emit? true`."
@@ -47,14 +45,14 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; `make-xray-runtime-fixture` (rf2-vj80u8) runs the `:all` reset tier
+;; `make-xray-runtime-fixture` runs the `:all` reset tier
 ;; (Xray install/registry/mount sentinels + trace-collector rings) over the
 ;; plain-atom adapter; `:post-reset` re-registers Xray's handlers + the
 ;; `:rf/xray` frame, RE-installs the trace collector (the reset above cleared
 ;; it, so each test runs against the SAME wiring the production preload
 ;; installs), and clears the per-process counter + egress profile so each
 ;; test starts from the baseline. `:async? true` is the map form cljs.test
-;; requires for section (6)'s `(async done …)` test, which has to cross a task
+;; requires for section (3)'s `(async done …)` test, which has to cross a task
 ;; boundary to see the coalesced dispatch land.
 
 (use-fixtures :each
@@ -89,20 +87,11 @@
     (some (fn [ev] (= :rf.error/drain-depth-exceeded (:operation ev)))
           (trace-collector/buffer-for-test))))
 
-;; ---- (1) + (2) removed --------------------------------------------------
-;;
-;; The end-to-end sensitive-cascade loop tests required handler-meta
-;; `:sensitive? true` on a user handler to produce sensitive trace events.
-;; That annotation has been removed; path-marked schema sensitivity is the
-;; v2 driver and requires the schemas artefact (not loaded by this Xray
-;; CLJS test build). The framework-level loop guard
-;; (`:rf.trace/no-emit?`) is still covered at the trace-emit unit level.
-
-;; ---- (3) non-sensitive mirror loop is also closed ----------------------
+;; ---- (1) the non-sensitive mirror loop is closed ------------------------
 
 (deftest two-hundred-non-sensitive-dispatches-do-not-loop
   (testing "non-sensitive trace events flow into the buffer cleanly.
-            Per rf2-e9s81 `collect-trace!` only swaps the buffer-state
+            `collect-trace!` only swaps the buffer-state
             atom (no follow-on dispatch), so there is no
             `:rf.xray/note-trace-event` self-emit loop to close in
             the first place — the buffer fills purely from the
@@ -119,25 +108,19 @@
     (is (pos? (count (trace-collector/buffer-for-test)))
         "buffer received the trace events from 200 plain dispatches")))
 
-;; ---- (4) removed ---------------------------------------------------------
-;;
-;; The `opted-in-sensitive-dispatches-also-loop-proof` test required the
-;; handler-meta `:sensitive? true` annotation. See the file-level note
-;; above; this scenario now belongs in a schemas-loaded test surface.
-
-;; ---- (5) Xray's own FRAMELESS sub reads are self-noise (rf2-izhgo) -------
+;; ---- (2) Xray's own FRAMELESS sub reads are self-noise ------------------
 ;;
 ;; Mounting the shell cold-reads Xray's own subs inside one synchronous
 ;; render. Those reads run outside any event run, so core emits their
 ;; `:rf.sub/run` FRAMELESS (Spec 009 §Frame identity) and its sub-tag
 ;; classification fails a frameless read closed to `:sensitive? true`.
-;; The frame-keyed `xray-internal-event?` cannot see them, so pre-fix each
-;; one reached the privacy gate, was counted as a redacted host event, and
-;; cost one `:rf.xray/note-sensitive-suppressed` dispatch into `:rf/xray`.
-;; Measured on a Resources consumer: 126 such reads in one mount, past the
-;; router's depth-100 cap — `:rf.error/drain-depth-exceeded` on every boot,
-;; with Xray's own `:rf.xray.edn-inspector/set-width` events dropped
-;; behind the flood.
+;; The frame-keyed `xray-internal-event?` cannot see them, so the filter
+;; keys on Xray's reserved namespace. Counted as redacted host events, each
+;; would cost one `:rf.xray/note-sensitive-suppressed` dispatch into
+;; `:rf/xray`: a Resources consumer's shell mount measures 126 such reads,
+;; past the router's depth-100 cap — `:rf.error/drain-depth-exceeded` on
+;; every boot, with Xray's own `:rf.xray.edn-inspector/set-width` events
+;; dropped behind the flood.
 
 (def ^:private shell-mount-burst
   "The measured boot burst: frameless `:rf.xray*` sub reads in one mount."
@@ -159,9 +142,10 @@
                    :rf.sub/value   1}))
 
 (deftest xray-own-frameless-sub-reads-cost-no-queue-slot
-  (testing "rf2-izhgo — a shell-mount burst of Xray's own frameless sub reads
+  (testing "a shell-mount burst of Xray's own frameless sub reads
             is structural self-noise: it bumps no REDACTED counter and adds
-            nothing to `:rf/xray`'s queue. Pre-fix both moved by 126."
+            nothing to `:rf/xray`'s queue. Counting them would move both
+            by 126."
     ;; A BASELINE, not zero: the fixture's own `reset-suppressed-count!`
     ;; runs with `:rf/xray` already seated, so its reset dispatch is
     ;; legitimately sitting in the queue before the burst begins.
@@ -177,7 +161,7 @@
           "so none of them costs a dispatch into Xray's own queue"))))
 
 (deftest control-a-host-frameless-sub-read-is-still-redacted
-  (testing "rf2-izhgo — the control for the regression above: the SAME
+  (testing "the control for the test above: the SAME
             frameless emit for a host sub still reaches the privacy gate and
             is counted. It proves the emit really arrives fail-closed
             sensitive (so a zero above is the filter, not an emit that never
@@ -188,14 +172,15 @@
     (is (= 3 (config/suppressed-count))
         "a host sub's frameless read is still suppressed and counted")))
 
-;; ---- (6) a HOST burst costs one dispatch per task (rf2-p03xh) ------------
+;; ---- (3) a HOST burst costs one dispatch per task -----------------------
 ;;
-;; Section (5) removed the TRIGGER rf2-izhgo met (Xray counting its own reads)
-;; but not the AMPLIFIER: one `:rf.xray/note-sensitive-suppressed` per
-;; suppressed trace. A genuine host burst of more than ~100 frameless sensitive
-;; traces in one task still carried `:rf/xray`'s queue past the router's
-;; depth-100 cap, so the halt was misattributed to Xray and Xray's own queued
-;; UI events were dropped behind it (the rf2-chs7 casualty shape).
+;; Section (2) covers the TRIGGER (Xray counting its own reads); this section
+;; covers the AMPLIFIER. With one `:rf.xray/note-sensitive-suppressed` per
+;; suppressed trace, a genuine host burst of more than ~100 frameless
+;; sensitive traces in one task would carry `:rf/xray`'s queue past the
+;; router's depth-100 cap, so the halt would be misattributed to Xray and
+;; Xray's own queued UI events dropped behind it. The counts are coalesced to
+;; one dispatch per task instead.
 ;;
 ;; The burst runs through the real `rf.trace/emit!` → collector → privacy-gate
 ;; path. Dispatches are counted as ARRIVALS in `:rf/xray`'s router queue across
@@ -228,10 +213,10 @@
     (let [router  (:router (rf.frame/frame :rf/xray))
           arrived (watch-note-arrivals! router)
           halts   (atom [])]
-      ;; The ALWAYS-ON error axis, not the dev `:trace` stream: it is the halt
-      ;; record rf2-izhgo captured in the browser, and it is the one this async
-      ;; drain demonstrably delivers — a `:trace` spy here stayed empty while
-      ;; the badge proved the halt had happened.
+      ;; The ALWAYS-ON error axis, not the dev `:trace` stream: it carries the
+      ;; drain-depth halt record, and it is the axis this async drain
+      ;; delivers — a `:trace` spy here would stay empty even when the halt
+      ;; happened.
       (rf.error-emit/register-error-listener! ::drain-depth-spy
         (fn [record]
           (when (= :rf.error/drain-depth-exceeded (:error record))
@@ -243,9 +228,10 @@
       (js/setTimeout
         (fn []
           (try
-            (testing "rf2-p03xh — 150 frameless sensitive HOST traces emitted in
-                      one task. Pre-fix: 150 dispatches, a drain halt at depth
-                      100, and a badge stuck at 100."
+            (testing "150 frameless sensitive HOST traces emitted in
+                      one task. One dispatch per trace would mean 150
+                      dispatches, a drain halt at depth 100, and a badge
+                      stuck at 100."
               (is (= host-burst (config/suppressed-count))
                   "every suppressed trace is counted — the atom stays exact")
               (is (= 1 @arrived)
@@ -264,7 +250,7 @@
         100))))
 
 (deftest one-dispatch-carries-every-frame-that-changed-in-the-task
-  (testing "rf2-p03xh — the pending counts are keyed by FRAME-ID, so the one
+  (testing "the pending counts are keyed by FRAME-ID, so the one
             dispatch carries each frame's count for the task (nil folded to
             `:global`) rather than collapsing them into a single bucket."
     (let [baseline (xray-queue-depth)]
@@ -282,7 +268,7 @@
           "the drain takes-and-clears, so nothing is dispatched twice"))))
 
 (deftest a-reset-drops-the-counts-noted-before-it
-  (testing "rf2-p03xh — `reset-suppressed-count!` clears the pending counts
+  (testing "`reset-suppressed-count!` clears the pending counts
             along with the atom. Otherwise a bump noted before the reset would
             be dispatched AFTER the reset's own dispatch and re-add the count
             the reset had just cleared from the badge."

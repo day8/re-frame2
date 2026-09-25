@@ -1,9 +1,8 @@
 (ns day8.re-frame2-xray.filters.matcher-cljs-test
-  "Pure-data tests for the IN/OUT filter matcher (rf2-ak4ms).
+  "Pure-data tests for the IN/OUT filter matcher.
 
   CLJC so BOTH corpora exercise the matcher — it is pure data, no
-  atoms, no I/O, so there is nothing to keep it off the CLJS lane
-  (rf2-odlm3)."
+  atoms, no I/O, so there is nothing to keep it off the CLJS lane."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.filters.matcher :as matcher]))
@@ -21,11 +20,11 @@
          (#'matcher/normalise-pattern :order.cart/*))))
 
 (deftest normalise-pattern-bare-keyword-is-exact-or-namespace
-  (testing "rf2-y8doi.27 — a bare unqualified keyword compiles to
+  (testing "a bare unqualified keyword compiles to
             :exact-or-ns, so the Add-filter dialog's `:auth` example
-            matches BOTH readings. It used to compile to :exact alone,
-            which made that example match nothing and silently emptied
-            the L2 list."
+            matches BOTH readings. Compiling it to :exact alone would
+            make that example match nothing and silently empty the L2
+            list."
     (is (= {:kind :exact-or-ns :pattern :auth}
            (#'matcher/normalise-pattern :auth)))
     (is (= {:kind :exact-or-ns :pattern :mouse-move}
@@ -47,10 +46,10 @@
            (#'matcher/normalise-pattern "/login")))))
 
 (deftest normalise-pattern-bare-string-glob-is-prefix
-  (testing "rf2-y8doi.27 — a colon-less string ending in `*` is the same
+  (testing "a colon-less string ending in `*` is the same
             intent as the keyword glob (the user dropped the `:`), so it
-            compiles to :prefix. It used to fall to :substring, which
-            matched nothing at all: no `(str event-id)` contains a `*`."
+            compiles to :prefix. As a :substring it would match nothing
+            at all: no `(str event-id)` contains a `*`."
     (is (= {:kind :prefix :pattern ":auth/"}
            (#'matcher/normalise-pattern "auth/*")))
     (is (= {:kind :prefix :pattern ":auth"}
@@ -84,7 +83,7 @@
     (is (not (matcher/match-event-id? :order/submit spec)))))
 
 (deftest match-event-id-bare-keyword-is-exact-or-namespace
-  (testing "rf2-y8doi.27 — the Add-filter dialog's own `:auth` example.
+  (testing "the Add-filter dialog's own `:auth` example.
             An IN pill `:auth` matches the namespace AND the bare id,
             and nothing else."
     (let [spec (#'matcher/normalise-pattern :auth)]
@@ -97,7 +96,7 @@
            never as a string prefix")
       (is (not (matcher/match-event-id? :order/submit spec)))
       (is (not (matcher/match-event-id? nil spec)))))
-  (testing "spec/018 §7's example pill `[× :mouse-move]` still blocks the
+  (testing "spec/018 §7's example pill `[× :mouse-move]` blocks the
             bare event-id it was written for"
     (let [spec (#'matcher/normalise-pattern :mouse-move)]
       (is (matcher/match-event-id? :mouse-move spec))
@@ -108,7 +107,7 @@
            `user`, not `mouse-move`"))))
 
 (deftest match-event-id-bare-string-glob
-  (testing "rf2-y8doi.27 — `auth/*` (no colon) matches :auth/login"
+  (testing "`auth/*` (no colon) matches :auth/login"
     (let [spec (#'matcher/normalise-pattern "auth/*")]
       (is (matcher/match-event-id? :auth/login spec))
       (is (matcher/match-event-id? :auth/logout spec))
@@ -176,12 +175,12 @@
     (is (not (matcher/keep-event-bundle? {:event [:mouse-move]} filters)))))
 
 (deftest keep-event-bundle-in-pill-bare-keyword-keeps-the-namespace
-  (testing "rf2-y8doi.27 — the whole point, at the level the L2 list
+  (testing "the whole point, at the level the L2 list
             reads: an IN pill typed `:auth` (the Add-filter dialog's own
             example) keeps the `auth` namespace and the bare id, and
             drops a namespace that merely starts with the same letters.
-            Before the grammar fix this pill kept NOTHING and the list
-            silently emptied."
+            An exact-only reading would keep NOTHING and silently empty
+            the list."
     (let [filters {:in [{:pattern :auth}] :out []}]
       (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
       (is (matcher/keep-event-bundle? {:event [:auth]} filters))
@@ -222,10 +221,10 @@
   (is (= [] (matcher/filter-event-bundles [] {:in [] :out []})))
   (is (= [] (matcher/filter-event-bundles [] {:in [{:pattern :auth/*}] :out []}))))
 
-;; ---- spec/018 §7 first-session honesty regression -----------------------
+;; ---- spec/018 §7 first-session honesty ----------------------------------
 
 (deftest filter-event-bundles-default-empty-keeps-everything
-  (testing "rf2-ak4ms: shipping defaults must be empty — first-session
+  (testing "shipping defaults must be empty — first-session
             honesty beats first-session quietness. An empty filter set
             keeps every cascade regardless of event-id."
     (let [cascades [{:event [:user/login]}
@@ -234,7 +233,7 @@
       (is (= cascades
              (matcher/filter-event-bundles cascades {:in [] :out []}))))))
 
-;; ---- frame-picker filter (rf2-oziyr) ------------------------------------
+;; ---- frame-picker filter ------------------------------------------------
 
 (deftest keep-event-bundle-for-frame-nil-picker-keeps-everything
   (testing "nil picker-frame means 'no frame filter' — every cascade survives"
@@ -258,7 +257,7 @@
     (is (= cascades (matcher/filter-event-bundles-by-frame cascades nil)))))
 
 (deftest filter-event-bundles-by-frame-restricts-and-preserves-order
-  (testing "rf2-oziyr — picker filter at data layer keeps only matching
+  (testing "picker filter at data layer keeps only matching
             cascades; order preserved so [◀ ▶ ⏭] walks the same surface"
     (let [cascades [{:dispatch-id 1 :frame :cart-frame}
                     {:dispatch-id 2 :frame :checkout-frame}
@@ -278,7 +277,7 @@
       (is (= [1 2] (mapv :dispatch-id
                          (matcher/filter-event-bundles-by-frame cascades :cart-frame)))))))
 
-;; ---- view-scope filter (rf2-4vp5j) --------------------------------------
+;; ---- view-scope filter --------------------------------------------------
 
 (deftest keep-event-bundle-for-view-scope-nil-keeps-everything
   (testing "nil scope-frame means 'no view scope' — every cascade survives"
@@ -286,7 +285,7 @@
     (is (matcher/keep-event-bundle-for-view-scope? {:frame nil} nil))))
 
 (deftest keep-event-bundle-for-view-scope-keeps-matching-and-frameless
-  (testing "rf2-4vp5j — a view scope keeps the matching frame AND the
+  (testing "a view scope keeps the matching frame AND the
             frame-agnostic `:ungrouped` bucket (nil frame); only OTHER
             real frames drop"
     (is (matcher/keep-event-bundle-for-view-scope? {:frame :cart-frame} :cart-frame))
@@ -296,7 +295,7 @@
         "a different real frame drops out of scope")))
 
 (deftest filter-event-bundles-by-view-scope-preserves-frameless-bucket
-  (testing "rf2-4vp5j — unlike the strict frame filter, the view-scope
+  (testing "unlike the strict frame filter, the view-scope
             filter keeps the frameless `:ungrouped` bucket so a defaulted
             scope never swallows it (its render is gated by show-ungrouped?)"
     (let [cascades [{:dispatch-id 1 :frame :cart-frame}

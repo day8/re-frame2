@@ -1,15 +1,14 @@
 (ns day8.re-frame2-xray.panels.epoch.real-substrate-projection-cljs-test
   "End-to-end projection test driven by REAL substrate `trace/emit!`
-  events (rf2-tyivx).
+  events.
 
   ## Why
 
   The synth-fixture projection tests at
   `projection_cljs_test.cljc` exercise the reader against literal
   trace-event maps the test author types. If the SUBSTRATE rotates
-  the emit names (rf2-yhgk8 / rf2-slnce / rf2-ipaza / rf2-w2r4p
-  rotated `:rf.flow/computed`, `:rf.event/elapsed-ms`,
-  `:rf.fx/elapsed-ms`, `:rf.cofx/elapsed-ms` all at once), the
+  the emit names (`:rf.flow/computed`, `:rf.event/elapsed-ms`,
+  `:rf.fx/elapsed-ms`, `:rf.cofx/elapsed-ms`, say), the
   fixtures + reader can drift together — both wrong, both consistent,
   both green.
 
@@ -38,13 +37,13 @@
   projection tests."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-4wywy — load-time hook so `reg-flow` resolves + the
+            ;; Load-time hook so `reg-flow` resolves + the
             ;; flows `:after` interceptor (which stamps the t1/t2
             ;; pending-`:db` trace pair) is wired into the router.
             [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
-            ;; rf2-y8doi.19 — the shared focus-resolver's `:no-epoch`
+            ;; The shared focus-resolver's `:no-epoch`
             ;; contract is driven against a REAL epoch history below.
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.preload :as preload]
@@ -55,8 +54,7 @@
 ;; ---- fixture -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): plain-atom adapter
+  ;; `make-xray-runtime-fixture`: plain-atom adapter
   ;; + the `:all` reset tier — install (== preload's alias) + registry +
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -79,7 +77,7 @@
 ;; ---- end-to-end ---------------------------------------------------------
 
 (deftest real-substrate-emits-project-to-dispatch+handler
-  (testing "rf2-tyivx — REAL substrate emits drive the projection.
+  (testing "REAL substrate emits drive the projection.
             One dispatch through a registered handler must produce
             at least the DISPATCH + HANDLER steps, and the substrate
             must emit the `:rf.event/db-changed` operation the
@@ -137,11 +135,11 @@
                substrate-side rename, the synth fixtures will still be
                green — pin the canonical name here."))))))
 
-;; ---- rf2-4wywy — live t1/t2 db attribution ------------------------------
+;; ---- live t1/t2 db attribution ------------------------------------------
 ;;
 ;; standard-epochs button 5 shape: a db-only reg-event handler bumps `:base`; a
 ;; reg-flow recomputes `:derived = 2 × :base` into app-db AFTER the
-;; handler. The fix relies on the router stamping `:rf.event/db-pending`
+;; handler. The projection relies on the router stamping `:rf.event/db-pending`
 ;; (t1, post-handler/pre-flow) + `:rf.event/db-pending-post-flow` (t2,
 ;; post-flow). This test forecloses drift: it drives the LIVE substrate +
 ;; the LIVE flows `:after` interceptor, then asserts the projection lit up
@@ -160,7 +158,7 @@
     (fn [base] (* 2 (or base 0)))))
 
 (deftest real-substrate-emits-t1-t2-for-handler-vs-flow-attribution
-  (testing "rf2-4wywy — a LIVE flow-bearing cascade emits t1
+  (testing "a LIVE flow-bearing cascade emits t1
             (`:rf.event/db-pending`, post-handler) + t2
             (`:rf.event/db-pending-post-flow`, post-flow). The
             projection reads t1 onto the HANDLER step's
@@ -204,11 +202,11 @@
             "FLOW `:db-post-flow` (t2) carries :derived = 2 × :base = 4 —
              the flow's OWN contribution, separate from the handler")))))
 
-;; ---- rf2-y8doi.19 — REFUSED effect map, and the pinned bundle that
+;; ---- REFUSED effect map, and the pinned bundle that
 ;; ---- settled no epoch
 ;;
-;; Two defects the review found, both of which present as the panel showing
-;; something PLAUSIBLE AND WRONG rather than showing nothing. They are driven
+;; Two failure modes that would present as the panel showing something
+;; PLAUSIBLE AND WRONG rather than showing nothing. They are driven
 ;; here against the LIVE substrate for the reason this whole namespace
 ;; exists: the synth fixtures in `projection_cljs_test` pin these shapes by
 ;; hand, and a hand-typed fixture can drift with its reader and stay green.
@@ -219,19 +217,19 @@
 (defn- register-bogus-effect-handler! []
   ;; A handler returning a FOREIGN TOP-LEVEL EFFECT KEY. `re-frame.events/
   ;; effect-map-defect` catches it at the FINAL-effects boundary and the
-  ;; router REFUSES the event pre-commit (rf2-04tx) — nothing commits,
+  ;; router REFUSES the event pre-commit — nothing commits,
   ;; nothing runs, and `:rf.error/effect-map-shape` is emitted in-band.
   (rf/reg-event
     :rf.tyivx/bogus-effect
     (fn [{:keys [db]} _] {:db (assoc db :touched true) :bogus-fx 1})))
 
 (deftest real-substrate-refused-effect-map-surfaces-in-the-cascade
-  (testing "rf2-y8doi.19 — a REFUSED effect map must not render as a clean
+  (testing "a REFUSED effect map must not render as a clean
             cascade. `:rf.error/effect-map-shape` is outside the closed
-            `cascade-exception-ops` set, so before this bead the projection
-            read it and threw it away: the panel drew a tidy `{:db}` cascade
-            reading `:outcome :ok` for an event the router had refused, while
-            the L2 row and the issues ribbon went red beside it."
+            `cascade-exception-ops` set; a projection that read it and threw
+            it away would draw a tidy `{:db}` cascade reading `:outcome :ok`
+            for an event the router had refused, while the L2 row and the
+            issues ribbon went red beside it."
     (setup!)
     (register-bogus-effect-handler!)
     (trace-collector/reset-for-test!)
@@ -272,19 +270,19 @@
              `:exception-message`; the card's text comes from the refusal's
              `:reason`, which is the whole diagnosis here.")
         (is (= :error (proj/epoch-outcome projected))
-            "and the epoch reads :error — the panel and the ribbon agree
-             again. THIS is the assertion the defect inverted.")))))
+            "and the epoch reads :error — the panel and the ribbon agree.
+             THIS is the assertion a discarding projection would invert.")))))
 
 (deftest real-substrate-pinned-bundle-with-no-epoch-is-not-the-head
-  (testing "rf2-y8doi.19 — a focus that PINS a `:dispatch-id` which settled no
+  (testing "a focus that PINS a `:dispatch-id` which settled no
             epoch must resolve `:no-epoch`, never `:focused` on the head.
             `spine/focus-event-bundle-reducer` stamps `:epoch-id` from
             `spine/epoch-id-for-event-bundle`, which answers nil whenever no
             record matches the clicked bundle — a refused dispatch, a bundle
             still mid-build, one whose epoch aged out, or a focus pinning
             `:ungrouped`. A nil `:epoch-id` is ALSO what an unset focus looks
-            like, so head-fallback answered both and the panel rendered the
-            HEAD epoch's cascade under the clicked row.
+            like, so a head-fallback for both would render the HEAD epoch's
+            cascade under the clicked row.
 
             The history here is built from a REAL cascade rather than typed
             out, so the head-fallback has a genuine record to wrongly return
@@ -303,21 +301,20 @@
       ;; is still correct and still fires. Without this the assertions below
       ;; would pass just as well on a resolver that had stopped working.
       (is (= :focused (focus/resolve-focus-status nil nil history))
-          "focus unset + non-empty history is still head-fallback (rf2-h0120)")
+          "focus unset + non-empty history is head-fallback")
       (is (= head (focus/find-epoch-record nil nil history))
           "and it still answers the head record")
-      ;; The defect: same nil `:epoch-id`, but a pinned bundle.
+      ;; Same nil `:epoch-id`, but a pinned bundle.
       (is (= :no-epoch (focus/resolve-focus-status nil 999 history))
           "a pinned dispatch-id with no matching epoch resolves :no-epoch")
       (is (nil? (focus/find-epoch-record nil 999 history))
-          "and to NO record — not the head. This is the assertion the defect
-           inverted: it used to answer `head`, and the panel rendered that
-           epoch's complete cascade under a different event's row.")
+          "and to NO record — not the head. Answering `head` would render
+           that epoch's complete cascade under a different event's row.")
       ;; The 2-arities are what the Trace panel and the issues ribbon call,
-      ;; and they must be untouched by this.
+      ;; and they keep head-fallback.
       (is (= :focused (focus/resolve-focus-status nil history))
-          "the 2-arity is unchanged — it cannot see a dispatch-id and must
-           keep answering head-fallback for the consumers that use it")
+          "the 2-arity cannot see a dispatch-id and answers
+           head-fallback for the consumers that use it")
       (is (= head (focus/find-epoch-record nil history))
           "likewise")
       ;; And an empty history is still the cold-start empty state, pinned

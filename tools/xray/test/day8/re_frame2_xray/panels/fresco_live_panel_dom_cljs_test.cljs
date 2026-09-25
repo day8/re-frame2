@@ -1,34 +1,27 @@
 (ns day8.re-frame2-xray.panels.fresco-live-panel-dom-cljs-test
   "The Fresco tab is LIVE under real React — the running panel's own DOM
-  (rf2-r98a, merged-PR audit of #7881) — AND, since rf2-k97c.3, the
-  boundary witness for this panel's migration onto Fresco.
+  — AND the boundary witness for this panel as a Fresco boundary.
 
   ## This file is the panel's `*_fresco_boundary_dom_cljs_test`
 
-  The five migrated siblings each ship one; this panel's sits here under
-  an older and better name, because it already mounted this panel into a
-  real `reagent.dom.client` root before the migration existed. Extending
-  it was cheaper and better than standing a near-duplicate fixture up
-  beside it, and it keeps ONE file answering \"what does this panel do
-  under a real React commit\".
+  Its siblings each ship one under that name; this panel's sits here, so
+  ONE file answers \"what does this panel do under a real React commit\".
 
-  The rows below the original one are written against
-  `module_view_fresco_boundary_dom_cljs_test`, which is the template the
-  remaining panels are migrated against. Four of the epic's six
+  The rows after W0 follow `module_view_fresco_boundary_dom_cljs_test`,
+  the template the panels' boundary suites follow. Four of the six
   behavioural criteria are answerable at a panel's own boundary, and a
-  FIFTH is answerable here and nowhere yet:
+  FIFTH is answerable here:
 
     1 FIRST DISPLAY                 — W0 phase 1, and W1
     2 UPDATES ON A REAL CHANGE      — W0 phase 3, with W0 phase 2's deaf
                                       control
-    3 XRAY'S OWN INTERACTIONS       — W2. The template says in terms that
-                                      it has no row for criterion 3
-                                      because that panel dispatches
-                                      nothing, and that \"the panels that
-                                      DO carry interactions are migrated
-                                      after this one and bring their own
-                                      rows\". This is one of those panels:
-                                      the sub-strip is its only dispatch.
+    3 XRAY'S OWN INTERACTIONS       — W2. The template has no row for
+                                      criterion 3 because that panel
+                                      dispatches nothing; the panels
+                                      that DO carry interactions bring
+                                      their own rows. This is one of
+                                      those panels: the sub-strip is its
+                                      only dispatch.
     4 FRAME TARGETING               — W1, read off the frame's OWN
                                       sub-cache rather than off the DOM
     5 TOOL ACTIVITY NEVER
@@ -45,12 +38,9 @@
                                       as the application.
     6 CLEAN TEARDOWN                — W3
 
-  THE W-NUMBERS ARE ROW ORDER, NOT CRITERION ORDER. This list read
-  `5 → W3, 6 → W4` before rf2-bgol and was wrong in both halves: W3 is the
-  teardown row and there was no W4 at all, criterion 5 living inside W0's
-  third phase. W4 exists now and carries the half W0 cannot — W0 mounts the
-  tool under `:rf/xray`, which is exactly what the defect rf2-bgol fixed
-  was blind to.
+  THE W-NUMBERS ARE ROW ORDER, NOT CRITERION ORDER. W4 carries the half of
+  criterion 5 that W0 cannot — W0 mounts the tool under `:rf/xray`, which
+  is exactly what a singleton-only filter is blind to.
 
   ## THE MOUNT IS THE SHELL'S MOUNT, TAKEN FROM THE REGISTRY
 
@@ -58,39 +48,36 @@
   `[(:panel tab)]` inside the shell's `[rf/frame-provider {:frame …}]`.
   [[mount-panel!]] does exactly that, and reaches `:panel` THROUGH
   `panel-registry/tab-by-id` rather than naming the var — so the bridge
-  the registry actually holds is the thing under test, and a bridge that
-  regressed to something the shell cannot mount reddens here rather than
-  in a browser.
+  the registry actually holds is the thing under test, and a bridge the
+  shell cannot mount reddens here.
 
-  ## `flush-render!` IS NOT THE INSTRUMENT ANY MORE, AND THAT IS THE ONE
-  ## THING A READER OF THE OLD FILE MUST NOT CARRY OVER
+  ## `flush-render!` IS NOT THE INSTRUMENT
 
   A Fresco boundary is NOT in Reagent's render queue, so the adapter's
   `:flush-render!` — exactly the right instrument for the `reg-view`
-  panels beside this one, and what this file used before rf2-k97c.3 —
-  does not commit this panel's update. Used unchanged it reads a DOM
-  that has not moved, which presents as the panel being DEAD. Every row
+  panels beside this one — does not commit this panel's update. Used
+  here it would read a DOM that has not moved, which presents as the
+  panel being DEAD. Every row
   below therefore drives the WORLD synchronously (a `flushSync` mount,
   or a `dispatch-sync`) and POLLS the committed DOM afterwards; an
   absence is asserted only after [[settle]], so it is a decision and not
   a race.
 
-  ## The claim this row exists to carry, and the one it replaces
+  ## The claim W0 carries
 
   `fresco_cljs_test/the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear`
   proves that `:rf.xray.fresco/data` INVALIDATES and RECOMPUTES on a
-  `:rf.xray/trace-buffer` tick. That is real and it stays. But it reaches
-  the panel by CALLING `fresco/Panel` a second time itself and reading the
-  hiccup that comes back: no React root is mounted, nothing commits, and
-  no DOM is asserted. A panel wired to a live subscription and a panel
-  whose sub happens to recompute when something calls it are not the same
-  panel, and only the second was witnessed. The audit of #7881 named the
-  gap; this row closes it.
+  `:rf.xray/trace-buffer` tick. But it reaches the panel by rendering
+  `fresco/panel-tree` itself and reading the hiccup that comes back: no
+  React root is mounted, nothing commits, and no DOM is asserted. A panel
+  wired to a live subscription and a panel whose sub happens to recompute
+  when something calls it are not the same panel, and that row witnesses
+  only the second. W0 witnesses the first.
 
   Here the panel is mounted ONCE, into a real `reagent.dom.client` root,
   wrapped in `[rf/frame-provider {:frame :rf/xray}]` exactly as
   `shell/shell-view` wraps it in production. **Nothing in this file ever
-  calls the panel again** — and since rf2-k97c.3 it could not: `Panel` is
+  calls the panel again** — and it could not: `Panel` is
   an `rf.fresco/defview`, a React component whose body runs only inside a
   render window. Every later assertion reads
   `container.querySelector…` — the DOM React committed on its own.
@@ -111,7 +98,7 @@
      not happened yet.
   3. **One trace tick, and the roster arrives in the DOM.** The tick is
      the collector's own seam — `refresh-trace-rings!` dispatches
-     `:rf.xray/sync-trace-buffer` on every coalesced drain (rf2-43koh) —
+     `:rf.xray/sync-trace-buffer` on every coalesced drain —
      and after it the committed DOM carries a boundary ROW naming the
      read the boundary really holds.
 
@@ -140,7 +127,7 @@
   `:ambient-frame nil` is load-bearing: the panel's `rf.fresco/sub` calls
   must resolve `:rf/xray` through the React-context tier the
   `frame-provider` establishes, the way the shipped shell resolves them.
-  The fixture's default ambient `:rf/default` scope is still in effect
+  The fixture's default ambient `:rf/default` scope is in effect
   during a synchronous `flushSync`, and would shadow that tier at tier 1 —
   the panel would then read `:rf/default`'s app-db and the test would be
   about a frame the shell never renders in.
@@ -149,9 +136,9 @@
 
   The ns ends in `-dom-cljs-test` so it runs under the `:browser-test`
   build (real DOM / React via Chromium) per
-  `implementation/shadow-cljs.edn` — the existing browser lane, which
-  already carries `tools/xray/test` on `:source-paths`. No new deck, no
-  new build id, no `:dev-http` port. The `:node-test` build's `cljs-test$`
+  `implementation/shadow-cljs.edn` — the browser lane, which carries
+  `tools/xray/test` on `:source-paths`. No deck, no build id and no
+  `:dev-http` port of its own. The `:node-test` build's `cljs-test$`
   regex also matches the ns, so it loads under Node too, where the body
   short-circuits via `(browser?)`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -181,7 +168,7 @@
 (defn- data-q
   "The panel's evidence read, as the panel issues it inside `frame`.
 
-  The FRAME IS THE QUERY'S ARGUMENT since rf2-bgol — `Panel` reads
+  The FRAME IS THE QUERY'S ARGUMENT — `Panel` reads
   `rf/current-frame-id` in its render and passes it, because the
   self-exclusion filter has to know which frames are the tool's and a sub
   computation runs under no frame scope to read one from. The sub-cache
@@ -194,7 +181,7 @@
 
 (def ^:private view-q
   "The panel's OTHER read — the selected sub-view. Rostered beside
-  [[data-q]] because this panel takes TWO reads where the migrated
+  [[data-q]] because this panel takes TWO reads where its
   siblings take one, and a row asserting only the first would pass on a
   boundary that had lost the second."
   [:rf.xray.fresco/view])
@@ -213,8 +200,7 @@
      ;; whole page, so every namespace after this one never runs and the
      ;; log still looks plausible. The flag is what makes
      ;; `make-reset-runtime-fixture` hand back the `{:before :after}` map
-     ;; form. rf2-k97c.3 turned this file async; before it, the function
-     ;; form was correct here.
+     ;; form.
      :async?        true
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
@@ -235,10 +221,9 @@
   "A promise resolving once every render pipeline on the page has had a
   real chance to commit — two animation frames and a macrotask.
 
-  rf2-k97c.3 REPLACED the adapter's `:flush-render!` here. That slot
-  commits Reagent's own render queue, and a Fresco boundary is not in it,
-  so after the migration it returned a DOM that had not moved — which
-  would have been reported as the panel being dead. An absence asserted
+  Not the adapter's `:flush-render!`: that slot commits Reagent's own
+  render queue, and a Fresco boundary is not in it, so it would return a
+  DOM that had not moved — reported as the panel being dead. An absence asserted
   immediately after an event is a race; an absence asserted after this is
   a decision."
   []
@@ -268,10 +253,10 @@
   otherwise async and phase 1 would assert against an empty container.
 
   Reaching `:panel` through `panel-registry/tab-by-id` rather than naming
-  the var is deliberate: after rf2-k97c.3 the registry holds a BRIDGE
+  the var is deliberate: the registry holds a BRIDGE
   (`rf.fresco/as-component` behind a callable), and it is the bridge the
-  shell will actually mount that these rows are about. A bridge that
-  regressed to something the shell cannot mount reddens here."
+  shell actually mounts that these rows are about. A bridge the shell
+  cannot mount reddens here."
   ([] (mount-panel! :rf/xray))
   ([frame]
    (let [container (.createElement js/document "div")
@@ -317,8 +302,7 @@
   "One trace-buffer tick, delivered the way the collector delivers it:
   `trace-collector/refresh-trace-rings!` dispatches
   `:rf.xray/sync-trace-buffer` with its snapshot on every coalesced task
-  drain, and `:rf.xray/trace-buffer` reads the slot that dispatch writes
-  (rf2-43koh).
+  drain, and `:rf.xray/trace-buffer` reads the slot that dispatch writes.
 
   The frame arity is W4's: the tick has to land in the app-db the shell
   under test is reading, and that shell is not `:rf/xray`."
@@ -342,20 +326,19 @@
          (.querySelectorAll container "li[data-testid^=\"rf-xray-fresco-boundary-\"]"))))
 
 ;; ===========================================================================
-;; W0 — the original row: the mounted panel is LIVE (criteria 1 and 2)
+;; W0 — the mounted panel is LIVE (criteria 1 and 2)
 ;; ===========================================================================
 
 (deftest w0-the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick
-  (testing "rf2-r98a — a REAL React root holding the Fresco tab re-renders
+  (testing "a REAL React root holding the Fresco tab re-renders
             itself on a `:rf.xray/trace-buffer` tick and commits the
             populated roster to the DOM. Nothing here calls the panel a second
             time; the roster arrives because the panel is live. Reddens if
             `:rf.xray.fresco/data` stops composing off `:rf.xray/trace-buffer`.
 
-            rf2-k97c.3 kept every claim and changed the INSTRUMENT: the panel
-            is a Fresco boundary now, which is not in Reagent's render queue,
-            so `flush-render!` no longer commits its update and both phases
-            below poll instead."
+            The panel is a Fresco boundary, which is not in Reagent's render
+            queue, so `flush-render!` does not commit its update and both
+            phases below poll instead."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -411,9 +394,9 @@
                              "boundary row committed to the DOM — with no "
                              "cache clear and no second call to the panel "
                              "anywhere in this test.\n"
-                             "IT IS ALSO THE SELF-EXCLUSION WITNESS (epic "
-                             "criterion 5). The panel is ITSELF a Fresco "
-                             "boundary now, and Fresco's census walks the "
+                             "IT IS ALSO THE SELF-EXCLUSION WITNESS "
+                             "(criterion 5). The panel is ITSELF a Fresco "
+                             "boundary, and Fresco's census walks the "
                              "collector's process-global entry table with no "
                              "frame filter — so a panel reporting its own "
                              "two `:rf/xray` reads as application evidence "
@@ -443,10 +426,10 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-reads-land-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Fresco tab commits real DOM through the
+  (testing "the Fresco tab commits real DOM through the
             registry entry the shell mounts, and its two `rf.fresco/sub` reads
             resolve against the frame the enclosing `frame-provider` named
-            rather than the ambient one. Epic criteria 1 and 4."
+            rather than the ambient one. Criteria 1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -489,15 +472,14 @@
 ;; ===========================================================================
 
 (deftest w2-the-sub-strip-click-switches-the-view-through-the-boundary
-  (testing "rf2-k97c.3 — clicking a sub-strip tab dispatches through the
+  (testing "clicking a sub-strip tab dispatches through the
             FRAME THE BOUNDARY CARRIES and the panel commits the other view.
-            Epic criterion 3, which the migrated siblings have no row for:
-            `module_view_fresco_boundary_dom_cljs_test` says in terms that it
-            omits criterion 3 because that panel dispatches nothing, and that
-            the panels which DO carry interactions bring their own rows. This
+            Criterion 3: `module_view_fresco_boundary_dom_cljs_test` omits
+            criterion 3 because that panel dispatches nothing, and the
+            panels which DO carry interactions bring their own rows. This
             is one of them — the sub-strip is this tab's only dispatch.
 
-            WHAT WOULD BREAK IT, precisely. `reg-view` LEXICALLY INJECTED a
+            WHAT WOULD BREAK IT, precisely. A `reg-view` LEXICALLY INJECTS a
             frame-bound `dispatch`; a `defview` binds no name inside a body,
             so the panel builds one from `rf/current-frame-id`. A bare global
             `rf/dispatch` in its place fires after render unwinds, when the
@@ -523,7 +505,7 @@
             (is (some? btn)
                 "the Intents sub-tab button is in the committed DOM — a plain
                  fn at an `:on-click` prop crosses Fresco's codec untouched, so
-                 the control itself survived the migration")
+                 the control itself survives the codec")
             (.click btn)
             (-> (rf.test-support/poll-until intents?
                   {:label "the click committed the Intents view"})
@@ -560,12 +542,12 @@
        (zero? (ref-count-of :rf/xray view-q))))
 
 (deftest w3-unmount-releases-the-reads-and-reopen-does-not-grow-them
-  (testing "rf2-k97c.3 — unmounting the panel releases BOTH subscription
+  (testing "unmounting the panel releases BOTH subscription
             references completely, and mounting it again returns to the SAME
-            counts rather than higher ones. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+            counts rather than higher ones. Criterion 6, and the number a
+            leaky binding shows on: a four-call interop binding would make
+            the `:rf/xray` ref-count climb across renders and never fall on
+            unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, so this row polls rather
             than reading once: `impl.collector`'s cell reapers give a cell
@@ -624,19 +606,19 @@
 ;; W4 — a NON-DEFAULT shell does not report ITSELF (criterion 5)
 ;; ===========================================================================
 ;;
-;; rf2-bgol. The self-exclusion filter landed asking `(= :rf/xray frame)`,
-;; which is right for the production singleton and blind to every other
+;; A self-exclusion filter asking `(= :rf/xray frame)` is right for the
+;; production singleton and blind to every other
 ;; shell the embedding contract permits: 008 §Parameterized shell frame-id
 ;; makes the shell frame a `:frame-id` OPT, `mount/ensure-xray-frame!` takes
 ;; one, and a testbed mounting N shells side by side gives each cell a
 ;; distinct id. Under such a shell this tab's own boundary, its two reads
-;; and its explanation were seated in a frame the filter did not know, rode
-;; through all four rosters, and the tool was presented as application
+;; and its explanation would be seated in a frame that filter did not know,
+;; ride through all four rosters, and present the tool as application
 ;; evidence in Mounted, Reads, Why, Advisor and Causal.
 ;;
-;; THE WITNESSES THAT EXISTED COULD NOT SEE IT, and that is the whole reason
-;; this row exists rather than an assertion added to one of them: every one
-;; of them mounts the tool under `:rf/xray`, so every one passes against the
+;; THE OTHER WITNESSES CANNOT SEE IT, and that is the whole reason this row
+;; exists rather than an assertion added to one of them: every one of them
+;; mounts the tool under `:rf/xray`, so every one passes against a
 ;; literal-only filter.
 ;;
 ;; IT IS A REAL REGISTERED PANEL UNDER A REAL REACT ROOT, not `panel-tree`
@@ -648,7 +630,7 @@
 ;; argument.
 
 (deftest w4-a-non-default-shell-omits-its-OWN-evidence-and-keeps-the-apps
-  (testing "rf2-bgol — epic criterion 5 under a shell frame that is not
+  (testing "criterion 5 under a shell frame that is not
             `:rf/xray`. Both directions: the producer's door still carries
             the shell's own boundary, and what the panel COMMITTED does not,
             while the application's boundary is on the page in both."
@@ -668,14 +650,14 @@
                                      (rf.fresco.tool/read-mounted-boundaries))))
               seated? (fn [] (some #{custom-shell-frame} (door)))]
           ;; THE PANEL'S OWN BOUNDARY REACHES THE CENSUS ASYNCHRONOUSLY, AND
-          ;; WAITING FOR IT IS WHAT MAKES THIS ROW BITE. Measured: with the
-          ;; app boundary mounted first and the tick fired in the same turn as
-          ;; the panel's mount, the page committed ONE row under a
-          ;; DELIBERATELY SABOTAGED filter — not because the drop worked, but
-          ;; because the panel's own boundary was not yet in the collector's
-          ;; entry table when the sub recomputed, and nothing invalidates the
-          ;; read a second time. A green sabotage run, from a race rather than
-          ;; from the behaviour. So the census is polled for the panel's own
+          ;; WAITING FOR IT IS WHAT MAKES THIS ROW BITE. With the app boundary
+          ;; mounted first and the tick fired in the same turn as the panel's
+          ;; mount, the page would commit ONE row even under a DELIBERATELY
+          ;; SABOTAGED filter — not because the drop worked, but because the
+          ;; panel's own boundary is not yet in the collector's entry table
+          ;; when the sub recomputes, and nothing invalidates the read a
+          ;; second time: a green sabotage run, from a race rather than from
+          ;; the behaviour. So the census is polled for the panel's own
           ;; boundary FIRST, and only then does the application's boundary
           ;; mount and the tick fire.
           (-> (rf.test-support/poll-until seated?
@@ -702,7 +684,7 @@
                          door's answer too")
 
                     (is (= 1 (count rows))
-                        (str "ONE row committed. Under the literal-only filter "
+                        (str "ONE row committed. Under a literal-only filter "
                              "this reads TWO: the census carries the panel's "
                              "own boundary (asserted above) and a filter that "
                              "knows only `:rf/xray` cannot see a shell mounted "
@@ -711,7 +693,7 @@
                         (str "and the committed page does not NAME the shell's "
                              "own frame — `…panels.fresco/Panel · frame "
                              custom-shell-frame " · 2 reads` is the row "
-                             "that appeared before rf2-bgol. DOM: " text))
+                             "a singleton-only filter lets through. DOM: " text))
                     (is (not (string/includes? text "panels.fresco/Panel"))
                         (str "nor its own VIEW — the row is gone rather than "
                              "merely printing a different frame. DOM: " text))

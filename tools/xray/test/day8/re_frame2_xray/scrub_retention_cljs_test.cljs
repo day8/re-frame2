@@ -1,32 +1,31 @@
 (ns day8.re-frame2-xray.scrub-retention-cljs-test
-  "rf2-kuky.54 — Xray's user-facing clear is a DATA clear, not a fixture reset.
+  "Xray's user-facing clear is a DATA clear, not a fixture reset.
 
-  ## The defect this pins
+  ## The contract this pins
 
   `trace-collector/retroactive-scrub!` backs three user-reachable paths —
   the Settings popup's \"Clear buffer now\", the palette's
   `:clear-trace-buffer` command, and the automatic reveal → redact privacy
-  narrowing. Its first act used to be
+  narrowing. It empties the rings with the 0-arity all-frames
+  `clear-trace-buffer!`, which empties a ring at its own effective cap and
+  preserves the `:override?` flag — not with
   `re-frame.trace.tooling/clear-trace-rings!`, the FIXTURE-grade reset,
   which does three things: drops every frame's ring, resets the
   process-default `:events-retained` back to the built-in 50, and clears the
   hot-reload registration dedup table.
 
-  The middle one is the bug. The Buffer tab writes that very knob
-  (`(rf/configure! {:trace-buffer {:events-retained N}})`), so pressing the
-  button beside it silently reverted the user's own setting — and the ring's
-  retention has no reader, so nothing showed them it had happened.
-
-  The framework had the right verb all along: `clear-trace-buffer!` empties a
-  ring at its own effective cap and preserves the `:override?` flag
-  (rf2-va65k). rf2-kuky.54 gave it a 0-arity all-frames case and pointed the
-  scrub at it.
+  The middle one is the hazard. The Buffer tab writes that very knob
+  (`(rf/configure! {:trace-buffer {:events-retained N}})`), so a fixture
+  reset would make the button beside it silently revert the user's own
+  setting — and the ring's retention has no reader, so nothing would show
+  them it had happened.
 
   ## Why these assertions
 
   Retention is observable only through a ring's behaviour, so the test drives
-  the cap: configure 3, scrub, dispatch 5, count 3. Pre-fix that read 5, the
-  built-in default of 50 having been restored under the user.
+  the cap: configure 3, scrub, dispatch 5, count 3. A fixture-grade reset
+  would read 5, the built-in default of 50 having been restored under the
+  user.
 
   `scrub-still-empties-the-rings` is what keeps the first test honest. A
   scrub that had quietly become a no-op would satisfy \"retention survives\"
@@ -50,11 +49,11 @@
 (defn- ping! [n]
   (dotimes [_ n] (rf/dispatch-sync [:xray-scrub-test/ping] {:frame probe-frame})))
 
-;; ---- the regression ------------------------------------------------------
+;; ---- retention survives the scrub ----------------------------------------
 
 (deftest scrub-preserves-configured-trace-retention
   (testing "retroactive-scrub! clears retained events without reverting the
-            user's configured retention (rf2-kuky.54)"
+            user's configured retention"
     (rf/configure! {:trace-buffer {:events-retained 3}})
     (seed-frame!)
     (ping! 5)
@@ -65,8 +64,8 @@
 
     (ping! 5)
     (is (= 3 (count (rf/trace-buffer probe-frame)))
-        "the configured :events-retained 3 survived the scrub — pre-fix this
-         read 5, the built-in default of 50 having been restored")))
+        "the configured :events-retained 3 survived the scrub — a
+         fixture-grade reset would read 5, the built-in default of 50 restored")))
 
 (deftest scrub-preserves-a-per-frame-override
   (testing "a frame's explicit :rf.trace/events-retained override also survives"
@@ -88,8 +87,8 @@
 ;; ---- the control: the scrub still does its actual job --------------------
 
 (deftest scrub-still-empties-the-rings
-  (testing "the privacy contract is unchanged — every place trace data lives
-            is still emptied (Spec 009 §Privacy §Retroactive-scrub)"
+  (testing "the privacy contract holds — every place trace data lives
+            is emptied (Spec 009 §Privacy §Retroactive-scrub)"
     (rf/configure! {:trace-buffer {:events-retained 3}})
     (seed-frame!)
     (ping! 2)

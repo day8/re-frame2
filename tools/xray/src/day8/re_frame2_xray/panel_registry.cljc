@@ -27,7 +27,7 @@
   ## Public-API stance
 
   v1 'no plugin registration API' (`spec/API.md` §The plugin
-  question) stays true. This is an INTERNAL seam — the registry atom
+  question) holds. This is an INTERNAL seam — the registry atom
   + the `reg-l4-tab!` fn are not re-exported through `re-frame.core`
   nor any tool's public ns. Third parties cannot register tabs from
   outside. The seam exists purely so per-panel registrations stay
@@ -48,9 +48,9 @@
                      `keybinding.cljs`, and tab-jump is a
                      command-palette verb (spec/007 §Trimmed pending
                      demand).
-    :modes  set    — subset of #{:dynamic :static}. Tabs registered
-                     against multiple modes appear in every matching
-                     tab bar.
+    :modes  set    — a single-element subset of #{:dynamic :static}:
+                     a tab belongs to exactly one mode's tab bar (see
+                     `reg-l4-tab!`).
     :order  number — sort key for the tab bar render order. Lower
                      comes first. The canonical 0..N integers reserve
                      stable positions per spec/018 §5 (Dynamic) +

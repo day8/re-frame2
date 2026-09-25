@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.routing-helpers-cljs-test
-  "Pure-data tests for Xray's Routes tab helpers (rf2-nrbs9, reshaped
-  per rf2-lq0ef).
+  "Pure-data tests for Xray's Routes tab helpers.
 
   Dual-target naming (`.cljc` + `_cljs_test`):
 
@@ -135,10 +134,10 @@
   "The route slice ONE real `:rf.route/navigate` writes at
   `[:rf.runtime/routing :current]`, read back off the frame's runtime-db.
 
-  Obtained from the PRODUCER rather than typed by hand (rf2-y8doi.22). The
-  preview's slot-shape pins used to assert `:id` and `:path` — keys the
-  router never writes — and passed only because the fixture and the
-  assertion were typed by the same hand. Registers `nav-route-id` for real;
+  Obtained from the PRODUCER rather than typed by hand: slot-shape pins
+  asserting keys the router never writes (`:id`, `:path`) would pass only
+  because the fixture and the assertion were typed by the same hand.
+  Registers `nav-route-id` for real;
   the reset fixture rolls it back after the test."
   []
   (rf/reg-route nav-route-id {} "/articles/:slug")
@@ -161,10 +160,10 @@
       (is (false? (-> rows first :has-on-match?)))
       (is (false? (-> rows first :has-can-leave?)))))
 
-  (testing "no :depth field — flat per rf2-lq0ef"
+  (testing "no :depth field — flat rows"
     (let [rows (h/project-routes cart-routes)]
       (is (every? #(not (contains? % :depth)) rows)
-          "rows must not carry a :depth field (decorative tree dropped)")))
+          "rows must not carry a :depth field (no decorative tree)")))
 
   (testing "rows are sorted by path lexicographically"
     (let [paths (mapv :path (h/project-routes cart-routes))]
@@ -249,10 +248,10 @@
     (let [r (h/simulate-url cart-routes "/checkout/")]
       (is (= :route/checkout (:winner r)))))
 
-  (testing "rf2-y8doi.22 — EVERY trailing slash strips, as `match-url` strips them"
+  (testing "EVERY trailing slash strips, as `match-url` strips them"
     ;; The framework normalises an incoming path with the same loop it runs
     ;; on author patterns (`canonical-route-pattern`), so `/cart//` IS
-    ;; `/cart`. The simulator used to strip exactly one slash and report
+    ;; `/cart`. A simulator stripping exactly one slash would report
     ;; no match for a URL the router resolves.
     (let [r (h/simulate-url cart-routes "/cart//")]
       (is (= "/cart" (:path r)))
@@ -273,14 +272,14 @@
       (is (= :route/exact (first ids)))
       (is (= :route/splat (second ids))))))
 
-;; ---- simulate-url: absolute-URL normalisation (rf2-6nx8y) ---------------
+;; ---- simulate-url: absolute-URL normalisation ---------------------------
 ;;
 ;; The Simulate-URL UI says "paste a URL", and the common copy-paste
 ;; workflow copies the WHOLE address-bar URL — an ABSOLUTE URL with a
-;; scheme + authority. Before rf2-6nx8y `split-url` stripped only the
-;; query + fragment, so `https://app.example/cart` was matched as the
-;; literal path `https://app.example/cart` and `/cart` never matched.
-;; The simulator now normalises an absolute (or protocol-relative) URL
+;; scheme + authority. Stripping only the query + fragment would match
+;; `https://app.example/cart` as the literal path
+;; `https://app.example/cart`, so `/cart` would never match. The
+;; simulator normalises an absolute (or protocol-relative) URL
 ;; to its `pathname` first, while leaving relative paths untouched.
 
 (deftest simulate-url-absolute-url-test
@@ -330,10 +329,10 @@
       (is (= "/cart" (:path r)) "plain relative path unchanged")
       (is (= :route/cart (:winner r)))))
 
-  (testing "rf2-y8doi.22 — a `://` in the QUERY is not an origin (redirect / OAuth `?next=` URLs)"
-    ;; `strip-origin` read the FIRST `://` anywhere as a scheme marker, so
-    ;; this simulated as `/cart` and crowned `:route/cart` — a clean-looking
-    ;; win for a URL `match-url` resolves to `/login`.
+  (testing "a `://` in the QUERY is not an origin (redirect / OAuth `?next=` URLs)"
+    ;; Reading the FIRST `://` anywhere as a scheme marker would simulate
+    ;; this as `/cart` and crown `:route/cart` — a clean-looking win for a
+    ;; URL `match-url` resolves to `/login`.
     (let [routes (assoc cart-routes :route/login (route "/login"))
           r      (h/simulate-url routes "/login?next=https://app.example/cart")]
       (is (= "/login" (:path r)))
@@ -345,7 +344,7 @@
           "an absolute URL still loses its OWN origin, and only that")
       (is (= :route/login (:winner r)))))
 
-  (testing "rf2-y8doi.22 — a `://` inside a relative PATH is not an origin either"
+  (testing "a `://` inside a relative PATH is not an origin either"
     (let [r (h/simulate-url cart-routes "/go/https://app.example/cart")]
       (is (= "/go/https://app.example/cart" (:path r)))
       (is (nil? (:winner r))
@@ -367,7 +366,7 @@
                                   {:dispatch-id 7}))))))
 
 (deftest focused-event-bundle-frame-strict-rf2-bz7flo
-  (testing "rf2-bz7flo — dispatch ids collide across frames; the lookup must
+  (testing "dispatch ids collide across frames; the lookup must
             select the FOCUSED frame's cascade, not the first same-id match.
             Two cascades share dispatch-id 7 in :frame/a and :frame/b with
             distinct events; the focus pins :frame/b."
@@ -426,7 +425,7 @@
 ;; ---- from-to-from-event-bundle -----------------------------------------------
 ;;
 ;; FROM is derived from the focused cascade's :rf.route/deactivated emit
-;; (rf2-m9rx6) — NEVER the live current slice. The live slice is the
+;; — NEVER the live current slice. The live slice is the
 ;; *current* route, which is time-dependent (it drifts as the app keeps
 ;; navigating); reading FROM from the cascade makes the lens honest about
 ;; the transition the SELECTED epoch performed.
@@ -471,8 +470,8 @@
       (is (nil? from-id) "no deactivated emit ⇒ no FROM")
       (is (= :route/cart to-id))))
 
-  (testing "FROM is independent of the live current slice (rf2-m9rx6)"
-    ;; The historical bug: FROM came from the live slice's :route-id. A focused
+  (testing "FROM is independent of the live current slice"
+    ;; FROM read off the live slice's :route-id would be wrong: a focused
     ;; A→B cascade must report FROM A / TO B regardless of where the app
     ;; has since navigated — the cascade carries deactivated-A /
     ;; allocated-B unconditionally, so the live route is irrelevant.
@@ -519,7 +518,7 @@
         (is (= :to (get by-id :route/cart)))
         (is (nil? (get by-id :route/checkout)))))))
 
-;; ---- project-static-data (rf2-o5f5f.3) ---------------------------------
+;; ---- project-static-data ----------------------------------------------
 
 (deftest project-static-data-empty-test
   (testing "silent state — no routes registered"
@@ -562,7 +561,7 @@
     (let [data (h/project-static-data cart-routes nil "")]
       (is (nil? (:sim-result data))))))
 
-;; ---- simulate-navigation-preview (rf2-o5f5f.3) -------------------------
+;; ---- simulate-navigation-preview ---------------------------------------
 
 (deftest simulate-navigation-preview-unknown-test
   (testing "unknown route-id returns the unknown shape"
@@ -571,7 +570,7 @@
       (is (= :route/nope (:route-id pv))))))
 
 (deftest simulate-navigation-preview-slot-is-the-slice-navigate-writes
-  (testing "rf2-y8doi.22 — the preview's slot shape is the key set ONE real
+  (testing "the preview's slot shape is the key set ONE real
             `:rf.route/navigate` writes at [:rf.runtime/routing :current]"
     ;; Both sides come from the producer: the slice from a real navigation,
     ;; the routes map from the real registrar (so `:rf.route/compiled` is the
@@ -597,7 +596,7 @@
       (is (= :route/audit (:route-id pv)))
       (is (= "/admin/audit" (:path pv)))
       (is (= [:audit/load] (:on-match pv)))
-      ;; EP-0001 (rf2-vzld77): the route slice lands in runtime-db, not app-db.
+      ;; EP-0001: the route slice lands in runtime-db, not app-db.
       (is (= [:rf.runtime/routing :current] (:runtime-db-slot pv)))
       (is (false? (:matched? pv)))
       (is (nil? (:params pv)))
@@ -627,7 +626,7 @@
       (is (nil? (-> pv :slot-shape :params)) "no match, so no params in the slot"))))
 
 (deftest simulate-navigation-preview-normalises-absolute-url-test
-  (testing "preview applies the same absolute-URL normalisation as the simulator (rf2-6nx8y)"
+  (testing "preview applies the same absolute-URL normalisation as the simulator"
     ;; An absolute URL pasted into the row's Simulate-URL surface must
     ;; match THIS row's pattern the same way the global simulator does —
     ;; the origin is stripped before `match-against` so `/cart` matches.
@@ -637,18 +636,18 @@
           "absolute URL's pathname matches the row's pattern")
       (is (= :route/cart (-> pv :slot-shape :route-id)))))
 
-  (testing "rf2-y8doi.22 — and the same query-carried `://` rule"
+  (testing "and the same query-carried `://` rule"
     (let [pv (h/simulate-navigation-preview cart-routes :route/cart
                                             "/login?next=https://app.example/cart")]
       (is (false? (:matched? pv))
           "`/login?next=…/cart` is `/login`, which the `/cart` row does not match"))))
 
 (deftest simulate-navigation-preview-row-local-overlapping-test
-  (testing "row preview matches the SELECTED row's pattern, not the global winner (rf2-m9rx6)"
+  (testing "row preview matches the SELECTED row's pattern, not the global winner"
     ;; Two routes both match /checkout/payment: the exact route (global
-    ;; winner) and a lower-ranked splat fallback. The OLD impl reported
-    ;; the splat row as no-match because it lost the global rank race;
-    ;; the row preview must report ITS OWN match + params.
+    ;; winner) and a lower-ranked splat fallback. A preview reading the
+    ;; global winner would report the splat row as no-match because it lost
+    ;; the global rank race; the row preview must report ITS OWN match + params.
     (let [routes {:route/exact (route "/checkout/payment")
                   :route/splat (route "/*rest")}
           ;; sanity: the global resolution still ranks exact first.
@@ -668,7 +667,7 @@
             "matched splat row carries its params into the slot shape")))))
 
 (deftest simulate-navigation-preview-row-local-non-matching-row-test
-  (testing "a row whose own pattern does NOT match the URL reports no match (rf2-m9rx6)"
+  (testing "a row whose own pattern does NOT match the URL reports no match"
     ;; /cart is the URL; previewing :route/checkout (pattern /checkout)
     ;; must report no match even though some OTHER route matches the URL.
     (let [routes {:route/cart     (route "/cart")
@@ -678,7 +677,7 @@
           "the selected row's pattern doesn't match the URL ⇒ no match")
       (is (nil? (:params pv))))))
 
-;; ---- project-topology (rf2-3kjlo) ---------------------------------------
+;; ---- project-topology -------------------------------------------------
 
 (def parented-routes
   "Registrar with explicit `:parent` references so the topology
@@ -766,7 +765,7 @@
           "orphan rendered at depth 0 (parent reference broken)"))))
 
 (deftest project-topology-self-cycle-test
-  (testing "a self-cycle (A → A) appears exactly once as a cycle root (rf2-m9rx6)"
+  (testing "a self-cycle (A → A) appears exactly once as a cycle root"
     ;; :route/self's :parent is itself. Both parents are registered, so
     ;; it is NOT a root via the rooted? predicate — the walk-from-roots
     ;; never reaches it. The cycle-root append phase must still surface
@@ -793,7 +792,7 @@
             "ordinary root carries :cycle-root? false")))))
 
 (deftest project-topology-two-node-cycle-test
-  (testing "a two-node cycle (A ↔ B) — both appear exactly once, projection terminates (rf2-m9rx6)"
+  (testing "a two-node cycle (A ↔ B) — both appear exactly once, projection terminates"
     ;; :route/a's :parent is :route/b and vice-versa. Both parents are
     ;; registered, so NEITHER is a root — the walk-from-roots reaches
     ;; neither. The cycle-root append phase surfaces the component once.
@@ -813,7 +812,7 @@
         (is (true? (:cycle-root? a-entry)) "cycle root flagged :cycle-root?")))))
 
 (deftest project-topology-mixed-roots-and-cycle-test
-  (testing "ordinary roots plus a rootless cycle coexist — all appear once (rf2-m9rx6)"
+  (testing "ordinary roots plus a rootless cycle coexist — all appear once"
     (let [mixed {:route/root (route "/")
                  :route/a    (route "/a" :parent :route/b)
                  :route/b    (route "/b" :parent :route/a)}
@@ -833,7 +832,7 @@
       (is (every? #(contains? % :cycle-root?) topology)
           "every entry carries the :cycle-root? key"))))
 
-;; ---- epoch-routing-activity (rf2-3kjlo) ---------------------------------
+;; ---- epoch-routing-activity -------------------------------------------
 
 (deftest epoch-routing-activity-no-cascade-test
   (testing "nil cascade → nil activity"
@@ -891,7 +890,7 @@
           activity (h/epoch-routing-activity c {:route-id :route/cart})]
       (is (= :fragment-changed (:phase activity))))))
 
-;; ---- a HISTORICAL navigation's params (rf2-3x7nj.23.1) ------------------
+;; ---- a HISTORICAL navigation's params -----------------------------------
 
 (def ^:private hist-route-id
   "Route ids this row alone registers (see `nav-route-id`)."
@@ -913,7 +912,7 @@
              [:rf.runtime/routing :current])]))
 
 (deftest epoch-routing-activity-reads-a-historical-navigations-own-params
-  (testing "rf2-3x7nj.23.1 — focused on an EARLIER navigation, :match is
+  (testing "focused on an EARLIER navigation, :match is
             that navigation's params, never the live route's. Producer-
             derived: two real navigations, bundles projected by
             `group-by-event`"
@@ -940,7 +939,7 @@
               "PRECONDITION: the app has since left the route")
           (is (nil? (:match (h/epoch-routing-activity bundle-1 live-other after-1)))))))))
 
-;; ---- project-topology-data composite (rf2-3kjlo) ------------------------
+;; ---- project-topology-data composite ----------------------------------
 
 (deftest project-topology-data-silent-test
   (testing "no routes registered → silent? true, empty topology, nil activity"
@@ -1008,7 +1007,7 @@
       (is (= :from (get marker-by-id :route/cart)))
       (is (= :to   (get marker-by-id :route/confirm)))))
 
-  (testing "FROM marker is time-independent of the live slice (rf2-m9rx6)"
+  (testing "FROM marker is time-independent of the live slice"
     ;; Live slice has moved to :route/admin; the focused cascade is still
     ;; cart→confirm. FROM cart / TO confirm must still paint.
     (let [c (nav-cascade 7 [:rf.route/navigate {:to :route/confirm}]

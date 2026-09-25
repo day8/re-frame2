@@ -1,16 +1,12 @@
 (ns day8.re-frame2-xray.panels-e2e.static-machines-panel-e2e-cljs-test
-  "Multi-frame end-to-end coverage for the Static Machines L4 panel
-  (rf2-1laqx, parent rf2-fbp11). Renames the Playwright scenario
-  `runStaticMachinesPanel` (recoverable at 85b86a7b
-  `tools/xray/testbeds/feature_matrix/scenarios.cjs`) into the
-  CLJS-Node multi-frame e2e shape introduced by rf2-7icrs, per the
-  rf2-b8pui (#1620) canonical pattern.
+  "Multi-frame end-to-end coverage for the Static Machines L4 panel,
+  in the CLJS-Node multi-frame e2e shape.
 
   ## Why this suite exists
 
   The Static Machines panel is one of two Static-mode L4 surfaces
-  that lost their Playwright gate in the pre-merge scaffolding strip;
-  the Routes panel is the sibling under rf2-wj46n. The
+  covered this way; the Routes panel's sibling suite is
+  `static_routes_panel_e2e_cljs_test.cljs`. The
   `panel_cljs_test.cljs` unit gate next to the panel covers the
   master-detail wiring against test-seam overrides — that test
   bypasses the registrar ingress (`:rf.xray/registered-machines` is
@@ -20,17 +16,17 @@
   subscribes and projects through the live `registered-machines`
   sub, the panel renders.
 
-  ## The four sub-assertions (per the bead)
+  ## The four sub-assertions
 
     1. Browse-list — ≥ 1 row mounts after a `deep-machine/install!`
-       in the host (the same fixture the rf2-7icrs Machine Inspector
+       in the host (the same fixture the Machine Inspector
        e2e walks).
-    2. Topology SVG — the `chart/svg` MachineChart primitive emits
-       ≥ 1 `<g>` layout-node child (machines-viz shim integrity per
-       rf2-o9arp).
+    2. Topology chart — the chart wrapper and the inner-testid
+       placeholder of the machines-viz xyflow chart mount
+       (machines-viz shim integrity).
     3. 4-mode sub-strip — Topology pill `aria-selected=\"true\"`;
        Cascade pill `aria-disabled=\"true\"` + `disabled` (sub-strip
-       placeholder states per rf2-o5f5f.2).
+       placeholder states).
     4. → Dynamic JUMP — clicking the per-row jump chip flips
        `:rf.xray/mode` to `:dynamic`, opens the Dynamic Machines
        tab (`:rf.xray/selected-tab :machines`), and focuses the
@@ -43,13 +39,13 @@
   to make the L4 `static-shell/detail-panel` render the live
   `static-machines/panel` mount (`shell.cljs` case-switches on
   `:rf.xray.static/selected-tab` which defaults to `:machines`, so
-  no extra tab-select dispatch is needed). Per rf2-8l3uk Static mode
-  is unconditionally available; there is no feature flag to opt into.
+  no extra tab-select dispatch is needed). Static mode is
+  unconditionally available; there is no feature flag to opt into.
 
   ## Pattern reference
 
   Same shape as `event_status_colour_cross_site_e2e_cljs_test.cljs`
-  (rf2-b8pui, PR #1620) — `re-frame.test-helpers/find-by-attr`
+  — `re-frame.test-helpers/find-by-attr`
   family walks the expanded hiccup; `e2e/with-host-and-xray-frames`
   wires the real trace bus + epoch capture; the deep-machine host
   fixture registers `:deep/main`."
@@ -80,13 +76,12 @@
   `static-shell/detail-panel` case-switch on the right axis. Returns
   the expanded hiccup tree.
 
-  RE-POINTED BY rf2-k97c.3. `static-shell/surface` is now an
-  `rf.fresco/defview`, so it is no longer a callable that answers
-  hiccup and `[static-shell/surface]` is no longer a hiccup head the
-  node-lane walker can expand. `test-helpers.static-shell-tree`
-  reproduces the four boundaries' reads and composes the shell through
-  its own exported `*-tree` fns, so what this walk sees is the shipped
-  chrome; the subject of the suite is unchanged."
+  `static-shell/surface` is an `rf.fresco/defview`, so it is not a
+  callable that answers hiccup and `[static-shell/surface]` is not a
+  hiccup head the node-lane walker can expand.
+  `test-helpers.static-shell-tree` reproduces the four boundaries'
+  reads and composes the shell through its own exported `*-tree` fns,
+  so what this walk sees is the shipped chrome."
   []
   (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
   (rf/with-frame :rf/xray
@@ -96,8 +91,7 @@
   "Render the Machines sub-tab's own tree under `:rf/xray`, off the LIVE
   subs — the same reads `static.machines.panel/panel` performs.
 
-  RE-POINTED BY rf2-k97c.3, and the suite's subject is unchanged. The
-  three views are now Fresco boundaries, so the shell walk above stops
+  The three views are Fresco boundaries, so the shell walk above stops
   at the bridge's `[:>]` interop head and cannot reach the panel's
   interior; but what this suite exists to walk is the REAL INGRESS —
   the host registers a machine through `rf/reg-machine`, Xray's
@@ -105,12 +99,12 @@
   markup — and that ingress runs identically here.
   `test-helpers.static-machines-tree` reproduces the boundaries' reads
   exactly (same subs, same order, same `:sim` conditional), so every
-  assertion below is still about the shipped projection.
+  assertion below is about the shipped projection.
 
-  What moved out is the shell MOUNT, which is now asserted directly in
-  the first test rather than implied by a walk that reaches through it;
-  and the boundaries' React behaviour, which is
-  `static/machines/panel_fresco_boundary_dom_cljs_test`'s subject."
+  The shell MOUNT is asserted directly in the first test rather than
+  implied by a walk that reaches through it; the boundaries' React
+  behaviour is `static/machines/panel_fresco_boundary_dom_cljs_test`'s
+  subject."
   []
   (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
   (rf/with-frame :rf/xray
@@ -141,12 +135,11 @@
 ;; ---- tests ---------------------------------------------------------------
 
 (deftest static-machines-panel-mounts-with-browse-list-and-topology
-  (testing "rf2-1laqx — with a host machine registered, the Static
+  (testing "with a host machine registered, the Static
             Machines panel mounts a non-empty browse-list AND a
             Topology chart hosting the machines-viz xyflow chart.
 
-            Post-rf2-gpzb4 (2026-05-21 xyflow migration): the chart
-            is rendered by `mv-chart/MachineChart`, a Reagent
+            The chart is rendered by `mv-chart/MachineChart`, a Reagent
             component. Hiccup-level inspection sees the component
             placeholder + its outer wrapper testids (chart wrapper +
             inner-testid). The xyflow node groups themselves are
@@ -170,7 +163,7 @@
               "Static Machines L4 slot did not render — :rf.xray/mode :static + default :machines sub-tab should yield the slot")
           (is (= (last slot) mount)
               (str "the L4 slot mounts exactly the registry's :panel — the "
-                   "Fresco boundary's bridge (rf2-k97c.3). Got: "
+                   "Fresco boundary's bridge. Got: "
                    (pr-str (last slot))))
           (is (some? panel)
               "Static Machines panel tree did not project — the live registrar ingress should yield the panel's own root")
@@ -186,10 +179,10 @@
                    "topology-svg` to the xyflow chart placeholder.")))))))
 
 (deftest static-machines-sub-strip-default-states
-  (testing "rf2-1laqx — the 4-mode sub-strip mounts with Topology
+  (testing "the 4-mode sub-strip mounts with Topology
             pill aria-selected='true' AND Cascade pill aria-disabled=
-            'true' + disabled (the placeholder pill states per
-            rf2-o5f5f.2 — Sim is a renderer, Instances is a JUMP,
+            'true' + disabled (the placeholder pill states —
+            Sim is a renderer, Instances is a JUMP,
             Cascade is Dynamic-only)."
     (e2e/with-host-and-xray-frames
       {:install-host deep-machine/install-and-init!}
@@ -209,12 +202,12 @@
           (is (= "true" (:aria-selected (rf.test-helpers/attrs topology)))
               "Topology pill should be aria-selected='true' on default mount")
           (is (= "true" (:aria-disabled (rf.test-helpers/attrs cascade)))
-              "Cascade pill should carry aria-disabled='true' — Dynamic-only surface per rf2-o5f5f.2")
+              "Cascade pill should carry aria-disabled='true' — Dynamic-only surface")
           (is (true? (:disabled (rf.test-helpers/attrs cascade)))
               "Cascade pill should carry the HTML disabled attribute so the click is a no-op"))))))
 
 (deftest static-machines-first-row-jump-flips-mode-and-opens-dynamic-machines-tab
-  (testing "rf2-1laqx — the first row's → Dynamic JUMP chip fires
+  (testing "the first row's → Dynamic JUMP chip fires
             the three-event handoff (set-mode :dynamic + select-tab
             :machines + select-machine-id <mid>) so the user lands
             on the Dynamic Machines panel focused on the chosen

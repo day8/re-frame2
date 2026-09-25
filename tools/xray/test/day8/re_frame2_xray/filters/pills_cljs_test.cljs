@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.pills-cljs-test
-  "View + wiring tests for `filters/pills.cljs` (rf2-ak4ms).
+  "View + wiring tests for `filters/pills.cljs`.
 
   The pills view is a pure-hiccup function; tests walk its hiccup
   output rather than mounting to a DOM, matching the shell test's
@@ -14,8 +14,8 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; (core `make-reset-runtime-fixture` + Xray `reset-all!`) into one owner:
+  ;; `make-xray-runtime-fixture` is core `make-reset-runtime-fixture` +
+  ;; Xray `reset-all!` in one owner:
   ;; plain-atom adapter + the default `:all` reset tier — install/registry/
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -25,18 +25,16 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
-;; prefix / text-nodes copies were semantically identical to
-;; `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid`,
-;; `rf.test-helpers/find-by-testid-prefix` and `rf.test-helpers/text-content` directly (rf2-vj80u8 — no
-;; Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid`,
+;; `rf.test-helpers/find-by-testid-prefix` and `rf.test-helpers/text-content`
+;; directly; there is no Xray walker facade.
 
 ;; -------------------------------------------------------------------------
 ;; (1) Empty filters — no committed pills in the cluster
 ;;
-;; rf2-3f2di A5 — the add(+) affordance moved OUT of `pills-view` (which
-;; now renders ONLY committed pills, on bar-2) up to the chrome ribbon
-;; (bar-1). `pills-view` on empty buckets renders an empty cluster; the
+;; The add(+) affordance lives on the chrome ribbon (bar-1), not in
+;; `pills-view`, which renders ONLY committed pills, on bar-2.
+;; `pills-view` on empty buckets renders an empty cluster; the
 ;; add-pill is exercised standalone via `pills/add-pill`.
 ;; -------------------------------------------------------------------------
 
@@ -46,7 +44,7 @@
     (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-filters"))
         "cluster element always present")
     (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filter-add"))
-        "add-pill is NOT part of the committed-pills cluster (moved to bar-1)")
+        "add-pill is NOT part of the committed-pills cluster (it lives on bar-1)")
     (is (empty? (rf.test-helpers/find-by-testid-prefix tree "rf-xray-filter-pill-"))
         "no pill rows when both buckets are empty")))
 
@@ -81,9 +79,9 @@
         "pill renders the pattern")))
 
 (deftest pill-body-has-no-leading-mode-glyph
-  (testing "rf2-t2xba — the Figma authority pill is `[label] [trailing ×]`;
-            the prior `+` (include) / `×` (exclude) LEADING glyph prefix on
-            the pill BODY was a drift, retired here. The border colour
+  (testing "the Figma authority pill is `[label] [trailing ×]`,
+            with no `+` (include) / `×` (exclude) LEADING glyph prefix on
+            the pill BODY. The border colour
             carries the include/exclude signal. The body must NOT start
             with `+` or `×`; the trailing remove-button is its own element
             (`-remove` testid) and is unaffected."
@@ -102,12 +100,12 @@
       (is (not (re-find #"^\s*×" out-text))
           "exclude pill body does NOT start with `×`")
       (is (re-find #":auth/\*" in-text)
-          "include pill still shows the pattern label")
+          "include pill shows the pattern label")
       (is (re-find #":mouse-move" out-text)
-          "exclude pill still shows the pattern label"))))
+          "exclude pill shows the pattern label"))))
 
 (deftest pills-use-green-include-red-exclude-borders
-  (testing "rf2-3f2di A6 — include (`:in`) pills are GREEN-bordered
+  (testing "include (`:in`) pills are GREEN-bordered
             (`:success` = reference --devtools-success) and exclude
             (`:out`) pills are RED-bordered (`:error` =
             --devtools-error), each with a transparent background and a
@@ -195,7 +193,7 @@
     (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
-      ;; rf2-3f2di A5 — the add-pill is now a standalone bar-1 affordance.
+      ;; The add-pill is a standalone bar-1 affordance.
       (let [tree (pills/add-pill rf/dispatch)
             add  (rf.test-helpers/find-by-testid tree "rf-xray-filter-add")
             handler (:on-click (second add))]
@@ -227,12 +225,12 @@
         "singular 'pattern' for count = 1")))
 
 ;; -------------------------------------------------------------------------
-;; (7) window.prompt stub is gone (regression for rf2-ak4ms)
+;; (7) The add-pill never calls window.prompt
 ;; -------------------------------------------------------------------------
 
 (deftest add-pill-handler-no-longer-calls-window-prompt
-  (testing "rf2-ak4ms — replacing the #1397 stub means clicking [+]
-            no longer triggers a `js/window.prompt` call. We assert
+  (testing "clicking [+] does not trigger a
+            `js/window.prompt` call. We assert
             this by stubbing prompt to throw; the click handler must
             complete without calling it (the click dispatches the
             open-edit-popup event instead)."

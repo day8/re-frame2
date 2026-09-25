@@ -1,22 +1,19 @@
 (ns day8.re-frame2-xray.panels.reactivity.machine-inspector-reactivity-cljs-test
   "Sub-reactivity guard for the Machine Inspector panel's focused-event
-  lens (rf2-dhoc9).
+  lens.
 
-  The rf2-2f8jv bug class — \"No machine activity\" when the panel's
-  focused-event sub returned empty rows for cascades that drove real
-  machine transitions. rf2-70tkv fixed the focus-tracking side
-  (`:rf.xray/focus :epoch-id` now auto-derives in LIVE mode), and
-  rf2-hwuki (PR #1596, in flight at the time of writing) fixes the
-  framework side (machine transitions are emitted with the `:frame`
-  tag so epoch capture doesn't drop them).
+  The bug class — \"No machine activity\" when the panel's
+  focused-event sub returns empty rows for cascades that drove real
+  machine transitions. It has two sides: focus tracking
+  (`:rf.xray/focus :epoch-id` auto-derives in LIVE mode), and the
+  framework (machine transitions are emitted with the `:frame`
+  tag so epoch capture keeps them).
 
-  This test exercises the post-fix reactivity contract at the unit
+  This test exercises the panel-side reactivity contract at the unit
   level — synthetic `:trace-events` are injected directly into
   `:epoch-history` via the test seam, so it does NOT depend on the
-  framework-side rf2-hwuki fix to pass. Production cascades carrying
-  real machine transitions will surface in the lens once rf2-hwuki
-  lands; this guard tracks the panel-side reactivity invariant
-  independently."
+  framework side to pass; this guard tracks the panel-side reactivity
+  invariant independently."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
@@ -51,7 +48,7 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest machine-transitions-for-focused-event-tracks-focus-flip
-  (testing "rf2-dhoc9 — the focused-event lens returns different
+  (testing "the focused-event lens returns different
             per-transition records for the two cascades. Distinct
             from-state / to-state pairs prove the sub re-fired on
             the focus flip."
@@ -73,10 +70,10 @@
         (is (= :loaded (:to-state (first transitions-2))))
         (is (not= transitions-1 transitions-2)
             "machine-inspector lens re-fired with new transition
-             records — rf2-70tkv regression class")))))
+             records")))))
 
 (deftest machine-lens-tracks-machine-id-across-flip
-  (testing "rf2-dhoc9 — the lens projects the focused epoch's
+  (testing "the lens projects the focused epoch's
             machine-transition events; flipping focus to an epoch
             with a DIFFERENT machine surfaces the different
             machine-id."
@@ -97,8 +94,8 @@
            rebinds end-to-end through the sub chain"))))
 
 (deftest machine-lens-empty-on-epoch-without-transitions
-  (testing "rf2-dhoc9 — an epoch without transition trace events
-            yields `[]`. The reactive contract still holds: when
+  (testing "an epoch without transition trace events
+            yields `[]`. The reactive contract holds too: when
             focus flips between an epoch-with-transitions and an
             empty epoch, the lens output changes from a populated
             vector to empty."
@@ -115,9 +112,9 @@
     (h/focus-cascade! :c2)
     (is (= [] (h/read-sub :rf.xray/machine-transitions-for-focused-event))
         "focus :c2 → empty lens; the sub re-fired to the silent-by-
-         default contract (rf2-g3ghh)")))
+         default contract")))
 
-;; ---- fired-this-epoch edge-ids flow into the lens (rf2-qeemm, G3) -------
+;; ---- fired-this-epoch edge-ids flow into the lens (G3) ------------------
 ;;
 ;; The focused-event lens attaches `:fired-edge-ids` (canonical
 ;; machines-viz edge-ids — B7) to each per-machine record, so the chart
@@ -135,7 +132,7 @@
              :loaded  {:final? true}}})
 
 (deftest machine-lens-attaches-canonical-fired-edge-ids
-  (testing "rf2-qeemm (G3 wire half) — each focused-event record carries
+  (testing "G3 wire half — each focused-event record carries
             `:fired-edge-ids`: the canonical machines-viz edge-id for the
             transition that fired this epoch, agreeing with the live chart"
     (h/setup-xray-frame!)
@@ -189,7 +186,7 @@
             "the two epochs fired DIFFERENT edges")))))
 
 (deftest machine-lens-fired-edge-ids-empty-without-definition
-  (testing "rf2-qeemm — with NO introspectable definition the fired set is
+  (testing "with NO introspectable definition the fired set is
             empty (extract-fired-edge-ids has no chart edges to match), so
             the chart simply shows no fired highlight"
     (h/setup-xray-frame!)
@@ -199,6 +196,6 @@
     ;; for :title/flow (machine-meta isn't registered in this unit rig).
     (h/focus-cascade! :c1)
     (let [rec (first (h/read-sub :rf.xray/machine-transitions-for-focused-event))]
-      (is (some? rec) "the transition record still surfaces")
+      (is (some? rec) "the transition record surfaces")
       (is (= #{} (:fired-edge-ids rec))
           "no definition → empty fired set (no chart edges to match)"))))

@@ -1,33 +1,33 @@
 (ns day8.re-frame2-xray.acceptance.uix-dom-cljs-test
-  "THE ELEMENT-SHAPED ARM of the epic's acceptance harness (rf2-k97c.3,
-  slice D). The six criterion bodies live in
+  "THE ELEMENT-SHAPED ARM of the acceptance harness. The six criterion
+  bodies live in
   `day8.re-frame2-xray.acceptance.test-helpers.criteria`; this namespace
   supplies ONE thing — the installed adapter — and wraps them in `deftest`.
 
   ## WHY UIx, AND NOT `test-react`
 
-  The brief asked for reagent-slim plus ONE element-shaped adapter, chosen
-  by reading what actually ships. `implementation/adapters/README.md`
-  §'Adapters that ship today' rosters three — Reagent, UIx, reagent-slim —
-  and of those UIx is the element-shaped one: its `:render` comes from
+  The element-shaped adapter is chosen by reading what actually ships.
+  `implementation/adapters/README.md` §'Adapters that ship today' rosters
+  three — Reagent, UIx, reagent-slim — and of those UIx is the
+  element-shaped one: its `:render` comes from
   `re-frame.substrate.spine/make-react-adapter` and takes substrate-native
-  React ELEMENTS rather than hiccup — the property that made Xray
-  unmountable on such a host until it owned its own root, and the reason
-  this is the adapter worth running the six criteria under.
+  React ELEMENTS rather than hiccup — so it cannot paint Xray's hiccup
+  shell, which is why Xray owns its own root, and the reason this is the
+  adapter worth running the six criteria under.
 
-  `adapters/test-react/` was considered and REJECTED, on its own docstring
-  rather than on its shipping status. It 'simulates the React class-3
+  `adapters/test-react/` does not qualify, on its own docstring rather
+  than on its shipping status. It 'simulates the React class-3
   lifecycle in pure CLJC ... without React, a DOM, or jsdom', and states
   it performs 'no automatic rerender on app-db change, React context
   traversal, or DOM source annotation'. Every one of the six criteria
   needs at least one of those: criterion 1 needs a DOM, 2 and 3 need
   re-render on change, 4 needs React context traversal. A harness run on
-  it would report green having exercised none of them — the fail-open
-  shape this whole epic is trying not to ship.
+  it would report green having exercised none of them — a fail-open
+  shape.
 
   ## WHAT THIS ARM IS EVIDENCE FOR
 
-  The epic's forward-looking clause: *a future non-React browser adapter
+  The forward-looking claim: *a future non-React browser adapter
   supplying only the container quartet plus the listener API should get
   Xray with no Xray-side work*. The UIx adapter is INSTALLED here as the
   inspected application's substrate and is never called to paint anything
@@ -44,13 +44,10 @@
   `substrate_gap_dom_cljs_test`, which drives `open!` itself on this same
   adapter.
 
-  This paragraph used to record the opposite conclusion, and the change is
-  worth naming: `mount.cljs` REFUSED this adapter outright, `open!`
-  returning the `:unsupported-substrate` diagnostic and mounting nothing,
-  because the shell was painted through the installed adapter's `:render`.
-  rf2-k97c.3 moved the shell onto Xray's own root and rf2-k97c.4 retired
-  the refusal, so the six rows below are now evidence about a host Xray
-  actually serves rather than about a root in isolation.
+  `open!` mounts on this adapter because the shell paints through Xray's
+  own root rather than the installed adapter's `:render`, so the six rows
+  below are evidence about a host Xray actually serves rather than about
+  a root in isolation.
 
   ## NODE LANE
 

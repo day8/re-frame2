@@ -1,17 +1,15 @@
 (ns day8.re-frame2-xray.resize-handle-boundary-dom-cljs-test
   "Real-DOM witnesses for the inline panel-width handle as a Fresco
-  BOUNDARY behind the shipped `Handle` bridge (rf2-po5r, audit of
-  rf2-k97c.3).
+  BOUNDARY behind the shipped `Handle` bridge.
 
-  ## Why a browser row at all — neither existing lane executes this
+  ## Why a browser row at all — neither sibling suite executes this
 
   `resize_handle_cljs_test` drives `handle-tree`, the boundary's PURE
-  inner fn, through a test-owned read helper, and asserts
-  `host-asserts-own-handle?` on its own. Both are correct and neither
-  runs `handle-view`: a `rf.fresco/sub` is legal only inside a render
-  window, so the node lane CANNOT call the boundary, and that file's own
-  comment says so — \"the composition of the two is the browser lane's
-  subject\". This file is that browser lane; before it there was none.
+  inner fn, through a test-owned read helper, and
+  `resize_handle_dom_cljs_test` asserts `host-asserts-own-handle?` on its
+  own. Both are correct and neither runs `handle-view`: a `rf.fresco/sub`
+  is legal only inside a render window, so neither can call the boundary,
+  and both name the mounted composition as this file's subject.
 
   `shell_fresco_boundary_dom_cljs_test` does mount the real shell, which
   heads `Handle`, but every row there keys off the selected tab and the
@@ -19,16 +17,14 @@
   reads a width, so `handle-view` returning nil, ignoring the host's
   resize opt-out, or freezing its width evades it.
 
-  TWO FURTHER MEASURED GAPS this file closes, neither of them visible
-  from a green run of either lane:
+  TWO FURTHER LIMITS of the node lane, neither of them visible from a
+  green run of it:
 
   * The node lane has NO `js/document` (no jsdom under `:node-test`), so
-    every `(when (exists? js/document) …)` yield row in
-    `resize_handle_cljs_test` is INERT there — and that file's name does
-    not end `-dom-cljs-test`, so it is absent from the `:browser-test`
-    build. The yield predicate therefore had no lane that executed it at
-    all. [[w3-the-yield-branch-is-the-hosts-resize-declaration]] is the
-    first row anywhere that runs it.
+    the yield predicate runs only in the browser lane:
+    `resize_handle_dom_cljs_test` reads it off a real computed style, and
+    [[w3-the-yield-branch-is-the-hosts-resize-declaration]] runs it
+    through the mounted boundary.
   * `expand-tree` INVOKES a fn head, so the node lane cannot grade head
     legality either: `[x …]` and `(x …)` expand identically. Only a
     committed DOM separates a bridge that mounts from one that merely
@@ -36,15 +32,15 @@
 
   ## The mount is the SHIPPED mount
 
-  `shell.cljs`'s `shell-view-tree` — a Fresco tree since rf2-k97c.3 —
+  `shell.cljs`'s `shell-view-tree` — a Fresco tree —
   CALLS `(resize-handle/Handle mode)` rather than heading it, and `Handle`
   answers `[:> handle-component {}]`, Fresco's `as-component` door, under
   the `rf/frame-provider` that same tree wraps its children in. [[mount!]]
   reproduces exactly that two-level form and nothing else: the provider,
   a marker `<div>`, and `Handle` called with `:inline`. Mounting the
   whole shell would witness the same crossing through several hundred
-  nodes of unrelated chrome; the bead asks for a small witness through
-  the bridge, so this is the bridge.
+  nodes of unrelated chrome; a small witness through the bridge is the
+  point, so this is the bridge.
 
   Nothing below ever calls a view a second time. Every assertion after a
   mount reads `container.querySelector…` — the DOM React committed on
@@ -317,7 +313,7 @@
   positioned strip whose measured box says nothing about the panel width,
   and a headless container measures 0 anyway. `aria-valuenow` is the
   value the boundary READ and the value assistive tech is given, which is
-  the one the bead is about."
+  the one this suite is about."
   [container]
   (some-> (handle-node container) (.getAttribute "aria-valuenow")))
 
@@ -360,12 +356,12 @@
 ;; ===========================================================================
 
 (deftest w1-the-bridge-commits-a-handle-whose-width-is-live
-  (testing "rf2-po5r — mounting `Handle :inline` under an explicit frame
+  (testing "mounting `Handle :inline` under an explicit frame
             commits the shipped handle node, and the width it announces
             follows a write into THAT frame while a write into a second
             live frame moves nothing.
 
-            THIS IS WHAT THE NODE LANE GAVE UP. `handle-tree` is driven
+            THIS IS WHAT THE NODE LANE CANNOT SEE. `handle-tree` is driven
             there with values the test itself supplies, so a green row
             says the markup composes; it cannot say the boundary's body
             ran, that `rf.fresco/sub` resolved, or that the value reaching
@@ -459,7 +455,7 @@
 ;; other.
 
 (deftest w2-a-real-key-press-routes-through-the-captured-dispatcher
-  (testing "rf2-po5r — pressing a real `ArrowLeft` on the committed handle
+  (testing "pressing a real `ArrowLeft` on the committed handle
             widens the panel in the frame the enclosing `frame-provider`
             NAMED, and leaves a second live frame exactly where it was;
             `Enter` then resets it through the same captured door.
@@ -550,26 +546,24 @@
 ;; W3 — the YIELD branch: the host's own `resize` declaration decides
 ;; ===========================================================================
 ;;
-;; Per rf2-70u8q the auto-inject contract is a silent yield: a consumer who
+;; The auto-inject contract is a silent yield: a consumer who
 ;; declares `resize: horizontal` (or `:both`) on the layout host has asserted
 ;; their own browser-native handle, and `handle-view` must render nil so the
 ;; page does not carry two.
 ;;
 ;; THIS IS A PAIR OF MOUNTS AND IT HAS TO BE. An absence on its own is
-;; satisfied by a `handle-view` that returns nil for any reason at all — the
-;; bead's own counterexample. The two mounts differ in ONE inline CSS
+;; satisfied by a `handle-view` that returns nil for any reason at all. The
+;; two mounts differ in ONE inline CSS
 ;; declaration on an element neither React root contains, so what separates
 ;; them is the gate and nothing else.
 ;;
-;; AND IT IS THE FIRST EXECUTION OF THE GATE ANYWHERE. The node-lane rows for
-;; `host-asserts-own-handle?` are wrapped in `(when (exists? js/document) …)`
-;; and `:node-test` has no jsdom, so they no-op; their file's name does not
-;; end `-dom-cljs-test`, so the browser build never loads it. Measured, not
-;; inferred: a deliberate failure planted inside those `when` bodies leaves
-;; `npm run test:cljs` green.
+;; AND IT IS THE ONLY EXECUTION OF THE GATE THROUGH A MOUNT.
+;; `resize_handle_dom_cljs_test` asserts `host-asserts-own-handle?` on its
+;; own, in the browser lane; `:node-test` has no jsdom, so there the
+;; predicate cannot run at all.
 
 (deftest w3-the-yield-branch-is-the-hosts-resize-declaration
-  (testing "rf2-po5r / rf2-70u8q — with a layout host declaring
+  (testing "with a layout host declaring
             `resize: vertical` the boundary commits its handle; with the
             same host declaring `resize: horizontal` it commits none. One
             CSS declaration is the only difference between the two

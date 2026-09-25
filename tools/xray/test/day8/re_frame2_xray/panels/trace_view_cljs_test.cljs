@@ -6,11 +6,11 @@
   `trace_helpers_cljs_test.cljc`)
 
     1. **Registry wires the composite sub** under `:rf.xray/trace-feed`
-       (the epoch-scoped feed) + the row-expand / band-collapse events.
+       (the epoch-scoped feed) + the row-expand event.
 
-    2. **Render contract** — the arc tree (epoch envelope + 4 phase
-       bands + the 5-column rows) matches the production view; the prior
-       top header / chip-filter UI stays gone.
+    2. **Render contract** — the flat row list (the six-column rows)
+       matches the production view; there is no top header / chip-filter
+       UI.
 
     3. **Focused-epoch scope** (spec/018 §6) — the panel surfaces the
        focused epoch record's `:trace-events` (the complete arc);
@@ -23,8 +23,8 @@
        payload expansion; clicking the source-coord ↗ fires
        :open-in-editor and does NOT also toggle.
 
-    6. **Phase bands** — every band renders (empty bands dimmed
-       `(none)`); collapsing a band hides its rows.
+    6. **Flat list** — every op, the epoch-lifecycle ops included,
+       renders as one row in fire order; there are no phase bands.
 
     7. **React-key stability** — rows keyed on the stable trace id.
 
@@ -58,7 +58,7 @@
 
 ;; ---- evicted-focus helper ----------------------------------------------
 
-;; rf2-h1vqa4: registered ABOVE the fixture form — the reset fixture's
+;; Registered ABOVE the fixture form — the reset fixture's
 ;; source-store baseline is captured when `use-fixtures` evaluates, and a
 ;; top-level registration AFTER it would be erased from the store by every
 ;; per-test restore (invisible to the frame's sealed generation even though
@@ -73,12 +73,12 @@
                       :mode        :retro
                       :frame       nil})}))
 
-;; rf2-c4abp — the PINNED-NO-EPOCH focus: the operator selected an event
+;; The PINNED-NO-EPOCH focus: the operator selected an event
 ;; bundle that settled no epoch, so `spine/epoch-id-for-event-bundle`
 ;; stamped `:epoch-id` nil while the pinned `:dispatch-id` survives. Seeded
 ;; directly (same route as the evicted pin above) so the state is
 ;; deterministic rather than dependent on which bundles happen to be in the
-;; ring. Registered ABOVE the fixture form for the rf2-h1vqa4 reason given
+;; ring. Registered ABOVE the fixture form for the reason given
 ;; there.
 (rf/reg-event
   :day8.re-frame2-xray.panels.trace-view-cljs-test/seed-no-epoch-focus
@@ -89,27 +89,25 @@
                       :frame       nil})}))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
-  ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
+  ;; `make-xray-runtime-fixture` owns the reset:
   ;; plain-atom adapter + the default `:all` reset tier. (`trace-collector`
-  ;; stays required for the `seed-trace-for-test!` seeding below.)
+  ;; is required for the `seed-trace-for-test!` seeding below.)
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- the panel's body, and the two walkers over it ----------------------
 ;;
-;; rf2-fcy5 (slice 3) — `trace/Panel` IS A FRESCO BOUNDARY NOW, so the rows
-;; below no longer call it. A boundary is a real React function component:
+;; `trace/Panel` IS A FRESCO BOUNDARY, so the rows
+;; below do not call it. A boundary is a real React function component:
 ;; its body reads through Fresco's collector, which refuses a read outside a
 ;; render extent by name (`:rf.error/fresco-sub-outside-render`). The panel's
-;; body was split out as `trace/panel-tree`, a pure fn of the four values the
+;; body is `trace/panel-tree`, a pure fn of the four values the
 ;; boundary reads, and [[panel-tree]] below supplies them.
 
 (defn- panel-tree
   "The Trace panel's body, driven from the ambient frame's own subs.
 
-  THIS USED TO BE A DIRECT CALL TO `trace/Panel`. Everything downstream of
-  it is unchanged — same markup, same testids — so the rows below read
-  exactly what they read before the migration."
+  `trace/panel-tree` renders the markup and testids the boundary commits,
+  so the rows below read what the panel renders."
   []
   (trace/panel-tree
     {:feed                 @(rf/subscribe [:rf.xray/trace-feed])
@@ -132,8 +130,8 @@
 
   It is a LOWERING and never a claim about which head the panel ships:
   [[panel-heads-are-the-ones-the-codec-accepts]] grades that with the
-  codec's own classifier over the UNLOWERED tree, so a revert of any of
-  the three heads reds that row whatever this walker does."
+  codec's own classifier over the UNLOWERED tree, so a Reagent head at any
+  of the three sites reds that row whatever this walker does."
   [lower node]
   (let [head (first node)]
     (cond
@@ -179,7 +177,7 @@
           (expand-tree* lower (if (fn? out) (apply out (rest n)) out)))
         ;; METADATA IS CARRIED ACROSS THE REBUILD, which the framework
         ;; walker does not do. Without this the key rows below could not
-        ;; tell a repaired `:key`-in-attrs from a reverted `with-meta`:
+        ;; tell a `:key`-in-attrs from a `with-meta` key:
         ;; `mapv` would have stripped the metadata before the assertion
         ;; read it, and the metadata negative would pass vacuously.
         (with-meta (mapv #(expand-tree* lower %) n) (meta n))))
@@ -200,7 +198,7 @@
   []
   (expand-tree* #{:table} (panel-tree)))
 
-;; The framework finder is unchanged and is applied to an ALREADY-EXPANDED
+;; The framework finder is applied to an ALREADY-EXPANDED
 ;; tree: its own `expand-tree` pass is then a no-op rebuild, because
 ;; `expand-tree*` left no fn in head position for it to invoke.
 (def ^:private find-by-testid rf.test-helpers/find-by-testid)
@@ -259,7 +257,7 @@
 
 (defn- mk-epoch-with-db
   "Like `mk-epoch` but pins `:db-before` / `:db-after` so the trace
-  panel's per-path db-changed diff (rf2-b3zw2) has real snapshots to
+  panel's per-path db-changed diff has real snapshots to
   derive from."
   [epoch-id dispatch-id db-before db-after trace-events]
   (-> (mk-epoch epoch-id dispatch-id trace-events)
@@ -286,20 +284,20 @@
     (is (some? (rf.registrar/handler :sub :rf.xray/trace-feed))
         ":rf.xray/trace-feed sub registered")
     (is (some? (rf.registrar/handler :sub :rf.xray.trace/focused-event-bundle))
-        ":rf.xray.trace/focused-event-bundle layer-3 sub registered (rf2-wcfsy)")
+        ":rf.xray.trace/focused-event-bundle layer-3 sub registered")
     (is (some? (rf.registrar/handler :sub :rf.xray/trace-expanded-row-ids))
         ":rf.xray/trace-expanded-row-ids sub registered")
     (is (some? (rf.registrar/handler :event :rf.xray/toggle-trace-row-expand))
         ":rf.xray/toggle-trace-row-expand event registered")))
 
 (deftest band-collapse-handlers-are-gone
-  (testing "rf2-aqusw — the flat list lost the phase-band hierarchy, so
+  (testing "the flat list has no phase-band hierarchy, so
             the band-collapse sub + event MUST NOT register"
     (registry/register-xray-handlers!)
     (is (nil? (rf.registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
-        ":rf.xray/trace-collapsed-band-ids sub removed with the bands")
+        ":rf.xray/trace-collapsed-band-ids sub is not registered (no bands)")
     (is (nil? (rf.registrar/handler :event :rf.xray/toggle-trace-band-collapse))
-        ":rf.xray/toggle-trace-band-collapse event removed with the bands")))
+        ":rf.xray/toggle-trace-band-collapse event is not registered (no bands)")))
 
 (deftest filter-handlers-are-gone
   (testing "the chip-filter subs + events MUST NOT register"
@@ -350,7 +348,7 @@
             "panel container present")))))
 
 (deftest top-header-and-chip-filter-ui-are-gone
-  (testing "the top header row + chip-filter UI stay removed"
+  (testing "there is no top header row or chip-filter UI"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -366,7 +364,7 @@
         (is (nil? (find-by-testid tree "rf-xray-trace-clear-filters")))))))
 
 (deftest flat-list-renders-every-op-as-a-row
-  (testing "rf2-aqusw: a focused epoch renders ALL its ops as a single
+  (testing "a focused epoch renders ALL its ops as a single
             flat list of rows — no envelope, no phase bands. The
             epoch-lifecycle ops surface as ordinary rows."
     (setup-xray-frame!)
@@ -387,7 +385,7 @@
         (is (some? (find-by-testid tree "rf-xray-trace-feed")) "feed container present")
         (is (some? (find-by-testid tree "rf-xray-trace-rows"))
             "the flat row list container renders")
-        (testing "the hierarchy chrome is GONE (rf2-aqusw)"
+        (testing "there is NO hierarchy chrome"
           (is (nil? (find-by-testid tree "rf-xray-trace-envelope-open")))
           (is (nil? (find-by-testid tree "rf-xray-trace-envelope-close")))
           (is (nil? (find-by-testid tree "rf-xray-trace-band-dispatch")))
@@ -405,7 +403,7 @@
               "the EPOCH outcome lifecycle op is an ordinary row"))))))
 
 (deftest op-row-renders-the-six-columns
-  (testing "rf2-aqusw: each op row carries Δt · stage · area badge ·
+  (testing "each op row carries Δt · stage · area badge ·
             what-happened · target/detail · duration"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -437,7 +435,7 @@
             "an untimed op renders an em-dash duration")))))
 
 (deftest op-row-carries-colour-coded-stage-edge-and-attrs
-  (testing "rf2-aqusw: rows carry a 3px colour-coded left edge keyed to
+  (testing "rows carry a 3px colour-coded left edge keyed to
             the Epoch pipeline stage + data attrs for area + stage"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -494,13 +492,13 @@
           (is (and (string? t) (re-find #"^!" t))
               "the error row's Δt leads with ! for emphasis"))))))
 
-;; ---- (2b) per-path db-changed diff (rf2-b3zw2 / rf2-8q8i4 = (b)) -------
+;; ---- (2b) per-path db-changed diff ----------------------------------------
 ;;
 ;; The `:rf.event/db-changed` trace event carries only `:event` + `:frame`
 ;; — no per-path diff. The Trace panel derives per-path before→after
 ;; rows at render time from the focused epoch record's `:db-before` /
-;; `:db-after` (Mike-decided rf2-8q8i4 = (b), 2026-05-25 — PANEL-SIDE
-;; derive). The view renders one sub-row per changed path beneath the
+;; `:db-after` (derived PANEL-SIDE). The view renders one sub-row per
+;; changed path beneath the
 ;; DB row:
 ;;
 ;;     + [:path] new           (added)
@@ -645,7 +643,7 @@
         (is (nil? (find-by-testid tree "rf-xray-trace-feed")))))))
 
 (deftest empty-state-epoch-evicted-renders
-  (testing "when focus pins an :epoch-id no longer in :epoch-history →
+  (testing "when focus pins an :epoch-id absent from :epoch-history →
             the evicted-epoch placeholder"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -659,17 +657,17 @@
         (is (nil? (find-by-testid tree "rf-xray-trace-feed")))))))
 
 (deftest empty-state-no-epoch-renders-for-pinned-bundle-that-settled-nothing
-  (testing "rf2-c4abp / rf2-y8doi.19 — the operator pinned an event bundle
+  (testing "the operator pinned an event bundle
             that settled NO epoch, so focus carries a :dispatch-id with a
             nil :epoch-id. That is shape-identical to the cold-start UNSET
-            focus rf2-h0120's head-fallback serves, so reading :epoch-id
-            alone answered the HEAD: the Trace tab painted a complete,
+            focus the head-fallback serves, so reading :epoch-id
+            alone would answer the HEAD: the Trace tab would paint a complete,
             plausible domino trail belonging to a DIFFERENT event under the
             operator's selection, with nothing on screen saying so.
 
             The feed must instead report :no-epoch and the panel must show
             the cause-neutral empty state — the same line the Epoch panel
-            landed in rf2-y8doi.19, because the resolver cannot tell a
+            takes, because the resolver cannot tell a
             refusal from a mid-build bundle from an aged-out epoch from an
             :ungrouped pin, and naming any one of them would be a fresh
             falsehood on the other three."
@@ -677,7 +675,7 @@
     (rf/with-frame :rf/xray
       ;; A REAL epoch survives in the ring, and it carries rows. That is what
       ;; makes this row discriminating: head-fallback has something to fall
-      ;; back TO, so the pre-fix failure is visible as epoch 1's rows rather
+      ;; back TO, so a head-fallback answer is visible as epoch 1's rows rather
       ;; than as an empty feed that happens to look right.
       (seed-history!
         [(mk-epoch 1 11
@@ -713,11 +711,12 @@
             "no arc may render for a selection that settled no epoch")))))
 
 (deftest trace-feed-empty-states-reject-only-the-pinned-no-epoch-shape
-  (testing "rf2-c4abp POSITIVE CONTROL — the discriminator must change
-            NOTHING else. An UNSET focus over a non-empty ring still
-            head-falls-back to the head epoch's rows (rf2-h0120), and an
-            ordinary selected epoch still projects its own. Without this row
-            the fix could pass by emptying the panel outright."
+  (testing "POSITIVE CONTROL — the discriminator must change
+            NOTHING else. An UNSET focus over a non-empty ring
+            head-falls-back to the head epoch's rows, and an
+            ordinary selected epoch projects its own. Without this row
+            the :no-epoch discriminator could pass by emptying the panel
+            outright."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -771,7 +770,7 @@
         (is (= #{3 4 5} (set (map :id (:rows feed)))))
         (is (= 2 (:epoch-id feed)))))))
 
-;; ---- (4b) focused-event-bundle layer-3 sub (rf2-wcfsy) ----------------------
+;; ---- (4b) focused-event-bundle layer-3 sub ------------------------------
 ;;
 ;; The Trace panel reads the focused cascade record via the layer-3
 ;; composite `:rf.xray.trace/focused-event-bundle` rather than scanning the
@@ -797,9 +796,9 @@
                  :frame                :rf/default}}))
 
 (deftest focused-event-bundle-sub-nil-when-cascades-empty
-  (testing "rf2-wcfsy — with no cascades + no focus the composite
-            returns nil (the inline scan's
-            `(when focused-id ...)` guard preserved). The spine
+  (testing "with no cascades + no focus the composite
+            returns nil (its `(when focused-id ...)`
+            guard). The spine
             composer auto-snaps focus to head only when cascades
             exist, so the truly-empty case is the structural nil
             path."
@@ -813,9 +812,8 @@
           "focused-id nil → composite returns nil"))))
 
 (deftest focused-event-bundle-sub-returns-matching-cascade
-  (testing "rf2-wcfsy — when focus is pinned the composite returns the
-            cascade whose :dispatch-id matches focus :dispatch-id;
-            same record-shape the previous inline scan returned"
+  (testing "when focus is pinned the composite returns the
+            cascade whose :dispatch-id matches focus :dispatch-id"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (mk-cascade-trace 1 [:cart/add])
@@ -830,9 +828,8 @@
             "the returned record carries the cascade's :event vector")))))
 
 (deftest focused-event-bundle-sub-nil-when-focus-misses
-  (testing "rf2-wcfsy — focus pinned to a :dispatch-id that's not in
-            the cascades vector → nil (the previous inline scan's
-            `some` returned nil in this case; same shape)"
+  (testing "focus pinned to a :dispatch-id that's not in
+            the cascades vector → nil"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (mk-cascade-trace 1 [:cart/add])
@@ -841,7 +838,7 @@
           "focused-id with no matching cascade → nil"))))
 
 (deftest focused-event-bundle-sub-rescopes-on-refocus
-  (testing "rf2-wcfsy — refocusing changes the returned cascade
+  (testing "refocusing changes the returned cascade
             record (reactivity wired through the composite signals)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -879,7 +876,7 @@
         (is (not-any? #(and (vector? %)
                             (= :rf.xray/select-dispatch-id (first %)))
                       @dispatches)
-            "no legacy pivot fired")))))
+            "no :rf.xray/select-dispatch-id pivot fired")))))
 
 (deftest toggle-trace-row-expand-event-mutates-set
   (testing ":rf.xray/toggle-trace-row-expand toggles row membership"
@@ -897,8 +894,8 @@
 (deftest expanded-row-renders-raw-edn-payload
   (testing "spec/023 §3 — when a row's :id is in the expanded set, the
             raw trace-event EDN renders below the row via the first-class
-            edn-inspector widget (rf2-hhtbl phase 2: direct
-            `[ei/edn-inspector value opts]`, no facade hop)"
+            edn-inspector widget (`ei/edn-inspector-view`, no facade
+            hop)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -913,11 +910,11 @@
       (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-13-payload"))
             "payload renders when row expanded")
-        ;; rf2-hhtbl phase 2 — the per-row payload renders the widget
+        ;; The per-row payload renders the widget
         ;; with a per-row panel-id qualifier (`:rf.xray.trace/row-<id>`)
         ;; so two simultaneously-expanded rows can't share expansion
         ;; state. The widget's `testid-for` uses `(name panel-id)`, so
-        ;; the container testid resolves to `rf-xray-edn-inspector-row-13-<uuid>`.
+        ;; the container testid resolves to `rf-xray-edn-inspector-row-13-<mount-id>`.
         (let [dd-nodes (filter (fn [n]
                                  (and (vector? n)
                                       (map? (second n))
@@ -928,12 +925,12 @@
               "edn-inspector widget mounted for the expanded row with the per-row panel-id qualifier"))))))
 
 (deftest expanded-row-uses-per-row-panel-id-qualifier
-  (testing "rf2-hhtbl phase 2 — two simultaneously-expanded rows each
+  (testing "two simultaneously-expanded rows each
             mount the edn-inspector widget with a DISTINCT per-row
             panel-id qualifier (`:rf.xray.trace/row-<id>` rendered as
             `row-<id>` in the testid via `(name ...)`) so their
-            expansion state can't collide. Combined with the widget's
-            auto-generated per-mount UUID this gives belt-and-braces
+            expansion state can't collide. Combined with the per-row
+            `:mount-id` this gives belt-and-braces
             isolation."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -968,7 +965,7 @@
             "the two rows mount distinct edn-inspector containers")))))
 
 (deftest expanded-row-edn-inspector-carries-popup-affordance
-  (testing "rf2-l4625 — the expanded-row payload mount passes
+  (testing "the expanded-row payload mount passes
             `:popup-affordance? true` to the edn-inspector widget so
             the operator can pop a trace event's full EDN into the
             popup overlay (trace rows are narrow column space). After
@@ -1030,12 +1027,12 @@
             ":rf.xray/open-in-editor fired with the projected coord")
         (is @stop-evt "stopPropagation was called")))))
 
-;; ---- (6) flat list, no hierarchy — rf2-aqusw --------------------------
+;; ---- (6) flat list, no hierarchy ---------------------------------------
 
 (deftest flat-list-preserves-fire-order-across-stages
-  (testing "rf2-aqusw: ops from different pipeline stages render in ONE
+  (testing "ops from different pipeline stages render in ONE
             flat list, in fire order (oldest-first) — not regrouped into
-            bands. A no-op event no longer renders empty phase bands."
+            bands. A no-op event renders no empty phase bands."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -1047,7 +1044,7 @@
                                :time 120 :dispatch-id 1})])])
       (focus! 1)
       (let [tree (rendered-tree)]
-        ;; no band chrome at all (rf2-aqusw)
+        ;; no band chrome at all
         (is (nil? (find-by-testid tree "rf-xray-trace-band-effects")))
         (is (nil? (find-by-testid tree "rf-xray-trace-band-count-effects")))
         (is (nil? (find-by-testid tree "rf-xray-trace-band-rows-dispatch")))
@@ -1081,8 +1078,8 @@
 ;; ---- (8) React-key stability across the feed ---------------------------
 
 (defn- row-node-by-id
-  "Walk the rendered tree and return the row container (`:div` since
-  rf2-jnxfj — formerly `:li`) whose data-testid is
+  "Walk the rendered tree and return the row container (a `:div`)
+  whose data-testid is
   `rf-xray-trace-row-<id>`."
   [tree id]
   (let [testid (str "rf-xray-trace-row-" id)]
@@ -1094,15 +1091,15 @@
           (hiccup-seq tree))))
 
 (deftest trace-row-react-keys-are-stable-trace-ids
-  (testing "rf2-jnxfj — rows ride the shared resizable-table widget
-            (`rt/resizable-table-view` since rf2-k97c.3) so the row
-            container is a `:div` (formerly `:li`). `op-row-attrs`
+  (testing "rows ride the shared resizable-table widget
+            (`rt/resizable-table-view`) so the row
+            container is a `:div`. `op-row-attrs`
             stamps the `(h/row-key row)` value into the attrs map's
             `:key` slot so the contract surface stays observable in
             the rendered hiccup; the widget threads the same value
             into the attrs map of every node it weaves — the ATTRS
-            map and not vector metadata, which rf2-fcy5 slice 1
-            retired and `resizable_table_key_cljs_test` gates."
+            map and not vector metadata, which
+            `resizable_table_key_cljs_test` gates."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -1123,10 +1120,10 @@
         (is (= "t:33" k33))
         (is (= 3 (count (distinct [k11 k22 k33]))))))))
 
-;; ---- feed children reach React with keys (rf2-hxfy) ---------------------
+;; ---- feed children reach React with keys -------------------------------
 
 (defn- feed-children
-  "The trace feed's two children, taken from the RAW `Panel` tree.
+  "The trace feed's two children, taken from the RAW, unexpanded panel tree.
 
   Navigated structurally rather than via `find-by-testid`, because
   `rf.test-helpers/expand-tree` rebuilds nested vectors with `mapv` and
@@ -1140,15 +1137,14 @@
     (vec (drop 2 feed))))
 
 (deftest trace-feed-children-keys-reach-react
-  (testing "rf2-hxfy — the feed's two children were keyed by the author but
-            only ONE key reached React: `^{:key \"ops-header\"}` rides a
-            vector LITERAL (works), while `^{:key \"rows\"}` sat on the
-            `(flat-row-list …)` CALL form, where reader meta attaches to
-            the source list and the returned vector carries none of it.
-            Measured before the repair: `[\"ops-header\" nil]`. The rows
-            key now rides the props map `flat-row-list` builds.
+  (testing "both feed children reach React with a key. Reader meta on
+            the `(flat-row-list …)` CALL form attaches to the source list
+            and the returned vector carries none of it, so a
+            `^{:key \"rows\"}` there would reach React as nil
+            (`[\"ops-header\" nil]`). The rows key rides the props map
+            `flat-row-list` builds.
 
-            Asserting on `(meta child)` would be a HOLLOW GATE — it still
+            Asserting on `(meta child)` would be a HOLLOW GATE — it
             reads nil for the rows child, because the key is in props."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -1164,34 +1160,27 @@
         (is (every? some? ks) "both feed children reach React with a key")
         (is (= 2 (count (distinct ks))) "sibling keys are distinct")))))
 
-;; ---- both feed keys live where BOTH substrates read (rf2-twil) -----------
+;; ---- both feed keys live where BOTH substrates read -------------------
 
 (deftest trace-feed-children-keys-live-in-the-attribute-map
-  (testing "rf2-twil — the `ops-header` key was CORRECT and is the sibling
-            rf2-hxfy measured against: `^{:key \"ops-header\"}` rode a
-            vector LITERAL, and Reagent reads meta THEN props, so React
-            received it. Fresco's codec reads `:key` from the ATTRIBUTE MAP
-            and reads Clojure metadata NOWHERE — so carrying the meta form
-            faithfully through the migration would have carried a NO-OP,
-            with the key silently ceasing to reach React and nothing on
-            screen to say so. It now rides the props map, which is the one
-            place both substrates read.
+  (testing "both feed keys live in the ATTRIBUTE MAP. A
+            `^{:key \"ops-header\"}` on a vector LITERAL does reach React
+            under Reagent, which reads meta THEN props — but Fresco's codec
+            reads `:key` from the ATTRIBUTE MAP and reads Clojure metadata
+            NOWHERE, so under Fresco a meta key is a NO-OP, the key silently
+            failing to reach React with nothing on screen to say so. The
+            props map is the one place both substrates read.
 
             The row above pins the REAGENT renderer and stays green either
-            way, so it cannot see this move; that is why this row exists
+            way, so it cannot see this; that is why this row exists
             and why its first assertion is the attribute map. A
             `(meta child)` assertion would be hollow in BOTH directions —
-            it reads nil at a repaired site precisely because the key is in
-            props — so metadata appears here only as the negative below.
+            it reads nil wherever the key is in props — so metadata appears
+            here only as the negative below.
 
-            rf2-fcy5 — THE CODEC DOOR IS OPEN NOW and is asserted below.
-            This row used to close with \"not a Fresco DOM row:
-            `rt/resizable-table` is a `reg-view`, a head Fresco's codec
-            refuses, so neither child can be handed to `codec/as-element`
-            until that widget grows a boundary.\" Slice 1b grew it and this
-            slice adopted it, so both children are boundary-headed and the
-            codec answers about them directly — which is the only door that
-            can tell an attrs key from a metadata one."
+            Both children are boundary-headed, so the codec answers about
+            them directly — the only door that can tell an attrs key from a
+            metadata one, and it is asserted below."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -1202,7 +1191,7 @@
       (let [kids  (feed-children (panel-tree))
             props (mapv second kids)]
         (is (= 2 (count kids)))
-        ;; The Fresco-side read. RED before the repair: `[nil "rows"]`.
+        ;; The Fresco-side read. A meta-keyed ops-header reads `[nil "rows"]`.
         (is (= ["ops-header" "rows"] (mapv :key props))
             "each feed child carries :key in its attribute map")
         ;; The Reagent-side read, kept beside it so one attribute is shown
@@ -1213,31 +1202,30 @@
         ;; assertion above cannot be passing on a shape Fresco can't see.
         (is (every? nil? (mapv #(:key (meta %)) kids))
             "no feed child depends on reader metadata")
-        ;; rf2-fcy5 — and now the CODEC's own answer, which is the door the
-        ;; children actually cross once this panel is a boundary. The
+        ;; And the CODEC's own answer, which is the door the
+        ;; children actually cross, this panel being a boundary. The
         ;; props-map assertion above is the authoring shape; this is the
         ;; renderer's reading of it.
         (is (= ["ops-header" "rows"]
                (mapv #(.-key (rf.fresco.impl.codec/as-element %)) kids))
             "Fresco's codec commits both feed keys")))))
 
-;; ---- RULING 2: the db-diff rows key through the ATTRIBUTE MAP ------------
+;; ---- the db-diff rows key through the ATTRIBUTE MAP ----------------------
 ;;
-;; rf2-bqzk — `db-diff-rows` used to wrap each row in
-;; `(with-meta (db-diff-row …) {:key (pr-str path)})`. That is NOT the dead
-;; metadata-on-a-call-form shape rf2-hxfy repaired one file over: `with-meta`
+;; `db-diff-row` carries its `(pr-str path)` key in its own `:div` attrs.
+;; Wrapping each row in `(with-meta (db-diff-row …) {:key (pr-str path)})`
+;; instead is NOT the dead metadata-on-a-call-form shape: `with-meta`
 ;; applied to the RETURN VALUE genuinely attaches, and the key genuinely
-;; reached React under Reagent. Which is exactly why it is dangerous —
+;; reaches React under Reagent. Which is exactly why it is dangerous —
 ;; Fresco's codec reads a literal `:key` off a native tag's attrs and reads
-;; Clojure metadata NOWHERE, so a faithful migration of that spelling would
-;; have preserved a NO-OP and every diff row in every changed-path list would
-;; have lost its identity with nothing on screen to say so. The key
-;; expression `(pr-str path)` is unchanged; only its carrier moved.
+;; Clojure metadata NOWHERE, so under Fresco that spelling is a NO-OP and
+;; every diff row in every changed-path list would lose its identity with
+;; nothing on screen to say so.
 ;;
 ;; THE OBVIOUS INSTRUMENT IS HOLLOW HERE. `(.-key (r/as-element node))` is
 ;; exactly right for the call-form defect and BLIND to this one, because
 ;; Reagent reads meta AND props and answers the same key either way. Under a
-;; revert the Reagent assertion below PASSES and the Fresco one fails; both
+;; `with-meta` key the Reagent assertion below PASSES and the Fresco one fails; both
 ;; are kept, and which is the gate is said out loud.
 
 (defn- node-by-testid
@@ -1269,8 +1257,8 @@
    :after  {:counter 2 :flag true}})
 
 (deftest db-diff-row-keys-reach-the-renderer-through-attrs
-  (testing "rf2-bqzk — the trace half of the metadata-key sweep. The key
-            rides `db-diff-row`'s own `:div` attrs map now, which is the one
+  (testing "the db-diff rows key through attrs. The key
+            rides `db-diff-row`'s own `:div` attrs map, which is the one
             place BOTH substrates read."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -1282,27 +1270,24 @@
       (let [rows     (db-diff-row-nodes (rendered-tree) 2)
             ;; The LITERAL every door below is compared against. Comparing
             ;; the two renderers to the attrs map instead would be hollow in
-            ;; the one direction that matters: under a revert to `with-meta`
+            ;; the one direction that matters: under a `with-meta` key
             ;; the attrs read and the codec read are BOTH nil, so they agree
-            ;; and the row goes green on a defect. Measured — the first draft
-            ;; did exactly that.
+            ;; and the row would go green on a defect.
             expected ["[:counter]" "[:flag]" "[:stale]"]
             ks       (mapv #(:key (second %)) rows)]
         ;; Non-vacuity first: an empty `rows` would make every assertion
         ;; below trivially true.
         (is (= 3 (count rows)) "three changed paths render three diff rows")
-        ;; `(pr-str path)` of the whole path VECTOR — the expression the
-        ;; `with-meta` wrapper carried, unchanged.
+        ;; `(pr-str path)` of the whole path VECTOR.
         (is (= expected (sort ks))
-            "each diff row carries the unchanged `(pr-str path)` key in attrs")
+            "each diff row carries the `(pr-str path)` key in attrs")
         (is (= 3 (count (distinct ks))) "sibling keys are distinct")
         ;; THE GATE. `subvec` for the same reason the sibling panels take it:
         ;; the codec lowers children eagerly, so a whole-node call would raise
         ;; HD-016 the moment anything below a diff row stopped being native,
         ;; and that exception would hide the key answer behind it. Dropping
         ;; the subtree cannot change the answer — the key is read off the
-        ;; attribute map. RED under a revert to `with-meta`: `[nil nil nil]`,
-        ;; measured.
+        ;; attribute map. A `with-meta` key reads `[nil nil nil]` here.
         (is (= expected
                (sort (mapv #(.-key (rf.fresco.impl.codec/as-element
                                      (subvec % 0 2)))
@@ -1318,21 +1303,21 @@
         (is (= expected
                (sort (mapv #(.-key (r/as-element (subvec % 0 2))) rows)))
             "and Reagent commits it too")
-        ;; Guard the guard: no row depends on reader metadata any more.
+        ;; Guard the guard: no row depends on reader metadata.
         (is (every? nil? (mapv #(:key (meta %)) rows))
             "no diff row depends on vector metadata")))))
 
-;; ---- the three heads are the ones Fresco accepts (rf2-fcy5) --------------
+;; ---- the three heads are the ones Fresco accepts ----------------------
 
 (deftest panel-heads-are-the-ones-the-codec-accepts
-  (testing "rf2-fcy5 slice 3 — `Panel` is an `rf.fresco/defview`, so every
+  (testing "`Panel` is an `rf.fresco/defview`, so every
             hiccup head inside its body has to be one the codec accepts. A
             `reg-view` head grades `:invalid` down the IDENTICAL arm a plain
             `defn` does, and with no error boundary above this render path
             an HD-016 throw presents as a tab that never appears rather than
             as an error. The three heads are the two
             `rt/resizable-table-view` sites and `ei/edn-inspector-view` in
-            `render-payload` — the boundaries this panel adopted; the
+            `render-payload` — the boundaries this panel writes; the
             `:invalid` rows below name their Reagent siblings as the
             controls that prove the classifier discriminates.
 
@@ -1342,7 +1327,7 @@
             `(some? (meta head))` discriminator is wrong strictly.
 
             Read over the UNLOWERED tree, so `lower-head` cannot launder a
-            revert into a pass."
+            Reagent head into a pass."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -1357,7 +1342,7 @@
       ;; rather than a default.
       (is (= :tag (rf.fresco.impl.codec/head-kind :div)))
       (is (= :invalid (rf.fresco.impl.codec/head-kind rt/resizable-table))
-          "the Reagent `reg-view` head these sites used to carry is :invalid")
+          "the Reagent `reg-view` sibling of these sites' head is :invalid")
       (is (= :invalid (rf.fresco.impl.codec/head-kind ei/edn-inspector))
           "…and so is the inspector's")
       (is (= :boundary (rf.fresco.impl.codec/head-kind rt/resizable-table-view)))

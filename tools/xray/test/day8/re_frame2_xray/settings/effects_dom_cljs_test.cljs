@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.settings.effects-dom-cljs-test
-  "Browser-lane half of the Settings side-effect tests, promoted out of
-  `day8.re-frame2-xray.settings.effects-cljs-test` under rf2-r51p.
+  "Browser-lane half of the Settings side-effect tests; the host-free
+  half is `day8.re-frame2-xray.settings.effects-cljs-test`.
 
   WHY A SEPARATE NAMESPACE. Every row here asserts a real DOM mutation
   — a CSS custom property on the shell root or `<html>`, a theme class
@@ -8,43 +8,36 @@
   keeps the host-free half: the settings-atom reads, the `with-redefs`
   substrate wiring and the missing-shell-root no-op claims.
 
-  THESE ROWS EXECUTED IN NEITHER LANE. Each was wrapped in
-  `(when-let [el (shell-root)] ...)`, and `shell-root` /`html-root` are
-  themselves `(when (exists? js/document) ...)`. The sibling's
-  `ensure-stub-shell-root!` looks like it supplies the missing host but
+  THESE ROWS CANNOT EXECUTE IN THE SIBLING. There a row wrapped in
+  `(when-let [el (shell-root)] ...)` binds nil on node, since
+  `shell-root` / `html-root` are themselves `(when (exists? js/document)
+  ...)`. A stub-root helper looks like it supplies the missing host but
   does not: it too opens with `(and (exists? js/document)
   (.-createElement js/document))`, so on node it creates nothing and
   every `when-let` binds nil. Node has no jsdom, happy-dom or
-  dom-storage in any dependency list. Meanwhile `:browser-test`'s
-  `:ns-regexp` is `.*-dom-cljs-test$`, which the sibling's name never
-  matched — so it never loaded the file at all. Measured before the
-  move: the sibling ran 30 test vars containing 40 assertions against
-  68 `is` forms in the source. 28 of them had never executed.
+  dom-storage in any dependency list. And `:browser-test`'s
+  `:ns-regexp` is `.*-dom-cljs-test$`, which the sibling's name does
+  not match — so the browser lane never loads that file at all.
 
   THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES. `:node-test`'s
   `:ns-regexp` is `cljs-test$` — a bare SUFFIX match, which
   `-dom-cljs-test` satisfies exactly as `-cljs-test` does, so the node
   build loads this namespace too and the overlap is deliberate (see the
   comment above `:browser-test` in `implementation/shadow-cljs.edn`).
-  Moving a row here ADDS the browser lane; it does not take the row off
-  the node one. [[browser?]] is what keeps the node run inert, and the
-  skip branch ASSERTS a marker row so the node lane never holds a
-  deftest with zero assertions — the hollow shape rf2-r51p exists to
-  remove.
+  A row here gains the browser lane without leaving the node one.
+  [[browser?]] is what keeps the node run inert, and the skip branch
+  ASSERTS a marker row so the node lane never holds a deftest with zero
+  assertions — a hollow test.
 
   EACH ROW ASSERTS ITS HOST PRECONDITION BEFORE READING IT. `(when-let
-  [el (shell-root)] (is ...))` is the shape that made these rows dead,
-  and it fails OPEN: a nil root silently skips the assertion instead of
+  [el (shell-root)] (is ...))` is a dead shape on node, and it fails
+  OPEN: a nil root silently skips the assertion instead of
   reporting one. The rows below bind the root, assert it is present,
   and reach through `some->` — so a missing root is a named failure
   rather than a vanished test. `some->` also matters because the
   browser lane runs every namespace inside one `cljs.test/run-block`
   with no try/catch, where a nil-deref would take down the rows after
-  it as well.
-
-  These assertions had never executed in ANY lane before this namespace
-  existed. A failure here is evidence about the Settings effects
-  arriving for the first time, not a regression introduced by the move."
+  it as well."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
@@ -184,12 +177,12 @@
         (is (= "12px" (css-var el "--rf-xray-text-size")))
         (is (true? (some-> el .-classList (.contains "rf-xray-theme-light"))))))))
 
-;; ---- panel width (rf2-x8h9y) -------------------------------------------
+;; ---- panel width --------------------------------------------------------
 
 (deftest apply-all-restores-panel-width
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
-    (testing "rf2-x8h9y — boot path restores the persisted panel width
+    (testing "boot path restores the persisted panel width
               so the user's saved drag survives reload BEFORE first
               paint. The CSS var lands on `<html>` (the cascade reaches
               the layout host's flex-basis even pre-mount)."
@@ -200,12 +193,12 @@
         (is (= "700px" (css-var html "--rf-xray-inline-width"))
             "<html> --rf-xray-inline-width carries the persisted value")))))
 
-;; ---- use-system-colors? (rf2-846h2) ------------------------------------
+;; ---- use-system-colors? -------------------------------------------------
 
 (deftest apply-use-system-colors-stamps-and-clears-attribute
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
-    (testing "rf2-846h2 — apply-use-system-colors! stamps
+    (testing "apply-use-system-colors! stamps
               `data-rf-force-colors=active` on the shell root +
               `<html>` when truthy, removes it when falsey."
       (ensure-stub-shell-root!)
@@ -227,12 +220,11 @@
 
 (deftest apply-use-system-colors-stamps-html-without-a-shell-root
   ;; The `<html>`-still-written half of the sibling's
-  ;; `apply-use-system-colors-handles-missing-shell-root`. The no-op
-  ;; return claim in that test is host-free and STAYED on node; only
-  ;; this DOM half moved, so neither lane loses an assertion.
+  ;; `apply-use-system-colors-handles-missing-shell-root`, whose
+  ;; host-free no-op return claim runs on node.
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
-    (testing "rf2-846h2 — with no shell root, `<html>` still gets the
+    (testing "with no shell root, `<html>` still gets the
               attribute write so the cascade reaches descendants before
               the shell mounts."
       (remove-stub-shell-root!)
@@ -245,11 +237,11 @@
       (effects/apply-use-system-colors! false))))
 
 (deftest update-event-applies-use-system-colors-effect
-  ;; The settings-atom half of the sibling's test of the same name is
-  ;; host-free and STAYED on node; only the attribute claims moved.
+  ;; The sibling's test of the same name holds the host-free
+  ;; settings-atom half; the attribute claims live here.
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
-    (testing "rf2-846h2 — dispatching `:rf.xray/settings-update :general
+    (testing "dispatching `:rf.xray/settings-update :general
               :use-system-colors? true` stamps the chrome attribute via
               the matching effect."
       (setup!)
@@ -272,7 +264,7 @@
 (deftest apply-all-restores-use-system-colors
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
-    (testing "rf2-846h2 — the boot path re-applies the persisted toggle
+    (testing "the boot path re-applies the persisted toggle
               so the user's saved opt-in survives reload BEFORE first
               paint."
       (ensure-stub-shell-root!)
@@ -313,8 +305,8 @@
           "a persisted :comfy writes the cosy 13px the density sub reports"))))
 
 (deftest update-event-applies-density-font-size-effect
-  ;; The settings-atom half of the sibling's test of the same name is
-  ;; host-free and STAYED on node; only the CSS-var claims moved.
+  ;; The sibling's test of the same name holds the host-free
+  ;; settings-atom half; the CSS-var claims live here.
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
     (testing "Dispatching `[:rf.xray/settings-update :general :density
@@ -339,7 +331,7 @@
 (deftest apply-all-restores-density-font-size
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
-    (testing "rf2-i40us — boot path restores the persisted density so
+    (testing "boot path restores the persisted density so
               the user's saved knob rescales the type scale BEFORE first
               paint. The CSS var lands on the shell root + `<html>`."
       (ensure-stub-shell-root!)

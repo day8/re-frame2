@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.fresco-advisor-cljs-test
-  "The advisor's algebra — ranking, classification, and the refusal
-  (rf2-hic-037).
+  "The advisor's algebra — ranking, classification, and the refusal.
 
   Pure data → data, so this namespace runs under the JVM target beside the
   CLJS one. The claims that need a live runtime are in
@@ -145,7 +144,7 @@
   ;; Two frames are two applications. Summing frame B's clock into frame
   ;; A's ranking would make an idle boundary look hot because something
   ;; unrelated was busy next door — the same defect `explain-render`
-  ;; scopes its leads against (audit #7789).
+  ;; scopes its leads against.
   (let [t (advisor/sub-timing {:app/a [(bundle 1 :e [(sub-ev :shared 5.0)])]
                                :app/b [(bundle 2 :e [(sub-ev :shared 50.0)])]})]
     (is (= 5.0  (get-in t [:by-read [:app/a :shared] :elapsed-ms])))
@@ -261,14 +260,14 @@
   ;; whose key arrays differ only in ORDER, and entries an egress policy
   ;; folded onto one projected key, are one row, and `:read-orders` counts
   ;; how many folded in. So `> 1` is at least three situations and only
-  ;; one of them is an oscillating read set — yet this arm stated that one
-  ;; as fact and routed to rung 2, recommending topology surgery on a
-  ;; signal its own producer documents as ambiguous.
+  ;; one of them is an oscillating read set — an arm stating that one as
+  ;; fact would route to rung 2, recommending topology surgery on a signal
+  ;; its own producer documents as ambiguous.
   ;;
-  ;; The arm and the rung STAY: whichever of the three it is, the read set
-  ;; is where to look, and every other classification available for this
-  ;; window is worse advice. What was missing is the qualification, and it
-  ;; goes in the field a classification already carries.
+  ;; The arm and the rung are right: whichever of the three it is, the read
+  ;; set is where to look, and every other classification available for
+  ;; this window is worse advice. The qualification goes in the field a
+  ;; classification already carries.
   (let [c (classify-with (boundary [[:app/main :a]] :read-orders 4)
                          {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})]
     (is (= :uncorrelated (:reason (:loss c)))
@@ -341,7 +340,7 @@
           {:app/main (repeat 5 (bundle 1 :e [(sub-ev :a 0.05)]))}]
          [(boundary [[:app/main :a]])
           {:app/main [(bundle 1 :e [(sub-ev :a 0.05)])]}]
-         ;; The memo-only arm (rf2-hic-037, audit #8027): retained
+         ;; The memo-only arm: retained
          ;; activity, no recompute. It is in the space because the claim
          ;; below is about EVERY classification the classifier emits, and
          ;; an arm missing from here would be an arm the refusal was never
@@ -539,7 +538,7 @@
              "than about what the ring could price"))))
 
 (deftest the-advisor-ADVISES-and-carries-nothing-executable
-  ;; The bead's own words: it never rewrites code and never switches
+  ;; The advisor never rewrites code and never switches
   ;; semantics. Structurally that is a property of the VALUE — advice made
   ;; of readable EDN cannot carry a patch, a thunk or a rewrite, and it
   ;; round-trips through the reader unchanged.

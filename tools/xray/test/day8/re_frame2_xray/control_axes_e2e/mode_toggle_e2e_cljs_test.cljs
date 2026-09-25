@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.control-axes-e2e.mode-toggle-e2e-cljs-test
-  "Multi-frame e2e coverage for the Mode toggle control axis
-  (rf2-7icrs).
+  "Multi-frame e2e coverage for the Mode toggle control axis.
 
   Xray exposes two modes per `tools/xray/spec/007-UX-IA.md` §Static
   mode: Dynamic (event-coupled spine) and Static (registry browse).
@@ -15,7 +14,7 @@
        to `:static`.
     3. A second toggle flips back to `:dynamic`.
     4. The mode survives a host dispatch (it is Xray-frame state,
-       not host-frame state; rf2-83d4x wrong-frame-routing class)."
+       not host-frame state; the wrong-frame-routing class)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -50,7 +49,7 @@
           "second :rf.xray/toggle-mode did not return to :dynamic"))))
 
 (deftest xray-mode-survives-host-dispatch
-  (testing "rf2-83d4x — flipping mode lives in :rf/xray frame, not host"
+  (testing "flipping mode lives in :rf/xray frame, not host"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []

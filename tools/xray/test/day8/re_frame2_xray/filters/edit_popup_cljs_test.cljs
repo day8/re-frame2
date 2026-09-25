@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.edit-popup-cljs-test
-  "View + wiring tests for the edit popup (rf2-ak4ms).
+  "View + wiring tests for the edit popup.
 
   Covers:
    - open-edit-popup hydrates the draft from the trigger payload
@@ -9,13 +9,13 @@
    - close-edit-popup discards the draft
    - hide-event-type (right-click row path) pre-populates OUT mode
 
-  ## Where the rendered tree comes from (rf2-d9ln)
+  ## Where the rendered tree comes from
 
   `filters/Modal` is a Fresco boundary behind an `as-component` bridge,
   so calling it answers the `[:>]` interop head rather than a tree to
   walk. The rows below drive `test-helpers.modal-trees/edit-popup-tree`,
   which reproduces `filters/ModalView`'s gate and its three reads in the
-  same order — so what they assert on is still the SHIPPED hiccup."
+  same order — so what they assert on is the SHIPPED hiccup."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -27,8 +27,8 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; (core `make-reset-runtime-fixture` + Xray `reset-all!`) into one owner:
+  ;; `make-xray-runtime-fixture` is core `make-reset-runtime-fixture` +
+  ;; Xray `reset-all!` in one owner:
   ;; plain-atom adapter + the default `:all` reset tier — install/registry/
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -262,13 +262,12 @@
     (is (= [] (:in filters)))))
 
 ;; -------------------------------------------------------------------------
-;; (8) Modal positioning (rf2-om6fa)
+;; (8) Modal positioning
 ;; -------------------------------------------------------------------------
 
 ;; ---- hiccup helpers -----------------------------------------------------
-;; The private expand-tree / find-by-testid copies were semantically identical
-;; to `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` directly
-;; (rf2-vj80u8 — no Xray walker facade). `testids-with-prefix` (the SET of
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade. `testids-with-prefix` (the SET of
 ;; carried testids matching a prefix) is expressed over `rf.test-helpers/find-by-testid-
 ;; prefix`; `all-strings` / `placeholder-values` below are not exposed by
 ;; test-helpers, so they walk `rf.test-helpers/expand-tree` directly.
@@ -290,7 +289,7 @@
         (is (some? backdrop))
         (is (= "fixed" (:position style)))
         (is (= 2147483647 (:z-index style))
-            "production z-index unchanged — one above the palette")
+            "the production z-index — one above the palette")
         (is (= "fixed"
                (:data-rf-xray-modal-positioning (second backdrop))))))))
 
@@ -312,14 +311,14 @@
                (:data-rf-xray-modal-positioning (second backdrop))))))))
 
 ;; -------------------------------------------------------------------------
-;; (9) Dialog is event-id-only (rf2-o8pjv)
+;; (9) Dialog is event-id-only
 ;; -------------------------------------------------------------------------
 ;;
-;; The Add-filter dialog reduces to exactly the Action radios (Show
+;; The Add-filter dialog is exactly the Action radios (Show
 ;; only matching events / Hide matching events) + the Match-events
-;; field + footer. The Match-scope section (event-id / event-args /
-;; source-coord / tags checkboxes) and its
-;; `:rf.xray/edit-popup-toggle-scope` plumbing are excised — event-id
+;; field + footer. There is no Match-scope section (event-id / event-args /
+;; source-coord / tags checkboxes) and no
+;; `:rf.xray/edit-popup-toggle-scope` plumbing — event-id
 ;; is the implicit, only scope.
 
 (deftest dialog-renders-mode-and-pattern-only
@@ -329,7 +328,7 @@
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
     (rf/with-frame :rf/xray
       (let [rendered (modal-trees/edit-popup-tree rf/dispatch)]
-        ;; Kept surfaces.
+        ;; Present surfaces.
         (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-in"))
             "Mode IN radio present")
         (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-out"))
@@ -340,12 +339,12 @@
             "Cancel button present")
         (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-save"))
             "Add filter / Apply button present")
-        ;; Excised surface — no scope checkboxes of any key.
+        ;; No scope checkboxes of any key.
         (is (= #{} (testids-with-prefix rendered "rf-xray-edit-popup-scope-"))
             "no match-scope checkboxes render")))))
 
 ;; -------------------------------------------------------------------------
-;; (10) Dialog copy is Mike's normative wording (rf2-ad7zx.19)
+;; (10) Dialog copy is the normative wording
 ;; -------------------------------------------------------------------------
 ;;
 ;; The Add-filter dialog copy is normative in spec/018 §7. These tests
@@ -369,7 +368,7 @@
        (into #{})))
 
 (deftest add-filter-dialog-copy-is-normative
-  (testing "the Add-filter (trailing-+ / :add) dialog renders Mike's
+  (testing "the Add-filter (trailing-+ / :add) dialog renders the
             exact copy per spec/018 §7"
     (xray-setup!)
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
@@ -428,11 +427,11 @@
             "Action radio copy shared with the add path")))))
 
 (deftest toggle-scope-event-is-unregistered
-  (testing "the `:rf.xray/edit-popup-toggle-scope` event is fully
-            removed — dispatching it is a no-op (no scope slot appears)"
+  (testing "the `:rf.xray/edit-popup-toggle-scope` event is not
+            registered — dispatching it is a no-op (no scope slot appears)"
     (xray-setup!)
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    ;; The handler is gone; an unhandled dispatch must not introduce a
+    ;; There is no handler; an unhandled dispatch must not introduce a
     ;; :scope slot into the draft.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/edit-popup-toggle-scope :event-args]))

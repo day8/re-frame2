@@ -1,16 +1,14 @@
 (ns day8.re-frame2-xray.acceptance.test-helpers.criteria
-  "THE ACCEPTANCE HARNESS for the rf2-k97c epic's SIX BEHAVIOURAL CRITERIA,
-  written against TODAY'S Xray so the root-swap PR inherits it rather than
-  writing one under its own time pressure (rf2-k97c.3, slice D).
+  "THE ACCEPTANCE HARNESS for Xray's SIX BEHAVIOURAL CRITERIA.
 
   This namespace holds the six criterion BODIES. It registers no `deftest`
   of its own and its name carries no `-cljs-test` suffix, so neither lane
   discovers it; the per-substrate test namespaces one directory up each wrap
   these six in `deftest` under their own adapter. One body, N substrates —
-  which is the whole point, because the claim the swap makes is a claim about
-  INDIFFERENCE to the installed adapter.
+  which is the whole point, because the claim Xray's own React root makes
+  is a claim about INDIFFERENCE to the installed adapter.
 
-  ## WHY IT SITS UNDER `test_helpers/` — DO NOT MOVE IT BACK
+  ## WHY IT SITS UNDER `test_helpers/` — DO NOT MOVE IT OUT
 
   `test_helpers/` is the established home for support shared by DOM suites,
   and the surface classifier arms the browser lane on that DIRECTORY:
@@ -34,17 +32,13 @@
   | 5 | Xray's activity never masquerading as application evidence | [[c5-no-masquerading-as-application-evidence!]] |
   | 6 | clean teardown and reopen without disturbing the host      | [[c6-clean-teardown-and-reopen!]] |
 
-  CRITERION 4 IS COMPLETE AS OF rf2-3j1v and covers BOTH halves — `tool
-  state stays out of the application` AND `a tool command reaches the
-  application frame it was aimed at`. The second half was unwritable
-  while the subject was the Static ribbon alone, because the Static
-  surface issues no app-directed command; the widening below put the
-  shipped shell on the bench, and with it the Dynamic tab ribbon's
-  `Reset` rewind, which is an app-directed command. The gap note
-  rf2-t2ke left here is kept as history inside
-  [[c4-tool-local-state-and-frame-targeting!]]'s own docstring.
+  CRITERION 4 covers BOTH halves — `tool state stays out of the
+  application` AND `a tool command reaches the application frame it was
+  aimed at`. The second half needs an app-directed command, and the
+  Static surface issues none; the shipped shell on the bench brings the
+  Dynamic tab ribbon's `Reset` rewind, which is one.
 
-  ## THE SUBJECT: Xray's SHIPPED SHELL, and how it got here
+  ## THE SUBJECT: Xray's SHIPPED SHELL
 
   [[mount-xray!]] mounts `shell/ShellView` — the whole shipped shell, the
   head `mount.cljs` itself renders: the envelope, the frame-provider, the
@@ -52,41 +46,32 @@
   which paints Xray's Static surface or its Dynamic 4-layer chrome
   according to the live `:rf.xray/mode` lens.
 
-  IT USED TO MOUNT `static.shell/surface` ALONE, and the paragraph that
-  stood here explained why: the Dynamic shell was not yet migrated —
-  `shell/shell-view` was still an `rf/reg-view` painted through the
-  installed adapter's `:render`, the epic's coupling (1) — so the Static
-  ribbon was the only piece of Xray whose mount was adapter-INDEPENDENT.
-  THAT IS NO LONGER TRUE. rf2-k97c.3 (PR #9708) made the shell a Fresco
-  boundary Xray paints through its own root, so the shipped shell is a
-  legal subject here. `rf/reg-view`s do survive elsewhere under
-  `tools/xray/src`, `shell/event-list` among them, and each one's own
-  registration site carries the account of what its migration waits on —
-  no count of them belongs in this docstring, because a count is the
-  thing that goes stale.
+  The shell is a Fresco boundary Xray paints through its own root, which
+  is what makes the shipped shell a legal subject here. `rf/reg-view`s do
+  survive elsewhere under `tools/xray/src`, `shell/event-list` among them,
+  and each one's own registration site carries the account of what its
+  migration waits on — no count of them belongs in this docstring, because
+  a count is the thing that goes stale.
 
-  THAT PARAGRAPH PROMISED THE WIDENING WOULD COST ONE LINE — *the vector
-  [[mount-xray!]] renders* — AND IT COST TWO, which is worth recording
-  because the second is easy to miss. `:rf.xray/mode` defaults to
-  `:dynamic` (`registry.cljs`), so mounting the shipped shell and
-  changing nothing else swaps the Static surface out from under every
-  row below, all of which name Static testids. [[setup!]] therefore pins
-  the lens to `:static` before the mount, and with that one extra line
-  every row below IS unchanged, exactly as promised.
+  `:rf.xray/mode` defaults to `:dynamic` (`registry.cljs`), so mounting
+  the shipped shell and changing nothing else would swap the Static
+  surface out from under every row below, all of which name Static
+  testids. [[setup!]] therefore pins the lens to `:static` before the
+  mount.
 
-  ## THE MOUNT VERB: Fresco's own root, which IS the post-swap mechanism
+  ## THE MOUNT VERB: Fresco's own root, the production mechanism
 
   `rf.fresco.impl.mount/root!` creates and owns a React root and reads
-  through Fresco's collector. That is precisely what the epic's coupling
-  (1) asks `mount.cljs` to do, so a harness written against it is a harness
-  the swap PR satisfies by construction rather than by edit.
+  through Fresco's collector. That is how `mount.cljs` paints Xray — a
+  Fresco-owned root rather than the installed adapter's `:render` — so the
+  harness exercises the production mechanism by construction.
 
-  Measured at trunk 1bf7106126, this mechanism paints Xray's Static chrome
-  under BOTH a ratom-family adapter and an element-shaped one, with the
-  HOST'S adapter installed and untouched. That is the forward-looking
-  clause of the epic — *a future non-React browser adapter supplying only
-  the container quartet plus the listener API should get Xray with no
-  Xray-side work* — reduced to something a row can witness today.
+  This mechanism paints Xray's chrome under BOTH a ratom-family adapter
+  and an element-shaped one, with the HOST'S adapter installed and
+  untouched. That is the forward-looking claim — *a future non-React
+  browser adapter supplying only the container quartet plus the listener
+  API should get Xray with no Xray-side work* — reduced to something a row
+  can witness.
 
   ## THE FRAME: `:rf/xray`, deliberately, and it is load-bearing for two rows
 
@@ -212,7 +197,7 @@
 (def static-lens
   "The lens [[setup!]] pins the shipped shell to, so the mode composer
   paints the Static surface every row below names by testid. Read the
-  widening note in this namespace's docstring for why this is a pin
+  subject note in this namespace's docstring for why this is a pin
   rather than a default."
   :static)
 
@@ -352,10 +337,9 @@
   `:rf.xray/mode` defaults to `:dynamic`, so [[mount-xray!]] mounting
   the shipped shell would paint the Dynamic 4-layer chrome and every
   Static testid below would vanish. Pinning [[static-lens]] BEFORE the
-  mount is what keeps the promise the namespace docstring records — the
-  widening costs this line and the vector, and every row is otherwise
-  unchanged. It is dispatched rather than written into `app-db` because
-  `:rf.xray/set-mode` is the shipped door and there is no other.
+  mount keeps every row reading the Static surface its testids name. It is
+  dispatched rather than written into `app-db` because `:rf.xray/set-mode`
+  is the shipped door and there is no other.
 
   AND THE PERSISTED SLOT IS CLEARED AFTER IT, deliberately.
   `:rf.xray/set-mode` carries the `:rf.xray.static/persist-mode` fx,
@@ -384,23 +368,20 @@
   "Mount Xray's SHIPPED SHELL through FRESCO'S OWN ROOT, at
   [[xray-frame]].
 
-  This is the post-swap mount: Xray creates and owns the React root, the
-  installed adapter's `:render` is never called, and the frame context is
-  established DELIBERATELY by naming the frame rather than inherited from
-  whatever the host's adapter happened to put in scope. `root!` commits
-  inside `flushSync`, so the first assertion does not read an empty
-  container.
+  This is the production mount mechanism: Xray creates and owns the React
+  root, the installed adapter's `:render` is never called, and the frame
+  context is established DELIBERATELY by naming the frame rather than
+  inherited from whatever the host's adapter happened to put in scope.
+  `root!` commits inside `flushSync`, so the first assertion does not read
+  an empty container.
 
-  ## THE VECTOR IS `shell/ShellView`, WHICH IS THE WIDENING (rf2-3j1v)
+  ## THE VECTOR IS `shell/ShellView`
 
-  It was `[static-shell/surface {}]` — the Static ribbon alone — for as
-  long as the Dynamic shell was an `rf/reg-view`. rf2-k97c.3 made it a
-  Fresco boundary, so the head `mount.cljs` itself renders is now a legal
-  vector here and this is it. The mode composer inside paints the Static
-  surface while [[setup!]]'s lens pin stands, which is why every row
-  written against the narrower subject reads the same DOM it always did;
-  criterion 4's rewind arm flips the lens and gets the Dynamic chrome
-  from the same mount.
+  The shell is a Fresco boundary, so the head `mount.cljs` itself renders
+  is a legal vector here and this is it. The mode composer inside paints
+  the Static surface while [[setup!]]'s lens pin stands, which is the DOM
+  the Static rows read; criterion 4's rewind arm flips the lens and gets
+  the Dynamic chrome from the same mount.
 
   NO OUTER `frame-provider` OF OUR OWN, and its absence is deliberate
   rather than an omission. `ShellView`'s docstring makes the provider
@@ -514,7 +495,7 @@
   holds, RAW.
 
   THE CHANNEL [[app-trace-event-ids]] CANNOT SEE, AND THE REASON THIS
-  EXISTS (rf2-kay8). That projection keeps only records carrying
+  EXISTS. That projection keeps only records carrying
   `[:tags :rf.event/v]`. A render record carries `:rf.view/render-key`
   and `:frame` and NO event vector at all, so it is discarded before any
   event-id assertion can reach it — and a leaked render contaminates the
@@ -535,8 +516,8 @@
   the very shape a clean epoch answers with, and this harness loads
   Xray's `registry` rather than the `install` / `preload` namespaces that
   pull `re-frame.epoch` in. The node-lane guard in `mount_cljs_test.cljs`
-  (rf2-k97c.5 / rf2-tqlmq) reads `:renders` and is the right instrument
-  there, because that suite does load it."
+  reads `:renders` and is the right instrument there, because that suite
+  does load it."
   []
   (rf/trace-buffer app-frame {:flat true :operation :rf.view/rendered}))
 
@@ -570,8 +551,8 @@
 
   DELETE IT AND BOTH CONTROLS SILENTLY MEASURE NOTHING. `push-to-ring!`
   retains an event only `(when (and dispatch-id frame-id))` — a frameless
-  or uncorrelated emit streams to listeners and is NEVER retained (the
-  Spec 009 §B3 ruling). These calls are made from a test body rather than
+  or uncorrelated emit streams to listeners and is NEVER retained (Spec
+  009 §B3). These calls are made from a test body rather than
   from inside a running handler, so no `*handler-scope*` supplies one and
   the record would never reach the ring at all. `stamp-dispatch-id`'s own
   contract is that a `caller-supplied :rf.trace/dispatch-id wins`, so
@@ -858,11 +839,11 @@
   Criterion 4 has TWO halves: Xray's own state stays out of the
   application, and a tool-issued command reaches the application frame it
   was AIMED at. Everything above is the FIRST half. The REWIND ARM at the
-  bottom is the second (rf2-3j1v).
+  bottom is the second.
 
   The command is the Dynamic tab ribbon's `Reset` button — Xray's ONE
-  app-directed affordance, and an existing product command rather than
-  one written for this row. Its whole path is the shipped one: a real
+  app-directed affordance, and a shipped product command rather than one
+  written for this row. Its whole path is the shipped one: a real
   browser click on the real `<button data-testid=\"rf-xray-tab-bar-reset\">`,
   the `:on-click` closure it carries, the dispatcher `tab-bar` captured
   with `(:dispatch (rf/capture-frame))`, `:rf.xray/reset-to-epoch` with
@@ -887,29 +868,18 @@
   at its post-bump value and the unselected one moves. Both assertions
   turn, from opposite sides.
 
-  ## THE PROHIBITION THAT STOOD HERE, AND WHY IT NO LONGER BINDS
-  ## (rf2-t2ke, discharged by rf2-3j1v)
+  ## THE STATIC SURFACE ISSUES NO APP-DIRECTED COMMAND
 
-  This docstring used to record that the row covered the first half
-  ONLY, that *a regression routing every app-directed Xray command to the
-  wrong application frame would leave this row green*, and that the gap
-  was deliberate. It was, and the measurement behind it stands: over
-  `tools/xray/src/day8/re_frame2_xray/static/**` the only `{:frame …}`
-  DISPATCH option anywhere in the Static tree is
+  Over `tools/xray/src/day8/re_frame2_xray/static/**` the only
+  `{:frame …}` DISPATCH option anywhere in the Static tree is
   `defaults/default-frame-id`, which IS the Xray frame — the `{:frame …}`
   options in `static/schemas/panel.cljs` being cross-frame READS.
-  `static/routes/simulate_nav.cljs` still states the posture in terms —
-  *Xray is a lens, not a remote control* — and the machine simulator
-  still clones the definition into Xray's OWN `app-db` so the host frame
-  is never touched.
-
-  WHAT CHANGED IS THE SUBJECT, NOT THE POSTURE. The Static ribbon issues
-  no app-directed command and still issues none; `Reset` is on the
-  DYNAMIC ribbon, which this harness could not mount until rf2-k97c.3
-  made the shell a Fresco boundary. So no product command was invented —
-  the prohibition rf2-t2ke wrote (*the staged Static surface has no such
-  command; do not invent one*) was never lifted, it was routed around by
-  widening the bench.
+  `static/routes/simulate_nav.cljs` states the posture in terms — *Xray
+  is a lens, not a remote control* — and the machine simulator clones the
+  definition into Xray's OWN `app-db` so the host frame is never touched.
+  So no product command is invented for this row: `Reset` is on the
+  DYNAMIC ribbon, which this harness mounts because the shell is a Fresco
+  boundary.
 
   AND `Reset` IS THE ONLY ONE, which is why the arm below is singular
   rather than a sample. The `{:frame frame}` dispatch closures across the
@@ -917,8 +887,8 @@
   and `:rf.xray/set-target-frame` writes Xray's own `app-db` too. The
   single Xray affordance whose effect lands in an inspected application
   is this one, and it reaches it through `rf/restore-epoch!` rather than
-  through a `{:frame …}` dispatch option at all — which is exactly why
-  the census that established the prohibition could not see it."
+  through a `{:frame …}` dispatch option at all — so a census of
+  `{:frame …}` dispatch options cannot see it."
   [{:keys [label]} done]
   (if-not (browser?)
     (do (skip! 4) (done))
@@ -1013,10 +983,9 @@
                 ;; the other, so the assertions above are known to be
                 ;; standing over live, separable frames.
                 ;;
-                ;; IT IS NOT THE MISSING HALF OF THE CRITERION, and must not
-                ;; be read as it — the commander here is the test, where the
-                ;; criterion wants XRAY. See the COVERAGE note in this fn's
-                ;; docstring (rf2-t2ke).
+                ;; IT IS NOT THE CRITERION'S SECOND HALF, and must not be
+                ;; read as it — the commander here is the test, where the
+                ;; criterion wants XRAY. The REWIND ARM below is that half.
                 (rf/dispatch-sync [::app-bump] {:frame second-app-frame})
                 (is (= {:count (inc second-app-seed)}
                        (app-db-of second-app-frame))
@@ -1034,7 +1003,7 @@
                          "`untouched` above means untouched rather than "
                          "unreadable. Got: " (pr-str (app-db-of app-frame))))
                 ;; ==========================================================
-                ;; THE REWIND ARM (rf2-3j1v) — criterion 4's SECOND half
+                ;; THE REWIND ARM — criterion 4's SECOND half
                 ;; ==========================================================
                 ;;
                 ;; Everything above is `the tool wrote into no application`.
@@ -1188,13 +1157,12 @@
   from `self-noise`: a filter cannot be both the subject and the
   instrument.
 
-  ## TWO CHANNELS, BECAUSE EVENT IDS ARE NOT THE WHOLE EVIDENCE (rf2-kay8)
+  ## TWO CHANNELS, BECAUSE EVENT IDS ARE NOT THE WHOLE EVIDENCE
 
   `evidence` is not `events`. The row reads the application's ring along
   BOTH of the axes Xray can contaminate:
 
-  - EVENT IDS, via [[app-trace-event-ids]] — the original arm, kept
-    intact;
+  - EVENT IDS, via [[app-trace-event-ids]];
   - RENDER RECORDS, via [[app-render-view-ids]] — records carrying
     `:rf.view/render-key` and `:frame` and NO `:rf.event/v`.
 
@@ -1203,10 +1171,9 @@
   so a leaked `:rf.view/rendered` is discarded before any assertion
   reaches it — it can contaminate the application's evidence, and the
   epoch `:renders` projection sourced from it, while every event-id
-  assertion stays green. That is not hypothetical: it is the shape of
-  rf2-tqlmq, the already-realised defect the node-lane guard in
-  `mount_cljs_test.cljs` (rf2-k97c.5) pins for the shell's own render.
-  This row is the real-browser, two-substrate counterpart.
+  assertion stays green. The node-lane guard in `mount_cljs_test.cljs`
+  pins that shape for the shell's own render; this row is the
+  real-browser, two-substrate counterpart.
 
   THE LAST FOUR ASSERTIONS ARE CONTROLS, and they run in this order for a
   reason. Every assertion about the untouched world is made FIRST; only
@@ -1215,7 +1182,7 @@
   channel is not merely empty) and then a deliberately misattributed
   Xray one (proving the detector bites). The closing assertion re-reads
   the EVENT-ID arm over that now-contaminated ring and shows it still
-  reporting clean — rf2-kay8's finding, kept as a live assertion rather
+  reporting clean — that arm's blindness, kept as a live assertion rather
   than as a comment somebody can delete without noticing."
   [{:keys [label]} done]
   (if-not (browser?)
@@ -1277,7 +1244,7 @@
                            "itself dispatched. Expected "
                            (pr-str #{::app-seed ::app-bump}) ", got "
                            (pr-str (set ids)))))
-                ;; ---- THE RENDER CHANNEL (rf2-kay8) ----------------------
+                ;; ---- THE RENDER CHANNEL ---------------------------------
                 ;; Every assertion above reads EVENT IDS. A leaked render
                 ;; record carries no `:rf.event/v` at all, so not one of
                 ;; them can see one — including the exact-set assertion,
@@ -1320,10 +1287,10 @@
                 ;; ---- DETECTOR CONTROL: the check BITES ------------------
                 ;; A misattributed Xray render — `rf.xray`-namespaced, tagged
                 ;; with the APPLICATION's frame, carrying render-key and
-                ;; frame and NO `:rf.event/v`. This is the shape of the
-                ;; already-realised defect rf2-tqlmq. The detector must find
-                ;; it; if it ever cannot, the assertions above have gone
-                ;; blind and this row says so on the spot.
+                ;; frame and NO `:rf.event/v`. This is the shape a leaked
+                ;; render takes. The detector must find it; if it ever
+                ;; cannot, the assertions above have gone blind and this
+                ;; row says so on the spot.
                 (emit-render-as! app-frame :rf.xray.static/tab-bar)
                 (is (= [:rf.xray.static/tab-bar]
                        (filterv xray-namespaced? (app-render-view-ids)))
@@ -1338,14 +1305,15 @@
                 ;; The ring now DEMONSTRABLY carries a foreign Xray record.
                 ;; The event-id projection still reports it clean, because a
                 ;; render record has no `:rf.event/v` for it to keep. That
-                ;; is rf2-kay8 stated as a passing assertion: delete the
-                ;; render arm above and this is the coverage that remains.
+                ;; is the event-id arm's blindness stated as a passing
+                ;; assertion: delete the render arm above and this is the
+                ;; coverage that remains.
                 (is (= #{::app-seed ::app-bump} (set (app-trace-event-ids)))
                     (str "[" label "] and the EVENT-ID reader is BLIND to all "
                          "of it — with two foreign render records now in the "
                          "ring it still reports exactly the application's own "
                          "two event ids. This is why criterion 5 reads the "
-                         "render channel directly (rf2-kay8). Got: "
+                         "render channel directly. Got: "
                          (pr-str (set (app-trace-event-ids)))))))
             (.catch (fail-and-finish (str "[" label "] criterion 5")))
             (.then (fn [_] (unmount-xray! handle) (done))))))))

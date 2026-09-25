@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panel-enum-spec-refs
   "Compile-time extractor for the `mount-<panel>!` references the Xray
-  API spec enumerates (rf2-rapnr).
+  API spec enumerates.
 
   THE PROBLEM. The panel-enum single-source guard
   (`panel_enum_guard_cljs_test.cljs`) is a ClojureScript test — it runs
@@ -18,15 +18,15 @@
   and no fragile cross-classpath `require` of the CLJS spec surface.
 
   THE READ IS RECORDED, WHICH IS THE WHOLE POINT OF THE READER IT GOES
-  THROUGH (rf2-uttbj, repairing rf2-863tl). Inlining a file at
+  THROUGH. Inlining a file at
   macro-expansion time by itself HIDES it from the build: a `.md` is not
   an input the ClojureScript compiler tracks, so the cached consumer
   holds no edge back to the bytes this macro froze. Correct a drifted
   spec row and the incremental compile reports `1 compiled` while the
   guard goes on reconciling the PREVIOUS expansion — a verdict over a
-  projection nobody re-read, measured failing in both directions (a
-  stale RED that survived its own fix, and a stale GREEN over a spec
-  the tree no longer contained). Reading through
+  projection nobody re-read, wrong in either direction (a stale RED
+  that survives its own fix, or a stale GREEN over a spec the tree no
+  longer contains). Reading through
   `re-frame.build.spec-resource/slurp-resource` instead records each
   file's classpath path and last-modified against the compiling
   namespace, and shadow-cljs re-checks both before reusing that
@@ -63,17 +63,17 @@
 
 (def ^:private known-removed-names
   "Curated allowlist of `mount-<panel>!` names the spec DELIBERATELY
-  mentions in removal notes (the panels were retired) but which are NOT
-  in the single-source `panel-enum`. The keystone idiom (see
+  mentions in removal notes but which are NOT in the single-source
+  `panel-enum`. The keystone idiom (see
   `re-frame.api-manifest.projection` §WHY AN ALLOWLIST): a surface
   legitimately names a removed old name to document the change; the
   allowlist silences exactly those, by name, so the guard stays green
   on the history note yet still goes RED for any OTHER unknown
   `mount-*!` that drifts into the spec.
 
-    - `mount-issues-ribbon!` — the Issues-tab mount fn, removed under
-      rf2-gbz39 (Mike's Option (c)); 007-UX-IA names it in the
-      removal note that explains where issues surface now."
+    - `mount-issues-ribbon!` — there is no Issues tab; 007-UX-IA
+      names the fn in the removal note that explains where issues
+      surface."
   #{"mount-issues-ribbon!"})
 
 (def ^:private spec-root
@@ -91,7 +91,7 @@
 
   REPO-RELATIVE RATHER THAN THE RESOURCE NAMES THE READ ACTUALLY TAKES,
   AND THAT IS A CONTRACT RATHER THAN A HABIT: the surface classifier's
-  Xray arm (rf2-6ng7) reads THIS vector to prove that each file it names
+  Xray arm reads THIS vector to prove that each file it names
   arms `cljs_node_test`, which is what makes an Xray spec edit schedule
   the lane that grades it. Reduce these to bare resource names and the
   classifier mirror goes red — and the coverage it guards goes with it,

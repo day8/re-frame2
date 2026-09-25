@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.panels-e2e.multi-frame-isolation-e2e-cljs-test
-  "Multi-frame e2e port of the Xray feature-matrix Playwright scenario
-  `multi-frame isolation substrate` (rf2-rviu8). The Playwright original
-  (`scenarios.cjs::runMultiFrame`) opened the multi-frame testbed in a
-  browser, clicked `inc-A`, `inc-B`, and `cross-bump`, then asserted:
+  "Multi-frame e2e coverage for the Xray feature-matrix Playwright scenario
+  `multi-frame isolation substrate`. The Playwright scenario
+  (`scenarios.cjs::runMultiFrame`) opens the multi-frame testbed in a
+  browser, clicks `inc-A`, `inc-B`, and `cross-bump`, then asserts:
 
     1. Frame isolation — `inc-A` only bumps `:counter/a`'s `:n`,
        `inc-B` only bumps `:counter/b`'s `:n`, and `:log/entries`
@@ -17,18 +17,18 @@
 
   At the data layer this is pure ClojureScript — three frames in one
   Node CLJS process, real `rf/dispatch` (not synthetic injection),
-  trace bus + epoch capture as in production. The browser carried no
-  extra signal — the DOM was a single counter per frame and a log
+  trace bus + epoch capture as in production. The browser adds no
+  extra signal — the DOM is a single counter per frame and a log
   list; the assertions all read off epoch-history + cascade subs.
 
   ## Bugs this catches
 
-  - rf2-83d4x / rf2-dodq2 — cross-frame dispatch missing `:frame` opt
-    drops the cascade onto the wrong frame.
-  - rf2-hwuki — `:frame` tag missing on emitted trace events filters
-    out of epoch capture; Xray sees no transitions.
-  - rf2-ulpp8 — `:focus :frame` filter slot mismatch lets phantom
-    cascades from other frames bleed into the L2 list."
+  - Cross-frame dispatch missing `:frame` opt drops the cascade onto
+    the wrong frame.
+  - `:frame` tag missing on emitted trace events filters out of epoch
+    capture; Xray sees no transitions.
+  - `:focus :frame` filter slot mismatch lets phantom cascades from
+    other frames bleed into the L2 list."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -83,7 +83,7 @@
           (is (contains? frame-ids mf/frame-a)
               ":counter/a cascade missing from :rf.xray/event-bundles")
           (is (contains? frame-ids mf/frame-b)
-              ":counter/b cascade missing — cross-frame dispatch lost its :frame tag (rf2-83d4x class)")
+              ":counter/b cascade missing — cross-frame dispatch lost its :frame tag")
           (is (contains? frame-ids mf/frame-log)
               ":log cascade missing — fan-out bridge dropped the third frame"))))))
 

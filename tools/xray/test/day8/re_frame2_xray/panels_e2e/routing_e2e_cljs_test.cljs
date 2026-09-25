@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels-e2e.routing-e2e-cljs-test
-  "Multi-frame e2e coverage for the Routing panel (rf2-7icrs,
-  spec/017 — Routes row).
+  "Multi-frame e2e coverage for the Routing panel (spec/017 —
+  Routes row).
 
   The Routing panel reads:
     - `:rf.xray/registered-routes` — every route registered via the
@@ -11,10 +11,10 @@
 
   At the e2e level we assert the composite resolves cleanly even
   when the host has zero routes registered (the empty-route empty-
-  state shape MUST survive). A separate test with at least one
-  registered route would add coverage but requires the routing
-  artefact's `reg-route` macro which lives outside `core/`; deferred
-  to a follow-on bead to keep the e2e helper's surface minimal."
+  state shape MUST survive). A test with at least one registered
+  route needs the routing artefact's `reg-route` macro, which lives
+  outside `core/`; this file stays within the e2e helper's minimal
+  surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]

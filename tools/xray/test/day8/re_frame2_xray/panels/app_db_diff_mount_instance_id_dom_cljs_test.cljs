@@ -1,18 +1,19 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-mount-instance-id-dom-cljs-test
   "TWO STANDALONE `mount-app-db-diff!` MOUNTS IN ONE FRAME, read off a real
-  React commit (rf2-2n8q).
+  React commit.
 
   ## The claim, and why it needs a DOM
 
-  rf2-t3fz gave `app-db-diff/Panel` an optional `:instance-id` PROP, so a
+  `app-db-diff/Panel` takes an optional `:instance-id` PROP, so a
   caller that RENDERS two panels under one `frame-provider` can name them.
-  `panels/mount-app-db-diff!` is the caller that cannot: it takes OPTS, and
-  `render-panel!` mounted `[panel-view]` with no props at all — so two
-  standalone mounts sharing the default `:frame` had no way to be told
-  apart. rf2-2n8q is the opts key that opens that door.
+  `panels/mount-app-db-diff!` cannot pass props: it takes OPTS, and
+  `render-panel!` mounts `[panel-view]` with no props at all — so without
+  an opts key two standalone mounts sharing the default `:frame` would
+  have no way to be told apart. The `:instance-id` opts key opens that
+  door.
 
   A row asserting the opts key was THREADED would pass while both mounts
-  still collided, which is the failure one level up. So nothing here reads
+  collided, which is the failure one level up. So nothing here reads
   the opts map, the captured tree, or the props. Two mounts are made
   through the public facade into two real containers, and every assertion
   below reads `container.querySelector` — the DOM React committed on its
@@ -27,7 +28,7 @@
   keyed differently, which is why BOTH are asserted:
 
     * `mount-id` keys the widget's per-mount store (qualified by frame, as
-      `[frame-id mount-id]` — rf2-d2aj) AND, unqualified, the measured
+      `[frame-id mount-id]`) AND, unqualified, the measured
       width slot inside the frame's app-db. Two mounts in ONE frame
       therefore share one store entry, one ResizeObserver and one width
       slot: qualifying the store key alone would be half a repair.
@@ -40,8 +41,8 @@
   panels with NO `:instance-id` and asserts the id sets are IDENTICAL. It
   carries two claims at once: the instrument can see a collision (so the
   disjointness above is separation and not silence), and omitting the opt
-  leaves every id byte-for-byte what it always was — which is every call
-  site in this tree today.
+  composes ids with no instance segment at all, as a single-mount call
+  site needs.
 
   ## Substrate: the Reagent adapter, and the mount is the PUBLIC one
 
@@ -75,8 +76,8 @@
             [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 (def ^:private host-frame
-  "The ordinary application frame the panel OBSERVES. EP-0002 (rf2-bd4div)
-  removed the default, so without selecting one the panel renders its TOP
+  "The ordinary application frame the panel OBSERVES. Under EP-0002 there
+  is no default, so without selecting one the panel renders its TOP
   section with the empty-state body and no widget mounts at all — which
   would leave every disjointness assertion below comparing two empty sets.
   The `(seq …)` control in each row is what separates that silence from
@@ -166,7 +167,7 @@
 ;; ===========================================================================
 
 (deftest two-named-standalone-mounts-compose-disjoint-ids
-  (testing "rf2-2n8q — `mount-app-db-diff!` given two different
+  (testing "`mount-app-db-diff!` given two different
             `:instance-id`s mounts two panels whose committed DOM carries
             two disjoint sets of `data-rf-mount-id` AND `data-rf-site-id`,
             in the ONE `:rf/xray` frame they both default to."
@@ -215,11 +216,11 @@
 ;; ===========================================================================
 
 (deftest detaching-one-named-mount-leaves-the-other-whole
-  (testing "rf2-2n8q — two named standalone mounts hold two entries in the
+  (testing "two named standalone mounts hold two entries in the
             widget's per-mount store, and unmounting one releases ONLY its
-            own. Under the shared identity both mounts share one entry, so
-            the survivor's read is nil and it is left with a disconnected
-            observer on a node still in the document."
+            own. Under a shared identity both mounts would share one entry,
+            so the survivor's read would be nil and it would be left with a
+            disconnected observer on a node still in the document."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup!)
@@ -246,23 +247,22 @@
               "the detached mount is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :ref)
-              "and the mount still on screen is untouched — releasing the
-               survivor is what the shared key did, and it disconnected an
-               observer of a node still in the document")
+              "and the mount still on screen is untouched — a shared key
+               would release the survivor too, disconnecting an observer of
+               a node still in the document")
           (finally
             (unmount! left)))))))
 
 ;; ===========================================================================
-;; W3 — the negative control: unnamed mounts collide, and are unchanged
+;; W3 — the negative control: unnamed mounts collide, with no instance segment
 ;; ===========================================================================
 
 (deftest two-unnamed-standalone-mounts-still-collide
-  (testing "rf2-2n8q — the defect verbatim, kept as a row. Two standalone
+  (testing "the collision, kept as a row. Two standalone
             mounts with NO `:instance-id` present the SAME ids, which is
             what makes W1's disjointness a measurement rather than a
             coincidence; and the ids they present carry no instance segment
-            at all, so every existing single-mount call site composes
-            exactly what it always did."
+            at all, as a single-mount call site needs."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup!)
@@ -288,7 +288,7 @@
                      "caller's name spliced in after the surface prefix — "
                      "which says both halves at once: naming qualifies the id "
                      "without disturbing the surface name inside it, and an "
-                     "unnamed mount composes byte-for-byte what it always did. "
+                     "unnamed mount composes the plain surface-prefixed id. "
                      "unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
             (is (= ids-a (mount-ids (:container a)))
                 "re-reading the same container is stable — these are

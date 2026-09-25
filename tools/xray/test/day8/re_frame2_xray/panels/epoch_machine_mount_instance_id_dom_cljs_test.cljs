@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.panels.epoch-machine-mount-instance-id-dom-cljs-test
   "TWO STANDALONE `mount-epoch-panel!` MOUNTS IN ONE FRAME, AND AN EPOCH
   PANEL BESIDE A MACHINE INSPECTOR SHARING ONE CASCADE, read off real React
-  commits (rf2-3ymg).
+  commits.
 
   ## The claim, and why it needs a DOM
 
-  rf2-k97c.3 replaced thirteen inline EDN heads in `panels/epoch/view` with
-  `ei/edn-inspector-view`, each carrying a `:mount-id` composed from a
+  `panels/epoch/view` mounts thirteen `ei/edn-inspector-view`s, each
+  carrying a `:mount-id` composed from a
   LOGICAL site — `\"epoch/dispatch-event\"` is a CONSTANT, and the machine
   cascade's three are a role plus a step ordinal. Those separate the roles
   within ONE panel and cannot separate two live mounts, which is a different
@@ -20,17 +20,18 @@
       cascade compose identical mount-ids too — because they render it
       through the SAME `machine-cascade-mini-pipeline`, off the SAME
       `projection/machine-cascade-rows`, which is the whole point of
-      rf2-g2axio's extraction. The Machine Inspector is a GUEST in the
-      Epoch panel's id namespace and had no way to say so.
+      that shared helper. The Machine Inspector is a GUEST in the Epoch
+      panel's id namespace, and without a qualifier of its own it would
+      have no way to say so.
 
   A row asserting an opts key was THREADED would pass while both mounts
-  still collided, which is the failure one level up. So nothing here reads
+  collided, which is the failure one level up. So nothing here reads
   the opts map, the captured tree or the props. The mounts are made through
   the PUBLIC facades into real containers, and every assertion reads
   `container.querySelector` — the DOM React committed on its own — the
   widget's own per-mount store, or the frame's app-db width slot.
 
-  ## The two observables, and the SECOND is the one the defect breaks
+  ## The two observables, and the SECOND is the one a collision breaks
 
   `data-rf-mount-id` is stamped by the edn-inspector widget on every
   committed container, carrying the BARE `:mount-id` the panel composed. It
@@ -40,15 +41,14 @@
   string, and `release-mount!` clears BOTH when a mount detaches.
 
   [[two-named-epoch-mounts-each-keep-their-own-observer-and-width]] is the
-  half a distinctness row would miss. Under the shared identity the SECOND
-  mount never installs a ResizeObserver at all (`container-ref-for` hands
-  back the memoised callback, whose mount arm is guarded on
-  `(nil? (:observer entry))`), and `release-mount!` then tears the SHARED
-  entry down — and clears the SHARED width — when EITHER mount detaches,
-  leaving the survivor on screen with no observer and no width.
+  half a distinctness row would miss. Under a shared identity the SECOND
+  mount would never install a ResizeObserver at all (`container-ref-for`
+  hands back the memoised callback, whose mount arm is guarded on
+  `(nil? (:observer entry))`), and `release-mount!` would then tear the
+  SHARED entry down — and clear the SHARED width — when EITHER mount
+  detaches, leaving the survivor on screen with no observer and no width.
 
-  ## WHY THE TWO PANELS ARE FIXED BY DIFFERENT MEANS, and that is the shape
-  ## finding rather than a copy of the Trace landing's
+  ## WHY THE TWO COLLISIONS ARE SEPARATED BY DIFFERENT MEANS
 
   ONE qualifier, on the `:mount-id` ALONE — every one of the thirteen sites
   passes a stable `:site-id` alongside it, and the widget's `effective-id`
@@ -60,7 +60,7 @@
   What it does NOT share is where the qualifier comes from. The two-Epoch
   collision is between two mounts of ONE panel, which nothing inside the
   panel can tell apart, so the CALLER names them — the optional
-  `:instance-id` the three shipped panels already take. The
+  `:instance-id` the three shipped panels take. The
   Epoch-vs-Machine-Inspector collision is between two DIFFERENT panels, and
   which panel is rendering is STATICALLY KNOWN: no caller should have to
   work around a shared helper's id namespace, and a caller embedding one of
@@ -70,14 +70,14 @@
   [[epoch-and-machine-inspector-do-not-share-cascade-mount-ids]] mounts one
   of each with NO opts at all and is the row that states it.
 
-  ## The negative control IS the defect, and it is a row rather than a note
+  ## The negative control IS the collision, and it is a row rather than a note
 
   [[two-unnamed-epoch-mounts-still-collide]] mounts two Epoch panels with no
   `:instance-id` and asserts the id sets are IDENTICAL. It carries two
   claims at once: the instrument can see a collision (so the disjointness
-  above is separation and not silence), and omitting the opt leaves every
-  Epoch id byte-for-byte what it always was — which is every call site in
-  this tree today.
+  above is separation and not silence), and omitting the opt composes
+  Epoch ids with no instance segment at all, as a single-mount call site
+  needs.
 
   ## Substrate: the Reagent adapter, and the mounts are the PUBLIC ones
 
@@ -173,28 +173,25 @@
              :event      [:auth/submit]
              :rf.trace/dispatch-id "d-1"}}]}])
 
-;; ---- the seeded DIAGNOSTICS epoch (rf2-1ar7) ------------------------------
+;; ---- the seeded DIAGNOSTICS epoch -----------------------------------------
 ;;
 ;; A SECOND fixture rather than seeds bolted onto `fixture-history`, and that
 ;; is deliberate. W1-W5 grade the ORDINARY payload mounts, and three of them
 ;; count ids or compare whole id sets; folding diagnostics into their epoch
 ;; would move those counts for reasons that have nothing to do with what they
 ;; assert. The rows below seed their own epoch and leave the five above
-;; reading exactly what they read before.
+;; reading theirs.
 ;;
-;; rf2-3ymg threaded the qualifier to every step that mounts an inspector and
-;; recorded `:interceptor` as a step that mounts none. It mounts none on a
-;; CLEAN cascade — the step is conditional on a throw — and one per throwing
-;; row carrying `ex-data`. The three sites this epoch reaches are the three
-;; that still dropped the argument at the merge commit of #9680:
+;; Every step that mounts an inspector threads the qualifier. The
+;; `:interceptor` step mounts none on a CLEAN cascade — the step is
+;; conditional on a throw — and one per throwing row carrying `ex-data`.
+;; The three diagnostic sites this epoch reaches:
 ;;
 ;;   * the INTERCEPTOR row's exception card, whose `ex-data` disclosure mounts
-;;     under `epoch/error-ex-data/<testid-base>`. Its whole chain
-;;     (`render-interceptor-step` → `interceptor-row-view` → `error-blocks`)
-;;     had no instance parameter at all.
+;;     under `epoch/error-ex-data/<testid-base>`, reached through
+;;     `render-interceptor-step` → `interceptor-row-view` → `error-blocks`.
 ;;   * the PER-ROW subscription violation explainer, reached through
-;;     `subscriptions-table`'s `:row-extras` — which held the instance and
-;;     used it one line above, in the value cell.
+;;     `subscriptions-table`'s `:row-extras`.
 ;;   * the STEP-LEVEL subscription violation explainer at the foot of
 ;;     `render-subscriptions-step`.
 
@@ -270,15 +267,14 @@
 ;;
 ;; LITERALS, not values re-derived from the same render the rows read. A door
 ;; that compares what it read against something composed the same way agrees
-;; with itself under the revert — both sides go unqualified together, the
-;; comparison still holds, and the row passes ON the defect. These strings
-;; are what the panel must produce, stated independently of it.
+;; with itself — were the qualifier dropped, both sides would go unqualified
+;; together, the comparison would still hold, and the row would pass ON the
+;; collision. These strings are what the panel must produce, stated
+;; independently of it.
 ;;
 ;; Each tail is composed by the source as `(str "epoch/violation-explain/"
 ;; step-key "/" idx)` — `step-key` is a KEYWORD and `str` keeps its leading
-;; colon, which is why `:subscriptions` appears here with one. The
-;; step-level id below is verbatim the one rf2-1ar7 names as its worked
-;; example of the collision.
+;; colon, which is why `:subscriptions` appears here with one.
 
 (def ^:private interceptor-ex-data-site
   "epoch/error-ex-data/rf-xray-epoch-error-interceptor-row-0-0")
@@ -322,7 +318,7 @@
   read. The sibling suites do not meet this because they mount the registry
   head under a `frame-provider` directly and never reach the facade.
 
-  rf2-1ar7 — the one-argument arity takes the history to seed, so the
+  The one-argument arity takes the history to seed, so the
   diagnostics rows below run the SAME facade path W1-W5 do rather than a
   second one of their own. The focus is taken FROM that history rather than
   written as a constant beside it: a fixture whose `:epoch-id` drifted from a
@@ -385,7 +381,7 @@
 
 (defn- site-ids
   "Every `data-rf-site-id` in `container`'s committed DOM. The LOGICAL
-  identity, which this bead must leave alone."
+  identity, which instance-naming leaves alone."
   [container]
   (->> (.querySelectorAll container "[data-rf-site-id]")
        (js/Array.from)
@@ -411,7 +407,7 @@
 ;; ===========================================================================
 
 (deftest two-named-epoch-mounts-compose-disjoint-inspector-mount-ids
-  (testing "rf2-3ymg — `mount-epoch-panel!` given two different
+  (testing "`mount-epoch-panel!` given two different
             `:instance-id`s mounts two panels whose committed DOM carries two
             disjoint sets of `data-rf-mount-id`, in the ONE `:rf/xray` frame
             they both default to. Each id composes the widget's lifecycle key
@@ -458,13 +454,13 @@
 ;; ===========================================================================
 
 (deftest two-named-epoch-mounts-each-keep-their-own-observer-and-width
-  (testing "rf2-3ymg — two named standalone Epoch mounts hold two entries in
+  (testing "two named standalone Epoch mounts hold two entries in
             the widget's per-mount store, each with its OWN ResizeObserver and
             its OWN entry in the frame's measured-width slot, and unmounting
-            one releases ONLY its own. Under the shared identity the second
-            mount never installs an observer at all, and `release-mount!`
-            tears the shared entry down AND clears the shared width when
-            either detaches — so the survivor is left on screen unobserved and
+            one releases ONLY its own. Under a shared identity the second
+            mount would never install an observer at all, and `release-mount!`
+            would tear the shared entry down AND clear the shared width when
+            either detaches — leaving the survivor on screen unobserved and
             unmeasured, which a distinctness row alone cannot see."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -526,9 +522,9 @@
               "the detached mount is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
-              "and the mount STILL ON SCREEN is still observed — releasing the
-               survivor's entry is what the shared key did, and it left a live
-               node with no observer and no width updates")
+              "and the mount STILL ON SCREEN is still observed — a shared key
+               would release the survivor's entry too, leaving a live node
+               with no observer and no width updates")
           ;; The store entry is dropped by a synchronous `swap!` but the width
           ;; is cleared by a DISPATCH, which is queued — the slot still reads
           ;; its pre-unmount value on the line straight after
@@ -559,13 +555,13 @@
 ;; ===========================================================================
 
 (deftest epoch-and-machine-inspector-do-not-share-cascade-mount-ids
-  (testing "rf2-3ymg — an Epoch panel and a Machine Inspector displaying the
+  (testing "an Epoch panel and a Machine Inspector displaying the
             SAME machine cascade, both mounted with NO opts, compose disjoint
             cascade mount-ids. They render that cascade through one shared
             `machine-cascade-mini-pipeline` off one
-            `projection/machine-cascade-rows`, so before the repair both
-            emitted `epoch/machine-cascade-transition-delta/<step>` for the
-            same step and shared one lifecycle entry, one ResizeObserver and
+            `projection/machine-cascade-rows`, so without a qualifier both
+            would emit `epoch/machine-cascade-transition-delta/<step>` for the
+            same step and share one lifecycle entry, one ResizeObserver and
             one width slot across two DIFFERENT panels.
 
             NO `:instance-id` is passed, deliberately: which panel is
@@ -613,12 +609,12 @@
 ;; ===========================================================================
 
 (deftest two-named-epoch-mounts-share-their-disclosure-identity
-  (testing "rf2-3ymg — the bound on this repair, as a row. Naming two mounts
+  (testing "the bound on instance-naming, as a row. Naming two mounts
             qualifies the PHYSICAL identity only: the `:site-id` that keys
-            expansion and zoom (rf2-pvsxs) is IDENTICAL across the two panels,
-            so two views of the same epoch still open and close together and
-            an operator's expansion choices still survive a tab
-            leave-and-return. A repair that qualified the site-id too would
+            expansion and zoom is IDENTICAL across the two panels,
+            so two views of the same epoch open and close together and
+            an operator's expansion choices survive a tab
+            leave-and-return. Qualifying the site-id too would
             pass W1, W2 and W3 and silently change this."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -647,16 +643,15 @@
             (unmount! left)))))))
 
 ;; ===========================================================================
-;; W5 — the negative control: unnamed Epoch mounts collide, and are unchanged
+;; W5 — the negative control: unnamed Epoch mounts collide, with no instance segment
 ;; ===========================================================================
 
 (deftest two-unnamed-epoch-mounts-still-collide
-  (testing "rf2-3ymg — the defect verbatim, kept as a row. Two standalone
+  (testing "the collision, kept as a row. Two standalone
             Epoch mounts with NO `:instance-id` present the SAME mount-ids,
             which is what makes W1's disjointness a measurement rather than a
             coincidence; and the ids they present carry no instance segment at
-            all, so every existing single-mount call site composes exactly
-            what it always did."
+            all, as a single-mount call site needs."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup!)
@@ -675,8 +670,8 @@
                      "disjointness is a measurement rather than silence. a="
                      (pr-str ids-a)))
             (is (some #(= "epoch/dispatch-event" %) ids-a)
-                (str "and they are byte-for-byte the ids this panel composed "
-                     "before rf2-3ymg — the DISPATCH step's is a CONSTANT, "
+                (str "and they carry no instance segment — the DISPATCH "
+                     "step's is a CONSTANT, "
                      "which is the sharpest statement of both halves: it "
                      "collides between two mounts, and it must not move for "
                      "one. a=" (pr-str ids-a)))
@@ -697,20 +692,18 @@
             (unmount! a)))))))
 
 ;; ===========================================================================
-;; W6 — the INTERCEPTOR row's ex-data disclosure (rf2-1ar7)
+;; W6 — the INTERCEPTOR row's ex-data disclosure
 ;; ===========================================================================
 
 (deftest two-named-epoch-mounts-qualify-the-interceptor-ex-data-mount
-  (testing "rf2-1ar7 — two named Epoch mounts showing the SAME interceptor
+  (testing "two named Epoch mounts showing the SAME interceptor
             exception compose two disjoint `epoch/error-ex-data/…` mount-ids.
 
-            This is the path rf2-3ymg missed entirely rather than passed
-            wrongly: `render-interceptor-step` → `interceptor-row-view` →
-            `error-blocks` carried NO instance parameter, so there was
-            nothing for the dispatcher to hand down. The card's `ex-data`
+            The instance travels `render-interceptor-step` →
+            `interceptor-row-view` → `error-blocks`: the card's `ex-data`
             disclosure mounts an `ei/edn-inspector-view` whose `:mount-id` is
-            composed from the step-key and the row ordinal ALONE — both of
-            which are identical across two mounts of one epoch."
+            otherwise composed from the step-key and the row ordinal ALONE —
+            both of which are identical across two mounts of one epoch."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup! diagnostics-history)
@@ -746,7 +739,7 @@
                      " right=" (pr-str ids-r)))
             (is (nil? (some #(= interceptor-ex-data-site %)
                             (concat ids-l ids-r)))
-                (str "and NEITHER still presents the unqualified id — an "
+                (str "and NEITHER presents the unqualified id — an "
                      "EQUALITY test, because the qualified ids contain the "
                      "unqualified one as a substring. unqualified="
                      interceptor-ex-data-site " left=" (pr-str ids-l)
@@ -760,17 +753,15 @@
 ;; ===========================================================================
 
 (deftest two-named-epoch-mounts-qualify-both-subscription-violation-mounts
-  (testing "rf2-1ar7 — two named Epoch mounts rendering the SAME subscription
+  (testing "two named Epoch mounts rendering the SAME subscription
             schema violations compose disjoint explainer mount-ids, on BOTH
             the per-row and the step-level path.
 
-            The two failed differently and are therefore both rows here.
-            `subscriptions-table` HELD the instance — the value cell one line
-            above uses it — and its `:row-extras` callback took
-            `violation-blocks`' two-argument arity anyway. The step-level call
-            at the foot of `render-subscriptions-step` had `(:instance ctx)`
-            available and omitted it. That second one is the bead's own worked
-            example: both named panels produced
+            They are two separate call sites and so two rows here:
+            `subscriptions-table`'s `:row-extras` callback, and the
+            step-level call at the foot of `render-subscriptions-step`. Each
+            must hand `violation-blocks` the instance; a step-level call
+            without it would give both named panels
             `epoch/violation-explain/:subscriptions/0`."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -809,9 +800,9 @@
 
             (is (nil? (some #{sub-row-violation-site sub-step-violation-site}
                             (concat ids-l ids-r)))
-                (str "and neither mount still presents either unqualified "
-                     "explainer id — the step-level one is verbatim what "
-                     "rf2-1ar7 reported both named panels producing. left="
+                (str "and neither mount presents either unqualified "
+                     "explainer id, per-row or "
+                     "step-level. left="
                      (pr-str ids-l) " right=" (pr-str ids-r)))
             (is (nil? (some (set ids-l) ids-r))
                 (str "taken whole, the two mounts share no id at all. left="
@@ -825,17 +816,17 @@
 ;; ===========================================================================
 
 (deftest diagnostic-mounts-each-keep-their-own-observer-and-width
-  (testing "rf2-1ar7 — the half a distinctness row passes over, asserted on a
+  (testing "the half a distinctness row passes over, asserted on a
             DIAGNOSTIC mount rather than an ordinary payload one.
 
             Distinctness alone is satisfied by any two different strings. What
-            the shared id actually costs is physical: the second mount's ref
-            callback finds an observer already on the entry and installs
-            NONE, and `release-mount!` then tears the shared entry down — and
-            clears the shared width — when EITHER holder detaches, leaving the
-            panel still on screen unobserved and unmeasured. W2 pins this for
+            a shared id would cost is physical: the second mount's ref
+            callback would find an observer already on the entry and install
+            NONE, and `release-mount!` would then tear the shared entry down —
+            and clear the shared width — when EITHER holder detaches, leaving
+            the panel on screen unobserved and unmeasured. W2 pins this for
             the dispatch-event mount; this row pins it for the step-level
-            violation explainer, which is the mount rf2-1ar7 is about."
+            violation explainer."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -888,8 +879,8 @@
               "the detached mount's entry is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
-              "and the mount STILL ON SCREEN is still observed — releasing the
-               survivor's entry is exactly what the shared key did")
+              "and the mount STILL ON SCREEN is still observed — a shared key
+               would release the survivor's entry too")
           (-> (rf.test-support/poll-until
                 (fn [] (nil? (get (widths) id-r)))
                 {:label "release-mount! cleared the detaching explainer's width"})
@@ -908,18 +899,18 @@
               (.then (fn [_] (unmount! left) (done)))))))))
 
 ;; ===========================================================================
-;; W9 — the negative control: unnamed diagnostic mounts collide, unchanged
+;; W9 — the negative control: unnamed diagnostic mounts collide
 ;; ===========================================================================
 
 (deftest two-unnamed-epoch-mounts-still-collide-on-the-diagnostic-ids
-  (testing "rf2-1ar7 — the defect verbatim, kept as a row, and the thing that
+  (testing "the collision, kept as a row, and the thing that
             makes W6-W8 measurements rather than silence.
 
             Two UNNAMED Epoch mounts rendering the same three diagnostics
-            present the SAME ids, and those ids are byte-for-byte the
+            present the SAME ids, and those ids are the
             unqualified sites this file writes out — so the instrument can see
-            a collision, and the single-mount default that every call site in
-            this tree uses composes exactly what it always did. W5 states both
+            a collision, and the single-mount default composes ids with no
+            instance segment. W5 states both
             halves for the ordinary payload mounts; this is the diagnostics'."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -938,7 +929,7 @@
             (doseq [site diagnostic-sites]
               (is (some #(= site %) ids-a)
                   (str "the unnamed mount composes the unqualified " site
-                       " — this is the collision rf2-1ar7 reported, and it is "
+                       " — this is the collision, and it is "
                        "also the identity that must not move for a single "
                        "mount. a=" (pr-str ids-a)))))
           (finally

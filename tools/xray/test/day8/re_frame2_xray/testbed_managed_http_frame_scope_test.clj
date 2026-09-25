@@ -1,32 +1,30 @@
 (ns day8.re-frame2-xray.testbed-managed-http-frame-scope-test
-  "Guard the FRAME SCOPE of the MANAGED-HTTP testbed's registry seams
-  (rf2-s4dp, parent rf2-o8ek).
+  "Guard the FRAME SCOPE of the MANAGED-HTTP testbed's registry seams.
 
   ## The problem
 
-  PR #9195 made managed-HTTP cancellation frame-scoped: the in-flight and
+  Managed-HTTP cancellation is frame-scoped: the in-flight and
   actor-in-flight indexes key on `(frame-id, id)` rather than the raw id,
   read off the `:frame` stamp the live transport puts on every handle it
-  records. To avoid a flag day it deliberately KEPT the frame-less arities
-  as documented ANY-FRAME seams.
+  records. The frame-less arities remain, as documented ANY-FRAME seams.
 
-  That combination has a sharp edge: a call site that was correct BEFORE
-  #9195 is silently wrong after it. A handle recorded without a `:frame`
+  That combination has a sharp edge. A handle recorded without a `:frame`
   keys under `nil` — a scope no frame-scoped abort can reach — and nothing
   errors. `tools/xray/testbeds/managed_http/core.cljs` seeds its handles by
   hand (a real Fetch against a dev-http static server resolves instantly,
   leaving nothing observably in-flight), so it is exactly such a site, and
   its step 5 dispatches the live `:rf.http/managed-abort` fx at the handle
-  step 1 seeded. Measured on the pre-fix source with a JVM registry probe:
+  step 1 seeded. A handle seeded without `:frame` reads, under a JVM
+  registry probe:
 
       {:keyed-under ([nil :xray/in-flight]),
        :any-frame-finds? true,
        :real-frame-finds? false,
        :managed-abort-hits? false}
 
-  — the abort step resolved NOTHING, and did so silently. An any-frame
-  sweep still \"works\" in a single-frame testbed, which is why no existing
-  gate caught it.
+  — the abort step resolves NOTHING, and silently. An any-frame sweep
+  still \"works\" in a single-frame testbed, so only a frame-scope law
+  catches it.
 
   ## Why this guard is source-text rather than a live registry probe
 
@@ -40,7 +38,7 @@
 
   ## What this guard enforces
 
-  Two specific laws, stated over EVERY `record-in-flight!` call in the
+  Three specific laws, stated over EVERY `record-in-flight!` call in the
   testbed rather than over three hand-named functions, so a NEW seeding fx
   inherits them:
 
@@ -224,7 +222,7 @@
                    form)
           "the 1-arity is the documented ANY-FRAME seam; it sweeps the
            actor-id in EVERY frame, which is the reach the frame-scoped
-           keys removed from the abort half")))
+           keys deny the abort half")))
 
   (testing "the reset fx may still clear globally — that is its job"
     ;; `clear-all-in-flight!` is global BY INTENT (the deck's reset button
@@ -258,5 +256,5 @@
             (str "`abort-on-actor-destroy` clears the ACTOR slot itself and "
                  "delegates the REQUEST-id half to this closure, so a no-op "
                  "abort-fn leaves a ghost handle in the request index after "
-                 "its actor is destroyed (rf2-s4dp). Offending closure:\n"
+                 "its actor is destroyed. Offending closure:\n"
                  (pr-str abort)))))))

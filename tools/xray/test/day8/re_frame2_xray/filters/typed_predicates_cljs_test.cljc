@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.filters.typed-predicates-cljs-test
-  "Pure-data tests for the typed-predicate filter matchers (rf2-piye4).
+  "Pure-data tests for the typed-predicate filter matchers.
 
   CLJC so BOTH corpora exercise every kind — the matcher is pure
-  data, no atoms, no I/O (rf2-odlm3). Spec/020 §2 catalogues
+  data, no atoms, no I/O. Spec/020 §2 catalogues
   the four kinds; this file pins one composition test per kind +
   legacy back-compat + mixed-bucket composition.
 
@@ -53,14 +53,14 @@
   (testing "`{:pattern <kw-or-str>}` (the dialog's only output shape)
             hydrates as `:event-id-pattern` so persisted pills
             round-trip cleanly. Event-id is the only scope — no :scope
-            slot is ever produced (rf2-o8pjv)."
+            slot is ever produced."
     (is (= {:kind   :event-id-pattern
             :params {:pattern :auth/login}}
            (typed/canonicalise-pill {:pattern :auth/login})))))
 
 (deftest canonicalise-drops-stale-scope-key
-  (testing "a pill carrying a stale `:scope` key (persisted before
-            rf2-o8pjv) hydrates to the event-id-pattern shape WITHOUT
+  (testing "a pill carrying a stale `:scope` key (an older persisted
+            shape) hydrates to the event-id-pattern shape WITHOUT
             the :scope — the matcher honours event-id only, so the
             stale slot is excised on the way through"
     (is (= {:kind   :event-id-pattern
@@ -101,7 +101,7 @@
     (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest event-id-pattern-legacy-shape
-  (testing "rf2-ak4ms legacy `{:pattern :auth/*}` still matches via the
+  (testing "the legacy `{:pattern :auth/*}` shape matches via the
             canonicaliser — back-compat with already-persisted pills"
     (let [cascade (mk-cascade {:event [:auth/login]})]
       (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/*}))
@@ -152,16 +152,16 @@
 ;; ---- :http-correlation kind ---------------------------------------------
 
 ;; The fixtures below are PRODUCER SHAPES, taken from a driven
-;; `:rf.http/managed` request (rf2-st7j0): a real trace listener over a
+;; `:rf.http/managed` request: a real trace listener over a
 ;; real dispatch, projected by `re-frame.trace.projection/group-by-event`.
 ;; The issuing `:rf.fx/handled` row really does carry
 ;; `[:tags :rf.fx/args :request-id]`, and the reply-target run's event
 ;; vector really does carry the canonical reply map's `:correlation`.
 ;;
-;; They replace fixtures that asserted a FLAT `:correlation-id` tag. No
-;; producer stamps one — measured 0 across every trace event of that
-;; driven run — so those fixtures pinned a shape the runtime never
-;; produces and the pill filtered the L2 list to nothing.
+;; No producer stamps a FLAT `:correlation-id` tag — measured 0 across
+;; every trace event of that driven run — so a fixture asserting one
+;; would pin a shape the runtime never produces, and a pill matching only
+;; that shape filters the L2 list to nothing.
 
 (defn- issuing-fx-row
   "The `:rf.fx/handled` row an issuing event-bundle's `:effects` carry,
@@ -173,7 +173,7 @@
 
 (deftest http-correlation-matches-issuing-effect
   (testing "the issuing bundle matches on the caller's :request-id, read
-            off the :rf.fx/handled row's :tags :rf.fx/args (rf2-st7j0)"
+            off the :rf.fx/handled row's :tags :rf.fx/args"
     (let [cascade (mk-cascade
                     {:event   [:article/load {:slug "hello"}]
                      :effects [(issuing-fx-row {:request-id "abc-123"
@@ -219,9 +219,9 @@
       (is (not (typed/event-bundle-matches-pill? cascade pill))))))
 
 (deftest http-correlation-ignores-the-invented-flat-tag
-  (testing "rf2-st7j0 — a flat :correlation-id TAG is not a producer shape;
+  (testing "a flat :correlation-id TAG is not a producer shape;
             nothing stamps one, so the matcher must not answer to it. This
-            pins the retired fixture shape OUT, so it cannot creep back."
+            pins that shape OUT, so it cannot creep back."
     (let [cascade (mk-cascade {:event   [:article/load]
                                :effects [(tagged {:correlation-id "abc-123"})]})
           pill    {:kind :http-correlation
@@ -229,7 +229,7 @@
       (is (not (typed/event-bundle-matches-pill? cascade pill))))))
 
 (deftest http-correlation-ignores-the-ungrouped-completion-row
-  (testing "rf2-st7j0 — the `:rf.http/replied` completion row is emitted
+  (testing "the `:rf.http/replied` completion row is emitted
             outside any handler scope, so the projection buckets it into the
             shared :ungrouped pseudo-bundle. That bundle holds unrelated
             exchanges' rows, so it is deliberately NOT this exchange's."
@@ -319,7 +319,7 @@
     (is (= [1 3] (mapv :dispatch-id
                        (typed/filter-event-bundles [c1 c2 c3] filters))))))
 
-;; ---- causal-parent matching under epoch-per-event (rf2-a1eld) ------------
+;; ---- causal-parent matching under epoch-per-event ------------------------
 ;;
 ;; Under epoch-per-event the spawning event and the machine/http/fx
 ;; transition it triggers are SEPARATE cascades linked by
@@ -337,7 +337,7 @@
 
 (deftest machine-pill-keeps-spawning-parent-cascade
   (testing "a :machine pill on the machine-transition CHILD cascade also
-            keeps the PARENT event that spawned the transition (rf2-a1eld)"
+            keeps the PARENT event that spawned the transition"
     (let [;; parent: the user event that spawned the transition. Carries
           ;; NO machine tag of its own — it only matches via the child.
           parent  (mk-child-cascade {:dispatch-id 10
@@ -361,7 +361,7 @@
 
 (deftest http-pill-keeps-spawning-parent-cascade
   (testing "an :http-correlation pill on the response CHILD cascade also
-            keeps the PARENT event that issued the request (rf2-a1eld)"
+            keeps the PARENT event that issued the request"
     (let [parent  (mk-child-cascade {:dispatch-id 100
                                      :event       [:user/load-page]})
           child   (mk-child-cascade {:dispatch-id        200
@@ -381,7 +381,7 @@
 
 (deftest fx-pill-keeps-spawning-parent-cascade
   (testing "an :fx pill on the fx-triggering CHILD cascade also keeps the
-            PARENT event that spawned it (rf2-a1eld)"
+            PARENT event that spawned it"
     (let [parent  (mk-child-cascade {:dispatch-id 1
                                      :event       [:user/click]})
           child   (mk-child-cascade {:dispatch-id        2
@@ -400,7 +400,7 @@
 (deftest typed-pill-walks-full-chain-to-root
   (testing "the ancestor walk is whole-chain: a :machine pill on a deep
             grandchild surfaces every cascade up to the root user event
-            (rf2-a1eld design call — strict superset, no over-matching)"
+            (strict superset, no over-matching)"
     (let [root  (mk-child-cascade {:dispatch-id 1
                                    :event       [:user/click]})
           mid   (mk-child-cascade {:dispatch-id        2
@@ -420,7 +420,7 @@
 (deftest out-pill-stays-event-bundle-local-does-not-drop-ancestor
   (testing "an OUT (hide) pill suppresses only the cascade carrying its
             tag, never an ancestor — hiding a child's fx must not silently
-            drop the originating user event (rf2-a1eld)"
+            drop the originating user event"
     (let [parent  (mk-child-cascade {:dispatch-id 1
                                      :event       [:user/click]})
           child   (mk-child-cascade {:dispatch-id        2
@@ -436,7 +436,7 @@
 
 (deftest parent-walk-cycle-guarded
   (testing "a malformed trace with a parent loop terminates the walk
-            rather than spinning (rf2-a1eld defensive guard)"
+            rather than spinning (a defensive guard)"
     (let [a (mk-child-cascade {:dispatch-id 1 :parent-dispatch-id 2
                                :event [:a]})
           b (mk-child-cascade {:dispatch-id 2 :parent-dispatch-id 1
@@ -449,15 +449,15 @@
           kept    (mapv :dispatch-id (typed/filter-event-bundles [a b] filters))]
       (is (= [1 2] kept)))))
 
-;; ---- frame-qualified lineage identity (rf2-3fc89f.25) --------------------
+;; ---- frame-qualified lineage identity -----------------------------------
 ;;
 ;; The published trace contract guarantees dispatch-id uniqueness only
 ;; WITHIN a frame, so two frames may legitimately reuse the same
 ;; dispatch-id. The causal-lineage machinery keys on the frame-qualified
 ;; `[frame dispatch-id]` identity end-to-end (index, retained-key set,
-;; membership check, cycle guard). A bare-id identity cross-links unrelated
-;; frames' lineages — these regressions FAIL on the pre-fix id-only code,
-;; which retains the unrelated same-id bundle from the other frame.
+;; membership check, cycle guard). A bare-id identity would cross-link
+;; unrelated frames' lineages, retaining the unrelated same-id bundle from
+;; the other frame — these tests FAIL against an id-only identity.
 
 (defn- mk-frame-cascade
   "A cascade carrying a `:frame`, `:dispatch-id`, and optional causal-parent
@@ -563,9 +563,9 @@
            same-id bundle survive"))))
 
 (deftest ungrouped-and-nil-id-still-excluded-with-frames
-  (testing "the :ungrouped pseudo-bundle and nil-dispatch-id bundles remain
+  (testing "the :ungrouped pseudo-bundle and nil-dispatch-id bundles stay
             outside the causal index and are not retained by an IN pill's
-            lineage — unchanged by frame-qualification"
+            lineage, under frame-qualified identity too"
     (let [root      (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/root]})
           child     (mk-frame-cascade {:frame :a :dispatch-id 2
                                        :parent-dispatch-id 1

@@ -8,7 +8,7 @@
   edge would form a cycle. This ns is the dependency-free seam.
 
   The Var is re-exported from `registry.cljs` so callers (the shell,
-  tests) can keep reading `registry/default-target-frame` — same
+  tests) can read `registry/default-target-frame` — same
   source of truth, same external surface.")
 
 (def default-frame-id
@@ -58,8 +58,7 @@
       UNSELECTED.
 
   Those are the paths that exist today, not a closed list — judge a new
-  one by the rule (Xray spec 008 §Own frame vs target frame; this
-  docstring's earlier three-source enumeration was false, rf2-y3keu).
+  one by the rule (Xray spec 008 §Own frame vs target frame).
   When nothing selects a target the slot stays `nil`; the
   `:rf.xray/target-frame` sub reports `nil` and the panels render their
   unselected-target state (the frame picker prompts a choice) rather than

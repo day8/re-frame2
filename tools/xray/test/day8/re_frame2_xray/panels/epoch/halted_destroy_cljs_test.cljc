@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.epoch.halted-destroy-cljs-test
-  "rf2-v6ftp — a `:halted-destroy` epoch record, produced by a REAL
-  self-destroying handler and projected by the Epoch panel's projection.
+  "A `:halted-destroy` epoch record, produced by a REAL self-destroying
+  handler and projected by the Epoch panel's projection.
 
   A destroy is a deliberate lifecycle stop, not an error: the framework's
   consumer-facing mapping sends it to `:blocked`. So the projection shows no

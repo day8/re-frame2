@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.panels.routing-cljs-test
   "CLJS-side wiring + view tests for Xray's Dynamic Routing tab —
-  the three-section stack (rf2-ad7zx.7, reconciled to RoutesPanel
-  + spec/021 §7.2; refining rf2-3kjlo / rf2-o5f5f.3).
+  the three-section stack (reconciled to RoutesPanel
+  + spec/021 §7.2).
 
-  ## Scope (post-rf2-ad7zx.7)
+  ## Scope
 
   The Dynamic Routing tab renders three stacked sections per spec/021
   §7.2, top → bottom:
@@ -62,10 +62,9 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture` owns the reset: plain-atom adapter + the
+  ;; default `:all` reset tier, which includes the trace-collector ring
+  ;; reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers (mirror issues_ribbon_view_cljs_test) ---------------
@@ -104,19 +103,17 @@
        (apply str)))
 
 (defn- panel-tree
-  "The panel's markup for the CURRENT state of `:rf.xray/routing-tab-data`
-  — what calling the panel var directly returned before rf2-k97c.3 made
-  the panel a Fresco boundary.
+  "The panel's markup for the CURRENT state of `:rf.xray/routing-tab-data`.
 
-  `routing/Panel` is now the `as-component` bridge and answers an
+  `routing/Panel` is the `as-component` bridge and answers an
   interop vector, not a tree to walk; the markup is
   `routing/panel-tree`, a pure fn of the composite's VALUE. So the read
-  the panel used to make inside its own body is made here, one line
-  above it, and every row below asserts on exactly the hiccup it did.
+  the panel's boundary makes is made here, one line above it, and every
+  row below asserts on the hiccup the panel renders.
 
-  This is deliberately still the AMBIENT `rf/subscribe`, because these
+  This is deliberately the AMBIENT `rf/subscribe`, because these
   rows run under `rf/with-frame :rf/xray` in the node lane with no
-  React commit at all. What the panel's own read now resolves to — the
+  React commit at all. What the panel's own read resolves to — the
   frame React context names, not the ambient one — is the subject of
   `routing_fresco_boundary_dom_cljs_test`, which mounts for real."
   []
@@ -147,7 +144,7 @@
 (defn- deactivated [route-id]
   ;; The runtime's :rf.route/deactivated lifecycle emit for the PRIOR
   ;; route on a cross-route nav (carries :tags :route-id = FROM). FROM
-  ;; is read off this emit, not the live slice (rf2-m9rx6).
+  ;; is read off this emit, not the live slice.
   {:id        98
    :op-type   :rf.event
    :operation :rf.route/deactivated
@@ -157,10 +154,9 @@
   "The route slice ONE real `:rf.route/navigate` writes into `:rf/default`'s
   runtime-db at `[:rf.runtime/routing :current]`, read back off the frame.
 
-  The CURRENT ROUTE rows used to feed a hand-typed slice carrying `:path`
-  (and, in one row, `:id`) — keys the router never writes — so the panel's
-  `(when path …)` branch passed here and was dead in production
-  (rf2-y8doi.22). Taking the slice from the producer is what stops the
+  A hand-typed slice carrying `:path` (or `:id`) — keys the router never
+  writes — would let a panel branch reading them pass here while dead in
+  production. Taking the slice from the producer is what stops the
   fixture and the panel agreeing on a shape nothing emits. Registers
   `route-id` for real; the reset fixture rolls it back."
   [route-id pattern request]
@@ -186,7 +182,7 @@
         ":rf.xray/current-route-slice sub registered")
     (is (some? (rf.registrar/handler :sub :rf.xray/routing-tab-data))
         "view-facing topology-plus-overlay composite sub registered"))
-  (testing "rf2-e8330v — production registration installs NO -for-test ids
+  (testing "production registration installs NO -for-test ids
             nor *-override subs; install-test-overrides! installs them"
     (registry/register-xray-handlers!)
     (is (nil? (rf.registrar/handler :sub :rf.xray/registered-routes-override)))
@@ -202,21 +198,21 @@
         "test-only override event registered by seam")
     (is (some? (rf.registrar/handler :event :rf.xray/set-current-route-slice-override-for-test))
         "test-only override event registered by seam"))
-  (testing "rf2-o5f5f.3 — browse + search + Simulate-URL slots NO LONGER live
-            under :rf.xray.routing/* (promoted to :rf.xray.static.routes/*)"
+  (testing "browse + search + Simulate-URL slots do NOT live under
+            :rf.xray.routing/* (they live under :rf.xray.static.routes/*)"
     (registry/register-xray-handlers!)
     (is (nil? (rf.registrar/handler :sub :rf.xray.routing/query))
-        ":rf.xray.routing/query removed (moved to static.routes/query)")
+        ":rf.xray.routing/query is not registered (see static.routes/query)")
     (is (nil? (rf.registrar/handler :sub :rf.xray.routing/sim-url))
-        ":rf.xray.routing/sim-url removed (moved to static.routes/sim-url)")
+        ":rf.xray.routing/sim-url is not registered (see static.routes/sim-url)")
     (is (nil? (rf.registrar/handler :sub :rf.xray.routing/expanded))
-        ":rf.xray.routing/expanded removed (moved to static.routes/expanded)")
+        ":rf.xray.routing/expanded is not registered (see static.routes/expanded)")
     (is (nil? (rf.registrar/handler :event :rf.xray.routing/set-query))
-        ":rf.xray.routing/set-query removed (moved to static.routes/set-query)")
+        ":rf.xray.routing/set-query is not registered (see static.routes/set-query)")
     (is (nil? (rf.registrar/handler :event :rf.xray.routing/set-sim-url))
-        ":rf.xray.routing/set-sim-url removed (moved to static.routes/set-sim-url)")
+        ":rf.xray.routing/set-sim-url is not registered (see static.routes/set-sim-url)")
     (is (nil? (rf.registrar/handler :event :rf.xray.routing/toggle-row))
-        ":rf.xray.routing/toggle-row removed (moved to static.routes/toggle-row)")))
+        ":rf.xray.routing/toggle-row is not registered (see static.routes/toggle-row)")))
 
 (deftest palette-includes-routing
   (testing "the palette's canonical panel list carries the :routing entry"
@@ -225,7 +221,7 @@
       (is (contains? ids :routing) ":routing in palette-panels")
       (is (contains? ids :module-view) ":module-view in palette-panels")
       (is (= 10 (count panels))
-          "exactly 10 entries — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco (the Resources tab — Spec 016 §Xray and AI tooling — earns its own L4 tab per Mike's cohesive-sub-domain ruling; rf2-9ett2d added the EP-0014 derivation-graph 'Graph' tab — the unified derivation/process graph across all algebra-view families; rf2-wtg9z4 added the ninth tab per EP-0013 — it ships as 'Frames' over the EP-0023 image -> frame public model, each live image-loaded frame as an execution context carrying its resolved image's [kind id] descriptors, its EP-0013 realm/module substrate having been deleted in full; rf2-gbz39 removed the Issues tab per Mike's Option (c) ruling — issues surface inline + event-row pink-wash + the always-on issues ribbon signal. rf2-5gl5r retired the Event/Handler tab; the Epoch panel supersedes it. rf2-sc3r1 originally added Epoch at order 5; rf2-4v67l removed the Chrome A11y dogfood in favour of Story's shipped panel; rf2-ga16q removed the Machines Canvas tab — its browse-all canvas relocated to the Static Machines sub-tab. rf2-hic-023 added the Fresco tab — six views over the adapter-neutral Fresco evidence surface, the last two added by rf2-hic-037 as derivations over the same four evidence envelopes.)"))))
+          "exactly 10 entries — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco (Resources is its own L4 tab — Spec 016 §Xray and AI tooling; Graph is the EP-0014 derivation graph — the unified derivation/process graph across all algebra-view families; Frames is the EP-0013 tab over the EP-0023 image -> frame public model, each live image-loaded frame as an execution context carrying its resolved image's [kind id] descriptors; Fresco is the views over the adapter-neutral Fresco evidence surface. There is no Issues tab — issues surface inline + event-row pink-wash + the always-on issues ribbon signal; no Event/Handler tab — the Epoch panel covers it; no Chrome A11y tab — Story ships that panel; no Machines Canvas tab — its browse-all canvas is the Static Machines sub-tab.)"))))
 
 ;; ---- (2) three sections render (always-visible base layer) --------------
 
@@ -241,7 +237,7 @@
       (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing"))
             "panel root present")
-        ;; spec/021 §14.1 (rf2-6xezz) — every L4 panel scrubs its
+        ;; spec/021 §14.1 — every L4 panel scrubs its
         ;; self-naming heading + per-panel header icon; content opens
         ;; directly on CURRENT ROUTE (matching Figma RoutesPanel).
         (is (nil? (find-by-testid tree "rf-xray-routing-header"))
@@ -282,7 +278,7 @@
 
 (deftest current-route-section-shows-the-slice-the-router-writes
   (testing "§1 surfaces the active id, params, query, fragment and readiness of
-            a slice ONE real navigation wrote (rf2-y8doi.22)"
+            a slice ONE real navigation wrote"
     (setup-xray-frame!)
     (let [slice (navigated-slice! ::order "/routing-cljs-test/orders/:order-id"
                                   {:params   {:order-id "ord-1234"}
@@ -386,9 +382,9 @@
 (deftest panel-paints-to-marker-and-outcome-when-cascade-navigated
   (testing "nav-token emit → :to marker on the table row + NAVIGATION FROM/TO + transitioned outcome"
     (setup-xray-frame!)
-    ;; The live slice is a real navigation's (rf2-y8doi.22) — this row used
-    ;; to type `{:id …}`, a key the router never writes, so its CURRENT ROUTE
-    ;; read "No active route." without anything noticing.
+    ;; The live slice is a real navigation's — a hand-typed `{:id …}`, a key
+    ;; the router never writes, would leave CURRENT ROUTE reading
+    ;; "No active route." without anything noticing.
     (let [slice (navigated-slice! ::confirm "/routing-cljs-test/confirm"
                                   {:query {:source "cart"}})]
       (is (= ::confirm (:route-id slice)) "PRECONDITION: the navigation landed")
@@ -413,8 +409,8 @@
         ;; :to overlay glyph present on the destination table row.
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-to"))
             ":to overlay glyph rendered on destination route in the table")
-        ;; The header (+ its → TO summary chip) is gone per §14.1; the
-        ;; NAVIGATION THIS EPOCH section is now the sole TO surface.
+        ;; There is no header (+ → TO summary chip) per §14.1; the
+        ;; NAVIGATION THIS EPOCH section is the sole TO surface.
         (is (nil? (find-by-testid tree "rf-xray-routing-nav-summary"))
             "no header summary chip (header scrubbed per §14.1)")
         ;; NAVIGATION section surfaces FROM ──► TO + outcome.
@@ -437,7 +433,7 @@
       ;; Cross-route nav cart → confirm: the cascade carries both the
       ;; nav-token/allocated emit (TO = confirm) and the deactivated emit
       ;; (FROM = cart). FROM is read off the deactivated emit, NOT the
-      ;; live slice (rf2-m9rx6). The live slice is left at :route/confirm
+      ;; live slice. The live slice is left at :route/confirm
       ;; (the post-nav value) to prove the FROM is cascade-derived.
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
                          {:route-id :route/confirm :params {} :query {}}]
@@ -466,7 +462,7 @@
               "FROM reads the prior route :route/cart"))))))
 
 ;; ---- (5) NAVIGATION THIS EPOCH reads the focused navigation's params -----
-;; rf2-3x7nj.23.1 — never the live route's.
+;; Never the live route's.
 
 (defn- focused-nav-buffer
   "A focused bundle (dispatch 99, frame :rf/default) carrying `op`'s trace

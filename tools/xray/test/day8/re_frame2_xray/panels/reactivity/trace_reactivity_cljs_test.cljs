@@ -1,9 +1,8 @@
 (ns day8.re-frame2-xray.panels.reactivity.trace-reactivity-cljs-test
-  "Sub-reactivity guard for the Trace panel's primary composite
-  (rf2-dhoc9; epoch-scoped rework rf2-td380).
+  "Sub-reactivity guard for the Trace panel's primary composite.
 
-  Per the rf2-70tkv affected-panels matrix Trace pivots on the spine's
-  focus. Post-rf2-td380 the feed is EPOCH-scoped: `:rf.xray/trace-feed`
+  Trace pivots on the spine's
+  focus. The feed is EPOCH-scoped: `:rf.xray/trace-feed`
   reads the focused epoch record's `:trace-events` (joined from
   `:rf.xray/focus` + `:rf.xray/epoch-history`). This test pins that
   rebind so a regression in the trace-feed → focus reactive chain would
@@ -35,7 +34,7 @@
                      {:id 5 :op-type :rf.fx :operation :rf.fx/handled :tags {}}]})]))
 
 (deftest trace-feed-tracks-focus-flip
-  (testing "rf2-td380 — the trace-feed projection is epoch-scoped: it
+  (testing "the trace-feed projection is epoch-scoped: it
             reads the focused epoch record's `:trace-events`. Flipping
             focus between epochs must change the projected feed."
     (h/setup-xray-frame!)
@@ -51,7 +50,7 @@
              :epoch-id changed, so the projected rows changed")))))
 
 (deftest trace-feed-scope-is-the-focused-epochs-trace-events
-  (testing "rf2-td380 — the feed's rows are exactly the focused epoch's
+  (testing "the feed's rows are exactly the focused epoch's
             :trace-events (including the async nil-dispatch-id reactive
             rows). Verify by inspecting the projected row id sets."
     (h/setup-xray-frame!)

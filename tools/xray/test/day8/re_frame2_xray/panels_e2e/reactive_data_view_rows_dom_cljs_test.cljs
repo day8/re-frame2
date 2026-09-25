@@ -1,22 +1,20 @@
 (ns day8.re-frame2-xray.panels-e2e.reactive-data-view-rows-dom-cljs-test
   "Real-substrate browser e2e for the Views panel's reactive-data
-  render projection (rf2-yr6wtx · rf2-vxgfnd.22 Finding B follow-up ·
-  spec/021 §3).
+  render projection (spec/021 §3).
 
-  ## The gap this closes
+  ## Why a REAL React mount
 
   The sibling `panels-e2e/reactive-data-e2e-cljs-test` drives the
-  `:sub-runs` → `:subs-ran` axis through the REAL substrate and is
-  redden-proven on a `capture.cljc/sub-run-row` key rename. But it runs
+  `:sub-runs` → `:subs-ran` axis through the REAL substrate and
+  reddens on a `capture.cljc/sub-run-row` key rename. But it runs
   the PLAIN-ATOM substrate (Node CLJS, no React), so no view ever mounts
   and no `:rf.view/rendered` op fires — the render half of the pipeline
   (`capture.cljc/render-row` → the epoch record's `:renders` →
-  `reactive-panel-subs/project-record`) was validated only by
-  hand-built epoch records and by absence. A `render-row` key rename in
-  `capture.cljc` reddened NO e2e — the rf2-wyvf2 class one level up on the
-  render axis.
+  `reactive-panel-subs/project-record`) is out of its reach, and
+  hand-built epoch records cannot catch a `render-row` key rename in
+  `capture.cljc`.
 
-  This closes it with a REAL React mount: the Reagent adapter mounts a
+  So this file uses a REAL React mount: the Reagent adapter mounts a
   view via `reagent.dom.client/create-root` into a real DOM node. The
   mount's `:rf.view/rendered` op fires at React commit time — AFTER the
   causing cascade settled — and the framework's post-settle render
@@ -42,7 +40,7 @@
   dispatched one. That timing is exercised faithfully by production's rAF
   scheduler, out of a synchronous test's reach.) The mount render is a
   real `:rf.view/rendered` op that exercises `render-row` end to end —
-  exactly the projection this gap was about.
+  exactly the projection this file pins.
 
   ## Two projection slots, one real render — and which mutation-proofs what
 
@@ -65,15 +63,14 @@
   Both are asserted below so the test pins the panel content AND the
   render-row projection against one real mounted render.
 
-  ## Mutation-proof (rf2-yr6wtx / rf2-vxgfnd.22 fix-PR protocol)
+  ## Mutation-proof
 
   Renaming any `render-row` output key in
   `implementation/epoch/src/re_frame/epoch/capture.cljc` — e.g.
   `:render-key` → `:renderkey`, or `:mount?` → `:mountp` — reddens
   `reactive-data-render-row-projects-real-mounted-render`: the projected
   `:views-rendered` row then lacks that key (and its `:view-id`, sourced
-  from `(first :render-key)`, goes nil). Verified by mutating the key,
-  running this ns under the `:browser-test` build, then reverting.
+  from `(first :render-key)`, goes nil).
 
   ## Test target
 
@@ -144,7 +141,7 @@
     {:container container :root root}))
 
 (deftest reactive-data-render-row-projects-real-mounted-render
-  (testing "rf2-yr6wtx — a REAL React mount lands a `:rf.view/rendered` op
+  (testing "a REAL React mount lands a `:rf.view/rendered` op
             that the substrate's `render-row` projects into the head
             epoch's `:renders`; the Views panel's `:rf.xray/reactive-data`
             `:views-rendered` slot names the real mounted view. Reddens on
@@ -162,8 +159,8 @@
                     views-rendered (:views-rendered d)]
                 (is (seq views-rendered)
                     (str ":views-rendered is EMPTY — no real :rf.view/rendered "
-                         "captured into the focused epoch's :renders (the render "
-                         "half of the rf2-wyvf2 class). reactive-data: "
+                         "captured into the focused epoch's :renders. "
+                         "reactive-data: "
                          (pr-str (select-keys d [:views-rendered :view-rows
                                                  :counts :has-event-bundle?]))))
                 (let [row (some #(when (= :vr-e2e/counter (:view-id %)) %)
@@ -191,7 +188,7 @@
                 (.remove container)))))))))
 
 (deftest reactive-data-view-rows-names-real-mounted-render
-  (testing "rf2-yr6wtx — the panel-facing `:view-rows` names the real
+  (testing "the panel-facing `:view-rows` names the real
             mounted view, its `:mount` action, and the reactive reason
             (`:counter/value`) — projected from the SAME real render,
             re-sourced off `:trace-events`. Proves the real render pipeline

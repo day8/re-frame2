@@ -1,23 +1,20 @@
 (ns day8.re-frame2-xray.panels.machine-canvas-cljs-test
   "CLJS-side wiring tests for the Machines canvas adapter.
 
-  rf2-gpzb4 (2026-05-21 xyflow migration) — the previous test corpus
-  was dominated by the viewport-reducer + drag-state machinery the
-  SVG renderer needed. Post-migration xyflow owns zoom/pan/fit
-  internally; the `Chart` hiccup wrapper + the chart-collapsed slot
-  survive on the Xray side. (rf2-48fwsi retired the dead Canvas/List
-  view-mode toggle + its slot/events/fx.)
+  xyflow owns zoom/pan/fit internally; the Xray side owns the `Chart`
+  hiccup wrapper + the chart-collapsed slot. There is no Canvas/List
+  view-mode toggle.
 
   Covers:
 
-    1. Registry wires the surviving subs + events + fx.
+    1. Registry wires the canvas subs + events + fx.
     2. The chart-collapsed slot mutates + persists per machine.
     3. The `Chart` view returns hiccup carrying the canvas-host
        data-testid."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; rf2-k97c.3 — `boundary-head?` is the production predicate the
+            ;; `boundary-head?` is the production predicate the
             ;; codec grades a hiccup head with. The dual-head rows read it
             ;; rather than restating how each head was spelled.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -31,8 +28,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; (core `make-reset-runtime-fixture` + Xray `reset-all!`) into one owner:
+  ;; `make-xray-runtime-fixture` folds core `make-reset-runtime-fixture` +
+  ;; Xray `reset-all!` into one owner:
   ;; plain-atom adapter + the default `:all` reset tier — install/registry/
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -41,7 +38,7 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; ---- 1. Registry wires the surviving canvas surface -------------------
+;; ---- 1. Registry wires the canvas surface -----------------------------
 
 (deftest registry-wires-canvas-subs
   (setup-xray-frame!)
@@ -52,7 +49,7 @@
         (is (some? (rf/subscribe q-v))
             (str q-v " must resolve through rf/subscribe"))))))
 
-;; ---- 2. Chart-collapsed slot (rf2-3d987 issue #4) ---------------------
+;; ---- 2. Chart-collapsed slot ------------------------------------------
 
 (deftest chart-collapsed-defaults-to-false
   (setup-xray-frame!)
@@ -60,7 +57,7 @@
     (let [collapsed? @(rf/subscribe
                         [:rf.xray.machine-canvas/chart-collapsed-for :m])]
       (is (= false collapsed?)
-          "rf2-3d987 issue #4 — unset slot defaults to false (expanded)"))))
+          "unset slot defaults to false (expanded)"))))
 
 (deftest chart-collapsed-set-collapsed-and-toggle
   (setup-xray-frame!)
@@ -100,7 +97,7 @@
                     [:rf.xray.machine-canvas/chart-collapsed-for :auth/login])))
     (is (= false @(rf/subscribe
                     [:rf.xray.machine-canvas/chart-collapsed-for :checkout/flow]))
-        "rf2-3d987 issue #4 — per-machine slot, one machine's collapse
+        "per-machine slot, one machine's collapse
          does not affect another's")))
 
 (deftest persist-chart-collapsed-fx-registered
@@ -111,13 +108,13 @@
       "persist-chart-collapsed fx is in the registrar"))
 
 (deftest persist-chart-collapsed-fx-actually-fires-rf2-04tx
-  (testing "rf2-04tx — the set-chart-collapsed handler must REACH the
-            persist fx, not merely have one registered. The handler used
-            to return the fx-id as a TOP-LEVEL effect key beside `:db`;
-            the effect map is closed, so the runtime policed the key as
-            `:rf.error/effect-map-shape` and dropped it — the `:db` write
-            landed, the toggle looked like it worked, and the operator's
-            choice never reached localStorage. `persist-chart-collapsed-
+  (testing "the set-chart-collapsed handler must REACH the persist fx,
+            not merely have one registered. A handler returning the fx-id
+            as a TOP-LEVEL effect key beside `:db` would have the key
+            policed as `:rf.error/effect-map-shape` and dropped, because
+            the effect map is closed — the `:db` write would land, the
+            toggle would look like it worked, and the operator's choice
+            would never reach localStorage. `persist-chart-collapsed-
             fx-registered` above cannot see that: a registered fx nobody
             routes to satisfies it perfectly. This one observes the do-fx
             plane, which is the only place the drop is visible."
@@ -170,22 +167,20 @@
           "canvas host wrapper present"))))
 
 (deftest chart-view-never-emits-view-mode-toggle-rf2-48fwsi
-  (testing "rf2-48fwsi — the vestigial Canvas/List view-mode toggle is
-            removed; the Chart never renders it (it was dead after the
-            rf2-g2axio events-as-nodes redesign — no view branched on
-            the persisted mode)."
+  (testing "there is no Canvas/List view-mode toggle; the Chart never
+            renders one."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [tree (mc/Chart {:definition fixture-definition :machine-id :m})]
         (is (some? (find-by-testid tree "rf-xray-machine-canvas-host"))
             "canvas host mounts")
         (is (nil? (find-by-testid tree "rf-xray-machine-canvas-view-mode-toggle"))
-            "the retired view-mode toggle never renders")))))
+            "no view-mode toggle renders")))))
 
 (deftest chart-mounts-the-after-rings-bridge-rf2-k97c-3
-  (testing "rf2-k97c.3 — `machine-after-rings/AfterRingsOverlay` is now an
+  (testing "`machine-after-rings/AfterRingsOverlay` is an
             `rf.fresco/defview`, i.e. a real React component, while `Chart`
-            here is still a `reg-view`, i.e. a Reagent tree. So `Chart` must
+            here is a `reg-view`, i.e. a Reagent tree. So `Chart` must
             mount the `as-component` BRIDGE and not the boundary: handing
             Reagent a React component where it expects a render fn is
             exactly what `defview`'s contract forbids, and it would paint
@@ -195,9 +190,9 @@
             the caller holding it, so the two cannot drift apart silently.
 
             Both halves are asserted. The bridge being present is the claim;
-            the boundary being ABSENT is what would catch a well-meaning
-            revert to the pre-migration spelling, which type-checks fine and
-            fails only at first paint."
+            the boundary being ABSENT is what would catch `Chart` mounting
+            the boundary directly, which type-checks fine and fails only at
+            first paint."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [tree  (mc/Chart {:definition fixture-definition :machine-id :m})
@@ -225,10 +220,10 @@
         (is (not (contains? heads after-rings/AfterRingsOverlay-bridge))
             ":show-after-rings? false drops the overlay mount entirely")))))
 
-;; ---- 3b. the two heads, and the one body behind them (rf2-k97c.3) ------
+;; ---- 3b. the two heads, and the one body behind them -------------------
 
 (deftest the-two-chart-heads-differ-only-in-boundary-grade
-  (testing "rf2-k97c.3 — this ns ships a DUAL-HEAD FACADE, the shape
+  (testing "this ns ships a DUAL-HEAD FACADE, the shape
             `views/edn_widget.cljs` already uses for `inspect` /
             `inspect-view`: `Chart` for a Reagent parent, `Chart-view` for a
             Fresco one, both one call to [[mc/chart-tree]].
@@ -248,18 +243,18 @@
     (is (rf.fresco.impl.codec/boundary-head? mc/Chart-view)
         "Chart-view is a Fresco boundary head")
     (is (not (rf.fresco.impl.codec/boundary-head? mc/Chart))
-        "CONTROL: the surviving reg-view is NOT, so the assertion above
+        "CONTROL: the reg-view is NOT, so the assertion above
          discriminates rather than reading true for any fn")))
 
 (deftest chart-tree-wraps-only-the-machines-viz-mount-in-as-child
-  (testing "rf2-k97c.3 — `as-child` covers the machines-viz chart and NOTHING
+  (testing "`as-child` covers the machines-viz chart and NOTHING
             else. Driven with a marking wrapper rather than a real substrate
             walk, so the row reads the seam's EXTENT without depending on a
             React element being constructible in the node lane.
 
             The extent is the claim worth pinning: widen it and the Fresco
             lane would cross its own wrapper divs into Reagent, which paints
-            the same and silently puts the panel's chrome back under the
+            the same and silently puts the panel's chrome under the
             installed adapter's renderer."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -286,7 +281,7 @@
              bridge, or the boundary) through one body")))))
 
 (deftest chart-tree-reads-show-after-rings-and-nothing-else-gates-the-overlay
-  (testing "rf2-k97c.3 — the NON-VACUITY control for the row above: with
+  (testing "the NON-VACUITY control for the row above: with
             `:show-after-rings? false` the caller's overlay value is dropped
             altogether, so the assertion that it is mounted verbatim is a
             claim about the gate and not about a value that is always there."

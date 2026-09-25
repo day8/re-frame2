@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.panels.reactivity.mode-toggle-reactivity-cljs-test
   "Sub-reactivity guard for the mode-control slots NOT already pinned
-  by the e2e harness (rf2-dhoc9 per-control-action test).
+  by the e2e harness (a per-control-action test).
 
-  De-dup note (rf2-dkmnm): the `:dynamic`→`:static`→`:dynamic`
+  De-dup note: the `:dynamic`→`:static`→`:dynamic`
   round-trip via `:rf.xray/toggle-mode` is owned by
   `control-axes-e2e/mode-toggle-e2e-cljs-test` (which also pins the
   wrong-frame `*-survives-host-dispatch` assertion). This file keeps
@@ -18,7 +18,7 @@
 (use-fixtures :each h/fixture)
 
 (deftest set-mode-writes-specific-mode
-  (testing "rf2-dhoc9 — `:rf.xray/set-mode` writes a specific mode
+  (testing "`:rf.xray/set-mode` writes a specific mode
             (used by the per-segment pill click). The sub re-fires
             with the new value."
     (h/setup-xray-frame!)
@@ -31,7 +31,7 @@
         "set-mode :dynamic is honoured")))
 
 (deftest static-selected-tab-sub-tracks-static-select-tab
-  (testing "rf2-dhoc9 — the Static-scoped tab selection lives on its
+  (testing "the Static-scoped tab selection lives on its
             own slot (`:rf.xray.static/selected-tab`); the event
             `:rf.xray.static/select-tab` writes it and the sub
             re-fires."

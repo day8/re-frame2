@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.reactive-flow-graph-cljs-test
-  "Pure-data tests for the reactive-flow graph layout (rf2-ad7zx.6 ·
-  spec/021 §3.2 · Figma `ViewsPanel`).
+  "Pure-data tests for the reactive-flow graph layout (spec/021 §3.2 ·
+  Figma `ViewsPanel`).
 
   Covers `shared-sub-set` (the shared-subscription detector) and `layout`
   (the node + edge geometry the Views panel renders as inline SVG).
@@ -71,7 +71,7 @@
       (is (false? (:changed? (second nodes)))))))
 
 (deftest layout-view-node-carries-cause-and-timing
-  (testing "rf2-8wrzz.1 — the view node threads :triggered-by + :elapsed-ms"
+  (testing "the view node threads :triggered-by + :elapsed-ms"
     (let [out (g/layout {:view-rows [{:view-id :v :action :rerender
                                       :triggered-by :sub/x :elapsed-ms 1.5}]})
           vn  (-> out :nodes :view first)]
@@ -141,13 +141,13 @@
       (is (every? (fn [e] (every? number? [(:x1 e) (:y1 e) (:x2 e) (:y2 e)]))
                   (:edges out))))))
 
-;; ---- layout: instances (rf2-3x7nj.24.3) -------------------------------
+;; ---- layout: instances ------------------------------------------------
 ;;
 ;; The canonical list shape: N instances of one view, each reading its own
-;; cell of one parametric sub. Keying nodes by registration id kept only the
-;; LAST instance per id, so every sub→view edge landed on the last view box,
-;; the other N-1 floated with no incoming edge, and React got N siblings with
-;; one key. The fixture is the shape the panel projection produces — one sub
+;; cell of one parametric sub. Keying nodes by registration id would keep
+;; only the LAST instance per id, so every sub→view edge would land on the
+;; last view box, the other N-1 would float with no incoming edge, and React
+;; would get N siblings with one key. The fixture is the shape the panel projection produces — one sub
 ;; row per `:sub-runs` query-v, one view row per `:rf.view/rendered` op with
 ;; its render-key and read-set.
 
@@ -167,7 +167,7 @@
 
 (deftest layout-instances-carry-distinct-keys
   (testing "each instance is its own node with its own React key; the
-            registration id still labels, links and slugs it"
+            registration id labels, links and slugs it"
     (let [out   (g/layout todo-list)
           l1    (-> out :nodes :l1)
           views (-> out :nodes :view)]
@@ -177,10 +177,10 @@
       (is (= (mapv pr-str [[:app/todo-row 11] [:app/todo-row 12] [:app/todo-row 13]])
              (mapv :key views))
           "three view instances, each keyed by its render-key")
-      (is (every? #(= :todo/by-id (:id %)) l1) ":id stays the registration id")
+      (is (every? #(= :todo/by-id (:id %)) l1) ":id is the registration id")
       (is (= ["[:todo/by-id 1]" "[:todo/by-id 2]" "[:todo/by-id 3]"] (mapv :label l1))
           "a parameterized instance is labelled by its query-v")))
-  (testing "one identity seen twice (a query-v run twice) still gets two
+  (testing "one identity seen twice (a query-v run twice) gets two
             sibling keys"
     (let [l1 (-> (g/layout {:level-1-subs [{:sub-id :a :query-v [:a] :changed? true}
                                            {:sub-id :a :query-v [:a] :changed? false}]})
@@ -218,7 +218,7 @@
           sub-sub (filter #(= :sub-sub (:kind %)) (:edges out))]
       (is (= [(pr-str [:todo/by-id 1])] (mapv :from-key sub-sub)))
       (is (= [:todo/by-id] (mapv :from-id sub-sub))
-          ":from-id stays the registration id"))))
+          ":from-id is the registration id"))))
 
 (deftest layout-width-and-height-positive
   (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}]

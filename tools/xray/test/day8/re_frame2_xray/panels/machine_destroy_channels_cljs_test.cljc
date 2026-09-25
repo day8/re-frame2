@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.machine-destroy-channels-cljs-test
-  "rf2-3uixf4 — actual-consumer counterfixture for the DISJOINT
+  "Actual-consumer counterfixture for the DISJOINT
   machine-destroy channels.
 
   Spec 009 §`:op-type` vocabulary freezes a channel/reason MATRIX: each
@@ -14,8 +14,8 @@
   the CONSUMER end: the machines runtime is DRIVEN, and the trace events it
   really emits are fed into Xray's production projections. No hand-authored
   destroy event sits between producer and consumer, so if an emitter moves a
-  reason to the other channel — or Xray reverts to validating channel and
-  reason independently — these tests go red.
+  reason to the other channel — or Xray validates channel and reason
+  independently — these tests go red.
 
   The complementary negative cross-products (the tuples the matrix forbids)
   are asserted in `cancellation-cascade-helpers-cljs-test`, which can author

@@ -1,21 +1,18 @@
 (ns day8.re-frame2-xray.panels.reactivity.app-db-diff-reactivity-cljs-test
-  "Sub-reactivity guard for the App-db Diff panel's primary view sub
-  (rf2-dhoc9).
+  "Sub-reactivity guard for the App-db Diff panel's primary view sub.
 
-  The rf2-70tkv bug class: App-db Diff content stayed frozen on the
-  previously-pinned epoch when the LIVE pill auto-followed a new
-  cascade. Root cause was a stale `:selected-epoch-id` slot that the
-  panel pivoted on; the fix re-pivoted the sub chain on `:rf.xray/
-  focus-epoch-id` (a thin projection of the spine sub's `:epoch-id`
-  axis). This test asserts the post-fix contract: the panel's primary
-  `:rf.xray/app-db-current+diff` sub re-fires with a NEW value when
-  focus flips between two epochs.
+  The bug class: App-db Diff content frozen on a previously-pinned
+  epoch while the LIVE pill auto-follows a new cascade — what a panel
+  pivoting on a stale `:selected-epoch-id` slot would show. The sub
+  chain pivots on `:rf.xray/focus-epoch-id` (a thin projection of the
+  spine sub's `:epoch-id` axis). This test asserts the contract: the
+  panel's primary `:rf.xray/app-db-current+diff` sub re-fires with a
+  NEW value when focus flips between two epochs.
 
-  rf2-p53m2 — the panel's primary sub is `:rf.xray/app-db-current+diff`
-  (→ `:rf.xray/app-db-state`); the former `:rf.xray/app-db-diff` /
-  `:rf.xray/selected-epoch-diff` composite family had no production view
-  consumer and was pruned. The reactivity guards below pivot on the
-  live surface.
+  The panel's primary sub is `:rf.xray/app-db-current+diff`
+  (→ `:rf.xray/app-db-state`); there is no `:rf.xray/app-db-diff` /
+  `:rf.xray/selected-epoch-diff` composite family. The reactivity
+  guards below pivot on the live surface.
 
   ## What this guards against
 
@@ -24,7 +21,7 @@
   diff` will surface as a test failure here, in millis, rather than as
   a frozen panel in Playwright (10 s + browser).
 
-  Companion file to rf2-70tkv's `focus-sub-live-auto-follows-epoch-id-
+  Companion file to the `focus-sub-live-auto-follows-epoch-id-
   rf2-70tkv` integration test (which guards the spine slot's
   reactivity); this file extends the guard to the panel surface that
   consumes the spine sub."
@@ -46,7 +43,7 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest app-db-current+diff-sub-re-fires-on-focus-flip
-  (testing "rf2-dhoc9 / rf2-p53m2 — the panel's primary
+  (testing "the panel's primary
             `:rf.xray/app-db-current+diff` sub produces a different map
             for two distinct focus-epoch selections (`{} → {:counter 1}`
             vs `{:counter 1} → {:counter 2}`); if the sub chain doesn't
@@ -67,15 +64,15 @@
         ;; different value/before/epoch-id.
         (is (not= sig-1 sig-2)
             "app-db-current+diff sub did not track focus flip — sub-chain
-             reactivity broken (rf2-70tkv regression class)")
+             reactivity broken")
         (is (= :e2 (:epoch-id sig-2)))))))
 
 (deftest live-mode-auto-follows-new-cascade-rf2-70tkv
-  (testing "rf2-dhoc9 + rf2-70tkv — Mike's exact repro: user is in LIVE
+  (testing "the repro: user is in LIVE
             on epoch :e1; a new cascade :c2 arrives with epoch :e2; the
-            panel auto-advances to :e2 without an explicit click.
-            Pre-rf2-70tkv the legacy `:selected-epoch-id` slot stayed
-            pinned to :e1 and the panel froze."
+            panel auto-advances to :e2 without an explicit click. A panel
+            pivoting on a `:selected-epoch-id` slot would stay pinned to
+            :e1 and freeze."
     (h/setup-xray-frame!)
     (h/seed-cascades! [(first cascades)])
     (h/seed-epoch-history! [(first epoch-history)])
@@ -88,25 +85,23 @@
       (h/seed-epoch-history! epoch-history)
       (let [sig-2 (h/read-sub :rf.xray/app-db-current+diff)]
         (is (not= sig-1 sig-2)
-            "rf2-70tkv — LIVE mode auto-follows the head cascade; the
+            "LIVE mode auto-follows the head cascade; the
              App-db panel rebinds to the new head")
         (is (= :e2 (:epoch-id sig-2)))))))
 
-;; ---- rf2-02j4r / rf2-yng0y — atomic per-epoch-delta before+after --------
+;; ---- atomic per-epoch-delta before+after --------------------------------
 ;;
-;; The zoom-nav stale-frame flash (rf2-yng0y) was a stale `:before` that
-;; lagged the focused `:epoch-id` by one animation frame, because the
+;; A zoom-nav stale-frame flash would be a stale `:before` lagging the
+;; focused `:epoch-id` by one animation frame, as it would if the
 ;; before-image resolved through a deep composed chain
 ;; (`:focus → focus-epoch-id → selected-epoch-record → app-db-state`).
-;; The fix collapses that chain into ONE sub
-;; (`:rf.xray/app-db-current+diff`) that resolves the focused record's
+;; ONE sub (`:rf.xray/app-db-current+diff`) resolves the focused record's
 ;; slots in a single computation, so they can never disagree.
 ;;
-;; rf2-02j4r REVERSED the rf2-yng0y `:value = live-db` design: `:value`
-;; is now the focused epoch's `:db-after`, so the inline diff is the
+;; `:value` is the focused epoch's `:db-after`, so the inline diff is the
 ;; per-epoch delta `db-before(N) → db-after(N)` — NOT the cumulative
-;; live-vs-`db-before(N)` that bled later events onto earlier selections.
-;; Both `:value` and `:before` are pulled from the SAME focused record,
+;; live-vs-`db-before(N)`, which would bleed later events onto earlier
+;; selections. Both `:value` and `:before` are pulled from the SAME focused record,
 ;; which STRENGTHENS atomicity (every slot from one record).
 ;;
 ;; The flash itself is timing-sensitive (it only paints under real mouse
@@ -134,21 +129,21 @@
 (defn- assert-atomic!
   "Read `:rf.xray/app-db-current+diff` and assert the atomicity
   invariant: `:before` equals the `:db-before` of `:epoch-id` AND
-  `:value` equals its `:db-after` (per-epoch-delta, rf2-02j4r)."
+  `:value` equals its `:db-after` (per-epoch-delta)."
   [label]
   (let [{:keys [value before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
     (is (= (db-before-of epoch-id) before)
         (str label " — :before must equal the :db-before of :epoch-id "
-             "(atomicity invariant rf2-yng0y); got before=" (pr-str before)
+             "(atomicity invariant); got before=" (pr-str before)
              " epoch-id=" (pr-str epoch-id)))
     (is (= (db-after-of epoch-id) value)
         (str label " — :value must equal the :db-after of :epoch-id "
-             "(per-epoch-delta, rf2-02j4r); got value=" (pr-str value)
+             "(per-epoch-delta); got value=" (pr-str value)
              " epoch-id=" (pr-str epoch-id)))
     epoch-id))
 
 (deftest current+diff-before-is-atomic-with-epoch-id
-  (testing "rf2-yng0y / rf2-02j4r — the atomic sub's `:before` is ALWAYS
+  (testing "the atomic sub's `:before` is ALWAYS
             the `:db-before` of its own `:epoch-id` and `:value` is its
             `:db-after`, across every focus selection. No
             `{:value :before :epoch-id}` triple names a different epoch
@@ -165,7 +160,7 @@
       (is (= {} before) ":e1's db-before is the empty map")
       (is (= {:counter 1} value) ":e1's db-after is {:counter 1}"))
     ;; Flip to :c2 (epoch :e2, db-before {:counter 1}, db-after
-    ;; {:counter 2}) — the slot the flash used to surface on. value +
+    ;; {:counter 2}) — the slot a stale-before flash would surface on. value +
     ;; before + epoch-id all move together.
     (h/focus-cascade! :c2)
     (is (= :e2 (assert-atomic! "focus :c2")))
@@ -178,11 +173,11 @@
     (is (= :e1 (assert-atomic! "focus :c1 (return)")))))
 
 (deftest current+diff-value-and-before-both-track-focus
-  (testing "rf2-02j4r — the App-DB tab shows the SELECTED epoch's OWN
+  (testing "the App-DB tab shows the SELECTED epoch's OWN
             delta: BOTH `:value` (db-after) and `:before` (db-before)
             move per epoch, so the inline diff is db-before(N) →
-            db-after(N) and nothing later bleeds in. (This REVERSES the
-            rf2-yng0y `:value = live-db, constant as you scrub` design.)"
+            db-after(N) and nothing later bleeds in. `:value` is NOT a
+            live-db held constant as you scrub."
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-history)
@@ -194,23 +189,22 @@
             b2 (:before (h/read-sub :rf.xray/app-db-current+diff))]
         (is (not= v1 v2)
             ":value moves with the focused epoch (db-after(N)) — NOT a
-             constant live-db (rf2-02j4r reversal)")
+             constant live-db")
         (is (not= b1 b2)
             ":before moves with the focused epoch (db-before(N))")
         (is (= {:counter 1} v1) ":e1's value is its db-after")
         (is (= {:counter 2} v2) ":e2's value is its db-after")))))
 
-;; ---- rf2-02j4r — no later-event bleed onto an earlier selection ---------
+;; ---- no later-event bleed onto an earlier selection ---------------------
 ;;
-;; THE BUG: focusing a NON-head epoch N showed the CUMULATIVE diff
-;; live-db vs db-before(N) — every change from N forward to NOW lit up,
-;; so a key added by a LATER event bled onto epoch N's selection. This
-;; test focuses an EARLIER epoch after a later event has occurred and
-;; asserts the sub yields exactly epoch N's own delta (db-after(N)),
-;; with no trace of the later event's key. The head-only test passes
-;; under the OLD buggy code (live == db-after at head); this one focuses
-;; a non-head epoch, so it FAILS under the old code and PASSES only with
-;; the per-epoch-delta fix.
+;; The failure this pins: focusing a NON-head epoch N and showing the
+;; CUMULATIVE diff live-db vs db-before(N) — every change from N forward
+;; to NOW would light up, so a key added by a LATER event would bleed onto
+;; epoch N's selection. This test focuses an EARLIER epoch after a later
+;; event has occurred and asserts the sub yields exactly epoch N's own
+;; delta (db-after(N)), with no trace of the later event's key. A
+;; head-only test cannot tell the two apart (live == db-after at head);
+;; this one focuses a non-head epoch, so only the per-epoch delta passes.
 
 (def bleed-cascades
   [(h/cascade :early :rf/default)
@@ -227,7 +221,7 @@
                  {:counter 1 :media/deep :on :media/shallow :on})])
 
 (deftest earlier-epoch-shows-own-delta-no-later-bleed
-  (testing "rf2-02j4r — selecting an EARLIER epoch after a later event
+  (testing "selecting an EARLIER epoch after a later event
             occurred shows ONLY that epoch's own delta; the later
             event's added key does NOT bleed in. Focus :ep-early (which
             added :media/deep): :value must be ep-early's db-after
@@ -244,7 +238,7 @@
       (is (= {:counter 1 :media/deep :on} value)
           ":value is ep-early's OWN db-after — :media/deep present")
       (is (not (contains? value :media/shallow))
-          "rf2-02j4r — :media/shallow (added by the LATER :late event)
+          ":media/shallow (added by the LATER :late event)
            must NOT bleed into the earlier selection's :value")
       (is (= {:counter 1} before)
           ":before is ep-early's db-before (no :media/* keys yet)")
@@ -263,8 +257,8 @@
             ":late's per-epoch delta adds exactly :media/shallow")))))
 
 (deftest app-db-state-section-model-tracks-focused-before
-  (testing "rf2-yng0y — `:rf.xray/app-db-state` (the panel's consumed
-            section model, now derived from the atomic sub) carries the
+  (testing "`:rf.xray/app-db-state` (the panel's consumed
+            section model, derived from the atomic sub) carries the
             focused epoch's `:db-before` as the diff pre-image. The
             section model's `:before-top` reflects the focused epoch and
             moves atomically with the focus flip — no stale carryover."

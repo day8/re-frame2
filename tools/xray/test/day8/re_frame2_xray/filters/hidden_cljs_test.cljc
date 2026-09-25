@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.filters.hidden-cljs-test
   "Pure-data tests for the events-ribbon 'N hidden by filters' message
-  derivation (rf2-jvghz, defect #1; frame-decoupled per rf2-4vp5j).
+  derivation.
 
   CLJC so BOTH corpora exercise the hidden-count derivation +
   visibility predicate — the helper is pure data, no atoms, no I/O,
-  so there is nothing to keep it off the CLJS lane (rf2-odlm3).
+  so there is nothing to keep it off the CLJS lane.
 
-  Per rf2-4vp5j Workstream C the FRAME is a view SCOPE, not a filter —
+  The FRAME is a view SCOPE, not a filter —
   it is never counted as hidden, never a cause, never touched by
   removing filters. The summary model carries no `:frame` key and
   `any-filter-active?` ignores frame state entirely."
@@ -54,7 +54,7 @@
       "a mute counts"))
 
 (deftest any-filter-active?-ignores-frame-scope
-  (testing "rf2-4vp5j — the frame is a view SCOPE, not a filter; a frame
+  (testing "the frame is a view SCOPE, not a filter; a frame
             in the state map (even if a caller passes one) never makes
             any-filter-active? true on its own"
     (is (false? (hidden/any-filter-active?
@@ -104,7 +104,7 @@
 ;; ---- summary (the full model) -------------------------------------------
 
 (deftest summary-machine-pill-suppressing-rows
-  (testing "the persisted :machine IN-pill case from the bug — raw has 5
+  (testing "a persisted :machine IN-pill — raw has 5
             visible rows, the pill leaves 1; the summary reports 4 hidden,
             visible, with the pill named as cause"
     (let [s (hidden/summary 5 1
@@ -122,7 +122,7 @@
       (is (= 0 (:muted-count s))))))
 
 (deftest summary-carries-no-frame-key
-  (testing "rf2-4vp5j — the frame is a view scope, not a filter; the
+  (testing "the frame is a view scope, not a filter; the
             summary model never carries a `:frame` key, even if a caller
             leaks one into the state map"
     (let [s (hidden/summary 6 4 {:filters {:in [] :out []}
@@ -133,8 +133,8 @@
 
 (deftest summary-filtered-to-empty-still-visible
   (testing "the filtered-to-empty case — raw has rows, the pill leaves
-            zero; the message MUST still render (this is the
-            looked-broken case)"
+            zero; the message MUST still render (an empty list with no
+            message looks broken)"
     (let [s (hidden/summary 6 0
                             {:filters {:in [{:pattern :a}] :out []}
                              :muted #{}})]

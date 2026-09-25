@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.panels.image-view-helpers-cljs-test
   "JVM + CLJS coverage for the EP-0023 image/frame pure-data helpers
-  (rf2-32siq3.12 — the `image -> frame -> event stream` public model on the
-  Module-view tab).
+  (the `image -> frame -> event stream` public model on the Module-view
+  tab).
 
   Verifies the three EP-0023 nouns the surface presents:
 
@@ -45,8 +45,8 @@
   {:kind :interceptor :id :rf.interceptor/path :standard true})
 
 ;; A sealed image generation — the inert value `image-assembly/assemble`
-;; returns (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/kinds`). EP-0026
-;; (rf2-dlvmpc) retired `:rf.gen/requires` with the image-capability feature.
+;; returns (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/kinds`). Under
+;; EP-0026 there is no `:rf.gen/requires` (no image-capability feature).
 (def ^:private counter-generation
   {:rf.gen/resolver {[:event :counter/inc]   inc-desc
                      [:sub   :counter/value] value-desc}
@@ -60,8 +60,8 @@
    :rf.gen/images   [{:rf.image/id :test/small}]
    :rf.gen/kinds    #{:event}})
 
-;; A live frame OBJECT — the inert map `make-frame` returns. EP-0026
-;; (rf2-dlvmpc) retired the `:rf.frame/capabilities` slot.
+;; A live frame OBJECT — the inert map `make-frame` returns. Under EP-0026
+;; there is no `:rf.frame/capabilities` slot.
 (def ^:private counter-frame
   {:rf.frame/object       true
    :rf.frame/generation   counter-generation
@@ -105,7 +105,7 @@
     (let [img (h/project-generation counter-generation)]
       (is (= [:docs.counter/v2] (:images img)))
       (is (not (contains? img :requires))
-          "EP-0026: no :requires — image capabilities are removed")
+          "EP-0026: no :requires — there are no image capabilities")
       (is (= [:event :sub] (:kinds img)) "kinds sorted by str")
       (is (= 2 (:descriptor-count img)))
       (is (= [{:kind :event :id :counter/inc
@@ -134,7 +134,7 @@
       (is (false? (:anonymous? row)))
       (is (false? (:has-adapter? row)))
       (is (not (contains? row :capabilities))
-          "EP-0026: no :capabilities — image capabilities are removed")
+          "EP-0026: no :capabilities — there are no image capabilities")
       (is (= 2 (:descriptor-count (:image row)))
           "the frame POINTS AT its generation — projected as the image"))))
 

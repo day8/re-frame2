@@ -1,14 +1,13 @@
 (ns day8.re-frame2-xray.palette.aria-cljs-test
-  "WAI-ARIA contract tests for the Xray command palette (rf2-tt7ax).
+  "WAI-ARIA contract tests for the Xray command palette.
 
-  The audit (`ai/findings/2026-05-20-xray-story-a11y-audit.md`
-  Finding #1) flagged the palette as the most-used keyboard surface
-  with the WORST screen-reader exposure — no role=\"dialog\", no
-  aria-modal, no aria-label on the input, no role=\"listbox\", no
-  role=\"option\", no aria-selected, no aria-activedescendant.
+  The palette is the most-used keyboard surface, so a screen reader
+  needs the full combobox/listbox exposure: role=\"dialog\",
+  aria-modal, an aria-label on the input, role=\"listbox\",
+  role=\"option\", aria-selected and aria-activedescendant.
 
-  These tests freeze the post-fix contract so future renderers cannot
-  silently regress:
+  These tests pin that contract so a renderer cannot silently drop
+  it:
 
     1. The dialog wrapper carries role=\"dialog\" + aria-modal=\"true\".
     2. The input carries role=\"combobox\" + aria-controls pointing at
@@ -21,18 +20,18 @@
   expand-tree walks function-in-head-position nodes, then a depth-first
   search by data-testid / role / attribute resolves each assertion.
 
-  ## Where the tree comes from (rf2-k97c.3)
+  ## Where the tree comes from
 
-  `palette/ModalView` is an `rf.fresco/defview` BOUNDARY now, so it is
+  `palette/ModalView` is an `rf.fresco/defview` BOUNDARY, so it is
   not callable outside a React render window, and `view/palette-view` is
   a PURE fn of its reads' values rather than a fn that reads for itself.
   These rows therefore build the hiccup through
   `test-helpers.palette-tree`, which mirrors the boundary's four reads in
   the same order behind the same open-gate and drives the shipped
-  `palette-view` — so what is asserted below is still the SHIPPED tree
-  and not a parallel fixture.
+  `palette-view` — so what is asserted below is the SHIPPED tree and
+  not a parallel fixture.
 
-  `rf/dispatch` is passed explicitly, as it always was: these rows only
+  `rf/dispatch` is passed explicitly: these rows only
   read attributes and never fire a handler, so the frame-bound door the
   boundary captures is not what they are about. `palette.dispatch-
   routing-cljs-test` owns that, and takes the helper's default instead."
@@ -45,8 +44,8 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; (core `make-reset-runtime-fixture` + Xray `reset-all!`) into one owner:
+  ;; `make-xray-runtime-fixture` is core `make-reset-runtime-fixture` +
+  ;; Xray `reset-all!` in one owner:
   ;; plain-atom adapter + the default `:all` reset tier — install/registry/
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -56,18 +55,16 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
-;; prefix / props copies were semantically identical to
-;; `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` /
-;; `rf.test-helpers/find-by-testid-prefix` directly (rf2-vj80u8 — no Xray walker facade).
-;; `props` is a thin alias over `rf.test-helpers/attrs`.
+;; Tests call `rf.test-helpers/find-by-testid` /
+;; `rf.test-helpers/find-by-testid-prefix` directly; there is no Xray walker
+;; facade. `props` is a thin alias over `rf.test-helpers/attrs`.
 
 (def ^:private props rf.test-helpers/attrs)
 
 ;; ---- (1) dialog wrapper ARIA --------------------------------------------
 
 (deftest dialog-wrapper-has-role-and-aria-modal
-  (testing "rf2-tt7ax / audit #1 — the palette dialog wrapper is
+  (testing "the palette dialog wrapper is
             announced as a modal dialog (role + aria-modal + aria-label)"
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -83,7 +80,7 @@
 ;; ---- (2) input combobox semantics ---------------------------------------
 
 (deftest input-is-combobox-with-listbox-controls
-  (testing "rf2-tt7ax — the search input is a combobox: role=combobox,
+  (testing "the search input is a combobox: role=combobox,
             aria-label (the visible label is missing), aria-controls
             pointing at the listbox id, aria-autocomplete=list, and
             aria-expanded reflecting whether results render"
@@ -102,7 +99,7 @@
       (is (contains? #{"true" "false"} (:aria-expanded attrs))))))
 
 (deftest input-aria-controls-matches-listbox-id
-  (testing "rf2-tt7ax — the id the input :aria-controls references is
+  (testing "the id the input :aria-controls references is
             the same id the <ul> carries. Without this round-trip the
             screen reader cannot follow combobox -> listbox."
     (xray-setup!)
@@ -118,7 +115,7 @@
 ;; ---- (3) listbox semantics ----------------------------------------------
 
 (deftest listbox-has-role-when-results-render
-  (testing "rf2-tt7ax — the <ul> picks up role=listbox when results
+  (testing "the <ul> picks up role=listbox when results
             are present. The empty-state ul stays presentational so
             the user doesn't get a 'listbox, 0 items' announcement."
     (xray-setup!)
@@ -135,7 +132,7 @@
 ;; ---- (4) option rows ----------------------------------------------------
 
 (deftest result-rows-carry-option-role-and-aria-selected
-  (testing "rf2-tt7ax — each result <li> is role=option with
+  (testing "each result <li> is role=option with
             aria-selected matching whether the cursor is on it"
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -154,7 +151,7 @@
                aria-activedescendant can reference it"))))))
 
 (deftest result-row-ids-are-unique
-  (testing "rf2-tt7ax — each row id is distinct so
+  (testing "each row id is distinct so
             aria-activedescendant always points at exactly one row"
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -166,7 +163,7 @@
           "every row id is unique within the rendered list"))))
 
 (deftest active-row-aria-selected-true-matches-cursor
-  (testing "rf2-tt7ax — the row at cursor position carries
+  (testing "the row at cursor position carries
             aria-selected=true; siblings carry false"
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -179,7 +176,7 @@
           "exactly one row carries aria-selected=true"))))
 
 (deftest input-aria-activedescendant-points-at-active-row
-  (testing "rf2-tt7ax — the input's aria-activedescendant points at
+  (testing "the input's aria-activedescendant points at
             the active row's id. Screen readers track the highlight
             without focus moving off the input."
     (xray-setup!)

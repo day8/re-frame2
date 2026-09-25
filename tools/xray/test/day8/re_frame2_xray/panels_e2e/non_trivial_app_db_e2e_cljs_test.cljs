@@ -1,9 +1,7 @@
 (ns day8.re-frame2-xray.panels-e2e.non-trivial-app-db-e2e-cljs-test
-  "Multi-frame e2e port of the Xray feature-matrix Playwright scenario
-  `non-trivial app-db diff substrate` (rf2-rviu8). The Playwright
-  original (`scenarios.cjs::runAppDbPrivacyLarge`) opened the 5-deep
-  non-trivial-app-db testbed, clicked the six diff-shape buttons, then
-  asserted the `rf-xray-app-db-diff` panel mounted.
+  "Multi-frame e2e coverage of the Xray feature-matrix scenario
+  `non-trivial app-db diff substrate`: the 5-deep non-trivial-app-db
+  testbed driven through its six diff-shape buttons.
 
   At the data layer:
 
@@ -11,14 +9,14 @@
       app-db path. The bug surface is whether Xray's epoch capture +
       App-DB Diff projection survives a realistic deep-tree mutation
       stream.
-    - The panel-mounted assertion was the Playwright proxy for 'the
-      diff projection didn't crash'. The e2e equivalent is to read
-      the `:rf.xray/selected-epoch-record` sub after each dispatch
-      and assert it carries the expected before/after pair.
+    - Rather than asserting only that the `rf-xray-app-db-diff` panel
+      mounts (a proxy for 'the diff projection didn't crash'), the
+      tests read the `:rf.xray/selected-epoch-record` sub after each
+      dispatch and assert it carries the expected before/after pair.
 
   ## Bug class this catches
 
-  - rf2-70tkv App-DB Diff frozen on focused-event flip — when a
+  - App-DB Diff frozen on focused-event flip — when a
     second dispatch arrives the spine head flips but the diff
     projection holds the previous epoch. The 6-dispatch sequence
     here makes that regression deterministic.
@@ -35,7 +33,7 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private mutation-events
-  "The 6-click sequence the Playwright scenario walked through. Each
+  "The scenario's 6-click sequence. Each
   event mutates a structurally distinct part of the app-db tree
   (scalar swap / map merge / vector append / vector swap / set add /
   multi-key flip)."
@@ -52,8 +50,8 @@
       {:install-host nt/install-and-init!}
       (fn []
         ;; Walk the 6-event sequence. After each dispatch the spine's
-        ;; focused epoch MUST advance to the latest event (rf2-70tkv
-        ;; class).
+        ;; focused epoch MUST advance to the latest event (the
+        ;; panel-frozen class).
         (doseq [event mutation-events]
           (e2e/dispatch-host event)
           (let [record (e2e/sub-xray [:rf.xray/selected-epoch-record])]
@@ -61,7 +59,7 @@
                 (str ":rf.xray/selected-epoch-record nil after dispatching " (pr-str event)))
             (is (= event (:trigger-event record))
                 (str "spine focus did not advance to " (pr-str event)
-                     " — rf2-70tkv panel-frozen regression"))))))))
+                     " — panel-frozen regression"))))))))
 
 (deftest xray-app-db-diff-final-state-matches-handler-effects
   (testing "after the 6-click sequence Xray's target-frame-db reflects the host's final shape"

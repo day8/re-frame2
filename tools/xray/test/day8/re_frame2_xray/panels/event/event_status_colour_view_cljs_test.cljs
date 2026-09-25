@@ -1,30 +1,22 @@
 (ns day8.re-frame2-xray.panels.event.event-status-colour-view-cljs-test
   "Render-path smoke for the canonical event-lifecycle status-colour
-  helper (rf2-b76v4).
+  helper.
 
   ## What this suite covers
 
   The pure-data layer (classifier + token map) is exercised in
   `event_status_colour_cljs_test.cljc` against the JVM. THIS suite
-  asserts the three consumer sites in the rendered devtool pick up
+  asserts the consumer site in the rendered devtool picks up
   the helper's output — without that walk-through, a future
-  refactor could leave the helper detached from its call sites and
+  refactor could leave the helper detached from its call site and
   the suite would still pass.
 
-  The render sites (per the bead's contract):
+  The render site is the **Trace timeline bar** — `panels/trace/Panel`
+  renders a 3px event-bundle-status bar above the ribbon (cascade-scoped
+  so the bar represents every visible row's parent).
 
-    1. **L2 event-list row** — `shell/event-row` carries
-       `data-rf-xray-status` + an inset `box-shadow` painted with
-       the lifecycle colour. Each lifecycle state surfaces in the
-       expected anchor colour.
-
-    2. **Trace timeline bar** — `panels/trace/Panel` renders a 3px
-       event-bundle-status bar above the ribbon (cascade-scoped per
-       rf2-ycoct so the bar represents every visible row's parent).
-
-  The Event L4 header dot was a third site until rf2-ad7zx.17 removed
-  the Event panel's top ribbon (matching `EventPanel`); the Event
-  panel now renders no status dot at all.
+  The L2 event-list row carries no lifecycle status stripe, and there
+  is no Event-panel status dot.
 
   ## Pure hiccup walk
 
@@ -47,33 +39,31 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` clears the
-  ;; suppressed-count.
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom +
+  ;; `:all` tier, which also resets the trace-collector rings);
+  ;; `:post-reset` clears the suppressed-count.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn [] (config/reset-suppressed-count!))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
 ;; A thin alias over re-frame.test-helpers.
 ;;
-;; rf2-fcy5 — the local first-match `find-by-testid-prefix` wrapper that
-;; used to sit here went with its last caller: the three Trace rows below
-;; are the only things that ever took a prefix, and they now scan through
-;; [[trace-status-bar]] for the reason given there.
+;; The three Trace rows below are the only testid-PREFIX matches in this
+;; suite, and they scan through [[trace-status-bar]] for the reason given
+;; there.
 
 (def ^:private find-by-testid rf.test-helpers/find-by-testid)
 
 ;; ---- the Trace panel's status bar --------------------------------------
 ;;
-;; rf2-fcy5 — the three Trace rows below used to call `trace/Panel` and hand
-;; the result to the walkers above. Neither half works now.
+;; The three Trace rows below cannot call `trace/Panel` and hand the result
+;; to a walker. Neither half works.
 ;;
 ;; `trace/Panel` is an `rf.fresco/defview`: a real React function component
 ;; whose body reads through Fresco's collector, which refuses a read outside
 ;; a render extent by name (`:rf.error/fresco-sub-outside-render`).
 ;; `trace/panel-tree` is the same body as a pure fn of the four values the
-;; boundary reads, so the reads move here.
+;; boundary reads, so this suite performs the reads itself.
 ;;
 ;; And the scan has to be NON-EXPANDING. The panel's body carries two
 ;; `rt/resizable-table-view` heads — boundaries too — which
@@ -128,19 +118,18 @@
    :operation :rf.error/handler-exception
    :tags      {:rf.trace/dispatch-id dispatch-id :rf.trace/event-id :foo}})
 
-;; ---- (1) L2 event-list row — status stripe RETIRED (rf2-pjjwh) ----------
+;; ---- (1) L2 event-list row — no status stripe ---------------------------
 ;;
-;; rf2-pjjwh retired the L2 row's trailing 2px lifecycle status stripe (the
-;; `box-shadow` accent + `data-rf-xray-status` attribute) — it was not in
-;; the Figma mock. The status-colour vocabulary now has a SINGLE render
+;; The L2 row carries no trailing lifecycle status stripe (no
+;; `box-shadow` accent, no `data-rf-xray-status` attribute) — the Figma
+;; mock has none. The status-colour vocabulary has a SINGLE render
 ;; site (the Trace timeline bar); the pure-data layer is exercised in
 ;; `event_status_colour_cljs_test.cljc`.
 
 (deftest l2-row-no-longer-carries-status-stripe
-  (testing "rf2-pjjwh — the L2 row carries NO `data-rf-xray-status`
-            attribute and NO lifecycle status box-shadow (the trailing
-            stripe was retired; the active row is marked by background
-            only)."
+  (testing "the L2 row carries NO `data-rf-xray-status`
+            attribute and NO lifecycle status box-shadow (the active row
+            is marked by background only)."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
@@ -150,26 +139,19 @@
             attrs (second row)]
         (is (some? row) "L2 row renders for the cascade")
         (is (nil? (:data-rf-xray-status attrs))
-            "no data-rf-xray-status attribute on the row (stripe retired)")
+            "no data-rf-xray-status attribute on the row (no stripe)")
         (is (nil? (get-in attrs [:style :box-shadow]))
             "no lifecycle status box-shadow on the row")))))
 
-;; ---- (2) Event panel no longer carries a status dot (rf2-ad7zx.17 ·
-;;          rf2-5gl5r) ----------------------------------------------------
+;; ---- (2) no Event-panel status dot --------------------------------------
 ;;
-;; rf2-ad7zx.17 retired the Event panel's top header/ribbon (no
-;; lifecycle status dot at the panel level); rf2-5gl5r retired the
-;; Event/Handler panel itself in favour of the Epoch panel. The
-;; status-colour vocabulary now has TWO render sites (L2 row + Trace
-;; bar); the pure-data layer is exercised in
-;; `event_status_colour_cljs_test.cljc`. The prior `event-panel-no-
-;; longer-renders-a-status-dot` test asserted absence on a panel that
-;; no longer exists — dropped as a no-op.
+;; There is no Event/Handler panel (the Epoch panel covers that ground),
+;; so there is no panel-level lifecycle status dot to assert on.
 
 ;; ---- (3) Trace timeline bar pickups ------------------------------------
 
 (deftest trace-event-bundle-status-bar-renders-with-canonical-colour
-  (testing "rf2-b76v4 — the Trace tab's event-bundle-status bar fills the
+  (testing "the Trace tab's event-bundle-status bar fills the
             ribbon with the focused cascade's lifecycle colour. Wins
             its testid from the resolved status keyword so a future
             classifier shift surfaces here without a colour assertion."
@@ -189,8 +171,8 @@
               "bar's background is the canonical green hex"))))))
 
 (deftest trace-event-bundle-status-bar-error
-  (testing "rf2-b76v4 — an errored focused cascade flips the bar to
-            red. Same helper drives the colour the L2 row picks up."
+  (testing "an errored focused cascade flips the bar to
+            red, through the same helper."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
@@ -204,9 +186,9 @@
 ;; ---- (4) single-site vocabulary — the Trace bar ------------------------
 
 (deftest trace-bar-rides-the-canonical-status-vocabulary
-  (testing "rf2-b76v4 / rf2-pjjwh — the status-colour vocabulary now has a
-            SINGLE render site (the Trace timeline bar) since the L2 row
-            stripe was retired. The bar resolves to the canonical status
+  (testing "the status-colour vocabulary has a
+            SINGLE render site (the Trace timeline bar; the L2 row
+            carries no stripe). The bar resolves to the canonical status
             keyword from ONE map, NO per-call-site rolling."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))

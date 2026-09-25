@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.machine-after-rings-helpers-cljs-test
   "Pure-data tests for Xray's Machine Inspector `:after` timer
-  countdown-rings helpers (rf2-7hwwe).
+  countdown-rings helpers.
 
   Dual-target via the `_cljs_test.cljc` extension — Cognitect's CLJ
   test-runner picks the ns up via the `.*-test$` regex; Shadow's
@@ -22,14 +22,12 @@
                                               status-based overrides.
     6. `format-timer-tooltip`               — per-status messages.
     7. `timer->ring-spec` / `timers->ring-specs` — xyflow overlay
-       ring-spec projection (rf2-uv1on; replaced the SVG-era
-       `state-node-center` / `timers->ring-positions`).
+       ring-spec projection.
     8. `needs-ticking?` / `cancelled-ring-live?` — rAF tick driver gate,
-       and the retention boundary it shares with `prune-timers`
-       (rf2-q9x6h).
+       and the retention boundary it shares with `prune-timers`.
     9. `ms-remaining`                       — tooltip-ms calc.
-    10. `focused-cascade-time-ms` / `resolve-now-ms` — rf2-8i1tg3 retro
-        now-ms anchor (xray/003 §M.2)."
+    10. `focused-cascade-time-ms` / `resolve-now-ms` — retro now-ms
+        anchor (xray/003 §M.2)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.machine-after-rings-helpers
@@ -52,9 +50,9 @@
 (defn- fired
   "`:delay` is optional — real `:rf.machine.timer/fired` traces always
   carry it (the resolved ms value, stable across a timer's whole
-  lifecycle; `machines/transition.cljc emit-pick-traces!`), and rf2-2es2x8
-  needs it in fixtures exercising MULTIPLE concurrent `:after` timers on
-  one state (same `machine-id`/`state`/`epoch`, different `:delay`) so a
+  lifecycle; `machines/transition.cljc emit-pick-traces!`), and fixtures
+  exercising MULTIPLE concurrent `:after` timers on one state (same
+  `machine-id`/`state`/`epoch`, different `:delay`) need it so a
   `:fired` for ONE delay closes only that timer's record."
   [id machine-id state epoch & {:keys [fired? delay] :or {fired? true}}]
   {:id id :time id
@@ -76,11 +74,10 @@
           :recovery        :replaced-with-default}})
 
 (defn- cancelled
-  "Per rf2-82a0u — the unified `:rf.machine.timer/cancelled` event;
-  `reason` is from the closed set `:on-exit / :on-destroy /
+  "The `:rf.machine.timer/cancelled` event — one event for every cancel
+  cause; `reason` is from the closed set `:on-exit / :on-destroy /
   :on-resolution / :on-supersede / :on-frame-destroy`. The sub-resolve
-  path (formerly emitted as `:cancelled-on-resolution`) is now
-  `:reason :on-resolution`."
+  path is `:reason :on-resolution`."
   ([id machine-id state epoch sub-id]
    (cancelled id machine-id state epoch sub-id :on-resolution))
   ([id machine-id state epoch sub-id reason]
@@ -109,15 +106,15 @@
   {:id id :time id :operation :rf.machine/transition
    :tags {:machine-id :auth/login :from :idle :to :authing}})
 
-;; rf2-y8doi.23 — FRAME-STAMPED fixtures. Every `:rf.machine.timer/*`
+;; FRAME-STAMPED fixtures. Every `:rf.machine.timer/*`
 ;; trace carries its owning frame under `:tags :frame`; read off the
 ;; PRODUCER rather than composed by hand — `machines/timer.cljc`'s
 ;; `:rf.machine.timer/scheduled` + `/cancelled` emits and
 ;; `machines/transition.cljc`'s `/fired`, `/stale-after` and
 ;; `/skipped-on-server` emits all stamp `:frame frame-id` beside
 ;; `:actor-id` / `:state` / `:delay` / `:epoch`. The plain fixtures above
-;; omit it deliberately: an unstamped event is what a legacy replay looks
-;; like, and the unfiltered arity must still fold one.
+;; omit it deliberately: an unstamped event is what a replay with no
+;; `:frame` stamp looks like, and the unfiltered arity must fold one.
 
 (defn- scheduled-in
   [frame id machine-id state delay epoch]
@@ -196,7 +193,7 @@
         "armed-at survives so the view can render the ring at its last
          position with the diagonal cross overlay")
     (is (= :on-resolution   (:cancel-reason r))
-        "per rf2-82a0u — the closing event's `:reason` rides through
+        "the closing event's `:reason` rides through
          to the record so downstream consumers can branch on cause")))
 
 (deftest fold-cancelled-carries-each-reason
@@ -230,15 +227,15 @@
         (is (= 0 (:epoch fired)))))))
 
 (deftest fold-multiple-after-timers-same-state-same-epoch-stay-independent
-  (testing "rf2-2es2x8 — a state declaring MULTIPLE :after entries
+  (testing "a state declaring MULTIPLE :after entries
             ({:after {5000 :warn 30000 :timeout}}) schedules both timers
             CONCURRENTLY at the SAME (machine-id, state, epoch) —
             build-after-fx computes ONE epoch per scheduling node, reused
             across every entry in that node's :after map (Spec 005
-            §Multiple :after per state). Before the fix `timer-key`
-            omitted the :delay discriminator, so the SECOND :scheduled
-            assoc-overwrote the first record at the identical key and
-            only one ring survived."
+            §Multiple :after per state). A `timer-key` omitting the
+            :delay discriminator would let the SECOND :scheduled
+            assoc-overwrite the first record at the identical key,
+            leaving only one ring."
     (let [t (h/fold-timer-events
               [(scheduled 1000 :auth/login :idle 5000  0)
                (scheduled 1000 :auth/login :idle 30000 0)])]
@@ -248,7 +245,7 @@
           "each record keeps its own delay/duration"))))
 
 (deftest fold-multiple-after-timers-fire-independently
-  (testing "rf2-2es2x8 — a :fired event for ONE delay closes only that
+  (testing "a :fired event for ONE delay closes only that
             timer's record; the concurrent timer at the same
             (machine-id, state, epoch) but a DIFFERENT delay stays
             :armed, untouched"
@@ -292,20 +289,20 @@
     (is (= [1000 2000 3000]
            (mapv :armed-at (h/project-timers buf :auth/login))))))
 
-;; ---- (3b) rf2-y8doi.23 — target-frame narrowing -------------------------
+;; ---- (3b) target-frame narrowing ----------------------------------------
 
 (deftest project-timers-two-machines-in-one-frame-stay-apart
   (testing "the projection answers ONLY for the machine asked about, so a
             focused record targeting :checkout reads zero rings while a
             timer is armed on :auth/main. This is the helper half of the
-            defect; the sub asking for the WRONG machine is the other, and
+            claim; the sub asking for the RIGHT machine is the other, and
             `machine_after_rings_cljs_test` owns that half."
     (let [buf [(scheduled-in :rf/host 1000 :auth/main :idle 5000 0)]]
       (is (= 1 (count (h/project-timers buf :auth/main :rf/host))))
       (is (= [] (h/project-timers buf :checkout :rf/host))))))
 
 (deftest project-timers-narrows-to-target-frame
-  (testing "rf2-y8doi.23 — ONE machine definition instantiated in TWO
+  (testing "ONE machine definition instantiated in TWO
             frames. A singleton actor-id is identical across them, and the
             fold key is `(machine-id, state, epoch, delay)`, so without the
             frame narrowing frame A's `cancelled` closes the record frame
@@ -337,7 +334,7 @@
 
 (deftest project-timers-nil-target-frame-applies-no-filter
   (testing ":rf.xray/target-frame defaults to nil = UNSELECTED (EP-0002),
-            and an unstamped legacy replay carries no :frame at all — so
+            and an unstamped replay carries no :frame at all — so
             nil must fold everything rather than blank the chart"
     (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
                (scheduled-in :rf/a 2000 :auth/login :authing 5000 0)]]
@@ -347,13 +344,13 @@
           "a NAMED frame does drop the unstamped event — it cannot be
            attributed"))))
 
-;; ---- (3c) rf2-y8doi.23 — cancelled-ring retention + dedupe -------------
+;; ---- (3c) cancelled-ring retention + dedupe ----------------------------
 
 (deftest active-timers-evicts-a-cancelled-ring-past-the-retention-window
-  (testing "a :cancelled ring is a MOMENTARY fade + cross. Before this it
-            had no retention at all, so every early exit left a permanent
-            grey crossed ring — one per visit to the state, for as long as
-            the buffer held the trace."
+  (testing "a :cancelled ring is a MOMENTARY fade + cross. Without
+            retention, every early exit would leave a permanent grey
+            crossed ring — one per visit to the state, for as long as the
+            buffer held the trace."
     (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
                (cancelled 2000 :auth/login :idle 0 nil)]
           at  (fn [now] (h/active-timers-for-machine buf :auth/login now))]
@@ -365,7 +362,7 @@
           "and it never comes back — the ring is bounded, not permanent"))))
 
 (deftest active-timers-dedupes-cancelled-per-state-newest-wins
-  (testing "rf2-y8doi.23 — enter and leave one state twice inside the
+  (testing "enter and leave one state twice inside the
             retention window and the node carries ONE crossed ring, not
             two. The machines-viz overlay keys a ring by its `:node-id`
             (`^{:key node-id}`), so N cancelled records for one state are
@@ -384,7 +381,7 @@
            is the now-keyed filter that collapses them"))))
 
 (deftest active-timers-keeps-concurrent-armed-timers-on-one-state
-  (testing "rf2-2es2x8 — `{:after {5000 :warn 30000 :timeout}}` arms TWO
+  (testing "`{:after {5000 :warn 30000 :timeout}}` arms TWO
             timers at one (machine, state, epoch). The cancelled dedupe
             above must not reach them: each is its own countdown and its
             own ring."
@@ -396,7 +393,7 @@
 
 (deftest active-timers-drops-a-cancelled-record-with-no-closed-at
   (testing "a record that cannot be aged cannot be bounded, and an
-            unbounded crossed ring is the defect the window removes. With
+            unbounded crossed ring is what the window prevents. With
             NO clock it rides through unchanged (nothing can be aged
             either way) — the two arms are the two-directions control."
     (let [rec {:machine-id :auth/login :state :idle :status :cancelled
@@ -411,8 +408,8 @@
     (is (= [] (h/prune-timers nil nil)))))
 
 (deftest active-timers-keeps-armed-and-cancelled
-  ;; rf2-y8doi.23 — this row pins the NO-CLOCK arity, and that is now the
-  ;; whole of what it claims: with no `now-ms` nothing can be aged, so a
+  ;; This row pins the NO-CLOCK arity, and that is the whole of what
+  ;; it claims: with no `now-ms` nothing can be aged, so a
   ;; `:cancelled` record rides through. The CLOCKED behaviour — eviction
   ;; past `cancelled-retention-ms` — is
   ;; `active-timers-evicts-a-cancelled-ring-past-the-retention-window`
@@ -532,11 +529,11 @@
                  {:state :idle :status :guard-suppressed :duration-ms 5000
                   :closed-at 2000} 3000))))
 
-;; ---- (7) timer->ring-spec / timers->ring-specs (rf2-uv1on) -------------
+;; ---- (7) timer->ring-spec / timers->ring-specs -------------------------
 ;;
-;; Post-xyflow the helper no longer resolves `{:cx :cy :r}` from a
-;; positioned graph — xyflow owns positions in the DOM and the
-;; machines-viz overlay walks it. The helper now projects each timer
+;; The helper resolves no `{:cx :cy :r}` from a positioned graph —
+;; xyflow owns positions in the DOM and the machines-viz overlay walks
+;; it. The helper projects each timer
 ;; into a presentation-ready ring-spec (`:node-id` + colour / fraction
 ;; / tooltip); positioning is the overlay's job.
 
@@ -596,11 +593,10 @@
   (is (h/needs-ticking? [{:status :armed}] :present 1000)))
 
 (deftest needs-ticking?-falsy-when-no-armed
-  ;; rf2-q9x6h — a `:cancelled` record with NO `:closed-at` cannot be aged,
-  ;; so `prune-timers` DROPS it rather than keep an unboundable ring; a
-  ;; dropped ring needs no clock. This row pinned the defect's own premise
-  ;; ("`:cancelled` rings are static") and survives it unchanged, because
-  ;; the record it names has no deadline to reach.
+  ;; A `:cancelled` record with NO `:closed-at` cannot be aged, so
+  ;; `prune-timers` DROPS it rather than keep an unboundable ring; a
+  ;; dropped ring needs no clock, because the record has no deadline to
+  ;; reach.
   (is (not (h/needs-ticking? [{:status :cancelled}] :present 1000)))
   (is (not (h/needs-ticking? [] :present 1000))))
 
@@ -608,13 +604,13 @@
   (is (not (h/needs-ticking? [{:status :armed}] 3 1000)))
   (is (not (h/needs-ticking? [{:status :armed}] 0 1000))))
 
-;; ---- (8b) rf2-q9x6h — a cancelled ring's DEADLINE keeps the clock alive --
+;; ---- (8b) a cancelled ring's DEADLINE keeps the clock alive -------------
 ;;
-;; rf2-y8doi.23 gave `:cancelled` rings a retention window, so they stopped
-;; being static — they acquired a deadline, and a deadline needs a clock.
-;; `needs-ticking?` went on answering false as soon as the last `:armed`
-;; timer went away, which froze `:rings/now-ms` at that instant and left the
-;; crossed ring on screen for ever. These rows pin the predicate; the
+;; A `:cancelled` ring has a retention window, so it is not static — it
+;; has a deadline, and a deadline needs a clock. A `needs-ticking?` that
+;; answered false as soon as the last `:armed` timer went away would
+;; freeze `:rings/now-ms` at that instant and leave the crossed ring on
+;; screen for ever. These rows pin the predicate; the
 ;; scheduled path itself is pinned in
 ;; `machine_after_rings_tick_loop_cljs_test`.
 
@@ -640,8 +636,8 @@
 
 (deftest needs-ticking?-falsy-for-a-cancelled-ring-in-retrospective-mode
   (is (not (h/needs-ticking? [cancelled-ring] 3 2000))
-      "retro mode freezes EVERY ring, cancelled ones included — widening
-       the predicate must not reanimate the clock behind the scrubber"))
+      "retro mode freezes EVERY ring, cancelled ones included — the
+       cancelled-ring arm must not reanimate the clock behind the scrubber"))
 
 (deftest needs-ticking?-true-without-a-clock-so-the-first-tick-can-age-it
   (is (h/needs-ticking? [cancelled-ring] :present nil)
@@ -676,13 +672,13 @@
   (is (nil? (h/ms-remaining {} 1000)))
   (is (nil? (h/ms-remaining {:fires-at 6000} nil))))
 
-;; ---- (10) focused-cascade-time-ms / resolve-now-ms (rf2-8i1tg3) ---------
+;; ---- (10) focused-cascade-time-ms / resolve-now-ms ----------------------
 ;;
 ;; xray/003 §M.2: "Retro mode (scrubber-driven): the ring is static at
 ;; the elapsed-fraction the timer had reached at the focused-cascade's
-;; timestamp." Before this fix the view fed the LIVE `now-ms` into the
-;; ring projection unconditionally regardless of scrubber-position —
-;; these tests pin the corrected branch.
+;; timestamp." A view feeding the LIVE `now-ms` into the ring projection
+;; regardless of scrubber-position would break that — these tests pin
+;; the retro branch.
 
 (deftest focused-cascade-time-ms-reads-dispatched-time
   (is (= 12345
@@ -709,9 +705,8 @@
 (deftest resolve-now-ms-retro-uses-focused-cascade-timestamp
   (is (= 1111 (h/resolve-now-ms 3 9999 1111))
       "RETRO mode (scrubber-position anything but :present) anchors to
-       the focused cascade's timestamp, NOT the live clock — the exact
-       rf2-8i1tg3 regression: pre-fix this returned 9999 (the stale
-       live clock)"))
+       the focused cascade's timestamp, NOT the live clock (9999 here
+       would be the stale live clock)"))
 
 (deftest resolve-now-ms-retro-falls-back-to-live-clock-when-no-focused-ms
   (is (= 9999 (h/resolve-now-ms 3 9999 nil))

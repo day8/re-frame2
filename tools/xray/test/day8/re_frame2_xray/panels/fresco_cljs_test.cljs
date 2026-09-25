@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.fresco-cljs-test
-  "The Fresco tab, over a REAL Fresco runtime (rf2-hic-023).
+  "The Fresco tab, over a REAL Fresco runtime.
 
   ## The tiny consumer app is real, and that is the point
 
@@ -31,8 +31,8 @@
   [[the-loss-states-render-under-distinct-testids]] drives the runtime
   between two genuinely different states — a retained window and an empty
   one — and asserts the rendered DOM carries different testids in each. An
-  assertion that a loss state merely exists in the data would not have
-  caught a panel that drew both the same."
+  assertion that a loss state merely exists in the data would not catch a
+  panel that drew both the same."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [day8.re-frame2-xray.panels.fresco :as fresco]
@@ -74,20 +74,20 @@
 ;; before any projection exists to assert on. A Fresco witness needs a
 ;; reactive substrate, which is why the package's own suites take one too.
 ;;
-;; THE `:once` RESTORE IS LOAD-BEARING, and was measured. `install-adapter!`
-;; is process-global and the `:each` fixture never puts back what it found,
-;; so leaving UIx installed handed it to every namespace that runs after
-;; this one and installs no adapter of its own — 63 failures and 124 errors
-;; across the machine-inspector reactivity suites, none of them about
-;; anything this bead touches. Restoring the Xray default is what makes
+;; THE `:once` RESTORE IS LOAD-BEARING. `install-adapter!` is process-global
+;; and the `:each` fixture never puts back what it found, so leaving UIx
+;; installed would hand it to every namespace that runs after this one and
+;; installs no adapter of its own — failing the machine-inspector
+;; reactivity suites for reasons that have nothing to do with them.
+;; Restoring the Xray default is what makes
 ;; taking a different substrate for one namespace a local decision.
 ;;
 ;; `:post-reset` is load-bearing for a second reason: the Fresco runtime's
 ;; tables are process-global `defonce`s and the core fixture knows nothing
 ;; about them, so without it a boundary mounted by one test is still in the
 ;; entry cache for the next and every roster assertion counts a neighbour's
-;; rows — measured as a Why-view row whose peak epoch belonged to a cell the
-;; previous test had left behind.
+;; rows — a Why-view row, say, whose peak epoch belongs to a cell the
+;; previous test left behind.
 ;; Fn-form, like the `:each` below it — `cljs.test` refuses a namespace whose
 ;; `:once` and `:each` fixtures are different types, and every test here is
 ;; synchronous, so the restore simply follows the body.
@@ -169,8 +169,8 @@
 (defn- panel!
   "The panel's tree, as the boundary builds it.
 
-  rf2-k97c.3 — `Panel` is an `rf.fresco/defview` now, so it is a React
-  component and `(fresco/Panel)` is no longer a callable that answers
+  `Panel` is an `rf.fresco/defview`, so it is a React
+  component and `(fresco/Panel)` is not a callable that answers
   hiccup. `fresco/panel-tree` is the projection the boundary calls, and
   these rows drive it with the values taken from the two subs the
   boundary reads — the same two queries, resolved through `:rf/xray` by
@@ -181,7 +181,7 @@
   (let [frame (rf/current-frame-id)]
     (fresco/panel-tree
       {:selected @(rf/subscribe [:rf.xray.fresco/view])
-       ;; The FRAME is the query's argument since rf2-bgol, exactly as
+       ;; The FRAME is the query's argument, exactly as
        ;; `Panel` passes it — a harness that dropped it would drive the
        ;; filter's nil default and never the shipped path.
        :data     @(rf/subscribe [:rf.xray.fresco/data frame])
@@ -211,8 +211,8 @@
 
   `trace-collector/refresh-trace-rings!` dispatches
   `:rf.xray/sync-trace-buffer` with its snapshot on every coalesced task
-  drain; `:rf.xray/trace-buffer` reads the slot that dispatch writes
-  (rf2-43koh). Dispatching it directly is therefore the collector's own
+  drain; `:rf.xray/trace-buffer` reads the slot that dispatch writes.
+  Dispatching it directly is therefore the collector's own
   seam, not a stand-in for it."
   []
   (rf/with-frame :rf/xray
@@ -250,13 +250,13 @@
     (is (string/includes? (text-of tree) "survey result"))))
 
 (deftest an-empty-roster-says-something-different-in-each-view
-  ;; AUDIT #7789, CORRECTNESS 3, on the page. One `:idle` note — "nothing is
-  ;; mounted, a clean bill of health" — rendered under every view. Under
-  ;; Intents it told the reader a CAPPED window proved nothing had been
-  ;; dispatched. Each view now has its own testid and its own sentence —
-  ;; six of them, one per `sub-modes` entry, which the pure-algebra suite
-  ;; counts against the live list. This row drives the REAL PANEL over the
-  ;; four evidence views to prove the sentences reach the page.
+  ;; One `:idle` note — "nothing is mounted, a clean bill of health" —
+  ;; rendered under every view would, under Intents, tell the reader a
+  ;; CAPPED window proved nothing had been dispatched. Each view has its own
+  ;; testid and its own sentence — six of them, one per `sub-modes` entry,
+  ;; which the pure-algebra suite counts against the live list. This row
+  ;; drives the REAL PANEL over the four evidence views to prove the
+  ;; sentences reach the page.
   (setup!)
   (let [by-view (into {} (map (fn [v] [v (show! v)])) [:mounted :attribution
                                                        :intents :explain])]
@@ -285,7 +285,7 @@
                "drop them exactly where the reader has least else to go on")))))
 
 (deftest the-mounted-census-does-not-claim-the-screen
-  ;; AUDIT #7792. The census cannot distinguish Activity-hidden from
+  ;; The census cannot distinguish Activity-hidden from
   ;; unmounted, and lists a Suspense-fallback-hidden subtree though it is
   ;; off screen. The panel states that beside the rows rather than leaving
   ;; the reader to supply the word "visible".
@@ -298,15 +298,14 @@
     (release)))
 
 (deftest a-host-without-fresco-is-ABSENT-not-empty
-  ;; EVERY view, not the first one (rf2-y8doi.26). `:causal` was the
-  ;; exception and was wrong: `causal-view` never took the envelope, so
-  ;; `(nil? slice)` was its whole state model and every empty answered
-  ;; `:idle` — *the advisor named no boundary to trace*, which describes a
-  ;; Fresco application with nothing mounted. On a Reagent app, where the
-  ;; door answers nil and every other view says *No Fresco evidence on
-  ;; this host*, the one view that could not tell sent the reader looking
-  ;; for boundaries that cannot exist. Distinguishing those two states is
-  ;; the whole reason this panel has a presence model.
+  ;; EVERY view, `:causal` included. A `causal-view` that did not take the
+  ;; envelope would have `(nil? slice)` as its whole state model, and every
+  ;; empty would answer `:idle` — *the advisor named no boundary to trace*,
+  ;; which describes a Fresco application with nothing mounted. On a Reagent
+  ;; app, where the door answers nil and every other view says *No Fresco
+  ;; evidence on this host*, that view would send the reader looking for
+  ;; boundaries that cannot exist. Distinguishing those two states is the
+  ;; whole reason this panel has a presence model.
   (setup!)
   (with-redefs [reads/evidence (constantly {:mounted-boundaries nil
                                             :read-attribution   nil
@@ -332,9 +331,9 @@
   ;; expected one is worse than no rows at all.
   ;;
   ;; BOTH DIRECTIONS, because the pin is exact rather than a floor. `/v99` is
-  ;; a producer that evolved ahead of this build. `/v2` is the SUPERSEDED
-  ;; stamp, and it is the one that matters: the shape has moved under a
-  ;; stale stamp before (audit #7802), so the predecessor must mismatch on
+  ;; a producer that evolved ahead of this build. `/v2` is the predecessor
+  ;; stamp, and it is the one that matters: a shape can move under a
+  ;; stale stamp, so the predecessor must mismatch on
   ;; the page like anything else this build was not taught. There is no
   ;; acceptance path for it.
   (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
@@ -416,7 +415,7 @@
     (is (string/includes? txt "[:htab/left] + [:htab/right]")
         "each edge names the boundaries holding it, by the same key the
          mounted roster uses")
-    (testing "each row carries its WHOLE projected identity in the testid (audit #7802)"
+    (testing "each row carries its WHOLE projected identity in the testid"
       (let [edge-ids (into #{} (filter #(and (string/starts-with? % "rf-xray-fresco-edge-")
                                              (not (string/ends-with? % "-readers"))))
                            ids)]
@@ -471,7 +470,7 @@
         (is (some #(string/ends-with? % "-cause") ids))
         (is (some #(string/ends-with? % "-loss-uncorrelated") ids))
         (is (string/includes? txt "lead")))
-      (testing "the FRAME is on the row, and in its testid (audit #7802)"
+      (testing "the FRAME is on the row, and in its testid"
         (is (string/includes? txt (str "frame " (hh/format-id app-frame)))
             (str "two boundaries reading one query in two frames have the same "
                  "label, so without the frame the reader sees one line twice"))
@@ -485,14 +484,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear
-  ;; rf2-r98a. The populated arms above are all reached through `show!`,
-  ;; and `show!` drops Xray's sub cache first. So every one of them proves
-  ;; what the panel renders GIVEN a fresh projection, and none of them
-  ;; proves the projection ever refreshes on its own — the tab's liveness
-  ;; was a comment on `:rf.xray.fresco/data` and nothing else.
+  ;; The populated arms above are all reached through `show!`, and `show!`
+  ;; drops Xray's sub cache first. So every one of them proves what the
+  ;; panel renders GIVEN a fresh projection, and none of them proves the
+  ;; projection ever refreshes on its own.
   ;;
-  ;; That is the property a browser row was proposed for, and it does not
-  ;; need one. The tab is live because the sub composes off
+  ;; That property does not need a browser row. The tab is live because the
+  ;; sub composes off
   ;; `:rf.xray/trace-buffer`, and that signal is an ordinary app-db slot
   ;; written by an ordinary dispatch, so the tick is drivable right here.
   ;;
@@ -517,8 +515,7 @@
         ;; A BOUNDARY ROW, not the section wrapper. `rf-xray-fresco-mounted`
         ;; is the wrapper `mounted-view` renders in every arm — the empty
         ;; note lives inside it — so asserting the wrapper would pass on the
-        ;; stale empty roster this row exists to catch. That is the bead's own
-        ;; question turned on this test, and the first draft failed it.
+        ;; stale empty roster this row exists to catch.
         (is (some #(string/starts-with? % "rf-xray-fresco-boundary-") ids)
             "the trace tick re-fired the projection and a boundary ROW
              arrived — with no cache clear anywhere in this test")
@@ -567,13 +564,11 @@
   "RF2-HIC-023-PANEL-SECRET-4c1e8a07")
 
 (deftest a-sensitive-query-argument-reaches-neither-the-page-nor-a-testid
-  ;; AUDIT #7789, CORRECTNESS 1 — the half a data-only assertion cannot
-  ;; reach. The producer's key carried raw query arguments, and these
-  ;; helpers then PRINTED them in a boundary label and hashed them into a
-  ;; DOM testid. So the escape was observable on the page, under a
-  ;; `data-testid` a screenshot or a browser assertion would carry off the
-  ;; developer's box. An envelope-only control would have missed it, which
-  ;; is exactly what happened.
+  ;; The half a data-only assertion cannot reach. A producer key carrying
+  ;; raw query arguments would have these helpers PRINT them in a boundary
+  ;; label and hash them into a DOM testid — an escape observable on the
+  ;; page, under a `data-testid` a screenshot or a browser assertion would
+  ;; carry off the developer's box. An envelope-only control would miss it.
   ;;
   ;; Frame destruction is the forcing function: there the door PROMISES to
   ;; fail closed, so nothing derived from the query may render.
@@ -630,13 +625,13 @@
     (release)))
 
 (deftest the-subscription-drops-XRAYs-own-boundaries-and-the-DOOR-does-not
-  (testing "rf2-k97c.3 — the byte-for-byte claim above is about the DOOR and
-            the SEAM, and it is unchanged. The SUBSCRIPTION additionally
+  (testing "the byte-for-byte claim above is about the DOOR and
+            the SEAM. The SUBSCRIPTION additionally
             applies the self-exclusion, and this row is the one that tells the
             two apart.
 
-            IT ALSO KEEPS THE ROW ABOVE HONEST. Once Xray's own panels became
-            Fresco boundaries, `the-seam-reshapes-nothing`'s second half holds
+            IT ALSO KEEPS THE ROW ABOVE HONEST. Xray's own panels are
+            Fresco boundaries, so `the-seam-reshapes-nothing`'s second half holds
             only while no `:rf/xray` boundary is mounted — which is true of
             that fixture and false of a running Xray. Without this row its
             pass would be a property of the harness rather than of the chain."
@@ -673,16 +668,16 @@
   ::fresco-tab-custom-shell)
 
 (deftest the-subscription-drops-a-NON-DEFAULT-shells-own-boundaries-too
-  (testing "rf2-bgol — the row above pins the PRODUCTION SINGLETON, and the
-            first cut of this filter asked `(= :rf/xray frame)`, so the
-            singleton was the only shell it could see. Xray's shell frame is
-            parameterized (008 §Parameterized shell frame-id): a testbed
-            mounting N shells side by side gives each a distinct `:frame-id`,
-            `mount/ensure-xray-frame!` takes one, and under such a shell the
-            tab's own boundary, reads and explanations were seated in a frame
-            the filter did not know and rode into all four rosters.
+  (testing "the row above pins the PRODUCTION SINGLETON; a filter asking
+            `(= :rf/xray frame)` would see only that shell. Xray's shell
+            frame is parameterized (008 §Parameterized shell frame-id): a
+            testbed mounting N shells side by side gives each a distinct
+            `:frame-id`, `mount/ensure-xray-frame!` takes one, and under such
+            a shell the tab's own boundary, reads and explanations are seated
+            in a frame such a filter would not know, riding into all four
+            rosters.
 
-            The subscription now takes the shell's id from the panel's own
+            The subscription takes the shell's id from the panel's own
             render, so this row drives the query the way `Panel` does."
     (setup!)
     (rf/make-frame {:id custom-shell-frame})
@@ -705,7 +700,7 @@
       (is (not (some #{custom-shell-frame}
                      (frames-of (:mounted-boundaries held))))
           (str "THE SHELL'S OWN FRAME IS DROPPED. This is the assertion that "
-               "reddens against the literal-only filter. Held frames: "
+               "reddens against a literal-only filter. Held frames: "
                (pr-str (frames-of (:mounted-boundaries held)))))
       (is (some #{app-frame} (frames-of (:mounted-boundaries held)))
           "and the application's boundary SURVIVES — the drop is the tool's
@@ -721,7 +716,7 @@
       (rf/destroy-frame! custom-shell-frame))))
 
 (deftest the-consumer-pin-tracks-the-producer-today-and-detects-a-bump
-  (testing "the pin is a LITERAL, not the producer's var — but today they agree"
+  (testing "the pin is a LITERAL, not the producer's var — and the two agree"
     (is (= rf.fresco.evidence/schema hh/consumed-evidence-schema)
         (str "Xray's pin and the Fresco producer's schema have diverged. That "
              "is the pin doing its job: teach this build the new shape, then "

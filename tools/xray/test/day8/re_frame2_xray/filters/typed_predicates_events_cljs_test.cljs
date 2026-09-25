@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.filters.typed-predicates-events-cljs-test
   "CLJS integration tests for the typed-predicate `:rf.xray/filter-by-*`
-  events (rf2-piye4).
+  events.
 
   Asserts that:
    - each typed-add event lands a `{:kind … :params …}` pill in the IN
@@ -18,8 +18,8 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; (core `make-reset-runtime-fixture` + Xray `reset-all!`) into one owner:
+  ;; `make-xray-runtime-fixture` is core `make-reset-runtime-fixture` +
+  ;; Xray `reset-all!` in one owner:
   ;; plain-atom adapter + the default `:all` reset tier — install/registry/
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -98,8 +98,8 @@
 ;; ---- mixed typed + legacy keyword pills ---------------------------------
 
 (deftest mixed-typed-and-legacy-pills-coexist
-  (testing "the rf2-ak4ms add-filter path (legacy `{:pattern ...}`) and
-            the rf2-piye4 filter-by-* paths can populate the same IN
+  (testing "the add-filter path (legacy `{:pattern ...}`) and
+            the filter-by-* paths can populate the same IN
             bucket without stepping on each other"
     (xray-setup!)
     (rf/with-frame :rf/xray

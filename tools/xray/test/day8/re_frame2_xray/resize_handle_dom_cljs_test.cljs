@@ -1,21 +1,14 @@
 (ns day8.re-frame2-xray.resize-handle-dom-cljs-test
-  "Browser-lane half of the resize-handle suite, promoted out of
-  `day8.re-frame2-xray.resize-handle-cljs-test` under rf2-r51p.
+  "Browser-lane half of the resize-handle suite.
 
-  ## What was wrong, and it was the file's LOCATION rather than its guard
+  ## Why these rows live in a `-dom-cljs-test` namespace
 
-  The eleven assertions below were wrapped in `(when (exists? js/document)
-  ...)` inside a namespace ending `-cljs-test`. `:node-test` selected that
-  namespace and the guard was false there — this repo ships no jsdom, no
-  happy-dom and no DOM shim in any dependency list, so `js/document` is
-  simply undefined under Node — while `:browser-test`, whose `:ns-regexp`
-  is `.*-dom-cljs-test$`, never loaded the file at all. The rows therefore
-  executed in NEITHER lane. Their first run is here.
-
-  The sibling `resize_handle_boundary_dom_cljs_test` recorded the same
-  finding from the other side and measured it rather than inferring it: a
-  deliberate failure planted inside those `when` bodies leaves
-  `npm run test:cljs` green.
+  Every row below needs a real DOM. `:browser-test`'s `:ns-regexp` is
+  `.*-dom-cljs-test$`, and under `:node-test` `js/document` is simply
+  undefined — this repo ships no jsdom, no happy-dom and no DOM shim in
+  any dependency list. Rows guarded by `(when (exists? js/document) ...)`
+  inside a namespace ending only `-cljs-test` would therefore execute in
+  NEITHER lane.
 
   ## THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES
 
@@ -24,14 +17,13 @@
   build loads this namespace too, and `implementation/shadow-cljs.edn`
   records above `:browser-test` that this overlap is deliberate: the
   DOM-tagged files run on BOTH targets so their cross-runtime asserts keep
-  firing in Node. Moving a row here ADDS the browser lane; it removes
-  nothing.
+  firing in Node. A row here gains the browser lane and keeps the node
+  lane.
 
   ## THE SKIP BRANCH ASSERTS RATHER THAN VANISHING
 
   A bare `(when ...)` body would leave the node lane holding a deftest with
-  ZERO assertions — the hollow shape rf2-r51p exists to remove, relocated
-  rather than fixed. Each row below answers the node lane with a visible
+  ZERO assertions — a hollow row. Each row below answers the node lane with a visible
   marker row instead, so the skip is legible in the node summary and no
   deftest here holds nothing.
 
@@ -44,11 +36,7 @@
   This file sits between them: the yield PREDICATE read off a real computed
   style, and `apply-panel-width!`'s writes to a real `<html>`. Neither can
   be stubbed, because `getComputedStyle` resolving an inline `resize:`
-  declaration IS the behaviour under test.
-
-  A failure here is evidence about `host-asserts-own-handle?` and
-  `apply-panel-width!` arriving for the first time, not a regression
-  introduced by the move."
+  declaration IS the behaviour under test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
@@ -74,12 +62,12 @@
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
   build loads this ns and has no `js/document` — and no jsdom either,
-  which is why these rows never executed before this file existed."
+  which is why these rows need the browser lane."
   []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-;; ---- the handle's own markup (rf2-k97c.3) -------------------------------
+;; ---- the handle's own markup --------------------------------------------
 ;;
 ;; `handle-tree` is the boundary's PURE inner fn. Driving it directly is
 ;; what a test can assert without a React render window: `handle-view` is a
@@ -96,7 +84,7 @@
     (resize-handle/aria-max-panel-width-px)
     (:dispatch (rf/capture-frame))))
 
-;; ---- yield-to-consumer (rf2-70u8q) -------------------------------------
+;; ---- yield-to-consumer -------------------------------------------------
 
 (defn- ensure-stub-host!
   "Attach `<aside data-rf-xray-host>` to the page, optionally declaring
@@ -122,7 +110,7 @@
     (.removeChild (.-parentNode host) host)))
 
 (deftest host-without-resize-does-not-yield
-  (testing "rf2-70u8q — the zero-config consumer drops
+  (testing "the zero-config consumer drops
             `<aside data-rf-xray-host></aside>` with no explicit `resize:`
             declaration, so Xray renders its own handle (auto-inject)"
     (if-not (browser?)
@@ -135,7 +123,7 @@
             (remove-stub-host! host)))))))
 
 (deftest host-with-resize-horizontal-yields
-  (testing "rf2-70u8q — the consumer asserts their own browser-native
+  (testing "the consumer asserts their own browser-native
             handle with `resize: horizontal`; Xray MUST yield to avoid a
             double handle"
     (if-not (browser?)
@@ -148,7 +136,7 @@
             (remove-stub-host! host)))))))
 
 (deftest host-with-resize-both-yields
-  (testing "rf2-70u8q — `resize: both` also gives the consumer a
+  (testing "`resize: both` also gives the consumer a
             browser-native handle (covers a future vertical-resize use
             case too), so Xray yields"
     (if-not (browser?)
@@ -160,10 +148,10 @@
           (finally
             (remove-stub-host! host)))))))
 
-;; rf2-k97c.3 — THE YIELD GATE LIVES IN `handle-view`, THE BOUNDARY, and
+;; THE YIELD GATE LIVES IN `handle-view`, THE BOUNDARY, and
 ;; deliberately not in the `Handle` bridge beside the mode gate. The
 ;; bridge is scaffolding with a defined end: when `shell-view` becomes a
-;; boundary, `Handle` is DELETED. A spec'd product behaviour (rf2-70u8q)
+;; boundary, `Handle` is DELETED. A spec'd product behaviour
 ;; parked there would be deleted with it, silently.
 ;;
 ;; The two rows below assert the PREDICATE the boundary gates on, plus the
@@ -171,7 +159,7 @@
 ;; mount — is `resize_handle_boundary_dom_cljs_test`'s W3.
 
 (deftest handle-yields-when-host-asserts-own-handle
-  (testing "rf2-k97c.3 / rf2-70u8q — the yield path: `handle-view`'s gate
+  (testing "the yield path: `handle-view`'s gate
             short-circuits, so the boundary renders nil and the page
             carries exactly one handle (the consumer's)"
     (if-not (browser?)
@@ -186,7 +174,7 @@
             (remove-stub-host! host)))))))
 
 (deftest handle-renders-when-host-does-not-yield
-  (testing "rf2-k97c.3 / rf2-70u8q — the no-yield path: the zero-config
+  (testing "the no-yield path: the zero-config
             consumer declares no `resize` at all, the gate is false, and
             the markup the boundary then composes is the documented node"
     (if-not (browser?)
@@ -211,16 +199,15 @@
   (when (browser?) (.-documentElement js/document)))
 
 (deftest apply-panel-width-writes-css-var-on-html
-  (testing "rf2-6fqr5 — the width lands as an inline custom property on
+  (testing "the width lands as an inline custom property on
             `<html>`, so the cascade resolves it at the host through
             `var(--rf-xray-inline-width, ...)` inheritance"
     (if-not (browser?)
       (is true "skipped: no DOM (node lane — see ns docstring)")
       (let [html (html-root)]
-        ;; BIND, ASSERT PRESENT, then reach through. The original row was
-        ;; `(when-let [html ...] (is ...))`, which fails OPEN: a nil root
-        ;; silently skips the assertion rather than reporting one, which
-        ;; is the same shape that let this row die unnoticed.
+        ;; BIND, ASSERT PRESENT, then reach through. A
+        ;; `(when-let [html ...] (is ...))` would fail OPEN: a nil root
+        ;; would silently skip the assertion rather than report one.
         (is (some? html) "precondition: a real <html> root to write to")
         (settings-effects/apply-panel-width! 700)
         (is (= "700px"
@@ -228,12 +215,11 @@
             "<html> CSS var carries the value so the cascade resolves")))))
 
 (deftest apply-panel-width-does-not-pin-host-inline-style
-  (testing "rf2-6fqr5 — an earlier draft wrote the custom property as an
-            INLINE style on the layout host as well as on `<html>`. Inline
+  (testing "Xray MUST NOT write the custom property as an INLINE style
+            on the layout host; the host inherits it from `<html>`. Inline
             declarations beat any selector-based rule, so a consumer's
-            `:root { --rf-xray-inline-width: 720px; }` was silently
-            shadowed. Xray MUST NOT write the property to the host; the
-            host inherits it from `<html>`."
+            `:root { --rf-xray-inline-width: 720px; }` would be silently
+            shadowed."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane — see ns docstring)")
       (let [host (ensure-stub-host! nil)
@@ -254,7 +240,7 @@
             (remove-stub-host! host)))))))
 
 (deftest apply-panel-width-clears-html-inline-when-default
-  (testing "rf2-6fqr5 — when the user has NOT explicitly resized (the value
+  (testing "when the user has NOT explicitly resized (the value
             still equals `default-panel-width-px`), `apply-panel-width!`
             MUST clear any prior inline declaration so the consumer's
             `:root` override, or the host CSS's `var(...)` fallback, wins"

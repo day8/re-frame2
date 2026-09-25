@@ -1,16 +1,15 @@
 (ns day8.re-frame2-xray.panel-gallery-trace-fixtures-cljs-test
-  "Fixture-shape coverage for the panel_gallery Trace tab (rf2-ofoqu).
+  "Fixture-shape coverage for the panel_gallery Trace tab.
 
-  After PR #1958 (rf2-td380) the Trace panel reads the FOCUSED EPOCH's
-  `:trace-events` — resolved via the shared `focus-resolver` over
-  `:rf.xray/focus` + `:rf.xray/epoch-history` — instead of the trace
-  bus. The gallery's Trace variants were rewired (rf2-ofoqu) to seed
-  `:epoch-history` (a vector of `:rf/epoch-record` maps) via
-  `:rf.xray/sync-epoch-history` rather than the bus via
+  The Trace panel reads the FOCUSED EPOCH's `:trace-events` — resolved
+  via the shared `focus-resolver` over `:rf.xray/focus` +
+  `:rf.xray/epoch-history` — not the trace bus. So the gallery's Trace
+  variants seed `:epoch-history` (a vector of `:rf/epoch-record` maps)
+  via `:rf.xray/sync-epoch-history` rather than the bus via
   `:rf.xray/sync-trace-buffer`.
 
-  This test pins that the rewired fixture builders produce the shape
-  the panel actually reads:
+  This test pins that the fixture builders produce the shape the panel
+  actually reads:
 
     1. Each history is a vector of `:rf/epoch-record` maps, each
        carrying an `:epoch-id` and a `:trace-events` slice.
@@ -20,7 +19,7 @@
        variants, the `:no-events` empty-kind for the empty variant.
 
   It also pins the chrome / settings / filters seeds in
-  `panel-gallery.fixtures` (rf2-y8doi.28): those feed the L2 event list
+  `panel-gallery.fixtures`: those feed the L2 event list
   through `:rf.xray/sync-trace-buffer`, and they must project to one
   visible L2 row per cascade through the SAME grouping the shell uses.
 
@@ -103,7 +102,7 @@
           "the focused epoch surfaces the flow op-type"))))
 
 (deftest chrome-seeds-project-one-l2-row-per-cascade
-  (testing "rf2-y8doi.28 — the seventeen chrome / settings / filters
+  (testing "the seventeen chrome / settings / filters
             variants seed `(gallery-fx/cascades n)`; grouped the way the
             `:rf.xray/event-bundles` sub groups it, that is n L2-visible
             rows, not one hidden `:ungrouped` bucket"

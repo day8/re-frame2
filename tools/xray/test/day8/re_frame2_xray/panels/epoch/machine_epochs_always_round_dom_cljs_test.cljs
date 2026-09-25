@@ -1,16 +1,17 @@
 (ns day8.re-frame2-xray.panels.epoch.machine-epochs-always-round-dom-cljs-test
-  "Browser (real-DOM) proof for parallel `:always`-round RENDERING (rf2-gy9ln).
+  "Browser (real-DOM) proof for parallel `:always`-round RENDERING.
 
-  ## The gap this closes
+  ## Why a browser test
 
-  PR #5978 delivered the parent-owned parallel `:always`-round evidence + its
-  Node/JVM projection + trace-state coverage, but NO browser (`-dom-cljs-test`)
-  fixture asserts the RENDER. The real-runtime `machine_epochs_harness_cljs_test`
+  The parent-owned parallel `:always`-round evidence has Node/JVM projection
+  + trace-state coverage, but only a browser (`-dom-cljs-test`) fixture
+  asserts the RENDER. The real-runtime `machine_epochs_harness_cljs_test`
   is Node-only; browser selection runs `-dom-cljs-test` namespaces. The nightly
   `runMachineEpochs` asserts per-frame snapshots and EXPLICITLY delegates deep
   microstep render fidelity to the CLJS unit, and PR smoke does not stage
-  machine-epochs. So removing the projection/view clause for parallel `:always`
-  rounds could leave every browser check green — no DOM test pinned
+  machine-epochs. So without this file, removing the projection/view clause
+  for parallel `:always` rounds could leave every browser check green —
+  nothing else pins
   `data-cascade-round-index`, the `[ALWAYS]` round presentation, actionless-round
   visibility, or the four regional topology edges.
 
@@ -126,16 +127,16 @@
     (react-dom/flushSync (fn [] (rdc/render root component)))
     {:container container :root root}))
 
-;; ---- rendering the subject the way PRODUCTION renders it (rf2-k97c.3) ----
+;; ---- rendering the subject the way PRODUCTION renders it ----------------
 ;;
-;; Both rows below used to mount their subject straight into a REAGENT tree.
-;; That stopped being representative when the Epoch panel migrated: the shared
-;; mini-pipeline's EDN-widget heads are `[ei/edn-inspector-view …]` now, and a
-;; FRESCO BOUNDARY IS NOT A REAGENT RENDER FN. Reagent sees a fn in head
+;; Mounting the subject straight into a REAGENT tree would not be
+;; representative: the shared mini-pipeline's EDN-widget heads are
+;; `[ei/edn-inspector-view …]`, and a FRESCO BOUNDARY IS NOT A REAGENT
+;; RENDER FN. Reagent sees a fn in head
 ;; position, mints its own component for it and CALLS it during Reagent's
 ;; render — which is not a React function-component render, so the boundary's
 ;; first hook throws `Invalid hook call`, React swallows the render throw, and
-;; the whole cascade subtree silently commits nothing. The rows then read 0
+;; the whole cascade subtree silently commits nothing. The rows would read 0
 ;; rows and blame the projection. (`machine_after_rings` records the same fact
 ;; from the other side: crossing INTO React from Reagent needs
 ;; `rf.fresco/as-component`.)
@@ -144,7 +145,7 @@
 ;; production — under `epoch/view`'s `Panel` or `machine-inspector`'s. It is
 ;; handed over through an atom rather than through props deliberately: the
 ;; crossing below is `[:>]` from a Reagent parent, and only an EMPTY props map
-;; survives that intact (the after-rings bridge measured a payload does not).
+;; survives that intact (a payload does not).
 
 (defonce ^:private !subject
   (atom nil))
@@ -191,7 +192,7 @@
         projected))
 
 (deftest machine-epochs-always-round-renders-round-rows-in-browser
-  (testing "rf2-gy9ln — driving the REAL parallel-round runtime, the SHARED
+  (testing "driving the REAL parallel-round runtime, the SHARED
             machine-cascade mini-pipeline RENDERS two first-class [ALWAYS] round
             rows (regions :a then :b, shared round-index 0), each carrying
             data-cascade-round-index + data-cascade-region, with NO [ACTION] row
@@ -202,8 +203,8 @@
       (is true ":node — the :browser-test runner drives the real DOM mount")
       (let [trace-events (drive-real-round!)
             cascade      (proj/machine-cascade-rows trace-events)
-            ;; rf2-k97c.3 — hosted in a real Fresco boundary; see
-            ;; [[mount-in-boundary!]] for why a Reagent mount stopped being
+            ;; Hosted in a real Fresco boundary; see
+            ;; [[mount-in-boundary!]] for why a Reagent mount is not
             ;; representative and what it silently reads instead.
             mounted      (mount-in-boundary!
                            (fn []
@@ -233,7 +234,7 @@
           (finally (cleanup! mounted)))))))
 
 (deftest machine-epochs-always-round-renders-four-fired-topology-edges-in-browser
-  (testing "rf2-gy9ln — the focused-event Machine section RENDERS
+  (testing "the focused-event Machine section RENDERS
             data-fired-edge-ids carrying the four real regional topology edges
             (:a/:b direct :go events + :a/:b :always rounds), computed from the
             REAL trace via extract-fired-edge-ids. Reddens if the round
@@ -259,9 +260,9 @@
                           :definition     parallel-round-machine
                           :fired-edge-ids fired
                           :no-op?         false}
-            ;; rf2-k97c.3 — hosted in a real Fresco boundary, which is what
-            ;; the Machine tab is now, so `r/as-element` is the `as-child`
-            ;; spelling: `machine-canvas/Chart` is still an `rf/reg-view` and
+            ;; Hosted in a real Fresco boundary, which is what the Machine
+            ;; tab is, so `r/as-element` is the `as-child`
+            ;; spelling: `machine-canvas/Chart` is an `rf/reg-view` and
             ;; the island is what gets it onto the page under a boundary. The
             ;; fit-signal nonce is nil because nothing here asserts on it.
             mounted      (mount-in-boundary!

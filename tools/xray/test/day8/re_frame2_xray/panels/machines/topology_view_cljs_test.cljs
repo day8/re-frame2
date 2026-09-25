@@ -1,11 +1,11 @@
 (ns day8.re-frame2-xray.panels.machines.topology-view-cljs-test
-  "Pure-data tests for the topology-view composition helpers (rf2-vcnvj).
+  "Pure-data tests for the topology-view composition helpers.
   Focuses on `static-context-shape` — the root-Context-chrome projection
   the Static-Machines topology path feeds the chart so the root context
   renders on the blank-state topology without a live snapshot.
 
-  Also pins the `Topology` → `machine-canvas/Chart` prop boundary
-  (rf2-xf5on): the view's `:trace-events` contract promises
+  Also pins the `Topology` → `machine-canvas/Chart` prop boundary:
+  the view's `:trace-events` contract promises
   `fired-this-epoch` edge highlights, so the fired-edge ids it computes
   must reach the chart mount's `:fired-edge-ids` prop."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -55,7 +55,7 @@
     :else nil))
 
 (deftest static-context-shape-maps-keys-to-type-captions
-  (testing "rf2-vcnvj — derives `(key → type-caption)` from the
+  (testing "derives `(key → type-caption)` from the
             definition's declared `:data`, NOT the live values (the door
             machine's `{:opened-count 0 :held-open? false :trail []}`
             shape)."
@@ -75,14 +75,14 @@
           "each key maps to its value's type caption (shape, not value)"))))
 
 (deftest static-context-shape-nil-when-no-data
-  (testing "rf2-vcnvj — a machine with no `:data` yields nil so the root
+  (testing "a machine with no `:data` yields nil so the root
             Context panel stays hidden."
     (is (nil? (tv/static-context-shape {:initial :a :states {:a {}}})))
     (is (nil? (tv/static-context-shape {:initial :a :data nil :states {:a {}}})))
     (is (nil? (tv/static-context-shape nil)))))
 
 (deftest static-context-declared-schema-is-authoritative
-  (testing "rf2-3q4k5b (EP-0005) — when a machine declares a `[:schemas :data]`,
+  (testing "EP-0005 — when a machine declares a `[:schemas :data]`,
             the static Context shape is read AUTHORITATIVELY off the schema
             (not the `:data` sample) and `static-context-inferred?` is FALSE,
             so the chart drops the `inferred from :data` badge."
@@ -102,9 +102,9 @@
           "declared schema → not inferred (chart drops the inferred badge)"))))
 
 (deftest static-context-inferred-when-no-schema
-  (testing "rf2-3q4k5b (EP-0005) — absent a `[:schemas :data]`, the shape falls
+  (testing "EP-0005 — absent a `[:schemas :data]`, the shape falls
             back to the one-sample inference and `static-context-inferred?`
-            is TRUE (rf2-5tz9p's badge stays)."
+            is TRUE (the `inferred from :data` badge shows)."
     (let [def {:initial :idle
                :data    {:hits 0 :trail []}
                :states  {:idle {}}}]
@@ -116,7 +116,7 @@
       (is (true? (tv/static-context-inferred? {:initial :a :states {:a {}}}))))))
 
 (deftest topology-threads-inferred-flag-to-chart
-  (testing "rf2-3q4k5b (EP-0005) — the `Topology` mount forwards the
+  (testing "EP-0005 — the `Topology` mount forwards the
             declared-over-inferred provenance to `machine-canvas/Chart`'s
             `:context-band-inferred?` prop: false for a declared schema, true
             for an inferred sample."
@@ -135,14 +135,13 @@
       (is (true? (:context-band-inferred? inferred-props))
           "inferred sample → :context-band-inferred? true reaches the chart"))))
 
-;; ---- Topology → Chart fired-edge prop boundary (rf2-xf5on) --------------
+;; ---- Topology → Chart fired-edge prop boundary --------------------------
 
 (deftest topology-forwards-fired-edge-ids-to-chart
-  (testing "rf2-xf5on — the fired-this-epoch edge ids the view computes from
+  (testing "the fired-this-epoch edge ids the view computes from
             `:trace-events` reach the `machine-canvas/Chart` mount's
-            `:fired-edge-ids` prop (the docstring's contract). Before the
-            fix the prop was absent and the fired treatment was silently
-            dropped."
+            `:fired-edge-ids` prop (the docstring's contract). Without
+            the prop the fired treatment would be silently dropped."
     (let [def         (toy-definition)
           populate-id (canonical-edge-id def [:empty] [:populated] :populate)
           events      [{:operation :rf.machine/transition
@@ -163,7 +162,7 @@
            chart paints"))))
 
 (deftest topology-passes-empty-fired-edges-when-no-transition-this-epoch
-  (testing "rf2-xf5on — case-B (no transition this epoch) forwards `#{}`,
+  (testing "case-B (no transition this epoch) forwards `#{}`,
             identical to passing no fired highlight."
     (let [def   (toy-definition)
           props (find-chart-props
@@ -174,17 +173,17 @@
       (is (= #{} (:fired-edge-ids props))
           "empty fired set → no fired highlight on the blank-epoch chart"))))
 
-;; ---- Topology → Chart parallel region-map snapshot boundary (rf2-di7mda) -
+;; ---- Topology → Chart parallel region-map snapshot boundary -------------
 ;;
 ;; A PARALLEL machine's live snapshot `:state` is a region-map (Spec 005 +
 ;; machines-viz API §:current-state) of N simultaneously-active leaves. When
 ;; the wrapper falls back to a live snapshot (no focused transition / history
 ;; hit), the region-map MUST forward through to the chart's `:current-state`
 ;; UNCHANGED so the multi-active highlight (`chart.layout/highlight-ids`)
-;; lights EVERY active region leaf. The bug narrowed the snapshot fallback to
-;; keyword/vector only, dropping the region-map before the chart could render
-;; the N-active highlight (a live parallel machine showed no active regions
-;; while the wrapper still claimed `data-current-state-source = "snapshot"`).
+;; lights EVERY active region leaf. Narrowing the snapshot fallback to
+;; keyword/vector only would drop the region-map before the chart could render
+;; the N-active highlight (a live parallel machine would show no active
+;; regions while the wrapper claimed `data-current-state-source = "snapshot"`).
 
 (defn- parallel-ingest-definition
   "Canonical Spec 005 parallel fixture (mirrors the machines-viz
@@ -201,12 +200,11 @@
                                  :done     {:final? true}}}}})
 
 (deftest topology-forwards-parallel-region-map-snapshot-to-chart
-  (testing "rf2-di7mda — a parallel `:snapshot-state` region-map reaches the
+  (testing "a parallel `:snapshot-state` region-map reaches the
             `machine-canvas/Chart` mount's `:current-state` UNCHANGED, so the
             chart's multi-active highlight lights every active region leaf.
-            Before the fix the wrapper dropped the map (narrowed to
-            keyword/vector) and a live parallel machine rendered no active
-            regions."
+            A wrapper that dropped the map (narrowed to keyword/vector)
+            would render no active regions for a live parallel machine."
     (let [def          (parallel-ingest-definition)
           ;; BOTH regions reached their (same-named) :done leaf — the
           ;; multi-active live snapshot a running parallel machine carries.
@@ -234,9 +232,9 @@
              region-scoped node-id — every active region leaf lit")))))
 
 (deftest topology-keyword-and-vector-snapshot-still-forward
-  (testing "rf2-di7mda — the single-active arms are unchanged: a flat-keyword
+  (testing "the single-active arms: a flat-keyword
             snapshot forwards as a 1-element path, a vector path forwards
-            verbatim (regression guard around the region-map arm addition)."
+            verbatim (regression guard beside the region-map arm)."
     (let [def       (toy-definition)
           kw-props  (find-chart-props
                       (tv/Topology {:machine-id :cart :definition def

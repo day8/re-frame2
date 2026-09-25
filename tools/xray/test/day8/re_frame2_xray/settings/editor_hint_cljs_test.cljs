@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.settings.editor-hint-cljs-test
   "CLJS tests for the open-in-editor 'pick an editor in Settings' hint
-  toast (rf2-4s08ov).
+  toast.
 
   Asserts:
   - `:rf.xray/editor-hint-show` / `-dismiss` flip the
@@ -23,7 +23,7 @@
             [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
+;; `make-xray-runtime-fixture` composes core
 ;; `make-reset-runtime-fixture` (snapshot/restore + frames-reset + adapter
 ;; dispose/install) with Xray's own reset tier. `:tier :runtime` folds the
 ;; sentinel + trace-collector + persisted-settings reset; `:async? true` is the
@@ -39,9 +39,8 @@
                    (rf/make-frame {:id :rf/xray}))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade.
 
 ;; ---- events + sub -------------------------------------------------------
 
@@ -80,7 +79,7 @@
 ;; ---- open-settings wiring ----------------------------------------------
 
 (deftest open-settings-opens-popup-on-general-and-dismisses
-  (testing "rf2-4s08ov — :rf.xray/editor-hint-open-settings dismisses the
+  (testing ":rf.xray/editor-hint-open-settings dismisses the
             toast (synchronously in :db) and opens the Settings popup,
             which lands on the :general tab (the editor picker's home)"
     (rf/with-frame :rf/xray

@@ -1,34 +1,24 @@
 (ns day8.re-frame2-xray.panel-gallery-inventory-smoke-cljs-test
-  "Regression smoke for the panel-gallery /#/stories empty-inventory
-  defect (rf2-k1k87).
+  "Smoke for the panel-gallery /#/stories inventory.
 
-  Two cascading authoring errors had silently bricked the gallery shell:
+  An authoring error in one gallery namespace silently bricks the gallery
+  shell: the registrar throws on the FIRST offending gallery ns to load
+  and aborts the cascade, so subsequent galleries never run their
+  `register-all!`. The characteristic case is `:rf.error/unknown-tag` —
+  a variant carrying a `:state/*` tag (e.g. `:state/empty`,
+  `:state/special`) when nothing registers the `:state/*` axis, so the
+  registrar's `validate-tag-membership!` throws.
 
-  1. **Cascade A — `:rf.error/unknown-tag`**: every gallery's variants
-     used `:state/*` tags (e.g. `:state/empty`, `:state/special`) but
-     no `reg-tag` call ever registered the `:state/*` axis. The
-     registrar's `validate-tag-membership!` threw on the FIRST gallery
-     ns to load and aborted the cascade; subsequent galleries never
-     ran their `register-all!`.
-
-  2. **Cascade B (retired with rf2-vv3m6)** — formerly pinned a slash-
-     separator regression in the now-removed `gallery_diff_mode_
-     universal.cljs`. The universal three-mode toggle gallery retired
-     when the `[diff][full][full+diff]` toggle itself retired
-     (FULL+DIFF is the single rendering). The grammar lock survives
-     elsewhere via `rf.story.schemas/story-id?` plus the per-gallery cascade
-     in `each-gallery-register-all-drops-non-empty-inventory` below.
-
-  This smoke locks both regressions at the framework + author level:
+  This smoke locks that at the framework + author level:
 
   - **State-axis lock**: a synthetic `reg-variant` carrying every
     `:state/*` value at once succeeds without throwing — pinning that
     Story's canonical install covers the magnitude axis end-to-end.
-  - **Gallery-id grammar lock**: every story / variant / workspace id
-    that the broken gallery shipped (post-fix) passes the matching
-    `schemas/*-id?` predicate. If a future edit reintroduces a slash
-    into a story id, this test catches it before the gallery hits the
-    runtime.
+  - **Gallery-id grammar lock**: `rf.story.schemas/story-id?` rejects a
+    malformed id (a slash in a story id, say), which aborts that
+    gallery's registrations — and the per-gallery cascade in
+    `each-gallery-register-all-drops-non-empty-inventory` below catches
+    it as empty inventory before the gallery hits the runtime.
 
   Pure data → data; no React, no live runtime. Discovered by the
   `:node-test` build's `cljs-test$` regex via the `-cljs-test` ns
@@ -38,7 +28,7 @@
             [re-frame.story :as rf.story]
             [re-frame.story.schemas :as rf.story.schemas]
             [day8.re-frame2-xray.focus :as focus]
-            ;; rf2-nozqw — per-gallery register-all! drive. Each
+            ;; Per-gallery register-all! drive. Each
             ;; namespace's bottom-of-file `(register-all!)` fires at
             ;; namespace load, but the smoke test calls each one
             ;; individually after a `clear-all!` to verify the gallery
@@ -54,10 +44,6 @@
             [panel-gallery.gallery-edn-inspector   :as gallery-edn-inspector]
             [panel-gallery.gallery-epoch           :as gallery-epoch]
             [panel-gallery.gallery-filters         :as gallery-filters]
-            ;; (rf2-gbz39 — `gallery-issues` removed alongside the
-            ;; Issues tab; Option (c) folds issue surfacing into the
-            ;; Epoch panel + L2 event-row pink-wash + the always-on
-            ;; issues ribbon signal.)
             [panel-gallery.gallery-machines        :as gallery-machines]
             [panel-gallery.gallery-routing         :as gallery-routing]
             [panel-gallery.gallery-settings        :as gallery-settings]
@@ -73,18 +59,18 @@
 
 (use-fixtures :each reset-and-install)
 
-;; ---- Cascade A regression — `:state/*` axis is canonical -------------
+;; ---- `:state/*` axis is canonical --------------------------------------
 
 (deftest cascade-a-state-axis-tags-validate-on-variant-registration
-  (testing "the canonical install registers every :state/* tag (rf2-k1k87)"
+  (testing "the canonical install registers every :state/* tag"
     (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-state-tags))
     (is (= 5 (count rf.story.schemas/canonical-state-tags))
         "the axis ships five magnitude values"))
   (testing "registering a variant tagged with every :state/* value at once
-            does NOT raise :rf.error/unknown-tag — the regression that
-            bricked the panel-gallery"
+            does NOT raise :rf.error/unknown-tag, which would brick the
+            panel-gallery"
     (rf.story/reg-story :story.cascade-a.smoke
-      {:doc       "rf2-k1k87 Cascade-A regression."
+      {:doc       "State-axis smoke story."
        :component :smoke/comp
        :tags      #{:dev}})
     (doseq [state-tag rf.story.schemas/canonical-state-tags]
@@ -100,23 +86,13 @@
             so the sidebar tag-filter UI can group it (SB9 facet parity)"
     (is (= rf.story.schemas/canonical-state-tags (rf.story/tags-by-axis :state)))))
 
-;; ---- Cascade B regression — RETIRED 2026-05-29 (rf2-vv3m6) -----------
-;;
-;; The gallery_diff_mode_universal.cljs gallery retired alongside the
-;; `[diff][full][full+diff]` mode toggle (FULL+DIFF is now the single
-;; rendering). The story-id-shape regression it pinned is still covered
-;; generically by `rf.story.schemas/story-id?` (used in the cascade A test above
-;; via the `:state/*` axis path) plus the per-gallery register-all!
-;; loop below (which would surface a malformed id by aborting the
-;; offending gallery's registrations).
-
 ;; ---- inventory-non-empty smoke (the headline contract) ---------------
 
 (deftest gallery-inventory-non-empty-after-bulk-register
-  (testing "after registering the post-fix story + variant ids, the
-            Story-shell's variant inventory is non-empty. The bug shape
-            was: an exception in one gallery aborted the load and the
-            shell rendered with zero variants. The smoke shape: drive
+  (testing "after registering story + variant ids of the gallery shape,
+            the Story-shell's variant inventory is non-empty — an
+            exception in one gallery would abort the load and render the
+            shell with zero variants. The smoke shape: drive
             registrations that mirror the gallery shape and confirm the
             registrar reports non-empty inventory."
     (rf.story/reg-story :story.smoke.parent
@@ -133,11 +109,11 @@
       (is (= 5 (count variants))
           "every :state/* tag drove a variant — no :rf.error/unknown-tag aborts"))))
 
-;; ---- Dynamic-tab gallery coverage + documented exclusions (rf2-1sddi6 F3) ----
+;; ---- Dynamic-tab gallery coverage + documented exclusions ----
 ;;
 ;; The panel-gallery is the visual-design harness for the six CORE L4
-;; lenses. The four cohesive-sub-domain / runtime-structure tabs added
-;; later (Resources · Graph · Frames · Fresco) are INTENTIONALLY not
+;; lenses. The four cohesive-sub-domain / runtime-structure tabs
+;; (Resources · Graph · Frames · Fresco) are INTENTIONALLY not
 ;; galleried — their shipped-surface + focusability coverage lives in the
 ;; feature-matrix browser sweep (PANEL_HANDOFFS walks all ten live tabs)
 ;; + their own per-panel CLJS unit tests. This test locks that split:
@@ -145,7 +121,7 @@
 ;; the live Dynamic tab inventory (`focus/valid-panels`, which mirrors the
 ;; registry). Adding a new Dynamic tab therefore forces an explicit choice
 ;; — gallery it, or add it to the excluded set with a rationale — rather
-;; than silently rotting into an unexplained gap (the rf2-1sddi6 finding).
+;; than silently rotting into an unexplained gap.
 
 (def ^:private galleried-dynamic-tabs
   "Live Dynamic L4 tab ids the panel-gallery covers with a per-tab
@@ -155,9 +131,8 @@
 
 (def ^:private intentionally-ungalleried-dynamic-tabs
   "Live Dynamic L4 tab ids deliberately NOT galleried — see
-  `panel_gallery/core.cljs` §Intentional gallery exclusions (rf2-1sddi6
-  F3). Coverage lives in the feature-matrix browser sweep + per-panel
-  unit tests."
+  `panel_gallery/core.cljs` §Intentional gallery exclusions. Coverage
+  lives in the feature-matrix browser sweep + per-panel unit tests."
   #{:resources :derivation-graph :module-view :fresco})
 
 (deftest gallery-coverage-partitions-the-live-dynamic-inventory
@@ -175,7 +150,7 @@
              "Dynamic tab shipped without a gallery entry OR a documented "
              "exclusion — resolve it in panel_gallery/core.cljs."))))
 
-;; ---- per-gallery register-all! drive (rf2-nozqw) ---------------------
+;; ---- per-gallery register-all! drive ---------------------------------
 
 (def ^:private galleries
   "Every panel-gallery namespace's `register-all!` paired with a human
@@ -202,27 +177,22 @@
   (testing "every panel-gallery namespace's `register-all!` runs without
             throwing AND produces non-empty per-gallery inventory.
 
-            Background — the rf2-k1k87 smoke caught the headline
-            `:state/*` tag + diff-mode-id grammar cascade, but
-            rf2-nozqw landed three follow-on bugs (lowercase
-            `:workspace.xray.routing/all` typo; unregistered
-            `:feature/opts` tag) that aborted ONE gallery's
-            register-all! while the aggregate inventory stayed
-            non-empty from the other galleries. That's exactly the
-            shape this per-gallery loop catches: one gallery returns
-            zero stories + zero variants + zero workspaces, the rest
-            stay healthy.
+            A typo in ONE gallery (a lowercase `:workspace.*` id, an
+            unregistered `:feature/*` tag) aborts that gallery's
+            register-all! while the aggregate inventory stays non-empty
+            from the other galleries. That is exactly the shape this
+            per-gallery loop catches: one gallery returns zero stories
+            + zero variants + zero workspaces, the rest stay healthy.
 
             Mechanic — clear-all + install canonical tags ONCE per
             gallery, invoke the gallery's `register-all!`, snapshot
             the three side-table id sets, assert each is non-empty.
-            Re-introducing Bug A (gallery_routing.cljs:137 →
-            `:workspace.xray.routing/all` lowercase) drops the
-            workspace count to zero for that gallery; re-introducing
-            Bug B (gallery_edn_inspector.cljs `:feature/opts`
-            unregistered) raises `:rf.error/unknown-tag` on the first
-            variant tagged with it, halting the cascade and dropping
-            story/variant counts."
+            A lowercase `:workspace.xray.routing/all` in
+            gallery_routing.cljs would drop the workspace count to zero
+            for that gallery; an unregistered `:feature/opts` tag in
+            gallery_edn_inspector.cljs would raise
+            `:rf.error/unknown-tag` on the first variant tagged with it,
+            halting the cascade and dropping story/variant counts."
     (doseq [[label register-all!] galleries]
       (rf.story/clear-all!)
       (rf.story/install-canonical-vocabulary!)

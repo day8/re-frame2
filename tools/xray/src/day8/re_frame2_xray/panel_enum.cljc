@@ -65,8 +65,7 @@
                       nothing about which substrate authored it: several
                       entries here are `rf.fresco/defview` boundaries
                       mounted through a `*-bridge`, and the bridge is
-                      deliberately NOT what this axis records — it is
-                      migration scaffolding with a defined end, while the
+                      deliberately NOT what this axis records — the
                       natural name is the stable identity the spec tables
                       and the api-manifest rows also carry.
     :tier   keyword — the 007-UX-IA §Mountable surface inventory tier:

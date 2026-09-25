@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.fresco-helpers-cljs-test
-  "The Fresco tab's pure algebra (rf2-hic-023).
+  "The Fresco tab's pure algebra.
 
   Two properties carry this suite, and both are about the same thing —
   whether the producer's honesty survives the trip to the screen.
@@ -13,9 +13,9 @@
      schema this build cannot parse* have unrelated remedies, and a reader
      who cannot tell them apart is back where the schema found them. The
      third empty — *the roster came back empty* — is not one fact but
-     one per view (six today), and the audit of #7789 found the mounted
-     census's verdict being read out under Intents where it was false.
-     Each view therefore answers for its own scope.
+     one per view (six), since the mounted census's verdict read out
+     under Intents would be false. Each view therefore answers for its
+     own scope.
 
   Everything else here is the row projections, which are ordinary."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -28,7 +28,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; Keys are the PROJECTED shape the producer exports —
-;; `[frame-id sub-id projected-query]`, never a raw sub-key (audit #7789).
+;; `[frame-id sub-id projected-query]`, never a raw sub-key.
 (def ^:private boundary-a {:parent nil :key [[:app/main :todo [:todo 7]]]})
 (def ^:private boundary-b {:parent nil :key [[:app/main :todo [:todo 7]]
                                              [:app/main :user [:user 1]]]})
@@ -118,19 +118,18 @@
     (is (string/includes? (:says (:mismatch hh/presence-copy)) "not taught to parse"))))
 
 (deftest an-empty-roster-means-something-different-in-each-view
-  ;; AUDIT #7789, CORRECTNESS 3. One `:idle` sentence — written for the
-  ;; mounted census, "nothing is mounted, a clean bill of health" — was
-  ;; shown under all four views. Under Intents it told a reader a CAPPED
-  ;; window proved nothing had been dispatched; under Reads it denied the
-  ;; existence of mounted boundaries that read nothing.
+  ;; One `:idle` sentence — written for the mounted census, "nothing is
+  ;; mounted, a clean bill of health" — shown under every view would, under
+  ;; Intents, tell a reader a CAPPED window proved nothing had been
+  ;; dispatched, and under Reads deny the existence of mounted boundaries
+  ;; that read nothing.
   (testing "every view has its own copy — a view with none would fall back to silence"
     (is (= (set (map :id hh/sub-modes)) (set (keys hh/empty-copy)))))
 
   (testing "no two views share a sentence or a testid suffix"
     ;; Counted against the LIVE view list rather than a literal, so a
-    ;; sixth view cannot be added with a fifth view's sentence and still
-    ;; pass. rf2-hic-037 added Advisor and Causal, and the property this
-    ;; row is actually about — pairwise distinctness — is unchanged.
+    ;; view cannot be added with another view's sentence and still pass —
+    ;; the property this row is about is pairwise distinctness.
     (let [says     (map :says (vals hh/empty-copy))
           suffixes (map :testid-suffix (vals hh/empty-copy))
           n        (count hh/sub-modes)]
@@ -164,7 +163,7 @@
         "there is nothing to say when there are rows")))
 
 (deftest the-mounted-empty-does-not-claim-the-screen-is-empty
-  ;; AUDIT #7792. An Activity-hidden subtree that released its reads leaves
+  ;; An Activity-hidden subtree that released its reads leaves
   ;; exactly this census, so the copy may not read as proof that nothing is
   ;; retained above.
   (let [says (:says (:mounted hh/empty-copy))]
@@ -187,13 +186,12 @@
       (is (= [] (f nil))))))
 
 (deftest the-superseded-v2-shape-is-refused-rather-than-mis-parsed
-  ;; The wire shape has moved under a stale stamp before (merged-PR audit
-  ;; #7802), so for one increment a pin accepted, as EXACT, a shape it had
-  ;; never been taught — a version that lies, which is worse than no version
-  ;; because it turns a loud refusal into a silent misread. v3 moved the
-  ;; shape again: the scope and basis axes are gone, the sub-projections are
-  ;; gone, and `:views` replaced `:view` / `:source`. The pin only earns its
-  ;; keep if the predecessor now MISMATCHES; there is no acceptance path and
+  ;; A pin that accepted, as EXACT, a shape it had never been taught would
+  ;; be a version that lies — worse than no version, because it turns a
+  ;; loud refusal into a silent misread. v3's shape differs from v2's: v3
+  ;; has no scope and basis axes and no sub-projections, and carries
+  ;; `:views` where v2 carried `:view` / `:source`. The pin only earns its
+  ;; keep if the predecessor MISMATCHES; there is no acceptance path and
   ;; no compatibility adapter to route around this.
   (let [v2 (assoc mounted :schema :re-frame.fresco.evidence/v2)]
     (testing "the pin names the version whose shape this build actually parses"
@@ -207,7 +205,7 @@
           (str "if this row fails, the refusals below are passing against an "
                "envelope that would have yielded nothing anyway")))
 
-    (testing "the superseded stamp is a MISMATCH, not an older dialect"
+    (testing "the v2 stamp is a MISMATCH, not an older dialect"
       (is (false? (hh/supported? v2)))
       (is (= :mismatch (hh/presence v2 false))
           "and it renders the mismatch banner, not an empty roster"))
@@ -248,11 +246,10 @@
         (is (nil? (hh/view-label [])) "an empty vector is not a name either")))))
 
 (deftest a-label-and-a-testid-are-built-from-the-PROJECTED-key
-  ;; AUDIT #7789, CORRECTNESS 1, consumer half. The helpers printed the raw
-  ;; query in a label and hashed it into a DOM testid, so an argument the
-  ;; producer had projected out of the data arrived on the page anyway.
-  ;; They now read the projected key element, and a redacted query is
-  ;; rendered as the sentinel it is.
+  ;; The consumer half. The helpers read the projected key element, so an
+  ;; argument the producer projected out of the data cannot reach the page
+  ;; through a label or a DOM testid, and a redacted query is rendered as
+  ;; the sentinel it is.
   (testing "a redacted read names its registration id, so two of them stay apart"
     (is (= ":todo :rf/redacted" (hh/read-label [:app/main :todo :rf/redacted])))
     (is (= ":user :rf/redacted" (hh/read-label [:app/main :user :rf/redacted])))
@@ -289,10 +286,9 @@
         "a reader is named where the producer names it, and unnamed where it does not")))
 
 (deftest a-row-key-carries-the-WHOLE-projected-identity
-  ;; MERGED-PR AUDIT #7802, RESIDUAL 2. `boundary-slug` ignored the frame and
-  ;; `attribution-rows` slugged every edge by sub-id alone, so rows that are
-  ;; genuinely different facts shared a React key and a DOM testid. The direct
-  ;; witness on merge 7c45f3ca9:
+  ;; A `boundary-slug` that ignored the frame, or `attribution-rows`
+  ;; slugging every edge by sub-id alone, would give rows that are
+  ;; genuinely different facts one React key and one DOM testid:
   ;;
   ;;   boundary keys [[:frame/a :row [:row 1]]] and [[:frame/b :row [:row 1]]]
   ;;     -> slugs ["row-row-1" "row-row-1"]
@@ -305,9 +301,9 @@
     (let [a {:parent nil :key [[:frame/a :row [:row 1]]]}
           b {:parent nil :key [[:frame/b :row [:row 1]]]}]
       (is (not= (hh/boundary-slug a) (hh/boundary-slug b))
-          (str "both slugged `row-row-1` before the frame was in the key — a "
-               "browser assertion selecting one silently matched the other, and "
-               "React saw one child where there were two"))
+          (str "without the frame in the key both slug `row-row-1` — a "
+               "browser assertion selecting one would silently match the other, and "
+               "React would see one child where there are two"))
       (is (string/includes? (hh/boundary-slug a) "frame-a"))
       (is (string/includes? (hh/boundary-slug b) "frame-b"))))
 
@@ -323,9 +319,9 @@
                                 :epoch 1 :fan-out 1 :readers []}]})
           [a b] (hh/attribution-rows e)]
       (is (not= (:slug a) (:slug b))
-          "both slugged `row` before — one testid over two subscriptions")
+          "a sub-id-only slug gives both `row` — one testid over two subscriptions")
       (is (= ["[:row 1]" "[:row 2]"] [(:label a) (:label b)])
-          "and the view printed only `:row`, so the rows also READ the same")
+          "and a view printing only `:row` would make the rows READ the same too")
       (is (= [:frame/a :frame/b] [(:frame-id a) (:frame-id b)])
           "the frame is on the row for the renderer to print")))
 
@@ -368,12 +364,11 @@
   "Every SHAPE a projected identity component legally takes, and the pairs
   of shapes that a lossy encoding folds together.
 
-  MERGED-PR AUDIT #7820 found the collision this pool exists to catch by
-  GENERATING identities; the increment it audited asserted only that ITS
-  OWN three fixtures came out distinct, which is true of a constant
-  function on three points. So the guard below is a property over a
-  generated space and the hand-written rows underneath it are for
-  readability only.
+  The collision this pool exists to catch is found by GENERATING
+  identities; asserting only that three fixtures come out distinct is
+  true of a constant function on three points. So the guard below is a
+  property over a generated space and the hand-written rows underneath it
+  are for readability only.
 
   The pool is chosen so that the three ways a slug can lose information
   are all present and all adjacent: the namespace separator (`:a/b`), an
@@ -428,12 +423,11 @@
        vec))
 
 (deftest a-row-key-is-INJECTIVE-over-the-whole-legal-identity-space
-  ;; MERGED-PR AUDIT #7820. The fix for #7802 put the whole projected
-  ;; identity into one string and then passed that string through
-  ;; `id-slug`, which replaces every run of non-alphanumerics with `-`.
-  ;; Namespace separators, in-name hyphens, component boundaries and
-  ;; collection punctuation all became the same character, so the encoding
-  ;; REINTRODUCED the collision it was written to close:
+  ;; Putting the whole projected identity into one string and then passing
+  ;; that string through `id-slug`, which replaces every run of
+  ;; non-alphanumerics with `-`, would make namespace separators, in-name
+  ;; hyphens, component boundaries and collection punctuation all the same
+  ;; character — the encoding would REINTRODUCE the collision:
   ;;
   ;;   [:a/b :c :d]  [:a-b :c :d]  [:a :b/c :d]  ->  "a-b-c-d" x3
   ;;
@@ -485,7 +479,7 @@
         "the door normalises the triple, so an identity that arrives as a
          seq does not mint a second React key for the same fact"))
 
-  (testing "the three-way control from the audit, spelled out"
+  (testing "the three-way control, spelled out"
     (let [three [[:a/b :c :d] [:a-b :c :d] [:a :b/c :d]]]
       (is (= 3 (count (distinct (map hh/read-slug three))))
           (str "read-slugs: " (pr-str (mapv hh/read-slug three))))
@@ -495,7 +489,7 @@
 
   (testing "the readable stem survives, so a testid is still greppable"
     (is (string/starts-with? (hh/read-slug [:frame/a :row [:row 1]]) "frame-a-row-row-1-")
-        "the stem is the old slug; the tail behind the last `-` is what
+        "the stem is the readable slug; the tail behind the last `-` is what
          makes it injective")
     (is (not (string/includes? (hh/read-slug [:app/main :todo :rf/redacted]) "hunter"))
         "and the encoding re-admits nothing — it encodes the PROJECTED
@@ -566,8 +560,8 @@
              `:leads-known?` is what carries the distinction")))))
 
 (deftest two-parameterizations-of-one-sub-do-not-collapse-in-the-why-view
-  ;; AUDIT #7789, ERGONOMICS. `:latest-reads` named sub-ids, so eight rows
-  ;; of one registered sub all answered ":row moved".
+  ;; `:latest-reads` naming sub-ids alone would have eight rows of one
+  ;; registered sub all answer ":row moved".
   (let [e (envelope :explain-render
                     {:complete? false
                      :loss {:reason :uncorrelated :dropped :unknown}
@@ -601,7 +595,7 @@
 
 (deftest the-views-are-the-four-questions-plus-the-two-derivations
   ;; The first four are Spec SN §10's questions, one sub-view each. The
-  ;; last two are rf2-hic-037's derivations over the SAME one-turn read —
+  ;; last two are derivations over the SAME one-turn read —
   ;; a tab of their own would take a second turn, and a mount landing
   ;; between the two would rank a census the slice no longer agrees with.
   (is (= [:mounted :attribution :intents :explain :advisor :causal]
@@ -618,26 +612,26 @@
       (is (= (count mnems) (count (set mnems)))))))
 
 ;; ---------------------------------------------------------------------------
-;; XRAY'S OWN MACHINERY IS NOT APPLICATION EVIDENCE (rf2-k97c.3)
+;; XRAY'S OWN MACHINERY IS NOT APPLICATION EVIDENCE
 ;; ---------------------------------------------------------------------------
 ;;
-;; Xray's panels became Fresco boundaries, and Fresco's census walks the
-;; collector's process-global entry table with no frame filter — so the
-;; Fresco tab listed ITSELF. Measured in the browser before the fix: with
-;; one application boundary mounted, the Mounted view committed two rows,
-;; the second `…panels.fresco/Panel · frame :rf/xray · 2 reads`.
+;; Xray's panels are Fresco boundaries, and Fresco's census walks the
+;; collector's process-global entry table with no frame filter — so,
+;; unfiltered, the Fresco tab would list ITSELF: with one application
+;; boundary mounted, the Mounted view would commit two rows, the second
+;; `…panels.fresco/Panel · frame :rf/xray · 2 reads`.
 ;;
 ;; EVERY ROW BELOW CARRIES BOTH DIRECTIONS IN ONE ASSERTION — the count
 ;; that survives AND the identity of the survivor. A count alone would
 ;; pass just as well on a filter that dropped the wrong row, and these
 ;; fixtures are two rows deep precisely so that mistake is reachable.
 ;;
-;; AND EVERY ROW RUNS TWICE (rf2-bgol), once for the production singleton
-;; `:rf/xray` and once for a NON-DEFAULT shell frame. The first cut of this
-;; filter asked `(= :rf/xray frame)`, which is right for the singleton and
-;; blind to every other shell 008 §Parameterized shell frame-id permits —
-;; and a suite that only ever fed it `:rf/xray` could not tell the two
-;; apart. The custom arm is the one that reddens against the old filter.
+;; AND EVERY ROW RUNS TWICE, once for the production singleton `:rf/xray`
+;; and once for a NON-DEFAULT shell frame. A filter asking
+;; `(= :rf/xray frame)` is right for the singleton and blind to every other
+;; shell 008 §Parameterized shell frame-id permits — and a suite that only
+;; ever fed it `:rf/xray` could not tell the two apart. The custom arm is
+;; the one that reddens against such a filter.
 
 (def ^:private custom-shell-frame
   "A NON-DEFAULT Xray shell frame — the `:frame-id` a testbed mounting N
@@ -689,23 +683,23 @@
                               :latest-reads [] :candidates [] :loss nil}]})})
 
 (deftest the-own-frame-set-is-the-singleton-PLUS-the-shell-being-looked-from
-  (testing "rf2-bgol — `:rf/xray` is RESERVED (Conventions' `:rf/*` single
-            root is the framework's, and the L1 picker already refuses it as
+  (testing "`:rf/xray` is RESERVED (Conventions' `:rf/*` single
+            root is the framework's, and the L1 picker refuses it as
             an inspectable frame), so it stays in the set whichever shell is
-            doing the looking. What was missing was the second member."
+            doing the looking. The second member is the shell looked from."
     (is (= #{:rf/xray} (hh/own-frames nil))
-        "no shell to name — the pre-rf2-bgol behaviour exactly, so a caller
-         with no frame context loses nothing it had")
+        "no shell to name — the singleton alone, so a caller with no frame
+         context loses nothing")
     (is (= #{:rf/xray} (hh/own-frames :rf/xray))
         "the production singleton names itself and the set does not grow")
     (is (= #{:rf/xray custom-shell-frame} (hh/own-frames custom-shell-frame))
-        "a non-default shell adds ITSELF — this is the member the literal
-         `(= :rf/xray frame)` filter could never have")
+        "a non-default shell adds ITSELF — this is the member a literal
+         `(= :rf/xray frame)` filter can never have")
     (is (not (contains? (hh/own-frames custom-shell-frame) :app/main))
         "and nothing else joins it: an application frame is never owned")))
 
 (deftest xray-own-frame-rows-are-dropped-from-every-roster
-  (testing "epic criterion 5 — a boundary seated in an Xray shell's frame is
+  (testing "criterion 5 — a boundary seated in an Xray shell's frame is
             the tool, not the application, and none of the four rosters may
             carry it. Same rule and same unconditional posture as
             `self-noise`'s trace-event drop, applied to the evidence surface."
@@ -747,8 +741,8 @@
                  still answers `:live`/`:idle` rather than `:mismatch`")))))))
 
 (deftest a-shell-does-not-drop-ANOTHER-application-frames-rows
-  (testing "rf2-bgol — the set grew, and the thing to prove about a set that
-            grew is that it did not grow onto the application. Here the
+  (testing "the set has two members, and the thing to prove about it is
+            that it does not reach the application. Here the
             second row is seated in an ORDINARY application frame while the
             filter is armed for the custom shell, so nothing in the roster is
             the tool's and nothing may be dropped."
@@ -758,11 +752,11 @@
              (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
           "BOTH application rows survive — a filter that keyed on anything
            softer than the shell's own id (tracing being off, say) would
-           have eaten the second one, which is far worse than the defect
-           this change repairs"))))
+           eat the second one, which is far worse than listing the tool's
+           own rows"))))
 
 (deftest the-own-frame-drop-does-not-eat-an-unresolved-or-unparseable-envelope
-  (testing "rf2-k97c.3 — two things the filter must NOT do, both of which
+  (testing "two things the filter must NOT do, both of which
             would turn a STATED absence into a silent one, which is the
             failure this whole tab is built against."
     (testing "`unknown` is not Xray's frame"
@@ -793,5 +787,5 @@
             "nil stays nil — a missing door is not an empty roster")
         (is (= :re-frame.fresco.evidence/v2 (:schema (:read-attribution e)))
             "and a schema this build cannot parse is handed on whole, so
-             `presence` still reports `:mismatch`. Filtering it would have
-             emptied the roster and reported a mismatch as clean")))))
+             `presence` still reports `:mismatch`. Filtering it would
+             empty the roster and report a mismatch as clean")))))

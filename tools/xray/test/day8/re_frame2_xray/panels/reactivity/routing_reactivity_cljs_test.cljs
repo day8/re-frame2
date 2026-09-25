@@ -1,9 +1,7 @@
 (ns day8.re-frame2-xray.panels.reactivity.routing-reactivity-cljs-test
-  "Sub-reactivity guard for the Routing panel's focused-event lens
-  (rf2-dhoc9).
+  "Sub-reactivity guard for the Routing panel's focused-event lens.
 
-  Per the rf2-70tkv affected-panels matrix Routing tracked LIVE
-  correctly pre-fix (it pivots on `:rf.xray/focus :dispatch-id`). This
+  Routing tracks LIVE by pivoting on `:rf.xray/focus :dispatch-id`. This
   test pins the cascade-tracking reactivity contract — flipping focus
   between cascades changes the routing tab's `:from-id` / `:to-id`
   chips."
@@ -17,7 +15,7 @@
    (h/cascade :c2 :rf/default)])
 
 (deftest routing-tab-data-sub-tracks-focus-flip
-  (testing "rf2-dhoc9 — `:rf.xray/routing-tab-data` re-fires on focus
+  (testing "`:rf.xray/routing-tab-data` re-fires on focus
             flip; the composite map's identity changes between two
             focused cascades. The composite's `:current` slot reads
             from the host frame's
@@ -45,7 +43,7 @@
         (is (map? data-2))))))
 
 (deftest routing-tab-data-current-slice-tracks-host-frame
-  (testing "rf2-dhoc9 — `:rf.xray/current-route-slice` reads off the
+  (testing "`:rf.xray/current-route-slice` reads off the
             host frame's `[:rf.runtime/routing :current]` slice in runtime-db
             (via the `:rf.route/id` sub). The reactive chain
             `target-frame-db → current-route-slice → routing-tab-
@@ -59,7 +57,7 @@
           "composite carries the :current route slice axis"))))
 
 (deftest routing-tab-data-re-fires-with-current-route-override
-  (testing "rf2-dhoc9 — the test-only `:rf.xray/set-current-route-
+  (testing "the test-only `:rf.xray/set-current-route-
             slice-override` event writes the override slot; the
             composite sub re-fires with the new slice. This pins the
             inner reactive chain: override → current-route-slice →

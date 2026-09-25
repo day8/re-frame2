@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.fresco-causal-cljs-test
   "ONE causal slice on a REAL interaction, with every evidenced link
-  mutation-tested (rf2-hic-037).
+  mutation-tested.
 
   ## What a mutation test is for here
 
@@ -24,7 +24,8 @@
   bundles the framework put there. Two sabotages act on the SEAM'S OWN
   DATA rather than on the runtime — the `:rf.sub/id` tag, and the
   attribution envelope — because those are the seams, and a runtime that
-  could be talked out of stamping a trace tag would be a different bead.
+  could be talked out of stamping a trace tag would be a different test's
+  subject.
   The events they carry are otherwise the runtime's own.
 
   Normative owner: `tools/xray/spec/028-Fresco-Advisor.md`."
@@ -40,7 +41,7 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
-            ;; rf2-k97c.3 / rf2-a38l — the codec's own hiccup→element door,
+            ;; The codec's own hiccup→element door,
             ;; so a key is graded at the renderer that actually ships it
             ;; rather than at the hiccup a reader hopes it means.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
@@ -139,7 +140,7 @@
 (defn- slice!
   "The slice for the FIRST mounted boundary, on the dispatch the spine is
   focused on — exactly what the panel draws. With no `:focus` that is the
-  newest retained dispatch, as it was before rf2-y8doi.26."
+  newest retained dispatch."
   ([] (slice! {}))
   ([{:keys [envelopes windows boundary-key focus]}]
    (let [e  (or envelopes (evidence!))
@@ -174,7 +175,7 @@
   (first (filter #(= id (:id %)) (:links s))))
 
 (defn- show!
-  "rf2-k97c.3 — `Panel` is an `rf.fresco/defview` now, so it is a React
+  "`Panel` is an `rf.fresco/defview`, so it is a React
   component rather than a callable answering hiccup. `panel-tree` is the
   projection the boundary calls; these rows drive it with the values
   taken from the two subs the boundary reads."
@@ -404,17 +405,17 @@
     (release)))
 
 ;; ---------------------------------------------------------------------------
-;; LINK 4 IS KEYED ON THE CELL (rf2-y8doi.26)
+;; LINK 4 IS KEYED ON THE CELL
 ;; ---------------------------------------------------------------------------
 
 (deftest one-cells-readers-are-notified-and-never-its-SIBLING-CELLS-readers
-  ;; Link 4 keyed its reverse-edge lookup on `[frame-id sub-id]`, so one
-  ;; moved cell matched EVERY parameterization of its registration and the
-  ;; link named all of their readers. On a list of `[:todo/by-id n]` rows
-  ;; that is every row on the page reported as notified by a commit that
-  ;; touched one of them — and `docs/core/fresco/16-diagnostics.md` teaches
-  ;; a reader to hunt exactly that signature, so the defect FABRICATED the
-  ;; evidence rather than merely inflating a count.
+  ;; Keyed on `[frame-id sub-id]`, link 4's reverse-edge lookup would match
+  ;; one moved cell against EVERY parameterization of its registration and
+  ;; name all of their readers. On a list of `[:todo/by-id n]` rows that is
+  ;; every row on the page reported as notified by a commit that touched one
+  ;; of them — and `docs/core/fresco/16-diagnostics.md` teaches a reader to
+  ;; hunt exactly that signature, so such a key would FABRICATE the
+  ;; evidence rather than merely inflate a count.
   ;;
   ;; Two boundaries, one registration, two cells. Boundary A reads cell 1
   ;; and nothing else, so its `:latest-reads` names cell 1 and can name
@@ -436,8 +437,8 @@
       (is (= 2 (count cells))
           (str "one registration, two queries, two cells in the table. With "
                "one cell the per-cell assertion below would pass on the "
-               "defective key too, which is the whole failure mode of the "
-               "fixture this row replaces"))
+               "defective key too, which is the whole failure mode of a "
+               "one-cell fixture"))
       (is (= #{:hcaus/item} (into #{} (map :sub-id) cells))
           "and both really are the SAME registration")
       (is (some? key-1) "boundary A is in the census, reading cell 1 alone")
@@ -458,8 +459,8 @@
                "Both cells would be the registration-keyed answer"))
       (is (= [key-1] (mapv :key (:readers (:holds l))))
           (str "so boundary B — which reads a cell this commit did not move "
-               "— is NOT reported as notified. It was the reverse edge's "
-               "answer under the old key, printed under the name of the one "
+               "— is NOT reported as notified. It would be the reverse edge's "
+               "answer under a registration key, printed under the name of the one "
                "link that says who re-runs because of this"))
       (is (= [:frame-id :sub-id :query] (get-in l [:joins :on]))
           "and the link states the CELL as what it joined on")
@@ -476,15 +477,15 @@
     (b)))
 
 ;; ---------------------------------------------------------------------------
-;; THE WALKED DISPATCH IS THE SPINE'S (Spec 018 §6, rf2-y8doi.26)
+;; THE WALKED DISPATCH IS THE SPINE'S (Spec 018 §6)
 ;; ---------------------------------------------------------------------------
 
 (deftest the-walked-dispatch-is-the-SPINE-S-focus-when-the-ring-holds-it
   ;; Spec 018 §6's atomicity contract: *No panel maintains its own
   ;; selection state; no panel reads `(peek history)`.* `newest-dispatch`
   ;; is `(peek ring)` under another name, so the ONE view whose job is
-  ;; "one dispatch, walked" re-pointed itself on every application
-  ;; dispatch while the reader was reading it.
+  ;; "one dispatch, walked" would, walking it alone, re-point itself on
+  ;; every application dispatch while the reader was reading it.
   (setup!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
@@ -501,7 +502,7 @@
       (is (not= oldest newest)))
 
     (is (= newest (get-in (slice! {:envelopes e :windows w}) [:scope :dispatch-id]))
-        "with no focus, the newest retained dispatch — unchanged behaviour")
+        "with no focus, the newest retained dispatch")
 
     (is (= oldest (get-in (slice! {:envelopes e :windows w :focus {:dispatch-id oldest}})
                           [:scope :dispatch-id]))
@@ -534,10 +535,10 @@
 
 (deftest link-3-counts-its-overlap-with-link-2-without-claiming-a-join
   ;; Two solid adjacent facts with nothing linking them is this
-  ;; namespace's finding, and it stays the finding. What was missing is
-  ;; any statement of how the two rosters RELATE — the reader had two
-  ;; lists and no way to tell "these coincide exactly" from "these share
-  ;; nothing", which are very different situations.
+  ;; namespace's finding. Link 3 also states how the two rosters RELATE —
+  ;; without that the reader would have two lists and no way to tell
+  ;; "these coincide exactly" from "these share nothing", which are very
+  ;; different situations.
   (setup!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
@@ -590,7 +591,7 @@
         (is (not= says-hit says-miss)
             (str "a count that reads the same whether or not the two rosters "
                  "share anything is not a measurement — and this is the "
-                 "exact shape of assertion that would have caught it"))))
+                 "exact shape of assertion that catches one"))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -683,21 +684,20 @@
     (release)))
 
 ;; ---------------------------------------------------------------------------
-;; THE KEYS REACH REACT (rf2-k97c.3 RULING 2, regraded at the renderer)
+;; THE KEYS REACH REACT, graded at the renderer
 ;; ---------------------------------------------------------------------------
 ;;
-;; The key sweep found ZERO `^{:key …}` / `with-meta` sites in this panel —
-;; rf2-a38l had already converted both to KEYED FRAGMENTS, and rf2-k97c.3
-;; moved them one step further: the two row fns are CALLS now, not hiccup
-;; heads (a plain fn in head position is HD-016 `:rf.error/fresco-bad-head`),
-;; so each returned `:li` has its own props map and carries its own key.
+;; This panel has no `^{:key …}` / `with-meta` key sites. The two row fns are
+;; CALLS, not hiccup heads (a plain fn in head position is HD-016
+;; `:rf.error/fresco-bad-head`), so each returned `:li` has its own props map
+;; and carries its own key.
 ;;
-;; That move is exactly the kind a hiccup-level assertion cannot grade, so
-;; these rows read the key off a real ELEMENT from BOTH doors.
+;; A hiccup-level assertion cannot grade that, so these rows read the key off
+;; a real ELEMENT from BOTH doors.
 ;;
 ;; HEAD + ATTRS, NOT THE WHOLE NODE. The codec lowers children EAGERLY, so
 ;; calling it on a whole `:li` walks a subtree this file has no business
-;; grading. `(subvec node 0 2)` is the tree's existing idiom for this
+;; grading. `(subvec node 0 2)` is the tree's idiom for this
 ;; (`machine_inspector_view_cljs_test`), and both doors read a key from
 ;; exactly the same place — the attribute map at index 1 — so dropping the
 ;; children changes nothing about the answer. Both sides are subvec'd here
@@ -714,13 +714,13 @@
   (into [] (filter #(and (vector? %) (= :li (first %)))) (hiccup-seq tree)))
 
 (deftest advisor-and-causal-rows-reach-react-with-a-key-on-both-doors
-  (testing "rf2-k97c.3 — every ranked-boundary row and every causal link
+  (testing "every ranked-boundary row and every causal link
             commits a non-nil React key through FRESCO's codec as well as
             through Reagent. Fresco's codec reads `(:key props)` and vector
-            metadata NOWHERE, so a key that regressed to reader meta would
-            read nil on the Fresco door here while Reagent — which honours
-            both — went on answering, which is precisely why the pair is
-            graded rather than one side."
+            metadata NOWHERE, so a reader-meta key would read nil on the
+            Fresco door here while Reagent — which honours both — goes on
+            answering, which is precisely why the pair is graded rather than
+            one side."
     (setup!)
     (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
           _       (interact!)]

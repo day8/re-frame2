@@ -1,40 +1,37 @@
 (ns day8.re-frame2-xray.panels-e2e.focus-epoch-id-correlation-e2e-cljs-test
-  "Multi-frame end-to-end coverage for rf2-rly4a — the `:rf.xray/focus`
+  "Multi-frame end-to-end coverage for the `:rf.xray/focus`
   epoch-id correlation.
 
-  ## The bug (rf2-rly4a, P1 regression)
+  ## The bug class
 
-  After a page refresh the parallel-frames testbed rendered Xray's
-  Views + Trace panels EMPTY because `:rf.xray/focus` returned
-  `:epoch-id nil`. Those panels are epoch-scoped — `:rf.xray/reactive-
+  If `:rf.xray/focus` returns `:epoch-id nil`, Xray's Views + Trace
+  panels render EMPTY (on the parallel-frames testbed after a page
+  refresh, for example). Those panels are epoch-scoped — `:rf.xray/reactive-
   data` (Views) and `:rf.xray/trace-feed` (Trace) read the focused
   epoch RECORD via `focus.epoch-id` — so a nil epoch-id starves them.
 
-  ## Root cause
+  ## The correlation
 
   `compose-focus` derives `:epoch-id` by correlating the focused
   cascade `:dispatch-id` (from the raw trace stream's cascade list,
   depth 1000) against `:rf.xray/epoch-history` via
-  `epoch-id-for-event-bundle` → `dispatch-id-of-epoch`. Pre-fix that helper
-  walked the record's `:trace-events` for a `:dispatch-id` tag — but
-  `:trace-events-keep` ELIDES `:trace-events` from all but the most-
-  recent N records, and the post-settle reactive back-fill (rf2-qs6dl
-  / rf2-wi900) pads `:trace-events` with nil-`:dispatch-id` sub-run /
-  render events. So any focused cascade whose epoch was outside the
-  keep-window correlated to nil → empty panels.
+  `epoch-id-for-event-bundle` → `dispatch-id-of-epoch`. Walking the
+  record's `:trace-events` for a `:dispatch-id` tag alone would not
+  survive: `:trace-events-keep` ELIDES `:trace-events` from all but the
+  most-recent N records, and the post-settle reactive back-fill pads
+  `:trace-events` with nil-`:dispatch-id` sub-run / render events. So
+  any focused cascade whose epoch is outside the keep-window would
+  correlate to nil → empty panels.
 
-  (Per Mike pair-debug 2026-05-27 the framework default for
-  `:trace-events-keep` was lifted from 5 to 50 — matching `:depth`
-  so trace evicts atomically with its epoch. To bite the elision
-  path under test the elision-sensitive deftests below explicitly
-  shrink `:trace-events-keep` via `rf/configure!`.)
+  (The framework default for `:trace-events-keep` is 50 — matching
+  `:depth` so trace evicts atomically with its epoch. To bite the
+  elision path under test the elision-sensitive deftests below
+  explicitly shrink `:trace-events-keep` via `rf/configure!`.)
 
-  ## Fix
-
-  `build-record` now pins the settling cascade `:dispatch-id` as a
+  `build-record` pins the settling cascade `:dispatch-id` as a
   first-class record slot (from the `:rf.event/run-start` tag, surfaced by
   `find-trigger-event`); `dispatch-id-of-epoch` reads the slot directly,
-  falling back to the legacy `:trace-events` walk. The slot survives
+  falling back to the `:trace-events` walk. The slot survives
   elision + back-fill, so the correlation is stable for every retained
   epoch.
 
@@ -66,7 +63,7 @@
   nil)
 
 (defn- install-counter! []
-  ;; rf2-h1vqa4 bundle co-load hygiene: the story testbed registers the
+  ;; Bundle co-load hygiene: the story testbed registers the
   ;; same canonical counter ids at its ns load; CLAIM them (drop sibling
   ;; provenance rows) before registering ours, or the host frame's
   ;; default-image assembly fails loud on the cross-ns duplicate.
@@ -104,7 +101,7 @@
 (deftest head-focus-resolves-epoch-id-and-feeds-panels
   (testing "LIVE head focus — `:rf.xray/focus :epoch-id` is non-nil and
   the head epoch's `:dispatch-id` slot matches the head cascade. Views +
-  Trace see the focused record (rf2-rly4a)."
+  Trace see the focused record."
     (install-xray!)
     (rf/make-frame {:id frame-below})
     (install-counter!)
@@ -118,34 +115,34 @@
       (is (:head? focus) "test setup: focus is on the LIVE head")
       (is (some? (:epoch-id focus))
           (str "head focus epoch-id is nil — Views + Trace would render "
-               "empty (rf2-rly4a). focus: " (pr-str focus)))
+               "empty. focus: " (pr-str focus)))
       ;; The head epoch's pinned :dispatch-id slot links it to the head cascade.
       (let [head-record (some #(when (= (:epoch-id focus) (:epoch-id %)) %)
                               history)]
         (is (= (:dispatch-id head) (:dispatch-id head-record))
             "head epoch's :dispatch-id slot must equal the head cascade id"))
       (is (:has-event-bundle? reactive)
-          (str "Views (:rf.xray/reactive-data) saw no focused epoch record — "
-               "rf2-rly4a. reactive-data: " (pr-str (select-keys reactive
+          (str "Views (:rf.xray/reactive-data) saw no focused epoch record. "
+               "reactive-data: " (pr-str (select-keys reactive
                                                                  [:has-event-bundle?
                                                                   :epoch-id]))))
       (is (= (:epoch-id focus) (:epoch-id trace))
           "Trace (:rf.xray/trace-feed) epoch-id must equal the focused epoch-id")
       (is (pos? (:total trace))
-          (str "Trace feed has no rows for the focused epoch — rf2-rly4a. "
+          (str "Trace feed has no rows for the focused epoch. "
                "trace: " (pr-str (select-keys trace [:total :epoch-id :empty-kind])))))))
 
 (deftest retro-focus-on-trace-elided-epoch-resolves-epoch-id
   (testing "RETRO focus on an OLD cascade whose epoch had `:trace-events`
-  elided by the `:trace-events-keep` window. Pre-rf2-rly4a the
-  `dispatch-id-of-epoch` `:trace-events` walk returned nil for these
-  records, so `focus.epoch-id` was nil and Views + Trace went empty. The
+  elided by the `:trace-events-keep` window. A `dispatch-id-of-epoch`
+  `:trace-events` walk alone would return nil for these records, so
+  `focus.epoch-id` would be nil and Views + Trace would go empty. The
   first-class `:dispatch-id` slot survives elision — the correlation
   must resolve.
 
-  Framework default for `:trace-events-keep` is now 50 (matches
+  Framework default for `:trace-events-keep` is 50 (matches
   `:depth`); shrink to 3 here so the 10 cascades below produce
-  trace-elided records that exercise the rly4a fix."
+  trace-elided records that exercise the slot."
     (install-xray!)
     (rf/make-frame {:id frame-below})
     (install-counter!)
@@ -174,19 +171,19 @@
         (is (= :retro (:mode focus)) "test setup: focusing a non-head cascade pins RETRO")
         (is (= (:epoch-id old-record) (:epoch-id focus))
             (str "RETRO focus on a trace-elided epoch resolved the WRONG (or nil) "
-                 "epoch-id — rf2-rly4a. focus: " (pr-str focus)
+                 "epoch-id. focus: " (pr-str focus)
                  " expected epoch-id: " (pr-str (:epoch-id old-record))))
         (is (:has-event-bundle? reactive)
-            "Views saw no record for the trace-elided focused epoch — rf2-rly4a")
+            "Views saw no record for the trace-elided focused epoch")
         (is (= (:epoch-id old-record) (:epoch-id trace))
-            "Trace feed did not scope to the trace-elided focused epoch — rf2-rly4a")))))
+            "Trace feed did not scope to the trace-elided focused epoch")))))
 
 (deftest dispatch-id-slot-pinned-on-every-retained-epoch
   (testing "Every retained epoch record carries the first-class
   `:dispatch-id` slot independent of `:trace-events` retention — the
-  structural property the correlation now leans on (rf2-rly4a).
+  structural property the correlation leans on.
 
-  Framework default for `:trace-events-keep` is now 50 (matches
+  Framework default for `:trace-events-keep` is 50 (matches
   `:depth`); shrink to 3 here so 8 cascades produce a mix of
   trace-retained and trace-elided records."
     (install-xray!)
@@ -200,8 +197,8 @@
       (is (seq elided)
           "test setup: at least one record should have :trace-events elided")
       (is (every? #(some? (:dispatch-id %)) history)
-          (str "some retained epoch lacks the pinned :dispatch-id slot — "
-               "rf2-rly4a. epochs missing the slot: "
+          (str "some retained epoch lacks the pinned :dispatch-id slot. "
+               "epochs missing the slot: "
                (pr-str (mapv :epoch-id (remove #(some? (:dispatch-id %)) history)))))
       (is (every? #(some? (:dispatch-id %)) elided)
           "a trace-elided record must STILL carry the pinned :dispatch-id slot"))))

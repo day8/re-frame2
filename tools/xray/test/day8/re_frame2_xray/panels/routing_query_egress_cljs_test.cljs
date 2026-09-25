@@ -1,21 +1,22 @@
 (ns day8.re-frame2-xray.panels.routing-query-egress-cljs-test
   "The Routing panel's CURRENT ROUTE query is an EGRESS PROJECTION, not raw
-  frame state (rf2-8nyi2).
+  frame state.
 
-  ## The defect these rows pin
+  ## The leak these rows pin
 
-  `panels/routing.cljs`'s CURRENT ROUTE section rendered the slice's
-  `:query` with `pr-str` straight into
-  `[:span {:data-testid \"rf-xray-routing-current-query\"}]`, with NO
-  classification step between the observed frame's runtime-db and the DOM.
-  The input chain was raw end to end — `:rf.xray/target-frame-runtime-db`
-  is `(:rf.db/runtime (rf/frame-state-value target))`,
-  `current-route-slice-value` reaches into it, and
-  `routing_helpers/project-topology-data` forwards the slice unchanged — so
-  a route that had DECLARED a query key `:sensitive` displayed its live
-  value under the on-box `:rf.egress/local-redacted` default.
+  The input chain around the projection is raw —
+  `:rf.xray/target-frame-runtime-db` is
+  `(:rf.db/runtime (rf/frame-state-value target))`, and
+  `routing_helpers/project-topology-data` forwards the slice as-is — so
+  `current-route-slice-value`'s projection is the only classification step
+  between the observed frame's runtime-db and the DOM. Without it, a
+  CURRENT ROUTE section rendering the slice's `:query` with `pr-str`
+  straight into
+  `[:span {:data-testid \"rf-xray-routing-current-query\"}]` would display
+  the live value of a query key a route DECLARED `:sensitive` under the
+  on-box `:rf.egress/local-redacted` default.
 
-  That is a missed EXPLICIT data-hygiene declaration. It is NOT a claim
+  That would be a missed EXPLICIT data-hygiene declaration. It is NOT a claim
   that arbitrary undeclared trace carriers form a security boundary, and
   nothing here scrubs anything the author did not declare — the
   `renders-an-undeclared-query-verbatim` row is what pins that.
@@ -23,7 +24,7 @@
   ## Why these rows assert on the RENDERED output
 
   The seam is the `rf-xray-routing-current-query` testid, and only the
-  rendered text can fail on a panel that still leaks: a helper's return
+  rendered text can fail on a panel that leaks: a helper's return
   value can be correct while the span beside it prints the raw map. So
   every row here walks the panel's hiccup and reads the span's text.
 
@@ -36,7 +37,7 @@
   `[:rf.runtime/routing :current …]` in the frame's elision registry
   (`re-frame.routing.classification`). A hand-typed slice injected through
   the test-override seam would carry no registry at all, and would pass
-  against the unfixed panel.
+  against a panel that leaks.
 
   The URL form also exercises the QUERY-KEY PROMOTION the classification
   contract depends on: `:sensitive [[:query :token]]` names the KEYWORD
@@ -105,8 +106,8 @@
                 "/rf2-8nyi2/oauth"))
 
 (defn- plain-route!
-  "A route declaring NO classification at all — the ordinary case the fix
-  must leave exactly as it was."
+  "A route declaring NO classification at all — the ordinary case the
+  projection must leave untouched."
   []
   (rf/reg-route ::plain
                 {:query [:map [:tab :string]]}
@@ -151,7 +152,7 @@
 ;; ---- (0) the control: the promotion actually happened -------------------
 
 (deftest promotes-both-query-keys-to-keywords
-  (testing "rf2-8nyi2 control — the route's :query schema promotes BOTH keys
+  (testing "control — the route's :query schema promotes BOTH keys
             to keywords, so the re-rooted [:query :token] declaration can
             match. Without this a redaction row below could pass because
             the walk failed closed rather than because it matched."
@@ -162,12 +163,12 @@
           "both query keys promoted to keywords, values intact on the HOST slice
            — in-process reads stay RAW; redaction is read only at egress"))))
 
-;; ---- (1) the defect: a declared-sensitive query key reaches the DOM -----
+;; ---- (1) a declared-sensitive query key must not reach the DOM ---------
 
 (deftest redacts-a-declared-sensitive-query-key-in-the-rendered-span
-  (testing "rf2-8nyi2 — the CURRENT ROUTE query span renders :rf/redacted for
+  (testing "the CURRENT ROUTE query span renders :rf/redacted for
             a key the ACTIVE ROUTE declared :sensitive, and never its value.
-            RED against the unfixed panel, which printed the live token."
+            A panel printing the raw query would show the live token."
     (classified-route!)
     (navigate! (str "/rf2-8nyi2/oauth?token=" secret "&tab=" sibling))
     (observe! :rf/default)
@@ -191,12 +192,12 @@
           (str "the UNCLASSIFIED sibling key was scrubbed too — that is a
                 blanket redaction, not the declaration: " (pr-str text))))))
 
-;; ---- (2) ordinary query display is unchanged ----------------------------
+;; ---- (2) ordinary query displays verbatim -------------------------------
 
 (deftest renders-an-undeclared-query-verbatim
-  (testing "rf2-8nyi2 — a route declaring NO classification renders its query
-            exactly as before. The walk is path-precise, never a blanket
-            scrub, and this item is explicitly not a claim that undeclared
+  (testing "a route declaring NO classification renders its query
+            verbatim. The walk is path-precise, never a blanket
+            scrub, and this row is explicitly not a claim that undeclared
             carriers are a boundary."
     (plain-route!)
     (navigate! (str "/rf2-8nyi2/plain?tab=" sibling))
@@ -209,7 +210,7 @@
           (str "an undeclared query redacted — over-scrub: " (pr-str text))))))
 
 (deftest renders-no-query-span-when-the-route-carries-no-query
-  (testing "rf2-8nyi2 — a slice with no query still renders NOTHING, not a
+  (testing "a slice with no query renders NOTHING, not a
             sentinel. Fail-closed must not invent a value where the router
             wrote none, which is why only a slice that CARRIES a query is
             projected."
@@ -222,7 +223,7 @@
 ;; ---- (3) the sentinel paths render without a seq / type error ----------
 
 (deftest unreachable-observed-frame-yields-no-slice-and-cannot-leak
-  (testing "rf2-8nyi2 — an UNREACHABLE observed frame cannot put a query on
+  (testing "an UNREACHABLE observed frame cannot put a query on
             screen AT ALL, and the reason is worth pinning because it is not
             the one you would guess: the sub's OTHER input fails first.
             `:rf.xray/target-frame-runtime-db` is
@@ -250,9 +251,9 @@
           "the seam's fail-closed arm did not redact the whole value"))))
 
 (deftest show-query-admits-a-scalar-sentinel-and-still-hides-an-empty-map
-  (testing "rf2-8nyi2 — the guard's two arms, taken directly. A collection
-            still answers `seq` (so an empty query renders nothing, as
-            before); a non-collection sentinel renders as itself; and the
+  (testing "the guard's two arms, taken directly. A collection
+            answers `seq` (so an empty query renders nothing); a
+            non-collection sentinel renders as itself; and the
             `{:rf.size/large-elided …}` marker needs no special case because
             it IS a map."
     (let [tree-for (fn [q]
@@ -276,7 +277,7 @@
 ;; ---- (4) the explicit local-raw grain ----------------------------------
 
 (deftest local-raw-opt-in-returns-the-declared-key-verbatim
-  (testing "rf2-8nyi2 — the per-(tool,frame) :rf.egress/local-raw opt-in
+  (testing "the per-(tool,frame) :rf.egress/local-raw opt-in
             (EP-0015 §Cross-tool visibility grain) reaches the route-sub
             seam end to end: the SAME projection with `raw? true` returns
             the declared-sensitive value verbatim. The panel deliberately
@@ -302,12 +303,12 @@
 ;; ---- (5) the seam is the ROUTE re-seeding, not a whole-value walk -------
 
 (deftest whole-value-walk-cannot-match-the-re-rooted-declaration
-  (testing "rf2-8nyi2 — why the fix names the sub rather than walking the
+  (testing "why the projection names the sub rather than walking the
             value. A route's declaration is RE-ROOTED to the absolute
             `[:rf.runtime/routing :current :query :token]`, so the
             plain whole-value seam (`local-render-value`, path []) cannot
             match it and ships the token raw. This is the negative control
-            for the door that was chosen."
+            for the route-sub door."
     (classified-route!)
     (navigate! (str "/rf2-8nyi2/oauth?token=" secret "&tab=" sibling))
     (let [q       (:query (host-slice))

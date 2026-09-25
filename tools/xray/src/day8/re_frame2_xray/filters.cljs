@@ -10,7 +10,7 @@
 
   - `ModalView` — the `rf.fresco/defview` BOUNDARY for the edit popup.
     Short-circuits to nil when `:rf.xray/edit-popup-open?` is false.
-  - `Modal` — the public callable the shell mounts as a hiccup head,
+  - `Modal` — the public callable the shell CALLS,
     an `as-component` bridge over [[ModalView]]. Mounted at the
     shell-view root so the popup overlays the chrome and panels;
     mounting there also keeps the popup's reads inside the `:rf/xray`
@@ -24,24 +24,19 @@
 
   - The ribbon pill cluster is in `filters/pills.cljs`; `shell.cljs`'s
     `ribbon-filter-pills` delegates to it so the cluster carries the
-    ribbon's frame-context. Since rf2-k97c.3 that delegate is a plain
-    fn CALLED from the `events-ribbon` Fresco boundary, not a
-    `reg-view`.
+    ribbon's frame-context. That delegate is a plain fn CALLED from the
+    `events-ribbon` Fresco boundary, not a `reg-view`.
   - Pattern matching is in `filters/matcher.cljc` (JVM-portable).
 
-  ## There is no localStorage round-trip (rf2-y8doi.27)
+  ## There is no localStorage round-trip
 
-  `filters/persistence.cljs` was DELETED. Every pill mutation used to
-  emit a `:rf.xray.filters/persist` fx that wrote `:active-filters` to
-  localStorage — and nothing in `src` ever read it back, because
-  reset-on-load (rf2-swclw / rf2-fhtes) requires that a stale pill set
-  never restore. So the write half survived the read half's deliberate
-  removal and became a store with no reader, cleared on the very next
-  load by the hook that guarantees the reset. Reset-on-load is now
-  trivially true: the slot simply starts at its registry default.
+  The user's pills are never persisted. Reset-on-load requires that a
+  stale pill set never restore, so no pill mutation writes
+  `:active-filters` anywhere and nothing reads it back. Reset-on-load is
+  therefore trivially true: the slot starts at its registry default.
 
-  The host-configured `:rf.xray/filters` SEED is a different thing and
-  it stays — an in-memory boot baseline, never persisted."
+  The host-configured `:rf.xray/filters` SEED is a different thing — an
+  in-memory boot baseline, never persisted."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
@@ -72,7 +67,7 @@
 ;; ---- Modal --------------------------------------------------------------
 
 (rf.fresco/defview ^:private ModalView
-  "The filter edit popup's root — a FRESCO BOUNDARY (rf2-d9ln), not an
+  "The filter edit popup's root — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Renders only when `:rf.xray/edit-popup-open?` is true;
   closed-state is one read plus a `when`.
 
@@ -87,22 +82,20 @@
   THE THREE INNER READS SIT INSIDE THE OPEN-GATE `when` DELIBERATELY.
   `rf.fresco/sub` is legal anywhere in a body and records its edge where
   the read happens (HD-002), so a CLOSED popup holds ONE subscription,
-  not four — the same short-circuit the `reg-view` era got by not
-  calling `popup-view` at all, expressed in the collector's own terms.
+  not four — the short-circuit that not calling `popup-view` at all
+  gives, expressed in the collector's own terms.
 
   THEY ARE READ HERE RATHER THAN IN `popup-view`, AND THAT HOIST IS
   LOAD-BEARING. `rf.fresco/sub` refuses outside a boundary render
   (`:rf.error/fresco-sub-outside-render`), so a read-performing helper
-  becomes uncallable from every non-render lane the moment its reads
-  migrate — and `popup-view` has direct callers in two node-lane
-  suites. Taking values instead keeps it callable from anywhere, which
+  would be uncallable from every non-render lane — and `popup-view` has
+  direct callers in two node-lane suites. Taking values instead keeps it callable from anywhere, which
   is what gives the node lane a door onto the SHIPPED tree. Same hoist,
   and the same reason, as `settings/view/popup-tree`.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
-  which answers the boundary's declared frame inside a body and replaces
-  the `dispatch` the `reg-view` body injected lexically (rf2-nesy9;
-  `defview` binds no name). Every deferred `:on-*` handler in the tree
+  which answers the boundary's declared frame inside a body (`defview`
+  binds no `dispatch` name). Every deferred `:on-*` handler in the tree
   below closes over it, so an edit landing after render scope has
   unwound still reaches the surrounding instance frame rather than a
   `{:frame :rf/xray}` literal.
@@ -117,11 +110,11 @@
        :draft       (rf.fresco/sub [:rf.xray/edit-popup-draft])
        :positioning (rf.fresco/sub [:rf.xray/modal-positioning])})))
 
-;; ---- the migration bridge (rf2-d9ln) ------------------------------------
+;; ---- the `as-component` bridge -----------------------------------------
 ;;
-;; Since rf2-k97c.3 `shell.cljs`'s tree is a Fresco one and CALLS this
+;; `shell.cljs`'s tree is a Fresco one and CALLS this
 ;; popup — `(filters/Modal)` at the shell-view root — while the shipped
-;; boundary witness suite still HEADS it from a Reagent parent, which is
+;; boundary witness suite HEADS it from a Reagent parent, which is
 ;; the crossing this bridge exists for. `defview`'s contract is that
 ;; a boundary is mounted as `[head props]` inside a Fresco body or
 ;; through `as-component` from OUTSIDE, never as a hiccup render fn in a
@@ -131,17 +124,14 @@
 ;; this: it answers a real React component for a boundary, which a React
 ;; parent mounts UNDER THE FRAME IT IS ALREADY IN, taking the frame from
 ;; React context rather than from a second root. So there is no second
-;; root here, no adapter-kind branch, and no props ABI — and, the point
-;; of rf2-d9ln, NO `shell.cljs` EDIT. The docstring this replaced said
-;; migrating would need one; `cancellation-cascade/Popover`,
-;; `spine-filters/Modal`, `palette/Modal` and `settings-popup/Modal` had
-;; already shipped through this same bridge without touching it.
+;; root here, no adapter-kind branch, and no props ABI.
+;; `cancellation-cascade/Popover`, `spine-filters/Modal`, `palette/Modal`
+;; and `settings-popup/Modal` take the same bridge.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
-;; this comment used to name has ARRIVED: `mount.cljs` owns a Fresco root
-;; and `shell-view` lowers to a boundary. The pair stayed anyway, because
-;; a Reagent parent still heads it on purpose — the shipped boundary
-;; witness suite. The chain is `[:>]` -> `as-component` -> [[ModalView]].
+;; NOT SCAFFOLDING. `mount.cljs` owns a Fresco root and `shell-view`
+;; lowers to a boundary; the pair is kept because a Reagent parent heads
+;; it on purpose — the shipped boundary witness suite. The chain is
+;; `[:>]` -> `as-component` -> [[ModalView]].
 
 (def ^:private Modal-component
   "The React component [[ModalView]] presents as, for a non-Fresco
@@ -152,17 +142,18 @@
   (rf.fresco/as-component ModalView))
 
 (defn Modal
-  "The edit popup's public callable — what `shell.cljs` mounts as a
-  hiccup head at the shell-view root.
+  "The edit popup's public callable — what `shell.cljs` CALLS at the
+  shell-view root. It is called rather than headed because the shell is
+  a Fresco tree, where a plain fn in head position is a loud error; the
+  `[:> …]` it answers is a legal head.
 
-  Since rf2-d9ln it is the migration bridge rather than the view:
+  It is the `as-component` bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component [[ModalView]]
   presents as. The shell's enclosing `rf.fresco/frame-provider` is
   what puts the instance frame in React context for it.
 
   The open/closed gate is inside [[ModalView]], so this is always
-  mounted and renders nothing while the popup is closed — the same
-  shape a mounted `reg-view` returning nil had.
+  mounted and renders nothing while the popup is closed.
 
   Callers wanting the MARKUP as data — the node-lane rows — build it
   from `edit-popup/popup-view` with the reads' values instead; this
@@ -172,21 +163,13 @@
 
 ;; ---- hydration ---------------------------------------------------------
 ;;
-;; There is none, and that is the point (rf2-y8doi.27).
+;; There is none, and that is the point: restoring the user's pills on
+;; boot would resurrect exactly the stale filter that reset-on-load
+;; exists to kill.
 ;;
-;; `hydrate!` used to resolve `:active-filters` in the order
-;; localStorage -> host seed -> empty. It was DELIBERATELY kept off the
-;; production `ensure-xray-frame!` path (rf2-fhtes), because restoring
-;; the user's persisted pills on boot would resurrect exactly the stale
-;; filter that reset-on-load exists to kill. Its only surviving callers
-;; were the two persistence round-trip test namespaces, which called it
-;; by hand -- so the fn's whole remaining purpose was to be exercised by
-;; the tests that exercised it. A census of `src` found ZERO callers.
-;;
-;; It went with `filters/persistence.cljs`. The host-configured seed --
-;; the one resolution step that was ever load-bearing -- is applied by
-;; `mount.cljs`'s `::seed-configured-filters` first-mount hook, which
-;; reads `config/get-filter-seed` and never touches localStorage.
+;; The host-configured seed is applied by `mount.cljs`'s
+;; `::seed-configured-filters` first-mount hook, which reads
+;; `config/get-filter-seed` and never touches localStorage.
 
 ;; ---- install -----------------------------------------------------------
 
@@ -232,11 +215,10 @@
               `:rf.xray/filter-by-http-correlation`,
               `:rf.xray/filter-by-fx`.
 
-    - Effects: NONE. The `:rf.xray.filters/persist` localStorage write
-      fx went with `filters/persistence.cljs` (rf2-y8doi.27).
+    - Effects: NONE — the pills are never written to localStorage.
 
     - Side-effect: NONE — install does NOT hydrate `:active-filters`
-      from localStorage (rf2-fhtes). The slot starts at its registry
+      from localStorage. The slot starts at its registry
       default; the transient reset and the configured boot-baseline
       seed land later on the mount path (`mount.cljs`'s `::reset-
       transient-filters` then `::seed-configured-filters`).
@@ -247,8 +229,7 @@
   []
   ;; ---- fx ---------------------------------------------------------------
   ;;
-  ;; None. The `:rf.xray.filters/persist` fx was removed with
-  ;; `filters/persistence.cljs` (rf2-y8doi.27) — see the ns docstring.
+  ;; None — see the ns docstring.
 
   ;; ---- subs -------------------------------------------------------------
   ;;
@@ -270,8 +251,8 @@
   ;; so each pill's `:kind` selects the per-kind event-bundle
   ;; matcher (`:event-id-pattern` delegates to the event-id
   ;; matcher; `:machine` / `:http-correlation` / `:fx` walk the
-  ;; event-bundle's trace-events for the matching tag). Pills
-  ;; persisted under `{:pattern <kw-or-str>}` hydrate as
+  ;; event-bundle's trace-events for the matching tag). Pills in
+  ;; the legacy `{:pattern <kw-or-str>}` shape canonicalise to
   ;; `:event-id-pattern` via `canonicalise-pill`.
   ;; The muted-event-ids set rides at the END of the
   ;; filter chain so right-click → 'Mute :event-id' strips the row
@@ -294,7 +275,7 @@
   ;; off the strict frame filter drops it, matching the default
   ;; silent-by-default L2 list (no frameless bucket leaks into the data
   ;; layer when nobody asked for it).
-  ;; rf2-jqqsh9 — the error-override bypass posture
+  ;; The error-override bypass posture
   ;; (`:rf.xray/filters-auto-hide-error-overrides?`, default true). A
   ;; boot-time `configure!` slot, not a per-event-bundle reactive Settings
   ;; key, so it reads the config atom directly (mirrors
@@ -303,7 +284,7 @@
     (fn [_db _query]
       (config/error-override-bypass-enabled?)))
 
-  ;; rf2-jqqsh9 — ERROR OVERRIDES (spec/018 §7). An errored event a FILTER
+  ;; ERROR OVERRIDES (spec/018 §7). An errored event a FILTER
   ;; would hide is surfaced anyway (§5.4: `error` is never filtered out) — the
   ;; silent-failure footgun the feature prevents. The frame is a VIEW SCOPE,
   ;; not a filter, so the override operates on the frame-SCOPED list: an
@@ -415,10 +396,9 @@
   ;;
   ;; Save and Delete both mutate the live `:active-filters` slot and
   ;; close the popup — and that is the whole of it. There is no
-  ;; persistence step to bind: the `:rf.xray.filters/persist` fx went
-  ;; with `filters/persistence.cljs` (rf2-y8doi.27), so the
-  ;; post-mutation slot lives in app-db for the duration of the session
-  ;; and nothing writes it to localStorage. See the ns docstring.
+  ;; persistence step to bind: the post-mutation slot lives in app-db
+  ;; for the duration of the session and nothing writes it to
+  ;; localStorage. See the ns docstring.
 
   (rf/reg-event :rf.xray/save-edit-popup
     (fn [{:keys [db]} _event]
@@ -480,11 +460,8 @@
             {:db next-db})
           {:db (close-popup db)}))))
 
-  ;; (The `:rf.xray/clear-all-filters` bulk-reset event was REMOVED with
-  ;; the `Clear Filters` button it backed — rf2-pjjwh retired the button,
-  ;; and the call-site census found no surviving caller (rf2-rdhbk): no
-  ;; palette verb, no keybinding, no programmatic dispatch. Pills are
-  ;; removed individually via each pill's `✕`; muted event-ids reset via
+  ;; (There is no bulk filter reset. Pills are removed individually via
+  ;; each pill's `✕`; muted event-ids reset via
   ;; `:rf.xray/clear-muted-event-ids` behind the L1 mute chip/manager.)
 
   ;; ---- right-click row → OUT filter shortcut --------------------------
@@ -493,7 +470,7 @@
   ;; 'Always hide this event-type' item; this is the canonical
   ;; lowering. The event-row's on-context-menu handler dispatches
   ;; this event; the popup opens pre-populated (so the user can fine-
-  ;; tune or simply hit Apply). Pre-alpha we open the popup rather
+  ;; tune or simply hit Apply). We open the popup rather
   ;; than silently appending — the user sees what's about to land in
   ;; the OUT bucket and can cancel.
 
@@ -516,16 +493,15 @@
   ;; (correlation-id / fx-id). The user can remove the pill via the
   ;; standard `×` button on the pill cluster.
   ;;
-  ;; `:rf.xray/filter-by-machine` is the exception, and it is NOT a
-  ;; retirement: nothing in `tools/xray/src` dispatches it because the
-  ;; two surfaces spec/020 §6 names as its sources — the Machine
-  ;; inspector's picker chrome and the focused-event lens header — were
-  ;; specified and NEVER BUILT. The picker itself is live (spec/003
-  ;; §Selection and switching); what was never built is the right-click
-  ;; affordance ON it. So the `:machine` pill kind is unreachable from
-  ;; the UI, and the event is kept rather than retired — its matcher,
-  ;; label and glyph are complete, so it stays the wiring point for
-  ;; whichever surface lands the affordance.
+  ;; `:rf.xray/filter-by-machine` is the exception: nothing in
+  ;; `tools/xray/src` dispatches it, because the two surfaces spec/020 §6
+  ;; names as its sources — the Machine inspector's picker chrome and the
+  ;; focused-event lens header — carry no right-click affordance. The
+  ;; picker itself is live (spec/003 §Selection and switching); the
+  ;; affordance ON it is not built. So the `:machine` pill kind is
+  ;; unreachable from the UI; its matcher, label and glyph are complete,
+  ;; so the event is the wiring point for whichever surface adds the
+  ;; affordance.
   ;;
   ;; Each event idempotently appends via the file-level
   ;; `append-typed-pill` helper — a duplicate add (same params)
@@ -556,7 +532,7 @@
   ;; The single `:active-filters` write seam. Despite the `hydrate-`
   ;; name it reads NO localStorage: the only production dispatch is
   ;; `mount.cljs`'s `::seed-configured-filters` first-mount hook handing
-  ;; over the host's `:rf.xray/filters` seed (rf2-fhtes).
+  ;; over the host's `:rf.xray/filters` seed.
 
   (rf/reg-event :rf.xray/hydrate-filters
     {:rf.trace/no-emit? true}
@@ -568,21 +544,20 @@
   ;; exploration filter — they reset to unfiltered on every page load so
   ;; a fresh session never silently carries a stale filter. The slot
   ;; simply starts at its registry default `{:in [] :out []}`; there is
-  ;; no pills slot left for `mount.cljs`'s `::reset-transient-filters`
+  ;; no pills slot for `mount.cljs`'s `::reset-transient-filters`
   ;; first-mount hook to clear — it clears the mute and frame-pin slots,
-  ;; which DO still persist — so reset-on-load holds by construction.
+  ;; which DO persist — so reset-on-load holds by construction.
   ;;
   ;; A host-configured `:rf.xray/filters` seed is the ONE exception, and
   ;; it is honoured NOT here but on the real production mount path:
   ;; `mount.cljs`'s `::seed-configured-filters` first-mount hook (which
   ;; runs AFTER the transient reset) applies an explicitly configured
-  ;; seed as the boot BASELINE (rf2-fhtes). That seed is the host's
+  ;; seed as the boot BASELINE. That seed is the host's
   ;; opt-in — an explicit boot posture re-applied each load — NOT durable
   ;; user-filter persistence and NOT an unreachable first-install-only
   ;; promise; `nil` (the default) stays fully unfiltered.
   ;;
-  ;; There is no localStorage layer left to restore FROM: rf2-y8doi.27
-  ;; deleted `filters/persistence.cljs` outright, so the reset is now a
+  ;; There is no localStorage layer to restore FROM, so the reset is a
   ;; property of the slot's registry default rather than of a hook that
   ;; races a writer.
   nil)

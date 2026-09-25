@@ -1,39 +1,32 @@
 (ns day8.re-frame2-xray.palette.recents-dom-cljs-test
-  "Browser-lane half of the palette recents persistence tests (rf2-ybjkx),
-  promoted out of `recents-cljs-test` under rf2-6ppy.
+  "Browser-lane half of the palette recents persistence tests.
 
   WHY A SEPARATE NAMESPACE. The sibling
   `day8.re-frame2-xray.palette.recents-cljs-test` holds the pure `record`
   / `sanitise` algebra, which needs no host storage. The `save!` / `load`
   round-trip needs a real `window.localStorage`, and only a namespace
   ending `-dom-cljs-test` is ever loaded by the `:browser-test` build,
-  whose `:ns-regexp` is `.*-dom-cljs-test$`. Sitting in the sibling file
-  these rows executed in NEITHER lane: skipped under `:node-test` for
-  want of storage, and never loaded by `:browser-test` at all. The file's
-  LOCATION was the defect. The guard was not.
+  whose `:ns-regexp` is `.*-dom-cljs-test$`. In the sibling file these
+  rows would execute in NEITHER lane: skipped under `:node-test` for want
+  of storage, and never loaded by `:browser-test` at all.
 
-  THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES. `:node-test`'s
+  THE ROWS ARE GUARDED, BECAUSE THIS FILE RUNS ON BOTH LANES. `:node-test`'s
   `:ns-regexp` is `cljs-test$` — a bare SUFFIX match, which
   `-dom-cljs-test` satisfies exactly as `-cljs-test` does. So the node
   build loads this namespace too, and the overlap is deliberate:
   `implementation/shadow-cljs.edn` records above `:browser-test` that the
   DOM-tagged files run on BOTH targets so their cross-runtime asserts
-  keep firing in Node. Moving a row here therefore ADDS the browser lane;
-  it does not take the row off the node one. `ls/available?` is what
-  keeps the node run inert — without it, node executes an unguarded
-  round-trip against storage it does not have and `load` returns `[]`.
+  keep firing in Node. A row here therefore runs on the browser lane AND
+  the node one. `ls/available?` is what keeps the node run inert —
+  without it, node would execute an unguarded round-trip against storage
+  it does not have and `load` would return `[]`.
 
   THE SKIP BRANCH ASSERTS RATHER THAN VANISHING. A bare `(when ...)` body
-  would leave the node lane holding a deftest with ZERO assertions, which
-  is the hollow shape rf2-6ppy exists to remove — relocated, not fixed.
-  The marker row keeps the skip visible in the node summary. Same shape
-  as the `browser?` branches in
-  `day8.re-frame2-xray.palette.empty-row-frame-context-dom-cljs-test`.
-
-  These assertions had never executed in ANY lane before this namespace
-  existed. A failure here is evidence about `recents/save!` /
-  `recents/load` arriving for the first time, not a regression introduced
-  by the move."
+  would leave the node lane holding a deftest with ZERO assertions — a
+  hollow row that reports a pass while checking nothing. The marker row
+  keeps the skip visible in the node summary. Same shape as the
+  `browser?` branches in
+  `day8.re-frame2-xray.palette.empty-row-frame-context-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.palette.recents :as recents]))

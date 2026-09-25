@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.shell-fresco-boundary-dom-cljs-test
-  "Real-DOM witnesses for Xray's DYNAMIC chrome as a Fresco tree
-  (rf2-k97c.3).
+  "Real-DOM witnesses for Xray's DYNAMIC chrome as a Fresco tree.
 
   ## Why a browser row at all — the node lane cannot see this
 
@@ -14,42 +13,41 @@
   `static/shell_fresco_boundary_dom_cljs_test`, which asks the same two
   questions of the Static surface.
 
-  ## The mount is the PRODUCTION mount, and since rf2-k97c.3 that means
-  ## XRAY'S OWN ROOT
+  ## The mount is the PRODUCTION mount: XRAY'S OWN ROOT
 
-  `mount.cljs` no longer calls the installed adapter's `:render` at all.
+  `mount.cljs` does not call the installed adapter's `:render` at all.
   It owns a Fresco client root and renders `[rf.fresco/frame-provider
-  {:frame …} [shell/ShellView {…}]]` through it, which is the epic's
-  coupling (1) severed — and it is exactly the two-level form
-  [[mount-shell!]] builds below, so these rows drive the shipped path
-  rather than a reproduction of it. The private `as-component` bridge the
-  shell used to reach the Fresco tree through is gone: there is no longer
-  a crossing to bridge. [[mount-shell!]] records why the outer provider is
-  not decoration, and why the re-point is itself this PR's evidence.
+  {:frame …} [shell/ShellView {…}]]` through it — exactly the two-level
+  form [[mount-shell!]] builds below, so these rows drive the shipped
+  path rather than a reproduction of it. Nothing on that path crosses out
+  of Fresco and back in. [[mount-shell!]] records why the outer provider
+  is not decoration.
 
   Nothing below ever calls a view a second time. Every assertion after
   the mount reads `container.querySelector…` — the DOM React committed
   on its own.
 
-  ## The four rows
+  ## The five rows
 
   W1 asks whether the chrome PAINTS and W2 whether its reads are LIVE.
-  W3 and W4 close the two claims those leave untouched (rf2-fxwj): W3
+  W3 and W4 close the two claims those leave untouched: W3
   presses a real L3 tab button, so the dispatcher the boundary CAPTURES
   is exercised rather than bypassed by the test's own `dispatch-sync`,
   and holds a second live frame as the control that makes it a routing
   claim; W4 MEASURES the teardown W1 and W2 merely call, against the
   frame's sub-cache reference, the collector's cell watch, its reader
   edges and the whole collector census — and reopens once, because a
-  release that releases nothing still reads clean on a first mount.
+  release that releases nothing still reads clean on a first mount. W5
+  mounts through the EMBED door, `panels/mount-shell!`, and checks that a
+  real interaction leaves the host application frame's epoch ring
+  untouched.
 
   ## Substrate: the Reagent adapter, deliberately
 
   A ratom-family adapter, which is the family Xray already supports —
   because the claim being made is that the chrome is INDIFFERENT to it.
-  The whole point of the migration is that the chrome no longer paints
-  through the adapter's renderer; mounting it under one and watching it
-  work is what says so.
+  The chrome does not paint through the adapter's renderer; mounting it
+  under one and watching it work is what says so.
 
   ## Node-lane behaviour
 
@@ -76,7 +74,7 @@
   "The frame this suite's shell instance owns. NOT `:rf/xray`: the
   production singleton's frame is trace-disabled and shared with every
   other suite on the page, and `shell-view`'s `:frame-id` opt exists
-  precisely so N instances can be isolated (rf2-lnluk). Naming a private
+  precisely so N instances can be isolated. Naming a private
   one is what makes W2's negative half mean something."
   ::shell)
 
@@ -175,31 +173,18 @@
   nil)
 
 (defn- mount-shell!
-  "Mount the shell the way `mount.cljs` mounts it SINCE THE ROOT SWAP —
-  through XRAY'S OWN Fresco root, with the OUTER `frame-provider`
-  included:
+  "Mount the shell the way `mount.cljs` mounts it — through XRAY'S OWN
+  Fresco root, with the OUTER `frame-provider` included:
 
       (h/render! handle [h/frame-provider {:frame …} [shell/ShellView {…}]]
                  container)
 
-  ## THIS RE-POINT IS THE PR'S EVIDENCE, NOT A PORT OF IT
+  A boundary head is not a legal Reagent hiccup head, so a REAGENT root
+  rendering `shell/ShellView` could not stand in for this.
 
-  It used to read `(rdc/create-root …)` and `(rdc/render root [rf/frame-
-  provider … [shell/shell-view …]])` — a REAGENT root rendering a
-  `reg-view`, which is what `mount.cljs` did by calling the installed
-  adapter's `:render`. Under the old door that call was the only one that
-  worked and this one could not: `shell/ShellView` did not exist, and a
-  boundary head is not a legal Reagent hiccup head. Under the new door it
-  is the other way round. So the same four rows below, unchanged in what
-  they assert, are RED against trunk and GREEN here — which is the epic's
-  coupling (1) being severed, measured rather than described.
-
-  THE WRAPPER IS STILL LOAD-BEARING, for a NEW reason with the OPPOSITE
-  failure mode. It used to be about a `reg-view`'s render trace; a Fresco
-  boundary emits none. What it does now is give `ShellView`'s two ambient
+  THE WRAPPER IS LOAD-BEARING. It gives `ShellView`'s two ambient
   `rf.fresco/sub` reads their frame — drop it and the shell refuses with
-  `:rf.error/no-frame-context` and nothing commits. That is sabotage plant
-  1, and it is the direct control on the epic's coupling (2).
+  `:rf.error/no-frame-context` and nothing commits.
 
   The provider frame and the shell's `:frame-id` are the same value here,
   as they are in production.
@@ -286,12 +271,12 @@
 ;; ===========================================================================
 
 (deftest w1-dynamic-chrome-paints-every-layer-through-the-bridge
-  (testing "rf2-k97c.3 — the migrated Dynamic chrome commits all four
-            layers plus the events ribbon, through the ONE private
-            `as-component` bridge `shell-view` mounts. Epic criterion 1.
+  (testing "the Dynamic chrome commits all four
+            layers plus the events ribbon, through Xray's own Fresco
+            root.
 
-            THIS ROW CARRIES WHAT THE NODE LANE GAVE UP. Every chrome
-            row in `shell_cljs_test` now drives the shell's pure `*-tree`
+            THIS ROW CARRIES WHAT THE NODE LANE CANNOT. Every chrome
+            row in `shell_cljs_test` drives the shell's pure `*-tree`
             fns rather than the views, because a boundary's body only
             runs inside a React render window. Those rows are evidence
             about COMPOSITION; this one is the only evidence that the
@@ -338,11 +323,11 @@
 ;; ===========================================================================
 
 (deftest w2-chrome-repaints-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the chrome's reads are LIVE: writing
+  (testing "the chrome's reads are LIVE: writing
             `:rf.xray/select-tab` into the frame the tree named moves the
             committed L4 panel, and writing the same event into a
-            DIFFERENT live frame moves nothing. Epic criteria 3 and 4 —
-            observation, and frame context.
+            DIFFERENT live frame moves nothing — observation, and frame
+            context.
 
             This is the coupling a first-paint smoke test cannot see: a
             tree that painted once and never re-ran would pass W1 and
@@ -452,9 +437,9 @@
 ;; follow. That is a reactivity claim and it is deliberately silent about the
 ;; boundary's OTHER half: `tab-bar` does not merely READ through the
 ;; collector, it CAPTURES a dispatcher with `(:dispatch (rf/capture-frame))`
-;; and threads it into every tab button as `:dispatch-fn`. No row above ever
-;; makes it do so, which is the gap this one closes — the boundary's whole job
-;; is to capture a dispatcher, and nothing was making it capture one.
+;; and threads it into every tab button as `:dispatch-fn`. No row above makes
+;; it do so, and the boundary's whole job is to capture a dispatcher — so this
+;; row makes it capture one.
 ;;
 ;; THE NEGATIVE HALF IS WHAT MAKES IT A FRAME CLAIM RATHER THAN A CLICK TEST.
 ;; `tab-button` ends `(or dispatch-fn rf/dispatch)`, a defensive fallback for
@@ -476,7 +461,7 @@
 ;; landed.
 
 (deftest w3-a-real-tab-click-routes-through-the-captured-dispatcher
-  (testing "rf2-fxwj — pressing a real migrated L3 tab button moves the L4
+  (testing "pressing a real L3 tab button moves the L4
             panel in the frame the enclosing `frame-provider` NAMED, and
             leaves a second live frame exactly where it was. The event
             travels the shipped path end to end: React's own click, the
@@ -623,7 +608,7 @@
    :runtime      (rf.fresco.test.runtime/residue)})
 
 (deftest w4-unmount-returns-the-chrome-to-baseline-and-reopen-does-not-accumulate
-  (testing "rf2-fxwj — unmounting the Dynamic chrome releases everything it
+  (testing "unmounting the Dynamic chrome releases everything it
             took: the frame's sub-cache reference, the collector cell and
             its watch, every reader edge, and the whole collector census
             back to the zero it started from. Then a REOPEN takes the same
@@ -646,10 +631,9 @@
             before that point reports a LEAK against a runtime behaving
             exactly as documented.
 
-            THIS IS A VERIFICATION GAP BEING CLOSED, NOT AN ALLEGATION.
             W1 and W2 both CALL `teardown!` and neither measures anything
-            after it, and a call is not a measurement. If the numbers come
-            back at baseline — and they do — that IS the deliverable."
+            after it, and a call is not a measurement — this row is the
+            measurement."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
@@ -791,17 +775,17 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; W5 — the EMBED door (`panels/mount-shell!`), and the C5 measurement the
-;;      root-swap plan owed
+;; W5 — the EMBED door (`panels/mount-shell!`), and whether it touches the
+;;      host frame's ring
 ;; ===========================================================================
 ;;
 ;; TWO QUESTIONS IN ONE ROW, because they share a mount.
 ;;
-;; (1) THE EMBED DOOR STILL WORKS. `panels/mount-shell!` is the entry a Story
+;; (1) THE EMBED DOOR WORKS. `panels/mount-shell!` is the entry a Story
 ;;     or a custom dev surface uses, and it mounts `[shell/shell-view {…}]`
-;;     from a REAGENT tree through the installed adapter's `:render`. After
-;;     the root swap `shell-view` is no longer a `reg-view` — it is the public
-;;     callable bridge, answering the React element `ShellView` lowers to via
+;;     from a REAGENT tree through the installed adapter's `:render`.
+;;     `shell-view` is not a `reg-view` — it is the public callable bridge,
+;;     answering the React element `ShellView` lowers to via
 ;;     `rf.fresco/as-element`. Nothing in the node lane can see whether that
 ;;     crossing actually commits: `panels_mount_cljs_test` stubs the adapter
 ;;     and captures the hiccup `[shell/shell-view {…}]` BEFORE the bridge is
@@ -816,26 +800,22 @@
 ;;     what separate a bridge that carried its opts from one that flattened
 ;;     them.
 ;;
-;; (2) C5'S OPEN QUESTION, ANSWERED BY MEASUREMENT. The root-swap plan raised
-;;     `mount-shell!`'s missing outer `frame-provider` as a POSSIBLE third
-;;     rf2-tqlmq instance and said so explicitly as a question rather than a
-;;     finding — "whether it leaks depends on what frame a Story or custom
-;;     host has in scope, which was not measured". This measures it, in the
-;;     configuration the question was about: an application that owns a live
+;; (2) DOES THE EMBED REACH THE HOST'S FRAME? `mount-shell!` adds no outer
+;;     `frame-provider`, so whether it leaks looks as though it depends on
+;;     what frame a Story or custom host has in scope. This row measures it
+;;     in exactly that configuration: an application that owns a live
 ;;     frame, its own Reagent root painting under `[rf/frame-provider {:frame
 ;;     app}]`, and the Xray embed mounted at a node INSIDE that root's DOM.
 ;;
 ;;     THE ANSWER TURNS ON A FACT ABOUT REACT RATHER THAN ABOUT XRAY, which
-;;     is why reading the source was never going to settle it: `mount-shell!`
+;;     is why reading the source cannot settle it: `mount-shell!`
 ;;     goes through `rf.substrate.adapter/render`, which creates its OWN
 ;;     React root at the node it is given, and REACT CONTEXT DOES NOT CROSS A
 ;;     ROOT BOUNDARY. DOM nesting is not React nesting. So the host's
 ;;     `frame-provider` is not in scope inside the embed however deeply the
-;;     node is nested, and there is no host frame to fall through TO — which
-;;     is what the plan's "depends what the host has in scope" was worried
-;;     about.
+;;     node is nested, and there is no host frame to fall through TO.
 ;;
-;;     Since rf2-k97c.3 the point is doubly moot and in the better direction:
+;;     Two further reasons point the same way:
 ;;     the bridge opens its OWN provider around `frame-id`, so the embed is
 ;;     positively scoped rather than merely unexposed, and a Fresco boundary
 ;;     emits no view-render trace for a ring to collect in the first place.
@@ -870,11 +850,11 @@
                                                      :mode  :inline})}))
 
 (deftest w5-the-embed-door-mounts-and-never-touches-the-host-frames-ring
-  (testing "rf2-k97c.3 — `panels/mount-shell!` still paints the shell after
-            the root swap, carries its KEYWORD opts across the bridge
+  (testing "`panels/mount-shell!` paints the shell,
+            carries its KEYWORD opts across the bridge
             intact, and a real Xray chrome interaction leaves the inspected
             application frame's epoch history unchanged in count AND
-            contents. The C5 measurement, taken rather than assumed."
+            contents — measured rather than assumed."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
@@ -899,7 +879,7 @@
                            "Fresco tree from a Reagent parent"
                            (uncaught-note)))
                   (is (some? (testid embed-node "rf-xray-tab-bar"))
-                      "and the migrated L3 tab bar with it")
+                      "and the L3 tab bar with it")
                   ;; THE KEYWORD-CROSSING CLAIM. If the opts had gone through
                   ;; a Reagent `[:>]` conversion, `:frame-id` would be a
                   ;; string and this frame would hold nothing.
@@ -928,13 +908,13 @@
                       "and the write landed in the embed's OWN frame")
                   (let [after (vec (rf/epoch-history embed-app-frame))]
                     (is (= (count @!before) (count after))
-                        (str "C5 MEASURED: the embed adds NO epoch record to "
+                        (str "MEASURED: the embed adds NO epoch record to "
                              "the host application's ring. Was "
                              (count @!before) ", now " (count after)))
                     (is (= @!before after)
                         "and leaves every existing record byte-identical —
-                         the missing outer provider `mount-shell!` never had
-                         is not a leak, and cannot become one"))
+                         the outer provider `mount-shell!` does not add is
+                         not a leak, and cannot become one"))
                   ;; The ring is LIVE, not merely quiet.
                   (rf/dispatch-sync [:w5/app-inc] {:frame embed-app-frame})
                   (is (not= @!before (vec (rf/epoch-history embed-app-frame)))

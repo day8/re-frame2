@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.control-axes-e2e.event-id-mute-e2e-cljs-test
   "Multi-frame e2e coverage for the spine-filters event-id mute control
-  axis (rf2-7icrs).
+  axis.
 
   Right-clicking an L2 row offers 'Mute this event-id' — the
-  framework's `spine-filters` surface (rf2-ikuwt, lives at
+  framework's `spine-filters` surface (at
   `tools/xray/src/day8/re_frame2_xray/spine_filters.cljs`)
   dispatches `:rf.xray/mute-event-id` which adds the event-id to a
   `#{}` of muted ids in `:rf/xray`'s app-db.
@@ -20,8 +20,8 @@
        `:rf.xray/muted-event-ids`.
     2. `:rf.xray/unmute-event-id` removes it.
     3. `:rf.xray/clear-muted-event-ids` clears the set.
-    4. The slot state survives host dispatches (rf2-83d4x wrong-
-       frame state class)."
+    4. The slot state survives host dispatches (the wrong-frame state
+       class)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -68,7 +68,7 @@
           "clear-muted did not clear the set"))))
 
 (deftest xray-mute-state-survives-host-dispatch
-  (testing "rf2-83d4x — muted-event-ids lives in :rf/xray, not host"
+  (testing "muted-event-ids lives in :rf/xray, not host"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []

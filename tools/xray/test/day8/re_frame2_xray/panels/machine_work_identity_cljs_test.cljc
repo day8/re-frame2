@@ -3,9 +3,9 @@
 
   The fixture feeds the real tag maps emitted by the machines runtime into
   Xray's production `races-by-work-id` projection. No hand-authored work ids
-  sit between producer and consumer, so a producer regression back to constant
-  fixed-id generation 1 deterministically collapses the two arcs on both CLJ
-  and CLJS."
+  sit between producer and consumer, so a producer minting a constant
+  fixed-id generation 1 would deterministically collapse the two arcs on both
+  CLJ and CLJS."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -108,12 +108,11 @@
 
 (defn- register-cancel-race-machines!
   "A single-child `:all` join whose child never completes on its own, plus a
-  parent event that imperatively destroys it. The race this fixture models — a
-  completion carrier landing after its attempt closed — used to be built by
-  having the child queue its own completion and then destroy itself in one fx
-  batch. Completion is finality now, so a child cannot both complete and be
-  cancelled; the carrier is instead captured while the child is live and
-  delivered after the destroy, which is the same arrival from Xray's side."
+  parent event that imperatively destroys it. The race this fixture models is
+  a completion carrier landing after its attempt closed. Completion is
+  finality, so a child cannot both complete and be cancelled; the carrier is
+  captured while the child is live and delivered after the destroy, which is
+  the same arrival from Xray's side."
   []
   (let [parent :xray-work-id/cancel-race-parent
         actor  :xray-work-id/cancel-race-child#7]
@@ -157,7 +156,7 @@
           (is (not= attempt-a attempt-b))
 
           ;; Attempt A's carrier — captured off its live membership record
-          ;; above — drains now, against attempt B's join.
+          ;; above — drains here, against attempt B's join.
           (forged-completion! parent-id auth-a)
           ;; Attempt B completes normally through the current fixed child.
           (rf/dispatch-sync [fixed-child [:go]])
@@ -179,16 +178,16 @@
                 "attempt A suppression never contaminates attempt B")))))))
 
 (deftest post-resolution-superseded-straggler-is-stale-completion-not-late
-  ;; rf2-ixjd48 / rf2-w82021 — THE POST-RESOLUTION EXACT-ATTEMPT PATH, driven
+  ;; THE POST-RESOLUTION EXACT-ATTEMPT PATH, driven
   ;; through the REAL producer (not a hand-authored trace). Attempt A's
   ;; completion is held; the parent re-enters, attempt B is seeded and RESOLVES;
   ;; THEN A's exact carrier drains against B's already-resolved join. The
   ;; producer runs the `attempt-superseded` exact-attempt gate BEFORE the
   ;; `:resolved?` branch (join.cljc), so A is classified `:attempt-superseded`
-  ;; `stale-completion` — NOT a `join-resolved` late-completion. This pins the
-  ;; behaviour the bead found the Xray docs/fixtures had framed as
-  ;; pre-resolution-only: the `attempt-unverified` / `attempt-superseded`
-  ;; suppression fires on the POST-resolution path too, and the Xray consumer
+  ;; `stale-completion` — NOT a `join-resolved` late-completion. This pins
+  ;; that the `attempt-unverified` / `attempt-superseded` suppression is not
+  ;; pre-resolution-only: it fires on the POST-resolution path too, and the
+  ;; Xray consumer
   ;; must see an attempt-suppression arc for attempt A, never a late-completion
   ;; terminal.
   (testing "a superseded straggler arriving AFTER the successor join resolved is
@@ -212,7 +211,7 @@
           ;; slot survives for the post-resolution probe.
           (rf/dispatch-sync [fixed-child [:go]])
           (is (true? (:resolved? (join-state))) "attempt B resolved")
-          ;; NOW A's exact carrier drains, POST-resolution, with attempt-A auth.
+          ;; THEN A's exact carrier drains, POST-resolution, with attempt-A auth.
           (forged-completion! parent-id auth-a)
           ;; (1) the producer emits a stale-completion, NOT a late-completion.
           (let [ops (map :operation @traces)]
@@ -338,9 +337,9 @@
           (is (true? (:suppressed? arc))))))))
 
 (deftest single-spawn-stale-carrier-reaches-the-xray-stale-view
-  ;; rf2-syc7a — producer-derived. The machines runtime drops a single-`:spawn`
+  ;; Producer-derived. The machines runtime drops a single-`:spawn`
   ;; carrier that arrives after the parent left the spawning state and emits
-  ;; `:rf.machine.spawn/stale-completion` (rf2-3x7nj.9.3). Nothing is
+  ;; `:rf.machine.spawn/stale-completion`. Nothing is
   ;; hand-dispatched: one plain handler queues the child's finishing event and
   ;; then the parent's `:cancel`, so the runtime mints the carrier behind it.
   (testing "the real stale-completion row survives into Xray's stale view"

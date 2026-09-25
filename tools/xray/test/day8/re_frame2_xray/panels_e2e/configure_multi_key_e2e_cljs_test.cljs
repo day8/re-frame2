@@ -1,34 +1,29 @@
 (ns day8.re-frame2-xray.panels-e2e.configure-multi-key-e2e-cljs-test
-  "Multi-frame e2e port of the Xray feature-matrix Playwright scenario
-  `configure! multi-key map and partial-update semantics` (rf2-rviu8 —
-  was rf2-qd5r6 deepening). The Playwright original
-  (`scenarios.cjs::runConfigurePartialUpdate`) opened a browser, hit
-  the `window.day8.re_frame2_xray.config.configure_BANG_` JS surface
-  with hash-maps wrapped from CLJS internals, and asserted:
+  "Node e2e coverage of the Xray feature-matrix scenario
+  `configure! multi-key map and partial-update semantics`. It asserts:
 
     1. A multi-key configure! call updates every key.
     2. A subsequent single-key configure! leaves the other keys
        untouched (partial-update semantics).
 
-  This is the most browser-free scenario in the feature matrix — it
-  literally went into the browser to call a fn that lives in the
-  Xray config namespace which is already in scope in Node tests. No
+  The scenario needs no browser at all: the fn it exercises lives in
+  the Xray config namespace, which is already in scope in Node tests. No
   DOM, no events, no rendering — just function calls.
 
   ## Pre-/post-state hygiene
 
   `configure!` writes module-level atoms (`editor`, `project-root`,
   `layout-host-selector`, `auto-open?`, `egress-profile`). All keys
-  live under the `:rf.xray/*` reserved namespace per rf2-xea9u; the
-  on-box reveal grain is `:rf.xray/egress-profile` (EP-0015
-  per-(tool,frame), rf2-h40lt2). Other tests in the suite may have
-  flipped them; this test snapshots the pre-state, runs assertions
-  against deltas, then restores.
+  live under the `:rf.xray/*` reserved namespace (the `:rf.<tool>/*`
+  convention in Xray spec 015); the on-box reveal grain is
+  `:rf.xray/egress-profile` (EP-0015 per-(tool,frame)). Other tests in
+  the suite may have flipped them; this test snapshots the pre-state,
+  runs assertions against deltas, then restores.
 
   Why we don't need the multi-frame harness here: the assertions are
   about a single namespace's atom state, not Xray's spine + cascades.
   No frames involved. Listed under `panels_e2e/` for discoverability
-  alongside the other rf2-rviu8 conversions."
+  alongside the other feature-matrix scenarios."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as cfg]))
 

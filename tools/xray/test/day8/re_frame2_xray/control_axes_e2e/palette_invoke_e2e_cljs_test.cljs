@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.control-axes-e2e.palette-invoke-e2e-cljs-test
-  "Multi-frame e2e coverage for the Cmd-K palette invoke control axis
-  (rf2-7icrs).
+  "Multi-frame e2e coverage for the Cmd-K palette invoke control axis.
 
   The palette surface is opened via Cmd-K (or Ctrl-K); typing
   filters the list, ↑/↓ moves the cursor, Enter dispatches the
@@ -61,7 +60,7 @@
           ":rf.xray/palette-set-query did not write through to palette-query"))))
 
 (deftest xray-palette-state-survives-host-dispatch
-  (testing "rf2-83d4x — palette state lives in :rf/xray, not host"
+  (testing "palette state lives in :rf/xray, not host"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -70,12 +69,12 @@
         (is (e2e/sub-xray [:rf.xray/palette-open?])
             "palette state cleared on host dispatch — wrong-frame class")))))
 
-;; ---- rf2-w991t — Cmd-K palette execute: :toggle-theme + recents ----------
+;; ---- Cmd-K palette execute: :toggle-theme + recents ----------------------
 ;;
-;; The original Phase 3 bead (rf2-mpqxn) asked for an end-to-end exercise
-;; of the Cmd-K palette's execute path: invoke the `:toggle-theme` command
-;; item via `:rf.xray/palette-invoke`, assert the theme atom flips, then
-;; re-invoke and assert recents-boost surfaces the just-executed verb.
+;; These rows exercise the Cmd-K palette's execute path end to end: invoke
+;; the `:toggle-theme` command item via `:rf.xray/palette-invoke`, assert
+;; the theme atom flips, then re-invoke and assert recents-boost surfaces
+;; the just-executed verb.
 ;;
 ;; The toggle-theme item is built by `palette/sources.cljc`:
 ;;
@@ -97,7 +96,7 @@
    :action [:palette/toggle-theme]})
 
 (deftest xray-palette-invoke-toggle-theme-flips-theme
-  (testing "rf2-w991t — palette-invoke :toggle-theme flips the theme atom"
+  (testing "palette-invoke :toggle-theme flips the theme atom"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -114,7 +113,7 @@
               "second palette-invoke :toggle-theme did not round-trip"))))))
 
 (deftest xray-palette-invoke-toggle-theme-bumps-recents
-  (testing "rf2-w991t — :toggle-theme invoke records into :rf.xray/palette-recents"
+  (testing ":toggle-theme invoke records into :rf.xray/palette-recents"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -126,7 +125,7 @@
               ":toggle-theme did not bubble to index 0 of palette-recents"))))))
 
 (deftest xray-palette-invoke-toggle-theme-recents-boost-survives
-  (testing "rf2-w991t — re-invoking same command keeps recents head-stable"
+  (testing "re-invoking same command keeps recents head-stable"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []

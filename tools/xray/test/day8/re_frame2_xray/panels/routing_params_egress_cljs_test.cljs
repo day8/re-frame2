@@ -1,25 +1,22 @@
 (ns day8.re-frame2-xray.panels.routing-params-egress-cljs-test
   "The Routing panel's CURRENT ROUTE params are an EGRESS PROJECTION, not raw
-  frame state (rf2-6j8gd).
+  frame state.
 
-  ## The defect these rows pin
+  ## The leak these rows pin
 
-  rf2-8nyi2 projected the slice's `:query` and scoped itself to the key it
-  was filed against, recording the params residue in its own notes.
-  `panels/routing.cljs` therefore still rendered the slice's `:params` with
-  `pr-str` straight into
+  Rendered with `pr-str` straight into
   `[:span {:data-testid \"rf-xray-routing-current-params\"}]`, with NO
-  classification step between the observed frame's runtime-db and the DOM —
-  and unlike the query span, the params span renders UNCONDITIONALLY, so a
-  declared-sensitive path capture was on screen for every activation of the
-  route that declared it.
+  classification step between the observed frame's runtime-db and the DOM,
+  the slice's `:params` would put a declared-sensitive path capture on
+  screen for every activation of the route that declared it — unlike the
+  query span, the params span renders UNCONDITIONALLY.
 
-  That is a missed EXPLICIT data-hygiene declaration. It is NOT a claim
+  That would be a missed EXPLICIT data-hygiene declaration. It is NOT a claim
   that arbitrary undeclared trace carriers form a security boundary, and
   nothing here scrubs anything the author did not declare — the
   `renders-undeclared-params-verbatim` row is what pins that.
 
-  ## Why PARAMS were never the weaker axis — the point of row (0)
+  ## Why PARAMS are not the weaker axis — the point of row (0)
 
   A route declares `:sensitive` / `:large` PROJECTION-RELATIVE to its
   `{:query … :params …}` shape, and `re-frame.routing.classification`
@@ -39,14 +36,13 @@
   advisory is deliberately query-axis-only.
 
   Row (0) measures exactly that: the route below declares NO `:params`
-  schema at all, and the capture still arrives keyword-keyed. So the axis
-  the panel was leaking is the axis whose declaration is the more reliable
-  of the two.
+  schema at all, and the capture still arrives keyword-keyed. So the params
+  axis is the one whose declaration is the more reliable of the two.
 
   ## Why these rows assert on the RENDERED output
 
   The seam is the `rf-xray-routing-current-params` testid, and only the
-  rendered text can fail on a panel that still leaks: a helper's return
+  rendered text can fail on a panel that leaks: a helper's return
   value can be correct while the span beside it prints the raw map. So
   every row here walks the panel's hiccup and reads the span's text.
 
@@ -56,7 +52,7 @@
   classification exist at all — it is ACTIVATION that re-roots the
   projection-relative paths into the frame's elision registry. A
   hand-typed slice injected through the test-override seam would carry no
-  registry, and would pass against the unfixed panel."
+  registry, and would pass against a panel that leaks."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -118,8 +114,8 @@
 (defn- both-axes-route!
   "Declares a sensitive key on BOTH axes. The query key is promoted by the
   `:query` schema (it has to be); the path capture is not, and does not
-  need to be. Guards the slice-arm refactor: projecting params must not
-  have cost the query its projection."
+  need to be. Guards the slice arm: projecting params must not cost the
+  query its projection."
   []
   (rf/reg-route ::both
                 {:sensitive [[:params :token] [:query :secret]]
@@ -128,7 +124,7 @@
 
 (defn- plain-params-route!
   "A route with a path capture and NO classification at all — the ordinary
-  case the fix must leave exactly as it was."
+  case the projection must leave untouched."
   []
   (rf/reg-route ::plain
                 {}
@@ -136,8 +132,8 @@
 
 (defn- no-params-route!
   "A route capturing nothing. The matcher yields `{}`, and the params span
-  must keep rendering `{}` exactly as before — fail-closed must not invent
-  a sentinel where the router wrote an empty map."
+  must render `{}` — fail-closed must not invent a sentinel where the
+  router wrote an empty map."
   []
   (rf/reg-route ::bare
                 {}
@@ -188,7 +184,7 @@
 ;; ---- (0) the control: the capture is keyword-keyed with NO schema -------
 
 (deftest path-captures-are-keyword-keyed-without-a-params-schema
-  (testing "rf2-6j8gd control — the matcher keywords every path capture, so
+  (testing "control — the matcher keywords every path capture, so
             the route's re-rooted [:params :token] declaration can match
             WITHOUT the route declaring a :params schema. This is the
             params-axis counterpart of the query test's promotion control,
@@ -206,12 +202,12 @@
            declaration silently fail open the way an unpromoted query key
            does"))))
 
-;; ---- (1) the defect: a declared-sensitive path param reaches the DOM ----
+;; ---- (1) a declared-sensitive path param must not reach the DOM --------
 
 (deftest redacts-a-declared-sensitive-path-param-in-the-rendered-span
-  (testing "rf2-6j8gd — the CURRENT ROUTE params span renders :rf/redacted
+  (testing "the CURRENT ROUTE params span renders :rf/redacted
             for a path capture the ACTIVE ROUTE declared :sensitive, and
-            never its value. RED against the unfixed panel, which printed
+            never its value. A panel printing the raw params would show
             the live token on every activation of this route."
     (classified-params-route!)
     (navigate! (str "/rf2-6j8gd/user/" secret "/" sibling))
@@ -236,12 +232,12 @@
           (str "the UNCLASSIFIED sibling capture was scrubbed too — that is a
                 blanket redaction, not the declaration: " (pr-str text))))))
 
-;; ---- (2) ordinary params display is unchanged ---------------------------
+;; ---- (2) ordinary params display verbatim -------------------------------
 
 (deftest renders-undeclared-params-verbatim
-  (testing "rf2-6j8gd — a route declaring NO classification renders its
-            params exactly as before. The walk is path-precise, never a
-            blanket scrub, and this item is explicitly not a claim that
+  (testing "a route declaring NO classification renders its
+            params verbatim. The walk is path-precise, never a
+            blanket scrub, and this row is explicitly not a claim that
             undeclared carriers are a boundary."
     (plain-params-route!)
     (navigate! (str "/rf2-6j8gd/plain/" sibling))
@@ -254,21 +250,20 @@
           (str "an undeclared param redacted — over-scrub: " (pr-str text))))))
 
 (deftest renders-an-empty-params-map-when-the-route-captures-nothing
-  (testing "rf2-6j8gd — a route capturing nothing still renders `{}`, not a
+  (testing "a route capturing nothing renders `{}`, not a
             sentinel and not an absent span. The params span has no `seq`
             guard and renders unconditionally through `(or params {})`, so
-            this is the existing empty behaviour the item requires be
-            preserved."
+            fail-closed must leave this empty render alone."
     (no-params-route!)
     (navigate! "/rf2-6j8gd/bare")
     (observe! :rf/default)
     (is (= "{}" (current-params-text))
-        "the empty-params render changed")))
+        "the empty-params render is not {}")))
 
 ;; ---- (3) observed-frame isolation --------------------------------------
 
 (deftest unreachable-observed-frame-yields-no-slice-and-cannot-leak
-  (testing "rf2-6j8gd — an UNREACHABLE observed frame cannot put params on
+  (testing "an UNREACHABLE observed frame cannot put params on
             screen AT ALL, and the reason is the sub's OTHER input failing
             first: `:rf.xray/target-frame-runtime-db` is
             `(:rf.db/runtime (rf/frame-state-value target))`, and
@@ -296,7 +291,7 @@
 ;; ---- (4) the explicit local-raw grain ----------------------------------
 
 (deftest local-raw-opt-in-returns-the-declared-param-verbatim
-  (testing "rf2-6j8gd — the per-(tool,frame) :rf.egress/local-raw opt-in
+  (testing "the per-(tool,frame) :rf.egress/local-raw opt-in
             (EP-0015 §Cross-tool visibility grain) reaches the params seam
             end to end: the SAME projection with `raw? true` returns the
             declared-sensitive capture verbatim. The panel deliberately
@@ -322,12 +317,12 @@
 ;; ---- (5) the seam is the ROUTE re-seeding, not a whole-value walk -------
 
 (deftest whole-value-walk-cannot-match-the-re-rooted-params-declaration
-  (testing "rf2-6j8gd — why the fix names the sub rather than walking the
+  (testing "why the projection names the sub rather than walking the
             value. A route's declaration is RE-ROOTED to the absolute
             `[:rf.runtime/routing :current :params :token]`, so the plain
             whole-value seam (`local-render-value`, path []) cannot match it
             and ships the capture raw. This is the negative control for the
-            door that was chosen, and the params twin of the query row."
+            route-sub door, and the params twin of the query row."
     (classified-params-route!)
     (navigate! (str "/rf2-6j8gd/user/" secret "/" sibling))
     (let [p       (:params (host-slice))
@@ -341,14 +336,13 @@
       (is (= :rf/redacted (:token seeded))
           "the route-sub seam did not re-seed at the slice's storage position"))))
 
-;; ---- (6) the refactor guard: the query axis still projects --------------
+;; ---- (6) the guard: the query axis projects too -------------------------
 
 (deftest both-classified-axes-project-in-one-slice
-  (testing "rf2-6j8gd — the slice arm projects BOTH covered keys. rf2-8nyi2
-            projected the query through a hand-written `:query` branch;
-            this replaces it with a per-key walk over the covered
-            projections, so the query axis has to be re-pinned here or the
-            refactor could silently have traded one leak for another."
+  (testing "the slice arm projects BOTH covered keys. It is a per-key
+            walk over the covered projections rather than a hand-written
+            `:query` branch, so the query axis is pinned here too: otherwise
+            the walk could silently trade one leak for another."
     (both-axes-route!)
     (navigate! (str "/rf2-6j8gd/both/" secret "?secret=" secret "&tab=" sibling))
     (observe! :rf/default)
@@ -358,7 +352,7 @@
           (str "the declared path capture did not redact: " (pr-str params-text)))
       (is (re-find #":rf/redacted" query-text)
           (str "the declared query key did not redact — the query axis
-                regressed: " (pr-str query-text)))
+                leaks: " (pr-str query-text)))
       (is (re-find (re-pattern sibling) query-text)
           (str "the unclassified query sibling was scrubbed: " (pr-str query-text)))
       (is (not (re-find (re-pattern secret) (current-section-text)))
@@ -368,7 +362,7 @@
 ;; ---- (7) the census discriminator: App-DB is NOT a second site ----------
 
 (deftest the-app-db-style-whole-runtime-db-walk-already-matches
-  (testing "rf2-6j8gd census — the App-DB tab reaches the SAME route slice
+  (testing "census — the App-DB tab reaches the SAME route slice
             (`app_db_diff_helpers/runtime-areas` maps :rf/route to
             `[:rf.runtime/routing :current]`), so it is the obvious
             candidate for a second leaking site. It is not one, and the

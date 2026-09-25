@@ -1,14 +1,14 @@
 (ns day8.re-frame2-xray.filters.hidden-indicator-cljs-test
-  "Integration tests for the L2 'N events filtered out' indicator
-  (rf2-jvghz, defect #1). Covers:
+  "Integration tests for the L2 'N events filtered out' indicator.
+  Covers:
 
     1. `:rf.xray/hidden-by-filters` sub composition — raw vs filtered
        visible counts under an IN pill, a frame pin, and a mute.
     2. The indicator view renders the `N events filtered out` warning
-       whenever filtered-count < raw-count (incl. filtered-to-empty);
-       the Clear Filters button + cause chips are retired (rf2-pjjwh),
-       and the `:rf.xray/clear-all-filters` bulk-reset event was
-       removed with them (rf2-rdhbk — no caller survived).
+       whenever filtered-count < raw-count (incl. filtered-to-empty),
+       carrying the count only: there is no Clear Filters button, no
+       cause chips, and no `:rf.xray/clear-all-filters` bulk-reset
+       event.
 
   Mirrors the spine_filters integration test's registry / frame /
   trace-bus setup so the sub-graph resolves through the `:rf/xray`
@@ -27,10 +27,9 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset into one owner
-  ;; (plain-atom + the `:all` tier, which already covers the trace-collector
-  ;; rings the old init reset a SECOND time); `:post-reset` carries this
-  ;; suite's filter-state tail.
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + the `:all`
+  ;; tier, which covers the trace-collector rings); `:post-reset` carries
+  ;; this suite's filter-state tail.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (spine-filters/clear-raw!)
@@ -60,15 +59,14 @@
                    :rf.trace/dispatch-id id}}))
 
 ;; ---- hiccup helpers -----------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid / text-of copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` / `rf.test-helpers/text-content` directly (rf2-vj80u8 — no Xray
-;; walker facade). `count-by-testid` is a thin count over `rf.test-helpers/find-all-by-testid`.
+;; Tests call `rf.test-helpers/find-by-testid` / `rf.test-helpers/text-content`
+;; directly; there is no Xray walker facade. `count-by-testid` is a thin
+;; count over `rf.test-helpers/find-all-by-testid`.
 
 (defn- count-by-testid
   "How many nodes in the expanded tree carry `testid` — used to assert a
-  committed pill renders EXACTLY once (rf2-ad7zx.18: the hidden-message
-  no longer re-renders the pills as cause chips)."
+  committed pill renders EXACTLY once (the hidden-message does not
+  re-render the pills as cause chips)."
   [tree testid]
   (count (rf.test-helpers/find-all-by-testid tree testid)))
 
@@ -104,7 +102,7 @@
     (is (= :out (:mode (first (:pills s)))))))
 
 (deftest frame-is-a-view-scope-not-a-filter
-  (testing "rf2-4vp5j Workstream C — selecting a frame is a view SCOPE,
+  (testing "selecting a frame is a view SCOPE,
             not a filter: it is NEVER counted as hidden, NEVER an active
             filter, and the summary carries no `:frame` cause. The count
             baseline is computed WITHIN the selected frame so switching
@@ -136,7 +134,7 @@
     (is (true? (:visible? s)))))
 
 (deftest frame-scope-to-empty-frame-is-not-hidden-by-filters
-  (testing "rf2-4vp5j — scoping to a frame with no events leaves zero
+  (testing "scoping to a frame with no events leaves zero
             rows, but that is an empty SCOPE, not 'hidden by filters'.
             The count baseline is within the selected frame (0 raw, 0
             filtered) so nothing is counted as hidden and no message
@@ -166,21 +164,20 @@
           indicator (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator")
           count-node (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count")]
       (is (some? indicator) "banner renders when rows are hidden")
-      ;; rf2-pjjwh — the Clear Filters button is retired; the warning
-      ;; carries the count only.
+      ;; There is no Clear Filters button; the warning carries the count
+      ;; only.
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-clear"))
-          "Clear filters button is retired (rf2-pjjwh)")
-      ;; rf2-3f2di A5 — the bar-2 warning reads `N events filtered out`
-      ;; (authority reference events-ribbon), superseding the prior
-      ;; `N events hidden by filters` copy.
+          "there is no Clear filters button")
+      ;; The bar-2 warning reads `N events filtered out` (authority
+      ;; reference events-ribbon).
       (is (re-find #"1 event filtered out" (rf.test-helpers/text-content count-node))))))
 
 (deftest hidden-message-does-not-duplicate-the-committed-pills
-  (testing "rf2-ad7zx.18 — per the Figma EventsRibbon mock the hidden-state
+  (testing "per the Figma EventsRibbon mock the hidden-state
             is a plain count. The committed pill must render EXACTLY ONCE
             (in the LEFT cluster via pills-view); the hidden-message must
-            NOT re-render it as a cause chip. rf2-pjjwh — Clear Filters is
-            retired."
+            NOT re-render it as a cause chip, and there is no Clear
+            Filters button."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
@@ -191,16 +188,16 @@
         ;; the committed OUT pill renders ONCE — in the left cluster.
         (is (= 1 (count-by-testid tree "rf-xray-filter-pill-out-0"))
             "the committed pill renders exactly once (left cluster)")
-        ;; the duplicate cause-chip cluster is gone.
+        ;; there is no duplicate cause-chip cluster.
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-causes"))
             "no duplicate cause-chip cluster in the hidden-message")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-pill-0"))
             "no duplicate pill chip in the hidden-message")
-        ;; the count survives; Clear Filters is retired (rf2-pjjwh).
+        ;; the count renders; there is no Clear Filters button.
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count"))
-            "the hidden count is kept")
+            "the hidden count renders")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "Clear Filters is retired (rf2-pjjwh)")))))
+            "there is no Clear Filters button")))))
 
 (deftest indicator-absent-when-nothing-hidden
   (xray-setup!)
@@ -211,8 +208,6 @@
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator"))
           "no banner when filtered == raw"))))
 
-;; (The former section (3) — `:rf.xray/clear-all-filters` resets every
-;; surface — was deleted with the event itself (rf2-rdhbk). The bulk
-;; reset had no surviving caller after rf2-pjjwh retired the Clear
-;; Filters button; recovery is per surface — each pill's `✕`, and
-;; `:rf.xray/clear-muted-event-ids` behind the mute chip/manager.)
+;; (There is no bulk filter reset; recovery is per surface — each pill's
+;; `✕`, and `:rf.xray/clear-muted-event-ids` behind the mute
+;; chip/manager.)

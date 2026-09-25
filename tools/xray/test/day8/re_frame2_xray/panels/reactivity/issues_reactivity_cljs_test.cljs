@@ -1,12 +1,11 @@
 (ns day8.re-frame2-xray.panels.reactivity.issues-reactivity-cljs-test
-  "Sub-reactivity guard for the Issues panel's primary composite
-  (rf2-dhoc9, updated for rf2-jio48 rebuild; rf2-ad7zx.9 Figma reconcile).
+  "Sub-reactivity guard for the Issues panel's primary composite.
 
   Per spec/021 §1.2 the Issues panel is focused-epoch-scoped — the
   composite re-fires when the focused epoch flips (via
-  `:rf.xray/focus`'s `:epoch-id`). The filter axis was dropped at
-  rf2-ad7zx.9 (the Figma design renders pure rows, no filtering), so
-  focus is now the single reactive input."
+  `:rf.xray/focus`'s `:epoch-id`). There is no filter axis (the
+  Figma design renders pure rows, no filtering), so focus is the
+  single reactive input."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.test-helpers.sub-reactivity :as h]))
 
@@ -51,9 +50,7 @@
         (is (= [2] (mapv :id (:issues feed-2)))
             "feed-2 surfaces epoch :e2's issues")))))
 
-;; rf2-ad7zx.9 — `issues-filters-axis-re-fires-on-filter-change` and
-;; `issues-ribbon-composes-focus-and-filters` were removed with the
-;; Issues panel's filter-chrome reconcile to the Figma design (pure
-;; rows, no filtering — spec/021 §8.2). The `:rf.xray/issues-filters`
-;; sub + the chip-toggle events no longer exist; focus is the single
-;; reactive input, pinned by `issues-ribbon-sub-tracks-focus-flip`.
+;; The Issues panel has no filter chrome (pure rows, no filtering —
+;; spec/021 §8.2): there is no `:rf.xray/issues-filters` sub and no
+;; chip-toggle event, so focus is the single reactive input, pinned by
+;; `issues-ribbon-sub-tracks-focus-flip`.
