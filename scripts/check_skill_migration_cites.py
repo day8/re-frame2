@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cite-integrity guard: re-frame-migration skill M-id cites vs MIGRATION.md (rf2-1nb8k).
+"""Cite-integrity guard: re-frame-migration skill M-id cites vs MIGRATION.md.
 
 The migration skill (`skills/re-frame-migration/`) treats MIGRATION.md
 (`migration/from-re-frame-v1/README.md`) as the source of truth and instructs
@@ -8,10 +8,10 @@ cardinal rule 1). An author audits a migration by grepping MIGRATION.md for the
 cited id and reading the rule.
 
 That contract silently breaks when a skill cites an `M-NN` that names a
-DIFFERENT rule in MIGRATION.md — or no rule at all. rf2-1nb8k was exactly this:
-the skill cited M-66/M-67 for the listener-namespace + frame-affordance renames,
-but MIGRATION.md M-66/M-67 were assigned to History-states / Xray-static-mode,
-and the two renames lived under no id at all. The report became un-auditable.
+DIFFERENT rule in MIGRATION.md — or no rule at all. A skill citing M-66 for the
+listener-namespace rename would send the author to MIGRATION.md's M-66, History
+states, and a rename filed under no id at all leaves nothing to grep for; either
+way the report is un-auditable.
 
 This guard makes that class of drift a build failure. Three checks:
 
@@ -22,14 +22,14 @@ This guard makes that class of drift a build failure. Three checks:
   * RULE-MISMATCH — for the small set of rules whose identity is asserted by
     both the skill and MIGRATION.md (`KEYWORD_RULES` below), the MIGRATION.md
     heading for the cited id must contain the expected keyword. This catches the
-    *collision* half of the rf2-1nb8k class (skill cites M-66 = "listener", but
+    *collision* half of that class (skill cites M-66 = "listener", but
     MIGRATION.md M-66 = "History states") without trying to diff full prose.
 
-  * TYPE-DRIFT (rf2-640aq) — every rule MIGRATION.md classifies as **Type B** in
+  * TYPE-DRIFT — every rule MIGRATION.md classifies as **Type B** in
     its canonical "## Type-tag summary" section MUST also appear in the skill's
     "## Type A vs Type B — at a glance" **Type B** line in
     `references/breaking-changes.md`. A Type-B rule silently dropping out of (or
-    never reaching) the skill's Type-B list is the rf2-640aq class: the skill
+    never reaching) the skill's Type-B list is the drift this catches: the skill
     then presents a judgment-call migration (M-34 spawn-id tracking, M-42
     `dom-node` / `force-update-all`, M-40 `init!` adapter) as automatic, and an
     agent applies it without the required human review. We assert *containment*
@@ -57,8 +57,6 @@ Usage:
     python scripts/check_skill_migration_cites.py --self-test  # run on built-in
                                                                #   pass/fail
                                                                #   fixtures
-
-rf2-1nb8k.
 """
 
 from __future__ import annotations
@@ -85,7 +83,7 @@ MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
 SKILL_REFERENCES_DIR = REPO_ROOT / "skills" / "re-frame-migration" / "references"
 SKILL_BREAKING_CHANGES = SKILL_REFERENCES_DIR / "breaking-changes.md"
 
-# TYPE-DRIFT (rf2-640aq) section anchors. MIGRATION.md's canonical Type-tag
+# TYPE-DRIFT section anchors. MIGRATION.md's canonical Type-tag
 # summary lives under a `## Type-tag summary` H2; the Type-B membership line in
 # that section opens with `**Type B — flag for human review.**`. (The same
 # bold phrase also opens per-rule bodies, so we only scan inside the summary
@@ -114,7 +112,7 @@ TABLE_ID_RE = re.compile(r"\|\s*\*\*(M-\d+[a-z]?)\*\*\s*\|")
 # RULE-MISMATCH check. When a breaking-changes.md table-row's DESCRIPTION text
 # contains a `trigger` keyword, MIGRATION.md's heading for the row's cited id
 # MUST contain the paired keyword (case-insensitive). This pins the identity of
-# the rules most prone to the rf2-1nb8k collision class without diffing full
+# the rules most prone to the id-collision class without diffing full
 # rule prose. Extend as new rename-style rules are added to the skill table.
 #
 #   row-description-trigger  ->  (cited-id-must-have-heading-containing, ...)
@@ -227,7 +225,7 @@ def _ids_in_marked_line(text: str, *, section_heading: str, marker: str) -> set[
 
 
 def find_type_drift(migration_text: str, breaking_changes_text: str) -> list[str]:
-    """TYPE-DRIFT (rf2-640aq): every MIGRATION.md Type-tag-summary Type-B id must
+    """TYPE-DRIFT: every MIGRATION.md Type-tag-summary Type-B id must
     appear in the skill's at-a-glance Type-B line. Returns drift messages."""
     problems: list[str] = []
     rel = SKILL_BREAKING_CHANGES.relative_to(REPO_ROOT)
@@ -385,7 +383,7 @@ def _self_test() -> int:
         print(f"SELF-TEST FAIL (E boundary): expected ['M-68'], got {ids}")
         failures += 1
 
-    # TYPE-DRIFT fixtures (rf2-640aq).
+    # TYPE-DRIFT fixtures.
     type_migration = (
         "## Type-tag summary\n\n"
         "- **Type A — fully mechanical.** Rules: M-1, M-35.\n"
@@ -405,7 +403,7 @@ def _self_test() -> int:
         print(f"SELF-TEST FAIL (F type clean): unexpected {probs}")
         failures += 1
 
-    # Case G — drift: skill Type-B list drops M-42 (the rf2-640aq class).
+    # Case G — drift: skill Type-B list drops M-42.
     skill_drift = (
         "## Type A vs Type B — at a glance\n\n"
         "**Type A — apply automatically.** M-1, M-35, M-42.\n\n"
