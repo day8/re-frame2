@@ -292,7 +292,7 @@
    (defn- cost-stripe
      "Render the per-row runner-cost / `:cannot-run` stripe — the honesty
       floor shown BEFORE save. Reads `rf.story.author-expectations/row-cost` (which reads the
-      EXISTING requirement registry); shows the cheapest runner that proves
+      requirement registry); shows the cheapest runner that proves
       the expectation and, when it needs more than the default headless
       runner, an explicit `cannot run headless` flag with the missing
       tokens. Never hides the cost."
