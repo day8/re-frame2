@@ -1,4 +1,4 @@
-// Shared release-bundle reader for the check-* scripts (rf2-qlk4w).
+// Shared release-bundle reader for the check-* scripts.
 //
 // shadow-cljs `:browser :release` writes the closure-compiled output as
 // top-level *.js files in the configured `:output-dir` (e.g. `main.js`,
@@ -6,16 +6,15 @@
 // the builds these scripts measure are single-module, so the release
 // artefact is exactly those top-level files.
 //
-// A previous dev-build `shadow-cljs compile` against the same output
+// A prior dev-build `shadow-cljs compile` against the same output
 // dir leaves a `cljs-runtime/` subdirectory of unoptimised dev sources;
-// `shadow-cljs release` does NOT clean it (rf2-z9a06). Walking the
-// output dir recursively (as the pre-rf2-qlk4w readers did) grep-ed
+// `shadow-cljs release` does NOT clean it. Walking the
+// output dir recursively would grep
 // those stale dev sources alongside the release artefact, producing
-// false FAILs on dev-only sentinels. CI is unaffected because every
-// CI run is on a clean dir; local repros after a dev compile tripped
-// the trap. `check-reagent-slim-bundle-isolation.cjs` documented the trap
-// inline and filtered to top-level; this module factors the same fix
-// out so the four sibling scanners share one implementation.
+// false FAILs on dev-only sentinels. CI never sees this because every
+// CI run is on a clean dir; a local repro after a dev compile does.
+// So the readers take top-level files only, and this module holds
+// that rule once so the sibling scanners share one implementation.
 //
 // Two flavours of reader:
 //   readReleaseBlob(dir)     → concatenated string blob; null when
@@ -25,7 +24,7 @@
 //                              `dir` doesn't exist. For per-file work
 //                              (e.g. gzipped-size totalling).
 //
-// Non-vacuous floor (rf2-utvst). Both readers above intentionally
+// Non-vacuous floor. Both readers above intentionally
 // distinguish a MISSING dir (null) from a PRESENT-BUT-EMPTY dir (''/[]),
 // because those are genuinely different filesystem states. But every
 // consuming gate runs negative-only (sentinel-absence) checks, and a
@@ -35,7 +34,7 @@
 // a zero-byte bundle. That is a silent false-GREEN: the gate is meant to
 // prove production bundle isolation/elision, but an empty bundle proves
 // only that nothing got inspected. `classifyReleaseBundle` collapses the
-// two failure modes into one decision so each consumer's existing
+// two failure modes into one decision so each consumer's
 // missing-dir guard can reject the empty case with the same exit path:
 //   classifyReleaseBundle(dir) → { status, files, blob }
 //     status: 'missing'  — `dir` doesn't exist (files=null, blob=null)
@@ -48,9 +47,8 @@
 //   non-empty `blob` and a non-empty `files` array.
 //
 // Plus the grep primitives the sibling check-*-bundle scanners run
-// against the blob. Each scanner used to carry its own verbatim copies
-// of these (rf2-jkake.15 folded them here so the bundle-grep family
-// shares one implementation):
+// against the blob, held here so the bundle-grep family
+// shares one implementation:
 //   escapeRe(s)              → escape a string for literal use in a
 //                              RegExp.
 //   countMatches(blob, re)   → number of global matches of a RegExp in
@@ -90,7 +88,7 @@ function readReleaseBlob(dir) {
 
 // Classify a release output dir into one of three states so a gate can
 // reject both a missing dir AND a present-but-empty (zero-byte) bundle
-// with the same guard (rf2-utvst). See the module header for the full
+// with the same guard. See the module header for the full
 // rationale. `blob.trim() === ''` is the non-vacuous floor: a present
 // dir whose only top-level *.js files are empty or whitespace carries no
 // inspectable artefact and must not pass an absence-only gate.
