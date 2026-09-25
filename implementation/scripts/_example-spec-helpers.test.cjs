@@ -39,8 +39,8 @@ for (const entry of cases) {
             return 'pending';
           }
           const options = args[entry.method === 'getAttribute' ? 1 : 0];
-          // A page default larger than the assertion's budget reproduces the
-          // original defect; an unbounded default is worse still.
+          // A page default larger than the assertion's budget would overrun
+          // that budget; an unbounded default is worse still.
           time.advance(options?.timeout || 30000);
           throw new Error('element missing: locator timed out');
         },
