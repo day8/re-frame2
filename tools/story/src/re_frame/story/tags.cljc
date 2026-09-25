@@ -22,10 +22,10 @@
   (`variants-with-tags`), docs / sidebar chips, the tag filter, and
   testable-variant selection funnel through — so a `:!x` marker can never
   leak as a chip, a query hit, or a filter facet, and inherited tags read
-  identically across every surface. Before this ns, plan compilation unioned
-  the RAW tags (leaking `:!x` and matching an inherited `:x` the author had
-  removed), while the UI surfaces read the raw child `:tags` with no
-  inheritance at all (three divergent behaviours).
+  identically across every surface. Without this one resolver, plan
+  compilation would union the RAW tags (leaking `:!x` and matching an
+  inherited `:x` the author had removed) while the UI surfaces read the raw
+  child `:tags` with no inheritance at all (three divergent behaviours).
 
   Pure data → data. Lookups are INJECTED (a fn `id → body` OR a `{id → body}`
   map), so this ns stays a require-leaf — it never `:require`s the registrar,
@@ -121,7 +121,7 @@
 
   `lookups` is `{:variant <id→body> :story <id→body>}`, each a fn OR a
   `{id → body}` map. Both are OPTIONAL — an absent lookup contributes no
-  layer, so a caller with only the variant side-table still resolves the
+  layer, so a caller with only the variant side-table resolves the
   extends chain + markers. Pure data → data."
   ([variant-id] (effective-tags variant-id nil))
   ([variant-id lookups]
