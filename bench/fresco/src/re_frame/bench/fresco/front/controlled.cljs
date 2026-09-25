@@ -1,18 +1,13 @@
 (ns re-frame.bench.fresco.front.controlled
   "FROZEN — the MEASURED PROTOTYPE, not the shipped element path. What ships
-  is `re-frame.fresco.impl.controlled`, which rf2-hic-001 copied out of this
-  file and has moved on without ever since.
+  is `re-frame.fresco.impl.controlled`, which diverges from this file.
 
   **The divergence is expected and permanent, and back-porting into this file
-  is refused.** `implementation/fresco/frozen-sources.edn` is the authority
-  for both halves, and it is executable rather than prose: its header rules
-  that a fix landing in the PACKAGE leaves the bench tree the stale copy, and
-  its third retirement dropped this file's digest row rather than re-pin it —
-  because this tree is a measured artefact. The clock rows, the ladders and
+  is refused**, because this tree is a measured artefact: a fix landing in
+  the PACKAGE leaves this file the stale copy. The clock rows, the ladders and
   the SSR spike are readings taken from this exact source, so editing it to
-  carry a facility invented afterwards would invalidate the readings the
-  package's own budgets are set against. Nothing pins this file any more;
-  `front/slot.cljc` is the manifest's last surviving row.
+  carry a facility the package gained would invalidate the readings the
+  package's own budgets are set against. Nothing pins this file.
 
   So do not read this file for what ships, and do not repair it against the
   package. The divergence is not summarised here, because a summary rots —
@@ -21,19 +16,18 @@
       git log --oneline 93ec92d491.. -- implementation/fresco/src/re_frame/fresco/impl/controlled.cljs
 
   Every commit listed is a package change this file deliberately does not
-  carry. They are refusals and diagnostics: where the package now complains,
+  carry. They are refusals and diagnostics: where the package complains,
   this file leaves the engine to throw, and where the package folds ASCII
   case on a type, this file compares it exactly. That is the freeze working
-  as ruled, not a defect here. Its ELEVEN sibling forks under `front/` and
+  as intended, not a defect here. Its ELEVEN sibling forks under `front/` and
   `arm1/` stand in exactly the same relation to their package namespaces;
-  rf2-hic-062 owns the tree-level disposition marker that will say so once,
-  and this paragraph is only this file's share of it. (rf2-u9o8k)
+  `bench/fresco/README.md` says so once for the tree, and this paragraph
+  is only this file's share of it.
 
   ---
 
   THE CONTROLLED-ELEMENT CONVERGE — same turn, caret where the edit left
-  it (rf2-fki5d, the residue rf2-n3dxw was left open on), and a live IME
-  composition carved out of it (rf2-digtt).
+  it, and a live IME composition carved out of it.
 
   Neither shipped path gives a store-backed field both halves of what it
   owes its user. React converges inside the discrete event and throws the
@@ -99,8 +93,9 @@
   **stale the moment step 1 commits a new one**. Writing it back is not
   a missing improvement, it is a regression: on a keystroke the model
   took verbatim it wipes the character the user just typed.
-  `front/controlled_dom_cljs_test` reproduces exactly that, by handing
-  [[converge-to!]] the closure's value instead of the record's — one
+  `re-frame.fresco.controlled-dom-cljs-test/the-closure-value-wipes-a-keystroke-the-model-took-verbatim`
+  reproduces exactly that against the package's copy, by handing
+  `converge-to!` the closure's value instead of the record's — one
   argument different, and the accepted keystroke disappears.
 
   Comparing the field against what the handler saw does not answer it
@@ -131,9 +126,11 @@
   IDL setter sets the value and the dirty flag, never the content
   attribute `defaultValue` reflects.
 
-  **So the price the option was quoted at is not charged here.** What
+  **So the record costs nothing here.** What
   remains is the dependency, and [[last-rendered]] is the one place that
-  names it. `front/controlled_dom_cljs_test` asserts the invariant
+  names it.
+  `arm1/controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
+  asserts the invariant
   directly, on a live element, across a re-render that moves the value —
   so if React ever stopped mirroring, a row named for the invariant goes
   red rather than five rows going subtly wrong.
@@ -162,8 +159,8 @@
     to converge at.
 
   A guard that does not hold means no wrapper at all — not a wrapper
-  that quietly does less. The element then behaves exactly as it did
-  before this namespace existed.
+  that quietly does less. The element then behaves exactly as a plain
+  React controlled element does.
 
   ## The guard that has to be taken twice
 
@@ -180,7 +177,7 @@
   `setDefaultValue` skips a focused `number` field (`:1738`), leaving
   the record holding what the *text* render wrote rather than what
   the element now renders. The throw is the measured defect;
-  `arm1_controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`
+  `arm1/controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`
   quotes it and reds by name without this reading.
 
   **The same measurement is why [[shadow-component]] stands in front of
@@ -206,16 +203,16 @@
   handler the model has not moved, `flushSync` has nothing to flush, and
   the record still reads what the element rendered before the keystroke.
   The wrapper is a no-op there, correctly — a queued field converges one
-  macrotask later, as it always did.
+  macrotask later, as it would without the wrapper.
 
   An out-of-band correction — a server normalisation, a debounced
   validation — fires no change event, so nothing here runs and React's
   own restore is still what converges it. That is why a *range* selection
   still collapses across such a write: this converge is not on that path,
   and restoring two offsets is a different algorithm from the one it
-  runs (rf2-n3dxw).
+  runs.
 
-  ## The composition carve-out (rf2-digtt), and why it is two halves
+  ## The composition carve-out, and why it is two halves
 
   A composing IME produces exactly the `input` events this wrapper runs
   on. `bench/fresco/ime_run.cjs` drives real CDP composition at it
@@ -227,8 +224,8 @@
   on the IME's next update. Plain React does it in the same turn through
   its own restore; the UIx port does it one frame later.
 
-  The operator ruled the carve-out IN (2026-08-03, recorded as an
-  addendum to HD-019): controlled-text convergence is suppressed while a
+  HD-019's addendum rules the carve-out IN: controlled-text convergence
+  is suppressed while a
   composition is live, and the field converges ONCE at `compositionend`
   against the then-current model. A composition is a browser-owned draft
   of the user's; destroying it silently is not a parity target worth
@@ -276,14 +273,15 @@
 
   A release is `set-shadow(nil)`, and a release when nothing is held is
   free — React bails out of an update to an identical state. So the
-  degenerate outcome is a converge, which is exactly today's conduct.
+  degenerate outcome is a converge, which is exactly the non-composing
+  conduct.
 
   The release also runs **before** the author's handler at every slot
   that has one, so a handler that throws cannot strand a shadow either.
-  `arm1_controlled_grid_dom_cljs_test` §7 witnesses the blur, the
+  `arm1/controlled_grid_dom_cljs_test` §7 witnesses the blur, the
   non-composing keystroke and the unmount paths in a real React tree.
 
-  ## The revision prop, and why it costs this file one read (rf2-zq8kh)
+  ## The revision prop, and why it costs this file one read
 
   `::h/revision` re-baselines the field to the model on an explicit
   caller revision change, and NEVER on value equality — HD-019's reset
@@ -310,8 +308,8 @@
 
   ### Mid-composition, the reset defers to the exchange's close
 
-  Not a new deferral — the carve-out's own, inherited, with no new
-  machinery and no revision-comparison state. The argument is mechanical
+  The carve-out's own deferral, inherited, with no machinery of its own
+  and no revision-comparison state. The argument is mechanical
   before it is philosophical: **there is no cancel primitive to build an
   immediate variant from.** The only immediate write available is
   `element.value`, and mid-composition that write silently aborts the
@@ -333,17 +331,17 @@
 
   ### Mid-hydration, the reset is ABSORBED by the adoption — measured
 
-  The design claimed a mid-adoption revision would land on the first
+  It is tempting to expect a mid-adoption revision to land on the first
   post-adoption commit, on the SERVER's node. That is not a claim this
   prop can make either way: the revision is consumed at the codec before
   emission, so React is handed a prop-identical element whether it moved
   or not, and nothing on React's side can branch on a value it was never
   given.
 
-  What does happen was then measured (rf2-ne3ey) on the `.84` hydration
-  harness rather than on a hand-rolled `hydrateRoot`, because two
-  hand-rolled arms disagreed about node identity in opposite directions on
-  consecutive runs: `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption*
+  What does happen is measured on the hydration harness rather than on a
+  hand-rolled `hydrateRoot`, because two hand-rolled arms disagreed about
+  node identity in opposite directions on consecutive runs:
+  `arm1/hydrate_dom_cljs_test` §6, where *mid-adoption*
   is a fact rather than a wait — `hydrate-root!` returns before the tree
   is adopted, so a synchronous dispatch on the next line cannot be raced,
   and ten consecutive runs gave one answer.
@@ -375,7 +373,7 @@
   namespace docstring for the four lines of `react-dom` that maintain
   it. The one place this namespace depends on that behaviour, so it is
   the one place a row has to pin, and
-  `front/controlled_dom_cljs_test/the-record-is-the-elements-own-and-is-not-the-closures`
+  `arm1/controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
   pins it.
 
   `js/undefined` on anything that is not a live form control — a
@@ -407,7 +405,7 @@
 
   A raw DOM event has no `nativeEvent`, and a synthetic `#js {:target …}`
   from a node-side row has neither — so both read *not composing*, which
-  is what keeps every row written before the carve-out reading as it did."
+  is what keeps every row that drives no IME reading as a plain keystroke."
   [e]
   (true? (some-> (.-nativeEvent e) (.-isComposing))))
 
@@ -469,7 +467,8 @@
   Both halves of the converge are wrong there. `setSelectionRange`
   throws `InvalidStateError` on a type whose selection is not
   applicable — that is the measured failure, and it is the whole of
-  why this is a correctness fix rather than a tidy-up. And the record
+  why the second reading is a correctness requirement rather than a
+  tidy-up. And the record
   is stale rather than merely unused: `setDefaultValue` deliberately
   skips a focused `number` field (`react-dom@19.2.0:1738`), so
   `defaultValue` still holds what the *text* render put there. The
@@ -486,7 +485,7 @@
 
   ## The two call sites, and why they are one behaviour
 
-  Since rf2-digtt this runs at the end of a change handler that is
+  This runs at the end of a change handler that is
   **not** composing, and again once at `compositionend`. HD-019 grants
   the `flushSync` exception to an audited call site rather than to a
   count, and its addendum audits the second: same element, same
@@ -549,7 +548,7 @@
   live field would remount it — losing the focus, the selection and any
   composition in flight — where the attribute change React actually
   performs loses nothing. The type-flip row in
-  `arm1_controlled_grid_dom_cljs_test` measures precisely that node
+  `arm1/controlled_grid_dom_cljs_test` measures precisely that node
   identity, and a `text` → `number` keystroke is the case it measures."
   [tag js-props]
   (and (convergeable-tag? tag)
@@ -659,7 +658,7 @@
   ONE `useState`, no ref, no effect, and no props of its own: the author
   writes `[:input {:value … :on-input …}]` and the element path decides
   this stands in front of it. It is a *public-React* mechanism on
-  purpose — the ruling's preference and this file's — because the only
+  purpose — HD-019's preference and this file's — because the only
   supported way to change what React's controlled restore compares
   against is to change what React rendered.
 
