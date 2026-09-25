@@ -1,5 +1,5 @@
 (ns re-frame.bundle-isolation-positive-control.fresco
-  ;; day8/re-frame2-fresco (rf2-gra70) is a separately published,
+  ;; day8/re-frame2-fresco is a separately published,
   ;; browser-reachable OPTIONAL view substrate, so bundle isolation asserts its
   ;; client kernel is ABSENT from the no-feature counter bundle. An absence
   ;; check passes on a typo, so this gate-owned `:advanced` module proves the
