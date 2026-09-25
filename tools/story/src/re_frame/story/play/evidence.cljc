@@ -8,9 +8,9 @@
   Spec/017 §Run result says the run-result slots are *projections from the
   epoch tape wherever possible*: the result shape is API-stable, but the
   storage / source of truth is ONE tape so Story UI, CI, docs, agents, and
-  the future golden/diff tools cannot disagree about what happened. Schema
+  the golden/diff tools cannot disagree about what happened. Schema
   failures, warnings, and effects all project from this ONE tape — the
-  same trace evidence the Xray UI already reads — so there is no second
+  same trace evidence the Xray UI reads — so there is no second
   capture path that could report green while the tape showed a failure
   (the \"false GREEN\" hazard a parallel accumulator invites).
 
@@ -66,8 +66,8 @@
 
   ## The agreement invariant
 
-  `tape-shows-failure?` is the consistency floor the bead's acceptance
-  pins: a run cannot be reported `:pass` while the tape carries a schema
+  `tape-shows-failure?` is the consistency floor: a run cannot be
+  reported `:pass` while the tape carries a schema
   violation or an `:outcome`-failed / error-effect epoch. The runner asks
   this of the projected evidence, NOT of a sibling accumulator — so no
   duplicate accumulator can report green when the tape shows a failure.
@@ -282,8 +282,8 @@
 ;;
 ;; The reactive recompute / over-render probe is a PROJECTION over the
 ;; SAME `:sub-runs` / `:renders` rows the framework already projects at
-;; settle time (`re-frame.epoch.capture/project-all`), NOT a new core
-;; instrumentation seam. Spec 009 already emits one `:rf.sub/run` per TRUE
+;; settle time (`re-frame.epoch.capture/project-all`), NOT a core
+;; instrumentation seam of its own. Spec 009 emits one `:rf.sub/run` per TRUE
 ;; sub recompute (the memo wrapper's input value was NOT `=` to last-seen)
 ;; and one `:rf.view/rendered` per view render, both carried into the
 ;; epoch tape; this projection just COUNTS them, keyed by the surfaces a
@@ -344,7 +344,7 @@
                                       ; recomputes / renders attributed to the
                                       ; dispatching cascade's event-id (the
                                       ; :rf.sub/cause-event-id / :rf.view/cause-event-id
-                                      ; attribution Spec 009 already stamps)
+                                      ; attribution Spec 009 stamps)
        :per-epoch      [{:epoch-id <id>
                          :sub-recomputes <int>
                          :view-renders   <int>} …]}  ; one entry per epoch
@@ -544,7 +544,7 @@
 ;; whose `:epoch-id` is at or before the first boundary (setup-phase
 ;; cascades, framework bootstrap) are stamped nil → the leading span.
 ;;
-;; rf2-96qsjr: comparing by `:epoch-id` rather than `tape` POSITION is what
+;; Comparing by `:epoch-id` rather than `tape` POSITION is what
 ;; makes this robust to `epoch-history`'s bounded ring (default depth 50)
 ;; evicting older records mid-run. A position-based zip requires the tape
 ;; to be exactly as long, from the same zero-point, as it was when the
@@ -573,7 +573,7 @@
   attribution (`explicit-beats?` / `spans-from-stamps`) consumes.
 
   Ownership is decided by comparing each record's OWN `:epoch-id` against
-  the boundaries (rf2-96qsjr) — NOT the record's position in `tape` — so a
+  the boundaries — NOT the record's position in `tape` — so a
   tape that has had earlier records evicted from the `epoch-history` ring
   (default depth 50) still attributes every SURVIVING record correctly;
   only the evicted records' beats are lost, never misattributed to the
@@ -586,8 +586,8 @@
 
   Degrades gracefully: with no `boundaries` (a bare tape — replay/live
   paths that did not record settle boundaries) the tape is returned
-  verbatim (unstamped), so `narrative` falls back to the EVEN partition
-  exactly as before. A record whose `:epoch-id` is at or past the last
+  verbatim (unstamped), so `narrative` falls back to the EVEN partition.
+  A record whose `:epoch-id` is at or past the last
   boundary belongs to the last dispatch step; records at or before the
   first boundary (or carrying no `:epoch-id` at all — a defensive
   fallback) are stamped nil (the leading setup span)."
@@ -638,7 +638,7 @@
     PRODUCER feeds: the runner / replay path records each dispatch step's
     settle boundary (the last-committed `:epoch-id` at the start of its
     settle — a genuine monotonic identity, robust to `epoch-history` ring
-    eviction, rf2-96qsjr), and `project-evidence` stamps the tape via
+    eviction), and `project-evidence` stamps the tape via
     `stamp-tape` before handing it here. A re-dispatch step that settles to
     N committed epochs has all N attributed to the one authored step —
     exactly.
@@ -763,7 +763,7 @@
   (mapv :epoch-id (narrative-beats narrative)))
 
 ;; ===========================================================================
-;; THE AGREEMENT INVARIANT  (bead acceptance: no green-while-tape-red)
+;; THE AGREEMENT INVARIANT  (no green-while-tape-red)
 ;; ===========================================================================
 ;;
 ;; The consistency floor: a run cannot be reported `:pass` while the tape
@@ -830,7 +830,7 @@
 
 (defn tape-shows-failure?
   "True iff the retained `epoch-tape` carries evidence that the run did NOT
-  fully succeed. Pure data → data. The bead's agreement invariant: a run
+  fully succeed. Pure data → data. The agreement invariant: a run
   may not be reported `:pass` while this is true.
 
   Failure evidence is:
@@ -879,7 +879,7 @@
   - `:attribution` — the runner-recorded per-dispatch-step settle
     boundaries (the last-committed `:epoch-id` at the start of each
     dispatch step's settle, in dispatch-step order — a genuine monotonic
-    identity, robust to `epoch-history` ring eviction, rf2-96qsjr). When
+    identity, robust to `epoch-history` ring eviction). When
     present, the `:narrative` is attributed EXACTLY via these boundaries
     (`stamp-tape` → `spans-from-stamps`); absent, the narrative falls
     back to the EVEN forward partition. The stamp lands ONLY
@@ -939,7 +939,7 @@
        (some? rc) (assoc :reactive-counts rc)))))
 
 ;; ===========================================================================
-;; RUN-TAPE TRUNCATION  (rf2-4u5zl4 — the causal-assertion honesty floor)
+;; RUN-TAPE TRUNCATION  (the causal-assertion honesty floor)
 ;; ===========================================================================
 ;;
 ;; The retained epoch tape is a bounded per-frame ring (`epoch-history`,
@@ -951,8 +951,9 @@
 ;; upper-bounded assertion (`:rf.assert/no-cascade-rerender`'s `[0,0]`, a
 ;; `:rf.assert/caused {:max N}`) can read a false GREEN — it passed its bounds
 ;; only because the failing evidence was truncated away, NOT because the
-;; effect did not happen. This is the truncation sibling of rf2-x76af2.17's
-;; unobserved-cause honesty fix: `run-tape-truncated?` is the per-run signal
+;; effect did not happen. This is the truncation sibling of the
+;; unobserved-cause floor (an unobserved required cause resolves
+;; `:cannot-run`): `run-tape-truncated?` is the per-run signal
 ;; the causal matcher (`result/match-causal-expectations`) reads to refuse
 ;; such a verdict — an in-bounds causal `:pass` with a finite upper bound
 ;; resolves `:cannot-run` (honest) when the run overflowed the ring, because
@@ -961,7 +962,7 @@
 (defn run-tape-truncated?
   "True iff the bounded `epoch-history` ring evicted the run's baseline
   record — i.e. the run committed at least `depth` epochs to the frame and
-  its EARLIEST run epochs were dropped from the ring's front (rf2-4u5zl4).
+  its EARLIEST run epochs were dropped from the ring's front.
   Pure data → data.
 
   `full-ring` is the frame's COMPLETE retained ring (oldest-first — the raw
