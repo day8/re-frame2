@@ -244,9 +244,10 @@
   This is the server-side backstop for each descriptor's
   `additionalProperties false` contract at the PER-TOOL granularity: the
   global normalisation only rejects keys outside the UNION of every
-  tool's args, so a key valid for ANOTHER tool (`:body`,
-  `:dedup` on a non-eligible tool) is caught here rather than slipping
-  through to be silently ignored. No-intern is preserved — every key
+  tool's args, so a key valid for ANOTHER tool (`:body` on anything but
+  register-variant) is caught here rather than slipping through to be
+  silently ignored; a wire-managed knob (`:dedup` on a non-eligible tool)
+  is tolerated. No-intern is preserved — every key
   here is already an interned keyword (it passed the global allowlist),
   so `name` mints nothing."
   [t args]
@@ -366,10 +367,10 @@
 
         ;; A globally-known but tool-invalid argument key is the per-tool
         ;; backstop for each descriptor's `additionalProperties false`
-        ;; contract. A key valid for ANOTHER tool (`:body`,
-        ;; `:dedup` on a non-eligible tool) survives global normalisation;
-        ;; without this branch the selected handler would silently ignore
-        ;; it. Diagnose it with the same `:rf.story-mcp/unknown-arguments`
+        ;; contract. A key valid for ANOTHER tool (`:body` on anything but
+        ;; register-variant) survives global normalisation; without this
+        ;; branch the selected handler would silently ignore it. A
+        ;; wire-managed knob (`:dedup` on a non-eligible tool) is tolerated. Diagnose it with the same `:rf.story-mcp/unknown-arguments`
         ;; shape before dispatch, capped on the same response cap.
         (seq tool-invalid)
         (cap-error tool-name cap (unknown-arg-error tool-name t tool-invalid))
