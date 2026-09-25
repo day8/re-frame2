@@ -7,9 +7,7 @@ A page that pins a measurement to the SHA it was authored at is therefore
 stranded the moment its own PR merges: the authored object is reachable from no
 ref, so it is not in a fresh clone at all, and the page's central claim — here
 is the tree this was measured on — fails without saying so.  It still looks
-pinned.  The census behind this gate (rf2-owq6p, PR #7616) found 44 such pins
-over 79 occurrences on 24 pages, every one of them unreachable from any remote
-ref.
+pinned.
 
 WHAT IS ENFORCED, and deliberately not the stricter thing.  The rule is
 accompaniment, NOT "no authored heads" and NOT "every SHA must be on main".
@@ -21,33 +19,31 @@ heads; what it may not do is leave the reader with no resolvable anchor at all.
 Concretely: within one block, if any cited pin is not an ancestor of
 `origin/main`, then some other pin in that same block must be.
 
-A TABLE ROW IS A BLOCK OF ITS OWN, because the paragraph-sized scope was a
-fail-open (rf2-xlsh).  A record table is one unbroken run of non-blank lines, so
-every row in it shared a single scope and any one landed hash answered for all
-of them — a wrong pin in the operative row went unreported as long as some other
-row cited something that had landed.  That is precisely backwards from where the
-risk lives: on a pre-registration page the hash that matters most is the one in
-the table, beside a landed one, so the guard was blind in the field whose
-wrongness costs most.  Accompaniment is therefore scoped to the row that makes
-the claim.  A row ends where the NEXT row begins and not at the newline, because
-this corpus wraps a long cell across source lines and the anchor rescuing a head
-is routinely on the continuation.  Prose is untouched — a paragraph remains one
-scope, which is what keeps the census's repaired "authored at X … it landed on
-main as Y" sentences passing.
+A TABLE ROW IS A BLOCK OF ITS OWN, because a paragraph-sized scope fails open
+there.  A record table is one unbroken run of non-blank lines, so under it every
+row would share a single scope and any one landed hash would answer for all of
+them — a wrong pin in the operative row would go unreported as long as some
+other row cited something that had landed.  That is precisely backwards from
+where the risk lives: on a pre-registration page the hash that matters most is
+the one in the table, beside a landed one, so the guard would be blind in the
+field whose wrongness costs most.  Accompaniment is therefore scoped to the row
+that makes the claim.  A row ends where the NEXT row begins and not at the
+newline, because this corpus wraps a long cell across source lines and the
+anchor rescuing a head is routinely on the continuation.  Prose is judged by
+paragraph — a paragraph is one scope, which is what keeps "authored at X … it
+landed on main as Y" sentences passing.
 
-A BLOCKQUOTE IS NOT ONE BLOCK EITHER (rf2-3c2b4), and this was the same
-fail-open surviving in the container the corpus actually writes its provenance
-notes in.  Inside a callout a paragraph break is a lone `>`, which does not
-strip to empty, so the paragraph boundary never saw it and a multi-paragraph
-callout was ONE scope from its opening line to the blank line that ended the
-whole callout — any single landed hash in it answering for every pin in it.  It
-was measured, not inferred: on a real page carrying three pins in one callout,
-perturbing all three red the gate and perturbing the lone pin of one paragraph
-did not.  That is the expensive half, because a one-pin plant is the natural
-non-vacuity control for this gate, so the defect read as the gate working.  Both
-boundaries now read the line with its quote markers stripped: quoting a
-paragraph changes nothing about how it is judged, and a pin in its own callout
-paragraph is judged on its own.
+A BLOCKQUOTE IS NOT ONE BLOCK EITHER: the same fail-open would otherwise sit
+in the container the corpus actually writes its provenance notes in.  Inside a
+callout a paragraph break is a lone `>`, which does not strip to empty, so a
+boundary reading the raw line never sees it and a multi-paragraph callout would
+be ONE scope from its opening line to the blank line that ends the whole
+callout — any single landed hash in it answering for every pin in it.  That is
+the expensive half, because a one-pin plant is the natural non-vacuity control
+for this gate, so the defect would read as the gate working.  Both boundaries
+therefore read the line with its quote markers stripped: quoting a paragraph
+changes nothing about how it is judged, and a pin in its own callout paragraph
+is judged on its own.
 
 FAILURE DIRECTION — this gate fails toward REFUSAL, never toward silence, and
 one asymmetry forces it.  The stranded pins are precisely the objects a fresh
@@ -76,9 +72,10 @@ roster of known digests (which rots) and never by asking git (see above):
     Nearest rather than any-match, because a sentence about a commit routinely
     ends by naming a blob and vice versa, and the word beside the token is the
     one describing it.  That reach STOPS AT THE START OF THE TOKEN'S OWN ROW,
-    which is the other half of rf2-xlsh: a "| Blob hash | … |" row above
-    otherwise repaints the row below it as a digest, no citation is created,
-    and the row scope below never gets to adjudicate what was never extracted.
+    the extraction half of the row scope: a "| Blob hash | … |" row above
+    would otherwise repaint the row below it as a digest, no citation would be
+    created, and the row scope below would never get to adjudicate what was
+    never extracted.
     A FILE PATH in a code span counts as a digest word: "|
     `lane.cljs` | `x` |" and "`front/codec.cljs` is `x`" are how a blob is
     written when no noun is spare.  A branch is not a path — `worker/x` and
@@ -101,20 +98,20 @@ handful of genuinely ambiguous lines are reported for that reason — "at
 which is the finding.
 
 BARE HEX, OUTSIDE A CODE SPAN, IS READ TOO, but only when the vocabulary above
-positively calls it a commit.  Reading code spans alone was a fail-open against
+positively calls it a commit.  Reading code spans alone would fail open against
 the very rule at the top of this file: `Authored at deadbeef00 on worker/x.`
-extracted nothing, so a page could cite an authored head in explicit commit
+would extract nothing, so a page could cite an authored head in explicit commit
 prose, omit the backticks, and pass `--changed-since` without the accompaniment
-rule ever running (rf2-kqac1).  Backticks are a convention here, not a
-guarantee, and dropping them is ordinary formatting drift.
+rule ever running.  Backticks are a convention here, not a guarantee, and
+dropping them is ordinary formatting drift.
 
 The default flips at that boundary, and deliberately.  Inside a code span the
 writer has already said "this is an id" and only the KIND is open, so silence
 means pin.  In open prose nothing separates an unremarked hex run from a version
 string or a large decimal, so silence means NOT a citation, and arbitrary bare
-hex and bare decimals stay invisible exactly as before.  The narrow reading is
-what keeps the whole idea affordable: it costs the corpus a handful of newly
-visible citations rather than a column of noise.
+hex and bare decimals stay invisible.  The narrow reading is what keeps the
+whole idea affordable: it makes a handful of bare citations visible rather than
+a column of noise.
 
 A FOREIGN COMMIT IS DECLARED, NEVER INFERRED.  Some rows cite a commit of
 another repository — a benchmark this programme did not write, an upstream
@@ -145,18 +142,17 @@ identity comes from `git remote get-url origin`, a config read, and when there i
 no GitHub origin to compare against no permalink is honoured at all — the
 refusal direction again.
 
-Both halves of that boundary are drawn POSITIVELY, and the first cut of it drew
-neither.  A candidate link is the WHOLE run of URL the page wrote, matched in
-full against the canonical shape, rather than a good-looking prefix followed by
-a lookahead listing what must not come after it — because such a list is only as
-complete as its author's imagination, and `…/commit/<sha>%3Fdiff=split` walked
-straight through the first one.  An identity is a NORMALISED `owner/repo`,
-case-folded and stripped of git's `.git` alias on both sides of the comparison,
-rather than the two raw strings — because `day8/re-frame2.GIT` is this
-repository however unequal it looks, and reading it as somebody else's was the
-sharper of the two holes (rf2-styo, the PR #7754 audit).  Both fixes move the
-unanticipated case from exemption to refusal, which is where everything else in
-this file already sits.
+Both halves of that boundary are drawn POSITIVELY.  A candidate link is the
+WHOLE run of URL the page wrote, matched in full against the canonical shape,
+rather than a good-looking prefix followed by a lookahead listing what must not
+come after it — because such a list is only as complete as its author's
+imagination, and `…/commit/<sha>%3Fdiff=split` walks straight through one.  An
+identity is a NORMALISED `owner/repo`, case-folded and stripped of git's `.git`
+alias on both sides of the comparison, rather than the two raw strings —
+because `day8/re-frame2.GIT` is this repository however unequal it looks, and
+reading it as somebody else's would launder a local head.  Both put the
+unanticipated case on the refusal side rather than the exemption side, which
+is where everything else in this file sits.
 
 And a foreign citation is not dropped from the
 population: it is counted and listed separately under `--verbose` so that green
@@ -167,69 +163,58 @@ Nothing here reaches the network, and nothing here is a roster of blessed
 repositories.  The link records an existence its author confirmed once while
 writing it; CI re-reads the declaration, never the host.
 
-WHAT THIS DOES NOT DO: it never re-pins.  rf2-owq6p established that recovering
-the landed SHA restores the PATCH, not the TREE — where the rebase did not
-preserve every blob the commit contributed, the landed commit is not what was
-measured, and re-pinning to it swaps an unresolvable pin for a resolvable but
-WRONG one, which fails silently.  Two of eleven repaired pins were in exactly
-that state and were annotated rather than re-pinned.  A checker may REPORT; a
-human decides.
+WHAT THIS DOES NOT DO: it never re-pins.  Recovering the landed SHA restores
+the PATCH, not the TREE — where the rebase did not preserve every blob the
+commit contributed, the landed commit is not what was measured, and re-pinning
+to it swaps an unresolvable pin for a resolvable but WRONG one, which fails
+silently.  A checker may REPORT; a human decides.
 
-THE REPOSITORY IS PART OF WHAT IS CHECKED, and for four revisions it was not.
-Everything above reasons about the corpus; none of it asked whether this
-checkout can answer the question being put to it, and an unanswerable question
-was being read as a clean answer.  A `git diff` that failed left empty stdout,
-which read as "no page changed" — observed in the field, exiting 0 over
-twenty-eight changed pages while another process held the object store.  A
-clone truncated at a shallow boundary is worse still, because nothing fails at
-all: `merge-base --is-ancestor` answers NO for every commit past the boundary,
-so the corpus reads as 354 stranded pins where the deep clone reads 253 landed
-and 7 findings.  A verdict of that kind is more dangerous than a crash, since a
-reader would conclude a CORRECT fix had failed and might re-pin what was never
-broken.
+THE REPOSITORY IS PART OF WHAT IS CHECKED.  Everything above reasons about the
+corpus; none of it asks whether this checkout can answer the question being put
+to it, and an unanswerable question must not be read as a clean answer.  A
+`git diff` that fails leaves empty stdout, which would read as "no page
+changed" — an exit 0 over changed pages while another process holds the
+object store.  A clone truncated at a shallow boundary is worse still, because
+nothing fails at all: `merge-base --is-ancestor` answers NO for every commit
+past the boundary, so the whole corpus would read as stranded pins.  A verdict
+of that kind is more dangerous than a crash, since a reader would conclude a
+CORRECT fix had failed and might re-pin what was never broken.
 
 So a non-zero exit is an ANSWER in exactly two places — `rev-parse --verify
 --quiet` reporting "no such object", and `merge-base --is-ancestor` reporting
 "no" — and both are parsed for the specific status that means it, never for
 "not zero".  Anywhere else, a command that fails raises `Unusable` and the run
-exits 2.  Silent substitution counts as failing open too, and is gone with it:
-a failed merge base no longer quietly re-bases the comparison on the ref
-itself, and a failed `--show-toplevel` no longer continues against the current
-directory.  Answering a different question is not a safer outcome than
+exits 2.  Silent substitution counts as failing open too: a failed merge base
+does not quietly re-base the comparison on the ref itself, and a failed
+`--show-toplevel` does not continue against the current directory.  Answering a different question is not a safer outcome than
 answering none — it is an unsafer one, because it looks like an answer.
 
 WHAT A RUN SAYS IT DID, on every run and not only under `--verbose`.  A gate
 that inspected nothing and exited 0 is indistinguishable from one that inspected
-everything and found nothing, and this gate was silent on success in both
-states.  Two ways of reaching a vacuous green were measured (rf2-qfrrp):
+everything and found nothing, unless it says which.  Two ways reach a vacuous
+green:
 
   * `--changed-since` sees a NEW page only once git has been told about it.
     `git diff <base> -- <root>` reads the working tree, so an uncommitted edit to
-    a page already tracked IS inspected — the "run it before committing" half of
-    the bead is refuted for that case.  What is invisible is an UNTRACKED file:
-    a dispatch that adds pages under the corpus root and runs the gate before
-    staging them inspects zero files and exits 0, silently.  `git add` is enough;
-    a commit is not required, and the message says so.
+    a page already tracked IS inspected.  What is invisible is an UNTRACKED
+    file: adding pages under the corpus root and running the gate before
+    staging them inspects zero files.  `git add` is enough; a commit is not
+    required, and the message says so.
   * A pin that is not landed but shares its scope with one that is passes, by
-    design — that is the accompaniment rule working.  But nothing on the run said
-    the absorption had happened, so a worker planting a stranded SHA beside an
-    existing citation read exit 0 and concluded the gate does not reach the file.
+    design — that is the accompaniment rule working — so a stranded SHA planted
+    beside an existing citation reads exit 0, which looks like the gate not
+    reaching the file.
 
-Neither rule is changed by any of this; a stranded head accompanied in its own
-block is still a pass, and still should be.  What changed is that every run now
-prints ONE line naming the pages it opened, the pins it classified, how many
-were absorbed by an anchor rather than reported, and how many findings it
-raised.  Zero pages is then a sentence rather than a silence.  `--verbose` adds
-the absorbed pins one per line, each beside the landed pin that answered for it,
-which is the diagnostic a planted-SHA control needs and could not get.
+So every run prints ONE line naming the pages it opened, the pins it
+classified, how many were absorbed by an anchor rather than reported, and how
+many findings it raised.  Zero pages is then a sentence rather than a silence.
+`--verbose` adds the absorbed pins one per line, each beside the landed pin that
+answered for it, which is the diagnostic a planted-SHA control needs.
 
-HOW IT IS ARMED.  The corpus is red today — the census repaired eleven pins and
-left thirty-odd standing, deliberately, because re-pinning is a judgement each
-one needs individually.  So the blocking gate is `--changed-since`, which holds
-only the pages a change touches to the rule; the bare full-corpus run is the
-audit, and it is expected to report findings until the backlog is worked off.
-That split is what lets the gate exist at all today instead of after the repair,
-and touching a page is the moment its provenance is cheapest to fix.
+HOW IT IS ARMED.  The blocking gate is `--changed-since`, which holds only the
+pages a change touches to the rule: re-pinning is a judgement each pin needs
+individually, and touching a page is the moment its provenance is cheapest to
+fix.  The bare full-corpus run is the audit.
 
 Usage:
     python scripts/check_provenance_pins.py [--root DIR] [--verbose]
@@ -269,12 +254,12 @@ _BARE_HEX = re.compile(r"^[0-9a-f]{7,64}$")
 # convention, but a convention is not a guarantee — see _BARE_PROSE_HEX.
 _CODE_SPAN = re.compile(r"`([^`\n]{1,200})`")
 
-# A provenance id written WITHOUT backticks.  Extraction used to read code spans
-# only, so `Authored at deadbeef00 on worker/x.` yielded nothing at all: a page
+# A provenance id written WITHOUT backticks.  Extraction reading code spans only
+# would yield nothing at all for `Authored at deadbeef00 on worker/x.`: a page
 # could cite an authored head in completely explicit commit prose, omit the
 # backticks, and sail through `--changed-since` without the accompaniment rule
-# ever running (rf2-kqac1).  That is ordinary formatting drift, not camouflage,
-# and silence is the one direction this gate must never fail in.
+# ever running.  That is ordinary formatting drift, not camouflage, and silence
+# is the one direction this gate must never fail in.
 #
 # So bare hex is read, but ONLY when the writer's own vocabulary classifies it
 # as a commit — the same nearest-word-wins machinery `classify` already runs,
@@ -330,16 +315,15 @@ DEFAULT_MAX_ID_LEN = 40
 # candidate is the WHOLE run of URL the page wrote, and it is honoured only if
 # that entire run is the canonical shape.
 #
-# The first cut drew it the other way round — match a good-looking prefix
-# anywhere, then a lookahead listing the characters that must not follow it —
-# and a suffix blacklist is only ever as complete as the imagination of whoever
-# wrote it.  `…/commit/<sha>%3Fdiff=split`, `<sha>:garbage` and `<sha>&diff=split`
-# each carried a valid prefix past that lookahead and were recorded as
-# declarations (the PR #7754 audit, rf2-styo).  Whole-run matching inverts the
+# Drawing it the other way round — match a good-looking prefix anywhere, then a
+# lookahead listing the characters that must not follow it — relies on a suffix
+# blacklist, which is only ever as complete as the imagination of whoever wrote
+# it: `…/commit/<sha>%3Fdiff=split`, `<sha>:garbage` and `<sha>&diff=split` each
+# carry a valid prefix past such a lookahead.  Whole-run matching inverts the
 # default: a character nobody thought of is INSIDE the candidate, the candidate
 # then fails to match in full, and the token takes the ordinary local path.  The
-# unanticipated case now costs a refusal instead of an exemption, which is the
-# only direction this file is allowed to be wrong in.
+# unanticipated case costs a refusal instead of an exemption, which is the only
+# direction this file is allowed to be wrong in.
 #
 # So the parts that remain load-bearing are what the run must BE, not what it
 # must avoid: HTTPS and `github.com` verbatim, so `www.`, `http://` and an ssh
@@ -371,8 +355,8 @@ _URL_SENTENCE_PUNCTUATION = ".,"
 
 # git's `.git` alias suffix, in ANY case.  `day8/re-frame2.GIT` and
 # `day8/re-frame2` are one repository, and comparing the two spellings as
-# strings is what let a stranded local head be recorded as a commit of
-# "day8/re-frame2.GIT" and pass as somebody else's business (rf2-styo).
+# strings would let a stranded local head be recorded as a commit of
+# "day8/re-frame2.GIT" and pass as somebody else's business.
 _DOT_GIT = re.compile(r"\.git$", re.I)
 
 # This repository's own identity, read out of `origin`.  Covers the three forms
@@ -401,7 +385,7 @@ class Citation(NamedTuple):
     path: str
     line: int
     # The scope accompaniment is judged in: a paragraph, or a single table row.
-    # Not called `block` any more because a table is one block and many scopes.
+    # Not called `block` because a table is one block and many scopes.
     scope: int
     token: str
     reason: str  # why it was read as a pin rather than a digest
@@ -424,20 +408,19 @@ class Absorbed(NamedTuple):
     """A pin that is NOT landed and is NOT a finding, because a landed pin in
     its own scope answered for it.
 
-    THE RULE IS NOT CHANGED BY RECORDING THIS.  A stranded head beside a landed
-    one is exactly what accompaniment was written to permit — the block still
-    leaves the reader a resolvable anchor, and a gate that red-flagged those
-    pages would punish the careful ones.  What was missing is that the run never
-    SAID the absorption happened, and rf2-qfrrp is what that silence cost: a
-    worker planting a stranded SHA in the natural place — beside an existing
-    citation, where SHAs already live — read exit 0 and concluded the gate does
-    not reach the file.  It does.  The plant was answered by its neighbour, and
-    the neighbour is now printed beside it under `--verbose` and counted on
-    every run.
+    RECORDING THIS CHANGES NO VERDICT.  A stranded head beside a landed one is
+    exactly what accompaniment permits — the block still leaves the reader a
+    resolvable anchor, and a gate that red-flagged those pages would punish the
+    careful ones.  But a run that never SAYS the absorption happened misleads:
+    a stranded SHA planted in the natural place — beside an existing citation,
+    where SHAs already live — reads exit 0, which looks like the gate not
+    reaching the file.  It does reach it.  The plant was answered by its
+    neighbour, and the neighbour is printed beside it under `--verbose` and
+    counted on every run.
 
-    It is also the number that says how much of a green run is load-bearing.
-    The full corpus reads 358 landed against 107 absorbed: a pass over these
-    pages means the anchors held, not that nothing was stranded.
+    It is also the number that says how much of a green run is load-bearing:
+    a pass over these pages means the anchors held, not that nothing was
+    stranded.
     """
 
     path: str
@@ -536,12 +519,12 @@ def _left_context(lines: Sequence[str], index: int, span_start: int) -> str:
     stops at a blank line, because that is a different block and a different
     claim.
 
-    IT STOPS AT A PRIOR ROW FOR THE SAME REASON, and not stopping there was the
-    second half of rf2-xlsh.  Scoping accompaniment by row fixed adjudication
-    but left EXTRACTION reading whatever the rows above happened to say, so a
-    "| Blob hash | … |" row one line up repainted the next row's token as a
-    digest and no citation was created at all — `evaluate` never saw it, and the
-    row scope it could not see had nothing to enforce.  A digest word describes
+    IT STOPS AT A PRIOR ROW FOR THE SAME REASON: scoping accompaniment by row
+    guards adjudication, and this guards EXTRACTION.  Reading whatever the rows
+    above happen to say, a "| Blob hash | … |" row one line up would repaint the
+    next row's token as a digest and no citation would be created at all —
+    `evaluate` would never see it, and the row scope would have nothing to
+    enforce.  A digest word describes
     the cell it stands in; the row below makes its own claim.  So the context
     may reach the line that OPENS the token's row — the corpus wraps a long cell
     across source lines and the word describing the token is routinely up
@@ -550,8 +533,8 @@ def _left_context(lines: Sequence[str], index: int, span_start: int) -> str:
     WHOLE lines, never a character slice.  Cutting the context mid-line can cut
     a code span in half, after which the surviving backtick re-pairs with the
     wrong partner and the file path that would have identified the token as a
-    blob stops being visible — which is how the first cut of this function
-    reported a column of blob hashes as unresolvable pins.
+    blob stops being visible, so a column of blob hashes would be reported as
+    unresolvable pins.
     """
     own = _strip_quote(lines[index][:span_start])
     if _TABLE_ROW.match(_strip_quote(lines[index])):
@@ -621,8 +604,8 @@ def repo_identity(owner: str, name: str) -> str:
     git's `.git` alias stripped, because git is.  This is the ONLY place an
     identity is minted, so both sides of the comparison in `scan_file` — the
     permalink's repository and this checkout's own origin — are normalised by
-    construction.  They were not, and `day8/re-frame2.GIT` therefore compared
-    unequal to `day8/re-frame2` and carried a local head off as foreign.
+    construction.  Were they not, `day8/re-frame2.GIT` would compare unequal to
+    `day8/re-frame2` and carry a local head off as foreign.
     """
     return "%s/%s" % (owner.lower(), _DOT_GIT.sub("", name).lower())
 
@@ -686,21 +669,20 @@ def scan_file(
         if not _strip_quote(line).strip():
             # Read RAW, this boundary could not see a paragraph break inside a
             # CALLOUT: the break is written as a lone `>`, whose `.strip()` is
-            # `">"` and so never empty.  A multi-paragraph blockquote was
-            # therefore ONE scope from its opening line to the blank line that
-            # ended the whole callout, and any single landed hash in it answered
-            # for every pin in it — which is verbatim the rf2-xlsh fail-open the
-            # row boundary below was filed to close, surviving in the one
-            # container `_strip_quote`'s own docstring says this corpus uses
-            # (rf2-3c2b4).  Stripping first is what makes the two boundaries
-            # agree about what a blockquote is.
+            # `">"` and so never empty.  A multi-paragraph blockquote would
+            # then be ONE scope from its opening line to the blank line that
+            # ends the whole callout, and any single landed hash in it would
+            # answer for every pin in it — the same fail-open the row boundary
+            # below closes, in the one container `_strip_quote`'s own docstring
+            # says this corpus uses.  Stripping first is what makes the two
+            # boundaries agree about what a blockquote is.
             #
             # It can only ever SPLIT a scope and never merge two — the stripped
-            # test fires everywhere the raw one did, plus on quote-marker-only
+            # test fires everywhere the raw one would, plus on quote-marker-only
             # lines — so it cannot widen what accompaniment forgives.  The
             # counterweight is that a quoted paragraph must still be ONE scope:
-            # quoting prose may not change its verdict, or this would have
-            # traded a fail-open for a corpus-wide fail-closed.
+            # quoting prose may not change its verdict, or this would trade a
+            # fail-open for a corpus-wide fail-closed.
             scope += 1
             continue
         if _FENCE.match(line):
@@ -711,8 +693,8 @@ def scan_file(
             # arguments to an example, not the page's own provenance.
             continue
         if _TABLE_ROW.match(_strip_quote(line)):
-            # A row makes its own claim, so it may accompany only itself
-            # (rf2-xlsh).  The scope opens here and runs to the next row rather
+            # A row makes its own claim, so it may accompany only itself.
+            # The scope opens here and runs to the next row rather
             # than to the newline, because a wrapped cell continues on lines
             # that open no pipe and the anchor is often down there.
             scope += 1
@@ -788,11 +770,10 @@ class Git:
     question git can only succeed at or fail to answer, and those raise
     `Unusable`.
 
-    The distinction is the whole of rf2-dmrm, the fifth fail-open found in this
-    file.  Reading a failure as an answer is how a `git diff` that could not run
-    became "no page changed", and how a clone truncated at a shallow boundary
-    became a corpus of stranded pins.  Both produced a confident verdict from a
-    question the repository never answered.
+    The distinction matters because reading a failure as an answer turns a
+    `git diff` that could not run into "no page changed", and a clone truncated
+    at a shallow boundary into a corpus of stranded pins.  Both would produce a
+    confident verdict from a question the repository never answered.
     """
 
     def __init__(self, repo: str, baseline: str = BASELINE_REF) -> None:
@@ -831,10 +812,8 @@ class Git:
         SHALLOWNESS is what forces this check to exist, and it is worse than any
         crash.  `merge-base --is-ancestor` answers NO for every commit past a
         shallow boundary, so a truncated clone does not fail — it reports a
-        corpus made entirely of stranded pins.  Measured on this checkout while
-        it was shallow: 0 landed, 354 stranded, 360 findings, against 253 landed
-        and 7 findings on the same tree once unshallowed.  A reader trusting
-        that would conclude a CORRECT fix had failed and might "repair" pins
+        corpus made entirely of stranded pins.  A reader trusting that would
+        conclude a CORRECT fix had failed and might "repair" pins
         that were never broken — and the header above says why that is the worst
         outcome available: re-pinning swaps an unresolvable pin for a resolvable
         WRONG one, which fails silently forever after.
@@ -881,22 +860,20 @@ class Git:
         so that commits landing on the baseline meanwhile are not attributed
         here.
 
-        BOTH COMMANDS MUST SUCCEED, and neither used to be checked.  A failing
-        `git diff` leaves stdout empty, the empty set reads as "no page under
-        the corpus root changed", and the driver exits 0 having verified
-        nothing.  Observed, not theorised: while another process held this
-        repository, the spine's `--changed-since` step reported no page changed
-        with twenty-eight pages changed (rf2-dmrm).
+        BOTH COMMANDS MUST SUCCEED.  A failing `git diff` leaves stdout empty,
+        the empty set would read as "no page under the corpus root changed",
+        and the driver would exit 0 having verified nothing — which is what a
+        `git diff` does while another process holds this repository.
 
-        THE MERGE-BASE FALLBACK IS RETIRED rather than made loud.  It answered a
-        DIFFERENT question — "what differs from the baseline" instead of "what
-        this branch changed" — and answered it silently, which is the same
-        defect in a quieter register.  It also cannot be reached by the case it
-        was presumably written for: `since` has already been proved to resolve
-        by the time this runs, so a failure here means the two histories share
-        no ancestor or the repository cannot be read, and neither of those is a
-        set of pages to check.  A substituted question is not a safer answer
-        than none; it is an unsafer one, because it looks like an answer.
+        THERE IS NO MERGE-BASE FALLBACK.  Comparing against the baseline itself
+        would answer a DIFFERENT question — "what differs from the baseline"
+        instead of "what this branch changed" — and answer it silently, which
+        is the same defect in a quieter register.  Nor is there a case it could
+        serve: `since` has already been proved to resolve by the time this
+        runs, so a failure here means the two histories share no ancestor or
+        the repository cannot be read, and neither of those is a set of pages
+        to check.  A substituted question is not a safer answer than none; it
+        is an unsafer one, because it looks like an answer.
         """
         base = self._answer(
             "merge-base",
@@ -919,7 +896,7 @@ class Git:
             root,
             why="The set of pages this branch changed is therefore unknown. An "
             "empty answer here is indistinguishable from 'nothing changed', "
-            "which is how this gate once passed twenty-eight unchecked pages.",
+            "so it is refused rather than read as one.",
         )
         return {
             line.strip()
@@ -935,7 +912,7 @@ class Git:
         permalink naming itself to the ordinary local path.  None when there is
         no GitHub origin, and then no permalink is honoured at all.
 
-        THE ONE TOLERANT RETURN CODE LEFT IN THIS CLASS, and it is tolerant
+        THE ONE TOLERANT RETURN CODE IN THIS CLASS, and it is tolerant
         because it is provably fail-closed rather than because failure is
         unlikely.  Losing the identity honours NO permalink, which turns every
         declared-foreign citation back into an ordinary local one; that can only
@@ -955,8 +932,8 @@ class Git:
         git object, and needs no vocabulary to be excluded.
 
         Read positively, because that exclusion rests on the answer being real.
-        An unanswered probe used to fall through to 40, which in a SHA-256
-        repository would silently drop every full-length citation in the corpus
+        An unanswered probe falling through to 40 would, in a SHA-256
+        repository, silently drop every full-length citation in the corpus
         from the population — a fail-open of exactly the shape above, arriving
         as a shorter list rather than as an error.
         """
@@ -986,9 +963,9 @@ class Git:
         non-zero status that is not 1".  Anything else from either is the
         repository failing to answer.
 
-        Filing such a token as STRANDED — which is what "not zero" used to do —
-        would be a finding invented out of a failed process, and on a shallow
-        clone it was 354 of them.
+        Filing such a token as STRANDED — which is what reading "not zero"
+        would do — would be a finding invented out of a failed process, and on
+        a shallow clone that is every pin in the corpus.
         """
         if token in self._cache:
             return self._cache[token]
@@ -1035,22 +1012,21 @@ def evaluate(citations: Iterable[Citation], git: Git) -> Tuple[List[Finding], Li
 
     Returns what it OBJECTED to and what it PASSED OVER — the findings, and the
     pins that were not landed but were answered by an anchor in their own scope.
-    The second half is new and reports only; it changes no verdict.  A rule that
-    silently forgives is indistinguishable from a rule that never ran, and that
-    is the whole of rf2-qfrrp's second mode.
+    The second half reports only; it changes no verdict.  A rule that silently
+    forgives is indistinguishable from a rule that never ran.
 
     A scope is a prose paragraph, or a SINGLE TABLE ROW — not the whole table,
-    and not the whole blockquote (rf2-3c2b4): a paragraph inside a callout is a
-    paragraph, and quoting one does not merge it into its neighbours.
-    Those are the two shapes this corpus writes provenance in, and they are the
-    scope in which a reader actually finds the fallback: the census's repairs
-    all put the landed SHA in the same table cell or the same sentence as the
-    head it rescues, never merely somewhere in the same table.
+    and not the whole blockquote: a paragraph inside a callout is a paragraph,
+    and quoting one does not merge it into its neighbours.  Those are the two
+    shapes this corpus writes provenance in, and they are the scope in which a
+    reader actually finds the fallback: a repaired pin puts the landed SHA in
+    the same table cell or the same sentence as the head it rescues, never
+    merely somewhere in the same table.
 
-    Scoping the table by row is what closes rf2-xlsh.  A table is one unbroken
-    run of non-blank lines, so judging it whole let any single landed hash
-    answer for every row around it, and a wrong pin in the operative row went
-    unreported — on the pages this guards, that row is the one that matters
+    Scoping the table by row matters because a table is one unbroken run of
+    non-blank lines, so judging it whole would let any single landed hash
+    answer for every row around it, and a wrong pin in the operative row would
+    go unreported — on the pages this guards, that row is the one that matters
     most.  A row accompanies itself and nothing else.
     """
     per_scope: Dict[Tuple[str, int], List[Citation]] = {}
@@ -1135,15 +1111,15 @@ def _inventory(
     """One line, on EVERY run, naming what this run actually opened.
 
     Not `--verbose`-gated, and that is the point of it.  Both scheduled callers
-    — the fast-PR spine and docs.yml — already pass `--verbose`, so the reader
-    this defect actually fooled was a worker running the command a dispatch
-    brief nominated, by hand, without the flag, and reading a silent exit 0 as a
-    verdict.  A summary nobody sees in the mode people use is not a summary.
+    — the fast-PR spine and docs.yml — pass `--verbose`, so the reader a
+    silent success would fool is someone running the command by hand, without
+    the flag, and reading a silent exit 0 as a verdict.  A summary nobody sees
+    in the mode people use is not a summary.
 
     One line and not a table, because this gate walks ONE root: the sibling
-    `check_doc_slugs.py` prints a per-root inventory (rf2-v7fui) precisely
-    because it has eleven roots to drop one out of, and copying its shape here
-    would print a wall to say a single number.  The counts are the reach.
+    `check_doc_slugs.py` prints a per-root inventory precisely because it has
+    many roots to drop one out of, and copying its shape here would print a
+    wall to say a single number.  The counts are the reach.
     """
     counts: Dict[str, int] = {}
     foreign = 0
@@ -1187,7 +1163,7 @@ def check(
 ) -> int:
     """Drive the corpus and return an exit code.
 
-    The oracle is a parameter — as it already is for `evaluate` — so the
+    The oracle is a parameter — as it is for `evaluate` — so the
     self-test can present the repository states this gate must refuse without
     staging one on disk: an object store another process is holding, and a
     clone truncated at a shallow boundary.  Neither can be produced by a fixture
@@ -1241,10 +1217,10 @@ def _check(
         if not files:
             # UNCONDITIONAL, and the most important thing this script prints.
             # Exit 0 here says nothing about the corpus; it says the corpus was
-            # never opened.  Silence made the two identical (rf2-qfrrp).
+            # never opened, and silence would make the two identical.
             #
-            # The remedy names STAGING rather than committing, because that is
-            # what was measured: `git diff <base> -- <root>` reads the working
+            # The remedy names STAGING rather than committing, because
+            # `git diff <base> -- <root>` reads the working
             # tree, so an edit to a page git already tracks is inspected without
             # any commit at all.  Only a file git has never been told about is
             # invisible, and `git add` alone is enough to end that.
@@ -1313,8 +1289,8 @@ def _check(
         "be accompanied, in its own block — its own table ROW, when it sits in "
         "a table — by a SHA that is an ancestor of %s.\n"
         "This tool does NOT re-pin: recovering the landed SHA restores the patch "
-        "and not necessarily the measured tree, so a human decides each one "
-        "(see rf2-owq6p).\n\n" % (len(findings), BASELINE_REF)
+        "and not necessarily the measured tree, so a human decides each "
+        "one.\n\n" % (len(findings), BASELINE_REF)
     )
     for f in findings:
         label = ("%s " % f.token) if f.token else ""
@@ -1398,11 +1374,10 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["the ten-turn aggregate resolved at `0.0999999 ms`, the bulk row's floor"],
         [],
     ),
-    # BARE PROVENANCE.  This case used to assert the opposite — that prose hex
-    # outside a code span is never a citation — and that assertion pinned the
-    # fail-open: explicit commit prose without backticks passed the gate
-    # unexamined (rf2-kqac1).  It reads the other way now, and the four cases
-    # under it hold the narrowness in place.
+    # BARE PROVENANCE.  Explicit commit prose without backticks is a citation;
+    # asserting the opposite would pin the fail-open where such prose passes
+    # the gate unexamined.  The four cases under it hold the narrowness in
+    # place.
     (
         "bare prose hex the writer calls a commit is a citation",
         ["Commit 08344cb500 was measured on one box."],
@@ -1443,8 +1418,8 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["0642815dc2"],
     ),
     # The right-apposition window is measured on the line AS READ.  Stripping
-    # the `> ` first slid it two characters and lost the word it looks for,
-    # which mattered because this corpus writes whole blob callouts in
+    # the `> ` first would slide it two characters and lose the word it looks
+    # for, which matters because this corpus writes whole blob callouts in
     # blockquotes.
     (
         "right apposition survives a blockquote prefix",
@@ -1460,13 +1435,13 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ],
         [],
     ),
-    # THE SIBLING DIGEST (rf2-xlsh, second half).  Scoping accompaniment by row
-    # guards adjudication; this guards EXTRACTION, which ran first and so ran
-    # unguarded.  The digest word in the row above used to reach down and
-    # repaint the row below, and a token classified as a digest is never a
-    # citation, so `evaluate` was handed nothing and the operative pin failed
-    # open with the row scope already in place.  Both rows are asserted: the
-    # digest must stay a digest, and the pin beside it must be seen.
+    # THE SIBLING DIGEST.  Scoping accompaniment by row guards adjudication;
+    # this guards EXTRACTION, which runs first.  A digest word in the row above
+    # that reached down would repaint the row below, and a token classified as
+    # a digest is never a citation, so `evaluate` would be handed nothing and
+    # the operative pin would fail open with the row scope in place.  Both
+    # rows are asserted: the digest must stay a digest, and the pin beside it
+    # must be seen.
     (
         "a digest word in the row above does not repaint the next row",
         [
@@ -1537,8 +1512,9 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "dddddddddd": "STRANDED"},
         ["aaaaaaaaaa", "dddddddddd"],
     ),
-    # BARE PROVENANCE, end to end.  The first is the finding the code-span-only
-    # reader let through; the second is the noise the repair must still ignore —
+    # BARE PROVENANCE, end to end.  The first is the finding a code-span-only
+    # reader would let through; the second is the noise that must still be
+    # ignored —
     # with no status table behind it, anything extracted here would resolve to
     # UNRESOLVABLE and become a finding, so an empty expectation is a real
     # assertion that nothing was extracted at all.
@@ -1560,10 +1536,10 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
     ),
-    # THE ROW SCOPE (rf2-xlsh).  The first case is the fail-open itself: a
-    # record table cited the operative pin in one row and a landed hash in
-    # another, and per-paragraph accompaniment let the neighbour answer for it,
-    # so a wrong hash in the field whose wrongness costs most went unreported.
+    # THE ROW SCOPE.  The first case is the fail-open itself: a record table
+    # cites the operative pin in one row and a landed hash in another, and
+    # per-paragraph accompaniment would let the neighbour answer for it, so a
+    # wrong hash in the field whose wrongness costs most would go unreported.
     (
         "a landed hash in a SIBLING ROW does not rescue the row beside it",
         [
@@ -1587,11 +1563,12 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "cccccccccc": "STRANDED"},
         ["cccccccccc"],
     ),
-    # THE SIBLING DIGEST, end to end.  The row scope alone left this at exit 0:
-    # the `Blob hash` row above repainted `aaaaaaaaaa` as a digest during
-    # extraction, so there was no citation for the row scope to adjudicate and
-    # the operative pin failed open.  An empty expectation here would be a pass
-    # for the wrong reason, so the finding is the assertion.
+    # THE SIBLING DIGEST, end to end.  The row scope alone would leave this at
+    # exit 0: the `Blob hash` row above would repaint `aaaaaaaaaa` as a digest
+    # during extraction, so there would be no citation for the row scope to
+    # adjudicate and the operative pin would fail open.  An empty expectation
+    # here would be a pass for the wrong reason, so the finding is the
+    # assertion.
     (
         "a digest row above neither repaints nor rescues the row beside it",
         [
@@ -1601,8 +1578,8 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         ["aaaaaaaaaa"],
     ),
-    # Prose is untouched by the row scope — the shape the census's repairs put
-    # the anchor in, which must keep passing.
+    # Prose is untouched by the row scope — the shape a repaired pin puts the
+    # anchor in, which must keep passing.
     (
         "a paragraph is still one scope after the table split",
         [
@@ -1612,15 +1589,14 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
     ),
-    # THE BLOCKQUOTE SCOPE (rf2-3c2b4).  The same fail-open as the row scope
-    # above, in the one container `_strip_quote`'s own docstring says this
-    # corpus writes its provenance in.  A paragraph break inside a callout is a
-    # lone `>`, whose `.strip()` is NOT empty, so the paragraph boundary never
-    # fired and a whole multi-paragraph callout was ONE scope — any single
-    # landed hash in it answering for every pin in it.  Measured on a real
-    # page carrying three pins in one callout: perturbing all three gave exit 1,
-    # perturbing ONE gave exit 0, absorbed.  A one-pin plant is the natural
-    # non-vacuity control for this gate, so the defect read as the gate working.
+    # THE BLOCKQUOTE SCOPE.  The same fail-open as the row scope above, in the
+    # one container `_strip_quote`'s own docstring says this corpus writes its
+    # provenance in.  A paragraph break inside a callout is a lone `>`, whose
+    # `.strip()` is NOT empty, so a raw paragraph boundary would never fire and
+    # a whole multi-paragraph callout would be ONE scope — any single landed
+    # hash in it answering for every pin in it.  A one-pin plant is the natural
+    # non-vacuity control for this gate, so the defect would read as the gate
+    # working.
     (
         "a landed hash in a SIBLING BLOCKQUOTE PARAGRAPH does not rescue the head",
         [
@@ -1634,7 +1610,7 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
     # THE COUNTERWEIGHT, and the reason this is a SPLIT and not a ban: within
     # one callout paragraph, accompaniment stays exactly as permissive as it is
     # in bare prose.  Quoting a paragraph must not change its verdict, or the
-    # repair would have traded a fail-open for a corpus-wide fail-closed.
+    # split would trade a fail-open for a corpus-wide fail-closed.
     (
         "accompaniment inside one blockquote paragraph still passes",
         [
@@ -1645,7 +1621,7 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         [],
     ),
     # And the ROW scope survives inside a callout — which is where this corpus
-    # actually writes its tables, so it is the rf2-xlsh guarantee in the shape
+    # actually writes its tables, so it is the row-scope guarantee in the shape
     # it is most often read in.  Both rows are asserted, as the bare-table case
     # above does it: the landed row raises nothing, the row beside it still
     # raises its own finding rather than being answered for.
@@ -1661,8 +1637,8 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
 ]
 
 
-# WHAT THE RULE FORGAVE (rf2-qfrrp).  Every case above asserts what `evaluate`
-# OBJECTED to; none asserted what it passed over, and a rule that silently
+# WHAT THE RULE FORGAVE.  Every case above asserts what `evaluate`
+# OBJECTED to; none asserts what it passed over, and a rule that silently
 # forgives is indistinguishable from a rule that never ran.  These pin the other
 # half — and they pin it as a REPORT, so the counterweight matters as much as
 # the positive: an absorbed pin must not also be a finding, and a finding must
@@ -1700,11 +1676,11 @@ _ABSORBED_CASES: List[
         {"aaaaaaaaaa": "STRANDED"},
         [],
     ),
-    # THE PLANT THAT TAUGHT THE WRONG LESSON, end to end.  A stranded SHA in a
-    # row that carries a landed one passes — correctly — and the row that does
-    # not carry one reds.  Both verdicts are unchanged; what this asserts is
-    # that the passing row is now ATTRIBUTABLE, so "the gate does not reach this
-    # file" is no longer an available reading of the exit code.
+    # THE PLANT THAT CAN TEACH THE WRONG LESSON, end to end.  A stranded SHA in
+    # a row that carries a landed one passes — correctly — and the row that
+    # does not carry one reds.  What this asserts is that the passing row is
+    # ATTRIBUTABLE, so "the gate does not reach this file" is not an available
+    # reading of the exit code.
     (
         "the absorbed row names its anchor while the bare row still reds",
         [
@@ -1738,7 +1714,7 @@ class _ForeignCase(NamedTuple):
     "reported as foreign" and "passes without a local anchor" are different
     claims, and a case that checked only the second would pass just as well if
     the token had been dropped from the population altogether — which is the
-    fail-open shape this whole mechanism was ruled against.
+    fail-open shape this whole mechanism exists to refuse.
     """
 
     label: str
@@ -1752,8 +1728,8 @@ class _ForeignCase(NamedTuple):
 
 _FOREIGN_CASES: List[_ForeignCase] = [
     # POSITIVE.  A canonical permalink, matching full SHA, and NO local anchor
-    # anywhere in the row — which is the point: before this, the only way to
-    # pass was to name a commit of this repository, and no commit of this
+    # anywhere in the row — which is the point: without a declaration the only
+    # way to pass is to name a commit of this repository, and no commit of this
     # repository belongs in a row citing somebody else's benchmark.
     _ForeignCase(
         "a canonical permalink declares its token a foreign commit, and it passes",
@@ -1770,10 +1746,10 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         [],
     ),
     # SABOTAGE, and the case that says what kind of mechanism this is.  The row
-    # carries the words a prose-sniffing gate would have honoured — "foreign
+    # carries the words a prose-sniffing gate would honour — "foreign
     # repository", "belongs to", "not to this one" — and nothing typed.  It is
     # still a finding.  If this ever passes, the gate has learned a magic
-    # phrase and the ruling has been undone.
+    # phrase and stopped being a typed declaration.
     _ForeignCase(
         "prose calling a token foreign exempts nothing",
         [
@@ -1842,12 +1818,12 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_FOREIGN_SHA, _FOREIGN_SHA, _FOREIGN_SHA, _LOCAL_SHA],
     ),
-    # SABOTAGE, first of the two holes the PR #7754 audit found, and the sharper
-    # one: it defeated the very boundary the mechanism was built with.  Row A
-    # spells our own origin `re-frame2.GIT`, which the old `(?<!\.git)` — case
-    # SENSITIVE — let through, recorded as repository `day8/re-frame2.GIT`,
-    # compared unequal to `day8/re-frame2`, and so reported a stranded head of
-    # THIS repository as somebody else's business.  Row B is the same alias on a
+    # SABOTAGE, and the sharper of two laundering holes: it attacks the very
+    # boundary the mechanism is built with.  Row A spells our own origin
+    # `re-frame2.GIT`, which a case-SENSITIVE `(?<!\.git)` would let through,
+    # record as repository `day8/re-frame2.GIT`, compare unequal to
+    # `day8/re-frame2`, and so report a stranded head of THIS repository as
+    # somebody else's business.  Row B is the same alias on a
     # genuinely foreign repository: a clone URL with a path glued on is not the
     # canonical commit page whoever owns it.  Both rows assert all three layers,
     # because "no finding" and "no citation" are indistinguishable from the last
@@ -1866,9 +1842,9 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_LOCAL_SHA, _FOREIGN_SHA],
     ),
-    # SABOTAGE, the other hole: material after the SHA.  The old boundary named
-    # the characters that must not follow a permalink, so everything it forgot
-    # to name was an exemption — `%3F` (a percent-encoded `?`, which no reader's
+    # SABOTAGE, the other hole: material after the SHA.  A boundary naming the
+    # characters that must not follow a permalink makes everything it forgets
+    # to name an exemption — `%3F` (a percent-encoded `?`, which no reader's
     # browser treats as part of the path), a `:`, an `&`.  Each of these is a
     # link somebody could write by hand or paste from a diff view, none is the
     # canonical commit page, and under whole-run matching each fails as a whole
@@ -1893,7 +1869,7 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {},
         [_FOREIGN_SHA] * 5,
     ),
-    # POSITIVE CONTROL for that tightening, and the reason the trim exists.
+    # POSITIVE CONTROL for whole-run matching, and the reason the trim exists.
     # Refusing everything after the SHA would refuse the two ways a page
     # actually writes a link — ending a sentence with it, and markdown's own
     # `[text](url)` — and a boundary that cannot be satisfied gets routed
@@ -2012,13 +1988,13 @@ class _FakeGit(Git):
 class _BusyGit(Git):
     """A repository that answers everything except one subcommand.
 
-    This is the state observed in the field (rf2-dmrm), and its shape is what
-    made it dangerous: while another process held the object store, `rev-parse`
-    needed no lock and answered normally, so every guard upstream of the diff
-    was satisfied — and only `git diff` failed, leaving the empty stdout that
-    read as "no page changed".  A repository that failed EVERYTHING would have
-    been caught by the baseline and ref guards years ago; it is the partial
-    failure that walks through them.
+    This is the state a real repository reaches, and its shape is what makes
+    it dangerous: while another process holds the object store, `rev-parse`
+    needs no lock and answers normally, so every guard upstream of the diff is
+    satisfied — and only `git diff` fails, leaving the empty stdout that would
+    read as "no page changed".  A repository that failed EVERYTHING would be
+    caught by the baseline and ref guards; it is the partial failure that
+    walks through them.
     """
 
     def __init__(self, repo: str, failing: str) -> None:  # noqa: D107
@@ -2036,10 +2012,10 @@ class _BusyGit(Git):
 class _ChangedGit(Git):
     """A repository that reports an exact set of changed pages.
 
-    The `--changed-since` file set is the input rf2-qfrrp is about, and it is
-    the one input a fixture on disk cannot present: producing "zero pages
-    changed" for real means arranging the checkout's own history, and producing
-    "exactly one page" means arranging it twice.  The oracle is already a
+    The `--changed-since` file set is the input the inventory line reports on,
+    and it is the one input a fixture on disk cannot present: producing "zero
+    pages changed" for real means arranging the checkout's own history, and
+    producing "exactly one page" means arranging it twice.  The oracle is a
     parameter for exactly this reason.
 
     `HEAD` is the baseline so that the assertions below hold in a checkout with
@@ -2197,11 +2173,11 @@ def self_test(verbose: bool, stream) -> int:
     # for work it never did, so every way this script can fail to do its job is
     # asserted to leave rc=2.
     #
-    # The last three are rf2-dmrm, and they differ in kind from the first two:
-    # there the CORPUS is missing, here the REPOSITORY cannot answer.  They are
-    # presented through the oracle rather than staged on disk because the states
-    # are transient (a held index lock) or expensive (a second, truncated
-    # clone), and `evaluate` already takes the oracle the same way.  `HEAD` is
+    # The last three differ in kind from the first two: there the CORPUS is
+    # missing, here the REPOSITORY cannot answer.  They are presented through
+    # the oracle rather than staged on disk because the states are transient
+    # (a held index lock) or expensive (a second, truncated clone), and
+    # `evaluate` takes the oracle the same way.  `HEAD` is
     # the baseline they compare against so that they assert the same thing in a
     # checkout with no `origin/main` — otherwise they could pass on the earlier
     # ref guard and prove nothing.
@@ -2236,11 +2212,11 @@ def self_test(verbose: bool, stream) -> int:
             )
             failures += 1
 
-    # WHAT A RUN SAYS IT DID, asserted in the DEFAULT mode (rf2-qfrrp).  Both
-    # scheduled callers pass `--verbose`, so a summary gated on that flag would
-    # be a summary nobody sees in the mode the defect was found in — a worker
-    # running the command a dispatch brief nominated, by hand, and reading a
-    # silent exit 0 as a verdict.  `verbose=False` here is therefore the whole
+    # WHAT A RUN SAYS IT DID, asserted in the DEFAULT mode.  Both scheduled
+    # callers pass `--verbose`, so a summary gated on that flag would be a
+    # summary nobody sees in the mode a hand-run uses — someone running the
+    # command without the flag and reading a silent exit 0 as a verdict.
+    # `verbose=False` here is therefore the whole
     # assertion, and it is checked by reading the text rather than with a bare
     # `assert`, which `python -O` strips.
     corpus = iter_markdown(os.path.join(repo, DEFAULT_ROOT))
@@ -2310,9 +2286,9 @@ class _DevNull:
 class _Capture(_DevNull):
     """What a run said, so the self-test can assert that it said anything.
 
-    The two modes rf2-qfrrp closes are modes of SILENCE, so an exit code is the
-    one thing that cannot witness the repair: both of them exited 0 before and
-    exit 0 now.  What is checked here is the text.
+    The two vacuous-green modes are modes of SILENCE, so an exit code is the
+    one thing that cannot witness them: both exit 0 whether or not the run
+    says what it did.  What is checked here is the text.
     """
 
     def __init__(self) -> None:  # noqa: D107
@@ -2329,13 +2305,13 @@ class _Capture(_DevNull):
 def _repo_root() -> str:
     """The working tree this run is about.
 
-    The old fallback to the current directory was the same silent substitution
-    as the retired merge-base one: when git could not say where the repository
-    was, the run continued against somewhere else and reported whatever it found
-    there.  It happened to land on rc=2 by way of a missing corpus root, but it
-    got there with a message about the corpus when the truth was about the
-    repository, and a diagnostic that names the wrong thing is how the next
-    fail-open gets missed.
+    There is no fallback to the current directory: it would be the same silent
+    substitution a merge-base fallback would be.  When git cannot say where the
+    repository is, such a run would continue against somewhere else and report
+    whatever it found there — at best rc=2 by way of a missing corpus root,
+    with a message about the corpus when the truth is about the repository,
+    and a diagnostic that names the wrong thing is how the next fail-open gets
+    missed.
     """
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
