@@ -9,7 +9,7 @@
       <machine-id> · <source-coord ↗> · <N> states · <M> live (→ Dynamic)
         · [Copy Mermaid]
 
-  The trailing Copy Mermaid button (rf2-sxw06) is the one-gesture
+  The trailing Copy Mermaid button is the one-gesture
   \"registered topology → fenced ```mermaid block on the clipboard\"
   action. It renders only when the selected definition passes
   `grammar/valid-definition?` (no valid definition ⇒ no actionable
@@ -45,33 +45,32 @@
   empty-state hint; the right pane mounts a matching empty surface
   to keep the visual balance.
 
-  ## Substrate (rf2-k97c.3)
+  ## Substrate
 
   [[detail]] is an `rf.fresco/defview` — a real React function component
   whose reads are `rf.fresco/sub`, recorded by Fresco's own collector
-  rather than by the installed adapter's observer. Frame isolation still
+  rather than by the installed adapter's observer. Frame isolation
   comes from the enclosing `[rf.fresco/frame-provider {:frame frame-id}]`
   that `shell.cljs`'s `shell-view-tree` opens — `static/shell.cljs` owns
   none — with the frame the parameterized instance frame-id, default
-  `:rf/xray`, which the boundary reads out of React context exactly as
-  the `reg-view` did.
+  `:rf/xray`, which the boundary reads out of React context.
 
-  ## The Topology and Sim bodies stay REAGENT ISLANDS, and that is the
+  ## The Topology and Sim bodies are REAGENT ISLANDS, and that is the
   ## one thing about this pane worth knowing before editing it
 
   Every helper in THIS file answers hiccup and is therefore CALLED rather
-  than headed — the standard HD-016 repair. The two per-mode bodies are
+  than headed, per HD-016. The two per-mode bodies are
   the exception: `topology/body` reaches `machine-canvas/Chart`, which is
-  still an `rf/reg-view`, and `sim/body` reaches `SimChart` which mounts
+  an `rf/reg-view`, and `sim/body` reaches `SimChart` which mounts
   the same `Chart`. A `reg-view` in hiccup head position grades
   `:invalid` under Fresco exactly as a plain `defn` does — `codec/
   boundary-head?` reads one own property (`frescoBoundary`) and only
-  `rf.fresco/defview` sets it — so neither repair applies: heading is a
+  `rf.fresco/defview` sets it — so neither spelling works: heading is a
   loud throw that unmounts the whole Xray root, and CALLING the body only
   moves the problem one level down into `topology.cljs`'s own fn heads.
 
   The door is Fresco's own ABI, and it is the one `panels/
-  machine_after_rings.cljs` already uses for the machines-viz overlay: a
+  machine_after_rings.cljs` uses for the machines-viz overlay: a
   React ELEMENT is a legal child anywhere (`codec`'s `child-kind`
   classifies `react/isValidElement` as `:react-element`). So
   [[detail-tree]] takes an `:as-child` function — `identity` for a
@@ -100,7 +99,7 @@
 ;; ---- header -------------------------------------------------------------
 
 (defn- copy-mermaid-button
-  "The Copy Mermaid action + its inline feedback span (rf2-sxw06).
+  "The Copy Mermaid action + its inline feedback span.
 
   Renders nothing unless `definition` passes the shared
   `grammar/valid-definition?` gate (nil-safe; desugars internally), whose
@@ -274,8 +273,8 @@
 
   `as-child` is how the two REAGENT ISLANDS are spelled for the calling
   renderer — see the ns docstring. `identity` (the node lane, and any
-  Reagent caller) leaves each body as a fn-headed hiccup vector, which
-  is exactly what it has always been; `substrate/as-element` (the
+  Reagent caller) leaves each body as a fn-headed hiccup vector;
+  `substrate/as-element` (the
   boundary) answers a React element, a legal child anywhere per Fresco's
   component ABI. The Instances and Cascade arms are pure keyword hiccup
   and cross unchanged either way."
@@ -330,16 +329,16 @@
   the `as-child` spelling for the two Reagent islands (see the ns
   docstring).
 
-  SPLIT OUT OF [[detail]] BY rf2-k97c.3, and the split is `defview`'s
+  SPLIT OUT OF [[detail]], and the split is `defview`'s
   own documented extract-a-helper spelling rather than an invention. A
   boundary's body may only run inside a React render window, so
-  `(detail)` is no longer a callable that answers hiccup — while the
+  `(detail)` is not a callable that answers hiccup — while the
   projection from read values to markup is ordinary data → data and is
   worth testing in the fast node lane.
   `test-helpers.static-machines-tree` drives THIS fn with the values it
   takes from the same subs, and with `identity` as `as-child` so the
   Topology / Sim subtrees stay fn-headed hiccup the node-lane walker can
-  expand exactly as it always has.
+  expand.
 
   PURE: every helper it calls is a plain fn of its arguments."
   [{:keys [data definitions sub-mode fit-signal copy-status sim-values]}
@@ -380,8 +379,8 @@
                  :sim-values   sim-values})]]))))
 
 (rf.fresco/defview detail
-  "The L4-right pane — definition detail. A FRESCO BOUNDARY
-  (rf2-k97c.3), not an `rf/reg-view`. Reads:
+  "The L4-right pane — definition detail. A FRESCO BOUNDARY,
+  not an `rf/reg-view`. Reads:
 
     - `:rf.xray.static.machines/data` for the selected row +
       enrichment (rows, total, visible, selected-id)
@@ -398,19 +397,18 @@
   records an edge for, and THE CONDITIONAL ONES STAY CONDITIONAL: the
   collector records an edge WHERE THE READ HAPPENS, so a branch not
   taken contributes no edge and the Topology / Instances / Cascade modes
-  still subscribe to no sim state at all. Two reads are also SEQUENCED
+  subscribe to no sim state at all. Two reads are also SEQUENCED
   rather than independent — `sub-mode` and `copy-mermaid-status` are
   parameterised by the `selected-id` the first read answers — which is
   ordinary inside a body and is the read ORDER the node lane reproduces.
 
   The FRAME comes from React context, which the enclosing frame boundary
   writes; the DISPATCHER is `(:dispatch (rf/capture-frame))`, core's own
-  door, which answers the boundary's DECLARED frame inside a body and
-  replaces the name `reg-view` used to inject lexically.
+  door, which answers the boundary's DECLARED frame inside a body.
 
   `substrate/as-element` is the `as-child` spelling for the two Reagent islands
-  — the ns docstring records why neither of the migration's usual
-  repairs is available for them.
+  — the ns docstring records why neither heading nor calling works for
+  them.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. This pane reads nothing from props — `static.machines.panel`'s
@@ -429,7 +427,7 @@
        ;; Machines tab re-frames the topology to view.
        :fit-signal  (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
        ;; Copy-Mermaid settled outcome for the selected machine
-       ;; (rf2-sxw06) — nil unless a copy gesture on THIS machine has
+       ;; — nil unless a copy gesture on THIS machine has
        ;; settled; cleared by `:rf.xray.static.machines/select`.
        :copy-status (rf.fresco/sub
                       [:rf.xray.static.machines/copy-mermaid-status
