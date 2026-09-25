@@ -916,10 +916,9 @@
    (->elk-children parsed measured-dims chart-vc context-rows :tb))
   ([{:keys [nodes edges] :as parsed} measured-dims chart-vc context-rows direction]
   (let [resolved-vc   (or chart-vc vc/chart)
-        ;; the ROOT-CONTAINER frame ALSO reserves the variable-height
-        ;; Context band ON TOP of the title strip. The band height is derived
-        ;; from the context-row count + the density's divider hairline; 0
-        ;; rows ⇒ no extra top.
+        ;; the variable-height Context band the ROOT-CONTAINER frame reserves
+        ;; ON TOP of its title strip, derived from the context-row count + the
+        ;; density's divider hairline; 0 rows ⇒ no extra top.
         context-band-px (context-band-height (or context-rows 0)
                                              (:container-divider-width resolved-vc))
         ;; the set of container-ids (each `:parent-id` an `:initial?` state

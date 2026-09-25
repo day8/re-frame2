@@ -158,7 +158,7 @@
             (is (<= (+ (.-offsetTop band) (.-offsetHeight band)) (reserved-top el))
                 "the band ends inside the reserved header, above the first child")))))))
 
-(deftest lifecycle-free-compound-renders-as-before
+(deftest lifecycle-free-compound-shows-no-band
   (testing "a compound declaring no tags and no lifecycle action shows no band
             and keeps the plain header reservation"
     (if-not (browser?)
@@ -249,7 +249,7 @@
             (is (<= (.-offsetHeight header) (reserved-top frame))
                 "the whole header fits inside the reserved TOP padding")))))))
 
-(deftest lifecycle-free-root-renders-as-before
+(deftest lifecycle-free-root-shows-no-band
   (testing "a root declaring no tags and no lifecycle action shows no band and
             keeps the plain header reservation"
     (if-not (browser?)
