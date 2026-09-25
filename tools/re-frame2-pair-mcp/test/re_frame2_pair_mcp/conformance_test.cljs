@@ -101,9 +101,9 @@
 ;; async-friendly Promise-returning fn, restore in `.finally` once the
 ;; Promise chain settles. Mirror the `invoke_test/with-stubs!` shape.
 ;;
-;; We also stub `nrepl/cljs-eval` (the lower-level frame-returning fn) in
-;; case a tool reaches in there directly; today only `cljs-eval-value` is
-;; exercised but the safety belt is cheap.
+;; We also stub `nrepl/jvm-eval`, so the preload-failure diagnostic
+;; ladder sees a reachable JVM and a running `:app` build (see
+;; `with-stubbed-eval!`).
 ;; ---------------------------------------------------------------------------
 
 (defn- run-eval-script
@@ -152,10 +152,10 @@
       ladder treats `:app` as a running build.
   Together these mean a fixture scripting the cljs probe form to
   `false` lands on `:runtime-loaded-but-preload-missing` — the case
-  the original hint was for. Fixtures wanting the other ladder
+  the preload hint addresses. A caller wanting the other ladder
   rungs (`:build-not-running`, `:no-runtime-connected`,
-  `:nrepl-unreachable`) override via the new `:fixture/jvm-eval-script`
-  slot."
+  `:nrepl-unreachable`) passes its own `jvm-eval-script` through the
+  4-arity."
   ([eval-script forms-seen body-fn]
    (with-stubbed-eval! eval-script forms-seen nil body-fn))
   ([eval-script forms-seen jvm-eval-script body-fn]
@@ -279,17 +279,21 @@
 ;;   :fixture/eval-script  — vector of [match canned] entries (see
 ;;                           `run-eval-script`). `:default` matches anything.
 ;;   :fixture/expect       — partial expectation map (see check-fixture-result).
-;;   :fixture/cache-reset? — when true, reset the cache before invocation.
-;;                           Default true; rare cache-replay fixtures set false.
+;;
+;; Optional: the three launch gates (`:fixture/eval-allowed?`,
+;; `:fixture/allow-raw-state?`, `:fixture/allow-writes?`) and the
+;; emitted-form substring pins (`:fixture/eval-form-must-contain`,
+;; `:fixture/eval-form-must-not-contain`) — see `run-one-fixture`, which
+;; also clears the response cache before every fixture.
 ;; ---------------------------------------------------------------------------
 
 (def corpus
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
   Coverage matrix. Every advertised tool (see
-  `test/fixtures/tool-names.json` — 30 today) appears below: either with a
-  fixture in THIS inline corpus, or in the `Not exercised here` note that
-  follows — so a tool cannot silently drop out of the map by omission:
+  `test/fixtures/tool-names.json`) has at least one fixture in THIS inline
+  corpus — `conformance-corpus-covers-every-registered-tool` below holds
+  that, so a tool cannot silently drop out of the map by omission:
 
     | Tool                   | Happy | Missing-arg | Degraded-runtime |
     |------------------------|-------|-------------|-------------------|
@@ -316,13 +320,18 @@
     | reset-operating-frame  | yes   | n/a         | n/a               |
     | get-operating-frame    | yes   | n/a         | ambiguous (nil)   |
     | get-re-frame2-pair-instructions | yes   | n/a         | n/a               |
-    | (pipeline)             | cache-hit (precheck) ; unknown-tool error  |
+    | orient                 | yes   | n/a         | blank-eval (unexpected-shape) |
+    | read-sub               | yes   | yes         | n/a               |
+    | read-ui                | yes   | yes         | n/a               |
+    | describe-image         | yes   | n/a         | ambiguous-frame   |
+    | record                 | yes   | yes         | n/a               |
+    | read-recording         | yes   | n/a         | no-such-recording |
+    | watch-until            | yes   | yes         | n/a               |
+    | (pipeline)             | unknown-tool error                         |
 
-  Not exercised here (the 7 advertised tools with NO fixture in this
-  corpus; coverage lives in the named dedicated per-tool test namespaces):
-  `describe-image` (describe_image_test), `orient` (orient_test),
-  `read-sub` (read_sub_test), `read-ui` (read_ui_test), `record` +
-  `read-recording` (record_test), `watch-until` (watch_until_test)."
+  The dedicated per-tool test namespaces (describe_image_test,
+  orient_test, read_sub_test, read_ui_test, record_test,
+  watch_until_test, …) cover each tool's inner logic in depth."
   [;; ---------- discover-app ----------------------------------------------
    ;; discover-app routes the runtime health map through several
    ;; precondition gates (`:debug-enabled?`, `:frames`,
@@ -346,7 +355,7 @@
      :edn-submap {:ok? true :build-id :app}}}
 
    {:fixture/id    :discover-app/preload-missing
-    :fixture/doc   "discover-app surfaces :runtime-loaded-but-preload-missing when the marker is absent (rf2-7tgfk — the specific rung of the diagnostic ladder)."
+    :fixture/doc   "discover-app surfaces :runtime-loaded-but-preload-missing when the marker is absent (the specific rung of the diagnostic ladder)."
     :fixture/tool  "discover-app"
     :fixture/args  {}
     :fixture/eval-script
@@ -360,12 +369,12 @@
    ;; `:dev-http` map via `jvm-eval`; the corpus's default JVM stub answers
    ;; the non-`active-builds` lookup form with `{:value "1"}`, which
    ;; `read-string`s to `1` — not a keyword build-id — so the resolver
-   ;; returns nil and discover-app emits `:port-unresolved`. rf2-bcayt7
-   ;; pins that this rides as an `isError` result (a known-tool `:ok? false`
+   ;; returns nil and discover-app emits `:port-unresolved`. This fixture
+   ;; pins that it rides as an `isError` result (a known-tool `:ok? false`
    ;; failure), NOT a success-shaped ok-text envelope that the response
    ;; cache could retain and mask a later valid port→build mapping.
    {:fixture/id    :discover-app/port-unresolved
-    :fixture/doc   "discover-app with a :port that maps to no build rides as isError carrying :port-unresolved (rf2-bcayt7 — every :ok? false is isError; never a cacheable ok-text)."
+    :fixture/doc   "discover-app with a :port that maps to no build rides as isError carrying :port-unresolved (every :ok? false is isError; never a cacheable ok-text)."
     :fixture/tool  "discover-app"
     :fixture/args  {:port 9999}
     :fixture/eval-script
@@ -412,7 +421,7 @@
    ;; three to a bare null. The runtime classifies the result into a
    ;; tagged `:rf.mcp/result` map; the server projects it.
    {:fixture/id    :eval-cljs/typed-nil
-    :fixture/doc   "eval-cljs of a form that genuinely returns nil rides back as :ok? true :value nil — a tagged :rf.mcp/result :nil, NOT a collapsed null (rf2-qobqy)."
+    :fixture/doc   "eval-cljs of a form that genuinely returns nil rides back as :ok? true :value nil — a tagged :rf.mcp/result :nil, NOT a collapsed null."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(get {} :missing)" :build "app"}
     :fixture/eval-script
@@ -424,7 +433,7 @@
      :edn-submap {:ok? true :value nil :build :app}}}
 
    {:fixture/id    :eval-cljs/typed-eval-error
-    :fixture/doc   "eval-cljs of a form that throws (e.g. an unresolved symbol) surfaces a structured :rf.error/eval-cljs-threw, NOT a silent nil (rf2-qobqy)."
+    :fixture/doc   "eval-cljs of a form that throws (e.g. an unresolved symbol) surfaces a structured :rf.error/eval-cljs-threw, NOT a silent nil."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(undefined-symbol)" :build "app"}
     :fixture/eval-script
@@ -439,7 +448,7 @@
      :edn-submap {:ok? false :reason :rf.error/eval-cljs-threw :build :app}}}
 
    {:fixture/id    :eval-cljs/typed-unserializable
-    :fixture/doc   "eval-cljs of a form returning a #object/#js/Function surfaces :rf.error/unserializable with a :preview, NOT a collapsed null (rf2-qobqy)."
+    :fixture/doc   "eval-cljs of a form returning a #object/#js/Function surfaces :rf.error/unserializable with a :preview, NOT a collapsed null."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "js/console" :build "app"}
     :fixture/eval-script
@@ -454,7 +463,7 @@
                   :type "object" :build :app}}}
 
    {:fixture/id    :eval-cljs/no-runtime-for-build
-    :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil (rf2-ivlb3). A preflight rejection routes through probe/err->result, so it surfaces as isError: true per the known-tool-failure contract (API §Result shape)."
+    :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil. A preflight rejection routes through probe/err->result, so it surfaces as isError: true per the known-tool-failure contract (API §Result shape)."
     :fixture/tool  "eval-cljs"
     ;; Explicit :build so the path is deterministic against the
     ;; cljs-eval-only stub; sentinel probe returns false → fail loud.
@@ -480,7 +489,7 @@
    ;; :await false (the default) sends the form verbatim — no await
    ;; wrapper. Pin that via :fixture/eval-form-must-not-contain.
    {:fixture/id    :eval-cljs/await-default-off-no-wrap
-    :fixture/doc   "eval-cljs without :await sends the form verbatim — no await wrapper, no mailbox slot (rf2-xn4f9 default :await false)."
+    :fixture/doc   "eval-cljs without :await sends the form verbatim — no await wrapper, no mailbox slot (default :await false)."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(+ 1 2)" :build "app"}
     :fixture/eval-script
@@ -496,7 +505,7 @@
    ;; `:rf.mcp/await-direct v`; the server short-circuits with v as
    ;; the :value. Same shape as the no-await path.
    {:fixture/id    :eval-cljs/await-direct-passthrough
-    :fixture/doc   "eval-cljs :await true on a non-thenable form returns the value via the wrapper's synchronous fast path (rf2-xn4f9)."
+    :fixture/doc   "eval-cljs :await true on a non-thenable form returns the value via the wrapper's synchronous fast path."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(+ 1 2)" :await true :build "app"}
     :fixture/eval-script
@@ -522,7 +531,7 @@
    ;; the wrap form. The script orders wrap-match first to keep
    ;; first-match-wins deterministic.
    {:fixture/id    :eval-cljs/await-resolved
-    :fixture/doc   "eval-cljs :await true on a thenable that resolves returns {:ok? true :value <resolved>} after polling the mailbox (rf2-xn4f9)."
+    :fixture/doc   "eval-cljs :await true on a thenable that resolves returns {:ok? true :value <resolved>} after polling the mailbox."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(-> (js/Promise.resolve {:hello \"world\"}) (.then identity))"
                     :await true :build "app"}
@@ -536,12 +545,12 @@
      :edn-submap {:ok? true :value {:hello "world"} :build :app}}}
 
    ;; Await + rejected thenable: the mailbox-read returns :rejected;
-   ;; the server surfaces :rf.error/eval-cljs-rejected. rf2-acckgr: this
-   ;; is a known-tool failure and MUST be isError: true per spec/003's
-   ;; universal isError rule — it used to ride back as ok-text
-   ;; (isError: false), masking the rejection as a success.
+   ;; the server surfaces :rf.error/eval-cljs-rejected. This is a
+   ;; known-tool failure and MUST be isError: true per spec/003's
+   ;; universal isError rule — riding back as ok-text (isError: false)
+   ;; would mask the rejection as a success.
    {:fixture/id    :eval-cljs/await-rejected
-    :fixture/doc   "eval-cljs :await true on a thenable that rejects returns {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>} as an isError envelope (rf2-xn4f9 / rf2-acckgr)."
+    :fixture/doc   "eval-cljs :await true on a thenable that rejects returns {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>} as an isError envelope."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(js/Promise.reject (ex-info \"nope\" {}))"
                     :await true :build "app"}
@@ -564,7 +573,7 @@
    ;; event. The runtime fn is `dispatch-consequence!`, distinct from the
    ;; `pair-dispatch!` transport ack used by the :queued path.
    {:fixture/id    :dispatch/happy
-    :fixture/doc   "default dispatch returns the consequence via dispatch-consequence! (rf2-3bu3d.2 / rf2-3bu3d.3)."
+    :fixture/doc   "default dispatch returns the consequence via dispatch-consequence!."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:counter/inc]"}
     :fixture/eval-script
@@ -584,7 +593,7 @@
    ;; A genuine NO-OP is VISIBLE: `:db-changed? false :effects-fired []
    ;; :no-op? true` rather than a bare success ack.
    {:fixture/id    :dispatch/no-op-visible
-    :fixture/doc   "a no-op dispatch returns :db-changed? false :effects-fired [] :no-op? true (rf2-3bu3d.2)."
+    :fixture/doc   "a no-op dispatch returns :db-changed? false :effects-fired [] :no-op? true."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:noop/event]"}
     :fixture/eval-script
@@ -604,7 +613,7 @@
    ;; dispatching (the runtime `dispatch-consequence!` short-circuits on
    ;; the validation miss). No silent no-op success.
    {:fixture/id    :dispatch/unknown-id-validated
-    :fixture/doc   "dispatch of an unregistered event-id surfaces :reason :unknown-id + :nearest, never a silent success (rf2-3bu3d.3)."
+    :fixture/doc   "dispatch of an unregistered event-id surfaces :reason :unknown-id + :nearest, never a silent success."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:rf/xrayy]"}
     :fixture/eval-script
@@ -624,7 +633,7 @@
    ;; `pair-dispatch!` return rides back with `:mode :queued` and
    ;; `:settled? false` when the cascade hasn't drained.
    {:fixture/id    :dispatch/queued-settled-false
-    :fixture/doc   "dispatch :queued true returns the async ack (:mode :queued :settled? false) (rf2-3bu3d.2)."
+    :fixture/doc   "dispatch :queued true returns the async ack (:mode :queued :settled? false)."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:counter/inc]" :queued true}
     :fixture/eval-script
@@ -650,7 +659,7 @@
      :reason :missing-event}}
 
    {:fixture/id    :dispatch/preload-missing
-    :fixture/doc   "dispatch surfaces :runtime-loaded-but-preload-missing when the marker is absent (rf2-7tgfk diagnostic ladder)."
+    :fixture/doc   "dispatch surfaces :runtime-loaded-but-preload-missing when the marker is absent (diagnostic ladder)."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:counter/inc]"}
     :fixture/eval-script
@@ -666,7 +675,7 @@
    ;; `::rf/xray` (namespace ":rf") that raw `(keyword ...)` would produce
    ;; — which would be a silent no-op.
    {:fixture/id    :dispatch/frame-targeted-routes
-    :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray (rf2-ldfnx). Routes through dispatch-consequence! (rf2-3bu3d.2)."
+    :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray. Routes through dispatch-consequence!."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:rf.xray/focus-event 85]" :frame ":rf/xray" :sync true}
     :fixture/eval-script
@@ -687,7 +696,7 @@
    ;; surface a structured ERROR envelope, never a {:mode :sync} success
    ;; merged over the failure (which would be a silent wrong-success).
    {:fixture/id    :dispatch/frame-untargetable-error
-    :fixture/doc   "dispatch surfaces the runtime's {:ok? false :reason :no-new-epoch} as an :isError envelope with NO :mode slot (rf2-ldfnx)."
+    :fixture/doc   "dispatch surfaces the runtime's {:ok? false :reason :no-new-epoch} as an :isError envelope with NO :mode slot."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:rf.xray/focus-event 85]" :frame ":rf/xray" :sync true}
     :fixture/eval-script
@@ -710,7 +719,7 @@
    ;; (`re-frame.interop/after-render`) + the paint boundary
    ;; (`requestAnimationFrame`) and force synchronous dispatch.
    {:fixture/id    :dispatch/await-render-settles
-    :fixture/doc   "dispatch :await-render true resolves to the dispatch envelope with :settled? true after the render flush, routed through the adapter contract (rf2-gfu33)."
+    :fixture/doc   "dispatch :await-render true resolves to the dispatch envelope with :settled? true after the render flush, routed through the adapter contract."
     :fixture/tool  "dispatch"
     :fixture/args  {:event "[:counter/inc]" :await-render true}
     :fixture/eval-script
@@ -740,9 +749,10 @@
      :edn-submap {:ok? true :mode :sync :settled? true :epoch-id 9}}}
 
    ;; ---------- dispatch-dry-run ------------------------------------------
-   ;; Dry-run is NOT --allow-writes-gated: the override-set ensures no
-   ;; observable effect escapes, and restore-epoch rewinds the would-be
-   ;; epoch. No gate needed because the contract IS "no state change".
+   ;; Dry-run is NOT --allow-writes-gated: the framework effect sink
+   ;; records and skips every declared fx, and `replace-frame-state!`
+   ;; restores the pre-call frame-state. No gate needed because the
+   ;; contract IS "no state change".
    {:fixture/id    :dispatch-dry-run/happy
     :fixture/doc   "dispatch-dry-run wraps the runtime's dispatch-dry-run envelope through unchanged — :cascade-summary + :would-fire-effects + :db-state-after-simulation."
     :fixture/tool  "dispatch-dry-run"
@@ -767,7 +777,7 @@
                                    :would-fire-effects [{:fx-id :http :args {:url "/checkout"}}]
                                    :db-state-after-simulation {:cart {} :order {:id 1}}}]
      [:default                    nil]]
-    ;; rf2-j2wz — the parsed event rides as a QUOTED literal, so it
+    ;; The parsed event rides as a QUOTED literal, so it
     ;; evaluates to the datum the caller sent rather than to whatever its
     ;; printed form means as source.
     :fixture/eval-form-must-contain
@@ -787,7 +797,7 @@
      :reason :missing-event}}
 
    {:fixture/id    :dispatch-dry-run/rejects-host-form
-    :fixture/doc   "dispatch-dry-run rejects host-form source (rf2-vflrg posture inherited from dispatch)."
+    :fixture/doc   "dispatch-dry-run rejects host-form source (the data-not-source posture shared with dispatch)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/args  {:event "(println :pwn)"}
     :fixture/eval-script
@@ -800,8 +810,8 @@
    ;; published posture) MUST run the app-db-rooted egress slot
    ;; (:db-state-after-simulation) through the elision walker server-side,
    ;; with sensitive slots forced to redact. The caller's `:elision false`
-   ;; is the size override and is honoured on every launch (rf2-ealv5 /
-   ;; rf2-3x7nj.32.4): an `include-large? true` overlay on the off-box-tool
+   ;; is the size override and is honoured on every launch: an
+   ;; `include-large? true` overlay on the off-box-tool
    ;; floor, never the local-raw boundary, and echoed as `:elision false`.
    ;; The :would-fire-effects[*].args slot is NOT app-db-rooted, so
    ;; it FAILS CLOSED (assoc :rf/redacted) rather than running through the
@@ -810,13 +820,13 @@
    ;; (touching :would-fire-effects), and must signal the raw-state tap
    ;; posture (configure-raw-state!) before the dispatch.
    {:fixture/id    :dispatch-dry-run/gate-off-redacts-egress
-    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation through project-egress under the :rf.egress/off-box-tool boundary, and FAILS CLOSED the :would-fire-effects[*].args to :rf/redacted (rf2-z7roa + rf2-6to9xj)."
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation through project-egress under the :rf.egress/off-box-tool boundary, and FAILS CLOSED the :would-fire-effects[*].args to :rf/redacted."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? false
     :fixture/args  {:event "[:auth/login]"
-                    ;; the size override is honoured on every launch
-                    ;; (rf2-ealv5); the sensitive + fx-args opt-ins are
-                    ;; dropped by the gate.
+                    ;; the size override is honoured on every launch;
+                    ;; the sensitive + fx-args opt-ins are dropped by
+                    ;; the gate.
                     :elision false
                     :include-sensitive true
                     :include-fx-args true}
@@ -847,7 +857,7 @@
    ;; `:db-state-after-simulation` slot: large content passes
    ;; (`include-large? true`) but a declared-sensitive db slot redacts.
    {:fixture/id    :dispatch-dry-run/gate-on-bare-elision-false-still-walks
-    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through project-egress under :rf.egress/off-box-tool with a :rf.egress/include-large? true overlay (rf2-t55hxg.13)."
+    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through project-egress under :rf.egress/off-box-tool with a :rf.egress/include-large? true overlay."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false}
@@ -867,12 +877,12 @@
 
    ;; The deliberate full-raw opt-in (`:elision false` AND
    ;; `:include-sensitive true`) NAMES `:rf.egress/local-raw`, under which
-   ;; the projection is the identity so the db slot ships raw (rf2-kuky.88
-   ;; — the door is still called). With `:include-fx-args` unset the fx
+   ;; the projection is the identity so the db slot ships raw (the door
+   ;; is still called). With `:include-fx-args` unset the fx
    ;; args still fail closed, so the form still touches
    ;; `:would-fire-effects`.
    {:fixture/id    :dispatch-dry-run/gate-on-full-raw-opt-out
-    :fixture/doc   "dispatch-dry-run ON + :elision false + :include-sensitive true ships the raw simulation details — the db slot names :rf.egress/local-raw, under which the projection is the identity (rf2-z7roa / rf2-t55hxg.13 / rf2-kuky.88)."
+    :fixture/doc   "dispatch-dry-run ON + :elision false + :include-sensitive true ships the raw simulation details — the db slot names :rf.egress/local-raw, under which the projection is the identity."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false :include-sensitive true}
@@ -901,7 +911,7 @@
    ;; trusted-local opt-in that keeps the raw args — the form then does NOT
    ;; touch the :args slot.
    {:fixture/id    :dispatch-dry-run/gate-on-include-fx-args-reveals
-    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + :include-fx-args true keeps the raw :would-fire-effects[*].args — the emitted form does NOT assoc :rf/redacted onto the args (rf2-6to9xj)."
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + :include-fx-args true keeps the raw :would-fire-effects[*].args — the emitted form does NOT assoc :rf/redacted onto the args."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:auth/login]" :include-fx-args true}
@@ -921,7 +931,7 @@
                   :would-fire-effects [{:fx-id :http :args {:headers {:authorization "Bearer raw-token"}}}]}}}
 
    {:fixture/id    :dispatch-dry-run/no-new-epoch
-    :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :no-new-epoch} as an isError envelope (rf2-wdxyx3 finding 2 — a non-landed dry-run is never a silent success; parity with dispatch/no-new-epoch)."
+    :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :no-new-epoch} as an isError envelope (a non-landed dry-run is never a silent success; parity with dispatch/no-new-epoch)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/args  {:event "[:noop]"}
     :fixture/eval-script
@@ -935,16 +945,16 @@
     {:isError? true
      :edn-submap {:ok? false :reason :no-new-epoch}}}
 
-   ;; rf2-glg4uo (P2 SAFETY): the simulation LANDED but restore-epoch
-   ;; returned false, so the would-be db IS the live app-db and a spurious
-   ;; epoch is left at the ring head. The runtime reports the documented
-   ;; {:ok? false :reason :rollback-failed :rolled-back? false} shape (NOT
-   ;; the old :ok? true + :rollback-hint that read GREEN over a mutated
-   ;; db). A dry-run that silently mutated the live app must ride as
-   ;; isError — the tool routes it red on :ok? false AND on the
-   ;; belt-and-braces :rolled-back? false boundary guard.
+   ;; SAFETY: the simulation LANDED but the rollback
+   ;; (`replace-frame-state!`) was rejected, so the simulated state can
+   ;; still be live. The runtime reports the documented
+   ;; {:ok? false :reason :rollback-failed :rolled-back? false} shape — an
+   ;; :ok? true shape would read GREEN over a mutated db. A dry-run that
+   ;; silently mutated the live app must ride as isError — the tool routes
+   ;; it red on :ok? false AND on the belt-and-braces :rolled-back? false
+   ;; boundary guard.
    {:fixture/id    :dispatch-dry-run/rollback-failed
-    :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :rollback-failed :rolled-back? false} as an isError envelope (rf2-glg4uo — a failed rollback left the live db MUTATED; it must never read as a silent green success)."
+    :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :rollback-failed :rolled-back? false} as an isError envelope (a failed rollback leaves the live db MUTATED; it must never read as a silent green success)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/args  {:event "[:cart/checkout]"}
     :fixture/eval-script
@@ -984,7 +994,7 @@
     [["__re_frame2_pair_runtime"  true]
      ["restore-epoch"             true]
      [:default                    nil]]
-    ;; rf2-fzbj.6 — the caller's epoch-id is EDN and rides as quoted
+    ;; The caller's epoch-id is EDN and rides as quoted
     ;; literal data, like every other caller-supplied argument.
     :fixture/eval-form-must-contain
     ["restore-epoch (quote 7)"]
@@ -1008,7 +1018,7 @@
    ;; isError carrying :restore-rejected, NOT a success-shaped envelope
    ;; the host reads as a landed write.
    {:fixture/id    :restore-epoch/rejected-false
-    :fixture/doc   "restore-epoch with --allow-writes ON whose runtime returns false (rejected restore) rides as isError :restore-rejected (rf2-or8s29)."
+    :fixture/doc   "restore-epoch with --allow-writes ON whose runtime returns false (rejected restore) rides as isError :restore-rejected."
     :fixture/tool  "restore-epoch"
     :fixture/allow-writes? true
     :fixture/args  {:epoch-id "999"}
@@ -1022,13 +1032,13 @@
      :edn-submap {:ok? false :restored? false :reason :restore-rejected :epoch-id 999}}}
 
    ;; ---------- replay-epoch (dispatch authority; NOT writes-gated) --------
-   ;; rf2-ov144 — strict replay of a retained epoch in ONE call. The tool
+   ;; Strict replay of a retained epoch in ONE call. The tool
    ;; sends only the id; the runtime resolves the raw record in-process.
    ;; NOT behind --allow-writes (it drives the app's own handlers, exactly
    ;; like dispatch), so the happy fixture leaves the gate at its default
    ;; OFF and still reaches the runtime.
    {:fixture/id    :replay-epoch/happy
-    :fixture/doc   "replay-epoch with the writes gate at its default OFF reaches the runtime and passes the dispatch-shaped consequence through (rf2-ov144)."
+    :fixture/doc   "replay-epoch with the writes gate at its default OFF reaches the runtime and passes the dispatch-shaped consequence through."
     :fixture/tool  "replay-epoch"
     :fixture/args  {:epoch-id "7"}
     :fixture/eval-script
@@ -1039,7 +1049,7 @@
                                    :db-changed? true :changed-paths [[:cart]]
                                    :effects-fired [:http] :no-op? false}]
      [:default                    nil]]
-    ;; rf2-fzbj.6 — caller EDN rides quoted (see the restore-epoch row).
+    ;; Caller EDN rides quoted (see the restore-epoch row).
     :fixture/eval-form-must-contain
     ["replay-epoch (quote 7)"]
     :fixture/expect
@@ -1060,7 +1070,7 @@
    ;; replay did not land. It MUST ride as isError carrying the framework's
    ;; own reason, never a success-shaped envelope.
    {:fixture/id    :replay-epoch/refused-unknown-epoch
-    :fixture/doc   "replay-epoch whose runtime refuses BEFORE dispatch (unknown / aged-out id) rides as isError carrying the framework reason (rf2-ov144)."
+    :fixture/doc   "replay-epoch whose runtime refuses BEFORE dispatch (unknown / aged-out id) rides as isError carrying the framework reason."
     :fixture/tool  "replay-epoch"
     :fixture/args  {:epoch-id "999"}
     :fixture/eval-script
@@ -1085,7 +1095,7 @@
      :reason :rf.error/writes-disabled}}
 
    {:fixture/id    :replace-app-db/happy
-    :fixture/doc   "replace-app-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data. Signals configure-raw-state! before app-db-reset! (rf2-z7roa raw-state tap posture)."
+    :fixture/doc   "replace-app-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data. Signals configure-raw-state! before app-db-reset! (raw-state tap posture)."
     :fixture/tool  "replace-app-db"
     :fixture/allow-writes? true
     :fixture/allow-raw-state? false
@@ -1096,7 +1106,7 @@
      ["app-db-reset!"             {:ok? true :frame :rf/default}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ;; rf2-olqo — the `db` value is external EDN, so it rides the
+    ;; The `db` value is external EDN, so it rides the
     ;; literal-data emission `(quote <datum>)`, not the print path.
     ["app-db-reset! (quote {:counter 0})"
      ;; The raw-state tap posture is signalled (the unit suite pins it
@@ -1125,7 +1135,7 @@
    ;; land. It MUST ride as isError carrying the reason, NOT a
    ;; success-shaped envelope.
    {:fixture/id    :replace-app-db/reset-rejected
-    :fixture/doc   "replace-app-db with --allow-writes ON whose runtime returns {:ok? false :reason :reset-rejected} rides as isError (rf2-or8s29)."
+    :fixture/doc   "replace-app-db with --allow-writes ON whose runtime returns {:ok? false :reason :reset-rejected} rides as isError."
     :fixture/tool  "replace-app-db"
     :fixture/allow-writes? true
     :fixture/allow-raw-state? false
@@ -1186,7 +1196,7 @@
     :fixture/expect
     {:isError? false}}
 
-   ;; rf2-3x7nj.32.1 — the `:probe` is arbitrary CLJS evaluated in the
+   ;; The `:probe` is arbitrary CLJS evaluated in the
    ;; runtime (the eval-cljs authority class), so `--no-eval` refuses it
    ;; with eval-cljs's own envelope, and the probe source never reaches an
    ;; nREPL eval. Beside `:eval-cljs/disabled-via-no-eval`.
@@ -1219,7 +1229,7 @@
     {:isError? false}}
 
    {:fixture/id    :snapshot/preload-missing
-    :fixture/doc   "snapshot surfaces :runtime-loaded-but-preload-missing when the marker is absent (rf2-7tgfk diagnostic ladder)."
+    :fixture/doc   "snapshot surfaces :runtime-loaded-but-preload-missing when the marker is absent (diagnostic ladder)."
     :fixture/tool  "snapshot"
     :fixture/args  {:frames "all"}
     :fixture/eval-script
@@ -1255,7 +1265,7 @@
      :reason :missing-path}}
 
    {:fixture/id    :get-path/path-not-found
-    :fixture/doc   "get-path surfaces the runtime's :path-not-found failure as an isError envelope (rf2-wdxyx3 finding 2 — a known-tool :ok? false is never a silent success)."
+    :fixture/doc   "get-path surfaces the runtime's :path-not-found failure as an isError envelope (a known-tool :ok? false is never a silent success)."
     :fixture/tool  "get-path"
     :fixture/args  {:path "[:no-such :key]"}
     :fixture/eval-script
@@ -1293,7 +1303,7 @@
      :edn-contains-keys #{:nodes :selector}}}
 
    {:fixture/id    :read-dom/large-text-elided
-    :fixture/doc   "read-dom replaces over-:max-text node text with the {:rf.size/large-elided {:type :dom-text ...}} marker (rf2-urjnc convention)."
+    :fixture/doc   "read-dom replaces over-:max-text node text with the {:rf.size/large-elided {:type :dom-text ...}} marker (the size-elision convention)."
     :fixture/tool  "read-dom"
     :fixture/args  {:selector "pre" :max-text 100}
     :fixture/eval-script
@@ -1319,7 +1329,7 @@
      :reason :missing-selector}}
 
    {:fixture/id    :read-dom/bad-selector
-    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError inside dom-read) as an :isError envelope — a thrown malformed-selector is a caller FAULT, so per spec/003-Tool-Catalogue.md §381 (\"every :ok? false is isError:true\") map-result-or-blank branches its map arm on :ok? (rf2-q7cavs). Keeping it isError also keeps the transient failure OUT of the response cache (cache eligibility bypasses isError)."
+    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError inside dom-read) as an :isError envelope — a thrown malformed-selector is a caller FAULT, so per spec/003-Tool-Catalogue.md §381 (\"every :ok? false is isError:true\") map-result-or-blank branches its map arm on :ok?. Keeping it isError also keeps the transient failure OUT of the response cache (cache eligibility bypasses isError)."
     :fixture/tool  "read-dom"
     :fixture/args  {:selector "###"}
     :fixture/eval-script
@@ -1333,7 +1343,7 @@
 
    ;; ---------- list-subscriptions (reactive sub-cache) -------------------
    {:fixture/id    :list-subscriptions/empty
-    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. GENUINE emptiness is the runtime's OWN `{:ok? true :subs []}` MAP (a real answer), not a blank eval — so it rides isError:false. (rf2-21vvfs: a blank/non-map eval is a DEGRADED read, not emptiness — see the /degraded-blank sibling.)"
+    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. GENUINE emptiness is the runtime's OWN `{:ok? true :subs []}` MAP (a real answer), not a blank eval — so it rides isError:false. (A blank/non-map eval is a DEGRADED read, not emptiness — see the /degraded-blank sibling.)"
     :fixture/tool  "list-subscriptions"
     :fixture/args  {}
     :fixture/eval-script
@@ -1344,7 +1354,7 @@
      :edn-submap {:ok? true :subs []}}}
 
    {:fixture/id    :list-subscriptions/degraded-blank
-    :fixture/doc   "rf2-21vvfs: a BLANK/non-map eval (the runtime sentinel is present, but the browser tab closed/navigated in the race between the liveness re-check and the sub-cache drain) is a DEGRADED read — NOT an empty listing. It surfaces as :unexpected-shape (isError:true), never a fabricated `{:ok? true :subs []}` masking a dead read."
+    :fixture/doc   "A BLANK/non-map eval (the runtime sentinel is present, but the browser tab closed/navigated in the race between the liveness re-check and the sub-cache drain) is a DEGRADED read — NOT an empty listing. It surfaces as :unexpected-shape (isError:true), never a fabricated `{:ok? true :subs []}` masking a dead read."
     :fixture/tool  "list-subscriptions"
     :fixture/args  {}
     :fixture/eval-script
@@ -1389,7 +1399,7 @@
      :edn-contains-keys #{:frames :selected :operating}}}
 
    {:fixture/id    :set-operating-frame/no-such-frame
-    :fixture/doc   "set-operating-frame on an unregistered frame refuses with :no-such-frame as an isError envelope (Tool-Pair §Tool-surface obligations + rf2-wdxyx3 finding 2 — the failed pin is not a silent success, so the invoke chokepoint won't flush the cache)."
+    :fixture/doc   "set-operating-frame on an unregistered frame refuses with :no-such-frame as an isError envelope (Tool-Pair §Tool-surface obligations — the failed pin is not a silent success, so the invoke chokepoint won't flush the cache)."
     :fixture/tool  "set-operating-frame"
     :fixture/args  {:frame ":nope"}
     :fixture/eval-script
@@ -1404,7 +1414,7 @@
      :edn-submap {:ok? false :reason :no-such-frame :frame :nope}}}
 
    {:fixture/id    :set-operating-frame/reserved-tool-frame
-    :fixture/doc   "set-operating-frame refuses to pin a reserved :rf/* TOOL frame as the operating frame (rf2-wdxyx3 finding 1). Refused BEFORE any nREPL round-trip — a reserved frame is never the operating frame, so an omitted-:frame read can never resolve to it. :rf/default (an app frame) is allowed."
+    :fixture/doc   "set-operating-frame refuses to pin a reserved :rf/* TOOL frame as the operating frame. Refused BEFORE any nREPL round-trip — a reserved frame is never the operating frame, so an omitted-:frame read can never resolve to it. :rf/default (an app frame) is allowed."
     :fixture/tool  "set-operating-frame"
     :fixture/args  {:frame ":rf/xray"}
     ;; No eval expected — the refusal short-circuits before the round-trip.
@@ -1523,7 +1533,7 @@
    ;; gate-ON path defers to it. `:elision` (the size override) is NOT
    ;; gated — a caller's `:elision false` overlays
    ;; `:rf.egress/include-large? true` on the off-box-tool floor on every
-   ;; launch (rf2-ealv5 / rf2-3x7nj.32.4). The wire-key carries no trailing `?`; the namespaced
+   ;; launch. The wire-key carries no trailing `?`; the namespaced
    ;; walker-option keyword `:rf.egress/include-sensitive?` retains it
    ;; (internal framework key, not on the wire).
    {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
@@ -1558,7 +1568,7 @@
     {:isError? false}}
 
    {:fixture/id    :raw-state/snapshot-gated-default-honours-elision-false
-    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ the size override is honoured: the form still projects via project-egress under :rf.egress/off-box-tool, with a :rf.egress/include-large? true overlay, never local-raw (rf2-ealv5 / rf2-3x7nj.32.4)."
+    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ the size override is honoured: the form still projects via project-egress under :rf.egress/off-box-tool, with a :rf.egress/include-large? true overlay, never local-raw."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
     :fixture/args  {:frames "all" :elision false}
@@ -1576,9 +1586,9 @@
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
 
-   ;; rf2-ealv5 / rf2-3x7nj.32.4 — the get-path size override on a DEFAULT
-   ;; launch, singular and batch. RED on the pre-fix tree: the gate forced
-   ;; `:elision true`, so the overlay was absent and the echo read `true`.
+   ;; The get-path size override on a DEFAULT launch, singular and batch.
+   ;; A gate that forced `:elision true` would leave the overlay absent
+   ;; and echo `true`.
    {:fixture/id    :raw-state/get-path-gated-default-honours-elision-false
     :fixture/doc   "get-path: gate OFF + caller passes :elision false ⇒ the form names :rf.egress/off-box-tool with a :rf.egress/include-large? true overlay, never local-raw, and the envelope echoes :elision false."
     :fixture/tool  "get-path"
@@ -1642,7 +1652,7 @@
    ;; The deliberate full-raw local opt-in (`:elision false` AND
    ;; `:include-sensitive true`) NAMES `:rf.egress/local-raw` — the door
    ;; is still called, and under that boundary the projection is the
-   ;; identity so the slices ship raw (rf2-kuky.88).
+   ;; identity so the slices ship raw.
    {:fixture/id    :raw-state/snapshot-full-raw-opt-in-names-local-raw
     :fixture/doc   "Gate ON + :elision false + :include-sensitive true ⇒ full-raw opt-in; the form names :rf.egress/local-raw and never the walker export."
     :fixture/tool  "snapshot"
@@ -1692,7 +1702,7 @@
     {:isError? false}}
 
    {:fixture/id    :raw-state/signal-runtime-fires-once-on-first-call
-    :fixture/doc   "Boot-gate state is signalled to the runtime via configure-raw-state! on the first state-emitting tool call per build."
+    :fixture/doc   "Boot-gate state is signalled to the runtime via configure-raw-state! before a state-emitting tool call's eval."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
     :fixture/args  {:frames "all"}
@@ -1857,7 +1867,7 @@
    ;; four projection axes) AND the honest absent/inactive envelopes.
    ;;
    ;; THE STUB KEY IS THE WIRE STRING — `(cljs.core/munge "<read>")`, the one
-   ;; place each read is named in the emitted form since rf2-t2ec replaced the
+   ;; place each read is named in the emitted form, which carries no
    ;; fully-qualified var reference. These fixtures therefore pin the emitter and
    ;; nothing else: a form naming a read the provider does not publish matches a
    ;; stub here just as happily as a real one. `fresco-wire-test` is what reads
@@ -2059,7 +2069,7 @@
 
    ;; ---------- describe-image --------------------------------------------
    ;; EP-0023 forward read of a frame's resolved image generation. Routes
-   ;; through map-envelope-result — the isError-contract ratchet (rf2-01jwrq).
+   ;; through map-envelope-result — the isError-contract ratchet.
    {:fixture/id    :describe-image/happy
     :fixture/doc   "describe-image forwards the runtime's frame-generation summary (:images/:kinds/:counts)."
     :fixture/tool  "describe-image"
@@ -2076,7 +2086,7 @@
      :edn-contains-keys #{:images :kinds :counts}}}
 
    {:fixture/id    :describe-image/ambiguous-frame-iserror
-    :fixture/doc   "describe-image surfaces the runtime's {:ok? false :reason :ambiguous-frame} as an isError envelope (map-envelope-result — every :ok? false is isError; rf2-01jwrq)."
+    :fixture/doc   "describe-image surfaces the runtime's {:ok? false :reason :ambiguous-frame} as an isError envelope (map-envelope-result — every :ok? false is isError)."
     :fixture/tool  "describe-image"
     :fixture/args  {}
     :fixture/eval-script
@@ -2120,7 +2130,7 @@
 
    ;; ---------- read-recording --------------------------------------------
    ;; Reads back a recording's change-log; map-envelope-result routes the
-   ;; :no-such-recording refusal as isError (rf2-5m2oi1).
+   ;; :no-such-recording refusal as isError.
    {:fixture/id    :read-recording/happy
     :fixture/doc   "read-recording forwards the runtime change-log envelope (:ok? true :count :entries)."
     :fixture/tool  "read-recording"
@@ -2135,7 +2145,7 @@
      :edn-submap {:ok? true :recording-id "rec-abc" :count 2}}}
 
    {:fixture/id    :read-recording/no-such-recording-iserror
-    :fixture/doc   "read-recording of an unknown/expired id surfaces {:ok? false :reason :no-such-recording} as isError (rf2-5m2oi1 — never a green result hiding a buried :ok? false)."
+    :fixture/doc   "read-recording of an unknown/expired id surfaces {:ok? false :reason :no-such-recording} as isError (never a green result hiding a buried :ok? false)."
     :fixture/tool  "read-recording"
     :fixture/args  {:recording-id "rec-gone"}
     :fixture/eval-script
@@ -2180,7 +2190,7 @@
 
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
-    :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error carrying a recovery :hint + the :available-tools catalogue (rf2-tkmik)."
+    :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error carrying a recovery :hint + the :available-tools catalogue."
     :fixture/tool  "no-such-tool"
     :fixture/args  {}
     :fixture/eval-script
@@ -2229,11 +2239,11 @@
     (eval-cljs/set-eval-allowed! eval-allowed?-effective)
     (raw-state/set-allow-raw-state! (boolean allow-raw-state?))
     (writes/set-allow-writes! (boolean allow-writes?))
-    ;; Reset the per-build runtime-signal cache so each fixture exercises
-    ;; the signal path freshly. `signal-runtime!` rides one extra nREPL
-    ;; round-trip on first call per build per server-lifetime — the
-    ;; corpus's stub eval-script accepts the `configure-raw-state!` form
-    ;; via the `:default` catch-all.
+    ;; Clear the per-build in-flight signal map so no fixture awaits
+    ;; another's signal. `signal-runtime!` rides one extra nREPL
+    ;; round-trip before every state-emitting eval — the corpus's stub
+    ;; eval-script accepts the `configure-raw-state!` form via the
+    ;; `:default` catch-all.
     (raw-state/reset-runtime-signal-cache!)
     (with-stubbed-eval! eval-script forms-seen
       (fn []
@@ -2327,25 +2337,21 @@
                 (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Completeness guard (rf2-e5x5gd).
+;; Completeness guard.
 ;;
 ;; The corpus ns docstring calls THIS namespace the cross-tool wire-shape
 ;; RATCHET that pins, "for EACH MCP tool", the envelope tools/invoke
 ;; produces — its whole point is catching cross-tool vocabulary renames
-;; that slip past the per-tool unit suites. But there was NO structural
-;; guard that every registered tool actually HAS a fixture, so 7 tools
-;; (orient / read-sub / read-ui / record / read-recording / watch-until /
-;; describe-image) drifted out of the corpus silently — three of them
-;; (describe-image / record / read-recording) carry recent isError-contract
-;; fixes the corpus is supposed to ratchet.
+;; that slip past the per-tool unit suites. Without a structural guard
+;; that every registered tool actually HAS a fixture, a tool could drift
+;; out of the corpus silently and escape the ratchet.
 ;;
-;; Every `registry/tool-names` entry MUST own >=1 corpus fixture. A
-;; newly-registered tool with no fixture now fails HERE at
-;; compile-authoring time instead of escaping the ratchet. Since
-;; rf2-wyza retired the hand-maintained onboarding catalogue, this is
-;; the LAST authoring-time assertion in the artefact that a new tool
-;; must satisfy by name — `onboarding_routing_test` deliberately no
-;; longer requires every tool to appear in prose.
+;; Every `registry/tool-names` entry MUST own >=1 corpus fixture, so a
+;; newly-registered tool with no fixture fails HERE at authoring time.
+;; The onboarding text carries no hand-maintained tool catalogue, so
+;; this is the only authoring-time assertion in the artefact that a new
+;; tool must satisfy by name — `onboarding_routing_test` deliberately
+;; does not require every tool to appear in prose.
 ;;
 ;; NB: we do NOT assert the reverse
 ;; (no phantom fixture tools) — the corpus deliberately carries a
