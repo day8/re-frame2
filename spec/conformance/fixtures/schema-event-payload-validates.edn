@@ -6,12 +6,9 @@
 ;; is NOT invoked (recovery: :no-recovery; downstream queue continues).
 ;;
 ;; This capability — :schemas/event-payload — is finer-grained than the
-;; baseline :schemas/runtime (which today's reference implementation only
-;; covers app-db slice validation). Ports that have wired event-payload
-;; validation declare :schemas/event-payload alongside :schemas/runtime;
-;; ports that haven't are skipped on this fixture. The runtime gap is
-;; tracked as rf2-jwm4 (validate-event! exists in re-frame.schemas but is
-;; not yet called by the router).
+;; baseline :schemas/runtime (app-db slice validation). Ports that have wired
+;; event-payload validation declare :schemas/event-payload alongside
+;; :schemas/runtime; ports that haven't are skipped on this fixture.
 ;;
 ;; Dynamic-host only — statically typed hosts reject malformed payloads at
 ;; the call site and produce no runtime trace.
