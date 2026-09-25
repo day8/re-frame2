@@ -376,7 +376,7 @@
                   " POSITIVE INTEGER (literal ms, e.g. 5000) or an ISO-8601"
                   " duration STRING (e.g. \"PT5S\", \"PT2M\", \"PT1H30M\")."
                   " The XState \"5s\" / \"10ms\" shorthand is REJECTED"
-                  " (EP-0029 A4 operator-ruled divergence).")
+                  " (EP-0029 A4).")
              {:state state-key :site site :timeout timeout}))
 
     :else nil))

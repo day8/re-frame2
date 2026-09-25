@@ -186,12 +186,12 @@
       (when (some? (:timeout-ms spec))
         (throw (validation-error
                  :rf.error/spawn-timeout-ms-removed
-                 (str "the legacy :timeout-ms slot on " slot-key
-                      " was removed. Express a wall-clock spawn timeout via "
-                      "the EP-0029 A4 spawn-level :timeout / :on-timeout "
-                      "grammar (a positive-integer ms or an ISO-8601 "
-                      "duration), e.g. {:spawn {:machine-id … :timeout 30000 "
-                      ":on-timeout {:target :timed-out}}}.")
+                 (str ":timeout-ms is not a " slot-key " key. Express a "
+                      "wall-clock spawn timeout with the spawn-level "
+                      ":timeout / :on-timeout pair (a positive-integer ms or "
+                      "an ISO-8601 duration), e.g. {:spawn {:machine-id … "
+                      ":timeout 30000 :on-timeout {:target :timed-out}}}. "
+                      "Per Spec 005 §:timeout / :on-timeout.")
                  {:state      state-key
                   :slot       slot-key
                   :timeout-ms (:timeout-ms spec)}))))))
@@ -296,8 +296,8 @@
                    (str ":spawn-all block declares unknown bare key(s) "
                         (key-labels offending)
                         " — a bare key outside the reserved :spawn-all "
-                        "vocabulary reads as a typo or a retired key (e.g. "
-                        "the removed :cancel-on-decision?) and would be "
+                        "vocabulary reads as a typo or an unsupported key "
+                        "(e.g. :cancel-on-decision?) and would be "
                         "silently ignored. Use a NAMESPACED key for a user "
                         "extension. Valid keys: "
                         (pr-str (vec (sort known-spawn-all-block-keys))) ".")
@@ -2083,7 +2083,7 @@
                  :rf.error/machine-bad-tags
                  (str ":tags on state " state-key " must be a SET of keywords "
                       "(#{:loading :busy}), got " (pr-str tags)
-                      ". A vector / single keyword is NO LONGER coerced — the "
+                      ". A vector / single keyword is not coerced — the "
                       "slot is a strict set, mirroring :internal-events. Per "
                       "Spec 005 §State tags + Spec-Schemas :rf/state-node.")
                  {:state state-key

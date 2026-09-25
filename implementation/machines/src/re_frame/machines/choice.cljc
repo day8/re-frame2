@@ -275,9 +275,9 @@
                     (pr-str choice) " — a :choice must be a DECLARATIVE,"
                     " NON-EMPTY vector of guarded-candidate maps"
                     " ([{:guard … :target …} … {:target <default>}]). A"
-                    " function-valued :choice is REJECTED (EP-0029 A2 / C1"
-                    " operator-ruled divergence — a function may never be the"
-                    " edge; the candidate array keeps the routing declarative).")
+                    " function-valued :choice is REJECTED (EP-0029 A2 / C1):"
+                    " a function may never be the edge; the candidate array"
+                    " keeps the routing declarative.")
                {:state state-key :choice choice}))
 
       :else

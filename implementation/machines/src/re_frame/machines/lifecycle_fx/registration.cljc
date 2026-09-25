@@ -1376,8 +1376,8 @@
       :rf.error/invalid-machine-opts
       'rf-machines/reg-machine*
       (str "reg-machine " machine-id "'s opts (the MIDDLE slot) must be a "
-           "registration-metadata map, got " (pr-str (type opts)) ". Per "
-           "rf2-wvh95f F2 the grammar is (reg-machine* " machine-id " {…} "
+           "registration-metadata map, got " (pr-str (type opts)) ". The "
+           "grammar is (reg-machine* " machine-id " {…} "
            "machine): the opts metadata map is the SECOND slot, the machine "
            "spec is the THIRD. The 2-arity (reg-machine* " machine-id
            " machine) has no opts.")
