@@ -117,8 +117,10 @@
   (rf.fresco/as-component ModalView))
 
 (defn Modal
-  "The palette's public callable — what `shell.cljs` mounts as a hiccup
-  head at the shell-view root.
+  "The palette's public callable — what `shell.cljs` CALLS at the
+  shell-view root. It is called rather than headed because the shell is
+  a Fresco tree, where a plain fn in head position is a loud error; the
+  `[:> …]` it answers is a legal head.
 
   It is the `as-component` bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component [[ModalView]]
