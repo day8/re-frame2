@@ -5,7 +5,7 @@
   The step-debugger is the Storybook Interactions-panel equivalent for
   Story's `:test` mode pane: step / pause / rewind / step-back /
   breakpoint controls over the variant's `:script`. The runtime
-  substrate already exists in `re-frame.story.play` (`begin-stepper!` /
+  substrate lives in `re-frame.story.play` (`begin-stepper!` /
   `step-once!` / `end-stepper!`); this namespace is the per-variant local
   state surface the view consumes + the mutators that drive the
   substrate.
@@ -109,14 +109,14 @@
   lifecycle only, and primes the substrate via
   `rf.story.play/begin-stepper!`.
 
-  Pre-play is the whole point (spec/009 §Start semantics). `begin!` used
-  to reach its start position through `rf.story.runtime/reset-variant`,
-  which is a FULL run — phases 0-2 AND phase 4 — so a bare `:script`
-  (`:auto-run?` defaults to true) executed end to end before cursor 0 was
-  ever published: the section read \"ready · N steps\" over a POST-script
-  app-db, the first Step re-ran step 1, and Rewind's bottom-of-stack epoch
-  captured the post-script state rather than the specified initial one
-  (rf2-k6y2). `rf.story.runtime/prepare-variant` runs phases 0-2 and
+  Pre-play is the whole point (spec/009 §Start semantics). Reaching the
+  start position through `rf.story.runtime/reset-variant` would be a FULL
+  run — phases 0-2 AND phase 4 — so a bare `:script` (`:auto-run?`
+  defaults to true) would execute end to end before cursor 0 was ever
+  published: the section would read \"ready · N steps\" over a POST-script
+  app-db, the first Step would re-run step 1, and Rewind's bottom-of-stack
+  epoch would capture the post-script state rather than the specified
+  initial one. `rf.story.runtime/prepare-variant` runs phases 0-2 and
   stops, so the frame the user is shown at cursor 0 is the one the
   variant's `:setup` describes and every step is still to run.
 
@@ -126,7 +126,7 @@
   `variant-play-steps` and `begin-stepper!` alike. So the frame is
   prepared, listed and stepped against the args the canvas and Re-run use,
   the controls panel's overrides and the active modes included — never a
-  second program compiled against the static args (rf2-ad25).
+  second program compiled against the static args.
 
   Asynchronous: the caller may await the returned promise to drive a
   follow-up auto-resume, but the UI does not need to — the slot's
@@ -179,8 +179,8 @@
                  ;; which then return normally. `prepare-variant` inspects the
                  ;; accumulator and rejects explicitly for that class — do not
                  ;; "simplify" that check away on the reading that a
-                 ;; preparation which did not throw succeeded (rf2-k6y2
-                 ;; post-merge audit). The records stay on the frame either
+                 ;; preparation which did not throw succeeded. The records
+                 ;; stay on the frame either
                  ;; way, so the pane can still say what failed.
                  (swap! results-atom dissoc variant-id)
                  nil)))))
@@ -210,16 +210,16 @@
   fresh epoch and lose the deterministic mapping between cursor and
   history. The popped event simply becomes pending again.
 
-  rf2-4e545l finding 7: `begin!` seeds `:epoch-stack` with the pre-play
+  `begin!` seeds `:epoch-stack` with the pre-play
   epoch AND `step!` (for the FIRST forward step) pushes that SAME
   pre-play epoch again (there is no domino between `begin!`'s seed and
   step 0's push) — so the stack carries a duplicate bottom entry. The
   top of the stack (`peek`) is always the pre-image of the MOST RECENT
   step, i.e. exactly the state to restore to on a step-back. Popping
-  BEFORE peeking (the prior code) read the entry one further down the
-  stack instead, under-shooting by one epoch for every cursor >= 2 (the
-  cursor == 1 case only looked correct because the duplicate bottom
-  entry happened to mask the shift). Peek THEN pop is the correct
+  BEFORE peeking would read the entry one further down the stack
+  instead, under-shooting by one epoch for every cursor >= 2 (the
+  cursor == 1 case would only look correct because the duplicate bottom
+  entry masks the shift). Peek THEN pop is the correct
   order — it restores the top image and leaves the new top as the
   pre-image for the NEXT step-back, matching the stack cursor==(c-1)
   would have built by forward-stepping alone."
@@ -278,8 +278,7 @@
 
 (defn resume!
   "Start auto-play. No-ops when the stepper is at the end or already
-  ticking. Default tick is 600ms — the slot's `:tick-ms` slot can be
-  overridden by a future controls widget."
+  ticking. Default tick is 600ms — the slot's `:tick-ms` overrides it."
   [variant-id]
   (let [slot (get @results-atom variant-id)]
     (when (rf.story.ui.test-mode.stepper-pure/can-resume? slot)
