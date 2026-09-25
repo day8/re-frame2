@@ -3019,7 +3019,7 @@
                  "a prior nobody looked at")))
       (testing "CONTROL — a container whose prior GENUINELY differs still promotes"
         ;; Without this the assertion above could be green because the
-        ;; override no longer fires for anybody.
+        ;; override fires for nobody.
         (let [tree (render-at tail-path (second tail) {:keep 1})]
           (is (= "children" (container-op tree "map"))
               (str "a REAL prior that differs from the after value still "
