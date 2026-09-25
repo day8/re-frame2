@@ -1,42 +1,40 @@
 (ns re-frame.bench.fresco.arm1.props-bailout-dom-cljs-test
-  "A PAGE-CHROME WRITE DOES NOT RE-RENDER UNCHANGED ROWS (rf2-2rtt6.52).
+  "A PAGE-CHROME WRITE DOES NOT RE-RENDER UNCHANGED ROWS.
 
-  The defect this file pins was measured on the tier-1 feed shape: a write
-  that moved a key the PAGE boundary read re-rendered the page, and React
-  then re-rendered **all 300 card boundaries beneath it** — page body 1,
-  card bodies 300 of 300, with every card's props and every card's
-  subscription values equal. Those 300 unchanged-row renders are
+  The cascade this file pins, on the tier-1 feed shape: a write that moves
+  a key the PAGE boundary reads re-renders the page, and without a
+  bail-out React then re-renders **all 300 card boundaries beneath it** —
+  page body 1, card bodies 300 of 300, with every card's props and every
+  card's subscription values equal. Those 300 unchanged-row renders are
   themselves the witness; the page's own chrome does move, so this is not
-  a claim that the DOM is unchanged. A boundary was a plain React function
-  component, and React re-renders the children of a re-rendered parent
-  unless the element is referentially identical (a `for` builds fresh
-  ones) or the component bails out itself.
+  a claim that the DOM is unchanged. React re-renders the children of a
+  re-rendered parent unless the element is referentially identical (a
+  `for` builds fresh ones) or the component bails out itself, so a
+  boundary that is a plain React function component cascades.
 
-  That contradicted the programme's central architectural claim — that
+  That would contradict the programme's central architectural claim — that
   boundaries are independent, and a write wakes only its readers — on the
-  bulk row the bar is set on. `mint-view!` now mints its component behind
+  bulk row the bar is set on. `mint-view!` mints its component behind
   a `React.memo` whose comparator is `=` on the props map: Reagent's argv
   compare, which is what stops exactly this cascade there.
 
   ## Why this file exists next to the shape roster's witness
 
-  The roster's `shapes/narrow_dom_cljs_test` found the defect and recorded
-  it as a finding at 300 of 300. The repair is a **runtime** change, so
-  its regression guard belongs with the runtime — and has to be readable
-  without the roster, which is a separate deliverable on a separate
-  branch.
+  The roster's `shapes/narrow_dom_cljs_test` takes the same reading at
+  300. The bail-out is a **runtime** property, so its regression guard
+  belongs with the runtime — and has to be readable without the roster,
+  which is a separate deliverable.
 
   ## The four claims, and why the second and third are the load-bearing ones
 
-  1. **The cascade is gone.** A chrome write re-runs the page and **zero**
+  1. **There is no cascade.** A chrome write re-runs the page and **zero**
      rows, and leaves every row's DOM node the identical object.
   2. **A subscription still propagates — in the very commit that
      re-renders the page.** This is the claim that says the bail-out is
      correct rather than merely fast. A Fresco boundary does *not* derive
      its output from props alone; it reads subscriptions. A memo that
      bailed on equal props while a subscription had moved would freeze a
-     row on screen — the exact failure class this arm has already repaired
-     four times. So the toggle here is chosen to move the page's read AND
+     row on screen. So the toggle here is chosen to move the page's read AND
      one row's read in **one** commit: React consults the comparator for
      every row, and the one row whose store moved must re-render anyway.
      It does, because React tests `checkScheduledUpdateOrContext` before
@@ -54,8 +52,8 @@
   Claim 1 is the mutation witness: remove the comparator from
   `mint-view!` and it goes red at row-count of row-count.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -172,7 +170,7 @@
   (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/edit-draft chrome-key text]))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the cascade is gone
+;; 1 — there is no cascade
 ;; ---------------------------------------------------------------------------
 
 (deftest a-page-chrome-write-re-renders-no-unchanged-row
@@ -191,10 +189,10 @@
             (is (= 1 (:page (runs)))
                 "the page re-ran once, which is correct — it reads the chrome")
             (is (= 0 (:rows (runs)))
-                (str "and NOT ONE of the " row-count " rows did. Before the "
-                     "props-equality bail-out this read " row-count " — every "
-                     "row re-rendered, and produced identical DOM while doing "
-                     "it (rf2-2rtt6.52)"))
+                (str "and NOT ONE of the " row-count " rows did. Without the "
+                     "props-equality bail-out this reads " row-count " — every "
+                     "row re-renders, and produces identical DOM while doing "
+                     "it"))
             (is (= "typed" (chrome-text handle))
                 "and the write really landed — without this the row above
                  could pass by doing nothing at all")
@@ -352,9 +350,9 @@
 (deftest a-props-comparison-that-throws-fails-open
   (testing "`=` over an app-owned value can throw, and this comparator runs
            inside React's `areEqual`, where an escaping throw is a render
-           CRASH rather than a slow render. reagent-slim met the identical
-           hazard on the identical comparison and ruled fail-OPEN
-           (rf2-5al9d7): an extra render is always the safe branch, and
+           CRASH rather than a slow render. reagent-slim faces the identical
+           hazard on the identical comparison and fails OPEN: an extra
+           render is always the safe branch, and
            skipping on a failed comparison risks a stale UI. `areEqual`
            inverts the polarity, so failing open is answering false"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
@@ -391,7 +389,7 @@
           (reset-runs!)
           (write-chrome! handle (str "size-" n))
           (is (= {:rows 0 :page 1} (runs))
-              (str "zero rows re-rendered at B = " n " — the cascade was
-                   linear in B, so a repair that only held at one size
-                   would not be a repair"))
+              (str "zero rows re-rendered at B = " n " — the cascade is
+                   linear in B, so a bail-out that only held at one size
+                   would not be a law"))
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
