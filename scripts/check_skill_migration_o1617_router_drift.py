@@ -15,10 +15,10 @@ The packaged skill leaves are meant to be **router leaves** — framing +
   * skills/re-frame-migration/references/async-flow-to-machines.md
   * skills/re-frame-migration/references/http-fx-to-managed-http.md
 
-Before this was enforced, both leaves had **re-grown into parallel full
-guides** and drifted from the corpus — most sharply on the load-bearing
-contract: the corpus companions claimed a retired add-on could *remain / still
-load*, while the README + skill said it *fails to compile and must be
+Unguarded, a leaf would **re-grow into a parallel full guide** and drift
+from the corpus — most sharply on the load-bearing contract, where a
+companion claiming a retired add-on can *remain / still load* contradicts
+the README + skill, which say it *fails to compile and must be
 removed/replaced*. This guard makes that whole class a build failure.
 
 Two symmetric assertions:
@@ -37,21 +37,22 @@ Two symmetric assertions:
     * NO-TRACKER-ID  — no `rf2-…` bead id in the user-facing leaf prose.
 
   CORPUS COMPANIONS (must be the forced-framed full owners):
-    * STALE-FRAMING  — the companion must NOT carry the superseded "can
+    * STALE-FRAMING  — the companion must NOT carry the false "can
                        remain / still loads" claim (`still loads`, `nothing in
                        re-frame2 breaks when a project keeps using it`, the
-                       `## Why the rewrite is opt-in` heading). The corrected
+                       `## Why the rewrite is opt-in` heading). The true
                        framing states the add-on **fails to compile**.
     * FORCED-PRESENT — the companion asserts the add-on `fails to compile`
                        (the forced compile-gate framing the README carries).
-    * OWNER-SECTIONS — the companion still owns the full guide: it carries a
+    * OWNER-SECTIONS — the companion owns the full guide: it carries a
                        `## Detection` and a `## Reporting` section and at least
                        one mapping table.
 
 Scan surface: the two O-16 / O-17 skill leaves + the two corpus companions.
-The corpus README already carries the forced framing and is validated by the
+The corpus README carries the forced framing and is validated by the
 sibling `check_skill_migration_contract_drift.py`; design.md is a re-authoring
-meta-doc and is deliberately out of scope (it *describes* the past drift).
+meta-doc and is deliberately out of scope (it *describes* the drift this guard
+prevents).
 
 Exit code:
     0  no drift detected
@@ -126,8 +127,8 @@ TABLE_ROW_RE = re.compile(r"^\s*\|.*\|.*\|")
 # different class and are not matched here.
 TRACKER_ID_RE = re.compile(r"\brf2-[0-9a-z]{4,}\b", re.IGNORECASE)
 
-# Stale "can remain / still loads" claims the reconciliation removed from the
-# companions. Any hit == the superseded framing crept back.
+# "Can remain / still loads" claims, which contradict the forced-compile
+# framing. Any hit == that false framing is in a companion.
 STALE_FRAMING_RES = (
     re.compile(r"still loads", re.IGNORECASE),
     re.compile(
@@ -136,7 +137,7 @@ STALE_FRAMING_RES = (
     ),
     re.compile(r"^#{2,3}\s+why the rewrite is opt-in", re.IGNORECASE),
 )
-# The corrected forced-compile framing the companion MUST assert.
+# The forced-compile framing the companion MUST assert.
 FORCED_PRESENT_RE = re.compile(r"fails to compile", re.IGNORECASE)
 
 
@@ -255,12 +256,12 @@ def check_companion(companion: Path, leaf_basename: str) -> list[str]:
     text = _slurp(companion)
     lines = text.splitlines()
 
-    # STALE-FRAMING — the superseded "can remain / still loads" claim.
+    # STALE-FRAMING — the false "can remain / still loads" claim.
     for i, line in enumerate(lines):
         for rx in STALE_FRAMING_RES:
             if rx.search(line):
                 problems.append(
-                    f"STALE-FRAMING: {rel}:{i + 1} carries the superseded "
+                    f"STALE-FRAMING: {rel}:{i + 1} carries the false "
                     "'can remain / still loads' framing — the add-on FAILS TO "
                     "COMPILE on v2; removal-or-replacement is forced (align "
                     "with MIGRATION.md's O-16 / O-17 sections and the router "
@@ -272,7 +273,7 @@ def check_companion(companion: Path, leaf_basename: str) -> list[str]:
         problems.append(
             f"FORCED-PRESENT: {rel} never states the add-on 'fails to compile' "
             "— the forced compile-gate framing (matching the README) is the "
-            "reconciled contract and must be asserted here."
+            "contract and must be asserted here."
         )
 
     # OWNER-SECTIONS — the companion must still own the full guide.
@@ -446,7 +447,7 @@ def _self_test() -> int:
         dirty=True,
         label="COMPANION still-loads",
     )
-    # Stale framing — the old opt-in heading.
+    # Stale framing — the opt-in heading.
     expect_companion(
         clean_companion.replace(
             "## Acting is forced; the conversion path is the opt-in part",
