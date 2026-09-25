@@ -91,8 +91,9 @@
   Incarnation fence: the escape-hatch store-write is fenced to
   the exact frame incarnation, mirroring the destroy / finalize / spawn
   incarnation-fencing family. The `:db` hard-disallow trace below is a PRE-WRITE
-  callback that fires synchronous trace listeners (the epoch
-  capture + any app-registered `:trace` handler); one may destroy the frame
+  callback: the epoch capture runs on this stack, and so do app-registered
+  `:trace` listeners when the fx is called directly, outside any drain (inside
+  the emitting event's drain they run after it). One may destroy the frame
   incarnation A that owns the in-flight event and publish a same-id successor B.
   Ownership is rechecked AFTER that emit and before the read/merge/write, and
   the store-write rides the EXACT owner token (`swap-runtime-db-exact!`) so a
@@ -113,9 +114,9 @@
         ;; finalize / spawn incarnation-fencing family. This fx runs inside the
         ;; emitting event's fx drain, so `*event-owner*` names the exact
         ;; incarnation A that owns the in-flight event. `owner-gone?` fires once
-        ;; a synchronous callback below — the `:db` hard-disallow trace, whose
-        ;; sync listeners include the epoch capture + any
-        ;; app-registered `:trace` handler — has destroyed A / published a
+        ;; a synchronous callback below — the `:db` hard-disallow trace's epoch
+        ;; capture, or, when the fx is called directly outside any drain, an
+        ;; app-registered `:trace` listener — has destroyed A / published a
         ;; same-id successor B; `owner-token` binds the store-write to A's OWN
         ;; container. An eventless caller (no owner bound) yields
         ;; `(constantly false)` / nil — the full-authority bare write.
@@ -143,10 +144,10 @@
                             :offending-value (:db patch)
                             :frame           frame-id
                             :recovery        :logged-and-skipped}))
-      ;; The `:db` hard-disallow trace above fires SYNC trace
-      ;; listeners (the epoch capture + any app-registered
-      ;; `:trace` listener); one may destroy A and re-seed a same-id successor
-      ;; B on this stack. Recheck ownership BEFORE the read/merge/write — a
+      ;; The `:db` hard-disallow trace above runs the epoch capture on this
+      ;; stack, and app-registered `:trace` listeners too when the fx is
+      ;; called directly outside any drain; one may destroy A and re-seed a
+      ;; same-id successor B on this stack. Recheck ownership BEFORE the read/merge/write — a
       ;; callback that lost A must not drive an A-derived merge onto B: B's
       ;; presence-check would pass, and `resolve-data-schema`'s branches go nil
       ;; once A is lost, so the pre-write `validate-update-snapshot-data!`

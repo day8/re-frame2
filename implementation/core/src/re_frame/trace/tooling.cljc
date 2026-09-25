@@ -884,9 +884,13 @@
 ;; listener whose `dispatch-sync` drains a frame and flushes that drain's deferred
 ;; batch while its own fan-out still holds the monitor simply re-enters it.
 ;;
-;; CLJS is single-threaded: no concurrent emits, no monitor, no deferral (the
-;; scope is never bound and `call-with-deferred-fanout` is the identity call).
-;; Delivery is inline, preserving production elision.
+;; CLJS is single-threaded: no concurrent emits and no monitor. It defers all the
+;; same: the drain opens the deferral scope through a late-bind hook (a volatile,
+;; `deferred-drain-fanout-cljs`, stands in for the ThreadLocal), so a drain-owned
+;; emit reaches listeners at the post-drain flush on CLJS exactly as on the JVM,
+;; and an emit raised outside any drain fans out inline. Reaching the scope
+;; through the hook keeps the static drain path free of this ns, preserving
+;; production elision.
 
 (def ^:private ^:dynamic *fanout-ctx*
   "When bound, the shared fan-out schedule for the outermost listener fan-out in

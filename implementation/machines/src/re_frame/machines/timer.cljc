@@ -586,8 +586,16 @@
   `cancel-and-reschedule` (initial schedule against an empty slot is a
   no-op cancel).
 
+  Which path a caller takes decides when this fn's trace rows reach
+  listeners. Called from an fx inside a drain (the ordinary `:after` arm, the
+  `:rf.machine/hydrate-rearm` fx), every row is delivered after the drain. Called
+  outside any drain — a direct `rearm-after-timers!`, or a dynamic-delay
+  re-resolution whose source changed outside a drain (on CLJS, the ratom
+  flush) — each row fans out synchronously on this stack. The callback
+  boundaries below are that direct path's.
+
   The leading `:on-supersede` cancel is CALLBACK-BEARING when it
-  supersedes a LIVE prior entry (the reschedule path): its
+  supersedes a LIVE prior entry (the reschedule path): on the direct path its
   `:rf.machine.timer/cancelled` listener can destroy owning incarnation A and
   publish same-id B on this stack. The incarnation captured at entry
   (`owner-gone?`) is rechecked AFTER that cancel and BEFORE any delay
@@ -758,8 +766,8 @@
                              ;; (`defer-to-announcer?` / `finish-announcement!`).
                              :announce        (when emit-scheduled-trace? (atom nil))}]
             ;; The reservation is taken BEFORE the `/scheduled`
-            ;; fan-out below, not after it. The row's listener runs
-            ;; synchronously, so an attempt that is only reserved afterwards is
+            ;; fan-out below, not after it. Outside a drain the row's listener
+            ;; runs synchronously, so an attempt that is only reserved afterwards is
             ;; not yet cancellable at the moment it becomes VISIBLE: a listener
             ;; that destroys the owning incarnation leaves a `/scheduled` row
             ;; that can never be followed by `/fired` or `/cancelled`, and Spec
@@ -796,8 +804,8 @@
                                (assoc :rf.sub/id      (first delay-key)
                                       :rf.sub/query-v (vec delay-key))))))
             ;; That `/scheduled` emit is the LAST callback-bearing
-            ;; step before the durable arm. `rf.trace/emit!` invokes listeners
-            ;; SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can
+            ;; step before the durable arm. Outside a drain `rf.trace/emit!`
+            ;; invokes listeners SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can
             ;; `destroy-frame!` the owning incarnation A and publish a same-id
             ;; successor B right here — after the post-supersede recheck above.
             ;; The slot is keyed by the BARE frame id, which then denotes B, so
@@ -1194,7 +1202,8 @@
   destroy event.
 
   Each `:rf.machine.timer/cancelled` emit is
-  CALLBACK-BEARING: a listener can synchronously destroy the finishing actor's
+  CALLBACK-BEARING when this runs outside any drain (inside one, its listeners
+  run after the drain): a listener can synchronously destroy the finishing actor's
   owning frame incarnation A and publish a same-id successor B ON THE FIRST
   CANCELLATION's own stack, re-arming a reused key under a fresh token. The loop
   SNAPSHOTS A's `[k entry]` pairs up front and cancels each by its snapshotted

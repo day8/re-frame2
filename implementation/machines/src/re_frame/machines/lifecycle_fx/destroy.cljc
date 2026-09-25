@@ -73,11 +73,13 @@
 ;; The ordinary `:rf.machine/destroy` effect runs inside the destroying event's
 ;; fx drain, so `*event-owner*` names the exact frame incarnation A that owns
 ;; the in-flight event. `teardown-live-actor!`'s pipeline crosses SEVERAL
-;; callback-bearing boundaries — the actor's `:exit` cascade, the late-bound
-;; HTTP-abort hook, the `:rf.machine.timer/cancelled` traces, the
-;; `:rf.machine/destroyed` trace and the `:rf.registry/handler-cleared`
-;; unregister trace — any of which can
-;; synchronously destroy A and publish a same-id successor B. Every subsequent
+;; callback-bearing boundaries. The actor's `:exit` cascade and the late-bound
+;; HTTP-abort hook run on the destroying stack on every path. The
+;; `:rf.machine.timer/cancelled` traces, the `:rf.machine/destroyed` trace and
+;; the `:rf.registry/handler-cleared` unregister trace reach their listeners on
+;; that stack only when the effect is called directly, outside any drain; inside
+;; the drain those listeners run after it. Each boundary that runs on the stack
+;; can synchronously destroy A and publish a same-id successor B. Every subsequent
 ;; framework-owned action (classification / timer / spawn-order / registrar /
 ;; resource-owner / the durable teardown projection) resolves a bare frame /
 ;; actor id to the CURRENT incarnation B, so running it after A is lost erases
@@ -294,15 +296,17 @@
       (when (and emit-destroyed!-fn (not (owner-gone?)))
         (emit-destroyed!-fn))
       ;; (7) forget the actor from the per-frame spawn-order channel — rechecked
-      ;; after the destroyed trace so a listener that published same-id B cannot
-      ;; have A's forget erase B's own freshly-recorded spawn-order entry.
+      ;; after the destroyed trace so a listener that published same-id B (on
+      ;; the direct-call path) cannot have A's forget erase B's own
+      ;; freshly-recorded spawn-order entry.
       (when-not (owner-gone?)
         (rf.machines.spawn-order/forget! frame-id actor-id))
       ;; (8) when the projection landed, clear any registrar entry
-      ;; (`:rf.registry/handler-cleared`, callback-bearing). The
-      ;; `:rf.machine/destroyed` trace at (6) is ITSELF a callback boundary: a
-      ;; listener can destroy A and publish same-id B, registering B's fresh
-      ;; event handler at `actor-id` on that trace's own stack. Recheck
+      ;; (`:rf.registry/handler-cleared`, callback-bearing). When the effect is
+      ;; called directly, outside any drain, the `:rf.machine/destroyed` trace
+      ;; at (6) is ITSELF a callback boundary: a listener can destroy A and
+      ;; publish same-id B, registering B's fresh event handler at `actor-id`
+      ;; on that trace's own stack (inside a drain it runs after the drain). Recheck
       ;; ownership here rather than reusing (6)'s precheck, so A's teardown
       ;; never clears B's just-registered handler (the ordinary-destroy
       ;; terminal-fence law, Spec 005 §Destroy is silent-idempotent).

@@ -846,8 +846,12 @@
 (defn emit!
   "Emit a trace event. Production builds elide the body entirely
   (Closure DCE on the `rf.interop/debug-enabled?` gate); in dev / JVM
-  the envelope is built and delivered to the ring buffer, epoch
-  capture, and all registered listeners synchronously.
+  the envelope is built and delivered to the ring buffer and epoch
+  capture at once. Registered listeners are called synchronously when
+  the emit is raised outside any frame drain; an emit raised inside a
+  drain reaches them at the post-drain boundary, before the enclosing
+  dispatch / drain call returns — on JVM and CLJS alike (see
+  `call-with-deferred-listener-delivery`).
 
   Reads `*handler-scope*` to hoist the in-scope slots onto the
   envelope: `:trigger-handler` on every emit, `:dispatch-id` merged

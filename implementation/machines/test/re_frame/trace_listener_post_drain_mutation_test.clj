@@ -32,11 +32,12 @@
 
   WHY THIS IS NOT A PLATFORM-SPLIT TEST. The assertion is on OBSERVABLE OUTCOMES
   (reference form, reachable state, error counts), never on exceptions and never
-  on delivery mechanics. CLJS delivers inline — that is an implementation detail
-  of the `trace.cljc` seam (load-bearing for bundle isolation), not a promise —
-  and the outcome contract is identical on both platforms. This suite is JVM
-  because the deferral seam it characterises is JVM-only by construction; what
-  it asserts is the cross-platform contract.
+  on delivery mechanics. CLJS defers drain-owned delivery exactly as the JVM
+  does (`re-frame.trace.tooling/call-with-deferred-fanout`, which the CLJS drain
+  reaches through a late-bind hook so production bundles elide it), so the
+  outcome contract is identical on both platforms. This suite runs on the JVM;
+  core's `trace_listener_post_drain_settled_state_cljs_test.cljc` pins the same
+  deferral on both hosts.
 
   RED-BEFORE LEVER. Make `re-frame.trace/call-with-deferred-listener-delivery`
   the identity on JVM (`#?(:clj (f) :cljs (f))`), so listeners fan out
