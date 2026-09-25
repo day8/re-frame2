@@ -1,13 +1,12 @@
 (ns re-frame.bench.p0-uix
   "EP-0038 P0 — **the frontier arm**: UIx reading re-frame2 subscriptions
-  through the existing `use-sub` spine.
+  through the adapter's `use-sub` spine.
 
-  UIx is the best existing React-idiomatic option on re-frame2 subs, and
-  the delegated ruling recorded on rf2-2rtt6.1 makes the ratios this arm
-  produces the RED-ZONE THRESHOLDS for every later candidate, on both the
-  clock and retained heap. Nothing here may therefore be a convenience
-  spelling: every boundary is written the way the adapter's own
-  documentation and examples write one.
+  UIx is the best available React-idiomatic option on re-frame2 subs, so
+  the ratios this arm produces are the RED-ZONE THRESHOLDS for every
+  candidate, on both the clock and retained heap. Nothing here may
+  therefore be a convenience spelling: every boundary is written the way
+  the adapter's own documentation and examples write one.
 
   ## What is deliberately NOT here
 
@@ -31,9 +30,8 @@
   spelling; the counterpart Reagent arm is a `reg-view` derefing
   `(rf/subscribe …)` once. Neither is doing the other's work.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
@@ -97,7 +95,7 @@
        ($ u-cell {:key i :i i}))))
 
 ;; ---------------------------------------------------------------------------
-;; FAN — the fan-out family (rf2-5prok)
+;; FAN — the fan-out family
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The UIx counterpart of `p0-reagent`'s fan family, written the same way
@@ -130,7 +128,7 @@
        2 (for [j (range n-cells)] ($ fan-cell-2 {:key j :j j :n (+ offset j)})))))
 
 ;; ---------------------------------------------------------------------------
-;; LAD — the reads-per-boundary ladder (rf2-2rtt6.34)
+;; LAD — the reads-per-boundary ladder
 ;; ---------------------------------------------------------------------------
 ;;
 ;; UNROLLED, and it has to be. `use-sub` is a hook over
@@ -217,7 +215,7 @@
      ($ fan-grid {:offset offset :n-cells n-cells :reads reads})))
 
 (defn lad-root
-  "One root of the ladder arm (rf2-2rtt6.34). `offset` is this root's base
+  "One root of the ladder arm. `offset` is this root's base
   in the GLOBAL boundary numbering, as [[fan-root]]'s is."
   [frame-id offset n-cells reads]
   ($ rf.adapter.uix/frame-provider {:frame frame-id}
