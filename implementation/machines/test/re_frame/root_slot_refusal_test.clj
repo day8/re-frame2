@@ -3,12 +3,13 @@
   at the root, with `:rf.error/machine-root-slot-not-supported`, per Spec 005
   §State nodes (the machine root) and Conventions §No silent swallow.
 
-  Refused on a flat AND a parallel root: `:spawn`, `:spawn-all`, `:always`,
+  Refused on a flat AND a parallel root: `:spawn-all`, `:always`,
   `:choice`, `:final?`, `:output-key`, `:error?`, `:deep?`,
   `:default-target`. Refused on a flat root only: `:on-done` (a parallel
   root's action-only `:on-done` is its supported completion signal).
 
-  Controls: the honoured root `:entry` / `:exit` / `:tags` register; a parallel
+  Controls: the honoured root `:entry` / `:exit` / `:tags` / `:spawn`
+  register; a parallel
   root's `:after`, `:timeout` / `:on-timeout` and action-only `:on-done`
   register; a flat root's `:after` / `:timeout` keep their own
   `:rf.error/machine-non-parallel-root-after-not-supported`; a child's
@@ -45,8 +46,7 @@
 
 (def ^:private refused-everywhere
   "One well-formed value per key refused on every root."
-  {:spawn          {:machine-id :rs/worker}
-   :spawn-all      {:children        [{:id :one :machine-id :rs/worker}]
+  {:spawn-all      {:children        [{:id :one :machine-id :rs/worker}]
                     :join            :all
                     :on-all-complete [:done]}
    :always         {:action (fn [_] nil)}
@@ -74,21 +74,23 @@
         (is (= [k] (:offending-keys d)))))))
 
 (deftest refusal-names-every-offending-key
-  (let [d (refusal (assoc flat-root :final? true :spawn {:machine-id :rs/worker}))]
+  (let [d (refusal (assoc flat-root :final? true :spawn-all (:spawn-all refused-everywhere)))]
     (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id d)))
-    (is (= [:final? :spawn] (:offending-keys d)))))
+    (is (= [:final? :spawn-all] (:offending-keys d)))))
 
 (deftest refusal-message-names-the-substitute
-  (testing "a flat root :spawn names the compound wrapper"
-    (let [msg (::message (refusal (assoc flat-root :spawn {:machine-id :rs/worker})))]
-      (is (str/includes? msg ":spawn"))
+  (testing "a flat root :spawn-all names the root :spawn and the compound wrapper"
+    (let [msg (::message (refusal (assoc flat-root :spawn-all (:spawn-all refused-everywhere))))]
+      (is (str/includes? msg ":spawn-all"))
+      (is (str/includes? msg "declare :spawn on the root"))
       (is (str/includes? msg "compound"))))
-  (testing "a parallel root :spawn names the lifetime region"
-    (let [msg (::message (refusal (assoc parallel-root :spawn {:machine-id :rs/worker})))]
+  (testing "a parallel root :spawn-all names the root :spawn and the single-state region"
+    (let [msg (::message (refusal (assoc parallel-root :spawn-all (:spawn-all refused-everywhere))))]
+      (is (str/includes? msg "declare :spawn on the root"))
       (is (str/includes? msg "region")))))
 
 (deftest reg-machine-throws-the-refusal
-  (let [e (try (rf/reg-machine :rs/live (assoc flat-root :spawn {:machine-id :rs/worker})) nil
+  (let [e (try (rf/reg-machine :rs/live (assoc flat-root :always {:action (fn [_] nil)})) nil
                (catch clojure.lang.ExceptionInfo ex ex))]
     (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id (ex-data e))))))
 
@@ -96,7 +98,10 @@
 
 (deftest honoured-root-slots-register
   (is (nil? (refusal (assoc flat-root :entry (fn [_] nil) :exit (fn [_] nil) :tags #{:whole}))))
-  (is (nil? (refusal (assoc parallel-root :entry (fn [_] nil) :exit (fn [_] nil) :tags #{:whole})))))
+  (is (nil? (refusal (assoc parallel-root :entry (fn [_] nil) :exit (fn [_] nil) :tags #{:whole}))))
+  (is (nil? (refusal (assoc flat-root :spawn {:machine-id :rs/worker})))
+      "a root :spawn is the machine-lifetime child")
+  (is (nil? (refusal (assoc parallel-root :spawn {:machine-id :rs/worker})))))
 
 (deftest parallel-root-completion-and-deadline-slots-register
   (is (nil? (refusal (assoc parallel-root :on-done {:action (fn [_] nil)})))

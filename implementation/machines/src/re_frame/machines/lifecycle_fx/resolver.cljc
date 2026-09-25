@@ -185,8 +185,9 @@
   `:spawn` map, resolving flat AND region-prefixed invoke paths through
   `rf.machines.grammar/node-at`. For a parallel-region parent the first element of
   `invoke-id` is the region name; strip it and descend into that region's
-  body. Returns nil if `parent-spec` is absent, `invoke-id` is not a
-  non-empty vector, the path doesn't resolve, or the node declares no
+  body. The empty `invoke-id` names the machine root, whose `:spawn` is its
+  machine-lifetime child. Returns nil if `parent-spec` is absent, `invoke-id`
+  is not a vector, the path doesn't resolve, or the node declares no
   `:spawn`.
 
   Shared owner for the spawn-spec-at-invoke-id lookup used by the parent
@@ -195,7 +196,10 @@
   parent declares, and the parent's engine resolves
   `:on-error` itself (`transition/pick-spawn-error-transition`)."
   [parent-spec invoke-id]
-  (when (and parent-spec (vector? invoke-id) (seq invoke-id))
+  (cond
+    (not (and parent-spec (vector? invoke-id))) nil
+    (empty? invoke-id)                          (:spawn parent-spec)
+    :else
     (let [[head & tail] invoke-id
           [tree path]   (if (and (rf.machines.parallel/parallel? parent-spec)
                                  (contains? (:regions parent-spec) head))

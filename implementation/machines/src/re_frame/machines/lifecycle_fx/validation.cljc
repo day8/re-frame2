@@ -416,7 +416,10 @@
     `:rf.error/machine-parallel-root-on-bad-target` (the timer-driven analog
     of the root `:on` ancestor fallback). Express a root-level timeout this way
     rather than the semantically-weaker region-`:after`-that-`:raise`s
-    workaround (whose timer is bound to an arbitrary region's lifecycle)."
+    workaround (whose timer is bound to an arbitrary region's lifecycle).
+    The root's own `:spawn` child belongs to no region either, so its
+    `:on-error` and transition-shaped `:on-done` targets take the same
+    grammar and the same refusal."
   [machine]
   (when (rf.machines.parallel/parallel? machine)
     (when-not (and (map? (:regions machine)) (seq (:regions machine)))
@@ -509,7 +512,15 @@
         (check-one! ":on" (:target cand)))
       (doseq [[_delay v] (:after machine)
               cand        (candidates-of v)]
-        (check-one! ":after" (:target cand))))
+        (check-one! ":after" (:target cand)))
+      ;; The root's own `:spawn` child belongs to no region either, so its
+      ;; `:on-error` and transition-shaped `:on-done` take the same grammar.
+      (let [{:keys [on-error on-done]} (when (map? (:spawn machine)) (:spawn machine))]
+        (doseq [cand (candidates-of on-error)]
+          (check-one! ":spawn :on-error" (:target cand)))
+        (when-not (fn? on-done)
+          (doseq [cand (candidates-of on-done)]
+            (check-one! ":spawn :on-done" (:target cand))))))
     (when (or (contains? machine :initial) (contains? machine :states))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
@@ -623,7 +634,8 @@
                (str "a non-parallel (flat/compound) machine root declares "
                     ":after " (pr-str (:after machine)) " — either "
                     "hand-authored or lowered from a root :timeout / "
-                    ":on-timeout. Root-level :after scheduling + resolution "
+                    ":on-timeout, or from the root :spawn's own. Root-level "
+                    ":after scheduling + resolution "
                     "is supported ONLY for a :type :parallel machine root "
                     "(Per Spec 005 §Root-level :after). On a flat/compound "
                     "root the timer would register but NEVER schedule or "
@@ -636,9 +648,10 @@
 ;; Per Spec 005 §State nodes (the machine root): the root is validated as a
 ;; state node, so it accepts the whole state-node vocabulary, but the runtime
 ;; reads only part of it there. It honours `:entry` / `:exit` / `:tags` (birth,
-;; teardown, the tag union), `:on` (the ancestor fallback), `:initial` /
-;; `:states` / `:type` / `:regions`, and on a `:type :parallel` root `:after`
-;; (with the `:timeout` / `:on-timeout` that lowers onto it) and an action-only
+;; teardown, the tag union), `:spawn` (a child spawned at birth that ends with
+;; the machine), `:on` (the ancestor fallback), `:initial` / `:states` /
+;; `:type` / `:regions`, and on a `:type :parallel` root `:after` (with the
+;; `:timeout` / `:on-timeout` that lowers onto it) and an action-only
 ;; `:on-done`. The keys below are read on a state node and never on the root —
 ;; the root is entered once at birth, never re-entered, and never a final
 ;; state — so each would register and do nothing. Reject them loudly, naming
@@ -647,7 +660,7 @@
 
 (def ^:private root-unread-keys
   "State-node keys no runtime path reads on ANY machine root."
-  #{:spawn :spawn-all :always :choice :final? :output-key :error? :deep? :default-target})
+  #{:spawn-all :always :choice :final? :output-key :error? :deep? :default-target})
 
 (def ^:private flat-root-unread-keys
   "State-node keys no runtime path reads on a flat / compound machine root, in
@@ -660,13 +673,15 @@
   "The substitute an author reaches for in place of root key `k`."
   [k parallel?]
   (case k
-    (:spawn :spawn-all)
+    :spawn-all
     (if parallel?
-      (str "For a child that lives as long as the machine, declare " k " on "
-           "the state of a single-state region (a :type :parallel root cannot "
-           "be wrapped in a compound).")
-      (str "For a child that lives as long as the machine, wrap the tree in "
-           "one compound state and declare " k " there."))
+      (str "For one child that lives as long as the machine, declare :spawn on "
+           "the root; for several, declare :spawn-all on the state of a "
+           "single-state region (a :type :parallel root cannot be wrapped in a "
+           "compound).")
+      (str "For one child that lives as long as the machine, declare :spawn on "
+           "the root; for several, wrap the tree in one compound state and "
+           "declare :spawn-all there."))
 
     :always
     (str "The root is entered once and never re-entered, so it has no "
@@ -707,8 +722,8 @@
                     ", which the runtime never reads on the root, so "
                     (if (next offending) "they" "it")
                     " would be silently ignored. The root runs its :entry "
-                    "at birth and its :exit at teardown, and joins its :tags "
-                    "to the tag union. "
+                    "and spawns its :spawn child at birth, runs its :exit at "
+                    "teardown, and joins its :tags to the tag union. "
                     (str/join " " (distinct (map #(root-slot-substitute % parallel?)
                                                  offending))))
                {:offending-keys offending})))))
@@ -1617,7 +1632,8 @@
   an unresolved `:state` at the first dispatch that fell through to it
   instead of failing fast here. (A non-parallel root's `:after` cannot reach this point — it is
   rejected outright by `validate-non-parallel-root-after!`, called earlier —
-  so only `:on` needs checking here.)
+  so only `:on`, and the root `:spawn`'s own `:on-error` / transition-shaped
+  `:on-done`, need checking here.)
 
   A parallel machine's REGION BODY carries the exact analog — its own root
   `:on` is that REGION's ancestor fallback, consulted when no state-path node
@@ -1677,12 +1693,19 @@
                         (region-ctx region))))
   (when-not (rf.machines.parallel/parallel? machine)
     (let [scope  (:states machine)
-          check! (fn [v]
+          check! (fn [slot v]
                    (doseq [{:keys [present? target]} (candidate-targets v)]
                      (when present?
-                       (validate-target! scope [] :on :rf/root target nil))))]
+                       (validate-target! scope [] slot :rf/root target nil))))]
       (doseq [[_event v] (:on machine)]
-        (check! v)))))
+        (check! :on v))
+      ;; The root's own `:spawn :on-error` and transition-shaped
+      ;; `:spawn :on-done` resolve at decl-path `[]` too.
+      (when-let [oe (get-in machine [:spawn :on-error])]
+        (check! :spawn/on-error oe))
+      (let [od (get-in machine [:spawn :on-done])]
+        (when (and (some? od) (not (fn? od)))
+          (check! :spawn/on-done od))))))
 
 (defn- validate-region-spawn-paths!
   "Per Spec 005 §Reserved snapshot-internal keys (`:rf/spawned`): refuse a
@@ -2201,10 +2224,11 @@
   `:rf.error/machine-bad-internal-events`.
 
   Per Spec 005 §State nodes (the machine root): a machine root declaring a
-  state-node key no runtime path reads on the root (`:spawn`, `:spawn-all`,
+  state-node key no runtime path reads on the root (`:spawn-all`,
   `:always`, `:choice`, `:final?`, `:output-key`, `:error?`, `:deep?`,
   `:default-target`, and a flat root's `:on-done`) throws
-  `:rf.error/machine-root-slot-not-supported`. A parallel region body follows
+  `:rf.error/machine-root-slot-not-supported`. The root's own `:spawn` is held
+  to the same spawn grammar, target and ref checks a state's is. A parallel region body follows
   the same rule: one declaring `:spawn`, `:spawn-all`, `:always`, `:final?`,
   `:output-key`, `:error?`, `:deep?`, `:default-target` or `:regions` throws
   it too, with `:path` naming the region."
@@ -2261,6 +2285,7 @@
   ;; The root accepts the state-node vocabulary above; refuse the part of it
   ;; no runtime path reads on the root, before any slot validator reads it.
   (validate-root-slots! machine)
+  (validate-spawn-spec-keys! :rf/root machine)
   (validate-node-transition-keys! :rf/root machine)
   (validate-tags! :rf/root machine)
   (doseq [[s n] (walk-state-nodes machine)]
@@ -2300,6 +2325,12 @@
   ;; The machine-level `:schemas` map has a closed sub-key set; an
   ;; unknown sub-key (incl. `:input`) or a non-map `:schemas` fails loud.
   (validate-schemas! machine)
+  ;; The machine root's own `:spawn` is held to the spawn grammar a state's is
+  ;; (`:spawn-all` is refused on the root above).
+  (validate-spawn! :rf/root machine)
+  (validate-no-spawn-timeout-ms! :rf/root machine)
+  (validate-spawn-on-error! :rf/root machine)
+  (validate-spawn-on-done! :rf/root machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-spawn! s n)
     (validate-spawn-all! s n)
@@ -2459,6 +2490,11 @@
     ;; so their refs resolve here like any state's.
     (check-action! (:entry machine) :rf/root :entry)
     (check-action! (:exit  machine) :rf/root :exit)
+    ;; The root's own `:spawn :on-error` / transition-shaped `:on-done` too.
+    (check-transition! (get-in machine [:spawn :on-error]) :rf/root)
+    (let [od (get-in machine [:spawn :on-done])]
+      (when-not (fn? od)
+        (check-transition! od :rf/root)))
     (when (rf.machines.parallel/parallel? machine)
       (doseq [[rn body] (:regions machine)]
         (check-action! (:entry body) rn :entry)

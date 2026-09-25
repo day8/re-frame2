@@ -834,12 +834,16 @@
         ;; Machine snapshots are durable runtime-db state (EP-0001): the finalize
         ;; teardown is a runtime-db write, returned under `:rf.db/runtime` (the
         ;; framework-authority partition effect), NOT `:db`. Append the
-        ;; destroy-time `:exit` cascade's fx + the resource-owner release for
-        ;; this actor's `[:machine machine-id]` owner (nil + filtered out when
+        ;; destroy-time `:exit` cascade's fx, then the destroy of the root's
+        ;; own `:spawn` child — the one child no transition exits, so it ends
+        ;; here, after the root's `:exit` has read it live, whether or not
+        ;; that `:exit` threw — then the resource-owner release for this
+        ;; actor's `[:machine machine-id]` owner (nil + filtered out when
         ;; resources is absent — see `rf.machines.lifecycle-fx.resource-release/release-fx-entry`).
         (if (owner-gone?)
           {:rf.db/runtime runtime-db :fx []}
           {:rf.db/runtime db-after-destroy
            :fx (vec (concat extra-fx exit-fx
+                            (rf.machines.transition/root-destroy-fx machine machine-id)
                             (when-let [e (rf.machines.lifecycle-fx.resource-release/release-fx-entry machine-id)]
                               [e])))}))))))

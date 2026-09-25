@@ -574,23 +574,35 @@
 ;; as `done-event-id` above.
 (def ^:private spawn-error-event-id :rf.machine.spawn/error)
 
+(defn- spawning-node
+  "The `:spawn`-bearing node a spawn carrier's scope-relative `invoke-id`
+  names within `root`'s scope: the node at `invoke-id`, or, for the empty
+  `invoke-id` of a flat / compound machine root's own child, `root` itself. A
+  region body declares no `:spawn`, so `region` never resolves `[]`."
+  [root invoke-id region]
+  (cond
+    (seq invoke-id)          (node-at (:states root) invoke-id)
+    (and (vector? invoke-id)
+         (nil? region))      root))
+
 (defn- spawn-error-diet-for-event
   "Add (into `add!`) the `:spawn :on-error` guard/action diets of the
   `:spawn`-bearing node a raised `[:rf.machine.spawn/error <invoke-id> <err>]`
   names — a slot separate from `:on` that `transition/pick-spawn-error-
   transition` selects first — plus each candidate target's `:entry` +
-  `:always` diet. `region` strips / declines a region-name head exactly as
-  `on-done-diet-for-event` does. No-op when the event is not a spawn-error
-  signal, the invoke-id does not resolve, or the node declares no `:on-error`."
-  [by-entry states event region add! add-target!]
+  `:always` diet. `root` owns the scope; `region` strips / declines a
+  region-name head exactly as `on-done-diet-for-event` does. No-op when the
+  event is not a spawn-error signal, the invoke-id does not resolve, or the
+  node declares no `:on-error`."
+  [by-entry root event region add! add-target!]
   (when (and (vector? event) (= spawn-error-event-id (first event)))
     (let [raw-id    (second event)
           invoke-id (cond
                       (not (vector? raw-id)) nil
                       region (when (= region (first raw-id)) (vec (rest raw-id)))
                       :else  raw-id)]
-      (when (seq invoke-id)
-        (let [on-error (get-in (node-at states invoke-id) [:spawn :on-error])]
+      (when-let [node (spawning-node root invoke-id region)]
+        (let [on-error (get-in node [:spawn :on-error])]
           (when (some? on-error)
             (doseq [cand (candidate-maps on-error)]
               (add! (entry-diet by-entry :guards  (:guard cand)))
@@ -612,15 +624,15 @@
   the same way. A fn `:on-done` is the `:data` fold, not a transition, and adds
   nothing. No-op when the event is not a spawn-done carrier, the invoke-id
   does not resolve, or the node declares no transition-shaped `:on-done`."
-  [by-entry states event region add! add-target!]
+  [by-entry root event region add! add-target!]
   (when (and (vector? event) (= spawn-done-event-id (first event)))
     (let [raw-id    (second event)
           invoke-id (cond
                       (not (vector? raw-id)) nil
                       region (when (= region (first raw-id)) (vec (rest raw-id)))
                       :else  raw-id)]
-      (when (seq invoke-id)
-        (let [on-done (get-in (node-at states invoke-id) [:spawn :on-done])]
+      (when-let [node (spawning-node root invoke-id region)]
+        (let [on-done (get-in node [:spawn :on-done])]
           (when (and (some? on-done) (not (fn? on-done)))
             (doseq [cand (candidate-maps on-done)]
               (add! (entry-diet by-entry :guards  (:guard cand)))
@@ -784,11 +796,11 @@
     ;; (d') a raised single-`:spawn` failure (`[:rf.machine.spawn/error
     ;; <invoke-id> <err>]`) selects the spawning node's `:spawn :on-error`
     ;; first — a slot separate from `:on`, like `:on-done`.
-    (spawn-error-diet-for-event by-entry states event region add! add-target!)
+    (spawn-error-diet-for-event by-entry root event region add! add-target!)
     ;; (d'') a single-`:spawn` completion carrier (`[:rf.machine.spawn/done
     ;; <invoke-id> <completion>]`) selects the spawning node's
     ;; transition-shaped `:spawn :on-done` first — the success twin of (d').
-    (spawn-done-diet-for-event by-entry states event region add! add-target!)
+    (spawn-done-diet-for-event by-entry root event region add! add-target!)
     ;; (e) the synthetic `:after` timer signal
     ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
     ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
@@ -857,6 +869,10 @@
         decl-path `[]`), the root's `:after` entry at `delay-key` contributes
         its guard + action diets plus the `:always` closure from its target.
 
+  and, beside (a), (c) the root's own `:spawn :on-error` / transition-shaped
+  `:on-done` for a carrier from the root's child (invoke-id `[]`), which
+  `transition/root-spawn-carrier-match` selects ahead of the root `:on`.
+
   Mirrors the runtime root resolvers' candidate grammar via `candidate-maps`
   (the shared shape-wise normalisation). `by-entry` is the registration
   index's `:by-entry` map."
@@ -876,10 +892,19 @@
           keys* (cond-> [event-id]
                   (and (keyword? event-id) (namespace event-id))
                   (conj (keyword (namespace event-id) "*"))
-                  :always (conj :*))]
-      (doseq [k     keys*
-              :when (contains? on k)
-              cand  (candidate-maps (get on k))]
+                  :always (conj :*))
+          ;; (c) a carrier for the root's own `:spawn` child
+          ;; (`[<carrier-id> [] …]`) selects the root `:spawn :on-error` /
+          ;; transition-shaped `:on-done` ahead of the root `:on`.
+          spawn-v (when (and (contains? #{spawn-error-event-id spawn-done-event-id} event-id)
+                             (= [] (second event)))
+                    (get-in machine [:spawn (if (= spawn-error-event-id event-id) :on-error :on-done)]))]
+      (doseq [cand (concat (when (and (some? spawn-v) (not (fn? spawn-v)))
+                             (candidate-maps spawn-v))
+                           (for [k     keys*
+                                 :when (contains? on k)
+                                 cand  (candidate-maps (get on k))]
+                             cand))]
         (add! (entry-diet by-entry :guards  (:guard cand)))
         (add! (entry-diet by-entry :actions (:action cand)))
         (root-target-always-diet by-entry machine (:target cand) add!)))))

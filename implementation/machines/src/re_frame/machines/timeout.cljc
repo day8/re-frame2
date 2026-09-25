@@ -288,10 +288,12 @@
         ;; `:regions` (those are walked separately below; the node
         ;; transform's `(:states node)` recursion would otherwise
         ;; double-walk). The transform drops the root `:timeout` /
-        ;; `:on-timeout` keys and folds them into the root `:after`.
+        ;; `:on-timeout` keys and folds them into the root `:after`, and
+        ;; lowers the root `:spawn`'s own pair the same way.
         root'    (desugar-node-timeouts (dissoc machine :states :regions))
         machine' (cond-> (dissoc machine :timeout :on-timeout)
-                   (contains? root' :after) (assoc :after (:after root')))]
+                   (contains? root' :after) (assoc :after (:after root'))
+                   (contains? root' :spawn) (assoc :spawn (:spawn root')))]
     (cond-> machine'
       (:states machine')  (update :states walk-states)
       (:regions machine') (update :regions
