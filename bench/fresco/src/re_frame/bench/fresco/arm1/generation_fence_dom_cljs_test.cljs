@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.generation-fence-dom-cljs-test
-  "THE GENERATION FENCE, AND ITS STAGED-STALE WITNESS (rf2-2rtt6.9).
+  "THE GENERATION FENCE, AND ITS STAGED-STALE WITNESS.
 
   architecture.md gives Arm 1 one line on this and it is the load-bearing
   one: \"A generation fence keeps all reads within one render pass on one
@@ -8,11 +8,11 @@
   bug class: the staged-stale case is a CI witness for any asynchronous-
   host variant.\"
 
-  ## What the fence replaces, and why that matters
+  ## Why a fence rather than a re-read
 
-  The predecessor preserved the same invariant by **re-reading every
-  subscription at commit** — a second deref of every read, after the
-  render had already read it, measured at 1.19 ms of a 4.0 ms write for
+  The same invariant can be preserved by **re-reading every subscription
+  at commit** — a second deref of every read, after the render has
+  already read it, measured at 1.19 ms of a 4.0 ms write for
   300 reads against Reagent's entire layout-effect phase of 1.4
   microseconds. HD-002's adjudication makes that re-read a *forbidden*
   construct for this arm, which leaves the fence carrying the invariant
@@ -57,8 +57,7 @@
      ;; so the comparator's ambient `use-sub` would read the
      ;; ambient frame's app-db while the probe's `use-frame` reported the
      ;; provider's, and a parity miss would look like a rendering
-     ;; difference. Caught by the frame probe below, which is why the
-     ;; probe stays.
+     ;; difference.
      :ambient-frame nil
      ;; The map shape, because the teardown claim is `async`: the cell and
      ;; entry reapers are macrotasks, so the residue a React unmount leaves
@@ -158,7 +157,7 @@
         (finally (rf.bench.fresco.arm1.mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
-;; Case 3 — a STAGED read moves in the render->commit gap (rf2-2rtt6.42)
+;; Case 3 — a STAGED read moves in the render->commit gap
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Case 2 above is LABELLED as §6.1's case and is not it: it dispatches
@@ -218,7 +217,7 @@
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Case 4 — a first REGISTRATION lands in the gap (rf2-2rtt6.50)
+;; Case 4 — a first REGISTRATION lands in the gap
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Case 3 moves a staged read's VALUE in the gap. This one moves its
@@ -294,8 +293,8 @@
 ;;
 ;; `rf.bench.fresco.arm1.mount/unmount!` rather than `rf.bench.fresco.arm1.mount/release!`, because `release!` resets
 ;; the runtime and a reading taken after that reset answers zero whatever
-;; teardown did — the ordering that made this gate unable to fail
-;; (rf2-2rtt6.48). The macrotask wait is the cell and entry reapers'
+;; teardown did, which would make this gate unable to fail. The
+;; macrotask wait is the cell and entry reapers'
 ;; deliberate grace period, not slack.
 
 (deftest the-fenced-boundary-leaves-no-residue
