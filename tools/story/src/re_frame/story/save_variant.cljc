@@ -110,10 +110,11 @@
 ;;                           transient `:cell-overrides` in — so transient-
 ;;                           controls is captured-as-args, not a second slot.
 ;;   :captured-as-declared — the slice has NO live controls surface yet, but
-;;                           the SOURCE variant body declares a value. We
-;;                           carry it forward verbatim (via `:extends`) and
-;;                           WARN that it is the declared value, not a live
-;;                           projection of the current canvas.
+;;                           the SOURCE variant declares, inherits or
+;;                           composes a value. We carry it forward verbatim
+;;                           (via `:extends`) and WARN that it is that
+;;                           authored value, not a live projection of the
+;;                           current canvas.
 ;;   :not-wired            — the slice has no live controls surface AND the
 ;;                           source declares nothing. We capture nothing and
 ;;                           WARN that the slice is not yet projectable.
@@ -136,8 +137,8 @@
 ;; body slot the way the reg-variant body's other slices are. spec/019 §3
 ;; / §5 do not settle whether a saved variant should pin the viewport at
 ;; all. The conservative honest default below: capture it as-declared from
-;; the SOURCE body's `:viewport` slot when present (so a variant that
-;; already pins a viewport round-trips), and otherwise WARN that the live
+;; the `:viewport` the SOURCE declares or inherits, when present (so a
+;; variant that already pins a viewport round-trips), and otherwise WARN that the live
 ;; chrome-wide viewport is not projected into the saved variant.
 ;; ---------------------------------------------------------------------------
 
@@ -183,9 +184,10 @@
   - `variant-body`  — the source variant body (or nil) — read for the
                       `:sub-overrides` / `:network` / `:fx-overrides` /
                       `:db-seed` / `:setup` / `:viewport` slots. The save
-                      flow passes `carried-source-body`, whose `:db-seed`
-                      and `:setup` are the ones the saved variant runs
-                      with, declared or inherited through `:extends`.
+                      flow passes `carried-source-body`, whose slots are
+                      the ones the saved variant runs with — declared,
+                      inherited through `:extends` or composed — except
+                      `:fx-overrides`, which is the source's declared slot.
   - `shell`         — the shell-state map — read for the live chrome-wide
                       `:viewport` selection (the viewport fork).
 
@@ -208,6 +210,7 @@
         setup-note (if (seq setup)
                      " The source's :setup events re-run in the saved variant via :extends."
                      "")
+        fx-hidden-note " :fx-overrides the source inherits or composes are not shown."
         body-vp   (declared-slot variant-body :viewport)
         live-vp   (:viewport shell)
         declared  (fn [slice label value note]
@@ -226,21 +229,21 @@
 
      (if (some? sub-ovr)
        (declared :sub-overrides (slice-labels :sub-overrides) sub-ovr
-                 "No live View-State controls yet — the source's declared :sub-overrides carry forward via :extends, captured-as-declared (not a live projection).")
+                 "No live View-State controls yet — the :sub-overrides the source declares, inherits or composes carry forward, captured-as-declared (not a live projection).")
        (not-wired :sub-overrides (slice-labels :sub-overrides)
-                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable."))
+                  "No live View-State controls and none on the source — sub-overrides are not yet projectable."))
 
      ;; db-seed: no control captures the live app-db. This row reads the
-     ;; source body's `:db-seed`, declared or inherited, which `:extends`
-     ;; carries into the saved variant. A `:setup` is not a seed, so it never sets
+     ;; `:db-seed` the saved variant runs with, declared, inherited or
+     ;; composed. A `:setup` is not a seed, so it never sets
      ;; this row's status or value; the note says separately that its
      ;; events re-run through `:extends`.
      (if (some? db-seed)
        (declared :db-seed (slice-labels :db-seed) db-seed
-                 (str "No live app-db capture — the source's declared :db-seed carries forward via :extends, captured-as-declared."
+                 (str "No live app-db capture — the :db-seed the source declares, inherits or composes carries forward, captured-as-declared."
                       setup-note))
        (not-wired :db-seed (slice-labels :db-seed)
-                  (str "No live app-db capture and no :db-seed declared on the source — app-db state is not captured."
+                  (str "No live app-db capture and no :db-seed on the source — app-db state is not captured."
                        setup-note)))
 
      (not-wired :route (slice-labels :route)
@@ -248,23 +251,30 @@
 
      (if (some? network)
        (declared :network (slice-labels :network) network
-                 "No live Network controls yet — the source's declared :network stubs carry forward via :extends, captured-as-declared.")
+                 "No live Network controls yet — the :network stubs the source declares, inherits or composes carry forward, captured-as-declared.")
        (not-wired :network (slice-labels :network)
-                  "No live Network controls and none declared on the source — network state is not yet projectable."))
+                  "No live Network controls and none on the source — network state is not yet projectable."))
 
+     ;; fx-overrides: this row reads the source's DECLARED slot only. The
+     ;; compiled `[:world :frame :fx-overrides]` also carries `:network`'s
+     ;; managed-stub lowering, which is not an fx override the author wrote,
+     ;; so the row never reads it — and says that fx overrides the source
+     ;; inherits or composes are not shown.
      (if (some? fx-ovr)
        (declared :fx-overrides (slice-labels :fx-overrides) fx-ovr
-                 "No live Effects controls yet — the source's declared :fx-overrides carry forward via :extends, captured-as-declared.")
+                 (str "No live Effects controls yet — the source's declared :fx-overrides carry forward via :extends, captured-as-declared."
+                      fx-hidden-note))
        (not-wired :fx-overrides (slice-labels :fx-overrides)
-                  "No live Effects controls and none declared on the source — fx-overrides are not yet projectable."))
+                  (str "No live Effects controls and none declared on the source — fx-overrides are not yet projectable."
+                       fx-hidden-note)))
 
      ;; viewport — the flagged PRODUCT FORK. Chrome-wide live state, not a
-     ;; per-variant body slot. Honest default: carry the SOURCE body's
-     ;; declared :viewport forward (captured-as-declared) when present;
-     ;; otherwise warn the live chrome-wide selection is not projected.
+     ;; per-variant body slot. Honest default: carry the :viewport the
+     ;; source declares or inherits forward (captured-as-declared) when
+     ;; present; otherwise warn the live chrome-wide selection is not projected.
      (if (some? body-vp)
        (declared :viewport (slice-labels :viewport) body-vp
-                 "Viewport is chrome-wide state, not a per-variant body slot (FORK) — the source's declared :viewport carries forward via :extends.")
+                 "Viewport is chrome-wide state, not a per-variant body slot (FORK) — the :viewport the source declares or inherits carries forward via :extends.")
        (not-wired :viewport (slice-labels :viewport)
                   (str "Viewport is chrome-wide state, not a per-variant body slot (FORK) — the live selection ("
                        (pr-str live-vp)
@@ -309,6 +319,9 @@
       :extends     optional — keyword id of the source variant
                               (carries `:component`, `:decorators`,
                               non-overridden args)
+      :compose     optional — the source's `:compose` ids, which
+                              `:extends` does not carry (see
+                              `saved-variant-body`)
       :args        required — args map captured from the live canvas
       :doc         optional — docstring
       :alias       optional — short alias to use in the form
@@ -325,12 +338,13 @@
   `:script` body for record-as-test), this generator captures the canvas
   STATE — the args snapshot — so the new variant renders with the same
   controls as the source the user was tweaking when they clicked Save."
-  [{:keys [variant-id extends args doc alias]
+  [{:keys [variant-id extends compose args doc alias]
     :or   {alias "rf.story"}}]
   (let [body-keys (cond-> []
-                    doc     (conj [:doc (pr-str doc)])
-                    extends (conj [:extends (pr-str extends)])
-                    true    (conj [:args (pr-args-map (or args {}))]))]
+                    doc           (conj [:doc (pr-str doc)])
+                    extends       (conj [:extends (pr-str extends)])
+                    (seq compose) (conj [:compose (pr-str (vec compose))])
+                    true          (conj [:args (pr-args-map (or args {}))]))]
     (rf.story.predicates/reg-variant-form alias (or variant-id :story.saved/example) body-keys)))
 
 ;; ---------------------------------------------------------------------------
@@ -447,23 +461,64 @@
   [shell-state]
   (:selected-variant shell-state))
 
+(defn- compose-order-lost?
+  "True when a saved variant cannot run the setup and script of the
+  fragments `source-body` composes in the order the source runs them.
+  `:compose` runs a fragment's `:setup` and script BEFORE the composing
+  body's own, but in the saved variant the source is the `:extends`
+  parent: its own `:setup` runs before every fragment's and its own script
+  does not run at all. So when the source's own body and a fragment it
+  composes both carry `:setup`, or both carry a script, a copied `:compose`
+  runs them in a different order than the source does."
+  [source-body compose-ids]
+  (let [frags   (keep #(rf.story.registrar/handler-meta :fragment %) compose-ids)
+        script? (fn [b] (or (seq (:script b)) (seq (:plays b))))]
+    (boolean
+      (or (and (seq (:setup source-body)) (some (comp seq :setup) frags))
+          (and (script? source-body) (some script? frags))))))
+
+(defn saved-variant-body
+  "The variant body Save Variant writes for `source-id`:
+  `{:extends source-id :args args-snapshot}`, plus the source's own
+  `:compose` ids. `:extends` does not inherit `:compose`, so without the
+  copy the saved variant renders without the fragments the source
+  composes. The copy is left out when the saved variant could not run the
+  composed setup and script in the source's order (`compose-order-lost?`).
+
+  The capture report compiles this body and the save dialog prints it, so
+  the report describes exactly the variant the snippet registers."
+  [source-id args-snapshot]
+  (let [body    (rf.story.registrar/handler-meta :variant source-id)
+        compose (:compose body)]
+    (cond-> {:extends source-id :args args-snapshot}
+      (and (seq compose) (not (compose-order-lost? body compose)))
+      (assoc :compose (vec compose)))))
+
 (defn- carried-source-body
   "The source body the capture report reads: the registered body of
-  `source-id`, with `:db-seed` and `:setup` replaced by the ones the saved
-  variant actually runs with. The saved variant is `{:extends source-id :args
-  args-snapshot}`, so its compiled plan's `[:world :db-seed]` and
-  `[:world :setup]` hold whatever the source declares or inherits through
-  `:extends`. When that plan cannot compile, the registered body is returned
-  as it is."
+  `source-id`, with `:sub-overrides`, `:db-seed`, `:setup`, `:network` and
+  `:viewport` replaced by the ones the saved variant actually runs with —
+  the `:world` of `saved-variant-body`'s compiled plan, which holds whatever
+  the source declares, inherits through `:extends` or composes.
+
+  `:fx-overrides` stays the source's declared slot. The plan's
+  `[:world :frame :fx-overrides]` also carries `:network`'s managed-stub
+  lowering, which is not an fx override the author wrote, and the plan
+  holds no merged value from before that lowering.
+
+  When the plan cannot compile, the registered body is returned as it is."
   [source-id args-snapshot]
   (let [body  (rf.story.registrar/handler-meta :variant source-id)
         world (try
-                (:world (rf.story.plan/variant-plan {:extends source-id
-                                                     :args    args-snapshot}))
+                (:world (rf.story.plan/variant-plan
+                          (saved-variant-body source-id args-snapshot)))
                 (catch #?(:clj Exception :cljs :default) _ nil))]
     (cond-> body
-      world (assoc :db-seed (:db-seed world)
-                   :setup   (:setup world)))))
+      world (assoc :sub-overrides (not-empty (get-in world [:render :sub-overrides]))
+                   :db-seed       (:db-seed world)
+                   :setup         (:setup world)
+                   :network       (:network world)
+                   :viewport      (:viewport world)))))
 
 (defn save-current-as-variant!
   "Capture the current canvas state as a save-as-variant snapshot and
@@ -509,8 +564,8 @@
                ;; floor: every slice without a live projection is captured-
                ;; as-declared (carried via :extends) or not-wired, and warned
                ;; about. Never fabricated. The source body carries the
-               ;; :db-seed and :setup the saved variant runs with, so a seed
-               ;; or setup inherited through :extends reads exactly like a
+               ;; slots the saved variant runs with, so a value inherited
+               ;; through :extends or composed reads exactly like a
                ;; declared one.
                slices     (capture-slices
                             snapshot
