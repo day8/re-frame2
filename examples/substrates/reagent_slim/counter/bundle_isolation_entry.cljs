@@ -9,7 +9,7 @@
    directory of its own and is compiled by nothing but the bundle-isolation
    gate.
 
-   That separation is the point (rf2-kjx1). The runnable
+   That separation is the point. The runnable
    `:examples/counter-slim-and-fast` build boots `core/run` and stops there,
    so the artefact a reader serves, and the bundle they weigh against stock
    Reagent's, holds the counter and none of the machinery below. Two
