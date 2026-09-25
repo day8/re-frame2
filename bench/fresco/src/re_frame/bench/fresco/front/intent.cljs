@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.front.intent
-  "INTENT LOWERING — deliverable 3 of the Wave-1 shared front half
-  (rf2-2rtt6.8). Ergonomics-as-data: the author writes what should
+  "INTENT LOWERING — the shared front half's event surface.
+  Ergonomics-as-data: the author writes what should
   happen, and the front half, not the author, turns it into the closure
   the browser calls.
 
@@ -26,15 +26,15 @@
 
   ## ONE callback form, and the position selects the contract (HD-024)
 
-  When a vector is not enough, the predecessor asks the author to pick
-  from a roster of FOUR forms, each with a different contract — one
+  When a vector is not enough, a roster design would ask the author to
+  pick from FOUR forms, each with a different contract — one
   returning an event vector, one whose return is ignored, one that is
   pure and runs during a foreign render, one that passes a function
-  through by identity — and then adds a FIFTH rule about *where the
-  roster reaches*. Outside that reach the failure is not even the
+  through by identity — and then add a FIFTH rule about *where the
+  roster reaches*. Outside that reach the failure would not even be the
   library's: a roster carrier handed to a raw `#js` prop is a marker
-  object rather than a function, so the author gets the engine's own
-  `TypeError`, \"naming nothing you wrote\".
+  object rather than a function, so the author would get the engine's
+  own `TypeError`, naming nothing they wrote.
 
   Fresco ships **one** form, [[callback]] (`h/event`), and it is an
   ORDINARY FUNCTION. The contract comes from the position, because the
@@ -62,7 +62,7 @@
   declaration that says `:handler` ends up silently dispatching a bare
   intent, and how a `:render` position dispatches during the foreign
   component's render — the value quietly selecting the contract, which is
-  the exact defect the ruling deletes. A dispatching carrier at
+  the exact defect HD-024 deletes. A dispatching carrier at
   `:handler` or at `:render` is therefore
   `:rf.error/fresco-intent-at-a-non-event-contract`, named at the
   position, rather than a contract silently overridden.
@@ -80,8 +80,8 @@
   omit**: [[re-frame.bench.fresco.front.codec/convert-prop-value]]
   already passes functions to React by identity, deliberately, so that
   `React.memo` and every downstream bail-out that compares handler
-  identity keep working. The behaviour the predecessor spells as a fourth
-  roster form is the default here. The census agrees with the omission —
+  identity keep working. The behaviour a roster design would spell as a
+  fourth form is the default here. The census agrees with the omission —
   zero foreign components across 85 idiomatic files.
 
   ## The argument law: the vector spelling is EVENT-FIRST
@@ -106,8 +106,8 @@
   raises `:rf.error/fresco-intent-needs-the-event` naming the position,
   the intent, and the argument that actually arrived. Without it the
   author gets `value.preventDefault is not a function` — the engine's own
-  `TypeError`, naming nothing they wrote, which is the failure class the
-  whole ruling exists to delete.
+  `TypeError`, naming nothing they wrote, which is the failure class
+  HD-024 exists to delete.
 
   It is paid only by the closures that read the event. An intent carrying
   no marker and no prevent never touches its argument, so it costs
@@ -138,7 +138,7 @@
   [[hframe]] (`h/frame` in the authoring surface) is the AUTHOR-facing
   half of the same binding — the one door an author has to the frame
   identity the lowering reads implicitly. See its docstring; the design
-  record is `docs/design/fresco/studio/hframe-design.md` (rf2-841vn).
+  record is `docs/design/fresco/studio/hframe-design.md`.
 
   A RENDER callback ([[render-callback]]) re-establishes that ambient
   context for its own invocation, out of what it captured when it was
@@ -146,11 +146,11 @@
   boundary that SUPPLIED the callback — the only frame that can own it.
   The render-position refusal is scoped to the invocation and not to
   everything the invocation lowered: poison while the call is running,
-  forward to the owner after it returns (rf2-2rtt6.74).
+  forward to the owner after it returns.
 
   ## The marker roster and its one pure materializer
 
-  Two markers, both of which the ruled surface names:
+  Two markers, both of which the authoring surface names:
   `:re-frame.fresco/value` (authoring.md's `::h/value`) and
   `:re-frame.fresco/checked` — the controlled pair HD-010's owned-literal
   merge law and HD-019's controlled door both speak of. They are ordinary
@@ -200,7 +200,7 @@
     of key-string → handler, so an event is one `.-key` lookup and no
     allocation.
 
-  ## The navigate head (rf2-2rtt6.54)
+  ## The navigate head
 
   The SECOND reserved head, and the router-owned counterpart of
   `::h/prevent`: `[::h/navigate {…}]` at an event position is the click
@@ -221,25 +221,24 @@
   than the presence of the keys it happens to know — classified once at
   lowering, loud on every malformed form. The
   click LAW is not restated here: the lowered closure hands the event to
-  routing's own `:routing/activate-link!` late-bound seam — the same one
-  decision `rf/route-link`, `ui/route-link` and Freehand's `v/route-link`
-  all run — so caller-veto-first, modifier-click deferral, native-anchor
-  deferral and `preventDefault`-then-dispatch stay routing's law, stated
-  once. A hook that vanished between render and click (dev hot-reload of
-  the routing artefact) degrades to native navigation — the browser
-  follows the real `href` — after running the veto, exactly as Freehand's
-  seam degrades.
+  routing's own `:routing/activate-link!` late-bound seam — the one
+  decision every route link runs — so caller-veto-first, modifier-click
+  deferral, native-anchor deferral and `preventDefault`-then-dispatch
+  stay routing's law, stated once. A hook that vanished between render
+  and click (dev hot-reload of the routing artefact) degrades to native
+  navigation — the browser follows the real `href` — after running the
+  veto.
 
   The `:veto` slot is where the two heads compose, and the composition is
   the existing grammar: `[::h/prevent [:app/event]]` there lowers to the
   ordinary prevent closure, `activate-link!` runs it FIRST, sees
   `defaultPrevented`, and stands down — the navigation is cancelled and
   the app intent dispatched instead. That is the cancelable-navigation
-  case the prevent head was built for, reached with no new machinery. A
+  case the prevent head exists for, reached with no extra machinery. A
   BARE intent vector at the veto slot is refused loudly: a route click
   already produces the one routing intent, and a second un-prevented
   intent site on the same click would be one user action yielding two
-  semantic events (Freehand's route-link law, kept).
+  semantic events — the route-link law.
 
   This namespace deliberately does not implement `defhost`/`[:>]`
   interop (HD-011, its own surface), or any controlled-value restore.
@@ -247,7 +246,7 @@
   emitter rather than the lowering:
   [[re-frame.bench.fresco.front.controlled]] wraps the handler this
   namespace produced, after it has produced it, and nothing about the
-  lowering changes because of it (rf2-fki5d)."
+  lowering changes because of it."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -267,15 +266,14 @@
   render. [[re-frame.bench.fresco.front.route-link/route-link]] reads it
   to capture the render frame into its navigate vector — a browser click
   fires long after the render's dynamic extent has unwound, so the frame
-  must travel as data (the same render-time capture Freehand's
-  `v/route-link` performs with `require-current-frame!`)."
+  must travel as data."
   nil)
 
 (def ^:private ambient-frame-refusal
-  "The detail this arm hands core's refusal tier (rf2-2rtt6.122). One
+  "The detail this arm hands core's refusal tier. One
   module-level constant, so the prose — which is nearly all of it — is
   built once at load and never per body. [[with-frame]] stamps the
-  rendering boundary's own frame onto a copy of it (rf2-nqj22); that
+  rendering boundary's own frame onto a copy of it; that
   `assoc` is the whole per-extent cost, and it buys the one property a
   shared constant cannot express: which frame THIS body has.
 
@@ -285,9 +283,9 @@
   boundary, so following it would change nothing and the boundary would go
   on quietly not re-rendering.
 
-  IT HAS TO ADDRESS THREE DOORS, NOT TWO (rf2-hnrww). The ambient scope is
+  IT HAS TO ADDRESS THREE DOORS, NOT TWO. The ambient scope is
   one door with three consumers — a read, a dispatch, and a CARRY — and
-  this text was written for the first two. An author who trips the refusal
+  advice written for the first two misses the third. An author who trips the refusal
   through `rf/capture-frame` is doing neither: `capture-frame` is Spec
   002's *one public carry primitive*, and the reason its 0-arity resolves
   ambiently is to CAPTURE, not to read and not to dispatch. Advice that
@@ -306,9 +304,9 @@
                    "and then mutate the subscription cache during the render phase "
                    "while contributing ZERO collector edges — leaving a boundary that "
                    "never re-renders when that subscription moves, which is HD-002 "
-                   "clause (a)'s forbidden class. It used to succeed silently under "
-                   "some adapters and throw under others; now it refuses under all "
-                   "of them. "
+                   "clause (a)'s forbidden class. It refuses the same way under every "
+                   "adapter: none lets it succeed silently, and none throws some "
+                   "other error in its place. "
                    "CARRYING a frame out of the render is a THIRD thing, and its "
                    "recovery is neither of the above: `(rf/capture-frame)` resolves "
                    "ambiently, so it refuses here, but `(rf/capture-frame <frame-id>)` "
@@ -325,7 +323,7 @@
   alone (the 2-arity), and anything frame-keyword-dependent it lowers
   stays a loud error rather than a silent guess.
 
-  THE THIRD VAR IS CORE'S REFUSAL TIER (rf2-2rtt6.122). This extent is
+  THE THIRD VAR IS CORE'S REFUSAL TIER. This extent is
   exactly the render extent HD-002 clause (a) governs, so it is exactly
   where ambient `rf/subscribe` / `rf/dispatch` must stop resolving. It is
   bound HERE, fused into the binding this function already performs, rather
@@ -344,18 +342,18 @@
   naming THIS boundary's frame still answers inside a body. The refusal
   deletes the ambient FIND, not the carrying.
 
-  A BODY HAS ONE FRAME, AND NOW BY CONSTRUCTION (rf2-nqj22). The one thing
-  the sentence above did not cover: an `rf/with-frame :b` ENCLOSING a
-  boundary that renders `:a`. Core was behaving exactly as EP-0002 says —
-  `:b` was carried, so `:b` answered — but the boundary is rendering `:a`,
-  and the collector's reads, the lowered intents and the presence tray all
-  target `:a`. One body, two frames, chosen by which spelling the author
-  reached for, and silent. It is reachable from any host that renders a
-  Fresco tree inside a scope: a `flushSync` mount under a `with-frame`, an
-  SSR host wrapping `renderToString`, a test fixture that root-binds an
-  ambient frame. So this extent tells core WHICH frame it is rendering
-  (`:extent-frame`) and core refuses a carried stamp that names another —
-  the only carry that stops working is the one that was already wrong.
+  A BODY HAS ONE FRAME, BY CONSTRUCTION. The case the sentence above
+  does not cover: an `rf/with-frame :b` ENCLOSING a boundary that renders
+  `:a`. By EP-0002 alone `:b` is carried, so `:b` would answer — but the
+  boundary is rendering `:a`, and the collector's reads, the lowered
+  intents and the presence tray all target `:a`: one body, two frames,
+  chosen by which spelling the author reached for, and silent. It is
+  reachable from any host that renders a Fresco tree inside a scope: a
+  `flushSync` mount under a `with-frame`, an SSR host wrapping
+  `renderToString`, a test fixture that root-binds an ambient frame. So
+  this extent tells core WHICH frame it is rendering (`:extent-frame`)
+  and core refuses a carried stamp that names another — the only carry
+  that stops working is one that was wrong anyway.
   The 2-arity names no frame, so it declares none and nothing is refused
   there: an extent with no frame of its own has nothing to be mismatched
   against."
@@ -377,7 +375,7 @@
   "The frame-locked dispatch this lowering needs, or the loud refusal.
 
   **The message offers TWO readings, because the runtime cannot tell
-  them apart** (rf2-2rtt6.103). `*dispatch*` being `nil` says only that
+  them apart.** `*dispatch*` being `nil` says only that
   no render window is binding one; it does not say why, and the two
   whys want opposite repairs:
 
@@ -415,7 +413,7 @@
                        :intent      intent}))))
 
 ;; ---------------------------------------------------------------------------
-;; The author-facing frame read — `h/frame` (rf2-841vn)
+;; The author-facing frame read — `h/frame`
 ;; ---------------------------------------------------------------------------
 
 (defn hframe
@@ -441,8 +439,8 @@
   answer. An fx handler already receives the frame id in its ctx and
   `:dispatch-later` already expresses delay as data; a `setTimeout` in a
   view that dispatches is mis-layered, and no primitive here is designed
-  for it. `h/frame` does make that spelling *work* where it used to fail
-  — that softening is stated on the design record rather than argued
+  for it. `h/frame` does make that spelling *work* where it would
+  otherwise fail — that softening is stated on the design record rather than argued
   away, and the compensation is that every guide row putting `h/frame` on
   the page puts `:fx` first.
 
@@ -455,7 +453,7 @@
   primitive*. The two-step spelling, against the adapters' one-step
   `(rf/capture-frame)`, is the taught asymmetry, and it has a one-
   sentence reason: **ambient frame lookup is what Fresco's stricter body
-  discipline withdraws** (rf2-2rtt6.122 — see [[ambient-frame-refusal]]).
+  discipline withdraws** (see [[ambient-frame-refusal]]).
 
   THE LOAD-BEARING FACT is narrower than it looks. The refusal deletes
   the ambient FIND, never the carrying, so `rf/with-frame` and
@@ -470,7 +468,7 @@
   ## Why it reads [[*frame*]] and not the runtime's render slot
 
   Load-bearing, and the difference is visible in one position. The
-  rf2-2rtt6.74 render-position work rebinds [[*frame*]] to the
+  render-position mechanism rebinds [[*frame*]] to the
   **supplying** boundary while a foreign component invokes a render
   callback ([[render-callback]]), where the runtime's own `rstate.frame`
   is nil — the foreign render runs outside the arm's render pass. So
@@ -530,9 +528,9 @@
   can impose a contract on it — and returns `f` ITSELF, an ordinary
   function, which is the whole of the deletion.
 
-  The predecessor's roster carriers are marker OBJECTS, so handing one to
-  a position the library does not walk produces the engine's own
-  `TypeError` naming nothing the author wrote. There is nothing here that
+  Roster carriers that are marker OBJECTS would make handing one to a
+  position the library does not walk produce the engine's own
+  `TypeError`, naming nothing the author wrote. There is nothing here that
   can fail to be callable: outside every walked position this value is a
   plain function whose return is ignored, which is a defensible contract
   rather than a crash.
@@ -609,15 +607,15 @@
 
   **Enforcement is INVOCATION-SCOPED: poison while the call is running,
   forward to the owner once it has returned.** Poisoning the ambient
-  dispatch for the call's dynamic extent and leaving it at that conflates
-  two different things, because lowering captures the same var the poison
-  replaced. The row a `renderRow` prop exists to build —
+  dispatch for the call's dynamic extent and leaving it at that would
+  conflate two different things, because lowering captures the same var
+  the poison replaced. The row a `renderRow` prop exists to build —
 
       [:li {:on-click [:row/pick (:id row)]} (:title row)]
 
-  — closes over the poison and raises at the USER'S CLICK, for a click:
-  a legitimate event position that merely happened to be LOWERED during a
-  render (rf2-2rtt6.74). The law is \"dispatching from inside the call\",
+  — would close over the poison and raise at the USER'S CLICK, for a
+  click: a legitimate event position that merely happened to be LOWERED
+  during a render. The law is \"dispatching from inside the call\",
   and a closure that will dispatch later is not that.
 
   **The row above is written as hiccup, and hiccup is not what this
@@ -627,12 +625,9 @@
   element, and the something is
   [[re-frame.bench.fresco.front.codec/as-element]] — which is INTERNAL.
   Nothing on the authoring surface reaches it, so **the recovery this
-  paragraph describes has no spelling an author can write today**; that
-  gap is `rf2-2rtt6.120`, and it is a real gap rather than a missing
-  sentence. In particular there is **no `h/as-element`**: an earlier
-  revision of this docstring illustrated the row with one, and four design
-  documents copied the spelling out of here before anyone checked that it
-  resolved.
+  paragraph describes has no spelling an author can write**, and that is
+  a real gap rather than a missing sentence. In particular there is **no
+  `h/as-element`**, however natural the spelling looks.
 
   So the wrapper captures the ambient dispatch AND frame at LOWERING
   time — the supplying boundary's, because the wrapper is minted during
@@ -645,9 +640,9 @@
   lower-and-fire-NOW case succeed silently and weaken the law it was
   meant to preserve.
 
-  [[require-dispatch]], [[intent-handler]] and [[event-callback]] are
-  UNCHANGED: they still capture [[*dispatch*]], which inside a callback is
-  now the gate, and that one substitution is the whole of the repair.
+  [[require-dispatch]], [[intent-handler]] and [[event-callback]] need
+  nothing special: they capture [[*dispatch*]], which inside a callback
+  is the gate, and that one substitution is the whole of the mechanism.
 
   [[*frame*]] is rebound to the owner's for the same extent, so a
   [[re-frame.bench.fresco.front.route-link/route-link]] in a row body
@@ -803,10 +798,10 @@
   browser set it, and the modern half of this gate would never fire —
   leaving only the legacy signal, on browsers that happen to send it.
   Measured at
-  `arm1_controlled_grid_dom_cljs_test/reacts-synthetic-keyboard-event-drops-is-composing`.
+  `arm1/controlled_grid_dom_cljs_test/reacts-synthetic-keyboard-event-drops-is-composing`.
 
-  A raw DOM event has no `nativeEvent`, so it falls back to itself and
-  the node-side unit tests read exactly as they did."
+  A raw DOM event has no `nativeEvent`, so it falls back to itself, which
+  is what a node-side unit test hands it."
   [e]
   (let [native (or (.-nativeEvent e) e)]
     (or (true? (.-isComposing native))
@@ -945,8 +940,8 @@
   `(= navigate-keys (set (keys m)))` admits, and allocate nothing to do
   it, so that is what [[unwrap-navigate]] asks on the hot path. This set
   is read by the REFUSAL, which runs once, at the error: building it per
-  call was ~156 ns/element of the census page's walk, one
-  `PersistentHashSet` per link per render (`rf2-jr0tg`, costed on
+  call would cost ~156 ns/element of the census page's walk, one
+  `PersistentHashSet` per link per render (costed on
   `walk_vs_reagent_app`)."
   #{:frame :payload :native? :veto})
 
@@ -1158,11 +1153,10 @@
 (defn lower-declared-prop
   "Lower one prop whose contract a `defhost` declaration named — the
   position table's second row. Kept separate from [[lower-prop]] so the
-  declaration is what decides, rather than the prop's spelling: the
-  predecessor's own rule is that a host's callback contract is 'a finite
-  map from EXACT prop names to `:event` or `:handler`; never inferred
-  from an `on*` name', and that rule survives here because the position,
-  not the value, carries the contract.
+  declaration is what decides, rather than the prop's spelling: a host's
+  callback contract is a finite map from EXACT prop names to a contract,
+  never inferred from an `on*` name, and that rule holds here because
+  the position, not the value, carries the contract.
 
   **The contract is the OUTER dispatch and the carrier the inner one**,
   which is the whole law made structural. Dispatching on the value first
@@ -1180,7 +1174,7 @@
 
   `:event` keeps the vector and key-map conveniences because dispatching
   is exactly what that contract means; the vector's own argument law
-  applies there unchanged ([[event-arg!]]). An ordinary unmarked function
+  applies there as everywhere ([[event-arg!]]). An ordinary unmarked function
   crosses untouched at every contract — `raw-fn`'s passthrough is the
   default here, and a plain fn is claimed by no position."
   [k v contract]
