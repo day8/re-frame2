@@ -6,12 +6,12 @@
 
   ## What a settled boundary is
 
-  `settled-boundary` is NOT a new headless scheduler and NOT a second
-  quiescence engine. It is a *name* for the settlement contract layered
-  over the framework primitives that already exist:
+  `settled-boundary` is NOT a headless scheduler of its own and NOT a
+  second quiescence engine. It is a *name* for the settlement contract
+  layered over the framework's own primitives:
 
   - `:headless` — the variant frame's event queue is drained AND all
-    synchronous re-dispatches have settled. This is the existing
+    synchronous re-dispatches have settled. This is the framework's
     `re-frame.router/dispatch-sync!` run-to-fixed-point drain, projected
     under a name — not reimplemented.
   - `:cljs-reactive` — the headless boundary AND reaction recomputation
@@ -55,10 +55,11 @@
   `[:dispatch …]` step settles to fixed point synchronously, named and
   deterministic.
 
-  Adapter-aware callers (the Reagent/UIx shell, a future `:dom`
-  browser runner) register richer hooks declaring a higher `:provides`
-  and supplying the reactive / DOM flush fns. Story core never reaches
-  for React or the DOM directly; the flush fns are the only seam.
+  Adapter-aware callers (`re-frame.story.play.substrate-boundary`, which
+  reads the live adapter's `flush-render!`) register richer hooks
+  declaring a higher `:provides` and supplying the reactive / DOM flush
+  fns. Story core never reaches for React or the DOM directly; the flush
+  fns are the only seam.
 
   ## `:cannot-run`
 
@@ -185,8 +186,8 @@
   "The headless `settled-boundary`: dispatch `event-vector` into
   `frame-id` and drain the router to fixed point — synchronous
   re-dispatches included. This is `re-frame.router/dispatch-sync!` projected
-  under the boundary name; it is the SAME run-to-fixed-point drain the
-  framework already owns (Spec 002 §dispatch-sync), not a new scheduler.
+  under the boundary name; it is the framework's own run-to-fixed-point
+  drain (Spec 002 §dispatch-sync), not a second scheduler.
 
   Returns nil. Raises nothing the framework would not already raise (a
   `dispatch-sync` issued from inside a running drain surfaces
@@ -251,7 +252,7 @@
 (defn settle-to!
   "Run `hooks`' registered flushes up to and including `required`, in
   ladder order, WITHOUT dispatching anything. The flush half of
-  `dispatch-and-settle!`, factored out so there is ONE flush loop in the
+  `dispatch-and-settle!`, standing alone so there is ONE flush loop in the
   codebase rather than a second copy of the ladder walk and its deadline
   arithmetic.
 
