@@ -1,12 +1,12 @@
 (ns re-frame.bench.fresco.hd8-witnesses
   "HD-008's arms — the composed donor arm and everything it is measured
-  against, all declaring the SAME two pages (rf2-2rtt6.7).
+  against, all declaring the SAME two pages.
 
   This is the EP-0038 stop-gate's instrument. HD-008 asks whether the
   Fresco hypothesis survives when it is assembled out of parts that are
   already in this repository, BEFORE any API is designed: reagent-slim's
   `:f>` function-component path and its runtime hiccup interpreter for
-  markup, the existing UIx `use-sub` spine for reactivity. Two
+  markup, the UIx adapter's `use-sub` spine for reactivity. Two
   rungs, because the two halves of the claim have to be priced apart:
 
     RUNG 1 — markup + reactivity. `:f>` boundaries, runtime hiccup,
@@ -18,20 +18,15 @@
              `:on-click [:hd8/touch i]` and the codec, not the author,
              turns it into a dispatching closure.
 
-  A FOURTH DONOR — `:donor-fh`, rung 1 with Freehand's codec in place of
-  reagent-slim's — rode this instrument from `rf2-2rtt6.29` until
-  `rf2-m4rpa` RETIRED it. It is not replaced and its figure is not
-  re-baselined: the arm was Freehand's own programme, Freehand is being
-  removed from the tree, and a benchmark kept alive by a vendored copy of
-  the code it measures rots. What that arm measured is frozen, with its
-  commit provenance and measurement date, at
-  `docs/design/fresco/studio/hd8-freehand-codec-donor-arm.md`. **The
-  codec axis it opened does not survive it** — see the closing section,
-  *The codec comparison, and why `codecs-differ?` is gone rather than
-  moved*, which stands in place of the gate the arm used to carry.
+  There is no second-codec donor arm: a benchmark kept alive by a vendored
+  copy of the code it measures rots. The Freehand-codec arm's measured
+  figure is frozen, with its commit provenance and measurement date, at
+  `docs/design/fresco/studio/hd8-freehand-codec-donor-arm.md`. **This
+  instrument has no codec axis** — see the closing section, *The codec
+  comparison, and why there is no `codecs-differ?` gate*.
 
   The rung-2 lowering is a MINIMAL DISPOSABLE SLICE and is deliberately
-  not the shared front half — rf2-2rtt6.8 owns that. It lowers
+  not the shared front half. It lowers
   vector-valued `on-*` props and does nothing else, because that is the
   whole of what rung 2 is pricing.
 
@@ -45,9 +40,7 @@
 
   ## The hook ladder, and why it is the readable variable
 
-  THREE dispatch mechanisms live here, not one, and this docstring used to
-  claim otherwise — *\"every arm below resolves its dispatch fn the SAME way
-  — one map lookup keyed by frame\"*. What the source does:
+  THREE dispatch mechanisms live here, not one:
 
       arm            hooks  markup                     handler        dispatch
       :floor           0    hand createElement         inert          none — one hoisted no-op, shared
@@ -58,20 +51,19 @@
       :donor-r2        2    slim hiccup + `:f>`        CODEC-LOWERED  [[dispatch-for]], then [[lower-events]]
 
   [[prime-frame!]] does run outside every measured window, so no arm pays
-  to CONSTRUCT a dispatch fn during a render — that part of the old claim
-  holds and is the point of the levelling. But only the three React-spine
+  to CONSTRUCT a dispatch fn during a render — that is the point of the
+  levelling. But only the three React-spine
   arms read [[frame-dispatch]], and they read it INSIDE each boundary's
   render, 300 times a mount; the two Reagent paths never touch it, because
   `reg-view` hands them a `dispatch` already bound to the frame from
   context, which is what a Reagent application contains; and the floor
   resolves nothing at all.
 
-  What the old sentence was defending is still true and still matters: no
-  arm mints a fresh OPS MAP per render, every mechanism above is one
-  indirection or fewer, and the frontier comparator is never strawmanned.
-  And the residual runs in the safe direction — the deref-plus-`get` is
-  paid by `:uix` and both donor rungs and NOT by the Reagent paths, so it
-  cannot have flattered the arms HD-008 is arguing for.
+  What matters holds: no arm mints a fresh OPS MAP per render, every
+  mechanism above is one indirection or fewer, and the frontier comparator
+  is never strawmanned. And the residual runs in the safe direction — the
+  deref-plus-`get` is paid by `:uix` and both donor rungs and NOT by the
+  Reagent paths, so it cannot flatter the arms HD-008 is arguing for.
 
   What is left varying is the thing under test. `donor-r2 / donor-r1` is
   the product shell's price and nothing else's; `donor-r2 / uix` holds the
@@ -102,8 +94,7 @@
   is explicit that a bare ratom is a labelled lower bound and never a fair
   comparison.
 
-  Normative owner: `docs/design/fresco/decisions.md` HD-008; the standard
-  bead is `rf2-2rtt6.1`."
+  Normative owner: `docs/design/fresco/decisions.md` HD-008."
   (:require ["react" :as react]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -169,8 +160,8 @@
   ;; [[prime-frame!]] at arm construction, outside every measured window,
   ;; so no arm pays to CONSTRUCT a dispatch fn during a render.
   ;;
-  ;; It does NOT make every arm pay the same lookup, and the comment here
-  ;; used to say it did. Its readers are `:uix`, `:donor-r1` and
+  ;; It does NOT make every arm pay the same lookup. Its readers are
+  ;; `:uix`, `:donor-r1` and
   ;; `:donor-r2`, which call [[dispatch-for]] inside each boundary's
   ;; render; the two Reagent arms take `reg-view`'s lexical `dispatch` and
   ;; never come here, and the floor's handler is [[inert]]. See the ns
@@ -214,7 +205,7 @@
 (def ^:private inert (fn [_] nil))
 
 ;; `subvec` rather than `take`: the floor must honour the witness's `n` —
-;; the parity gate caught it building 300 rows for a 6-row witness — but it
+;; the parity gate refuses a floor building 300 rows for a 6-row witness — but it
 ;; must not be billed for a lazy sequence per mount that no rival pays.
 ;; `subvec` is constant time and allocates one view.
 (defn- ^:private window-of [v n]
@@ -285,8 +276,8 @@
 ;;
 ;; `$` is a MACRO expanding to `react/createElement` at compile time, so
 ;; this arm pays no runtime markup walk at all. That is why it is the
-;; frontier comparator and why the red-zone rule (rf2-2rtt6.1, delegated
-;; ruling 1) derives its thresholds from it.
+;; frontier comparator and why the red-zone rule derives its thresholds
+;; from it.
 ;;
 ;; TWO hooks per boundary — the frame-context read and the subscription —
 ;; which is exactly HD-020's budget. The frame read is `use-frame`, the
@@ -377,7 +368,7 @@
 ;;       element.
 ;;
 ;; The `:f>` path, the runtime hiccup and the `use-sub` spine are
-;; rung 1's, unchanged.
+;; rung 1's.
 
 (def ^:private on-prefix "on-")
 
@@ -385,7 +376,7 @@
   "Is `k` an event prop? A keyword whose name starts `on-`. Deliberately
   the cheapest test that is correct for hiccup's convention: the slice is
   minimal by charter, and a richer classification would be measuring
-  rf2-2rtt6.8's shared front half rather than this rung."
+  the shared front half rather than this rung."
   [k]
   (and (keyword? k) (str/starts-with? (name k) on-prefix)))
 
@@ -394,7 +385,7 @@
   becomes a closure dispatching that vector through `dispatch`. Everything
   else passes through untouched.
 
-  Disposable by construction and scoped to this bead: it does not parse
+  Disposable by construction and scoped to this rung: it does not parse
   tags, it does not cache, it does not descend into children, and it lives
   in the bench lane. It exists only so the clock can say what the shell
   costs."
@@ -434,9 +425,7 @@
 ;; The donor codec's public door — one call, so the crossing is visible
 ;; ===========================================================================
 ;;
-;; ONE door, since `rf2-m4rpa` retired `:donor-fh`. There were two; the
-;; second one's disappearance is what the closing section of this file is
-;; about.
+;; ONE door. Why there is no second is the closing section of this file.
 
 (defn slim-element
   "Interpret donor hiccup into a React element through reagent-slim's
@@ -447,27 +436,25 @@
   (slim-template/as-element hiccup))
 
 ;; ===========================================================================
-;; THE CODEC COMPARISON, AND WHY `codecs-differ?` IS GONE RATHER THAN MOVED
+;; THE CODEC COMPARISON, AND WHY THERE IS NO `codecs-differ?` GATE
 ;; ===========================================================================
 ;;
-;; `:donor-fh` carried `codecs-differ?`, a FATAL-AT-BOOT gate (`hd8-app`'s
-;; gate 0b). It probed `^{:key 1} [:li.row]` — a form reagent-slim honours
-;; and Freehand refuses by name — and killed the run if the two codec doors
-;; ever stopped answering differently. It existed for exactly one reading:
-;; `donor-fh / donor-r1` coming back 1.0 would otherwise be ambiguous
-;; between *the two codecs cost the same* and *the arm ran one codec twice*,
-;; and no clock tells those apart.
+;; A `codecs-differ?` gate — FATAL-AT-BOOT, probing a form one codec honours
+;; and the other refuses by name (`^{:key 1} [:li.row]`), and killing the
+;; run if the two codec doors ever stopped answering differently — exists
+;; for exactly one reading: a second runtime-hiccup codec arm whose ratio
+;; against `donor-r1` comes back 1.0 is otherwise ambiguous between *the
+;; two codecs cost the same* and *the arm ran one codec twice*, and no
+;; clock tells those apart.
 ;;
-;; `rf2-m4rpa` retired the arm. THE GATE IS NOT RE-POINTED AT A SURVIVING
-;; PAIR, AND THIS IS THE STATEMENT OF ITS ABSENCE.
+;; This instrument has no such arm, so THE GATE HAS NO SUBJECT, AND THIS IS
+;; THE STATEMENT OF ITS ABSENCE. The hazard it guards is specific and
+;; structural: an arm that is `r1-m-row` with its body wrapped in one
+;; function call is textually near-identical to rung 1, and a silent
+;; aliasing of the two doors would produce a real-looking 1.0 that no
+;; reader could falsify. Nothing here has that shape:
 ;;
-;; It has no subject left. The hazard it guarded is specific and structural:
-;; `fh-m-row` WAS `r1-m-row` with its body wrapped in one function call, so
-;; the two arms were textually near-identical and a silent aliasing of the
-;; two doors would have produced a real-looking 1.0 that no reader could
-;; falsify. Nothing that survives has that shape:
-;;
-;;   * There is now ONE codec door, [[slim-element]]. A single door cannot
+;;   * There is ONE codec door, [[slim-element]]. A single door cannot
 ;;     be the same code twice — there is no second implementation to alias
 ;;     to, so the probe has nothing to compare.
 ;;   * `donor-r2 / donor-r1` varies the SHELL (one extra context hook plus
@@ -484,8 +471,8 @@
 ;;
 ;; So the instrument keeps ONE anti-vacuity gate rather than two:
 ;; `parity-can-fail?`, which proves the parity check can still answer
-;; false. What is genuinely lost is the CODEC AXIS ITSELF — this instrument
-;; no longer prices one runtime hiccup codec against another. That is a
-;; smaller claim, and it is stated here rather than papered over. The
-;; retired arm's measured figure, its commit provenance and its date are
-;; frozen at `docs/design/fresco/studio/hd8-freehand-codec-donor-arm.md`.
+;; false. What this instrument does NOT price is the CODEC AXIS ITSELF —
+;; one runtime hiccup codec against another. That is a smaller claim, and
+;; it is stated here rather than papered over. The Freehand-codec arm's
+;; measured figure, its commit provenance and its date are frozen at
+;; `docs/design/fresco/studio/hd8-freehand-codec-donor-arm.md`.

@@ -1,40 +1,38 @@
 #!/usr/bin/env node
 'use strict';
 // THE LADDER'S STRUCTURAL WITNESS — what the counts must be, and at R=0
-// especially. rf2-xzg3b. AND THE ALLOCATION ROW'S OBSERVED-COLLECTION
-// WITNESS — rf2-2rtt6.140, at the foot of this file, which retired
-// rf2-n6w7o's masking budget rather than widening it.
+// especially. AND THE ALLOCATION ROW'S OBSERVED-COLLECTION WITNESS, at the
+// foot of this file, which refuses an observed collection rather than
+// admitting it under a masking budget.
 //
-//     node core/test/re_frame/bench/p0_ladder_structural.test.cjs
+//     node src/re_frame/bench/p0_ladder_structural.test.cjs   (from bench/fresco/)
 //
-// THE DEFECT THIS PINS. `ladderStructuralFailures` wanted `boundaries === B`
-// on every candidate rung, R-independently. That was true of the PRE-FUSION
-// runtime, where `:boundaries` counted `(:b->subs idx)` — an entry per
-// MOUNTED boundary, whether or not it read anything. rf2-dabt3 fused the
-// sub-index into the cell table and changed what the number means: the
-// runtime now knows a boundary only through the reader lists of the cells it
-// reads, so a boundary that read nothing retains no membership anywhere and
-// is correctly absent. At R=0 the answer is 0. The driver still wanted 1200,
-// and `--only ladder` exited 1 with twelve read-back failures on a run whose
-// every other gate passed.
+// WHAT THIS PINS. `ladderStructuralFailures` wants `boundaries === B` on
+// every reading rung and 0 at R=0. The sub-index is fused into the cell
+// table, so the runtime knows a boundary only through the reader lists of
+// the cells it reads: a boundary that reads nothing retains no membership
+// anywhere and is correctly absent. At R=0 the answer is 0. An
+// R-independent `boundaries === B` describes a runtime whose `:boundaries`
+// counted `(:b->subs idx)` — an entry per MOUNTED boundary, whether or not it
+// read anything — and against this one it would fail `--only ladder` with
+// twelve read-back failures on a run whose every other gate passed.
 //
-// THE REPAIR IS A STRONGER ASSERTION, NOT A RELAXED ONE. `R === 0 ? 0 : B`
-// pins the edgeless-boundary property the fusion was taken for: with no
-// per-boundary registry left to hold them, a non-zero reading at R=0 means
-// something is retaining a boundary that reads nothing. So the R=0 rung now
-// gates a real claim about the fused design instead of restating a
-// bookkeeping artefact of the design it replaced. Both directions are
-// exercised below, because a check that cannot fail has adjudicated nothing.
+// `R === 0 ? 0 : B` IS A STRONGER ASSERTION, NOT A RELAXED ONE. It pins the
+// fused design's edgeless-boundary property: with no per-boundary registry
+// to hold them, a non-zero reading at R=0 means something is retaining a
+// boundary that reads nothing. So the R=0 rung gates a real claim about the
+// fused design rather than a bookkeeping artefact of a per-boundary
+// registry. Both directions are exercised below, because a check that
+// cannot fail has adjudicated nothing.
 //
 // WHY IT IS PINNED HERE. `--only ladder` needs a release build and a
-// headless Chromium, and it is opt-in — in no gate at all. That is exactly
-// how this expectation sat stale from rf2-dabt3 landing until rf2-zei9w next
-// ran the driver: nobody ran it for weeks, so nothing said so. The witness
-// itself is a pure function of the collected row, so it can be driven with
-// contrived summaries and gated on every PR, which is what this file does —
-// the same shape as `b8_exit_path.test.cjs` one tree over.
+// headless Chromium, and it is opt-in — in no gate at all — so an
+// expectation only the driver holds can sit stale for as long as nobody
+// runs it. The witness itself is a pure function of the collected row, so
+// it can be driven with contrived summaries on every check, which is what
+// this file does.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Run by `npm run check` in bench/fresco/.
 
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
@@ -43,9 +41,9 @@ const os = require('node:os');
 const path = require('node:path');
 
 const DRIVER = path.join(__dirname, 'p0_run.cjs');
-// The P0 fixture and the work census stayed in the package when the lane
-// moved out (rf2-6c12m.1): `p0_write_page_cljs_test` rides the per-PR
-// `:node-test` build through them, so they live where that build reads.
+// The P0 fixture and the work census live in the package, not the lane:
+// `p0_write_page_cljs_test` rides the per-PR `:node-test` build through
+// them, so they live where that build reads.
 const CORE_BENCH = path.resolve(__dirname, '../../../../../implementation/core/test/re_frame/bench');
 // Requiring the driver must NOT drive it: it builds, serves and launches a
 // browser. The `require.main === module` guard is part of what is under test.
@@ -63,17 +61,17 @@ const {
   ALLOC_PRIME_WRITES,
   ALLOC_WINDOW_WRITES,
   ALLOC_WRITE_SPECS,
-  // The paired selection (rf2-irxrw) — the table, the key and the provenance
+  // The paired selection — the table, the key and the provenance
   // adjudicator, so the pins DRIVE the shipped code rather than restate it.
   ALLOC_WRITE_SELECTIONS,
   allocWindowKey,
   allocWriteProvenance,
   ALLOC_PLAN_SHAPES,
   allocPlanArms,
-  // The confound-breaking segment order (rf2-rs8q6), pure and driven below.
+  // The confound-breaking segment order, pure and driven below.
   allocSegmentOrder,
   ALLOC_SEG_ORDERS,
-  // The write-leg order (rf2-fk6pj), pure and driven below for the reason the
+  // The write-leg order, pure and driven below for the reason the
   // two either side of it are: what it changes is a property of a SEQUENCE of
   // rounds, and the property that matters most — that a `seeded` schedule is
   // not a function of round parity — is not readable off a ternary.
@@ -82,13 +80,13 @@ const {
   allocPassFlips,
   allocPassOrder,
   ALLOC_PASS_ORDERS,
-  // The box provenance riders (rf2-24o2z), pure of the run and driven below.
+  // The box provenance riders, pure of the run and driven below.
   boxSnapshot,
   boxBusyFraction,
   boxSessionOpen,
   boxSessionClose,
   boxRecord,
-  // And the control slot (rf2-rs8q6), pure and driven below for the same
+  // And the control slot, pure and driven below for the same
   // reason: what it moves is a property of a SEQUENCE of rounds.
   allocControlIndex,
   allocRoundWindowKinds,
@@ -184,11 +182,11 @@ test('a row with no arms at all is not a failure', () => {
   assert.deepStrictEqual(ladderStructuralFailures({ plan: [{ arms: [{ boundaries: B }] }], perRound: [] }), []);
 });
 
-// --- direction 1: the stale PRE-FUSION reading must refuse -----------------
+// --- direction 1: a PER-MOUNT reading at R=0 must refuse -------------------
 
 test('THE DEFECT — a boundary retained at R=0 fails, on both segments, every round', () => {
-  // Exactly the pre-fusion stamp: `:boundaries` counted every MOUNTED
-  // boundary, so R=0 read 1200. Post-fusion that means 1200 boundaries are
+  // The per-mount stamp: a `:boundaries` counting every MOUNTED boundary
+  // reads 1200 at R=0. On the fused runtime that means 1200 boundaries are
   // being retained by a runtime that should be holding none of them.
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
@@ -214,7 +212,7 @@ test('any non-zero reading at R=0 refuses, not just the pre-fusion 1200', () => 
 // --- direction 2: the check is still a check at R > 0 ----------------------
 
 test('THE OTHER DIRECTION — a reading rung reporting 0 boundaries still fails', () => {
-  // Without this the repair would read as "R=0 is exempt". It is not: at
+  // Without this the R=0 rule would read as "R=0 is exempt". It is not: at
   // R>=1 every boundary reads R distinct keys, so every registration holds
   // at least one slot and the count must be B.
   for (const R of RUNGS.filter((r) => r !== 0)) {
@@ -238,7 +236,7 @@ test('a reading rung short by ONE boundary still fails', () => {
   for (const f of fails) assert.match(f, /fresco boundaries 1199, expected 1200/);
 });
 
-// --- the fields either side of it, so the R=0 carve-out stayed narrow ------
+// --- the fields either side of it, so the R=0 carve-out stays narrow -------
 
 test('R=0 exempts NOTHING but `boundaries` — edges, cells and entries still gate', () => {
   for (const [field, wrong, expected] of [
@@ -311,7 +309,7 @@ const SRC = fs.readFileSync(DRIVER, 'utf8');
 // `assert.match` against a 1400-line driver prints the whole file on a
 // failure and buries the reason. These say what was expected instead.
 const has = (re, why) => assert.ok(re.test(SRC), `p0_run.cjs: expected ${re} — ${why}`);
-const lacks = (re, why) => assert.ok(!re.test(SRC), `p0_run.cjs: must no longer match ${re} — ${why}`);
+const lacks = (re, why) => assert.ok(!re.test(SRC), `p0_run.cjs: must not match ${re} — ${why}`);
 
 test('the driver exits on THIS function and does not re-derive the counts', () => {
   has(/const structural = ladderStructuralFailures\(out\.ladder\);/, 'the ladder gate calls it');
@@ -321,31 +319,31 @@ test('the driver exits on THIS function and does not re-derive the counts', () =
 });
 
 test('the R=0 boundary expectation is written as a claim, not hardcoded to B', () => {
-  // The line that was stale. A `candidateStamp` built the same wrong way
+  // A `candidateStamp` built the R-independent way
   // would keep the green case above green, so the source is pinned too.
   has(/boundaries: R === 0 \? 0 : B,/, 'the fused edgeless-boundary property');
-  lacks(/\{ boundaries: B, edges: B \* R/, 'the pre-fusion R-independent expectation');
+  lacks(/\{ boundaries: B, edges: B \* R/, 'the per-mount R-independent expectation');
 });
 
 test('the printed legend states the R=0 zero rather than the old flat `boundaries = B`', () => {
   has(/boundaries = B \(0 at R=0\)/, 'the printed legend must qualify it');
   lacks(/boundaries = B ·/, 'the unqualified printed legend');
-  lacks(/one registration per boundary, R-independent/, 'the stale source legend');
+  lacks(/one registration per boundary, R-independent/, 'the R-independent source legend');
 });
 
 // ===========================================================================
-// WHICH SUBSTRATE THE CANDIDATE ARM IS — rf2-fe0l
+// WHICH SUBSTRATE THE CANDIDATE ARM IS
 // ===========================================================================
 //
-// THE DEFECT THIS PINS. The heap ladder's candidate arm read
-// `re-frame.bench.fresco.arm1.*` — the frozen PROTOTYPE that
-// `implementation/fresco/src` was moved from, and whose own docstring says
-// it lives "off every production source path". So every retained-heap figure
-// the ladder ever produced priced a bench-tree copy, and rf2-hic-006 could
-// not re-pin S1-S5 on the package because no heap instrument pointed at the
-// package at all. The freeze header calls the two trees' divergence expected
-// and permanent, which is exactly why a repoint cannot be left to drift back:
-// nothing about a compiling arm says which of the two it compiled against.
+// WHAT THIS PINS. The heap ladder's candidate arm reads the PACKAGE, not
+// `re-frame.bench.fresco.arm1.*` — the frozen PROTOTYPE of
+// `implementation/fresco/src`, whose own docstring says it lives "off every
+// production source path". An arm reading the prototype would make every
+// retained-heap figure the ladder produces price a bench-tree copy, with no
+// heap instrument pointed at the package at all. The freeze header calls the
+// two trees' divergence expected and permanent, which is exactly why the
+// arm's target cannot be left to drift: nothing about a compiling arm says
+// which of the two it compiled against.
 //
 // WHY IT IS PINNED HERE RATHER THAN LEFT TO THE COMPILER. `:fresco-bench`
 // compiles both trees, so an arm re-pointed at the prototype tomorrow builds
@@ -354,18 +352,18 @@ test('the printed legend states the R=0 zero rather than the old flat `boundarie
 // assertion says WHICH ones they were.
 //
 // PARSED FROM THE ns FORM, NEVER GREPPED. Both files legitimately NAME the
-// prototype in prose — the provenance is worth keeping — so a whole-file
-// grep for `arm1` would fail on a docstring that is doing its job. This
-// reads the `:require` / `:require-macros` forms and nothing else, the same
-// rule `fresco/scripts/check_optional_module_reachability.py` follows one
-// tree over.
+// prototype in prose, so a whole-file grep for `arm1` would fail on a
+// docstring that is doing its job. This reads the `:require` /
+// `:require-macros` forms and nothing else, the same rule
+// `implementation/fresco/scripts/check_optional_module_reachability.py`
+// follows.
 
 const HEAP = path.join(__dirname, 'p0_heap.cljs');
 const CANDIDATE = path.join(__dirname, 'p0_fresco.cljs');
 
 // `;`-to-end-of-line comments removed, and `"strings"` kept. String-aware,
 // because the heap arm's require form carries both — `"react-dom"` beside a
-// comment block that names the prototype it no longer requires.
+// comment block that names the prototype it does not require.
 const stripComments = (text) => {
   let out = '';
   let inString = false;
@@ -470,22 +468,22 @@ test('THE HEAP RIG READS THE PACKAGE — all three doors, none of them arm1', ()
 });
 
 test('THE FOUR SEAMS CALL THROUGH THOSE ALIASES, and no fifth one is hiding', () => {
-  // Aliases alone prove nothing: a require can be repointed while a call
-  // site keeps the old one. These are the four sites rf2-fe0l enumerated,
-  // counted in the code and not in the commentary.
+  // Aliases alone prove nothing: a require can point at the package while a
+  // call site names another alias. These are the four seams, counted in the
+  // code and not in the commentary.
   const code = codeOf(HEAP);
   assert.strictEqual(countOf(code, 'rf.fresco.impl.mount/root!'), 1, 'the mount door, once');
   assert.strictEqual(countOf(code, 'rf.fresco.impl.collector/reset-runtime!'), 1, 'the runtime reset, once');
   assert.strictEqual(countOf(code, 'rf.fresco.test.runtime/residue'), 2, 'the live census and the post-unmount read');
   // The prototype's alias. Its absence is what says no seam was missed.
-  assert.strictEqual(countOf(code, 'hic-rt/'), 0, 'no call site left on the old alias');
+  assert.strictEqual(countOf(code, 'hic-rt/'), 0, 'no call site on the prototype alias');
 });
 
 // ===========================================================================
-// THE ALLOCATION ROW'S OBSERVED-COLLECTION WITNESS — rf2-2rtt6.140
+// THE ALLOCATION ROW'S OBSERVED-COLLECTION WITNESS
 // ===========================================================================
 //
-// THE DEFECT THIS PINS. `allocSteps` detects a collection by the SIGN of an
+// WHAT THIS PINS. `allocSteps` detects a collection by the SIGN of an
 // adjacent step in `usedJSHeapSize`. A sign test is blind in exactly one
 // direction: where V8 collects inside a leg that also allocates at least as
 // much as the collection reclaimed, the observed step is >= 0, `falls` stays
@@ -494,22 +492,20 @@ test('THE FOUR SEAMS CALL THROUGH THOSE ALIASES, and no fifth one is hiding', ()
 // allocation is the direction that manufactures HD-002's predicted
 // flat-at-zero, so it is the one direction this row may not fail in.
 //
-// WHAT USED TO GUARD IT, AND WHY IT IS GONE. rf2-n6w7o charged
-// `rise + maxStep <= ALLOC_FALL_THRESHOLD_B / 2` and argued that a window
-// inside that budget could contain no collection at all. The merged-PR audit
-// of #7682 refuted both premises — the threshold is an UPPER bound on where
-// the first collection runs where safety needs a LOWER one, and `maxStep`
-// bounds nothing about a masked leg because it sees only NET positive deltas
-// — and wrote two executable probes the bound ADMITTED, at `headroom = 0`,
-// with true allocations of 300 KB and 600 KB. rf2-2rtt6.141 accepted both
-// objections and named this witness as the replacement; rf2-2rtt6.140's
-// criterion 4 sanctions the retirement explicitly and states that replacing
-// is not widening.
+// WHY NOT A MASKING BUDGET. A bound charging
+// `rise + maxStep <= ALLOC_FALL_THRESHOLD_B / 2`, on the argument that a
+// window inside it could contain no collection at all, fails on both
+// premises: the threshold is an UPPER bound on where the first collection
+// runs where safety needs a LOWER one, and `maxStep` bounds nothing about a
+// masked leg because it sees only NET positive deltas. Two executable probes
+// such a bound ADMITS, at `headroom = 0`, with true allocations of 300 KB
+// and 600 KB, are pinned at the foot of this file. Replacing the bound with
+// this witness is not widening it.
 //
-// WHAT REPLACED IT reads the window's own samples: the legs of a window are
+// THE WITNESS reads the window's own samples: the legs of a window are
 // W repetitions of ONE work unit, so REFUSE the window if any leg deviates
-// from the cohort MEDIAN by more than τ·m. The two probes are pinned at the
-// foot of this file, refused, and refused INDEPENDENTLY OF τ.
+// from the cohort MEDIAN by more than τ·m. The two probes are refused, and
+// refused INDEPENDENTLY OF τ.
 //
 // HERMETIC BY CONSTRUCTION. Nothing here measures anything. `stream` builds
 // the sample buffer `p0-heap/alloc-window!` would have filled, from stated
@@ -536,7 +532,7 @@ test('THE DEFECT — a collection fully masked by net growth is REFUSED', () => 
   // Four warm writes of 200 KB each. A collection runs inside the third and
   // reclaims exactly what that leg allocated, so the step is 0 and the sign
   // test sees nothing at all. 200 KB of real allocation has vanished from
-  // `rise`, and the window would have been published as clean.
+  // `rise`, and a sign test alone would publish the window as clean.
   const s = allocSteps(stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]));
   assert.strictEqual(s.falls, 0, 'the sign test is blind here — that IS the defect');
   assert.strictEqual(s.fall, 0, 'and nothing was netted, so `fall` is silent too');
@@ -553,16 +549,14 @@ test('THE DEFECT — a collection fully masked by net growth is REFUSED', () => 
 });
 
 test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
-  // The pin that replaces `the budget is the measured fall threshold HALVED`.
   // τ decides whether a measurement may be PUBLISHED, and a gate with a dial
-  // on it is a gate that gets dialled — `ALLOC_MASK_BUDGET_B`'s reasoning,
-  // unchanged and inherited.
+  // on it is a gate that gets dialled.
   assert.strictEqual(typeof ALLOC_LEG_TOLERANCE, 'number');
   assert.ok(ALLOC_LEG_TOLERANCE > 0, 'a tolerance of zero would refuse every real window');
   assert.ok(
     ALLOC_LEG_TOLERANCE < 1,
     'at τ >= 1 a leg reading ZERO against a positive cohort is admitted, which is exactly ' +
-      'the shape both audit probes have'
+      'the shape both masking probes have'
   );
   // It is UNCALIBRATED until V3 runs, and the source has to say so rather
   // than letting a placeholder pass for a measured constant.
@@ -575,9 +569,9 @@ test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
   );
   // And the driver reads the module constant at every measurement site: the
   // `tolerance` parameter exists for the τ sweep below and for nothing else.
-  // Both sites COLLAPSE the by-site stream first (rf2-rs8q6) — which is the
-  // identity off the diagnostic mode — then split the prime off (rf2-oiy1) and
-  // adjudicate the MEASURED region. One adjudicator, one τ, two windows.
+  // Both sites COLLAPSE the by-site stream first — which is the identity off
+  // the diagnostic mode — then split the prime off and adjudicate the
+  // MEASURED region. One adjudicator, one τ, two windows.
   has(/const site = allocSiteSplit\(w\.samples, w\.sites\);/, 'the control window collapses first');
   has(/const site = allocSiteSplit\(win\.samples, win\.sites\);/, 'and so does the arm window');
   assert.strictEqual(
@@ -590,20 +584,20 @@ test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
   has(/const s = allocSteps\(measured\);/, 'and what is adjudicated is the measured region');
   lacks(
     /allocSteps\(win\.samples\)|allocSteps\(w\.samples\)/,
-    'nothing adjudicates the raw window any more — the prime leg is not a work leg'
+    'nothing adjudicates the raw window — the prime leg is not a work leg'
   );
 });
 
 test('the retired masking budget is GONE, not widened', () => {
-  // rf2-2rtt6.140 criterion 4, as a fact about the source rather than a
-  // sentence in a brief. Retaining the bound belt-and-braces was considered
-  // and rejected on arithmetic: at the composed operating point a window is
-  // ~630 KB of rise+maxStep, so a retained bound would refuse every window
-  // the witness certifies and the package would deliver nothing.
-  lacks(/const ALLOC_MASK_BUDGET_B/, 'the budget constant is deleted');
-  lacks(/const ALLOC_B_PER_BOUNDARY_WRITE/, 'and the sizing constant with it');
-  lacks(/function allocMaxWrites/, 'and the inversion that only existed to serve it');
-  // The measured threshold STAYS, at its measured value, and gates nothing.
+  // No masking bound, as a fact about the source rather than a sentence in
+  // a brief. A bound kept belt-and-braces beside the witness fails on
+  // arithmetic: at the composed operating point a window is ~630 KB of
+  // rise+maxStep, so the bound would refuse every window the witness
+  // certifies and the package would deliver nothing.
+  lacks(/const ALLOC_MASK_BUDGET_B/, 'there is no budget constant');
+  lacks(/const ALLOC_B_PER_BOUNDARY_WRITE/, 'and no sizing constant');
+  lacks(/function allocMaxWrites/, 'and no inversion serving it');
+  // The measured threshold is recorded at its measured value and gates nothing.
   has(/const ALLOC_FALL_THRESHOLD_B = 600000;/, 'not loosened — recorded');
   assert.strictEqual(ALLOC_FALL_THRESHOLD_B, 600000);
   has(/RECORDED, gates nothing/, 'and the summary says which it is');
@@ -623,8 +617,8 @@ test('the gate is not vacuous — a small clean window passes it', () => {
 });
 
 test('the boundary is exact — at τ passes, one byte past refuses', () => {
-  // The replacement for `at budget passes, one byte over refuses`. Five legs
-  // whose median is 20000, with the first sitting exactly τ·m high: admitted.
+  // Five legs whose median is 20000, with the first sitting exactly τ·m
+  // high: admitted.
   // One byte further: refused. Both directions, because the rule is two-sided
   // and a one-sided check would have adjudicated half of it.
   const m = 20000;
@@ -642,12 +636,11 @@ test('the boundary is exact — at τ passes, one byte past refuses', () => {
 });
 
 test('A MASKED LEG READS BELOW ITS COHORT, and that is what refuses', () => {
-  // The replacement for `NET GROWTH CANNOT DEFEAT IT`, which argued about the
-  // budget. The same four legs, once with the third leg's collection masked
-  // and once without. Masking REMOVES bytes from `rise`, so the masked window
-  // is the one that looks SMALLER — and the retired bound could only ever be
-  // flattered by that. The leg witness reads the opposite way round: removing
-  // bytes from one leg is precisely what makes it unlike its cohort.
+  // The same four legs, once with the third leg's collection masked and
+  // once without. Masking REMOVES bytes from `rise`, so the masked window is
+  // the one that looks SMALLER — and a budget on the window's size could only
+  // ever be flattered by that. The leg witness reads the opposite way round:
+  // removing bytes from one leg is precisely what makes it unlike its cohort.
   const legs = [200000, 200000, 200000, 200000];
   const masked = allocSteps(stream(legs, [0, 0, 200000, 0]));
   const clean = allocSteps(stream(legs));
@@ -661,9 +654,9 @@ test('A MASKED LEG READS BELOW ITS COHORT, and that is what refuses', () => {
 });
 
 test('THE FALLS GATE IS UNTOUCHED — a visible collection still counts as one', () => {
-  // The half that works. rf2-n6w7o was discharged by ADDING a refusal and
-  // rf2-2rtt6.140 replaces only what rf2-n6w7o added: every window this gate
-  // refuses today it refuses after.
+  // The half that works. The leg witness only ADDS refusals beside this
+  // gate, so every window with a visible collection is refused here whatever
+  // the leg witness says.
   const s = allocSteps(stream([20000, 20000], [0, 40000]));
   assert.strictEqual(s.falls, 1, 'a net-negative leg is still a falling step');
   assert.strictEqual(s.fall, 20000, 'the second leg allocated 20000 and lost 40000');
@@ -672,9 +665,8 @@ test('THE FALLS GATE IS UNTOUCHED — a visible collection still counts as one',
 });
 
 test('`maxStep` is the largest single rising step, not the mean or the last', () => {
-  // It survives as a reported DIAGNOSTIC. Nothing certifies on it any more —
-  // it was the term the audit showed bounds nothing about a masked leg — but
-  // it is still the right answer to the question it asks.
+  // It is a reported DIAGNOSTIC. Nothing certifies on it — it bounds nothing
+  // about a masked leg — but it is the right answer to the question it asks.
   const s = allocSteps(stream([1000, 7000, 3000]));
   assert.strictEqual(s.rise, 11000);
   assert.strictEqual(s.maxStep, 7000);
@@ -731,7 +723,7 @@ test('THE CERTIFICATE IS TIGHT — an admitted window under-reads by at most 2τ
 test('LEGS AND GAPS are read apart, and only the legs are adjudicated', () => {
   // `[s0, pre0, post0, pre1, post1, ...]`: the legs are `post - pre` and the
   // gaps are `pre - post`, where nothing happens but a loop increment and two
-  // array stores. `rise` walks BOTH, as it always did. The witness reads only
+  // array stores. `rise` walks BOTH. The witness reads only
   // the legs — and nothing allocates in a gap, so a collection there cannot be
   // masked at all: it lands as a negative step and the falls gate takes it.
   const s = allocSteps(stream([1000, 2000, 3000]));
@@ -741,31 +733,30 @@ test('LEGS AND GAPS are read apart, and only the legs are adjudicated', () => {
 });
 
 // ===========================================================================
-// THE PRIME WORK UNIT — rf2-oiy1
+// THE PRIME WORK UNIT
 // ===========================================================================
 //
-// THE DEFECT THIS PINS. rf2-2rtt6.140's V1/V2/V3 window measured 336 arm
-// windows across eight browser runs and every one carried a POSITIVE first-leg
-// excess over its own cohort median — median 6,966 B, constant in absolute
-// bytes across a 24x page range, identical under both writes. At τ = 0.25 a
-// fixed ~7 KB excess refuses every window whose leg median is under ~27,900 B,
-// which is every floor window at every page size; and `arm − floor` is the
-// quantity every witness on this row is stated over, so the ladder went with
-// it.
+// WHAT THIS PINS. Arm windows carry a POSITIVE first-leg excess over their own
+// cohort median — measured on all 336 arm windows of eight browser runs at a
+// median of 6,966 B, constant in absolute bytes across a 24x page range,
+// identical under both writes. At τ = 0.25 a fixed ~7 KB excess refuses every
+// window whose leg median is under ~27,900 B, which is every floor window at
+// every page size; and `arm − floor` is the quantity every witness on this row
+// is stated over, so the ladder would go with it.
 //
-// WHICH CAUSE IT IS, FROM THAT WINDOW'S OWN NUMBERS. The tail legs of a clean
-// window are byte-identical, so steady state arrives after ONE work unit
-// inside the window; eighteen work units already run immediately before it, in
-// three full-size warm-up windows, and the excess survives all of them; and
-// the only thing between the last of those and leg 1 is the driver's own
-// `gc()`. One after clears it, eighteen before do not — so the collection
-// creates it, and a fourth warm-up (the bead's branch (a)) cannot reach it.
+// WHICH CAUSE IT IS, FROM THOSE NUMBERS. The tail legs of a clean window are
+// byte-identical, so steady state arrives after ONE work unit inside the
+// window; eighteen work units run immediately before it, in three full-size
+// warm-up windows, and the excess survives all of them; and the only thing
+// between the last of those and leg 1 is the driver's own `gc()`. One after
+// clears it, eighteen before do not — so the collection creates it, and a
+// fourth warm-up cannot reach it.
 //
-// THE REPAIR IS NOT A WIDENING AND NOT A DISCARD. The window drives one extra
+// THE PRIME IS NOT A WIDENING AND NOT A DISCARD. The window drives one extra
 // work unit; the first is a PRIME, sampled and reported and excluded from
-// every published quantity and from the certificate. τ is untouched.
-// `allocSteps` is untouched — every pin above it stands unedited — because the
-// split hands it a shorter stream in the same shape.
+// every published quantity and from the certificate. τ is the same, and
+// `allocSteps` needs no knowledge of the prime — every pin above it holds —
+// because the split hands it a shorter stream in the same shape.
 
 test('THE SPLIT — the measured region is a well-formed stream in the same shape', () => {
   // `[s0, pre0, post0, pre1, post1, ...]`. Dropping `2·prime` leading samples
@@ -784,22 +775,22 @@ test('THE SPLIT — the measured region is a well-formed stream in the same shap
 });
 
 test('THE BEAD`S OWN WINDOW — refused before the prime, certified after', () => {
-  // The B = 4 floor window quoted verbatim on rf2-oiy1:
+  // An observed B = 4 floor window:
   // [26044, 19256, 19256, 19256, 19256, 19256]. Six alike legs with the first
   // 6,788 B high — 35% of a 19,256 B cohort, against a 25% tolerance.
   const OBSERVED = [26044, 19256, 19256, 19256, 19256, 19256];
-  // WRONG BEFORE. Adjudicated whole, exactly as the driver did until this
-  // bead, it refuses — and on the first leg, which is the only deviant one.
+  // WITHOUT THE PRIME. Adjudicated whole, it refuses — and on the first leg,
+  // which is the only deviant one.
   const before = allocSteps(stream(OBSERVED));
-  assert.strictEqual(before.certified, false, 'this is the window the row could not certify');
+  assert.strictEqual(before.certified, false, 'adjudicated whole, the row cannot certify this window');
   assert.strictEqual(before.refusals.length, 1, JSON.stringify(before.refusals));
   assert.match(before.refusals[0], /leg 1 of 6/);
   assert.strictEqual(before.legMedian, 19256);
 
-  // RIGHT AFTER. The same six work units with a prime in front of them: the
-  // prime absorbs the excess, the six measured legs are byte-identical, and
-  // the window certifies. The tail is byte-identical in the MEASURED data —
-  // that is the observation the whole repair rests on, and it is why one
+  // WITH THE PRIME. The same six work units with a prime in front of them:
+  // the prime absorbs the excess, the six measured legs are byte-identical,
+  // and the window certifies. The tail is byte-identical in the MEASURED
+  // data — that is the observation the prime rests on, and it is why one
   // priming unit is enough.
   const primed = allocPrimeSplit(stream([26044, ...OBSERVED.slice(1), 19256]), 1);
   const after = allocSteps(primed.measured);
@@ -808,15 +799,15 @@ test('THE BEAD`S OWN WINDOW — refused before the prime, certified after', () =
   assert.strictEqual(after.certified, true, 'six repetitions of one work unit certify');
   assert.strictEqual(after.legWorstDeviation, 0);
   assert.strictEqual(after.rise, 6 * 19256, 'and the prime is in no published byte');
-  // The excess is still MEASURED. This is what makes the repair a report
-  // rather than a discard, and it is the figure rf2-e9wr's calibration wants.
+  // The excess is still MEASURED. This is what makes the prime a report
+  // rather than a discard, and it is the figure a τ calibration reads.
   assert.strictEqual(primed.primeLegs[0] - after.legMedian, 6788);
 });
 
 test('THE PRIME IS NOT AN AMNESTY — a deviant MEASURED leg still refuses', () => {
   // A rule that cannot fail has adjudicated nothing. The prime takes exactly
-  // one work unit out of the cohort; everything the leg witness refused before
-  // it, it refuses after.
+  // one work unit out of the cohort; everything else the leg witness refuses,
+  // it still refuses.
   const masked = allocPrimeSplit(stream([26044, 200000, 200000, 0, 200000], [0, 0, 0, 200000, 0]));
   const s = allocSteps(masked.measured);
   assert.strictEqual(s.certified, false, 'a masked leg in the measured region still refuses');
@@ -832,28 +823,27 @@ test('THE PRIME IS NOT AN AMNESTY — a deviant MEASURED leg still refuses', () 
 
 test('the prime is CONFIGURED IN ONE PLACE and the divisor is not it', () => {
   assert.strictEqual(typeof ALLOC_PRIME_WRITES, 'number');
-  assert.ok(ALLOC_PRIME_WRITES >= 1, 'a prime of zero is the shape the bead refutes');
+  assert.ok(ALLOC_PRIME_WRITES >= 1, 'a prime of zero leaves the first-leg excess in the cohort');
   assert.strictEqual(
     ALLOC_WINDOW_WRITES - ALLOC_MIN_WRITES,
     ALLOC_PRIME_WRITES,
     'the window drives the averaging floor PLUS the prime'
   );
-  // THE AVERAGING FLOOR IS UNMOVED (rf2-2rtt6.142). Excluding a leg from a
-  // six-write window would have left five averaged writes, under the floor.
-  // Averaging six means driving seven, and this is the arithmetic that says so.
+  // THE AVERAGING FLOOR HOLDS. Excluding a leg from a six-write window would
+  // leave five averaged writes, under the floor. Averaging six means driving
+  // seven, and this is the arithmetic that says so.
   assert.strictEqual(ALLOC_MIN_WRITES, 6);
   // The published quantity is per MEASURED write. A divisor of
-  // `ALLOC_WINDOW_WRITES` would have folded the prime back into every figure.
+  // `ALLOC_WINDOW_WRITES` would fold the prime back into every figure.
   has(/perWrite: s\.rise \/ ALLOC_WRITES,/, 'the arm figure divides by the measured writes');
   has(/perIter: s\.rise \/ ALLOC_WRITES,/, 'and so does the control figure');
   // And the window is driven at the full count at every site, warm-ups
   // included — a warm-up smaller than the window is the defect the warm-up
   // pass exists to avoid.
-  // THE CALL SHAPE MOVED, SO THIS PIN MOVED WITH IT (rf2-rs8q6). `allocPrepare`
-  // gained a stride argument, and the old literal `allocPrepare(dd, n)` would
-  // have matched nothing from that day on — a `lacks` that matches nothing
-  // passes, silently, for ever. Anchored on the argument ARRAY instead, which
-  // is where the count it is about actually lives.
+  // ANCHORED ON THE ARGUMENT ARRAY, which is where the count it is about
+  // actually lives. `allocPrepare` takes a stride argument, so a literal
+  // like `allocPrepare(dd, n)` would match nothing — and a `lacks` that
+  // matches nothing passes, silently, for ever.
   lacks(
     /allocPrepare\([^)]*\),\s*\[[^\]]*\bALLOC_WRITES\b/,
     'no sample buffer is sized for the measured writes alone'
@@ -873,11 +863,10 @@ test('the prime is CONFIGURED IN ONE PLACE and the divisor is not it', () => {
     assert.match(p, /ALLOC_WINDOW_WRITES/, `sized for the window it drives: ${p}`);
     assert.match(p, /ALLOC_SITES/, `and the stride is stated at the same call: ${p}`);
   }
-  // `leg.spec.kind` since rf2-irxrw, where the run's write became a LIST and
-  // the arm pass runs once per member. This pin is about the COUNT — the
-  // window drives `ALLOC_WINDOW_WRITES`, the measured writes plus the prime —
-  // and the paired switch does not touch that half; what moved is only where
-  // the kind beside it is read from.
+  // `leg.spec.kind`, because the run's write is a LIST and the arm pass runs
+  // once per member. This pin is about the COUNT — the window drives
+  // `ALLOC_WINDOW_WRITES`, the measured writes plus the prime — whichever
+  // write the kind beside it names.
   has(/\[ALLOC_WINDOW_WRITES, drain, leg\.spec\.kind\]/, 'the window drives the full count');
   // NO DIAL. The prime decides what a window MEANS, so it is a constant for
   // `ALLOC_LEG_TOLERANCE`'s reason: a knob on it is a knob on the certificate.
@@ -914,18 +903,18 @@ test('the prime is CLAMPED, so a short stream cannot read off the end', () => {
   assert.deepStrictEqual(allocSteps(short.measured).legs, []);
   const none = allocPrimeSplit(stream([]), 1);
   assert.deepStrictEqual(none.primeLegs, [], 'nothing to prime is not a negative index');
-  // A prime of zero is the pre-bead shape, and the split is the identity on it
-  // — which is what lets every `allocSteps` pin above stand unedited.
+  // The split is the identity on a prime of zero — which is what lets every
+  // `allocSteps` pin above hold for an unprimed stream.
   const raw = stream([1000, 1000]);
   assert.deepStrictEqual(allocPrimeSplit(raw, 0), { primeLegs: [], measured: raw });
 });
 
 // ===========================================================================
-// THE BY-SITE INSTRUMENT — rf2-rs8q6
+// THE BY-SITE INSTRUMENT
 // ===========================================================================
 //
-// WHAT IT IS FOR. rf2-e9wr measured 72 floor-arm windows and found the leg
-// dispersion to be a function of the ROUND INDEX — round 2 (n=11) at
+// WHAT IT IS FOR. Across 72 measured floor-arm windows the leg dispersion is
+// a function of the ROUND INDEX — round 2 (n=11) at
 // 2.66%–20.37% with none below 2.66%, round 3 (n=11) at 0.00%–0.19% with all
 // at or below 0.19% — holding in each of six independent browser launches
 // separately. The excesses are positive legs against a byte-identical cohort
@@ -960,10 +949,10 @@ function siteStream(pairs) {
   return out;
 }
 
-// One window in the shape rf2-e9wr actually measured: the B = 4 floor window
-// quoted on rf2-oiy1 — six alike legs of 19,256 B with a 26,044 B prime — with
-// ONE leg carrying the median recurring excess the bead reports (+2,640 B), and
-// with each of the two terms placed at a stated site.
+// One window in the measured shape: the observed B = 4 floor window above —
+// six alike legs of 19,256 B with a 26,044 B prime — with ONE leg carrying
+// the median measured recurring excess (+2,640 B), and with each of the two
+// terms placed at a stated site.
 const siteWindow = ({ primeAt, excessAt, excess = 2640, primeExcess = 6788 }) => {
   const base = { dispatch: 1200, drain: 18056 };
   const at = (site, extra) => [
@@ -982,10 +971,10 @@ const siteWindow = ({ primeAt, excessAt, excess = 2640, primeExcess = 6788 }) =>
 };
 
 test('THE COLLAPSE IS THE IDENTITY AT THE SHIPPED STRIDE — every gate above stands unedited', () => {
-  // This is the property that lets the whole mode be additive. Off it, the
-  // driver runs the pre-bead path through a function that returns what it was
-  // given, and `collapsed` is the SAME ARRAY rather than a copy of it: nothing
-  // is rebuilt, so nothing can be rebuilt differently.
+  // This is the property that lets the mode sit beside the shipped path. Off
+  // it, the driver runs the shipped path through a function that returns what
+  // it was given, and `collapsed` is the SAME ARRAY rather than a copy of it:
+  // nothing is rebuilt, so nothing can be rebuilt differently.
   const s = stream([19256, 19256, 19256]);
   const split = allocSiteSplit(s, 2);
   assert.deepStrictEqual(split, { sites: 2, collapsed: s, siteLegs: [] });
@@ -1058,7 +1047,7 @@ test('THE ATTRIBUTION NAMES THE SITE — in both directions, so a swap cannot pa
 });
 
 test('THE PRIME IS OUT OF THE BY-SITE COHORT TOO, and its excess is placed', () => {
-  // rf2-oiy1 removed the first-leg term from the measured region; a by-site
+  // The prime takes the first-leg term out of the measured region; a by-site
   // cohort that included the prime would have that term sitting back inside
   // its own medians and every site figure would be wrong by a share of it.
   const { siteLegs } = allocSiteSplit(siteWindow({ primeAt: 'dispatch', excessAt: 'drain' }), 3);
@@ -1075,7 +1064,7 @@ test('THE PRIME IS OUT OF THE BY-SITE COHORT TOO, and its excess is placed', () 
 });
 
 test('THE SAME-TERM HYPOTHESIS IS ANSWERABLE, and answers three ways', () => {
-  // The bead's "exclude this first": the recurring excesses (+476 to +7,456 B,
+  // The hypothesis to exclude first: the recurring excesses (+476 to +7,456 B,
   // median 2,640) overlap the prime excess's own scale (median 6,864), which
   // would suggest THE SAME TERM RECURRING rather than a distinct one.
   //
@@ -1102,7 +1091,7 @@ test('THE SAME-TERM HYPOTHESIS IS ANSWERABLE, and answers three ways', () => {
   // NO DISPERSION IS `null`, NOT `false`. A round-3 window whose legs are
   // byte-identical has no excess to place, and reporting "the sites disagree"
   // about a window with nothing in it would be the instrument inventing a
-  // finding. This is the case eleven of rf2-e9wr's round-3 windows are in.
+  // finding. Eleven of the measured round-3 windows are in this case.
   const flat = allocSiteWitness(
     allocSiteSplit(
       siteStream([[7988, 18056], ...Array.from({ length: 6 }, () => [1200, 18056])]),
@@ -1129,8 +1118,8 @@ test('THE MODE IS OFF BY DEFAULT, AND τ IS UNTOUCHED BY IT', () => {
   for (const v of ['0', 'yes', 'true', '3', ' 1']) {
     assert.strictEqual(constUnderEnv('ALLOC_SITES', { P0_ALLOC_BY_SITE: v }), 2, `P0_ALLOC_BY_SITE=${v}`);
   }
-  // AND IT IS NOT A DIAL ON THE GATE. rf2-e9wr established that no honest τ
-  // calibration exists on the arms' data in either direction; an instrument
+  // AND IT IS NOT A DIAL ON THE GATE. No honest τ calibration exists on the
+  // arms' data in either direction; an instrument
   // that answered the round-index question by moving τ would be answering a
   // different question. Every constant the certificate is read off is
   // identical with the mode armed.
@@ -1158,7 +1147,7 @@ test('THE CERTIFICATE NEVER SEES A BY-SITE STREAM, and the stride is the PAGE`S'
   );
   lacks(
     /allocPrimeSplit\((?:w|win)\.samples\)/,
-    'neither site adjudicates the raw stream any more'
+    'neither site adjudicates the raw stream'
   );
   // THE STRIDE IS READ OFF THE DATA, not off the switch the driver believes it
   // set. A page serving an older build would fill a stride-2 buffer and hand
@@ -1205,27 +1194,27 @@ test('THE REPORT RUNS — the mode is not merely defined', () => {
 });
 
 // ===========================================================================
-// THE INTRA-LEG RECLAMATION GATE — rf2-4ctls
+// THE INTRA-LEG RECLAMATION GATE
 // ===========================================================================
 //
-// THE DEFECT THIS PINS, and it was MEASURED rather than predicted. rf2-ojehu's
-// by-site window took 72 floor-arm windows over six runs on a quiet box. 24
-// carry at least one NEGATIVE site step — a reclamation inside a single leg —
-// and 21 of those are already refused by the falls gate. THREE have `falls` = 0
-// and TWO of those three ALSO CERTIFIED at τ.
+// WHAT THIS PINS, MEASURED rather than predicted. Of 72 floor-arm windows a
+// by-site run took over six runs on a quiet box, 24 carry at least one
+// NEGATIVE site step — a reclamation inside a single leg — and the falls gate
+// refuses 21 of those. THREE have `falls` = 0 and TWO of those three ALSO
+// CERTIFY at τ.
 //
-// NEITHER OF THE TWO EXISTING GATES IS DEFECTIVE ON ITS OWN TERMS, which is
+// NEITHER OF THE OTHER TWO GATES IS DEFECTIVE ON ITS OWN TERMS, which is
 // what makes this a gap between them rather than a bug in either. The falls
 // gate walks the COLLAPSED stride-2 stream, where such a leg is one
 // non-negative step. The leg tolerance — the gate written for exactly that
 // blind side — reads that leg's NET, which sits inside τ of the cohort median.
-// So the pins below assert BOTH halves on every replayed window: that the two
-// old gates pass it (the gap is real) and that the new one refuses it (the gap
-// is closed). Asserting only the second would pass just as well against a gate
-// that refuses everything.
+// So the pins below assert BOTH halves on every replayed window: that the
+// other two gates pass it (the gap is real) and that this one refuses it (the
+// gap is closed). Asserting only the second would pass just as well against a
+// gate that refuses everything.
 //
-// A REPLAY, NOT A FIXTURE. The three windows below are the site legs
-// rf2-ojehu's run actually recorded, to the byte, and each is driven through
+// A REPLAY, NOT A FIXTURE. The three windows below are the site legs a
+// recorded by-site run actually took, to the byte, and each is driven through
 // the SAME four calls the driver makes — `allocSiteSplit`, `allocPrimeSplit`,
 // `allocSteps`, `allocWindowVerdict`. Nothing is reconstructed and no expected
 // verdict is asserted that the real code did not produce.
@@ -1242,7 +1231,7 @@ const OJEHU = {
     [18232, 80], [18232, 80], [23560, 80],
   ],
   // falls 0, CERTIFIED at τ: +20,100 B against 18,092 B is +11.1%, and 285 KB
-  // was reclaimed inside the leg. This is the window the bead leads with.
+  // was reclaimed inside the leg. This is the sharpest of the three.
   c6page_r2_uix: [
     [24876, 80], [18012, 80], [18012, 80], [305392, -285292],
     [17976, 80], [18012, 80], [18012, 80],
@@ -1277,7 +1266,7 @@ test('THE REPLAY — the two windows that CERTIFIED are refused, and both old ga
     // because it reads the leg's NET.
     assert.strictEqual(steps.legMedian, med, `${name}: the cohort median as measured`);
     assert.deepStrictEqual(steps.refusals, [], `${name}: τ had nothing to say`);
-    assert.strictEqual(steps.certified, true, `${name}: which is how it got published`);
+    assert.strictEqual(steps.certified, true, `${name}: which alone would publish it`);
     assert.ok(
       Math.abs(steps.legWorstDeviation) < ALLOC_LEG_TOLERANCE,
       `${name}: the net deviation is inside τ, so tightening τ is not the repair`
@@ -1312,8 +1301,8 @@ test('THE THIRD WINDOW was already refused, and the new reason is ADDITIONAL', (
 
 test('THE GATE IS NOT VACUOUS — a clean window passes it, at every stride', () => {
   // A gate that refuses everything would satisfy the replay above and be
-  // useless. rf2-ojehu's own numbers say 48 of the 72 windows carry no negative
-  // site step at all; this is that shape, through the same four calls.
+  // useless. The by-site run's own numbers say 48 of the 72 windows carry no
+  // negative site step at all; this is that shape, through the same four calls.
   const { steps, verdict } = replay([
     [7988, 18056], [1200, 18056], [1200, 18056], [1200, 20696],
     [1200, 18056], [1200, 18056], [1200, 18056],
@@ -1330,10 +1319,10 @@ test('THE GATE IS NOT VACUOUS — a clean window passes it, at every stride', ()
 });
 
 test('INERT AT THE SHIPPED STRIDE — every published row is untouched', () => {
-  // The property that makes this bead additive, and the reason no published
-  // conclusion moves: every row ever published was taken at stride 2, where
-  // `allocSiteSplit` yields NO site legs, so there is no site step to be
-  // negative. Driven through the real collapse rather than asserted.
+  // The property that keeps every published conclusion where it is: every
+  // published row is taken at stride 2, where `allocSiteSplit` yields NO site
+  // legs, so there is no site step to be negative. Driven through the real
+  // collapse rather than asserted.
   const s2 = allocSiteSplit(stream([19256, 19256, 19256, 19256]), 2);
   assert.deepStrictEqual(s2.siteLegs, [], 'the shipped stride has no seam to read');
   const steps = allocSteps(allocPrimeSplit(s2.collapsed, 1).measured);
@@ -1348,22 +1337,22 @@ test('INERT AT THE SHIPPED STRIDE — every published row is untouched', () => {
 });
 
 test('AND THE ROW SAYS SO — a stride-2 record does not claim three gates screened it', () => {
-  // rf2-fir5n. The inertness above is CORRECT and nothing here arms anything;
-  // what was wrong was the record. `instrument` closed with "All three refuse"
-  // on every row, including the stride-2 rows that are the only ones ever
-  // published, where the third gate returned `[]` by construction. Driven
-  // through the real function at both strides rather than matched in the source,
-  // because the claim is about what the string SAYS and a source match can only
-  // restate it.
+  // The inertness above is CORRECT and nothing here arms anything; what this
+  // pins is the record. An `instrument` note closing with "All three refuse"
+  // on every row would claim a third gate on the stride-2 rows, the only ones
+  // published, where it returns `[]` by construction. Driven through the real
+  // function at both strides rather than matched in the source, because the
+  // claim is about what the string SAYS and a source match can only restate
+  // it.
   const off = allocInstrumentNote(false);
   const on = allocInstrumentNote(true);
 
-  // The stride-3 text is unchanged to the byte: this bead moves no by-site row.
+  // The stride-3 text makes the three-gate claim: at stride 3 all three run.
   assert.ok(on.endsWith('other two can see. All three refuse'), on.slice(-80));
 
-  // And the stride-2 text does not, which is the whole repair.
+  // And the stride-2 text does not make it.
   assert.doesNotMatch(off, /All three refuse/, 'two of the three ran on a published row');
-  assert.match(off, /TWO OF THE THREE RAN ON THIS ROW \(rf2-fir5n\)/);
+  assert.match(off, /TWO OF THE THREE RAN ON THIS ROW: it was taken at a stride of 2/);
   assert.match(off, /returned an empty list BY CONSTRUCTION rather than by a switch/);
   assert.match(off, /certified by the falling-step gate and by the leg tolerance and NO MORE/);
   // It states the CONSTRAINT, not a TODO: the two strides are not comparable, so
@@ -1371,7 +1360,7 @@ test('AND THE ROW SAYS SO — a stride-2 record does not claim three gates scree
   assert.match(off, /not comparable byte for byte/);
   assert.match(off, /can never be screened by all three/);
 
-  // Both branches still describe the same instrument — the shared half is shared
+  // Both branches describe the same instrument — the shared half is shared
   // rather than forked, so a future edit to the sampling description cannot
   // reach one stride and miss the other.
   const shared = 'in-page performance.memory.usedJSHeapSize sampled at every leg boundary';
@@ -1391,12 +1380,11 @@ test('AND THE ROW SAYS SO — a stride-2 record does not claim three gates scree
 });
 
 test('THE FENCE HOLDS — `allocSteps` is untouched and no published quantity moves', () => {
-  // rf2-rs8q6's fence is load-bearing: the certificate is read off the
-  // COLLAPSED stream so that `rise`, `falls` and `maxStep` cannot move. Feeding
-  // the mid samples to `allocSteps` was the other available repair and would
-  // have split one step into two — on the second window below, `rise` would
-  // have gained the whole 285,292 B and `falls` would have gone to 1. This gate
-  // moves neither, on the windows where it fires hardest.
+  // The fence is load-bearing: the certificate is read off the COLLAPSED
+  // stream so that `rise`, `falls` and `maxStep` cannot move. Feeding the mid
+  // samples to `allocSteps` would split one step into two — on the second
+  // window below, `rise` would gain the whole 285,292 B and `falls` would go
+  // to 1. This gate moves neither, on the windows where it fires hardest.
   for (const pairs of Object.values(OJEHU)) {
     const { steps, verdict } = replay(pairs);
     for (const f of ['rise', 'fall', 'falls', 'maxStep', 'endpoints', 'legMedian',
@@ -1407,9 +1395,9 @@ test('THE FENCE HOLDS — `allocSteps` is untouched and no published quantity mo
       assert.deepStrictEqual(verdict[f], steps[f], `${f} must be the same array`);
     }
   }
-  // And the source says so: the driver still hands `allocSteps` the measured
-  // COLLAPSED region at both window sites, and the new gate reads `siteLegs`
-  // instead of reaching into the sample stream.
+  // And the source says so: the driver hands `allocSteps` the measured
+  // COLLAPSED region at both window sites, and the intra-leg gate reads
+  // `siteLegs` instead of reaching into the sample stream.
   assert.strictEqual(
     (SRC.match(/const verdict = allocWindowVerdict\(s, site\.siteLegs\);/g) || []).length,
     2,
@@ -1421,14 +1409,14 @@ test('THE FENCE HOLDS — `allocSteps` is untouched and no published quantity mo
   );
 });
 
-// --- the record's RAW STREAM (rf2-erre5) ------------------------------------
+// --- the record's RAW STREAM ------------------------------------------------
 //
 // A window with a collection in the PRIME's GAP — the one step no recorded
 // scalar walks. `allocPrimeSplit` drops the leading `2·prime` samples, so
 // `pre0 − s0` is in neither `measured` nor `primeLegs`, and every gate, figure
 // and array the record carries is computed downstream of that drop.
 //
-// Otherwise it is the shape rf2-e9wr measured — a 26,044 B prime over six alike
+// Otherwise it is the measured shape — a 26,044 B prime over six alike
 // 19,256 B legs — so the cohort is a real one rather than a contrived one.
 const PRIME_GAP_WINDOW = (() => {
   const s0 = 10000000;
@@ -1502,31 +1490,30 @@ test('THE RECORD RETAINS EACH WINDOW’S RAW STREAM, so a later estimator can be
 });
 
 test('AN ALLOCATION WINDOW KEEPS ITS RAW RECORD — stated where the file is written', () => {
-  // rf2-erre5 part (1) is a CONVENTION, deliberately not a mechanism: nothing
-  // in this driver can tell whether an operator kept a file, and a gate
-  // that guessed would refuse every run that was not a published window. What
-  // it gets instead is a line the operator actually sees, at the moment the
-  // artefact exists, plus the reason beside the code that writes it. Since
-  // rf2-6c12m.6 `data/` is git-ignored and the corpus is archived in git
-  // history, so the line says retaining the record is a deliberate act rather
-  // than telling the operator to commit into an ignored path.
+  // Keeping the raw record is a CONVENTION, deliberately not a mechanism:
+  // nothing in this driver can tell whether an operator kept a file, and a
+  // gate that guessed would refuse every run that was not a published window.
+  // What it gets instead is a line the operator actually sees, at the moment
+  // the artefact exists, plus the reason beside the code that writes it.
+  // `data/` is git-ignored and the corpus is archived in git history, so the
+  // line says retaining the record is a deliberate act rather than telling
+  // the operator to commit into an ignored path.
   has(
     /an allocation window KEEPS this file and its studio page cites it by SHA/,
     'the operator is told, on the run that produced the artefact'
   );
   has(
     /data\/alloc-<bead>\//,
-    'and where it goes — the path rf2-2rtt6.138 used, which every reader still looks under'
+    'and where it goes — the path every reader looks under'
   );
-  // The env var that produces it is named in the usage banner. It was reachable
-  // only by reading the last twenty lines of a 3,800-line driver, which is a
-  // fair part of why three windows in a row published no dataset.
+  // The env var that produces it is named in the usage banner, so an operator
+  // does not have to read the tail of a 3,800-line driver to find it.
   has(/P0_RAW_OUT=.*node \.\.\.\/p0_run\.cjs/, 'the banner names the switch');
 });
 
 test('THE GATE HAS NO DIAL, AND τ IS NOT IT', () => {
-  // Every gate on this rig exists because something once passed that should
-  // not have, so widening one to admit today's run retro-admits that failure.
+  // Every gate on this rig refuses a failure that passes without it, so
+  // widening one to admit today's run re-admits that failure.
   // This gate has nothing to widen: the test is a SIGN, not a threshold.
   lacks(
     /P0_ALLOC_INTRA|P0_ALLOC_SITE_STEP|P0_ALLOC_RECLAIM|P0_ALLOC_NEGATIVE/,
@@ -1537,14 +1524,13 @@ test('THE GATE HAS NO DIAL, AND τ IS NOT IT', () => {
     1,
     'site legs in, refusals out — there is no tolerance parameter on it to sweep or to dial'
   );
-  // rf2-e9wr established that no honest τ calibration exists on the arms' data
-  // in either direction, and rf2-rs8q6 repeats the fence. Nothing in this bead
-  // is a reason to move it, and the placeholder marker stays.
+  // No honest τ calibration exists on the arms' data in either direction, so
+  // τ sits at its placeholder, marked as one.
   assert.strictEqual(ALLOC_LEG_TOLERANCE, 0.25);
-  has(/THIS VALUE IS AN UNCALIBRATED PLACEHOLDER/, 'still not calibrated, still marked');
+  has(/THIS VALUE IS AN UNCALIBRATED PLACEHOLDER/, 'uncalibrated, and marked as such');
   // The refusal it fires is independent of τ, because it never reads it: the
   // two windows that certified refuse at every tolerance, exactly as the two
-  // audit probes at the foot of this file do.
+  // masking probes at the foot of this file do.
   for (const tolerance of [0.01, 0.25, 0.99]) {
     const site = allocSiteSplit(siteStream(OJEHU.c6page_r2_uix), 3);
     const steps = allocSteps(allocPrimeSplit(site.collapsed, 1).measured, tolerance);
@@ -1658,7 +1644,7 @@ test('THE EXIT NAMES WHICH GATE FIRED — the two lists are read apart (rf2-4ctl
   const intra = allocRefusedWindows(row, 'intraLegRefusals');
   assert.strictEqual(intra.length, 1);
   assert.match(intra[0], /^round 1 uix-subs\|grid\/floor: leg 3 of 6 reclaimed 285292 B/);
-  // The default is still the union, which is what the summary prints.
+  // The default is the union, which is what the summary prints.
   assert.deepStrictEqual(allocRefusedWindows(row), intra);
   // And a window from a stride-2 row, which carries no such list at all, is
   // read as empty rather than throwing.
@@ -1668,10 +1654,10 @@ test('THE EXIT NAMES WHICH GATE FIRED — the two lists are read apart (rf2-4ctl
 });
 
 test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS', () => {
-  // rf2-xxeq. Every V1 run printed `windows refused: 17 of 12` — and 14, 13,
-  // 14, 16, 13 — because the numerator was `allocRefusedWindows(...).length`,
-  // one entry per refusal REASON, while the denominator counted WINDOWS. A
-  // window with two deviant legs contributed two.
+  // A numerator of `allocRefusedWindows(...).length` counts one entry per
+  // refusal REASON while the denominator counts WINDOWS, so a window with two
+  // deviant legs contributes two and the ratio can read
+  // `windows refused: 17 of 12`.
   //
   // CONSTRUCTED, not asserted: this window has THREE legs outside tolerance
   // against a cohort of five, so it yields three reasons and is one window.
@@ -1688,12 +1674,12 @@ test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS'
   const windows = allocRefusedWindowCount(row);
   const measured = row.perRound.reduce((a, r) => a + Object.keys(r.arms).length, 0);
 
-  assert.strictEqual(reasons.length, 6, 'three reasons x two rounds — the old numerator');
+  assert.strictEqual(reasons.length, 6, 'three reasons x two rounds — a reason count');
   assert.strictEqual(windows, 2, 'and TWO windows were refused, one per round');
   assert.strictEqual(measured, 4);
-  // THE DEFECT, as arithmetic rather than as an anecdote: the old numerator
-  // overran its own denominator on exactly this row.
-  assert.ok(reasons.length > measured, 'reasons against windows is what printed "17 of 12"');
+  // As arithmetic rather than as an anecdote: a reason count overruns its own
+  // denominator on exactly this row.
+  assert.ok(reasons.length > measured, 'reasons against windows is what reads "17 of 12"');
   assert.ok(windows <= measured, 'and a window count never can');
 
   // The two are told apart on the row itself, and the summary prints both.
@@ -1722,9 +1708,9 @@ test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS'
   assert.match(out, /windows refused: 4 of 4, 12 refusal reasons in all/);
   assert.ok(
     summarised.refusedWindows <= 4,
-    'the numerator can no longer overrun the denominator it is printed against'
+    'the numerator cannot overrun the denominator it is printed against'
   );
-  // And the reason list itself is untouched — naming the counts apart drops
+  // And the reason list is printed in full — naming the counts apart drops
   // neither.
   assert.strictEqual((out.match(/^;;   REFUSED /gm) || []).length, 12);
   // A row with nothing wrong reads 0 of N, and singular/plural is not a bug.
@@ -1736,13 +1722,12 @@ test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS'
 
 test('the driver exits on THIS function and does not re-derive the verdict', () => {
   has(/const refusedWindows = allocRefusedWindows\(out\.alloc\);/, 'the alloc gate calls it');
-  // THE UNION IS WHAT THE SUMMARY PRINTS; THE EXIT READS THE TWO GATES APART
-  // (rf2-4ctls). `refusedWindows` above is still every reason on every refused
-  // window, and it is still what `summariseAlloc` is handed. What changed is
-  // that the exit no longer attributes all of them to the leg tolerance: a
-  // window refused for an intra-leg reclamation had no leg past τ, and a
-  // failure line naming the wrong gate points an operator at the one constant
-  // this row may not touch.
+  // THE UNION IS WHAT THE SUMMARY PRINTS; THE EXIT READS THE TWO GATES APART.
+  // `refusedWindows` above is every reason on every refused window, and it is
+  // what `summariseAlloc` is handed. The exit does not attribute all of them
+  // to the leg tolerance: a window refused for an intra-leg reclamation has no
+  // leg past τ, and a failure line naming the wrong gate points an operator at
+  // the one constant this row may not touch.
   has(
     /const legRefused = allocRefusedWindows\(out\.alloc, 'legRefusals'\);/,
     'the leg tolerance reads its own list'
@@ -1754,39 +1739,38 @@ test('the driver exits on THIS function and does not re-derive the verdict', () 
     'and the intra-leg gate reads its own'
   );
   has(/if \(intraRefused\.length > 0\) \{/, 'which is a separate exit, additional to both others');
-  // The nine this file drives, in order. The trailing `};` came off in
-  // rf2-gxrr: it made the pin a CLOSED list, which was never its content —
-  // "so this file can drive it" is a claim about what is exported, not about
+  // The nine this file drives, in order, with no trailing `};`: a closing
+  // brace would make the pin a CLOSED list, which is not its content — "so
+  // this file can drive it" is a claim about what is exported, not about
   // nothing else ever being. The measurement surface's own exports are pinned
   // in their own test below.
   has(
     /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocRefusedWindows,(\s*\/\/[^\n]*\n)*\s*allocRefusedWindowCount,\s*ALLOC_LEG_TOLERANCE,\s*ALLOC_FALL_THRESHOLD_B,\s*ladderPlan,\s*allocArmSizing,\s*ALLOC_MIN_WRITES,\s*ALLOC_ARM,/,
     'so this file can drive it'
   );
-  has(/if \(out\.alloc\.fallsInMeasuredWindows > 0\) \{/, 'and the falling-step gate still exits');
+  has(/if \(out\.alloc\.fallsInMeasuredWindows > 0\) \{/, 'and the falling-step gate exits too');
 });
 
 // ===========================================================================
-// THE PAGE IS STATED, AND THE AVERAGING FLOOR IS ENFORCED — rf2-2rtt6.139/.142
+// THE PAGE IS STATED, AND THE AVERAGING FLOOR IS ENFORCED
 // ===========================================================================
 //
-// WHAT THE PREFLIGHT IS FOR, now that it predicts nothing. rf2-2rtt6.139
-// retired `ALLOC_B_PER_BOUNDARY_WRITE = 1655` as a sizing input — it was read
-// off the 2026-08-07 run, which itself refused at 36 falling steps across 44
-// windows, and that run's own refusal text declares every figure from such a
-// window an under-estimate — and ruled that NO REPLACEMENT CONSTANT MAY BE
-// SUBSTITUTED. Its interim posture: the preflight refuses only on grounds it
-// can defend without a sizing model. Two survive.
+// WHAT THE PREFLIGHT IS FOR, since it predicts nothing. There is no
+// per-boundary sizing constant: the one measured figure available is read
+// off a run that itself refused at 36 falling steps across 44 windows, and
+// that run's own refusal text declares every figure from such a window an
+// under-estimate — so NO SIZING CONSTANT MAY BE SUBSTITUTED. The preflight
+// refuses only on grounds it can defend without a sizing model. There are
+// two.
 //
 //   THE PAGE IS MANDATORY. With no sizing model there is no honest default,
 //   so an unstated `P0_ALLOC_CELLS` is refused by name. It has the additional
-//   virtue of making an accidental publication run impossible while
-//   rf2-2rtt6.140 criterion 5's measurement freeze is in force.
+//   virtue of making an accidental publication run impossible.
 //
-//   THE AVERAGING FLOOR STAYS (rf2-2rtt6.142). It is not a budget question:
-//   a one-write window has no averaging in it whatever certifies the window,
-//   and at one write per window all four ladder fits came back under the 0.98
-//   r² floor — 0.75 / 0.28 / 0.94 / 0.31.
+//   THE AVERAGING FLOOR. It is not a budget question: a one-write window has
+//   no averaging in it whatever certifies the window, and at one write per
+//   window all four ladder fits come back under the 0.98 r² floor — 0.75 /
+//   0.28 / 0.94 / 0.31.
 //
 // NOTHING HERE MEASURES ANYTHING. The env routes are re-derived in a child
 // `node` that requires the driver and prints `ALLOC_ARM` — the module
@@ -1829,27 +1813,24 @@ function constUnderEnv(name, env) {
 }
 
 test('ROUTE 1 — the large-root DEFAULT is gone, and an unstated page refuses', () => {
-  // `P0_ROOTS=50` used to derive a 50-boundary page carrying a two-write
-  // window — below the floor, inside the budget, and therefore on a
-  // publication path. There is no derivation left to do it: the page is
-  // stated or the run refuses.
+  // A page derived from `P0_ROOTS=50` would be a 50-boundary page carrying a
+  // two-write window — below the floor, and on a publication path. There is
+  // no derivation: the page is stated or the run refuses.
   const arm = armUnderEnv({ P0_ROOTS: '50', P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
-  assert.strictEqual(arm.cells, null, 'no default is derived from the retired constant');
+  assert.strictEqual(arm.cells, null, 'no default is derived from a sizing constant');
   assert.strictEqual(arm.boundaries, null, 'so there is no page to report');
   assert.ok(!arm.admissible);
   assert.ok(
     arm.refusals.some((r) => r.includes('STATE P0_ALLOC_CELLS')),
     `the refusal must name the page: ${JSON.stringify(arm.refusals)}`
   );
-  // And the window is the floor, not something inverted out of a bound that
-  // no longer exists.
+  // And the window is the floor, not something inverted out of a size bound.
   assert.strictEqual(arm.writes, ALLOC_MIN_WRITES);
 });
 
 test('ROUTE 2 — an explicit one-write window on a stated page is refused', () => {
-  // rf2-2rtt6.142's pin, which must stay green. The floor is enforced against
-  // `ALLOC_MIN_WRITES` and never against the literal 6, so a ruling that moves
-  // the floor moves this with it.
+  // The floor is enforced against `ALLOC_MIN_WRITES` and never against the
+  // literal 6, so moving the floor moves this with it.
   const arm = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '1' });
   assert.strictEqual(arm.boundaries, 24, 'a stated page, unchanged');
   assert.strictEqual(arm.writes, 1);
@@ -1871,25 +1852,20 @@ test('THE CONTROL — a stated page at the floor is admitted, so this is not vac
 });
 
 test('the refusal names THE WINDOW, and never a page it cannot size', () => {
-  // AMENDED from `the refusal names SHRINKING THE PAGE and never shrinking the
-  // window`. That message BRANCHED on whether the page could carry six writes,
-  // and the branch was computed from the budget; with the budget retired its
-  // trigger no longer exists and the refusal collapses to one arm.
-  //
-  // NOT A REGRESSION, and the property rf2-2rtt6.142's mayor adjudication
-  // endorsed is what has to survive: never advise the operator to configure
-  // the very shape being refused. It survives because the collapsed message
-  // names NO PAGE AT ALL — with no page-size model there is nothing to name.
+  // ONE ARM, THE WINDOW. With no page-size model there is no page the
+  // refusal could honestly name, so it names the window. The property that
+  // matters is never to advise the operator to configure the very shape
+  // being refused, and it holds because the message names NO PAGE AT ALL.
   const arm = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '1' });
   const floor = arm.refusals.find((r) => r.includes('averaging floor'));
   assert.match(floor, /RAISE P0_ALLOC_WRITES/, 'the window is the knob it names');
   assert.doesNotMatch(floor, /SHRINK THE PAGE/, 'and it may not name a page it cannot size');
   assert.doesNotMatch(floor, /boundaries/, 'nor any boundary count');
-  assert.doesNotMatch(floor, /masking budget/, 'the budget is retired and may not be cited');
+  assert.doesNotMatch(floor, /masking budget/, 'there is no masking budget to cite');
 });
 
 test('the floor follows ALLOC_MIN_WRITES rather than a number typed beside it', () => {
-  // If a later ruling moves the averaging floor, the preflight moves with it.
+  // If the averaging floor moves, the preflight moves with it.
   assert.ok(ALLOC_MIN_WRITES >= 1, 'a floor below one write would not be a floor');
   const page = { roots: 1, cells: 4 };
   for (let w = 0; w < ALLOC_MIN_WRITES; w++) {
@@ -1927,13 +1903,11 @@ test('a window with no work in it, and a page with no boundaries, are NOT admiss
 });
 
 test('THE CHANGE ONLY EVER REFUSES MORE than rf2-2rtt6.142 shipped', () => {
-  // The property this package had to preserve, checked exhaustively over the
-  // grid rather than argued. rf2-2rtt6.142's shipped predicate was
-  // `boundaries >= 1 && writes >= ALLOC_MIN_WRITES && headroom >= 0`; the
-  // budget term is retired, so the surviving predicate is the first two. An
-  // admitted arm must therefore have satisfied BOTH surviving terms — which
-  // is the statement that nothing became newly admissible for any reason
-  // other than the budget's removal, and the budget's removal is criterion 4.
+  // The preflight admits no arm that fails either of its two terms,
+  // `boundaries >= 1` and `writes >= ALLOC_MIN_WRITES`, checked exhaustively
+  // over the grid rather than argued. With no headroom term beside them,
+  // those two are the whole predicate, so nothing is admitted on any other
+  // ground.
   let admitted = 0;
   let newlyRefused = 0;
   for (let writes = 0; writes <= 40; writes++) {
@@ -1943,7 +1917,7 @@ test('THE CHANGE ONLY EVER REFUSES MORE than rf2-2rtt6.142 shipped', () => {
         const survivingTerms = s.boundaries >= 1 && writes >= ALLOC_MIN_WRITES;
         if (s.admissible) {
           admitted++;
-          assert.ok(survivingTerms, `newly admissible at W=${writes} B=${s.boundaries}`);
+          assert.ok(survivingTerms, `admitted without both terms at W=${writes} B=${s.boundaries}`);
         } else if (survivingTerms) {
           newlyRefused++;
         }
@@ -1957,8 +1931,8 @@ test('THE CHANGE ONLY EVER REFUSES MORE than rf2-2rtt6.142 shipped', () => {
     'and a stated page at or above the floor is admitted, so the preflight adds no new refusal ' +
       'beyond the mandatory page'
   );
-  // The one genuinely NEW refusal is the unstated page, and it refuses a
-  // configuration that used to be admitted — the direction criterion 4 allows.
+  // The one refusal beyond the two terms is the unstated page, a
+  // configuration no sizing model is there to fill in.
   assert.ok(!allocArmSizing({ writes: 6, roots: 4, cells: null }).admissible);
 });
 
@@ -2019,27 +1993,24 @@ test('the RETENTION ladder is not moved by any of this', () => {
   }
   assert.strictEqual(published[0].arms.find((a) => a.rung === 'R20').keys, 24000);
 
-  // STRENGTHENED (rf2-2rtt6.140). The retention rows publish RETAINED bytes,
-  // and the write half must not move them: they still drive `:p0/write-all`
-  // at the published width, `prepare!` still defaults to `per-root`, and only
-  // the allocation window drives `write-page!`. Read off the sources, because
+  // The retention rows publish RETAINED bytes, and the write half must not
+  // move them: they drive `:p0/write-all` at the published width, `prepare!`
+  // defaults to `per-root`, and only the allocation window drives
+  // `write-page!`. Read off the sources, because
   // a driver that silently swapped the write would leave every published
   // retention figure describing a page it was not taken on.
   const HEAP = fs.readFileSync(path.join(__dirname, 'p0_heap.cljs'), 'utf8');
   const ARMS = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
   const FIXTURE = fs.readFileSync(path.join(CORE_BENCH, 'p0_fixture.cljc'), 'utf8');
-  // AMENDED, NOT DELETED (rf2-gxrr). The absolute `doesNotMatch` on
-  // `write-all!` was this pin's SHAPE; criterion 6's row separation is its
-  // CONTENT — "a reader of any row can tell from the row which write
-  // produced it" — and V1 re-measures `F_old` as its control, which a window
-  // with no route to `write-all!` at all cannot do. So the pin moves from
-  // ABSENCE to REACHABILITY, which is strictly more than absence asked:
-  // `write-page!` is the DEFAULT arm, `write-all!` is the else-arm of a test
-  // on one NAMED kind, there is exactly one such call in the namespace, and
-  // both kinds run the SAME window so the control differs in the event
-  // alone. The clock/bulk pin below is untouched, and the record now names
-  // the write it drove — which absence could not ask for, because there was
-  // only ever one write to name.
+  // REACHABILITY, NOT ABSENCE. This pin's CONTENT is row separation — "a
+  // reader of any row can tell from the row which write produced it" — and
+  // V1 measures `F_old` as its control, which a window with no route to
+  // `write-all!` at all could not do. So the pin asks for REACHABILITY,
+  // which is strictly more than absence would: `write-page!` is the DEFAULT
+  // arm, `write-all!` is the else-arm of a test on one NAMED kind, there is
+  // exactly one such call in the namespace, and both kinds run the SAME
+  // window so the control differs in the event alone. The record names the
+  // write it drove.
   assert.match(
     HEAP,
     /\(if all\?\s+\(rf\.bench\.p0-arms\/write-all! @alloc-tick\)\s+\(rf\.bench\.p0-arms\/write-page! @alloc-tick\)\)/,
@@ -2065,44 +2036,33 @@ test('the RETENTION ladder is not moved by any of this', () => {
     /\(\[segment-id\] \(prepare! segment-id per-root\)\)/,
     'and an unstated width is the published page'
   );
-  assert.match(ARMS, /\(dispatch-sync! \[:p0\/write-all v\]\)/, 'the public door is untouched');
-  assert.match(ARMS, /\(dispatch-sync! \[:p0\/write-page v\]\)/, 'and the new one sits beside it');
-  // AMENDED, NOT WEAKENED (rf2-n1b9h), and this is the third time a pin in
-  // this file has moved rather than gone. Its CONTENT is that the published
-  // write is `(vec (repeat cells-n v))` at the literal published width, and
-  // that content is unchanged to the byte. What the handler now also carries
-  // is a census call, the work census `rf2-n1b9h` reads to split
-  // `rf2-77gz8`'s two surviving candidates — and the reason that does not
-  // weaken this pin is the pin immediately below it: `event!` is a MACRO
-  // behind a `goog-define` that is FALSE by default, so under `:advanced`
-  // Closure constant-folds the gate and eliminates the branch, and the
-  // compiled write path of an unarmed build is the one every published
-  // allocation, retention and clock figure was taken on.
+  assert.match(ARMS, /\(dispatch-sync! \[:p0\/write-all v\]\)/, 'the public door dispatches :p0/write-all');
+  assert.match(ARMS, /\(dispatch-sync! \[:p0\/write-page v\]\)/, 'and :p0/write-page sits beside it');
+  // This pin's CONTENT is that the published write is
+  // `(vec (repeat cells-n v))` at the literal published width. The handler
+  // also carries a census call, the work census that splits the allocation
+  // candidates — and that does not weaken this pin because of the pin
+  // immediately below it: `event!` is a MACRO behind a `goog-define` that is
+  // FALSE by default, so under `:advanced` Closure constant-folds the gate and
+  // eliminates the branch, and the compiled write path of an unarmed build is
+  // the one every published allocation, retention and clock figure is taken
+  // on.
   //
-  // Byte-identity of the SOURCE was only ever a proxy for constancy of the
-  // COMPILED path. Where the two now differ, this file pins both.
+  // Byte-identity of the SOURCE is only a proxy for constancy of the
+  // COMPILED path. Where the two differ, this file pins both.
   //
-  // AMENDED A FOURTH TIME (rf2-eexx), and the amendment is why the census
-  // term above is no longer spelled out. This pin used to read the census
-  // call as the literal text `(wc/event!)`, so `1db71eac77` — the
-  // rf2-6r9j.161 require-alias campaign, which moved the fixture's alias for
-  // `re-frame.bench.p0-workcount` from `wc` to the canonical dotted
-  // `rf.bench.p0-workcount` of `spec/Conventions.md` §Require-alias dialect —
-  // reddened it. THE FIXTURE MOVED AND THE PIN WAS STALE, which is the one
-  // reading that permits a change here at all: an alias is COMPILE-TIME
+  // THE CENSUS ALIAS IS DERIVED, NOT SPELLED OUT. An alias is COMPILE-TIME
   // VOCABULARY, binding no var, changing no call target and emitting no
-  // different code, so the retention property this pin guards had not moved
-  // by so much as a byte. Only the word for it had.
+  // different code, so a pin reading the census call as literal text (say
+  // `(wc/event!)`) would go red on an alias rename that moves the retention
+  // property it guards by not so much as a byte.
   //
-  // So the alias is DERIVED from the fixture's own `:require` instead of
-  // restated here, and this asks no less than the literal did: the handler
-  // must still be this form to the byte and carry nothing else. The single
-  // term that is pure vocabulary is now read from the fixture rather than
-  // restated, and that `:require` is itself asserted — which the literal
-  // never looked at. It matters here more than it would elsewhere: this lane
-  // is off every per-PR gate by ruling (rf2-6c12m.1), so a pin that rots on a
-  // rename rots UNSEEN until somebody runs `npm run check` by hand, which is
-  // exactly how this one went red on trunk for days.
+  // So the alias is read from the fixture's own `:require`, and this asks no
+  // less than a literal would: the handler must be this form to the byte and
+  // carry nothing else, and that `:require` is itself asserted. It matters
+  // here more than it would elsewhere: this lane is off every per-PR gate, so
+  // a pin that rots on a rename rots UNSEEN until somebody runs
+  // `npm run check` by hand.
   //
   // MUTATION-PROVED, four plants in the fixture, this suite alone:
   //   `repeat cells-n v` -> `cells-nx`            RED (retention content bites)
@@ -2125,7 +2085,7 @@ test('the RETENTION ladder is not moved by any of this', () => {
         ) +
         reEsc(')')
     ),
-    '`:p0/write-all` still rebuilds at the literal `cells-n`, behind the census macro'
+    '`:p0/write-all` rebuilds at the literal `cells-n`, behind the census macro'
   );
   const WORKCOUNT = fs.readFileSync(path.join(CORE_BENCH, 'p0_workcount.cljc'), 'utf8');
   assert.match(
@@ -2159,11 +2119,11 @@ test('the RETENTION ladder is not moved by any of this', () => {
 
 test('the clock and bulk rows are not moved either', () => {
   // The other half of the same property. `p0_app.cljs` drives the clock rows
-  // and must still call `enter-segment!` with no width — the arity that seeds
-  // the published grid to the byte.
+  // and calls `enter-segment!` with no width — the arity that seeds the
+  // published grid to the byte.
   const APP = fs.readFileSync(path.join(__dirname, 'p0_app.cljs'), 'utf8');
   assert.match(APP, /\(rf\.bench\.p0-arms\/enter-segment! segment\)/, 'the clock rows pass no width');
-  assert.doesNotMatch(APP, /:p0\/write-page/, 'and no clock row drives the new write');
+  assert.doesNotMatch(APP, /:p0\/write-page/, 'and no clock row drives :p0/write-page');
   const ARMS = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
   assert.match(
     ARMS,
@@ -2187,20 +2147,17 @@ test('the driver REFUSES a mis-configured arm before it launches a browser', () 
 });
 
 test('the averaging floor is ENFORCED in the sizing, not merely derived from', () => {
-  // rf2-2rtt6.142, unchanged by this package. `ALLOC_MIN_WRITES` sized the
-  // default page and adjudicated nothing; the verdict admitted any window from
-  // one write up.
+  // A floor that only sized the default page would adjudicate nothing, and
+  // the verdict would admit any window from one write up.
   has(/if \(writes < ALLOC_MIN_WRITES\) \{/, 'the floor is a refusal in the sizing itself');
   has(/admissible: refusals\.length === 0,/, 'and the verdict is the reasons, not a conjunction');
   lacks(
     /admissible: writes >= 1 && boundaries >= 1 && headroom >= 0,/,
-    'the old verdict licensed exactly the low-averaging shape the row rules out'
+    'a writes >= 1 verdict licenses exactly the low-averaging shape the row rules out'
   );
 });
 
 test('the window is the FLOOR and the page is STATED — neither is derived', () => {
-  // Replaces `the window is DERIVED from the bound and the arm from the
-  // measured cost`. Both derivations were the retired constant's arithmetic.
   has(
     /const ALLOC_WRITES = Number\(process\.env\.P0_ALLOC_WRITES \|\| ALLOC_MIN_WRITES\);/,
     'the window follows the averaging floor, not an inverted bound'
@@ -2214,21 +2171,20 @@ test('the window is the FLOOR and the page is STATED — neither is derived', ()
 });
 
 // ===========================================================================
-// THE MEASUREMENT SURFACE (rf2-gxrr) — the two switches V1 and V3 are
-// configured through
+// THE MEASUREMENT SURFACE — the two switches V1 and V3 are configured
+// through
 // ===========================================================================
 //
-// PR #7702 landed the artefacts V1–V4 judge; what it did not land is the
-// surface that lets V1 and V3 be RUN, and the granted measurement window for
-// rf2-2rtt6.140 refused before a browser was launched because neither shape
-// could be configured. These pins are over the SURFACE, not over any figure:
+// Without this surface V1 and V3 cannot be RUN: a measurement window refuses
+// before a browser is launched when neither shape can be configured. These
+// pins are over the SURFACE, not over any figure:
 // the tables and the plan filter are exported so this file DRIVES the shipped
 // code rather than reading its source and hoping, and the env routes are
 // derived in a fresh process because configuration is read once, at require.
 //
 // NOTHING HERE MEASURES ANYTHING, and nothing here moves a gate. The pins
 // that hold `ALLOC_MIN_WRITES` at 6, the page mandatory and the fall
-// threshold where the probes read it are above, untouched.
+// threshold where the probes read it are above.
 
 test('THE WRITE SELECTOR — `page` is the DEFAULT and `all` is a NAMED switch', () => {
   assert.deepStrictEqual(Object.keys(ALLOC_WRITE_SPECS), ['page', 'all'], 'two writes, no more');
@@ -2258,7 +2214,7 @@ test('THE WRITE SELECTOR — `page` is the DEFAULT and `all` is a NAMED switch',
 });
 
 test('THE PAIRED SELECTION — `paired` names BOTH writes and is not a third one', () => {
-  // The two writes are still two (the pin above holds `ALLOC_WRITE_SPECS` at
+  // The writes are two (the pin above holds `ALLOC_WRITE_SPECS` at
   // exactly `page` and `all`). What `paired` adds is a SELECTION over them,
   // which is why it lives in its own table: a third entry in the spec table
   // would be a third write, and there is no third event.
@@ -2290,7 +2246,7 @@ test('THE PAIRED SELECTION — `paired` names BOTH writes and is not a third one
   assert.deepStrictEqual(
     constUnderEnv('ALLOC_WRITE_LEGS', { P0_ALLOC_WRITE: 'all' }),
     [{ selector: 'all', spec: ALLOC_WRITE_SPECS.all }],
-    'and so does `all` — one process, one write, which is what rf2-irxrw is about'
+    'and so does `all` — one process, one write'
   );
   assert.strictEqual(constUnderEnv('ALLOC_WRITE_PAIRED', { P0_ALLOC_WRITE: 'all' }), false);
   assert.deepStrictEqual(
@@ -2299,7 +2255,7 @@ test('THE PAIRED SELECTION — `paired` names BOTH writes and is not a third one
       { selector: 'page', spec: ALLOC_WRITE_SPECS.page },
       { selector: 'all', spec: ALLOC_WRITE_SPECS.all },
     ],
-    'and `paired` resolves BOTH in one process — the thing the instrument could not do'
+    'and `paired` resolves BOTH in one process — which a single selection cannot'
   );
   assert.strictEqual(constUnderEnv('ALLOC_WRITE_PAIRED', { P0_ALLOC_WRITE: 'paired' }), true);
 
@@ -2319,8 +2275,8 @@ test('THE PAIRED SELECTION — `paired` names BOTH writes and is not a third one
     'and the refusal names every selection an operator may ask for'
   );
 
-  // THE KEY. Off `paired` it is the identity, so a published run's record is
-  // keyed exactly as it always was; on it, each leg is its own window.
+  // THE KEY. Off `paired` it is the identity, so a single-write run's record
+  // is keyed by the window alone; on it, each leg is its own window.
   assert.strictEqual(allocWindowKey('reagent-subs|grid/floor', 'page', false), 'reagent-subs|grid/floor');
   assert.strictEqual(allocWindowKey('reagent-subs|grid/floor', 'all', false), 'reagent-subs|grid/floor');
   assert.strictEqual(
@@ -2343,7 +2299,7 @@ test('THE PLAN SELECTOR — `full` is the DEFAULT; the others SUBTRACT arms', ()
   assert.deepStrictEqual(
     constUnderEnv('ALLOC_PLAN_SHAPE', { P0_ALLOC_PLAN: '' }),
     ALLOC_PLAN_SHAPES.full,
-    'an unset switch is the published run, unchanged in every particular'
+    'an unset switch is the published run in every particular'
   );
   assert.deepStrictEqual(
     constUnderEnv('ALLOC_PLAN_SHAPE', { P0_ALLOC_PLAN: 'controls' }),
@@ -2402,17 +2358,17 @@ test('the narrow plans SUBTRACT arms — they add none, move none and reorder no
   );
 });
 
-// --- THE SEGMENT ORDER, AND THE CONFOUND `fixed` BREAKS (rf2-rs8q6) --------
+// --- THE SEGMENT ORDER, AND THE CONFOUND `fixed` BREAKS --------------------
 //
 // The mode's two most important properties are both claims about a SEQUENCE of
 // rounds rather than about one round, and neither is readable off the source:
 //
-//   - `parity` is the pre-bead schedule, so every published row is taken on
-//     the schedule it always was;
+//   - `parity` is the default schedule, the one every published row is taken
+//     on;
 //   - under `fixed` BOTH within-round positions follow a substrate SWITCH,
 //     which is the entire reason the mode exists. Under `parity` position 0
-//     follows a substrate REPEAT in every round but the first, which is the
-//     466-of-466 confound `rf2-rs8q6` could not separate from position.
+//     follows a substrate REPEAT in every round but the first — a confound
+//     with position, 466 windows of 466.
 //
 // So the pin DRIVES the sequence and reads the adjacency relation out of it,
 // rather than matching the source for a ternary.
@@ -2434,7 +2390,7 @@ test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confo
   has(/unknown P0_ALLOC_SEG_ORDER/, 'and the preflight refuses a mistyped order BY NAME');
 
   // `parity` REVERSES on odd rounds and is the shipped plan itself on even
-  // ones — the pre-bead expression, driven rather than restated.
+  // ones — driven rather than restated.
   assert.deepStrictEqual(seqOf('parity', 4), [
     ['reagent-subs', 'uix-subs'],
     ['uix-subs', 'reagent-subs'],
@@ -2469,19 +2425,19 @@ test('THE SEGMENT ORDER — `parity` is the default and `fixed` breaks the confo
   );
 });
 
-// --- AND THE ARM `fixed` ALONE CANNOT SUPPLY (rf2-csca8) -------------------
+// --- AND THE ARM `fixed` ALONE CANNOT SUPPLY -------------------------------
 //
 // Inside a `fixed` run the substrate and the within-round position are
 // perfectly confounded: with the plan as shipped, `uix-subs` is position 1 in
-// every `fixed` window there has ever been, so the 8-of-38 cluster is equally
-// consistent with "uix under `fixed`" and with "the SECOND-driven arm under
-// `fixed`". On the ADMISSIBLE corpus that analysis read — 116 runs, 3,090
-// positional windows, two control-refused runs excluded — PR #8593 left
-// POSITION UNRESOLVED rather than refuted (`p` = 0.2253 is a failure to
-// reject, not a demonstration of equality) and found SUBSTRATE associated but
-// not necessary, so none of the three candidates was eliminated and the MODE
-// still could not be read against itself from one orientation — no committed
-// run put uix at position 0 while HOLDING THE MODE CONSTANT.
+// every `fixed` window, so the 8-of-38 cluster is equally consistent with
+// "uix under `fixed`" and with "the SECOND-driven arm under `fixed`". On the
+// ADMISSIBLE `fixed` corpus — 116 runs, 3,090 positional windows, two
+// control-refused runs excluded — POSITION is UNRESOLVED rather than refuted
+// (`p` = 0.2253 is a failure to reject, not a demonstration of equality) and
+// SUBSTRATE is associated but not necessary, so none of the three candidates
+// is eliminated, and the MODE cannot be read against itself from one
+// orientation without a run that puts uix at position 0 while HOLDING THE
+// MODE CONSTANT.
 //
 // `fixed-reversed` is that arrangement and nothing else, so the pin drives the
 // sequence and reads the three properties that make it the discriminator: it
@@ -2503,7 +2459,7 @@ test('THE REVERSED FIXED ARM — `fixed`, held constant, in the other orientatio
   has(
     /drives the segments in one of \$\{ALLOC_SEG_ORDERS\.join\(' \| '\)\} order/,
     'and the preflight names the roster rather than a hard-coded pair, so the ' +
-      'new arm is refused-by-name-or-accepted with no second edit'
+      'arm is refused-by-name-or-accepted with no second edit'
   );
 
   // The same order EVERY round — the property that makes it `fixed`'s
@@ -2536,27 +2492,26 @@ test('THE REVERSED FIXED ARM — `fixed`, held constant, in the other orientatio
 
   // THE PROPERTY THE ARM IS FOR: uix sits at position 0 in EVERY round under
   // the reversed arm, at NO round under `fixed`, and at half of them under
-  // `parity` — which is the state of the corpus that made the mode unreadable.
+  // `parity` — which alone leaves the mode unreadable.
   const uixAtZero = (mode) => seqOf(mode, 8).filter((r) => r[0] === 'uix-subs').length;
   assert.strictEqual(uixAtZero('fixed'), 0, 'the confound `fixed` builds in');
   assert.strictEqual(uixAtZero('fixed-reversed'), 8, 'and the arm that breaks it');
   assert.strictEqual(uixAtZero('parity'), 4, 'while parity supplies it under the OTHER mode');
 });
 
-// --- THE WRITE-LEG ORDER, AND THE PARITY TIE IT BREAKS (rf2-fk6pj) ---------
+// --- THE WRITE-LEG ORDER, AND THE PARITY TIE IT BREAKS --------------------
 //
-// rf2-0gjqi's paired window measured the SECOND pass of a round reading lower
-// than the first in 10 of 12 blocks, whichever write occupied it. The rig
-// cannot say why, because the leg order was `round % 2` — every page-first
-// round was an even round, so the pass-position term and every other
-// even/odd property of a round are one column. `seeded` draws the order from
-// a seed instead.
+// A paired window measured the SECOND pass of a round reading lower than the
+// first in 10 of 12 blocks, whichever write occupied it. Under a `round % 2`
+// leg order the rig cannot say why — every page-first round is an even
+// round, so the pass-position term and every other even/odd property of a
+// round are one column. `seeded` draws the order from a seed instead.
 //
 // EVERY PROPERTY BELOW IS A CLAIM ABOUT A WHOLE RUN'S SCHEDULE and none is
 // readable off the source, so the pin DRIVES the draw:
 //
-//   - `parity` is the pre-bead expression, round for round, so no committed
-//     corpus is reinterpreted;
+//   - `parity` is the `round % 2` expression, round for round, so no
+//     committed corpus is reinterpreted;
 //   - a `seeded` schedule is BALANCED, because an unbalanced one would trade
 //     the parity tie for the write/position confound the alternation exists
 //     to remove;
@@ -2581,11 +2536,11 @@ test('THE LEG ORDER — `parity` is the default and is the pre-bead rule, round 
   assert.strictEqual(constUnderEnv('ALLOC_PASS_ORDER', { P0_ALLOC_PASS_ORDER: 'praity' }), 'praity');
   has(/unknown P0_ALLOC_PASS_ORDER/, 'and the preflight refuses a mistyped order BY NAME');
 
-  // THE DEFAULTS-UNCHANGED PROOF, and it is the load-bearing assertion of this
-  // whole change: the shipped function under the default mode must produce the
-  // expression that stood in the round loop before it, ROUND FOR ROUND, over a
-  // range wider than any run takes. Anything else silently reinterprets every
-  // committed corpus.
+  // THE DEFAULT IS THE `round % 2` RULE, and this is the load-bearing
+  // assertion: the shipped function under the default mode must produce
+  // `round % 2 === 0 ? legs : reversed`, ROUND FOR ROUND, over a range wider
+  // than any run takes. Anything else silently reinterprets every committed
+  // corpus.
   const preBead = (round) => (round % 2 === 0 ? LEGS : [...LEGS].reverse());
   for (let r = 0; r < 64; r++) {
     assert.deepStrictEqual(
@@ -2593,17 +2548,17 @@ test('THE LEG ORDER — `parity` is the default and is the pre-bead rule, round 
         (l) => l.selector
       ),
       preBead(r).map((l) => l.selector),
-      `round ${r}: \`parity\` must be the expression that stood in the loop`
+      `round ${r}: \`parity\` must be the round % 2 rule`
     );
   }
-  // Even rounds hand back the CALLER'S array, not a copy — the pre-bead
-  // expression did, and the pass loop below it takes the legs by identity.
+  // Even rounds hand back the CALLER'S array, not a copy — the pass loop
+  // takes the legs by identity.
   assert.strictEqual(allocPassOrder(LEGS, 0, 'parity', null), LEGS);
   assert.strictEqual(allocPassOrder(LEGS, 2, 'parity', null), LEGS);
 
-  // A ONE-LEG RUN IS INERT UNDER BOTH MODES, which is what makes `page` and
-  // `all` — the selections every floor corpus is taken under — untouched by
-  // this change whatever the operator sets.
+  // A ONE-LEG RUN IS INERT UNDER BOTH MODES, which is what keeps `page` and
+  // `all` — the selections every floor corpus is taken under — independent
+  // of the pass order whatever the operator sets.
   const one = [{ selector: 'page' }];
   for (const mode of ALLOC_PASS_ORDERS) {
     for (let r = 0; r < 8; r++) {
@@ -2691,8 +2646,7 @@ test('THE LEG ORDER — a `seeded` schedule is balanced, parity-free and reprodu
   // THE BOUNDARY IS DRIVEN, NOT ASSERTED FROM THE PROSE. It falls at three and
   // not at four: the three-round balanced set is the three single-flip
   // schedules and only one of them alternates, where at two rounds BOTH
-  // balanced schedules are parity schedules. This test read four on its first
-  // pass and the draw contradicted it.
+  // balanced schedules are parity schedules.
   for (const rounds of [0, 1, 2]) {
     assert.strictEqual(
       allocPassFlips(rounds, 'any').parityTied,
@@ -2716,7 +2670,7 @@ test('THE LEG ORDER — a `seeded` schedule is balanced, parity-free and reprodu
   assert.deepStrictEqual(legSeqOf('seeded', 6, short).slice(4), legSeqOf('parity', 6, short).slice(4));
 });
 
-// --- WHAT THE BOX WAS DOING, WHICH NO DATASET EVER SAID (rf2-24o2z) --------
+// --- WHAT THE BOX WAS DOING, STATED IN THE RECORD --------------------------
 //
 // Three riders on the record, each free: the Chromium build string, the box's
 // load at window open, and the elapsed time since the previous run in the same
@@ -2761,7 +2715,7 @@ test('THE BOX RIDERS — a snapshot, a busy fraction and a session gap', () => {
 
   // A second run 10 minutes later CONTINUES the session, and the two gaps are
   // different quantities: since the previous run STARTED, and since it ENDED.
-  // The idle gap is the one rf2-6kxub's confirming move is defined on.
+  // The idle gap is the one the session boundary is defined on.
   const t1 = Date.parse('2026-08-21T00:40:00.000Z');
   const second = boxSessionOpen(t1, marker);
   assert.strictEqual(second.runsInSession, 2);
@@ -2825,7 +2779,7 @@ test('THE BOX RIDERS — a snapshot, a busy fraction and a session gap', () => {
     'and the build string comes off the launched browser');
 });
 
-// --- THE CONTROL SLOT, AND WHICH SLOT ACTUALLY SEPARATES (rf2-rs8q6) -------
+// --- THE CONTROL SLOT, AND WHICH SLOT ACTUALLY SEPARATES -------------------
 //
 // The mode exists to separate two properties of an arm window that the shipped
 // schedule makes identical:
@@ -2878,7 +2832,7 @@ test('THE CONTROL SLOT — `first` is the default, and only `mid` separates at f
   );
   has(/unknown P0_ALLOC_CONTROL_SLOT/, 'and the preflight refuses a mistyped slot BY NAME');
 
-  // `first` is the pre-bead schedule to the call: three controls, then every
+  // `first` is the default schedule: three controls, then every
   // pass, with nothing between the passes.
   assert.deepStrictEqual(allocRoundWindowKinds(2, 'first'), [
     'control',
@@ -2979,12 +2933,12 @@ test('THE CONTROL SLOT — `first` is the default, and only `mid` separates at f
 
 // The fields `summariseAlloc` reads, and no more. `arms` is what the plan
 // shape decides, so it is the parameter. `extra` overlays the row afterwards,
-// for the fields a MODE sets rather than a plan — `bySite` and its siblings
-// (rf2-4ctls) — so the by-site summary can be driven without a second harness.
+// for the fields a MODE sets rather than a plan — `bySite` and its siblings —
+// so the by-site summary can be driven without a second harness.
 function allocSummaryFor(planName, arms = {}, extra = {}) {
   // The control windows carry a prime too and it costs them nothing — the
   // studio page records their worst leg deviation at <= 1% against the arms'
-  // 26-46%, which is the contrast that located the term in the first place.
+  // 26-46%, the contrast that locates the term in the arm windows.
   const ctl = (perIter) => ({
     perIter,
     primeLegs: [20000],
@@ -3003,7 +2957,7 @@ function allocSummaryFor(planName, arms = {}, extra = {}) {
     warmups: 3,
     rounds: 2,
     writeSelector: 'page',
-    // THE LEGS AS THE DRIVER RECORDS THEM (rf2-irxrw). One member off
+    // THE LEGS AS THE DRIVER RECORDS THEM. One member off
     // `paired`, and `extra` is how a paired fixture states two — the same
     // overlay the by-site mode is driven through, for the same reason: the
     // parameter is what the PLAN decides, and this is what a SELECTION does.
@@ -3029,7 +2983,7 @@ function allocSummaryFor(planName, arms = {}, extra = {}) {
   console.log = (s) => lines.push(String(s));
   try {
     // The row's OWN refusals, derived by the shipped function rather than
-    // handed in empty (rf2-xxeq): the summary's numerator and the list under
+    // handed in empty: the summary's numerator and the list under
     // it are two different counts of the same row, and a fixture that passed
     // `[]` could not tell them apart.
     summariseAlloc(row, allocRefusedWindows(row));
@@ -3039,8 +2993,8 @@ function allocSummaryFor(planName, arms = {}, extra = {}) {
   return { row, out: lines.join('\n') };
 }
 
-// WHAT EVERY RECORDED WINDOW CARRIES ABOUT ITS OWN WRITE (rf2-irxrw), stated
-// once so the fixtures below cannot drift apart from one another. `pairKey` is
+// WHAT EVERY RECORDED WINDOW CARRIES ABOUT ITS OWN WRITE, stated once so
+// the fixtures below cannot drift apart from one another. `pairKey` is
 // the arm key the legs of a pair share; off `paired` it is the key the window
 // is stored at, which is the same statement with one leg.
 const winWrite = (pairKey, selector) => ({
@@ -3049,8 +3003,8 @@ const winWrite = (pairKey, selector) => ({
   pairKey,
 });
 
-// `selectors` DEFAULTS TO THE PUBLISHED ONE, so every existing call site is
-// the record it always built plus the provenance the driver now records.
+// `selectors` DEFAULTS TO THE PUBLISHED ONE, so a call site that names none
+// builds the published record, write provenance included.
 const FLOOR_ARMS = (selectors = ['page'], paired = selectors.length > 1) =>
   Object.fromEntries(
     ['reagent-subs', 'uix-subs'].flatMap((seg) =>
@@ -3066,7 +3020,7 @@ const FLOOR_ARMS = (selectors = ['page'], paired = selectors.length > 1) =>
             boundaries: 24,
             ...winWrite(pairKey, sel),
             ...allocSteps(stream([5000, 5000, 5000, 5000])),
-            // The bead's own excess, 6,788 B, riding on a synthetic floor window.
+            // The observed prime excess, 6,788 B, riding on a synthetic floor window.
             primeLegs: [11788],
             primeExcess: 6788,
             perWrite: 5000,
@@ -3105,7 +3059,7 @@ const FULL_ARMS = (selectors = ['page'], paired = selectors.length > 1) =>
     )
   );
 
-// AND THE OVERLAY THAT MAKES A ROW A PAIRED ONE (rf2-irxrw), so a paired
+// AND THE OVERLAY THAT MAKES A ROW A PAIRED ONE, so a paired
 // fixture states its selection in one place rather than three.
 const PAIRED_ROW = {
   writeSelector: 'paired',
@@ -3121,9 +3075,9 @@ const PAIRED_ROW = {
 // the healthy one so a field added to `winWrite` cannot leave them stale.
 //
 // The fields are a PARAMETER rather than a fixed set, because the shapes this
-// pin has to refuse are not one shape. Removing all three gives the record
-// every allocation run had before rf2-irxrw; removing `pairKey` alone gives
-// the far more dangerous one, where every window names its write correctly
+// pin has to refuse are not one shape. Removing all three gives a record
+// with no write provenance at all; removing `pairKey` alone gives the far
+// more dangerous one, where every window names its write correctly
 // and none of them belongs to a pair.
 //
 // Written as an explicit key filter and not as `const { a, b, ...rest } = x`.
@@ -3147,7 +3101,7 @@ const FULL_FITS = (selectors = ['page'], paired = selectors.length > 1) => {
   const perRound = {};
   for (const { segment, arms } of ladderPlan({ list: 300, grid: 6 }, 4)) {
     for (const sub of [...new Set(arms.map((a) => a.substrate).filter(Boolean))]) {
-      // ONE FIT PER WRITE UNDER `paired` (rf2-irxrw), keyed by the same
+      // ONE FIT PER WRITE UNDER `paired`, keyed by the same
       // function the windows are — a line through both writes would be a
       // slope over a mixture.
       for (const sel of selectors) {
@@ -3174,16 +3128,20 @@ const FULL_FITS = (selectors = ['page'], paired = selectors.length > 1) => {
   return { perRound, mean };
 };
 
-// THE FULL PLAN IS THE CONTROL FOR THE TWO PINS BELOW (rf2-gxrr), and it is
-// not decoration. Each narrowed pin asserts that a run does NOT say something,
+// THE FULL PLAN IS THE CONTROL FOR THE TWO PINS BELOW, and it is not
+// decoration. Each narrowed pin asserts that a run does NOT say something,
 // and a `doesNotMatch` passes just as quietly when the summary says it under
-// NO plan at all — a later edit that deleted "Q = E on every rung" outright
-// would leave both narrowed pins green while silently retiring the claim from
-// the published row. So every string they forbid is asserted PRESENT here, on
-// the plan this bead left unchanged to the byte.
+// NO plan at all — an edit that deleted "Q = E on every rung" outright would
+// leave both narrowed pins green while silently retiring the claim from the
+// published row. So every string they forbid is asserted PRESENT here, on
+// the full plan.
 test('the FULL plan still makes every claim the narrowed plans may not', () => {
   const { row, out } = allocSummaryFor('full', FULL_ARMS(), { allocFits: FULL_FITS() });
-  assert.match(out, /WARM 1\/3\/7\/20 READS \(rf2-2rtt6\.76\)/, 'the published banner');
+  assert.match(
+    out,
+    /==== P0 STEADY-STATE ALLOCATION — WARM 1\/3\/7\/20 READS ====/,
+    'the published banner'
+  );
   assert.match(out, /held FIXED across every rung/);
   assert.match(out, /Q = E on every rung\./);
   assert.match(out, /The arm stays MOUNTED across the window/);
@@ -3192,8 +3150,8 @@ test('the FULL plan still makes every claim the narrowed plans may not', () => {
   assert.match(out, /THE FITTED LINES/);
   assert.match(out, /---- reagent-subs ----/);
   // The gap is `padEnd(11)` against the arm name, so its WIDTH is a function
-  // of the name's length and carries no claim — pinning a count broke on the
-  // rename (rf2-d1nr.2). What is asserted is that the rung has a row.
+  // of the name's length and carries no claim — a pinned count would break on
+  // any rename of the arm. What is asserted is that the rung has a row.
   assert.match(out, /^;; fresco +20 /m, 'the R=20 rung is in the arm table');
   // And it says none of the narrowed plans' absence lines.
   assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
@@ -3219,14 +3177,14 @@ test("V3's CONTROLS-ONLY summary RUNS, and states absence rather than zero", () 
   // With no arm mounted the prime is reported off the CONTROL windows, which
   // is the population a controls-only run has. Their prime costs nothing, and
   // a run that printed no prime line at all would be hiding the one term this
-  // instrument now has a name for.
+  // instrument has a name for.
   assert.match(out, /prime excess over the measured cohort median: 0 B mean/);
 
-  // AND IT CLAIMS NOTHING THE FULL PLAN CLAIMS (rf2-gxrr). Every line below
-  // printed unconditionally when the modes first landed, so this artefact
-  // stated that rungs were held at Q = E, that an arm stayed mounted, and
-  // that a write fired — over a run that mounted nothing and drove nothing —
-  // and then admitted "no arm mounted" twenty lines further down. V3's
+  // AND IT CLAIMS NOTHING THE FULL PLAN CLAIMS. Printed unconditionally,
+  // every line below would state that rungs were held at Q = E, that an arm
+  // stayed mounted, and that a write fired — over a run that mounted nothing
+  // and drove nothing — and then admit "no arm mounted" twenty lines further
+  // down. V3's
   // controls artefact is provenance for a validity witness, and a record that
   // misstates its own measurement shape cannot be that.
   assert.match(out, /CONTROLS ONLY, NO ARM/, 'the banner names the shape');
@@ -3260,11 +3218,11 @@ test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () =>
   assert.doesNotMatch(out, /fresco\s+\d/, 'but no rung row is');
   assert.match(out, /NO FITTED LINE/, 'and nothing is regressed through one arm');
   assert.match(out, /THE PLAN IS `floor`/);
-  // THE PRIME LEG IS PRINTED, not merely excluded (rf2-oiy1). This is what
-  // separates the repair from "discard leg 1": the term that made every floor
-  // window uncertifiable is still measured, on every window, and is readable
-  // beside the cohort it used to contaminate — which is the figure rf2-e9wr's
-  // τ calibration needs.
+  // THE PRIME LEG IS PRINTED, not merely excluded. This is what separates the
+  // prime from "discard leg 1": the term that would make every floor window
+  // uncertifiable is still measured, on every window, and is readable beside
+  // the cohort it would otherwise contaminate — the figure a τ calibration
+  // needs.
   assert.match(out, /THE PRIME LEG \(excluded from every figure\)/);
   assert.match(
     out,
@@ -3277,10 +3235,10 @@ test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () =>
     'and the header says how many work units ran against how many are published'
   );
 
-  // AND IT CLAIMS NO RUNG, NO FIT AND NO Q = E (rf2-gxrr). V1's floor arm
-  // holds no subscription, so there is no read count for Q = E to be about
-  // and no 1/3/7/20 ladder to hold B fixed across — three sentences the
-  // header printed unconditionally when this mode first landed.
+  // AND IT CLAIMS NO RUNG, NO FIT AND NO Q = E. V1's floor arm holds no
+  // subscription, so there is no read count for Q = E to be about and no
+  // 1/3/7/20 ladder to hold B fixed across — three sentences an unconditional
+  // header would print.
   assert.match(out, /FLOOR ARM ONLY, NO RUNG/, 'the banner names the shape');
   assert.doesNotMatch(out, /WARM 1\/3\/7\/20 READS/);
   assert.doesNotMatch(out, /held FIXED across every rung/);
@@ -3303,18 +3261,17 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // stay green with either one pinned back to a literal — and the warm-up is
   // the more dangerous of the two to lose, because a site warmed under one
   // write and measured under the other reads its settled value for neither.
-  // (`b8-alloc`'s driver watched a first window read 5.3x its settled value.)
-  // `ALLOC_WINDOW_WRITES` at both, since rf2-oiy1: the window drives the
-  // measured writes PLUS the prime, and a warm-up shorter than the window is
-  // the very defect the warm-up pass exists to avoid.
+  // (A first allocation window has been measured reading 5.3x its settled
+  // value.) `ALLOC_WINDOW_WRITES` at both: the window drives the measured
+  // writes PLUS the prime, and a warm-up shorter than the window is the very
+  // defect the warm-up pass exists to avoid.
   //
-  // `leg.spec.kind` SINCE rf2-irxrw, and the count is why it still bites. The
-  // run's write is a LIST now and the arm pass runs once per member, so both
-  // call sites have to take THIS PASS's leg — a warm-up left on the run's
-  // first leg while the window took the pass's would warm the page under one
-  // write and measure it under the other, which is the same defect the pin
-  // was written for with the two writes one pass apart instead of one process
-  // apart.
+  // `leg.spec.kind` at both, and the count is why it bites. The run's write
+  // is a LIST and the arm pass runs once per member, so both call sites have
+  // to take THIS PASS's leg — a warm-up left on the run's first leg while the
+  // window took the pass's would warm the page under one write and measure it
+  // under the other: the same fault as above, with the two writes one pass
+  // apart instead of one process apart.
   assert.strictEqual(
     (SRC.match(
       /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WINDOW_WRITES, drain, leg\.spec\.kind\]/g
@@ -3327,7 +3284,7 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
     /\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/,
     'and neither is pinned to the RUN\'s write, which under `paired` is not a single one'
   );
-  // THE PASS ITSELF (rf2-irxrw), so the pins over the record cannot drift off
+  // THE PASS ITSELF, so the pins over the record cannot drift off
   // the loop that fills it. One pass per (segment, leg); the leg order flips
   // on the same parity the segment order does, or the write would be
   // confounded with within-round position — which is the defect this switch
@@ -3335,17 +3292,17 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // `:cells` at `cells-n` and a page leg following it on an unseeded frame
   // would rebuild 300 cells and BE the bulk write, reading back correctly and
   // saying nothing.
-  // AND THE RULE IT ALTERNATES UNDER IS A MODE NOW (rf2-fk6pj), so the pin
-  // reads the CALL rather than the ternary that stood here. `parity` is still
-  // the default and `allocPassOrder` is still the same expression under it —
-  // both driven, not matched, in the leg-order test below.
+  // AND THE RULE IT ALTERNATES UNDER IS A MODE, so the pin reads the CALL
+  // rather than a ternary. `parity` is the default and `allocPassOrder` is
+  // the `round % 2` expression under it — both driven, not matched, in the
+  // leg-order test below.
   has(
     /const legs = allocPassOrder\(ALLOC_WRITE_LEGS, round, ALLOC_PASS_ORDER, ALLOC_PASS_SCHEDULE\);/,
     'the leg order comes from the shipped rule, whichever mode this run drives'
   );
   lacks(
     /const legs = round % 2 === 0 \?/,
-    'and no parity ternary survives beside it, which would pin the loop to one mode'
+    'and no parity ternary sits beside it, which would pin the loop to one mode'
   );
   has(
     /const passes = segs\.flatMap\(\(\{ segment, arms \}\) =>\s*legs\.map\(\(leg\) => \(\{ segment, arms, leg \}\)\)\s*\);/,
@@ -3391,28 +3348,23 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
     'a plan with no rungs fits nothing'
   );
   // THE ROW NAMES ITS OWN WRITE — criterion 6's separation, which a
-  // hard-coded string satisfied only because there was one write to name and
-  // would have gone on naming it after the selector landed.
+  // hard-coded string would satisfy only while there is one write to name.
   has(/writeSelector: ALLOC_WRITE,/, 'the record carries the switch');
-  // AMENDED, NOT DELETED (rf2-irxrw), and this is the second time this pin has
-  // moved rather than gone — rf2-gxrr moved its sibling in `p0_heap.cljs` from
-  // ABSENCE to REACHABILITY for the same reason, and called that the delicate
-  // half of the work. Its CONTENT is criterion 6's separation: "a reader of
-  // any row can tell FROM THE ROW which write produced it". Its SHAPE was a
-  // single interpolated spec, and that shape was only ever adequate because a
-  // process drove one write — the row's one answer was every window's answer.
-  // Under `paired` a row carries both, so the row-level string is a list and
-  // the claim moves to WINDOW granularity, where the pin below adjudicates it
-  // against a record rather than against this source. Both stay: the row still
-  // names what it drove, and now every window does too, which is strictly more
-  // than absence-of-a-literal could ask.
+  // This pin's CONTENT is criterion 6's separation: "a reader of any row can
+  // tell FROM THE ROW which write produced it". A single interpolated spec is
+  // adequate only while a process drives one write — the row's one answer is
+  // then every window's answer. Under `paired` a row carries both, so the
+  // row-level string is a list and the claim lives at WINDOW granularity,
+  // where the pin below adjudicates it against a record rather than against
+  // this source. Both hold: the row names what it drove, and so does every
+  // window, which is strictly more than absence-of-a-literal could ask.
   has(
     /write: ALLOC_WRITE_LEGS\.map\(\(l\) => `\$\{l\.spec\.event\} — \$\{l\.spec\.note\}`\)\.join\('  AND  '\),/,
     'and the write — or writes — it actually drove'
   );
   has(/writeLegs: ALLOC_WRITE_LEGS\.map\(\(l\) => l\.selector\),/, 'as a list, in the driven order');
   has(/writePaired: ALLOC_WRITE_PAIRED,/, 'and the row says whether it is a pair');
-  // AND EVERY WINDOW NAMES ITS OWN, which is where criterion 6 now lives.
+  // AND EVERY WINDOW NAMES ITS OWN, which is where criterion 6 lives.
   has(/writeSelector: leg\.selector,/, 'the window carries the write it drove');
   has(
     /write: `\$\{leg\.spec\.event\} — \$\{leg\.spec\.note\}`,/,
@@ -3426,17 +3378,17 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   has(/plan: \{ name: ALLOC_PLAN, \.\.\.ALLOC_PLAN_SHAPE \},/, 'and the plan it ran');
   lacks(
     /write: ':p0\/write-page — the grid is rebuilt at the width the mounted page reads',/,
-    'the record may no longer hard-code one write for every run'
+    'the record may not hard-code one write for every run'
   );
 });
 
-// --- THE AMENDED PIN, DRIVEN OVER RECORDS (rf2-irxrw) ----------------------
+// --- THE PROVENANCE PIN, DRIVEN OVER RECORDS --------------------------------
 //
 // The pins above read the driver's source; this one reads what the driver
 // PRODUCES, because "each recorded window names its own kind" is a property of
 // a record and a source match cannot make it without restating the assignment.
 // `allocWriteProvenance` is the shipped adjudicator and is pure, so both the
-// paired shape and the shape that preceded it are driven through it here.
+// paired shape and the unpaired one are driven through it here.
 
 test('a PAIRED record names every window\'s write and every pair is WHOLE', () => {
   const arms = FULL_ARMS(['page', 'all']);
@@ -3462,16 +3414,16 @@ test('a PAIRED record names every window\'s write and every pair is WHOLE', () =
 });
 
 test('THE SAME PIN REFUSES an UNPAIRED-SHAPED record — the windows name nothing', () => {
-  // The shape every allocation record had before this bead: the row named the
-  // write and the windows did not, which was adequate while a process drove
-  // one write and is exactly what a paired record may not be.
+  // A record where the row names the write and the windows do not: adequate
+  // while a process drives one write, and exactly what a paired record may
+  // not be.
   const arms = without(FULL_ARMS(['page', 'all']), ['writeSelector', 'write', 'pairKey']);
   const { row, out } = allocSummaryFor('full', arms, {
     ...PAIRED_ROW,
     allocFits: FULL_FITS(['page', 'all']),
   });
   const prov = allocWriteProvenance(row);
-  assert.strictEqual(prov.ok, false, 'the pin must REFUSE the shape it was amended away from');
+  assert.strictEqual(prov.ok, false, 'the pin must REFUSE the unpaired shape');
   assert.strictEqual(prov.unnamed.length, 88, 'every window, on every round');
   assert.match(prov.unnamed[0], /names no write$/, 'and the reason NAMES the defect');
   assert.match(prov.unnamed[0], /^round 1 /, 'per round and per key, not one undifferentiated count');
@@ -3487,7 +3439,7 @@ test('and it refuses a record whose windows name their write but carry NO pairKe
   // row?" passes it. What it does not carry is the thing that makes the pair a
   // PAIR: the arm key its two legs share. An estimator handed this can see two
   // populations and cannot match them, which is precisely the reconstruction
-  // rf2-irxrw exists to make unnecessary, and it would be back to differencing
+  // the pairKey exists to make unnecessary, and it would be differencing
   // unmatched medians with nothing on the record to say so.
   //
   // This is the branch the pin's other cases cannot reach. Strip all three
@@ -3522,7 +3474,7 @@ test('and it refuses a record whose windows name their write but carry NO pairKe
 test('and it refuses a HALF PAIR, which is well-formed window by window', () => {
   // The failure the first half cannot see: every window names its write, and
   // one leg of a pair is simply missing. An estimator differencing this would
-  // be back to comparing unmatched populations without anything saying so.
+  // be comparing unmatched populations without anything saying so.
   const arms = FULL_ARMS(['page', 'all']);
   delete arms['reagent-subs|lad/fresco#R7@all'];
   const row = {
@@ -3539,7 +3491,7 @@ test('and it refuses a HALF PAIR, which is well-formed window by window', () => 
 test('and a window naming a write this run did NOT drive is refused too', () => {
   // A record whose windows name a write the row never selected is not a
   // provenance record; it is two runs' windows in one file, which is the
-  // reconstruction rf2-irxrw exists to make unnecessary.
+  // reconstruction a paired record exists to make unnecessary.
   const arms = FULL_ARMS(['page']);
   arms['reagent-subs|grid/floor'] = {
     ...arms['reagent-subs|grid/floor'],
@@ -3577,7 +3529,7 @@ test('THE PAIRED SUMMARY runs, prints a table per write, and claims no single on
     ...PAIRED_ROW,
     allocFits: FULL_FITS(['page', 'all']),
   });
-  assert.match(out, /THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR \(rf2-irxrw\)/);
+  assert.match(out, /THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR:/);
   assert.match(out, /EVERY ARM IS MEASURED UNDER BOTH — the FLOOR included/);
   assert.match(out, /the leg ORDER alternates on round parity/);
   assert.match(out, /under `:p0\/write-page` \(P0_ALLOC_WRITE=paired\)/, 'a table per write');
@@ -3618,18 +3570,18 @@ test('an UNPAIRED summary says NONE of it — the third option is not a redefini
 });
 
 // ===========================================================================
-// VALIDITY WITNESS V4 — THE PINNED PROBES (rf2-2rtt6.140, criterion 3)
+// VALIDITY WITNESS V4 — THE PINNED PROBES
 // ===========================================================================
 //
-// The merged-PR audit of #7682 wrote two executable probes and the old bound
-// ADMITTED both, at `headroom = 0`, with true allocations of 300 KB and
-// 600 KB. That is what retired the bound: it was not too loose, its premises
-// did not support it. `ALLOC_FALL_THRESHOLD_B` is an UPPER bound on where the
+// Two executable probes that a masking bound ADMITS, at `headroom = 0`, with
+// true allocations of 300 KB and 600 KB. That is why there is no such bound:
+// it is not too loose, its premises do not support it.
+// `ALLOC_FALL_THRESHOLD_B` is an UPPER bound on where the
 // first collection runs where safety needs a LOWER one, and a masked leg's
 // true allocation is not bounded by the observed `maxStep`, which sees only
 // NET positive deltas.
 //
-// THE REPLACEMENT IS AN OBSERVATION, NOT ANOTHER MODEL. The legs of a window
+// THE WITNESS IS AN OBSERVATION, NOT ANOTHER MODEL. The legs of a window
 // are W repetitions of ONE work unit, so absent a collection they should be
 // alike. A leg materially BELOW its cohort is a leg something removed bytes
 // from, and nothing in the work unit removes bytes — the collector does. A
@@ -3638,10 +3590,10 @@ test('an UNPAIRED summary says NONE of it — the third option is not a redefini
 // rather than merely conservative.
 //
 // HERMETIC, exactly as the pins above: every window here is a synthetic
-// sample stream from `stream`, and NOTHING IN THIS FILE HAS EVER BEEN RUN
-// AGAINST A REAL PAGE.
+// sample stream from `stream`, and NOTHING IN THIS FILE RUNS AGAINST A REAL
+// PAGE.
 
-// The two audit probes, as the fixtures `stream` builds them. Each has its
+// The two probes, as the fixtures `stream` builds them. Each has its
 // offending leg at EXACTLY ZERO against a strictly positive cohort median,
 // which is what makes the refusal independent of the calibration.
 const PROBE_A = () => stream([60000, 60000, 60000, 60000, 60000], [0, 0, 0, 0, 60000]);
@@ -3650,13 +3602,13 @@ const PROBE_B = () =>
 
 test('V4 PROBE A — 300 KB of true allocation, admitted by the retired bound, is REFUSED', () => {
   const s = allocSteps(PROBE_A());
-  // The old admission, reproduced AS FACT rather than described. These three
-  // are what the retired bound saw, and it let the window through on them.
+  // What a masking bound sees, reproduced AS FACT rather than described: on
+  // these three it lets the window through.
   assert.strictEqual(s.falls, 0, 'the sign test saw nothing — the fifth leg netted to zero');
   assert.strictEqual(s.rise, 240000, 'and `rise` under-reads the true 300000 by the whole leg');
   assert.strictEqual(s.maxStep, 60000);
   // The new verdict, which names the leg.
-  assert.strictEqual(s.certified, false, 'the leg witness must refuse what the bound admitted');
+  assert.strictEqual(s.certified, false, 'the leg witness must refuse what a masking bound admits');
   assert.strictEqual(s.legMedian, 60000, 'four legs at 60000 and one at 0');
   assert.deepStrictEqual(s.legs, [60000, 60000, 60000, 60000, 0]);
   assert.strictEqual(s.refusals.length, 1, JSON.stringify(s.refusals));
@@ -3677,10 +3629,8 @@ test('V4 PROBE B — 600 KB of true allocation, admitted by the retired bound, i
 });
 
 test('V4 — the net-growth masking case is refused on the LEG grounds', () => {
-  // The fixture this file has carried since rf2-n6w7o, re-pointed. It used to
-  // refuse for being over the budget; it now refuses because its third leg
-  // reads zero against a cohort of 200 KB, which is the observation rather
-  // than the arithmetic.
+  // Refused because its third leg reads zero against a cohort of 200 KB,
+  // which is the observation rather than an arithmetic budget.
   const s = allocSteps(stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]));
   assert.strictEqual(s.falls, 0, 'the sign test is blind here — that IS the defect');
   assert.strictEqual(s.rise, 600000, 'rise under-reads the true 800000 by the reclaimed 200000');
@@ -3732,16 +3682,18 @@ test('V4 NOT VACUOUS — the clean small window and the idle window both certify
 });
 
 test('THE MANDATORY PAGE — an unstated P0_ALLOC_CELLS is refused BY NAME', () => {
-  // rf2-2rtt6.139 retired `ALLOC_B_PER_BOUNDARY_WRITE` as a sizing input and
-  // forbade substituting a replacement constant. With no sizing model there
-  // is no honest default page, so the page becomes MANDATORY — which also
-  // makes an accidental publication run impossible while criterion 5's
-  // measurement freeze is in force.
+  // There is no per-boundary sizing constant, and none may be substituted.
+  // With no sizing model there is no honest default page, so the page is
+  // MANDATORY — which also makes an accidental publication run impossible.
   const arm = armUnderEnv({ P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
   assert.strictEqual(arm.admissible, false, 'an unstated page cannot be derived');
   const page = arm.refusals.find((r) => r.includes('P0_ALLOC_CELLS'));
   assert.ok(page, JSON.stringify(arm.refusals));
-  assert.match(page, /rf2-2rtt6\.139/, 'and it names what would make a default honest');
+  assert.match(
+    page,
+    /derived per rung from the instrument's own floor data/,
+    'and it names what would make a default honest'
+  );
   // A stated page derives an admissible arm, so the refusal is the missing
   // page and not a preflight that refuses everything.
   const stated = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '' });

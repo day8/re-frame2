@@ -1,10 +1,10 @@
 (ns re-frame.bench.fresco.walk-profile-app
-  "THE INTERPRETER WALK, PROFILED ELEMENT-BY-ELEMENT (rf2-y1jkm).
+  "THE INTERPRETER WALK, PROFILED ELEMENT-BY-ELEMENT.
 
   Three measurements agree the candidate's mount deficit is the runtime
   hiccup walk — 100% script, scaling with elements-per-boundary, worst on
-  the one-boundary 1,202-element census page (rf2-0qj9w, rf2-emvod,
-  rf2-2rtt6.56). None of them says WHERE INSIDE THE WALK the time goes.
+  the one-boundary 1,202-element census page. None of them says WHERE
+  INSIDE THE WALK the time goes.
   This entry answers that: the acceptance shape's own hiccup, walked by
   the shipping codec and by a family of single-phase ablations in one
   process, interleaved, plus a per-call micro table over the page's own
@@ -35,7 +35,7 @@
   construction). The twin is not trusted: at boot both pages are mounted
   and their canonical DOM compared (`rf.bench.fresco.lane/canonical`, attribute names
   sorted), and the run is fatal on disagreement. A profile of a page that
-  is not the acceptance page would be rf2-cvvb7's fault with extra steps.
+  is not the acceptance page is a profile of the wrong page.
 
   ## The arms
 
@@ -60,39 +60,33 @@
   The last two do MORE work than `local`, not less, so they are read as
   benefits rather than as phase costs and are reported on their own lines.
 
-  ## What replaced the `:shorthand-merge` / `:no-short` pair (rf2-2rtt6.70)
+  ## Why `local`'s prop pipeline is the shipping shape
 
-  Those two rows priced `merge-shorthand` — a `dissoc`/`assoc` pair that
-  rebuilt the attribute map of every element carrying a `#id`/`.class`
-  shorthand — against a `local` copy that performed it. rf2-2rtt6.36
-  **deleted** that surgery: the shorthand is folded onto the object the
+  The shipping codec folds a `#id`/`.class` shorthand onto the object the
   walk EMITS (`rf.bench.fresco.front.codec/fold-shorthand!`), where the slot is already
-  resolved, and the fast lane that existed only to dodge the map copy
-  went with it. `convert-props`' three lanes became two.
-
-  Nothing went red, because both arms were local copies. That is exactly
-  what made it worth repairing: an instrument whose arms outlive the code
-  they ablate keeps printing plausible numbers for a path nobody runs.
-  So `local`'s prop pipeline was re-pointed at the shipping shape — the
-  propless short-circuit, then convert-then-fold — and the two ablations
-  now name the two lanes that actually ship.
+  resolved; there is no attribute-map surgery for an ablation to price,
+  and `convert-props` has two lanes. `local`'s prop pipeline is that
+  shape — the propless short-circuit, then convert-then-fold — so the two
+  ablations name the two lanes that actually ship. An instrument whose
+  arms outlive the code they ablate keeps printing plausible numbers for
+  a path nobody runs, and nothing goes red, because both arms are local
+  copies.
 
   The ablation baseline is written IN THIS NAMESPACE and validated
-  against the shipping walk in the same process, for the reason the
-  rf2-2rtt6.32 key-walk measurement records: timing a local arm against a
-  foreign one compares call conventions as much as phases, and that
-  confound was only ever caught by keeping all arms local and checking
-  the copy against the shipping fn explicitly.
+  against the shipping walk in the same process: timing a local arm
+  against a foreign one compares call conventions as much as phases, and
+  the confound is caught only by keeping all arms local and checking the
+  copy against the shipping fn explicitly.
 
-  ## What `local` is frozen against (the PR #7383 audit)
+  ## What `local` is frozen against
 
   `local` is also the OLD arm of the in-process A/B, so the two paths
-  the rf2-y1jkm candidate cheapened are held at their pre-candidate
-  shape here rather than reached for in the codec:
+  the candidate cheapened are held at their pre-candidate shape here
+  rather than reached for in the codec:
   [[local-prop-cache]]/[[local-prop-name]] for the prop NAME, and
   [[local-convert-prop-value]] for the prop VALUE. A baseline that calls
   a helper the candidate changed absorbs the candidate and undersells
-  it, which is what the merged-PR audit found at `walk-value`. What is
+  it. What is
   deliberately NOT frozen, and why, is on
   [[local-convert-prop-value]]'s own docstring; both freezes are pinned
   by `walk_profile_baseline_cljs_test`, which fails if either arm
@@ -122,15 +116,14 @@
      table 4 and requires the arms table to show at least that much;
      [[lazy-tail-direction-row]] requires the one by-construction
      ordering whose margin is big enough to assert. A failure sets
-     `window.FRESCO_CONTROL_FAILED` and `run.cjs` exits 1 (rf2-1huc —
-     before it, that exit path was dead for this arm, so tables 1-4 were
-     guarded against ordering and page fidelity but not against the
-     instrument having signal at all). A control whose own prediction
-     collapses refuses under a SEPARATE heading rather than passing on a
-     bar of zero, which is how the first cut of table 5 failed open
-     (merged-PR audit #8149; see [[tag-cache-floor-row]]).
+     `window.FRESCO_CONTROL_FAILED` and `run.cjs` exits 1 — without it,
+     tables 1-4 would be guarded against ordering and page fidelity but
+     not against the instrument having signal at all. A control whose own
+     prediction collapses refuses under a SEPARATE heading rather than
+     passing on a bar of zero, which would fail open (see
+     [[tag-cache-floor-row]]).
 
-  Owner bead: rf2-y1jkm. Driver: `run.cjs` with
+  Driver: `run.cjs` with
   FRESCO_INIT_FN=re-frame.bench.fresco.walk-profile-app/-main."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -223,7 +216,7 @@
                            (if (= canon-real canon-twin) "agrees" "DISAGREES") ")")
                       {:expected expected :real n-real :twin n-twin})))
     ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`: `-main` prints this as "canonical
-    ;; bytes", and `count` answers UTF-16 code units (rf2-2rtt6.121).
+    ;; bytes", and `count` answers UTF-16 code units.
     {:elements n-real :bytes (rf.bench.fresco.lane/utf8-bytes canon-real)}))
 
 ;; ---------------------------------------------------------------------------
@@ -334,8 +327,7 @@
   every key has already been through the canonical slot on its way in.
   Two `undefined?` tests and, on the 924 elements of the census page that
   carry a `.class`, one `class-names` call when a class was also
-  declared. The delta therefore prices the fold that ships, not the map
-  surgery it replaced."
+  declared. The delta therefore prices the fold that ships."
   [mode ^js o parsed]
   (if (identical? mode M-NO-FOLD)
     o
@@ -354,9 +346,8 @@
 (def ^:private reserved-names #{"__proto__" "prototype" "constructor"})
 
 ;; The local walk carries its OWN copy of the donor's prop-name cache —
-;; the string-valued cache the codec shipped when this bead opened — so
-;; the `local` arm stays the pre-optimisation walk even after the codec's
-;; own cache changes shape. Without this the ablation baseline silently
+;; the string-valued, pre-optimisation cache — so the `local` arm stays
+;; the pre-optimisation walk whatever shape the codec's own cache takes. Without this the ablation baseline silently
 ;; absorbs half the candidate and the in-process A/B undersells it.
 ;; [[local-convert-prop-value]] below is the other half of the same
 ;; freeze; `walk_profile_baseline_cljs_test` pins both.
@@ -394,34 +385,30 @@
              m))
 
 (defn local-convert-prop-value
-  "The donor's `convert-prop-value` **in the branch order the codec
-  shipped when this bead opened** — before the candidate's `string?`
-  fast lane (rf2-y1jkm).
+  "The donor's `convert-prop-value` **in its pre-optimisation branch
+  order** — without the candidate's `string?` fast lane.
 
   Frozen here for the reason [[local-prop-cache]] is: `local` is the
   ablation baseline AND the in-process A/B's old arm, and an old arm
   that calls the candidate's own converter absorbs the candidate and
-  undersells it. PR #7383's audit named this exact site — the `local`
-  walk reached straight into `rf.bench.fresco.front.codec/convert-prop-value`, which that same
-  PR changed, so the quoted old-vs-new figure was measured against a
-  baseline the candidate had already reached into.
+  undersells it — a `local` walk that reached straight into
+  `rf.bench.fresco.front.codec/convert-prop-value` would measure the old-vs-new figure against
+  a baseline the candidate had already reached into.
 
-  The answer is unchanged for every input; only the order of the tests
-  is. `walk_profile_baseline_cljs_test` asserts both halves of that —
+  The answer agrees with the shipping converter for every input; only
+  the order of the tests differs. `walk_profile_baseline_cljs_test` asserts both halves of that —
   that this agrees with the shipping converter value for value, and that
   the baseline arm never enters the shipping one.
 
   ## What is NOT frozen, and why
 
-  `merge-shorthand` and the map-copying `dissoc` the candidate also
-  replaced were **deleted** from the codec by rf2-2rtt6.36, so there is
-  no shipping shape left to copy and rf2-2rtt6.70 re-pointed
-  [[walk-convert-props]] at the lanes that ship. `rf.bench.fresco.front.codec/cached-parse`
+  The shorthand fold has no pre-optimisation shape left in the codec to
+  copy, so [[walk-convert-props]] follows the lanes that ship. `rf.bench.fresco.front.codec/cached-parse`
   likewise keeps the candidate's cheaper reserved-name check, because
   the `parse-raw` benefit line prices the TAG CACHE and needs both its
   arms on one parse implementation. So `local` is the pre-optimisation
-  walk in its prop-VALUE and prop-NAME paths, which is what the audit
-  asked for, and not a frozen copy of the whole pre-PR codec — which is
+  walk in its prop-VALUE and prop-NAME paths, and not a frozen copy of
+  the whole pre-optimisation codec — which is
   also why the reported `local/ship` line reads as an A/B ratio rather
   than as a fidelity check near 1.0."
   [v]
@@ -498,7 +485,7 @@
         head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    ;; The frame-as-a-prop variant's one emission cost (rf2-2rtt6.39).
+    ;; The frame-as-a-prop variant's one emission cost.
     ;; Priced at nothing on THIS page — the census counts zero boundaries
     ;; — and copied anyway, so the arm stays a copy of what ships.
     (when (rf.bench.fresco.front.codec/frame-prop-head? head)
@@ -734,14 +721,14 @@
          (fmt (* 100 (/ d ship-p50)) 1) "% of ship)")))
 
 ;; ---------------------------------------------------------------------------
-;; The positive control (rf2-1huc)
+;; The positive control
 ;; ---------------------------------------------------------------------------
 ;;
-;; Until rf2-1huc this arm had none, so `run.cjs`'s `FRESCO_CONTROL_FAILED`
-;; exit path was dead here: the run was guarded against ORDERING
-;; (`rf.bench.fresco.lane/guard!`, exit 2) and against PAGE FIDELITY ([[parity!]], fatal) but
-;; not against the instrument HAVING SIGNAL AT ALL. A run whose ablations had
-;; stopped biting would still print a full table and exit 0.
+;; Without one, `run.cjs`'s `FRESCO_CONTROL_FAILED` exit path would be dead
+;; here: the run is guarded against ORDERING (`rf.bench.fresco.lane/guard!`,
+;; exit 2) and against PAGE FIDELITY ([[parity!]], fatal), and only a control
+;; guards against the instrument HAVING SIGNAL AT ALL. A run whose ablations
+;; had stopped biting would still print a full table and exit 0.
 
 (defn- round-p50
   "Arm `id`'s p50 in ms per WALK inside ONE round.
@@ -783,14 +770,14 @@
 
   ## Why a FLOOR and not a band
 
-  The bead's candidate was `rf.bench.fresco.lane/control-verdict` — a two-sided band
-  around this prediction. Costed rather than assumed, it does not hold:
+  A two-sided band around this prediction (`rf.bench.fresco.lane/control-verdict`) does not
+  hold, costed rather than assumed:
   the micro loop is the CHEAPEST possible arrangement of the same calls
   (one warm array, one call site, no allocation surviving the loop),
   while in the walk each fresh parse allocates an object the element then
   keeps. The walk-embedded cost is therefore bounded BELOW by the micro
-  cost and not estimated by it, and it measures about twice it — 2.11x on
-  this bead's calibration run, 1.81x on the 2026-08-14 re-take. A
+  cost and not estimated by it, and it measures about twice it — 2.11x and
+  1.81x on two calibration runs. A
   two-sided +/-slack band wide enough to contain 2x has its LOWER edge
   below zero, which is a control that cannot fail. One-sided is what the
   arithmetic actually supports, so one-sided is what this asserts.
@@ -802,21 +789,18 @@
   ## Why EVERY ROUND and not an overlap
 
   `rf.bench.fresco.lane/control-verdict` passes a control whose measured range merely
-  OVERLAPS the band. Its disagreement with `hd8-rows/positive-control!`'s
-  every-round-inside rule was rf2-egdaq, settled on 2026-08-21 as a
-  SPLIT: the heap arm's ten published figures were re-adjudicated strict
-  and all ten pass; the clock arm REFUSED strict for legs sitting on
-  Chrome's 100 µs quantum, under the 2026-07-31 ruling, and that refusal
-  stands there. This control inherits neither side of that: it is NEW,
-  so it had no published row to re-adjudicate, and its windows are
-  whole-page walks well clear of the quantum. It takes the stricter rule
-  from birth, the way `hd8-rows` did and for the reason `hd8-rows` gives
-  — a control whose worst round is wrong has caught something.
+  OVERLAPS the band. The lane's rule is one per instrument: a heap
+  instrument judges every round, and a clock instrument whose legs sit on
+  Chrome's 100 µs `performance.now()` clamp judges overlap (see
+  `lane_control_strict_cljs_test`). This control's windows are whole-page
+  walks well clear of the quantum, so it takes the stricter rule, the way
+  `hd8-rows/positive-control!` does and for the reason `hd8-rows` gives —
+  a control whose worst round is wrong has caught something.
 
-  ## Why a floor of zero or below REFUSES (rf2-1huc, merged-PR audit #8149)
+  ## Why a floor of zero or below REFUSES
 
-  The first cut of this row asked only `worst >= bar` and shipped FAILING
-  OPEN in the one direction its own subject makes reachable. `bar` is
+  A row asking only `worst >= bar` FAILS OPEN in the one direction its
+  own subject makes reachable. `bar` is
   derived from `fresh - hit`, so if those two primitives CONVERGE the bar
   collapses to zero at the same moment the measured delta does — and
   `>= 0` is cleared by any reading whatever. Converging primitives are
@@ -824,16 +808,15 @@
   ablation, which is the thing this row exists to catch. Worse in the
   other direction, a hit priced above a fresh parse puts the bar BELOW
   zero, where the slack widens the band downward instead of narrowing it.
-  The audit reproduced both against the compiled function at merge
-  825cd611c8; `walk_profile_control_cljs_test` pins both.
+  `walk_profile_control_cljs_test` pins both.
 
   So the prediction is required to STATE something before it is allowed
   to adjudicate anything: `:stated?` is `floor > 0`, and a row that does
   not state a prediction refuses under its own heading rather than
-  passing on a vacuous bar. The planted-fault proof could never have
-  found this — a mutation of the measured ARM leaves the micro table's
-  primitive difference healthy — which is the argument for pinning it by
-  arithmetic in the always-on suite instead."
+  passing on a vacuous bar. A planted fault cannot find this — a mutation
+  of the measured ARM leaves the micro table's primitive difference
+  healthy — which is the argument for pinning it by arithmetic in a unit
+  suite instead."
   [readings census ^js tags micro]
   (let [m       (into {} micro)
         fresh   (:parse-tag-fresh m)
@@ -923,7 +906,7 @@
   place: `FAILED` means the arms did not show what the arithmetic
   predicted and the repair is the ARM, while `REFUSED — no prediction`
   means the arithmetic predicted nothing at all and the repair is the
-  MICRO TABLE that priced it (rf2-1huc). Rows that state no prediction —
+  MICRO TABLE that priced it. Rows that state no prediction —
   [[lazy-tail-direction-row]], whose claim is a bare ordering — carry no
   `:stated?` and read as the two-outcome rows they are."
   [{:keys [ok? stated?]}]
@@ -1012,8 +995,8 @@
               (control-report! control)
               (when (:refuse? gv)
                 (set! (.-FRESCO_GUARD_REFUSED js/window) true))
-              ;; `run.cjs` turns this into exit 1. Until rf2-1huc nothing in
-              ;; this file ever set it, so that exit was unreachable here.
+              ;; `run.cjs` turns this into exit 1; this is the one place this
+              ;; file sets it.
               (when-not (every? :ok? control)
                 (set! (.-FRESCO_CONTROL_FAILED js/window) true))
               (rf.bench.fresco.lane/done!)))))

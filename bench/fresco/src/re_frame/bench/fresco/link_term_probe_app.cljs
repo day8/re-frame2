@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.link-term-probe-app
-  "DIAGNOSTIC ONLY (rf2-6c237): price the per-render route-link term the
-  rf2-2rtt6.54 migration added to every census mount — the 207
+  "DIAGNOSTIC ONLY: price the per-render route-link term every census
+  mount carries — the 207
   `link-model` calls the acceptance page performs (69 cards x 3 links),
   which the hand-ported uix/reagent twins do not perform at all.
 

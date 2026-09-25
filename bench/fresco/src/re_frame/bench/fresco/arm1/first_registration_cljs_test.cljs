@@ -1,8 +1,8 @@
 (ns re-frame.bench.fresco.arm1.first-registration-cljs-test
-  "THE OTHER REGISTRY TRANSITION (rf2-2rtt6.44).
+  "THE OTHER REGISTRY TRANSITION.
 
-  `disposed_cell_cljs_test` closed the registry axis for a **replacement**
-  — an id that already had a handler and got another one — because that
+  `disposed_cell_cljs_test` closes the registry axis for a **replacement**
+  — an id that already has a handler and gets another one — because that
   transition arrives at the arm as a disposal: the sub-cache evicts the
   query's entry, the reaction is disposed, and
   `re-frame.bench.fresco.arm1.runtime/invalidate-cell!` rides the event.
@@ -19,22 +19,21 @@
   \"a later registration is observed by the next subscribe\"
   (`re-frame.subs/build-and-cache!*`). Arm 1 breaks that assumption in
   the one way it can: a cell holds its reaction for the life of every
-  boundary reading the key, and it never subscribes again. The recovery
-  the substrate declined to cache is cached anyway, in the arm's own
-  cell, where nothing evicts it.
+  boundary reading the key, and it never subscribes again. Unguarded, the
+  recovery the substrate declines to cache would be cached anyway, in the
+  arm's own cell, where nothing evicts it.
 
-  Measured before the repair: the boundary read `nil`, the first
-  `reg-sub` for the query changed nothing, and no later write notified
-  it — **for the life of the mount**, on a query that was by then
-  perfectly well registered. That is the shape a lazily loaded module
-  hits. `disposed_cell_cljs_test`'s cell answers a RETIRED computation;
-  this one answers a computation that never arrived. Both look alive —
-  the boundary rendered, it painted, nothing errored, and it will never
-  change again.
+  Unguarded, the boundary reads `nil`, the first `reg-sub` for the query
+  changes nothing, and no later write notifies it — **for the life of the
+  mount**, on a query that is by then perfectly well registered. That is
+  the shape a lazily loaded module hits. `disposed_cell_cljs_test`'s cell
+  answers a RETIRED computation; this one answers a computation that
+  never arrived. Both look alive — the boundary rendered, it painted,
+  nothing errored, and it will never change again.
 
-  The rows below are the direct witness the merged-PR audit asked for.
-  The transition has **two halves**, and they are repaired by two
-  different mechanisms because they are two different situations.
+  The rows below are the direct witness. The transition has **two
+  halves**, and they are repaired by two different mechanisms because
+  they are two different situations.
 
   A boundary that already HOLDS a cell is repaired by the registration
   event: `first-registration!` scans the cells for the id and drops the
@@ -44,26 +43,24 @@
 
   A boundary inside the **render→commit gap** holds no cell, so that scan
   reaches nothing on its behalf. It is repaired by the `registry-epoch`
-  term of `commit-basis` (rf2-2rtt6.50): a key with no cell contributes a
+  term of `commit-basis`: a key with no cell contributes a
   LIVE basis reading, the cell the commit creates is stamped with the
   basis as it stands then, and a `reg-sub` between the two makes the two
   numbers differ — so React's own post-`subscribe` tear check schedules
-  the re-render. That was a **pin rather than a repair** until
-  rf2-2rtt6.50, on the reasoning that the only available term was the one
-  rf2-2rtt6.44 costed and declined. It is not: what that costing priced
-  was a registry term in every key's *live* contribution to
-  `getSnapshot`, which moves every mounted boundary in the application on
-  every `reg-sub` and buys each one a render that reads back through a
-  dead reference. A term in the *basis* is read live by the staged branch
+  the re-render. This is not the registry term `disposed_cell_cljs_test`
+  rules out: that one would sit in every key's *live* contribution to
+  `getSnapshot`, move every mounted boundary in the application on every
+  `reg-sub`, and buy each one a render that reads back through a dead
+  reference. A term in the *basis* is read live by the staged branch
   alone — so it reaches exactly the keys that have the defect, and the
   extra render it buys reads back through a cell that is alive and
   correct.
 
   The bottom rows are the bill, and they are what makes that distinction
   checkable rather than argued: a first registration of an id **no cell
-  holds** must still disturb a mounted boundary by nothing at all. Those
-  assertions are unchanged by the term, which is the cleanest available
-  proof that the option taken is not the option declined."
+  holds** must disturb a mounted boundary by nothing at all. Those
+  assertions hold with the term in place, which is the cleanest available
+  proof that the basis term is not the per-key live term."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -133,7 +130,7 @@
         ;; its subs, and stays mounted while it does.
         (rf.bench.fresco.arm1.runtime/render-body f (reader q-first seen) {})
         (is (nil? @seen)
-            "the recovery contract, unchanged: an unregistered read emits
+            "the recovery contract: an unregistered read emits
              `:rf.error/no-such-sub` and derefs to nil")
         (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
               hits     (volatile! 0)
@@ -185,8 +182,8 @@
       (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
             release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
             ;; Reach past the repair and hold the object the cell caught.
-            ;; This is exactly what the cell kept before the first
-            ;; registration was made an event.
+            ;; This is exactly what the cell would keep if the first
+            ;; registration were not an event.
             held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-held])]
         (is (some? held)
             "precondition: the commit acquired a reaction, and it is the
@@ -202,7 +199,7 @@
         (release!)))))
 
 (deftest a-first-registration-in-the-render-commit-gap-moves-the-snapshot
-  (testing "the OTHER window (rf2-2rtt6.50). The rows above are the
+  (testing "the OTHER window. The rows above are the
             mounted case — a boundary that already holds a cell. The
             render→commit gap is the case where it does not: the body has
             returned `nil`, and the registration lands before React runs
@@ -217,9 +214,9 @@
             the two moves the term, so the two numbers differ, so React's
             post-`subscribe` re-check sees a tear and schedules the
             re-render — which reads back through a cell that is alive and
-            holds the real handler. That is what distinguishes this from
-            the transitions rf2-2rtt6.44 declined a term for, where the
-            extra render would have read back through a dead reference.
+            holds the real handler. That is what distinguishes this from a
+            per-key live term, where the extra render would read back
+            through a dead reference.
 
             The correction is React's tear check, NOT a notification: the
             arm's own notify path runs off `flush!`, and a registration
@@ -257,14 +254,14 @@
           (release!))))))
 
 ;; ---------------------------------------------------------------------------
-;; What closing the transition cost
+;; What closing the transition costs
 ;; ---------------------------------------------------------------------------
 
 (deftest a-first-registration-of-an-id-no-cell-holds-disturbs-nothing
-  (testing "the bill, and the tripwire on the alternative this programme
-            declined (a `:registry-epoch` term in every key's contribution
-            to `getSnapshot`, which would have moved every mounted
-            boundary's snapshot on every `reg-sub` in the application).
+  (testing "the bill, and the tripwire against a `:registry-epoch` term in
+            every key's contribution to `getSnapshot`, which would move
+            every mounted boundary's snapshot on every `reg-sub` in the
+            application.
             A first registration is TARGETED: it reaches the cells holding
             that query and nothing else. An unrelated one — which is what
             a boot, a lazy module load and every one of an HMR save's
@@ -297,12 +294,12 @@
             the gap half by one term shared by every key, so neither buys
             a React hook and neither buys a per-boundary object."
     (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
-        "still two hooks — a registrar hook is not a React hook")
+        "two hooks — a registrar hook is not a React hook")
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
            rf.bench.fresco.arm1.runtime/shell-hook-ledger)
         "and the same two, in the same order")
     (let [inv (rf.bench.fresco.arm1.runtime/retained-inventory)]
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
-          "the enumerated absences are unchanged: no per-boundary object was
-           added, and nothing is keyed by a render or an attempt"))))
+          "the enumerated absences hold: no per-boundary object, and
+           nothing is keyed by a render or an attempt"))))

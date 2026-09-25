@@ -1,28 +1,28 @@
 (ns re-frame.bench.fresco.lane-control-strict-cljs-test
-  "THE LANE'S TWO CONTROL RULES MUST STAY TWO — pinned (rf2-egdaq).
+  "THE LANE'S TWO CONTROL RULES MUST STAY TWO — pinned.
 
   `rf.bench.fresco.lane/control-verdict` adjudicates a positive control on OVERLAP: the
   measured range need only meet the ±slack band. `rf.bench.fresco.lane/control-verdict-
   strict` requires EVERY ROUND inside it. Both are correct for their own
-  case — the 2026-07-31 ruling keeps overlap for legs sitting on Chrome's
-  100 µs `performance.now()` clamp, where a low round is the quantum
-  rather than a defect, and names a batched window clear of the quantum
-  as the condition under which the strict rule becomes adoptable.
+  case — overlap for legs sitting on Chrome's 100 µs
+  `performance.now()` clamp, where a low round is the quantum rather than
+  a defect, and the strict rule for a batched window clear of the
+  quantum.
 
-  The failure this file exists to prevent is a later worker collapsing
-  the two into one, in either direction. So the assertion that carries the
+  The failure this file exists to prevent is the two collapsing into
+  one, in either direction. So the assertion that carries the
   design is [[one-dataset-two-rules-opposite-verdicts]]: the SAME readings
   are driven through both rules and the two must disagree. A `simplify`
-  pass that routes `amp_merge_clock_app` or `direct_return_clock_app` back
-  to the overlap rule goes red here, in the always-on `cljs-test$` gate,
-  rather than in a bench run months later that quietly stopped having
+  pass that routes `amp_merge_clock_app` or `direct_return_clock_app` to
+  the overlap rule goes red here, rather than in a bench run months later
+  that quietly stopped having
   teeth. Both instruments read milliseconds against a 0.1 ms quantum —
   ~4 ms judged and ~8 ms control on one, ~2.25 ms and ~4.3 ms on the other
-  — so both are the case the 2026-07-31 ruling named as its own revisit
-  trigger, and neither is entitled to the coarse-leg exemption.
+  — so both are batched windows clear of the quantum, and neither is
+  entitled to the coarse-leg exemption.
 
-  [[the-aggregate-rule-cannot-even-ask-the-question]] pins the OTHER half
-  of what both callers were doing, which the overlap-versus-containment
+  [[the-aggregate-rule-cannot-even-ask-the-question]] pins the OTHER
+  shape a caller can hand the rule, which the overlap-versus-containment
   contrast above does not reach: a prediction built from an ACROSS-ROUND
   median of the judged arm, compared against the ACROSS-ROUND range of the
   control. That shape passes a dataset the per-round rule refuses even
@@ -31,11 +31,9 @@
   at one.
 
   The rest pin the modes a browser run cannot reach. A control adjudicated
-  on an AGGREGATE cannot be re-adjudicated afterwards — that is the
-  durability hole rf2-egdaq's audit of PR #8326 found, and it is why the
+  on an AGGREGATE cannot be re-adjudicated afterwards, which is why the
   strict answer carries `:per-round`. A control whose own prediction has
-  gone vacuous passes on any reading whatever — the walk profile shipped
-  exactly that (`rf2-1huc`, merged-PR audit #8149), and no mutation of a
+  gone vacuous passes on any reading whatever, and no mutation of a
   measured arm can find it.
 
   Companion to `walk_profile_control_cljs_test`, which pins the same
@@ -71,7 +69,7 @@
 
 (deftest one-dataset-two-rules-opposite-verdicts
   (testing "ONE set of readings, BOTH rules, and they must part — this is
-            the whole of rf2-egdaq and the reason the lane carries two"
+            the reason the lane carries two"
     (let [s (strict one-bad-round)
           ;; The same five rounds offered to the overlap rule as the
           ;; `{:min :max :mean}` range it takes.
@@ -89,7 +87,7 @@
            cannot be read under the other one"))))
 
 ;; ---------------------------------------------------------------------------
-;; The shape BOTH callers handed the rule before rf2-egdaq and rf2-gsn62
+;; The AGGREGATE shape — raw per-round milliseconds
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Five rounds of raw millisecond `p50`s. Round 4's judged leg ran fast
@@ -118,7 +116,7 @@
         rounds-ms))
 
 (deftest the-aggregate-rule-cannot-even-ask-the-question
-  (testing "the OLD caller arithmetic — 2.0x the across-round median of the
+  (testing "the AGGREGATE arithmetic — 2.0x the across-round median of the
             judged arm, against the across-round range of the control —
             passes a dataset the per-round rule refuses, and passes it with
             the control's ENTIRE range inside the band, so overlap versus
@@ -144,10 +142,10 @@
              (select-keys s-ctl [:n :min :max :p50]))
           "and the control's whole measured range is 4.40 – 4.60 ms. Named
            fields rather than whole-map equality: this row is about the
-           RANGE, and spelling it as `=` on the whole summary also froze
+           RANGE, and `=` on the whole summary would also freeze
            `rf.bench.fresco.lane/summarise`'s key set here, a long way from the function
-           and from any reader who would think to look. `rf2-xa8wo` adding
-           `:p95`/`:p99` reddened it for a reason this row has no opinion
+           and from any reader who would think to look, reddening on an
+           added field for a reason this row has no opinion
            about. The key set is frozen in `lane_quantile_cljs_test`, where
            it belongs")
       (is (true? (:ok? aggregate))
@@ -157,7 +155,7 @@
           "while round 4 read 3.00x its own denominator")
       (is (false? (:ok? strict'))
           "and the per-round rule REFUSES it. This is the disagreement
-           rf2-gsn62 turns on: an aggregate adjudication is not a weaker
+           that matters: an aggregate adjudication is not a weaker
            answer to the same question, it is an answer to a different one")
       (is (= [{:round 4 :measured 3.0 :off-by 0.25}] (:outside strict'))
           "named, with its distance past the roof as a fraction of the
@@ -200,14 +198,13 @@
     (is (true? (:ok? (strict [1.5 2.5 2.0]))))))
 
 ;; ---------------------------------------------------------------------------
-;; What the audit of PR #8326 found: the answer must be re-adjudicable
+;; The answer must be re-adjudicable
 ;; ---------------------------------------------------------------------------
 
 (deftest the-per-round-values-are-carried-into-the-answer
-  (testing "the three runs published on 2026-08-15 recorded only an
-            aggregate, so their strict verdict is unrecoverable and the
-            window would have to be re-run to ask a question its own data
-            had already answered"
+  (testing "a run that records only an aggregate leaves its strict
+            verdict unrecoverable, and the window would have to be re-run
+            to ask a question its own data had already answered"
     (let [r (strict held)]
       (is (= held (:per-round r)))
       (is (= 5 (:n (:measured r))))
@@ -227,8 +224,7 @@
       (is (re-find #"no rounds" (:why r))))))
 
 (deftest a-vacuous-prediction-refuses-however-good-the-rounds-look
-  (testing "the mode merged-PR audit #8149 found on the walk profile: a
-            band around a prediction of zero is cleared by any reading
+  (testing "a band around a prediction of zero is cleared by any reading
             whatever, so passing there is passing on nothing"
     (let [r (rf.bench.fresco.lane/control-verdict-strict 0.0 [0.0 0.0 0.0] slack)]
       (is (false? (:ok? r)))

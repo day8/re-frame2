@@ -1,23 +1,23 @@
 (ns re-frame.bench.fresco.topo.census-dom-cljs-test
   "**THE TOURNAMENT'S DETERMINISTIC HALF** — the work census, and the
   eligibility control that decides whether any clock figure guarded by it
-  may publish (rf2-hic-036).
+  may publish.
 
-  ## Why this half needed no quiet box
+  ## Why this half needs no quiet box
 
   [The budgets page](../../../../../../../docs/design/fresco/product/budgets.md)
   sorts every performance row into two families with opposite operational
   rules, and the sentence that matters here is its own: a counter *\"reads
   the same on a loaded box\"*. Boundary body runs and rows of markup are
   integers on monotone counters, so contention cannot move them. This
-  file is therefore an ordinary blocking gate, runs in CI on every PR,
-  and is repeatable by anyone — which is exactly what a one-shot clock
-  session on one machine is not.
+  file is therefore an ordinary assertion suite, repeatable by anyone on
+  any box — which is exactly what a one-shot clock session on one
+  machine is not.
 
   It is **not** a substitute for the clock, and the tournament page
-  pre-registers that refusal before any measurement was taken: a cell
-  whose clock control refuses is handed to `rf2-hic-080` phase 2 as
-  *unaddressed*, never as a work census wearing a clock's clothes.
+  pre-registers that refusal: a cell whose clock control refuses is
+  reported as *unaddressed*, never as a work census wearing a clock's
+  clothes.
 
   ## What each row establishes
 
@@ -50,8 +50,8 @@
   at all. A middle-index target would measure the windowed arm doing
   nothing, which is true and useless.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -305,8 +305,8 @@
 (deftest the-edit-finding
   (testing "the write a controlled field's change intent performs lands on the
            row's own draft cell, so it separates the arms exactly as `sparse`
-           does — the pipeline in front of it is rf2-hic-045's, not this
-           tournament's"
+           does — the pipeline in front of it is the controlled field's,
+           not this tournament's"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (doseq [b rf.bench.fresco.topo.model/row-counts]

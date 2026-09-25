@@ -1,10 +1,8 @@
 (ns re-frame.bench.fresco.arm1.hydration-support
   "THE THREE THINGS EVERY HYDRATION WITNESS NEEDS, in one place.
 
-  Lifted verbatim out of
-  [[re-frame.bench.fresco.arm1.hydrate-dom-cljs-test]] when the SSR spike
-  (rf2-2rtt6.87) became its second caller. Nothing here is new; what is
-  new is that there is one copy.
+  Shared by [[re-frame.bench.fresco.arm1.hydrate-dom-cljs-test]] and
+  the SSR spike, so there is one copy.
 
   That matters more than tidiness. All three are the reason a hydration
   row can answer FALSE, and a second copy of a refusal is the copy that
@@ -67,7 +65,7 @@
   A caller whose claim is about the ADOPTION must hold the window open
   until [[adopted!]] resolves, and this shape is what lets it.
 
-  [[capture-console!]] is the synchronous special case, kept because a
+  [[capture-console!]] is the synchronous special case, there because a
   claim about one synchronous call wants exactly that window.
 
   ## `:swallow-uncaught?` — for a row that MANUFACTURES a fault, and
@@ -75,8 +73,8 @@
 
   React reports a recoverable hydration error through `reportError`,
   which becomes an UNCAUGHT error, which the browser lane's runner treats
-  as fatal whatever the `cljs.test` tally says (rf2-mwx08 — \"the suite
-  may simply not assert on the regression that threw\"). That rule is
+  as fatal whatever the `cljs.test` tally says, because the suite may
+  simply not assert on the regression that threw. That rule is
   right and this option does not soften it: a MUTATION PROOF causes the
   fault on purpose and DOES assert on it, so the error is not unasserted
   — it is the row's subject. Setting this calls `preventDefault` on the
@@ -88,9 +86,9 @@
   a recoverable error and asserts on it — nowhere else.** Anywhere else
   it would be exactly the fail-open the runner's rule exists to prevent.
   The uncaught error stays uncaught at the DOOR: `rf.bench.fresco.arm1.mount/hydrate-root!`'s
-  reporter emits the framework diagnostic and then ALWAYS reports
-  (rf2-2rtt6.97), so composing a diagnostic in did not — and must not —
-  make a mismatch quieter than React left it. Every call site that sets
+  reporter emits the framework diagnostic and then ALWAYS reports, so
+  composing a diagnostic in does not — and must not — make a mismatch
+  quieter than React's default leaves it. Every call site that sets
   this is therefore a deliberate fault, not a door that stopped
   complaining."
   ([] (open-console-capture! nil))

@@ -13,25 +13,24 @@
   2. `:advanced` cannot compile shadow's `:browser-test` target —
      `cljs-test-display`'s `goog.define`s collide under Closure.
 
-  ## ONE ROUND PER PAGE, and the measurement that forced it
+  ## ONE ROUND PER PAGE, and the measurement that requires it
 
   `?round=N` runs exactly ONE round and parks its raw record on
   `window.P0_ROUND`; the driver reloads the page for the next one. That is
   not fastidiousness. Run as a single page, this instrument's own probe
-  measured `usedJSHeapSize` climbing 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB
+  reads `usedJSHeapSize` climbing 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB
   across six segment entries — about 12 MB each, with `body-children`
-  pinned at 2 the whole way, so nothing was leaking into the document —
+  pinned at 2 the whole way, so nothing is leaking into the document —
   and on that heap the FLOOR arm, a hand-written `createElement` walk
-  that cannot change, drifted 3.4 -> 5.8 -> 7.0 ms. The arm-order guard
-  refused on phase, correctly.
+  that cannot change, drifts 3.4 -> 5.8 -> 7.0 ms. The arm-order guard
+  refuses on phase, correctly.
 
-  Three repairs were tried against it and are recorded because each one
-  narrows what the cause can be: a forced major collection between every
-  sample (no effect), hoisting each arm so every round calls the identical
-  closures (no effect), and unwrapping the `flushSync` around every
-  unmount (no effect on the climb, though it is the right shape and stays
-  — see `p0-harness`). What did not drift, in the same page and the same
-  run, was the POSITIVE CONTROL: two floor arms, no adapter installed and
+  Three changes leave the climb where it is, which narrows what the cause
+  can be: a forced major collection between every sample, hoisting each
+  arm so every round calls the identical closures, and unwrapping the
+  `flushSync` around every unmount (the right shape regardless — see
+  `p0-harness`). What does not drift, in the same page and the same run,
+  is the POSITIVE CONTROL: two floor arms, no adapter installed and
   destroyed between its rounds, sitting at 1.9167 / 1.9574 / 1.9574. The
   accumulation belongs to the substrate arms and their adapter segments,
   not to the harness around them.
@@ -41,7 +40,8 @@
   previous round's heap, so the drift cannot exist across rounds by
   construction, and the guard's phase factor is then asking a question
   about the machine rather than about a leak this arm already knows it has.
-  **The accumulation itself is a finding and is filed, not swept up.**
+  **The accumulation itself is a finding; this design sidesteps it rather
+  than sweeping it up.**
 
   `?mode=heap` installs the retention instrument on `window.P0H` and does
   nothing else — heap readings belong to the driver, which owns the
@@ -52,13 +52,12 @@
   rounds, the red-zone ratios, and the arm-order verdict. It answers the
   row's GATES beside the record — the summed `N unverified of M` and the
   positive control's verdict — because a figure the driver prints and
-  never exits on is decoration (rf2-95s5b).
+  never exits on is decoration.
 
   Built and driven by `p0_run.cjs` beside this file.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require [cljs.reader :as reader]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.order-guard :as rf.bench.order-guard]
@@ -100,12 +99,11 @@
 (defn- witness-order
   "Witness order for round `r`, alternating exactly as the segments do.
 
-  The witnesses are a nuisance factor in their own right and this was
-  measured, not anticipated. With W1 always first and W3 always second,
-  W3 ran its samples on a page that W1's 36 mounts had already loaded, and
-  the arm-order guard reported W3's UIx segment as phase-contaminated —
-  LAST-THIRD 1.4815x FIRST-THIRD, ranges disjoint — while W1, which always
-  ran first, came out clean. A fixed witness order makes 'second' a
+  The witnesses are a nuisance factor in their own right, measurably. With
+  W1 always first and W3 always second, W3 runs its samples on a page that
+  W1's 36 mounts have already loaded, and the arm-order guard reports W3's
+  UIx segment as phase-contaminated — LAST-THIRD 1.4815x FIRST-THIRD,
+  ranges disjoint — while W1, which always runs first, comes out clean. A fixed witness order makes 'second' a
   permanent property of one witness, which is the same trap as a fixed arm
   order one level up."
   [r]
@@ -119,7 +117,7 @@
   "Mount every arm of every mount witness and answer
   `{witness-id {:canon {arm html} :counts {arm n} :problems [...]}}`.
 
-  A canonical-DOM gate once caught an arm rendering an empty page, so this
+  A canonical-DOM gate catches an arm rendering an empty page, and this
   runs under `:advanced` too: a parity that held under `:none` and failed
   under `:advanced` would be a renaming bug silently deciding the
   comparison."
@@ -208,10 +206,10 @@
 
   **The control gets its own, larger warm-up, and the reason is the
   control's own reading.** Run at the arms' warm-up on a page whose single
-  round is the only thing it will ever do, it read 1.7727 / 1.7681 /
+  round is the only thing it will ever do, it reads 1.7727 / 1.7681 /
   1.8000 against a predicted 1.9975 — an 11% miss — where the same control
-  in a page that ran three rounds read 1.9167 / 1.9574 / 1.9574, settling
-  as the page warmed. A cold page's mount is dominated by first-call costs
+  in a page that runs three rounds reads 1.9167 / 1.9574 / 1.9574, settling
+  as the page warms. A cold page's mount is dominated by first-call costs
   that do NOT scale with element count, and those costs pull a
   work-proportional ratio toward 1.0. That is a fact about cold pages
   rather than about the arms, and the control is the instrument that shows
@@ -259,10 +257,10 @@
   "Everything one round measures, in one fresh page."
   [r]
   (let [sampling {:warmup (q "warmup" 4) :samples (q "samples" 12)}
-        ;; THE ARMS ARE BUILT ONCE PER PAGE. When they were rebuilt per
-        ;; round inside one page, every round pushed a fresh closure
-        ;; through one call site and the sites went megamorphic on nothing
-        ;; the benchmark is trying to measure.
+        ;; THE ARMS ARE BUILT ONCE PER PAGE. Rebuilt per round inside one
+        ;; page, every round would push a fresh closure through one call
+        ;; site and the sites would go megamorphic on nothing the benchmark
+        ;; is trying to measure.
         arms-of  (into {}
                        (for [{:keys [id]} rf.bench.p0-arms/segments
                              {w :id :keys [arms-for]} rf.bench.p0-arms/mount-witnesses]
@@ -326,9 +324,9 @@
   over Reagent's, per round, as a range.
 
   `:red-zone-clock` is labelled here rather than in prose downstream
-  because the delegated ruling on rf2-2rtt6.1 makes this number the
-  threshold itself: a later candidate row worse than this on the clock is
-  RED and needs an operator waiver naming the dogfood benefit."
+  because this number is the threshold itself: a candidate row worse than
+  this on the clock is RED and needs an operator waiver naming the dogfood
+  benefit."
   [witness-id doc rg ux]
   (let [rg-r    (mapv #(get % :reagent-subs) (:ratio rg))
         ux-r    (mapv #(get % :uix-subs) (:ratio ux))
@@ -347,7 +345,7 @@
                                   :denominator :reagent-subs
                                   :meaning
                                   (str "THE RED-ZONE THRESHOLD for " (name witness-id)
-                                       " on the clock (delegated ruling, rf2-2rtt6.1). A "
+                                       " on the clock. A "
                                        "later candidate row WORSE than this needs an "
                                        "explicit operator waiver naming the dogfood "
                                        "benefit. Ranges, not the mean: a range that "
@@ -461,10 +459,10 @@
 (defn adjudicate
   "Fold the per-round EDN into the published record AND answer the gates
   the driver has to exit on. **The only door onto the fold**, deliberately:
-  a caller that could take the record without the verdicts is the fail-open
-  this replaced (rf2-95s5b) — the clock row's `N unverified of M` was
-  printed inside the record and nothing read it, and the positive control
-  was published as a bare ratio nothing adjudicated.
+  a caller that could take the record without the verdicts would be a
+  fail-open — the clock row's `N unverified of M` printed inside the record
+  with nothing reading it, and the positive control published as a bare
+  ratio nothing adjudicated.
 
   The adjudication is the LANE's, not a second copy: [[rf.bench.fresco.lane/control-verdict]]
   is what this arm publishes its controls under, and what it DECIDES is not
@@ -472,17 +470,15 @@
   rule is range OVERLAP, not every-round-inside.
 
   ## And OVERLAP is the right rule HERE, which is not true of the heap row
-  ## (rf2-egdaq, settled)
 
   The lane spells a second rule — [[rf.bench.fresco.lane/control-verdict-strict]], every
-  round inside the band — and `re-frame.bench.p0-heap` moved this driver's
-  OTHER row onto it. This row stays on overlap, on measurement rather than
-  on inertia. THIS CONTROL IS A CLOCK RATIO. `control-round!` reads two
+  round inside the band — and `re-frame.bench.p0-heap` puts this driver's
+  OTHER row on it. This row is on overlap, for a measured reason. THIS
+  CONTROL IS A CLOCK RATIO. `control-round!` reads two
   mount times and divides them, and on the M2 and bulk-broad rows those
   times are one to three of Chrome's 100 µs `performance.now()` quanta —
-  which is a floor the ratio lands on, not a defect the arm has. The
-  2026-07-31 ruling measured what strict would cost: over rf2-6i0i2's
-  eighty controls, 80 of 80 pass under overlap and 64 of 80 under strict,
+  which is a floor the ratio lands on, not a defect the arm has. Measured,
+  strict costs this: over an eighty-control ensemble, 80 of 80 pass under overlap and 64 of 80 under strict,
   every miss LOW, every miss on one of the two coarse-leg rows, four of
   them missing by 0.0014 on a two-quantum floor — while M1 and narrow,
   measured on 20-plus quanta legs, pass strict 40 times out of 40. A rule
@@ -494,16 +490,15 @@
   CDP's heap counter, with no quantum for a low round to sit on. The two
   rows differ in their INSTRUMENT, so they differ in their rule.
 
-  **And nothing is lost by keeping overlap here**, because the record
-  below carries `[:control :per-round]` — the rounds themselves, not a
-  summary of them. That is what let the eighty-control ensemble be
-  re-adjudicated from published data without re-running a window, and it
-  is what lets the ruling be revisited the same way if the batched window
-  it named as its own trigger ever lands on this row.
+  **And nothing is lost by using overlap here**, because the record below
+  carries `[:control :per-round]` — the rounds themselves, not a summary of
+  them — so a control ensemble can be re-adjudicated from published data
+  without re-running a window, and the rule can be revisited the same way
+  if a batched window ever lands on this row.
 
   Answers a flat JS object because a driver reading `verify.ok?` off a
-  `clj->js` map sees `undefined` — every gate green while every gate was
-  unread. That happened on the predecessor's first run."
+  `clj->js` map sees `undefined` — every gate green while every gate is
+  unread."
   [round-edns slack]
   (let [agg (aggregate (vec round-edns))
         vt  (verification-totals agg)
@@ -552,8 +547,8 @@
       (do (set! (.-P0A js/window)
                 ;; ONE door, and it hands back the verdicts with the record.
                 ;; A bare `aggregate` beside it would be a way to take the
-                ;; figures without the gates, which is the defect this
-                ;; namespace was carrying (rf2-95s5b).
+                ;; figures without the gates, which is exactly the fail-open
+                ;; this door closes.
                 #js {:adjudicate (fn [edns slack] (adjudicate edns slack))})
           (js/console.log ";; P0 aggregator installed")
           (set! (.-P0_READY js/window) true))

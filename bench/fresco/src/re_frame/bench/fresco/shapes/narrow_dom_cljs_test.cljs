@@ -1,6 +1,5 @@
 (ns re-frame.bench.fresco.shapes.narrow-dom-cljs-test
-  "**SHAPE 4'S WITNESS** — one cell moves in a large mounted page
-  (rf2-2rtt6.51).
+  "**SHAPE 4'S WITNESS** — one cell moves in a large mounted page.
 
   validation.md states this shape's win condition as **a law rather than
   a ratio**: the commit-side dirty set is flat in `B` across mounted
@@ -21,17 +20,14 @@
   3. **It is flat in B.** The same commit on pages of 50, 150 and 300
      boundaries re-runs one body every time.
   4. **A page-chrome write stops at the cards.** A write the *page*
-     boundary reads re-renders the page and **no** card beneath it. This
-     row is where the roster earned its keep: it read 300 of 300 when
-     first taken, because a Fresco boundary was a plain function
-     component with no value-equality bail-out — where Reagent's default
-     `shouldComponentUpdate` compares argv and stops the cascade. That
-     was the evidence HD-006 had pre-registered as its own reopen
-     condition, and it fired: the bail-out is now the boundary default
-     (rf2-2rtt6.52), and the number here is 0.
+     boundary reads re-renders the page and **no** card beneath it,
+     because a value-equality bail-out is the boundary default (HD-028),
+     as Reagent's default `shouldComponentUpdate` compares argv and stops
+     the cascade. Were a Fresco boundary a plain function component with
+     no bail-out, this row would read 300 of 300; it reads 0.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -161,14 +157,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-page-chrome-write-re-renders-no-unchanged-row
-  (testing "**REPAIRED, and this was the finding that carried it** — the
-           reopen condition HD-006 pre-registered for itself. This read 300
-           of 300 when the roster first took it: a write the PAGE reads
-           re-rendered the page, and React re-rendered every card beneath
-           it, though every card's props and every card's subscription
-           values were equal. HD-006 is amended (rf2-2rtt6.52) and a
-           value-equality bail-out is now the boundary default, so the same
-           write re-runs the page and NOT ONE card. The card count is what
+  (testing "**The cascade a value-equality bail-out stops** — a write the
+           PAGE reads re-renders the page, and without a bail-out React
+           would re-render every card beneath it, though every card's props
+           and every card's subscription values are equal. A value-equality
+           bail-out is the boundary default (HD-028), so the same write
+           re-runs the page and NOT ONE card. The card count is what
            witnesses this and not a DOM comparison — the tab chrome does
            move."
     (if-not (rf.bench.fresco.arm1.mount/browser?)
@@ -185,8 +179,8 @@
                   "the page re-ran once, which is correct — it reads the tab")
               (is (= 0 (:cards (rf.bench.fresco.shapes.feed/runs)))
                   (str "and not one of the " rf.bench.fresco.shapes.feed/article-count
-                       " cards did, none of whose reads moved — this read "
-                       rf.bench.fresco.shapes.feed/article-count " before the repair"))
+                       " cards did, none of whose reads moved — without the bail-out this reads "
+                       rf.bench.fresco.shapes.feed/article-count " of them"))
               (is (= before (favourite-counts handle))
                   "and the cards' own DOM is untouched")
               (is (some? (q handle "[data-testid=\"your-feed-tab\"].active"))

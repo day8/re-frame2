@@ -1,16 +1,14 @@
 (ns re-frame.bench.fresco.p0-uix-views
-  "THE FRONTIER ARM, ON rf2-2rtt6.2'S WITNESSES — UIx reading re-frame2
-  subscriptions through the published `use-sub` spine (rf2-a4x1o,
-  re-pointing rf2-2rtt6.4).
+  "THE FRONTIER ARM, ON THE BAR'S WITNESSES — UIx reading re-frame2
+  subscriptions through the published `use-sub` spine.
 
   ## Why this namespace exists at all
 
-  rf2-2rtt6.4 measured UIx-on-subs and, under RULING 1 on rf2-2rtt6.1,
-  its ratios ARE the red-zone thresholds. It measured them on its own
-  witnesses — a 1,203-element `W1` list reading `[:p0/row i]`, a
-  51-element `W3` form reading `[:p0/field i]`, and a 301-element grid.
-  rf2-2rtt6.2, which had not merged when that run was taken, supplies the
-  bar's DENOMINATOR on different witnesses: a 901-element `M1` list and a
+  UIx-on-subs ratios ARE the red-zone thresholds. `p0-uix` takes them on
+  its own witnesses — a 1,203-element `W1` list reading `[:p0/row i]`, a
+  51-element `W3` form reading `[:p0/field i]`, and a 301-element grid —
+  while the bar's DENOMINATOR is taken on different witnesses: a
+  901-element `M1` list and a
   51-element `M2` form, both reading `[:p0/cell i]`. A threshold and a bar
   on two different pages cannot be read down one column, and a red-zone
   that is not comparable across arms is not a red-zone.
@@ -28,7 +26,7 @@
     `react/createElement` at compile time. Routing this arm through the
     hiccup emitter would price a hiccup interpreter — which is a
     candidate's product delta, not UIx's — and would set the red-zone from
-    the wrong runtime, flattering every later candidate.
+    the wrong runtime, flattering every candidate.
   - **No `use-memo` around the subscription args.** `use-sub`'s own
     stable-deps handling is part of the spine under test.
   - **No prop threading in place of a read.** Every boundary the Reagent
@@ -43,7 +41,8 @@
     at React's SYNC lane, so that flush commits them inside the window,
     and the DOM read-back is what checks it rather than this comment.
 
-  Owner: the operator-owned standard bead rf2-2rtt6.1; this arm rf2-a4x1o."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
             [uix.core :refer [$ defui]]))

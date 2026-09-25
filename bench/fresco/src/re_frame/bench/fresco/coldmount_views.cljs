@@ -1,9 +1,8 @@
 (ns re-frame.bench.fresco.coldmount-views
   "THE COLD-MOUNT DOUBLE BUILD, PRICED ON THE CLOCK — the views, the sub
-  layers, the hook transcriptions and the counting witnesses
-  (rf2-2rtt6.15, epic rf2-2rtt6 / EP-0038; decision input for the
-  rf2-2rtt6.14 ruling, and since rf2-2rtt6.25 the FORCED-SYNCHRONOUS
-  MECHANISM ARM for the hand-off that ruling adopted).
+  layers, the hook transcriptions and the counting witnesses — the
+  FORCED-SYNCHRONOUS MECHANISM ARM for the spine's provisional hand-off
+  (EP-0038).
 
   ## THE SCHEDULE THIS PAGE MEASURES — read this before quoting a row
 
@@ -11,13 +10,13 @@
   timed ones through `lane/mount-arm!` and `lane/mount-batch!`, the
   counted ones in `witness!` below. That forces React's passive
   `useSyncExternalStore` subscribe to run before control returns, which
-  is precisely the ordering the rf2-2rtt6.25 hand-off needs in order to
-  reach its adoption before its own `setTimeout 0` reaper fires. On the
-  public client mount path — `re-frame.substrate.adapter/render`, a bare
-  `createRoot(…).render(…)` with nothing forcing the schedule — THE
-  REAPER WINS: the escrowed reference is released, the commit misses, and
-  the cold read builds twice, `bodyRuns` 2.00N measured at N = 1 and
-  N = 300 (rf2-2rtt6.25, merged-PR audit of #7305; browser assertion
+  is precisely the ordering the provisional hand-off needs in order to
+  reach its adoption before its own reaper fires. On the public client
+  mount path — `re-frame.substrate.adapter/render`, a bare
+  `createRoot(…).render(…)` with nothing forcing the schedule — at a
+  `setTimeout 0` horizon THE REAPER WINS: the escrowed reference is
+  released, the commit misses, and the cold read builds twice,
+  `bodyRuns` 2.00N measured at N = 1 and N = 300 (browser assertion
   `use-sub-browser-runner-schedule-rebuilds`).
 
   So the `shipped` rows below are the MECHANISM measured where it is
@@ -26,34 +25,32 @@
   is unsound: Spec 006 §Render-phase provisional acquisition and commit
   adoption requires that correctness never depend on the reaper losing
   the race, and it does not — the lost race costs a construction and the
-  steady state is one durable reference either way. The reap horizon that
-  would recover the saving on the public schedule is an OPERATOR DECISION
-  (rf2-2rtt6.14 ruled the primitive), and no measurement window in this
-  file was altered to repair this wording.
+  steady state is one durable reference either way. The reap horizon
+  decides whether the public schedule recovers the saving; nothing in
+  this file measures it.
 
-  ## The term that was priced, and the schedule on which it is recovered
+  ## The term being priced, and the schedule on which it is recovered
 
-  `re-frame.substrate.spine/use-subscribe` USED TO take a BALANCED
-  render-phase round trip — `rf.subs/subscribe` immediately followed by
-  `rf.subs/unsubscribe` (the rf2-es09qq net-zero rule) — so a render that
-  never commits retained no ref-count. For a query with NO live cache
+  A BALANCED render-phase round trip — `rf.subs/subscribe` immediately
+  followed by `rf.subs/unsubscribe` (the net-zero rule) — lets a render
+  that never commits retain no ref-count. For a query with NO live cache
   entry that is `0 -> 1 -> 0`, and `1 -> 0` is the disposal edge:
   `re-frame.subs.cache/unsubscribe!` disposes in-tick with no grace
-  period. The commit-owned `subscribe-fn` then missed the cache and
-  REBUILT. Two reactions per cold read; the COUNT was exact and landed
-  (`bodyRuns = 2.00N` vs Reagent's `1.00N`, rf2-2rtt6.12,
+  period. The commit-owned `subscribe-fn` then misses the cache and
+  REBUILDS. Two reactions per cold read; the COUNT is exact
+  (`bodyRuns = 2.00N` vs Reagent's `1.00N`,
   `docs/design/fresco/studio/uix-spine-per-read-decomposition.md`), and
-  this instrument priced the CLOCK of that second construction — the
+  this instrument prices the CLOCK of that second construction — the
   second sub-body run, the declared-input re-deref, and the reaction
   allocation on the commit-phase rebuild — at >= 20% of the mount
   red-zone in every round at layers 1, 2 and 3.
 
-  rf2-2rtt6.14 ruled ADOPT on that evidence, and rf2-2rtt6.25 landed the
-  hook-scoped provisional hand-off. So the `handoff` arm below became a
-  prediction about shipped code ON THE SCHEDULE THIS PAGE FORCES, and the
-  `shipped` arm exists to check it there: same counts, same clock band.
-  `xcript` stays as the double-build reference — still what a consumer
-  mount pays today, and what the delta is measured against.
+  `re-frame.substrate.spine/use-subscribe` does not balance in-render: it
+  carries the hook-scoped provisional hand-off. So the `handoff` arm below
+  is a prediction about shipped code ON THE SCHEDULE THIS PAGE FORCES, and
+  the `shipped` arm exists to check it there: same counts, same clock band.
+  `xcript` stays as the double-build reference — what a consumer mount
+  pays when the reaper wins, and what the delta is measured against.
 
   ## The single-variable ablation
 
@@ -85,7 +82,7 @@
   The declared-input re-deref lives at layer 2+, so the witnesses run
   at three depths over the converged witness set's own layer-1 sub:
 
-      layer 1   [:p0/cell i]                  (rf2-2rtt6.2's, unchanged)
+      layer 1   [:p0/cell i]                  (the converged set's, unchanged)
       layer 2   [:cm/l2 i]  over  [:p0/cell i]  (parametric input-fn)
       layer 3   [:cm/l3 i]  over  [:cm/l2 i]
 
@@ -137,9 +134,9 @@
       reads whose post-commit tenant is NOT `identical?` to what the
       render observed — including every read that observed nothing.
 
-  On the pre-hand-off spine every render observes `nil` and every read
-  counts as rebuilt, which is the same `rebuilt = N` the `xcript` arm
-  reports from its own counter. The two measurements are independent and
+  On a spine that balanced in-render every render would observe `nil` and
+  every read would count as rebuilt, which is the same `rebuilt = N` the
+  `xcript` arm reports from its own counter. The two measurements are independent and
   must agree.
 
   Driven by `coldmount_app.cljs` / `coldmount_run.cjs` on the
@@ -218,10 +215,11 @@
 ;; The two transcriptions
 ;; ---------------------------------------------------------------------------
 ;;
-;; `use-sub-xcript` is `re-frame.substrate.spine`'s `use-sub-2` body,
-;; copied — the same transcription rf2-2rtt6.12 published and validated
-;; (its heap fidelity landed 0.332% from the shipped hook). The only
-;; cosmetic differences are the ones that arm recorded: hooks named
+;; `use-sub-xcript` is `re-frame.substrate.spine`'s `use-subscribe-2`
+;; with a BALANCED render-phase round trip in place of the hand-off — the
+;; transcription whose heap fidelity measures 0.332% from the balanced hook
+;; (`docs/design/fresco/studio/uix-spine-per-read-decomposition.md`). The
+;; other differences are cosmetic: hooks named
 ;; directly (`uix.hooks.alpha/use-memo`, which is exactly what the UIx
 ;; adapter passes into `make-react-spine`) and the watch-key namespace
 ;; spelled here. The CLOCK fidelity control in `coldmount_app.cljs` is
@@ -230,7 +228,7 @@
 (def ^:private watch-ns "rf-cm-use-sub")
 
 (defn- stable-key-of
-  "The `useRef` + `=` memo-by-value from the spine (rf2-mwft2), shared by
+  "The `useRef` + `=` memo-by-value from the spine, shared by
   every transcribed arm so the stable-key term cancels in the ablation."
   [key-ref frame-kw query-v]
   (let [prev    (.-current key-ref)
@@ -248,7 +246,7 @@
         stable-key      (stable-key-of key-ref frame-kw query-v)
         stable-frame-kw (aget stable-key 0)
         stable-query-v  (aget stable-key 1)
-        ;; The shipped BALANCED round trip: for a cold query this is
+        ;; The BALANCED round trip: for a cold query this is
         ;; 0 -> 1 -> 0 — build, then dispose + evict, inside the render.
         reaction
         (uix-hooks/use-memo
@@ -298,7 +296,7 @@
 ;; This is the hook-scoped provisional hand-off SHAPE, as a measurement
 ;; arm. It is deliberately not safe to ship: a render abandoned before
 ;; commit strands the provisional +1 (nothing ever balances it), which is
-;; exactly the reaping question the rf2-2rtt6.14 ruling owns. The
+;; exactly the reaping question the spine's escrow reaper answers. The
 ;; instrument's residue gate (`lane/residue` back to baseline after every
 ;; round) is what proves the arm balanced in THIS plan, where every
 ;; render commits.
@@ -357,7 +355,7 @@
 ;; The SHIPPED arms read through the ambient 1-arg `use-sub` under
 ;; `frame-provider` — exactly the converged M1 arm, because they carry the
 ;; red-zone denominator role. The transcriptions pin the frame explicitly,
-;; as `use-sub-2` (which the ambient form resolves into) does; the
+;; as `use-subscribe-2` (which the ambient form resolves into) does; the
 ;; per-boundary difference is one context read, far below the clock
 ;; quantum, and the fidelity control adjudicates it rather than this
 ;; comment.
@@ -822,16 +820,16 @@
   the sub-cache rather than from a counter — same meanings, no seam cut
   into production code (namespace docstring).
 
-  SCHEDULE, STAMPED HERE BECAUSE THIS IS WHERE THE NUMBERS ARE MADE
-  (rf2-2rtt6.25, audit of #7326): the mount and the unmount below are
-  bracketed by `react-dom/flushSync`, which forces React's passive
-  `useSyncExternalStore` subscribe before control returns. The `:shipped`
-  arm therefore reports the hand-off RUNNING TO COMPLETION. On the public
-  `createRoot().render()` path the `setTimeout 0` reaper fires first and
-  the same hook reports the `:xcript` row. The `flushSync` is NOT here to
-  flatter the hand-off — it is what makes a counted mount a single
-  bounded window at all, and it predates the hand-off — so it stays; what
-  it costs is the right to read these rows as consumer-mount performance."
+  SCHEDULE, STAMPED HERE BECAUSE THIS IS WHERE THE NUMBERS ARE MADE: the
+  mount and the unmount below are bracketed by `react-dom/flushSync`,
+  which forces React's passive `useSyncExternalStore` subscribe before
+  control returns. The `:shipped` arm therefore reports the hand-off
+  RUNNING TO COMPLETION. On the public `createRoot().render()` path, at a
+  `setTimeout 0` horizon, the reaper fires first and the same hook reports
+  the `:xcript` row. The `flushSync` is NOT here to flatter the hand-off —
+  it is what makes a counted mount a single bounded window at all, and it
+  would be here without one — so it stays; what it costs is the right to
+  read these rows as consumer-mount performance."
   [variant layer n offset]
   (reset-witness-counters!)
   (reset! shipped-render-observed {})

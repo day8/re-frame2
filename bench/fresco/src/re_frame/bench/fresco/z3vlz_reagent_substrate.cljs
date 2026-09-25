@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.z3vlz-reagent-substrate
-  "The stock-Reagent substrate (rf2-z3vlz) — the bead's positive control,
+  "The stock-Reagent substrate — the positive control,
   and the thing whose PRESENCE IN THE BUNDLE is candidate (b).
 
   This namespace does double duty, and both are deliberate:
@@ -15,7 +15,7 @@
 
   Its arms are USED, not merely required, in every bundle that names it —
   a require whose code `:advanced` could prove dead would not reproduce
-  the bundle the bead describes."
+  HD-008's bundle."
   (:require ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]

@@ -1,17 +1,16 @@
 (ns re-frame.bench.fresco.arm1.boundary
-  "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c),
-  rf2-2rtt6.41).
+  "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c)).
 
-  HD-020(c) rules that \"the runtime ships one internal class-based
+  HD-020(c) says that \"the runtime ships one internal class-based
   boundary exposed as `h/boundary` (`:fallback`/`:reset-key`/`:on-error`);
   it is the P1 witness's *real error boundary*\". validation.md's
   `:foreign/host-and-error-boundary` row names it by that description.
   This is it, and it is deliberately the smallest thing that satisfies
-  the three keys. The decision's words are quoted as it wrote them; the
-  export it names has since been spelled `h/error-boundary`, which is
-  what the naming ledger ruled (row 12, rf2-g8rb). The var HERE keeps the
-  short name — it is this arm's own, mirroring `impl.boundary`, and it is
-  what the `:rf.error/fresco-boundary-*` ids are named after.
+  the three keys. The decision's words are quoted as written; the export
+  it names is spelled `h/error-boundary` (the naming ledger, row 12). The
+  var HERE has the short name — it is this arm's own, mirroring
+  `impl.boundary`, and it is what the `:rf.error/fresco-boundary-*` ids
+  are named after.
 
       [boundary {:fallback  [:p.oops \"that did not work\"]
                  :reset-key attempt
@@ -30,7 +29,7 @@
   **A class component calls no hooks, so this costs the ≤2-hook shell
   budget exactly nothing** — the boundary is not a boundary *shell*, it
   reads no subscription, mints no registration and takes no cell. That
-  stayed true when the frame binding below arrived: `contextType` is a
+  holds with the frame binding below: `contextType` is a
   property of the component, not a hook call, so it is invisible at
   React's dispatcher. `arm1_lifecycle_dom_cljs_test` counts a healthy
   page there and `arm1_boundary_intent_dom_cljs_test` counts one in its
@@ -58,14 +57,11 @@
   `arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`
   mounts the failing tree in StrictMode and reads one record.
 
-  This started life with an instance flag gating the report, on the
-  reasoning the freehand boundary uses for its generation counter
-  (`re-frame.freehand.error-react`, whose `componentDidUpdate` promotes
-  too and therefore genuinely needs one). Removing the flag changed no
-  witness — **the mutation went green**, which is the definition of a
-  line nothing observes — so it is gone. The freehand law is not being
-  contradicted; it is being told apart, and the difference is that this
-  boundary reports from one lifecycle rather than three.
+  No instance flag gates the report. A boundary whose
+  `componentDidUpdate` promotes too genuinely needs a generation counter;
+  this boundary reports from one lifecycle rather than three, so a flag
+  here would be a line nothing observes — **a mutation removing one
+  leaves every witness green**.
 
   The frame reaches the class through `contextType` — the substrate's one
   internal React context, the same object `runtime/shell` reads with
@@ -73,31 +69,31 @@
   was mounted under rather than in whatever happened to be ambient when
   the throw arrived.
 
-  ## The fallback and the children are lowered HERE (rf2-uo9di)
+  ## The fallback and the children are lowered HERE
 
   Both are hiccup **data**, written in the parent boundary's body — and
   both are walked by the codec inside **this class's own React render**,
   one render later, after that body's dynamic extent has unwound. So
-  `rf.bench.fresco.front.intent/*dispatch*` was unbound at the moment the codec reached them,
-  and before the binding below existed an intent at an event position on
-  the fallback or on a native child raised
+  `rf.bench.fresco.front.intent/*dispatch*` is unbound at the moment the codec reaches them,
+  and without the binding below an intent at an event position on
+  the fallback or on a native child would raise
   `:rf.error/fresco-intent-outside-boundary` at render, while an `h/event`
-  at one raised the same id at invocation.
+  at one would raise the same id at invocation.
 
-  The fallback half is the sharp one, because it is the half the ruling
+  The fallback half is the sharp one, because it is the half the decision
   above is sold on: `:fallback` sits beside `:reset-key` precisely so
   that \"the retry is the CALLER's to schedule\", and the control that
-  schedules it is a button whose `:on-click` is an intent. So the table's
-  own worked example could not be written — and a fallback that throws
-  while rendering does not fail quietly in a corner, it takes the *next*
-  boundary up, turning an application's error path into an
-  application-wide failure.
+  schedules it is a button whose `:on-click` is an intent. Without the
+  binding the table's own worked example could not be written — and a
+  fallback that throws while rendering does not fail quietly in a corner,
+  it takes the *next* boundary up, turning an application's error path
+  into an application-wide failure.
 
-  The repair is [[re-frame.bench.fresco.arm1.presence]]'s, one component
-  along, and **cheaper**: presence had to buy a `useContext` to find its
-  frame and paid for it in HD-025's stated cost, while this class already
-  has [[frame-of]] through `contextType`. So there is no new hook and no
-  new accessor — only HD-020(a)'s rule applied where the lowering
+  The binding is [[re-frame.bench.fresco.arm1.presence]]'s, one component
+  along, and **cheaper**: presence buys a `useContext` to find its frame
+  and pays for it in HD-025's stated cost, while this class has
+  [[frame-of]] through `contextType`. So there is no extra hook and no
+  extra accessor — only HD-020(a)'s rule applied where the lowering
   actually happens rather than where the hiccup was written, with
   `runtime/frame-dispatch`'s memoised frame-locked dispatch so a child
   here lowers *identically* to one written in the parent's body and
@@ -105,7 +101,7 @@
 
   **No frame in scope is not an error here.** The class reads nothing, so
   a boundary mounted outside a frame is legal until something below it
-  writes an intent — at which point the existing loud error fires and
+  writes an intent — at which point the loud intent error fires and
   names the intent, which is better attribution than a generic
   no-frame-context throw from the boundary. The binding is therefore
   unconditional and simply carries `nil` when there is no provider.
@@ -167,8 +163,7 @@
                         (:reset-key (or (unchecked-get props "rfProps") {})))
                   this))
         ;; Bound once and `^js`-tagged so the React lifecycle names below
-        ;; are inferred externs — the same discipline
-        ;; `re-frame.freehand.error-react` uses, for the same reason: a
+        ;; are inferred externs: a
         ;; `(.. ctor -prototype -X)` chain cannot infer them, and an
         ;; `:advanced` build that munged `componentDidCatch` would give a
         ;; boundary that silently never catches.
@@ -198,7 +193,7 @@
               (let [{:keys [fallback children]} (props-of this)
                     error    (unchecked-get (.-state this) "error")
                     frame-kw (frame-of this)]
-                ;; THE LOWERING, inside the frame (rf2-uo9di). The fallback
+                ;; THE LOWERING, inside the frame. The fallback
                 ;; and the children were both written in the parent's body
                 ;; and are both walked HERE, so the ambient frame the codec's
                 ;; intent lowering reads has to be re-established around this
@@ -208,8 +203,8 @@
                 ;; mints is lowered under the same frame as hiccup it was
                 ;; handed. `nil` when no provider is above the boundary: the
                 ;; binding is unconditional so the branch does not exist, and
-                ;; an intent written under a frameless boundary still lands on
-                ;; the existing loud error naming the intent.
+                ;; an intent written under a frameless boundary lands on
+                ;; the loud error naming the intent.
                 (rf.bench.fresco.front.intent/with-frame frame-kw (when frame-kw (rf.bench.fresco.arm1.runtime/frame-dispatch frame-kw))
                   (fn []
                     (if (some? error)

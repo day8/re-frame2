@@ -1,13 +1,12 @@
 (ns re-frame.bench.fresco.read-profile-app
-  "THE COLD-READ MOUNT TERM, PROFILED READ-BY-READ (rf2-6c237).
+  "THE COLD-READ MOUNT TERM, PROFILED READ-BY-READ.
 
-  rf2-y1jkm cut the interpreter walk ~39% and its closing decomposition
-  moved the surviving mount gap off the walk: fresco in-page 3.300 ms vs
+  The mount gap sits off the interpreter walk: fresco in-page 3.300 ms vs
   uix 1.900 ms on the acceptance shape, concentrated in the 141
   per-instance collector reads — each a cold `rf.subs/subscribe-once`
   (subscribe + deref + unsubscribe per read per mount; cells only exist
-  after commit). None of the prior instruments says where INSIDE one cold
-  read the time goes. This entry answers that: the acceptance page's own
+  after commit). None of the lane's other instruments says where INSIDE
+  one cold read the time goes. This entry answers that: the acceptance page's own
   141-read roster, performed by the shipping read path and by a family of
   single-phase ablations in one process, interleaved, plus the commit
   half (cell construction, reaction wiring, reader membership) and a
@@ -45,7 +44,7 @@
   | arm           | one pass is                                            | what it prices |
   |---------------|--------------------------------------------------------|----------------|
   | `ship`        | 141 x `(sub q)` — the shipping collector read          | the whole render-side read term |
-  | `local`       | faithful copy of the read shell + `subscribe-once`     | the FROZEN pre-rf2-6c237 path — the ablation baseline, validated against `ship` |
+  | `local`       | faithful copy of the read shell + `subscribe-once`     | the FROZEN subscribe-once path — the ablation baseline, validated against `ship` |
   | `no-shell`    | 141 x bare `rf.subs/subscribe-once`                       | `local - no-shell` = the Fresco shell (key alloc, scratch push, cells probe, entry-hit compare) |
   | `probe`       | 141 x the candidate: cache peek, else pass-scoped value map, else fresh-memo `compute-sub-with-memo` against one frame-state snapshot | the no-churn cold read (the observation port's cold-probe discipline, value-mapped per pass) |
   | `probe-fresh` | 141 x `compute-sub` (fresh memo per read, no wrap/peek/map) | the bare-compute lower bound the candidate is priced against |
@@ -54,11 +53,11 @@
   | `ctl2`        | 282 x bare `subscribe-once` (the roster twice)         | positive control, predicted 2.0 x `no-shell` |
 
   The ablation baseline is written IN THIS NAMESPACE and validated
-  against the shipping path in the same process (the rf2-2rtt6.32
+  against the shipping path in the same process (the call-convention
   discipline: a local arm timed against a foreign one compares call
   conventions as much as phases). `local` is deliberately the
-  subscribe-once path even after rf2-6c237 lands its candidate, so the
-  re-run of this instrument is an in-process before/after A/B.
+  subscribe-once path whatever the shipping read is, so `local` against
+  `ship` is always an in-process A/B of the two.
 
   The `warm` arm reads a SECOND frame with the same seed, committed once
   at boot and held, because cells are global per (frame, query): a warm
@@ -69,23 +68,21 @@
   What the render's cold read deliberately does not pay, the commit does:
   one durable cell per unique key — `rf.subs/subscribe`, the ACTIVATION, the
   baseline deref, the value-change watch, the disposal hook, the `!cells`
-  insert — plus one reader membership per key. **That last term re-shaped under
-  rf2-dabt3**: the dependency index used to be a second process-global
-  structure and the commit paid an `index/mount!` plus a whole-set
-  `record-reads!` into it; the readers now live on the cell, so the
-  commit pushes one slot per key and the copy prices that instead.
+  insert — plus one reader membership per key. **That last term is one slot
+  per key**: the readers live on the cell rather than in a second
+  process-global dependency index, so the commit pushes one slot into the
+  cell's reader array and the copy prices that push.
   Phase B prices that half through the runtime's own
   [[rf.bench.fresco.arm1.runtime/commit-boundary!]] seam on [[frames-per-window]] identically-seeded
   frames per window, released and settled between samples with a residue
   equality gate.
 
-  **That frame count is the window's resolution and it was raised from 4
-  to 32 by rf2-3l6hf**, which found that at 4 the deltas below could not
-  decompose anything: three of the four terms straddled zero across runs
-  of one binary, and a negative delta is arithmetically impossible when
-  the ablation arm does strictly less work. 4 frames was sized to clear
-  the 100 µs clock clamp and nothing more, and clearing the clamp is a
-  much weaker condition than resolving a term. [[frames-per-window]]
+  **That frame count is the window's resolution, and it is 32 because at 4
+  the deltas below decompose nothing**: three of the four terms straddle
+  zero across runs of one binary, and a negative delta is arithmetically
+  impossible when the ablation arm does strictly less work. 4 frames
+  clears the 100 µs clock clamp and nothing more, and clearing the clamp
+  is a much weaker condition than resolving a term. [[frames-per-window]]
   carries the arithmetic, including why the sample count could not have
   fixed it.
 
@@ -93,13 +90,13 @@
   |-------------|---------------------------------------------------|----------------|
   | `commit`    | [[frames-per-window]] frames x `rf.bench.fresco.arm1.runtime/commit-boundary!` on the harvested entry | the shipping commit half |
   | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
-  | `c-null`    | `c-local` with NOTHING ablated — the same `C-FULL` mode, under a second id | THE NEGATIVE CONTROL: `c-local - c-null` has a true cost of exactly zero, so what it reads is the instrument's own error and nothing else (rf2-3l6hf) |
-  | `c-null-twin` | `c-local` again, at the slot whose kept-sample POSITION FOOTPRINT is `c-local`'s own | the POSITION null: any cost that is a function of sweep position cancels term by term between these two arms, so what it reads is error position cannot explain (rf2-lo7uy) |
-  | `c-null-curve` | `c-local` again, at a slot sharing `c-local`'s MEAN position on a different footprint | the CURVATURE null: a linear position drift cancels here too, a curved one does not (rf2-lo7uy) |
-  | `c-noactivate` | `c-local` minus `rf.interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term (rf2-tcffa); the substrate's capture run under a ratom host (rf2-lzpfj) |
+  | `c-null`    | `c-local` with NOTHING ablated — the same `C-FULL` mode, under a second id | THE NEGATIVE CONTROL: `c-local - c-null` has a true cost of exactly zero, so what it reads is the instrument's own error and nothing else |
+  | `c-null-twin` | `c-local` again, at the slot whose kept-sample POSITION FOOTPRINT is `c-local`'s own | the POSITION null: any cost that is a function of sweep position cancels term by term between these two arms, so what it reads is error position cannot explain |
+  | `c-null-curve` | `c-local` again, at a slot sharing `c-local`'s MEAN position on a different footprint | the CURVATURE null: a linear position drift cancels here too, a curved one does not |
+  | `c-noactivate` | `c-local` minus `rf.interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term; the substrate's capture run under a ratom host |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
-  | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge (rf2-dabt3) |
+  | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge |
   | `c-nomap`   | `c-local` minus the per-key cells-map insert      | the cell-map insert |
   | `b-build`   | [[frames-per-window]] frames x 141 bare `subscribe` + deref (torn down sync, outside the window) | build + compute WITHOUT in-window dispose — beside `no-shell` it floors the render read's dispose/evict share |
 
@@ -109,12 +106,10 @@
   frame's sub-cache emptiness) sit between samples. That settle is
   [[residue-settle!]] — the runtime's own quiescence point rather than a
   bare macrotask, and its docstring says why the difference is the
-  difference between phase B reaching a number and not (rf2-981nt).
+  difference between phase B reaching a number and not.
 
   **`c-noactivate` is a REAL TERM on this host — it is NOT the noise floor,
-  and nothing may be arbitrated against it** (rf2-tcffa; this docstring
-  claimed the opposite until that bead, and the claim was load-bearing). This
-  app installs the UIx adapter, and no activation happens on the React-hook
+  and nothing may be arbitrated against it.** This app installs the UIx adapter, and no activation happens on the React-hook
   spine: that spine wires one watch per source at construction, so there is
   nothing to activate and the routed call bottoms out at nil.
 
@@ -132,12 +127,12 @@
   once per NEW-OR-REWIRED cell (`collector.cljs:947` on a cells-map miss,
   `:967` on a post-invalidation rewire) and once per observation-handle
   acquire (`observation.cljc:2160`), while a steady-state commit reaches
-  `:968` — push a reader — and stops. Neither is per commit. rf2-19usn priced
-  the mechanism at that real frequency and closed won't-fix; the per-call
-  number is what makes this delta non-zero, and the every-commit reading of it
-  is what audit #8328 had to retract once already (rf2-ml3kt).
+  `:968` — push a reader — and stops. Neither is per commit. Priced at that
+  real frequency the mechanism does not repay a fix; the per-call number is
+  what makes this delta non-zero, and reading it as an every-commit cost
+  overstates it by the arm's multiplier.
 
-  It measures accordingly. Over rf2-07rnj's three runs the arm read
+  It measures accordingly. Over three runs the arm read
   0.0422 / 0.0484 / 0.0562 ms/commit — one sign on every run, and LARGER than
   the cell-map insert in two of the three. An arm reading above a term the
   same table asks you to believe is not a floor, and reading it as one invites
@@ -145,16 +140,15 @@
 
   **What it can be used for is what every other arm is used for** — quoted
   beside them as the price of one unpublishable hook resolution per key. What
-  it cannot do is arbitrate whether the window is wide enough, which is the
-  job [[frames-per-window]] gave it and which that docstring now withdraws.
-  The arithmetic-impossibility residual cannot do it either: `c-noreaders` has
-  an unknown positive true cost, so a negative reading of it establishes
-  neither a symmetric error band nor any bound on the term, and the
-  `< 0.006 ms/commit` figure once floated for reader membership is withdrawn.
+  it cannot do is arbitrate whether the window is wide enough (see
+  [[frames-per-window]]). The arithmetic-impossibility residual cannot do it
+  either: `c-noreaders` has an unknown positive true cost, so a negative
+  reading of it establishes neither a symmetric error band nor any bound on
+  the term, and no ceiling on reader membership can be read off it.
 
   ## The measured nulls, which are what arbitrate
 
-  **`c-null` is the negative control this instrument lacked** (rf2-3l6hf).
+  **`c-null` is this instrument's negative control.**
   It is `c-local` again — the same `C-FULL` mode, the same work, a second id —
   so `c-local - c-null` has a true cost of EXACTLY ZERO by construction, and
   every millisecond it reads is the estimator's own error at this shape, on
@@ -166,13 +160,14 @@
   does NOT bound any term's true cost: an ablation delta that lands inside the
   null's spread is a term this window cannot see, which leaves its size open
   in both directions. Promoting a null spread into an upper bound on a cost is
-  the same error as the withdrawn `< 0.006`, one layer further back.
+  the same error as reading a ceiling off `c-noreaders`' negative residual,
+  one layer further back.
 
-  The arm still earns its place, because the term is NOT a no-op under the
+  `c-noactivate` earns its place anyway, because the term is NOT a no-op under the
   ratom family, where a `Reaction` learns its sources only
   through `deref-capture`: the capture run retains a `watching` array per
   reaction and an entry in each source's watcher set — per-key retained heap
-  the model understated for as long as the call was missing. Quoting it as
+  that a model omitting the call would understate. Quoting it as
   its own ablation keeps that cost attributable the day the rig is pointed
   at a ratom host, instead of folding it silently into the `c-nosub` term.
 
@@ -185,13 +180,13 @@
 
   ## Three nulls, because one null cannot say what it is measuring
 
-  rf2-3l6hf's window read that null at **+0.0234 / +0.0219 / +0.0234
+  On the nine-arm sweep that null read **+0.0234 / +0.0219 / +0.0234
   ms/commit** — three runs of a quantity whose true value is exactly zero,
   every reading within one grid step of the others. The offset is real and
-  it is stable, and its CAUSE was left open between a residual arm-position
+  it is stable, and its CAUSE is open between a residual arm-position
   effect, within-sweep thermal or cache drift, and the pooled median's own
   behaviour on a right-tailed arm. One null cannot separate those, because
-  one null is one pair of slots (rf2-lo7uy).
+  one null is one pair of slots.
 
   **An arm's SLOT is a measured property of it, not a presentation
   detail.** [[rounds-async!]] visits the arms in [[rf.bench.fresco.lane/slot-order]]'s
@@ -204,7 +199,7 @@
   fixed positional bias would.
 
   [[slot-footprint]] computes that multiset from [[rf.bench.fresco.lane/slot-order]] itself
-  rather than restating its arithmetic. At the eleven arms this roster now
+  rather than restating its arithmetic. At the eleven arms this roster
   carries and this window's `2 + 8` sampling it reads:
 
       slot  1  c-local       [1 3 4 5 6 7 8 10]   mean 5.500
@@ -215,9 +210,9 @@
   So the three nulls ask three DIFFERENT questions of the same zero:
 
   - `c-null` sits on a footprint displaced from `c-local`'s in both its
-    mean and its shape. It is the pair the published +0.022 was measured
-    on, and it is left exactly where it was so the two windows can be read
-    against each other.
+    mean and its shape. It is the pair the published +0.022 is measured
+    on, and it keeps that slot so the nine-arm and eleven-arm windows can
+    be read against each other.
   - `c-null-twin` sits on `c-local`'s footprint EXACTLY. Whatever the
     within-sweep cost curve is — linear, a first-slot warm-up, anything at
     all that is a function of position — it cancels term by term between
@@ -233,25 +228,24 @@
   on position AND says the drift is not linear. The window decides; this
   file only makes the question askable, and takes no window itself.
 
-  **Two things the extra nulls still do not license**, both held over from
-  rf2-3l6hf. Do NOT subtract a null from a published term and call the term
+  **Two things no null licenses.** Do NOT subtract a null from a published term and call the term
   corrected: `c-null` calibrates slot 1 against slot 2 while reader
   membership differences slot 1 against slot 6, and the correction would
   assume the very positional model that is under test. And do NOT read any
   null as a bound on anything — it is a measured property of the ESTIMATOR,
   not of a cost.
 
-  **The existing arms are untouched, and the arm COUNT is not.** The two
-  nulls are APPENDED, so every arm the published series quotes keeps its
-  slot — `commit` 0, `c-local` 1, `c-null` 2, through `b-build` 8 — and
-  every subject, mode, frame, [[frames-per-window]], [[b-rounds]] and
-  [[b-sampling]] is exactly what it was. What cannot be held fixed is `n`,
-  which is an input to [[rf.bench.fresco.lane/slot-order]]: eleven arms is a different sweep
-  and therefore a new series, the same way nine arms was a new series
-  against the eight-arm runs before it. Absolutes are not arm-by-arm
-  comparable across that line, and no reading here is.
+  **The two position nulls sit AFTER the published arms, which fixes every
+  slot but not the sweep.** Every arm the published series quotes keeps
+  its slot — `commit` 0, `c-local` 1, `c-null` 2, through `b-build` 8 —
+  and its subject, mode, frames, [[frames-per-window]], [[b-rounds]] and
+  [[b-sampling]]. What differs is `n`, which is an input to
+  [[rf.bench.fresco.lane/slot-order]]: eleven arms is a different sweep
+  and therefore a different series from nine, as nine arms is from eight.
+  Absolutes are not arm-by-arm comparable across that line, and no
+  reading here is.
 
-  Owner bead: rf2-6c237. Driver: `run.cjs` with
+  Driver: `run.cjs` with
   FRESCO_INIT_FN=re-frame.bench.fresco.read-profile-app/-main."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -273,8 +267,8 @@
 (def warm-frame ::warm)
 
 (def ^:private frames-per-window
-  "How many identically-seeded frames ONE phase-B window commits
-  (rf2-3l6hf). It was 4, and 4 could not decompose the commit half.
+  "How many identically-seeded frames ONE phase-B window commits. At 4 the
+  commit half does not decompose.
 
   **A window's resolution is set here and by the KEPT SAMPLE COUNT'S
   PARITY, because the reported statistic is a p50.** `rf.bench.fresco.lane/now-ms` is
@@ -284,49 +278,47 @@
   that to 0.05 ms, and a single order statistic on an ODD one, which does
   not halve it at all; and the row divides by the frame count. So the
   grid a phase-B delta can land on is `0.05 / frames-per-window` at even
-  parity and `0.1 / frames-per-window` at odd — at 4 frames and the even
-  parity of the day, 0.0125, which is precisely the spacing every delta
-  rf2-d360z published turned out to be a multiple of.
+  parity and `0.1 / frames-per-window` at odd — at 4 frames and even
+  parity, 0.0125, which is precisely the spacing every 4-frame delta
+  lands on a multiple of.
 
   **The frame count is the only knob you would REACH for, and it is not
-  the only one that moves the grid.** This docstring claimed resolution
-  was set HERE AND NOWHERE ELSE; [[b-rounds]] and [[b-sampling]] are
-  separate vars, no contract holds their product even, and an odd kept
-  total would double the grid under a design line still printing the
-  halved one (merged-PR audit of #8328). [[phase-b-grid-ms]] therefore
+  the only one that moves the grid.** Resolution is NOT set here alone:
+  [[b-rounds]] and [[b-sampling]] are separate vars, no contract holds
+  their product even, and an odd kept total would double the grid under a
+  design line printing the halved one. [[phase-b-grid-ms]] therefore
   DERIVES the grid from the parity rather than asserting a constant, and
-  [[phase-b-design-line]] prints what it derives, so the two can no
-  longer disagree. `read-profile-grid-cljs-test` pins that by driving the
+  [[phase-b-design-line]] prints what it derives, so the two cannot
+  disagree. `read-profile-grid-cljs-test` pins that by driving the
   design line at both parities.
 
   **More SAMPLES cannot move that grid.** A median of quantised readings
   is itself a grid value whatever the sample count; more samples make the
   p50 land on the right step more often, they do not create a step
   between two others. So the sample count is a stability knob and the
-  frame count is the resolution knob, and only one of them was ever going
-  to make three sub-quantum terms visible. That is the reasoning
-  rf2-3l6hf's window was opened to act on, and it is why the frame count
-  moved by 8x rather than the sampling alone.
+  frame count is the resolution knob, and only the frame count can make
+  three sub-quantum terms visible. That is why this window takes 8x the
+  clamp-clearing 4 frames rather than raising the sampling alone.
 
   32 puts the grid at 0.0015625 ms/commit. The terms that need to be seen
   are the watch wiring, the reader membership and the cell-map insert,
   which the micro table's anchors price at roughly 0.004-0.02 ms/commit —
   so the smallest of them is a few grid steps rather than a fraction of
   one. The window is ~20 ms of wall clock at the absolutes this arm
-  reads, still 200x the clock's own quantum, and the run stays under a
-  minute of sampling.
+  reads, 200x the clock's own quantum, and the run stays under a minute of
+  sampling.
 
-  **`c-noactivate` is not this window's arbiter** (rf2-tcffa). This docstring
-  gave that arm the job on the ground that it ablates a routed no-op and so
-  reads the instrument's own floor. It does not: the call it ablates resolves
-  a hook key that is never published on this host and so can never be cached,
-  which is real work — rf2-07rnj's runs read the arm LARGER than the cell-map
-  insert in two of three. The namespace docstring carries the mechanism. Nor
+  **`c-noactivate` is not this window's arbiter.** It looks like one,
+  because it ablates a routed no-op and so seems to read the instrument's
+  own floor. It does not: the call it ablates resolves a hook key that is
+  never published on this host and so can never be cached, which is real
+  work — three runs read the arm LARGER than the cell-map insert in two of
+  three. The namespace docstring carries the mechanism. Nor
   does the arithmetic-impossibility residual serve as a floor: `c-noreaders`
   has an unknown positive true cost, so a negative reading of it bounds
   nothing.
 
-  **The arbiter is [[c-null]], added by rf2-3l6hf**, and it is an arbiter
+  **The arbiter is [[c-null]]**, and it is an arbiter
   precisely because its true cost is zero by construction rather than
   argued to be small. It reads the estimator's error directly, so a term
   can be adjudicated against a measured null instead of against sign
@@ -419,10 +411,10 @@
     (- (rf.bench.fresco.lane/now-ms) t0)))
 
 ;; ---------------------------------------------------------------------------
-;; The faithful local copy of the pre-rf2-6c237 read (the frozen baseline)
+;; The faithful local copy of the subscribe-once read (the frozen baseline)
 ;; ---------------------------------------------------------------------------
 ;;
-;; `read-key!`'s shape at the commit this bead opened: sub-key mint, scratch
+;; The subscribe-once `read-key!` shape: sub-key mint, scratch
 ;; push, cells probe (always a miss on a cold mount), then the
 ;; subscribe-once crossing; after the body, the entry-hit compare (bucket
 ;; hash of the whole sequence + ordered pairwise compare). The copy carries
@@ -477,7 +469,7 @@
 
 (defn- probe-pass!
   "One candidate pass — the shape [[re-frame.bench.fresco.arm1.runtime]]
-  lands as `cold-read!`: per read, resolve the frame record, enter
+  ships as `cold-read!`: per read, resolve the frame record, enter
   `call-with-frame-resolution` (the resolution seam `subscribe` itself
   reads through, and the read-time coalesced reprojection flush without
   which a same-tick `reg-sub` is invisible), peek the frame's sub-cache
@@ -487,11 +479,10 @@
   seeded with `rf.subs/observation-opts-key` (so an unregistered read emits
   the always-on `:rf.error/no-such-sub` exactly as the reactive build
   does). The snapshot and the value map are per PASS — the render-scoped
-  lifetime the candidate resets at the top of every body run. The
-  BEFORE run also measured the run-SHARED threaded memo here and it lost
-  to this shape by ~1 us/read (its own bookkeeping against a grown map);
-  that reading is preserved in the studio page, and this arm is the
-  refined candidate it selected."
+  lifetime the candidate resets at the top of every body run. Measured
+  here, a run-SHARED threaded memo loses to this shape by ~1 us/read (its
+  own bookkeeping against a grown map); the studio page carries that
+  reading, and this arm is the candidate it selects."
   [frame-id ^js roster]
   (let [pstate #js {"fs" nil "vals" {}}
         n      (alength roster)]
@@ -590,12 +581,10 @@
 
 (def ^:private cell-watch-key
   "**One constant keyword for every local cell's value-change watch**,
-  because that is what the runtime this file copies now installs
-  (`arm1/runtime.cljs`'s own `cell-watch-key`, rf2-aqgr2). It used to mint
-  `(keyword \"rf-readprof\" (str \"w\" (vswap! counter inc)))` per cell, which
-  was faithful to the runtime of the day and stopped being so the moment
-  the runtime dropped its counter — a copy that prices a cell shape the
-  original no longer builds is an instrument measuring itself (rf2-6wh9o).
+  because that is what the runtime this file copies installs
+  (`arm1/runtime.cljs`'s own `cell-watch-key`). A keyword minted per cell
+  from a counter would price a cell shape the original does not build — a
+  copy doing that is an instrument measuring itself.
 
   Uniqueness is structural here for the same reason it is there: a mode's
   cells are built one per key of a read SET, `rf.subs/subscribe` hands back
@@ -616,31 +605,29 @@
   that mirrors the returned unsubscribe closure — run OUTSIDE the window.
 
   **The activation is `wire-cell!`'s, in `wire-cell!`'s order** — activate,
-  baseline, watch (rf2-lzpfj, transcribing the rf2-2kshh repair). It is not
-  decoration: this arm's entire claim is that it transcribes `wire-cell!`,
-  and these arms are deliberately LOCAL COPIES of shipping code, so they
-  drift by construction — the rf2-2rtt6.32 call-convention discipline is
-  the standing answer to exactly that, and rf2-6wh9o is the same lesson
-  already learnt once on `cell-watch-key` below. A copy that prices a cell
-  shape the original no longer builds is an instrument measuring itself.
+  baseline, watch. It is not decoration: this arm's entire claim is that
+  it transcribes `wire-cell!`, and these arms are deliberately LOCAL
+  COPIES of shipping code, so they drift by construction — the
+  call-convention discipline is the standing answer to exactly that, and
+  `cell-watch-key` above carries the same lesson. A copy that prices a
+  cell shape the original does not build is an instrument measuring
+  itself.
 
   The stubs, stated: `c-nosub` keeps the computation (a `compute-sub`
   against the frame-state snapshot) so its delta prices the reaction
   build + cache insert rather than build-plus-compute; `c-noactivate`
   skips the activation alone (see the namespace docstring — nothing
   activates on this UIx host, but the hook resolution it ablates can never
-  be cached, so the arm prices real work and is NOT a floor (rf2-tcffa); a
+  be cached, so the arm prices real work and is NOT a floor; a
   real capture run under the ratom family, and quoted separately so it
   stays attributable either way); `c-nowatch` skips
   both the watch and the disposal hook; the disposal hook and the watch
   callback are no-ops rather than the arm's real repair fns, which is a
   floor in the stubs' favour.
 
-  `c-noreaders` is the rf2-dabt3 ablation and it is the whole reason the
-  arm survived the fusion: it drops the cell's `readers` array and the
-  membership push, so `c-local - c-noreaders` prices the fused reverse
-  edge on the same instrument that used to price the retired index's
-  `mount!` + `record-reads!` pair. Attribution, not assertion."
+  `c-noreaders` is the fused-reverse-edge ablation: it drops the cell's
+  `readers` array and the membership push, so `c-local - c-noreaders`
+  prices the fused reverse edge. Attribution, not assertion."
   [mode frame-id reads-set fs]
   (let [reg   #js {"reads" reads-set "notify" (fn [] nil)}
         cells #js []
@@ -666,7 +653,7 @@
                 (add-watch r cell-watch-key (fn [_ _ _ _] nil))
                 (rf.interop/add-on-dispose! r (fn [] nil)))))
         ;; The fused reverse edge: one slot per key, which is the
-        ;; boundary's edge and its reference at once (rf2-dabt3). The
+        ;; boundary's edge and its reference at once. The
         ;; array is minted with the registration already in it, exactly
         ;; as `acquire-cell!`'s `#js []` + `.push` leaves it at fan-out 1
         ;; — which IS the fan-out on this roster, every key distinct.
@@ -698,17 +685,16 @@
 (def phase-b-arm-ids
   "The phase-B roster IN SLOT ORDER — **the vector index IS the arm's
   slot**, and a slot is a measured property of the arm (see the namespace
-  docstring's three-nulls section, rf2-lo7uy).
+  docstring's three-nulls section).
 
-  ONE authority. `-main` reported from a second copy of this list until
-  rf2-lo7uy, and a second copy is the shape where an arm gets sampled,
-  torn down and residue-gated on every sample and then never appears in a
-  row — invisible, because the missing arm is missing from the output that
-  would have shown it. [[phase-b-arms]] refuses to answer a roster that
-  disagrees with this one.
+  ONE authority, because a second copy is the shape where an arm gets
+  sampled, torn down and residue-gated on every sample and then never
+  appears in a row — invisible, because the missing arm is missing from
+  the output that would have shown it. [[phase-b-arms]] refuses to answer
+  a roster that disagrees with this one.
 
-  **The two nulls are appended and nothing is reordered**, so every slot
-  rf2-3l6hf's published window quotes is the slot it quoted."
+  **The two position nulls come last**, so every slot the published
+  nine-arm window quotes is the slot that arm holds here."
   [:commit :c-local :c-null :c-noactivate :c-nowatch
    :c-nosub :c-noreaders :c-nomap :b-build :c-null-twin :c-null-curve])
 
@@ -719,7 +705,7 @@
   nothing but its slot.
 
   Three rather than one because one null is one pair of slots and so
-  cannot say whether the offset it reads is positional (rf2-lo7uy)."
+  cannot say whether the offset it reads is positional."
   [:c-null :c-null-twin :c-null-curve])
 
 (def ^:private delta-arm-ids
@@ -744,7 +730,7 @@
                            commit-frames)))
         ;; Every null is built from the same `mk-local` as `c-local` rather
         ;; than transcribed beside it, because a null whose code path could
-        ;; drift from the arm it nulls is not one (rf2-3l6hf).
+        ;; drift from the arm it nulls is not one.
         arms [{:id :commit
                :run (fn []
                       (mapv (fn [f] (rf.bench.fresco.arm1.runtime/commit-boundary! (get entries f) (fn [] nil)))
@@ -758,7 +744,7 @@
               {:id :c-nomap   :run (mk-local C-NOMAP)}
               {:id :b-build
                :run (fn [] (mapv (fn [f] (build-only! f roster)) commit-frames))}
-              ;; The two slot nulls, APPENDED so no existing arm moves.
+              ;; The two slot nulls, LAST so no published arm's slot moves.
               {:id :c-null-twin  :run (mk-local C-FULL)}
               {:id :c-null-curve :run (mk-local C-FULL)}]]
     (when-not (= phase-b-arm-ids (mapv :id arms))
@@ -769,10 +755,9 @@
     arms))
 
 (def ^:private b-sampling
-  "The stability half of the rf2-3l6hf widening — see
-  [[frames-per-window]] for the resolution half and for why the two are
-  different knobs. 8 rounds x 8 kept samples is 64 against the old 24:
-  the arm's own distribution has a long right tail (a `max` around twice
+  "The stability half of the window's shape — see [[frames-per-window]]
+  for the resolution half and for why the two are different knobs. 8
+  rounds x 8 kept samples is 64: the arm's own distribution has a long right tail (a `max` around twice
   the `p50`, GC landing inside a window), and a 24-sample median of that
   moves a grid step or two between runs on its own. This does not buy a
   finer grid and is not asked to."
@@ -787,12 +772,12 @@
   `read-profile-grid-cljs-test`'s live-shape row. A witness that
   restated the three numbers would go green on the shape it remembered
   rather than the shape the window runs, which is the same vacuity
-  `read-profile-baseline-cljs-test` was written to avoid."
+  `read-profile-baseline-cljs-test` avoids."
   []
   {:rounds b-rounds :sampling b-sampling :frames frames-per-window})
 
 ;; ---------------------------------------------------------------------------
-;; Where an arm actually sits in the sweep (rf2-lo7uy)
+;; Where an arm actually sits in the sweep
 ;; ---------------------------------------------------------------------------
 
 (defn slot-positions
@@ -833,7 +818,7 @@
   "Every phase-B arm with its slot and its kept-sample position
   footprint, in slot order — recorded into the transcript so a published
   window carries the layout it was taken on and can be adjudicated
-  without anyone re-deriving the schedule by hand (rf2-lo7uy)."
+  without anyone re-deriving the schedule by hand."
   ([] (phase-b-slot-plan phase-b-arm-ids (:sampling (phase-b-shape))))
   ([arm-ids sampling]
    (let [n (count arm-ids)]
@@ -849,9 +834,9 @@
 
 (defn phase-b-grid-ms
   "The grid one phase-B row or delta can land on, in ms/commit, DERIVED
-  from the shape rather than asserted (merged-PR audit of #8328).
+  from the shape rather than asserted.
 
-  Three steps, and the middle one is the one that was being taken for
+  Three steps, and the middle one is the one easiest to take for
   granted. Raw samples are multiples of [[clock-clamp-ms]].
   [[rf.bench.fresco.lane/summarise]]'s p50 is the MEAN OF THE TWO MIDDLE order statistics
   when the kept count is even, which puts it on a half-clamp grid, and a
@@ -864,7 +849,7 @@
   vars, so an editor moving either could halve the instrument's
   resolution while the design line went on advertising the finer grid.
   Deriving it here is what stops that — the number printed and the number
-  the arithmetic supports are now one expression."
+  the arithmetic supports are one expression."
   [rounds {:keys [samples]} frames]
   (let [kept (* rounds samples)]
     (/ (if (even? kept) (/ clock-clamp-ms 2.0) clock-clamp-ms)
@@ -875,18 +860,18 @@
   the baseline, the between-sample gate, and the final zero.
 
   It is [[rf.bench.fresco.arm1.runtime/quiesced!]] and not [[rf.bench.fresco.lane/settle!]], and the difference is
-  the whole of rf2-981nt. `settle!` yields ONE macrotask, which is the
-  right point for a substrate that queues its disposals there and the
-  wrong one for a runtime that arms its entry reaper at a horizon
-  deliberately OUTSIDE a bare `setTimeout 0` (rf2-2rtt6.84, so an
+  whether phase B reaches a number at all. `settle!` yields ONE
+  macrotask, which is the right point for a substrate that queues its
+  disposals there and the wrong one for a runtime that arms its entry
+  reaper at a horizon deliberately OUTSIDE a bare `setTimeout 0` (so an
   unclaimed entry survives long enough for `hydrateRoot`'s passive
   subscribe to claim it). Phase B's setup harvests one unclaimed entry
   per commit frame; baselined a macrotask later they are all still
   cached, and they are gone by the first sampled arm. The gate compares
-  by equality — correctly, it is a count of live references — so it saw
-  six entries and then five and threw, every run.
+  by equality — correctly, it is a count of live references — so behind
+  `settle!` it would see six entries and then five and throw, every run.
 
-  So the baseline moves to where the runtime has actually settled. That
+  So the baseline sits where the runtime has actually settled. That
   is the better instrument on its own terms: a baseline that holds
   because the runtime has quiesced is evidence, where one that holds
   because nothing has had time to happen yet is a coincidence with a
@@ -898,14 +883,14 @@
   so the `commit` arm acquires the same 141 cells through the same seam
   either way.
 
-  **Named rather than spelled out three times**, because this defect was
-  invisible for exactly as long as the concept was unnamed: three
-  `rf.bench.fresco.lane/settle!` calls look like three ordinary yields, and there was
-  nowhere for the reason to live. Public because
+  **Named rather than spelled out three times**, because an unnamed
+  concept hides this defect: three `rf.bench.fresco.lane/settle!` calls
+  look like three ordinary yields, and there is nowhere for the reason to
+  live. Public because
   `read-profile-baseline-cljs-test` drives THIS fn — a witness that
   called `rf.bench.fresco.arm1.runtime/quiesced!` itself would go green however this instrument
-  settled, which is the vacuous test that let the horizon move under a
-  faithful rig in the first place."
+  settled, which is the vacuous test that would let the horizon move
+  under a faithful rig unseen."
   []
   (rf.bench.fresco.arm1.runtime/quiesced!))
 
@@ -920,13 +905,11 @@
   runtime settles behind [[residue-settle!]], and the residue gate must
   answer clean. Mirrors `rf.bench.fresco.lane/rounds!`, which cannot yield.
 
-  **Readings come back BUCKETED BY ROUND**, one map per round, which is
-  what `rf.bench.fresco.lane/rounds!` has always answered and what this fn used to
-  flatten into a single bucket. Pooling is unchanged — [[arm-rows]]
-  `mapcat`s the buckets before it summarises, so the published p50 is the
-  same number over the same 64 samples — but the per-round structure now
-  survives into the record, and a published window can be re-adjudicated
-  without being re-taken (rf2-3l6hf)."
+  **Readings come back BUCKETED BY ROUND**, one map per round, as
+  `rf.bench.fresco.lane/rounds!` answers. [[arm-rows]] `mapcat`s the
+  buckets before it summarises, so the published p50 is pooled over all
+  64 samples, while the per-round structure survives into the record, so
+  a published window can be re-adjudicated without being re-taken."
   [arms {:keys [warmup samples]} rounds' baseline]
   (let [k    (count arms)
         coll (rf.bench.fresco.lane/sample-collector)
@@ -1000,7 +983,7 @@
 
   It prints the kept count, names its parity and says which statistic
   that parity makes the p50, because the grid is only checkable by a
-  reader who is told all three (merged-PR audit of #8328). The number at
+  reader who is told all three. The number at
   the end is [[phase-b-grid-ms]]'s, not a constant standing beside it."
   [rounds {:keys [warmup samples] :as sampling} frames]
   (let [kept       (* rounds samples)
@@ -1030,8 +1013,8 @@
   A pooled p50 answers one question and refuses every follow-up: whether
   a term's sign held round by round, whether one round carried a
   contaminated span, how far the null control wandered inside a single
-  run. All three were asked of windows that had kept only the pool, and
-  the only way to answer was to take the window again (rf2-3l6hf)."
+  run. Of a window that keeps only the pool, the only way to answer any of
+  the three is to take the window again."
   [arm-ids readings per-window]
   (into {}
         (map (fn [id]
@@ -1134,9 +1117,8 @@
                         (when (:refuse? gv)
                           (set! (.-FRESCO_GUARD_REFUSED js/window) true))
                         ;; ---- Phase B setup: [[frames-per-window]]
-                        ;; identically-seeded frames (32, not the 4 this
-                        ;; comment named until rf2-3l6hf), entries
-                        ;; harvested through the door.
+                        ;; identically-seeded frames, entries harvested
+                        ;; through the door.
                         (doseq [f commit-frames] (seed-frame! f))
                         (let [entries (into {} (map (fn [f]
                                                       (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (sub-pass! roster) [:span]) {})
@@ -1167,7 +1149,7 @@
                                                   (mapv #(update % :mean-position rf.bench.fresco.lane/round4) plan))
                                     (js/console.log ";; ==== READ PROFILE, PHASE B — THE COMMIT HALF (ms per 141-key boundary commit) ====")
                                     (js/console.log (phase-b-design-line b-rounds b-sampling frames-per-window))
-                                    (js/console.log ";;   slot plan (each arm's kept-sample sweep positions — the schedule is indexed by SAMPLE, so this footprint repeats identically every round; rf2-lo7uy):")
+                                    (js/console.log ";;   slot plan (each arm's kept-sample sweep positions — the schedule is indexed by SAMPLE, so this footprint repeats identically every round):")
                                     (doseq [{:keys [id slot positions mean-position]} plan]
                                       (js/console.log (str ";;     slot " slot " " (name id)
                                                            ": " (pr-str positions)
@@ -1179,14 +1161,14 @@
                                           clocal  (:p50 (get rows :c-local))]
                                       (js/console.log (str ";;   copy fidelity: c-local/commit = " (fmt (/ clocal commit') 4)))
                                       (js/console.log (delta-line "NULL CONTROL (c-local - c-null)" clocal (:p50 (get rows :c-null))))
-                                      (js/console.log ";;     ^ true cost EXACTLY ZERO by construction — both arms are C-FULL. What it reads is this instrument's own error at this shape, and it is what the terms below are adjudicated against (rf2-3l6hf). It bounds no term's cost: a delta inside this spread is a term the window cannot SEE, which leaves its size open in both directions")
-                                      (js/console.log ";;     ^ slot 1 against slot 2, on footprints that differ in BOTH mean position and shape. The two nulls below hold that zero and move the SLOT, which is what makes the offset's cause readable rather than only its size (rf2-lo7uy)")
+                                      (js/console.log ";;     ^ true cost EXACTLY ZERO by construction — both arms are C-FULL. What it reads is this instrument's own error at this shape, and it is what the terms below are adjudicated against. It bounds no term's cost: a delta inside this spread is a term the window cannot SEE, which leaves its size open in both directions")
+                                      (js/console.log ";;     ^ slot 1 against slot 2, on footprints that differ in BOTH mean position and shape. The two nulls below hold that zero and move the SLOT, which is what makes the offset's cause readable rather than only its size")
                                       (js/console.log (delta-line "NULL CONTROL, position TWIN (c-local - c-null-twin)" clocal (:p50 (get rows :c-null-twin))))
                                       (js/console.log ";;     ^ same zero, and this arm's kept-sample position footprint IS c-local's, so ANY cost that is a function of sweep position cancels term by term. A reading here is error sweep position cannot explain; a reading of zero here beside a non-zero c-null puts the offset ON position")
                                       (js/console.log (delta-line "NULL CONTROL, equal MEAN position (c-local - c-null-curve)" clocal (:p50 (get rows :c-null-curve))))
                                       (js/console.log ";;     ^ same zero, c-local's MEAN position on a DIFFERENT footprint: a linear within-sweep drift cancels here, a curved one does not. Read the three nulls together — alike means the offset is not positional; c-null alone means it is; c-null and this one means it is and is not linear")
                                       (js/console.log (delta-line "activation-capture (c-local - c-noactivate)" clocal (:p50 (get rows :c-noactivate))))
-                                      (js/console.log ";;     ^ a REAL term here, NOT a floor and not an arbiter: nothing activates on this UIx host, but the hook key is never published and so never cached, and this prices that lookup (rf2-tcffa, rf2-19usn). The capture itself is real only under the ratom family (rf2-lzpfj)")
+                                      (js/console.log ";;     ^ a REAL term here, NOT a floor and not an arbiter: nothing activates on this UIx host, but the hook key is never published and so never cached, and this prices that lookup. The capture itself is real only under the ratom family")
                                       (js/console.log (delta-line "watch-wiring (c-local - c-nowatch)" clocal (:p50 (get rows :c-nowatch))))
                                       (js/console.log (delta-line "reaction-build+cache-insert (c-local - c-nosub)" clocal (:p50 (get rows :c-nosub))))
                                       (js/console.log (delta-line "reader-membership (c-local - c-noreaders)" clocal (:p50 (get rows :c-noreaders))))
@@ -1208,9 +1190,9 @@
                                     ;; other residue reading: releasing the warm
                                     ;; boundary arms the warm entry's reaper, and
                                     ;; a bare macrotask lands in front of it — so
-                                    ;; the "nothing survives" gate below would
-                                    ;; have failed on `:entries 1` for the same
-                                    ;; reason the baseline failed on six.
+                                    ;; behind one, the "nothing survives" gate
+                                    ;; below would fail on `:entries 1` for the
+                                    ;; same reason the baseline would fail on six.
                                     (warm-release)
                                     (residue-settle!))))
                               (.then

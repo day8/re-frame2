@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // EP-0038 P0 — the RATOM-SPINE NARROW-WRITE leg, write + flush SUMMED.
 //
-//   node implementation/adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs
-//   HN_ROUNDS=6 node .../fresco_narrow_run.cjs --no-build
+//   node src/re_frame/bench/fresco_narrow_run.cjs   (from bench/fresco/)
+//   HN_ROUNDS=6 node src/re_frame/bench/fresco_narrow_run.cjs --no-build
 //
-// Bead rf2-2rtt6.3. The bar, the budgets and the P0 table this feeds are
-// operator-owned on the governance set that superseded rf2-2rtt6.1 on
-// 2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-// workers append measurements and only the operator amends the numbers.
+// The bar, the budgets and the P0 table this feeds are owned by the
+// governance set enumerated in `docs/design/fresco/studio/README.md`;
+// measurements are appended, and only the operator amends the numbers.
 //
 // WHAT IS BEING PRICED, AND WHY IT IS ONE NUMBER AND NOT TWO
 // ----------------------------------------------------------
@@ -17,21 +16,19 @@
 // would publish a flatteringly small figure nobody experiences, and a
 // harness that timed only the flush would miss the subscription graph
 // entirely. The published figure is `write + gap + force`, SUMMED. The
-// split is published beside it because the split is the whole point: the
-// withdrawn predecessor's ~15x narrow row decomposed roughly 90% to the
-// frame write and the signal graph rather than to rendering, and it was
-// compared against a bare `reagent.core/atom` — its own idiom, but far
-// less framework.
+// split is published beside it because the split is the whole point: a
+// narrow-write ratio can decompose almost entirely to the frame write and
+// the signal graph rather than to rendering (the withdrawn predecessor's
+// ~15x narrow row did, roughly 90%), and a bare `reagent.core/atom`
+// baseline is its own idiom, but far less framework.
 //
 // NO BUILD-ID IS ADDED TO shadow-cljs.edn
 // ---------------------------------------
-// `implementation/shadow-cljs.edn` is hot-zone and rf2-2rtt6.2 owns the
-// measurement lane's build-id. This driver therefore does what the donor's
-// own b8 driver does: it takes an EXISTING `:advanced` `:browser` build as
+// The lane has ONE build id, `:fresco-bench` in bench/fresco/shadow-cljs.edn,
+// and every Fresco arm compiles through it. This driver does what the
+// donor's own b8 driver does: it takes that `:advanced` `:browser` build as
 // a config template and overrides the entry point and the output directory
-// with `--config-merge`, so the repository gains no build id from this
-// bead. The template is rf2-2rtt6.2's `:fresco-bench`, which is the lane
-// every Fresco arm compiles through.
+// with `--config-merge`, so it needs no build id of its own.
 //
 // THE INSTRUMENT'S OWN GATES, all of which run BEFORE any figure is taken
 // ----------------------------------------------------------------------
@@ -53,26 +50,24 @@
 //   7. the ladder-isolation gate: every rung mounts the same fixture, so a
 //      rung moves the SUBSCRIPTION count and nothing else.
 //
-// AND THE GATES THAT NOW FAIL THE RUN RATHER THAN DECORATING IT
-// -------------------------------------------------------------
-// The audit of PR #7262 found the three central checks fail-OPEN: a stale
-// write on a real arm was printed and stored, a broken leg identity was
-// printed and stepped over, and the verification denominator counted 720
-// windows of a pseudo-arm that renders no cell and forces `ok` true. So a
-// run could print `VERDICT: reportable` beside a column saying some of its
-// writes never reached the page. All three are exits now, and the
-// denominator counts only arms that could have been verified.
+// AND THE GATES THAT FAIL THE RUN RATHER THAN DECORATING IT
+// ---------------------------------------------------------
+// The three central checks are exits, not printouts: a stale write on a real
+// arm, a broken leg identity, and unverified writes, whose denominator counts
+// only arms that could have been verified — a pseudo-arm that renders no cell
+// and forces `ok` true would pad it with 720 windows. A check that is printed
+// and stored but never read lets a run print `VERDICT: reportable` beside a
+// column saying some of its writes never reached the page.
 //
-// AND THE SAME DEFECT, FOUND TWICE MORE (rf2-rr6do)
-// -------------------------------------------------
-// Gates 3 and 4 above were in the same condition the audit of #7262 found
-// the other three in: computed, printed, written into `report.json`, and
-// never read by the verdict. An arm that hit `HN_WARMUP_MAX` still trending
-// printed `still trending at the N-window ceiling` and the run went on to
-// say `VERDICT: reportable.` — figures taken off a site that was still
-// moving. A leg sitting on the clock quantum printed `CLAMP-LIMITED, not
-// quotable as absolute` beside a table whose whole purpose is to quote
-// absolutes. Both are exits now.
+// AND THE WARM-UP AND THE CLAMP, LIKEWISE
+// ---------------------------------------
+// Gates 3 and 4 above are exits too, for the same reason. Computed, printed
+// and written into `report.json` but never read by the verdict, an arm that
+// hit `HN_WARMUP_MAX` still trending would print `still trending at the
+// N-window ceiling` and the run would go on to say `VERDICT: reportable.` —
+// figures taken off a site that was still moving — and a leg sitting on the
+// clock quantum would print `CLAMP-LIMITED, not quotable as absolute` beside
+// a table whose whole purpose is to quote absolutes.
 //
 // EXIT CODES
 //   0  reportable
@@ -81,11 +76,9 @@
 //      published. Repair the arm — more warm-up, more rounds, a quieter
 //      box — never the guard's tolerance.
 //   3  an arm never SETTLED inside the warm-up ceiling — it was measured on
-//      a site still trending. Raise HN_WARMUP_MAX and re-run (rf2-rr6do,
-//      the same refusal rf2-tb345 gave b8).
+//      a site still trending. Raise HN_WARMUP_MAX and re-run.
 //   4  a quoted leg sits on the clock quantum, so the absolute table it
-//      feeds is not a reading (rf2-rr6do). More writes per sample; not a
-//      looser clamp.
+//      feeds is not a reading. More writes per sample; not a looser clamp.
 
 'use strict';
 
@@ -101,7 +94,7 @@ const REPO = path.resolve(IMPL, '..');
 const OUT = path.join(PROJECT, 'out', 'fresco-narrow');
 const PORT = Number(process.env.HN_PORT || 8141);
 
-// THE LANE'S ONE CACHE RULE (rf2-2rtt6.20, applied here by rf2-2rtt6.22).
+// THE LANE'S ONE CACHE RULE.
 //
 // This driver is one of the programs riding `:fresco-bench`, and shadow-cljs
 // derives the build cache directory from the build id alone — before any
@@ -109,29 +102,27 @@ const PORT = Number(process.env.HN_PORT || 8141);
 // entry. There is deliberately no count here: a number goes stale the moment
 // the next lane driver lands, and `git grep -l resetLaneBuildCache` names the
 // current set exactly. The rule is that EVERY driver on the id clears the
-// entry before it builds. The others already did, which is why this one could
-// no longer poison THEM; nothing was clearing it on this driver's behalf, so
-// it could still be handed a cache poisoned by whichever arm ran before it —
-// until rf2-2rtt6.22 added the clear below. `lane_cache.cjs` carries the
-// mechanism, the isolation evidence and the measured cost.
+// entry before it builds: the other drivers clearing theirs does nothing for
+// this one, which would otherwise be handed a cache poisoned by whichever arm
+// ran before it. `lane_cache.cjs` carries the mechanism, the isolation
+// evidence and the measured cost.
 //
 // Reached by path across the test trees, exactly as `navigate.cjs` is below
 // and for the same reason: ONE helper for the repository, never a second copy
 // per lane. Unlike `loadNavigate`, this require has NO FALLBACK — a fallback
 // here would silently re-arm the trap, and a driver that cannot find the
 // cache rule must fail loudly rather than measure without it. (The helper
-// now sits beside `navigate.cjs` in the shared bench-helper directory,
-// hoisted there by rf2-9smjn once a second tree needed it.)
+// sits beside `navigate.cjs` in the shared bench-helper directory, because
+// more than one tree needs it.)
 const { resetLaneBuildCache } = require(
   path.join(IMPL, 'core/test/re_frame/bench/lane_cache.cjs')
 );
 
-// THE LANE'S ONE PAGE-FAILURE COLLECTOR (rf2-sib23), reached the same way and
-// with NO FALLBACK for the same reason: a fallback would silently re-arm the
-// fail-open this require exists to close. `sentinel.cjs` carries the finding —
-// nine drivers, this one among them, installed a bare `pageerror` handler
-// that printed and recorded nothing, so an uncaught throw was announced on
-// stderr and the run exited 0 beneath it.
+// THE LANE'S ONE PAGE-FAILURE COLLECTOR, reached the same way and with NO
+// FALLBACK for the same reason: a fallback would silently re-arm the
+// fail-open this require exists to close. A bare `pageerror` handler that
+// prints and records nothing announces an uncaught throw on stderr while the
+// run exits 0 beneath it; `sentinel.cjs` carries the detail.
 const { watchPage } = require(
   path.join(IMPL, 'core/test/re_frame/bench/sentinel.cjs')
 );
@@ -153,8 +144,8 @@ const WRITES = Number(process.env.HN_WRITES || 20);
 // --- warm-up ---------------------------------------------------------------
 //
 // A measurement site reads well above its settled value until it has run
-// several FULL-SIZE windows. The donor recorded the same control over
-// sixteen consecutive windows with nothing varying but the call count:
+// several FULL-SIZE windows. The donor's record of the same control over
+// sixteen consecutive windows, nothing varying but the call count:
 //
 //     42.32 | 10.32 10.26 10.26 10.26 10.33 10.28 | 8.12 8.12 ... 8.12
 //
@@ -167,10 +158,10 @@ const WRITES = Number(process.env.HN_WRITES || 20);
 // own tolerance, to a ceiling of HN_WARMUP_MAX. The whole trajectory is
 // printed, so "wide enough" is checkable rather than asserted.
 //
-// The settle test is the MEDIAN one and only the median one. A first cut
-// accepted "the medians are within tolerance OR the ranges overlap", and on
-// a box this noisy the ranges always overlap, so every arm settled at the
-// floor while still visibly trending — `spine-replace` terminated on
+// The settle test is the MEDIAN one and only the median one. Accepting "the
+// medians are within tolerance OR the ranges overlap" would settle every arm
+// at the floor while still visibly trending, because on a box this noisy the
+// ranges always overlap — `spine-replace` would terminate on
 // 0.98 0.89 0.37 0.33 0.46 0.56 0.48 0.59 0.66, which is not a settled
 // site. Overlapping ranges are the right rule for ADJUDICATING two
 // measured strata; they are the wrong rule for deciding a site has stopped
@@ -191,24 +182,10 @@ const CTL_2 = Number(process.env.HN_CTL_2 || 0.9);
 
 // The build TEMPLATE.
 //
-// `implementation/shadow-cljs.edn` is hot-zone and rf2-2rtt6.2 owns the
-// measurement lane's build id, so this bead adds none: it overrides
-// `:fresco-bench`'s entry point and output directory with
-// `--config-merge`, which is the technique the donor's own b8 driver uses,
-// and the repository gains no build id from this driver.
-//
-// This used to CHOOSE its template — `:fresco-bench` when the checkout had
-// it, `:freehand-release` otherwise — because the lane's build id had not
-// landed yet. It has (rf2-2rtt6.2), so the fallback was unreachable code
-// carrying a paragraph of reasoning for a branch that could no longer be
-// taken, and rf2-uhw11 removes both. The donor template was never
-// equivalent anyway: `:freehand-release` was CLEANED AND REBUILT by
-// `test:freehand-reachability` and `test:freehand-matched`, so a bench run
-// and a gate run raced the same `.shadow-cljs/builds/freehand-release`
-// cache — and Closure's renaming for a build compiled fresh differs from
-// the same build compiled with a sibling warm, which the donor measured at
-// 4,075 bytes. A figure taken through the fallback would not have been
-// comparable with one taken through the lane.
+// The lane's ONE build id is `:fresco-bench`, and this driver adds none: it
+// overrides `:fresco-bench`'s entry point and output directory with
+// `--config-merge`, which is the technique the donor's own b8 driver uses.
+// There is no fallback template, so every figure is taken through the lane.
 const BASE_BUILD = 'fresco-bench';
 const NO_BUILD = process.argv.includes('--no-build');
 
@@ -219,7 +196,7 @@ const CONFIG_MERGE =
 function build() {
   // Before anything reads the cache — see the note beside the require.
   if (resetLaneBuildCache(PROJECT, BASE_BUILD)) {
-    console.error(`[hn] cleared .shadow-cljs/builds/${BASE_BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[hn] cleared .shadow-cljs/builds/${BASE_BUILD} — one build id, N arms`);
   }
   console.error(`[hn] building :advanced bundle from template :${BASE_BUILD} ...`);
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
@@ -293,7 +270,7 @@ const rng = (s) => (s ? `${num(s.p50)} [${num(s.min)}-${num(s.max)}]` : '--');
 // So the two estimators do two different jobs and both are published:
 // p50 + range adjudicates (the house rule needs a range, and a median is
 // robust to the scheduler), and the mean carries the write-versus-flush
-// SPLIT, which is the whole point of this bead and which a median cannot
+// SPLIT, which is the whole point of this driver and which a median cannot
 // express when one of the legs is under the clock floor.
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
@@ -326,10 +303,9 @@ async function main() {
     const t = m.text();
     if (t.startsWith(';; HN')) console.error(t);
   });
-  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23). The
-  // array reaches `verdict` below, which is this driver's ONE seat for a
-  // decision — the property that stopped its five earlier fail-opens growing
-  // back, and the property this one bypassed entirely by never being read.
+  // THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED. The array
+  // reaches `verdict` below, which is this driver's ONE seat for a decision,
+  // so a page failure cannot bypass it by never being read.
   // `HN_ERROR` does not cover it: React 19.2 routes an uncaught render error
   // to `reportError` instead of rethrowing, so the app's own catch never runs
   // and the page carries on to `HN_READY`.
@@ -341,11 +317,11 @@ async function main() {
     timeoutMs: NAV_TIMEOUT_MS,
     budget: 'the 5-minute wait for `window.HN_READY`',
   });
-  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
-  // rejects only on a failure `watch` recorded, and `verdict` below already
-  // refuses on exactly that array, so no run that would have passed is
-  // shortened. The rejection lands in `main`'s existing rejection handler,
-  // which is this driver's exit 1; its 2, 3 and 4 are untouched.
+  // RACED AGAINST THE PAGE DYING — see `sentinel.cjs`. `race` rejects only
+  // on a failure `watch` recorded, and `verdict` below refuses on exactly
+  // that array, so no run that would have passed is shortened. The rejection
+  // lands in `main`'s rejection handler, which is this driver's exit 1;
+  // codes 2, 3 and 4 are unaffected.
   await watch.race('window.HN_READY === true || window.HN_ERROR', {
     timeoutMs: 5 * 60 * 1000,
     budget: 'the 5-minute wait for `window.HN_READY`',
@@ -410,11 +386,10 @@ async function main() {
   );
 
   // --- gate 3b: the ladder isolates SUBSCRIPTIONS, not fixture size -------
-  // The audit's first correction. Every rung must mount the same cell count
-  // so a rung moves the subscription count and nothing else; a rung that
-  // also moved the app-db vector, the component count and the DOM span
-  // count would be a fixture-size ladder wearing a subscription ladder's
-  // label, which is exactly what the first cut published.
+  // Every rung must mount the same cell count so a rung moves the
+  // subscription count and nothing else; a rung that also moved the app-db
+  // vector, the component count and the DOM span count would be a
+  // fixture-size ladder wearing a subscription ladder's label.
   const rungArmName = (n) => (n === cellsN ? 'spine-replace' : `spine-${n}`);
   {
     const wrong = [];
@@ -542,7 +517,7 @@ async function main() {
 
   say('');
   say('=========================================================================');
-  say('P0 — RATOM-SPINE NARROW WRITE (write + flush, SUMMED)   bead rf2-2rtt6.3');
+  say('P0 — RATOM-SPINE NARROW WRITE (write + flush, SUMMED)');
   say('=========================================================================');
   say(`runtime          ${RUNTIME}`);
   say(`fixture          ${cellsN} cells, one layer-1 subscription per cell`);
@@ -591,7 +566,7 @@ async function main() {
   // --- the split ----------------------------------------------------------
   // The median above reads 0 for any leg under the 100 us grid, which is a
   // precise wrong number rather than a small one. The mean is unbiased under
-  // that coarsening, so the SPLIT — the question this bead exists to answer
+  // that coarsening, so the SPLIT — the question this driver exists to answer
   // — is taken from it, with the median table above left standing as the
   // adjudication instrument.
   say('WRITE vs FLUSH — from the quantisation-unbiased MEAN over every measured write');
@@ -630,20 +605,18 @@ async function main() {
   // "The flush" is one word doing two jobs: Reagent re-running every
   // dirtied reaction, and React committing the one cell that changed. A
   // single number cannot separate them, and the separation is the whole
-  // question — the withdrawn predecessor's narrow row was wrong precisely
-  // because a framework cost was read as a rendering cost.
+  // question — a narrow row that reads a framework cost as a rendering cost
+  // is wrong, as the withdrawn predecessor's was.
   //
-  // The rungs separate them by construction — and "by construction" is now
-  // literal. Every rung mounts the SAME 300-cell fixture: 300 cells in
+  // The rungs separate them by construction — literally. Every rung mounts the SAME 300-cell fixture: 300 cells in
   // app-db, 300 mounted components, 300 DOM spans. The rung's number is how
   // many of those cells hold a subscription, and writes land inside that
   // range, so the React commit is one cell at every rung. The slope is
   // therefore the per-subscription recompute and the intercept is
   // everything else.
   //
-  // The first cut did NOT do this: a rung was a whole smaller fixture, and
-  // the slope described fixture size. Gate 3b above is what stops that
-  // coming back.
+  // A rung that was a whole smaller fixture would make the slope describe
+  // fixture size; gate 3b above refuses that.
   const rungs = ladder
     .map((n) => ({ n, arm: rungArmName(n), split: split[rungArmName(n)] }))
     .filter((r) => r.split);
@@ -676,8 +649,8 @@ async function main() {
     // work that does not scale with the subscription count — React's
     // one-cell commit and Reagent's drain overhead — and that work cannot
     // cost less than nothing. A negative intercept is the data refusing
-    // the model, not a rounding error, and this ladder produced one at
-    // two rungs (30 -> 300 fitted 2.27 us/sub with an intercept of
+    // the model, not a rounding error, and at two rungs this ladder can
+    // produce one (30 -> 300 has fitted 2.27 us/sub with an intercept of
     // -0.048 ms).
     const lo = rungs[0];
     const hi = rungs[rungs.length - 1];
@@ -721,9 +694,9 @@ async function main() {
   }
 
   // --- the like-for-like correction ---------------------------------------
-  // The reason this bead exists. The predecessor's narrow row pitted a
-  // re-frame application against a bare `reagent.core/atom` and read the
-  // difference as a substrate cost. Both arms are here, measured in the
+  // The reason this driver exists. A narrow row that pits a re-frame
+  // application against a bare `reagent.core/atom` reads the difference as a
+  // substrate cost (the predecessor's did). Both arms are here, measured in the
   // same interleave on the same page, so the size of that framing error is
   // a row rather than a claim.
   say('LIKE-FOR-LIKE — what the comparison arm was, and what it should have been');
@@ -774,9 +747,9 @@ async function main() {
   say('');
   // THE DENOMINATOR COUNTS ONLY WRITES THAT COULD HAVE BEEN VERIFIED.
   // `:instrument` renders no cell and forces `ok` true; folding its windows
-  // in inflated the published denominator from 3,600 to 4,320 and let the
-  // claim "every write read out of the DOM" stand over 720 writes that were
-  // never looked at. Skipped arms get their own line and no credit.
+  // in would inflate the published denominator from 3,600 to 4,320 and let
+  // the claim "every write read out of the DOM" stand over 720 writes that
+  // were never looked at. Skipped arms get their own line and no credit.
   let badTotal = 0;
   let writeTotal = 0;
   let skippedTotal = 0;
@@ -945,35 +918,31 @@ async function main() {
 
 // ONE pure function over the run's summary, which is what makes this exit
 // path checkable without a release build and a headless Chromium — see
-// `fresco_narrow_exit_path.test.cjs`. It is also what stops the defect
-// growing back: the way all five of this driver's earlier fail-opens grew
-// was a second reading of a computed condition somewhere below the report,
-// and there is now only one place a condition can be read.
+// `fresco_narrow_exit_path.test.cjs`. It is also what stops a fail-open
+// growing: a fail-open here is a second reading of a computed condition
+// somewhere below the report, and there is only one place a condition can
+// be read.
 //
 // Every condition is INDEPENDENT — each refuses on its own, and when several
 // fire every one of them is named, so a run is never told about one fault
 // while a second stays hidden until the first is repaired.
 //
-// PRECEDENCE IS THE EXISTING ONE, AND THE TWO NEW REFUSALS SIT LAST. A run
-// that exited 1 before still exits 1; a run the arm-order guard refused
-// still exits 2. 3 and 4 can therefore only change the verdict of a run that
-// was previously being called `reportable.`, which is precisely the set
-// rf2-rr6do is about.
+// THE WARM-UP AND CLAMP REFUSALS SIT LAST. A run with a code-1 or code-2
+// fault keeps that code, so 3 and 4 only decide runs that every other gate
+// would call `reportable.`
 //
-//   3  AN UNSETTLED WARM-UP. `settled[arm]` was computed inside the
+//   3  AN UNSETTLED WARM-UP. `settled[arm]` is computed inside the
 //      `WARMUP_MAX` loop, printed twice — once per arm, once in the
 //      `warm-up` header line with a `*` — and stored as `warmupSettled` in
-//      report.json. Nothing read it. An arm that reached the ceiling still
-//      trending had its figures taken off a moving site, and "still
-//      trending" printed above "reportable." is not a gate.
+//      report.json. An arm that reaches the ceiling still trending has its
+//      figures taken off a moving site, and "still trending" printed above
+//      "reportable." is not a gate.
 //
-//   1  ALSO an uncaught `pageerror` (rf2-sib23). It takes the code this
-//      driver already had for "the run did not measure what it claims to
-//      have measured", so no run's code changes; what changes is that a run
-//      whose page THREW can no longer be called `reportable.` The signal was
-//      collected by nobody until now — a bare handler printed it — and the
-//      app cannot supply it, because React does not rethrow an uncaught
-//      render error to the caller of `flushSync`.
+//   1  ALSO an uncaught `pageerror`. It takes this driver's code for "the
+//      run did not measure what it claims to have measured", so a run whose
+//      page THREW cannot be called `reportable.` The watcher collects the
+//      signal because the app cannot supply it: React does not rethrow an
+//      uncaught render error to the caller of `flushSync`.
 //
 //   4  A CLAMP-LIMITED LEG, scoped deliberately narrower than the others.
 //      This driver exists to publish ABSOLUTE per-write milliseconds and the
@@ -988,11 +957,11 @@ function verdict(s) {
   const lines = [];
   const say = (...xs) => lines.push(...xs);
 
-  // AN UNCAUGHT PAGE ERROR, FIRST AND WITH THE EXISTING CODE 1 (rf2-sib23).
-  // It sits at the head because it is not a judgement about a figure — it
-  // says the figures are not of the page they name — and it takes 1 rather
-  // than a new number because that is already this driver's code for "the
-  // run did not measure what it claims to have measured".
+  // AN UNCAUGHT PAGE ERROR, FIRST AND WITH CODE 1. It sits at the head
+  // because it is not a judgement about a figure — it says the figures are
+  // not of the page they name — and it takes 1 rather than a number of its
+  // own because that is this driver's code for "the run did not measure
+  // what it claims to have measured".
   const pageErrors = s.pageErrors || [];
   if (pageErrors.length) {
     say(
@@ -1019,9 +988,9 @@ function verdict(s) {
   if (s.leaked) {
     say("VERDICT: FAILED — an arm's total moved with the control size. The leg accounting leaks.");
   }
-  // A stale write on a REAL arm was printed and stored and nothing else: a
-  // run could report `VERDICT: reportable` beside a column saying some of
-  // its writes never reached the page. The read-back gate is the reason the
+  // A stale write on a REAL arm that was only printed and stored would let a
+  // run report `VERDICT: reportable` beside a column saying some of its
+  // writes never reached the page. The read-back gate is the reason the
   // figures above are about a page rather than about a clock, so it fails
   // the run.
   if (s.badTotal > 0) {
@@ -1032,7 +1001,7 @@ function verdict(s) {
   }
   // The three legs are read off the SAME four clock samples the total is, so
   // they must sum to it exactly. A discrepancy means the accumulator is
-  // mis-wired, and the write-versus-flush SPLIT — the figure this bead
+  // mis-wired, and the write-versus-flush SPLIT — the figure this driver
   // exists to publish — is taken straight from those legs.
   if (!s.identityOk) {
     say(
@@ -1075,8 +1044,8 @@ function verdict(s) {
 }
 
 // The donor's shared navigation, with its ceiling NAMED. Reached by path
-// rather than by package because it lives in a test tree this bead does not
-// own; if it ever moves, the fallback below keeps this driver honest rather
+// rather than by package because it lives in a test tree outside this lane;
+// if it ever moves, the fallback below keeps this driver honest rather
 // than silently taking Playwright's anonymous 30s default.
 function loadNavigate() {
   try {

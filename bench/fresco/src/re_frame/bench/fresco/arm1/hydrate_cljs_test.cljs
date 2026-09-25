@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.hydrate-cljs-test
-  "THE HYDRATION DOOR'S HEADLESS HALF (rf2-2rtt6.84).
+  "THE HYDRATION DOOR'S HEADLESS HALF.
 
   Three of the door's four moving parts are answerable without React, a
   root or a DOM, and they are answered here so the browser file is left
@@ -21,9 +21,9 @@
   `arm1.runtime/entry-reap-horizon-ms` is a MARGIN and its own docstring
   says no caller may rely on it. What is asserted below is not \"4 ms\":
   it is that an entry a render minted is **still in the cache one bare
-  macrotask later**, which is the defect a `setTimeout 0` horizon had and
+  macrotask later**, which a `setTimeout 0` horizon would break and is
   the only thing about the horizon that is a design property rather than
-  a measurement. Setting the horizon back to 0 turns this row red;
+  a measurement. Setting the horizon to 0 turns this row red;
   raising it to 32 does not."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -60,15 +60,15 @@
 (deftest an-unclaimed-entry-survives-a-bare-macrotask-and-not-the-horizon
   (async done
     (seeded!)
-    (testing "**The race the hydration door has to win** (rf2-2rtt6.84 (2)).
+    (testing "**The race the hydration door has to win**.
              An entry is minted in the RENDER and claimed in the COMMIT,
              and `hydrateRoot` puts a scheduler turn between the two. A
-             reaper armed at `setTimeout 0` inside the render therefore
-             evicts the entry before React ever calls its `subscribe` —
-             the boundary ends up subscribed to a detached entry, and its
-             next render misses the cache, mints a second one, and hands
-             `useSyncExternalStore` a different `subscribe` to tear down
-             and rebuild. Same class as rf2-2rtt6.71 in the spine.
+             reaper armed at `setTimeout 0` inside the render would
+             evict the entry before React ever calls its `subscribe` —
+             the boundary would end up subscribed to a detached entry, and
+             its next render would miss the cache, mint a second one, and
+             hand `useSyncExternalStore` a different `subscribe` to tear
+             down and rebuild.
 
              The horizon is asserted as the RACE, not as its integer: a
              timer armed AFTER the reaper's, for zero, must still find the
@@ -118,7 +118,7 @@
 
 (deftest the-adoption-window-is-shut-by-default-and-shut-again-by-a-reset
   (seeded!)
-  (testing "**Adoption is a window, not a mode** (rf2-2rtt6.84 (3)). It is
+  (testing "**Adoption is a window, not a mode**. It is
            false for every ordinary mount — which is what keeps the
            charter's one-mode law intact — and `reset-runtime!` shuts it,
            so a fixture that throws between `hydrateRoot` and the closer's
@@ -138,7 +138,7 @@
 
 (deftest body-runs-counts-bodies-that-ran-and-is-not-cleared-by-a-reset
   (seeded!)
-  (testing "**The instrument the X-witnesses read** (rf2-2rtt6.84 (6)).
+  (testing "**The instrument the X-witnesses read**.
            Always on, so the `:advanced` / `goog.DEBUG false` builds this
            lane actually drives can see it; bumped inside `run-once`, so
            what it counts is a body that RAN rather than a render React

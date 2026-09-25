@@ -1,11 +1,11 @@
 (ns re-frame.bench.fresco.z3vlz-slim-substrate
-  "The reagent-slim substrate under test (rf2-z3vlz).
+  "The reagent-slim substrate under test.
 
   THE `:require` LIST OF THIS NAMESPACE IS THE EXPERIMENT. It names
   `reagent2.*` and the reagent-slim adapter and NOTHING ELSE from any
   other substrate — no `reagent.core`, no `uix.core` — so a bundle whose
   entry reaches the probe only through here compiles reagent-slim ALONE.
-  That is the single-substrate arm the bead asks for, and adding a
+  That is the single-substrate arm the experiment needs, and adding a
   convenience require here would silently destroy it.
 
   The mount door, the drain and the raw control are all reagent-slim's own
@@ -15,7 +15,7 @@
       application calls;
     - the drain is `reagent2.dom.client/flush-render!` wrapping
       `reagent2.ratom/flush!` — SETTLE, THEN RENDER. Both halves are
-      load-bearing and this is the same drain HD-008's arm used, so a
+      load-bearing and this is the same drain HD-008's arm uses, so a
       difference between the two runs cannot be the drain."
   (:require [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]

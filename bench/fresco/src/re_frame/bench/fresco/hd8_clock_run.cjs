@@ -1,17 +1,16 @@
 #!/usr/bin/env node
-// HD-008's DONOR ROWS ON THE CLOCK OF RECORD — driver (rf2-2rtt6.31).
+// HD-008's DONOR ROWS ON THE CLOCK OF RECORD — driver.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/hd8_clock_run.cjs
+//   node src/re_frame/bench/fresco/hd8_clock_run.cjs   (from bench/fresco/)
 //
-// The mount-gate amendment (rf2-2rtt6.1, recorded 2026-08-02) ratifies raw
-// `TaskDuration` — script AND frame — as the bar's adjudicating clock and
-// restates the mount gate as ONE line: `<= 1.10x` direct UIx-on-subs,
+// The mount gate adjudicates on raw `TaskDuration` — script AND frame — and
+// states the gate as ONE line: `<= 1.10x` direct UIx-on-subs,
 // floor-normalised, same run, on that clock. The published HD-008 donor
-// rows were taken on the in-page `performance.now()` window, which that
-// amendment makes DIAGNOSTIC ONLY. This driver takes the six published
-// arms' MOUNT rows through the frame-settlement door `clock_run.cjs`
-// established, so the donor re-take can be adjudicated against the line
-// it now answers to.
+// rows were taken on the in-page `performance.now()` window, which is
+// DIAGNOSTIC ONLY against that clock of record. This driver takes the six
+// published arms' MOUNT rows through the frame-settlement door
+// `clock_run.cjs` uses, so the donor rows can be adjudicated against that
+// line.
 //
 // ## The clock, and the door — stated per the stamp discipline
 //
@@ -19,14 +18,14 @@
 //               (rAF + setTimeout) — the arm's script AND the frame it
 //               caused, main-thread only, no raster/composite. CDP does
 //               not document TaskDuration's semantics; this is Chromium's
-//               accounting read from source (rf2-8nqsl), and the clock is
+//               accounting read from source, and the clock is
 //               never called by the bare adjective "frame-inclusive" —
 //               that adjective is what both instrument defects hid behind.
 //   DIAGNOSTIC  taskNet (TaskDuration less DevToolsCommandDuration) — a
 //               FRAME-ONLY reading through this door, because every arm's
 //               operation runs inside `page.evaluate` and Chromium bills
 //               page script run inside a protocol command to the DevTools
-//               term (rf2-yd52q, rf2-emvod).
+//               term.
 //   DIAGNOSTIC  the in-page flushSync window (`lane/mount-arm!`'s `:ms`) —
 //               the published rows' own clock, taken on the SAME samples
 //               so the two instruments are compared on one operation.
@@ -41,8 +40,8 @@
 //
 //   * plumb tare — subtracted; reported.
 //   * ctl-2x — the floor at twice the boundaries, predicted 2.00x,
-//     adjudicated STRICT (every block inside +/-25%). rf2-jcm3p records
-//     the mount-row undershoot (1.8173x over rf2-emvod's seven runs): an
+//     adjudicated STRICT (every block inside +/-25%). The mount row
+//     undershoots (1.8173x over seven runs): an
 //     additive per-sample constant the tare does not remove survives in
 //     `(2W + c)/(W + c)`, and NO changed-set (three-point) control can
 //     reach a mount row — a mount has no standing page. So this control
@@ -61,10 +60,10 @@
 //
 // ## What this driver does NOT measure
 //
-// Write rows. rf2-d2tzk fences the bulk row (its floor sits on the clock
-// clamp; a resolved yield correction refuses it), and rf2-7iqb5 puts this
-// box's bulk-class noise (28-48% within-block IQR) an order of magnitude
-// above the ~3.5% a difference-statistic control needs. The mount rows
+// Write rows. The bulk row is fenced (its floor sits on the clock clamp; a
+// resolved yield correction refuses it), and this box's bulk-class noise
+// (28-48% within-block IQR) sits an order of magnitude above the ~3.5% a
+// difference-statistic control needs. The mount rows
 // are what the gate verdict turns on; the bulk magnitudes are REFUSED
 // here by construction, with this paragraph as the reason.
 //
@@ -102,7 +101,7 @@ const path = require('node:path');
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 const guard = require('../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('./seam.cjs');
@@ -120,12 +119,11 @@ const PORT = Number(process.env.HD8CLOCK_PORT || 8141);
 // The published design: 6 rounds x 3 blocks x (4 warmup + 10 samples) per
 // arm — 18 blocks for the band (the shape rf2-ymi6j's ceiling was
 // calibrated on), and TEN warm samples per block cell, which is
-// `clock_run.cjs`'s own per-block depth. The first cut of this driver ran
-// 2 + 4 and its block p50s were too fragile to adjudicate anything: the
-// control failed strict on single low-side block outliers (1.19x against
-// 2.00x) and every gated range straddled the 1.10 boundary — an
-// INSTRUMENT-LIMITED verdict manufactured by the design, not by the
-// arms. That cut is recorded, not hidden; this is the repair. A run with
+// `clock_run.cjs`'s own per-block depth. At 2 + 4 the block p50s are too
+// fragile to adjudicate anything: the control fails strict on single
+// low-side block outliers (1.19x against 2.00x) and every gated range
+// straddles the 1.10 boundary — an INSTRUMENT-LIMITED verdict manufactured
+// by the design, not by the arms. A run with
 // any of these overridden prints the override in its provenance and is
 // NOT the published shape.
 const ROUNDS = Number(process.env.HD8CLOCK_ROUNDS || 6);
@@ -134,7 +132,7 @@ const WARMUP = Number(process.env.HD8CLOCK_WARMUP || 4);
 const SAMPLES = Number(process.env.HD8CLOCK_SAMPLES || 10);
 const TOLERANCE = Number(process.env.HD8CLOCK_TOLERANCE || 0.35);
 const CONTROL_SLACK = 0.25;
-const GATE_LINE = 1.1; // the amendment's one line: donor <= 1.10x direct UIx
+const GATE_LINE = 1.1; // the mount gate's one line: donor <= 1.10x direct UIx
 const NO_BUILD = process.argv.includes('--no-build');
 const SKIP_QUIET = process.env.HD8CLOCK_SKIP_QUIET === '1';
 
@@ -150,7 +148,7 @@ const depthIsPublished = () =>
 
 // Where the run's compact datasets go. Named per run id below; the page's
 // provenance points here, because a published study a reader cannot
-// recompute from the landed tree is rf2-cvvb7's recorded fault.
+// recompute from the landed tree cannot be checked.
 const DATA_DIR_OVERRIDDEN = Boolean((process.env.HD8CLOCK_DATA_DIR || '').trim());
 const DATA_DIR =
   process.env.HD8CLOCK_DATA_DIR || path.join(__dirname, 'data', 'hd8clock-2rtt6-31');
@@ -169,8 +167,8 @@ const FLOOR = 'floor';
 const CTL = 'ctl-2x';
 
 // The gated pairs — numerator over denominator, both in the SAME run.
-// `uix` is the anchor the amendment adopted (the direct-UIx anchor, not
-// the parity-baseline phrasing); the Reagent pairs are co-instrumented
+// `uix` is the gate's anchor (the direct-UIx anchor, not the
+// parity-baseline phrasing); the Reagent pairs are co-instrumented
 // and reported beside the gate, never as a second gate.
 const GATED = [
   ['donor-r1', 'uix'],
@@ -326,7 +324,7 @@ const CONFIG_MERGE =
 
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[hd8clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[hd8clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[hd8clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   shadowBuild({
@@ -623,7 +621,7 @@ function report(out) {
       `against [${fmt(ctl.band[0], 2)} – ${fmt(ctl.band[1], 2)}] (${ctl.rule})`
   );
   console.log(
-    `;;   rf2-jcm3p's recorded mount undershoot expected (~1.82x): additive residual c = ` +
+    `;;   the mount undershoot expected (~1.82x): additive residual c = ` +
       `${fmt(c, 3)} ms on a tared floor of ${fmt(floorTared, 3)} ms. This control certifies ` +
       `page-proportional SIGNAL, not exactness; no changed-set control can reach a mount row.`
   );
@@ -717,40 +715,38 @@ function report(out) {
 // ---------------------------------------------------------------------------
 
 // A refusal that only PRINTS is not a refusal (rf2-rr6do; rf2-tb345 repaired
-// the same defect one tree over, in b8_run.cjs). This driver computed THREE
-// refusals, printed each one loudly, wrote each into the dataset — and then
-// took its exit off `failed` and the arm-order guard ALONE. So a quiet box
-// with a clean guard could print
+// the same defect one tree over, in b8_run.cjs). A driver that computes THREE
+// refusals, prints each one loudly, writes each into the dataset — and then
+// takes its exit off `failed` and the arm-order guard ALONE — lets a quiet
+// box with a clean guard print
 //
 //   ;; writes   4 unverified of 36 (mount + element-count read-backs)
 //   ;; ---- THE BAND ...: 41.2% — ceiling 35% — BREACHED, no magnitude reportable ----
 //   ;;   FAIL  measured 1.21x [...] against [1.50 – 2.50]
 //
-// and still exit 0, on figures its own report had just refused.
+// and still exit 0, on figures its own report has just refused.
 //
-// The correct shape already existed one file over: `clock_run.cjs` gates all
-// three — unverified writes, the band ceiling, the positive control. This is
-// that shape, with the decision moved into ONE pure function over a flat
-// summary so the exit path is checkable without a release build and a
-// headless Chromium — see `clock_exit_path.test.cjs`.
+// `clock_run.cjs` gates all three — unverified writes, the band ceiling, the
+// positive control. This is that shape, with the decision in ONE pure
+// function over a flat summary so the exit path is checkable without a
+// release build and a headless Chromium — see `clock_exit_path.test.cjs`.
 //
 // The four conditions are INDEPENDENT: each refuses on its own, and when
-// several fire every one of them is named. Precedence preserves every code
-// this driver already had — a run that exited 1 still exits 1, a run the
-// arm-order guard refused still exits 2 — so nothing that used to refuse now
-// refuses differently.
+// several fire every one of them is named. Precedence puts the run's own
+// failure (1) and the arm-order guard (2) first, so a run refused by either
+// exits with that code whatever else fires.
 //
 // No refusal suppresses output, and none ever discards a completed
 // measurement: the tables are printed and the datasets are written whatever
 // this returns. A refusal is about what may be QUOTED, not about throwing
 // the measurement away.
 //
-// What a refusal DOES decide is where the datasets land (rf2-2rtt6.31). The
+// What a refusal DOES decide is where the datasets land. The
 // canonical directory is the PUBLISHED EVIDENCE SET, not "the last file this
 // driver wrote", so a refused run is written to a `.unpublished` sibling and
 // stamped `canonical: false` in the file rather than replacing the rows the
 // studio page cites. Capture is not publication. See `destination` below —
-// which is why this verdict is now computed BEFORE the write, not after it.
+// which is why this verdict is computed BEFORE the write, not after it.
 
 /** The flat record the exit is decided on: one entry per row actually taken. */
 function summarise(failed, results) {
@@ -832,18 +828,17 @@ function verdict(summary) {
 // Where a run's datasets may be written
 // ---------------------------------------------------------------------------
 
-// WHERE A RUN'S DATASETS MAY BE WRITTEN (rf2-2rtt6.31, the write-before-refuse
-// ruling; census_clock_run.cjs / rf2-2rtt6.56 carries the same rule).
+// WHERE A RUN'S DATASETS MAY BE WRITTEN (census_clock_run.cjs carries the same
+// rule).
 //
 // `verdict` decides what may be QUOTED. This decides what may be WRITTEN, and
-// it is a separate question this driver got wrong in the same direction its
-// sibling did. The datasets were written under the CANONICAL filenames before
-// the refusal was consulted, whatever shape the run had — so a run narrowed to
-// one adapter (HD8CLOCK_ONLY), taken with `--no-build` against whatever bundle
-// happened to be on disk, taken at an overridden depth, or one the verdict then
-// REFUSED, silently replaced the published evidence the studio page cites.
-// Nothing announced it: the write had already landed, and the nonzero exit
-// arrived afterwards. rf2-rr6do repaired the exit path; this is the write path,
+// it is a separate question. Datasets written under the CANONICAL filenames
+// before the refusal is consulted, whatever shape the run had, would let a run
+// narrowed to one adapter (HD8CLOCK_ONLY), taken with `--no-build` against
+// whatever bundle happened to be on disk, taken at an overridden depth, or one
+// the verdict then REFUSES, silently replace the published evidence the studio
+// page cites, with nothing to announce it: the nonzero exit would arrive only
+// once the write had landed. rf2-rr6do repaired the exit path; this is the write path,
 // the other half of the same fail-open.
 //
 // THE RULE: the canonical directory holds the PUBLISHED SHAPE and nothing
@@ -881,12 +876,12 @@ function destination(shape, code) {
  * the studio page is a function of, so the page can be recomputed from the
  * tree.
  *
- * Lifted out of `drive` deliberately. Serialising a row means naming its
- * refusal fields (`guardRefuse`, `ceilingBreached`, …), and `drive` is held to
- * an invariant that nothing downstream of `verdict` may name one — the check
- * that stops a second exit path growing back (`clock_exit_path.test.cjs`).
- * The write now happens after the verdict, so the serialiser has to live
- * outside it. Recording is not deciding, and this is where that shows.
+ * Outside `drive` deliberately. Serialising a row means naming its refusal
+ * fields (`guardRefuse`, `ceilingBreached`, …), and `drive` is held to an
+ * invariant that nothing downstream of `verdict` may name one — the check
+ * that stops a second exit path growing (`clock_exit_path.test.cjs`). The
+ * write happens after the verdict, so the serialiser has to live outside
+ * it. Recording is not deciding, and this is where that shows.
  */
 function datasetFor(rows, meta) {
   return {
@@ -915,15 +910,13 @@ function datasetFor(rows, meta) {
       // smallest of which is the finest interval the published clock
       // resolved here.
       //
-      // rf2-dzus. `runRow` has always measured it and `report` has always
-      // printed it; this function dropped it. So a dataset carried durations
-      // with no record of what could be told apart from what, and "was this
-      // measurable?" had to be answered from outside the file — from a
-      // remembered constant, which is the failure `rf2-d2tzk` closed on the
-      // in-page clock and `clock_run.cjs` had already closed here. This
-      // driver took that driver's contract and did not inherit this part of
-      // it. Persisting it backfills nothing: the grain travels with the NEXT
-      // canonical run, not with this line.
+      // `runRow` measures it and `report` prints it, and it is kept here too:
+      // without it a dataset carries durations with no record of what can
+      // be told apart from what, and "was this measurable?" has to be
+      // answered from outside the file — from a remembered constant.
+      // `clock_run.cjs` keeps it for the same reason. Persisting it
+      // backfills nothing: a committed dataset without this field has no
+      // grain on record.
       granularity: r.granularity,
       tally: r.tally,
       runtime: r.runtime,
@@ -990,11 +983,11 @@ async function drive() {
   console.log(`;;   guard tol   ${TOLERANCE} on raw TaskDuration (HD-008's stated mount choice)`);
   console.log(`;;   band ceil   ${(seamlib.BAND_CEILING * 100).toFixed(0)}% on raw TaskDuration (rf2-ymi6j)`);
   console.log(';; ==== PREDICTIONS, REGISTERED BEFORE ANY CLOCK ====');
-  console.log(';;   P1  ctl-2x reads BELOW 2.00x on every mount row — toward rf2-jcm3p\'s 1.8173x —');
+  console.log(';;   P1  ctl-2x reads BELOW 2.00x on every mount row — toward the recorded 1.8173x —');
   console.log(';;       and inside the strict +/-25% band unless block scatter is wide.');
   console.log(';;   P2  DIRECTION ONLY: the donor and uix columns sit BELOW the published in-page');
-  console.log(';;       rows\' implied position — .13/.25 removed numerator work. No magnitude predicted.');
-  console.log(';;   P3  uix / reagent (reagent run) reads NEARER PARITY than the pre-landing rows');
+  console.log(';;       rows\' implied position — the spine\'s dead-handle release and provisional hand-off remove numerator work. No magnitude predicted.');
+  console.log(';;   P3  uix / reagent (reagent run) reads NEARER PARITY than the published in-page rows');
   console.log(';;       implied (~1.12–1.17 on the in-page clock).');
 
   if (!NO_BUILD) build();
@@ -1057,9 +1050,9 @@ async function drive() {
     }
   }
 
-  console.log('\n;; ==== THE RULING IS NOT THIS INSTRUMENT\'S TO ISSUE ====');
-  console.log(';;   The verdict against the amended mount gate is the bead\'s to state and the');
-  console.log(';;   operator\'s to overturn (rf2-2rtt6.1). This driver prints measurements and');
+  console.log('\n;; ==== THE VERDICT IS NOT THIS INSTRUMENT\'S TO ISSUE ====');
+  console.log(';;   The verdict against the mount gate is the governance set\'s to state and the');
+  console.log(';;   operator\'s to overturn. This driver prints measurements and');
   console.log(';;   per-pair adjudications against the recorded line; nothing here amends the bar.');
 
   for (const line of v.lines) console.error(line);

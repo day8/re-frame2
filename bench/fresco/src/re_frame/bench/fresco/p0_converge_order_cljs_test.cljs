@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.p0-converge-order-cljs-test
   "THE SEGMENT-ORDER VERDICT, replayed against the numbers it was built to
-  judge (rf2-a4x1o).
+  judge.
 
   `p0-converge-app/segment-order-verdict` partitions a cross-segment
   figure by which segment ran FIRST in each round — the question
@@ -11,24 +11,21 @@
   tested. These are the PUBLISHED per-round vectors from
   `docs/design/fresco/studio/p0-converged-witness-set.md`, replayed:
   the run the red-zone table was taken from, and the independent
-  four-row reproduction sweep (rf2-rjfz1) taken at main `32cb224d6e`.
-  Both are on the page, both are five rounds, and both ran the only
-  schedule that existed before rf2-6i0i2 — round 0 led by the Reagent
-  segment, alternating — so rounds 0, 2, 4 are Reagent-first and rounds
-  1, 3 are UIx-first, in both, and every replay below says so with an
-  explicit `:reagent-subs` start.
+  four-row reproduction sweep taken at main `32cb224d6e`. Both are on
+  the page, both are five rounds, and both ran a constant-start
+  schedule — round 0 led by the Reagent segment, alternating — so rounds
+  0, 2, 4 are Reagent-first and rounds 1, 3 are UIx-first, in both, and
+  every replay below says so with an explicit `:reagent-subs` start.
 
-  What the replay establishes, and it is the whole of rf2-a4x1o's second
-  item:
+  What the replay establishes:
 
-  1. The M1 partition the PR #7268 audit reported is REPRODUCED exactly
-     from the published vector — the strata are disjoint, so the
-     operative `1.2301` is a mean over a split whose two halves do not
-     meet.
-  2. The same partition applied to the other three published rows agrees
-     with the audit on M2 and broad, and DISAGREES on narrow: the
-     CURRENT (batched) narrow row's strata are disjoint too. Only the
-     SUPERSEDED unbatched narrow row overlaps.
+  1. The M1 partition is REPRODUCED exactly from the published vector —
+     the strata are disjoint, so the operative `1.2301` is a mean over a
+     split whose two halves do not meet.
+  2. The same partition applied to the other three published rows
+     OVERLAPS on M2 and broad, and NOT on narrow: the CURRENT (batched)
+     narrow row's strata are disjoint too. Only the SUPERSEDED unbatched
+     narrow row overlaps.
   3. Across the two runs, WHICH rows split disjointly MOVES — M1 and
      narrow in the published run, broad in the sweep, and no row in
      both. At a 3:2 split a disjoint partition arises in 2 of the
@@ -39,18 +36,17 @@
      what the fail-closed half of the verdict tests — and it never
      fires on any published row.
 
-  ## The balanced ensemble's observation table (rf2-6i0i2)
+  ## The balanced ensemble's observation table
 
-  The PR #7303 audit found that the ten-run counterbalanced ensemble
-  published only GROUP MEANS, intervals, ranges and p-values: the ten
-  per-run threshold means and the ten per-run `d` values reached no
-  committed file, so the central statistics could not be recomputed
-  from the repository.
+  The studio page publishes only the ten-run counterbalanced ensemble's
+  GROUP MEANS, intervals, ranges and p-values. Without the ten per-run
+  threshold means and the ten per-run `d` values, its central statistics
+  cannot be recomputed from the repository.
 
   [[ensemble]] is that table, whole — all forty cells, recovered from
   the ten runs' own console logs (see its docstring for the provenance,
   which matters: recovered, not re-run). Everything the studio page
-  publishes about the ensemble is now DERIVED here from those forty
+  publishes about the ensemble is DERIVED here from those forty
   cells and checked against the page's claims, which are transcribed
   into [[view-1]], [[view-1-p]], [[view-2]], [[components]] and
   [[published-threshold]] purely so that the derivation has something
@@ -60,13 +56,13 @@
   both start-group means, the difference, the threshold, mean `d`, the
   ratio, the order and temporal components, the composite — and BOTH
   p columns, the 252-relabelling permutation test and the 1024-assignment
-  sign-flip test, which the audit correctly said could not be checked
-  and now can. So do the prose counts: 37 of 40 strata overlapping, 23
+  sign-flip test, neither of which can be checked without the table. So
+  do the prose counts: 37 of 40 strata overlapping, 23
   of 40 Reagent-first-higher, 59 of 60 M1 rounds above 1.0.
 
   WHAT DOES NOT: the INTERVALS. Every one of them is about 2% wider
-  than the data supports, because a t multiplier for EIGHT degrees of
-  freedom was used where a mean of ten needs NINE. The error is
+  than the data supports, because the page uses a t multiplier for
+  EIGHT degrees of freedom where a mean of ten needs NINE. The error is
   conservative and changes no verdict, but it is real and it is
   reported rather than absorbed — see
   [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
@@ -93,11 +89,11 @@
 
 (def ^:private superseded-narrow
   "The unbatched narrow row, struck through on the page and kept here
-  because it is the row the audit's `narrow overlaps` reading came from."
+  because it is the narrow row whose strata overlap."
   [1.1111 1.2500 1.2500 1.0417 1.1250])
 
 (def ^:private sweep
-  "rf2-rjfz1's independent four-row reproduction sweep at `32cb224d6e`."
+  "The independent four-row reproduction sweep at `32cb224d6e`."
   {:M1     [1.4242 1.1462 1.3611 1.3214 1.1905]
    :M2     [1.2727 0.8000 1.0000 1.0909 1.0000]
    :broad  [0.5750 0.5263 0.6176 0.5556 0.7353]
@@ -122,21 +118,21 @@
 (defn- close? [a b] (close-to? a b 0.0002))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The audit's M1 partition, reproduced from the published vector
+;; 1. The M1 partition, reproduced from the published vector
 ;; ---------------------------------------------------------------------------
 
 (deftest the-published-m1-partition-is-the-one-the-audit-reported
-  (testing "PR #7268's audit read the M1 red-zone rounds as Reagent-first
+  (testing "the M1 red-zone rounds split Reagent-first
            [1.3065 1.2388 1.3538] against UIx-first [1.1417 1.1099],
            disjoint. The verdict must derive exactly that from the
            published vector and nothing else"
     (let [r (v (:M1 published))]
       (is (= [1.3065 1.2388 1.3538] (:per-round (:reagent-first r))))
       (is (= [1.1417 1.1099] (:per-round (:uix-first r))))
-      (is (false? (:strata-overlap? r)) "disjoint, as the audit reported")
+      (is (false? (:strata-overlap? r)) "disjoint")
       (is (close? 1.2997 (:mean (:reagent-first r))))
       (is (close? 1.1258 (:mean (:uix-first r)))
-          "the audit's p50 1.1258 for the UIx-first stratum")
+          "the UIx-first stratum's 1.1258")
       (is (false? (:magnitude-resolved? r))
           "so the row may NOT publish 1.2301 as a threshold")
       (is (close? 1.2128 (:order-balanced-mean r))
@@ -157,8 +153,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest m2-and-broad-overlap-and-the-current-narrow-row-does-not
-  (testing "the audit reported M2, broad AND narrow as overlapping. Two of
-           the three reproduce; the CURRENT narrow row is disjoint, and
+  (testing "M2 and broad overlap; the CURRENT narrow row is disjoint, and
            only the SUPERSEDED unbatched one overlaps"
     (is (true?  (:strata-overlap? (v (:M2 published)))))
     (is (true?  (:strata-overlap? (v (:broad published)))))
@@ -232,8 +227,7 @@
       (is (= 3 (:n (:reagent-first r))))
       (is (= 2 (:n (:uix-first r))))))
   (testing "at an EVEN round count the two estimators coincide by
-           construction — the repair rf2-6i0i2 took, and the design the
-           entry now runs"
+           construction — which is why the entry runs six"
     (let [vs [1.10 1.20 1.30 1.40 1.50 1.60]
           r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)]
       (is (true? (:balanced-design? r)))
@@ -249,9 +243,8 @@
 (deftest the-strata-are-keyed-by-the-segment-that-actually-led
   (testing "flipping the start swaps which index-parity lands in which
            stratum: a UIx-start run's even rounds ARE its UIx-first
-           rounds. Before rf2-6i0i2 the start was constant, so `Reagent
-           first` and `rounds 0, 2, 4` were the same set in every run —
-           which is exactly the confound the counterbalanced runs exist
+           rounds. Under a constant start `Reagent first` and `rounds 0,
+           2, 4` would be the same set in every run — which is exactly the confound the counterbalanced runs exist
            to break"
     (let [vs [1.30 1.10 1.25 1.12 1.35 1.11]
           r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
@@ -276,7 +269,7 @@
       (is (true? (:refuse? u))))))
 
 ;; ---------------------------------------------------------------------------
-;; The reactive leg, replayed (rf2-2rtt6.21)
+;; The reactive leg, replayed
 ;; ---------------------------------------------------------------------------
 
 (def ^:private leg
@@ -333,7 +326,7 @@
       (is (false? (:refuse? r)) (str row)))))
 
 (def ^:private first-author
-  "rf2-2rtt6.2's publication run and rf2-2rtt6.17's two re-runs of its OWN
+  "The first author's publication run and two re-runs of its OWN
   `:reagent-ratom` arm — the run mean and the per-round range of each,
   exactly as the studio page tabulates them beside this ensemble.
 
@@ -348,8 +341,8 @@
            {:mean 2.073 :min 2.000 :max 2.167}]})
 
 (deftest the-leg-does-not-reproduce-the-first-authors-magnitude
-  (testing "and the MAGNITUDE is not corroborated, which is the finding
-           rf2-2rtt6.21 exists to surface. rf2-2rtt6.2 publishes 1.218 /
+  (testing "and the MAGNITUDE is not corroborated. The first author
+           publishes 1.218 /
            1.216 / 1.213 on M1 and 2.008 / 1.965 / 2.073 on broad, and
            every one of these RUN MEANS sits above every one of those.
            That is the separation the studio page claims, and it is
@@ -368,19 +361,13 @@
                  "must clear the HIGHEST of the first author's three"))))))
 
 (deftest the-round-ranges-overlap-so-the-separation-is-not-a-round-level-claim
-  (testing "THE CORRECTION the PR #7310 audit required (rf2-2rtt6.21). The
-           replay above used to carry a third assertion —
-           `min(second-author round) > 1.24` — under a message reading
-           `1.2500 still sits above the first author's re-run maxima of
-           1.241 AND 1.273`. It does not: 1.2500 is below 1.273, so the
-           message made a FALSE round-level claim look pinned by a test
-           that was only ever pinning 1.24.
-
-           The round ranges OVERLAP, which is what the studio page has
-           always said — `overlap at the edges, 1.1667 - 1.3175 against
-           1.2500 - 1.4822, while the run means are disjoint`. So the
-           round-level reading is pinned FALSE here rather than merely
-           deleted: a later hand that reinstates it reds this test"
+  (testing "the separation is a RUN-level claim and not a round-level
+           one. The round ranges OVERLAP, as the studio page says —
+           `overlap at the edges, 1.1667 - 1.3175 against 1.2500 - 1.4822,
+           while the run means are disjoint` — so the second author's
+           1.2500 sits BELOW the first author's re-run maximum of 1.273.
+           The round-level reading is pinned FALSE here, so an assertion
+           that the two ensembles separate round by round reds this test"
     (doseq [row [:M1 :broad]]
       (let [lowest-second (apply min (mapcat :vs (get leg row)))
             highest-first (apply max (map :max (get first-author row)))]
@@ -391,20 +378,18 @@
                  "by round — only run mean by run mean"))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE BALANCED ENSEMBLE'S OBSERVATION TABLE (rf2-6i0i2, the PR #7303 audit)
+;; THE BALANCED ENSEMBLE'S OBSERVATION TABLE
 ;;
 ;; Ten independently launched six-round runs, the starting segment
-;; counterbalanced five and five. The studio page published the SUMMARIES of
-;; this table and committed nothing behind them, which is what the audit
-;; found. The table itself is below — all forty cells — so every figure in
-;; both views is now derived here rather than asserted there.
+;; counterbalanced five and five. The studio page publishes the SUMMARIES of
+;; this table; the table itself is below — all forty cells — so every figure
+;; in both views is derived here rather than asserted there.
 ;;
 ;; PROVENANCE, because recovered data is not the same as measured data and
 ;; must not be passed off as it. These are the CONSOLE LOGS OF THE TEN RUNS
-;; THEMSELVES, taken at the ensemble's landed anchor and recovered from an
-;; out-of-tree backup after the producing worktree was reaped. They are NOT a
-;; re-run: nothing here was measured again, no browser was opened, and the
-;; machine has since moved. Each cell is the `:threshold :per-round` vector
+;; THEMSELVES, taken at the ensemble's anchor and recovered from an
+;; out-of-tree backup. They are NOT a re-run: nothing here was measured again
+;; and no browser was opened. Each cell is the `:threshold :per-round` vector
 ;; of that run's `red-zone` record, transcribed by script rather than by
 ;; hand. The pilot runs that share the backup directory (`run1..run6`,
 ;; `runA1..runA3`) are NOT this ensemble and are deliberately absent.
@@ -428,8 +413,8 @@
   The vectors are the instrument's four-decimal output. The instrument
   rounds a mean from UNROUNDED readings while rounding each round
   separately for display, so a mean re-derived from these vectors can
-  differ from the instrument's own in the fourth decimal. It never
-  exceeded 0.0006 on any figure below, and the tolerances say so."
+  differ from the instrument's own in the fourth decimal. It does not
+  exceed 0.0006 on any figure below, and the tolerances say so."
   [{:run  1 :start :reagent-subs
     :M1     [1.4286 0.9529 1.2681 1.2186 1.1378 1.2892]
     :M2     [0.8571 1.3846 1.0714 1.0000 1.0794 0.8889]
@@ -512,7 +497,7 @@
   READ AS the ORDER term and half their difference AS the TEMPORAL one --
   a DESCRIPTIVE split, exact only under an additive, antisymmetric
   temporal model that a counterbalanced-but-alternated design makes
-  available rather than establishes (rf2-6i0i2). The assertions below
+  available rather than establishes. The assertions below
   check the ARITHMETIC of that split, not the attribution."
   {:M1        {:order +0.0357 :temporal -0.0212 :p 0.421}
    :M2        {:order -0.0837 :temporal +0.0632 :p 0.318}
@@ -547,7 +532,7 @@
   two-sample five-against-five contrast the `resolution limit` column
   reports, and — see
   [[the-published-intervals-used-eight-degrees-of-freedom-where-nine-is-right]]
-  — the multiplier the page also used for its one-sample intervals,
+  — the multiplier the page also uses for its one-sample intervals,
   which is an error."
   2.306004)
 
@@ -559,7 +544,7 @@
       d = ln( mean of the Reagent-first stratum / mean of the UIx-first stratum )
 
   positive when the figure reads higher with the Reagent segment
-  leading, which is the direction the withdrawn claim asserted.
+  leading, which is the direction the order-effect hypothesis names.
 
   The PARTITION comes from `segment-order-verdict`, so this and the
   published strata cannot drift apart — but the two stratum means are
@@ -620,7 +605,7 @@
 
 (defn- sign-flip-p
   "EXACT one-sided sign-flip *p* over all 2^10 = 1024 sign assignments,
-  in the positive direction the withdrawn claim named. Exact only under
+  in the positive direction the order-effect hypothesis names. Exact only under
   sign symmetry of `d` under the null — again an assumption, stated on
   the page, not established by the design."
   [ds]
@@ -656,8 +641,8 @@
   (testing "the ten labels were ALTERNATED, not drawn at random, so
            `Reagent-start` and `odd-numbered launch` name the same five
            runs. A drift across the session would therefore reproduce a
-           start effect exactly — the same confound the five-round
-           design had between segment order and round parity, moved up
+           start effect exactly — the same confound a constant-start
+           design has between segment order and round parity, moved up
            to the run level. It is why the permutation and sign-flip
            p-values below are exact only under an assumption, and the
            page states the assumption rather than leaving it to the
@@ -669,7 +654,7 @@
   (testing "the page prints one run's vectors in full — the run the
            design nominated in advance — and they are this table's first
            entry. That is the join between the recovered logs and what
-           was already published, and it is what identifies the backup
+           the page prints, and it is what identifies the backup
            as THIS ensemble rather than one of the pilots beside it"
     (let [r1 (first ensemble)]
       (is (= 1 (:run r1)))
@@ -717,7 +702,7 @@
         (is (close? difference (- (mean rs) (mean us))) (name row))))))
 
 (deftest view-1s-permutation-p-reproduces
-  (testing "THE FIRST OF THE TWO p COLUMNS THE AUDIT COULD NOT CHECK.
+  (testing "THE FIRST OF THE TWO p COLUMNS ONLY THE TABLE CAN CHECK.
            All 252 relabellings of the ten runs into two fives,
            enumerated, counting those whose group difference is at least
            the observed one in absolute value. The page publishes 0.770 /
@@ -752,9 +737,9 @@
         (is (= positive (count (filter pos? d))) (name row))))))
 
 (deftest view-2s-sign-flip-p-reproduces
-  (testing "THE SECOND p COLUMN THE AUDIT COULD NOT CHECK. All 1024 sign
-           assignments, one-sided in the direction the withdrawn claim
-           named. The page publishes 0.084 / 0.889 / 0.856 / 0.302 and
+  (testing "THE SECOND p COLUMN ONLY THE TABLE CAN CHECK. All 1024 sign
+           assignments, one-sided in the direction the order-effect
+           hypothesis names. The page publishes 0.084 / 0.889 / 0.856 / 0.302 and
            the data yields them — including M1's 0.084, the largest lean
            on the page and still not significant"
     (doseq [row rows]
@@ -851,8 +836,8 @@
           "and the fail-closed DIRECTION half never fires on any of the forty")))
   (testing "`counted the way the page counted it — 40 row-runs treated as
            if independent — the Reagent-first stratum is higher in 23 of
-           40`, which is the discredited 11-of-12 restated on the
-           balanced design and no longer an effect"
+           40`, which is the discredited 11-of-12 statistic restated on
+           the balanced design, where it is not an effect"
     (is (= 23 (count (for [run ensemble row rows
                            :let [v (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
                            :when (> (:mean (:reagent-first v)) (:mean (:uix-first v)))]
@@ -870,11 +855,11 @@
            The cause is identifiable rather than guessed. An interval on
            the mean of TEN run means is a one-sample Student-t interval
            with n − 1 = NINE degrees of freedom, t = 2.2622. The
-           multiplier the page actually used is ~2.306 — t at EIGHT
+           multiplier the page actually uses is ~2.306 — t at EIGHT
            degrees of freedom, which is the CORRECT multiplier for the
            two-sample five-against-five `resolution limit` column
            standing beside it, and which reproduces exactly there. The
-           same t was reused for the one-sample case.
+           same t is reused for the one-sample case.
 
            This test asserts the diagnosis both ways: the published
            half-width is NOT t-9 times the standard error, and IS t-8
@@ -928,16 +913,15 @@
            three of the ten read below 1.0 outright"))))
 
 ;; ---------------------------------------------------------------------------
-;; THE POST-.25 RE-TAKE'S OBSERVATION TABLE (rf2-b0tz5)
+;; THE RE-TAKE'S OBSERVATION TABLE, ON THE CONVERGED INSTRUMENT
 ;; ---------------------------------------------------------------------------
 ;;
-;; PR #7315 restated the M1 mount line on the post-`.25` tree and published,
-;; for the four runs it accepted, a point estimate, a 95% interval and a
-;; min–max range per row — plus M1's four run means and nothing else. The
-;; merged-PR audit found that this repeats the gap #7312 had just closed one
-;; section above: the intervals that decided *not restated* on M2, broad and
-;; narrow could not be recomputed from the repository, because the numbers
-;; they are computed FROM had never reached it.
+;; The re-take restates the M1 mount line on the converged instrument, and
+;; the studio page prints a point estimate, a 95% interval and a min–max
+;; range per row — plus M1's run means and nothing else. Those intervals
+;; decide *not restated* on M2, broad and narrow, and without the run means
+;; they are computed FROM they cannot be recomputed from the repository —
+;; the gap the ensemble's table closes one section above.
 ;;
 ;; [[retake]] is that table. Every figure the studio page prints about the
 ;; re-take is derived below from these twenty cells and checked against the
@@ -945,14 +929,11 @@
 ;; derivation has something to be checked against.
 ;;
 ;; PROVENANCE, and it is NOT the same as the ensemble's. Nothing here was
-;; measured for this fixture and no browser was opened: the operator has
-;; deferred measurement while the adapter is built, and five sibling workers
-;; were on the box. The producing worktree (`worker/clockline-b0tz5`) was
-;; reaped with its `ai/bench-logs/` inside it, so the run logs themselves are
-;; gone. What survives is the producing agent's own transcript, which
-;; captured the driver's console output and the analysis run over those logs
-;; verbatim; the cells below are transcribed from it. Two consequences,
-;; stated rather than glossed:
+;; measured for this fixture and no browser was opened. The run logs
+;; themselves do not survive; what does is a transcript that captured the
+;; driver's console output and the analysis run over those logs verbatim,
+;; and the cells below are transcribed from it. Two consequences, stated
+;; rather than glossed:
 ;;
 ;;   * The unit that survives is the RUN MEAN — each row's `red-zone :mean`
 ;;     for that run. The six per-round vectors behind each accepted run's
@@ -960,22 +941,23 @@
 ;;     [[run-5-per-round]] because the diagnosis of its refusal was
 ;;     captured in full. So every ENSEMBLE-level figure is derivable here;
 ;;     the page's per-round counts (`14 of 24 rounds above 1.0`, `1 of 8
-;;     strata wholly above`) are NOT, and the page now says so.
+;;     strata wholly above`) are NOT, and the page says so.
 ;;   * A run mean transcribed at four decimals is the instrument's own
 ;;     rounded output, so a mean re-derived from these cells can differ from
-;;     the instrument's in the fourth decimal. It never did on any figure
+;;     the instrument's in the fourth decimal. It does not on any figure
 ;;     below, and the tolerances say so.
 ;;
-;; THE SECOND FINDING, which changes a published number. The four-run set was
-;; not the launch set: a fifth run completed all four rows at measured 0%
-;; load and was dropped because the driver exits 1 when a row's two
+;; THE FIVE-RUN SET, which moves a published number. The four accepted runs
+;; are not the launch set: a fifth run completed all four rows at measured 0%
+;; load and the driver refuses it, exiting 1 because a row's two
 ;; segment-order strata point OPPOSITE WAYS across 1.0. That condition is a
-;; function of the result — and the aggregate rule this file pinned for the
+;; function of the result — and the aggregate rule this file pins for the
 ;; ensemble one section above says exactly what to do with it. See
 ;; [[the-fifth-run-was-dropped-for-the-way-its-strata-split]].
 
 (def ^:private retake
-  "THE 5 × 4 OBSERVATION TABLE of the post-`.25` re-take, complete.
+  "THE 5 × 4 OBSERVATION TABLE of the re-take on the converged
+  instrument, complete.
 
   One entry per run that completed all four rows on the converged
   instrument at whole-tree anchor `7f54c67d5a`. Each cell is that run's
@@ -1018,7 +1000,7 @@
   these two selects on the INSTRUMENT's validity and not on the result —
   which is the distinction run 5 fails and they pass.
 
-  Their row figures did not survive the reaping and are NOT reconstructed;
+  Their row figures do not survive and are NOT reconstructed;
   what survives is the exit code, the refusing row and the load either
   side, which is what the exclusion rests on anyway."
   [{:run 2 :attempt 1 :start :uix-subs :exit 2 :refused-row :narrow
@@ -1034,26 +1016,25 @@
   re-take that survived. Six rounds, round 0 led by the Reagent segment.
 
   They are here because run 5's refusal is the one thing on the page that
-  has to be re-derived rather than quoted: whether the driver was right to
-  refuse, and whether the ensemble was right to drop the run, are
-  different questions with different answers."
+  has to be re-derived rather than quoted: whether the driver is right to
+  refuse, and whether the run belongs in the ensemble, are different
+  questions with different answers."
   {:M1     [1.0345 0.9749 1.0792 0.9279 1.0459 0.8055]
    :M2     [0.8    1.1053 0.9584 0.7727 1.0    0.9091]
    :broad  [0.5938 0.6667 0.6667 0.4675 0.54   0.7467]
    :narrow [1.178  1.1033 1.1584 1.1559 1.151  1.0282]})
 
 (def ^:private retake-published
-  "What PR #7315 printed for the FOUR accepted runs — the figures the audit
-  said could not be recomputed. Transcribed so the derivation can be
-  checked against them, and superseded on the page by the five-run
-  figures below."
+  "The page's figures over the FOUR accepted runs, transcribed so the
+  derivation can be checked against them, and superseded on the page by
+  the five-run figures below."
   {:M1     {:threshold 1.0243 :lo 0.9937 :hi 1.0549 :run-min 0.9980 :run-max 1.0391}
    :M2     {:threshold 1.0071 :lo 0.8978 :hi 1.1165 :run-min 0.9302 :run-max 1.0714}
    :broad  {:threshold 0.5598 :lo 0.4781 :hi 0.6415 :run-min 0.5102 :run-max 0.6316}
    :narrow {:threshold 1.2233 :lo 1.1238 :hi 1.3228 :run-min 1.1767 :run-max 1.3090}})
 
 (def ^:private retake-corrected
-  "What the page publishes now: the same four rows over the FIVE runs the
+  "What the page publishes: the same four rows over the FIVE runs the
   ensemble actually holds, run 5 included."
   {:M1     {:threshold 1.0150 :lo 0.9820 :hi 1.0480 :run-min 0.9780 :run-max 1.0391}
    :M2     {:threshold 0.9905 :lo 0.9035 :hi 1.0776 :run-min 0.9242 :run-max 1.0714}
@@ -1071,15 +1052,15 @@
   2.776445)
 
 (defn- accepted-only
-  "The four runs PR #7315 published: exit 0."
+  "The four accepted runs: exit 0."
   []
   (filterv #(zero? (:exit %)) retake))
 
 (defn- retake-ci
   "Point estimate, sample sd and one-sample Student-t 95% interval on the
   mean of `runs`' means for `row`. `n − 1` degrees of freedom, which is
-  the rule the ensemble misapplied and this section applies correctly for
-  both n = 4 and n = 5."
+  the rule the ensemble's published intervals misapply and this section
+  applies for both n = 4 and n = 5."
   [runs row]
   (let [xs (mapv #(get % row) runs)
         m  (mean xs)
@@ -1097,7 +1078,7 @@
     (is (= 2 (count retake-refused)))
     (is (= [1 2 3 6 5] (mapv :run retake)))
     (is (every? #(contains? % :in-ensemble?) retake)))
-  (testing "the four PR #7315 published are the four that exited 0, and
+  (testing "the four accepted runs are the four that exited 0, and
            the fifth is the one that exited 1"
     (is (= [1 2 3 6] (mapv :run (accepted-only))))
     (is (= [5] (mapv :run (remove #(zero? (:exit %)) retake)))))
@@ -1110,9 +1091,8 @@
     (is (= 2 (count (filter #(= :uix-subs (:start %)) retake))))))
 
 (deftest every-figure-pr-7315-published-reproduces-from-the-four-cells
-  (testing "the point estimates, the intervals the audit said could not be
-           recomputed, and the run-mean ranges — all four rows, from the
-           table and nothing else"
+  (testing "the point estimates, the intervals and the run-mean ranges —
+           all four rows, from the table and nothing else"
     (doseq [row rows]
       (let [{:keys [mean lo hi run-min run-max]} (retake-ci (accepted-only) row)
             p (get retake-published row)]
@@ -1131,11 +1111,10 @@
       (is (close-to? half (* t-3 0.009616) 0.00001) "half-width = t(3) × se"))))
 
 (deftest the-not-restated-dispositions-are-arithmetic-not-assertion
-  (testing "M2, broad and narrow were held at their published values
+  (testing "M2, broad and narrow are held at their published values
            because the re-take's interval CONTAINS the published
-           magnitude. That is now checked rather than stated — on the
-           four-run set the audit questioned, and on the five-run set that
-           replaces it"
+           magnitude. That is checked rather than stated — on the four-run
+           set, and on the five-run set that replaces it"
     (doseq [runs [(accepted-only) retake]]
       (doseq [row [:M2 :broad :narrow]]
         (let [{:keys [lo hi]} (retake-ci runs row)
@@ -1185,7 +1164,7 @@
   (testing "run 5's M1 refusal is REPRODUCED from its per-round vector
            rather than quoted: the two order strata point opposite ways
            across 1.0, so `segment-order-verdict` refuses and the driver
-           exits 1. The driver was right"
+           exits 1. The driver is right"
     (let [vd (rf.bench.fresco.p0-converge-app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
       (is (true? (:refuse? vd)))
       (is (false? (:direction-agrees? vd)))
@@ -1213,20 +1192,20 @@
     (is (every? #(= 2 (:exit %)) retake-refused)
         "and the two launches that ARE excluded were excluded by the
          arm-order guard, which never looks at the ratio"))
-  (testing "dropping it is the outcome-based selection this file already
-           forbade for the ensemble one section above: `:in-an-ensemble`
-           says a row-run whose strata split is still ONE OBSERVATION,
-           because a split IS the extreme partition and excluding it moves
-           the estimate. It moved it here — away from parity, which is the
+  (testing "dropping it is the outcome-based selection this file forbids
+           for the ensemble one section above: `:in-an-ensemble` says a
+           row-run whose strata split is still ONE OBSERVATION, because a
+           split IS the extreme partition and excluding it moves the
+           estimate. Here it moves it away from parity, which is the
            direction that flatters the restatement"
     (let [four (retake-ci (accepted-only) :M1)
           five (retake-ci retake :M1)]
       (is (< (:mean five) (:mean four))
-          "the dropped run pulled the estimate toward 1.0, so dropping it pushed it away")
+          "run 5 pulls the estimate toward 1.0, so dropping it pushes it away")
       (is (close-to? (- (:mean four) (:mean five)) 0.0093 0.0002)
           "by 0.9 points")
       (is (< (:half four) (:half five))
-          "and narrowed the interval, which is the second half of the same error")))
+          "and dropping it narrows the interval, which is the second half of the same error")))
   (testing "and it changes no verdict, which is why the row is corrected
            rather than re-run: the five-run interval still contains 1.0,
            still excludes the published 1.2310, and the row is still
@@ -1277,19 +1256,18 @@
         "no run in the table claims a per-round vector it does not have")))
 
 ;; ---------------------------------------------------------------------------
-;; The flag is global and the arm is not (rf2-2rtt6.21)
+;; The flag is global and the arm is not
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `FRESCO_RATOM=on` is a page-global request; arm presence is decided per
 ;; row. With no `FRESCO_ONLY` the driver selects ALL FOUR rows, and `M2`
 ;; and `narrow` deliberately carry no `:reagent-ratom` arm — `M2`'s witness
-;; ignores the flag and `bulk-arms` admits the arm only on `:broad`. Until
-;; this section the record still read the FLAG: it divided by a ratio those
-;; rows never produced, formed a ratom floor of nothing, ran the leg verdict
-;; over the result and labelled the row as carrying the arm. The published
-;; runs escaped it only by always pairing the flag with
-;; `FRESCO_ONLY=M1,broad`, so neither CI nor the quality gates ever ran the
-;; natural flagged invocation.
+;; ignores the flag and `bulk-arms` admits the arm only on `:broad`. A
+;; record that read the FLAG would divide by a ratio those rows never
+;; produce, form a ratom floor of nothing, run the leg verdict over the
+;; result and label the row as carrying the arm — and every published run
+;; pairs the flag with `FRESCO_ONLY=M1,broad`, so neither CI nor the
+;; quality gates run the natural flagged invocation that would show it.
 ;;
 ;; Three facts, in the order the run establishes them: which arms the row's
 ;; PLAN plants, what [[rf.bench.fresco.p0-converge-app/ratom-leg]] DECIDES from a round, and what the
@@ -1335,7 +1313,7 @@
     (testing "no round measured it — nil, and NOT a quotient over a
              denominator that was never taken. This is the M2 and narrow
              case, and `subs / nil` is `Infinity` in JavaScript rather
-             than an error, so nothing downstream would have complained"
+             than an error, so nothing downstream would complain"
       (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 nil))))))
     (testing "a PARTIAL arm is no arm: one round short and the leg is nil,
              because a figure that quietly changes what it averages over
@@ -1412,8 +1390,8 @@
 
 (deftest an-m2-or-narrow-only-flagged-selection-emits-no-leg-and-no-infinity
   (testing "`FRESCO_RATOM=on FRESCO_ONLY=M2,narrow` — the selection
-           nobody published from, CI never ran and the quality gates never
-           exercised, which is precisely why it was the broken one. Both
+           nobody publishes from, CI never runs and the quality gates never
+           exercise, which is precisely why it is pinned here. Both
            rows must answer with no leg at all rather than with a division
            by a denominator they never measured"
     (doseq [row [:M2 :narrow]]

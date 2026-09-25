@@ -1,28 +1,28 @@
 (ns re-frame.bench.fresco.arm1.boundary-crossing-cljs-test
-  "A READ DEFERRED ACROSS A BOUNDARY CROSSING (rf2-2rtt6.45).
+  "A READ DEFERRED ACROSS A BOUNDARY CROSSING.
 
   `runtime-cljs-test`'s
   `every-read-that-escapes-the-render-is-loud-rather-than-a-missing-edge`
-  settled four escapes — a stored handler, a handler invoked, an
+  covers four escapes — a stored handler, a handler invoked, an
   author-held `delay`, and a stashed lazy seq — and all four share one
   property: the deferred read runs when **no** body is running, so
   `read-key!` finds no frame and says so. This file is about the fifth,
   which has the opposite property and is therefore silent.
 
-  ## The defect these rows are about
+  ## The hazard these rows are about
 
   `read-key!`'s guard asks *is any body running*, not *is THIS body
   running*, because `rstate` is one module-level object. A read deferred
   past its author's body and forced inside a **different** boundary's
-  render therefore does not throw: it lands on that boundary's scratch,
-  and the boundary that produced it holds no edge for it.
+  render therefore would not throw: it would land on that boundary's
+  scratch, and the boundary that produced it would hold no edge for it.
 
   The carrier is the boundary hand-off. `convert-prop-value` sends any
   collection at a NATIVE prop position through `clj->js`, so the eager
   codec really does force everything it walks there — but
   `boundary-element` hands `body-props` across as a raw ClojureScript
-  map, and the shell reads it back as one. No conversion, no walk, no
-  realisation:
+  map, and the shell reads it back as one. No conversion, and so —
+  without the walk below — no realisation:
 
       (defview child  [{:keys [rows]}] [:ul (for [r rows] [:li (str r)])])
       (defview parent [_] [child {:rows (for [id (sub [:visible-ids])]
@@ -31,12 +31,12 @@
   `(sub [:visible-ids])` is the `for`'s binding expression and runs
   eagerly; every `(sub [:todo id])` runs when the CHILD walks the seq.
 
-  **And it does not merely put the edge on the wrong boundary.** A
-  `LazySeq` caches what it realised, so the wrong reader re-renders
+  **And it would not merely put the edge on the wrong boundary.** A
+  `LazySeq` caches what it realised, so the wrong reader would re-render
   exactly once: on that re-render its body walks an already-realised
   seq, `sub` is never called, its read set collapses to the empty set,
   React re-subscribes and the row edges are dropped. The right reader
-  never re-rendered, so the seq is never rebuilt. One correction, then a
+  never re-renders, so the seq is never rebuilt. One correction, then a
   value that is **correct on screen, frozen thereafter, attributable to
   nothing** — the class the judgement page calls the worst failure this
   surface can have.
@@ -50,11 +50,11 @@
   identity, because realising a `LazySeq` caches into the seq and copies
   nothing. The read is then forced by the same pass that turns hiccup
   into elements, inside the window of the body that WROTE it, which is
-  the property the eager codec was always supposed to have.
+  the property the eager codec is supposed to have.
 
   It is emphatically not per-boundary render identity: nothing here can
-  tell one render attempt from another, `rstate` is still one object, and
-  the shell still holds two hooks and no per-instance state.
+  tell one render attempt from another, `rstate` is one object, and the
+  shell holds two hooks and no per-instance state.
 
   ## What these rows are
 
@@ -182,8 +182,8 @@
       (is (= #{} (:reads first')))
       (is (= #{} (:reads again))
           "the second walk of a realised seq calls `sub` zero times — true
-           before this fix and after it; what changed is who holds the edge
-           when it happens"))))
+           with or without the walk; what the walk decides is who holds the
+           edge when it happens"))))
 
 (deftest carrier-b-a-nested-seq-in-the-children-position
   (seeded!)
@@ -197,8 +197,8 @@
       (is (= 2 (count (:children props)))
           "the outer seq spliced into two children, one per chunk")
       (is (every? seq? (:children props))
-          "and each child is still a seq — the ABI's one-level splice is
-           unchanged; what changed is that the seq arrives realised")
+          "and each child is a seq — the ABI's splice is one level; the
+           seq arrives realised")
       (is (= (conj row-keys (key-of [:dogfood/visible-ids])) (:reads parent)))
       (is (= #{} (:reads child))))))
 
@@ -268,9 +268,9 @@
 
 (deftest realize-deep-walks-map-keys-without-disturbing-the-map
   (testing "descending into the key half of an entry is a READ, not a
-           rewrite (rf2-2rtt6.32). The map comes back by identity, each key
-           comes back by identity, and lookup still finds what it found
-           before — by the identical key and by an equal one, so nothing
+           rewrite. The map comes back by identity, each key comes back by
+           identity, and lookup finds what it found before the walk — by
+           the identical key and by an equal one, so nothing
            the map hashed has moved"
     (let [composite [:composite 1]
           m         {composite :a :plain :b "s" :c 7 :d}
@@ -293,8 +293,8 @@
       (is (= 17 (get walked [:k 17]))))))
 
 (deftest realize-deep-reaches-a-lazy-seq-at-a-key-position-too
-  (testing "the reason keys were skipped was that hashing a seq realises
-           it, so nothing unrealised could already be one. A small map
+  (testing "skipping keys would assume that hashing a seq realises it, so
+           nothing unrealised could already be one. A small map
            literal is a `PersistentArrayMap`: it compares keys with `=`
            against what it has already accumulated and hashes nothing, so
            the first key of a one-entry map is never touched. The seq
@@ -318,7 +318,7 @@
     (is (not (coll? :k)))
     (is (not (delay? :k))))
   (testing "and the guard skips the KEY, never the entry: a keyword-keyed
-           entry's value half is walked exactly as before"
+           entry's value half is walked like any other entry's"
     (is (thrown-with-msg? js/Error #"unforced `delay` reached a boundary's props"
                           (rf.bench.fresco.front.codec/realize-deep {:k (delay 1)})))
     (let [!n (volatile! 0)]

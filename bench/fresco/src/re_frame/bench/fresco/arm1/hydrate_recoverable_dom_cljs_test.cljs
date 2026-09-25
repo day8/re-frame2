@@ -1,12 +1,12 @@
 (ns re-frame.bench.fresco.arm1.hydrate-recoverable-dom-cljs-test
-  "THE HYDRATE DOOR'S RECOVERABLE-ERROR REPORTER (rf2-2rtt6.97).
+  "THE HYDRATE DOOR'S RECOVERABLE-ERROR REPORTER.
 
-  `arm1/mount/hydrate-root!` used to call `hydrateRoot` with no root
-  options at all, so React's DEFAULT `onRecoverableError` ran and a
-  hydration mismatch was an uncaught window error and NOTHING ELSE:
-  Spec 011's `:rf.ssr/hydration-mismatch` never fired, and a mismatch was
-  invisible to every tool that reads the instrumentation stream. This
-  file is the witness for the repair.
+  `arm1/mount/hydrate-root!` installs its own `onRecoverableError`. With
+  no root options React's DEFAULT one runs and a hydration mismatch is
+  an uncaught window error and NOTHING ELSE: Spec 011's
+  `:rf.ssr/hydration-mismatch` never fires, and a mismatch is invisible
+  to every tool that reads the instrumentation stream. This file is the
+  witness for the reporter.
 
   ## What it must prove, and the shape of each proof
 
@@ -21,12 +21,12 @@
 
   Installing any `onRecoverableError` takes React's default OFF. A
   reporter that emitted the diagnostic and stopped would make the
-  mismatch quieter than it was before the repair — the browser lane's
+  mismatch quieter than React's default leaves it — the browser lane's
   runner treats an uncaught `pageerror` as fatal whatever the `cljs.test`
-  tally says (`rf2-mwx08`), and a door that swallowed the error would
-  have removed exactly that signal. So the reporter composes over
+  tally says, and a door that swallowed the error would
+  remove exactly that signal. So the reporter composes over
   React's default and never clobbers it, and the third row is what holds
-  that true. **`rf2-mwx08` is not softened here and this file must not
+  that true. **That rule is not softened here and this file must not
   be read as softening it.**
 
   ## Why two rows call `preventDefault`
@@ -37,9 +37,8 @@
   asserted on, so it is not an unasserted throw — which is the case that
   rule exists for.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM; under `:node-test` every DOM claim degrades to a stated
-  skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hydration-support
@@ -83,8 +82,8 @@
   nothing else, with no second frame, no reseed, and no second
   subscription to explain away. A single text child on purpose — React's
   SSR puts a `<!-- -->` separator between adjacent text runs and a client
-  render does not, so two children would be measuring rf2-2rtt6.88's
-  known text-separator divergence instead of this reporter."
+  render does not, so two children would be measuring that known
+  text-separator divergence instead of this reporter."
   [{:keys [label]}]
   [:div.screen [:h1.title label]])
 
@@ -136,13 +135,13 @@
 ;; ===========================================================================
 
 (deftest a-divergent-adoption-surfaces-the-framework-diagnostic
-  (testing "**the repair, stated as a measurement.** Server bytes saying
+  (testing "**the reporter, stated as a measurement.** Server bytes saying
            `server` adopted by a client tree saying `client` is a text
            divergence React RECOVERS FROM, and a recovered divergence is
            exactly what `onRecoverableError` carries. The door must
            surface it as `:rf.ssr/hydration-mismatch`, tagged with its own
-           site — with no root options this emitted NOTHING and the whole
-           complaint was an uncaught window error"
+           site — with no root options this emits NOTHING and the whole
+           complaint is an uncaught window error"
     (async done
       (if-not (rf.bench.fresco.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
@@ -234,10 +233,11 @@
 ;; ===========================================================================
 
 (deftest the-reporter-composes-over-the-default-and-does-not-swallow
-  (testing "**the row that keeps `rf2-mwx08` intact.** Installing any
+  (testing "**the row that keeps the fatal-`pageerror` rule intact.**
+           Installing any
            `onRecoverableError` takes React's default OFF, so a reporter
            that only emitted the diagnostic would make a mismatch QUIETER
-           than it was before the repair — the uncaught `pageerror` the
+           than React's default leaves it — the uncaught `pageerror` the
            runner treats as fatal would simply stop happening. Drive the
            REAL callback and read both outcomes: the diagnostic fires AND
            the error is still reported"

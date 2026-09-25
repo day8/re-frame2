@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.front.witnesses-cljs-test
-  "THE WITNESS ROSTER (rf2-2rtt6.8).
+  "THE WITNESS ROSTER.
 
   A roster whose only reader is the arm that wrote it proves nothing, so
   these tests assert the two properties that make it worth being data:
@@ -54,7 +54,7 @@
   (testing "fixed boundaries, growing reads across the 1/3/7/20 ladder"
     (is (= [100 100 100 100] (mapv :boundaries rf.bench.fresco.front.witnesses/fixed-boundaries-curve)))
     (is (= [1 3 7 20] (mapv :reads rf.bench.fresco.front.witnesses/fixed-boundaries-curve))))
-  (testing "the per-read curve is measured with distinct queries — rf2-2rtt6.16's worst case"
+  (testing "the per-read curve is measured with distinct queries — the mandatory worst case"
     (is (every? :distinct-queries? rf.bench.fresco.front.witnesses/fixed-boundaries-curve))))
 
 (deftest missing-reports-an-incomplete-run-rather-than-flattering-it

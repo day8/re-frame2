@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.shapes.bulk-dom-cljs-test
-  "**SHAPE 3'S WITNESS — the make-or-break row** (rf2-2rtt6.51).
+  "**SHAPE 3'S WITNESS — the make-or-break row**.
 
   > 3. Bulk re-render — ~300 boundaries on one commit; the make-or-break
   >    row.
@@ -27,8 +27,8 @@
      (`shapes.card`), so the roster's claim that the two shapes differ in
      exactly one authoring decision is a DOM comparison, not a docstring.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]

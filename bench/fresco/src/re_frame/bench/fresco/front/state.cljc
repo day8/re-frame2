@@ -1,13 +1,11 @@
 (ns re-frame.bench.fresco.front.state
-  "`h/reg-state` — THE INSTANCE-KEY SUGAR (rf2-2rtt6.98, HD-009 as amended
-  by the 2026-08-04 explicit-key ruling).
+  "`h/reg-state` — THE INSTANCE-KEY SUGAR (HD-009's explicit-key rule).
 
   A widget that wants a scrap of its own state — a disclosure's open flag,
   a tab strip's selection, a row's draft text — has to answer one question
-  first: *which* instance's flag is this? The guide's own answer, before
-  this ruling, was a pitfall written out in prose: pick an app-db path by
-  hand, forget to vary it per instance, and **every instance on the page
-  silently shares one value**. Two accordions open together. Nothing
+  first: *which* instance's flag is this? Answered by hand it is a
+  pitfall: pick an app-db path by hand, forget to vary it per instance,
+  and **every instance on the page silently shares one value**. Two accordions open together. Nothing
   throws, nothing logs, and the screen is simply wrong.
 
   This namespace converts that silence into a loud error, and it does so
@@ -28,8 +26,8 @@
     subscription path and therefore through whatever frame its boundary
     already resolved.
 
-  That is the whole architectural claim, and it is why this file is 200
-  lines rather than a subsystem: the sugar is a NAMING CONVENTION with
+  That is the whole architectural claim, and it is why this file is a
+  few hundred lines rather than a subsystem: the sugar is a NAMING CONVENTION with
   refusals, not a feature.
 
   ## The tier — ONE app-space conventional root, concern-first
@@ -71,14 +69,14 @@
   must be recorded — retire the concern and write a named domain event.
   This sugar is for the assignments that mean nothing but themselves.
 
-  ## What was REJECTED, and stays rejected
+  ## What is REJECTED
 
   Clear is a FRAMEWORK-NAMED EVENT, `[::h/clear ::concern ikey]`, and not
-  a sentinel VALUE. The rejected variant put `::h/clear` in the value
-  position of the ordinary setter — which reads beautifully right up to
+  a sentinel VALUE. A sentinel variant — `::h/clear` in the value
+  position of the ordinary setter — reads beautifully right up to
   the first concern whose values are keywords, at which point setting the
   concern to a legitimate value would silently `dissoc` it instead. That
-  is a fail-silent hazard of exactly the class this whole ruling exists to
+  is a fail-silent hazard of exactly the class HD-009's rule exists to
   delete, so there is no sentinel here and no \"convenience\" arity that
   accepts one."
   (:require [re-frame.events :as rf.events]
@@ -244,8 +242,8 @@
   refresh, which is what a namespace reload is. Re-registering it with a
   DIFFERENT `:default` **refuses**: the un-set instances of a live widget
   would otherwise start reading a different value with nothing on screen
-  to say why. That is the stricter of the two behaviours the ruling
-  allowed, and its cost is honest — changing a `:default` in a
+  to say why. That is the stricter of the two behaviours HD-009 allows,
+  and its cost is honest — changing a `:default` in a
   hot-reloading dev session needs a page reload.
 
   Returns `concern`.

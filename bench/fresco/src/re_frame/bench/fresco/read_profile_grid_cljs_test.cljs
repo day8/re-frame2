@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.read-profile-grid-cljs-test
   "PHASE B'S PRINTED GRID IS DERIVED FROM THE KEPT COUNT'S PARITY —
-  pinned (rf2-3l6hf, merged-PR audit of #8328).
+  pinned.
 
   `read_profile_app`'s phase B prints a `grid = …` figure that tells a
   reader the finest spacing any row or delta below it can land on. It is
@@ -10,20 +10,20 @@
 
   ## The defect this pins
 
-  The line printed `0.05 / frames-per-window` as a CONSTANT over a
-  variable, and the 0.05 was only ever true at even parity. The chain is
+  A line printing `0.05 / frames-per-window` as a CONSTANT over a
+  variable would be true only at even parity. The chain is
   three links: `rf.bench.fresco.lane/now-ms` is clamped to 100 µs, so a raw window sample
   is a multiple of 0.1 ms; `rf.bench.fresco.lane/summarise` takes the MEAN OF THE TWO
   MIDDLE order statistics when the kept count is even — putting the p50
   on a half-clamp grid — and a SINGLE order statistic when it is odd,
   where no halving happens; and the row then divides by the frame count.
 
-  Nothing held the parity. `b-rounds` and `b-sampling` are independent
-  vars in that file, their product is the kept count, and an editor
-  moving either one to an odd product would have doubled the real grid
-  while the line went on advertising the halved one. No test would have
-  noticed: the arithmetic was in a docstring and the number was a
-  literal.
+  Nothing else holds the parity. `b-rounds` and `b-sampling` are
+  independent vars in that file, their product is the kept count, and an
+  editor moving either one to an odd product would double the real grid
+  while a constant line went on advertising the halved one. With the
+  arithmetic in a docstring and the number a literal, no test would
+  notice.
 
   ## What is pinned, and what deliberately is not
 
@@ -35,8 +35,7 @@
   design line prints what the derivation returns rather than a constant
   standing next to it. Row 4 is the one that actually forecloses the
   defect: it drives the line at an ODD kept count, which the live shape
-  is not, so it fails the moment the number goes back to being a
-  literal.
+  is not, so it fails the moment the number becomes a literal.
 
   Row 5 reads the LIVE shape through `rf.bench.fresco.read-profile-app/phase-b-shape` and states its
   parity and grid. It is not a bar on the shape — the instrument is free
@@ -102,8 +101,8 @@
     (is (= (/ 0.05 32) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 32))
         "8 x 8 = 64 kept, even")
     (is (= (/ 0.05 4) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 4 {:warmup 2 :samples 6} 4))
-        "4 x 6 = 24 kept, even — the shape rf2-d360z published, whose
-         deltas were all multiples of 0.0125"))
+        "4 x 6 = 24 kept, even — a shape whose deltas all land on
+         multiples of 0.0125"))
 
   (testing "odd kept total → the FULL clamp over frames, twice as coarse"
     (is (= (/ 0.1 32) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 9 {:warmup 2 :samples 7} 32))
@@ -138,10 +137,9 @@
       (is (re-find #"kept = 56 samples/arm \(EVEN" line))
       (is (re-find #"grid = 0\.001563 ms/commit" line))))
 
-  (testing "AT AN ODD PRODUCT THE SAME LINE DOUBLES. This is the row the
-           defect could not have survived: the old line held 0.05 as a
-           literal and would print 0.001563 here, understating the real
-           grid by 2x"
+  (testing "AT AN ODD PRODUCT THE SAME LINE DOUBLES. This is the row a
+           literal cannot survive: a line holding 0.05 as a constant
+           would print 0.001563 here, understating the real grid by 2x"
     (let [line (rf.bench.fresco.read-profile-app/phase-b-design-line 9 {:warmup 2 :samples 7} 32)]
       (is (re-find #"kept = 63 samples/arm \(ODD" line))
       (is (re-find #"a single clock reading" line))

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 'use strict';
-// THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — driver
-// (rf2-2rtt6.52's landing bar).
+// THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — driver for the
+// bail-out's landing bar.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/chrome_run.cjs
+//   node src/re_frame/bench/fresco/chrome_run.cjs   (from bench/fresco/)
 //   CHROME_ROUNDS=8 node .../chrome_run.cjs
 //   CHROME_ONLY=chrome,bulk node .../chrome_run.cjs
 //
-// HD-028 makes a value-equality bail-out the boundary DEFAULT, and the
-// ruling made that conditional on this measurement: the default lands if
+// HD-028 makes a value-equality bail-out the boundary DEFAULT, conditional
+// on this measurement: the default holds if
 // it removes the 300-row cascade *without a material mount/bulk
 // regression and without pushing retained heap meaningfully farther past
 // the bar*. The comparator takes React's full MemoComponent path and adds
@@ -18,10 +18,10 @@
 //
 // ## What this is, and what it is NOT
 //
-// It is a **self-comparison** of one substrate against itself with one
-// line changed — `:memo` (mint-view! + the codec's stable wrapper) versus
-// `:plain` (marked only, which is mint-view! exactly as it stood before
-// the repair). Both arms render the same page, the same card markup and
+// It is a **self-comparison** of one substrate against itself, one line
+// apart — `:memo` (mint-view! + the codec's stable wrapper) versus
+// `:plain` (marked only, which is mint-view! without the wrapper). Both
+// arms render the same page, the same card markup and
 // the same bodies over the same model.
 //
 // It is NOT the comparative bulk ladder against Reagent. That row is
@@ -46,9 +46,8 @@
 // mount and hold; collect, read; release; collect, read. Per-boundary
 // exclusive retained is (held - baseline) / boundaries, and the
 // after-release reading is the leak check that makes the held one
-// meaningful (`reads_ladder_run.cjs`'s discipline, and its reason: V8's
-// sampling profiler drops collected objects, so only a HELD page can be
-// priced).
+// meaningful (V8's sampling profiler drops collected objects, so only a
+// HELD page can be priced).
 //
 // ## Exit codes
 //
@@ -68,7 +67,7 @@ const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/c
 const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -148,10 +147,9 @@ const r4 = (x) => Math.round(x * 10000) / 10000;
 
 // --- heap, driver-owned -----------------------------------------------------
 
-// Three passes with a beat between them, `reads_ladder_run.cjs`'s
-// discipline and its reason: React roots die in stages — fibers, then the
-// host instances they point at — and a single pass leaves the second
-// stage standing.
+// Three passes with a beat between them, because React roots die in
+// stages — fibers, then the host instances they point at — and a single
+// pass leaves the second stage standing.
 async function collectAndRead(cdp) {
   for (let i = 0; i < 3; i += 1) {
     await cdp.send('HeapProfiler.collectGarbage');
@@ -183,9 +181,9 @@ async function heapOnce(page, cdp, arm) {
 
 // A first mount warms one-time structures — sub caches, codec caches,
 // React internals — that are not per-boundary and never come back. Read
-// on a cold page they land entirely in the first arm measured, which is
-// how a wrapper came out CHEAPER than no wrapper on the first run of
-// this file. So: a discarded warm-up per arm, then rounds, alternating
+// on a cold page they land entirely in the first arm measured, and a
+// wrapper then reads CHEAPER than no wrapper. So: a discarded warm-up per
+// arm, then rounds, alternating
 // which arm goes first, and the median across them.
 async function heapForArms(page, cdp, arms, rounds) {
   for (const arm of arms) await heapOnce(page, cdp, arm); // warm-up, discarded
@@ -343,7 +341,7 @@ async function main() {
 
   // ---- report --------------------------------------------------------------
   console.log('');
-  console.log(`;; chrome    the page-chrome row, and what the bail-out costs (rf2-2rtt6.52)`);
+  console.log(`;; chrome    the page-chrome row, and what the bail-out costs`);
   console.log(`;; runtime   ${version} · ${label ? label.optimizations : '?'} · goog.DEBUG=${label ? label['goog-debug'] : '?'}`);
   console.log(`;; cores     ${label ? label['hardware-concurrency'] : '?'}`);
   console.log(`;; rounds    ${ROUNDS} (${WARMUP} warm-up, ${ROUNDS - WARMUP} measured), arms alternate order`);

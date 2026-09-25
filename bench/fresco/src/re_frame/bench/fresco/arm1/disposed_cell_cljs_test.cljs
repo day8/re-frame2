@@ -1,17 +1,14 @@
 (ns re-frame.bench.fresco.arm1.disposed-cell-cljs-test
-  "THE REGISTRY-EPOCH AND NODE-KEY AXES (rf2-2rtt6.44).
+  "THE REGISTRY-EPOCH AND NODE-KEY AXES.
 
-  `generation_fence_coverage_cljs_test` proved that a `:sub`
-  re-registration moves neither term of
-  [[re-frame.bench.fresco.arm1.runtime/commit-basis]], and stated the
-  same of a same-id frame reincarnation. Both were filed as *design
-  decisions wanting costing*: closing them by giving every key a registry
-  term looked like the only move, and it would have re-rendered every
-  boundary on every re-registration.
+  A `:sub` re-registration moves neither term of
+  [[re-frame.bench.fresco.arm1.runtime/commit-basis]]
+  (`generation_fence_coverage_cljs_test` pins that), and neither does a
+  same-id frame reincarnation. Giving every key a registry term would
+  re-render every boundary on every re-registration.
 
-  **The costing found the premise wrong, and this file is the
-  measurement.** The axes are not blind spots in an arithmetic. Both
-  events *dispose the reaction a cell holds*:
+  **The axes are not blind spots in an arithmetic, and this file is the
+  measurement.** Both events *dispose the reaction a cell holds*:
 
   - a `:sub` re-registration evicts the query's sub-cache entry and
     disposes its reaction (`re-frame.subs.cache/invalidate-sub-on-replace!`);
@@ -19,12 +16,12 @@
     when a same-id successor immediately replaces it.
 
   The spine's derived container clears its own watcher set in `-dispose`,
-  so from that instant the arm's cell is **deaf** — no watch, so no
+  so from that instant an unrepaired cell is **deaf** — no watch, so no
   `mark-dirty!`, so no flush, so no notification ever again — and its
   deref answers the RETIRED computation, or the destroyed incarnation's
-  app-db, for as long as the boundary lives. The four `deliberately-*`
-  rows below pin exactly that failure, and they are the reason a registry
-  term was declined: a moved number buys one extra render, and the extra
+  app-db, for as long as the boundary lives. The two `deliberately-*`
+  rows below pin exactly that failure, and they are the reason there is
+  no registry term: a moved number buys one extra render, and the extra
   render reads back through the same dead cell.
 
   What closes both axes is the substrate's own disposal event, armed once
@@ -81,8 +78,7 @@
 
   Callers pair this with `cljs.test/async`. Without that the callback
   runs after the run has been reported and its assertions are counted by
-  nobody, which is a green that proves nothing — the state this file was
-  in before the assertion count was reconciled against the rows."
+  nobody, which is a green that proves nothing."
   [k]
   (js/setTimeout k 0))
 
@@ -91,8 +87,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-re-registered-sub-reaches-a-boundary-that-already-holds-the-key
-  (testing "The predecessor's `:registry-epoch` field, and the axis
-            rf2-2rtt6.42 deliberately left open. A boundary is mounted and
+  (testing "The `:registry-epoch` axis. A boundary is mounted and
             holds a cell for the key; the handler behind that query is
             then REPLACED, which is what an HMR save does. Every later
             render must compute against the new registration, and every
@@ -155,8 +150,8 @@
       (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
             release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))
             ;; Reach past the repair: hold the reaction the cell held, then
-            ;; re-register. This is exactly the object the cell kept before
-            ;; `invalidate-cell!` existed.
+            ;; re-register. This is exactly the object the cell would keep
+            ;; without `invalidate-cell!`.
             held     (rf.bench.fresco.arm1.runtime/cell-reaction [f q-reg])]
         (is (some? held) "precondition: the cell holds a reaction")
         (rf/reg-sub (first q-reg) (fn [db _] (* 10 (:v db))))
@@ -176,7 +171,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-same-id-frame-reincarnation-reaches-a-boundary-that-holds-the-key
-  (testing "The predecessor's third field. `frame-commit-epoch` is cleared
+  (testing "The node-key axis. `frame-commit-epoch` is cleared
             by `dissoc-frame!`, so a same-id successor restarts at 0 and
             the basis is monotone only WITHIN one incarnation — which is
             precisely why Spec 006 invariant 5 carries a `:node-key` axis
@@ -251,25 +246,25 @@
         (release!)))))
 
 ;; ---------------------------------------------------------------------------
-;; What closing the two axes cost
+;; What closing the two axes costs
 ;; ---------------------------------------------------------------------------
 
 (deftest closing-the-axes-cost-no-hook-and-nothing-in-the-snapshot
-  (testing "the tripwire. The alternative on the table was a registry term
-            in every key's contribution to `getSnapshot`; what landed is
-            an event armed once per unique key. So the shell is unchanged,
-            the snapshot arithmetic is unchanged, and `subscribe` still
-            closes over the read set alone."
+  (testing "the tripwire. The axes are closed by an event armed once per
+            unique key, not by a registry term in every key's contribution
+            to `getSnapshot`. So the shell holds its two hooks, the
+            snapshot arithmetic has no extra term, and `subscribe` closes
+            over the read set alone."
     (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
-        "still two hooks — the disposal hook is not a React hook")
+        "two hooks — the disposal hook is not a React hook")
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
            rf.bench.fresco.arm1.runtime/shell-hook-ledger)
         "and the same two, in the same order")
     (let [inv (rf.bench.fresco.arm1.runtime/retained-inventory)]
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
-          "the enumerated absences are unchanged: no per-boundary object was
-           added, and nothing is keyed by a render or an attempt")))
+          "the enumerated absences hold: no per-boundary object, and
+           nothing is keyed by a render or an attempt")))
 
   (testing "a clean mount is undisturbed — the repair must not become
             `re-render always`, which is what a registry term would have
@@ -281,7 +276,7 @@
           at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry)
           release!  (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
       (is (= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-          "acquisition still moves nothing: the cell is born at the same
+          "acquisition moves nothing: the cell is born at the same
            basis the staged term reported, and arming a disposal hook is not
            a term")
       (release!))))

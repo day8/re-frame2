@@ -1,15 +1,15 @@
 (ns re-frame.bench.fresco.coldmount-app
   "THE COLD-MOUNT DOUBLE BUILD, PRICED AGAINST THE MOUNT RED-ZONE — the
-  run (rf2-2rtt6.15; decision input for the rf2-2rtt6.14 ruling).
+  run.
 
   ## The question, and the two numbers it needs from ONE run
 
-  rf2-2rtt6.12 proved by counting that every cold subscription read on the
-  React-hook spine constructs TWO reactions (`bodyRuns = 2.00N` against
-  Reagent's `1.00N`) and priced the RETENTION of the first. The CLOCK of
-  the second construction was left unmeasured, and the rf2-2rtt6.14
-  decision rule consumes it as a FRACTION OF THE MOUNT RED-ZONE — the
-  UIx-minus-Reagent mount-clock excess — measured in the SAME runs (M1's
+  Counting shows that a cold subscription read on the React-hook spine
+  can construct TWO reactions (`bodyRuns = 2.00N` against Reagent's
+  `1.00N`). This run prices the CLOCK of the second construction, and
+  the row's decision rule ([[rule-verdict]]) reads it as a FRACTION OF
+  THE MOUNT RED-ZONE — the UIx-minus-Reagent mount-clock excess —
+  measured in the SAME runs (M1's
   published red-zone magnitude is withdrawn, so the excess is re-derived
   from this run's own rounds and no published number is quoted into the
   denominator).
@@ -28,14 +28,14 @@
 
   ## The rows
 
-  One row per page (the converged arm's repair, kept):
+  One row per page, as on the converged arm:
 
       M1L1  the converged M1 mount (901 el / 300 boundaries), layer-1 —
-            the PRIMARY witness, rf2-2rtt6.2's page exactly
+            the PRIMARY witness, P0's converged page exactly
       M1L2  the same page reading through one declared-input hop
       M1L3  the same page reading through two declared-input hops
       M2L1  the converged M2 form (51 el / 12 fields) — DIAGNOSTIC,
-            per rf2-2rtt6.2's own grading (clamp-quantised)
+            per P0's own grading (clamp-quantised)
       M2L2  the form through one declared-input hop — DIAGNOSTIC
 
   The declared-input re-deref lives at layer 2+, so the layer ladder is
@@ -58,18 +58,14 @@
 
   TWO deliberate differences from the converged mount rows, both stated:
 
-    * ROUNDS = 4, EVEN. The converged page once reported a systematic
-      segment-order effect (11 of 12 row-runs read higher Reagent-first,
-      p = 0.0032) and named an even round count as the arm-level repair.
-      THAT FINDING IS WITHDRAWN — the twelve were four correlated rows
-      inside each of only three runs, not twelve trials, and the fixed
-      start confounded order with time; the counterbalanced ten-run
-      ensemble does not establish the effect on any row (rf2-6i0i2).
-      THE REPAIR STANDS ON ITS OWN AND IS WHY THIS ENTRY KEEPS IT: a 3:2
-      design over-weights one order, while a balanced 2:2 makes the raw
-      mean and the order-balanced mean coincide BY CONSTRUCTION, which is
-      a design property and needs no effect to justify it. This entry
-      re-derives its own denominator, so no published row moves.
+    * ROUNDS = 4, EVEN. No systematic segment-order effect is
+      established on any row — the counterbalanced ten-run ensemble does
+      not show one — so the even count is not a repair for an effect.
+      IT STANDS ON ITS OWN: a 3:2 design over-weights one order, while a
+      balanced 2:2 makes the raw mean and the order-balanced mean
+      coincide BY CONSTRUCTION, which is a design property and needs no
+      effect to justify it. This entry re-derives its own denominator,
+      so no published row moves.
     * A RESIDUE GATE per segment-round (`rf.bench.fresco.lane/residue` back to baseline
       after a settle). The `handoff` arm holds a provisional +1 between
       render and commit; a plan in which every render commits must drive
@@ -81,15 +77,14 @@
   Every mount in this instrument — timed and counted alike — runs inside
   `react-dom/flushSync` (`coldmount_views.cljs`). That forces React's
   passive `useSyncExternalStore` subscribe to run before control returns,
-  and that IS the ordering the rf2-2rtt6.25 hand-off needs in order to
+  and that IS the ordering the provisional hand-off needs in order to
   win its race with its own reaper. **The shipping client mount path does
   not force it**: `re-frame.substrate.adapter/render` is a bare
-  `createRoot(…).render(…)`, and when these rows were taken (2026-07-31,
-  reap horizon `setTimeout 0`) the reaper fired first there, so the
-  escrowed reference was released, the commit missed, and the mount
-  rebuilt — `bodyRuns` 2.00N, measured at N = 1 and N = 300
-  (rf2-2rtt6.25, merged-PR audit of #7305; the browser assertion is
-  `use-sub-browser-runner-schedule-rebuilds`).
+  `createRoot(…).render(…)`, and at the reap horizon the published rows
+  were taken under (`setTimeout 0`) the reaper fires first there, so the
+  escrowed reference is released, the commit misses, and the mount
+  rebuilds — `bodyRuns` 2.00N, measured at N = 1 and N = 300 (the
+  browser assertion is `use-sub-browser-runner-schedule-rebuilds`).
 
   So the `shipped` arm here is **the forced-synchronous MECHANISM arm**,
   not an acceptance witness for shipped performance. Its rows say what
@@ -98,20 +93,19 @@
   on every record emitted below says so in the data as well as in this
   docstring. The instruments themselves — the counting witness, the
   fidelity control, the residue gate, the segment-order control — are
-  unaffected; what changed is which schedule they speak for. Nothing here
+  unaffected; the schedule decides only what they speak for. Nothing here
   is unsound: Spec 006 §Render-phase provisional acquisition and commit
   adoption requires that correctness never depend on the reaper losing
   the race, and the lost race costs a construction and nothing else.
 
-  UPDATE, 2026-08-03 (rf2-2rtt6.71): the reap horizon has since been
-  RULED out to `setTimeout 4` — the shortest probed delay reading 1.00N
-  at N = 1 and N = 300 on the ruling's own swap-the-primitive probe — by
-  a measured margin and not by any React guarantee. **That changes
-  nothing on this page.** No measurement window here was altered and no
-  row was re-taken, so every figure below is still a forced-synchronous
-  mechanism figure measured under the old horizon. Nor do the browser
-  assertions witness the win: that runner's render-to-passive-flush gap
-  measures >128 ms, so they read two builds at any shippable horizon.
+  The spine's reap horizon is `setTimeout 4` — the shortest probed delay
+  reading 1.00N at N = 1 and N = 300 on the swap-the-primitive probe — a
+  measured margin and not a React guarantee. **It changes nothing on this
+  page.** The published rows were taken at `setTimeout 0`, inside the
+  forced-synchronous schedule, so every figure below is a
+  forced-synchronous mechanism figure. Nor do the browser assertions
+  witness the margin: that runner's render-to-passive-flush gap measures
+  >128 ms, so they read two builds at any shippable horizon.
 
   ## What fails the run
 
@@ -120,7 +114,7 @@
   arm, which under THIS harness's forced-synchronous schedule reads the
   `handoff` row); the clock fidelity control (`uix-subs` vs `handoff` —
   ranges overlap or medians within the pre-declared 3% band, else every
-  delta is void; re-pointed from `xcript` by rf2-2rtt6.25, because on
+  delta is void; `handoff` and not `xcript`, because on
   this schedule the shipped hook runs the hand-off to completion and
   `xcript` is the double build it transcribes); the positive controls;
   the DOM read-backs; the residue gate; the arm-order guard (exit 2); the
@@ -157,9 +151,8 @@
   "The clock fidelity control passes when the shipped arm's and the
   transcription's per-round p50 RANGES overlap, or — declared here,
   before the run — their medians are within 3%. The second clause exists
-  because ranges at low round counts can be narrow; 3% is the same band
-  rf2-2rtt6.12 declared on the heap axis, and it sits well below the
-  effects the ablation resolves."
+  because ranges at low round counts can be narrow; 3% sits well below
+  the effects the ablation resolves."
   0.03)
 
 (def ^:private witness-boundaries
@@ -168,34 +161,32 @@
   100)
 
 (def ^:private schedule-provenance
-  "STAMPED ON EVERY EMITTED RECORD (rf2-2rtt6.25, merged-PR audit of
-  #7326). A row that travels without its schedule is a row that will be
-  quoted as a shipped-performance claim, which is exactly what happened
-  to this instrument's first `shipped` table. So the schedule rides in
-  the data, not only in the docstring.
+  "STAMPED ON EVERY EMITTED RECORD. A row that travels without its
+  schedule is a row that will be quoted as a shipped-performance claim,
+  so the schedule rides in the data, not only in the docstring.
 
   See the namespace docstring's \"Which schedule these rows speak for\"."
   {:mount-schedule :forced-synchronous
    :how            "react-dom/flushSync around every mount — the timed ones in rf.bench.fresco.lane/mount-arm! and rf.bench.fresco.lane/mount-batch!, the counted ones in coldmount-views/witness!"
    :arm            "the shipped hook's hand-off MECHANISM, measured where it is allowed to run to completion"
-   :not            (str "NOT a shipped-mount-performance claim, and still not one after rf2-2rtt6.71. "
+   :not            (str "NOT a shipped-mount-performance claim, at any reap horizon. "
                         "Every mount here is forced with flushSync, and every published row was taken "
-                        "2026-07-31 while the reap horizon was setTimeout 0 — on which the public client "
+                        "while the reap horizon was setTimeout 0 — on which the public client "
                         "mount path (re-frame.substrate.adapter/render, a bare createRoot().render()) "
-                        "reaped the escrowed reference before React's passive useSyncExternalStore "
-                        "subscribe, so the commit missed and rebuilt: bodyRuns 2.00N at N = 1 and N = 300 "
-                        "(rf2-2rtt6.25, merged-PR audit of #7305). Neither fact is repaired by re-pricing.")
+                        "reaps the escrowed reference before React's passive useSyncExternalStore "
+                        "subscribe, so the commit misses and rebuilds: bodyRuns 2.00N at N = 1 and N = 300. "
+                        "Neither fact is repaired by re-pricing.")
    :correctness    (str "unaffected either way — Spec 006 §Render-phase provisional acquisition and "
                         "commit adoption requires that correctness never depend on the reaper losing "
                         "the race; the lost race costs a construction and the steady state is one "
                         "durable reference.")
-   :horizon        (str "RULED setTimeout 4 (rf2-2rtt6.71, 2026-08-03) — the shortest probed delay "
-                        "reading 1.00N at N = 1 and N = 300, on the ruling's own swap-the-primitive "
+   :horizon        (str "setTimeout 4 — the shortest probed delay "
+                        "reading 1.00N at N = 1 and N = 300, on the swap-the-primitive "
                         "probe. It is a MARGIN, not a React guarantee, and nothing on this page "
-                        "witnesses it: no measurement window here was altered and no row was re-taken, "
-                        "so these rows remain forced-synchronous mechanism rows. The browser assertions "
+                        "witnesses it: every mount here is forced-synchronous, "
+                        "so these rows are forced-synchronous mechanism rows. The browser assertions "
                         "listed below do not witness it either — the test runner's render-to-flush gap "
-                        "measures >128 ms, so they still read two builds at any shippable horizon.")
+                        "measures >128 ms, so they read two builds at any shippable horizon.")
    :assertions     ["use-sub-browser-runner-schedule-rebuilds"
                     "use-sub-escrow-leg-answers-on-the-public-mount-schedule"
                     "use-sub-reaped-provisional-is-never-adopted-by-a-later-mount"]})
@@ -344,7 +335,7 @@
    :M1L3 {:shape :M1 :layer 3 :grade :primary
           :doc "the M1 mount through two declared-input hops ([:cm/l3 i] over [:cm/l2 i] over [:p0/cell i])"}
    :M2L1 {:shape :M2 :layer 1 :grade :diagnostic
-          :doc "the converged M2 form (51 el / 12 fields), layer-1 subs — DIAGNOSTIC, clamp-quantised per rf2-2rtt6.2"}
+          :doc "the converged M2 form (51 el / 12 fields), layer-1 subs — DIAGNOSTIC, clamp-quantised per P0's own grading"}
    :M2L2 {:shape :M2 :layer 2 :grade :diagnostic
           :doc "the M2 form through one declared-input hop — DIAGNOSTIC"}})
 
@@ -427,7 +418,7 @@
                       (rf.bench.fresco.coldmount-views/witness! :xcript  layer witness-boundaries 900)
                       (rf.bench.fresco.coldmount-views/witness! :handoff layer witness-boundaries 1800)
                       (rf.bench.fresco.coldmount-views/witness! :handoff layer witness-boundaries 2700)
-                      ;; rf2-2rtt6.25 — the FORCED-SYNCHRONOUS MECHANISM arm.
+                      ;; The FORCED-SYNCHRONOUS MECHANISM arm.
                       ;; `witness!` mounts inside `flushSync`, and on THAT
                       ;; schedule the shipped hook runs the hand-off to
                       ;; completion and reads the `handoff` row. On the public
@@ -456,8 +447,8 @@
   React's passive subscribe runs before control returns and the hand-off
   reaches its adoption; that is what makes `rebuilt 0` predictable here.
   On the public `createRoot().render()` path the reaper wins first and
-  the same hook reads the `xcript` row — `rebuilt N`, `bodyRuns 2N`
-  (rf2-2rtt6.25, audit of #7305). So this prediction adjudicates that the
+  the same hook reads the `xcript` row — `rebuilt N`, `bodyRuns 2N`.
+  So this prediction adjudicates that the
   MECHANISM runs to completion when it is allowed to; it is not an
   acceptance witness for shipped mount performance, and a failure here is
   a broken mechanism rather than a lost race. Its counters come from the
@@ -603,11 +594,9 @@
   shipped hook. Both readers here are the same clock, so the legs are the
   per-round p50 ranges and the medians.
 
-  RE-POINTED BY rf2-2rtt6.25, ON THIS HARNESS'S SCHEDULE. Before the
-  hand-off landed, the shipped hook was the double build and `xcript` was
-  its transcription, so `xcript` was the fidelity partner. Inside
-  `flushSync` the shipped hook now runs the hand-off to completion, so
-  the transcription that has to reproduce it is `handoff`, and this
+  PAIRED WITH `handoff`, ON THIS HARNESS'S SCHEDULE. Inside `flushSync`
+  the shipped hook runs the hand-off to completion, so the transcription
+  that has to reproduce it is `handoff` and not `xcript`, and this
   control is the clock half of the MECHANISM arm: the shipped arm must
   sit inside the single-build band on the schedule the harness forces.
   It says nothing about the public `createRoot().render()` path, where
@@ -629,7 +618,7 @@
      :ok?            (and (js/isFinite rel) (or ovl (<= rel fidelity-band)))}))
 
 (defn- rule-verdict
-  "The pre-registered rf2-2rtt6.14 decision rule, mechanised for ONE row.
+  "The pre-registered decision rule, mechanised for ONE row.
   BOTH estimators (raw and seam-adjusted), ALL rounds:
 
     :below-20        every estimate resolves and sits under 0.20
@@ -637,9 +626,10 @@
     :unresolvable    a round's excess did not resolve above zero, or the
                      estimates straddle 0.20
 
-  The rule itself lives on rf2-2rtt6.14 and is applied, not re-litigated:
-  `< 20% or unresolvable` feeds the close; `>= 20%` must hold on
-  representative layer-1 AND layer-2/3 mounts to feed the reopen."
+  The rule is applied here, not re-derived: `< 20% or unresolvable`
+  says the double build alone does not warrant a hook-scoped provisional
+  hand-off; `>= 20%` must hold on representative layer-1 AND layer-2/3
+  mounts to warrant one."
   [fractions fractions-seam]
   (let [all (into (vec fractions) fractions-seam)]
     (cond
@@ -680,12 +670,12 @@
                    :witness-set "rf2-2rtt6.2 (converged; p0-converged-witness-set.md)"
                    :schedule    schedule-provenance
                    :spine       (str "the SHIPPED re-frame.substrate.spine/use-subscribe — "
-                                     "rf2-2rtt6.13 (no retained dead handle) AND rf2-2rtt6.25 "
-                                     "(the hook-scoped provisional hand-off) both landed. Under "
+                                     "no retained dead handle, AND the hook-scoped provisional "
+                                     "hand-off. Under "
                                      "THIS harness's forced-synchronous schedule the cold read "
                                      "builds ONCE and the commit adopts it; on the public "
                                      "createRoot().render() path the reaper wins first and the "
-                                     "same hook builds TWICE (rf2-2rtt6.25, audit of #7305). "
+                                     "same hook builds TWICE. "
                                      "`xcript` is the double build, kept as the reference the "
                                      "delta is measured against")
                    :rounds      rounds
@@ -721,11 +711,11 @@
                     :per-round-raw fractions
                     :per-round-seam-adjusted fractions-seam
                     :strata (when (resolved? fractions) (strata-of fractions))}
-                   :rule (str "pre-registered on rf2-2rtt6.14: fraction < 20% of the mount "
-                              "red-zone, or unresolvable from round-to-round spread -> close "
-                              "as 'take rf2-2rtt6.13 alone; Spec 006 no-grace-period stands'; "
+                   :rule (str "pre-registered: fraction < 20% of the mount red-zone, or "
+                              "unresolvable from round-to-round spread -> the double build does "
+                              "not warrant a provisional hand-off: no retained dead handle suffices, and Spec 006's no-grace-period stands; "
                               ">= 20% on representative layer-1 AND layer-2/3 mounts -> "
-                              "reopen for a hook-scoped provisional hand-off design pass only")
+                              "it warrants a hook-scoped provisional hand-off design pass")
                    :row-verdict verdict})
     (rf.bench.fresco.lane/record! "fidelity" (assoc fid :row row-key :schedule schedule-provenance))
     (rf.bench.fresco.lane/record! "witness-counts"
@@ -733,7 +723,7 @@
                    :schedule schedule-provenance
                    :predictions {:xcript  "commits N, rebuilt N, bodyRuns 2N at every layer <= L"
                                  :handoff "commits N, rebuilt 0, bodyRuns N at every layer <= L"
-                                 :shipped "commits N, rebuilt 0, bodyRuns N at every layer <= L — SCHEDULE-CONDITIONAL: the shipped hook reads the handoff row only because this harness mounts inside flushSync. On the public createRoot().render() path it reads the xcript row (rf2-2rtt6.25, audit of #7305). Not an acceptance witness for shipped mount performance."
+                                 :shipped "commits N, rebuilt 0, bodyRuns N at every layer <= L — SCHEDULE-CONDITIONAL: the shipped hook reads the handoff row only because this harness mounts inside flushSync. On the public createRoot().render() path it reads the xcript row. Not an acceptance witness for shipped mount performance."
                                  :reagent "commits 0, rebuilt 0, bodyRuns N at every layer <= L"}
                    :results witness-results
                    :failures wfails})
@@ -796,7 +786,7 @@
 
       (not (every? slot-order-varies-at? [2 3 5]))
       (do (rf.bench.fresco.lane/fail! (str "rf.bench.fresco.lane/slot-order emits ONE order at a plan size this entry runs "
-                           "(or at the k=2 canary) — the rf2-ouwh8 degeneracy class. Nothing "
+                           "(or at the k=2 canary) — a degenerate schedule. Nothing "
                            "is measured until the schedule is repaired; the repair belongs "
                            "to the schedule, never to the tolerance"))
           (rf.bench.fresco.lane/done!))

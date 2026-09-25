@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.runtime-cljs-test
-  "ARM 1's RUNTIME, proved without a browser (rf2-2rtt6.9).
+  "ARM 1's RUNTIME, proved without a browser.
 
   Everything this arm does that is not React's is answerable here: the
   read surfaces, the commit path, the cell table's wiring, the generation
@@ -9,7 +9,7 @@
   they do not re-prove what the seam does.
 
   The six laws the dependency edges answer for live next door, in
-  `arm1/cell_table_laws_cljs_test` (rf2-dabt3).
+  `arm1/cell_table_laws_cljs_test`.
 
   The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
   plain-atom has no reactivity layer at all (\"no caching, no
@@ -58,8 +58,7 @@
   one boundary on it.
 
   It is read off an EDGE because the fused table keeps no registry of
-  live boundaries and never did keep a second one (rf2-ixb92,
-  rf2-dabt3): a registration is live exactly while React holds its
+  live boundaries: a registration is live exactly while React holds its
   cleanup, and the only record of it anywhere is its membership in the
   reader list of each key it reads."
   [sub-key]
@@ -133,9 +132,9 @@
 
 (deftest the-collector-reads-inside-a-for-and-inside-an-inlined-helper
   (seeded! 3)
-  (testing "the surface the operator ruled the only acceptable one: a read
-           in a loop and a read donated by a plain helper, both landing on
-           the enclosing boundary's edge set"
+  (testing "the one acceptable read surface: a read in a loop and a read
+           donated by a plain helper, both landing on the enclosing
+           boundary's edge set"
     (letfn [(label [id] [:span (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id]))])]
       (let [entry (render (fn [_] [:ul (for [id (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
                                          [:li (label id)])]))]
@@ -153,8 +152,7 @@
            returns. A collector closed at the body's return would collect
            ZERO edges for every row, register no dependency, and look
            perfectly correct on the first render (the values ARE right once
-           realised) while never updating again. Arm 2 hit exactly that in
-           Chromium and flagged it across the tournament.
+           realised) while never updating again.
 
            This arm is safe **by construction rather than by care**: the
            collector window closes around `rf.bench.fresco.front.codec/as-element`, and the codec
@@ -162,7 +160,7 @@
            exhaustion, `realize-children` folds one into a vector, a seq at
            a NATIVE prop position goes through `clj->js`, and
            `rf.bench.fresco.front.codec/realize-deep` forces one reachable from a BOUNDARY's
-           props at the crossing (rf2-2rtt6.45, whose own suite is
+           props at the crossing (its own suite is
            `arm1/boundary-crossing-cljs-test`). So a lazy read is forced
            inside the window by the same pass that turns hiccup into
            elements. This test is what keeps that true: it fails the moment
@@ -199,7 +197,7 @@
            the author deferred past the render — a handler closure, a
            `delay`, a lazy seq stashed and forced later. Every one of those
            would otherwise be a SILENT missing edge, which is the worst
-           failure mode the ruled surface can have: correct on screen,
+           failure mode this read surface can have: correct on screen,
            frozen thereafter, attributable to nothing.
 
            One guard covers all of them, and it is the same guard that
@@ -348,13 +346,11 @@
 
 (deftest the-wired-path-replaces-wholesale-and-never-takes-a-difference
   (seeded! 3)
-  (testing "rf2-2rtt6.47, as settled by rf2-dabt3. HD-002(b) used to be
-           discharged against a separate index's `record-reads` set
-           difference, and this wiring never ran its dropping half: the
+  (testing "HD-002(b) is discharged without a set difference: the
            boundary id is the registration React mints per `subscribe`,
            so a changed read set arrives as a FRESH registration with an
            empty held set. With the readers on the cell there is no
-           difference left to take at all — a registration installs its
+           difference to take at all — a registration installs its
            memberships and its cleanup removes exactly those. Every
            `:edges-changed` on this path therefore adds everything and
            drops nothing, which is asserted so the docstring's claim is
@@ -407,8 +403,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- render-shared-first-key!
-  "`n` bodies in the shape that used to collapse the whole cache into one
-  bucket: a page-wide key read FIRST, then a per-row key. One `let`
+  "`n` bodies in the shape that first-key bucketing would collapse into
+  one bucket: a page-wide key read FIRST, then a per-row key. One `let`
   binding moved is all it takes for a bulk list to be written this way."
   [n]
   (dotimes [i n]
@@ -419,10 +415,10 @@
   (seeded! 3)
   (testing "an entry lookup compares against the read sequences that
            COLLIDE, not against every live boundary that happens to share
-           a first key. Bucketing on `(aget scratch 0)` made an 8-row list
-           an 8-deep scan and a 64-row list a 64-deep one — the whole
-           quadratic in rf2-2rtt6.46 — so the claim is that the depth does
-           not move between the two"
+           a first key. Bucketing on `(aget scratch 0)` would make an 8-row
+           list an 8-deep scan and a 64-row list a 64-deep one — a
+           quadratic — so the claim is that the depth does not move
+           between the two"
     (render-shared-first-key! 8)
     (let [small (rf.bench.fresco.arm1.runtime/entry-buckets)]
       (is (= 8 (:entries (rf.bench.fresco.arm1.runtime/stats))) "eight distinct read sequences, eight entries")
@@ -441,11 +437,11 @@
 
 (deftest a-read-set-entry-belongs-to-its-read-sequence-and-not-to-a-boundary
   (seeded! 3)
-  (testing "the sharing rule the retained inventory now states: an entry
-           is shared with a boundary whose read sequence is IDENTICAL, and
+  (testing "the sharing rule the retained inventory states: an entry is
+           shared with a boundary whose read sequence is IDENTICAL, and
            with no other. Two rows reading a per-row key have distinct
            sequences and therefore an entry each — which is why the entry
-           is filed per-boundary for the heap ladder (rf2-2rtt6.34)"
+           is filed per-boundary for the heap ladder"
     (let [a (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
           b (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
           c (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))]
@@ -465,9 +461,10 @@
       (is (= 2 (:entries (rf.bench.fresco.arm1.runtime/stats))) "and the cost is one extra entry"))))
 
 (deftest the-retained-inventory-files-the-entry-where-a-heap-ladder-must-count-it
-  (testing "rf2-2rtt6.46: `:read-set-entry` under `:shared` under-counted
-           per-boundary retention by one entry per boundary on exactly the
-           distinct-query rung rf2-2rtt6.34 is taken on"
+  (testing "`:read-set-entry` is filed per-boundary: under `:shared` it
+           would under-count per-boundary retention by one entry per
+           boundary on exactly the distinct-query rung the heap ladder is
+           taken on"
     (let [inv    (rf.bench.fresco.arm1.runtime/retained-inventory)
           per-b  (into #{} (map :token) (:per-boundary inv))
           shared (into #{} (map :token) (:shared inv))]
@@ -477,11 +474,11 @@
           "the key cell IS shared — one per unique (frame, query) however
            many boundaries read it — so this is a classification and not a
            blanket move")))
-  (testing "rf2-dabt3: the two index tokens are gone and ONE membership
-           token stands where they did. A ladder reading this inventory
-           must count one slot per read, not a forward-edge map entry
-           plus a reverse-edge set membership plus the singleton set the
-           second map retained per key at fan-out 1"
+  (testing "ONE membership token stands for an edge, and no index token
+           beside it. A ladder reading this inventory counts one slot per
+           read, not a forward-edge map entry plus a reverse-edge set
+           membership plus the singleton set a second map would retain
+           per key at fan-out 1"
     (let [per-b (into #{} (map :token) (:per-boundary (rf.bench.fresco.arm1.runtime/retained-inventory)))]
       (is (contains? per-b :cell/reader-membership))
       (is (not (contains? per-b :index/b->subs)))
@@ -512,7 +509,7 @@
     (is (= 1 (:cells (rf.bench.fresco.arm1.runtime/stats)))
         "ONE cell for the shared key, holding two references — and that is
          also what lets `cell-watch-key` be a single namespaced constant
-         rather than an identity minted per cell (rf2-aqgr2). A watch key
+         rather than an identity minted per cell. A watch key
          has to be unique within the reference it watches; no two cells
          ever hold the same reaction, so nothing can clobber another
          cell's watch. Mint a cell per reader instead and this row goes
@@ -623,14 +620,14 @@
          construction and the stable-head cache has nothing to do")))
 
 (deftest a-minted-view-keeps-its-memo-wrapper-internal
-  (testing "HD-006 as amended (rf2-2rtt6.52) puts a value-equality
+  (testing "HD-006 puts a value-equality
            bail-out on every boundary, but `React.memo` answers an OBJECT
            and a minted head must stay a function — so the wrapper is
            attached to the head rather than returned in its place, and no
            memo object escapes as the public representation"
     (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/memo-probe" (fn [_] [:li]))
           m (unchecked-get v "frescoMemo")]
-      (is (fn? v) "the head is still the function it always was")
+      (is (fn? v) "the head is a function")
       (is (some? m) "and it carries a wrapper")
       (is (not (fn? m)) "which is the memo object, and is not a function")
       (is (identical? m (unchecked-get v "frescoMemo"))

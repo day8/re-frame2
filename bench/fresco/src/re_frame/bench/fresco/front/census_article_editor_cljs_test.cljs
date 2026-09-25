@@ -1,10 +1,9 @@
 (ns re-frame.bench.fresco.front.census-article-editor-cljs-test
-  "THE `:&` MERGE, DEMONSTRATED ON A CENSUS-REAL SCREEN (rf2-2rtt6.36).
+  "THE `:&` MERGE, DEMONSTRATED ON A CENSUS-REAL SCREEN.
 
-  The design review that produced HD-023 carried its own stated risk, and
-  it is worth repeating rather than softening: *all four proposals are
-  taste rulings dressed as deletions, and the instrument that would
-  falsify them lost its control arm.* Its mitigation is this file. The
+  HD-023 carries a stated risk, and it is worth repeating rather than
+  softening: *a taste ruling dressed as a deletion, with no control arm
+  left to falsify it.* This file is its mitigation. The
   claim 'one merge spelling is better' is not asserted here; a real
   screen is ported and the two renderings are put side by side, with the
   DOM they produce asserted identical so the comparison is about
@@ -12,8 +11,9 @@
 
   ## The screen
 
-  `examples/real-apps/realworld_resources/article_editor.cljs:496-522` —
-  the RealWorld article editor's four form fields, which the fitness
+  `examples/real-apps/realworld_resources/article_editor.cljs`'s
+  `editor-form` fieldset — the RealWorld article editor's four form
+  fields, which the fitness
   harness names in five separate rows (R-A5 validation-display gating,
   R-A10 busy discipline, census row 3a event-value extraction, 3b
   `preventDefault` handlers, 1b parameterised reads). Four fields, each
@@ -33,15 +33,14 @@
   thing a wrapper deletes, and it is the reason the corpus has it: the
   wrapper is not free to write.
 
-  ## Why the predecessor cannot write the wrapper cheaply
+  ## Why a three-form merge makes the wrapper expensive
 
-  Forwarding a caller's remainder onto an internal controlled `input`
-  needs the door-preserving spread form, and choosing the ordinary one
-  instead is a **silent** loss of caret and IME protection — recorded
-  twice in the predecessor's own docs as a wall with no error attached
-  ('Dynamic map on controlled input without spread-safe | forfeits door
-  proof'). So the author must know that a third form exists, know which
-  of three applies here, and get it right with nothing checking. A
+  Under a merge with a separate door-preserving spread form, forwarding a
+  caller's remainder onto an internal controlled `input` needs that form,
+  and choosing the ordinary one instead is a **silent** loss of caret and
+  IME protection — a wall with no error attached. So the author would
+  have to know that a third form exists, know which of three applies
+  here, and get it right with nothing checking. A
   wrapper whose correctness depends on the caller picking the right merge
   syntax is a wrapper most authors correctly decline to write.
 
@@ -49,8 +48,8 @@
 
   Both renderings are built and their elements compared attribute by
   attribute, and both handlers are fired and their dispatched intents
-  compared. If the ported screen were not the same screen, the diff in
-  the PR would be measuring two different things."
+  compared. If the ported screen were not the same screen, the side by
+  side would be measuring two different things."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.controlled :as rf.bench.fresco.front.controlled]
@@ -69,7 +68,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Intent vectors replace the four `#(dispatch …)` closures, because that
-;; substitution is rf2-2rtt6.8's and is not what this file is measuring. Everything
+;; substitution is a separate question and not what this file is measuring. Everything
 ;; else is the corpus's shape: one attribute map per field, written out per field.
 
 (defn- inline-fieldset [busy?]
@@ -153,9 +152,9 @@
   Read through [[re-frame.bench.fresco.front.controlled/element-tag]]
   rather than `.-type`, because a controlled field's element type is the
   composition shadow's component and the tag it renders is what this
-  question is about (rf2-digtt). Every prop these rows go on to read —
-  the static attributes, `onInput`, `onBlur` — is on that element
-  unchanged; only the type moved."
+  question is about. Every prop these rows go on to read —
+  the static attributes, `onInput`, `onBlur` — is on that element as
+  written; only the element type is the shadow's rather than the tag."
   [e]
   (into [] (mapcat (fn [group] (filter #(and (some? %)
                                              (= "input" (rf.bench.fresco.front.controlled/element-tag %)))
@@ -221,7 +220,7 @@
     (is (= "can't be blank" (aget (.-props (first errs)) "children")))))
 
 ;; ---------------------------------------------------------------------------
-;; The property the predecessor's wrapper cannot have
+;; The property a three-form merge's wrapper cannot have
 ;; ---------------------------------------------------------------------------
 
 (deftest the-helper-does-not-have-to-defend-itself

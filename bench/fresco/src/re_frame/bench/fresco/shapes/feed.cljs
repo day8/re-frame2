@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.shapes.feed
   "**TIER-1 SHAPES 3 AND 4** — the same page, and the two writes that
-  separate them (charter §Use cases A3/A4; rf2-2rtt6.51).
+  separate them (charter §Use cases A3/A4).
 
   > 3. Bulk re-render — ~300 boundaries on one commit; **the make-or-break
   >    row**.
@@ -46,17 +46,16 @@
   body's run count did not move, because that is the difference between a
   narrow update and a page that merely looks narrow.
 
-  ## The cascade this page made visible, and then priced
+  ## The cascade this page would make, and the bail-out that stops it
 
   A write the **page** reads — the feed toggle — re-renders the page, and
-  used to re-render all 300 card boundaries beneath it, because a Fresco
-  boundary was a plain function component with no value-equality bail-out.
+  would re-render all 300 card boundaries beneath it if a Fresco boundary
+  were a plain function component with no value-equality bail-out.
   Reagent's default `shouldComponentUpdate` compares argv and stops
-  exactly this cascade. `narrow_dom_cljs_test` measured it rather than
-  leaving it to be discovered on a clock, and that measurement fired the
-  reopen condition HD-006 had pre-registered for itself: the bail-out is
-  now the boundary default (rf2-2rtt6.52), and the same write re-runs the
-  page and no card at all. See that file's
+  exactly this cascade, and the bail-out is the Fresco boundary default
+  too (HD-028), so the same write re-runs the page and no card at all.
+  `narrow_dom_cljs_test` measures it rather than leaving it to be
+  discovered on a clock; see that file's
   `a-page-chrome-write-re-renders-no-unchanged-row`.
 
   `.cljc`-compatible by construction (HD-020(d))."

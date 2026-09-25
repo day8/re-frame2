@@ -1,7 +1,7 @@
 (ns re-frame.bench.fresco.inpage-ladder-app
-  "THE IN-PAGE MOUNT TERM, DECOMPOSED (rf2-409ab).
+  "THE IN-PAGE MOUNT TERM, DECOMPOSED.
 
-  `rf2-cno31` published the acceptance arm's mount as
+  The acceptance arm's published mount reads
   `fresco 16.015 = 8.254 taskNet + 6.100 in-page` against
   `uix 13.742 = 8.246 taskNet + 3.900 in-page`, floor 12.010 — so the
   arms' FRAME halves are indistinguishable (8.254 vs 8.246) and the whole
@@ -17,14 +17,14 @@
   (`shapes/census_clock_app/sample!` calls exactly that function and
   publishes `(:ms mnt)`). The `ship` arm below therefore reproduces the
   published 6.100 ms quantity, and every other arm is that arm with one
-  term removed. Nothing here goes through `page.click`; the protocol door
-  question `rf2-emvod` raised does not arise, because no figure on this
-  page is a `TaskDuration` at all.
+  term removed. Nothing here goes through `page.click`; the protocol-door
+  question — which script a `DevToolsCommandDuration` absorbs — does not
+  arise, because no figure on this page is a `TaskDuration` at all.
 
   **DIAGNOSTIC, not published.** The clock is the in-page window. It
   attributes cost BETWEEN terms of one mount; it is not the clock of
-  record and no figure here is a gate row. `rf2-8nqsl` is why that
-  sentence has to be here: an in-page window mis-reads a substrate arm's
+  record and no figure here is a gate row. That sentence has to be here
+  because an in-page window mis-reads a substrate arm's
   RATIO to the floor by hundreds of points, because it sees only the
   script half. That is precisely why it is the right instrument for THIS
   question — the quantity under decomposition IS the script half.
@@ -58,7 +58,7 @@
   Everything above it on either arm is what that arm ADDS, and the two
   arms' additions are the answer to \"what does UIx not do that we do?\".
 
-  ## The ablation arms are written HERE (rf2-2rtt6.32)
+  ## The ablation arms are written HERE
 
   A local arm timed against a foreign one compares call conventions as
   much as terms, so `local` is a re-spelling of the real page in this
@@ -76,7 +76,7 @@
   closures are bound to the capture frame — never clicked, and invisible
   to the DOM.
 
-  Owner bead: rf2-409ab. Driver: `run.cjs` with
+  Driver: `run.cjs` with
   FRESCO_INIT_FN=re-frame.bench.fresco.inpage-ladder-app/-main."
   (:require ["react" :as react]
             ["react-dom/client" :as react-dom-client]
@@ -140,9 +140,9 @@
 ;; `local` — the acceptance page re-spelled here, and its no-link twin
 ;; ---------------------------------------------------------------------------
 ;;
-;; Copied from `shapes/large_template.cljs` and `shapes/card.cljs` at the
-;; producing commit, minus the `!body-runs` counter (a witness's, not a
-;; page's). The canonical-DOM gate at boot is what holds the copy honest.
+;; A copy of `shapes/large_template.cljs` and `shapes/card.cljs`, minus the
+;; `!body-runs` counter (a witness's, not a page's). The canonical-DOM gate
+;; at boot is what holds the copy honest.
 
 (def ^:private inert
   "One hoisted handler for the no-link anchors. The floor hoists its own
@@ -345,7 +345,7 @@
 ;; creation the candidate reaches through an interpreter — so `uix` is
 ;; re-spelled here and stepped down the same way: routing off, then the
 ;; markup off. `census_clock_arms`' own private helpers are re-spelled
-;; with it, for the rf2-2rtt6.32 reason the fresco copy is.
+;; with it, for the reason the fresco copy is.
 
 (def ^:private favorite-base "btn btn-outline-primary btn-sm pull-xs-right")
 
@@ -515,7 +515,7 @@
                         (let [{:keys [canonical elements]} (canon-of arm)]
                           (cond
                             (not= (:canonical reference) canonical)
-                            ;; RELABELLED, not converted (rf2-2rtt6.121).
+                            ;; CODE UNITS, not bytes.
                             ;; This pair is only ever read as ours-vs-theirs
                             ;; on one refusal — a same-against-same
                             ;; comparison of two strings, for which code
@@ -639,9 +639,9 @@
 (def ^:private passes-per-window
   "Body-door passes inside ONE micro window. Chrome clamps
   `performance.now` to 100 µs; eight ~1,200-element passes hold the
-  window in whole milliseconds, and it is the count `rf2-6c237`'s read
-  profile used — so `reads-ms` below is directly comparable to its
-  0.2875 ms/pass."
+  window in whole milliseconds, and it is the count the cold-read profile
+  (`read-profile-app`) uses — so `reads-ms` below is directly comparable
+  to its 0.2875 ms/pass."
   8)
 
 (defn- window-ms [reps f]
@@ -653,9 +653,9 @@
   "Independent readings of the three terms the mount ladder infers by
   subtraction, plus the one it cannot see at all.
 
-  **A discarded hiccup tree is not a built one.** The first attempt at
-  this table timed `(do (acceptance-hiccup false) [:span])` and read the
-  page as CHEAPER than its own reads — because the page's cards live
+  **A discarded hiccup tree is not a built one.** Timing
+  `(do (acceptance-hiccup false) [:span])` reads the page as CHEAPER
+  than its own reads — because the page's cards live
   inside `for`, and a lazy seq nobody walks is never realized. Every row
   below therefore RETURNS what it builds, so the codec's walk forces it,
   and the walk is subtracted off by the frozen row beside it.
@@ -678,8 +678,9 @@
 
 (defn- commit-half-ms
   "The commit half, through the runtime's own `commit-boundary!` seam, on
-  eight identically-seeded frames per window — `rf2-6c237` read 0.7625 ms
-  per 141-key commit and this is the same measurement at this commit.
+  eight identically-seeded frames per window — the cold-read profile
+  (`read-profile-app`) reads 0.7625 ms per 141-key commit, and this is
+  the same measurement, taken here.
 
   Entries are re-rendered before every window and every release is called
   after it, so each window's eight commits are COLD."
@@ -866,7 +867,7 @@
                           (js/console.log (str ";;   => 141 cold reads:     "
                                                (fmt (- (:reads-ms mm) (:empty-door-ms mm)) 4) " ms/pass ("
                                                (fmt (* 1e3 (/ (- (:reads-ms mm) (:empty-door-ms mm)) 141)) 2)
-                                               " µs/read; rf2-6c237 read 2.04)")))
+                                               " µs/read; the read profile read 2.04)")))
                         (rf.bench.fresco.lane/record! :inpage-ladder-runtime (rf.bench.fresco.lane/runtime-label))
                         (when (:refuse? gv)
                           (set! (.-FRESCO_GUARD_REFUSED js/window) true))

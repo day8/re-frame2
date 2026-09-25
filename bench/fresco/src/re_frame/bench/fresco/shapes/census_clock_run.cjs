@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// THE CENSUS-REAL PAGES' CLOCK ROWS — driver (rf2-2rtt6.56).
+// THE CENSUS-REAL PAGES' CLOCK ROWS — driver.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs
+//   node bench/fresco/src/re_frame/bench/fresco/shapes/census_clock_run.cjs
 //
-// The tier-1 shape roster (rf2-2rtt6.51) authored four census-real pages on
-// one shared state layer and published no timing row. This driver takes
-// their MOUNT rows through the frame-settlement door `clock_run.cjs`
-// established and `hd8_clock_run.cjs` re-used, and adjudicates the gated
-// pair against the mount-gate amendment (rf2-2rtt6.1, recorded 2026-08-02):
+// The tier-1 shape roster authors four census-real pages on one shared
+// state layer and publishes no timing row. This driver takes their MOUNT
+// rows through the frame-settlement door `clock_run.cjs` and
+// `hd8_clock_run.cjs` use, and adjudicates the gated pair against the
+// mount-gate amendment:
 // mount <= 1.10x direct UIx-on-subs, floor-normalised, same run, on the
 // clock of record. THE CANONICAL WITNESS IS M1 AND STAYS M1 — these rows
 // CORROBORATE the amendment's line on census-real screens; they do not and
@@ -19,13 +19,13 @@
 //               (rAF + setTimeout) — the arm's script AND the frame it
 //               caused, main-thread only, no raster/composite. CDP does
 //               not document TaskDuration's semantics; this is Chromium's
-//               accounting read from source (rf2-8nqsl), and the clock is
+//               accounting read from source, and the clock is
 //               never called by the bare adjective "frame-inclusive".
 //   DIAGNOSTIC  taskNet (TaskDuration less DevToolsCommandDuration) — a
 //               FRAME-ONLY reading through this door, because every arm's
 //               operation runs inside `page.evaluate` and Chromium bills
 //               page script run inside a protocol command to the DevTools
-//               term (rf2-yd52q, rf2-emvod).
+//               term.
 //   DIAGNOSTIC  the in-page flushSync window (`lane/mount-arm!`'s `:ms`),
 //               taken on the SAME samples.
 //
@@ -46,10 +46,9 @@
 // rows' cards and its counts are not on their arithmetic.
 //
 // EVERY ROW IS A WITHIN-ROW COMPARISON, AND NOTHING HERE IS A CROSS-ROW
-// ISOLATION (rf2-2rtt6.62, from the merged-PR audit of #7372/#7379). The
-// large-template and feed rows were once described as one screen at two
-// boundary decompositions, from which shell cost and interpreter cost
-// separate. They are not: they seed 69 and 300 articles through the SAME
+// ISOLATION. The large-template and feed rows are not one screen at two
+// boundary decompositions from which shell cost and interpreter cost
+// separate: they seed 69 and 300 articles through the SAME
 // element arithmetic, so cards (4.35x), elements (4.27x) and per-instance
 // reads (4.28x) all move at once, against a 301x step in boundaries — the
 // two middle terms lag only because the 29-element page chrome does not
@@ -66,9 +65,9 @@
 // The roster's WRITE rows (shape 3's broad commit, shape 4's narrow
 // commit) are REFUSED by construction on this box, with the recorded
 // reasons: bulk-class rows cannot hold a difference-statistic control at
-// the ~3.5% floor a magnitude needs (rf2-7iqb5, 28–48% within-block IQR),
-// and the narrow class sits on the clock clamp (rf2-d2tzk fences it on
-// the M1 instrument). This paragraph is the refusal.
+// the ~3.5% floor a magnitude needs (28–48% within-block IQR), and the
+// narrow class sits on the clock clamp (the M1 instrument fences it).
+// This paragraph is the refusal.
 //
 // ## Controls, and what each can certify
 //
@@ -77,13 +76,12 @@
 //     double, so the prediction is the row's own element arithmetic
 //     (1.9759 / 1.9944 / 1.7255), not a flat 2.00 — the page computes it
 //     and this driver prints predicted vs measured, adjudicated STRICT
-//     (every block inside +/-25%). THAT STRICT RULE IS THE ONE rf2-8a746
-//     RETIRED ON THE CLOCK, and rf2-y0pkh measured it here before deciding:
-//     it costs 18.2% and 39.8% per-run false refusal on large-template and
-//     feed against the clock's 90.5%, so it is RETAINED on those two rows,
-//     unchanged — the arithmetic and the reasons are above `controlVerdict`.
-//     rf2-jcm3p records the mount-row undershoot (1.8173x against 2.00 over
-//     seven runs): an additive per-sample constant survives the tare in
+//     (every block inside +/-25%). THE FRESCO CLOCK DOES NOT USE THAT
+//     STRICT RULE, and measured here it costs 18.2% and 39.8% per-run false
+//     refusal on large-template and feed against the clock's 90.5%, so this
+//     driver keeps it on those two rows — the arithmetic and the reasons
+//     are above `controlVerdict`. The mount rows undershoot (1.8173x
+//     against 2.00 over seven runs): an additive per-sample constant survives the tare in
 //     `(PW + c)/(W + c)`, and no changed-set control can reach a mount. So
 //     this control certifies page-proportional SIGNAL and bounds the
 //     additive residual (printed as c); it cannot certify exactness.
@@ -93,8 +91,8 @@
 //     against a predicted 1.7255x, because at 51 elements the per-sample
 //     work that does not scale with the page is 68% of the reading, so
 //     `(PW + c)/(W + c)` sits far below `P` with no defect anywhere. That
-//     is a mis-specified CENTRE, the class rf2-8a746 diagnosed on ctl3, and
-//     the repair is that ruling's part 3: a level-denominated, EMPIRICALLY
+//     is a mis-specified CENTRE, the class of the fresco clock's ctl3, and
+//     the answer is a level-denominated, EMPIRICALLY
 //     CALIBRATED, versioned standard whose location and dispersion limits
 //     are frozen from a baseline it is not afterwards judged on. Where it
 //     calibrates a row it is the adjudicator and the strict band above is
@@ -102,7 +100,7 @@
 //     decides. It is data on purpose: recalibrating edits the JSON and
 //     bumps its version, never this file.
 //   * THE BAND — seam.cjs's `ctl-2x / floor` per-block statistic, ceiling
-//     35% on raw TaskDuration (rf2-ymi6j). A run whose band breaches has
+//     35% on raw TaskDuration. A run whose band breaches has
 //     NO reportable magnitude; a gated ratio whose margin to the 1.10
 //     line sits inside the band is INSTRUMENT-LIMITED, not a pass.
 //   * the arm-order guard, tolerance 0.35 on the raw TaskDuration samples.
@@ -126,11 +124,11 @@
 //   4  the run's reproducibility band breached seam.cjs's ceiling
 //   5  the positive control did not see the change its arithmetic predicts
 //
-// 3, 4 and 5 are rf2-rr6do's repair. Until it, all three were computed,
-// printed and written into the dataset, and none reached the exit — which
-// also left prediction P4 below ("if its control or band cannot hold, the
-// row publishes a REFUSAL with the reason, not a number") as a promise this
-// file's own exit code did not keep. See the note above `verdict`.
+// 3, 4 and 5 reach the exit, not only the printout and the dataset —
+// otherwise prediction P4 below ("if its control or band cannot hold, the
+// row publishes a REFUSAL with the reason, not a number") would be a
+// promise this file's own exit code does not keep. See the note above
+// `verdict`.
 //
 // A NONZERO EXIT IS A RUN-LEVEL FACT AND STAYS ONE. 2, 3, 4 and 5 each mean
 // "a row in this run refused" and never "every row did", so the exit refuses
@@ -144,21 +142,20 @@
 // overridden depth, taken `--no-build`, or taken with the quiet gate skipped
 // (C56CLOCK_SKIP_QUIET) writes to a sibling `.unpublished` directory
 // instead, named on stdout with the reason; an explicit C56CLOCK_DATA_DIR is
-// honoured as given. See the note above `destination` — that routing is
-// rf2-2rtt6.56's half of the same fail-open rf2-rr6do repaired on the exit
-// path.
+// honoured as given. See the note above `destination` — that routing
+// closes on the write path the same fail-open the exit codes close on the
+// exit path.
 //
 // EVERY ONE OF THOSE IS A FACT ABOUT THE RUN'S SHAPE. A gate refusal is not:
 // it is a fact about ONE ROW, and P4 below says so in the instrument's own
-// words — "the ROW publishes a REFUSAL with the reason, not a number". Until
-// rf2-pzqy8 the refusal moved the whole run's file, so one refused row sent
-// the rows that had passed every gate to `.unpublished` with it, and no
-// full-shape census run could ever be canonical. Each row now carries its
+// words — "the ROW publishes a REFUSAL with the reason, not a number". A
+// refusal that moved the whole run's file would send the rows that passed
+// every gate to `.unpublished` with the refused one, and no
+// full-shape census run could ever be canonical. So each row carries its
 // own `canonical` and `notCanonicalWhy` (see `rowPublication`), the file
 // indexes them in `rowsRefused`, and a refused row travels beside the
-// canonical ones with its reason attached. The run-level refusal is
-// untouched: it is still the process exit, and `verdict` still names every
-// offending row.
+// canonical ones with its reason attached. The run-level refusal is the
+// process exit, and `verdict` names every offending row.
 
 'use strict';
 
@@ -172,11 +169,11 @@ const { resetLaneBuildCache } = require('../../../../../../../implementation/cor
 const guard = require('../../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('../seam.cjs');
 
-// THE CALIBRATED CHECK STANDARD (rf2-pzqy8) — data, never code. Recalibrating
+// THE CALIBRATED CHECK STANDARD — data, never code. Recalibrating
 // is editing that file and bumping its `version`; nothing here holds a limit.
 const CHECK_STANDARD = require('./census_check_standard.json');
 
-// THE CENSUS RIG'S EVIDENCE CARDINALITY (rf2-pzqy8) — how MANY control blocks
+// THE CENSUS RIG'S EVIDENCE CARDINALITY — how MANY control blocks
 // this instrument's calibrated standard requires before it will adjudicate a
 // row-run. Taken from that standard's own `evidence` design field and
 // multiplied out in ONE place, so no `18` is spelled anywhere in this driver:
@@ -185,11 +182,11 @@ const CHECK_STANDARD = require('./census_check_standard.json');
 // THIS IS NOT THE ALL-BLOCKS RULE, and the two must never be conflated. The
 // strict per-block unanimity rule — `controlVerdict` below, "EVERY block
 // inside the band" — is about WHERE each block falls, and its cost is the
-// `p^n` arithmetic rf2-8a746 reasoned about on the fresco clock. This is
-// about HOW MANY blocks exist at all, and it is a precondition of the
-// calibrated standard that REPLACED unanimity as the `ordinary` row's
-// adjudicator. Retiring unanimity and requiring the whole evidence are
-// orthogonal, and on this rig they ALREADY coexist — which is the proof that
+// `p^n` arithmetic set out above `controlVerdict`. This is about HOW MANY
+// blocks exist at all, and it is a precondition of the calibrated standard
+// that adjudicates the `ordinary` row in place of unanimity. Dropping
+// unanimity and requiring the whole evidence are orthogonal, and on this
+// rig they coexist — which is the proof that
 // they are two rules and not one. A reader arriving from the clock-side
 // instrument should read this `18` as the census design's 6 x 3, never as the
 // `p^18` exponent in that rule's false-refusal arithmetic.
@@ -207,9 +204,8 @@ const PORT = Number(process.env.C56CLOCK_PORT || 8143);
 
 // The published design — `clock_run.cjs`'s own depth: 6 rounds x 3 blocks
 // x (4 warmup + 10 samples) per arm, 18 blocks for the band (the shape
-// rf2-ymi6j's ceiling was calibrated on). rf2-2rtt6.31's first cut proved
-// a shallower design manufactures INSTRUMENT-LIMITED verdicts; this is
-// the repaired shape. A run with any of these overridden prints the
+// the band ceiling is calibrated on). A shallower design manufactures
+// INSTRUMENT-LIMITED verdicts. A run with any of these overridden prints the
 // override in its provenance and is NOT the published shape.
 const ROUNDS = Number(process.env.C56CLOCK_ROUNDS || 6);
 const BLOCKS = Number(process.env.C56CLOCK_BLOCKS || 3);
@@ -265,10 +261,10 @@ const BESIDE = {
 // substrates do NOT meet the roster's boundary variable equally and a row
 // that hid that would be quoting a comparison it is not making.
 //
-// `cards` is on the stamp for the same reason (rf2-2rtt6.62): it is the
-// term that makes large-template and feed incomparable to each other, and
-// it was the one count the original stamp left off — which is precisely
-// how "the same screen at two boundary decompositions" survived review.
+// `cards` is on the stamp for the same reason: it is the term that makes
+// large-template and feed incomparable to each other, and a stamp without
+// it would let the two read as "the same screen at two boundary
+// decompositions".
 const STAMP = {
   'large-template': {
     cards: '69 article cards',
@@ -337,7 +333,7 @@ function quantile(xs, q) {
  * A ROW-RUN'S DISPERSION, ROBUSTLY. `IQR / 1.349` is the normal-consistent
  * scale estimator, so its number is comparable with a standard deviation
  * while not being movable by one wild block — which matters for the same
- * reason rf2-8bgqq moved a ratio's headline to its median: a run rule that a
+ * reason a ratio's headline is its median: a run rule that a
  * single extreme block can trip is the all-blocks rule wearing a summary
  * statistic's clothes.
  */
@@ -346,9 +342,8 @@ const robustScale = (xs) => (quantile(xs, 0.75) - quantile(xs, 0.25)) / 1.349;
 /**
  * The run-rejection rule: EVERY block inside the tolerance band.
  *
- * rf2-8a746 RETIRED this rule on the fresco clock, and rf2-y0pkh asked
- * whether it should be retired here too. It should not, and the reason is a
- * measurement rather than a shape. `1 - p^n` on a per-block in-band rate `p`
+ * The fresco clock does not use this rule. This rig does, and the reason is
+ * a measurement rather than a shape. `1 - p^n` on a per-block in-band rate `p`
  * is a property of the RULE and not of the clock, so what decides the answer
  * is `p` — and this rig's `p` is not that rig's.
  *
@@ -363,25 +358,23 @@ const robustScale = (xs) => (quantile(xs, 0.75) - quantile(xs, 0.25)) / 1.349;
  *
  * On the two rows that carry the gated pair the arithmetic and the empirical
  * rate agree (exact binomial two-sided p = 1.000 and 0.749), and 18–40% is a
- * rate a run survives — against the 90.5% empirical per-run false refusal
- * that retired the clock's. THE RULE IS RETAINED HERE ON MEASURED GROUNDS.
+ * rate a run survives — against the clock's 90.5% empirical per-run false
+ * refusal under the same rule. THE RULE STANDS HERE ON MEASURED GROUNDS.
  *
  * The rig does not inherit the clock's ill-conditioning because this control
- * is ALREADY LEVEL-DENOMINATED, which is the class rf2-8a746's ruling
- * endorses: the tared floor reads 10.72 / 41.00 ms with a between-block SD of
- * 2.55 / 8.82, i.e. 4.20 / 4.65 sigma from zero, against the retired ctl3
- * denominator's 2.09. Block IQR is 7.7% of the centre on both rows.
+ * is LEVEL-DENOMINATED, the well-conditioned class: the tared floor reads
+ * 10.72 / 41.00 ms with a between-block SD of 2.55 / 8.82, i.e. 4.20 / 4.65
+ * sigma from zero, against 2.09 for the fresco clock's ctl3 denominator. Block IQR is 7.7% of the centre on both rows.
  *
  * `ordinary` refuses 10 of 10 and THIS RULE IS NOT WHY. Its block median is
  * 1.2264x against a predicted 1.7255x — 71.1% of P, and 5.2% BELOW the band's
  * lower edge of 1.2941 — so the centre sits outside the band the rule
  * enforces, and relaxing the rule cannot reach it: allowing up to three
  * out-of-band blocks per run still passes 0 of 10. That is a mis-specified
- * CENTRE, the same defect class rf2-8a746 diagnosed on ctl3, and it is
- * rf2-pzqy8's to rule on — together with the fact that this row's failure
- * refuses the whole RUN (`verdict` below) where prediction P4 promised a
- * refusal of the ROW. Retiring a rule that is not the binding constraint
- * would loosen a control on the two rows where it is doing real work.
+ * CENTRE, the same defect class as the fresco clock's ctl3, and the
+ * calibrated check standard below answers it (`checkStandardVerdict`).
+ * Dropping a rule that is not the binding constraint would loosen a control
+ * on the two rows where it is doing real work.
  *
  * Every figure above recomputes from the committed datasets and is pinned by
  * `../clock_exit_path.test.cjs`, which drives `controlBlocks` and this
@@ -402,7 +395,7 @@ function controlVerdict(predicted, per, slack) {
 }
 
 /**
- * THE CALIBRATED CHECK STANDARD, applied to one row-run (rf2-pzqy8) — or
+ * THE CALIBRATED CHECK STANDARD, applied to one row-run — or
  * `null` when `census_check_standard.json` does not calibrate that row.
  *
  * ## Why one row has a standard and two do not
@@ -410,24 +403,24 @@ function controlVerdict(predicted, per, slack) {
  * `ctl-2x` builds twice the row's cards and the page states the row's own
  * element arithmetic as the prediction. On `large-template` and `feed` the
  * instrument MEETS it — run-median centres 1.8433 and 2.0146 against 1.9759
- * and 1.9943 — and rf2-y0pkh measured the strict rule on those two rows at
- * 18.2% and 39.8% per-run false refusal and retained it. Nothing there needs
- * repairing, and seeding a standard for a row whose prediction already holds
- * would replace a working control with a copied one.
+ * and 1.9943 — and the strict rule measures 18.2% and 39.8% per-run false
+ * refusal on those two rows (rf2-y0pkh). Nothing there needs a standard, and
+ * seeding one for a row whose prediction holds would replace a working
+ * control with a copied one.
  *
  * `ordinary` is the row that does not. It reads 1.2308x against a predicted
  * 1.7255x — 71.3% of P, and BELOW the strict band's own lower edge of 1.2941
  * rather than inside it — so every one of its ten committed row-runs refused,
- * and rf2-y0pkh measured that no relaxation of the block count reaches it
+ * and no relaxation of the block count reaches it
  * (0, 1, 2 or 3 out-of-band blocks allowed: 0 of 10 either way, its pooled
  * block median 1.2264 sitting 5.2% under that edge). The arithmetic is not
  * wrong anywhere; the row is small. `R = (P*W + c)/(W + c)`, and at 51
  * elements the tared floor is 1.41 ms of which `c = 0.96 ms` — 68% — does
  * not scale with the page, so the reading sits far below `P` by
  * construction. That is a mis-specified CENTRE, the class rf2-8a746
- * diagnosed on ctl3 (whose true centre sat 2.6% ABOVE its refusal edge
- * where this row's sits below its own), and
- * its ruling's part 3 is the repair: a level-denominated, EMPIRICALLY
+ * names on the fresco clock's ctl3 (whose true centre sits 2.6% ABOVE its
+ * refusal edge where this row's sits below its own), and the answer is a
+ * level-denominated, EMPIRICALLY
  * CALIBRATED, versioned standard rather than a theoretical value asserted
  * against a reading it does not describe.
  *
@@ -436,12 +429,13 @@ function controlVerdict(predicted, per, slack) {
  * Because re-centring alone does not reach it either. About the empirical
  * centre the per-block in-band fraction rises from 31.1% to 90.0% and the
  * all-blocks rule would still pass only 3 of 10, because `0.90^18 = 15%` —
- * rf2-8a746's `p^n` arithmetic, on this rig, at this n. So on a calibrated
- * row the tolerance band is REPORTED and the run rule is the standard's:
+ * the `p^n` arithmetic above `controlVerdict`, on this rig, at this n. So
+ * on a calibrated row the tolerance band is REPORTED and the run rule is
+ * the standard's:
  * the row-run's block median inside frozen location limits AND its robust
- * scale at or under a frozen dispersion limit. THE STRICT RULE IS NOT
- * TOUCHED WHERE rf2-y0pkh MEASURED AND RETAINED IT — on the two rows above
- * it is still the adjudicator, with the same band and the same wording.
+ * scale at or under a frozen dispersion limit. THE STRICT RULE STANDS WHERE
+ * IT WAS MEASURED TO HOLD — on the two rows above it is the adjudicator,
+ * with the same band and the same wording.
  *
  * ## And the evidence has to be all there
  *
@@ -453,8 +447,8 @@ function controlVerdict(predicted, per, slack) {
  * quantity judged against the wrong sampling distribution, and at `n = 1` it
  * is not a judgement at all: the robust scale of one reading is 0, so the
  * dispersion rule cannot fail, and a single block sitting at the centre
- * reported `ok: true` with `n: 1` — which `controlAdjudication` then made the
- * gate verdict, citing a row as in control on one block. MISSING OR EXTRA
+ * would report `ok: true` with `n: 1` — which `controlAdjudication` would
+ * then make the gate verdict, citing a row as in control on one block. MISSING OR EXTRA
  * BLOCKS REFUSE, with the observed and the expected count, BEFORE either
  * statistic is computed.
  *
@@ -573,12 +567,12 @@ function checkStandardVerdict(rowId, per) {
  * THE ROW'S CONTROL VERDICT, and the one field a gate may read.
  *
  * Both adjudicators are computed and both are recorded, so a reader can see
- * the mis-specification rather than take its repair on trust: `strictOk` is
+ * the mis-specification rather than take its correction on trust: `strictOk` is
  * the all-blocks rule's own answer about the row's element arithmetic, and
  * `standard` is the calibrated standard's, or `null` where the row has none.
  * `ok` is whichever of the two ADJUDICATES the row, and `adjudicator` names
  * it. One field, one gate, one seat — `summarise` reads `ok` and nothing
- * else, exactly as it did before rf2-pzqy8.
+ * else, whichever adjudicator decided it.
  */
 function controlAdjudication(rowId, predicted, per, slack) {
   const strict = controlVerdict(predicted, per, slack);
@@ -644,8 +638,8 @@ function revision() {
 }
 
 // The measured pages' own sources are pinned alongside the instrument's:
-// a sibling branch is editing the shapes tree, and a row nobody can tie
-// to the exact page it mounted is rf2-cvvb7's recorded fault.
+// the shapes tree changes under the instrument, and a row nobody can tie
+// to the exact page it mounted is not evidence about that page.
 const BLOB_FILES = [
   'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_arms.cljs',
   'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_app.cljs',
@@ -733,7 +727,7 @@ const CONFIG_MERGE =
 
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[c56clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[c56clock] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[c56clock] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
@@ -965,17 +959,16 @@ async function runRow(browser, runDef, rowId) {
  * blocks reproduces the row exactly — `../clock_exit_path.test.cjs` pins that.
  *
  * It REFUSES a row that carries no blocks rather than folding to zeros, because
- * every census dataset written before rf2-jo60g is exactly that row, and a fold
+ * every census dataset written without the split is exactly that row, and a fold
  * that answered there would hand a reader a NaN — or worse, a plausible number
  * — for a split those files never recorded.
  *
- * AND IT REFUSES A PARTIAL ONE (merged-PR audit #7666). The first landing
- * checked only the OUTER array and then summed with `acc[k] += a[k] || 0`, so
- * `[[]]` and `[[{}]]` both answered `{}`, and a missing, null or NaN metric was
- * silently synthesised as zero. An arm that had lost half its fields therefore
- * folded to a plausible ratio instead of a refusal — the same fail-open one
- * level down, and the one this bead exists to close. `|| 0` is the defect, so
- * the repair is to REQUIRE the shape rather than to default it:
+ * AND IT REFUSES A PARTIAL ONE. A fold that checked only the OUTER array and
+ * then summed with `acc[k] += a[k] || 0` would answer `{}` for both `[[]]` and
+ * `[[{}]]`, and would silently synthesise a missing, null or NaN metric as
+ * zero, so an arm that had lost half its fields would fold to a plausible
+ * ratio instead of a refusal — the same fail-open one level down. `|| 0` is
+ * the defect, so the fold REQUIRES the shape rather than defaulting it:
  *
  *   - every round carries at least one block, and every block at least one arm;
  *   - every arm carries every one of `DECOMP_FIELDS`, each a FINITE number —
@@ -989,14 +982,14 @@ async function runRow(browser, runDef, rowId) {
  * a reader can go to the offending side of the ratio and see what is wrong.
  *
  * AND IT MEASURES COMPLETENESS AGAINST THE ROW'S DECLARED SHAPE, not against
- * the evidence itself (merged-PR audit #7681, rf2-e1tko). That landing required
- * "the same arm roster as the row's FIRST BLOCK" and counted no rounds or
- * blocks at all, so the evidence certified itself: a row with its final round
- * removed, a row with one block removed, and a row with an arm removed from
- * EVERY block were all accepted, each folding to internally consistent
- * survivors and a plausible aggregate. The third is the sharp one — a roster
- * read off block 1 cannot see an arm that block 1 has also lost, so uniform
- * loss walks straight past the check written to catch it.
+ * the evidence itself. A check that required "the same arm roster as the
+ * row's FIRST BLOCK" and counted no rounds or blocks at all would let the
+ * evidence certify itself: a row with its final round removed, a row with one
+ * block removed, and a row with an arm removed from EVERY block would all be
+ * accepted, each folding to internally consistent survivors and a plausible
+ * aggregate. The third is the sharp one — a roster read off block 1 cannot see
+ * an arm that block 1 has also lost, so uniform loss walks straight past a
+ * check written to catch it.
  *
  * So `declared` is REQUIRED, and it is the row's own account of itself: the
  * `armIds` its plan named and the `rounds` x `blocks` its design ran. Both are
@@ -1009,7 +1002,7 @@ async function runRow(browser, runDef, rowId) {
 function foldDecomposition(blocksDecomp, declared) {
   if (!Array.isArray(blocksDecomp) || blocksDecomp.length === 0) {
     throw new Error(
-      'this row carries no per-block decomposition: it predates rf2-jo60g, so the ' +
+      'this row carries no per-block decomposition, so the ' +
         'Script/Layout/RecalcStyle split is NOT recomputable from it and may not be quoted'
     );
   }
@@ -1019,8 +1012,8 @@ function foldDecomposition(blocksDecomp, declared) {
     throw new Error(
       "foldDecomposition needs the row's DECLARED shape — {armIds, rounds, blocks} — to measure " +
         'completeness against. Anchoring to the stored blocks instead lets a truncated row certify ' +
-        'itself: that is what accepted a removed round, a removed block, and an arm removed from ' +
-        'every block (rf2-e1tko).'
+        'itself: it would accept a removed round, a removed block, and an arm removed from ' +
+        'every block.'
     );
   }
   const describe = (v) =>
@@ -1034,7 +1027,7 @@ function foldDecomposition(blocksDecomp, declared) {
       `this row's per-block decomposition is not valid evidence — ${where}: ${what}. ` +
         'A partial or corrupt split is refused rather than folded: defaulting it to zero ' +
         'would publish a plausible Script/Layout/RecalcStyle ratio for numbers the run ' +
-        'never recorded (rf2-jo60g).'
+        'never recorded.'
     );
   };
 
@@ -1111,9 +1104,9 @@ function perBlock(blocks, f) {
  * `adjudication.ctl.perBlock` records.
  *
  * Exported so a witness can drive the REAL arithmetic over a committed
- * dataset rather than a copy of it (rf2-y0pkh). `report` used to spell this
- * inline, and a rate measured against a reimplementation would be a rate
- * about the reimplementation.
+ * dataset rather than a copy of it. `report` calls it rather than spelling
+ * it inline, because a rate measured against a reimplementation would be a
+ * rate about the reimplementation.
  */
 const controlBlocks = (blocksTask) =>
   perBlock(blocksTask, (r, b) => taredCell(blocksTask, r, b, CTL) / taredCell(blocksTask, r, b, FLOOR));
@@ -1144,7 +1137,7 @@ function report(out) {
   }
   console.log(
     `;; scope    WITHIN-ROW ONLY — the arms above mount the identical page, so this row's ratios ` +
-      `adjudicate. Rows differ in cards as well as boundaries (rf2-2rtt6.62), so no difference ` +
+      `adjudicate. Rows differ in cards as well as boundaries, so no difference ` +
       `BETWEEN rows attributes to boundary decomposition.`
   );
 
@@ -1203,7 +1196,7 @@ function report(out) {
   for (const line of formatCheckStandard(ctl.standard)) console.log(line);
   console.log(`;;   ADJUDICATED BY ${ctl.adjudicator} — ${ctl.ok ? 'the control HOLDS' : 'the control DOES NOT HOLD'}`);
   console.log(
-    `;;   rf2-jcm3p's recorded mount undershoot expected: additive residual c = ` +
+    `;;   mount undershoot, expected: additive residual c = ` +
       `${fmt(c, 3)} ms on a tared floor of ${fmt(floorTared, 3)} ms. This control certifies ` +
       `page-proportional SIGNAL, not exactness; no changed-set control can reach a mount row.`
   );
@@ -1226,7 +1219,7 @@ function report(out) {
   const bw = assessed.bandStats.band;
   console.log(
     `;; ---- THE BAND (ctl-2x / floor per block, seam.cjs): ${Number.isFinite(bw) ? (bw * 100).toFixed(1) + '%' : 'n/a'} ` +
-      `— ceiling ${(seamlib.BAND_CEILING * 100).toFixed(0)}% (rf2-ymi6j) ${assessed.verdict.ceilingBreached ? '— BREACHED, no magnitude reportable' : ''} ----`
+      `— ceiling ${(seamlib.BAND_CEILING * 100).toFixed(0)}% ${assessed.verdict.ceilingBreached ? '— BREACHED, no magnitude reportable' : ''} ----`
   );
   console.log(
     `;;   block seam (floor by block-position): [${assessed.seam.bySeg.map((x) => fmt(x, 3)).join(', ')}] ` +
@@ -1300,31 +1293,29 @@ function report(out) {
 // The exit decision
 // ---------------------------------------------------------------------------
 
-// A refusal that only PRINTS is not a refusal (rf2-rr6do; rf2-tb345 repaired
-// the same defect in b8_run.cjs, and `hd8_clock_run.cjs` — this file's near
-// twin — carried it identically). Three refusals were computed here, printed
-// loudly, written into the dataset, and then the exit was taken off `failed`
-// and the arm-order guard ALONE. So a quiet box with a clean guard could
-// print
+// A refusal that only PRINTS is not a refusal. Were the exit taken off
+// `failed` and the arm-order guard ALONE, with the other three refusals
+// only computed, printed loudly and written into the dataset, a quiet box
+// with a clean guard could print
 //
 //   ;; writes   4 unverified of 36 (mount + element-count read-backs)
 //   ;; ---- THE BAND ...: 41.2% — ceiling 35% — BREACHED, no magnitude reportable ----
 //   ;;   FAIL  measured 1.21x [...] against [1.50 – 2.50]
 //
-// and still exit 0 — and prediction P4 above, registered before any clock,
+// and still exit 0 — while prediction P4 above, registered before any clock,
 // PROMISES that a row whose control or band cannot hold "publishes a REFUSAL
 // with the reason, not a number". A promise the process exit does not keep
 // is worse than no promise: it is a reader's reason not to check.
 //
-// The correct shape already existed in `clock_run.cjs`, which gates all
-// three. This is that shape, with the decision moved into ONE pure function
-// over a flat summary so the exit path is checkable without a release build
-// and a headless Chromium — see `../clock_exit_path.test.cjs`.
+// `clock_run.cjs` gates all three. This is that shape, with the decision in
+// ONE pure function over a flat summary so the exit path is checkable
+// without a release build and a headless Chromium — see
+// `../clock_exit_path.test.cjs`.
 //
 // The four conditions are INDEPENDENT: each refuses on its own, and when
-// several fire every one of them is named. Precedence preserves every code
-// this driver already had — a run that exited 1 still exits 1, a run the
-// arm-order guard refused still exits 2.
+// several fire every one of them is named. Precedence puts the run's own
+// failures first — a run that failed its own gates exits 1 whatever else
+// fired, and a run the arm-order guard refused exits 2.
 //
 // No refusal suppresses output: the tables are printed and the datasets are
 // written before this is consulted. A refusal is about what may be QUOTED,
@@ -1335,7 +1326,7 @@ function report(out) {
  *
  * Lifted out of `summarise` because the WRITE path needs the same four
  * refusal fields the EXIT path does, and reading them twice off two
- * different accessor paths is how a second adjudicator grows (rf2-pzqy8).
+ * different accessor paths is how a second adjudicator grows.
  * One mapper, so `verdict` and `rowPublication` can never disagree about
  * what refused a row.
  */
@@ -1394,7 +1385,7 @@ function verdict(summary) {
   if (ctlFailed.length) {
     lines.push(
       '[c56clock] REFUSED — the positive control did not see the change its own arithmetic ' +
-        'predicts (rf2-rr6do; this is prediction P4 kept) on: ' +
+        'predicts (prediction P4) on: ' +
         ctlFailed.map((r) => `${r.id} (measured ${Number(r.ctlMeasured).toFixed(4)}x)`).join(', ') +
         '. No MAGNITUDE from those rows is reportable — and the scope is the ROW (rf2-pzqy8): every ' +
         'row above that passed every gate stays canonical in the same file, which is P4 kept at the ' +
@@ -1416,47 +1407,47 @@ function verdict(summary) {
   return { code, lines };
 }
 
-// WHERE A RUN'S DATASETS MAY BE WRITTEN (rf2-2rtt6.56, merged-PR audit #7379).
+// WHERE A RUN'S DATASETS MAY BE WRITTEN.
 //
 // `verdict` decides what may be QUOTED. This decides what may be WRITTEN, and
-// it is a separate question the driver got wrong in the same direction. The
-// datasets were written under the CANONICAL filenames before the refusal was
-// consulted, whatever shape the run had — so a run narrowed to one row
+// it is a separate question that fails in the same direction. Were the
+// datasets written under the CANONICAL filenames before the refusal was
+// consulted, whatever shape the run had, a run narrowed to one row
 // (C56CLOCK_ROWS) or one adapter (C56CLOCK_ONLY), taken with `--no-build`
 // against whatever bundle happened to be on disk, taken at an overridden
-// depth, or one the verdict then REFUSED, silently replaced the published
-// evidence the studio page cites. Nothing announced it: the write had already
-// landed, and the nonzero exit arrived afterwards. rf2-rr6do repaired the exit
+// depth, or one the verdict then REFUSED, would silently replace the
+// published evidence the studio page cites. Nothing would announce it: the
+// write lands before the nonzero exit arrives. The exit codes close the exit
 // path; this is the write path, the other half of the same fail-open.
 //
 // THE RULE: the canonical directory holds the PUBLISHED SHAPE and nothing
 // else. Any narrowing, any override, any skipped gate routes to a sibling
 // `.unpublished` directory, named on stdout with the reason.
 //
-// AND EVERY ONE OF THOSE IS A PROPERTY OF THE RUN, which is the correction
-// rf2-pzqy8 makes. A gate refusal is a property of ONE ROW, and this function
-// used to read the whole verdict's exit code and move the file for it — so a
-// run whose `ordinary` row missed its control sent `large-template` and
-// `feed` to `.unpublished` too, having passed every gate they have. Over the
-// five committed sessions that was every session, on both adapters, so NO
-// FULL-SHAPE CENSUS RUN COULD EVER BE CANONICAL and the studio page's
-// recomputable claims had no canonical set to be recomputed from.
+// AND EVERY ONE OF THOSE IS A PROPERTY OF THE RUN. A gate refusal is a
+// property of ONE ROW, and a function that read the whole verdict's exit
+// code and moved the file for it would send `large-template` and `feed` to
+// `.unpublished` whenever the `ordinary` row missed its control, having
+// passed every gate they have. Over the five committed sessions that is
+// every session, on both adapters, so NO FULL-SHAPE CENSUS RUN COULD EVER BE
+// CANONICAL and the studio page's recomputable claims would have no
+// canonical set to be recomputed from.
 //
 // The refusal is not weakened, it is put at its own scope. The exit code
-// still refuses the run and `verdict` still names every offending row; each
-// row now carries its own `canonical` and `notCanonicalWhy` (`rowPublication`
-// below) and the file indexes them in `rowsRefused`. A canonical file may
-// therefore hold a REFUSED row beside citable ones — which is not a hole but
-// prediction P4 in the driver's own words: "the ROW publishes a REFUSAL with
-// the reason, not a number". A refusal is evidence; discarding the rows
-// beside it was the fault.
+// refuses the run and `verdict` names every offending row; each row carries
+// its own `canonical` and `notCanonicalWhy` (`rowPublication` below) and the
+// file indexes them in `rowsRefused`. A canonical file may therefore hold a
+// REFUSED row beside citable ones — which is not a hole but prediction P4 in
+// the driver's own words: "the ROW publishes a REFUSAL with the reason, not
+// a number". A refusal is evidence; discarding the rows beside it would be
+// the fault.
 //
-// `clock_run.cjs`'s `publication(shape)` has read shape and nothing else all
-// along. This is that function's rule, on this driver.
+// `clock_run.cjs`'s `publication(shape)` has read shape and nothing else, and
+// this is that function's rule, on this driver.
 //
-// rf2-azopg added the skipped gate to that list, and it is the sharpest case:
-// C56CLOCK_SKIP_QUIET=1 already PRINTED "NOT the published shape", but the
-// fact never reached here, so a run taken on a contended box could occupy the
+// The skipped gate is on that list, and it is the sharpest case:
+// C56CLOCK_SKIP_QUIET=1 PRINTS "NOT the published shape", and unless that
+// fact reaches here a run taken on a contended box could occupy the
 // canonical set and read back as if it had been taken in a granted window.
 // That is the one distinction the whole quiet-box discipline exists to keep.
 //
@@ -1482,7 +1473,7 @@ function destination(shape) {
 }
 
 /**
- * WHETHER ONE ROW MAY BE CITED (rf2-pzqy8) — `destination`'s decision at the
+ * WHETHER ONE ROW MAY BE CITED — `destination`'s decision at the
  * scope prediction P4 states it at, over the same flat row `verdict` refuses
  * on, so the two can never disagree about what refused it.
  *
@@ -1492,7 +1483,7 @@ function destination(shape) {
  * guard, unverified read-backs, a reproducibility band over seam.cjs's
  * ceiling, and a positive control that did not hold. Every one of those is
  * already per-row in `verdict`'s own lines, which name the rows they refuse;
- * the write path is where that scope used to be thrown away.
+ * the write path is where that scope would otherwise be thrown away.
  *
  * FAIL CLOSED: an absent row record is refused rather than waved through, and
  * an absent destination is treated as an unpublished one — a row whose run's
@@ -1513,14 +1504,14 @@ function rowPublication(row, dest) {
   }
   if (r.unverified > 0) {
     why.push(
-      `${r.unverified} of ${r.writes} operations are UNVERIFIED (rf2-rr6do) — a window whose value ` +
+      `${r.unverified} of ${r.writes} operations are UNVERIFIED — a window whose value ` +
         'never reached the page is not a measurement of that page'
     );
   }
   if (r.ceilingBreached) {
     why.push(
       `its reproducibility band ${pct(r.band)} exceeds seam.cjs's ${(seamlib.BAND_CEILING * 100).toFixed(0)}% ` +
-        'ceiling (rf2-ymi6j) — the box could not reproduce identical work, so no magnitude is reportable'
+        'ceiling — the box could not reproduce identical work, so no magnitude is reportable'
     );
   }
   if (row && !r.ctlOk) {
@@ -1541,7 +1532,7 @@ function rowPublication(row, dest) {
  * refusal fields (`guardRefuse`, `ceilingBreached`, …), and `drive` is held to
  * an invariant that nothing downstream of `verdict` may name one — the check
  * that stops a second exit path growing back (`../clock_exit_path.test.cjs`).
- * The write now happens after the verdict, so the serialiser has to live
+ * The write happens after the verdict, so the serialiser has to live
  * outside it. Recording is not deciding, and this is where that shows.
  */
 function datasetFor(rows, meta) {
@@ -1558,8 +1549,8 @@ function datasetFor(rows, meta) {
     canonical: meta.dest.canonical,
     notCanonicalWhy: meta.dest.why,
     // ... and the rows that may NOT be, indexed at the top of the file so a
-    // reader who checks only the header cannot cite one by missing it
-    // (rf2-pzqy8). Empty on a run every row of which passed every gate.
+    // reader who checks only the header cannot cite one by missing it.
+    // Empty on a run every row of which passed every gate.
     rowsRefused: rows.filter((r) => !publication(r).canonical).map((r) => r.rowId),
     design: { rounds: ROUNDS, blocks: BLOCKS, warmup: WARMUP, samples: SAMPLES, tolerance: TOLERANCE, controlSlack: CONTROL_SLACK, gateLine: GATE_LINE },
     clock: 'Performance.getMetrics raw TaskDuration, frame-settled (rAF + setTimeout), plumb-tared',
@@ -1568,16 +1559,17 @@ function datasetFor(rows, meta) {
     rows: rows.map((r) => ({
       rowId: r.rowId,
       // WHETHER THIS ROW MAY BE CITED, and why not when it may not — the
-      // refusal at prediction P4's own scope (rf2-pzqy8). A row that refused
+      // refusal at prediction P4's own scope. A row that refused
       // travels here beside the rows that did not, rather than taking them
       // to `.unpublished` with it.
       canonical: publication(r).canonical,
       notCanonicalWhy: publication(r).why,
       armIds: r.armIds,
       // The row's workload — cards, elements, per-instance reads, boundaries.
-      // Persisted because rf2-2rtt6.62 turned on exactly these counts, and
-      // they were recoverable only by reading the instrument's own source at
-      // the producing commit.
+      // Persisted because the cross-row confound (see the header) turns on
+      // exactly these counts, and without them here they would be
+      // recoverable only by reading the instrument's own source at the
+      // producing commit.
       stamp: STAMP[r.rowId],
       canon: r.canon,
       ctlPredicted: r4(r.ctlPredicted),
@@ -1588,15 +1580,15 @@ function datasetFor(rows, meta) {
       // split, per block per arm: the block's sums with the `n` that produced
       // them beside them.
       //
-      // rf2-jo60g. `deltaOf` has always COLLECTED these three and this function
-      // has always dropped them, so the studio page's cited split on the feed
-      // row — "layout 2.06x, style 1.85x, script 2.3x" — was a figure no
-      // committed dataset could reproduce. Sums and counts at the same block
+      // `deltaOf` COLLECTS these three, and a dataset that dropped them would
+      // leave the studio page's cited split on the feed row — "layout 2.06x,
+      // style 1.85x, script 2.3x" — a figure no committed dataset could
+      // reproduce. Sums and counts at the same block
       // grain as `blocksTask` are the reduced quantity: `foldDecomposition`
       // gives the row, dividing by `n` gives the per-sample mean the report
       // prints, and one arm's mean over another's gives the published ratio.
-      // Persisting it does not backfill the datasets already on main — the
-      // split becomes recomputable from the NEXT canonical run, not this line.
+      // A dataset written without it carries no split, and `foldDecomposition`
+      // refuses its rows.
       blocksDecomp: r.blocksDecomp.map((rd) =>
         rd.map((b) =>
           Object.fromEntries(
@@ -1607,15 +1599,14 @@ function datasetFor(rows, meta) {
       // THE CLOCK'S OWN GRAIN, in the run it governs — the sorted distinct
       // non-zero per-sample `TaskDuration` deltas this row observed, the
       // smallest of which is the finest interval the published clock
-      // resolved here. `report` prints that smallest value; until now it
-      // printed it and nothing kept it.
+      // resolved here. `report` prints that smallest value, and this keeps it.
       //
-      // rf2-dzus, and the same species as `blocksDecomp` above: collected in
-      // `runRow`, dropped at write time. A file of durations with no record
+      // The same species as `blocksDecomp` above: collected in `runRow`, and
+      // lost unless it is written here. A file of durations with no record
       // of its own resolution cannot answer "was this measurable?" from
-      // itself — the answer has to come from a constant somebody remembers,
-      // which is exactly what `rf2-d2tzk` stopped the in-page clock doing.
-      // It backfills nothing; the grain travels with the NEXT canonical run.
+      // itself — the answer would have to come from a constant somebody
+      // remembers, which the in-page clock does not rely on either. A dataset
+      // written without it carries no grain.
       granularity: r.granularity,
       tally: r.tally,
       runtime: r.runtime,
@@ -1645,8 +1636,8 @@ const runShape = () => ({
   noBuild: NO_BUILD,
   depthPublished: depthIsPublished(),
   // The quiet gate PRINTS that a skipped run is not the published shape
-  // (`quietGate`); until rf2-azopg nothing carried that fact here, so the
-  // write decision never saw it. Printing a caveat is not enforcing one.
+  // (`quietGate`); this carries that fact to the write decision, because
+  // printing a caveat is not enforcing one.
   skipQuiet: SKIP_QUIET,
 });
 
@@ -1673,7 +1664,7 @@ async function drive() {
   const sha = revision();
   const bl = blobs();
   console.log(';; ==== CENSUS-REAL CLOCK-ROW PROVENANCE ====');
-  console.log(';;   bead        rf2-2rtt6.56 (census-page clock rows; EP-0038)');
+  console.log(';;   what        census-page clock rows (EP-0038)');
   console.log(`;;   commit      ${sha}`);
   for (const [f, h] of Object.entries(bl)) console.log(`;;   blob        ${h}  ${f}`);
   console.log(`;;   reproduce   node implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs`);
@@ -1691,11 +1682,11 @@ async function drive() {
     `;;   rows        ${ROWS.join(', ')}` + `${ROWS_ONLY ? `  (C56CLOCK_ROWS=${ROWS_ONLY} — PARTIAL, not the published shape)` : ''}`
   );
   console.log(`;;   guard tol   ${TOLERANCE} on raw TaskDuration (HD-008's stated mount choice)`);
-  console.log(`;;   band ceil   ${(seamlib.BAND_CEILING * 100).toFixed(0)}% on raw TaskDuration (rf2-ymi6j)`);
-  console.log(';;   write rows  REFUSED by construction on this box (rf2-7iqb5, rf2-d2tzk) — see the header');
+  console.log(`;;   band ceil   ${(seamlib.BAND_CEILING * 100).toFixed(0)}% on raw TaskDuration`);
+  console.log(';;   write rows  REFUSED by construction on this box — see the header');
   console.log(';; ==== PREDICTIONS, REGISTERED BEFORE ANY CLOCK ====');
-  console.log(';;   P1  ctl-2x reads BELOW its arithmetic prediction on every row (rf2-jcm3p\'s');
-  console.log(';;       recorded mount undershoot), inside the strict +/-25% band unless block');
+  console.log(';;   P1  ctl-2x reads BELOW its arithmetic prediction on every row (the mount');
+  console.log(';;       rows\' measured undershoot), inside the strict +/-25% band unless block');
   console.log(';;       scatter is wide.');
   console.log(';;   P2  DIRECTION ONLY: fresco / uix on the FEED row sits wholly ABOVE 1.10 —');
   console.log(';;       the census card is ~17 elements per boundary against M1\'s 3, so the');
@@ -1773,9 +1764,9 @@ async function drive() {
     }
   }
 
-  console.log("\n;; ==== THE RULING IS NOT THIS INSTRUMENT'S TO ISSUE ====");
-  console.log(";;   The verdict against the amended mount gate is the bead's to state and the");
-  console.log(";;   operator's to overturn (rf2-2rtt6.1). This driver prints measurements and");
+  console.log("\n;; ==== THE VERDICT IS NOT THIS INSTRUMENT'S TO ISSUE ====");
+  console.log(";;   The verdict against the amended mount gate is a person's to state and to");
+  console.log(";;   overturn, not this driver's. This driver prints measurements and");
   console.log(';;   per-pair adjudications against the recorded line; nothing here amends the');
   console.log(';;   bar, and nothing here re-baselines the canonical M1 witness.');
 
@@ -1786,9 +1777,9 @@ async function drive() {
   return v.code;
 }
 
-// rf2-pzqy8 adds the last six: the empirical centre, and the refusal at the
-// row's own scope. `summarise` and `verdict` stay FIRST, which the shared
-// wiring pin in `../clock_exit_path.test.cjs` reads.
+// The last six serve the empirical centre and the refusal at the row's own
+// scope. `summarise` and `verdict` come FIRST, which the shared wiring pin
+// in `../clock_exit_path.test.cjs` reads.
 module.exports = { summarise, verdict, destination, datasetFor, foldDecomposition, controlBlocks, controlVerdict, CHECK_STANDARD, checkStandardVerdict, controlAdjudication, robustScale, summariseRow, rowPublication };
 
 if (require.main === module) {

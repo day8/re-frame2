@@ -1,49 +1,46 @@
 #!/usr/bin/env node
-// THE CONVERGED P0 CLOCK TABLE — driver (rf2-a4x1o).
+// THE CONVERGED P0 CLOCK TABLE — driver.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/p0_converge_run.cjs
+//   node src/re_frame/bench/fresco/p0_converge_run.cjs   (from bench/fresco/)
 //
 // Build once, serve once, load the page ONE ROW AT A TIME, and refuse a
 // figure that moves with its position in the plan.
 //
 // ## No new build id
 //
-// `implementation/shadow-cljs.edn` is not touched. rf2-2rtt6.2 owns the
-// measurement lane and HD-017 makes a build-id addition a hot-zone,
-// sequenced edit; this rides `:fresco-bench` with an output directory and
-// an `:init-fn` merged in at the CLI, which is the seam that arm's own
-// driver established for exactly this.
+// This rides the lane's `:fresco-bench` with an output directory and an
+// `:init-fn` merged in at the CLI, so a driver adds no build id.
 //
-// ## ONE ROW PER PAGE, and why the first cut was not
+// ## ONE ROW PER PAGE, and why
 //
-// The first cut ran all four rows in one page and THE ARM-ORDER GUARD
-// REFUSED IT, exit 2, on two independent faults. Both were the arm's and
-// both are repaired here; the tolerance was not touched.
+// All four rows in one page make THE ARM-ORDER GUARD REFUSE, exit 2, on two
+// independent faults. Both are the arm's and both are repaired here; the
+// tolerance is not touched.
 //
-//   1. PHASE. `M1/uix-subs/floor` — an arm that hand-builds React
-//      elements and cannot change — read LAST-THIRD 2.1739x FIRST-THIRD
-//      with ranges DISJOINT (p50 1.15 ms -> 2.50 ms). Its Reagent-segment
-//      twin climbed 2.09x and the two control arms climbed 1.96x-2.07x,
-//      so the whole page was degrading, not one arm. That is the
-//      accumulation rf2-2rtt6.4 recorded and could not explain (~12 MB per
-//      segment entry, surviving a forced major collection, never reaching
-//      the document); its repair was ONE ROUND PER PAGE. The repair here
-//      is one ROW per page, which cuts a page's measured work from ~2,460
-//      operations to ~600 and is the smaller change of the two — with
-//      round-per-page held in reserve if the guard says it is not enough.
+//   1. PHASE. On a four-row page `M1/uix-subs/floor` — an arm that
+//      hand-builds React elements and cannot change — reads LAST-THIRD
+//      2.1739x FIRST-THIRD with ranges DISJOINT (p50 1.15 ms -> 2.50 ms).
+//      Its Reagent-segment twin climbs 2.09x and the two control arms climb
+//      1.96x-2.07x, so the whole page degrades, not one arm: an
+//      accumulation of ~12 MB per segment entry that survives a forced
+//      major collection and never reaches the document. One ROUND per page
+//      repairs it; one ROW per page, used here, cuts a page's measured work
+//      from ~2,460 operations to ~600 and is the smaller change of the two —
+//      with round-per-page held in reserve if the guard says it is not
+//      enough.
 //
-//   2. PREDECESSOR. `narrow/reagent-subs/ctl-2x` was refused on a stratum
-//      of TWO samples labelled `M1/reagent-subs/reagent-subs` — an arm
-//      that ran in a different ROW. Those tiny cross-row strata are an
-//      artefact of the shared sample collector: `lane/collect!` advances
-//      the `:previous` pointer only for RECORDED samples, so the first
-//      recorded sample after a warm-up block is tagged with whatever ran
-//      before the warm-up rather than with what actually ran before it.
-//      rf2-2rtt6.4 hit the same class from the other side (`<none>`
-//      strata reading 1.35x their siblings). Two repairs, both in the arm:
-//      the warm-up now advances the predecessor pointer without banking a
-//      sample, so every recorded sample carries its REAL predecessor; and
-//      one row per page means no cross-row adjacency exists to mislabel.
+//   2. PREDECESSOR. On a shared page `narrow/reagent-subs/ctl-2x` is
+//      refused on a stratum of TWO samples labelled
+//      `M1/reagent-subs/reagent-subs` — an arm that ran in a different ROW.
+//      Tiny cross-row strata like that are an artefact of a sample collector
+//      that advances the `:previous` pointer only for RECORDED samples, so
+//      the first recorded sample after a warm-up block is tagged with
+//      whatever ran before the warm-up rather than with what actually ran
+//      before it (`<none>` strata reading 1.35x their siblings are the same
+//      class). Two repairs, both in the arm: the warm-up advances the
+//      predecessor pointer without banking a sample, so every recorded
+//      sample carries its REAL predecessor; and one row per page means no
+//      cross-row adjacency exists to mislabel.
 //
 // ## Exit codes — the guard owns 2, and it is not the arm's to move
 //
@@ -65,14 +62,14 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-// The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
+// The directory's ONE navigation, with its ceiling named.
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
-// The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
+// The directory's ONE sentinel wait, raced against the page dying.
 const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -87,7 +84,7 @@ const PORT = Number(process.env.FRESCO_PORT || 8134);
 // page reports them in; each is self-contained, so it is not load-bearing.
 const ALL_ROWS = [
   { id: 'M1', why: 'mount, 901 elements, 300 sub-reading boundaries — a bar row' },
-  { id: 'M2', why: 'mount, 51 elements, 12 fields — DIAGNOSTIC, per rf2-2rtt6.2' },
+  { id: 'M2', why: 'mount, 51 elements, 12 fields — DIAGNOSTIC' },
   { id: 'broad', why: 'one commit all 300 boundaries read — a bar row' },
   { id: 'narrow', why: 'k commits each read by exactly one boundary — localisation' },
 ];
@@ -97,11 +94,10 @@ const ALL_ROWS = [
 // for the same reason that one has it: re-taking ONE row whose window moved
 // must not re-take the three whose windows did not, because that would mint a
 // competing set of figures for rows already published at another SHA and
-// leave a reader unable to tell which table is current. rf2-zb3qg batched the
-// narrow window and nothing else; the mount rows and the broad row are
-// untouched by it — the broad row passes a batch of one, which is the
-// pre-batch window exactly — so re-taking them would be replacing sound
-// published numbers with different ones for no reason.
+// leave a reader unable to tell which table is current. Only the narrow
+// window is batched — the mount rows take no batch and the broad row passes
+// a batch of one — so a narrow re-take has no reason to replace sound
+// published mount and broad numbers with different ones.
 //
 // Unset is all four, so the published shape is the default.
 const ONLY = (process.env.FRESCO_ONLY || '').trim();
@@ -114,9 +110,9 @@ if (ROWS.length === 0) {
 }
 
 // `FRESCO_START=reagent|uix` names the segment that leads round 0; the
-// order alternates from there. Default reagent — the only schedule any run
-// before rf2-6i0i2 had. A fixed start confounds segment order with temporal
-// position (Reagent-first was always rounds 0/2/4), so the segment-order
+// order alternates from there. Default reagent. A fixed start confounds
+// segment order with temporal position (a Reagent start puts Reagent first
+// in rounds 0/2/4), so the segment-order
 // question is answered by COUNTERBALANCING the start across independently
 // launched runs — separate invocations of this driver, half each way — and
 // adjudicating at the run level. One invocation, whatever its start, is one
@@ -129,12 +125,12 @@ if (!['reagent', 'uix'].includes(START)) {
 
 // `FRESCO_RATOM=on` puts the SECOND AUTHOR'S `:reagent-ratom` arm in the
 // Reagent segment of the `M1` and `broad` rows, so `reagent-subs / ratom` —
-// rf2-2rtt6.2's headline 1, the price of the reactive system — can be formed
-// a second way on a second page (rf2-2rtt6.21). Default OFF, and the default
-// is load-bearing: with the arm in it the Reagent segment runs four arms
-// against the UIx segment's three, which is a different interleave and a
-// bigger mount budget than the schedule rf2-6i0i2's ten-run ensemble was
-// measured under. An unflagged invocation is still that instrument; a flagged
+// the price of the reactive system — can be formed a second way on a second
+// page. Default OFF, and the default is load-bearing: with the arm in it the
+// Reagent segment runs four arms against the UIx segment's three, which is a
+// different interleave and a bigger mount budget than the schedule the
+// published ten-run ensemble was measured under. An unflagged invocation is
+// that instrument; a flagged
 // one is a different plan and says so on every record it writes.
 //
 // It composes with FRESCO_ONLY rather than implying it: `M2` and `narrow`
@@ -160,7 +156,7 @@ function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[converge] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[converge] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[converge] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   shadowBuild({
@@ -196,7 +192,7 @@ function serve() {
 
 async function runRow(browser, row) {
   // A FRESH PAGE per row, not a fresh navigation in the same one: the
-  // fault this driver was rebuilt around is a page that gets slower the
+  // fault this driver is built around is a page that gets slower the
   // longer it runs, and a reused page carries whatever caused that across
   // the row boundary.
   const page = await browser.newPage();
@@ -204,12 +200,11 @@ async function runRow(browser, row) {
     const t = msg.text();
     if (t.startsWith(';; ') || t.startsWith('[converge]')) console.log(t);
   });
-  // Watching starts BEFORE the navigation. `pageerror` used to be pushed onto
-  // an array that nothing read until after the sentinel wait, so a throw
-  // before FRESCO_DONE — which is every throw, since a page that threw never
-  // reaches its own `done!` — cost the FULL twenty-minute budget before the
-  // driver looked at the answer it had held all along (rf2-f5roa, from the PR
-  // #7268 audit).
+  // Watching starts BEFORE the navigation. A `pageerror` pushed onto an
+  // array that nothing reads until after the sentinel wait would cost a
+  // throw before FRESCO_DONE — which is every throw, since a page that threw
+  // never reaches its own `done!` — the FULL twenty-minute budget before the
+  // driver looked at the answer it already held.
   const watch = watchPage(page, `converge:${row.id}`);
 
   try {
@@ -333,9 +328,9 @@ async function runRow(browser, row) {
   // The two are different questions and the row records above already answer
   // both — `:publishable` governs the run quoted by itself, `:in-an-ensemble`
   // governs whether it is one observation of many, and it says it always is.
-  // rf2-b0tz5's re-take dropped a whole run on this exit code, which moved the
-  // published estimate away from parity by nine tenths of a point and narrowed
-  // its interval: refusing on the way the strata split IS a selection on the
+  // Dropping a whole run on this exit code moves the published estimate
+  // (measured: nine tenths of a point away from parity, with a narrower
+  // interval): refusing on the way the strata split IS a selection on the
   // result. So the message says so, because a bare exit 1 does not.
   const orderRefused = outcomes.filter((o) => o.orderRefused);
   if (orderRefused.length > 0) {
@@ -350,8 +345,8 @@ async function runRow(browser, row) {
         `ALONE; it does NOT drop the run from an ensemble. Every row record above ` +
         `carries :in-an-ensemble, and it reads ONE OBSERVATION whatever :publishable ` +
         `says — dropping a run for the way its strata happened to split selects on the ` +
-        `result, and it moves the estimate it would be used to compute (rf2-6i0i2, ` +
-        `rf2-b0tz5). Everything before this line passed: the arm-order guard owns exit 2 ` +
+        `result, and it moves the estimate it would be used to compute. ` +
+        `Everything before this line passed: the arm-order guard owns exit 2 ` +
         `and the positive control prints a different exit 1, so reaching here means both ` +
         `cleared on every row.`
     );

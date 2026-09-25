@@ -1,14 +1,14 @@
 (ns re-frame.bench.fresco.z3vlz-probe
-  "THE rf2-z3vlz DISCRIMINATOR — one reactivity probe, four bundles.
+  "THE z3vlz DISCRIMINATOR — one reactivity probe, four bundles.
 
-  rf2-z3vlz records that in HD-008's `:advanced` bench bundle — which
-  compiles stock `reagent`, `reagent2` (reagent-slim) AND `uix` together —
-  a `reg-view` tree mounted through `reagent2.dom.client` renders
-  CORRECTLY at mount and then NEVER re-renders on a write: 78 of 78 writes
-  failed the DOM read-back, while the stock-Reagent arm in the identical
-  harness passed 78 of 78.
+  In HD-008's `:advanced` bench bundle — which compiles stock `reagent`,
+  `reagent2` (reagent-slim) AND `uix` together — a `reg-view` tree mounted
+  through `reagent2.dom.client` under HD-008's harness renders CORRECTLY
+  at mount and then NEVER re-renders on a write: 78 of 78 writes fail the
+  DOM read-back, while the stock-Reagent arm in the identical harness
+  passes 78 of 78.
 
-  The bead names three candidates and establishes none:
+  Three candidates explain that, and the symptom alone establishes none:
 
     (a) a reagent-slim ADAPTER DEFECT — shipped code, users affected;
     (b) a MIXED-BUNDLE ARTEFACT — stock `reagent` and `reagent2`
@@ -41,10 +41,9 @@
 
   1. **Every write is read back out of the DOM**, all cells, inside the
      write's own window, and every result is reported as `N unverified of
-     M`. That rule is what turned this from a headline into a bead: the
-     unverified slim arm was reading 0.16-0.50x the floor while changing
-     nothing, which would have published as `reagent-slim narrow write is
-     2-6x faster than a top-down re-render`.
+     M`. Without that rule the unverified slim arm reads 0.16-0.50x the
+     floor while changing nothing, which would publish as `reagent-slim
+     narrow write is 2-6x faster than a top-down re-render`.
   2. **A negative result needs a positive control**, and this probe
      carries TWO, both inside the same bundle and the same harness:
        - the RAW control: a plain substrate component reading a plain
@@ -60,10 +59,9 @@
      retried through progressively more generous drains — the substrate's
      own synchronous drain again, then a macrotask, then two animation
      frames. `NEVER` and `LATE` are different findings and an instrument
-     that cannot tell them apart has not measured the thing in the bead.
+     that cannot tell them apart has not measured the question.
 
-  Owner: rf2-z3vlz. Normative context: `docs/design/fresco/decisions.md`
-  HD-008."
+  Normative context: `docs/design/fresco/decisions.md` HD-008."
   (:require ["react-dom" :as react-dom]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
@@ -75,14 +73,14 @@
 ;; ---------------------------------------------------------------------------
 
 (def cells-n
-  "Eight cells. The bead's arm ran 300; the question here is BINARY (does
+  "Eight cells. HD-008's arm runs 300; the question here is BINARY (does
   the DOM follow a write, yes or no), and eight cells make every failure
   printable in full rather than summarised."
   8)
 
 (def writes-n
-  "Twelve writes per arm, alternating the two mechanisms the bead
-  reproduced with. Enough that `0 of 12` and `12 of 12` are both
+  "Twelve writes per arm, alternating the two mechanisms the symptom
+  reproduces with. Enough that `0 of 12` and `12 of 12` are both
   unambiguous, few enough that the whole per-write record fits in the run
   log."
   12)
@@ -93,7 +91,7 @@
 
 (rf/reg-sub :z3vlz/cell (fn [db [_ i]] (get-in db [:cells i])))
 
-;; `reg-event-db` is REMOVED in EP-0018 (no alias): the db arrives
+;; There is no `reg-event-db` (EP-0018, no alias): the db arrives
 ;; destructured out of the coeffects map and the return is wrapped in
 ;; `{:db …}`.
 (rf/reg-event :z3vlz/set-all
@@ -157,11 +155,10 @@
 ;; THE THIRD VARIABLE — the ORDER of write against drain
 ;; ---------------------------------------------------------------------------
 ;;
-;; The first run of this rig made a single-substrate reagent-slim bundle
-;; fail 12 of 12, which by the bead's stated logic would have read as
+;; Under the yield-then-drain order a single-substrate reagent-slim bundle
+;; fails 12 of 12, which by the discriminator's logic above would read as
 ;; candidate (a) — a defect in shipped adapter code. It is not, and the
-;; reason is a variable the bead does not name: WHEN the drain runs
-;; relative to the write.
+;; reason is a third variable: WHEN the drain runs relative to the write.
 ;;
 ;; The two Reagent builds schedule their component queue differently, and
 ;; that difference is documented in both of them:
@@ -219,7 +216,7 @@
   The rungs past `:sync` are diagnostic ONLY. A value that needs a
   macrotask is a LATE re-render, which is a different (and far milder)
   finding from a re-render that never happens; collapsing the two would
-  lose the distinction the bead turns on."
+  lose the distinction the diagnosis turns on."
   [{:keys [drain! drain-with!]} container fid order v mechanism write!]
   (let [rung    (volatile! nil)
         started (case order
@@ -258,12 +255,12 @@
                    (not= :sync @rung)   (assoc :cells (cells-text container))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The two write mechanisms the bead reproduced with
+;; The two write mechanisms the symptom reproduces with
 ;; ---------------------------------------------------------------------------
 
 (defn- write-fn
   "Alternate `rf.frame/replace-app-db!` and a registered event through
-  `dispatch-sync`. The bead reproduced with BOTH, so a probe that used one
+  `dispatch-sync`. The symptom reproduces with BOTH, so a probe that used one
   would leave the other unanswered."
   [fid v mechanism]
   (case mechanism
@@ -279,10 +276,9 @@
 
   `root.render` called outside a React event schedules at the default lane
   and does not commit before the next line runs, so a mount read-back taken
-  without this boundary reads an EMPTY container — which is what the first
-  run of this probe did, in every arm including the raw control. The raw
-  control failing beside the arm under test is the whole reason that was a
-  ten-minute harness fix rather than a published finding about
+  without this boundary reads an EMPTY container in every arm, the raw
+  control included — and the raw control failing beside the arm under test
+  is what marks that as a harness fault rather than a finding about
   reagent-slim.
 
   The boundary is React's, not a substrate's, so all three substrates take
@@ -297,7 +293,7 @@
   never-re-rendered apart from a late one.
 
   `:db-followed-all?` is gated on the KEY BEING PRESENT and never on the
-  value being truthy. `(some :db-followed? rs)` — what this did — drops
+  value being truthy. `(some :db-followed? rs)` drops
   the slot precisely when every write failed the app-db witness, which is
   the one case it exists to report: the field goes silent exactly when the
   interesting thing has happened, and a reader sees the same absence it
@@ -357,8 +353,8 @@
                  ;; standing, and the next page's arms would be certified on
                  ;; a contaminated document. The container is detached either
                  ;; way; the record is what makes it fatal. A NORMAL return is
-                 ;; not taken at its word either (rf2-z3vlz, from the PR #7291
-                 ;; audit): `rf.bench.fresco.lane/container-released!` reads the container
+                 ;; not taken at its word either:
+                 ;; `rf.bench.fresco.lane/container-released!` reads the container
                  ;; before it goes, exactly as `rf.bench.fresco.lane/release!` does.
                  (when (try (unmount handle)
                             true
@@ -380,9 +376,8 @@
   fails while this passes, the substrate's reactivity and this harness's
   drain + read-back both work and the finding is on the re-frame side. If
   both fail, the finding is the harness or the engine, and nothing about
-  re-frame has been shown — which is exactly what this control said on the
-  first run of this rig, when an unflushed mount was making every arm look
-  inert."
+  re-frame has been shown — which is exactly what this control says when
+  an unflushed mount makes every arm look inert."
   [{:keys [unmount raw-element raw-write!] :as substrate}]
   (raw-write! 0)
   (let [container (rf.bench.fresco.lane/fresh-container!)
@@ -393,11 +388,11 @@
         (.then (fn [results]
                  ;; The control runs FIRST and the arm under test follows it
                  ;; on the same document, so a swallowed failure here is the
-                 ;; worse of the two: the arm whose result the bead turns on
-                 ;; would be measured on a page still carrying the control's
+                 ;; worse of the two: the arm whose result the diagnosis turns
+                 ;; on would be measured on a page still carrying the control's
                  ;; roots and its ratom's watchers. A NORMAL return is not
-                 ;; taken at its word either (rf2-z3vlz, from the PR #7291
-                 ;; audit): `rf.bench.fresco.lane/container-released!` reads the container
+                 ;; taken at its word either:
+                 ;; `rf.bench.fresco.lane/container-released!` reads the container
                  ;; before it goes, exactly as `rf.bench.fresco.lane/release!` does.
                  (when (try (unmount handle)
                             true
@@ -416,14 +411,14 @@
 ;; `rf.bench.fresco.lane/record!` parks EDN strings, which are for a reader. A driver that
 ;; had to scrape them with regexes would be a second, drifting expression
 ;; of the same arithmetic — and a regex that stopped matching would report
-;; `?` and pass, which is the fail-open shape this rig is being repaired
-;; for. So the probe publishes its own figures once more as a flat JS
+;; `?` and pass, which is the fail-open shape this record exists to
+;; prevent. So the probe publishes its own figures once more as a flat JS
 ;; record with no `?` in any key.
 ;;
 ;; A LITERAL `#js` object, deliberately: `clj->js` renders `:ok?` as the
-;; key `"ok?"`, and `p0-heap/mount!`'s docstring records the run where a
-;; driver reading `verify.ok` saw `undefined` and reported every mount
-;; unverified while every mount was fine. `:by-rung`'s keys carry no `?`
+;; key `"ok?"`, and `p0-heap/mount!`'s docstring states the consequence —
+;; a driver reading `verify.ok` sees `undefined` and reports every mount
+;; unverified while every mount is fine. `:by-rung`'s keys carry no `?`
 ;; and are converted.
 
 (defn- order-gate
@@ -450,7 +445,7 @@
   "Park the adjudicable record on `window.Z3VLZ_GATES`. Absent means the
   probe did not get this far, and the driver treats that as a failure —
   a page that produced no gates cannot have its contract checked, and an
-  unchecked contract is the thing being repaired."
+  unchecked contract is the thing this record prevents."
   [control subs]
   (set! (.-Z3VLZ_GATES js/window)
         #js {"raw" (arm-gate control) "subs" (arm-gate subs)})
@@ -479,8 +474,8 @@
                     :mount-correct? (:ok? (:mount subs))
                     ;; REACTIVE means: under the substrate's OWN documented
                     ;; drain contract — the write inside `flush-render!` — the
-                    ;; DOM followed every write. That is the question the bead
-                    ;; asks about the ADAPTER. The `:yield-then-drain` row
+                    ;; DOM followed every write. That is the question about
+                    ;; the ADAPTER. The `:yield-then-drain` row
                     ;; beside it is the question about the HARNESS.
                     :reactive?      (zero? (:unverified (:inside-drain o)))
                     :unverified-of  {:inside-drain      (un :inside-drain)

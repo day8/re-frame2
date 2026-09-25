@@ -1,24 +1,25 @@
 #!/usr/bin/env node
 // Do the two floor-arm modes climb the SAME heap, or only CLOSE at the same one?
 //
-// Bead rf2-9jrhi, reopened by the merged-PR audit of PR #8457.  Record:
+// Record:
 //   docs/design/fresco/studio/the-bisect-is-flat-and-the-floor-has-a-second-mode.md
 //
-// WHAT THE AUDIT FOUND.  That record excluded the heap trajectory as the carrier
-// of the 3,792 B second mode on this evidence: the absolute opening heap level
+// THE CLAIM IT TESTS.  Excluding the heap trajectory as the carrier of the
+// 3,792 B second mode on the evidence that the absolute opening heap level
 // "tracks within 8 KB between the high run and a low one across all eighteen
-// rounds, ending at 6,191,823 B against 6,184,236 B".  The two endpoints are
-// real and they are reproduced below -- but they are a CLOSING-level reading,
-// and the sentence generalised them to the whole trajectory.  Round by round the
-// same pair diverges by up to 40,127 B, an order of magnitude past the 3,792 B
-// step the exclusion is about.  The pair is also cross-revision: 6,184,236 B is
-// bisect-2-m, taken at a158c40288, not a replicate of the high run's own commit.
+// rounds, ending at 6,191,823 B against 6,184,236 B" does not hold.  The two
+// endpoints are real and they are reproduced below -- but they are a
+// CLOSING-level reading, and the sentence generalises them to the whole
+// trajectory.  Round by round the same pair diverges by up to 40,127 B, an order
+// of magnitude past the 3,792 B step the exclusion is about.  The pair is also
+// cross-revision: 6,184,236 B is bisect-2-m, taken at a158c40288, not a
+// replicate of the high run's own commit.
 //
-// WHAT THIS SCRIPT DOES.  It re-derives every figure the corrected passage
+// WHAT THIS SCRIPT DOES.  It re-derives every figure the record's passage
 // publishes, from committed datasets only.  It launches no browser, reads no rig
 // file and writes nothing.  Run it and diff the output against the page.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/alloc_heap_trajectory.cjs
+//   node src/re_frame/bench/fresco/alloc_heap_trajectory.cjs
 //
 // WHAT IT CANNOT DO.  There is exactly ONE high-mode run in the corpus, so every
 // comparison here has n = 1 on one side.  Nothing below establishes a mechanism;
@@ -37,8 +38,7 @@ const sgn = (v) => (v >= 0 ? '+' : '') + n0(v);
 
 const load = (f) => archive.readRecord(path.join(DATA, f)).alloc;
 
-// samples[0] is the absolute used-heap level at the window's opening, retained
-// for the first time by rf2-erre5 (PR #8452).
+// samples[0] is the absolute used-heap level at the window's opening.
 const opens = (a, seg) => a.perRound.map((r) => r.arms[KEY(seg)].samples[0]);
 const legs = (a, seg) => a.perRound.map((r) => r.arms[KEY(seg)].legMedian);
 
@@ -51,7 +51,7 @@ const out = [];
 const say = (s) => out.push(s);
 
 const HIGH = 'bisect-1-a-4a1537cb71.json';
-const CROSS = 'bisect-2-m-a158c40288.json'; // the run the withdrawn sentence used
+const CROSS = 'bisect-2-m-a158c40288.json'; // the low run the 8 KB sentence quotes
 const SAME = 'bisect-6-a-4a1537cb71-replicate2.json'; // same revision, low, control-passing
 
 say('=== 1. THE ENDPOINTS THE WITHDRAWN SENTENCE QUOTED ===');

@@ -1,14 +1,12 @@
 (ns re-frame.bench.fresco.hd8-rows
   "HD-008's rows — the arms wired to their mount doors, the parity gate,
   the two clocks, and the per-sample records the arm-order guard
-  adjudicates (rf2-2rtt6.7).
+  adjudicates.
 
-  ## The instrument, and the fifteen faults it is built against
+  ## The instrument, and the faults it is built against
 
-  The predecessor programme caught fifteen instrument faults, and every
-  one of them produced a plausible precise WRONG NUMBER before it was
-  caught. The method here is the recorded remedy for each, and none of it
-  is optional:
+  Each rule below answers an instrument fault that produces a plausible
+  precise WRONG NUMBER rather than an error, and none of it is optional:
 
     - **Both orders, always.** Arms are interleaved at the SAMPLE index
       with an order that rotates AND REFLECTS ([[re-frame.bench.fresco.lane/slot-order]]).
@@ -47,11 +45,10 @@
       reagent   floor reagent uix donor-r1 donor-r2            donor vs stock Reagent
       slim      floor reagent-slim uix donor-r1 donor-r2       donor vs reagent-slim
 
-  FOUR, FIVE AND FIVE ARMS. A fifth/sixth `donor-fh` rode each of these
-  plans between `rf2-2rtt6.29` and `rf2-m4rpa`, which retired it with the
-  Freehand tree; the plans above are what remains. Arm count is part of a
-  row's provenance — it sets `k` in the interleaving schedule — so figures
-  taken on the 5/6/6 plan are NOT comparable figure-for-figure with these.
+  FOUR, FIVE AND FIVE ARMS. Arm count is part of a row's provenance — it
+  sets `k` in the interleaving schedule — so figures taken on a plan with a
+  different arm count, such as a 5/6/6 plan carrying a `donor-fh` arm, are
+  NOT comparable figure-for-figure with these.
 
   The frontier arm rides all three, which also prices what the SUB
   IMPLEMENTATION contributes: the same UIx arm measured over Reagent
@@ -59,30 +56,29 @@
 
   ## What this arm takes from the lane, and what it deliberately does not
 
-  This instrument was written before rf2-2rtt6.2's shared lane landed. It
-  now takes mount, release, parity, `across-rounds`, `slot-order`,
+  It takes mount, release, parity, `across-rounds`, `slot-order`,
   `now-ms`, `round4`, `summarise`, `ratio-between` and `bulk-probes` from
-  `re-frame.bench.fresco.lane` (rf2-f5roa). Four of the lane's mechanisms
-  are deliberately NOT adopted, and the reasons are here so the question is
-  not reopened by inspection:
+  `re-frame.bench.fresco.lane`. Of the lane's other mechanisms, one is
+  adopted on one row only and three are deliberately NOT adopted, and the
+  reasons are here so the question is not reopened by inspection:
 
-  1. **The BATCHED write window IS now adopted on the narrow row, and it
-     came with its re-run (rf2-9zysg).** `rf.bench.fresco.lane/mount-batch!`'s argument —
-     timing `k` operations as one sample lifts a reading clear of Chrome's
-     100 µs `performance.now()` clamp, and is not the same as summing `k`
+  1. **The BATCHED write window is adopted on the narrow row.**
+     `rf.bench.fresco.lane/mount-batch!`'s argument — timing `k` operations
+     as one sample lifts a reading clear of Chrome's 100 µs
+     `performance.now()` clamp, and is not the same as summing `k`
      separately-clamped readings — applies to the narrow write row, which
-     read p50s of 0.4–1.2 ms, i.e. 4 to 12 quanta, and published ranges as
-     wide as `4.500–8.000x` because of it. [[narrow-batch-k]] writes now
-     share one clock ([[window-of]] carries the shape and the argument for
-     why the DOM read-back survives the batching).
+     unbatched reads p50s of 0.4–1.2 ms, i.e. 4 to 12 quanta, and ranges as
+     wide as `4.500–8.000x` because of it. [[narrow-batch-k]] writes share
+     one clock ([[window-of]] carries the shape and the argument for why
+     the DOM read-back survives the batching).
 
-     This CHANGED THE MEASURED WINDOW, so the earlier narrow rows were
-     re-taken rather than re-labelled: `docs/design/fresco/studio/
-     hd8-composed-donor-arm.md` carries the new numbers, the producing SHA
-     and a repro command that runs at that SHA, and says plainly that the
-     superseded ranges were taken on an unbatched window. The BULK row
-     passes a batch of one — the pre-batch window exactly — and did not
-     move; the mount rows (4–13 ms) never needed it.
+     Batching CHANGES THE MEASURED WINDOW, so an unbatched narrow row is
+     not comparable with a batched one: `docs/design/fresco/studio/
+     hd8-composed-donor-arm.md` carries the batched numbers, the producing
+     SHA and a repro command that runs at that SHA, and says plainly which
+     ranges were taken on an unbatched window. The BULK row passes a batch
+     of one — the unbatched window exactly; the mount rows (4–13 ms) do not
+     need it.
 
   2. **`rf.bench.fresco.lane/control-verdict` is WEAKER than [[positive-control!]]'s own
      rule and would be a downgrade.** The lane passes a control whose
@@ -104,7 +100,7 @@
      the other one is worth more than the symmetry.
 
   Normative owner: `docs/design/fresco/decisions.md` HD-008; results to
-  `rf2-2rtt6.1` and `docs/design/fresco/studio/`."
+  the P0 standard and `docs/design/fresco/studio/`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
@@ -243,11 +239,11 @@
   partition is itself an HD-008 finding, arrived at by measurement rather
   than by design.
 
-  The first cut put the frontier arm and both donor rungs into ALL THREE
-  runs, so that every comparison would land within one process. It does not
-  work, and the instrument said so rather than quietly producing numbers: on
-  a ratom spine the lowering check reported `:db-after \"T\"` — the click
-  dispatched, the event ran, `app-db` was written — while the DOM stayed at
+  Putting the frontier arm and both donor rungs into ALL THREE runs, so
+  that every comparison lands within one process, does not work, and the
+  instrument says so rather than quietly producing numbers: on a ratom
+  spine the lowering check reports `:db-after \"T\"` — the click
+  dispatches, the event runs, `app-db` is written — while the DOM stays at
   `\"0\"`. The React `use-sub` spine does not propagate over a ratom
   spine, in either direction, and no drain fixes it: `ratom/flush!` settles
   the subscription graph and `reagent.core/flush` renders the dirty
@@ -376,20 +372,18 @@
   "Slot order for `k` arms at sample index `s` — `rf.bench.fresco.lane/slot-order`, and
   nothing local.
 
-  This was a local override, added because `rf.bench.fresco.lane/slot-order` composed a
-  rotation with a reflection and the two CANCEL at `k = 2`: rotating a pair
-  by one is the same permutation as reversing it, so `[0 1]` came back at
-  every index and a two-arm plan ran in ONE ORDER for ever. The arm-order
-  guard found that rather than a reader — the two-arm runs came back `only
-  1 stratum — the question was never asked`, and REFUSED, which is
+  A rotation composed with a reflection CANCELS at `k = 2`: rotating a
+  pair by one is the same permutation as reversing it, so a schedule that
+  applied both would return `[0 1]` at every index and run a two-arm plan
+  in ONE ORDER for ever. The lane's schedule drops the reflection at
+  `k = 2` for exactly that reason, and the arm-order guard catches the
+  shape rather than a reader: a single-order run comes back `only 1
+  stratum — the question was never asked` and is REFUSED, which is
   precisely what a single-order result is supposed to do.
 
-  The override was local rather than shared because sibling P0 arms were
-  measuring on the shared copies at the time, and a shared instrument must
-  not change under a measurement in flight. Those arms have landed, and
-  `rf2-ouwh8` has since repaired the schedule where it lives — so the
-  override is gone and this name is the lane's, exactly like every other
-  mechanism in this file."
+  There is no local copy: a second one would be a second authority with
+  nothing holding it in step, so this name is the lane's, exactly like
+  every other mechanism in this file."
   rf.bench.fresco.lane/slot-order)
 
 (defn mount-round!
@@ -441,17 +435,15 @@
   numbers (which would also lose the within-round pairing that makes them
   trustworthy).
 
-  `donor-r2 / donor-r1` is the price of the product shell, and it is now
+  `donor-r2 / donor-r1` is the price of the product shell, and it is
   the ONE figure in this instrument that no comparator can supply.
 
-  It used to be one of two. `donor-fh / donor-r1` was THE CODEC RATIO —
-  one runtime hiccup codec against another with everything else held fixed
-  — and `rf2-m4rpa` retired it with the Freehand tree. No surviving pair
-  replaces it, and none is re-labelled to look like it: what this list
-  measures after the retirement is the shell, the substrate and the
+  None of these pairs is a CODEC RATIO — one runtime hiccup codec against
+  another with everything else held fixed — and none is labelled to look
+  like one: what this list measures is the shell, the substrate and the
   frontier, not one interpreter against another. See the closing section
-  of [[re-frame.bench.fresco.hd8-witnesses]] for why `codecs-differ?`
-  went with it rather than being re-pointed."
+  of [[re-frame.bench.fresco.hd8-witnesses]] for why there is no
+  `codecs-differ?`."
   [[:donor-r1 :reagent] [:donor-r2 :reagent]
    [:donor-r1 :reagent-slim] [:donor-r2 :reagent-slim]
    [:donor-r1 :uix] [:donor-r2 :uix]
@@ -466,8 +458,8 @@
   includes 1.0 — in which case the two arms are INDISTINGUISHABLE on this
   witness and the mean must not be quoted as a winner.
 
-  The arithmetic is `rf.bench.fresco.lane/ratio-between` and no longer a second copy of it
-  (rf2-f5roa). It is fed this row's raw `:p50` maps rather than its
+  The arithmetic is `rf.bench.fresco.lane/ratio-between`, not a second
+  copy of it. It is fed this row's raw `:p50` maps rather than its
   floor-normalised `:ratio` maps — algebraically the floor cancels either
   way, but rounding to four places twice is not the same as rounding once,
   and these are the digits the published rows carry."
@@ -513,16 +505,16 @@
 (defn spine-drain!
   "The INSTALLED substrate's own synchronous render drain.
 
-  This is a property of the run, not of the arm, and discovering that cost
-  a debugging pass: under a RATOM spine (`?adapter=reagent|slim`) the
-  frame's app-db is a reactive atom, so a write marks dependent reactions
-  dirty and queues them on the substrate's batching queue — and NOTHING
-  propagates, not even to a `useSyncExternalStore` subscriber, until that
-  queue is flushed. An empty `flushSync` (which is the whole drain under
-  the React spine, where the container notifies synchronously) commits
-  nothing there, and the DOM read-back reported every donor write as
-  unverified. Which is the read-back doing its job: the alternative was a
-  fast, precise, meaningless number.
+  This is a property of the run, not of the arm: under a RATOM spine
+  (`?adapter=reagent|slim`) the frame's app-db is a reactive atom, so a
+  write marks dependent reactions dirty and queues them on the substrate's
+  batching queue — and NOTHING propagates, not even to a
+  `useSyncExternalStore` subscriber, until that queue is flushed. An empty
+  `flushSync` (which is the whole drain under the React spine, where the
+  container notifies synchronously) commits nothing there, and the DOM
+  read-back would report every donor write as unverified. Which is the
+  read-back doing its job: the alternative is a fast, precise,
+  meaningless number.
 
   So every arm in a run shares the run's drain, exactly as b6's method
   prescribes — each substrate's OWN documented synchronous drain, inside
@@ -534,8 +526,8 @@
     ;; `useSyncExternalStore` subscriber watching one — and
     ;; `reagent.core/flush` renders the dirty Reagent components. Draining
     ;; only the component queue leaves every hook-based arm reading a stale
-    ;; snapshot: the click reached `app-db` (`:db-after` said so) and the DOM
-    ;; never followed.
+    ;; snapshot: the click reaches `app-db` (`:db-after` says so) and the DOM
+    ;; never follows.
     :reagent (react-dom/flushSync (fn [] (reagent-ratom/flush!) (reagent/flush)))
     ;; reagent-slim's drain brings its OWN `flushSync` boundary (it wraps
     ;; `(do (f) (batching/flush!))`), so wrapping it in a second one would
@@ -551,10 +543,9 @@
 
 (defn arm-scheduler
   "Which queue THIS arm's own render work is scheduled on — and therefore
-  how its write window must wait for it (rf2-b69lw).
+  how its write window must wait for it.
 
-  This is the fact [[window-of]] needs and the one the instrument
-  previously did not ask for. A window that waits a fixed one microtask
+  This is the fact [[window-of]] needs. A window that waits a fixed one microtask
   serves an arm whose notification is queued somewhere ELSE and silently
   breaks an arm whose notification is queued on the very queue the
   harness is yielding to.
@@ -593,7 +584,7 @@
 
   Chrome clamps `performance.now()` to 100 µs and the narrow row sits 4 to
   12 quanta above it, so a per-write clock quantises every reading and the
-  published ranges carry that noise (rf2-9zysg). Timing `k` writes as ONE
+  published ranges carry that noise. Timing `k` writes as ONE
   sample lifts the window clear of the clamp, and it is NOT the same as
   summing `k` separately-clamped readings, which quantises `k` times and
   adds the errors. `rf.bench.fresco.lane/mount-batch!` does exactly this for mounts.
@@ -613,40 +604,38 @@
 
   What the batch does relax is microtask-scale lateness: an early write in
   the batch gets up to `k - 1` extra microtask turns before it is read
-  back. Today's unbatched window already tolerates exactly one such turn
+  back. The unbatched window already tolerates exactly one such turn
   by construction — that IS the yield — so this is a difference of degree
   on a tolerance the instrument already grants, not a new blind spot. It
   is stated in the row's `:measurement-method` rather than left implicit.
 
-  `k = 1` reduces this to the pre-batch window exactly, which is why the
+  `k = 1` reduces this to the unbatched window exactly, which is why the
   BULK row is untouched by any of it.
 
   TWO SHAPES, BECAUSE ONE FIXED WAIT IS NOT NEUTRAL ACROSS SCHEDULER
-  FAMILIES. That is rf2-b69lw, and rf2-z3vlz diagnosed it against a
-  standalone rig: the reagent-slim write row read `78 of 78` unverified —
-  and, unsuppressed, `0.16–0.50x` the floor while the page never changed —
-  purely because the harness put a microtask between the write and the
-  drain. `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md`
-  carries the evidence, including the positive control (a plain component
-  reading a plain `reagent2.core/atom`, no re-frame anywhere on the path)
-  that reproduces it in all four bundle compositions. The general form —
-  the same fixed yield in the shared `rf.bench.fresco.lane/verified-write!` — is rf2-pq7d8,
-  and it HAS since been repaired: the lane takes the same `:scheduler`
-  declaration and gives it these same two shapes, lifted from here rather
-  than invented a second time. That repair is additive — an arm that
-  declares no `:scheduler` gets the lane's unchanged window, and none does
-  outside this file — so no published row moved.
+  FAMILIES. Against a standalone rig with one fixed yield, the
+  reagent-slim write row reads `78 of 78` unverified — and, unsuppressed,
+  `0.16–0.50x` the floor while the page never changes — purely because the
+  harness puts a microtask between the write and the drain.
+  `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md` carries
+  the evidence, including the positive control (a plain component reading
+  a plain `reagent2.core/atom`, no re-frame anywhere on the path) that
+  reproduces it in all four bundle compositions. The shared
+  `rf.bench.fresco.lane/verified-write!` takes the same `:scheduler`
+  declaration and gives it these same two shapes; an arm that declares no
+  `:scheduler` gets the lane's default window, and none outside this file
+  declares one.
 
     `:microtask`  write, then drain, with NOTHING between them. The
                   substrate's queue is filled synchronously by the write and
                   is still there when `flush-render!` opens its boundary, so
                   the commit lands inside the window.
 
-    everything else  today's window, unchanged: write, yield ONE microtask,
+    everything else  the default window: write, yield ONE microtask,
                   drain. b6 records that with the microtask deleted every
                   arm whose notification is queued elsewhere fails its own
                   read-back on every write, and the published HD-008 rows
-                  were taken through exactly this shape.
+                  are taken through exactly this shape.
 
   The two shapes do NOT bill the same wait, and that difference is not left
   as an assurance: [[yield-cost!]] prices the harness microtask against the
@@ -755,7 +744,7 @@
   normal return is not taken at its word: `rf.bench.fresco.lane/container-released!` reads
   each container before it is removed, exactly as `rf.bench.fresco.lane/release!` does,
   because a root that survives its own unmount does so on a DETACHED tree
-  no later census can see (rf2-jk3vj)."
+  no later census can see."
   [mounts]
   (doseq [{:keys [arm handle container]} mounts]
     (when (try ((:unmount arm) handle)
@@ -772,9 +761,8 @@
   where the damage is done: an arm whose unmount threw has left its React
   root, its watches and its subscription caches standing, and every row
   measured after it is measured on a page carrying them. The throw lands
-  in `hd8-app`'s existing `.catch`, which records `HD8_ERROR` and exits 1
-  — the same fail-closed path parity and the lowering check already take
-  (rf2-f5roa, from the PR #7263 audit)."
+  in `hd8-app`'s `.catch`, which records `HD8_ERROR` and exits 1 — the
+  same fail-closed path parity and the lowering check take."
   [after]
   (let [fs (rf.bench.fresco.lane/drain-teardown-failures!)]
     (when (seq fs)
@@ -796,21 +784,19 @@
   `ops` is a SEQ because the narrow row batches `k` writes under one clock
   to clear Chrome's 100 µs quantum ([[window-of]] carries that argument and
   the read-back's survival of it). The bulk row passes a single op, which
-  is the pre-batch window exactly.
+  is the unbatched window exactly.
 
   The wait belongs to the arm ([[window-of]]) and not to this function,
-  which is the whole of rf2-b69lw: a fixed one-microtask yield is
-  load-bearing for an arm whose notification is queued somewhere else and
-  is FATAL for an arm whose notification is queued on the microtask queue
-  itself.
+  because a fixed one-microtask yield is load-bearing for an arm whose
+  notification is queued somewhere else and is FATAL for an arm whose
+  notification is queued on the microtask queue itself.
 
-  `probes` is a SEQ and used to be a single cell, which was thin on the
-  BULK row (rf2-f5roa): a broad write changes all 300 cells, this probed
-  cell 0, and a page left stale by a commit landing outside the window can
-  still carry one fresh cell from the previous write. `rf.bench.fresco.lane/bulk-probes`
-  is the rule now, and the P0 arm three files away already used it. The
-  NARROW row is unchanged and was already right — one cell changes, so one
-  probe is the whole page's worth of verification.
+  `probes` is a SEQ because a single cell is thin on the BULK row: a broad
+  write changes all 300 cells, and a page left stale by a commit landing
+  outside the window can still carry one fresh cell from the previous
+  write. `rf.bench.fresco.lane/bulk-probes` is the rule, shared with the P0
+  arm. The NARROW row needs one — one cell changes, so one probe is the
+  whole page's worth of verification.
 
   The read-back is inside the window's own iteration and in the same turn
   as the drain, so an arm that silently rendered nothing — or rendered a
@@ -831,11 +817,11 @@
   (reduce (fn [p x] (.then p (fn [a] (f a x)))) (js/Promise.resolve acc) xs))
 
 (def narrow-batch-k
-  "How many narrow writes share ONE clock (rf2-9zysg).
+  "How many narrow writes share ONE clock.
 
-  Chrome clamps `performance.now()` to 100 µs. The unbatched narrow row
-  read p50s of 0.4–1.2 ms — 4 to 12 quanta — and published ranges as wide
-  as `4.500–8.000x` the floor because of it. Ten writes per window puts
+  Chrome clamps `performance.now()` to 100 µs. An unbatched narrow row
+  reads p50s of 0.4–1.2 ms — 4 to 12 quanta — and ranges as wide as
+  `4.500–8.000x` the floor because of it. Ten writes per window puts
   the sample 40 to 120 quanta above the clamp, where the quantum is
   roughly 1% of the reading rather than 10–25% of it.
 
@@ -846,7 +832,7 @@
   needs and keeps that tolerance at nine turns.
 
   The BULK row does not use this — it passes a batch of one, which is the
-  pre-batch window exactly — because its readings are already 4–13 ms."
+  unbatched window exactly — because its readings are already 4–13 ms."
   10)
 
 (defn- write-round!
@@ -920,8 +906,7 @@
 
   Named rather than inlined in [[measure-write!]] so the self-test's
   fixture rows are masked by the instrument's own rule, never by a
-  hand-written approximation that could drift from it (rf2-b69lw, from
-  the PR #7295 audit)."
+  hand-written approximation that could drift from it."
   [{:keys [unverified writes] :as row}]
   (let [bad (into #{} (comp (filter (fn [[_ n]] (pos? n))) (map key)) unverified)]
     (-> row
@@ -966,13 +951,12 @@
   quantities with no constant between them.
 
   The weaker test — `v > tick`, the reading merely exceeding the grain —
-  was tried first and IT DOES NOT DECIDE ANYTHING. Two consecutive cold
-  runs of this same source measured the bulk floor's rounds at
-  `1.0 1.0 1.0 2.0 1.5 2.0` ticks and then at a worst of `1.5`: the first
-  draw masked the row and the second published `9.333 – 10.500`, a band
-  whose own width is 12 % over a denominator no better than 67 % — the
-  same figure-from-the-clock coin toss this bead exists to remove, moved
-  one place along. A grain that is the MAJORITY of a reading has not
+  DOES NOT DECIDE ANYTHING. Two consecutive cold runs of this same source
+  read the bulk floor's rounds at `1.0 1.0 1.0 2.0 1.5 2.0` ticks and then
+  at a worst of `1.5`: under that test the first draw would mask the row
+  and the second publish `9.333 – 10.500`, a band whose own width is 12 %
+  over a denominator no better than 67 % — the same figure-from-the-clock
+  coin toss this mask exists to remove, moved one place along. A grain that is the MAJORITY of a reading has not
   measured it.
 
   A `nil` tick (the clock never advanced, [[clock-resolution!]]'s spin cap)
@@ -1002,7 +986,7 @@
 
 (defn- mask-below-grain
   "Apply the CLOCK-GRAIN publication mask to one write row's published
-  surfaces, and answer the row (rf2-d2tzk).
+  surfaces, and answer the row.
 
   A WINDOW THE CLOCK RESOLVED LESS OF THAN IT MISSED HAS NO MAGNITUDE.
   The reading is a real number and it is the instrument's resolution
@@ -1029,12 +1013,12 @@
   measurement: the clamp destroys the cross-run column (the weaker
   warrant) and leaves the within-run pairs (the stronger one) untouched.
 
-  The permanent repair is the batched window the narrow row got
-  (`narrow-batch-k`, rf2-9zysg): it lifts the sample clear of the clamp.
-  That changes a measured window and obliges a re-take of the row on every
-  adapter, which is a re-publication and rf2-2rtt6.7's to authorise — so
-  this mask states the limit rather than manufacturing resolution the
-  instrument does not have."
+  The permanent remedy is the batched window the narrow row uses
+  (`narrow-batch-k`): it lifts the sample clear of the clamp. That changes
+  a measured window and obliges a re-take of the row on every adapter,
+  which is a re-publication for HD-008 to authorise — so this mask states
+  the limit rather than manufacturing resolution the instrument does not
+  have."
   [row grain]
   (let [bad (:below-grain grain)]
     (if (empty? bad)
@@ -1074,7 +1058,7 @@
   `clock` is [[clock-resolution!]]'s reading, and it decides which figures
   in the row have a magnitude at all: a window that does not exceed the
   clock's own grain publishes nothing a reader could quote
-  ([[mask-below-grain]], rf2-d2tzk)."
+  ([[mask-below-grain]])."
   [arm-ids adapter kind rounds sampling clock]
   (doseq [id arm-ids] (reseed! id))
   (let [mounts (mount-write-arms! arm-ids adapter)]
@@ -1096,10 +1080,10 @@
                  ;; self-test replays are the rules this row ships.
                  ;;
                  ;;   read-back — an arm whose writes did not reach the DOM
-                 ;;               has no figure (rf2-x6g04). A FAULT.
+                 ;;               has no figure. A FAULT.
                  ;;   grain     — an arm whose window does not exceed the
-                 ;;               clock's own resolution has no magnitude
-                 ;;               (rf2-d2tzk). A LIMIT.
+                 ;;               clock's own resolution has no magnitude.
+                 ;;               A LIMIT.
                  ;;
                  ;; The read-back mask runs FIRST so that an arm carrying both
                  ;; keeps the fault marker: a page that never changed is the
@@ -1114,7 +1098,7 @@
                                                      "window — the narrow-write path. The per-write "
                                                      "figure is the sample divided by " narrow-batch-k))
                                 ;; Stated on the row, because a reader comparing this
-                                ;; against the pre-rf2-9zysg numbers is comparing two
+                                ;; against unbatched numbers is comparing two
                                 ;; different windows and has to be told so.
                                 :writes-per-sample (if (= kind :bulk) 1 narrow-batch-k)
                                 :arms         (vec arm-ids)
@@ -1144,7 +1128,7 @@
   the next turn begins in the turn the previous one finished in. That
   matters: threading these through a promise-returning `.then` instead
   would add two resolution ticks per step and price a window the arms
-  never run. At `k = 1` this is the original one-turn reading exactly."
+  never run. At `k = 1` this is the one-turn reading exactly."
   [k]
   (let [t0 (rf.bench.fresco.lane/now-ms)]
     (letfn [(run [n]
@@ -1167,15 +1151,15 @@
   its own resolution; anything else has to be subtracted before a ratio is
   quoted, and the report must say which happened.
 
-  WHY THE SECOND WINDOW EXISTS (rf2-2rtt6.19). The narrow row now batches
+  WHY THE SECOND WINDOW EXISTS. The narrow row batches
   `narrow-batch-k` writes under one clock, so its window contains that many
   harness microtasks rather than one — for every arm except the
   microtask-scheduled one, which contains none. The one-turn reading bounds
   the asymmetry at `< 100 µs` for ONE turn; multiplying it by ten does NOT
   bound ten turns at `< 100 µs`, it bounds them at `< 1.0 ms`, which is up
   to ~26% of a 3.8–7.6 ms batched sample. `10 × below-resolution` is not
-  below resolution, and that is the same argument that justified batching
-  the writes in the first place: timing k operations as ONE window lifts
+  below resolution, and that is the same argument that justifies batching
+  the writes: timing k operations as ONE window lifts
   the sample clear of the clamp, and is not the same as summing k
   separately-clamped readings.
 
@@ -1207,16 +1191,16 @@
                       sk  (rf.bench.fresco.lane/summarise xsk)
                       per (fn [v] (when (number? v) (/ v narrow-batch-k)))]
                   {:control :harness-microtask-yield
-                   ;; The original one-turn reading, unchanged, so nothing
-                   ;; published against it moves.
+                   ;; The one-turn reading, kept as its own figure so what
+                   ;; is published against it stays comparable.
                    :p50     (:p50 s1)
                    :min     (:min s1)
                    :max     (:max s1)
                    :n       (:n s1)
                    :clamp   "Chrome clamps performance.now() to 100 µs"
                    :note    (str "the turn every non-microtask-scheduled arm's write "
-                                 "window contains and the reagent-slim arm's does not "
-                                 "(rf2-b69lw); 0.0 means ONE such turn is below this "
+                                 "window contains and the reagent-slim arm's does not; "
+                                 "0.0 means ONE such turn is below this "
                                  "instrument's resolution")
                    ;; The batched reading — the one the batched narrow row
                    ;; actually needs, because its window holds k of these.
@@ -1237,7 +1221,7 @@
                                "one-turn reading above bounds ONE turn below the "
                                "clamp; it does NOT bound " narrow-batch-k
                                " of them, and this window measures them instead "
-                               "of multiplying (rf2-2rtt6.19)")}}))))))))
+                               "of multiplying")}}))))))))
 
 ;; ===========================================================================
 ;; The instrument's OWN resolution — measured, not asserted
@@ -1270,9 +1254,9 @@
   the measurement. It is a property of a browser build and its
   cross-origin-isolation state, and a row whose DENOMINATOR sits on that
   grain is decided by it — so the number is taken in the run it governs
-  rather than quoted from a comment, on the same argument that made
-  [[yield-cost!]] measure the harness turn instead of asserting it was
-  small (rf2-d2tzk).
+  rather than quoted from a comment, on the same argument that makes
+  [[yield-cost!]] measure the harness turn instead of asserting it is
+  small.
 
   The method is the only one a clamped clock permits: read, spin until the
   value CHANGES, record the difference. `:tick` is the MINIMUM across `n`
@@ -1300,7 +1284,7 @@
      :note (str "the smallest difference rf.bench.fresco.lane/now-ms reports, measured by spinning until "
                 "the clock advances. A denominator at this size cannot be told from one "
                 "half its size or twice it, so a ratio taken against it carries the grain "
-                "rather than the arm (rf2-d2tzk)")}))
+                "rather than the arm")}))
 
 ;; ===========================================================================
 ;; THE CORRECTION-OR-REFUSAL CONTRACT — the asymmetry adjudicated, not noted
@@ -1326,7 +1310,7 @@
   the ones a published figure is formed from ([[published-arms]]). Every
   bearer is still subtracted from, because the turns were in its window
   whatever the row prints; what a bearer with no published figure cannot
-  do is refuse a row on behalf of a number nobody may quote (rf2-d2tzk)."
+  do is refuse a row on behalf of a number nobody may quote."
   [{:keys [p50]} bearers checked bound]
   (let [adj   (into {} (map (fn [[id v]] [id (if (contains? bearers id) (- v bound) v)])) p50)
         floor (get adj :floor)]
@@ -1336,12 +1320,11 @@
     ;; an exempt arm reading zero is a clamp problem this contract did not
     ;; create and must not claim to have found.
     ;;
-    ;; The test is not `pos?`, and finding that out cost a wrong number rather
-    ;; than an argument. `pos?` passed a bulk row whose floor read one clock
-    ;; quantum against a bound of one clock quantum: the corrected floor came
-    ;; out at ~1e-8 ms, still positive, and the row published a corrected
-    ;; `reagent-slim / floor` of 15,518,934x. A denominator that survives
-    ;; subtraction by a rounding error is not a denominator.
+    ;; The test is not `pos?`. `pos?` would pass a bulk row whose floor reads
+    ;; one clock quantum against a bound of one clock quantum: the corrected
+    ;; floor comes out at ~1e-8 ms, still positive, and the row would publish
+    ;; a corrected `reagent-slim / floor` of 15,518,934x. A denominator that
+    ;; survives subtraction by a rounding error is not a denominator.
     ;;
     ;; So a bearer survives only when the correction is the SMALLER part of its
     ;; window. That is not a threshold invented here — it is what makes a
@@ -1358,9 +1341,9 @@
   Three states rather than the `:straddles-1?` boolean, because the boolean
   cannot see a COMPLETE crossing: a band wholly below 1.0 that lands wholly
   above it after correction is `false -> false`, no straddle at either end,
-  and the PR #7282 audit built a live-rule counterexample that published
-  exactly that — 0.95x unadjusted, 1.0556x corrected, a full direction
-  reversal accepted as `:corrected`. The classification is still the
+  and a live-rule counterexample reads exactly that — 0.95x unadjusted,
+  1.0556x corrected, a full direction reversal the boolean would accept as
+  `:corrected`. The classification is still the
   instrument's own house rule extended to which side of the line a DECIDED
   band sits on: `:straddles-1?` names the indistinguishable state, and the
   other two are the only places a decided band can be."
@@ -1372,15 +1355,14 @@
 
 (defn- inherit-publication-mask
   "The corrected band for an arm the row's own summary marked
-  `:unpublished` is that marker, never a number (rf2-b69lw, from the
-  PR #7295 audit).
+  `:unpublished` is that marker, never a number.
 
   The correction rebuilds its bands from `:per-round`, which retains
   every arm's raw timings — including an arm whose writes failed their
   DOM read-back, whose milliseconds are real and are measuring a page
-  that never changed. Without this, the corrected-band path printed
+  that never changed. Without this, the corrected-band path would print
   `1.200 – 1.300 [CORRECTED]` directly beneath `UNPUBLISHED (1/78
-  unverified)` for the SAME arm, which defeats the rule that a failed
+  unverified)` for the SAME arm, which would defeat the rule that a failed
   read-back has no publishable timing. The mask is INHERITED from the
   original summary rather than recomputed, so the two bands cannot
   disagree about which arms have a figure."
@@ -1398,12 +1380,11 @@
   which is its denominator; a head-to-head pair from the two arms
   `rf.bench.fresco.lane/ratio-between` named in it. An entry a publication mask has
   replaced with `:unpublished` contributes nothing, because there is no
-  longer a figure there for anything to change.
+  figure there for anything to change.
 
   This is what [[yield-correction]] adjudicates over. A bearer that no
   published figure is formed from cannot move one, and a contract that
-  refused on it would be refusing on a number the row does not print
-  (rf2-d2tzk)."
+  refused on it would be refusing on a number the row does not print."
   [row]
   (let [normalised (into #{} (comp (remove (fn [[_ v]] (:unpublished v))) (map key)) (:summary row))
         pairs      (into #{} (mapcat (fn [[_ v]] [(:numerator v) (:denominator v)])) (:head-to-head row))]
@@ -1412,7 +1393,7 @@
 
 (defn yield-correction
   "Adjudicate one write row against the harness-microtask asymmetry, and
-  answer a verdict rather than an observation (rf2-b69lw).
+  answer a verdict rather than an observation.
 
   ## What is owed, and why
 
@@ -1421,17 +1402,16 @@
   `k` harness microtasks. So on a row that mixes the two shapes, the
   yield-bearing arms are billed for turns their rival is not, and the
   studio record says plainly that any nonzero reading of that turn owes
-  the reader a subtraction. It said so and nothing acted on it: the
-  driver recorded [[yield-cost!]] beside the row, exited 0, and published
-  unadjusted ratios over a slim run that had measured
-  `{:p50 0 :max 0.1 :n 10}`. A contract nothing enforces is a sentence,
-  not a contract.
+  the reader a subtraction. A contract nothing enforces is a sentence,
+  not a contract: without this verdict a driver records [[yield-cost!]]
+  beside the row, exits 0, and publishes unadjusted ratios over a slim run
+  measuring `{:p50 0 :max 0.1 :n 10}`.
 
   ## The five verdicts
 
   `:not-owed` — every arm in the row shares one window shape, so the turns
   are in the numerator and the denominator alike. Only a row that MIXES
-  shapes owes anything, and today that is the `slim` run's write rows and
+  shapes owes anything, and that is the `slim` run's write rows and
   no others.
 
   `:moot` — the row mixes shapes, but no figure it still PUBLISHES is
@@ -1440,12 +1420,12 @@
   the BULK row on the slim run: its only bearer is the floor, the floor is
   its denominator, and the floor sits on the clock's own grain — so
   [[mask-below-grain]] has already withdrawn every figure normalised by it,
-  permanently and on stronger grounds than the harness turn. Before this
-  verdict existed the row's disposition was drawn from the clock rather
-  than from the measurement: a one-turn aggregate of `0.0` published it
-  unadjusted and an aggregate of `0.1` refused it and failed the whole
-  sweep, on the same page, the same arms and the same source, three times
-  and twice out of five observed runs (rf2-d2tzk).
+  permanently and on stronger grounds than the harness turn. Without this
+  verdict the row's disposition would be drawn from the clock rather than
+  from the measurement: a one-turn aggregate of `0.0` publishes it
+  unadjusted and an aggregate of `0.1` refuses it and fails the whole
+  sweep, on the same page, the same arms and the same source — three and
+  two of five observed runs respectively.
 
   `:below-resolution` — the row owes, and the aggregate yield window's MAX
   is zero across every sample. Chrome clamps `performance.now()` to 100 µs;
@@ -1473,21 +1453,21 @@
         above it after — then what the row reports is an artefact of the
         asymmetry. The test is three-state ([[side-of-1]]): a band is
         below, straddling, or above, and ANY change of state is a
-        crossing. It began as a comparison of the `:straddles-1?` boolean
-        alone, and a complete reversal never flips that boolean — the PR
-        #7282 audit's counterexample published 0.95x unadjusted as 1.0556x
-        corrected through exactly that hole. The classification is still
-        the instrument's OWN house rule extended to which side of the line
-        a decided band sits on, not a threshold invented here: this
-        contract remains not entitled to a tolerance of its own.
+        crossing. The `:straddles-1?` boolean alone is not enough, because
+        a complete reversal never flips it — the counterexample reads 0.95x
+        unadjusted and 1.0556x corrected through exactly that hole. The
+        classification is still the instrument's OWN house rule extended
+        to which side of the line a decided band sits on, not a threshold
+        invented here: this contract is not entitled to a tolerance of its
+        own.
 
     (b) THE CORRECTION EXCEEDS THE WINDOW — a bearer for which what REMAINS
         after the subtraction does not exceed what was REMOVED. That window
         was measuring the harness's turns, not the arm. `pos?` is not the
-        test and the difference is not academic: it passed a bulk row whose
-        floor read one clock quantum against a bound of one clock quantum,
-        left a corrected floor of ~1e-8 ms, and published a corrected ratio
-        of 15,518,934x. See [[correct-round]].
+        test and the difference is not academic: it would pass a bulk row
+        whose floor reads one clock quantum against a bound of one clock
+        quantum, leave a corrected floor of ~1e-8 ms, and publish a
+        corrected ratio of 15,518,934x. See [[correct-round]].
 
   Refusal is not this function's to soften and not the caller's to widen.
   `hd8-app` fails the run on one, exactly as it does on a positive control
@@ -1502,14 +1482,13 @@
   that mask ([[inherit-publication-mask]]): the marker stays in the
   masked arm's place, and a head-to-head pair the mask dropped stays
   dropped. A correction adjusts a figure the row was entitled to publish;
-  it must never mint one the read-back refused (rf2-b69lw, from the
-  PR #7295 audit).
+  it must never mint one the read-back refused.
 
   ## Which reading is subtracted
 
   The aggregate measured for THIS row's `k`, never a per-turn figure
   multiplied up — `10 x below-resolution` is not below resolution, which is
-  the same argument that batched the writes in the first place. The narrow
+  the same argument that batches the writes. The narrow
   row's `k` is [[narrow-batch-k]] and takes `yield-cost!`'s `:batched`
   window; the bulk row's `k` is 1 and takes the one-turn reading. A row
   whose `k` has no measured aggregate is `:refused` as unevaluable rather
@@ -1530,11 +1509,11 @@
         ;; no figure left for the subtraction to move or for a refusal to
         ;; protect, and the difference is not theoretical: the BULK row's
         ;; floor is its only bearer on the slim run and it sits ON the clock's
-        ;; grain, so this row's disposition used to be a coin toss between
-        ;; publishing unadjusted (a 0.0 aggregate) and failing the whole sweep
-        ;; (a 0.1 aggregate) — the same page, the same arms, two opposite
-        ;; answers drawn from the clock rather than from the measurement
-        ;; (rf2-d2tzk).
+        ;; grain, so without this the row's disposition would be a coin toss
+        ;; between publishing unadjusted (a 0.0 aggregate) and failing the
+        ;; whole sweep (a 0.1 aggregate) — the same page, the same arms, two
+        ;; opposite answers drawn from the clock rather than from the
+        ;; measurement.
         published (published-arms row)
         borne     (into #{} (filter published) bearers)
         base     {:row (:witness row) :k k :windows shapes
@@ -1619,7 +1598,7 @@
                 ;; [[side-of-1]] on both ends, and ANY change of state is a
                 ;; crossing. Comparing the `:straddles-1?` booleans is not
                 ;; the same test: a band that leaps the line WHOLE never
-                ;; straddles at either end (PR #7282 audit).
+                ;; straddles at either end.
                 crossed   (fn [id v v']
                             (when (and v' (not (:unpublished v))
                                        (not= (side-of-1 v) (side-of-1 v')))
@@ -1672,7 +1651,7 @@
   "A [[fixture-row]] carried through the instrument's OWN clock-grain rule
   at a stated `tick`, so a grain fixture is a handful of milliseconds and a
   resolution rather than a hand-written marker that could drift from what
-  [[measure-write!]] applies (rf2-d2tzk). `tick` may be `nil` — that is the
+  [[measure-write!]] applies. `tick` may be `nil` — that is the
   reading a clock which never advanced produces, and it must fail closed."
   [witness k arms rounds tick]
   (let [row   (fixture-row witness k arms rounds)
@@ -1694,19 +1673,19 @@
   through the live rule, before anything is measured, deterministic, and
   fatal when they disagree.
 
-  Fixture 4 is not invented. It is the row that made the survival test
-  `pos?` publish a corrected ratio of 15,518,934x — a bulk floor of one
-  clock quantum against a bound of one clock quantum — and it is here so
-  that repair cannot silently come undone. Fixture 7 is not invented
-  either: it is the PR #7282 audit's counterexample, the band that crossed
-  1.0 WHOLE without flipping `:straddles-1?` at either end, published as
-  0.95x unadjusted and 1.0556x corrected — kept here for the same reason.
-  Neither is fixture 8: it is the PR #7295 audit's polarity, an arm
-  UNPUBLISHED for a failed DOM read-back (1 of 78) whose corrected band
-  was rebuilt numeric from the retained `:per-round` timings and printed
-  `1.200 – 1.300 [CORRECTED]` beneath the marker — masked by
-  [[mask-failed-read-backs]] itself, the instrument's own rule, so the
-  fixture cannot drift from what [[measure-write!]] actually applies."
+  Fixture 4 is not invented. It is the row on which the survival test
+  `pos?` would publish a corrected ratio of 15,518,934x — a bulk floor of
+  one clock quantum against a bound of one clock quantum — and it is here
+  so the survival rule cannot silently come undone. Fixture 7 is not
+  invented either: it is the whole-band counterexample, the band that
+  crosses 1.0 WHOLE without flipping `:straddles-1?` at either end,
+  reading 0.95x unadjusted and 1.0556x corrected — kept here for the same
+  reason. Neither is fixture 8: an arm UNPUBLISHED for a failed DOM
+  read-back (1 of 78) whose corrected band, rebuilt numeric from the
+  retained `:per-round` timings, would print `1.200 – 1.300 [CORRECTED]`
+  beneath the marker — masked by [[mask-failed-read-backs]] itself, the
+  instrument's own rule, so the fixture cannot drift from what
+  [[measure-write!]] actually applies."
   []
   (let [zero-yc    {:p50 0 :min 0 :max 0 :n 10
                     :batched {:k narrow-batch-k :window-p50 0 :window-max 0 :n 10}}
@@ -1746,7 +1725,7 @@
             :detail (str (name (:verdict v)) " " was " -> " now)})
 
          ;; 4. THE 15,518,934x ROW. A bulk floor of one quantum against a
-         ;;    bound of one quantum: `pos?` passed it, this must not.
+         ;;    bound of one quantum: `pos?` would pass it, this must not.
          (let [v (verdict-of (fixture-row :U-bulk 1 [:floor :reagent-slim]
                                           [{:floor 0.1 :reagent-slim 1.5} {:floor 0.1 :reagent-slim 1.6}])
                              :slim live-yc)]
@@ -1775,10 +1754,10 @@
             :ok   (and (= :refused (:verdict v)) (= :unevaluable (:reason v)))
             :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
 
-         ;; 7. THE WHOLE-BAND CROSSING (PR #7282 audit). A band wholly below
-         ;;    1.0 that lands wholly above it after correction never flips
-         ;;    `:straddles-1?` — false -> false at both ends — and the
-         ;;    boolean test published exactly this complete direction
+         ;; 7. THE WHOLE-BAND CROSSING. A band wholly below 1.0 that lands
+         ;;    wholly above it after correction never flips
+         ;;    `:straddles-1?` — false -> false at both ends — and a
+         ;;    boolean test would accept exactly this complete direction
          ;;    reversal as :corrected: 0.95x unadjusted, 1.0556x corrected.
          ;;    [[side-of-1]] is three-state so that it cannot.
          (let [v (verdict-of (fixture-row :U-narrow narrow-batch-k [:floor :reagent-slim]
@@ -1789,12 +1768,12 @@
                        (= :correction-changes-the-verdict (:reason v)))
             :detail (str (name (:verdict v)) "/" (some-> (:reason v) name))})
 
-         ;; 8. THE PUBLICATION MASK SURVIVES THE CORRECTION (PR #7295
-         ;;    audit). An arm whose writes failed their DOM read-back is
-         ;;    UNPUBLISHED in the original summary, but its raw timings are
-         ;;    retained in :per-round — and the corrected band, rebuilt from
-         ;;    exactly those timings, printed a number the read-back had
-         ;;    refused: `UNPUBLISHED (1/78 unverified) [UNADJUSTED]` then
+         ;; 8. THE PUBLICATION MASK SURVIVES THE CORRECTION. An arm whose
+         ;;    writes failed their DOM read-back is UNPUBLISHED in the
+         ;;    original summary, but its raw timings are retained in
+         ;;    :per-round — and a corrected band rebuilt from exactly those
+         ;;    timings would print a number the read-back had refused:
+         ;;    `UNPUBLISHED (1/78 unverified) [UNADJUSTED]` then
          ;;    `1.200 – 1.300 [CORRECTED]` for the SAME arm. The corrected
          ;;    summary must carry the marker in that arm's place, the
          ;;    dropped head-to-head pairs must stay dropped, and a
@@ -1822,12 +1801,12 @@
                          " reagent-slim-corrected=" (pr-str slim)
                          " h2h-corrected=" (pr-str (vec (keys (:head-to-head-corrected v)))))})
 
-         ;; 9. THE CLOCK-GRAIN MASK (rf2-d2tzk). The live bulk row: a floor
+         ;; 9. THE CLOCK-GRAIN MASK. The live bulk row: a floor
          ;;    of one and two 0.1 ms ticks under a measured 0.1 ms grain. The
          ;;    floor is every floor-normalised figure's DENOMINATOR, so the
          ;;    whole column goes — and the head-to-head pairs, which are
          ;;    arm-over-arm with the floor cancelling exactly, STAY. The
-         ;;    numbers are the run recorded on this bead, not invented.
+         ;;    numbers are a recorded live run, not invented.
          (let [row   (grain-fixture :U-bulk 1 [:floor :reagent-slim :donor-r1]
                                     [{:floor 0.1 :reagent-slim 1.75 :donor-r1 1.2}
                                      {:floor 0.2 :reagent-slim 1.7  :donor-r1 1.3}]
@@ -1842,11 +1821,11 @@
             :detail (str "reagent-slim=" (pr-str slim)
                          " h2h=" (pr-str (vec (keys (:head-to-head row)))))})
 
-         ;; 10. AND THE CORRECTION OVER THAT ROW IS MOOT — which is the whole
-         ;;     of this bead. The same fixture, the same aggregate that made
-         ;;     the unmasked row REFUSE at check 4, now has no published
-         ;;     figure to refuse over: the bearer is the floor and the floor's
-         ;;     column is gone. Two draws of the clock, one answer.
+         ;; 10. AND THE CORRECTION OVER THAT ROW IS MOOT. The same fixture
+         ;;     and the same aggregate that make the unmasked row REFUSE at
+         ;;     check 4 have no published figure to refuse over here: the
+         ;;     bearer is the floor and the floor's column is gone. Two
+         ;;     draws of the clock, one answer.
          (let [row  (grain-fixture :U-bulk 1 [:floor :reagent-slim]
                                    [{:floor 0.1 :reagent-slim 1.5} {:floor 0.1 :reagent-slim 1.6}]
                                    0.1)
@@ -1860,9 +1839,9 @@
          ;; 10b. THE RULE AT ITS OWN EDGE. `v > tick` — the reading merely
          ;;      exceeding the grain — is NOT the test, and the difference is
          ;;      two consecutive live runs of one source: the bulk floor's
-         ;;      worst round read 1.0 ticks on the first and 1.5 on the
-         ;;      second, so the weaker rule masked the row and then published
-         ;;      `9.333 – 10.500` off the same window. The test is
+         ;;      worst round reads 1.0 ticks on the first and 1.5 on the
+         ;;      second, so the weaker rule would mask the row and then
+         ;;      publish `9.333 – 10.500` off the same window. The test is
          ;;      `(v - tick) > tick` — what was resolved must exceed what was
          ;;      not — so 1.5 and 2.0 ticks are still grain and 3.0 is a
          ;;      measurement. Both polarities, because a boundary nobody has
@@ -1936,12 +1915,12 @@
         half      (quot n 2)
         predicted (/ (double (rf.bench.fresco.hd8-witnesses/m-elements n)) (double (rf.bench.fresco.hd8-witnesses/m-elements half)))
         ;; The two sizes are TWO ARMS in ONE round, interleaved and
-        ;; reflected like everything else. They were not, in the first cut,
-        ;; and the control promptly read 0.42 in one round of three — the
-        ;; full page measured FASTER than the half page. A control measured
-        ;; as two consecutive blocks is subject to the very drift it exists
-        ;; to detect, which would have made it a source of false alarm
-        ;; rather than an instrument.
+        ;; reflected like everything else. Measured as two consecutive
+        ;; blocks instead, the control reads 0.42 in one round of three —
+        ;; the full page measuring FASTER than the half page — because a
+        ;; control measured that way is subject to the very drift it exists
+        ;; to detect, which makes it a source of false alarm rather than an
+        ;; instrument.
         full-arm  (react-root-arm :control-full
                                   (fn [_] (rf.bench.fresco.hd8-witnesses/floor-m {:rows (:rows (db-of :floor)) :n n})))
         half-arm  (react-root-arm :control-half
@@ -1984,9 +1963,8 @@
 
   Asynchronous because `dispatch` is: re-frame's event queue drains on its
   own turn, so a synchronous read-back after `.click` sees the page before
-  the event ran and reports a working lowering as broken. (It did, on the
-  first run of this check — which is the read-back doing its job in the
-  safe direction.) The yield is a macrotask, comfortably past the queue's
+  the event runs and reports a working lowering as broken — the read-back
+  failing in the safe direction. The yield is a macrotask, comfortably past the queue's
   own drain, and the check is outside every clock so it costs nothing that
   is published. The run's own [[spine-drain!]] follows, because under a
   ratom spine nothing reaches the DOM without it."
@@ -2046,10 +2024,8 @@
    ;; so that ratio prices the shell and cannot be mistaken for a codec
    ;; figure.
    ;;
-   ;; THE CODEC AXIS ITSELF IS RETIRED (rf2-m4rpa). A `:donor-fh` entry
-   ;; naming `re-frame.freehand.react/element` sat here while the fourth arm
-   ;; ran; it is gone with the arm rather than left to label an arm that no
-   ;; longer mounts. No surviving entry is re-pointed to stand in for it.
+   ;; THERE IS NO CODEC AXIS: no entry here stands in for a second runtime
+   ;; codec, for the reason [[head-to-head-pairs]] gives.
    :markup-codec      {:floor        "hand-written react/createElement — no codec"
                        :reagent      "stock Reagent's template (reg-view)"
                        :reagent-slim "reagent2.impl.template/as-element (reg-view)"
@@ -2057,7 +2033,7 @@
                        :donor-r1     "reagent2.impl.template/as-element"
                        :donor-r2     "reagent2.impl.template/as-element"}
    ;; Which window shape each write arm was measured through, stated rather
-   ;; than left to be inferred from the adapter (rf2-b69lw). A row whose
+   ;; than left to be inferred from the adapter. A row whose
    ;; reader cannot tell whether its window contained a harness microtask
    ;; cannot tell whether two arms in it were compared like for like.
    :write-windows     (into {} (map (fn [id]
@@ -2078,10 +2054,9 @@
    :rounds            rounds
    :mount-sampling    mount-sampling
    :write-sampling    write-sampling
-   ;; A narrow SAMPLE is k writes under one clock (rf2-9zysg); a bulk
-   ;; sample is one. Published because the narrow figures before that
-   ;; change were taken through a different window and are not comparable
-   ;; to these without knowing it.
+   ;; A narrow SAMPLE is k writes under one clock; a bulk sample is one.
+   ;; Published because narrow figures taken through an unbatched window
+   ;; are not comparable to these without knowing it.
    :writes-per-sample {:narrow narrow-batch-k :bulk 1}
    :measurement-method
    (str "arms interleaved at the SAMPLE level with the order rotating AND "

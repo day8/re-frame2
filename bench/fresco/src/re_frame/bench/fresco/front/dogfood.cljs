@@ -1,14 +1,11 @@
 (ns re-frame.bench.fresco.front.dogfood
-  "THE DOGFOOD SCREEN'S SHARED APP AND STATE (rf2-2rtt6.8) — the state
+  "THE DOGFOOD SCREEN'S SHARED APP AND STATE — the state
   layer only.
 
-  **There is no screen in this namespace, and mounting one is not this
-  bead's work.** HD-014 starts the six-week clock at the first
-  Fresco-arm commit that mounts the dogfood screen; the arms
-  (rf2-2rtt6.9 and rf2-2rtt6.10) own that commit. What is here is
-  everything the screen will sit on: the app-db shape, the events, the
-  subscriptions, and the frame lifecycle. Nothing renders, nothing
-  imports React, and no root is created.
+  **There is no screen in this namespace.** The arms mount the dogfood
+  screen; what is here is everything the screen sits on: the app-db
+  shape, the events, the subscriptions, and the frame lifecycle. Nothing
+  renders, nothing imports React, and no root is created.
 
   ## Why the state layer is shared rather than written three times
 
@@ -169,29 +166,29 @@
 ;; What is deliberately NOT here: the intents
 ;; ---------------------------------------------------------------------------
 ;;
-;; This namespace once exported `row-intents` / `new-item-intents` — the
-;; event vectors in Fresco's data spelling, hoisted here so the three
-;; renderings "could not drift on the events while claiming to differ only
-;; on the view". They are gone, for two reasons that point the same way.
+;; No shared intent helpers — no event vectors in Fresco's data spelling
+;; hoisted here for the renderings to share — for two reasons that point
+;; the same way.
 ;;
-;; 1. **They were never shared.** The raw-UIx rendering cannot consume an
-;;    intent vector; it writes closures. So the helpers were Fresco
-;;    authoring living in a file named shared, and the preference case
-;;    counted the two renderings' view layers with thirteen lines of one
-;;    side's authoring sitting outside the count (rf2-2rtt6.67, merged-PR
-;;    audit of #7395). An ergonomics comparison whose numbers exclude part
-;;    of one surface is not measuring the thing it names.
-;; 2. **The guarantee they bought has a stronger replacement.** Sharing the
-;;    vectors made the renderings agree on the events BY CONSTRUCTION. The
-;;    intent-parity witness now proves the same agreement BY OBSERVATION,
-;;    at the `:events` stream, through a real-DOM script, against a stated
-;;    expectation neither rendering computes
-;;    (`arm1_dogfood_dom_cljs_test/the-two-live-renderings-dispatch-the-same-intents-on-the-same-interactions`).
+;; 1. **They could not be shared.** The raw-UIx rendering cannot consume
+;;    an intent vector; it writes closures. So such helpers would be
+;;    Fresco authoring living in a file named shared, and the preference
+;;    case would count the two renderings' view layers with part of one
+;;    side's authoring sitting outside the count. An ergonomics
+;;    comparison whose numbers exclude part of one surface is not
+;;    measuring the thing it names.
+;; 2. **The guarantee they would buy is had more strongly another way.**
+;;    Sharing the vectors would make the renderings agree on the events
+;;    BY CONSTRUCTION. The intent-parity witness proves the same
+;;    agreement BY OBSERVATION, at the `:events` stream, through a
+;;    real-DOM script, against a stated expectation neither rendering
+;;    computes
+;;    (`arm1/dogfood_dom_cljs_test/the-two-live-renderings-dispatch-the-same-intents-on-the-same-interactions`).
 ;;    That is strictly stronger: construction could not catch an intent
 ;;    wired to the wrong POSITION — a correct vector on the wrong
 ;;    handler — and observation does.
 ;;
-;; Each rendering now writes its own event positions in its own spelling,
+;; Each rendering writes its own event positions in its own spelling,
 ;; which is exactly what the preference case is asking the authors to
 ;; compare. What stays shared is what the comparison needs to be shared:
 ;; one app-db shape, one event set, one subscription set.

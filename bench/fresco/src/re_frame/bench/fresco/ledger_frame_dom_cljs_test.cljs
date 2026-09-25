@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.ledger-frame-dom-cljs-test
-  "THE LEDGER FRAME CLOCK'S OWN SELF-TEST (rf2-xc0bw, deliverable 2).
+  "THE LEDGER FRAME CLOCK'S OWN SELF-TEST.
 
   [[re-frame.bench.fresco.ledger-frame-clock-app]] publishes a
   distribution over the intervals between consecutive frames while the
@@ -10,14 +10,12 @@
 
   ## Why this file exists at all
 
-  The driver landed without ever having been executed. Every structural
-  claim it makes is carried by a check the RUN performs — [[rf.bench.fresco.ledger-frame-clock-app/boot!]]'s
+  Every structural claim the driver makes is carried by a check the RUN
+  performs — [[rf.bench.fresco.ledger-frame-clock-app/boot!]]'s
   two clamp refusals, [[rf.bench.fresco.ledger-frame-clock-app/prepare!]]'s reset-settled check, and both
-  halves of [[rf.bench.fresco.ledger-frame-clock-app/advance-discrimination!]] — and until this file none
-  of them had fired once. A check that has never fired is a check nobody
-  has seen discriminate, and the sibling instrument's own history is the
-  argument: writing the self-test beside `slice-broad-clock-app` is what
-  found that its two arms were not comparable.
+  halves of [[rf.bench.fresco.ledger-frame-clock-app/advance-discrimination!]] — and without this file
+  none of them fires anywhere but inside a real run. A check that has
+  never fired is a check nobody has seen discriminate.
 
   ## The three claims this file exists to discriminate
 
@@ -36,9 +34,9 @@
     exercise on itself.
   - *A scroll that never lands.* If the notification did not reach the
     vendor, every arm would publish this box's own frame grid.
-    `ledger.virtualized-dom-cljs-test` records two runs of its own that
-    met exactly this — `scrollTop` set, the `scrollTop` assertion
-    passing, and the window unmoved — and
+    `ledger.virtualized-dom-cljs-test` documents exactly this state —
+    `scrollTop` set, the `scrollTop` assertion passing, and the window
+    unmoved — and
     [[a-gesture-the-virtualizer-never-hears-does-not-verify]] reproduces
     it deliberately, with the vendor cut off from its own `scroll` events
     in the capture phase.
@@ -77,7 +75,7 @@
 
   A latency. Nothing here reads `:scroll`'s distribution against anything,
   because that reading is `U4`'s and belongs to a pinned quiet-box window
-  rather than to a shared PR runner. The positive control's own VERDICT is
+  rather than to a shared runner. The positive control's own VERDICT is
   likewise not adjudicated over a real run — [[rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor]]'s
   arithmetic is pinned below on synthetic readings, where a slow box
   cannot reach it, and the verdict itself belongs to the run that takes
@@ -85,10 +83,10 @@
 
   ## Runtime
 
-  The DOM rows need a real browser and carry the `-dom-cljs-test` suffix
-  so `:browser-test` runs them; each degrades to a stated skip under
-  `:node-test`, which is the posture every other `*-dom` suite in this
-  tree keeps. The pure rows run on both."
+  The DOM rows need a real browser and carry the `-dom-cljs-test` suffix,
+  the mark of a suite that needs a real DOM; each degrades to a stated
+  skip where there is none, which is the posture every other `*-dom`
+  suite in this tree keeps. The pure rows run anywhere."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
@@ -187,10 +185,10 @@
   WRITE. `stopPropagation` is not `preventDefault` and touches no
   property, so the offset still moves and
   [[rf.bench.fresco.ledger-frame-clock-app/prepare!]]'s `scrollTop` assertion still passes. That is
-  precisely the state `virtualized-dom-cljs-test` hit twice — the
+  precisely the state `virtualized-dom-cljs-test` documents — the
   instrument's own scroll assertion green and the rendered window
   standing still — and it is the state a check over `scrollTop` alone
-  would have verified."
+  would verify."
   [f]
   (let [stop (fn [e] (.stopPropagation e))
         off! (fn [] (.removeEventListener js/document "scroll" stop true))]
@@ -381,7 +379,7 @@
            event, none of which reaches the listener, and the rendered
            window is where it started.
 
-           A check over `scrollTop` would have verified this run. The
+           A check over `scrollTop` would verify this run. The
            observation is taken off the MIRROR ONLY A COMMIT WRITES, so
            it cannot."
     (if-not (browser?)
@@ -636,9 +634,9 @@
   (testing "Anti-vacuity, carried over from `rf.bench.fresco.lane/control-verdict-strict`
            rather than reinvented. A floor of zero or less is cleared by
            any reading whatever, and a control with no rounds is the same
-           thing said with no data. A walk profile once shipped a control
-           whose own prediction had gone vacuous and reported that it saw
-           what it never predicted."
+           thing said with no data. A control whose own prediction has
+           gone vacuous would report that it saw what it never
+           predicted."
     (let [v (rf.bench.fresco.ledger-frame-clock-app/control-verdict-floor 0.0 [51.0 52.0] 16.7)]
       (is (not (:stated? v)))
       (is (not (:ok? v)) "a floor nothing can fall below is not a control that passed")
@@ -683,8 +681,7 @@
 (deftest the-arm-roster-is-the-three-rows-the-file-documents
   (testing "The namespace docstring names three arms and says what each
            one is for. A fourth added silently would leave that prose
-           describing an instrument that no longer exists — the drift
-           class this lane keeps paying for."
+           describing an instrument that does not exist."
     (is (= [:idle-frames :scroll :ctl-blocked] (mapv :id rf.bench.fresco.ledger-frame-clock-app/arms))
         "floor first, so it leads the schedule")
     (is (= [:ctl-blocked] (mapv :id (filter :control? rf.bench.fresco.ledger-frame-clock-app/arms)))

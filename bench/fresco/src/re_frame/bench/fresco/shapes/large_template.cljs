@@ -1,8 +1,9 @@
 (ns re-frame.bench.fresco.shapes.large-template
   "**TIER-1 SHAPE 2 — LARGE TEMPLATES**, the ~1,200-element shape
-  (charter §Use cases A2; rf2-2rtt6.51).
+  (charter §Use cases A2).
 
-  RealWorld's home feed — `ui_views.cljs:223-274`, banner, feed toggle,
+  RealWorld's home feed — the home page of
+  `examples/real-apps/realworld_resources/views.cljs`, banner, feed toggle,
   article list and popular-tags sidebar — **as one boundary**. Every card,
   every tag pill and every element of the chrome is interpreted inside a
   single `defview` body. That is the shape's definition: not \"a big
@@ -72,7 +73,7 @@
 (def article-count
   "Sixty-nine cards. Chosen so the page lands on the charter's
   ~1,200-element shape — and, not by coincidence, within one element of
-  the predecessor's own 1,203-element `W1` witness, so a reader comparing
+  the P0 rig's own 1,203-element `W1` witness, so a reader comparing
   the two is comparing pages of the same size."
   69)
 

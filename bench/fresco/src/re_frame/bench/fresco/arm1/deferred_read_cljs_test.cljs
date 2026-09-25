@@ -1,8 +1,8 @@
 (ns re-frame.bench.fresco.arm1.deferred-read-cljs-test
-  "AN EXPLICITLY DEFERRED READ IS LOUD, NOT SILENT (rf2-2rtt6.32).
+  "AN EXPLICITLY DEFERRED READ IS LOUD, NOT SILENT.
 
   The last shape in the read-outside-the-render family, and the only one
-  the two existing guards cannot see between them.
+  the two other guards cannot see between them.
 
   ## Where this sits
 
@@ -27,8 +27,8 @@
       (defview child  [{:keys [d]}] [:li (str @d)])
       (defview parent [_] [child {:d (delay (:title (sub [:todo 1])))}])
 
-  Measured on the runtime before this change (the probe is preserved as
-  `the-fault-the-refusal-replaces` below): the parent's read set is
+  Without the refusal (the probe is `the-fault-the-refusal-replaces`
+  below), the parent's read set is
   **empty**, the child's first render holds `[:todo 1]`, and the child's
   second render holds **nothing** — a `Delay` caches, so the second walk
   calls `sub` zero times, the read set collapses, React re-subscribes and
@@ -36,9 +36,9 @@
   re-renders and the delay is never rebuilt. Correct on screen, frozen
   thereafter, attributable to nothing.
 
-  ## What this change does, and what it deliberately does not
+  ## What the refusal does, and what it deliberately does not
 
-  `rf.bench.fresco.front.codec/realize-deep` — already the one walk at the crossing — refuses
+  `rf.bench.fresco.front.codec/realize-deep` — the one walk at the crossing — refuses
   an **unforced** `delay` it reaches, and refuses it *inside the render
   of the body that wrote it*, so the stack lands on the author's own call
   site. It does not force the delay: that would change the meaning of the
@@ -157,7 +157,7 @@
           label))))
 
 ;; ---------------------------------------------------------------------------
-;; 1b — the same deferral, held as a map KEY (rf2-2rtt6.32)
+;; 1b — the same deferral, held as a map KEY
 ;; ---------------------------------------------------------------------------
 
 (defn- child-derefs-key-body
@@ -176,13 +176,13 @@
 (deftest a-delay-held-as-a-map-key-is-refused-exactly-as-a-value-is
   (testing "the invariant is about **reach** — every unforced `delay`
            reachable from the props — and a map entry is two reachable
-           positions rather than one. The walk descended into values only
-           until `rf2-2rtt6.32`, on an argument that does not survive
-           contact with either half of the substrate: a `delay` hashes by
+           positions rather than one. A walk into values only would rest
+           on an argument that does not survive contact with either half
+           of the substrate: a `delay` hashes by
            object identity, so hashing never forces one; and a small map
            literal is a `PersistentArrayMap`, which compares keys with `=`
            and hashes nothing at all, so a one-entry map never so much as
-           looks at its key. Both halves now go through the same refusal."
+           looks at its key. Both halves go through the same refusal."
     (doseq [[label v] [["a key of the props map"          {(delay 1) :marked}]
                        ["a key of a nested map"           {:m {(delay 1) :marked}}]
                        ["inside a COLLECTION key"         {:m {[(delay 1)] :marked}}]
@@ -221,11 +221,11 @@
 
 (deftest the-fault-a-key-held-delay-would-restore
   (seeded!)
-  (testing "driven around the codec, because the codec now refuses to build
+  (testing "driven around the codec, because the codec refuses to build
            it. Identical to `the-fault-the-refusal-replaces` in every
            respect but where the `delay` sits, and that is the finding: the
            position it occupies changes nothing about what it does to the
-           edge, so the walk's **reach** was the whole of the defect."
+           edge, so the walk's **reach** is the whole of the defect."
     (let [d      (delay (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1])))
           props  {:m {d :marked}}
           first' (render child-derefs-key-body props)
@@ -263,12 +263,12 @@
           "and the child reads nothing, which is correct: it is not the reader"))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — the fault the refusal replaces, kept as a witness
+;; 2 — the fault the refusal replaces, as a witness
 ;; ---------------------------------------------------------------------------
 
 (deftest the-fault-the-refusal-replaces
   (seeded!)
-  (testing "driven around the codec, because the codec now refuses to
+  (testing "driven around the codec, because the codec refuses to
            build it: a delay forced inside the child's render is the
            child's edge on the first render and NOBODY's edge on the
            second, because a `Delay` caches. The parent holds no edge at
@@ -309,9 +309,9 @@
 (deftest a-function-prop-not-called-in-the-render-is-already-loud
   (seeded!)
   (testing "the render-prop-that-is-not-re-run has only two ends, and
-           both are already settled: called in the render it keeps its
-           edge (above); called anywhere else it finds no frame and is
-           the error `read-key!` has raised since the beginning"
+           both are settled: called in the render it keeps its edge
+           (above); called anywhere else it finds no frame and is the
+           error `read-key!` raises"
     (let [parent (render parent-fn-body {})
           props  (crossing-props (:element parent))
           stashed (volatile! nil)]
@@ -340,7 +340,7 @@
 
 (deftest a-deferral-parked-in-a-mutable-reference-is-outside-the-walk
   (seeded!)
-  (testing "**A real limit of the Surface B ruling, written down.** The
+  (testing "**A real limit of Surface B, written down.** The
            crossing walk descends into data structures; an atom is not
            one, and descending into a mutable reference is neither a
            structural pass nor safe (a reactive reference deref'd by a
@@ -351,7 +351,7 @@
            the fault above.
 
            This is the boundary of the mechanism, not a gap in it: the
-           author has routed state around the ruled surface, and no view
+           author has routed state around the specified surface, and no view
            framework detects that. React with hooks has the identical
            hole. It is recorded here so it is a stated property rather
            than a discovery."

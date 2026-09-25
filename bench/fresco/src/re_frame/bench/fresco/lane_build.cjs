@@ -1,17 +1,17 @@
 'use strict';
-// THE FRESCO LANE'S ONE BUILD DOOR — rf2-2rtt6.73.
+// THE FRESCO LANE'S ONE BUILD DOOR.
 //
-// Every driver in this lane compiled through a hand-rolled copy of the same
-// eight lines, and every copy carried the same hole:
+// A driver that compiles through a hand-rolled spawn of the usual eight lines
+// carries a hole:
 //
 //     const r = spawnSync(node, [runner, 'release', BUILD_ID, ...], {
 //       cwd: IMPL, stdio: ['ignore', 'inherit', 'inherit'] });
 //     if (r.status !== 0) { ...; process.exit(1); }
 //
 // **shadow-cljs exits 0 when a build emits warnings.** So the only thing
-// those eleven drivers ever checked was the one condition that does not
-// happen. MEASURED on main, by renaming `M-NO-PROPS`'s def in
-// `walk_profile_app.cljs` and leaving its two use sites alone:
+// such a driver checks is the one condition that does not happen.
+// MEASURED by renaming `M-NO-PROPS`'s def in `walk_profile_app.cljs` and
+// leaving its two use sites alone:
 //
 //     [:fresco-bench] Build completed. (186 files, 131 compiled, 2 warnings, 37.55s)
 //     ------ WARNING #1 - :undeclared-var ------
@@ -23,8 +23,7 @@
 // Two undeclared vars, a full run, a printed table of numbers, exit 0. Under
 // `:advanced` an undeclared var is `undefined` at the call site, so an arm can
 // silently become a DIFFERENT ARM and still publish a plausible figure — and a
-// worker mutation-proving a change through this lane gets a proof worth
-// nothing, which is how the hole was found.
+// mutation proof run through such a build is worth nothing.
 //
 // This module is the lane's only spawn of shadow-cljs. It captures the child's
 // output instead of inheriting the stream, echoes every byte of it, and then
@@ -32,12 +31,12 @@
 //
 // ## What it refuses, and why each one is here
 //
-//   1. A non-zero child exit — the hard errors the old code already caught.
+//   1. A non-zero child exit — the hard errors.
 //   2. `warnings > 0` in ANY parsed `Build completed.` summary. The teeth.
 //   3. NO parsable summary at all. A gate whose parser recovered nothing must
 //      not report success: that is the same fail-open one level up, and it is
-//      the exact false-green `check-examples-compile.cjs` had to close after
-//      the fact (rf2-nlnd9y.1). If shadow's summary format moves, this lane
+//      the exact false-green `check-examples-compile.cjs` also refuses. If
+//      shadow's summary format moves, this lane
 //      goes RED and someone fixes the parser — it does not go quietly green.
 //   4. A `------ WARNING` marker in the output with every parsed summary
 //      reading zero. That combination means the count was read from a line
@@ -52,7 +51,7 @@
 // ## The one cost, stated
 //
 // `stdio: 'pipe'` means shadow's progress is printed when the build FINISHES
-// rather than as it goes — a ~35s silence where there used to be a trickle.
+// rather than as it goes — a ~35s silence rather than a trickle.
 // Every driver prints its own "building ..." line first, and buffering is what
 // makes the output readable at all; `spawnSync` cannot both inherit and
 // capture. Nothing is dropped: stdout and stderr are echoed in full, ahead of
@@ -78,7 +77,7 @@ const RUNNER = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js'
 // `scripts/check-examples-compile.cjs` and `scripts/compile-node-test.cjs`. All
 // three refuse an unreadable summary; they are deliberately NOT unified, and
 // `compile-node-test.cjs`'s header holds the roster, the measured reasons and
-// the test for whether a fourth lane should mint its own (rf2-040s1). Note that
+// the test for whether a fourth lane should mint its own. Note that
 // the bracket is REQUIRED here and optional there: this parser reads zero
 // summaries from a line that carries no `[:id]`, which is fine for a lane that
 // always prints one and is why no single pattern serves all three as they

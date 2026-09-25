@@ -1,6 +1,5 @@
 (ns re-frame.bench.fresco.jsfb-fresco-app
-  "THE CANDIDATE ARM — js-framework-benchmark's app on Fresco Arm 1
-  (rf2-rguy1).
+  "THE CANDIDATE ARM — js-framework-benchmark's app on Fresco Arm 1.
 
   Read this file beside `jsfb-reagent-app`. Same model namespace, same
   element shapes, same class names, same `td` order, same handlers
@@ -18,9 +17,8 @@
 
   `runtime/dispatch!` is `(:dispatch-sync (frame-ops frame-kw))` wrapped
   in a commit — the SAME `dispatch-sync` the Reagent arm calls. Verified
-  in `arm1/runtime.cljs` rather than assumed, because the clock lane
-  found this exact trap from the other direction: rf2-2rtt6.3 measured
-  the event drain at 11–16% of a write, so an arm routed through a
+  in `arm1/runtime.cljs` rather than assumed, because the event drain is
+  11–16% of a write, so an arm routed through a
   different event path would carry that difference into a number labelled
   view work. Both arms here drain the same handler through the same door.
 
@@ -36,9 +34,7 @@
   Arm 1 takes one props map, so `:key` and `:id` travel together. The
   Reagent arm spells the same thing as `^{:key id}` metadata. Neither is
   a wrapper element, so the DOM is identical — `jsfb_ours_run.cjs`
-  gates that rather than this docstring.
-
-  Owner: rf2-rguy1."
+  gates that rather than this docstring."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
             [re-frame.bench.fresco.arm1.runtime :refer [sub]]

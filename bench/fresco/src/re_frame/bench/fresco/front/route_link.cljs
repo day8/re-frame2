@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.front.route-link
   "`route-link` — the fifth tier-1 shape's Fresco spelling
-  (rf2-2rtt6.54; the census counts **106** route-links across 85
+  (the census counts **106** route-links across 85
   idiomatic files and the charter names the form tier-1).
 
   The census author writes
@@ -15,8 +15,7 @@
 
   ## A plain function, deliberately — not a boundary
 
-  Freehand's `v/route-link` is a `defview`; here that would be the wrong
-  citation. A Fresco boundary costs two hooks and a row in every
+  A `defview` would be the wrong citation here. A Fresco boundary costs two hooks and a row in every
   boundary count, and the census's 106 links live INSIDE rows that are
   already boundaries — an author byline is not a unit of re-render. So
   `route-link` is a plain function like
@@ -25,27 +24,24 @@
   all (the link model is a pure calculation), so the ≤2-hook budget and
   every page's boundary arithmetic are untouched by links.
 
-  ## What is taken from whom, and what is declined
+  ## What is adopted, and what is declined
 
-  - **From routing (taken whole): the law.** The href, the dispatch
+  - **From routing, whole: the law.** The href, the dispatch
     payload and the click decision come from the substrate-neutral
     late-bound seams routing publishes for exactly this consumer class —
     `:routing/link-model` here at render, `:routing/activate-link!` in
     the lowered closure ([[re-frame.bench.fresco.front.intent]]). This
-    file restates NO routing law: `rf/route-link`, `ui/route-link`,
-    Freehand's `v/route-link` and this one all run the same two
+    file restates NO routing law: every route-link runs the same two
     definitions, and the packaging graph stays
     `fresco -> core late-bind <- routing` (Conventions §Packaging).
-  - **From Freehand (taken): render-time capture and render-time
-    refusal.** The frame is captured at RENDER (a click fires after the
-    render scope has unwound); a missing routing artefact fails at the
-    LINK SITE with `:rf.error/routing-artefact-missing`; and the
-    route-click one-intent law is kept — see [[on-click-roster!]].
-    **(Declined:** the fn-only `:on-click` roster. Freehand narrows to
-    fn / `v/handler` because it has no in-band spelling for
-    \"cancel-and-replace\"; Fresco does — `[::h/prevent [:app/event]]`
-    is the declarative veto, and it is admitted.**)**
-  - **From Replicant (taken, via HD-026): behaviour as a
+  - **Render-time capture and render-time refusal.** The frame is
+    captured at RENDER (a click fires after the render scope has
+    unwound); a missing routing artefact fails at the LINK SITE with
+    `:rf.error/routing-artefact-missing`; and the route-click one-intent
+    law holds — see [[on-click-roster!]]. The `:on-click` roster is not
+    fn-only: `[::h/prevent [:app/event]]` is the in-band spelling for
+    \"cancel-and-replace\" — the declarative veto — and it is admitted.
+  - **From Replicant (via HD-026): behaviour as a
     namespaced-keyword-headed vector.** The anchor's click carries a
     `[::h/navigate {…}]` vector `=` can see, so two renders of one link
     are equal and a structural test reads the click decision off the
@@ -53,7 +49,7 @@
     body-level click interceptor — ambient behaviour no vector carries is
     exactly what the in-band school exists to avoid.**)**
   - **Declined for v0: the `:prefetch :intent` trio.** Routing publishes
-    it and Freehand consumes it; the census counts no prefetch site, and
+    it; the census counts no prefetch site, and
     the opt-in is sugar over an event a Fresco author can already spell
     (`:on-mouse-enter [:rf.route/prefetch {…}]`). A tier-1 roster takes
     the tier-1 surface. **Declined means REFUSED, not ignored** — see
@@ -66,7 +62,7 @@
   ## Composition with `::h/prevent`
 
   A route-link's click is the cancelable-navigation case the prevent head
-  was built for, and the composition is the existing grammar: the
+  exists for, and the composition is the existing grammar: the
   caller's `:on-click` rides the navigate vector's `:veto` slot; a
   `[::h/prevent [:app/event]]` there lowers to the ordinary prevent
   closure; routing runs it FIRST and stands down on `defaultPrevented`.
@@ -153,7 +149,7 @@
   at the site that wrote the link, with the render stack, before any
   anchor exists. A BARE intent vector is the taught mistake and gets the
   teaching diagnostic: the click already produces the one routing intent
-  (Freehand's route-link law, kept)."
+  — the route-link law."
   [on-click]
   (when-not (or (nil? on-click)
                 (rf.bench.fresco.front.intent/prevent-head? on-click)

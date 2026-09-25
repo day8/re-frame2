@@ -1,20 +1,19 @@
 (ns re-frame.bench.fresco.arm1.render-measure-cljs-test
-  "SPEC 009's `:render` BUCKET — THE OFF HALF, AND THE ID RULE
-  (rf2-2rtt6.125).
+  "SPEC 009's `:render` BUCKET — THE OFF HALF, AND THE ID RULE.
 
-  `defview` boundaries now report through Spec 009's Performance
+  `defview` boundaries report through Spec 009's Performance
   channel: [[re-frame.bench.fresco.arm1.runtime/mint-view!]] wraps the
   component fn React calls in `(rf.performance/mark-and-measure :render
   view-name …)`, so a build that flips
   `re-frame.performance/enabled?` gets one `rf:render:<view-id>`
   User-Timing measure per boundary render.
 
-  This file is the half that runs in the ORDINARY `:node-test` build,
-  where the flag is at its `goog-define` default of `false`. It asserts
+  This file is the half that runs in an ORDINARY build, where the flag
+  is at its `goog-define` default of `false`. It asserts
   two things a flag-off build is the only place to assert:
 
-  1. **The ordinary render path is unchanged.** A page of boundaries
-     renders, its markup is what it always was, its bodies ran — and the
+  1. **The ordinary render path is the bare one.** A page of boundaries
+     renders, its markup is the ordinary markup, its bodies ran — and the
      User-Timing stream is empty. That is the runtime expression of the
      elision contract (the `:advanced` bundle grep is
      `scripts/check-perf-bundle.cjs`'s job; a broken DCE would leave the
@@ -35,20 +34,18 @@
   ## Where the ON half lives
 
   `re-frame.bench.fresco.arm1.render-measure-emit-nightly-test`, which
-  runs under the `:node-test-perf-nightly` shadow-cljs build (both perf
-  goog-defines flipped true) — the same runner and the same naming
-  convention core's `re-frame.performance-emit-nightly-test` uses. Perf
-  assertions do not ride the per-PR runner; the emission is witnessed
-  there and the ABSENCE is witnessed here.
+  needs a build with both perf goog-defines flipped true — the naming
+  convention core's `re-frame.performance-emit-nightly-test` uses. The
+  emission is witnessed there and the ABSENCE is witnessed here.
 
   ## Why `renderToString` and not a DOM
 
   The claim is about the component fn React invokes, and React's server
   renderer invokes it exactly as the DOM renderer does — the shell's
   `useSyncExternalStore` answers from its server snapshot
-  ([[re-frame.bench.fresco.ssr.entry]]). That keeps the row in the
-  headless `:node-test` build rather than behind a browser, and it
-  doubles as the bead's SSR clause: a server pass leaves no durable
+  ([[re-frame.bench.fresco.ssr.entry]]). That keeps the row headless
+  rather than behind a browser, and it
+  doubles as an SSR clause: a server pass leaves no durable
   registration behind a bracket."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -196,7 +193,7 @@
           "and the retained buffer is still empty"))))
 
 (deftest a-server-pass-leaves-no-retained-registration-behind-the-bracket
-  (testing "The bead's SSR clause. A `renderToString` pass runs bodies and
+  (testing "The SSR clause. A `renderToString` pass runs bodies and
             mints read-set entries, but React never calls `subscribe`, so
             nothing is committed. The bracket must not change that — it
             writes a measure and (retention off) clears it, and holds no

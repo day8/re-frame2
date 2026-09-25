@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.slice-donor-views
   "THE SLICE'S FEED PAGE, TRANSCRIBED INTO UIx — the DONOR ARM `C3` and
-  `C4` are stated against (rf2-9wmqd).
+  `C4` are stated against.
 
   `docs/design/fresco/product/budgets.md` §4 registers `C3` as *broad
   updates ≤ 1.25x the best relevant adapter after topology tuning* and
@@ -28,10 +28,9 @@
   1. **The process already carries the UIx adapter.** `rf/init!` installs
      ONE adapter for the process, the slice's own `app.cljs` installs
      UIx, and the Fresco arm's driver does the same. A Reagent donor on
-     this page would need a second adapter phase — the shape
-     `p0-reagent-views` records the predecessor programme paying for, and
-     the reason its own four arms are *Reagent or nothing*. One page, one
-     adapter.
+     this page would need a second adapter phase — the two-phase shape
+     `p0-reagent-views` avoids by keeping its four arms *Reagent or
+     nothing*. One page, one adapter.
   2. **It is the harder denominator, which is the honest direction to
      err.** `docs/design/fresco/studio/hd8-composed-donor-arm.md`'s
      re-taken rows read *on this clock, direct UIx is now the faster
@@ -79,7 +78,7 @@
     `go!` reaches for `dispatch-sync` inside the click turn for exactly
     this reason.
   - **No `set-hiccup-emitter!`, no `use-memo` around subscription args.**
-    `p0-uix-views`' reasons, unchanged: routing this arm through a hiccup
+    `p0-uix-views`' reasons: routing this arm through a hiccup
     interpreter would price a hiccup interpreter, which is the
     candidate's product delta and not UIx's.
 
@@ -113,17 +112,17 @@
     fallback and the driver's canonical-DOM gate refuses two pages that
     differ before any clock is read.
 
-  ## THE READ ROSTER, COMPARED READ FOR READ (rf2-9wmqd, PR #8599's audit)
+  ## THE READ ROSTER, COMPARED READ FOR READ
 
-  The three differences above are AUTHORING ones. A fourth was a
-  MEASUREMENT one, and it is repaired: this arm's `feed-page` read
-  `[::rf.fresco.examples.slice.subs/t :feed/empty]` unconditionally where the Fresco body reads it
-  only in its empty branch, so on a seed that is never empty the donor
-  carried a subscription and a hook the Fresco arm did not. See
+  The three differences above are AUTHORING ones. A read the Fresco body
+  makes only in a branch is a MEASUREMENT one: reading
+  `[::rf.fresco.examples.slice.subs/t :feed/empty]` unconditionally in `feed-page`, where the Fresco body reads it
+  only in its empty branch, would give the donor a subscription and a
+  hook the Fresco arm does not have on a seed that is never empty. See
   [[feed-empty]].
 
-  The rest of the page was then compared boundary by boundary, and what
-  the comparison found is stated here rather than left to be re-derived:
+  The rest of the page is compared boundary by boundary, and what the
+  comparison finds is stated here rather than left to be re-derived:
 
   - **[[chrome]] 7, [[article-row]] 2, [[digest]] 5, [[digest-body]] 1,
     [[callout-block]] 1, [[unsupported-block]] 1** — read for read with
@@ -132,18 +131,18 @@
     two edges, not two read sets.
   - **[[pager]] 5 against 5 at the pinned seed**, from a body that reads
     them unconditionally against one that reads three of them inside its
-    branch. INERT rather than hidden, and [[pager]] carries why the
-    [[feed-empty]] repair would make it worse rather than better.
+    branch. INERT rather than hidden, and [[pager]] carries why
+    [[feed-empty]]'s boundary split would make it worse rather than better.
   - **[[app]] 3 against the Fresco shell's 4** — this arm does not read
     `[:rf.route/id]`, because it renders no route branch. The one
-    remaining asymmetry, it runs in the DENOMINATOR'S favour, and [[app]]
-    states it.
+    asymmetry, it runs in the DENOMINATOR'S favour, and [[app]] states
+    it.
 
   So the donor reads NOTHING the Fresco arm does not, and the Fresco arm
   reads one thing the donor does not. That is an assertion rather than a
   claim: `slice-broad-window-dom-cljs-test` takes both frames'
   subscription caches on the seeded page and compares them, with a
-  negative control that re-plants exactly the read this repair removed.
+  negative control that re-plants exactly that unconditional read.
 
   ## THE IDS ARE DUPLICATED ON PURPOSE
 
@@ -154,9 +153,7 @@
   `container.querySelector` on the arm's own container, which is
   unambiguous. A `<label for>` pointing at an ambiguous id is a real
   defect of this bench page and of no application; no arm activates a
-  label.
-
-  Owner: rf2-9wmqd."
+  label."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
             [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]
@@ -343,14 +340,14 @@
   driver's population pin names the seed for exactly this class of
   reason.
 
-  ## AND THAT IS WHY [[feed-empty]]'S REPAIR IS NOT APPLIED HERE
+  ## AND THAT IS WHY [[feed-empty]]'S SPLIT IS NOT APPLIED HERE
 
   The two conditional reads look like one defect and are not. Splitting
   this body the way [[feed-empty]] splits the empty state would put a
   child boundary on the MEASURED page — the seed always renders a pager —
   so this arm would render one component more than the Fresco arm on
   every visit, which is the same class of error in the same direction as
-  the one that repair removes, only larger and always on. The empty
+  the one that split avoids, only larger and always on. The empty
   state's boundary is free precisely because the branch that places it
   never runs at the pinned seed.
 
@@ -504,13 +501,13 @@
   The Fresco `feed-page` writes `[:p.feed-empty (h/sub [::rf.fresco.examples.slice.subs/t
   :feed/empty])]` inside its empty branch, so a feed with rows in it never
   records an edge on that string. `use-sub` is a React hook and a
-  hook cannot be conditional, so the transcription that read it beside the
-  rows and the heading gave this arm ONE SUBSCRIPTION AND ONE HOOK THE
-  FRESCO ARM DOES NOT HAVE — on the shipped seed, which is seven
-  articles and never empty. That is work in the DENOMINATOR, and it moves
+  hook cannot be conditional, so a transcription that read it beside the
+  rows and the heading would give this arm ONE SUBSCRIPTION AND ONE HOOK
+  THE FRESCO ARM DOES NOT HAVE — on the shipped seed, which is seven
+  articles and never empty. That would be work in the DENOMINATOR, moving
   a `Fresco / UIx` ratio in the numerator's favour.
 
-  A child boundary is the ordinary UIx repair and it costs the measured
+  A child boundary is the ordinary UIx answer and it costs the measured
   population nothing: the branch that would place it never renders at the
   pinned seed, so the arm pays neither the boundary nor the read. The DOM
   is `<p class=\"feed-empty\">…` either way, so the driver's canonical-DOM

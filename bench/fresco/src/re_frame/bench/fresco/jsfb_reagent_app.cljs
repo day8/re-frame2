@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.jsfb-reagent-app
   "THE DENOMINATOR ARM — js-framework-benchmark's app in Reagent, reading
-  re-frame2 subscriptions (rf2-rguy1).
+  re-frame2 subscriptions.
 
   The model is `jsfb-model`'s and nothing here adds to it: this namespace
   is markup, a mount, and the six buttons the driver clicks.
@@ -24,10 +24,8 @@
 
   `^{:key id}` on each row is Reagent's own spelling, and the ids are
   stable across a swap and a remove because `:order` holds ids rather
-  than positions. `npm run isKeyed` is what adjudicates it — see the PR
-  body for the result rather than trusting this paragraph.
-
-  Owner: rf2-rguy1."
+  than positions. The benchmark's `npm run isKeyed` is what adjudicates
+  it, not this paragraph."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.bench.fresco.jsfb-model :as rf.bench.fresco.jsfb-model]
             [re-frame.core :as rf]

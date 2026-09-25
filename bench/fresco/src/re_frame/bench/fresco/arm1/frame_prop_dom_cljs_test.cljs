@@ -1,18 +1,17 @@
 (ns re-frame.bench.fresco.arm1.frame-prop-dom-cljs-test
-  "THE FRAME AS AN ORDINARY PROP — THE WITNESSES, NOT THE PRICE
-  (rf2-2rtt6.39).
+  "THE FRAME AS AN ORDINARY PROP — THE WITNESSES, NOT THE PRICE.
 
   HD-020(b) spends the whole ≤2-hook budget on two hooks: the
   subscription/epoch hook and the frame-context hook. A third hook in the
   shell is a budget breach, so v0 has no slot left for anything it later
-  needs. rf2-2rtt6.39's hypothesis is that the second hook is avoidable —
+  needs. The hypothesis under test is that the second hook is avoidable —
   the frame is ordinary data flowing down the tree, and the codec knows it
   at the moment it mints each boundary element, so it can bake it in
   ([[re-frame.bench.fresco.front.codec/mark-frame-prop!]]).
 
-  **This file is the CORRECTNESS half only.** The bead's heap ladder, its
-  rf.bench.fresco.arm1.mount/bulk clock and its studio row are measurement work on a quiet box
-  and are not taken here (rf2-2rtt6.72). What is settled here is what a
+  **This file is the CORRECTNESS half only.** The heap ladder, the
+  rf.bench.fresco.arm1.mount/bulk clock and the studio row are measurement work on a quiet box
+  and are not taken here. What is settled here is what a
   measurement is not allowed to be taken without:
 
   1. **The hook count, at React's own dispatcher.** Never self-reported —
@@ -24,7 +23,7 @@
      PROVE it. One app mounted in two isolated frames, and no read
      crosses. A red here kills the hypothesis outright regardless of any
      number.
-  3. **A foreign component in the middle.** The bead's argument for why
+  3. **A foreign component in the middle.** The argument for why
      the prop survives interop is that a foreign component's children were
      CREATED by the Fresco body above it, with the prop already in them —
      so passing `props.children` through preserves it. That is an argument
@@ -162,7 +161,7 @@
         (let [ctx  (mount-and-count [context-row {:id 0}])
               prop (mount-and-count [frame-prop-row {:id 0}])]
           (is (= ["useContext" "useSyncExternalStore"] ctx)
-              (str "the incumbent's ledger, unchanged: " (pr-str ctx)))
+              (str "the incumbent's ledger: " (pr-str ctx)))
           (is (= ["useSyncExternalStore"] prop)
               (str "and the frame-fed shell asks for one hook: " (pr-str prop)))
           (is (= (count rf.bench.fresco.arm1.runtime/shell-hook-ledger) (count ctx))

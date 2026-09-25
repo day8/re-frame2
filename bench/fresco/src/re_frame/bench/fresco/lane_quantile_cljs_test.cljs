@@ -1,11 +1,9 @@
 (ns re-frame.bench.fresco.lane-quantile-cljs-test
-  "THE LANE'S QUANTILE ESTIMATOR, WITNESSED (rf2-xa8wo).
+  "THE LANE'S QUANTILE ESTIMATOR, WITNESSED.
 
   `budgets.md` registers `U1`–`U4` at `p95` or `p99` and `C8`'s benefit
-  disjunct at `≥ 2 ms p95`, and until this bead the lane answered
-  `{:n :min :max :p50}` and computed no tail quantile anywhere. So the
-  block on those rows was a line of source rather than a missing box, and
-  [[re-frame.bench.fresco.lane/quantile]] is that line. This file is what
+  disjunct at `≥ 2 ms p95`, so those rows need a tail quantile, and
+  [[re-frame.bench.fresco.lane/quantile]] is it. This file is what
   keeps it honest.
 
   ## Why a DEFINITION needs a witness at all
@@ -26,10 +24,10 @@
   ## The one consistency that matters more than the choice
 
   `:p50` and `:p95` are printed side by side in a single row, so they had
-  better be one estimator. The lane's `:p50` was already a
+  better be one estimator. The lane's `:p50` is a
   linear-interpolated median — a single order statistic at odd `n`, the
   mean of the two middle ones at even — which is `h = (n-1)q` at
-  `q = 0.5`, and that is why that convention was taken rather than
+  `q = 0.5`, and that is why the lane takes that convention rather than
   nearest-rank. The agreement is asserted below rather than asserted in a
   docstring: exactly at odd `n`, and within a float epsilon at even,
   where `(a+b)/2` and `a+(b-a)/2` may part company in the last place.
@@ -38,8 +36,8 @@
 
   This is a test over known inputs. It runs on a loaded box, touches no
   clock, mounts nothing, and pins no figure any budget row reads. The
-  window that will point the estimator at an application is a separate
-  quiet-box run and is not this bead's — see `budgets.md` §9.4."
+  window that points the estimator at an application is a separate
+  quiet-box run — see `budgets.md` §9.4."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
@@ -126,9 +124,9 @@
       (is (close? (:p50 (rf.bench.fresco.lane/summarise xs)) (rf.bench.fresco.lane/quantile xs 0.5))
           (str "p50 and quantile 0.5 must agree on " (count xs) " samples"))))
 
-  (testing "`:p50`'s own spelling is UNCHANGED by this bead — the two-branch
-            median still answers what it always did"
-    ;; The values below are the pre-`rf2-xa8wo` behaviour, transcribed. A
+  (testing "`:p50` keeps its own spelling — the two-branch median answers
+            exactly these values"
+    ;; The values below are the two-branch median's, transcribed. A
     ;; refactor that routed `:p50` through `quantile` would move a published
     ;; figure by up to one ulp, and this is the assertion that would catch it.
     (is (= 2.0 (:p50 (rf.bench.fresco.lane/summarise [1.0 2.0 3.0]))))
@@ -160,12 +158,12 @@
         (is (>= (:p95 s) (:min s)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `summarise`'s contract — the shape existing callers destructure, plus the
-;; two fields this bead adds
+;; `summarise`'s contract — the shape callers destructure, plus the two
+;; tail quantiles
 ;; ---------------------------------------------------------------------------
 
 (deftest summarise-carries-the-tail-quantiles-and-keeps-everything-else
-  (testing "the four fields every existing caller destructures are unmoved"
+  (testing "the four fields every caller destructures, at their values"
     (let [xs (vec (range 1 21))
           s  (rf.bench.fresco.lane/summarise xs)]
       (is (= 20 (:n s)))
@@ -181,11 +179,11 @@
       (is (= (rf.bench.fresco.lane/quantile xs 0.99) (:p99 s)))))
 
   (testing "and the summary carries EXACTLY these six keys"
-    ;; Frozen here, next to the function, because it used to be frozen by
-    ;; accident: `lane_control_strict_cljs_test`'s aggregate row compared a
-    ;; whole summary map with `=` while meaning only to state a range, so
-    ;; adding a field reddened a test with no opinion about fields. A shape
-    ;; worth holding is worth holding where a reader would look for it.
+    ;; Frozen here, next to the function, rather than by accident elsewhere:
+    ;; an aggregate row that compares a whole summary map with `=` while
+    ;; meaning only to state a range reddens on an added field with no
+    ;; opinion about fields. A shape worth holding is worth holding where a
+    ;; reader would look for it.
     (is (= #{:n :min :max :p50 :p95 :p99}
            (set (keys (rf.bench.fresco.lane/summarise [1.0 2.0 3.0]))))))
 

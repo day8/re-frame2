@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 //
-// OUR CLOCK INSTRUMENT, ON THE BENCHMARK'S APP (rf2-rguy1).
+// OUR CLOCK INSTRUMENT, ON THE BENCHMARK'S APP.
 //
-//   node fresco/test/re_frame/bench/fresco/jsfb_ours_run.cjs
+//   node src/re_frame/bench/fresco/jsfb_ours_run.cjs     (from bench/fresco/)
 //
 // ## Why this file exists — the cross-check needs a 2x2, not a 1x1
 //
-// The bead asks whether our harness and krausest/js-framework-benchmark
+// The question is whether our harness and krausest/js-framework-benchmark
 // AGREE ON THE RATIO. Run naively that comparison is confounded, and badly:
 //
 //   * our published ratio is `fresco / reagent-subs` on the M1 witness —
@@ -15,10 +15,8 @@
 //     boundaries, a CLICK on an already-mounted app.
 //
 // Two instruments AND two workloads differ at once, so a disagreement
-// could not be attributed to either. That is the same shape of fault this
-// session already found twice — a confounded design that could not have
-// produced its null, and a held-out rung that was an algebraic identity of
-// the checks it was meant to validate.
+// could not be attributed to either — a confounded design that cannot
+// produce its null.
 //
 // So the design crosses the two factors:
 //
@@ -50,52 +48,50 @@
 //
 // ## One arm per page, so the clock lane's worst confound cannot arise
 //
-// The clock harness had to hide arms with `display: none` because four
-// arms shared one document and a dirty frame pays for the whole document.
-// Here each arm is a separate URL and a separate page, so at every instant
-// exactly one arm is mounted. The repair is structural rather than
-// applied.
+// The clock harness hides arms with `display: none` because four arms
+// share one document and a dirty frame pays for the whole document. Here
+// each arm is a separate URL and a separate page, so at every instant
+// exactly one arm is mounted — by structure rather than by a guard.
 //
 // The cost is that the two arms are no longer sample-interleaved. Arms
 // alternate WITHIN each round and the round order flips, so a monotone
 // drift across the run cancels to first order; and a per-round seam figure
 // is published so a reader can see what did not cancel.
 //
-// ## A sample is admitted only if its durations are measurements (rf2-iuudn)
+// ## A sample is admitted only if its durations are measurements
 //
-// `rf2-110be` taught the COMPARATOR that a zero or negative duration is not
-// a measurement — a table of all-negative medians divides out to exactly the
-// positive ratios a sound run produces. The comparator refusing is the last
-// line, not the only one: a value that is not a duration, recorded here,
-// still lands in the JSON this file writes and is still read by everything
-// that is not the comparator. So the refusal is made at the point of
-// measurement too, where it is cheaper.
+// A zero or negative duration is not a measurement — a table of all-negative
+// medians divides out to exactly the positive ratios a sound run produces —
+// and the COMPARATOR refuses one. That is the last line, not the only one: a
+// value that is not a duration, recorded here, would still land in the JSON
+// this file writes and be read by everything that is not the comparator. So
+// the refusal is made at the point of measurement too, where it is cheaper.
 //
 // A recorded sample must read strictly positive on both clocks this file
 // publishes. A sample that does not is not averaged, not written, and not
 // silently dropped either — it is COUNTED and the run refuses on the count,
-// alongside the unverified writes it already refuses on.
+// alongside the unverified writes it refuses on.
 //
-// ## Every gate is reachable without a browser (rf2-2ze1h)
+// ## Every gate is reachable without a browser
 //
 // This file's five refusals — DOM parity, the positive control, unverified
 // writes, page errors, and the recording site above — decide an exit code that
-// is quoted as a quality gate, and until rf2-2ze1h nothing could reach any of
-// them: `playwright` was required at module scope and `main()` ran on `require`,
-// so the only way to ask what this program refuses was to launch a headless
-// Chromium and hope the run produced the shape in question.
+// is quoted as a quality gate. With `playwright` required at module scope and
+// `main()` run on `require`, nothing could reach any of them: the only way to
+// ask what this program refuses would be to launch a headless Chromium and
+// hope the run produced the shape in question.
 //
 // So the arithmetic sits in pure functions — `parityOf`, `controlVerdict`,
 // `pageErrorsOf`, `notMeasured` and the one `verdict` that reads them —
 // exported under a `require.main === module` guard, and
 // `jsfb_ours_exit_path.test.cjs` drives the refusals directly. It is the shape
-// `clock_run.cjs` took under rf2-8bgqq and `jsfb_compare.cjs` under rf2-rguy1,
-// for the same reason and in the same directory.
+// `clock_run.cjs` and `jsfb_compare.cjs` take, for the same reason and in the
+// same directory.
 //
 //   0  every gate cleared.
 //   1  a gate did not, or the run threw. The report above names which.
 
-const crypto = require('node:crypto');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -114,24 +110,22 @@ const SAMPLES = Number(process.env.JSFB_SAMPLES || 10);
 const NAV_TIMEOUT_MS = Number(process.env.JSFB_NAV_TIMEOUT_MS || 60000);
 
 // ARMS[0] is the DENOMINATOR every ratio is taken against — Reagent-on-subs,
-// which is what HD-012 names the bar. The third arm was added after the first
-// run: the contested bulk-broad row is `UIx / Reagent`, so a Reagent-and-
-// Fresco pair cannot speak to it. See `jsfb_uix_app`'s docstring.
+// which is what HD-012 names the bar. The third arm is UIx because the
+// contested bulk-broad row is `UIx / Reagent`, so a Reagent-and-Fresco pair
+// cannot speak to it. See `jsfb_uix_app`'s docstring.
 const ARMS = ['rf2-reagent', 'rf2-fresco', 'rf2-uix'];
 const BASE = ARMS[0];
 const OTHERS = ARMS.slice(1);
 
 const url = (arm) => `http://${HOST}:${PORT}/frameworks/keyed/${arm}/`;
 
-// WHICH BUNDLE PRODUCED THESE NUMBERS (rf2-rguy1).
+// WHICH BUNDLE PRODUCED THESE NUMBERS.
 //
-// `jsfb_build.cjs` hashes every bundle it emits, because "a stale bundle
-// silently measured" is rf2-6t03c and a digest is the cheapest guard against
-// it. That guard stopped at the build log: this file declared a
-// `provenance.bundles` field and never filled it, so the two retained runs
-// (`data/jsfb-rguy1/`) name their node, their Playwright, their schedule and
-// their box, and cannot say which three bundles they measured — a claim the
-// studio page had to carry in prose beside them. A run now binds itself.
+// `jsfb_build.cjs` hashes every bundle it emits, because a digest is the
+// cheapest guard against a stale bundle silently measured. A guard that stops
+// at the build log leaves a run that names its node, its Playwright, its
+// schedule and its box and cannot say which three bundles it measured, so the
+// run binds itself: `provenance.bundles` carries each arm's digest.
 //
 // Hashed from the bytes the SERVER hands the browser rather than from a path
 // this file guesses at, so the digest is of the artefact actually measured; a
@@ -158,7 +152,7 @@ async function bundleDigest(arm) {
 // is the most expensive row here and the positive control for all of them —
 // so a narrowed run is a PROBE and cannot certify a magnitude. Any run that
 // drops the control says so on its own output rather than leaving a reader
-// to notice the missing block (rf2-emvod).
+// to notice the missing block.
 const JSFB_ONLY = (process.env.JSFB_ONLY || '').trim();
 
 const ALL_ROWS = [
@@ -318,14 +312,13 @@ function deltaOf(a, b) {
   return {
     taskNet: task - devtools,
     // RAW TaskDuration, and on THIS harness it is very nearly the same
-    // number (rf2-emvod). `rf2-yd52q` found that `DevToolsCommandDuration`
-    // absorbs page script — but only script that runs INSIDE a protocol
-    // command. `clock_run.cjs` drives every operation through
-    // `page.evaluate`, so its `taskNet` lost the arm's whole write. This
-    // harness drives every operation through `page.click`, an INPUT-domain
-    // command, and the page's handler runs in an input task the command
-    // does not own. Both are reported so the claim is measured here rather
-    // than inherited from the other harness's finding.
+    // number. `DevToolsCommandDuration` absorbs page script — but only
+    // script that runs INSIDE a protocol command. `clock_run.cjs` drives
+    // every operation through `page.evaluate`, so its `taskNet` loses the
+    // arm's whole write. This harness drives every operation through
+    // `page.click`, an INPUT-domain command, and the page's handler runs in
+    // an input task the command does not own. Both are reported so the
+    // claim is measured here rather than inherited from the other harness.
     task,
     devtools,
     script: d.ScriptDuration * 1000,
@@ -334,7 +327,7 @@ function deltaOf(a, b) {
   };
 }
 
-// A MEASUREMENT IS FINITE AND STRICTLY POSITIVE (rf2-iuudn).
+// A MEASUREMENT IS FINITE AND STRICTLY POSITIVE.
 //
 // An elapsed time of zero is the absence of a measurement and a negative one
 // is a broken measurement — a counter that went backwards across the delta,
@@ -346,11 +339,11 @@ const positive = (x) => Number.isFinite(x) && x > 0;
 //
 // `taskNet` and `task` are the two clocks this file PUBLISHES: every ratio in
 // the report and every `summary`/`summaryTask` figure in the JSON is a mean of
-// medians of one of them. Both are asked, not just `taskNet`, and rf2-110be
-// says why: it is the derived quantity, `task - devtools`, and a derived
-// number is sound-looking long before its inputs are. A `task` of 0 against a
-// negative `devtools` yields a perfectly positive `taskNet`, which is the
-// wrong-side-blamed failure that bead found on the comparator.
+// medians of one of them. Both are asked, not just `taskNet`, because
+// `taskNet` is the derived quantity, `task - devtools`, and a derived number
+// is sound-looking long before its inputs are. A `task` of 0 against a
+// negative `devtools` yields a perfectly positive `taskNet` — the
+// wrong-side-blamed failure.
 //
 // `script`, `layout`, `style` and `devtools` are DECOMPOSITION and are
 // deliberately not asked. An operation that recalculates no style honestly
@@ -379,7 +372,7 @@ function median(xs) {
 const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 
 // ---------------------------------------------------------------------------
-// The gates — pure, so each refusal has one seat and a witness (rf2-2ze1h)
+// The gates — pure, so each refusal has one seat and a witness
 // ---------------------------------------------------------------------------
 
 /**
@@ -452,8 +445,7 @@ function controlVerdict(acc, only) {
 /**
  * THE PAGE-ERROR FUNNEL. Every arm of every row collects its own `pageerror`
  * and console-error strings; this is the hop that gathers them into the one
- * array the run refuses on, and it is the hop `pageerror_exit_path.test.cjs`
- * could not follow by source scan.
+ * array the run refuses on, and a source scan cannot follow it.
  */
 const pageErrorsOf = (acc, rows) => rows.flatMap((row) => ARMS.flatMap((arm) => acc[row.id][arm].errors));
 
@@ -461,7 +453,7 @@ const pageErrorsOf = (acc, rows) => rows.flatMap((row) => ARMS.flatMap((arm) => 
  * THE EXIT DECISION, and it has ONE seat.
  *
  * Five independent gates, any one of which sinks the run. The line it returns
- * is the line the run has always printed: which gate failed is READ OFF THE
+ * names no gate: which gate failed is READ OFF THE
  * REPORT, which prints every one of these numbers above this point and prints
  * them whether or not the run is refused.
  *
@@ -573,8 +565,7 @@ async function main() {
   provenance.browser = browser.version();
 
   // Is the box quiet? Recorded rather than asserted: a run taken under
-  // load is discarded by this lane, and run 4 of the clock harness is the
-  // precedent. `hardware-concurrency` is reported so a reader knows how
+  // load is discarded by this lane. `hardware-concurrency` is reported so a reader knows how
   // much headroom the figures had.
   {
     const p = await browser.newPage();
@@ -587,8 +578,8 @@ async function main() {
   // CANONICAL DOM — attribute NAMES SORTED, which is the comparison this
   // lane's own parity gate makes and not a weakening of it.
   //
-  // The first three-arm run failed a raw `innerHTML` comparison at byte
-  // 187 with all three strings the same length: Reagent serialises
+  // A raw `innerHTML` comparison of the three arms fails at byte 187 with
+  // all three strings the same length: Reagent serialises
   // `type, id, class` and UIx serialises `class, type, id`. Same
   // elements, same attributes, same values, same text — a different
   // WRITE ORDER for one attribute set. Attribute order is not part of the
@@ -625,7 +616,7 @@ async function main() {
       const p = await browser.newPage();
       await p.goto(url(arm), { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
       // The navigation's own ceiling, not Playwright's anonymous 30s: this
-      // wait is the same page load as the goto above it (rf2-vinj).
+      // wait is the same page load as the goto above it.
       await p.waitForSelector('#run', { timeout: NAV_TIMEOUT_MS });
       await click(p, '#run');
       await expectRows(p, 1000);
@@ -677,7 +668,7 @@ async function main() {
   // -------------------------------------------------------------------------
 
   console.log('');
-  console.log(';; OUR CLOCK INSTRUMENT ON THE BENCHMARK APP (rf2-rguy1)');
+  console.log(';; OUR CLOCK INSTRUMENT ON THE BENCHMARK APP');
   console.log(`;; clock    Performance.getMetrics TaskDuration less DevToolsCommandDuration,`);
   console.log(`;;          frame-settled (rAF + setTimeout) — main thread only, no raster`);
   console.log(`;; schedule ${ROUNDS} rounds x (${WARMUP} warm-up + ${SAMPLES} samples), arms alternating, order flipping`);
@@ -724,16 +715,16 @@ async function main() {
     }
   }
 
-  // THE SAME SAMPLES ON RAW `TaskDuration` (rf2-emvod).
+  // THE SAME SAMPLES ON RAW `TaskDuration`.
   //
-  // The question this answers is whether the figures above needed
-  // `rf2-yd52q`'s correction at all. On `clock_run.cjs` they did, badly —
+  // The question this answers is whether the figures above need the
+  // raw-`TaskDuration` correction at all. On `clock_run.cjs` they do, badly —
   // `taskNet` there is the operation's frame with the operation's script
-  // removed. The claim here is that this harness was never exposed, because
-  // it clicks rather than evaluates. A claim is not a measurement, so the
+  // removed. The claim here is that this harness is not exposed, because it
+  // clicks rather than evaluates. A claim is not a measurement, so the
   // two clocks are printed side by side and the reader can see the gap.
   console.log('');
-  console.log(';; THE SAME SAMPLES ON RAW TaskDuration — script AND frame (rf2-emvod)');
+  console.log(';; THE SAME SAMPLES ON RAW TaskDuration — script AND frame');
   console.log(';; row          arm             taskNet     task     ratio-on-taskNet  ratio-on-task   gap');
   const summaryTask = {};
   for (const row of ROWS) {
@@ -767,7 +758,7 @@ async function main() {
   for (const row of ROWS) console.log(`;;   ${row.id.padEnd(12)} ${summary[row.id].unverified}`);
 
   // The other way a sample fails to be a sample: it verified the page, and
-  // then read a duration that no elapsed time can produce (rf2-iuudn).
+  // then read a duration that no elapsed time can produce.
   console.log('');
   console.log(';; SAMPLES REFUSED AS NON-MEASUREMENTS — taskNet or task not > 0 (must be 0 on every row)');
   for (const row of ROWS) console.log(`;;   ${row.id.padEnd(12)} ${summary[row.id].nonPositive}`);
@@ -794,7 +785,7 @@ async function main() {
   // their script and `taskNet` is a script-inclusive reading here. If it
   // TRACKS the arm — as it does on `clock_run.cjs`, where the operation runs
   // inside the command — it is carrying it, and this harness's published
-  // ratios would need the same correction `clock_run.cjs` needed.
+  // ratios would need the same correction `clock_run.cjs` needs.
   console.log('');
   console.log(';; IS devtools TRACKING THE ARM? (spread across arms, per row)');
   for (const row of ROWS) {
@@ -834,15 +825,15 @@ async function main() {
 
 module.exports = {
   // The refusal arithmetic, exported so the five gates can be driven directly
-  // rather than through a headless Chromium (rf2-2ze1h) — the same reason
-  // `clock_run.cjs` exports `reportability` (rf2-8bgqq) and `jsfb_compare.cjs`
-  // exports `verdict` (rf2-rguy1).
+  // rather than through a headless Chromium — the same reason
+  // `clock_run.cjs` exports `reportability` and `jsfb_compare.cjs` exports
+  // `verdict`.
   verdict,
   parityOf,
   controlVerdict,
   pageErrorsOf,
   // The recording site's predicate and the instrument arithmetic under it, so
-  // a sample can be put to the gate the way the run puts one (rf2-iuudn).
+  // a sample can be put to the gate the way the run puts one.
   notMeasured,
   positive,
   deltaOf,

@@ -40,21 +40,20 @@
   Write, yield ONE microtask, force the arm's own synchronous drain, stop
   the clock, then READ THE WRITTEN CELL BACK OUT OF THE DOM. Every arm is
   timed through that one shape, including the arms that do not need the
-  yield — the predecessor's harness established that a window shape has to
-  be uniform across arms or the comparison prices the window.
+  yield — a window shape has to be uniform across arms or the comparison
+  prices the window.
 
-  The read-back is not decoration. On the predecessor's first pass, an
-  EMPTY `flushSync` flushed only React's sync lane, so the floor arm's
-  default-lane `root.render` landed outside the measured window entirely:
-  80 of 320 floor samples ended on a stale cell and every other arm's
-  ratio was inflated by the difference. On another, deleting the microtask
-  made a substrate arm fail its read-back on EVERY write while reading
-  FASTER, with a range that still overlapped the valid window's — the
-  clock alone would have accepted it. Only the DOM read-back caught either.
+  The read-back is not decoration. An EMPTY `flushSync` flushes only
+  React's sync lane, so a floor arm's default-lane `root.render` would land
+  outside the measured window entirely (on the predecessor's harness, 80 of
+  320 floor samples ended on a stale cell and every other arm's ratio was
+  inflated by the difference). Deleting the microtask makes a substrate arm
+  fail its read-back on EVERY write while reading FASTER, with a range that
+  still overlaps the valid window's — the clock alone would accept it. Only
+  the DOM read-back catches either.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -90,16 +89,14 @@
 (defn- teardown!
   "Run one teardown phase, and RAISE with the phase named if it throws.
 
-  It used to be `(catch :default _ nil)` at both sites, and this is the
-  worst place in the run to lose an exception. A `destroy-frame!` that
-  threw leaves the frame's subscription caches and its watches standing,
-  and the very next thing that happens is the OTHER adapter being
-  installed over the top of them — after which every figure in the
-  segment is a figure for a page carrying the previous segment's reactive
-  graph. rf2-flqpd is a finding ABOUT these exact transitions: a
-  diagnostic that used a segment seam to reject a retention hypothesis,
-  while discarding the evidence that the seam had failed, was arguing
-  from a page it had not checked.
+  Swallowing it here — `(catch :default _ nil)` — would lose an exception
+  at the worst place in the run. A `destroy-frame!` that threw leaves the
+  frame's subscription caches and its watches standing, and the very next
+  thing that happens is the OTHER adapter being installed over the top of
+  them — after which every figure in the segment is a figure for a page
+  carrying the previous segment's reactive graph. A diagnostic that uses a
+  segment seam to reject a retention hypothesis while discarding the
+  evidence that the seam failed is arguing from a page it has not checked.
 
   A raise rather than a recorded note, because every caller already
   fails closed on one: the clock round's `.catch` sets `P0_ERROR`, the
@@ -109,17 +106,17 @@
   A PLAIN `js/Error`, not an `ex-info`, and the phase is in the MESSAGE
   rather than in `ex-data`. Under `:advanced` Closure renames the
   constructor of any `Error` subclass, so a CLJS `ExceptionInfo` crosses
-  the CDP boundary as a two-letter munged token and nothing else — the
-  first cut of this repair raised an `ex-info` and the driver dutifully
-  failed closed on `page.evaluate: aj`, which stops the instrument
-  without telling anyone what stopped it. Naming the phase is the whole
+  the CDP boundary as a two-letter munged token and nothing else — an
+  `ex-info` raised here reaches the driver as `page.evaluate: aj`, which
+  stops the instrument without telling anyone what stopped it. Naming the
+  phase is the whole
   point, so the name has to survive the build the rig actually runs
   under. Nothing reads the `ex-data`; the cause is appended as text.
 
   Note that this raises only on a REAL failure. `destroy-frame!` is a
   documented no-op for an id with no live incarnation, so the first
   segment entry of a run — when there is nothing to tear down — passes
-  through it silently, and `destroy-adapter!` is already guarded by
+  through it silently, and `destroy-adapter!` is guarded by
   `current-adapter`."
   [phase f]
   (try
@@ -140,7 +137,7 @@
   whichever arm happened to own it.
 
   `grid-width` is how many `:cells` the frame is seeded with, and it is an
-  ARGUMENT rather than an ambient volatile (rf2-2rtt6.140): a width set
+  ARGUMENT rather than an ambient volatile: a width set
   after seeding would be a page whose sub graph and whose db disagree, and
   a parameter that is never ambient cannot be set in the wrong order. It
   defaults to `rf.bench.p0-fixture/cells-n`, so the clock rows and the retention rows —
@@ -164,7 +161,7 @@
 
 (defn write-all!
   "The bulk write, as a PUBLIC door, so a row that is not one of this
-  namespace's own arms can drive the identical write (rf2-2rtt6.76).
+  namespace's own arms can drive the identical write.
 
   It is [[dispatch-sync!]] of the same `:p0/write-all` event the bulk
   clock arms use and nothing else — the allocation row's warm re-render
@@ -176,20 +173,18 @@
   nil)
 
 (defn write-page!
-  "The BOUNDARY-PROPORTIONAL write, as a public door beside [[write-all!]]
-  (rf2-2rtt6.140).
+  "The BOUNDARY-PROPORTIONAL write, as a public door beside [[write-all!]].
 
   Same [[dispatch-sync!]], same event pipeline, same signal graph — the
-  allocation row's warm re-render still has to be the write a real
-  application pays for. What differs is that `:p0/write-page` rebuilds
+  allocation row's warm re-render has to be the write a real application
+  pays for. What differs is that `:p0/write-page` rebuilds
   `:cells` at the width the mounted page actually reads, where
   `:p0/write-all` rebuilds `rf.bench.p0-fixture/cells-n` of them whatever is mounted. That
-  fixed cost measured 24.4 KB per write on this rig — 57% of the retired
-  masking budget before a single boundary had been measured — and it does
-  not shrink when the page does.
+  fixed cost measures 24.4 KB per write on this rig before a single
+  boundary is measured, and it does not shrink when the page does.
 
-  The clock and bulk rows keep driving [[write-all!]]: their rows are
-  published and their write stays byte-identical."
+  The clock and bulk rows drive [[write-all!]]: their rows are published,
+  so their write is the byte-identical one they were published under."
   [v]
   (dispatch-sync! [:p0/write-page v])
   nil)
@@ -253,8 +248,8 @@
                     "per field")
     :elements   (rf.bench.p0-fixture/w3-elements rf.bench.p0-fixture/w3-fields)
     ;; 51 elements sits three to eight quanta above Chrome's 100 us clamp,
-    ;; and at one mount a sample this instrument MEASURED both segments
-    ;; returning exactly 0.75 ms — a ratio of precisely 1.0000 that was the
+    ;; and at one mount a sample this instrument MEASURES both segments
+    ;; returning exactly 0.75 ms — a ratio of precisely 1.0000 that is the
     ;; timer's resolution, not a tie. Eight mounts to a sample lifts every
     ;; arm clear of the clamp; the witness is unchanged.
     :per-sample 8
@@ -302,8 +297,8 @@
   React's DEFAULT lane, and an empty `flushSync` flushes only the SYNC
   lane — so a floor arm that rendered in `write!` and flushed in `force!`
   would have its commit land outside the measured window. The DOM
-  read-back caught exactly that on the predecessor's harness: 80 of 320
-  floor samples ending on a stale cell."
+  read-back catches exactly that (on the predecessor's harness, 80 of 320
+  floor samples ended on a stale cell)."
   []
   (let [state (atom (vec (repeat rf.bench.p0-fixture/cells-n 0)))
         root  (volatile! nil)]
@@ -425,13 +420,12 @@
   Chrome clamps `performance.now()` to 100 us, and BOTH rows have to clear
   it on their FASTEST arm, which is the floor.
 
-  A single broad write read 0.25-0.50 ms on the floor when this instrument
-  was first run — two to five quanta, close enough that the floor's own
-  two segment readings came out exactly 2x apart on quantisation alone.
-  Four writes to a sample lifts it to a couple of milliseconds. A NARROW
-  write is smaller again: measured one at a time on the predecessor's
-  harness both the floor and Reagent returned exactly 0.1 ms, the quantum
-  itself, which is a null result wearing a different hat.
+  A single broad write reads 0.25-0.50 ms on the floor — two to five
+  quanta, close enough that the floor's own two segment readings can come
+  out exactly 2x apart on quantisation alone. Four writes to a sample lifts
+  it to a couple of milliseconds. A NARROW write is smaller again: measured
+  one at a time, both the floor and Reagent return exactly 0.1 ms, the
+  quantum itself, which is a null result wearing a different hat.
 
   The per-write figure is always the sample divided by this number, and
   every write in a sample is verified at the DOM individually."
@@ -459,7 +453,7 @@
   The warm-up indices are measured and thrown away, and `:previous` is
   threaded through them, so the first RECORDED sample has a real
   predecessor. A warm-up run as a separate loop leaves a `<none>`
-  predecessor stratum that this instrument measured at 1.35x its siblings
+  predecessor stratum that this instrument measures at 1.35x its siblings
   with disjoint ranges — a real cold-start effect, and not one to hide.
 
   Answers a promise of `{:readings :legs :order :bad :total :position

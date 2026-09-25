@@ -1,17 +1,15 @@
 #!/usr/bin/env node
-// THE rf2-z3vlz DISCRIMINATOR DRIVER — build four bundles, drive six
+// THE z3vlz DISCRIMINATOR DRIVER — build four bundles, drive six
 // pages, and answer (a), (b) or (c).
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs
+//   node src/re_frame/bench/fresco/z3vlz_run.cjs   (from bench/fresco/)
 //
 //   Z3VLZ_ONLY=slim-only,mixed \
 //   Z3VLZ_PORT=8171 \
-//     node implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs
+//     node src/re_frame/bench/fresco/z3vlz_run.cjs
 //
-// Rides rf2-2rtt6.2's `:fresco-bench` build id through `--config-merge`,
-// exactly as `run.cjs` does and for the same reason: HD-017 makes a build-id
-// touch a hot-zone edit to `implementation/shadow-cljs.edn`, and four bundles
-// would otherwise be four of them. NOTHING here adds a build id.
+// Rides the lane's `:fresco-bench` build id through `--config-merge`,
+// exactly as `run.cjs` does, so four bundles add no build id.
 //
 // WHAT THE BUNDLE-COMPOSITION CHECK IS FOR. The whole experiment turns on
 // "reagent-slim ALONE, no stock reagent compiled in", so a claim that a
@@ -29,17 +27,16 @@
 //
 // ## EVERY FIGURE THIS DRIVER PRINTS, IT EXITS ON
 //
-// It did not. Until this repair the only exit-bearing checks were the
-// build, the bundle-composition check and a page error — so a run in
-// which a mount did not verify, in which a slim page stopped reading
-// `0/0/12`, in which the app-db witness went missing, or in which an
-// unmount threw between the two arms, printed a `?` or a different number
-// beside `[z3vlz] ok` and exited 0. A count that is DISPLAYED but not
-// GATED is decoration, and this rig exists because an ungated count in
-// HD-008 nearly published `reagent-slim narrow write is 2-6x faster than
-// a top-down re-render` off a page that never changed.
+// A driver whose only exit-bearing checks are the build, the
+// bundle-composition check and a page error lets a run in which a mount
+// did not verify, a slim page stopped reading `0/0/12`, the app-db
+// witness went missing, or an unmount threw between the two arms print a
+// `?` or a different number beside `[z3vlz] ok` and exit 0. A count that
+// is DISPLAYED but not GATED is decoration, and an ungated count in HD-008
+// would publish `reagent-slim narrow write is 2-6x faster than a top-down
+// re-render` off a page that never changed.
 //
-// So every page now carries a CONTRACT in data — `PAGE_CONTRACT` below —
+// So every page carries a CONTRACT in data — `PAGE_CONTRACT` below —
 // and the driver adjudicates the probe's own figures against it. The
 // contract is exactly the matrix this rig published
 // (`docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md`), and
@@ -81,13 +78,13 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 // This driver needs it MOST: it builds four different variants back to back in
-// a single run, so it was poisoning its own later rungs with its earlier ones
-// without any second driver being involved.
+// a single run, so without it it would poison its own later rungs with its
+// earlier ones without any second driver being involved.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -129,7 +126,7 @@ const STOCK_SYNC = {
 // convenience: the raw positive control — a plain substrate component
 // reading a plain substrate atom, no frame, no `subscribe`, no
 // `:adapter/*` hook — moves in lockstep with the `reg-view` arm in every
-// bundle. That is what killed the late-binding hypothesis, so it is what
+// bundle. That is what rules out the late-binding hypothesis, so it is what
 // the contract asserts.
 const ORDERS = ['inside-drain', 'drain-immediately', 'yield-then-drain'];
 
@@ -203,7 +200,7 @@ function build(variant) {
   // because each of the four is a different program. `lane_cache.cjs` carries
   // the measurement and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[z3vlz] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N variants (rf2-2rtt6.20)`);
+    console.error(`[z3vlz] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N variants`);
   }
   console.error(`[z3vlz] building :advanced — ${variant.name} -> ${variant.outDir}`);
   // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
@@ -212,7 +209,7 @@ function build(variant) {
   // `Z3VLZ_OPT=none` builds the SAME entries unoptimised. It is a
   // rig-debugging aid ONLY and never a source of a finding: `goog.DEBUG` is
   // true there, which puts the whole Spec 009 instrumentation seam back on
-  // the subscription path this probe walks. Every conclusion in the bead is
+  // the subscription path this probe walks. Every conclusion is
   // taken from the default `:advanced` build, which is the artefact a
   // consumer ships and the one HD-008 measured.
   // `release` is what carries `:advanced`; the unoptimised aid is the
@@ -406,12 +403,12 @@ const rungs = (h) =>
 
 // `wantDb` is `true` for the arm that has an app-db behind it and `null`
 // for the raw control, which legitimately has none. Requiring `null`
-// rather than ignoring it is deliberate: `:db-followed-all?` used to be
-// gated on `(some :db-followed? rs)`, so it VANISHED on the all-false
-// case — the arm looked exactly like the control precisely when every
-// write had failed the app-db witness. The driver now refuses an absent
-// slot on the arm and an unexpectedly present one on the control, so the
-// trap cannot come back silently.
+// rather than ignoring it is deliberate: a `:db-followed-all?` gated on
+// `(some :db-followed? rs)` VANISHES on the all-false case — the arm looks
+// exactly like the control precisely when every write has failed the
+// app-db witness. The driver refuses an absent slot on the arm and an
+// unexpectedly present one on the control, so that trap cannot arrive
+// silently.
 function checkArm(label, armName, got, contract, wantDb, failures) {
   const at = `${label} / ${armName}`;
   if (!got) {
@@ -466,8 +463,8 @@ function checkArm(label, armName, got, contract, wantDb, failures) {
       failures.push(
         `${at} / ${order}: app-db witness is ${g.dbFollowedAll} — ` +
           (g.dbFollowedAll === null
-            ? 'the slot is ABSENT, which is what the `(some :db-followed? rs)` trap did ' +
-              'on the all-false case and is never a pass'
+            ? 'the slot is ABSENT, which is what `(some :db-followed? rs)` produces ' +
+              'on the all-false case, and is never a pass'
             : 'app-db did not take the new value on every write, so a failed read-back ' +
               'can no longer be attributed to the view leg')
       );
@@ -480,7 +477,7 @@ function checkPage(label, contract, gates, failures) {
     failures.push(
       `${label}: the page published no window.Z3VLZ_GATES — its declared contract ` +
         `could not be checked, and an unchecked contract is exactly the fail-open ` +
-        `this driver was repaired for`
+        `this driver refuses`
     );
     return;
   }
@@ -541,7 +538,7 @@ function checkPage(label, contract, gates, failures) {
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; ==== Z3VLZ SUMMARY ====`);
   // The three ORDER rows side by side. `inside-drain` is the substrate's own
-  // documented contract and is therefore the row that answers the bead's
+  // documented contract and is therefore the row that answers the
   // question about the ADAPTER; `yield-then-drain` is `lane/verified-write!`'s
   // shape and is the row that answers the question about the HARNESS.
   const order = (v, k) =>

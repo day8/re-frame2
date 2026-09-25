@@ -1,30 +1,28 @@
 (ns re-frame.bench.fresco.hd8-clock-app
-  "HD-008's donor arms behind the CLOCK-OF-RECORD door (rf2-2rtt6.31).
+  "HD-008's donor arms behind the CLOCK-OF-RECORD door.
 
   The published HD-008 rows were taken on the in-page `performance.now()`
-  window, which the mount-gate amendment (recorded on `rf2-2rtt6.1`,
-  2026-08-02) demotes to a DIAGNOSTIC: the bar's adjudicating clock is raw
-  `TaskDuration` — the arm's script AND the frame it caused — sampled
-  through the instrument's frame-settlement door. No instrument in the
-  repository takes the HD-008 arms through that door, and the re-take this
-  bead orders adjudicates against `<= 1.10x` direct UIx ON that clock, so
-  this entry exists.
+  window, which the mount-gate amendment demotes to a DIAGNOSTIC: the
+  bar's adjudicating clock is raw `TaskDuration` — the arm's script AND
+  the frame it caused — sampled through the instrument's frame-settlement
+  door. This entry is the instrument that takes the HD-008 arms through
+  that door, so the re-take can adjudicate against `<= 1.10x` direct UIx
+  ON that clock.
 
   ## What this page is, and what it is not
 
   It is [[re-frame.bench.fresco.clock-app]]'s M1 contract — plan / canon /
   sample / reap / settle, a plumb tare, a `ctl-2x` doubling control — over
-  [[re-frame.bench.fresco.hd8-rows]]'s OWN mount arms, unchanged: the same
+  [[re-frame.bench.fresco.hd8-rows]]'s OWN mount arms, as they are: the same
   mount doors, the same per-arm frames, the same witnesses (`M`, 300
   boundary rows, `3 + 3N` elements; `U`, a 300-cell grid, `1 + N`), the
   same `rf.bench.fresco.lane/mount-arm!` window for the in-page diagnostic reading. It
-  measures MOUNT ONLY. The write rows are not here: `rf2-d2tzk` records
-  that the bulk row's floor sits on the clock clamp on the in-page
-  instrument, and on this box the bulk-class rows cannot hold a
-  difference-statistic control at the ~3.5% noise floor a magnitude needs
-  (`rf2-7iqb5`, `the-candidates-clock.md` §6) — so a bulk magnitude from
-  this instrument would be refused, and an instrument built to be refused
-  is an instrument nobody had asked for.
+  measures MOUNT ONLY. The write rows are not here: the bulk row's floor
+  sits on the clock clamp on the in-page instrument, and on this box the
+  bulk-class rows cannot hold a difference-statistic control at the ~3.5%
+  noise floor a magnitude needs (`the-candidates-clock.md` §6) — so a bulk
+  magnitude from this instrument would be refused, and an instrument built
+  to be refused is an instrument nobody needs.
 
   ## This page exposes OPERATIONS and no clock
 
@@ -35,7 +33,7 @@
   standard after-paint idiom). Raw `TaskDuration` is a protocol value, so
   it does not carry the Spectre clamp, and — unlike `taskNet`, whose
   subtraction removes the operation's own script when the operation runs
-  inside a protocol command (rf2-yd52q, rf2-emvod) — it is one quantity
+  inside a protocol command — it is one quantity
   through every door. Every arm here goes through ONE door:
   `page.evaluate -> HD8CLOCK.sample`, the plumb tare included, so the
   door's own cost is common-mode and subtracted.
@@ -45,14 +43,12 @@
   Spec 006 installs exactly one adapter per process, and a mount is a
   one-shot read, so the mount plans carry the frontier and donor arms in
   every run and each run adds the Reagent path native to its adapter —
-  [[re-frame.bench.fresco.hd8-rows]]'s `arm-ids-for`, which this plan now
-  MATCHES exactly. It used to subtract `:donor-fh` from it, because that
-  arm was `rf2-2rtt6.29`'s page's subject rather than this re-take's;
-  `rf2-m4rpa` has since retired `:donor-fh` from `hd8-rows` itself, so the
-  subtraction is gone and the two instruments carry the same six arms on
-  the same 4/5/5 per-run plans.
+  [[re-frame.bench.fresco.hd8-rows]]'s `arm-ids-for`, which this plan
+  MATCHES exactly: the two instruments carry the same six arms on the
+  same 4/5/5 per-run plans.
 
-  Owner: rf2-2rtt6.1 (standard); this entry rf2-2rtt6.31."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
@@ -63,7 +59,7 @@
             [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
-;; Which adapter this run installs — hd8-app's own parsing, unchanged
+;; Which adapter this run installs — hd8-app's own parsing
 ;; ---------------------------------------------------------------------------
 
 (defn- query-adapter []
@@ -89,12 +85,10 @@
 (def ^:private arm-ids-for
   "hd8-rows' mount partition over the SIX PUBLISHED ARMS — 4/5/5 by run.
 
-  This was a deliberate subtraction of `:donor-fh` from `hd8-rows`'
-  plan, so that a seventh arm could not change `k` for a comparison
-  rf2-2rtt6.31 does not make. `rf2-m4rpa` retired `:donor-fh` at source,
-  so the map below is no longer a subtraction — it is the same partition
-  `hd8-rows` now carries, held here because the two instruments are
-  separately readable and neither should silently inherit the other's."
+  The same partition `hd8-rows` carries, held here because the two
+  instruments are separately readable and neither should silently
+  inherit the other's: an arm added there must not change `k` here for
+  a comparison this page does not make."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
    :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
    :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
@@ -121,9 +115,9 @@
 
 (defn- ctl2x-arm
   "The floor at TWICE the witness's boundaries — `clock_run.cjs`'s mount
-  control, on hd8's own floor markup. Prediction 2.00x; `rf2-jcm3p`
-  records that it UNDERSHOOTS on mount rows (1.8173x over rf2-emvod's
-  seven runs) because an additive per-sample constant survives the tare,
+  control, on hd8's own floor markup. Prediction 2.00x; it UNDERSHOOTS
+  on mount rows (1.8173x over seven runs) because an additive per-sample
+  constant survives the tare,
   and no changed-set control can reach a mount — a mount has no standing
   page. What it certifies is that the instrument has page-proportional
   SIGNAL; what it cannot certify is exactness, and the driver states both."
@@ -236,7 +230,7 @@
             s   (rf.bench.fresco.lane/canonical (:container mnt))]
         (rf.bench.fresco.lane/release! mnt)
         ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`: the driver prints this under a
-        ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
+        ;; `bytes` label, and `count` answers UTF-16 code units.
         #js {:arm     (name arm-id)
              :hash    (str-hash s)
              :bytes   (rf.bench.fresco.lane/utf8-bytes s)

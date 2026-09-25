@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.front.witnesses
-  "THE WITNESS SET, as data (rf2-2rtt6.8).
+  "THE WITNESS SET, as data.
 
   validation.md §P1 pins one measurement discipline above all others:
   *same React version, build settings, tree, frame, queries, writes, and
@@ -59,7 +59,7 @@
   count growing across the ladder. Isolates the per-read cost.
 
   The heap ladder is measured with **distinct queries per boundary**
-  (Q = E), which rf2-2rtt6.16 established as the mandatory worst case:
+  (Q = E), the mandatory worst case:
   a candidate must not be able to pass the shell budget by amortising one
   subscription set across four roots."
   (mapv (fn [r] {:boundaries 100 :reads r :distinct-queries? true}) reads-per-boundary))

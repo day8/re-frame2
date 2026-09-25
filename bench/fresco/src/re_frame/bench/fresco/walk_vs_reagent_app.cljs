@@ -1,11 +1,11 @@
 (ns re-frame.bench.fresco.walk-vs-reagent-app
-  "OUR WALK, PUT BESIDE REAGENT'S OWN (rf2-2rtt6.63).
+  "OUR WALK, PUT BESIDE REAGENT'S OWN.
 
   The mount deficit's attribution chain ends at the runtime hiccup
   interpreter, and stock Reagent is the existence proof that a runtime
-  interpreter need not be dear. `rf2-y1jkm` profiled OUR walk against a
-  frozen copy of OUR OWN older walk; it never put the two interpreters
-  side by side. This entry does, on ONE witness value, in ONE process:
+  interpreter need not be dear. `walk_profile_app` profiles OUR walk
+  against an in-namespace copy of an older walk of ours; it does not put
+  the two interpreters side by side. This entry does, on ONE witness value, in ONE process:
 
   | arm | walks | input |
   |---|---|---|
@@ -21,14 +21,14 @@
   canonical-DOM parity gate against the real `rf.bench.fresco.shapes.large-template/page`, so there is one
   twin in the lane and not two. It is **realized once, outside every
   timed window** (`rf.bench.fresco.front.codec/realize-deep`), which is what makes these rows
-  immune to the route-link render term `rf2-cno31` is fixing: every
+  immune to the route-link render term: every
   `route-link` href on the page is synthesised during realisation and is
   a plain string by the time any arm walks it. No timed window here
   contains a `route-url` call.
 
   **THE PLAIN WITNESS.** Fresco's markup carries intent VECTORS at its
   71 event positions; Reagent has no such surface and would `clj->js`
-  them. An arm doing different work is not an arm (`rf2-2rtt6.62`), so
+  them. An arm doing different work is not an arm, so
   the compared value is the realized page with every event position
   replaced by one shared plain function — legal, and identical work, for
   all three interpreters. `fresco-native` then prices what Fresco's own
@@ -61,11 +61,11 @@
      (`rf.bench.fresco.front.controlled/install!` against `input/input-component?`), and child
      dispatch. **Absolute ns/element**, because two-thirds of a mount
      window is shared frame work and a ratio cannot be read against it.
-  3. CANDIDATES — costed BEFORE anything is landed. Each is a shape the
+  3. CANDIDATES — costed BEFORE anything ships. Each is a shape the
      stage table convicts, written here beside the shipping shape and
      timed against it in the same process on the same roster.
 
-  Owner bead: rf2-2rtt6.63. Driver: `run.cjs` with
+  Driver: `run.cjs` with
   FRESCO_INIT_FN=re-frame.bench.fresco.walk-vs-reagent-app/-main."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -220,8 +220,8 @@
   need it. Fresco's intent lowering refuses to run with no ambient
   dispatch (`front.intent/require-dispatch`), so the native arm has no
   choice; running the donors inside the same door keeps the four arms on
-  ONE call convention, which is the confound `rf2-2rtt6.32` recorded and
-  the only reason that measurement's error was caught. The clock starts
+  ONE call convention, because arms on different conventions compare the
+  conventions as much as the walks. The clock starts
   INSIDE the door, so the door itself is never in the window."
   [witness walk-one]
   (rf.bench.fresco.walk-profile-app/in-body
@@ -324,7 +324,7 @@
      [:roster-strings  (.-length strings)]]))
 
 ;; ---------------------------------------------------------------------------
-;; Candidates — costed here, landed only if this table convicts
+;; Candidates — costed here, shipped only if this table convicts
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The shipping cache lookup is a three-step, and every step of it is on
@@ -473,7 +473,7 @@
    ;; the whole child population, in the proportions the page has it
    [:dispatch-all-ship        (ns-per-op micro-reps children dispatch-ship)]
    [:dispatch-all-stringfirst (ns-per-op micro-reps children dispatch-string-first)]
-   ;; and the string half alone, which is where the stage table put the gap
+   ;; and the string half alone, which is where the stage table puts the gap
    [:dispatch-str-ship        (ns-per-op micro-reps strings dispatch-ship)]
    [:dispatch-str-stringfirst (ns-per-op micro-reps strings dispatch-string-first)]])
 
@@ -524,7 +524,7 @@
     @bad))
 
 ;; ---------------------------------------------------------------------------
-;; THE INTENT SURFACE, DECOMPOSED (rf2-vw412)
+;; THE INTENT SURFACE, DECOMPOSED
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The `fresco-native` − `fresco` gap is the only figure on this page
@@ -541,8 +541,8 @@
 ;;
 ;; [[plainify]] replaces both with the shared [[noop]], so BOTH are inside
 ;; the gap, and the second population is three times the size of the
-;; first. §1's statement that the route-link term is "structurally absent
-;; from this instrument" is true of the `route-url` SYNTHESIS — that
+;; first. The namespace docstring's statement that these rows are immune
+;; to the route-link render term is true of the `route-url` SYNTHESIS — that
 ;; happens once, at `realize-deep`, outside every window — and is not true
 ;; of the navigate vector's LOWERING, which `rf.bench.fresco.front.codec/as-element` performs
 ;; inside every timed window of the native arm and never on the plain one.
@@ -596,22 +596,21 @@
   #{:frame :payload :native? :veto})
 
 (defn- navmap-keyset-shipping
-  "The PRE-`rf2-jr0tg` check, and the name is historical the way the
-  `-ship` rows below are: build the map's key SET and compare it to the
-  roster, one `PersistentHashSet` per link per render. It WAS shipping
-  when this row was written; the twin beside it is what ships now. Kept
-  as the losing half of a costed pair, which is this lane's practice."
+  "The key-SET check, and not the shipping one — the name marks the side
+  a delta is measured FROM, as on the `-ship` rows below: build the map's
+  key SET and compare it to the roster, one `PersistentHashSet` per link
+  per render. The twin beside it is what ships. Kept as the losing half
+  of a costed pair, which is this lane's practice."
   [m]
   (= navigate-key-set (when (map? m) (set (keys m)))))
 
 (defn- navmap-keyset-scan
   "The same CLOSED grammar with nothing allocated, and what
-  `front.intent/unwrap-navigate` now asks — `rf2-jr0tg` landed it. The
-  count is what closes it — four presence tests alone are fail-open on a
-  fifth key, which is the defect `rf2-2rtt6.54` was fixing; four presence
-  tests AND a count of four admit exactly the same maps the set equality
-  admits. This LOCAL copy stays, because a copy the change cannot reach
-  is the positive control the arm rows are read against."
+  `front.intent/unwrap-navigate` asks. The count is what closes it — four
+  presence tests alone are fail-open on a fifth key; four presence tests
+  AND a count of four admit exactly the same maps the set equality
+  admits. The copy is LOCAL, because a copy that a change to the shipping
+  fn cannot reach is the positive control the arm rows are read against."
   [m]
   (and (map? m)
        (== 4 (count m))
@@ -621,9 +620,10 @@
        (contains? m :veto)))
 
 (def ^:private hostile-nav-maps
-  "The shapes `rf2-2rtt6.54` closed the grammar against, plus the ones it
-  already refused — the candidate must answer the shipping shape on every
-  one of them before either figure is read."
+  "The shapes a closed grammar must refuse — a fifth key, each missing
+  key, four wrong keys, the non-maps — beside the one map it admits; the
+  candidate must answer the shipping shape on every one of them before
+  either figure is read."
   [{:frame :f :payload [:e] :native? false :veto nil}
    {:frame :f :payload [:e] :native? false}                       ; missing :veto
    {:frame :f :payload [:e] :native? false :veto nil :extra 1}    ; a fifth key
@@ -681,21 +681,21 @@
      [:navmap-keyset-scan     (ns-per-op micro-reps nav-maps navmap-keyset-scan)]]))
 
 ;; ---------------------------------------------------------------------------
-;; SLIM, DECOMPOSED (rf2-lhdp0)
+;; SLIM, DECOMPOSED
 ;; ---------------------------------------------------------------------------
 ;;
-;; The arm rows put `reagent2.impl.template` at 1.73-1.90x stock Reagent, and
-;; the stage table names ONE term (`cached-prop-name`, ~2x stock). That term
-;; weighs 1,489 prop occurrences over 1,202 elements — nowhere near the whole
-;; gap, and rf2-lhdp0 says so in as many words. These rows named the rest, and
-;; the cuts they convicted took the arm to 1.19-1.24x.
+;; On its `-ship` shapes the arm rows put `reagent2.impl.template` at
+;; 1.73-1.90x stock Reagent, and the stage table names ONE term
+;; (`cached-prop-name`, ~2x stock). That term weighs 1,489 prop occurrences
+;; over 1,202 elements — nowhere near the whole gap. These rows name the rest,
+;; and on the cuts they convict the arm reads 1.19-1.24x.
 ;;
-;; A `-ship` ROW IS THE PRE-rf2-lhdp0 SHAPE, not today's. It was shipping when
-;; these rows were written; the cheapened twin beside it is what shipped
-;; instead. They are kept as a PAIR because a delta measured in one process on
+;; A `-ship` ROW IS THE COSTLIER SHAPE, not the shipping one — the name marks
+;; the side a delta is measured FROM, and the cheapened twin beside it is what
+;; ships. They are kept as a PAIR because a delta measured in one process on
 ;; one roster is the only way these terms compare — see the run-to-run spread
-;; on the arms — and because a future reader deserves the alternatives that
-;; were costed, not just the winner.
+;; on the arms — and because a reader deserves the alternatives that were
+;; costed, not just the winner.
 ;;
 ;; Slim's per-element shapes are `defn-` private, so they are replicated here
 ;; the way the cache candidates above already are ("written here so every arm
@@ -703,7 +703,8 @@
 ;; real: `slim/parse-tag`, `slim/class-names`, `slim/cached-prop-name`,
 ;; `slim/convert-prop-value` and `slim/void-tags` are all public. That last
 ;; point is also why a `-ship` row does not freeze: its miss path calls the
-;; REAL `slim/cached-prop-name`, which moved.
+;; REAL `slim/cached-prop-name`, so it tracks that function rather than a
+;; copy of it.
 ;;
 ;; WHAT A ROW HERE IS, AND IS NOT. A replica is held honest by AGREEMENT —
 ;; every cheapened variant answers what its `-ship` twin answers, over the
@@ -715,18 +716,19 @@
 ;; algorithm, but the REAL `slim/cached-prop-name` — read 66.8. Same shape,
 ;; different call site, 29% apart.
 ;;
-;; So the authority for "did the landed change move the shipping function?"
-;; is the STAGE table's own real-function rows (`prop-name-slim`,
-;; `convert-props-*`) and the ARM rows, compared across a before run and an
-;; after run. These rows are the map that says WHERE to cut; those rows are
+;; So the authority for "does a change move the shipping function?" is the
+;; STAGE table's own real-function rows (`prop-name-slim`,
+;; `convert-props-*`) and the ARM rows, compared across a run before the
+;; change and one after it. These rows are the map that says WHERE to cut; those rows are
 ;; the verdict on the cut.
 
 (def ^:private slim-reserved #{"__proto__" "prototype" "constructor"})
 
-;; Was: a PersistentHashSet `contains?` — a string hash plus a hash-map probe
-;; for a roster of three. The `identical?` chain won and shipped (prior art:
-;; front/codec.cljs `reserved-name?`); the null-prototype index below lost to
-;; it on the clock AND carries a second roster, so it was declined.
+;; Three shapes for a roster of three: the `-set` form, a PersistentHashSet
+;; `contains?` — a string hash plus a hash-map probe; the `identical?` chain,
+;; which wins and ships (as front/codec.cljs `reserved-name?` does); and the
+;; null-prototype index below, which loses to the chain on the clock AND
+;; carries a second roster.
 (defn- ^boolean slim-reserved-set? [n] (contains? slim-reserved n))
 (defn- ^boolean slim-reserved-chain? [n]
   (or (identical? "__proto__" n)
@@ -747,11 +749,11 @@
 (defn- ^boolean slim-reserved-idx? [n]
   (true? (unchecked-get slim-reserved-index n)))
 
-;; The pre-rf2-lhdp0 `own-key?`, replicated FAITHFULLY — including that it
-;; re-resolved `Object.prototype.hasOwnProperty` on every call (two property
+;; The `-ship` shape's `own-key?`, replicated FAITHFULLY — including that it
+;; re-resolves `Object.prototype.hasOwnProperty` on every call (two property
 ;; loads) rather than hoisting it the way the codec's `has-own` does. The
 ;; resolution is part of what the `-ship` cache rows are pricing, so hoisting
-;; it here would have flattered the shape this bead cut.
+;; it here would flatter the costlier shape.
 (defn- ^boolean slim-own-key? [obj k]
   (.call (.. js/Object -prototype -hasOwnProperty) obj k))
 
@@ -893,11 +895,11 @@
 ;; once per element instead and the reduce takes a static fn, so the mount
 ;; allocates nothing to carry a boolean it already knows.
 ;;
-;; COSTED AND DECLINED (rf2-lhdp0), and it took TWO runs to say so honestly.
-;; On the first, `slim-convert-props-cheap` and `slim-convert-props-static`
-;; read 151.8303 ns/op EACH — the same figure to four places, because both
-;; windows landed in the same 100 µs `performance.now` bucket. Read alone
-;; that looks like a tight zero. On the second the static form read 326.1
+;; COSTED AND DECLINED, and ONE run cannot say so honestly. On one run,
+;; `slim-convert-props-cheap` and `slim-convert-props-static` read
+;; 151.8303 ns/op EACH — the same figure to four places, because both
+;; windows fall in the same 100 µs `performance.now` bucket. Read alone
+;; that looks like a tight zero. On another the static form read 326.1
 ;; against the closure's 287.4, i.e. 13% SLOWER. So the term is not merely
 ;; small, it does not reliably have a SIGN: V8 does not charge for the
 ;; closure, and the run-to-run spread on this row is wider than anything the
@@ -917,12 +919,12 @@
 ;;
 ;; The `-ship` form asks `vector?` twice, reads `meta`, then `nth 0`, a `case`,
 ;; `nth 1` and a `map?` before the `:key` lookup it wanted — all of it to find
-;; a props slot the caller is holding. The `-spec` form is the read alone. It
-;; won and shipped for the constructors that HAVE the slot (`native-element`,
+;; a props slot the caller is holding. The `-spec` form is the read alone, and
+;; it is what ships for the constructors that HAVE the slot (`native-element`,
 ;; which is every DOM element and every `:>`, and `fragment-element`); the
-;; `-ship` form survives as `get-react-key`, which is what the callers holding
-;; only a bare vector still need — `expand-seq`'s missing-key DEBUG warning
-;; and the cold component heads.
+;; `-ship` form is `get-react-key`, which is what the callers holding only a
+;; bare vector need — `expand-seq`'s missing-key DEBUG warning and the cold
+;; component heads.
 
 (defn- slim-key-ship [v]
   (let [k (when (vector? v) (some-> (meta v) :key))]
@@ -949,15 +951,15 @@
 (defn- ^boolean slim-void-idx? [t]
   (true? (unchecked-get slim-void-index t)))
 
-;; --- the per-element hiccup-shape read (rf2-e7zxb) --------------------------
+;; --- the per-element hiccup-shape read --------------------------------------
 ;;
-;; The pre-rf2-e7zxb `hiccup-shape` answered three questions at once — the slot
-;; value, whether it is a props map, and where children begin — and handed them
-;; back in a freshly minted 3-element PersistentVector that every one of its
-;; four call sites destructured and discarded. The destructure is three `nth`
-;; calls ON TOP of the allocation, and the two derived answers are one
-;; expression each. The `-inline` arm won and shipped; `props-slot?` is what
-;; kept a name, because the RULE is the thing four sites could drift on.
+;; The `-ship` `hiccup-shape` answers three questions at once — the slot
+;; value, whether it is a props map, and where children begin — and hands them
+;; back in a freshly minted 3-element PersistentVector that each of its four
+;; call sites destructures and discards. The destructure is three `nth` calls
+;; ON TOP of the allocation, and the two derived answers are one expression
+;; each. The `-inline` arm wins and ships; `props-slot?` is the one part with
+;; a name, because the RULE is the thing four sites could drift on.
 ;;
 ;; Both arms fold the three values into ONE number, so the row prices the SHAPE
 ;; DERIVATION and not a tail that differs between them.
@@ -976,17 +978,17 @@
         first-child (+ first-pos (if has-props 1 0))]
     (+ first-child (if has-props 100 0) (if (nil? head) 10000 0))))
 
-;; --- the per-element head dispatch (rf2-e7zxb) ------------------------------
+;; --- the per-element head dispatch -----------------------------------------
 ;;
-;; The pre-rf2-e7zxb `vec-to-elem` asked four `(= tag :>)`-shaped questions
-;; before it reached the `hiccup-tag?` branch that EVERY DOM element takes, and
+;; The `-ship` `vec-to-elem` asks four `(= tag :>)`-shaped questions before it
+;; reaches the `hiccup-tag?` branch that EVERY DOM element takes, and
 ;; `cljs.core/=` falls through `identical?` to an `-equiv` protocol dispatch on
-;; a miss — so the common head paid four of them. `keyword-identical?` answers
+;; a miss — so the common head pays four of them. `keyword-identical?` answers
 ;; the same question with an `instance?` pair and an interned-string compare;
 ;; `case` over all-keyword tests lowers to ONE `(if (keyword? x) (.-fqn x) nil)`
 ;; and a JS `switch`, which is both the cheapest of the three on every run and
 ;; the one that says "these four heads are constants" structurally. `case`
-;; shipped. The three arms end identically so the row prices the DISPATCH, and
+;; ships. The three arms end identically so the row prices the DISPATCH, and
 ;; the roster is `tags` — the page's own DOM heads, i.e. exactly the population
 ;; that misses all four.
 
@@ -1059,7 +1061,7 @@
      [:slim-preamble-ship  (ns-per-op2 micro-reps el-props parsed slim-preamble-ship)]
      [:slim-preamble-cheap (ns-per-op2 micro-reps el-props parsed slim-preamble-cheap)]
      ;; the WHOLE per-element prop pipeline — the row the fresco/reagent
-     ;; table has and slim did not
+     ;; stage table carries and slim's does not
      [:slim-convert-props-ship
       (ns-per-op2 micro-reps el-props parsed
                   (fn [p t] (slim-convert-props slim-preamble-ship slim-reserved-set? p t)))]
@@ -1077,10 +1079,10 @@
      [:slim-void-set  (ns-per-op micro-reps tag-strs slim-void-set?)]
      [:slim-void-case (ns-per-op micro-reps tag-strs slim-void-case?)]
      [:slim-void-idx  (ns-per-op micro-reps tag-strs slim-void-idx?)]
-     ;; the per-element hiccup-shape read (rf2-e7zxb)
+     ;; the per-element hiccup-shape read
      [:slim-shape-ship   (ns-per-op micro-reps el-vecs (fn [v] (slim-shape-ship v 1)))]
      [:slim-shape-inline (ns-per-op micro-reps el-vecs (fn [v] (slim-shape-inline v 1)))]
-     ;; the per-element head dispatch (rf2-e7zxb)
+     ;; the per-element head dispatch
      [:slim-head-ship (ns-per-op micro-reps tags slim-head-ship)]
      [:slim-head-kwid (ns-per-op micro-reps tags slim-head-kwid)]
      [:slim-head-case (ns-per-op micro-reps tags slim-head-case)]]))
@@ -1224,7 +1226,7 @@
                                        ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`:
                                        ;; printed below as "canonical bytes",
                                        ;; and `count` answers UTF-16 code
-                                       ;; units (rf2-2rtt6.121).
+                                       ;; units.
                                        [id {:elements n
                                             :bytes    (rf.bench.fresco.lane/utf8-bytes canon)
                                             :same?    (= canon ref-canon)
@@ -1244,7 +1246,7 @@
                   slims    (slim-table roster)
                   ;; The intent roster is the NATIVE witness's, and every
                   ;; row of its table lowers — so the whole table runs
-                  ;; inside the body door (rf2-vw412).
+                  ;; inside the body door.
                   iroster  (collect-intent-roster native)
                   intent-bad (intent-agreement iroster)
                   intents  (rf.bench.fresco.walk-profile-app/in-body (fn [] (intent-table iroster)))
@@ -1304,12 +1306,12 @@
               (doseq [[k v] cands]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
 
-              (js/console.log ";; ==== SLIM DECOMPOSED (rf2-lhdp0) ====")
+              (js/console.log ";; ==== SLIM DECOMPOSED ====")
               (js/console.log (str ";;   agreement failures: " (pr-str slim-bad)))
               (doseq [[k v] slims]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns/op")))
 
-              (js/console.log ";; ==== INTENT SURFACE DECOMPOSED (rf2-vw412) ====")
+              (js/console.log ";; ==== INTENT SURFACE DECOMPOSED ====")
               (js/console.log (str ";;   agreement failures: " (pr-str intent-bad)))
               (doseq [[k v] intents]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1)

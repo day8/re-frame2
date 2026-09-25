@@ -1,40 +1,38 @@
 #!/usr/bin/env node
 'use strict';
 // THE NARROW-WRITE DRIVER'S EXIT PATH — a printed refusal must refuse.
-// rf2-rr6do, following rf2-tb345's repair of the same defect in b8_run.cjs.
 //
-//     node adapters/reagent/test/re_frame/bench/fresco_narrow_exit_path.test.cjs
+//     node src/re_frame/bench/fresco_narrow_exit_path.test.cjs   (from bench/fresco/)
 //
-// THE DEFECT THIS PINS. Two of this driver's own listed gates were computed,
-// printed and written into `report.json`, and the verdict block read neither.
+// WHAT THIS PINS. Two of this driver's own listed gates are computed, printed
+// and written into `report.json`, and a verdict block that read neither would
+// exit 0 on a run it had just refused in print.
 //
-//   * THE WARM-UP. `settled[arm]` was computed inside the `WARMUP_MAX` loop
+//   * THE WARM-UP. `settled[arm]` is computed inside the `WARMUP_MAX` loop
 //     and printed twice — per arm as `still trending at the N-window
 //     ceiling`, and again in the header's `warm-up` line with a `*` — then
-//     stored as `warmupSettled`. The verdict tested positionsLost,
-//     report.refuse, leaked, badTotal and identityOk, and never it. So every
-//     arm could hit the ceiling still trending and the run would print
-//     `VERDICT: reportable.` and exit 0, on figures taken off a site that
-//     was still moving. This is the b8 defect exactly (rf2-tb345).
+//     stored as `warmupSettled`. A verdict that tested positionsLost,
+//     report.refuse, leaked, badTotal and identityOk but not it would let
+//     every arm hit the ceiling still trending, print `VERDICT: reportable.`
+//     and exit 0, on figures taken off a site that was still moving.
 //
-//   * THE CLAMP. `clamped` was computed against the measured
+//   * THE CLAMP. `clamped` is computed against the measured
 //     `performance.now()` quantum and printed as `CLAMP-LIMITED, not
 //     quotable as absolute` — beside a table whose entire purpose is to
-//     quote absolutes — and then never read.
+//     quote absolutes — so a verdict that never read it would quote them.
 //
-// It is the FOURTH and FIFTH fail-open found in this one file: the audit of
-// PR #7262 already caught three (a stale write, a broken leg identity, a
-// padded verification denominator), each in the same shape. That history is
-// why the decision now lives in ONE pure function with nothing downstream of
-// it: a condition can only be read in one place, so a sixth cannot grow in
-// the gap between the report and the exit.
+// The driver's other gates share that shape (a stale write, a broken leg
+// identity, a padded verification denominator), which is why the
+// decision lives in ONE pure function with nothing downstream of it: a
+// condition can only be read in one place, so no fail-open can grow in the
+// gap between the report and the exit.
 //
 // WHY IT IS PINNED HERE. The driver needs an `:advanced` release build and a
 // headless Chromium, so its verdict cannot be exercised end-to-end in a unit
 // test. `verdict` is pure and exported; this file drives it directly, and
 // then pins the wiring.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Run by `npm run check` in bench/fresco/.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -109,17 +107,17 @@ test('the clamp refusal names the legs and the repair, and refuses to loosen its
   assert.match(text, /rf2-rr6do/);
 });
 
-// --- the pre-existing contract, unchanged in code AND in wording -----------
+// --- the other refusals: their exit codes and their wording ----------------
 
 test('a lost position still exits 1, in its own words', () => {
   const v = verdict(clean({ positionsLost: true }));
-  assert.strictEqual(v.code, 1, 'a run that exited 1 before must still exit 1');
+  assert.strictEqual(v.code, 1, 'a lost position must exit 1');
   assert.match(joined(v), /VERDICT: FAILED — some samples reached the guard with no finite position/);
 });
 
 test('the arm-order guard still exits 2, in its own words', () => {
   const v = verdict(clean({ orderRefuse: true }));
-  assert.strictEqual(v.code, 2, 'a run that exited 2 before must still exit 2');
+  assert.strictEqual(v.code, 2, 'an arm-order refusal must exit 2');
   assert.match(joined(v), /VERDICT: REFUSED by the arm-order guard/);
   assert.match(joined(v), /Not the tolerance\./);
 });
@@ -143,7 +141,7 @@ test('a broken leg identity still exits 1, in its own words', () => {
   assert.match(joined(v), /write \+ gap \+ force does not equal the published total/);
 });
 
-// --- combinations: nothing masks anything, precedence is preserved ---------
+// --- combinations: nothing masks anything, precedence holds ----------------
 
 test('the two NEW refusals together: both named, warm-up takes the code', () => {
   const v = verdict(clean({ warmupUnsettled: ['reagent-ratom'], clamped: ['re-frame2/write (2.0x quantum per sample)'] }));
@@ -164,7 +162,7 @@ test('an unsettled warm-up NEVER downgrades an existing refusal', () => {
     const after = verdict(clean({ ...over, warmupUnsettled: ['reagent-ratom'], clamped: ['a/b (1x quantum per sample)'] }));
     assert.strictEqual(before, code);
     assert.strictEqual(after.code, code, `${JSON.stringify(over)} must keep exit ${code}`);
-    assert.match(joined(after), /warm-up never settled/, 'and the new refusal is still NAMED');
+    assert.match(joined(after), /warm-up never settled/, 'and the warm-up refusal is NAMED too');
     assert.match(joined(after), /sits on the clock quantum/);
   }
 });
@@ -182,7 +180,7 @@ test('the arm-order guard and everything else at once: every fault is named exac
     warmupMax: 20,
     clamped: ['re-frame2/write (3.0x quantum per sample)'],
   });
-  assert.strictEqual(v.code, 1, 'a lost position outranks every other fault, as before');
+  assert.strictEqual(v.code, 1, 'a lost position outranks every other fault');
   const text = joined(v);
   for (const fault of [
     /no finite position/,
@@ -215,9 +213,9 @@ test('the exit code comes from `verdict`, and every one of its lines is SAID', (
 });
 
 test('`main` sets its exit code in exactly ONE place', () => {
-  // The defect was a verdict block with six early returns, five of which
-  // read a condition and one of which did not exist. One assignment means
-  // one decision, and the decision is `verdict`'s.
+  // A verdict block of early returns can read some conditions and miss
+  // others. One assignment means one decision, and the decision is
+  // `verdict`'s.
   assert.strictEqual(
     (MAIN.match(/process\.exitCode/g) || []).length,
     1,
@@ -226,9 +224,9 @@ test('`main` sets its exit code in exactly ONE place', () => {
 });
 
 test('NOTHING downstream of `verdict` reads a condition on its own', () => {
-  // This is the assertion that keeps the defect from growing back a sixth
-  // time. Every fail-open this file has had was a condition computed above
-  // and consulted — or not consulted — somewhere below the report. Once the
+  // This is the assertion that keeps a fail-open from growing in the gap. A
+  // fail-open here is a condition computed above and consulted — or not
+  // consulted — somewhere below the report. Once the
   // summary is handed over, `main` has three lines left and none of them
   // may look at a condition again.
   const tail = MAIN.slice(MAIN.indexOf('for (const line of v.lines)'));

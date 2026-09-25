@@ -1,24 +1,23 @@
 (ns re-frame.bench.fresco.shapes.census-clock-arms
   "THE CENSUS-REAL PAGES' CLOCK ARMS — the tier-1 shape roster's three
   mountable screens, each written out for every substrate the clock
-  compares (rf2-2rtt6.56).
+  compares.
 
-  The roster (rf2-2rtt6.51) authored the pages ONCE, in the candidate's
-  own language — [[re-frame.bench.fresco.shapes.ordinary]],
+  The roster authors the pages ONCE, in the candidate's own language —
+  [[re-frame.bench.fresco.shapes.ordinary]],
   [[re-frame.bench.fresco.shapes.large-template]] and
-  [[re-frame.bench.fresco.shapes.feed]] — and published no timing row.
+  [[re-frame.bench.fresco.shapes.feed]] — and publishes no timing row.
   This file is what a clock row needs and the roster deliberately does
   not carry: the SAME three pages in direct UIx, in stock Reagent, and as
   a plain-React floor, so a mount ratio can be taken same-run against the
-  amendment's anchor (mount <= 1.10x direct UIx-on-subs, rf2-2rtt6.1,
-  2026-08-02).
+  amendment's anchor (mount <= 1.10x direct UIx-on-subs).
 
   ## Every arm is written out longhand
 
   The comparison is only worth taking if each arm is what a competent
   author of THAT substrate would write; a shared generator producing
-  three dialects would measure the generator (hd8-witnesses' argument,
-  kept). The canonical-DOM parity gate in the clock app is what proves
+  three dialects would measure the generator (hd8-witnesses' argument).
+  The canonical-DOM parity gate in the clock app is what proves
   the longhand copies still build one page — attribute names sorted,
   compared at stress size AND small size, before any clock is read, and
   proven able to answer false.
@@ -29,10 +28,8 @@
   into, and the substrates do not meet that variable equally. These are
   findings the rows are FOR, not defects in the arms.
 
-  **THEY DIFFER IN HOW MANY CARDS TOO, AND THAT IS NOT AN ISOLATION**
-  (rf2-2rtt6.62, from the merged-PR audit of #7372/#7379). An earlier
-  wording of this docstring said the pages differ in exactly one thing.
-  They do not. `large-template` seeds 69 articles and `feed` seeds 300 —
+  **THEY DIFFER IN HOW MANY CARDS TOO, AND THAT IS NOT AN ISOLATION.**
+  The pages do not differ in exactly one thing. `large-template` seeds 69 articles and `feed` seeds 300 —
   the same element arithmetic (`19 + 10 + 17·articles`) at 4.35x the
   cards, so elements (1,202 -> 5,129), per-instance reads (141 -> 603)
   and boundaries (1 -> 301) all move TOGETHER between those two rows.
@@ -41,9 +38,9 @@
   therefore valid WITHIN itself — its arms mount the identical page —
   and no cross-row difference may be attributed to boundary
   decomposition. Matching the decompositions at one card count is a
-  seed change here (both rows already take `{:articles n :tags 10}`)
-  plus a clock session on a quiet box; until that run exists, the
-  isolation is retracted rather than assumed.
+  seed change here (both rows take `{:articles n :tags 10}`) plus a
+  clock session on a quiet box; until that run exists, the isolation is
+  not claimed.
 
   - **large-template (1,202 elements, ONE boundary, 141 per-instance
     reads).** The candidate and Reagent read per-instance subscriptions
@@ -73,10 +70,7 @@
   MERGED strings explicitly rather than each substrate's own shorthand
   merge, because the row is a comparison of pages, not of class-merge
   implementations — and because the explicit string is the cheaper form,
-  any bias runs AGAINST the candidate, never for it.
-
-  Normative owner: rf2-2rtt6.1 (standard, incl. the mount-gate
-  amendment); this entry rf2-2rtt6.56."
+  any bias runs AGAINST the candidate, never for it."
   (:require ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -206,13 +200,12 @@
 ;; The routing term — paid by every arm that renders a census anchor
 ;; ===========================================================================
 ;;
-;; rf2-2rtt6.54 migrated the candidate's census anchors to `route-link`, and
-;; rf2-6c237's clock re-take then measured what that cost: 8.21 µs per link,
-;; 207 links on the acceptance page, 900 on the feed. The twins were not paying
-;; it. They spelled `(str "#/profile/" username)` — a literal href, hand-built
-;; — while the candidate resolved the same destination through routing's route
-;; table. The rows moved (acceptance 1.2409 → 1.4759, feed 1.0875 → 1.3311) and
-;; part of that move was the candidate doing real work its controls did not do.
+;; The candidate's census anchors are `route-link`s, and on the clock a
+;; route-link costs 8.21 µs per link: 207 links on the acceptance page, 900 on
+;; the feed. Twins spelling `(str "#/profile/" username)` — a literal href,
+;; hand-built — while the candidate resolves the same destination through
+;; routing's route table would leave part of every row's ratio as the
+;; candidate doing real work its controls do not do.
 ;;
 ;; A row whose arms do different work is not a row, so the twins do it too.
 ;; They take the SAME two published seams the candidate's `route-link` takes —

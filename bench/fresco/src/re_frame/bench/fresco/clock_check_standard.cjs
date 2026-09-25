@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // THE CHECK STANDARD FOR THE FRESCO CLOCK (rf2-8a746).
 //
-//   node fresco/test/re_frame/bench/fresco/clock_check_standard.cjs   the self-test
+//   node src/re_frame/bench/fresco/clock_check_standard.cjs   the self-test (from bench/fresco/)
 //
-// ## What this replaces, and why the replacement is a LEVEL
+// ## Why the check is a LEVEL, not a difference of differences
 //
 // rf2-8a746 retired the three-point difference-of-differences control as a
 // gate on this instrument — not re-sited, retired — on two independently
@@ -34,20 +34,20 @@
 // is 2.00x. It does not read 2.00x, on any row, in any configuration, on
 // either clock, and the reason is the same non-affinity: page-doubling has a
 // component that does not scale. Asserting a theoretical value against a
-// non-affine clock is precisely the mistake being retired, so `clock_check_
+// non-affine clock is exactly the three-point control's mistake, so `clock_check_
 // standard.json` freezes what this instrument WAS MEASURED TO READ — centre,
 // location limits and dispersion limit — with its provenance, its error rates
 // and the conditions that force a recalibration beside it (NIST e-Handbook
 // 2.3.5's check-standard doctrine).
 //
-// ## The all-blocks rule went with it, and it was a SEPARATE defect
+// ## Nor is there an all-blocks rule, which is a SEPARATE defect
 //
-// The retired run-rejection rule was "every one of the 18 blocks inside the
-// tolerance band". Its arithmetic is `p^18`: the premise-MEETING layout
-// statistic has 83.5% of blocks in band and still passes 4 of 42 runs, because
-// `0.835^18 = 3.9%`. Swapping controls while keeping "every block" would not
-// have unblocked anything. So the tolerance band and the run-rejection rule
-// are now two different things with two different, stated error rates — see
+// An all-blocks run-rejection rule — "every one of the 18 blocks inside the
+// tolerance band" — has arithmetic `p^18`: the premise-MEETING layout
+// statistic has 83.5% of blocks in band and would still pass only 4 of 42
+// runs, because `0.835^18 = 3.9%`. Swapping controls while keeping "every
+// block" would unblock nothing. So the tolerance band and the run-rejection rule
+// are two different things with two different, stated error rates — see
 // `errorRates` in the JSON, and `checkStandard` below, which reports the band
 // and rejects on neither block count nor block extremes.
 //
@@ -56,7 +56,7 @@
 // `clock_run.cjs` applies it to a run it just measured and `clock_
 // readjudicate.cjs` applies it to a dataset off disk. Two copies of the
 // arithmetic would be two adjudicators, which is the fault this lane's exit
-// path was rebuilt to remove, so there is one function and both require it.
+// path is built to prevent, so there is one function and both require it.
 // The JSON beside it is data on purpose: recalibrating is editing that file
 // and bumping its version, never editing this one.
 //
@@ -93,12 +93,12 @@
 // v1 and v2 both said in their own `provenance.independence` fields that they
 // did not have one: seeded from the runs they were quoted against, so `0 of 42`
 // and `14 of 14` were consistency checks and not false-refusal measurements.
-// That was honest and it was also a gap, because the moment a NEW run is judged
+// A self-seeded standard leaves a gap, because the moment a NEW run is judged
 // in control the verdict rests on limits nobody has tested out of sample.
 //
-// WHAT THIS CORPUS CAN SUPPORT, AND WHAT IT CANNOT. `rf2-pzqy8`'s census
-// standard held out a genuinely later COMMIT — its corpus spans five days and a
-// code change. This one does not: every run in both clock ensembles carries a
+// WHAT THIS CORPUS CAN SUPPORT, AND WHAT IT CANNOT. The census clock's check
+// standard (`shapes/census_check_standard.json`) holds out a genuinely later
+// COMMIT — its corpus spans five days and a code change. This one does not: every run in both clock ensembles carries a
 // `when` of 2026-08-07 and the two ensembles start 87 minutes apart, on the
 // evidence one tree. So the strongest hold-out available here is by SITTING —
 // derive each class's limits from ONE ensemble, judge the OTHER against them —
@@ -114,11 +114,10 @@
 // dispersion. The cause is not a large between-session shift (the centres are
 // 1.81% apart, less than bulk's 2.44%) but the w3yxd sitting's own tightness: a
 // between-run SD under a quarter of emvod's, so a +/-3 sigma budget too narrow
-// to contain the offset. NOTHING WAS WIDENED TO REPAIR IT — the fence this bead
-// was raised under — and nothing needed to be: the shipped limits pool both
-// sittings, so they already carry the between-session component and admit all
-// 14. What the failure impeaches is SINGLE-SITTING CALIBRATION on that class,
-// which is why `recalibrateOn` now names it.
+// to contain the offset. NOTHING IS WIDENED TO REPAIR IT, and nothing needs to
+// be: the shipped limits pool both sittings, so they already carry the
+// between-session component and admit all 14. What the failure impeaches is
+// SINGLE-SITTING CALIBRATION on that class, which is why `recalibrateOn` names it.
 //
 // Every number above is in the JSON, once. Neither centre is written here, and
 // the fixtures below derive their worlds from the classes' own frozen values
@@ -131,24 +130,25 @@
 // ## v4 — THE EVIDENCE CARDINALITY IS PART OF THE STANDARD (rf2-8a746,
 // merged-PR audit #7698, 2026-08-10)
 //
-// Retiring the all-blocks rule (v1) retired a PER-BLOCK VERDICT, and this
-// module then read that retirement as licence to accept ANY number of blocks:
-// a one-element list at the frozen centre came back `ok: true` with `n: 1` and
-// `robustScale: 0`, and a committed six-round row truncated to one round still
-// passed on its three surviving segment blocks. That confuses retiring
-// all-blocks-in-band with allowing blocks to be ABSENT. The frozen limits are
+// Having no PER-BLOCK VERDICT is not licence to accept ANY number of blocks:
+// without a cardinality check a one-element list at the frozen centre would
+// come back `ok: true` with `n: 1` and `robustScale: 0`, and a committed
+// six-round row truncated to one round would pass on its three surviving
+// segment blocks. Having no all-blocks-in-band rule is not the same as
+// allowing blocks to be ABSENT. The frozen limits are
 // statistics OF the declared design — a location band of run MEDIANS over 18
 // blocks, a dispersion limit of 18-block robust scales — so a smaller or
 // larger block set is not the quantity the limits were calibrated on, and
-// certifying it "in control" asserts against it a value never measured on it,
-// which is the exact mis-specification this whole standard exists to retire.
+// certifying it "in control" would assert against it a value never measured
+// on it, which is the exact mis-specification this whole standard exists to
+// prevent.
 //
-// So `checkStandard` — the direct helper both consumers share — now carries an
+// So `checkStandard` — the direct helper both consumers share — carries an
 // EXPECTED-N CONTRACT: exactly `STANDARD.evidence.expectedBlocks` finite
 // readings (18, from the declared 6-round x 3-segment design, stated once in
 // the JSON), refused otherwise with observed and expected counts. It is a
 // completeness rule on the evidence, not a per-block verdict: no block's own
-// VALUE rejects anything, so the v1 retirement stands untouched.
+// VALUE rejects anything, so it is not the all-blocks rule under another name.
 
 'use strict';
 
@@ -176,7 +176,7 @@ function quantile(xs, q) {
  * THE RUN'S DISPERSION, ROBUSTLY. `IQR / 1.349` is the normal-consistent scale
  * estimator, so its number is comparable with a standard deviation while not
  * being movable by one wild block — which matters here for the same reason
- * rf2-8bgqq moved the headline to the median: a rule that a single extreme
+ * a ratio's headline is its median: a rule that a single extreme
  * block can trip is the all-blocks rule wearing a summary statistic's clothes.
  */
 function robustScale(xs) {
@@ -260,10 +260,10 @@ function checkStandard(perBlockRatios, rowId) {
   // limits are statistics of the declared 6-round x 3-segment design — a
   // location band of run medians over 18 blocks, a dispersion limit of
   // 18-block robust scales — so a run is judged only when it carries EXACTLY
-  // that many readings. Before this check, a one-element list at the frozen
-  // centre certified with `n: 1` and `robustScale: 0`. This is a completeness
-  // rule and not a per-block verdict: no block's VALUE rejects anything here,
-  // so the v1 all-blocks retirement stands.
+  // that many readings. Without this check, a one-element list at the frozen
+  // centre would certify with `n: 1` and `robustScale: 0`. This is a
+  // completeness rule and not a per-block verdict: no block's VALUE rejects
+  // anything here, so it is not the all-blocks rule under another name.
   const expected = STANDARD.evidence.expectedBlocks;
   if (finite.length !== expected) {
     base.why =
@@ -340,8 +340,8 @@ function formatCheckStandard(v) {
     );
     lines.push(
       `;;     tolerance ${v.tolerance.inBand} of ${v.tolerance.of} blocks inside [${v.tolerance.band[0]} – ` +
-        `${v.tolerance.band[1]}] — REPORTED, and it decides nothing: the retired rule required all of them, ` +
-        `and 0.835^18 = 3.9% is why a control meeting its own premise passed 4 of 42 runs`
+        `${v.tolerance.band[1]}] — REPORTED, and it decides nothing: a rule requiring all of them would pass ` +
+        `a control meeting its own premise on only 4 of 42 runs, because 0.835^18 = 3.9%`
     );
   }
   if (v.why) lines.push(`;;     why      ${v.why}`);
@@ -359,7 +359,7 @@ function formatCheckStandard(v) {
  * an arm that does not do what it declares — pointed at the standard's own
  * arm instead: `ctl-2x` declares the floor's page doubled and builds 140 of
  * its 300 boundaries. A standard nobody has seen refuse is a standard of
- * unmeasured sensitivity, and this lane has found that defect nine times.
+ * unmeasured sensitivity.
  *
  * Every world here is synthetic and pure. No measurement is taken, no window
  * is opened, and the numbers are chosen to sit on the frozen limits rather
@@ -434,10 +434,10 @@ function checkStandardSelfTest() {
     `median ${noisy.location.measured}x, scale ${noisy.dispersion.measured}`
   );
 
-  // 4. THE DEFECT THIS STANDARD REPAIRS, asserted rather than described. The
-  //    retired rule refused a run for ONE out-of-band block. A world with a
-  //    healthy median, a scale inside the limit and two blocks outside the
-  //    tolerance band is exactly that run, and it must now PASS while the
+  // 4. THE DEFECT THIS STANDARD GUARDS AGAINST, asserted rather than described.
+  //    An all-blocks rule would refuse a run for ONE out-of-band block. A world
+  //    with a healthy median, a scale inside the limit and two blocks outside
+  //    the tolerance band is exactly that run, and it must PASS while the
   //    band still REPORTS the two.
   const twoOut = blocksAt(2, 18, 0.05);
   twoOut[0] = 1.28; // just under the reported band's lower edge
@@ -456,9 +456,9 @@ function checkStandardSelfTest() {
 
   // 5. THE MOUNT CLASS (rf2-x7x10), and the case that matters is that it is
   //    NOT THE BULK CLASS. The two centres are 4.4% apart, which is small
-  //    enough that copying bulk's limits across would have looked harmless and
-  //    large enough that it would have been the retired mis-specification
-  //    again — asserting against a row class a value never measured on it.
+  //    enough that copying bulk's limits across would look harmless and large
+  //    enough that it would be the mis-specification this standard exists to
+  //    prevent — asserting against a row class a value never measured on it.
   const mountHealthy = checkStandard(blocksAtIn(mount, 2, 18, 0.05), MOUNT);
   check(
     'a doubling arm on the MOUNT class\'s own frozen centre is IN CONTROL',
@@ -519,8 +519,8 @@ function checkStandardSelfTest() {
 
   // 6. FAIL CLOSED, at each seat.
   //
-  // THE UNCALIBRATED SEAT HAS NO PRODUCTION INSTANCE any more — v2 calibrated
-  // the last class that had none — so the fixture makes one and puts it back,
+  // THE UNCALIBRATED SEAT HAS NO PRODUCTION INSTANCE — every declared class
+  // is calibrated — so the fixture makes one and puts it back,
   // rather than leaving a fake row class in shipped data to keep a test alive.
   // The seat is not dead code: it is what refuses the next class somebody adds
   // to `classes` before its limits exist, and a branch nobody has seen refuse
@@ -556,8 +556,8 @@ function checkStandardSelfTest() {
   check('a missing block set is absent, not clean', !checkStandard(undefined, BULK).ok && !checkStandard(null, BULK).ok);
 
   // 6b. THE EVIDENCE CARDINALITY (rf2-8a746, merged-PR audit #7698). The
-  //     audit's own demonstration comes first: ONE block sitting dead on the
-  //     frozen centre used to certify with `n: 1` and `robustScale: 0`,
+  //     sharpest case comes first: without the contract, ONE block sitting
+  //     dead on the frozen centre would certify with `n: 1` and `robustScale: 0`,
   //     because a single reading trivially has no dispersion and is its own
   //     median. The refusal must carry observed and expected counts, and it
   //     must be the CARDINALITY refusing — not the block's value, which is
@@ -605,8 +605,8 @@ function checkStandardSelfTest() {
   );
 
   // 7. THE STANDARD IS DATA AND SAYS WHICH DATA IT IS. A verdict that did not
-  //    carry its version could not be re-read after a recalibration — and v2
-  //    is one, so this is now load-bearing rather than anticipatory.
+  //    carry its version could not be re-read after a recalibration, which is
+  //    what every version of the standard past the first is.
   check(
     'every verdict carries the standard it was taken against, by id and version',
     healthy.standard.id === STANDARD.id &&
@@ -647,7 +647,7 @@ function checkStandardSelfTest() {
   //    `clock_exit_path.test.cjs`, which is where the data lives.
   const calibrated = Object.entries(STANDARD.classes).filter(([, k]) => k.calibrated);
   // A MISSING RECORD MUST FAIL THE CHECK, NOT THROW PAST IT. Every reader below
-  // goes through `HO`, so a class with no hold-out — the pre-v3 shape — reports
+  // goes through `HO`, so a class with no hold-out reports
   // as a red fixture with its name and its detail, which is what the mutation
   // proof reads. A fixture that crashes on the mutation it exists to catch
   // tells you only that something broke.

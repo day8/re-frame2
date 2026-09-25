@@ -1,17 +1,17 @@
 (ns re-frame.bench.fresco.slice-echo-clock-app
   "THE SLICE'S INTERACTION-TO-PAINT CLOCK — one discrete interaction,
   through to the paint that follows it, on the witness application
-  `U1`–`U4` are stated over (rf2-xa8wo, deliverable 2).
+  `U1`–`U4` are stated over.
 
       FRESCO_INIT_FN=re-frame.bench.fresco.slice-echo-clock-app/-main \\
       FRESCO_OUT_DIR=out/fresco-slice-echo \\
       FRESCO_PORT=8137 \\
-        node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+        node bench/fresco/src/re_frame/bench/fresco/run.cjs
 
   NO NEW BUILD ID, and that is checked rather than assumed. `run.cjs`
   takes its entry from `FRESCO_INIT_FN` and rides `:fresco-bench`, the
-  id the whole lane already shares, so this arm costs
-  `implementation/shadow-cljs.edn` — an HD-017 hot-zone file — nothing.
+  id the whole lane shares, so this arm adds nothing to
+  `bench/fresco/shadow-cljs.edn`.
 
   ## THE WINDOW, WHICH IS THE WHOLE POINT OF THIS FILE
 
@@ -25,7 +25,7 @@
   published against a line written about a paint is worse than no `p95`,
   because it is quotable.
 
-  [[window!]] is the repair. It starts the clock immediately before a real
+  [[window!]] closes that gap. It starts the clock immediately before a real
   DOM event, and stops it in the first task AFTER the browser has produced
   and painted the frame that carries the echo:
 
@@ -76,7 +76,7 @@
   lifecycle. A rig that had reverted to a commit-bounded window would
   show the first of those three and nothing else.
 
-  ## THE POSITIVE CONTROL IS INVISIBLE TO THE WINDOW IT REPLACES
+  ## THE POSITIVE CONTROL IS INVISIBLE TO A COMMIT-BOUNDED WINDOW
 
   `:ctl-blocked` is `:keystroke` plus a busy-wait of [[blocked-ms]]
   milliseconds on the main thread, spent AFTER React's commit has returned
@@ -129,7 +129,7 @@
   pinned figure.** `U1`'s one-60-Hz-frame line, `U2`'s 50 ms `p95` and
   100 ms `p99`, `U3`'s 100 ms — none of them appears here, and none of
   them should. Reading this instrument against those lines is a separate
-  quiet-box window (`rf2-85og2` gate 1), and an instrument that carried
+  quiet-box window, and an instrument that carried
   the line it is meant to be read against would be an instrument nobody
   could re-adjudicate. The only pass/fail this file makes are the two
   INSTRUMENT-INTEGRITY verdicts above, and `budgets.md` §2's rule holds
@@ -195,14 +195,14 @@
 
   **A scripted interaction sets the control up by mutating it, so the
   control's own state is the one thing an echo check may not be taken
-  over.** This instrument's first version did exactly that on both
-  measured arms: `keystroke` wrote `want` onto `input.value` and then
-  verified `input.value`; `toggle` called `HTMLElement.click()`, whose
-  activation behaviour flips `checkedness` in the user agent, and then
-  verified `checked`. Remove the Fresco handler, the re-frame dispatch,
-  the state write or the React commit and BOTH checks could still read
-  true — so what the window timed was a native control mutation surviving
-  to the next frame, which is not what `U1`–`U4` are stated over.
+  over.** A `keystroke` arm that wrote `want` onto `input.value` and then
+  verified `input.value`, or a `toggle` arm that called
+  `HTMLElement.click()`, whose activation behaviour flips `checkedness`
+  in the user agent, and then verified `checked`, would read true with
+  the Fresco handler, the re-frame dispatch, the state write or the React
+  commit removed — so what the window timed would be a native control
+  mutation surviving to the next frame, which is not what `U1`–`U4` are
+  stated over.
   `examples.per-keystroke-dom-cljs-test` names this shape in its own
   §*The echo is read BEFORE the flush*: *a scripted keystroke reaches the
   real code path only by writing the accepted text onto the control and
@@ -236,9 +236,7 @@
   along with the checkbox — so a restored title mirror is evidence that
   the toggle reached the model and came back through a commit. Reading
   the checkbox's own `defaultChecked` would NOT have served: `updateInput`
-  writes it only when the element has no `checked` prop, and this one has.
-
-  Owner: rf2-xa8wo."
+  writes it only when the element has no `checked` prop, and this one has."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
@@ -260,7 +258,7 @@
 (def sampling
   "Per-round warm-up and measured counts.
 
-  `:warmup 8` is `rf2-h904p`'s value and is carried rather than chosen:
+  `:warmup 8` is the lane's value and is carried rather than chosen:
   `rf.bench.fresco.lane/rounds!`'s docstring records that it puts the +27% step this lane
   sees after a site's sixth execution inside the warm-up. `:samples 12`
   is the same file's figure. **A tail quantile over 12 is mostly
@@ -344,8 +342,8 @@
   over EVERY visit this run has taken.
 
   Exposed so the DOM self-test can compare the population that is BANKED
-  against the population that is PUBLISHED, which is the pair that drifted
-  apart the first time."
+  against the population that is PUBLISHED, which is the pair that can
+  drift apart."
   []
   (:aux @!state))
 
@@ -353,10 +351,10 @@
   "Which visits each published figure is taken over.
 
   A def rather than a literal inside [[take-plan!]] so the claim is
-  citable from the suite: the audit that reopened `rf2-xa8wo` found
-  `:structure` published over `100` values per arm against a `:summary`
-  of `60` while the record described the first as a decomposition of the
-  second, and a label nobody can assert is how that recurs."
+  citable from the suite: `:structure` published over `100` values per
+  arm against a `:summary` of `60`, while the record describes the first
+  as a decomposition of the second, is exactly what a label nobody can
+  assert lets through."
   {:summary   :measured-visits
    :structure :measured-visits
    :echo      :all-visits})
@@ -399,13 +397,13 @@
   `::rf.fresco/value` off a real `input` event — which is to say, off a value
   this file typed.
 
-  PRINTABLE ASCII, and that is not cosmetic. The first spelling of this
-  def wrapped the text in NUL codepoints, on the reasoning that a
-  codepoint nothing can type is the strongest sentinel there is. It is
-  also the strongest way to make a source file BINARY: `git` classifies a
-  file containing a NUL as binary, which cost the file its line-ending
-  normalisation, its diffs and its greps in one move. The sentinel does
-  not need to be untypable — it needs to be unequal."
+  PRINTABLE ASCII, and that is not cosmetic. Wrapping the text in NUL
+  codepoints, on the reasoning that a codepoint nothing can type is the
+  strongest sentinel there is, is also the strongest way to make a source
+  file BINARY: `git` classifies a file containing a NUL as binary, which
+  costs the file its line-ending normalisation, its diffs and its greps in
+  one move. The sentinel does not need to be untypable — it needs to be
+  unequal."
   "<< no commit reached this field >>")
 
 (defn committed-title
@@ -710,13 +708,12 @@
   depends on where in that grid the PREVIOUS sample left the clock. An arm
   that follows `:ctl-blocked`, which spans three intervals and ends with a
   frame already overdue, waits almost nothing; the same arm following
-  `:keystroke`, which ends just after a paint, waits a whole interval. The
-  first run of this instrument measured exactly that: `:idle-frame` read a
-  full interval after `:keystroke` and zero after `:ctl-blocked`, ranges
-  disjoint, and the guard REFUSED.
+  `:keystroke`, which ends just after a paint, waits a whole interval.
+  Unaligned, `:idle-frame` reads a full interval after `:keystroke` and
+  zero after `:ctl-blocked`, ranges disjoint, and the guard REFUSES.
 
   That is a fault in the ARM and not in the guard's tolerance, which is
-  not the arm's to move. Aligning every window to the grid is the repair:
+  not the arm's to move. Aligning every window to the grid removes it:
   the phase is then a constant of the instrument rather than a property of
   whatever ran before.
 
@@ -762,12 +759,12 @@
 
   The claim this instrument makes is that its window times a SLICE-APP
   ECHO. A check that would read true with the application removed cannot
-  carry that claim however carefully the arm around it is written, and the
-  version of this file that shipped had two such checks. A suite row is
-  the right place to prove a repair; it is the wrong place to keep a
-  driver honest, because the driver is what a quiet-box window runs and
-  the suite is not. So the run itself asks the question, once, at a cost
-  of one frame, and refuses to measure anything if the answer is wrong.
+  carry that claim however carefully the arm around it is written. A suite
+  row is the right place to prove a check discriminates; it is the wrong
+  place to keep a driver honest, because the driver is what a quiet-box
+  window runs and the suite is not. So the run itself asks the question,
+  once, at a cost of one frame, and refuses to measure anything if the
+  answer is wrong.
 
   ## What it suppresses, and why that is the whole chain
 

@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.shapes.model
   "THE TIER-1 SHAPE ROSTER'S STATE LAYER — one census-real app behind all
-  four shapes (rf2-2rtt6.51).
+  four shapes.
 
   The charter's §Use cases names five tier-1 shapes as v0's definition of
   done. Four of them are *the everyday SPA spine* and they differ in
@@ -29,8 +29,8 @@
 
   RealWorld (Conduit) — `examples/real-apps/realworld_resources/` — is
   the corpus the fitness harness census was taken on, and it is the app
-  the earlier ergonomics work ported from (the article editor's four
-  fields, `front/census_article_editor_cljs_test`). The shapes port its
+  `front/census_article_editor_cljs_test` ports the article editor's four
+  fields from. The shapes port its
   screens: the article page's comment column (shape 1) and the home feed
   (shapes 2/3/4). Field names are Conduit's own, down to the
   `favoritesCount` / `createdAt` camelCase the API hands back, because a
@@ -51,7 +51,7 @@
   pair (`[:rf/mutation {:instance …}]` beside the app sub, the
   `[:rf/resource …]` list read above them) against the genuine resources
   machinery with only the transport stubbed, and holds it to the same
-  one-commit→one-body law (rf2-2rtt6.53).
+  one-commit→one-body law.
 
   ## The two writes the roster turns on
 
@@ -76,8 +76,8 @@
 
   ## The routes
 
-  The census's screens link with `ui/route-link`, so the ported cards do
-  too (rf2-2rtt6.54) — which makes the ROUTE TABLE part of the state
+  The census's screens link with `rf/route-link`, so the ported cards do
+  too — which makes the ROUTE TABLE part of the state
   layer: a route-link's href is synthesised from a registered route, and
   rendering one against an empty table is a loud error. [[make-frame!]]
   registers the three routes the ported anchors name, per test, because
@@ -304,18 +304,15 @@
   "Create (or idempotently replace) `frame-id`'s frame, seeded per `opts`,
   with the [[register-routes!]] table its pages' links resolve against.
 
-  **The frame declares the census's own URL strategy** (rf2-6c237, the
-  repair for the rf2-2rtt6.54 parity gap). Conduit is a hash-URL app —
-  every anchor in the census markup reads `#/profile/…` — and the
-  uix/reagent/floor twins in `census_clock_arms` port that markup
-  verbatim, hand-writing the `#`. Fresco's anchors go through routing's
-  `link-model`, whose strategy consult defaults to the HISTORY strategy
-  when a frame declares none — so after the rf2-2rtt6.54 migration the
-  Fresco pages rendered path-form hrefs against the twins' hash-form and
-  the census clock's boot parity gate refused every row (PR #7383's rows
-  did not see it: its runs measured the pre-migration blobs its
-  provenance table records, and the branch was rebase-merged over the
-  migration without a clock re-run). Declaring the shipped
+  **The frame declares the census's own URL strategy.** Conduit is a
+  hash-URL app — every anchor in the census markup reads `#/profile/…` —
+  and the floor in `census_clock_arms` ports that markup verbatim,
+  hand-writing the `#`. Fresco's anchors, and the uix/reagent twins'
+  (which take the same seam), go through routing's `link-model`, whose
+  strategy consult defaults to the HISTORY strategy when a frame declares
+  none — so without a declared strategy those pages would render
+  path-form hrefs against the floor's hash-form and the census clock's
+  boot parity gate would refuse every row. Declaring the shipped
   `rf.routing/hash-url-strategy` here makes the routing-owned href the
   census's own form, through routing's law rather than around it."
   [frame-id opts]

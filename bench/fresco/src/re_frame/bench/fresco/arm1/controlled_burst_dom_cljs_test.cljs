@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.arm1.controlled-burst-dom-cljs-test
   "THE BURST WITNESS — shape 5's \"zero dropped keystrokes\", as N
-  keystrokes rather than one (rf2-2rtt6.55).
+  keystrokes rather than one.
 
   Every echo witness in `arm1/controlled_grid_dom_cljs_test` fires ONE
   synthetic input event carrying the whole value — `(type-into! n
@@ -24,14 +24,13 @@
   `inputType \"insertText\"`, the character as `data`, `bubbles true` —
   and [[the-events-a-burst-carries-are-verified-on-the-native-event]]
   asserts that inventory on the constructed event BEFORE any row trusts a
-  green, which is the dead-`isComposing` lesson
-  (`reacts-synthetic-keyboard-event-drops-is-composing`) applied to this
+  green, which applies the check
+  `reacts-synthetic-keyboard-event-drops-is-composing` makes to this
   file's own instrument.
 
   Two divergences from a trusted event, stated rather than hidden:
 
-  - **`cancelable` is `false`, and the bead's word \"cancelable\" is
-    answered here.** Per the UI Events / Input Events specs the
+  - **`cancelable` is `false`.** Per the UI Events / Input Events specs the
     browser's own `input` event is never cancelable — it announces a
     mutation that has already happened; `beforeinput` is the cancelable
     member of the pair. A burst of `cancelable: true` input events would
@@ -62,7 +61,7 @@
 
   ## Why the interesting bursts are the refusing and normalising ones
 
-  The converge (`front.controlled/install!`, rf2-fki5d) ends every
+  The converge (`front.controlled/install!`) ends every
   change handler by flushing the synchronous door's commit and restoring
   value and caret. A burst is k of those in one turn, each building on
   the last one's restore:
@@ -89,8 +88,8 @@
   assertion path — every assertion runs on the line after
   `dispatchEvent` returns, in the browser's own turn. Nothing here adds
   to the authored surface: the cells are `arm1/grid`'s ordinary
-  `:value` / `:on-input` cells, unchanged, so HD-020's ≤2-hook budget is
-  untouched and `arm1_hook_ledger_dom_cljs_test` still gates it."
+  `:value` / `:on-input` cells, so HD-020's ≤2-hook budget is untouched
+  and `arm1_hook_ledger_dom_cljs_test` gates it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.grid :as rf.bench.fresco.arm1.grid]
@@ -121,7 +120,7 @@
 ;;
 ;; No input-implementation pin: every row here mounts the ARM's cells
 ;; only, and `the-arm-reads-the-same-on-both-pins` (grid suite, row 0)
-;; established that the arm's element path is `react/createElement`
+;; establishes that the arm's element path is `react/createElement`
 ;; against the tag string — the UIx selector has nothing to select.
 
 (defn- fresh! []
@@ -227,8 +226,7 @@
 (deftest the-events-a-burst-carries-are-verified-on-the-native-event
   (testing "what one burst keystroke actually dispatches, asserted on the
            event object itself — a burst row whose events silently carried
-           the wrong signal would be a green gate over an unexercised door
-           (the dead-isComposing lesson)"
+           the wrong signal would be a green gate over an unexercised door"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM, and no InputEvent constructor")
       (do
@@ -240,8 +238,7 @@
           (is (false? (.-cancelable e))
               "the browser's own `input` event is NEVER cancelable — it
                announces a mutation that already happened; `beforeinput`
-               is the cancelable member of the pair. The bead's word is
-               answered here rather than silently dropped")
+               is the cancelable member of the pair")
           (is (= "h" (.-data e)) "the character rides `data`")
           (is (= "insertText" (.-inputType e)))
           (is (false? (.-isComposing e))

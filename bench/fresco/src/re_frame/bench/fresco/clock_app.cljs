@@ -1,13 +1,12 @@
 (ns re-frame.bench.fresco.clock-app
-  "THE CANDIDATE'S CLOCK — the page half (rf2-0qj9w).
+  "THE CANDIDATE'S CLOCK — the page half.
 
-  The programme has no wall-clock measurement of its own candidate. Hook
-  count and per-read retained heap are measured; mount, bulk K=100/300,
-  narrow and per-keystroke are not, and every clock figure published so
-  far — `M1` mount 1.0150×, bulk-broad 0.6291× — is about the DONORS.
-  This entry, its driver `clock_run.cjs` and
-  [[re-frame.bench.fresco.clock-views]] are the three files that close
-  that.
+  The candidate's own wall clock — mount, bulk K=100/300, narrow and
+  per-keystroke — beside the hook count and per-read retained heap
+  measured elsewhere. The lane's other clock figures — `M1` mount
+  1.0150×, bulk-broad 0.6291× — are about the DONORS. This entry, its
+  driver `clock_run.cjs` and [[re-frame.bench.fresco.clock-views]] are the
+  three files that time the candidate.
 
   ## This page does not decide when a sample starts, and that is the point
 
@@ -32,8 +31,7 @@
 
   The in-page span is still taken, on the same operation in the same
   sample, and published beside it, as is `taskNet` — `TaskDuration` less
-  `DevToolsCommandDuration`, the reading this driver banked until
-  `rf2-yd52q`. `taskNet` is FRAME-ONLY, not frame-inclusive: the
+  `DevToolsCommandDuration`. `taskNet` is FRAME-ONLY, not frame-inclusive: the
   subtraction removes the operation's own script, because the operation
   runs inside a protocol command and Chromium bills page script run there
   to the DevTools term. So it is nearer the in-page window's COMPLEMENT
@@ -43,8 +41,8 @@
   ## THREE segments, one substrate arm each, and why that is forced
 
   `install-adapter!` is once per process, so Reagent and UIx cannot be
-  interleaved inside one round — that much this lane already knew. What
-  this row adds is a second, sharper constraint: a bulk write here is
+  interleaved inside one round. This row adds a second, sharper
+  constraint: a bulk write here is
   `rf.frame/replace-app-db!`, and **every** arm mounted against that frame
   re-renders when it lands. Two substrate arms standing in one segment
   would each pay for the other's writes, and the clock would be reading a
@@ -81,7 +79,8 @@
   interactions. The page supplies [[settle-and-verify!]] for the half
   after the key.
 
-  Owner: rf2-2rtt6.1 (standard); this entry rf2-0qj9w."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -159,15 +158,15 @@
   the registrar keeps both, tagged with their source provenance, and
   default image assembly then refuses to let selection order decide which
   one the frame runs — `:rf.error/image-duplicate-id`, and correctly so.
-  That refusal is what stopped this driver dead in round 0 on every row
-  (rf2-029ed), and it stopped it at `enter-segment!`, before any sample.
+  On the default image that refusal would stop this driver dead in round
+  0 on every row, at `enter-segment!`, before any sample.
 
   So the override is made DELIBERATE, through the mechanism the refusal
   itself names: two composed images, the census-instrumented registration
   in the LATER one, which wins and whose shadow is reported. The resulting
-  registry is exactly the one `register-subs!`'s docstring already
-  describes — `enter-segment!` calls it on every segment entry, for every
-  row, so the census-bearing body was always the intended survivor.
+  registry is exactly the one `register-subs!`'s docstring describes —
+  `enter-segment!` calls it on every segment entry, for every row, so the
+  census-bearing body is the intended survivor.
 
   The two images UNION to the whole store, so nothing is dropped: the
   first selects every namespace except the witness's, the second selects
@@ -225,8 +224,8 @@
 
   `:floor?` marks an arm that writes through `root.render` rather than
   through the substrate. It is a PROPERTY OF THE ARM rather than a set of
-  arm ids held in [[sample-bulk!]], because the id set was already wrong
-  once the moment a fourth floor-shaped arm existed, and a floor-shaped
+  arm ids held in [[sample-bulk!]], because an id set goes wrong the
+  moment another floor-shaped arm exists, and a floor-shaped
   arm mistaken for a substrate one would write app-db and be timed as
   though it had re-rendered."
   [id n scale]
@@ -254,10 +253,10 @@
 
   ## IT IS NO LONGER A CONTROL, AND THE ARMS STAY (rf2-8a746)
 
-  These arms fed a difference-of-differences CONTROL that gated every bulk
-  row. It refused 42 of 42 bulk row-runs across two independent quiet-box
-  ensembles, and the 2026-08-07 ruling retired it as a gate — not re-sited,
-  not re-tried. The diagnosis is arithmetic and both halves are
+  As a difference-of-differences CONTROL gating every bulk row these arms
+  refuse 42 of 42 bulk row-runs across two independent quiet-box
+  ensembles, so they gate nothing — not re-sited, not re-tried. The
+  diagnosis is arithmetic and both halves are
   independently fatal: the prediction `(2D - eps)/(D - eps)` holds only if
   `T` is affine in `d` and it is not, so the statistic's true centre sits
   2.6% ABOVE the value at which it refuses; and `T(D) - T(eps)` is ~1.25 ms
@@ -266,7 +265,7 @@
   and halves the denominator. Both available sitings fail; the conditioning
   arithmetic says any siting must.
 
-  WHAT GATES A BULK ROW NOW is a level-denominated, empirically calibrated,
+  WHAT GATES A BULK ROW is a level-denominated, empirically calibrated,
   versioned CHECK STANDARD on `ctl-2x / floor` —
   `clock_check_standard.json`, applied by `clock_check_standard.cjs`.
 
@@ -278,15 +277,14 @@
   driver prints it labelled non-gating. Removing the arms would delete the
   only reading this instrument has of that shape.
 
-  ## Why the control this replaces cannot be repaired by widening it
+  ## Why `ctl-2x` cannot be held to its arithmetic prediction by widening it
 
-  `ctl-2x` is the floor at twice the boundaries and its prediction is
-  2.00x. Over seven runs (rf2-emvod) it read 1.8173x on the MOUNT row and
+  `ctl-2x` is the floor at twice the boundaries and its arithmetic
+  prediction is 2.00x. Over seven runs it read 1.8173x on the MOUNT row and
   1.7334 / 1.7696 / 1.7796 on bulk300 / bulk100 / narrow — four rows doing
-  wildly different work, all undershooting by 9-13%. `rf2-5xrcd`'s
-  diagnosis was that doubling the PAGE does not double an UPDATE's work,
-  but that argument does not reach the mount row, where the work does
-  scale with the page.
+  wildly different work, all undershooting by 9-13%. That doubling the
+  PAGE does not double an UPDATE's work is true, but that argument does
+  not reach the mount row, where the work does scale with the page.
 
   ONE ADDITIVE CONSTANT fits all four at once. A ratio of two arms one of
   which is twice the other reads `(2W + c)/(W + c)`, which is below 2 for
@@ -295,8 +293,8 @@
   0.873 / 0.790 ms — one constant across a 901-element cold mount and a
   one-cell write, on floors spanning 3.58 to 5.70 ms.
 
-  `rf2-7iqb5` proposed doubling the CHANGED SET instead. That removes the
-  update-row confound and leaves `c` exactly where it was, because
+  Doubling the CHANGED SET instead removes the update-row confound and
+  leaves `c` exactly where it was, because
   `(2D + c)/(D + c)` has the same shape as `(2W + c)/(W + c)`: a
   differently-wrong number, not a right one.
 
@@ -314,22 +312,22 @@
     settle, React's whole-tree reconciliation walk, the document's
     pre-paint — cancels in each difference, whatever its size, and the
     control needs no claim about what it is;
-  * a MULTIPLICATIVE block-level perturbation `λ` — which is what
-    `rf2-cvvb7`'s nineteen-run load ladder found ambient load to be —
+  * a MULTIPLICATIVE block-level perturbation `λ` — which is what the
+    lane's nineteen-run load ladder finds ambient load to be —
     cancels in the quotient, because `λaΔd₂ / λaΔd₁` drops `λ`.
 
   `ctl-2x` is invariant under the second only. That is the whole repair.
 
-  ## THE FIRST BUILD OF THIS CONTROL WAS REFUTED, AND BY WHAT
+  ## THIS CONTROL IS REFUTED, AND BY WHAT
 
-  It was built exactly as `rf2-emvod` ruled it — eps = 1, D = 100, 2D =
-  200, on the floor's own 300-boundary page, canonical-DOM identical and
-  not exempted from the fairness gate. It REFUSED, 11 of 18 blocks inside
-  the band, at a per-block median of 1.609x against a predicted 2.0101x.
-  The refusal was not noise: the denominator was a healthy 0.96 ms
-  [0.84–1.42] and the shortfall was consistent across all three segments.
+  Built as it stands — eps = 1, D = 100, 2D = 200, on the floor's own
+  300-boundary page, canonical-DOM identical and not exempted from the
+  fairness gate — it REFUSES, 11 of 18 blocks inside the band, at a
+  per-block median of 1.609x against a predicted 2.0101x. The refusal is
+  not noise: the denominator is a healthy 0.96 ms [0.84–1.42] and the
+  shortfall is consistent across all three segments.
 
-  What refuted it is that the page's cost is NOT affine in the dirty set
+  What refutes it is that the page's cost is NOT affine in the dirty set
   over `[1, 300]`. Marginal cost per dirty cell, tared p50 over 18 blocks
   at 40 samples each:
 
@@ -365,35 +363,34 @@
   every run rather than inherited from this docstring — and the `eps` arm
   is what makes the low interval measurable.
 
-  ## A BIGGER PAGE WAS TRIED AND DID NOT RESCUE IT
+  ## A BIGGER PAGE DOES NOT RESCUE IT
 
   The obvious repair is to move the three points above the knee. On a
   300-cell page that leaves `[100, 300]`, so the widest spacing is 100
   cells — 0.60 ms of signal — and the same dataset adjudicated at
-  100/200/300 put only 7 of 18 blocks inside the band, the denominator
+  100/200/300 puts only 7 of 18 blocks inside the band, the denominator
   collapsing to 0.10 ms in one of them. A control that refuses because
   its denominator went to noise has not caught anything.
 
-  So it was rebuilt on a 3,000-boundary page of its own, points at
-  1,000 / 2,000 / 3,000, on the reasoning that SIGNAL SCALES WITH THE
-  PAGE WHILE THE HARNESS JITTER DOES NOT. Both halves of that are wrong,
-  and the run that showed it is recorded rather than discarded:
+  A 3,000-boundary page of its own, points at 1,000 / 2,000 / 3,000,
+  would rest on the reasoning that SIGNAL SCALES WITH THE PAGE WHILE THE
+  HARNESS JITTER DOES NOT. Both halves of that are wrong, measured:
 
   * the constant scales with the page too, because most of it is React's
-    whole-tree reconciliation walk. `c(3pt)` came out 7.93 ms on the
+    whole-tree reconciliation walk. `c(3pt)` comes out 7.93 ms on the
     3,000-cell page against 1.39 ms on the 300-cell one, so `T/ΔT` — the
-    factor by which a difference amplifies relative noise — barely moved;
-  * the arms got NOISIER rather than merely bigger. Within-block IQR over
-    the raw samples ran 30–48% of the median on the 3,000-cell arms
+    factor by which a difference amplifies relative noise — barely moves;
+  * the arms get NOISIER rather than merely bigger. Within-block IQR over
+    the raw samples runs 30–48% of the median on the 3,000-cell arms
     against 28% on the floor, an implied standard error of the median of
     1.7–2.0 ms against the floor's 0.33 ms. Every sample allocates a
     9,001-element React tree and the garbage lands inside the window.
 
-  The result was a per-block ratio scattered over `[0.09, 9.63]`, with the
+  The result is a per-block ratio scattered over `[0.09, 9.63]`, with the
   denominator going NEGATIVE — `T(2000)` reading below `T(1000)` — in one
-  block of eighteen. Worse conditioned than the build it was meant
-  to rescue, and it perturbs the page under test ten times as hard, so
-  the 300-cell construction is what ships.
+  block of eighteen. Worse conditioned than the 300-cell build, and it
+  perturbs the page under test ten times as hard, so the 300-cell
+  construction is what ships.
 
   ## The condition this instrument does not meet, as arithmetic
 
@@ -414,8 +411,8 @@
 (def ^:private ctl3-cells
   "The control's page: the floor's own 300 boundaries, 901 elements — so
   the canonical-DOM gate CHECKS these arms against every substrate arm
-  instead of exempting them. See [[ctl3-dirty]] for the 3,000-cell
-  version that was tried and lost."
+  instead of exempting them. See [[ctl3-dirty]] for why a 3,000-cell
+  version loses."
   300)
 
 (defn- dirty-cells
@@ -451,11 +448,11 @@
   `requestAnimationFrame` callback, a `setTimeout` callback, and the
   browser producing a frame — main-thread work that lands inside the
   counters and is the SAME for every arm. An uncorrected ratio therefore
-  reads `(2W + c)/(W + c)`, which is below 2 for any positive `c`. Run 1
-  of this instrument measured that directly: the doubling control read
-  1.5909x [1.1635 – 2.1509] against a prediction of 2.00x, and its
-  decomposition showed layout doubling exactly (1.56 -> 3.08 ms) while
-  3.6 ms of every sample did not move at all.
+  reads `(2W + c)/(W + c)`, which is below 2 for any positive `c`.
+  Untared, the doubling control reads 1.5909x [1.1635 – 2.1509] against
+  a prediction of 2.00x, and its decomposition shows layout doubling
+  exactly (1.56 -> 3.08 ms) while 3.6 ms of every sample does not move
+  at all.
 
   This arm measures that 3.6 ms, and every published figure subtracts it.
 
@@ -540,12 +537,10 @@
   "The keystroke floor, and `:ctl-50ms` which is the same arm with the
   control's fifty milliseconds inside its handler.
 
-  **No `:lower-bound?` (rf2-0qj9w).** It carried one until the prose that
-  had already ruled this arm a CALIBRATOR — run 1 measured all three
-  substrate arms BELOW it — was reconciled with the metadata. A flag that
-  says the opposite of the page it is published beside is worse than no
-  flag: nothing read it, and anything that started to would have read a
-  refuted classification."
+  **No `:lower-bound?`.** This arm is a CALIBRATOR — all three substrate
+  arms read BELOW it — and a flag that says the opposite of the page it
+  is published beside is worse than no flag: anything that read it would
+  read a refuted classification."
   [id busy]
   {:id           id
    :cells        rf.bench.fresco.clock-views/kb-cells-n
@@ -698,20 +693,20 @@
   settle a frame so the newly-shown subtree is laid out BEFORE anything is
   measured.
 
-  ## Why this exists, and it is a measured repair rather than a tidy-up
+  ## Why this exists, and it is a measured necessity rather than a tidy-up
 
   A row that writes to a standing mount has every arm of the segment
-  mounted at once, and run 2 of this instrument measured what that costs.
-  A frame in which NOTHING is dirty is nearly free — the tare arm read
-  0.33 ms — but a frame in which anything is dirty runs pre-paint and
-  paint over the whole document, and this row's document is four arms
-  deep: 901 + 901 + 1,801 elements. So every bulk sample carried ~1.2 ms
-  that belonged to arms that were not under test, and every ratio was
-  compressed toward 1.0 by it. The doubling control said so plainly —
-  1.4304–1.5214x against a prediction of 2.00x on the three bulk rows,
-  while the SAME control on the mount row, where only one arm is ever
-  standing, passed at 1.9103x. One instrument, two answers, and the
-  difference is exactly whether the other arms were on the page.
+  mounted at once, and that is measured to cost. A frame in which
+  NOTHING is dirty is nearly free — the tare arm reads 0.33 ms — but a
+  frame in which anything is dirty runs pre-paint and paint over the
+  whole document, and this row's document is four arms deep: 901 + 901 +
+  1,801 elements. Unsoloed, every bulk sample carries ~1.2 ms that
+  belongs to arms that are not under test, and every ratio is compressed
+  toward 1.0 by it. The doubling control says so plainly — 1.4304–1.5214x
+  against a prediction of 2.00x on the three bulk rows, while the SAME
+  control on the mount row, where only one arm is ever standing, reads
+  1.9103x. One instrument, two answers, and the difference is exactly
+  whether the other arms are on the page.
 
   `display: none` and not an unmount, because the arm must stay WARM: its
   React tree, its subscription cache and its cells are what a steady-state
@@ -775,10 +770,10 @@
   "ONE commit. Write, drain, stop the in-page span, then READ THE WRITTEN
   CELLS BACK OUT OF THE DOM before settling the frame.
 
-  The read-back is not decoration. On a predecessor harness, deleting the
-  drain made a substrate arm fail its read-back on EVERY write while
-  reading FASTER, with a range that still overlapped the valid window's —
-  the clock alone would have accepted it."
+  The read-back is not decoration. Deleting the drain makes a substrate
+  arm fail its read-back on EVERY write while reading FASTER, with a
+  range that still overlaps the valid window's — the clock alone would
+  accept it."
   [row-key arm]
   (let [k      (:k (get rows row-key))
         val    (next-gen!)
@@ -800,8 +795,8 @@
         ;; a React event schedules at React's DEFAULT lane and an empty
         ;; `flushSync` flushes only the SYNC lane, so a floor arm that
         ;; rendered outside one would have its commit land outside the
-        ;; measured window entirely — the recorded fault is 80 of 320
-        ;; floor samples ending on a cell that still held its old value.
+        ;; measured window entirely — measured, 80 of 320 floor samples
+        ;; end on a cell that still holds its old value.
         ;; And hoisting the element tree out would under-charge the
         ;; denominator every published ratio is taken against.
         ;;
@@ -857,9 +852,8 @@
   ## This exists so the control can be shown REFUSING
 
   A control that has never been seen to fail is not evidence that the
-  instrument is sound; it is a control whose sensitivity is unmeasured,
-  and this lane has found that defect nine times in two days. So the
-  falsification is a KNOB rather than a hand edit someone once made and
+  instrument is sound; it is a control whose sensitivity is unmeasured.
+  So the falsification is a KNOB rather than a hand edit made once and
   described afterwards: a reader reproduces the refusal with an
   environment variable.
 
@@ -904,7 +898,7 @@
   "The half of a keystroke sample the page owns: settle the frame the
   keypress caused, then read ALL FOUR field values back out of the DOM.
 
-  All four, not just the one typed into (rf2-0qj9w). The row's claim is
+  All four, not just the one typed into. The row's claim is
   that a keystroke moves exactly one field's value while every layer-1
   subscription on the page recomputes, and a read-back that only looked
   at the typed field could not tell that claim from a handler that had
@@ -967,7 +961,7 @@
         (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n 0))
         (swap! state assoc :cells (zeros rf.bench.fresco.p0-reagent-views/cells-n))
         ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`: the driver prints this under a
-        ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
+        ;; `bytes` label, and `count` answers UTF-16 code units.
         #js {:arm (name arm-id) :hash (str-hash s) :bytes (rf.bench.fresco.lane/utf8-bytes s)
              :control (boolean (:control? arm))}))))
 

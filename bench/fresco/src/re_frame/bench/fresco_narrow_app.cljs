@@ -54,16 +54,16 @@
   the round — a sample was taken, and a per-round counter would restart the
   trajectory four times and ask nothing.
 
-  `rows` is not called `samples`, and that is a repair rather than a style
-  choice. It was: the destructured `{:keys [samples ...]}` shadowed the
-  numeric `samples` PARAMETER, so `(+ warmup samples)` added a vector to a
-  number, `next` came back `NaN`, and every position from round two onward
-  was non-finite. The guard filters non-finite positions, so it went on
-  reporting `24 samples` per arm while adjudicating the phase question on
-  the SIX that survived — an `[ok]` verdict resting on a quarter of the
-  evidence it named. Nothing threw and no figure looked wrong. The driver
-  now prints the finite-position count per arm beside the strata, so the
-  next version of this cannot hide."
+  `rows` is not called `samples`, and that is not a style choice: a
+  destructured `{:keys [samples ...]}` would shadow the numeric `samples`
+  PARAMETER, so `(+ warmup samples)` would add a vector to a number,
+  `next` would come back `NaN`, and every position from round two onward
+  would be non-finite. The guard filters non-finite positions, so it would
+  go on reporting `24 samples` per arm while adjudicating the phase
+  question on the SIX that survive — an `[ok]` verdict resting on a
+  quarter of the evidence it named, with nothing thrown and no figure
+  looking wrong. The driver prints the finite-position count per arm
+  beside the strata, so that shape cannot hide."
   [warmup samples writes position0]
   (-> (rf.bench.fresco-narrow/seed-arms! @mounts)
       (.then (fn [_] (rf.bench.fresco-narrow/run-round! @mounts

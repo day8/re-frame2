@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.presence
-  "PRESENCE, DRIVEN BY REACT (rf2-2rtt6.37, HD-025). The impure half:
+  "PRESENCE, DRIVEN BY REACT (HD-025). The impure half:
   a component that owns the retained-children list and a clock. The
   machine and the phase transform are
   `re-frame.bench.fresco.front.presence`, and they are pure.
@@ -9,8 +9,8 @@
   **Three React hooks — `useContext`, `useState` and `useEffect` — in
   THIS component.** The ≤2-hook budget HD-020(b) polices is the *boundary
   shell's*, and this is not a boundary shell: it reads no subscription,
-  mounts no registration and takes no cell. `runtime/shell` is untouched
-  and the dispatcher-level ledger still counts exactly two there.
+  mounts no registration and takes no cell. `runtime/shell` takes none of
+  them and the dispatcher-level ledger counts exactly two there.
 
   The two lifecycle hooks are legitimate under HD-003's placement rule
   rather than in spite of it: presence is animation lifecycle, which is
@@ -20,20 +20,20 @@
   instance — would be a second reactivity system, which is the top item
   on the anti-regression fence.
 
-  ## The frame hook, and why children lowered here need one (rf2-2rtt6.66)
+  ## The frame hook, and why children lowered here need one
 
   A presence child is hiccup **data**, written in the parent boundary's
   body — but it is **lowered in THIS component's render**, one React
   render later, after that body's dynamic extent has unwound. So
   `rf.bench.fresco.front.intent/*dispatch*` is unbound at the moment the codec walks it, and
-  before this hook existed an intent at an event position on ANY presence
-  child raised `:rf.error/fresco-intent-outside-boundary` at render, and
-  an `h/event` at one raised it at invocation. Loud, never silent — and it
-  meant the tray this whole ruling is sold on,
+  without this hook an intent at an event position on ANY presence
+  child would raise `:rf.error/fresco-intent-outside-boundary` at render,
+  and an `h/event` at one would raise it at invocation. Loud, never
+  silent — but the tray this whole design is sold on,
 
       [:div.toast {:key id :on-click [:toasts/dismiss id]} …]
 
-  could not be written. The retained half is where it bit hardest: a
+  could not be written. The retained half is where it would bite hardest: a
   child the author has already removed from app-db is still on screen and
   still clickable for `:timeout-ms`, and its dismiss button is exactly
   the control an exiting toast wants.
@@ -47,7 +47,7 @@
 
   **No frame in scope is not an error here.** Presence reads nothing, so
   a tray mounted outside a frame is legal until one of its children
-  writes an intent — at which point the existing loud error fires and
+  writes an intent — at which point the loud intent error fires and
   names the intent, which is better attribution than a generic
   no-frame-context throw from the tray. The binding is therefore
   unconditional and simply carries `nil` when there is no provider.
@@ -67,7 +67,7 @@
   earliest deadline. Deadlines are absolute instants, so a timer re-armed
   because some *other* key changed cannot extend a child's retention.
 
-  ## Born present under adoption (rf2-2rtt6.84)
+  ## Born present under adoption
 
   A hydrating tree's children are already on the screen, so they start
   `:present` rather than `:mounting` — the machine's own `settle`,
@@ -96,7 +96,7 @@
         state      (aget hook 0)
         set-state  (aget hook 1)
         stepped    (rf.bench.fresco.front.presence/step state children (now) timeout-ms)
-        ;; BORN PRESENT UNDER ADOPTION (rf2-2rtt6.84). A child a render
+        ;; BORN PRESENT UNDER ADOPTION. A child a render
         ;; meets for the first time is `:mounting`, which is right for a
         ;; child that is genuinely appearing and wrong for one that is
         ;; already on the screen: under hydration every child is already
@@ -105,12 +105,12 @@
         ;; client pass render each child's `::h/mounting` overrides
         ;; (`opacity: 0`, typically) over DOM that carries none.
         ;;
-        ;; The fix is the machine's own [[front.presence/settle]], the
+        ;; The mechanism is the machine's own [[front.presence/settle]], the
         ;; function the enter flip already uses, applied one render
         ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
         ;; phase for a tree that is being adopted — and not a second
         ;; render mode: the transform, the overrides, the deadlines and
-        ;; the terminal bound are all unchanged, and `adopting?` is false
+        ;; the terminal bound are all an ordinary mount's, and `adopting?` is false
         ;; for every ordinary mount and false again the moment the
         ;; closer commits.
         ;;
@@ -139,13 +139,13 @@
             (when expiry (js/clearTimeout expiry))
             (when enter (js/clearTimeout enter)))))
       #js [(rf.bench.fresco.front.presence/pending-signature next)])
-    ;; THE LOWERING, inside the frame (rf2-2rtt6.66). These children were
+    ;; THE LOWERING, inside the frame. These children were
     ;; written in the parent's body and are walked here, so the ambient
     ;; frame the codec's intent lowering reads has to be re-established
     ;; around this call and nowhere else. `nil` when no provider is above
     ;; the tray — the binding is unconditional so the branch does not
     ;; exist, and an intent written under a frameless tray still lands on
-    ;; the existing loud error naming the intent.
+    ;; the loud intent error naming the intent.
     (rf.bench.fresco.front.intent/with-frame frame-kw (when frame-kw (rf.bench.fresco.arm1.runtime/frame-dispatch frame-kw))
       (fn [] (rf.bench.fresco.front.codec/as-element (into [:<>] (rf.bench.fresco.front.presence/render next)))))))
 

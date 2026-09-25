@@ -1,9 +1,9 @@
 (ns re-frame.bench.fresco.shapes.card
   "THE CENSUS'S ARTICLE CARD — written **once**, so shapes 2 and 3 differ
-  in one thing (rf2-2rtt6.51).
+  in one thing.
 
   Ported from RealWorld's `article-preview`
-  (`examples/real-apps/realworld_resources/ui_views.cljs:111-143`), the
+  (`examples/real-apps/realworld_resources/views.cljs`), the
   card that carries Conduit's home feed and every profile list.
 
   ## Why it is a plain function
@@ -38,19 +38,19 @@
   a port that dropped the status read to make a page cheaper would be
   quoting a row the census does not have.
 
-  ## The three links are route-links (rf2-2rtt6.54)
+  ## The three links are route-links
 
-  The census card carries three `ui/route-link`s — both author bylines
-  and the preview link — and until rf2-2rtt6.54 this port spelled them
-  `[:a {:href (str \"#/profile/\" …)}]`: a faithful port of the MARKUP
-  and an unfaithful one of the AUTHORING, hand-building the URL the
-  router owns. They are now
-  [[re-frame.bench.fresco.front.route-link/route-link]] calls — the
-  author names a route and params and never sees a URL. A route-link is a
-  plain function producing ONE `<a>`, reading NO subscription, so
-  [[elements-per-card]] and the card's two-read count are exactly what
-  they were; what changed per card is three `route-url` synthesis calls
-  per render, priced on the routing artefact's own render path.
+  The census card carries three `rf/route-link`s — both author bylines
+  and the preview link — and this port spells them as
+  [[re-frame.bench.fresco.front.route-link/route-link]] calls: the author
+  names a route and params and never sees a URL. Spelling them
+  `[:a {:href (str \"#/profile/\" …)}]` would be a faithful port of the
+  MARKUP and an unfaithful one of the AUTHORING, hand-building the URL
+  the router owns. A route-link is a plain function producing ONE `<a>`,
+  reading NO subscription, so [[elements-per-card]] and the card's
+  two-read count are what a bare anchor's would be; what a route-link
+  adds per card is three `route-url` synthesis calls per render, priced
+  on the routing artefact's own render path.
   (`shapes/route_link_dom_cljs_test` owns the click witnesses.)
 
   `.cljc`-compatible by construction: no interop, no JS literal."

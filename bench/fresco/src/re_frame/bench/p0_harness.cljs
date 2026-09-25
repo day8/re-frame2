@@ -3,9 +3,9 @@
   whose arm order rotates AND reflects, and floor normalisation.
 
   Kept apart from the arms so the METHOD is one thing a reader checks
-  once. Every rule below is a recorded instrument fault from the
-  predecessor's harnesses, each of which produced a plausible precise
-  WRONG NUMBER before it was caught.
+  once. Every rule below answers a recorded instrument fault from the
+  predecessor's harnesses, each of which produces a plausible precise
+  WRONG NUMBER when its rule is broken.
 
   ## A reading is one `flushSync` window
 
@@ -13,33 +13,31 @@
   element construction AND React's render, commit and DOM mutation, with
   nothing scheduled out of it. Nothing runs inside an `act` environment:
   `act` diverts work to its own queue, which is not what a browser does,
-  and measured, cost ~600 ms a call.
+  and, measured, costs ~600 ms a call.
 
   ## Warm-up matters more than interleaving
 
-  The `.cjs` order guard's live reproduction measured one control over
+  The `.cjs` order guard's live reproduction reads one control over
   sixteen consecutive windows with nothing varying but how many times the
-  site had run:
+  site has run:
 
       42.32 | 10.26 10.26 10.26 10.33 10.28 | 8.12 8.12 ... 8.12
 
   — 5.3x the settled value on the first window, +27% for the next five,
   and 8.122 for ever after the seventh; while the immediate PREDECESSOR,
-  with position held fixed, was worth 0.0-0.3%. So this harness warms
+  with position held fixed, is worth 0.0-0.3%. So this harness warms
   every arm before it reads any of them, and it still interleaves,
   because a plan reversal moves position and adjacency together and
   neither factor may be left unchecked.
 
   ## Interleaving at the SAMPLE level, rotating AND reflecting
 
-  A workstation with six other agents on it drifts on a timescale that
-  runs all of one arm and then all of another straight into a systematic
-  error. So every sample index mounts every arm, in an order that rotates
+  A shared workstation drifts on a timescale that runs all of one arm and
+  then all of another straight into a systematic error. So every sample index mounts every arm, in an order that rotates
   AND REFLECTS with the index. A bare cyclic rotation changes which arm
   goes FIRST and NOTHING ELSE — arm `a` sits at slot `(a - s) mod k`, so
-  its predecessor is `(a - 1) mod k` at every index — and every
-  interleaved harness in this repository published that as a mitigation
-  when it was not one. The order comes from
+  its predecessor is `(a - 1) mod k` at every index — so a bare rotation
+  is not a mitigation for adjacency at all. The order comes from
   `re-frame.bench.order-guard/slot-order`, which is the shared expression
   of the rule and carries its own arithmetic self-test.
 
@@ -52,9 +50,8 @@
   a range that straddles 1.0 is reported as INDISTINGUISHABLE rather than
   as a winner.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]
             [re-frame.bench.order-guard :as rf.bench.order-guard]))
@@ -85,13 +82,13 @@
 
   `innerHTML` preserves insertion order and two front ends write props in
   different orders, so comparing it compares the serialiser rather than
-  the page — the predecessor's first run reported two witnesses as
-  producing different pages on exactly that mistake, and they did not.
-  Sorting the names compares the DOM.
+  the page, and reports two identical pages as different. Sorting the
+  names compares the DOM.
 
   This is the entire fairness guarantee. Without it two arms could be
-  timed against each other while building different pages, and a
-  canonical-DOM gate has already caught an arm rendering an EMPTY page."
+  timed against each other while building different pages — one of them,
+  possibly, an EMPTY page, which is exactly what a canonical-DOM gate
+  catches."
   [node]
   (let [out (array)]
     (letfn [(walk [n]
@@ -137,25 +134,25 @@
 (defn collect!
   "Force a garbage collection BETWEEN samples, never inside a window.
 
-  This is here because the instrument measured what happens without it,
-  and it was not subtle. The FLOOR arm — a hand-written `createElement`
-  walk with no substrate, no subscription and no re-frame state, doing
-  byte-identical work in every round — read
+  Without it the instrument measures a drift that is not subtle. The
+  FLOOR arm — a hand-written `createElement` walk with no substrate, no
+  subscription and no re-frame state, doing byte-identical work in every
+  round — reads
 
       W1 mount floor:  2.30 ms -> 4.85 ms -> 6.10 ms   across three rounds
       W3 mount floor:  1.85 ms -> 3.85 ms -> 5.65 ms
 
-  while the BULK floor over the same run sat flat at 0.75-0.80 ms and
-  2.50-2.60 ms. The arm-order guard caught it as a phase contamination
+  while the BULK floor over the same run sits flat at 0.75-0.80 ms and
+  2.50-2.60 ms. The arm-order guard catches it as a phase contamination
   (LAST-THIRD reading 2.16x to 3.05x FIRST-THIRD, ranges disjoint) and
-  refused, which is exactly what it is for. The difference between the two
+  refuses, which is exactly what it is for. The difference between the two
   phases is allocation: the mount rows build and discard hundreds of React
   roots and hundreds of thousands of elements, and the collector's cost
   climbs with the garbage nobody made it take. The bulk rows mount once
   and then only write.
 
   Left alone, that drift does NOT cancel in the ratio — the same round's
-  W1 readings gave 2.48x, then 1.69x, then 1.57x for one arm over the
+  W1 readings give 2.48x, then 1.69x, then 1.57x for one arm over the
   floor. A run that published the mean of those would be publishing the
   collector's schedule.
 
@@ -166,17 +163,17 @@
   the clock row is not allowed to smear it across whichever arm happened
   to be measured when a major collection fell due.
 
-  **A bare `gc()` is not enough, and the probe is what established that.**
+  **A bare `gc()` is not enough, and the probe shows it.**
   Chrome's exposed `gc()` performs a SCAVENGE — a minor collection of the
   young generation — and the mount rows' garbage is promoted long before
   it runs. With a bare `gc()` after every sample the page's
-  `usedJSHeapSize` still climbed monotonically 34 MB -> 46 -> 55 -> 63 ->
-  75 -> 87 across six segment entries, while `body-children` sat at 2 the
-  whole time: nothing was leaking into the document, the collector was
-  simply not being asked to do the work. The floor drifted 4.05 -> 7.95 ->
+  `usedJSHeapSize` still climbs monotonically 34 MB -> 46 -> 55 -> 63 ->
+  75 -> 87 across six segment entries, while `body-children` sits at 2 the
+  whole time: nothing is leaking into the document, the collector is
+  simply not being asked to do the work. The floor drifts 4.05 -> 7.95 ->
   8.60 ms on exactly that heap. So the request is explicit — a synchronous
-  MAJOR collection — with the bare call kept as a fallback for a runtime
-  that does not accept the options form.
+  MAJOR collection — with the bare call as a fallback for a runtime that
+  does not accept the options form.
 
   When `gc` is absent the harness does not pretend: nothing is collected
   and the guard's phase factor will catch the consequence."
@@ -224,7 +221,7 @@
     {:ms (- (now-ms) t0) :container container :handle @handle :arm arm}))
 
 ;; ---------------------------------------------------------------------------
-;; Releasing — and the nested-`flushSync` fault that hid inside it
+;; Releasing — and the nested-`flushSync` fault that can hide inside it
 ;; ---------------------------------------------------------------------------
 ;;
 ;; **An unmount must NOT be wrapped in `react-dom/flushSync`.** Every
@@ -236,19 +233,19 @@
 ;; is compiled out. The container is then detached from a document that
 ;; never committed the unmount, and the whole fiber tree stays reachable.
 ;;
-;; Measured, on this instrument, with the wrapper in place: the page's
-;; `usedJSHeapSize` climbed 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB across six
+;; Measured on this instrument with the wrapper in place, the page's
+;; `usedJSHeapSize` climbs 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB across six
 ;; segment entries — about 12 MB per entry, which is 18 W1 roots at
 ;; ~500 KB plus 144 W3 roots at ~25 KB, i.e. EVERY root retained — while
-;; `body-children` sat at 2 throughout, so nothing was leaking into the
-;; document. The floor arm, which cannot change, drifted 3.4 -> 5.8 -> 7.0
-;; ms and the arm-order guard refused on phase. A forced major collection
-;; between samples did not move it, because the roots were not garbage.
+;; `body-children` sits at 2 throughout, so nothing is leaking into the
+;; document. The floor arm, which cannot change, drifts 3.4 -> 5.8 -> 7.0
+;; ms and the arm-order guard refuses on phase. A forced major collection
+;; between samples does not move it, because the roots are not garbage.
 ;;
-;; The `try/catch` that used to sit around the unmount is gone with it. It
-;; swallowed exactly the class of failure that produces this fault, and a
-;; release that fails silently is how a benchmark comes to be measuring a
-;; page that is still standing.
+;; There is no `try/catch` around the unmount either. It would swallow
+;; exactly the class of failure that produces this fault, and a release
+;; that fails silently is how a benchmark comes to be measuring a page
+;; that is still standing.
 
 (defn release!
   "Unmount and detach. Never timed. NOT wrapped in `flushSync` — see above."
@@ -288,10 +285,9 @@
   writes. Chrome clamps `performance.now()` to 100 us, and the 51-element
   form mounts in three to eight quanta — close enough to the clamp that
   two arms can read the identical figure because the timer cannot tell
-  them apart, which is a null result wearing the clothes of a tie. This
-  run MEASURED that: at one mount a sample, both segments of the form
-  witness returned exactly 0.75 ms and the ratio came out at precisely
-  1.0000. Batching lifts every arm clear of the clamp; the witness is
+  them apart, which is a null result wearing the clothes of a tie.
+  MEASURED: at one mount a sample, both segments of the form witness
+  return exactly 0.75 ms and the ratio comes out at precisely 1.0000. Batching lifts every arm clear of the clamp; the witness is
   unchanged, only the sample is bigger.
 
   The containers are created and attached OUTSIDE the window: a
@@ -306,13 +302,13 @@
   excluded from the denominator rather than counted as verified.** The one
   caller that passes nil is the positive control, whose two arms build
   different pages on purpose; there is nothing to read back. Counted into
-  `:total` with `:bad 0` — which is what this answered before rf2-95s5b —
-  those windows would dilute a real failure in whatever tally a caller
-  summed them into, and `N unverified of M` would be quoting an M that
-  nothing had checked. So they contribute to neither, and the control is
-  adjudicated by its own gate instead (`lane/control-verdict`, reached
-  through `p0-app/adjudicate`). No published figure moves: `control-round!`
-  keeps only `:readings` and has always discarded these counts."
+  `:total` with `:bad 0`, those windows would dilute a real failure in
+  whatever tally a caller summed them into, and `N unverified of M` would
+  be quoting an M that nothing had checked. So they contribute to neither,
+  and the control is adjudicated by its own gate instead
+  (`lane/control-verdict`, reached through `p0-app/adjudicate`). No
+  published figure depends on them: `control-round!` keeps only
+  `:readings` and discards these counts."
   [arm n expected]
   (let [containers (mapv (fn [_] (container!)) (range n))
         handles    (volatile! [])
@@ -342,24 +338,22 @@
   `slot-order` — rotate then reflect on odd indices — is the shared rule,
   and for three or more arms it is the right one: a bare cyclic rotation
   changes which arm goes FIRST and nothing else, so every arm keeps the
-  same predecessor in every round. **For exactly TWO arms it used to
-  degenerate**: rotating `[0 1]` gives `[1 0]`, reversing that gives
-  `[0 1]` again, so the reflecting schedule emitted the identical order at
-  every index and each arm had exactly one predecessor for ever. This run
-  measured that too — the guard reported `:unchecked`, `only 1 stratum —
-  the question was never asked`, on every substrate arm, and refused.
-  That is the guard doing its job, and the repair belonged in the ARM, not
-  in the guard.
+  same predecessor in every round. **For exactly TWO arms a reflecting
+  schedule degenerates**: rotating `[0 1]` gives `[1 0]`, reversing that
+  gives `[0 1]` again, so it would emit the identical order at every index
+  and each arm would have exactly one predecessor for ever — the guard
+  reports that as `:unchecked`, `only 1 stratum — the question was never
+  asked`, on every substrate arm, and refuses. That is the guard doing its
+  job, and the repair belongs in the ARM, not in the guard.
 
-  **`rf2-ouwh8` has since repaired it at the source**: `slot-order` drops
-  the reflection at `k = 2`, where the bare rotation already supplies both
-  of the orders two arms have. The two candidates below therefore now
-  COINCIDE at `k = 2` and this function no longer has a degenerate case to
-  route around. It stays because scoring is worth more than assuming — it
-  publishes the measured adjacency of the schedule it actually ran, which
-  is the difference between a mitigation and a claim of one — but a reader
-  should not take its presence as evidence that the shared rule is still
-  broken.
+  **`slot-order` makes that repair at the source**: it drops the
+  reflection at `k = 2`, where the bare rotation already supplies both of
+  the orders two arms have. The two candidates below therefore COINCIDE
+  at `k = 2` and this function has no degenerate case to route around. It
+  exists because scoring is worth more than assuming — it publishes the
+  measured adjacency of the schedule it actually ran, which is the
+  difference between a mitigation and a claim of one — and its presence
+  is not evidence that the shared rule is broken.
 
   So rather than hard-coding either rule, both candidates are scored with
   the guard's own `adjacency` over the run this harness is about to
@@ -396,10 +390,9 @@
 ;; yet reads 1.26x to 5.3x its settled value — so warming matters more
 ;; than interleaving does. But a warm-up run as a SEPARATE loop before the
 ;; round leaves the first recorded sample of every round with NO
-;; predecessor, and this instrument measured what that costs: the guard
-;; partitioned the `<none>` stratum against the rest and found the first
-;; sample of a round reading 1.35x its siblings, ranges disjoint, and
-;; refused. The first sample after an adapter destroy/install genuinely IS
+;; predecessor, and that costs something measurable: the guard partitions
+;; the `<none>` stratum against the rest, finds the first sample of a round
+;; reading 1.35x its siblings, ranges disjoint, and refuses. The first sample after an adapter destroy/install genuinely IS
 ;; cold; hiding it in a stratum of its own is not a fix.
 ;;
 ;; So `mount-round!` and `bulk-round!` run `warmup` sample indices that are
@@ -413,8 +406,8 @@
   EVERY measured mount is verified against `expected` element count,
   OUTSIDE its own window (the window closes when `flushSync` returns).
   `:bad` / `:total` are the `N unverified of M` a report must carry: an arm
-  that renders an empty page is the cheapest arm in any table, and a
-  canonical-DOM gate has already caught exactly that.
+  that renders an empty page is the cheapest arm in any table, which is
+  exactly what a canonical-DOM gate catches.
 
   Answers `{:readings {id [ms …]} :order [{:arm :value :predecessor
   :position} …] :bad n :total n :position n}` — the order samples carry

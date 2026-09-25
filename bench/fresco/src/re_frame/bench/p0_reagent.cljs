@@ -21,16 +21,14 @@
 
   ## Why NOT a `reagent.core/atom` or a `cursor`
 
-  The predecessor's cross-substrate row put Freehand on re-frame `app-db`
-  against Reagent on a bare `r/atom`, and said in its own docstring that
-  this was not the same amount of framework. It is exactly the asymmetry
-  P0 exists to remove: a bare ratom skips the re-frame write, the event
+  A candidate on re-frame `app-db` against Reagent on a bare `r/atom` is
+  not the same amount of framework, and that is exactly the asymmetry P0
+  exists to remove: a bare ratom skips the re-frame write, the event
   pipeline and the signal graph, so it is a LOWER BOUND on Reagent and not
   a fair denominator. Everything here goes through `re-frame.core`.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.core :as rf])
@@ -94,7 +92,7 @@
      ^{:key i} [u-cell i])])
 
 ;; ---------------------------------------------------------------------------
-;; FAN — the fan-out family (rf2-5prok)
+;; FAN — the fan-out family
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The same `.cell` boundary as `u-cell`, with two things lifted into
@@ -139,7 +137,7 @@
      2 (for [j (range n-cells)] ^{:key j} [fan-cell-2 j (+ offset j)]))])
 
 ;; ---------------------------------------------------------------------------
-;; LAD — the reads-per-boundary ladder (rf2-2rtt6.34)
+;; LAD — the reads-per-boundary ladder
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The same `.cell` boundary again, at 1/3/7/20 reads, every read a
@@ -152,8 +150,7 @@
 ;; below is in the substrates rather than in the measurement: Reagent has
 ;; no hook-order rule, so a form-1 component may deref a computed number of
 ;; reactions and Reagent's `deref`-capture learns all of them. That is how
-;; an application would write it. `reads-ladder`'s Reagent arm makes the
-;; same choice for the same reason.
+;; an application would write it.
 
 (reg-view lad-cell [j n r]
   (rf.bench.p0-workcount/render!)

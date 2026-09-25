@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.topo.model
   "THE TOPOLOGY TOURNAMENT'S STATE LAYER — one table, four read
-  topologies, four operations (rf2-hic-036).
+  topologies, four operations.
 
   The tournament asks which read topology fits which workload. That is
   only answerable if the four arms are four *readings of one
@@ -49,7 +49,7 @@
   children are unchanged values in a new sequence. An implementation that
   rebuilt its children would produce the same DOM and a completely
   different body count, which is exactly the distinction
-  `shapes/bulk_dom_cljs_test` was written to make.
+  `shapes/bulk_dom_cljs_test` exists to make.
 
   ## `edit` is the COMMIT a keystroke causes, not the keystroke
 
@@ -57,10 +57,11 @@
   writes the row's draft cell — the write a controlled field's change
   intent performs — and the tournament measures the commit that follows.
   The pipeline in front of it (keystroke → state write → recomputation →
-  boundary run → commit → visible echo) is **`rf2-hic-045`'s published
-  per-keystroke mechanics**, which owns exactly that ladder for the
-  editor and the grid. Duplicating it here would mint a second,
-  unreconciled witness for a quantity another bead already owns.
+  boundary run → commit → visible echo) is the published per-keystroke
+  mechanics' (`docs/design/fresco/product/per-keystroke.md`), which own
+  exactly that ladder for the editor and the grid. Duplicating it here
+  would mint a second, unreconciled witness for a quantity that page
+  already owns.
 
   ## Determinism
 
@@ -189,7 +190,7 @@
   (fn [{:keys [db]} [_ i s]] {:db (assoc-in db [:draft i] s)}))
 
 (rf/reg-event :topo/bump-stride
-  ;; **THE POSITIVE CONTROL'S WRITE** (rf2-7iqb5's prescribed repair).
+  ;; **THE CHANGED-SET CONTROL'S WRITE.**
   ;;
   ;; Every `stride`-th row moves, in one commit, on a table whose SIZE
   ;; does not change. Element count, layout and paint are therefore
@@ -197,10 +198,11 @@
   ;; doubles is the changed set — so the prediction on the commit-side
   ;; work is 2.00x.
   ;;
-  ;; This is the control this lane did not have. Every earlier positive
-  ;; control for an update row scaled the PAGE, and rf2-7iqb5 records why
-  ;; that cannot certify one: the work does not scale with the page, so
-  ;; even a perfect instrument reads below the predicted factor.
+  ;; It holds the page still because a positive control for an update
+  ;; row that scaled the PAGE could not certify one: the work does not
+  ;; scale with the page, so even a perfect instrument reads below the
+  ;; predicted factor. On `coarse` and `chunked` it is degenerate instead
+  ;; — see [[:topo/bump-indexed]] below and `control_witness_dom_cljs_test`.
   (fn [{:keys [db]} [_ stride]]
     {:db (update db :rows
                  (fn [rs]
@@ -208,17 +210,17 @@
                               {} rs)))}))
 
 (rf/reg-event :topo/bump-indexed
-  ;; **THE RENDERED-SCALE CONTROL'S WRITE** (rf2-m6i0).
+  ;; **THE RENDERED-SCALE CONTROL'S WRITE.**
   ;;
   ;; Every `stride`-th row below `limit` moves, written by INDEX rather
   ;; than by rebuilding the table. That is the whole difference from
-  ;; [[:topo/bump-stride]] above, and it is the difference the tournament's
-  ;; refused control turned on: `bump-stride` `reduce-kv`s all `B` rows
+  ;; [[:topo/bump-stride]] above, and it is the difference the changed-set
+  ;; control's refusal turns on: `bump-stride` `reduce-kv`s all `B` rows
   ;; whichever stride runs, so its handler costs the same at both halves of
   ;; the manipulation and contributes a shared constant that compresses the
   ;; measured ratio toward 1. This handler costs `limit/stride` — it is
   ;; proportional to the CHANGED SET, which is the first of the two
-  ;; conditions rf2-m6i0's diagnosis named.
+  ;; conditions a positive control needs here.
   ;;
   ;; `limit` is the arm's own RENDERED row count, never `B`: on the
   ;; windowed arm a write striding over all `B` rows would again be a
@@ -279,7 +281,7 @@
   row; the windowed arm renders at most `w` — which is the arm's entire
   purpose and the reason it is not DOM-comparable with the other three.
 
-  **This function is also the control's scale parameter** (rf2-m6i0). A
+  **This function is also the control's scale parameter**. A
   positive control has to double the quantity the arm's commit cost is
   proportional to, and this is that quantity: `B` for three arms, `w` for
   the fourth. Doubling `B` on the windowed arm moves nothing it renders,

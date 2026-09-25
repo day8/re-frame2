@@ -1,44 +1,42 @@
 #!/usr/bin/env node
 'use strict';
 // THE OUTSIDE-INSTRUMENT COMPARATOR'S EXIT PATH — absent evidence is not
-// agreement. rf2-rguy1, filed by #7359's merged-PR audit, and the same defect
-// `clock_exit_path.test.cjs` pins for the bench DRIVERS: a program whose exit
-// code is quoted as a quality gate, taking that exit from a reading that had
-// nothing in it.
+// agreement. The same shape `clock_exit_path.test.cjs` pins for the bench
+// DRIVERS: a program whose exit code is quoted as a quality gate must not take
+// that exit from a reading that has nothing in it.
 //
-//     node fresco/test/re_frame/bench/fresco/jsfb_compare_exit_path.test.cjs
+//     node src/re_frame/bench/fresco/jsfb_compare_exit_path.test.cjs   (from bench/fresco/)
 //
-// THE DEFECT THIS PINS. `jsfb_compare.cjs` read the benchmark driver's results
+// WHAT THIS PINS. A comparator that read the benchmark driver's results
 // directory with `if (!fs.existsSync(dir)) return {}` and our run's JSON with
-// `OURS && fs.existsSync(OURS) ? … : null`, then filtered the table down to the
-// rows where both instruments produced a finite ratio. With neither file
-// present that filter kept nothing, and the program printed
+// `OURS && fs.existsSync(OURS) ? … : null`, then filtered the table down to
+// the rows where both instruments produced a finite ratio, would keep nothing
+// with neither file present, print
 //
 //     ;; VERDICT: 0 of 0 comparable rows agree within 15%
 //
-// and exited 0. Reproduced against the landed file before this repair, three
-// ways: results directory absent, results directory renamed away with the real
-// `ours3.json` present, and results present with `--ours` pointing nowhere.
-// All three exited 0. So "the comparator is green" and "the comparison never
-// happened" were the same observation, which is the failure direction that
-// cannot be allowed: the commonest reason a results directory is missing is a
-// run that did not take place.
+// and exit 0 — and it would exit 0 the same way with the results directory
+// absent, with it renamed away beside a real `ours3.json`, and with `--ours`
+// pointing nowhere. "The comparator is green" and "the comparison never
+// happened" would be the same observation, which is the failure direction
+// that cannot be allowed: the commonest reason a results directory is missing
+// is a run that did not take place.
 //
 // WHY IT IS PINNED HERE RATHER THAN END TO END. The evidence the comparator
 // reads is produced by a chromedriver run of an outside benchmark and a
 // headless-Chromium run of ours, neither of which a unit test can take. So the
-// repair put the whole decision in ONE pure function over the read evidence,
-// which this file drives directly, plus an end-to-end block that spawns the
-// program and asserts the PROCESS exit code — because the process exit is the
-// observable the bead is actually about, and a pure function returning 2 is no
-// use if nothing carries it to the shell.
+// whole decision is ONE pure function over the read evidence, which this file
+// drives directly, plus an end-to-end block that spawns the program and
+// asserts the PROCESS exit code — because the process exit is the observable
+// a quality gate is quoted on, and a pure function returning 2 is no use if
+// nothing carries it to the shell.
 //
 // EVERY FIXTURE IS BUILT IN THIS FILE, in a `mkdtemp` directory removed
 // afterwards. Nothing here asserts that any path in the checkout exists: the
 // preserved run lives outside the repository by design, so a test that read it
 // would pass on the box that took it and fail everywhere else.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Run by `npm run check` in bench/fresco/.
 
 const assert = require('node:assert');
 const cp = require('node:child_process');
@@ -111,7 +109,7 @@ function oursJson(name, { drop = [], over = {} } = {}) {
 
 /**
  * Our run's JSON with one cell's own numbers overwritten — the style the
- * non-finite-ratio case below already uses, factored out because the
+ * non-finite-ratio case below uses, factored out because the
  * positivity cases need `base` and `ms` as well as `ratio`.
  */
 function oursPatched(name, ourId, arm, patch) {
@@ -161,7 +159,7 @@ test('the complete fixture really does fill every expected cell', () => {
   assert.deepStrictEqual([...measured].sort(), [...EXPECTED_CELLS].sort());
 });
 
-// --- THE DEFECT: absent evidence is a refusal, and it used to be a pass ------
+// --- ABSENT EVIDENCE is a refusal, never a pass ------------------------------
 
 test('THE VACUOUS PASS: no results directory and no --ours cannot exit 0', () => {
   const v = verdict(evidence(path.join(TMP, 'nope'), undefined));
@@ -173,7 +171,7 @@ test('THE VACUOUS PASS: no results directory and no --ours cannot exit 0', () =>
 });
 
 test('a results directory renamed away, with a REAL ours JSON beside it, still refuses', () => {
-  // The audit's own scenario: the run happened, the directory moved.
+  // The likeliest real case: the run happened, the directory moved.
   const v = verdict(evidence(path.join(TMP, 'results-RENAMED'), oursJson('renamed.json')));
   assert.strictEqual(v.code, 2);
   assert.match(v.lines[0], /results directory does not exist: .*results-RENAMED/);
@@ -291,21 +289,21 @@ test('a ratio present but NOT FINITE is missing evidence, not a measured cell', 
   });
 });
 
-// --- A ZERO OR NEGATIVE DURATION IS NOT A MEASUREMENT (rf2-110be) -----------
+// --- A ZERO OR NEGATIVE DURATION IS NOT A MEASUREMENT ------------------------
 //
-// The half of the fail-open class the repair above left standing. "Measured"
-// meant "the derived difference is finite", and a difference is finite long
-// before the durations under it are real. #7643's merged-PR audit built the
-// case: a COMPLETE ten-cell table whose driver medians are all NEGATIVE
-// (-100 ms base, -120/-90 ms arms) divides out to exactly the positive
-// 1.2/0.9 ratios a sound run produces, matches our ratios, and exited 0 with
-// YES on every row. Counter-inverted or malformed timing evidence walked
-// through the fail-closed gate the rest of this file pins.
+// The other half of the fail-open class. A difference is finite long before
+// the durations under it are real, so "measured" cannot mean "the derived
+// difference is finite". A COMPLETE ten-cell table whose driver medians are
+// all NEGATIVE (-100 ms base, -120/-90 ms arms) divides out to exactly the
+// positive 1.2/0.9 ratios a sound run produces and matches our ratios; judged
+// on the ratio alone it would exit 0 with YES on every row, and
+// counter-inverted or malformed timing evidence would walk through the
+// fail-closed gate the rest of this file pins.
 //
-// The tightening is one-way by construction — the predicate gained
-// conjuncts and lost none — so no input that was refused before is measured
-// now. The green cases at the top of this file are the witness for that
-// direction; these are the witness for the other.
+// The positivity conjuncts only narrow the predicate, so every input the
+// finite test refuses is refused here too. The green cases at the top of this
+// file are the witness that sound evidence still passes; these are the
+// witness for the other direction.
 
 const NEGATE = (arm, bench) => -DEFAULT_MEDIAN(arm, bench);
 
@@ -345,7 +343,7 @@ test('ONE arm median of zero or negative refuses that cell alone, naming the val
 test('a zero or negative DENOMINATOR takes every cell of that benchmark with it', () => {
   // A negative base against positive arms is the sharper half: it yields a
   // NEGATIVE ratio, whose distance from ours divided by that same negative
-  // minimum came out negative — and a negative distance is inside any band.
+  // minimum comes out negative — and a negative distance is inside any band.
   for (const bad of [0, -100]) {
     const median = (arm, bench) => (arm === BASE && bench === '02_replace1k' ? bad : DEFAULT_MEDIAN(arm));
     const v = verdict(evidence(theirsDir(`base-${bad}`, { median }), oursJson(`base-${bad}.json`)));
@@ -374,7 +372,7 @@ test('an OURS ratio of zero or negative is not a measurement, however finite', (
 
 test('an OURS base or arm duration of zero or negative refuses even behind a sound ratio', () => {
   // The ratio these sit under is a perfectly ordinary 1.2. Reading only the
-  // derived number is exactly how the durations went unexamined.
+  // derived number is exactly how the durations would go unexamined.
   for (const [field, bad] of [['base', 0], ['base', -100], ['ms', 0], ['ms', -120]]) {
     const f = oursPatched(`ours-${field}-${bad}.json`, 'run1k', OTHERS[0], { [field]: bad });
     const v = verdict(evidence(theirsDir(`ours-${field}-${bad}`), f));
@@ -421,7 +419,7 @@ test('a run that measured ONLY the control refuses — ten cells short, all name
   const v = verdict(evidence(dir, oursJson('ctl-only.json')));
   assert.notStrictEqual(v.code, 0);
   // An empty directory is absent evidence, so this lands at 2 rather than 1;
-  // the point is that it lands somewhere non-zero, which it did not before.
+  // the point is that it lands somewhere non-zero.
   assert.strictEqual(v.code, 2);
 });
 
@@ -432,13 +430,13 @@ test('a FAILING parity gate does not change this program\'s exit — one seat pe
   // unverified writes. This program reporting them is a description; deciding
   // them here would be the second seat `clock_exit_path.test.cjs` exists to
   // forbid. The published run's `ours3.json` carries `parity.identical: false`
-  // and a failed control, and that disposition is rf2-rguy1 item 1's to
-  // settle — not this gate's to pre-empt.
+  // and a failed control, and that disposition is an operator's to settle —
+  // not this gate's to pre-empt.
   const f = oursJson('failing-gates.json', { over: { parity: { identical: false }, control: { pass: false }, pageErrors: 3 } });
   assert.strictEqual(verdict(evidence(theirsDir('gates'), f)).code, 0);
 });
 
-// --- END TO END: the process exit, which is the observable the bead names ----
+// --- END TO END: the process exit, which is the observable a gate is quoted on
 
 const run = (args) => cp.spawnSync(process.execPath, [CMP, ...args], { encoding: 'utf8' });
 
@@ -477,11 +475,11 @@ test('THE PROCESS EXIT: an all-negative driver table exits 1 from the shell, not
 //
 // The predicate above decides which cells are measured; `report`'s WORKLOAD
 // section then states a SECOND finding — how far our create-1,000 ratio sits
-// from the published M1 mount — and for one release it was not behind that
-// decision. Its only condition was that `summary.run1k` existed, so #7675's
-// merged-PR audit found the refused evidence still speaking: an ours ratio of
-// -1.2 is thrown out of the table by `buildRows` and moves the published
-// 1.2107 by a perfectly finite -199.1% four lines later. A refused
+// from the published M1 mount — and it sits behind that same decision.
+// Conditioned only on `summary.run1k` existing, the refused evidence would
+// still speak: an ours ratio of -1.2 is thrown out of the table by
+// `buildRows` and would move the published 1.2107 by a perfectly finite
+// -199.1% four lines later. A refused
 // measurement that still concludes is worse than one that errors, because the
 // sentence it prints is well formed.
 //
@@ -505,18 +503,18 @@ test('THE WORKLOAD CONCLUSION: a refused ours ratio prints UNMEASURED, not a mov
 });
 
 test('THE WORKLOAD CONCLUSION: the audit\'s own -199.1% is not printed', () => {
-  // Named literally, because it is the number the bypass produced and the one
-  // a reader would have quoted.
+  // Named literally, because it is the number an unguarded section would
+  // print and the one a reader would quote.
   const f = oursPatched('wl-audit.json', 'run1k', OTHERS[0], { ratio: -1.2 });
   const r = run(['--theirs', theirsDir('wl-audit'), '--ours', f]);
-  assert.doesNotMatch(r.stdout, /-199\.1%/, 'the audit\'s worked example must not survive as a finding');
+  assert.doesNotMatch(r.stdout, /-199\.1%/, 'the worked example must not print as a finding');
 });
 
 test('THE WORKLOAD CONCLUSION: a refused ours DURATION suppresses it too, sound ratio or not', () => {
   // The discriminating case, and the reason this reuses the row's own refusal
   // rather than testing the ratio a second time: the ratio here is an ordinary
   // 1.2, so a guard that looked only at the derived number would still print
-  // the movement — which is exactly the defect this bead's first half fixed,
+  // the movement — the fault the table's own positivity predicate refuses,
   // recurring one section further down.
   for (const [field, bad] of [['base', 0], ['base', -100], ['ms', 0], ['ms', -120]]) {
     const f = oursPatched(`wl-${field}-${bad}.json`, 'run1k', OTHERS[0], { [field]: bad });
@@ -530,7 +528,8 @@ test('THE WORKLOAD CONCLUSION: a refused ours DURATION suppresses it too, sound 
 
 test('THE WORKLOAD CONCLUSION: a MEASURED run still states the movement', () => {
   // The other direction. A section that fell silent on sound evidence would
-  // pass every assertion above and be a worse program than the one repaired.
+  // pass every assertion above and be a worse program than the fault it
+  // guards against.
   const r = run(['--theirs', theirsDir('wl-ok'), '--ours', oursJson('wl-ok.json')]);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /workload moves the ratio by -?\d+\.\d%/);
@@ -550,20 +549,21 @@ test('THE WORKLOAD CONCLUSION is OURS-only: a short DRIVER table does not suppre
   assert.match(r.stdout, WORKLOAD_CONCLUSION, 'ours measured this page; the driver is not its premise');
 });
 
-// --- AND A COUNT THAT IS NOT THERE IS NOT A ZERO (rf2-0fixc) ----------------
+// --- AND A COUNT THAT IS NOT THERE IS NOT A ZERO ------------------------------
 //
-// The same fail-open shape, one section further down. `OUR RUN'S GATES` folded
-// the per-benchmark unverified-write counts with `s.unverified ? s.unverified
-// : 0`, so a summary entry carrying NO `unverified` field at all contributed 0
-// — indistinguishable from one carrying `unverified: 0` that genuinely
-// verified every write. A JSON from a rig that never recorded the field, or
-// from a version that dropped it, therefore printed a clean `unverified 0`,
-// and the one line a reader consults to decide whether the writes were checked
-// answered out of evidence that is not there.
+// The same fail-open shape, one section further down. Folding the
+// per-benchmark unverified-write counts in `OUR RUN'S GATES` with
+// `s.unverified ? s.unverified : 0` would let a summary entry carrying NO
+// `unverified` field at all contribute 0 — indistinguishable from one
+// carrying `unverified: 0` that genuinely verified every write. A JSON from a
+// rig that never recorded the field, or from one that dropped it, would then
+// print a clean `unverified 0`, and the one line a reader consults to decide
+// whether the writes were checked would answer out of evidence that is not
+// there.
 //
-// The two lines ABOVE it have the same shape and are NOT this defect: a
+// The two lines ABOVE it have the same shape and are NOT this fault: a
 // missing `parity` object prints DIFFERENT and a missing `control` prints
-// FAIL, which is the safe direction. This one printed the clean value.
+// FAIL, which is the safe direction. This one would print the clean value.
 //
 // `report` prints rather than returns, so these are PROCESS assertions. What
 // they pin is one-way — a stated total may become a refusal, never the reverse
@@ -591,8 +591,8 @@ test('THE UNVERIFIED COUNT: every benchmark lacking the field is named, not just
 
 test('THE UNVERIFIED COUNT: a field present but NOT A NUMBER is no count either', () => {
   // `null` is what a JSON round-trip of `NaN` leaves behind and `'n/a'` is what
-  // a rig writes when it declines to answer. The old fold took the first as 0
-  // and concatenated the second onto the running total as text.
+  // a rig writes when it declines to answer. A truthiness fold would take the
+  // first as 0 and concatenate the second onto the running total as text.
   // Indexed rather than named, as the non-finite-ratio case above is: `'n/a'`
   // carries a separator and cannot be part of a fixture's file name.
   [null, 'n/a'].forEach((bad, i) => {
@@ -605,7 +605,8 @@ test('THE UNVERIFIED COUNT: a field present but NOT A NUMBER is no count either'
 
 test('THE UNVERIFIED COUNT: a run that states every count still prints the SUM', () => {
   // The other direction. A line that fell silent on stated counts would pass
-  // every assertion above and be a worse program than the one repaired — and
+  // every assertion above and be a worse program than the fault it guards
+  // against — and
   // the total must still be the sum, not merely something that is not a
   // refusal.
   const f = oursUnverified('unv-ok.json', { run1k: 2, clear1k: 3 });
@@ -656,10 +657,10 @@ test('requiring the comparator does not RUN it', () => {
   });
 
   test('the old fail-open readers are gone from the file entirely', () => {
-    // The two lines that were the defect. Named exactly, because a repair that
-    // leaves either behind has left the second path in place.
-    assert.ok(!/if \(!fs\.existsSync\(dir\)\) return \{\};/.test(SRC), 'the silent empty-table return must not survive');
-    assert.ok(!/OURS && fs\.existsSync\(OURS\) \?/.test(SRC), 'the silent null-ours ternary must not survive');
+    // The two fail-open readers, named exactly, because a comparator carrying
+    // either has a second path to its exit.
+    assert.ok(!/if \(!fs\.existsSync\(dir\)\) return \{\};/.test(SRC), 'the silent empty-table return must not appear');
+    assert.ok(!/OURS && fs\.existsSync\(OURS\) \?/.test(SRC), 'the silent null-ours ternary must not appear');
   });
 
   test('the header documents every code the decision can return', () => {

@@ -3,8 +3,8 @@
   `react/createElement`, no substrate, no subscription, no boundary.
 
   The floor is not a candidate and nobody could ship it. It exists to be
-  the CALIBRATOR, and in this arm it carries a second job the predecessor's
-  floor did not have.
+  the CALIBRATOR, and in this arm it carries a second job: it is the
+  control for the seam between segments.
 
   ## Why P0 cannot be measured without it
 
@@ -37,9 +37,8 @@
   row, and a ratio below 1.0 there is a real result about localisation,
   not an instrument fault.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react" :as react]
             [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]))
@@ -129,9 +128,10 @@
 
   to within the run's own noise. A window that is measuring something else
   — a scheduler hop, a constant, an arm that rendered nothing — has no
-  reason to land there, and the fifteen recorded instrument faults on the
-  predecessor's harnesses all produced a plausible precise wrong number
-  first. A figure nobody can falsify is not a measurement.
+  reason to land there, and an instrument fault characteristically produces
+  a plausible, precise wrong number first (all fifteen recorded on the
+  predecessor's harnesses did). A figure nobody can falsify is not a
+  measurement.
 
   The control is deliberately built on the FLOOR rather than on a
   substrate arm: it must price the instrument, not a substrate, so it

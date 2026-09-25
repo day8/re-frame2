@@ -1,26 +1,24 @@
 (ns re-frame.bench.fresco.front.presence
   "PRESENCE AS DATA — the retention machine and the phase transform
-  (rf2-2rtt6.37, HD-025). The **pure half**: a value in, a value out, no
+  (HD-025). The **pure half**: a value in, a value out, no
   React, no clock, no ambient read. The React component that drives it is
   `re-frame.bench.fresco.arm1.presence`.
 
   ## The trap this deletes
 
-  The shipped predecessor exposes a keyed child's phase as an AMBIENT
-  READ, and its own guide records what that costs, verbatim:
+  Exposing a keyed child's phase as an AMBIENT READ has a known cost: the
+  phase has to be read inside a DECLARED, KEYED CHILD VIEW, because
+  markup written inline in the parent is evaluated during the PARENT'S
+  render, so the phase it gets is the parent's, not the per-child one
+  meant.
 
-  > Read the phase inside a DECLARED, KEYED CHILD VIEW, as above. Reading
-  > it in markup written inline in the parent is a trap: those props are
-  > evaluated during the PARENT'S render, so the phase you get is the
-  > parent's, not the per-child one you meant.
+  So under an ambient read a fading toast cannot be written inline. It
+  must be extracted into a child view purely so a dynamic var resolves
+  against the right child, and getting it wrong yields the wrong phase
+  SILENTLY. The a11y obligation then costs three separate
+  `(when exiting? …)` attributes on that child.
 
-  So a fading toast cannot be written inline. It must be extracted into a
-  child view purely so a dynamic var resolves against the right child,
-  and getting it wrong yields the wrong phase SILENTLY. The a11y
-  obligation then costs three separate `(when exiting? …)` attributes on
-  that child.
-
-  ## The two changes
+  ## Two mechanisms
 
   **(1) `::h/mounting` and `::h/unmounting` are attribute OVERRIDE MAPS
   on a native node.** The boundary merges them into that node's attrs
@@ -33,7 +31,7 @@
                                        :inert true :aria-hidden true}}
            (:message t)]))
 
-  The child view has disappeared and the three `(when exiting? …)`
+  No child view is needed, and the three `(when exiting? …)`
   attributes are one map.
 
   **(2) When the child IS a boundary, the phase arrives as an ORDINARY
@@ -42,15 +40,13 @@
   render scope, it appears in a structural test's props map, and a
   headless test can supply it with no clock.
 
-  The consequence worth recording: `presence-phase` has no Fresco
-  equivalent. One fewer public concept against K5. (K5 — the ergonomics
-  kill criterion — was removed by operator ruling on 2026-08-04; this
-  records the reason the shape was chosen, not a live gate.)
+  The consequence worth recording: Fresco has no ambient phase read (no
+  `presence-phase`) — one fewer public concept.
 
-  ## Why the predecessor's rejection does not apply
+  ## Why the boundary need not guess at a node
 
-  It rejected exactly this, and gave a reason: *\"A boundary that stamped
-  attributes would have to guess at a node it never sees.\"* That is
+  The standing objection to this shape is that *a boundary that stamped
+  attributes would have to guess at a node it never sees*. That is
   sound for a boundary stamping **by itself**. It does not survive the
   AUTHOR writing the override on the node. The boundary already owns the
   retained-children list — that is what retention IS — so applying an
@@ -65,12 +61,12 @@
     written inside an opaque child view is invisible to it; change (2) is
     what that case is for, and an override written on a boundary child is
     a loud error naming `:rf/phase` rather than a silently dropped map.
-  - **ENTER is the weak half**, and the predecessor already says why:
+  - **ENTER is the weak half**:
     driving enter purely as a `:mounting` → `:present` class flip can race
     paint. `::h/mounting` ships, and the guide teaches the CSS answer —
     an animation on insertion, or `@starting-style`.
 
-  ## Inherited unchanged
+  ## The standing rules
 
   `:timeout-ms` is MANDATORY, and is both the retention length and the
   hard terminal bound; re-entry cancels exit; keys are required on every
@@ -199,7 +195,7 @@
   A **boundary child** takes `:rf/phase` as an ordinary prop instead, and
   an override written there is a loud error: the boundary cannot see
   inside an opaque view, and silently dropping the map is the class of
-  failure this whole ruling exists to delete."
+  failure HD-025 exists to delete."
   [child phase]
   (let [props (props-of child)]
     (if (rf.bench.fresco.front.codec/boundary-head? (nth child 0))
@@ -348,7 +344,7 @@
         (:order state)))
 
 (defn check-timeout!
-  "`:timeout-ms` is MANDATORY and positive, inherited unchanged. It is the
+  "`:timeout-ms` is MANDATORY and positive. It is the
   retention length AND the hard terminal bound, so a boundary without one
   is a boundary whose children can be stuck on screen forever if CSS
   fails or is disabled."

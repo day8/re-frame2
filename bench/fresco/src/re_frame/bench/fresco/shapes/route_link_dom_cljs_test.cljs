@@ -1,8 +1,8 @@
 (ns re-frame.bench.fresco.shapes.route-link-dom-cljs-test
-  "**THE FIFTH TIER-1 SHAPE'S CLICK WITNESS** (rf2-2rtt6.54).
+  "**THE FIFTH TIER-1 SHAPE'S CLICK WITNESS**.
 
   The census counts 106 route-links and the charter names the form
-  tier-1. The roster's ported anchors are now
+  tier-1. The roster's ported anchors are
   [[re-frame.bench.fresco.front.route-link/route-link]] calls, and this
   file witnesses the half a grammar test cannot: **a real `MouseEvent`
   on a mounted ported card, a real route change through the routing
@@ -14,7 +14,7 @@
 
   1. **The ported anchors are real routed anchors.** The card's three
      links and the comment byline mount as `HTMLAnchorElement`s whose
-     hrefs the ROUTER synthesised — no hand-built URL survives the port.
+     hrefs the ROUTER synthesised — no URL in the port is hand-built.
   2. **A plain click navigates.** The route slice moves to the link's
      destination, and the `[:rf/route]`-reading boundary re-renders —
      the navigation commit reaches the index like any other.
@@ -23,14 +23,13 @@
   4. **`::h/prevent` composes as the declarative veto.** A route-link
      whose `:on-click` carries `[::h/prevent [:conduit/show-your-feed]]`
      cancels its navigation and dispatches the app intent instead — the
-     cancelable-navigation case the prevent head was built for — while
+     cancelable-navigation case the prevent head exists for — while
      its unvetoed sibling (the mutation control) still navigates.
 
-  Navigation of the HARNESS page is suppressed by a document-level guard,
-  exactly as `freehand/route_link_matrix_dom_cljs_test` suppresses it.
+  Navigation of the HARNESS page is suppressed by a document-level guard.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -168,9 +167,8 @@
           (let [author (:username (:author (rf.bench.fresco.shapes.model/article 0)))]
             ;; `#`-prefixed: `rf.bench.fresco.shapes.model/make-frame!` declares the census's own
             ;; hash `:url-strategy` (Conduit is a hash-URL app), so the
-            ;; router's synthesis IS the census's `#/…` form — rf2-6c237,
-            ;; repairing the rf2-2rtt6.54 parity gap against the
-            ;; hand-ported twins in `census_clock_arms`.
+            ;; router's synthesis IS the census's `#/…` form — the form
+            ;; the floor in `census_clock_arms` hand-writes.
             (doseq [[sel href] [[".author-link" (str "#/profile/" author)]
                                 [".author"      (str "#/profile/" author)]
                                 [".preview-link" (str "#/article/" (:slug (rf.bench.fresco.shapes.model/article 0)))]]]

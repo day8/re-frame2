@@ -1,12 +1,11 @@
 (ns re-frame.bench.fresco.front.codec
-  "THE HICCUP CODEC — deliverable 1 of the Wave-1 shared front half
-  (rf2-2rtt6.8). Runtime interpretation of arbitrary hiccup into React
-  elements, built by extracting reagent-slim's *measured* tag/prop/child
-  plumbing.
+  "THE HICCUP CODEC — the shared front half's runtime interpretation of
+  arbitrary hiccup into React elements, built on reagent-slim's
+  *measured* tag/prop/child plumbing.
 
-  ## What was taken, and what was deliberately left
+  ## What is shared with reagent-slim, and what is deliberately left out
 
-  Taken from `reagent2.impl.template`, because it is the plumbing the P0
+  Shared with `reagent2.impl.template`, because it is the plumbing the P0
   and HD-008 instruments actually clocked: the `#id.class` tag regex and
   its parse; the kebab→camel prop-name rule with its `aria`/`data`
   exemptions, its `--custom-property` passthrough and its three seeded
@@ -15,36 +14,31 @@
   truncate on an interior `nil`; and the 0/1/N `createElement` arms with
   the `.apply` path for long child lists.
 
-  **Left behind, by ruling and on purpose**: the component protocol, the
+  **Left out, on purpose**: the component protocol, the
   ratoms, and the scheduler. None of them is here, none of them is
   reachable from here, and the codec requires nothing from a donor.
 
-  The argv-equality memoization was on that list until rf2-2rtt6.52.
-  HD-006 held that narrow updates come from boundary placement and that
-  every default comparison is a cost every render pays — and it
-  pre-registered its own reopen condition, keyed to broad-witness
-  evidence. The tier-1 roster produced it: a page-chrome write re-ran the
-  page and all 300 card boundaries beneath it with every card's inputs
-  value-equal. So a value-equality bail-out is now the boundary
-  **default**, as one stable internal memo wrapper per head
-  ([[memoize-boundary!]]). It is a comparison of a boundary's props map
-  and nothing else — the element and prop-object caches HD-004 refuses
-  are still refused, and still absent below.
+  The argv-equality memoization is NOT on that list. A value-equality
+  bail-out is the boundary **default**, as one stable internal memo
+  wrapper per head ([[memoize-boundary!]]), because without it a
+  page-chrome write re-runs the page and every card boundary beneath it
+  with every card's inputs value-equal (300 of them on the tier-1
+  roster). It is a comparison of a boundary's props map and nothing
+  else — the element and prop-object caches HD-004 refuses stay
+  refused, and are absent below.
 
   Also absent, and worth naming so their absence reads as a decision
   rather than an omission: the `:r>` raw-props path, the class-component
   `__rfArgv` crossing, and the adapters' reserved-head and keyword-prop
   diagnostics (public-boundary policy for a shipped adapter; this codec
   has no public boundary, and the pre-alpha stance is to trust the
-  programmer). `defhost` — HD-011's taught door — is NOT absent any
-  more: [[mint-host!]] is the declaration and the host head is the
-  fourth element class, §Host heads below (rf2-2rtt6.65). Nor is the
-  `[:>]` raw escape, which HD-011 keeps explicitly secondary and which
-  is now built as [[raw-element]] — the same crossing with the
-  declaration erased (rf2-2rtt6.103).
-  Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
-  the operator ruled SSR into scope: `:ssr` is a declaration option
-  with three values (rf2-2rtt6.85, rf2-l0wfx). For the two gated ones
+  programmer). `defhost` — HD-011's taught door — is present:
+  [[mint-host!]] is the declaration and the host head is the fourth
+  element class, §Host heads below. So is the `[:>]` raw escape, which
+  HD-011 keeps explicitly secondary, built as [[raw-element]] — the
+  same crossing with the declaration erased. So is HD-011's SSR
+  placeholder: `:ssr` is a declaration option with three values. For
+  the two gated ones
   [[mint-host-gate!]] is the one mechanism that serves the server
   render, hydration's first client pass and a fresh `createRoot` mount
   alike; `:ssr :render` mints no gate and renders the component itself
@@ -62,11 +56,11 @@
     tag-cache    \"div#main.wide\" -> ParsedTag
     prop-cache   \"on-click\"      -> PropSlot
 
-  A [[PropSlot]] is the React name the cache always held plus the four
-  classifications that are pure functions of the same literal — reserved
-  slot, event position, ref slot, class slot (rf2-y1jkm, rf2-2rtt6.36).
-  Same keys, same lifetime, same guard; one lookup now answers everything
-  the per-prop walk used to re-derive per element per render.
+  A [[PropSlot]] is the React name plus the four classifications that
+  are pure functions of the same literal — reserved slot, event
+  position, ref slot, class slot. Same keys, same lifetime, same guard;
+  one lookup answers everything the per-prop walk would otherwise
+  re-derive per element per render.
 
   That is the whole of the accelerant HD-004 permits in the lean arm.
   There is **no template extraction, no hole plan, no node reference, and
@@ -91,18 +85,18 @@
   Analysis — tag parse, prop names, class merge, child realization, head
   classification — is arm-neutral and is what both tournament arms share.
   **Emission is not**, and this file emits React elements, i.e. Arm 1's
-  representation. Fresco/PATCH (rf2-2rtt6.10) reuses the analysis and
+  representation. Fresco/PATCH reuses the analysis and
   brings its own emitter; that is the honest shape of \"the arm's element
   representation\" in architecture.md, and it is the reason the two are
   kept visibly apart below rather than interleaved.
 
-  ## The one behaviour emission adds (rf2-fki5d)
+  ## The one behaviour emission adds
 
   Everything else here translates what the author wrote. A controlled
   `<input>` or `<textarea>` gets one thing more: its change handler is
   wrapped so the field converges against the model **inside the discrete
   event, with the caret where the edit left it** — the half neither
-  React nor UIx's port gives on its own (rf2-n3dxw).
+  React nor UIx's port gives on its own.
 
   It belongs at emission rather than in a boundary because that is what
   makes it free at the authoring surface: the view writes an ordinary
@@ -117,7 +111,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/event` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag, an `h/event` at any slot none of those claimed REFUSED, everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -135,10 +129,7 @@
   *Two columns; three body rows; hand-counted.*
 
   All three are attribute *keys*, not forms — so the merge survives into a
-  structural test and into tooling, and none adds a public concept in the
-  K5 sense. (K5 — the ergonomics kill criterion — was removed by operator
-  ruling on 2026-08-04; this records the reason the shape was chosen, not
-  a live gate.)
+  structural test and into tooling, and none adds a public concept.
 
   ## One canonical slot, and every rule asks it
 
@@ -152,7 +143,7 @@
   written against the raw key is a rule that `\"key\"`, `:x/ref` and
   `:onInput` walk straight past.
 
-  **The rule itself is not in this file** (rf2-ani6y). It is
+  **The rule itself is not in this file.** It is
   [[re-frame.bench.fresco.front.slot/prop-name]], in `.cljc`, because
   the `[:>]` migration codemod decides the same slots on the JVM and a
   reimplementation there would be the codemod's own defect class turned
@@ -180,11 +171,11 @@
   ordinary DOM attribute in others — a worse outcome than the exception,
   and the reason the collision argument settles the spelling.
 
-  The reasoning is recorded here because the doctrine has since been
-  reinforced by name twice — rf2-vrvv9 (\"a rule written against the
-  spelling is a rule the other spellings walk past\") and rf2-2rtt6.119
-  (the class slot is a position at the crossing too) — so the next reader
-  arrives with that fresh and should find the exception argued. Note also
+  The exception is argued here because the doctrine is stated forcefully
+  elsewhere — *a rule written against the spelling is a rule the other
+  spellings walk past*, and the class slot is a position at a host
+  crossing too — so a reader arrives with it fresh and should find the
+  exception argued. Note also
   that `:key` has BOTH halves, an exact match in the walk *and* a
   canonical-slot denial in [[structural-slots]]; the revision takes only
   the first, and closes the same gap from the other end — its read is
@@ -234,14 +225,14 @@
   `constructor` would otherwise reach an object's prototype. That roster
   is the whole predicate.
 
-  Three `===` string compares rather than the set lookup this began as
-  (rf2-y1jkm): a set lookup pays a string hash for a roster of three —
-  36.9 ns against 9.6 on the census page's own literals, measured by
-  `walk_profile_app`'s micro table.
+  Three `===` string compares rather than a set lookup: a set lookup
+  pays a string hash for a roster of three — 36.9 ns against 9.6 on the
+  census page's own literals, measured by `walk_profile_app`'s micro
+  table.
 
-  **It is asked on the cache MISS path only** (rf2-2rtt6.63). The caches
+  **It is asked on the cache MISS path only.** The caches
   below carry no prototype, so a hostile literal cannot make a lookup
-  answer wrongly and the guard has only one job left: keep the three
+  answer wrongly and the guard has one job: keep the three
   names out of the caches, and out of the emitted props object — which
   DOES carry `Object.prototype`, and is where [[PropSlot]]'s `reserved?`
   field answers instead. A miss happens once per distinct literal for
@@ -252,10 +243,9 @@
       (identical? "constructor" n)))
 
 (defn- empty-cache
-  "A codec cache: a JS object with **no prototype at all**
-  (rf2-2rtt6.63).
+  "A codec cache: a JS object with **no prototype at all**.
 
-  Both caches are keyed by the author's literal, so both had to answer
+  Both caches are keyed by the author's literal, so both have to answer
   two hostile questions on every lookup: could a literal named
   `__proto__` poison a write, and could a literal named `toString` or
   `constructor` hit an INHERITED property and be served a value nobody
@@ -267,8 +257,8 @@
   What that buys, measured on the census page's own literal roster
   (`walk_vs_reagent_app`, 1,489 prop occurrences and 1,202 tag
   occurrences, quiet-ish box, in-page clock): the prop lookup 18.1 ->
-  11.1 ns/op and the tag lookup 16.6 -> 11.2, against the
-  `hasOwnProperty.call` + three-compare shape they replace. The costed
+  11.1 ns/op and the tag lookup 16.6 -> 11.2, against a
+  `hasOwnProperty.call` + three-compare shape. The costed
   alternative — keep `#js {}` in V8's fast mode and validate the hit by
   TYPE (`instance? PropSlot`), since nothing on `Object.prototype` is
   one — read 13.8 and 12.1 and is DECLINED on both margin and
@@ -304,8 +294,8 @@
   distinct tag literal the build ever renders.
 
   One property read answers the hit, because [[empty-cache]] has no
-  prototype to serve a wrong one. The three poisoning names still never
-  reach the cache — the refusal moved to the miss branch, which is the
+  prototype to serve a wrong one. The three poisoning names never
+  reach the cache — the refusal sits on the miss branch, which is the
   only branch that writes."
   [hiccup-tag]
   (let [k   (cache-key hiccup-tag)
@@ -325,17 +315,17 @@
 ;; [[re-frame.bench.fresco.front.slot/prop-name]], in `.cljc`, because
 ;; the `[:>]` migration codemod has to ask the same question on the JVM
 ;; and a tool that reimplemented it would reproduce — inside the tool —
-;; the silent divergence the codemod exists to delete (rf2-ani6y). Only
+;; the silent divergence the codemod exists to delete. Only
 ;; the CACHING of its answers is codec work, and that is what follows.
 
 (deftype PropSlot [js-name reserved? event? ref? class?]
-  ;; What the prop cache holds for one prop literal (rf2-y1jkm): the React
-  ;; name the codec always cached, PLUS the four classifications the
-  ;; per-prop walk used to re-derive per element per render — is the
+  ;; What the prop cache holds for one prop literal: the React name, PLUS
+  ;; the four classifications the per-prop walk would otherwise re-derive
+  ;; per element per render — is the
   ;; emitted slot reserved, is the position an event position, is it the
   ;; ref slot, is it the class slot. Each is a pure function of the
   ;; literal's NAME, so caching them beside the name changes what a lookup
-  ;; ANSWERS and nothing about when it is valid: there is still exactly
+  ;; ANSWERS and nothing about when it is valid: there is exactly
   ;; one entry per distinct literal, minted on first sight, correct for
   ;; the life of the build.
   ;;
@@ -375,13 +365,13 @@
 
   **The seeded entries are the RULE, not memos of one** — so each slot
   name is ASKED of [[re-frame.bench.fresco.front.slot/prop-name]]
-  rather than written out again here (rf2-ani6y). A hand-spelled seed is
-  the one place this file could still answer a slot the shared rule
-  would not, which is this bead's own defect class one level in; and the
-  seed was written out TWICE, here and in [[reset-caches!]], so a drift
-  had two chances and the suites' `:each` fixture made the second copy
-  the live one. There is one copy now, and it cannot disagree with the
-  rule because it does not restate it.
+  rather than written out again here. A hand-spelled seed would be the
+  one place this file could answer a slot the shared rule would not —
+  the codemod's divergence class one level in — and a seed written out
+  twice, here and in [[reset-caches!]], would give a drift two chances,
+  with the suites' `:each` fixture making the second copy the live one.
+  There is one copy, and it cannot disagree with the rule because it
+  does not restate it.
 
   None of the three is reserved, an event position, or the ref slot;
   `class` IS the class slot, which is the whole reason the rule is
@@ -399,7 +389,7 @@
   already checked the spelling.
 
   One property read answers the hit ([[empty-cache]]). A reserved name
-  is minted on every sight rather than cached, exactly as before: the
+  is minted on every sight rather than cached: the
   refusal sits on the miss branch, which is the only branch that writes,
   and the slot it mints carries `reserved?` so the emitted props object
   — which DOES have a prototype — never receives the name either."
@@ -435,7 +425,7 @@
       (.-js-name s))))
 
 ;; ---------------------------------------------------------------------------
-;; The canonical structural-slot filter (rf2-2rtt6.36)
+;; The canonical structural-slot filter
 ;; ---------------------------------------------------------------------------
 
 (def canonical-slot
@@ -525,16 +515,16 @@
   "Fold the tag's `#id`/`.class` shorthand into the object the walk just
   emitted, and return it.
 
-  **On the emitted object, and that is the whole repair.** The rule has
-  always been *an explicit id wins over the shorthand, and the shorthand
-  class is prepended to a declared one*; stated over the props MAP it read
-  `:id`, `:class` and `:className` and saw exactly three of the spellings
+  **On the emitted object, and that is the whole mechanism.** The rule
+  is *an explicit id wins over the shorthand, and the shorthand class is
+  prepended to a declared one*; stated over the props MAP it would read
+  `:id`, `:class` and `:className` and see exactly three of the spellings
   this codec accepts. `[:div#tag.foo {:& {\"id\" \"caller\" \"className\"
-  \"bar\"}}]` walked straight past it: neither key was seen, the shorthand
-  was added as a second entry landing on the same React slot, and which
-  one survived was decided by the order the props map happened to iterate
-  in — the explicit id could lose to `#tag`, and the caller's class could
-  replace `.foo` instead of composing with it.
+  \"bar\"}}]` would walk straight past it: neither key seen, the
+  shorthand added as a second entry landing on the same React slot, and
+  which one survived decided by the order the props map happened to
+  iterate in — the explicit id could lose to `#tag`, and the caller's
+  class could replace `.foo` instead of composing with it.
 
   Asked of the emitted object there is nothing left to resolve. Every
   spelling has already been through [[canonical-slot]] on its way into
@@ -543,10 +533,10 @@
   ([[convert-entry]]) whatever it was written as. One `undefined?` test
   and one `class-names` answer both halves for every spelling at once.
 
-  It also deletes the map surgery the walk profile priced at most of
-  [[convert-props]]'s cost — the `dissoc`/`assoc` pair that rebuilt the
-  attribute map of every element carrying a shorthand — and with it the
-  fast lane that existed to dodge it."
+  It also needs no map surgery: a fold over the props map would pay a
+  `dissoc`/`assoc` pair rebuilding the attribute map of every element
+  carrying a shorthand, which the walk profile prices at most of
+  [[convert-props]]'s cost, and a fast lane to dodge it."
   [^js o ^ParsedTag parsed]
   (when-some [id (.-id parsed)]
     (when (undefined? (unchecked-get o id-slot))
@@ -577,13 +567,13 @@
   identity**, deliberately: rewrapping them would defeat `React.memo` and
   every downstream bail-out that compares handler identity.
 
-  `string?` is asked first (rf2-y1jkm): a string is the overwhelming prop
+  `string?` is asked first: a string is the overwhelming prop
   value on a census page — `href`, `class`, `data-testid`, `src`, `type`
-  — and it previously proved itself *not* a fn, map, keyword, symbol or
-  collection on its way to `:else`, two of those being the dear
-  native-satisfies? protocol checks. One `typeof` answers it; every other
-  branch pays that one `typeof` and keeps its old order, so the answer is
-  unchanged for every input."
+  — and asked last it would first have to prove itself *not* a fn, map,
+  keyword, symbol or collection on its way to `:else`, two of those being
+  the dear native-satisfies? protocol checks. One `typeof` answers it;
+  every other branch pays that one `typeof`, and since a string
+  satisfies none of them the order changes no answer."
   [v]
   (cond
     (string? v)              v
@@ -610,10 +600,10 @@
 
   This is HD-010(a)'s law — `:key`, `:ref`, controlled `:value`/`:checked`
   and owned event handlers are unoverridable — applied to *every* merge
-  rather than only under theming, and it is the whole point of the
-  ruling. The predecessor needs the author to choose between three merge
-  forms depending on where the target is, and the penalty for choosing
-  wrong is SILENT: caret and IME protection simply stop, with no
+  rather than only under theming, and it is the whole point of HD-023.
+  A merge with three forms would make the author choose between them
+  depending on where the target is, and the penalty for choosing wrong
+  would be SILENT: caret and IME protection simply stop, with no
   diagnostic anywhere. Making the law unconditional deletes that class —
   the controlled-input door cannot be forfeited by a merge at all,
   because a merge cannot reach an owned literal.
@@ -654,7 +644,7 @@
                {:value caller})))))
 
 ;; ---------------------------------------------------------------------------
-;; `::h/revision` — the controlled element's reset trigger (rf2-zq8kh)
+;; `::h/revision` — the controlled element's reset trigger
 ;; ---------------------------------------------------------------------------
 
 (def revision-key
@@ -676,7 +666,7 @@
   exception is right here rather than assumed. Every other spelling —
   bare `:revision`, `\"revision\"`, `:x/revision` — flows on as an
   ordinary DOM attribute, which is the honest loss the guide's
-  troubleshooting line describes: post-rf2-vrvv9 the NATIVE walk still
+  troubleshooting line describes: the NATIVE walk
   answers `(name v)` for a keyword ([[convert-prop-value]]), so a
   misspelled bare `:revision` carrying the most natural revision value
   there is — a namespaced keyword — emits `revision=\"rev-3\"` with the
@@ -697,9 +687,8 @@
   **Those three React behaviours are not public contracts** — the same
   class as the `defaultValue` mirror
   [[re-frame.bench.fresco.front.controlled/last-rendered]] depends on —
-  and this promotes HD-004's no-caching posture from a
-  measurement-honesty stance to a CORRECTNESS DEPENDENCY of the reset
-  transport. Any future prop-object memoization must exclude controlled
+  and they make HD-004's no-caching posture a CORRECTNESS DEPENDENCY of
+  the reset transport, not only a measurement-honesty stance. Any prop-object memoization must exclude controlled
   text elements or re-design this delivery.
 
   The authored-data rule is the instance key's, transplanted: *if it
@@ -713,8 +702,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- check-ref!
-  "`:ref` takes a **function** in v0 — HD-003's honest escape hatch, and
-  HD-016's callback-refs-only rule, both unchanged. A **vector** is the
+  "`:ref` takes a **function** in v0 — HD-003's honest escape hatch,
+  under HD-016's callback-refs-only rule. A **vector** is the
   reserved spelling for the later data form, `{:ref [::autosize {:max-rows
   8}]}`, and v0 refuses it here rather than handing React an opaque array
   it would ignore in silence.
@@ -749,9 +738,9 @@
   function, hoisted as a named var so the walk allocates no closure (the
   same accounting as [[realize-entry]]).
 
-  The literal `:key` is skipped here — the in-loop form of the `dissoc`
-  the walk used to pay a map copy for; every other spelling flows
-  through, exactly as it survived the `dissoc`. The literal
+  The literal `:key` is skipped here — the in-loop form of a `dissoc`,
+  without the map copy a `dissoc` pays; every other spelling flows
+  through, exactly as it would survive the `dissoc`. The literal
   [[revision-key]] is skipped beside it, for the same reason and at the
   same price: [[native-element]] has already read it off the author's own
   PRE-MERGE map, so by the time the walk sees it there is nothing left to
@@ -774,9 +763,8 @@
   value is coerced by [[class-names]] — a string, a keyword, a symbol or
   a collection of those, nils dropped — rather than by
   [[convert-prop-value]], which would hand React the `clj->js` array of
-  `{:class [\"a\" nil :b]}`; that coercion used to live in the map surgery
-  this walk replaced, and it is on the emitted slot now, so it holds for
-  `\"class\"` and `:x/class` as well as for `:class`. And it COMPOSES
+  `{:class [\"a\" nil :b]}`. The coercion is on the emitted slot, so it
+  holds for `\"class\"` and `:x/class` as well as for `:class`. And it COMPOSES
   with whatever is already in the slot: two spellings of the class of one
   element are two map keys and one React slot, so letting the last write
   win would drop a class silently, which is the failure class HD-023
@@ -826,8 +814,8 @@
   Two things about the order. Intent lowering happens *inside* the single
   walk, so the codec does not traverse the props map a second time to
   find the event positions. And [[merge-caller]] runs FIRST — before any
-  prop-name conversion — which is what lets one rule cover the class the
-  predecessor needs a third form for. A forwarded `:className` is merged
+  prop-name conversion — which is what lets one rule cover the class a
+  three-form merge would need a third form for. A forwarded `:className` is merged
   as the key it was written as and then converted by *this position's*
   grammar; nothing canonicalises it into `:class` on the way through and
   hands the wrong name onward.
@@ -844,17 +832,17 @@
   `:class` and `:id`, and costs the walk one comparison it already had
   the value for.
 
-  ## The two lanes (rf2-y1jkm, narrowed by rf2-2rtt6.36)
+  ## The two lanes
 
-  The walk-cost profile (`walk_profile_app`, census page: 1,202
+  The shorthand is folded onto the object the walk emits rather than
+  into the map the walk reads, so there is no `dissoc`/`assoc` pair on
+  any path and no shape to peel a lane off for. A fold into the map would
+  be map surgery on every element whose only class IS the shorthand, and
+  the walk-cost profile (`walk_profile_app`, census page: 1,202
   elements, 567 of them with no attribute map, 924 with a `.class`
-  shorthand, 71 with a declared `:class`) priced this function at 67.5%
-  of the whole interpreter walk, most of it the map surgery the
-  shorthand merge performed on elements whose only class IS the
-  shorthand. That surgery is **gone**: the shorthand is folded onto the
-  object the walk emits rather than into the map the walk reads, so
-  there is no `dissoc`/`assoc` pair on any path and no shape to peel a
-  lane off for. What is left is one lane and one short-circuit:
+  shorthand, 71 with a declared `:class`) priced a function doing that
+  surgery at 67.5% of the whole interpreter walk, most of it the
+  surgery. What there is, is one lane and one short-circuit:
 
   1. **No attribute map at all** (`props` nil): the emitted object is
      exactly the shorthand's `id`/`className`, so it is built directly —
@@ -865,20 +853,19 @@
 
   React's own `key` contract: the LITERAL `:key` is dropped in-loop (one
   keyword-identity test) rather than by a `dissoc` that copies the map;
-  any other spelling lands in the emitted props exactly as it always
-  did, and [[native-element]] still reads the literal `:key` off the
-  original map.
+  any other spelling lands in the emitted props, and [[native-element]]
+  reads the literal `:key` off the original map.
 
   Per prop, one [[prop-slot]] lookup answers the React name AND the
-  classifications the walk used to re-derive per element — reserved slot,
-  event position, ref slot, class slot — so a non-event prop no longer
-  pays [[re-frame.bench.fresco.front.intent/event-prop?]]'s regex, and
+  classifications the walk would otherwise re-derive per element —
+  reserved slot, event position, ref slot, class slot — so a non-event
+  prop never pays [[re-frame.bench.fresco.front.intent/event-prop?]]'s regex, and
   only a lowerable value at an event position (a vector, a map, a
   function) enters
   [[re-frame.bench.fresco.front.intent/lower-prop]] at all. The slot's
   `event?` flag is gated on `keyword?` at the call site — a symbol shares
   the cache entry but is not an event position — and a string-keyed prop
-  takes the donor's uncached path unchanged.
+  takes the donor's uncached path.
 
   ## The `:&` door is shut on the revision, loudly
 
@@ -945,8 +932,7 @@
 
 (defn mark-frame-prop!
   "Record that `f` — an already-marked boundary head — takes its frame as
-  an ordinary ELEMENT PROP rather than from React context, and return it
-  (rf2-2rtt6.39).
+  an ordinary ELEMENT PROP rather than from React context, and return it.
 
   ## Why the codec can supply it at all
 
@@ -964,11 +950,11 @@
   React component that mounts Fresco itself — and that creator names the
   frame explicitly ([[root-element]]).
 
-  **This is a MEASUREMENT variant, not the default** (rf2-2rtt6.39 is a
-  hypothesis to price, not a ruling). Both variants live here so the
-  comparison is like-for-like: an unmarked head pays exactly what it
-  always paid, because the marker is read where the head's memo wrapper
-  is already read and the prop is written only when it is set."
+  **This is a MEASUREMENT variant, not the default** — a hypothesis to
+  price, not a ruling. Both variants live here so the comparison is
+  like-for-like: an unmarked head pays nothing for the variant, because
+  the marker is read where the head's memo wrapper is already read and
+  the prop is written only when it is set."
   [f]
   (unchecked-set f frame-prop-marker true)
   f)
@@ -997,13 +983,13 @@
   render re-renders, which is the safe direction and the one Reagent's
   `shouldComponentUpdate` errs in too.
 
-  **Fails OPEN, and that polarity is a ruling rather than a taste
-  (rf2-5al9d7).** `=` over an app-owned value can throw — a type with a
+  **Fails OPEN, and that polarity is a ruling rather than a taste.**
+  `=` over an app-owned value can throw — a type with a
   throwing `-equiv`, a foreign object mutated in place — and this runs
   inside React's comparator, where an escaping throw is a render crash and
-  not a slow render. reagent-slim met the identical hazard on the
-  identical comparison and ruled: stock Reagent fails CLOSED (skips), we
-  fail OPEN (render), because skipping on a failed comparison risks a
+  not a slow render. reagent-slim faces the identical hazard on the
+  identical comparison and rules the same way: stock Reagent fails
+  CLOSED (skips), reagent-slim fails OPEN (render), because skipping on a failed comparison risks a
   stale UI and an extra render is always the safe branch. `areEqual`
   inverts that polarity, so failing open here is answering **false**.
 
@@ -1018,7 +1004,7 @@
   re-evaluating a `defview` here re-mints the head and its wrapper — a new
   React element *type*, which HMR replaces outright.
 
-  ## `rfFrame` is compared too, and it has to be (rf2-2rtt6.39)
+  ## `rfFrame` is compared too, and it has to be
 
   A context-fed boundary is safe from this comparator by construction:
   React propagates a context change to its consumers directly, ahead of
@@ -1048,12 +1034,12 @@
   "Give a marked head **one stable internal memo wrapper**, and return the
   head — still the function it was.
 
-  ## Why the wrapper is internal (HD-006 as amended, rf2-2rtt6.52)
+  ## Why the wrapper is internal (HD-006)
 
   A value-equality bail-out is the boundary DEFAULT: without one, a write
-  moving a key the PAGE reads re-rendered the page and then all 300 card
-  boundaries beneath it, every card's props and every card's subscription
-  values equal. React re-renders the children of a re-rendered parent
+  moving a key the PAGE reads re-renders the page and then every card
+  boundary beneath it (300 on the tier-1 roster), every card's props and
+  every card's subscription values equal. React re-renders the children of a re-rendered parent
   unless the element is referentially identical (a `for` builds fresh
   ones) or the component bails out itself, and a plain function component
   cannot bail out itself.
@@ -1062,8 +1048,8 @@
   head is required to BE a function — so the wrapper may not become the
   public representation. It is attached to the head instead, minted once
   at definition, and [[boundary-element]] creates elements from it. The
-  head a `defview` hands back is unchanged, `boundary-head?` still asks
-  `fn?`, and no memo object escapes.
+  head a `defview` hands back is the function itself, `boundary-head?`
+  asks `fn?`, and no memo object escapes.
 
   **Stability is the whole contract.** One wrapper per head, minted here
   and never per element: a fresh wrapper per render would be a fresh React
@@ -1106,11 +1092,10 @@
 ;; author spells the prop — while an undeclared `onFoo` never becomes an
 ;; event position no matter how event-shaped its name is.
 ;;
-;; ## The `:ssr` policy — HD-011's placeholder, activated (rf2-2rtt6.85)
+;; ## The `:ssr` policy — HD-011's placeholder
 ;;
-;; HD-011 listed "SSR placeholder" among `defhost`'s strong defaults and
-;; HD-020(d) left it inert; the operator's 2026-08-04 ruling makes SSR
-;; required scope, so the placeholder is now real. THREE VALUES, and the
+;; HD-011 lists "SSR placeholder" among `defhost`'s strong defaults, and
+;; SSR is required scope. THREE VALUES, and the
 ;; author writes at most one of them:
 ;;
 ;;     :ssr :client-only        ; THE DEFAULT — omit :ssr and this is it
@@ -1126,8 +1111,7 @@
 ;; `window` — the door cannot know, so it does not guess. `:render` is
 ;; the AUTHOR saying, which is a different thing from the door guessing.
 ;;
-;; **The third value is rf2-l0wfx's ruling** (2026-08-05), and the case
-;; that filed it is a context PROVIDER: a transparent wrapper that
+;; **The third value exists for a context PROVIDER**: a transparent wrapper that
 ;; contributes no markup of its own and exists solely to carry a
 ;; subtree. Under either of the first two policies the unadopted arm
 ;; returns something that is not the component, so the crossing's
@@ -1152,14 +1136,14 @@
 ;; the policy separately; it consults it by rendering.
 ;;
 ;; For `:render` there is NO GATE — the head's `gate` slot carries the
-;; foreign component itself, which is HD-011's original zero-wrapper,
-;; zero-fiber, zero-hook shape restored for the hosts that can take it.
+;; foreign component itself, which is HD-011's zero-wrapper,
+;; zero-fiber, zero-hook shape for the hosts that can take it.
 ;; One tree everywhere: the server render, hydration's first pass and a
 ;; fresh `createRoot` mount all render the SAME element type with the
 ;; same props, the same context and the same children. So there is zero
 ;; mismatch by identity, no snapshot pair, no adoption event to wait
-;; for, and — the fact that separates this policy from every rejected
-;; candidate — NO REMOUNT.
+;; for, and — the fact that separates this policy from every gated
+;; one — NO REMOUNT.
 ;;
 ;; **Why a remount is the law and not a detail.** React reconciles a
 ;; position by element TYPE, and under a gate the gate IS the type. Any
@@ -1168,16 +1152,15 @@
 ;; adoption swaps the type. That is free when the thing torn down is an
 ;; inert skeleton; it is not free when it is the application, and it is
 ;; why `:ssr :children` — "render `props.children` in place of the
-;; component" — was refused rather than adopted: it restores the markup
-;; without the provider above it, so every consumer below reads the
-;; context DEFAULT server-side (silent-absent becomes silent-wrong), and
-;; then remounts the whole just-hydrated subtree at adoption.
+;; component" — is refused: it would restore the markup without the
+;; provider above it, so every consumer below would read the context
+;; DEFAULT server-side (silent-absent becomes silent-wrong), and then
+;; remount the whole just-hydrated subtree at adoption.
 ;;
-;; **The price, stated because it changed** (rf2-2rtt6.85): the door used
-;; to mint no wrapper, no fiber and no hook — the foreign component was
-;; the element's own type. A gated declaration mints ONE gate, so a
-;; crossing under the first two policies costs one fiber and one hook; a
-;; `:render` crossing costs neither. HD-020(b)'s ≤2 budget is a statement
+;; **The price.** A gated declaration mints ONE gate, so a crossing under
+;; the first two policies costs one fiber and one hook; a `:render`
+;; crossing costs neither, because the foreign component is the
+;; element's own type. HD-020(b)'s ≤2 budget is a statement
 ;; about Fresco's BOUNDARY shells and is untouched either way: the gate
 ;; is not a boundary, holds no subscription, and reads no frame.
 
@@ -1194,12 +1177,12 @@
   #{:event :handler :render})
 
 (def ^:private host-options
-  "Every key a declaration may carry. [[mint-host!]] read `:callbacks`
-  and SILENTLY IGNORED everything else until rf2-2rtt6.85 — so a
-  misspelled `:ssr`, or a policy invented by an author reading the
-  wrong docstring, was a no-op that looked like a setting. That is the
+  "Every key a declaration may carry; [[mint-host!]] refuses any other,
+  at the declaration. A declaration that silently ignored an unknown key
+  would make a misspelled `:ssr`, or a policy invented by an author
+  reading the wrong docstring, a no-op that looks like a setting — the
   same defect class as an intent crossing as inert data, and it gets
-  the same treatment: refused, at the declaration."
+  the same treatment."
   #{:callbacks :ssr})
 
 ;; --- The gate -------------------------------------------------------------
@@ -1238,11 +1221,11 @@
   (or (unchecked-get x "displayName") "<unnamed>"))
 
 (defn- refuse-deferring-heads-in-fallback!
-  "A DECLARED FALLBACK IS INERT MARKUP, ENFORCED (rf2-nv07k). Walks
+  "A DECLARED FALLBACK IS INERT MARKUP, ENFORCED. Walks
   `form` structurally and refuses a `defview` or `defhost` head at any
   position, naming the host, the head and where it sits.
 
-  Structural rather than evaluating, and that is the whole repair. The
+  Structural rather than evaluating, and that is the whole point. The
   fallback's other refusals are what [[as-element]] happens to evaluate
   on its way to an element — an intent vector raises
   `:rf.error/fresco-intent-outside-boundary` because there is no
@@ -1251,36 +1234,36 @@
   where the declaration is. A boundary head is neither: it is an element
   whose body runs LATER, so that walk never looks inside it and every
   refusal it carries is deferred past the declaration, which is the one
-  thing a mint-time walk exists to prevent. What was enforced was
-  therefore never a rule about content; it was a property of the walk.
+  thing a mint-time walk exists to prevent. What that walk enforces is
+  therefore not a rule about content; it is a property of the walk.
 
-  Two facts made the absence a defect rather than a narrow rule
-  (measured, `re-frame.fresco.fallback-contents-cljs-test` — ported off
-  this tree, rf2-c78g):
+  Two facts make a boundary head in a fallback a defect rather than a
+  narrow rule (measured; `re-frame.fresco.fallback-contents-cljs-test`
+  is the contract):
 
-  1. **The declared placeholder is not a value.** [[mint-host-gate!]]
+  1. **The declared placeholder would not be a value.** [[mint-host-gate!]]
      walks once and reuses the element everywhere, and its stated reason
      is *\"a placeholder that differs per site is not a placeholder\"*.
-     One declaration carrying a boundary head renders `ALPHA` in one
+     One declaration carrying a boundary head would render `ALPHA` in one
      frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
-     justification falsified by what it permitted.
-  2. **It did not survive the arm's other boundary variant.** A
+     justification falsified by what it would permit.
+  2. **It would not survive the arm's other boundary variant.** A
      frame-fed head ([[mark-frame-prop!]]) reads `rf.bench.fresco.front.intent/*frame*` at
      ELEMENT-creation time, which in a fallback is mint time, where the
-     var is `nil` — so it baked `nil` in, minted happily, and threw
+     var is `nil` — so it would bake `nil` in, mint happily, and throw
      `:rf.error/no-frame-prop` one render into the server response.
-     Whether a boundary head in a fallback worked at all was a property
-     of which mint it came from, which is not a rule an author can hold.
+     Whether a boundary head in a fallback worked at all would be a
+     property of which mint it came from, which is not a rule an author
+     can hold.
 
   The refusal is walk-scoped, so it catches that frame-fed variant for
   free: a frame-fed head is a boundary head, and the walk asks the
   marker rather than the mint.
 
-  **The workaround it deletes is superseded, not merely removed.**
-  Writing a provider's subtree a second time as the declaration's
-  fallback was `rf2-l0wfx`'s only recovery; `:ssr :render` is now the
-  honest one, and it renders the real subtree with the real context
-  value and no duplication.
+  **A provider's subtree does not belong in a fallback.** Writing it a
+  second time as the declaration's fallback is not a recovery; `:ssr
+  :render` is the honest one, and it renders the real subtree with the
+  real context value and no duplication.
 
   `path` is the index route into the declared form — `[]` is the
   fallback itself, `[0]` its head position, `[2 0]` the head of its
@@ -1326,15 +1309,14 @@
   at every site of the host: React elements are immutable values, and a
   placeholder that differs per site is not a placeholder.
 
-  ## And that is now ENFORCED rather than merely stated (rf2-nv07k)
+  ## And that is ENFORCED rather than merely stated
 
-  This docstring used to draw the corollary the guide teaches — *\"a
-  fallback is inert markup\"* — while only half of it held: the walk
-  refused what it could EVALUATE (an intent vector, a `sub` call in the
-  form, hiccup that is not hiccup) and never looked inside a head whose
-  body runs later. [[refuse-deferring-heads-in-fallback!]] closes that,
-  structurally and ahead of the walk, so the sentence is true as
-  written. Its docstring carries the two measurements that decided it;
+  The corollary the guide teaches — *\"a fallback is inert markup\"* —
+  holds in full. The walk refuses what it can EVALUATE (an intent
+  vector, a `sub` call in the form, hiccup that is not hiccup), and
+  [[refuse-deferring-heads-in-fallback!]] refuses, structurally and
+  ahead of the walk, a head whose body runs later, which the walk never
+  looks inside. Its docstring carries the two measurements behind it;
   `re-frame.fresco.fallback-contents-cljs-test` is the contract.
 
   The gate hands its own props straight through to the foreign
@@ -1360,7 +1342,7 @@
   gets the conservative answer and an author who writes the default
   explicitly gets the same one.
 
-  `:render` is the third value (rf2-l0wfx, 2026-08-05) and it is an
+  `:render` is the third value and it is an
   ASSERTION: *this component is safe to render on the server*. The two
   spellings an author reaches for instead — `:children` and
   `:transparent` — stay refused, and so do `:passthrough` and `:server`.
@@ -1502,7 +1484,7 @@
   "The `:ssr` policy `head` was declared with — `:client-only`,
   `{:fallback <hiccup>}` or `:render`. The declaration read back as
   data, for a server walk that wants to state the policy it is
-  honouring (rf2-2rtt6.86) and for the witnesses that assert on it.
+  honouring and for the witnesses that assert on it.
   Nothing on the render path reads it: the policy is enforced by WHICH
   TYPE the declaration mints — a gate for the first two, the foreign
   component itself for `:render`."
@@ -1520,7 +1502,7 @@
   (map? (nth argv i nil)))
 
 ;; ---------------------------------------------------------------------------
-;; The minted key warnings — DEVELOPMENT ONLY (rf2-2rtt6.104)
+;; The minted key warnings — DEVELOPMENT ONLY
 ;; ---------------------------------------------------------------------------
 ;;
 ;; React already warns about an unkeyed list, and this does not replace it
@@ -1546,11 +1528,11 @@
   the same dedupe.
 
   `warned` is a `Map` of owner-name -> `Map` of member head -> the kinds
-  that head has already reported there, rather than the flat `Set` of
-  joined site strings the design proposed. The reason is a clocked one:
+  that head has already reported there, rather than a flat `Set` of
+  joined site strings. The reason is a clocked one:
   an ALREADY-WARNED site is re-encountered on every render of a list the
   author has not fixed yet, and building `(str owner \"|\" member \"|\"
-  kind)` to look it up allocated a string per member per render — 420
+  kind)` to look it up would allocate a string per member per render — 420
   ns/member, a third of dev lowering, on precisely the list the author is
   sitting in front of. These lookups key on the owner string and the head
   object as they already are, so the repeat path allocates nothing."
@@ -1615,9 +1597,9 @@
   `uuid` in particular is the canonical entity identifier: warning on
   `{:key (:id entity)}` because that id happens to be a UUID would be
   the false positive that teaches authors to ignore the warning, and a
-  guard everyone routes around is worse than the silence this repair
+  guard everyone routes around is worse than the silence this warning
   closes. A `symbol` coerces exactly as the `keyword` [[plain-key?]]
-  already admits does.
+  admits does.
 
   Asked only inside [[check-member-key!]]'s classification, never on the
   keyed walk — see that docstring's ordering note."
@@ -1630,8 +1612,7 @@
   `pr-str` inside a diagnostic, and the author already knows what they
   wrote — what they need is the view, the child and the hazard.
 
-  TOTAL over everything [[check-member-key!]] rejects, which is the
-  repair rf2-2rtt6.104 asked for. The strings below are the ONLY text
+  TOTAL over everything [[check-member-key!]] rejects. The strings below are the ONLY text
   this diagnostic can produce, so the totality and the never-print
   guarantee are one property: no arm falls through to the value.
   `coll?` sits here rather than at the call site because it is the
@@ -1696,20 +1677,16 @@
   boundary-headed vector React will reconcile by position — no `:key`, or
   a `:key` whose value is not one React can coerce to a stable identity.
 
-  ## The classification is TOTAL (rf2-2rtt6.104)
+  ## The classification is TOTAL
 
-  This `cond` shipped with two arms and no `:else`, so every non-nil
-  `:key` that was neither primitive nor a CLJS collection fell out of the
-  check in silence. The shape that made that a bug rather than a gap is
-  the FOREIGN JS ENTITY OBJECT: `createElement` does `key = '' + key`, so
-  every plain object reaches `Object.prototype.toString` and every member
-  of the list is keyed `[object Object]`. Distinct rows, one key. The
-  codec was already careful never to PRINT such a value ([[key-shape]]);
-  it simply never reached the printing.
-
-  Every non-nil value [[plain-key?]] rejects now goes exactly one of two
+  Every non-nil value [[plain-key?]] rejects goes exactly one of two
   ways — classified safe by [[stable-object-key?]], or named by
-  [[key-shape]], which is total. Nothing falls through.
+  [[key-shape]], which is total. Nothing falls through. A `cond` that
+  let a `:key` neither primitive nor a CLJS collection fall out in
+  silence would be a bug rather than a gap because of the FOREIGN JS
+  ENTITY OBJECT: `createElement` does `key = '' + key`, so every plain
+  object reaches `Object.prototype.toString` and every member of the
+  list is keyed `[object Object]`. Distinct rows, one key.
 
   ## What React says, and where it is genuinely silent
 
@@ -1727,13 +1704,13 @@
   CONTENT-DERIVED and therefore distinct per member — a `js/Date`, a JS
   array, a CLJS map — collides with nothing, so React never warns, and
   the row silently remounts the moment the author edits the entity. That
-  is the same hazard the `:rf.warning/fresco-entity-key` row already
-  existed for, and the foreign object is simply its unhandled case.
+  is the hazard the `:rf.warning/fresco-entity-key` row exists for, and
+  the foreign object is one more case of it.
 
   The reason to warn on BOTH rather than defer the collision half to
   React is cost, and here it is zero: see the ordering note below. The
   cost argument that keeps this lane quiet where React already speaks
-  (rf2-2rtt6.134, the missing key on a host or `[:>]` child) is an
+  (the missing key on a host or `[:>]` child) is an
   argument about a ~150 ns/member charge on the hot walk. Nothing here
   touches the hot walk.
 
@@ -1751,28 +1728,28 @@
   an unkeyed boundary element is cheaper to mint than a keyed one, so the
   same absolute cost is a larger fraction of a smaller number.
 
-  That is **4x the 15-40 ns/member the design derived analytically**, and
+  That is **4x the 15-40 ns/member an analytic estimate gives**, and
   the reason is that this is a DEV build: `vector?`, `nth` and the `:key`
   lookup are protocol dispatches through real function calls here, where
   the analytic estimate priced them as the inlined shapes `:advanced`
   produces — and under `:advanced` the check does not exist at all. The
-  figure is recorded rather than argued with; rf2-2rtt6.32 is this lane's
-  standing reminder of what an unclocked micro-claim is worth.
+  figure is recorded rather than argued with: in this lane an unclocked
+  micro-claim is worth little.
 
-  Two shapes were measured and rejected on the way to this one:
+  Two other shapes are measured and rejected:
 
-  - **A pre-pass over the seq before the expansion loop** (the design's
-    proposal, chosen there to leave the shipping loop untouched):
+  - **A pre-pass over the seq before the expansion loop** (which would
+    leave the shipping loop untouched):
     316 ns/member, 18% of dev lowering. It TRAVERSES THE SPINE TWICE, and
     `first`/`next` over the chunked seq a `for` produces allocates per
     step. Riding the loop that is already walking costs the predicates
     and nothing else — and costs production nothing either, because the
     call site is gated and `(.-length a)` supplies the index without a
     loop variable (see [[expand-seq]]).
-  - **A flat `Set` of joined site strings** for the dedupe (also the
-    design's): 420 ns/member on an already-warned list, because looking a
-    site up meant building its string on every member of every render of
-    the list the author had not fixed yet. The nested tables in
+  - **A flat `Set` of joined site strings** for the dedupe: 420
+    ns/member on an already-warned list, because looking a site up means
+    building its string on every member of every render of the list the
+    author has not fixed yet. The nested tables in
     [[keywarn]] key on the owner string and the head object as they
     already are.
 
@@ -1781,23 +1758,21 @@
   member leaves, on a `typeof`. [[boundary-head?]]'s own-property read is
   asked LAST, so an unkeyed `[:li …]` costs one `fn?` and no more.
 
-  THE TOTALITY REPAIR IS FREE, and the ordering is why. Both new arms sit
-  INSIDE the `cond`, which is reached only by a member already known to
-  be boundary-headed AND already known to carry a non-plain `:key`. The
-  keyed steady state never arrives — it left at [[plain-key?]], three
-  `typeof`s up. The unkeyed fast path never arrives at the new arms
-  either: `nil?` is still the FIRST arm, so an unkeyed boundary member
-  short-circuits exactly where it did before. Neither of the two
-  populations in the table above executes one added instruction, so the
-  numbers stand as clocked.
+  TOTALITY IS FREE, and the ordering is why. The safe-object and naming
+  arms sit INSIDE the `cond`, which is reached only by a member already
+  known to be boundary-headed AND already known to carry a non-plain
+  `:key`. The keyed steady state never arrives — it left at
+  [[plain-key?]], three `typeof`s up. The unkeyed fast path never
+  arrives at those arms either: `nil?` is the FIRST arm, so an unkeyed
+  boundary member short-circuits there. Neither of the two populations
+  in the table above reaches them.
 
-  The one population whose cost MOVED is a list keyed by `uuid`, and it
-  got cheaper. `coll?` — the dearest predicate on this path, because
-  anything without the `ICollection` marker falls through to
-  `native-satisfies?` — used to be asked on the walk, so a legitimate
-  UUID-keyed member paid it on every member of every render only to fall
-  out of the `cond` unhandled. It now lives in [[key-shape]], which runs
-  on detection, and a UUID leaves at [[stable-object-key?]] on two
+  A list keyed by `uuid` is the population the ordering helps most.
+  `coll?` — the dearest predicate on this path, because anything without
+  the `ICollection` marker falls through to `native-satisfies?` — is
+  asked only in [[key-shape]], which runs on detection; asked on the
+  walk, a legitimate UUID-keyed member would pay it on every member of
+  every render. A UUID leaves at [[stable-object-key?]] on two
   `instanceof`-class tests instead.
 
   Every member is checked every time, uniform with the keyed steady
@@ -1846,7 +1821,7 @@
   those members into direct arguments — which React marks validated and
   therefore never warns about. This branch, where the seq is still in hand
   and the enclosing body's owner slot is still set, is the only chance
-  anything has to say so (rf2-2rtt6.104)."
+  anything has to say so."
   [argv first-child]
   (when (< first-child (count argv))
     (let [flat (reduce (fn [acc c]
@@ -1866,10 +1841,9 @@
 ;; mint a fresh function object on every collection visited, and `run!`
 ;; mints one of its own. Named here, the walk allocates nothing at all.
 
-;; A map entry is TWO reachable positions, not one. Keys were skipped
-;; here until rf2-2rtt6.32 on the argument that hashing a seq realises
-;; it, so nothing unrealised can already be a key — and that argument is
-;; wrong twice. A `delay` hashes by object identity (cljs.core extends
+;; A map entry is TWO reachable positions, not one. Skipping keys on the
+;; argument that hashing a seq realises it, so nothing unrealised can
+;; already be a key, would be wrong twice. A `delay` hashes by object identity (cljs.core extends
 ;; `IHash` on `default` to `goog/getUid`), so hashing never forces one;
 ;; and a small map literal is a `PersistentArrayMap`, which compares keys
 ;; with `=` against the entries already accumulated and hashes nothing at
@@ -1885,7 +1859,7 @@
 ;; the path. `keyword?` is one `instanceof`. Prop-map keys are keywords
 ;; essentially always, and skipping the no-op for them is the difference
 ;; between the key half costing +51–67% of the walk and costing almost
-;; nothing (rf2-2rtt6.32, table in [[realize-deep]]).
+;; nothing (table in [[realize-deep]]).
 (defn- realize-entry [_ k x]
   (when-not (keyword? k) (realize-deep k))
   (realize-deep x)
@@ -1947,7 +1921,7 @@
   to the wrong boundary; and because a `LazySeq` caches, that boundary
   re-renders exactly once, reads nothing the second time, and drops the
   edges. The value is then correct on screen and frozen for the life of
-  the mount. rf2-2rtt6.45.
+  the mount.
 
   One walk at the hand-off closes it, and pays where the escape is: the
   read is forced by the same pass that turns hiccup into elements, inside
@@ -1974,7 +1948,7 @@
   outwards rather than inwards: **the same 100-row collection at a
   NATIVE prop position costs 70.7 µs**, because `clj->js` rebuilds it
   into JavaScript. The position whose eagerness the structural claim
-  already rested on is 4.7x dearer than the position this walk repairs.
+  rests on is 4.7x dearer than the position this walk repairs.
 
   Maps are reduced with `reduce-kv` rather than over their entries, so
   the walk allocates no `MapEntry`; **both** halves of an entry are
@@ -1983,21 +1957,21 @@
   before `map?` so a scalar — the overwhelming case — costs exactly one
   predicate.
 
-  ### What the key half costs (rf2-2rtt6.32)
+  ### What the key half costs
 
   Not nothing, and it was measured rather than assumed. Three walks
   A/B/C'd in one process on an otherwise idle box, rounds interleaved,
-  best of seven per round, four whole repetitions. A is the value-only
-  walk this replaced, B walks keys unconditionally, C is B with the
+  best of seven per round, four whole repetitions. A is a value-only
+  walk, B walks keys unconditionally, C is B with the
   `keyword?` short-circuit above and is what ships.
 
   **All three arms are written in the measuring namespace, including the
   one that ships**, and that is not fussiness. Timing two local arms
   against `realize-deep` itself compares an inline `(throw (ex-info …))`
   with a call to [[refuse-deferred!]] as much as it compares anything
-  about keys, and it reported the shipping arm 9–20% *faster* than a
-  walk doing strictly less work — an impossible result, and the only
-  reason the confound was caught.
+  about keys, and it reports the shipping arm 9–20% *faster* than a
+  walk doing strictly less work — an impossible result, which is how
+  the confound shows itself.
 
   | shape | B vs A | C vs A |
   |---|---|---|
@@ -2023,9 +1997,9 @@
   the position whose eagerness costs far less than the NATIVE prop
   position's `clj->js` beside it.
 
-  A seq of unbounded length at a boundary prop position now diverges here
-  rather than in the child. That is the same thing `clj->js` already does
-  to one at a native prop position, and it must be: a deferred read
+  A seq of unbounded length at a boundary prop position diverges here
+  rather than in the child. That is what `clj->js` does to one at a
+  native prop position, and it must be: a deferred read
   cannot be both unbounded and attributable.
 
   ## What it forces, and the one thing it refuses
@@ -2073,17 +2047,15 @@
 
   The dev-only [[check-member-key!]] call RIDES this loop rather than
   pre-scanning the seq, which costs the predicates and no second spine
-  traversal (rf2-2rtt6.104 clocked the difference; the fn's docstring
-  carries the numbers).
+  traversal (the fn's docstring carries the clocked difference).
 
-  **The index it reports is `(.-length a)`, not a loop variable**, and
-  that is the reason the loop still has exactly the shape it had: one
+  **The index it reports is `(.-length a)`, not a loop variable**: one
   element is pushed per member, so the array's length IS the index of the
-  member about to be pushed. Threading an `i` would have put an increment
+  member about to be pushed. Threading an `i` would put an increment
   per child on the production path for a dev message's benefit. As
   written, `goog.DEBUG` folds to `false` under `:advanced`, the whole line
-  goes, and what is left is character for character the loop that was here
-  before the warning existed. `(first items)` is read twice in a dev build
+  goes, and what is left is character for character the loop without the
+  warning. `(first items)` is read twice in a dev build
   and once in production for the same reason — it is a field read on a seq
   the loop has already forced, while `next` is the step that allocates."
   [s]
@@ -2120,9 +2092,9 @@
   EMITTED element — a controlled `value`, a change handler, a type with
   a caret — and those are canonical slots rather than spellings. It is
   one JS `switch` on the tag for every element that is not an `:input`
-  or a `:textarea`, which is nearly all of them. rf2-fki5d.
+  or a `:textarea`, which is nearly all of them.
 
-  It also **answers what to render the props as**, which since rf2-digtt
+  It also **answers what to render the props as**, which
   is the tag for everything except a controlled `input`/`textarea` —
   those get the composition shadow's component, and the tag it renders
   is the tag parsed here. The codec asks one question and takes one
@@ -2154,7 +2126,7 @@
         props       (if has-props? (nth argv 1) nil)
         ;; nil, not `(or props {})` — the absent attribute map is
         ;; [[convert-props]]'s first lane, and wrapping it in an empty
-        ;; map was the whole cost of telling it so (rf2-y1jkm).
+        ;; map would be the whole cost of telling it so.
         js-props    (convert-props props parsed)
         _           (when-some [r (get props revision-key)]
                       (unchecked-set js-props rf.bench.fresco.front.controlled/revision-slot r))
@@ -2164,14 +2136,13 @@
 
 (defn- boundary-element [argv]
   (let [has-props? (props-map? argv 1)
-        ;; The SAME merge, at the crossing. This is the case the
-        ;; predecessor needs a third rule for: its spread forms are
-        ;; element forms whose content is the attribute grammar, so
+        ;; The SAME merge, at the crossing. This is the case a
+        ;; spread-form merge needs a third rule for: a spread form is an
+        ;; element form whose content is the attribute grammar, so
         ;; sending a remainder through one on the way to a declared
-        ;; foreign head rewrites `:className` into the `:class` slot and
-        ;; the component never sees the prop it reads — which is why
-        ;; "neither spread form is legal there" and an ordinary `merge`
-        ;; is prescribed instead. `:&` has no such problem because it is
+        ;; foreign head would rewrite `:className` into the `:class`
+        ;; slot and the component would never see the prop it reads.
+        ;; `:&` has no such problem because it is
         ;; not a spread: it is a key in the props map, merged before any
         ;; conversion, and the conversion that follows is the POSITION's
         ;; own — a props map handed to a boundary or a declared foreign
@@ -2179,29 +2150,28 @@
         ;; and the owned-literal law holds identically at each.
         props      (merge-caller (if has-props? (nth argv 1) {}))
         children   (realize-children argv (if has-props? 2 1))
-        ;; THE HAND-OFF, and the one position the eager codec did not
-        ;; reach. Everywhere else a lazy read is forced by the pass that
+        ;; THE HAND-OFF, and the one position the rest of the eager
+        ;; codec does not reach. Everywhere else a lazy read is forced by the pass that
         ;; turns hiccup into elements; here the map crosses untouched, so
         ;; a seq written in THIS body would be realised inside the
         ;; child's render and attributed to it — silently, and then
         ;; frozen, because a realised `LazySeq` is never walked a second
         ;; time. [[realize-deep]] returns the map by identity and covers
         ;; `:children` in the same pass, which is where the one-level
-        ;; flatten leaves a nested seq. rf2-2rtt6.45.
+        ;; flatten leaves a nested seq.
         ;;
         ;; The same pass refuses the one carrier it may not repair — an
         ;; unforced `delay`, whose meaning is precisely that it is not
         ;; forced here. The refusal fires inside THIS body's render, so
         ;; the author who wrote the crossing is the one who sees it.
-        ;; rf2-2rtt6.32.
         body-props (realize-deep (cond-> (dissoc props :key)
                                    children (assoc :children children)))
         head       (nth argv 0)
         js-props   #js {"rfProps" body-props}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
-    ;; THE FRAME AS DATA (rf2-2rtt6.39). Only for a head that asked for
-    ;; it, so the context-fed incumbent's element carries exactly what it
-    ;; always carried and the two variants are comparable. `rf.bench.fresco.front.intent/*frame*`
+    ;; THE FRAME AS DATA. Only for a head that asked for
+    ;; it, so the context-fed incumbent's element carries nothing extra
+    ;; and the two variants are comparable. `rf.bench.fresco.front.intent/*frame*`
     ;; is bound by the ancestor body this element is being created inside;
     ;; at the root there is no ancestor body and [[root-element]] binds it.
     (when (frame-prop-head? head)
@@ -2220,7 +2190,7 @@
   uncamelCased, so the slot still carries the prefix to test.
 
   The roster is this repo's own, not a guess: the `reagent-slim` adapter
-  narrowed exactly this seam after an audit and shipped this same set
+  ships this same set at exactly this seam
   (`adapters/reagent-slim/IMPL-SPEC.md` §7.2, `DESIGN-RATIONALE.md` §5)."
   #{"className" "id" "role"})
 
@@ -2248,16 +2218,16 @@
   guessing at which nested maps are options and which are data is the
   documented support burden the shallow default deletes.
 
-  ## The named value crosses whole (rf2-vrvv9)
+  ## The named value crosses whole
 
-  This branch read `(name v)` for every named value at every host prop,
-  which is stock Reagent's rule — and it silently deleted half of a
-  namespaced keyword's identity at the one crossing where that identity
-  is most often the point. `[provider {:value :theme/dark}]` handed the
-  provider `\"dark\"`, `:other/dark` handed it `\"dark\"` too, and every
-  consumer below read a plausible string that two distinct values now
-  share. Nothing threw. A crossing that answers two inputs with one
-  output is not a conversion, it is a collision.
+  Stock Reagent's rule — `(name v)` for every named value at every host
+  prop — would silently delete half of a namespaced keyword's identity
+  at the one crossing where that identity is most often the point.
+  `[provider {:value :theme/dark}]` would hand the provider `\"dark\"`,
+  `:other/dark` would hand it `\"dark\"` too, and every consumer below
+  would read a plausible string that two distinct values share. Nothing
+  would throw. A crossing that answers two inputs with one output is not
+  a conversion, it is a collision.
 
   **The rule is the shallow default's own rule, applied one level up.**
   The paragraph above already refuses to guess that a nested map was
@@ -2276,21 +2246,21 @@
   ([[convert-prop-value]]) and the answer the server serializer gives, so
   the two crossings agree on every attribute both can carry.
 
-  **`className` no longer arrives here at all** (rf2-2rtt6.119).
+  **`className` does not arrive here at all.**
   [[host-entry]] takes the class slot ahead of this function and hands it
   to [[class-names]], which is the coercion the native walk takes and the
   only one that answers a COLLECTION correctly — the arm the named-value
   rule above could never reach, since a collection is not a named value.
   The slot stays on the roster because the roster states which SLOTS are
-  bound for HTML attributes, which is still true of `className` and is
+  bound for HTML attributes, which is true of `className` and is
   what keeps this function's answer right if it is ever asked directly.
 
   **No dev warning accompanies this**, and the omission is deliberate.
-  `reagent-slim` warns once per non-HTML keyword prop because it narrowed
+  `reagent-slim` warns once per non-HTML keyword prop because it narrows
   the rule underneath an installed Reagent codebase and the warning is
   that migration's safety-net (DESIGN-RATIONALE §5: \"the warning exists
   for the case we did not audit\"). Fresco has no such codebase to
-  protect, and after this change a keyword at a host prop is the CORRECT
+  protect, and a keyword at a host prop is the CORRECT
   and taught spelling of HD-011's flagship case — warning on the happy
   path is a nag, not a diagnostic. The guide teaches the rule instead."
   [slot v]
@@ -2310,7 +2280,7 @@
   ORDINARY function at an undeclared prop is different and legal: it is
   a value handed to a foreign API — not a position — so it crosses by
   identity and simply runs (the position table's deletion row). The
-  MARKED form is not, since rf2-2rtt6.116:
+  MARKED form is not:
   [[refuse-unclaimed-host-callback!]] takes an `h/event` at the same
   position, because that one asked for a contract."
   [^js head k v]
@@ -2346,10 +2316,10 @@
   every loud error in this codec exists to delete. An `h/event` returning
   that same vector is that defect one level of indirection down.
 
-  **This is derived, not new policy** (`rf2-2rtt6.116`). `mint-host!`
-  already refuses an option it does not know, on the reasoning HD-011's
-  addendum records: a policy could be written and never applied, and the
-  silent-ignore was its own defect. An `h/event` whose contract is never
+  **This is derived, not new policy.** `mint-host!`
+  refuses an option it does not know, on the reasoning HD-011's
+  addendum records: a policy could be written and never applied, and a
+  silent ignore is its own defect. An `h/event` whose contract is never
   selected IS a policy written and never applied.
 
   **A PLAIN function at the same slot stays legal and untouched.** It is
@@ -2384,8 +2354,8 @@
   an attribute), a keyword or symbol key is answered by its cached
   [[prop-slot]] — React name plus `reserved?`/`event?`/`ref?` in one
   read — and a reserved emitted slot is never written, because the props
-  object handed to React does have a prototype even though the caches no
-  longer do.
+  object handed to React does have a prototype even though the caches do
+  not.
 
   The one difference from [[convert-entry]] is the whole of HD-011: what
   a position MEANS here comes from the DECLARATION rather than from the
@@ -2393,32 +2363,31 @@
   event-spelled slot the declaration does not name is refused rather
   than inferred; an `h/event` at any slot nothing claimed is refused too,
   because the mark is a request for a contract and no position selected
-  one ([[refuse-unclaimed-host-callback!]], rf2-2rtt6.116); everything
+  one ([[refuse-unclaimed-host-callback!]]); everything
   else crosses shallowly. `event?` is gated on
   `keyword?` for the same reason the native walk gates it — a symbol
   spelled `on-click` shares the cache entry and is not an event
   position.
 
-  ## The class slot is a POSITION here too (rf2-2rtt6.119)
+  ## The class slot is a POSITION here too
 
   `className` is the one slot whose value has a coercion of its own —
   [[class-names]] — rather than the position's ordinary conversion, and
-  that coercion belongs to the SLOT rather than to either walk. It was
-  taken at the native position only, so the two crossings answered the
-  same authored shape differently: `{:class [\"a\" nil :b]}` reached a
-  native tag as `\"a b\"` and reached a declared foreign component as the
-  JS array `[\"a\", null, \"b\"]` — `clj->js`'s answer, and not a class
+  that coercion belongs to the SLOT rather than to either walk. Taken at
+  the native position only, it would let the two crossings answer the
+  same authored shape differently: `{:class [\"a\" nil :b]}` would reach
+  a native tag as `\"a b\"` and a declared foreign component as the JS
+  array `[\"a\", null, \"b\"]` — `clj->js`'s answer, and not a class
   string at all. React writes that array to the DOM as `\"a,,b\"`
-  wherever the component passes it on, so nothing threw and the styling
-  was simply wrong.
+  wherever the component passes it on, so nothing would throw and the
+  styling would simply be wrong.
 
-  rf2-vrvv9 already settled the principle and applied half of it: at
-  `className`, `id`, `role` and the `data-*`/`aria-*` families the value
-  is bound for an HTML attribute, so a named value keeps `(name v)` there
-  — *\"which is also the answer the NATIVE walk gives at the same
-  names\"* ([[host-prop-value]]). That sentence is the law; the
-  collection arm was the half of it still unwritten, because a collection
-  never reached the named-value branch. Asking `class?` here — the flag
+  [[host-prop-value]] states the principle: at `className`, `id`,
+  `role` and the `data-*`/`aria-*` families the value is bound for an
+  HTML attribute, so a named value keeps `(name v)` there — *\"which is
+  also the answer the NATIVE walk gives at the same names\"*. That
+  sentence is the law, and a collection never reaches the named-value
+  branch, so the collection arm is taken here. Asking `class?` here — the flag
   the [[PropSlot]] already carries, so a declared-slot lookup pays one
   property read and a string key one compare — makes the two crossings
   agree at the class slot for **every** value shape.
@@ -2449,8 +2418,8 @@
 
             ;; The slot's own coercion, and the slot's own composition —
             ;; the same law [[convert-entry]] takes at the native
-            ;; position, taken here so the two crossings agree
-            ;; (rf2-2rtt6.119). Below the declaration, because HD-011's
+            ;; position, taken here so the two crossings agree.
+            ;; Below the declaration, because HD-011's
             ;; whole point is that a DECLARED position means what the
             ;; declaration says it means.
             class?
@@ -2460,7 +2429,7 @@
             (do (when (and event? (or (vector? v) (map? v)))
                   (refuse-undeclared-host-event! head k v))
                 ;; Beside its sibling, and for the sibling's own stated
-                ;; reason one indirection down (rf2-2rtt6.116). It is
+                ;; reason one indirection down. It is
                 ;; last of the two because `event?` is a flag already
                 ;; read, so that test costs a boolean, while this one
                 ;; costs a `fn?` — and it is ahead of
@@ -2473,7 +2442,7 @@
                   (refuse-unclaimed-host-callback! head k))
                 ;; The SLOT, never the key: `:class` and `:className` are
                 ;; one position, and the named-value rule is written
-                ;; against where the value lands (rf2-vrvv9).
+                ;; against where the value lands.
                 (host-prop-value slot v)))))
       o)))
 
@@ -2506,10 +2475,10 @@
   and `{:fallback …}` it is the gate ([[mint-host-gate!]]), one fiber
   and one hook, with the foreign component behind it once the markup is
   adopted; under `:ssr :render` it is the foreign component itself and
-  the crossing costs neither. Everything else is unchanged by that
+  the crossing costs neither. Everything else is the same under either
   choice: the props object built here is the object the foreign
-  component receives either way, `:key` is React's on the crossing's
-  element where it always was, and the component's hooks, state and
+  component receives either way, `:key` is React's, on the crossing's
+  element, and the component's hooks, state and
   refs stay React's affair under React's rules — which is the whole
   point of the door, and what keeps HD-020's ≤2-hook budget a statement
   about Fresco's BOUNDARIES. A gate is not one: no frame, no
@@ -2531,8 +2500,8 @@
 ;; form, for the cases a static declaration cannot express: a component
 ;; selected at runtime, a `memo`/`lazy` value, a component a render prop
 ;; handed you, a provider an ecosystem library handed you, a one-off
-;; migration site. The guide's rule is unchanged — *declare what you use
-;; twice* — and bare-head auto-hosting stays rejected.
+;; migration site. The guide's rule stands — *declare what you use
+;; twice* — and bare-head auto-hosting is rejected.
 ;;
 ;; **The model, in one sentence: `[:>]` is `defhost` with the
 ;; declaration erased, and what erasing the declaration costs you is
@@ -2547,12 +2516,12 @@
 ;;
 ;; Three things follow, and they are the whole of the mechanism:
 ;;
-;; 1. **The props walk is [[host-entry]], unchanged, with an EMPTY
+;; 1. **The props walk is [[host-entry]] itself, with an EMPTY
 ;;    declared roster.** Not a branch of its own — the same function,
 ;;    reading a [[raw-crossing]] stand-in for the declaration it does not
 ;;    have. That is what makes `[:> X …]` → `(defhost x X {})` a
 ;;    behaviour-preserving rewrite, which is the whole theorem of the
-;;    migration codemod (rf2-2rtt6.106). A refusal that is right in
+;;    migration codemod. A refusal that is right in
 ;;    isolation and wrong in composition is wrong: whatever is ruled at
 ;;    the door, the escape does the same thing.
 ;;
@@ -2564,7 +2533,7 @@
 ;;    hydration's first client pass emits nothing, and adoption swaps the
 ;;    component in: server-absent and first-pass-absent are not two facts
 ;;    kept in step, they are ONE fact and React chooses it. A per-site
-;;    placeholder is still reachable with no new escape surface, by
+;;    placeholder is reachable with no new escape surface, by
 ;;    wrapping the escape in a declared host that has one.
 ;;
 ;; 3. **The Component value is refused AT THE CROSSING**, in the owner's
@@ -2609,7 +2578,7 @@
 
   **Shared rather than minted per component**, and that is a ruling
   rather than a saving. A component-keyed cache is the identity-keyed
-  auto-hosting HD-011 rejected, wearing a different hat; it also cannot
+  auto-hosting HD-011 rejects, wearing a different hat; it also cannot
   be built, because React's built-in wrapper types (`Fragment`,
   `Suspense`, `StrictMode`, `Profiler`) are `Symbol.for` values and
   ES2024 excludes REGISTERED symbols as `WeakMap` keys by design. One
@@ -2833,25 +2802,24 @@
 
 (defn- raw-head?
   "Is this the raw-escape spelling? Compared with `=` for
-  [[fragment-head?]]'s own reason, and it is sharper here: `:>` was NOT
-  an error before rf2-2rtt6.103 — [[hiccup-tag?]] accepted any keyword
-  that is not `:<>`, so `[:> Foo {}]` asked React for an element
-  literally named `<>`. An `identical?` test would work under
+  [[fragment-head?]]'s own reason, and it is sharper here: a `:>` this
+  test missed would fall through to [[hiccup-tag?]], which accepts any
+  keyword, so `[:> Foo {}]` would ask React for a native element named
+  after the keyword. An `identical?` test would work under
   `:advanced`, where the build interns keyword literals, and silently
-  route every escape back into that native path everywhere else."
+  route every escape into that native path everywhere else."
   [head]
   (= :> head))
 
 (defn- hiccup-tag?
   "Is this head a native tag? Asked AFTER the fragment and raw arms in
-  [[vec->element]]'s `cond`, which is its only caller — so the
-  `(not (fragment-head? head))` this body used to re-ask was provably
-  dead, and every native tag on every page paid the fragment `=` twice
-  for it. Dropping it is what pays for [[raw-head?]] exactly: a keyword
-  tag paid two `=` and one type predicate before, and pays two `=` and
-  one type predicate now. This codec has costed a `keyword?`
-  short-circuit at ±51–67% of a walk, so a new head test is not free by
-  assertion on this surface — it is free by accounting."
+  [[vec->element]]'s `cond`, which is its only caller — so it does not
+  re-ask `(not (fragment-head? head))`, which would be provably dead and
+  would make every native tag on every page pay the fragment `=` twice.
+  A keyword tag therefore pays two `=` (fragment, raw) and one type
+  predicate. This codec has costed a `keyword?` short-circuit at
+  ±51–67% of a walk, so a head test is not free by assertion on this
+  surface — it is free by accounting."
   [head]
   (or (keyword? head) (symbol? head) (string? head)))
 
@@ -2892,26 +2860,26 @@
   "Interpret any hiccup form. `nil` and `false` render nothing; `true` is
   an error (HD-016); an existing React element passes through.
 
-  ## Why `string?` is asked before `vector?` (rf2-2rtt6.63)
+  ## Why `string?` is asked before `vector?`
 
   The branches are MUTUALLY EXCLUSIVE — a value satisfies at most one of
   `nil?`, `false?`, `string?`, `vector?`, `number?`, `seq?`, `true?` —
   so their order cannot change an answer, only what each population
   pays. And `vector?` is the dear one: it is `IVector` satisfaction,
   which for anything without the marker falls through to
-  `native-satisfies?`, so every string, number and lazy seq on a page
-  used to prove itself not-a-vector the expensive way before reaching
-  its own branch.
+  `native-satisfies?`, so with `vector?` first every string, number and
+  lazy seq on a page would prove itself not-a-vector the expensive way
+  before reaching its own branch.
 
-  Costed over the census page's whole child roster before it was changed
+  Costed over the census page's whole child roster
   (`walk_vs_reagent_app` candidate table: 1,908 children, of which 567
-  strings, 1,201 vectors, 69 numbers, 71 seqs): the shipping order 22.5
+  strings, 1,201 vectors, 69 numbers, 71 seqs): `vector?` first 22.5
   ns/child, this order **8.9** — and on the strings alone 31.7 -> 5.3.
-  The vectors pay one extra `typeof` and the whole population still
-  reads 2.5x cheaper. This is the stage on which stock Reagent was
-  furthest ahead of us: its `as-element` asks one `js-val?`
+  The vectors pay one extra `typeof` and the whole population
+  reads 2.5x cheaper. This is the stage on which stock Reagent is
+  otherwise furthest ahead: its `as-element` asks one `js-val?`
   (`goog/typeOf x !== \"object\"`) and returns a string on the first
-  branch, and it read 8.8 ns/string against our 33.5."
+  branch, and it read 8.8 ns/string against 33.5 with `vector?` first."
   [x]
   (cond
     (nil? x)         nil
@@ -2934,7 +2902,7 @@
 (defn root-element
   "[[as-element]] for a hiccup form written OUTSIDE any boundary body —
   the root, or an outward React bridge that mounts Fresco from foreign
-  code (rf2-2rtt6.39).
+  code.
 
   Every other element in the tree is created by an ancestor body, which
   is already running inside
@@ -2946,8 +2914,9 @@
 
   `*dispatch*` is deliberately NOT bound: the frame is an identity the
   root genuinely has, while a frame-locked dispatch is what makes an
-  intent vector legal, and an intent written outside a boundary stays the
-  loud `:rf.error/fresco-intent-outside-boundary` it was."
+  intent vector legal, so an intent written outside a boundary raises
+  the loud `:rf.error/fresco-intent-outside-boundary` here as anywhere
+  else."
   [frame-kw hiccup]
   (binding [rf.bench.fresco.front.intent/*frame* frame-kw]
     (as-element hiccup)))
@@ -2965,7 +2934,7 @@
   because those are the rule and not a memo of one — and it re-seeds
   through [[seed-prop-cache!]], the same one the `def` uses, so a
   suite's `:each` fixture cannot leave the cache holding a different
-  spelling from a cold build's (rf2-ani6y)."
+  spelling from a cold build's."
   []
   (doseq [k (js/Object.keys tag-cache)] (js-delete tag-cache k))
   (doseq [k (js/Object.keys prop-cache)] (js-delete prop-cache k))

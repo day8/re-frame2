@@ -1,19 +1,18 @@
 (ns re-frame.bench.fresco.arm1.ambient-refusal-cljs-test
-  "AMBIENT `rf/subscribe` / `rf/dispatch` INSIDE A BODY REFUSE (rf2-2rtt6.122).
+  "AMBIENT `rf/subscribe` / `rf/dispatch` INSIDE A BODY REFUSE.
 
-  The hazard this file closes was real, verified, and fenced by nothing
-  but which adapter the host happened to install. Fresco mounts the
-  shared adapter-context Provider regardless, and the UIx / Freehand
-  adapters publish a `:adapter/current-frame` reader that reads the
-  context slot — so an ambient `rf/subscribe` written inside a boundary
-  body RESOLVED the boundary's own frame and quietly succeeded: a
-  render-phase sub-cache mutation, ZERO collector edges, and a boundary
-  that never re-renders when that subscription moves. That is HD-002
-  clause (a)'s forbidden class. Under other configurations the same
-  spelling threw. Silence or a throw, decided by a dependency choice
-  made elsewhere.
+  Without a fence, the hazard this file closes would be decided by which
+  adapter the host installs. Fresco mounts the shared adapter-context
+  Provider regardless, and the UIx adapter publishes a
+  `:adapter/current-frame` reader that reads the context slot — so an
+  ambient `rf/subscribe` written inside a boundary body would RESOLVE the
+  boundary's own frame and quietly succeed: a render-phase sub-cache
+  mutation, ZERO collector edges, and a boundary that never re-renders
+  when that subscription moves. That is HD-002 clause (a)'s forbidden
+  class. Under other configurations the same spelling throws. Silence or
+  a throw, decided by a dependency choice made elsewhere.
 
-  Core now has a refusal tier (`rf.frame/call-with-ambient-frame-refused`)
+  Core has a refusal tier (`rf.frame/call-with-ambient-frame-refused`)
   and [[re-frame.bench.fresco.front.intent/with-frame]] establishes it
   over every Fresco render extent, so the answer is the same under every
   adapter: a loud `:rf.error/ambient-frame-refused` naming the collector.
@@ -24,7 +23,7 @@
   FRAME ON THE SHARED CONTEXT SLOT itself ([[with-context-frame]]) —
   which is precisely what React does while rendering under a
   `frame-provider`, and precisely the configuration in which the hazard
-  used to succeed — and [[the-hazard-configuration-is-live]] proves the
+  would succeed — and [[the-hazard-configuration-is-live]] proves the
   same read SUCCEEDS one call outside the body. Every refusal row below
   runs under that same publication. Remove the fence and the refusal
   rows go green-to-red as a pair with that control staying green.
@@ -36,13 +35,12 @@
   adapter island rendering under a Fresco tree, which must keep its
   ambient resolution — is `arm1/ambient_refusal_dom_cljs_test`.
 
-  THE DOOR HAS THREE CONSUMERS AND THIS FILE ONCE COVERED TWO
-  (rf2-hnrww). Ambient `subscribe`, ambient `dispatch` — and
-  `rf/capture-frame`, Spec 002's *one public carry primitive*, whose
+  THE DOOR HAS THREE CONSUMERS. Ambient `subscribe`, ambient `dispatch` —
+  and `rf/capture-frame`, Spec 002's *one public carry primitive*, whose
   0-arity resolves ambiently because it means to CAPTURE rather than to
-  read or to dispatch. Its behaviour inside a body was a consequence of
-  the refusal rather than a contract; the closing section below makes it
-  one, together with each legitimate carry spelling proved individually."
+  read or to dispatch. The closing section below pins its behaviour
+  inside a body as a contract, together with each legitimate carry
+  spelling proved individually."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.context :as rf.adapter.context]
@@ -74,8 +72,8 @@
 (defn- with-context-frame
   "Publish `frame-kw` on the SHARED React frame-context slot for `thunk`'s
   extent, then restore. This is the tier-2 publication React performs
-  while rendering under a `frame-provider`, and the UIx / Freehand
-  adapters' `:adapter/current-frame` reader reads exactly this slot — so
+  while rendering under a `frame-provider`, and the UIx adapter's
+  `:adapter/current-frame` reader reads exactly this slot — so
   running under it reproduces the hazard's own configuration without a
   React root. Same save/restore shape the core adapter suite uses for its
   corrupted-context rows."
@@ -128,7 +126,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ambient-subscribe-inside-a-body-refuses-by-name
-  (testing "the read that used to succeed silently now names itself"
+  (testing "the read that would otherwise succeed silently names itself"
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
@@ -206,7 +204,7 @@
             (is (= 7 @seen)
                 "a refusal that also refused a carried stamp would make
                  {:frame id} and with-frame disagree, which is a worse
-                 bug than the silence it replaces")))))))
+                 bug than silence")))))))
 
 (deftest an-explicit-frame-option-still-resolves-inside-a-body
   (testing "`{:frame <id>}` never consults the ambient resolver at all, so
@@ -275,7 +273,7 @@
 
 (deftest a-genuinely-frameless-op-still-reports-absence
   (testing "two absences, two errors. With no scope and no published
-           context the answer is still :rf.error/no-frame-context — the
+           context the answer is :rf.error/no-frame-context — the
            refusal must not colonise the generic case"
     (make-frame!)
     (let [data (outcome (fn [] @(rf/subscribe [:rt122/v])))]
@@ -283,8 +281,8 @@
           (str "expected the untouched absence error; got " (pr-str data))))))
 
 (deftest resolution-outside-any-refusal-is-unchanged
-  (testing "the ordinary path pays one nil-test and answers exactly what it
-           answered before: tier 1 wins, then tier 2, then nil"
+  (testing "the ordinary path pays one nil-test and answers the ordinary
+           chain: tier 1 wins, then tier 2, then nil"
     (let [f (make-frame!)]
       (is (nil? (rf.frame/resolve-current-frame)) "no tier answers")
       (with-context-frame f
@@ -297,29 +295,23 @@
                      "tier 1 still wins over tier 2")))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE CARRY — the door's THIRD consumer (rf2-hnrww; the design's W10,
-;; INVERTED)
+;; THE CARRY — the door's THIRD consumer
 ;; ---------------------------------------------------------------------------
 ;;
-;; THE ROW PLANNED HERE SAID THE OPPOSITE, and that is worth recording
-;; rather than quietly fixing. rf2-2rtt6.118's witness list pinned "the
-;; accidental door": 0-arity `rf/capture-frame` inside a Fresco body
-;; SUCCEEDS on the dominant configurations — through the raw React-context
-;; read the UIx and Freehand adapters publish — recorded so that a future
-;; change to the accident would be seen rather than silent.
-;; **rf2-2rtt6.122 IS that change.** Built as designed, the row would
-;; assert a behaviour the tree no longer has, so it is inverted: the carry
-;; refuses, and each spelling that still carries is proved on its own.
+;; A 0-arity `rf/capture-frame` inside a Fresco body is ADMITTED: the
+;; prototype's `with-frame` declares `:extent-frame`, so core answers the
+;; carry that frame, one line from an ambient READ that refuses. Each
+;; spelling that carries is proved on its own.
 ;;
 ;; THE ERROR ID IS NOT REPEATED IN THESE ROWS, deliberately.
-;; `:rf.error/ambient-frame-refused` is SETTLED: it is rowed in
+;; `:rf.error/ambient-frame-refused` is rowed in
 ;; `spec/009-Instrumentation.md`'s error catalogue, it is raised by
 ;; `re-frame.frame/emit-ambient-frame-refused!`, and the stability rule in
-;; `implementation/fresco/spec/complaints.md` closes the question outright
-;; — an id names one refusal, and it is never re-spelled or reused.
+;; `implementation/fresco/spec/complaints.md` says an id names one
+;; refusal, and it is never re-spelled or reused.
 ;;
-;; So the indirection below is not waiting on a rename; it earns its place
-;; on its own. What these rows assert is the AGREEMENT — a carry's refusal
+;; The indirection below earns its place on its own. What these rows
+;; assert is the AGREEMENT — a carry's refusal
 ;; is pinned as *the same id an ambient read gets*, taken live from
 ;; [[refusal-id]]. Two independent literals would assert two constants and
 ;; could not see the two drift apart; one live read is what makes "refuse
@@ -334,13 +326,12 @@
     (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))))
 
 (deftest a-carry-inside-a-body-is-admitted-while-a-read-refuses
-  (testing "FLIPPED under rf2-t32wg, which admits the pure doors: this row
-           asserted that `(rf/capture-frame)` in a body refuses with the same
-           id a read does, and the shipped core no longer does that. The
+  (testing "core admits the pure doors, so `(rf/capture-frame)` in a body is
+           admitted rather than refused with the id a read gets. The
            prototype's `with-frame` declares `:extent-frame`, so core answers
            the carry that frame — under the same context publication that
            makes the read rows non-vacuous, and one line from a read that
-           still refuses"
+           refuses"
     (let [f    (make-frame!)
           held (volatile! nil)]
       (with-context-frame f
@@ -348,7 +339,7 @@
           (let [data   (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))
                 anchor (refusal-id f)]
             (is (some? anchor)
-                "precondition: an ambient READ still refuses here, so the
+                "precondition: an ambient READ refuses here, so the
                  admission below is a distinction between operations and not
                  a fence that has gone")
             (is (vector? data)
@@ -379,7 +370,7 @@
             (vreset! calls 0)
             (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
             (is (zero? @calls)
-                "the refused carry never asked the adapter")
+                "the carry inside the body never asked the adapter")
 
             (vreset! calls 0)
             (is (= f (rf.frame/resolve-current-frame))
@@ -390,13 +381,13 @@
         (finally (rf.late-bind/set-fn! :adapter/current-frame original))))))
 
 (deftest the-prototypes-refusal-sentence-still-names-the-carry
-  (testing "rf2-hnrww's first half, on the FROZEN prototype's own sentence.
-           The advice was written for a read and a dispatch, and this arm's
-           reason names the carry as a third thing. The shipped core admits
-           the carry (rf2-t32wg), so the sentence can no longer be read off a
-           refused capture; it is read off a refused READ here, which carries
-           the identical text. The text is the prototype's and is not
-           maintained against the shipped runtime's advice"
+  (testing "the FROZEN prototype's own sentence. The generic advice names a
+           read and a dispatch, and this arm's reason names the carry as a
+           third thing. The shipped core admits the carry, so the sentence
+           cannot be read off a refused capture; it is read off a refused
+           READ here, which carries the identical text. The text is the
+           prototype's and is not maintained against the shipped runtime's
+           advice"
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
@@ -434,7 +425,7 @@
           "the carried api dispatched into its own frame"))))
 
 (deftest the-composed-carry-is-refusal-immune
-  (testing "the ruled spelling — `(rf/capture-frame (h/frame))`. It is the
+  (testing "the composed spelling — `(rf/capture-frame (h/frame))`. It is the
            answer for the author the 1-arity cannot serve: a reusable view
            mounted under N frames, which does not know its own id. `h/frame`
            supplies the id the carrying spellings presuppose, and it reads
@@ -454,11 +445,11 @@
       (is (= 8 @(rf/subscribe [:rt122/v] {:frame f}))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE MISMATCH — a body has ONE frame, by construction (rf2-nqj22)
+;; THE MISMATCH — a body has ONE frame, by construction
 ;; ---------------------------------------------------------------------------
 ;;
-;; The one configuration the refusal did not reach, and it is the silent
-;; wrong-frame class the whole tier exists to delete, surviving in a corner.
+;; The one configuration an ambient-only refusal would not reach, and it is
+;; the silent wrong-frame class the whole tier exists to delete.
 ;; `[[a-carried-with-frame-still-carries-inside-a-body]]` above stays green
 ;; and must: that witness carries the SAME frame the boundary renders under,
 ;; so there is only ever one frame in play and EP-0002 answers it. These rows
@@ -472,8 +463,8 @@
 ;; case is not hypothetical — `test-support`'s `:ambient-frame` default
 ;; root-binds `*current-frame*` to `:rf/default`, so every witness in
 ;; `ssr/entry-cljs-test` renders its per-request frame under a `:rf/default`
-;; stamp, and before this change a `(rf/capture-frame)` in one of those
-;; bodies answered `:rf/default`.
+;; stamp, where an unrefused `(rf/capture-frame)` in one of those bodies
+;; would answer `:rf/default`.
 
 (def ^:private other-frame-id ::rt122-other)
 
@@ -487,11 +478,10 @@
 
 (deftest a-mismatched-carried-stamp-is-refused-inside-a-body
   (testing "an enclosing `rf/with-frame` naming a frame the boundary is NOT
-           rendering. Core was behaving exactly as EP-0002 specifies — that
-           stamp WAS carried — but the body would then have two frames in it,
-           selected by which spelling the author reached for and with no
-           signal. Frames are ISOLATED contexts, so that is an ambiguity, not
-           a carried-stamp win"
+           rendering. Carrying that stamp, as EP-0002 specifies, would put
+           two frames in the body, selected by which spelling the author
+           reached for and with no signal. Frames are ISOLATED contexts, so
+           that is an ambiguity, not a carried-stamp win"
     (let [f     (make-frame!)
           other (make-other-frame!)]
       (with-context-frame f
@@ -551,16 +541,16 @@
             (is (not (str/includes? reason "an explicitly carried frame still carries"))
                 "and NOT the absence sentence's closing promise")
             (is (str/includes? reason "(rf/capture-frame (h/frame))")
-                "the substrate's own advice is still carried verbatim")))))))
+                "the substrate's own advice is carried verbatim")))))))
 
 (deftest a-matched-carried-stamp-is-what-makes-the-mismatch-row-mean-anything
   (testing "the control. `[[a-carried-with-frame-still-carries-inside-a-body]]`
            pins the matched carry through a subscription; this pins it through
            the CARRY, one line away from the mismatch row above, so 'the
            refusal is about the mismatch' is asserted rather than assumed. A
-           fix that refused a MATCHED stamp would make `with-frame` and
-           `{:frame id}` disagree inside a body — strictly worse than the
-           silence it replaces"
+           refusal of a MATCHED stamp would make `with-frame` and
+           `{:frame id}` disagree inside a body — strictly worse than
+           silence"
     (let [f    (make-frame!)
           held (volatile! nil)]
       (with-context-frame f
@@ -568,7 +558,7 @@
           (rf/with-frame f
             (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
       (is (= f (:frame @held))
-          "the ambient carry still answers when the stamp IS the extent's frame")
+          "the ambient carry answers when the stamp IS the extent's frame")
       ((:dispatch-sync @held) [:rt122/bump])
       (is (= 8 @(rf/subscribe [:rt122/v] {:frame f}))
           "and it carries all the way to a dispatch that lands"))))

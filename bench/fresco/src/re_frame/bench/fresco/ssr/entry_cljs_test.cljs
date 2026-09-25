@@ -1,16 +1,15 @@
 (ns re-frame.bench.fresco.ssr.entry-cljs-test
-  "THE GATED WITNESSES FOR THE SSR NODE RENDER ENTRY (rf2-2rtt6.86).
+  "THE WITNESSES FOR THE SSR NODE RENDER ENTRY.
 
-  These run under `npm run test:cljs` — the consolidated `:node-test`
-  build — which is the right home for them and not a compromise: the
-  suite already runs in Node, `react-dom/server` resolves there through
-  the same conditional export the bake driver gets
-  (`adapters/reagent-slim`'s parity suite has required it from this build
-  since rf2-6hyy), and `renderToString` wants no DOM. So the entry's
-  correctness is proved by a PR gate rather than by a bench driver that
-  can exit 0 while emitting warnings.
+  These run in Node, which is the right home for them and not a
+  compromise: `react-dom/server` resolves there through the same
+  conditional export the bake driver gets, and `renderToString` wants no
+  DOM. `npm run check` in bench/fresco/ compiles them, and they run from
+  bench/fresco/ like the lane's other suites. So the entry's correctness
+  is proved by assertions rather than by a bench driver that can exit 0
+  while emitting warnings.
 
-  One row per clause the bead lists, plus the two properties that would
+  One row per property of the entry's contract, plus the two that would
   make the whole thing unsafe if they were not true: that a server render
   leaves ZERO durable registration behind, and that the per-request gensym
   never reaches the wire."
@@ -27,8 +26,8 @@
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as rf.ssr.constants]
-            ;; rf2-2rtt6.91 — the entry no longer computes a render hash, so
-            ;; the row that keeps the measurement live takes it DIRECTLY.
+            ;; The entry computes no render hash, so the row that keeps
+            ;; the measurement live takes it DIRECTLY.
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support])
@@ -57,7 +56,7 @@
        (catch :default e (or (:rf.error/id (ex-data e)) ::no-id))))
 
 ;; ---------------------------------------------------------------------------
-;; Clause 1 — the render entry
+;; The render entry
 ;; ---------------------------------------------------------------------------
 
 (deftest the-existing-runtime-renders-under-renderToString
@@ -76,8 +75,8 @@
       (is (= 4 (count (re-seq #"class=\"row\"" html))))
       ;; A controlled input's server markup carries `value` as
       ;; `defaultValue` would demand of hydration (HD-019's rider is
-      ;; rf2-2rtt6.84's to witness on the hydrated path; this is only the
-      ;; server half, asserted so a change to it is visible here).
+      ;; witnessed on the hydrated path; this is only the server half,
+      ;; asserted so a change to it is visible here).
       (is (str/includes? html "class=\"new-input\"")))))
 
 (deftest the-per-request-frame-is-destroyed
@@ -107,19 +106,19 @@
       (is (= 0 edges)))))
 
 ;; ---------------------------------------------------------------------------
-;; Clause 1(d) — the payload is the framework's, byte for byte
+;; The payload is the framework's, byte for byte
 ;; ---------------------------------------------------------------------------
 
 (deftest the-payload-is-the-frameworks-own
   (let [{:keys [payload payload-edn payload-script]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
 
-    (testing "the two always-present keys, per Spec 011 (rf2-2rtt6.91 — an
+    (testing "the two always-present keys, per Spec 011 (an
              adoption-tier root carries no `:rf/render-hash`, and the
              schema marks the slot `{:optional true}` for exactly this)"
       (is (= #{:rf/version :rf/app-db} (set (keys payload))))
       (is (int? (:rf/version payload))))
 
-    (testing "the per-request gensym NEVER reaches the wire (rf2-lm2yzy)"
+    (testing "the per-request gensym NEVER reaches the wire"
       (is (not (contains? payload :rf/frame-id))
           "an absent :rf/frame-id is the documented no-conflict shape for an
            anonymous per-request server frame; stamping the gensym would be
@@ -162,21 +161,19 @@
       (is (= (set (keys (rf.bench.fresco.front.dogfood/seed-db 4))) (set (keys (:rf/app-db payload))))))))
 
 (deftest the-interpreted-root-ships-no-render-hash
-  (testing "rf2-2rtt6.91, and it is Spec 011's own answer rather than a
-           concession. §Hydration-mismatch detection tiers detection by
-           RENDER-TREE REPRESENTATION: the hash channel is the hiccup
-           tier's, and a root that reaches React as an element — a compiled
-           root on the donor substrate, a native UIx root, a Freehand root
-           — verifies by React-native adoption and `deliberately carries
-           no such hash`. This entry is
-           that tier, so the key is ABSENT from the payload and the marker
-           is absent from the document.
+  (testing "Spec 011's own answer rather than a concession.
+           §Hydration-mismatch detection tiers detection by RENDER-TREE
+           REPRESENTATION: the hash channel is the hiccup tier's, and a
+           root that reaches React as an element — a native UIx root among
+           them — verifies by React-native adoption and `deliberately
+           carries no such hash`. This entry is that tier, so the key is
+           ABSENT from the payload and the marker is absent from the
+           document.
 
-           This row replaces `the-render-hash-is-degenerate-for-an-
-           interpreted-root`, which pinned the defect: the entry used to
-           hash the root hiccup as handed in, and since that form is
-           `[<minted head> {props}]` and `canonical-edn` renders every fn
-           as `#fn[]`, two different screens took the same value."
+           A hash of the root hiccup as handed in would be degenerate:
+           that form is `[<minted head> {props}]` and `canonical-edn`
+           renders every fn as `#fn[]`, so two different screens would
+           take the same value."
     (let [{:keys [payload document]} (rf.bench.fresco.ssr.entry/render dogfood-request)]
       (is (not (contains? payload :rf/render-hash))
           "ABSENT, not nil — `:rf/render-hash` is `{:optional true} :string`
@@ -211,13 +208,12 @@
       (is (not= dogfood markup)))))
 
 (deftest the-server-render-ships-no-mounting-overrides
-  (testing "THE REGRESSION GUARD (rf2-2rtt6.94), and the inversion of the row
-           that measured the defect. Presence starts a child at `:mounting`
+  (testing "THE REGRESSION GUARD. Presence starts a child at `:mounting`
            and applies its `::h/mounting` overrides while it is there, so a
            server render with no adoption window open emits the ENTER
            appearance — and the hydrating client's first pass renders those
-           same children `:present` (born-present, rf2-2rtt6.84), which is a
-           hydration mismatch on every presence-managed node. The entry now
+           same children `:present` (born-present), which is a
+           hydration mismatch on every presence-managed node. The entry
            opens the window around `renderToString`, so the server's bytes
            are born-present too and the two halves agree by construction.
            This row goes RED if that window is ever removed, narrowed, or
@@ -257,7 +253,7 @@
         "the finally shut it anyway")))
 
 ;; ---------------------------------------------------------------------------
-;; Clause 2 — determinism
+;; Determinism
 ;; ---------------------------------------------------------------------------
 
 (deftest the-same-request-renders-byte-identical-documents
@@ -275,24 +271,22 @@
                                                                     (+ differs-at 40))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Clause 6 — defhost regions honour the :ssr policy server-side
+;; defhost regions honour the :ssr policy server-side
 ;;
-;; ONE MECHANISM, NOT TWO (rf2-2rtt6.92). These rows read the SERVER HTML
-;; a real `(defhost … {:ssr …})` declaration produces through the entry,
-;; so they are evidence about the door rather than about whichever
-;; internal honours it. That was not true when they were written: the
-;; fallback row stamped the policy slot onto a minted head by hand, which
-;; proves a reader and never the declaration. `ssr/fixtures` now writes
-;; both hosts the way an author writes them.
+;; ONE MECHANISM, NOT TWO. These rows read the SERVER HTML a real
+;; `(defhost … {:ssr …})` declaration produces through the entry, so they
+;; are evidence about the door rather than about whichever internal
+;; honours it. `ssr/fixtures` writes both hosts the way an author writes
+;; them — a row that stamped the policy slot onto a minted head by hand
+;; would prove a reader and never the declaration.
 ;;
-;; The entry's pre-walk (`ssr.host-policy`) is retired. It could only
-;; reach the hiccup the entry was HANDED, which is why the third row
-;; below exists — the same two declarations at a use site inside a
+;; A pre-walk over the entry's input could only reach the hiccup the
+;; entry is HANDED, which is why the third row below exists — the same two declarations at a use site inside a
 ;; `defview` body, where no such walk can see them.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-host-with-no-declared-policy-renders-nothing
-  (testing "the ruled :client-only default, taken from the door — the
+  (testing "the :client-only default, taken from the door — the
            declaration writes no :ssr at all"
     (is (= :client-only (rf.bench.fresco.front.codec/host-ssr rf.bench.fresco.ssr.fixtures/default-host)))
     (let [{:keys [html]} (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "defhost-ssr-policy"))]
@@ -316,7 +310,7 @@
       (is (str/includes? html "<h1>hosts</h1>")))))
 
 (deftest a-host-declaring-render-renders-the-component-and-its-children
-  (testing ":ssr :render (rf2-l0wfx) — the third policy, through the same
+  (testing ":ssr :render — the third policy, through the same
            entry as the other two. It is the ONLY one under which a
            crossing's children reach the server response at all: under a
            gate the unadopted arm returns something that is not the
@@ -332,15 +326,15 @@
       (is (str/includes? html "<em class=\"context-reader\">dark</em>")
           "and a consumer below the provider read the DECLARED context
            value — the property that separates :render from the rejected
-           :children, which would have emitted the context DEFAULT")
+           :children, which would emit the context DEFAULT")
       (is (not (str/includes? html "<em class=\"context-reader\">unset</em>"))
           "so the default is nowhere in the bytes"))))
 
 (defn- walk-reachable-host-heads
   "Every minted host head reachable from `form` through vectors and seqs
-  — which is exactly what the retired `ssr.host-policy/apply-policy`
-  could see, reproduced in six lines so the retirement's load-bearing
-  claim is a CHECK rather than a paragraph. Used by the row below."
+  — which is exactly what a pre-walk over the handed-in form can see,
+  reproduced in six lines so the argument against one is a CHECK rather
+  than a paragraph. Used by the row below."
   [form]
   (cond
     (vector? form) (let [head (nth form 0 nil)]
@@ -351,11 +345,10 @@
     :else          []))
 
 (deftest a-pre-walk-over-the-handed-in-form-cannot-see-a-nested-host
-  (testing "WHY THE WALK IS GONE RATHER THAN KEPT BESIDE THE GATE
-           (rf2-2rtt6.92). A walk can only reach the tree it is handed, and
-           this is that reach, measured. Keep this row if a server-side
-           pre-walk is ever proposed again: it is the whole argument in two
-           numbers."
+  (testing "WHY THERE IS NO WALK BESIDE THE GATE. A walk can only reach
+           the tree it is handed, and this is that reach, measured. Keep
+           this row if a server-side pre-walk is ever proposed: it is the
+           whole argument in two numbers."
     (is (= 3 (count (walk-reachable-host-heads rf.bench.fresco.ssr.fixtures/host-screen)))
         "the CONTROL — the handed-in row's three host uses are visible to a
          walk, so the measurement below is about position and not about a
@@ -367,7 +360,7 @@
          that covers a strict subset of the first")))
 
 (deftest a-host-used-inside-a-defview-body-honours-its-policy
-  (testing "THE POSITION NO PRE-WALK COULD REACH (rf2-2rtt6.92). Both hosts
+  (testing "THE POSITION NO PRE-WALK COULD REACH. Both hosts
            are used inside a boundary body, so their elements do not exist
            when this entry is handed its hiccup — that body runs inside
            `renderToString` and the codec's crossing creates them there. The
@@ -399,7 +392,7 @@
             "exactly one — this row has one fallback host, so a count is a
              real assertion and not a presence check in disguise"))
 
-      (testing ":render, at a nested use site (rf2-l0wfx)"
+      (testing ":render, at a nested use site"
         (is (str/includes? html "NESTED-RENDER-SUBTREE")
             "the crossing's children reached the server response from
              inside a boundary body too")
@@ -419,10 +412,10 @@
         (is (str/starts-with? document "<!DOCTYPE html>"))
         (is (str/includes? document "<div id=\"app\">")
             "the app root carries the id the client bootstrap mounts on —
-             a `:or` default that never fires shipped `id=\"\"` once")
+             a `:or` default that never fires would ship `id=\"\"`")
         (is (str/includes? document (str "id=\"" rf.ssr.constants/payload-script-id "\"")))
         (is (str/ends-with? document "</body></html>"))
-        ;; rf2-2rtt6.91 — EVERY row, not just the two the exclusion row
+        ;; EVERY row, not just the two the exclusion row
         ;; names: an adoption-tier root carries no hash at either end.
         (is (not (str/includes? document "data-rf-render-hash"))
             (str id " stamped a render-hash marker on an adoption-tier root"))
@@ -430,18 +423,18 @@
             (str id " shipped :rf/render-hash in an adoption-tier payload"))))))
 
 ;; ---------------------------------------------------------------------------
-;; The host scope does not leak into a per-request body (rf2-nqj22)
+;; The host scope does not leak into a per-request body
 ;; ---------------------------------------------------------------------------
 ;;
-;; THIS FILE IS WHERE THE DEFECT WAS FOUND, which is the only reason the row
-;; lives here rather than beside its siblings in
-;; `arm1/ambient_refusal_cljs_test`. `test-support`'s `:ambient-frame` default
-;; root-binds `*current-frame*` to `:rf/default`, and the fixture above takes
-;; that default — so every witness in this file renders its per-request frame
-;; inside a `:rf/default` stamp. Measured on the tree before the fix: a
-;; `(rf/capture-frame)` in a body under `renderToString` answered
-;; `:rf/default`, while `h/frame` in the same body answered the per-request
-;; frame the markup was actually built from. An SSR host is the worst place
+;; The row lives here rather than beside its siblings in
+;; `arm1/ambient_refusal_cljs_test` because this file's fixture IS the
+;; hazard. `test-support`'s `:ambient-frame` default root-binds
+;; `*current-frame*` to `:rf/default`, and the fixture above takes that
+;; default — so every witness in this file renders its per-request frame
+;; inside a `:rf/default` stamp. Without the refusal, a `(rf/capture-frame)`
+;; in a body under `renderToString` would answer `:rf/default`, while
+;; `h/frame` in the same body answers the per-request frame the markup is
+;; actually built from. An SSR host is the worst place
 ;; for that: the wrong frame is a long-lived process-wide one, and what it
 ;; would carry away is a closure that outlives the request.
 
@@ -473,7 +466,7 @@
       (is (not= :rf/default frame-id)
           "precondition: the per-request frame is not the host's")
       (is (= frame-id hframe) "the boundary renders the per-request frame")
-      (is (= frame-id composed) "and the composed carry has always been immune")
+      (is (= frame-id composed) "and the composed carry is immune")
       (is (= :rf.error/ambient-frame-refused (:rf.error/id ambient))
           (str "the ambient carry must refuse rather than answer the host's
                 scope; got " (pr-str ambient)))

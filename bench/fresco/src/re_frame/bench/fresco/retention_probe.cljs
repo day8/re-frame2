@@ -1,25 +1,24 @@
 (ns re-frame.bench.fresco.retention-probe
-  "rf2-flqpd — WHAT HOLDS THE 12 MB. A diagnostic, not a row.
+  "WHAT HOLDS THE 12 MB. A diagnostic, not a row.
 
   ## The observation this exists to explain
 
-  rf2-2rtt6.4's own probe measured, while building the P0 UIx-on-subs
-  frontier arm, `performance.memory.usedJSHeapSize` climbing
+  The P0 UIx-on-subs frontier arm's own probe reads
+  `performance.memory.usedJSHeapSize` climbing
   34 -> 46 -> 55 -> 63 -> 75 -> 87 MB across six adapter-segment entries —
   about 12 MB per entry — with `document.body.childElementCount` at 2
-  throughout, so nothing was leaking into the document. On that heap a
-  FLOOR arm doing byte-identical work every round drifted 3.4 -> 7.0 ms and
-  the arm-order guard refused on phase. A forced MAJOR collection between
-  samples did not move it, so the memory is RETAINED and not garbage;
-  hoisting the arms did not move it, so it is not call-site polymorphism;
-  the floor-only positive control, which installs and destroys no adapter,
-  stayed flat. ~12 MB is about every root mounted in a segment.
-
-  rf2-2rtt6.4 MITIGATED it by running one round per page and filed this.
+  throughout, so nothing is leaking into the document. On that heap a
+  FLOOR arm doing byte-identical work every round drifts 3.4 -> 7.0 ms and
+  the arm-order guard refuses on phase. A forced MAJOR collection between
+  samples does not move it, which reads as RETAINED memory rather than
+  garbage; hoisting the arms does not move it, so it is not call-site
+  polymorphism; the floor-only positive control, which installs and
+  destroys no adapter, stays flat. ~12 MB is about every root mounted in a
+  segment.
 
   ## Why this counts REFERENCES rather than taking a snapshot
 
-  A retained-heap figure says HOW MUCH and never WHAT. The bead's next
+  A retained-heap figure says HOW MUCH and never WHAT. The obvious next
   step is a heap snapshot with retainer paths, and a snapshot is the right
   instrument for a cause nobody can name. But two causes CAN be named, and
   naming one is cheaper to check than to search for:
@@ -41,10 +40,10 @@
   hypotheses are dead and the snapshot is the next instrument — and this
   probe will have said so rather than implied it.
 
-  ## WHAT IT FOUND — the retention is not retention
+  ## WHAT IT FINDS — the retention is not retention
 
   Run on 2026-07-31, Chromium 147.0.7727.15 under Playwright, `:advanced`
-  with `goog.DEBUG` false, in the bead's own shape: six adapter-segment
+  with `goog.DEBUG` false, in the observation's own shape: six adapter-segment
   entries alternating UIx and Reagent, 50 mount/unmount cycles of 4 roots
   each (200 roots, 60,000 boundaries per segment), every cycle verified at
   the DOM at 1,200 elements.
@@ -58,13 +57,13 @@
       5             5.61           12.44            6.84
       6             5.63           55.72           50.09
 
-  **The UNCOLLECTED column is the bead's observation.** It reaches the
+  **The UNCOLLECTED column is the observation.** It reaches the
   reported magnitude — 12.6 MB after the first segment, 81 MB later — and
   it SAWTOOTHS rather than climbing, which a leak cannot do. The COLLECTED
   column, read at the same instants after a forced major collection,
   climbs 0.90 MB in total across six segments and settles. Repeating it
   with `RETENTION_COLLECT=page` — `window.gc({type:'major',
-  execution:'sync'})` and nothing else, the same door rf2-2rtt6.4 used —
+  execution:'sync'})` and nothing else, the frontier arm's own door —
   gives 2.99 -> 5.90 MB, so the page's own collector reclaims it too and
   the CDP door is not doing something the page could not have asked for.
 
@@ -80,8 +79,7 @@
   every cycle) says every subscription is disposed on unmount, so H1 is
   dead; the collected heap does not step at a segment seam, so H2 is dead.
 
-  **The instrument lesson stands, and rf2-2rtt6.4's mitigation was right
-  for a reason it did not have:** one round per page keeps allocation
+  **The instrument lesson stands:** one round per page keeps allocation
   pressure off the clock, and 30-80 MB of uncollected rubbish in a page IS
   what makes an unchanging floor arm drift 3.4 -> 7.0 ms — a scavenge
   inside a timed window is a measurement of the collector. A heap figure
@@ -105,9 +103,7 @@
   heap row measures. Every number here is a census of live references
   beside a heap reading, printed as a SERIES so the shape — flat, linear,
   stepped — is what a reader judges. A diagnostic that adjudicated would
-  be a row, and rows on this programme are operator-owned (rf2-2rtt6.1).
-
-  Owner: rf2-flqpd."
+  be a row, and rows on this programme are operator-owned."
   (:require [goog.object :as gobj]
             [re-frame.bench.p0-arms :as rf.bench.p0-arms]
             [re-frame.bench.p0-heap :as rf.bench.p0-heap]
@@ -124,8 +120,8 @@
   Duck-typed on purpose. Reagent's `Reaction`, reagent-slim's, an
   `IWatchable` atom and the React spine's container are four different
   types across three artefacts, and a census that picked one and silently
-  reported `nil` for the others would be the exact shape of fault this
-  programme keeps finding: a precise number over a smaller set than the
+  reported `nil` for the others would be the fault shape an instrument
+  must avoid: a precise number over a smaller set than the
   one it names. `:watchers-of` in the reading says how many of the objects
   offered actually answered, so a census that stopped counting is visible."
   [x]
@@ -193,9 +189,9 @@
          "bodyChildren" (.-childElementCount js/document.body)
          "domElements"  (.-length (.querySelectorAll js/document "*"))
          ;; WHETHER THE PAGE CAN COLLECT AT ALL, reported on every reading.
-         ;; rf2-flqpd's evidence that the climb was RETENTION and not
-         ;; garbage is that `gc({type:'major',execution:'sync'})` between
-         ;; samples did not move it. That argument is only as good as the
+         ;; The argument that a climb is RETENTION and not garbage — that
+         ;; `gc({type:'major',execution:'sync'})` between samples does not
+         ;; move it — is only as good as the
          ;; function existing: `--js-flags=--expose-gc` is given to the
          ;; BROWSER process and a renderer does not necessarily inherit it,
          ;; so a page can call a `gc` that is not there and a guarded call

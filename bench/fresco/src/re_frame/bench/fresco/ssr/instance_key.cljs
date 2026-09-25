@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.ssr.instance-key
-  "THE PAGE THE PAYLOAD OBLIGATION IS WITNESSED ON (rf2-2rtt6.99).
+  "THE PAGE THE PAYLOAD OBLIGATION IS WITNESSED ON.
 
   One screen, two disclosure panels, and one `h/reg-state` concern
   (`re-frame.bench.fresco.front.state`). The server's boot events open
@@ -104,8 +104,8 @@
   The body is a CONDITIONAL ELEMENT rather than a changed attribute or a
   changed string: an element the server rendered and the client does not
   is an unambiguous structural divergence, where a text difference would
-  be measuring React's SSR text-separator behaviour (rf2-2rtt6.88)
-  alongside the thing under test."
+  be measuring React's SSR text-separator behaviour alongside the thing
+  under test."
   [{:keys [ikey title]}]
   (let [shown? (rf.bench.fresco.arm1.runtime/sub [open? ikey])]
     [:section.panel {:data-ikey ikey}

@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.jsfb-model
-  "THE ONE MODEL BOTH ARMS RENDER — krausest/js-framework-benchmark's app
-  as re-frame2 state (rf2-rguy1).
+  "THE ONE MODEL EVERY ARM RENDERS — krausest/js-framework-benchmark's app
+  as re-frame2 state.
 
   ## Why a shared model namespace exists at all
 
@@ -8,7 +8,7 @@
   agrees with ours about `fresco / reagent`. A ratio only answers that
   if the two arms differ in EXACTLY ONE thing — the view substrate. So
   the app-db shape, every event handler, every subscription and the
-  pseudo-random data are defined once, here, and both arms require this
+  pseudo-random data are defined once, here, and every arm requires this
   namespace. Neither arm may hold state of its own; if one did, the ratio
   would be a ratio of two applications rather than of two renderers.
 
@@ -68,7 +68,7 @@
 
   At 1,000 rows that is **2,001 live queries and 2,001 reads per mount**,
   fan-out 1 on the row queries. Stated because cache cardinality is part
-  of a witness by this lane's ruling — two arms at different
+  of a witness in this lane — two arms at different
   cardinalities are not the same experiment, and both arms here are at
   this one.
 
@@ -86,9 +86,7 @@
   `frameworks/keyed/reagent/src/demo/utils.cljs`'s definitions, verified
   against that file rather than recalled, because the driver asserts on
   the resulting text at specific row positions and an off-by-one makes
-  every number here incomparable.
-
-  Owner: rf2-rguy1."
+  every number here incomparable."
   (:require [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
@@ -124,7 +122,7 @@
   by the driver between iterations builds the same table it built last
   time. The driver reloads per iteration on some benchmarks, so without
   this the two arms would drift apart over a run in exactly the way
-  seeding was meant to prevent."
+  seeding prevents."
   []
   (reset! !seed seed-0)
   (reset! !next-id 1)

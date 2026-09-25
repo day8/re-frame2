@@ -24,7 +24,7 @@
   browser's, which is the right tool for an effect-ordering test and the
   wrong one for a witness that reads the page.
 
-  **[[hydrate-root!]] is the exception, and deliberately** (rf2-2rtt6.84).
+  **[[hydrate-root!]] is the exception, and deliberately.**
   Adoption is React's own concurrent business and nothing in this tree
   forces it synchronously; wrapping `hydrateRoot` in a `flushSync` would
   be inventing a schedule to make a witness easier to write. So that one
@@ -68,13 +68,13 @@
   hydrated root a bare provider where a Fragment stood would not be a
   cheaper render, it would be a different tree — React unmounts the
   adopted subtree and mounts a fresh one, discarding every node, cell and
-  subscription the adoption just established. Measured: the first
-  `render!` after a hydration re-ran all four boundary bodies and
-  replaced all four DOM nodes.
+  subscription the adoption just established. Measured with a bare
+  provider: the first `render!` after a hydration re-runs all four
+  boundary bodies and replaces all four DOM nodes.
 
-  An ordinary root gets no wrapper at all, which keeps the tree the whole
-  bench lane measures exactly what it was — no extra fiber, no extra
-  passive effect, and nothing new in
+  An ordinary root gets no wrapper at all, which keeps the wrapper out of
+  the tree the whole bench lane measures — no extra fiber, no extra
+  passive effect, and nothing added to
   `re-frame.bench.fresco.arm1.runtime/retained-inventory`."
   [handle hiccup]
   (let [app (provider (:frame handle)
@@ -91,8 +91,8 @@
   The root hiccup is interpreted through
   [[re-frame.bench.fresco.front.codec/root-element]] rather than
   `as-element`, because the root is the one creator with no ancestor body
-  to inherit the frame from — the case rf2-2rtt6.39's frame-as-a-prop
-  variant needs named. The context provider is installed regardless: it
+  to inherit the frame from — the case the frame-as-a-prop variant needs
+  named. The context provider is installed regardless: it
   is what the substrate's other React-shaped adapters read, and what the
   error boundary and the presence tray resolve their frame from.
 
@@ -112,9 +112,9 @@
 
 (defn adoption-window-closer
   "The component that CLOSES the adoption window, on the hydration commit
-  and not before (rf2-2rtt6.84).
+  and not before.
 
-  Lifted verbatim in shape from the spine's own
+  The same shape as the spine's own
   `re-frame.substrate.spine/adoption-window-closer`: a passive
   `useEffect` with empty deps, so it runs exactly once and strictly AFTER
   the commit that adopted the server DOM. Renders nil — no DOM, so it
@@ -130,7 +130,7 @@
   nil)
 
 ;; `unchecked-set`, not `aset`: `aset` is cljs.core's ARRAY writer and a
-;; component is a function, so the write was a type error the compiler
+;; component is a function, so the write would be a type error the compiler
 ;; happens not to enforce. Both emit the same `(x["displayName"] = ...)`,
 ;; and it is the STRING key that keeps the property off Closure's renamer
 ;; under `:advanced` — the reason the arm's other stamps
@@ -138,15 +138,16 @@
 (unchecked-set adoption-window-closer "displayName" "fresco/adoption-window-closer")
 
 ;; ---------------------------------------------------------------------------
-;; The recoverable-error reporter (rf2-2rtt6.97)
+;; The recoverable-error reporter
 ;; ---------------------------------------------------------------------------
 ;;
 ;; React reports the adoption divergences it RECOVERS FROM — a text
 ;; mismatch, or a missing / extra / wrong-type element — through the root's
-;; `onRecoverableError`. Left with no root options this door got React's
-;; DEFAULT handler, so a mismatch was an uncaught window error and NOTHING
-;; ELSE: Spec 011's `:rf.ssr/hydration-mismatch` never fired, and a mismatch
-;; was invisible to every tool that reads the instrumentation stream.
+;; `onRecoverableError`. With no root options this door would get React's
+;; DEFAULT handler, so a mismatch would be an uncaught window error and
+;; NOTHING ELSE: Spec 011's `:rf.ssr/hydration-mismatch` would never fire,
+;; and a mismatch would be invisible to every tool that reads the
+;; instrumentation stream.
 ;;
 ;; The shape below is the spine's (`re-frame.substrate.spine`,
 ;; `native-hydration-reporter` / `hydrate-root-options`), because this arm is
@@ -159,8 +160,9 @@
   "React's own default reporting, replicated.
 
   Installing ANY `onRecoverableError` takes React's default OFF, so a
-  reporter that only emitted would SWALLOW the error — the fail-open
-  `rf2-mwx08` exists to prevent. This door composes over React's default
+  reporter that only emitted would SWALLOW the error — the fail-open the
+  runner's fatal-`pageerror` rule exists to prevent. This door composes
+  over React's default
   and never clobbers it: the uncaught error a runner treats as fatal is
   still uncaught, and the diagnostic is added beside it."
   [error]
@@ -176,13 +178,6 @@
   neither. `:recovery` is `:warned-and-replaced` because React has
   already patched the DOM by the time this runs — there is no
   `:hard-error` escalation to make.
-
-  **The compiled tier's namespace is deliberately not spelled**, here or
-  anywhere under `implementation/freehand`. EP-0036's donor-boundary law
-  is enforced by a plain `git grep` over this tree, and a grep cannot
-  tell a docstring from a `:require` — correctly, because a cleverer one
-  would eventually let a real dependency through. Naming the donor in
-  prose reds the gate; describing it does not.
 
   Not an event and it mints no epoch: it fires from a React root-error
   callback, outside any dispatch scope."
@@ -221,7 +216,7 @@
   Nil in production, where the emit DCEs behind `rf.interop/debug-enabled?`
   and the only thing left to install would be a replica of the default
   React would have run anyway — so the caller passes no options at all
-  and the shipped path is exactly what it was. The spine gates the same
+  and the shipped path is React's bare default. The spine gates the same
   way, one clause wider: it also installs for a host-authored
   `:on-recoverable-error`, and this arm has no host-authored callback to
   compose with."
@@ -232,7 +227,7 @@
 (defn hydrate-root!
   "Associate `container`'s **existing server-rendered DOM** with
   `frame-kw` and `hiccup`, by adoption. [[root!]]'s hydrating twin, and
-  the client half every SSR route shares (rf2-2rtt6.84).
+  the client half every SSR route shares.
 
   Returns the same handle shape [[root!]] does — `{:root :frame
   :container}` — so [[render!]], [[dispatch!]], [[unmount!]] and
@@ -262,16 +257,16 @@
   subscription and needs no frame, and a nil-rendering component with no
   frame dependency is the smallest thing that can carry the effect.
 
-  ## It DOES carry root options, and only these (rf2-2rtt6.97)
+  ## It DOES carry root options, and only these
 
   [[hydration-reporter]] rides as the root's `onRecoverableError`, so a
   divergence React recovers from surfaces as Spec 011's
   `:rf.ssr/hydration-mismatch` instead of only as an uncaught window
-  error. It is the SPINE's arrangement, and it does not soften
-  `rf2-mwx08`: the reporter always reports, so the uncaught error is
-  still uncaught and the diagnostic is added beside it. In production
-  [[hydrate-root-options]] answers nil and this call is the bare
-  two-argument one it always was.
+  error. It is the SPINE's arrangement, and it does not soften the
+  runner's fatal-`pageerror` rule: the reporter always reports, so the
+  uncaught error is still uncaught and the diagnostic is added beside it.
+  In production [[hydrate-root-options]] answers nil and this call is the
+  bare two-argument one.
 
   ## The handle carries `:hydrated?`, and it has to
 
@@ -297,7 +292,7 @@
   This is the half a residue gate has to be able to read. [[release!]]
   also resets the runtime, and a reading taken after that reset is a
   reading of an emptied table: it answers `0` whether teardown worked or
-  not, which is a gate that cannot go red (rf2-2rtt6.48). A witness that
+  not, which is a gate that cannot go red. A witness that
   wants to assert on teardown therefore calls this, waits one macrotask
   for the cell and entry reapers, asserts, and resets afterwards.
 

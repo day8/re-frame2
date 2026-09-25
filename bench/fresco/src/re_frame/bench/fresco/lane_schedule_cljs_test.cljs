@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.lane-schedule-cljs-test
-  "WHAT THE GUARD IS TOLD RAN BEFORE WHAT (rf2-6ta5r, rf2-h904p).
+  "WHAT THE GUARD IS TOLD RAN BEFORE WHAT.
 
   [[re-frame.bench.fresco.lane/rounds!]] runs warm-up samples and throws
   their VALUES away. It must not throw away the fact that they RAN: a
@@ -7,15 +7,15 @@
   `order-guard`'s `:predecessor` factor strata every banked sample by
   exactly that.
 
-  It did throw it away. [[rf.bench.fresco.lane/collect!]] carried `:prev` forward from the
-  last sample it BANKED, so at each round's first measured sample the
-  predecessor it recorded was the PREVIOUS ROUND'S last measured arm —
-  never the warm-up sample that had just run. Replaying the schedule
-  prices it: on every arm count this lane uses, exactly one arm carried 5
-  of its 30 samples under an adjacency that did not happen. On the
-  seven-arm `amp_merge_clock` schedule that arm is `:expanded-b`, THE NULL
-  — 4 of its samples filed under `floor`, which never runs before it — and
-  on the five-arm schedule those same 4 were filed under `expanded-b`
+  A [[rf.bench.fresco.lane/collect!]] that carried `:prev` forward from the
+  last sample it BANKED would record, at each round's first measured
+  sample, the PREVIOUS ROUND'S last measured arm — never the warm-up
+  sample that had just run. Replaying the schedule prices that: on every
+  arm count this lane uses, exactly one arm would carry 5 of its 30
+  samples under an adjacency that did not happen. On the seven-arm
+  `amp_merge_clock` schedule that arm is `:expanded-b`, THE NULL — 4 of
+  its samples filed under `floor`, which never runs before it — and on
+  the five-arm schedule those same 4 would be filed under `expanded-b`
   ITSELF, a predecessor no schedule can produce.
 
   A guard that adjudicates a contrast which did not happen is the
@@ -42,28 +42,27 @@
 
   ## Arm counts
 
-  4, 5, 7, 8 and 9 — `direct_return_clock`'s, `amp_merge_clock`'s before
-  `rf2-z143r`'s ladder and after it, the count `rf.bench.fresco.lane/observe!`'s own
-  docstring prices the fault at, and `amp_merge_clock`'s again once
-  `rf2-v5oto`'s two clean-pair arms land. The fault is invariant to all
-  of them, which is the same arithmetic that settles `rf2-6ta5r`'s
-  arm-count question: the schedule length does not move it.
+  4, 5, 7, 8 and 9 — `direct_return_clock`'s; `amp_merge_clock`'s
+  five-arm schedule and its seven-arm ladder schedule; the count
+  `rf.bench.fresco.lane/observe!`'s own docstring prices the fault at; and
+  `amp_merge_clock`'s nine arms with its two clean pairs. The fault is
+  invariant to all of them: the schedule length does not move it.
 
-  ## The second thing this file replays: HOW WARM the arm was (rf2-ydqzt)
+  ## The second thing this file replays: HOW WARM the arm was
 
   `order-guard` strata a banked sample by its `:predecessor` and by its
   `:phase`, and the two need different facts about the same schedule. The
   deftests above are the predecessor's. The last two are the phase's:
   warm-up is charged PER ROUND while the ramp `:phase` exists to catch is
-  RUN-LEVEL, and `rounds!`'s own docstring now quotes the prior-execution
+  RUN-LEVEL, and `rounds!`'s own docstring quotes the prior-execution
   span that follows from it. A quoted number nothing checks is the class of
   claim this directory exists to refuse, so both samplings the lane's
   page-mount clocks have run are replayed and the span is asserted.
 
-  Those two deftests are also what a future `:prewarm` has to walk past.
-  The bead that priced this asymmetry declined to build one — the knob
-  sufficed, and rf2-adld3's window on the warmed rig came back reportable
-  on phase — so what is recorded here is a REFUSAL and its arithmetic. A
+  Those two deftests are also what a run-level `:prewarm` has to walk
+  past. The lane has none — the per-round warm-up knob suffices, as
+  `rounds!`'s docstring records — so what is recorded here is a REFUSAL
+  and its arithmetic. A
   change that moves the warm-up out of the round loop turns these red,
   which is the point: it should not be possible to land the mechanism and
   leave the reasoning that declined it standing."
@@ -75,8 +74,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private arm-counts
-  "Every arm count this lane's page-mount harnesses run at, including the
-  nine `rf2-v5oto` takes `amp_merge_clock` to."
+  "Every arm count this lane's page-mount harnesses run at, including
+  `amp_merge_clock`'s nine."
   [4 5 7 8 9])
 
 (defn- replay
@@ -96,10 +95,10 @@
     (assoc out :truth @truth)))
 
 (def ^:private sampling
-  "The sampling both clocks ran when they failed, kept HERE rather than
-  raised with them: this file is about a fault that is invariant to the
-  numbers, and pinning the old ones keeps it able to see the fault at the
-  size it was found."
+  "A sampling the page-mount clocks have run, pinned HERE independently
+  of the clocks' own: this file is about a fault that is invariant to the
+  numbers, and a fixed pair keeps the fault at one size (5 of 30 samples
+  on one arm)."
   {:warmup 3 :samples 6})
 
 (def ^:private rounds 5)
@@ -151,8 +150,9 @@
                      " and was filed under " (pr-str predecessor)))))))))
 
 (deftest no-sample-is-recorded-as-its-own-predecessor
-  (testing "The five-arm `amp_merge_clock` schedule filed 4 of the null
-           arm's samples under `expanded-b` — the null arm itself. No
+  (testing "On the five-arm `amp_merge_clock` schedule a banking-carried
+           predecessor files 4 of the null arm's samples under
+           `expanded-b` — the null arm itself. No
            schedule can run an arm twice in a row: `slot-order` visits
            every arm exactly once per sample index, so an arm can repeat
            only across a sample-index boundary, and then only if it holds
@@ -196,18 +196,17 @@
             (str n " arms: every arm contributes `samples` readings to every round"))))))
 
 ;; ---------------------------------------------------------------------------
-;; What the per-round warm-up charge actually buys (rf2-ydqzt)
+;; What the per-round warm-up charge actually buys
 ;; ---------------------------------------------------------------------------
 
 (def ^:private samplings
   "Both samplings the lane's page-mount clocks have run, each with the span
   of PRIOR EXECUTIONS OF ITS OWN ARM that the run's last third sits at.
 
-  `rf.bench.fresco.lane/rounds!`'s docstring quotes both spans as the reason a run-level
-  pre-warm was declined; these are the same two numbers, checked. The
-  file-level [[sampling]] above stays pinned at the pair the predecessor
-  fault was found under — that fault is invariant to the numbers and this
-  one is entirely about them."
+  `rf.bench.fresco.lane/rounds!`'s docstring quotes both spans as the reason the lane
+  has no run-level pre-warm; these are the same two numbers, checked. The
+  file-level [[sampling]] above is pinned independently — the predecessor
+  fault is invariant to the numbers and this one is entirely about them."
   [{:sampling {:warmup 3 :samples 6}  :last-third [32 44]}
    {:sampling {:warmup 8 :samples 12} :last-third [72 99]}])
 

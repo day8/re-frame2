@@ -1,9 +1,8 @@
 (ns re-frame.bench.fresco.arm1.dogfood-dom-cljs-test
-  "THE DOGFOOD SCREEN, MOUNTED — AND THE SIX-WEEK CLOCK (rf2-2rtt6.9).
+  "THE DOGFOOD SCREEN, MOUNTED — AND THE SIX-WEEK CLOCK.
 
   **HD-014 starts the K7 clock at the first Fresco-arm commit that
-  mounts the dogfood screen. This is that mount.** The operator is on
-  record accepting it (rf2-2rtt6, 2026-07-31); K7 is never extended
+  mounts the dogfood screen. This is that mount.** K7 is never extended
   silently.
 
   validation.md asks for one list, one controlled field and subscription
@@ -19,7 +18,7 @@
 
   1. **Canonical-DOM parity** across all three, with attribute names
      sorted, and a control that proves the comparison can answer false.
-  1c. **Intent parity on the two live renderings** (rf2-2rtt6.67): one
+  1c. **Intent parity on the two live renderings**: one
      real-DOM interaction script driven at the collector and at raw UIx,
      the dispatched event vectors captured at the substrate's own
      `:events` listener stream, and both captures asserted equal to the
@@ -32,17 +31,16 @@
      proves the page MEANS the same thing when a user touches it.
 
      **And the comparator PINS the controlled-input implementation it is
-     compared against (rf2-2rtt6.75).** The script types into two UIx
+     compared against.** The script types into two UIx
      `:input`s (`dogfood_uix.cljs`'s `.new-input` and `.draft`), and
      `uix.compiler.aot/create-uix-input` can build either React's
-     controlled input or UIx's port of Reagent's rAF-driven one. Which
-     one was INHERITED here — correct, but only because
-     `re-frame.adapter.uix` pins it at load (rf2-heqwo), never because
-     this row asked. Measured, not inferred: with that pin cleared every
-     claim in this namespace stayed GREEN while those two fields were the
-     Reagent port, so the gate was silent about which product it was
-     comparing against (rf2-2rtt6.41 reproduced exactly that). The
-     `:each` fixture now pins [[adapter-default-implementation]] going in
+     controlled input or UIx's port of Reagent's rAF-driven one.
+     Inheriting the choice would be correct only because
+     `re-frame.adapter.uix` pins it at load, never because this row
+     asked — and with that pin cleared every claim in this namespace
+     stays GREEN while those two fields are the Reagent port, so the gate
+     would be silent about which product it compares against. The
+     `:each` fixture pins [[adapter-default-implementation]] going in
      and witnesses it coming out ([[pin-is-adapters-default!]]), so the
      comparison names its own subject.
   2. **The narrow write touches one row.** A toggle re-renders the row it
@@ -52,9 +50,7 @@
      synchronous door), and the collector's conditional read means a
      completed row holds one edge where the grouped rendering holds two.
 
-  No clock is read and no bar row is published: the clock gate lines are
-  being re-taken (rf2-b0tz5) and this arm's rows are scored against the
-  restated bar later.
+  No clock is read and no bar row is published here.
 
   Runtime: `-dom-cljs-test`; under `:node-test` every claim degrades to a
   stated skip."
@@ -90,7 +86,7 @@
   {:react false :uix-reagent-input true})
 
 (def adapter-default-implementation
-  "What `re-frame.adapter.uix` pins at load (rf2-heqwo) — i.e. what a
+  "What `re-frame.adapter.uix` pins at load — i.e. what a
   re-frame2 UIx app actually renders `:input` with — and therefore what
   the comparator is held to. NOT `nil`: `cljs.test` runs every namespace
   in one shared JS runtime, so leaving the var cleared would hand the
@@ -136,8 +132,7 @@
      ;; so the comparator's ambient `use-sub` would read the
      ;; ambient frame's app-db while the probe's `use-frame` reported the
      ;; provider's, and a parity miss would look like a rendering
-     ;; difference. Caught by the frame probe below, which is why the
-     ;; probe stays.
+     ;; difference. The frame probe below catches exactly that.
      :ambient-frame nil
      ;; The map shape, because the teardown claims are `async`: the cell
      ;; and entry reapers are macrotasks, so the residue a React unmount
@@ -308,7 +303,7 @@
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 1c — the same intents on the same interactions (rf2-2rtt6.67)
+;; 1c — the same intents on the same interactions
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The other half of "the same page". DOM parity proves the two live
@@ -326,11 +321,10 @@
 ;; a drift BOTH renderings share.
 ;;
 ;; The script's SIZE is part of the claim. An equivalence published over
-;; "eight event positions" while the script drove five of them is a claim
-;; larger than its evidence, which is what the merged-PR audit of #7395
-;; found. `dogfood-script/interaction-steps` now carries a site-by-step
-;; coverage map and drives all eight, both key-map branches, and all
-;; three filters.
+;; "eight event positions" while the script drives five of them would be a
+;; claim larger than its evidence, so `dogfood-script/interaction-steps`
+;; carries a site-by-step coverage map and drives all eight, both key-map
+;; branches, and all three filters.
 ;;
 ;; Two of the keystrokes are composing — the modern signal (`isComposing`,
 ;; which React's synthetic keyboard event DROPS, so a gate that reads the
@@ -340,11 +334,10 @@
 ;; key-map's central one on the collector, the hand-written one on raw
 ;; UIx.
 
-;; The script, its stated expectation and the three DOM-event doors moved
-;; to `arm1/dogfood_script.cljs` when the SSR spike (rf2-2rtt6.87, X4)
-;; became their second driver. The script's SIZE is part of every claim
-;; made with it — that is what the #7395 audit found — so there is one
-;; copy and every driver takes it.
+;; The script, its stated expectation and the three DOM-event doors live
+;; in `arm1/dogfood_script.cljs`, because the SSR spike (X4) drives them
+;; too. The script's SIZE is part of every claim made with it, so there is
+;; one copy and every driver takes it.
 
 (defn- capture-run!
   "Mount via `mount-fn`, run the script with the `:events` listener
@@ -519,10 +512,10 @@
 ;;
 ;; The reading is taken between the root unmount and any reset, because
 ;; `rf.bench.fresco.arm1.mount/release!` resets the runtime and a reading taken after that is a
-;; reading of an emptied table — zero however badly teardown went. That
-;; ordering is what made these two gates unable to fail (rf2-2rtt6.48),
-;; and `the-residue-reading-can-answer-false` below is the demonstration
-;; that the repaired reading is live at the point the gates take it.
+;; reading of an emptied table — zero however badly teardown went, which
+;; would make these two gates unable to fail.
+;; `the-residue-reading-can-answer-false` below demonstrates that the
+;; reading is live at the point the gates take it.
 ;;
 ;; The macrotask wait is not slack: a cell whose last reader unmounts and
 ;; an entry whose last boundary unmounts are both reaped one macrotask
@@ -530,7 +523,7 @@
 
 (def ^:private reaper-horizon-ms
   "One macrotask, with room: `arm1/runtime` arms the cell reaper at 0 ms
-  and the entry reaper at its 4 ms horizon (rf2-2rtt6.84), so 8 clears
+  and the entry reaper at its 4 ms horizon, so 8 clears
   both — and clears them in order, because the reapers are armed during
   the unmount and this timer immediately after it."
   8)
@@ -573,8 +566,8 @@
 (deftest the-residue-reading-can-answer-false
   (testing "two roots, one unmounted: the reading the gates above take is
            NOT zero, because the other root's boundaries are still holding
-           what they acquired. This is the property the pre-repair gates
-           lacked — `release!` resets the runtime, so it would report zero
+           what they acquired. This is the property a reading taken after
+           `release!` would lack — `release!` resets the runtime, so it would report zero
            here too, with a whole screen still mounted"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")

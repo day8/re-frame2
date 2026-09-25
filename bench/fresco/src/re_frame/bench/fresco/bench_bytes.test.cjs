@@ -1,27 +1,25 @@
 #!/usr/bin/env node
 'use strict';
-// THE PAGE-SIDE BYTE REPAIR IS WIRED — rf2-2rtt6.121.
+// THE PAGE-SIDE BYTE FIGURES ARE WIRED THROUGH ONE HELPER.
 //
-//     node fresco/test/re_frame/bench/fresco/bench_bytes.test.cjs
+//     node src/re_frame/bench/fresco/bench_bytes.test.cjs   (from bench/fresco/)
 //
-// Runs in `test:script-helpers`, beside `ssr/bake_bytes.test.cjs` — which is
-// this file's sibling and its precedent. `rf2-2rtt6.114` repaired five sites
-// in `ssr/driver.cjs` that published `String.prototype.length` as bytes, and
-// pinned the repair on the driver's source text for a reason it stated: a
-// correct helper nobody calls repairs nothing, so the wiring has to be the
-// thing asserted, not just the arithmetic.
+// Runs in the lane's `npm run check`, beside `ssr/bake_bytes.test.cjs` — this
+// file's sibling, which pins `ssr/driver.cjs`'s byte figures on the driver's
+// source text for the same reason: a correct helper nobody calls measures
+// nothing, so the wiring has to be the thing asserted, not just the
+// arithmetic.
 //
 // ## Why the wiring pins are HERE and the arithmetic is in CLJS
 //
 // Because they need `fs`, and A LANE NAMESPACE MAY NOT REQUIRE `fs`. Every
-// `.cljs` in this directory is compiled by `npm run test:fresco-compile`,
-// which rides `:fresco-bench` — a BROWSER build — so a Node module in a lane
-// namespace refuses all 129 of them. (That is not a hypothetical: this file
-// exists because the first draft of `lane_bytes_cljs_test.cljs` carried the
-// pins itself and the compile gate refused the lane. The gate was right.
-// `ssr/node.cljs` states the rule and `ssr/spike_cljs_test/sha256-hex`
-// documents living within it — it reaches for `crypto.subtle` rather than
-// `node:crypto` for exactly this reason.)
+// `.cljs` in this directory is compiled by `compile_gate.cjs` (`npm run
+// check`), which rides `:fresco-bench` — a BROWSER build — so a Node module in
+// a lane namespace refuses every one of them, and pins carried in
+// `lane_bytes_cljs_test.cljs` itself would refuse the lane. `ssr/node.cljs`
+// states the rule and `ssr/spike_cljs_test/sha256-hex` documents living within
+// it — it reaches for `crypto.subtle` rather than `node:crypto` for exactly
+// this reason.
 //
 // So the split is by RUNTIME and not by taste:
 //
@@ -67,7 +65,7 @@ function assert(cond, msg) {
  * The source of a lane file, with its existence asserted rather than assumed.
  * A moved file must fail loudly here; reading it as an empty string would turn
  * every pin below into a pin over nothing — the exact fail-open shape this
- * bead is about.
+ * file guards against.
  */
 function src(rel) {
   const p = path.join(FRESCO, rel);
@@ -81,7 +79,7 @@ function src(rel) {
 // The converted sites — where the figure is a SIZE
 // ---------------------------------------------------------------------------
 
-// file -> the expression that must now be there. Spelled in full, including
+// file -> the expression that must be there. Spelled in full, including
 // the alignment, so a half-edit that left `(count …)` in one arm of a `#js`
 // literal cannot satisfy it.
 const CONVERTED = {
@@ -115,7 +113,7 @@ test('NO line in a converted file pairs a bytes label with a bare `count`', () =
   // The other polarity. `count` is everywhere in this lane and legitimately so
   // — `str-hash` bounds a `charCodeAt` walk with it, and that is correct — so
   // what is banned is narrow: `count` sitting on the SAME LINE as a byte
-  // label. That is the shape every one of the eleven repaired sites had.
+  // label. That is the shape a code-unit count wearing a byte label takes.
   const offences = [];
   for (const file of Object.keys(CONVERTED)) {
     src(file)
@@ -130,19 +128,19 @@ test('NO line in a converted file pairs a bytes label with a bare `count`', () =
 });
 
 // ---------------------------------------------------------------------------
-// The relabelled sites — where CODE UNITS are what was actually wanted
+// The code-unit sites — where CODE UNITS are what is actually wanted
 // ---------------------------------------------------------------------------
 
 test('parity_probe states code units, beside the code-unit offset it prints', () => {
   // Its two lengths are read next to `first diff at i`, and `i` is a `.charAt`
   // index. Converting these to bytes would put the length and the offset that
   // locates it on two different rulers — worse than either alone. A true value
-  // under a true name is the repair here.
+  // under a true name is the answer here.
   const probe = src('parity_probe_app.cljs');
-  assert(probe.includes('uix-code-units'), 'uix arm relabelled');
-  assert(probe.includes('fresco-code-units'), 'fresco arm relabelled');
-  assert(!probe.includes('uix-bytes'), 'the old bytes claim is gone');
-  assert(!probe.includes('fresco-bytes'), 'the old bytes claim is gone');
+  assert(probe.includes('uix-code-units'), 'the uix arm states code units');
+  assert(probe.includes('fresco-code-units'), 'the fresco arm states code units');
+  assert(!probe.includes('uix-bytes'), 'no bytes claim');
+  assert(!probe.includes('fresco-bytes'), 'no bytes claim');
 });
 
 test('inpage_ladder states code units for its same-against-same refusal', () => {
@@ -150,10 +148,10 @@ test('inpage_ladder states code units for its same-against-same refusal', () => 
   // nowhere. Code units are the honest unit for a difference between two
   // strings.
   const ladder = src('inpage_ladder_app.cljs');
-  assert(ladder.includes(':code-units-ours'), 'ours relabelled');
-  assert(ladder.includes(':code-units-reference'), 'reference relabelled');
-  assert(!ladder.includes(':bytes-ours'), 'the old bytes claim is gone');
-  assert(!ladder.includes(':bytes-reference'), 'the old bytes claim is gone');
+  assert(ladder.includes(':code-units-ours'), 'ours states code units');
+  assert(ladder.includes(':code-units-reference'), 'reference states code units');
+  assert(!ladder.includes(':bytes-ours'), 'no bytes claim');
+  assert(!ladder.includes(':bytes-reference'), 'no bytes claim');
 });
 
 // ---------------------------------------------------------------------------
@@ -163,11 +161,11 @@ test('inpage_ladder states code units for its same-against-same refusal', () => 
 test('keywarn_elision asks the FILE for its size, not the decoded string', () => {
   // Node, not the page — and the string had just been read off disk, so the
   // file's own size is both the true answer and a second derivation rather
-  // than a re-reading of the first. This is `rf2-2rtt6.114`'s bake
-  // cross-check, applied to the one driver-side sibling.
+  // than a re-reading of the first. This is the SSR bake's on-disk
+  // cross-check (`ssr/driver.cjs`), applied to the one driver-side sibling.
   const run = src('keywarn_elision_run.cjs');
   assert(run.includes('${fs.statSync(bundle).size} bytes'), 'the file system answers');
-  assert(!run.includes('${blob.length} bytes'), 'the code-unit claim is gone');
+  assert(!run.includes('${blob.length} bytes'), 'no code-unit length claimed as bytes');
 });
 
 // ---------------------------------------------------------------------------

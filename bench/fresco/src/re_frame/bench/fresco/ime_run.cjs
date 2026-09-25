@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// THE IME COMPOSITION HARNESS — driver (rf2-o27h3).
+// THE IME COMPOSITION HARNESS — driver.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/ime_run.cjs
+//   node src/re_frame/bench/fresco/ime_run.cjs     (from bench/fresco/)
 //
 // Drives REAL composition exchanges — CDP `Input.imeSetComposition` /
 // `Input.insertText` / `Input.dispatchKeyEvent` — against the three
@@ -9,10 +9,10 @@
 // Arm 1's element path (converge installed), plain React, and UIx's port
 // of Reagent's workaround. Nothing here dispatches a synthetic Event from
 // page script: the exchange is the browser's own composition machinery,
-// which is the entire point (the row was left unasserted precisely
-// because synthetic composition Events exercise none of it).
+// which is the entire point — synthetic composition Events exercise none
+// of it.
 //
-// ## What CDP gives, measured on this Chromium before this file was built
+// ## What CDP gives, measured on this Chromium
 //
 //   - `imeSetComposition` mints a TRUSTED `compositionstart`, trusted
 //     `compositionupdate`s carrying `data`, and trusted `input` events
@@ -40,17 +40,15 @@
 // MEASURED per-implementation behaviour, so drift reds the run without
 // the row claiming the behaviour is desired.
 //
-// Since **rf2-digtt** the mid-composition rows are two conducts rather
-// than one, and the difference is the point. `fresco` carries the
-// COMPOSITION CARVE-OUT — nothing writes a controlled text field while a
-// composition is live, and the refusal or normalisation lands whole at
-// `compositionend` — so its rows are `(CARVE-OUT)`. `react` and
-// `uix-port` keep the old `(pinned, DIVERGENT)` rows because the abort is
-// still what they do. The comparative section, which used to assert
-// PARITY (the converge is nowhere worse than React's own restore — the
-// PR #7371 audit's question, and true when it was asked), now asserts
-// the DIVERGENCE and its scope: one uninterrupted exchange against two,
-// and the same model and the same field once the exchange closes.
+// The mid-composition rows are two conducts rather than one, and the
+// difference is the point. `fresco` carries the COMPOSITION CARVE-OUT —
+// nothing writes a controlled text field while a composition is live, and
+// the refusal or normalisation lands whole at `compositionend` — so its
+// rows are `(CARVE-OUT)`. `react` and `uix-port` carry `(pinned,
+// DIVERGENT)` rows because the abort is what they do. The comparative
+// section asserts the DIVERGENCE and its scope: one uninterrupted exchange
+// against two, and the same model and the same field once the exchange
+// closes.
 //
 // **Witness scope: Chromium only.** `Input.imeSetComposition` is a CDP
 // method and CDP is Chromium's protocol, so every claim in this file is
@@ -82,7 +80,7 @@ const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/c
 const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -95,9 +93,9 @@ const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.IME_PORT || 8146);
 const READY_TIMEOUT_MS = 60 * 1000;
 
-// The check floor (the rf2-qqzmf lesson, carried here): a run that
-// asserted almost nothing must not exit 0. A full three-page run banks
-// ~120 checks (122 as of rf2-digtt's carve-out rows); 100 refuses a
+// The check floor: a run that asserted almost nothing must not exit 0. A
+// full three-page run banks ~120 checks (122 with the carve-out rows); 100
+// refuses a
 // silently-skipped page while leaving room for per-impl variation.
 const MIN_CHECKS = 100;
 
@@ -121,7 +119,7 @@ const CONFIG_MERGE =
 
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[ime] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs (rf2-2rtt6.20)`);
+    console.error(`[ime] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs`);
   }
   console.error(`[ime] building DEV bundle — ${INIT_FN} -> ${OUT_DIR} (see header for why not :advanced)`);
   shadowBuild({
@@ -399,21 +397,20 @@ async function s4Cancel(page, cdp, R) {
       R.check('s4 [plain]: a compositionend closed the exchange, with empty data',
         ends.length >= 1 && ends[ends.length - 1].data === '', ends.map((e) => e.data));
     } else if (R.impl === 'fresco') {
-      // THE CARVE-OUT, on the cancel path (rf2-digtt). Nothing wrote the
-      // field while the composition was live, so there IS a composition
+      // THE CARVE-OUT, on the cancel path. Nothing wrote the field while
+      // the composition was live, so there IS a composition
       // for the cancel to cancel — and cancelling it is the ordinary
       // exchange the `plain` branch above asserts, on a field whose model
       // refused every intermediate state.
       R.check('s4 [digits]: the refusing field cancels like any other — a compositionend closed the exchange, with empty data',
         ends.length >= 1 && ends[ends.length - 1].data === '', ends.map((e) => e.data));
     } else {
-      // MEASURED, first run of this harness (2026-08-02), and now the
-      // DIVERGENCE rather than the parity: on plain React and on the UIx
-      // port there is NO compositionend to observe. The model refused
-      // `か`, the implementation wrote the refused-to value back
-      // MID-composition, and that write silently aborted the exchange
+      // MEASURED, and the DIVERGENCE rather than parity: on plain React
+      // and on the UIx port there is NO compositionend to observe. The
+      // model refuses `か`, the implementation writes the refused-to value
+      // back MID-composition, and that write silently aborts the exchange
       // (the measured JS-write semantics — no compositionend fires on an
-      // abort). The later cancel found no composition left to cancel.
+      // abort). The later cancel finds no composition left to cancel.
       R.check('s4 [digits] (pinned, DIVERGENT): the exchange was already silently aborted — no compositionend ever fired',
         ends.length === 0, ends.map((e) => e.data));
     }
@@ -422,31 +419,27 @@ async function s4Cancel(page, cdp, R) {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 5 — the mid-composition conduct matrix (the PR #7371 question,
-// and since rf2-digtt the carve-out's own witness)
+// Scenario 5 — the mid-composition conduct matrix, and the carve-out's
+// own witness
 // ---------------------------------------------------------------------------
 //
 // `digits` refuses the composition text and `upper` normalises it, so on
-// both fields the model DISAGREES with what the IME is composing. That
-// disagreement is what every implementation used to resolve by writing
-// the field mid-composition — Arm 1's converge inside the input event,
-// React's restore at the end of the same discrete event, the uix-port on
-// the after-render queue — and every one of those writes silently aborts
-// the live exchange (the measured JS-write semantics in the header).
+// both fields the model DISAGREES with what the IME is composing. An
+// implementation that resolves that disagreement by writing the field
+// mid-composition — a converge inside the input event, React's restore at
+// the end of the same discrete event, the uix-port on the after-render
+// queue — silently aborts the live exchange with every one of those writes
+// (the measured JS-write semantics in the header).
 //
-// **These rows were the tripwire the carve-out ruling was told to trip,
-// and they are flipped here on purpose (rf2-digtt).** Two conducts now,
-// asserted as a DIVERGENCE rather than as parity:
+// **Two conducts, asserted as a DIVERGENCE rather than as parity:**
 //
-//   - `fresco` re-pins ONE uninterrupted compositionstart → compositionend
+//   - `fresco` pins ONE uninterrupted compositionstart → compositionend
 //     exchange. Nothing writes the field while the composition is live;
-//     the model refuses or normalises every intermediate state exactly as
-//     before; and the refusal or normalisation lands whole, once, at the
-//     commit.
-//   - `react` and `uix-port` keep pinning the OLD abort conduct, because
-//     it is still what they do and the pins are still true of them. They
-//     are the baseline the divergence is measured against, in the same
-//     run, on the same model.
+//     the model refuses or normalises every intermediate state; and the
+//     refusal or normalisation lands whole, once, at the commit.
+//   - `react` and `uix-port` pin the abort conduct, because it is what
+//     they do. They are the baseline the divergence is measured against,
+//     in the same run, on the same model.
 
 async function s5MidComposition(page, cdp, R, out) {
   // The carve-out is Arm 1's; the other two pages are the baseline.
@@ -644,11 +637,9 @@ async function runImpl(browser, impl) {
 
   // Comparative verdict: Arm 1's carve-out against the plain-React
   // baseline measured in the SAME run, on the same model, in the same
-  // browser. Until rf2-digtt this section asserted PARITY — the converge
-  // is nowhere worse than React's own restore — and it was true. The
-  // ruling replaced the question: the arm is now deliberately BETTER
-  // here, and what has to be asserted is that the divergence is real and
-  // that it is scoped to the live composition and nothing else.
+  // browser. The arm is deliberately BETTER here than React's own
+  // restore, so what has to be asserted is that the divergence is real
+  // and that it is scoped to the live composition and nothing else.
   const by = Object.fromEntries(outcomes.map((o) => [o.impl, o]));
   if (by.fresco && by.react) {
     const R = by.fresco.R;
@@ -670,7 +661,7 @@ async function runImpl(browser, impl) {
       by.fresco.upper.starts === 1 && by.react.upper.starts === 2 &&
         by.fresco.upper.ends === 1 && by.react.upper.ends === 0,
       { fresco: by.fresco.upper, react: by.react.upper });
-    // MEASURED 2026-08-03, and the row the digits scope-claim above does
+    // MEASURED, and the row the digits scope-claim above does
     // NOT extend to: on a normalising model the baseline's abort does not
     // merely lose the composition, it CORRUPTS what the exchange commits.
     // Each aborted draft is written back into the field, and the IME's

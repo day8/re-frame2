@@ -1,9 +1,9 @@
 (ns re-frame.bench.fresco.link-decomp-probe-app
-  "DIAGNOSTIC ONLY (rf2-cno31): DECOMPOSE the per-render route-link term
-  `link_term_probe_app.cljs` priced at 8.21 µs/link (of which `route-url`
-  synthesis alone was 5.19 µs).
+  "DIAGNOSTIC ONLY: DECOMPOSE the per-render route-link term
+  `link_term_probe_app.cljs` prices at 8.21 µs/link (of which `route-url`
+  synthesis alone is 5.19 µs).
 
-  That probe answered *how big*; this one answers *where*, because the
+  That probe answers *how big*; this one answers *where*, because the
   remedy depends entirely on the answer. It runs the SAME 207 acceptance-page
   addresses through the SAME render-body door, and adds the stages
   `link-model` is built out of as arms of their own:

@@ -1,18 +1,18 @@
 (ns re-frame.bench.fresco.shapes.ordinary
   "**TIER-1 SHAPE 1 — ORDINARY VIEWS**, the ~50-element form/list/layout
-  screen (charter §Use cases A1; rf2-2rtt6.51).
+  screen (charter §Use cases A1).
 
   Ported, not invented: this is the comment column of RealWorld's article
-  page —
-  `examples/real-apps/realworld_resources/ui_views.cljs:325-411`, the
-  `comment-form` + `comment-card` pair and the
+  page — the article-detail page of
+  `examples/real-apps/realworld_resources/views.cljs`, its
+  `form.comment-form` + `comment-card` pair and the
   `div.row > div.col-xs-12.col-md-8.offset-md-2` that holds them. It is
   the shape's three nouns in one screen and in one place: **layout** (the
   page/container/row/column chrome), **form** (a controlled textarea with
   a submit and an in-flight rule), **list** (keyed cards with a
   per-row author-only control).
 
-  ## What the port changed, and what it did not
+  ## Where the port differs, and where it does not
 
   Three lines differ from the census original, and each is a claim rather
   than a convenience:
@@ -24,19 +24,19 @@
      reads its OWN row and moves when that row moves. So the row takes
      `id` and reads `[:conduit/comment id]`. Same argument
      `jsfb-model` makes about an index-keyed vector.
-  2. **`current-user` is no longer threaded.** The census passes it into
+  2. **`current-user` is not threaded.** The census passes it into
      every card because a hook-shaped read has to sit at a fixed site and
      the fixed site is the page. `sub` is an ordinary call, so the card
      reads it where it uses it, and one prop disappears from the call site
      and from the row's argument vector. That deletion is the collector's
      whole ergonomic claim, stated on a real screen.
-  3. **The delete-status read moved inside the branch that uses it.** The
+  3. **The delete-status read sits inside the branch that uses it.** The
      census reads `[:rf/mutation {:instance [:delete-comment slug id]}]`
      unconditionally, at the top of the body, because it has to. Here it
      sits inside `(when mine? …)`, so a card showing somebody else's
      comment holds **two edges** and a card showing your own holds
      **three**. A branch not taken contributes no edge — that is the
-     property `arm1_dogfood_dom_cljs_test` states as a number, and
+     property `arm1/dogfood_dom_cljs_test` states as a number, and
      `ordinary_dom_cljs_test` restates it on this screen.
 
   Everything else is the census's: Conduit's class names, its
@@ -44,16 +44,16 @@
   disabled-while-pending discipline, and its `favoritesCount`-era
   camelCase field names.
 
-  ## The byline is a route-link (rf2-2rtt6.54)
+  ## The byline is a route-link
 
-  The census's author byline is a `ui/route-link` — the census counts
-  **106 of them** and calls the form tier-1 — and this port spelled it
-  `[:a {:href …}]` while the arm had no route-link. It now has one
-  ([[re-frame.bench.fresco.front.route-link/route-link]]), so the
-  byline names a route and params and never sees a URL, exactly as the
-  census author writes it. A route-link is a plain function: it inlines,
-  mints no boundary, reads no subscription, and emits the same single
-  `<a>` — the element arithmetic below is untouched.
+  The census's author byline is an `rf/route-link` — the census counts
+  **106 of them** and calls the form tier-1 — and this port spells it
+  with the arm's own
+  [[re-frame.bench.fresco.front.route-link/route-link]], so the byline
+  names a route and params and never sees a URL, exactly as the census
+  author writes it. A route-link is a plain function: it inlines, mints
+  no boundary, reads no subscription, and emits the single `<a>` a bare
+  anchor would — the element arithmetic below counts it as one element.
 
   ## Reading the body
 
@@ -64,9 +64,8 @@
   placeholder for the typed value — are one concept each.
 
   Body forms are `.cljc`-compatible by construction (HD-020(d)): no
-  interop, no JS literal, no React import. That constraint was held
-  while SSR sat outside v0, and it is now load-bearing: the 2026-08-04
-  HD-020 addendum makes SSR and hydration **required** scope, so a body
+  interop, no JS literal, no React import. That constraint is
+  load-bearing: the HD-020 addendum makes SSR and hydration **required** scope, so a body
   that reached for `window` would be a body this screen could not render
   on a server."
   (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]

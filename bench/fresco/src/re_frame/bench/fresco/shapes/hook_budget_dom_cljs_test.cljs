@@ -1,8 +1,7 @@
 (ns re-frame.bench.fresco.shapes.hook-budget-dom-cljs-test
-  "**THE ≤2-HOOK BUDGET, HELD AT EVERY TIER-1 SHAPE** (HD-020(b);
-  rf2-2rtt6.51).
+  "**THE ≤2-HOOK BUDGET, HELD AT EVERY TIER-1 SHAPE** (HD-020(b)).
 
-  `arm1_hook_ledger_dom_cljs_test` proves the budget on a synthetic
+  `arm1/hook_ledger_dom_cljs_test` proves the budget on a synthetic
   boundary at 1, 7 and 20 reads. That is the right instrument for the
   claim it makes, and it leaves one question open: **does the budget
   survive the shapes v0 is judged on?** A budget that held on a probe and
@@ -30,15 +29,15 @@
   about: `2 × boundaries`, `useContext` then `useSyncExternalStore`, in
   that order, with nothing interleaved.
 
-  ## The fourth column, and why it is not a breach (rf2-digtt)
+  ## The fourth column, and why it is not a breach
 
   Shape 1's page carries **one hook that is not in any shell**: the
   `useState` belonging to
   [[re-frame.bench.fresco.front.controlled]]'s composition shadow,
   which stands in front of the shape's one controlled `<textarea>` (the
   comment draft in `shapes/ordinary`). It is the price of the IME
-  composition carve-out the operator ruled in on 2026-08-03, and this
-  file is where it is paid in public.
+  composition carve-out HD-019's addendum rules in, and this file is
+  where it is paid in public.
 
   The budget is **untouched**, and the rows below say so in a way a
   reading eye can check rather than take on trust:
@@ -56,9 +55,9 @@
   read — a page with no controlled input pays nothing, which rows 2 and
   3/4 are the witnesses for.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test`, and on any React build
-  whose internals slot has moved, the claims degrade to a stated skip or
-  to **unwitnessed** — never to a false green."
+  Runtime: a browser, for a real React DOM. Without a DOM, and on any
+  React build whose internals slot has moved, the claims degrade to a
+  stated skip or to **unwitnessed** — never to a false green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]
@@ -109,7 +108,7 @@
 (def ^:private shadow-hook
   "The one hook a shell never asks for, and the one thing on this page
   that is not a boundary's: the composition shadow's state cell, one per
-  controlled text element (rf2-digtt)."
+  controlled text element."
   "useState")
 
 (def ^:private shapes
@@ -163,7 +162,7 @@
                      declared pair repeated"))
             (is (= (count rf.bench.fresco.arm1.runtime/shell-hook-ledger) 2)
                 "and the ledger the runtime declares is still two entries long")
-            (testing "the composition shadow's hook, and only it (rf2-digtt)"
+            (testing "the composition shadow's hook, and only it"
               (is (= shadows (count (filter #{shadow-hook} hooks)))
                   (str label ": one `useState` per controlled text element, "
                        shadows " declared — the price of the IME carve-out, paid "

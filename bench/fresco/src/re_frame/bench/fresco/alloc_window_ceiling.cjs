@@ -1,9 +1,9 @@
 'use strict';
-// WHAT SEPARATES A CERTIFYING R = 20 WINDOW FROM A REFUSING ONE — rf2-onozm,
-// and the same constraint under its other name, rf2-2rtt6.140.
+// WHAT SEPARATES A CERTIFYING R = 20 WINDOW FROM A REFUSING ONE — and the
+// same constraint under its other name, the fixed cost that binds on one rung.
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_window_ceiling.cjs
-//     node fresco/test/re_frame/bench/fresco/alloc_window_ceiling.cjs --self-test
+//     node src/re_frame/bench/fresco/alloc_window_ceiling.cjs               (from bench/fresco/)
+//     node src/re_frame/bench/fresco/alloc_window_ceiling.cjs --self-test
 //
 // Records:
 //   docs/design/fresco/studio/the-window-total-is-the-ceiling.md
@@ -18,7 +18,7 @@
 // ## THE QUESTION
 //
 // V2's top rung certifies on ONE of its four arm families and refuses on the
-// other three, in three independent sessions. `rf2-onozm` asks what separates
+// other three, in three independent sessions. The question is what separates
 // them. The recorded `rise` does not: across the corpus's sixteen R = 20 cell
 // medians it spans 3.78%, which is nothing.
 //
@@ -52,25 +52,25 @@
 // observed ceiling, and the reader prints the evidence for that ceiling rather
 // than assuming it.
 //
-// ## SECTION 7 — THE LIVE RESTATEMENT (rf2-2k3vo)
+// ## SECTION 7 — THE LIVE RESTATEMENT
 //
-// Sections 5 and 6 answer `rf2-2rtt6.140` in the RETIRED bound's units, which is
-// what the bead is written in. Section 7 asks the same question of the quantity
-// the instrument actually exhibits — the observed would-be-total ceiling from
-// section 3 — and gets a DIFFERENT answer. The bead's `R20 forces B = 0` is an
+// Sections 5 and 6 answer the fixed-cost question in the RETIRED bound's units,
+// which is what its uncertifiability argument is written in. Section 7 asks the
+// same question of the quantity the instrument actually exhibits — the observed
+// would-be-total ceiling from section 3 — and gets a DIFFERENT answer. The
+// argument's `R20 forces B = 0` is an
 // artefact of the deleted constant's tightness: a 300,000 B window bracket
 // against a 884,280 B observed ceiling. Restated live, the full ladder PROJECTS
 // B <= 3.
 //
 // THAT B <= 3 IS A MODEL-CONDITIONED PROJECTION, NOT A NECESSARY CONDITION, and
 // the condition is: TREAT THE CORPUS'S LARGEST OBSERVED SUCCESS AS A CAP.
-// Corrected on the merged-PR audit of #8602, which found section 7 using
-// 884,280 B as an upper cap and calling B <= 3 necessary. It is not one. The
-// largest observed success bounds a real maximum certifiable total FROM BELOW:
-// zero certified windows above it, in a finite corpus sampled only at B = 4,
-// cannot exclude a certifying window higher up, and the 168,036 B directly above
-// it was never sampled. The projection is kept because a stated conditional is
-// useful; what was missing was the condition.
+// Using 884,280 B as an upper cap and calling B <= 3 necessary would be wrong.
+// The largest observed success bounds a real maximum certifiable total FROM
+// BELOW: zero certified windows above it, in a finite corpus sampled only at
+// B = 4, cannot exclude a certifying window higher up, and the 168,036 B
+// directly above it was never sampled. The projection is kept because a stated
+// conditional is useful, and it travels with its condition.
 //
 // NOR IS THE CEILING SUFFICIENT, and section 7 prints both limits rather than
 // leaving them to the page: 36 windows at or below the ceiling refuse anyway,
@@ -95,21 +95,21 @@ const DATA = archive.DATA;
 const DIR = 'alloc-0gjqi';
 const RUNS = ['paired-run1', 'paired-run2'];
 
-// `rf2-n6w7o`'s masking bound and the averaging floor it is charged at, both
-// read here rather than proposed. Neither is touched by this reader.
+// The masking bound and the averaging floor it is charged at, both read here
+// rather than proposed. Neither is touched by this reader.
 //
-// THE BOUND IS RETIRED, AND THIS READER DOES NOT TREAT IT AS LIVE. `rf2-2rtt6.141`
-// accepted the #7682 audit's two soundness objections, replaced the bound with
-// the observed leg witness, and DELETED `ALLOC_MASK_BUDGET_B` and
-// `allocMaxWrites` -- an ancestral, gated fact rather than a proposal:
+// THE BOUND IS RETIRED, AND THIS READER DOES NOT TREAT IT AS LIVE. The
+// certificate is the observed leg witness, and there is no `ALLOC_MASK_BUDGET_B`
+// and no `allocMaxWrites` -- a gated fact rather than a proposal:
 // `p0_ladder_structural.test.cjs` pins `lacks(/const ALLOC_MASK_BUDGET_B/)`, and
-// `docs/design/fresco/allocation-instrument-rework.md` carries the reasoning
-// under "Constraint semantics -- what is retired and what stands".
+// `docs/design/fresco/allocation-instrument-rework.md` carries the reasoning (two
+// soundness objections) under "Constraint semantics -- what is retired and what
+// stands".
 //
-// It survives here as a HISTORICAL YARDSTICK and nothing more: `rf2-2rtt6.140`'s
+// It survives here as a HISTORICAL YARDSTICK and nothing more: the fixed-cost
 // uncertifiability argument is written in its terms, so reconstructing that
-// argument at today's F requires the number the bead used. Section 6 reconstructs
-// it and says so. No live conclusion rests on it.
+// argument at today's F requires the number it used. Section 6 reconstructs it
+// and says so. No live conclusion rests on it.
 const MASKING_BOUND_B = 300000;
 const W = 6;
 
@@ -124,21 +124,21 @@ const pos = (x) => (x > 0 ? x : 0);
 // PER-LEG view: the position and magnitude censuses below both take one reading
 // per window, so they cannot even count negative LEGS, let alone collections.
 //
-// A NEGATIVE LEG IS AN OBSERVATION, NOT A COLLECTION EVENT (rf2-onozm). The
+// A NEGATIVE LEG IS AN OBSERVATION, NOT A COLLECTION EVENT. The
 // instrument samples one delta per leg, so it cannot resolve collections within
 // a leg or across a leg boundary, and the count below bounds the number of
 // collections in NEITHER direction -- see the census in section 4.
 const negLegs = (c) => c.legs.filter((l) => l < 0);
 
-// THE COLLECTION-COUNT LOWER BOUND, DERIVED RATHER THAN ASSERTED (rf2-onozm).
+// THE COLLECTION-COUNT LOWER BOUND, DERIVED RATHER THAN ASSERTED.
 //
 // This is the reader's ONLY expression of the bound: the report prints what this
 // returns, and the self-test pins both this function and that printed line, so
-// the two cannot drift apart. Added on the merged-PR audit of #8602, which found
-// the previous guard checking `Math.min(negLegs(w).length, 1) === 1` -- 1 by
-// construction for any window with a negative leg, calling no production
-// function and consuming no report result, so the reported bound could be
-// changed with every check still green.
+// the two cannot drift apart. A guard checking
+// `Math.min(negLegs(w).length, 1) === 1` instead would be 1 by construction for
+// any window with a negative leg, calling no production function and consuming
+// no report result, so the reported bound could be changed with every check
+// still green.
 //
 // ONE delta is sampled per leg, so a negative leg witnesses that SOMETHING
 // collected inside the window and nothing finer. A window with three negative
@@ -280,7 +280,7 @@ function ceiling(ws) {
 // treating CEIL -- the corpus's largest observed success -- as a cap on what can
 // certify, which is not what an observed maximum is: it bounds a real maximum
 // from BELOW. Nothing that consumes this number may restate it as a necessary
-// condition (rf2-2k3vo, merged-PR audit of #8602).
+// condition.
 //
 // Fitted PER FAMILY rather than per rung, because at R = 20 the pooled rung
 // median is not representative of any family: six families sit at 1.03 - 1.05 MB
@@ -352,9 +352,9 @@ function report() {
   say(`    -> rise drops every negative delta, so a collected leg is INVISIBLE to`);
   say(`       both rise and to the masking bound charged on perWrite.`);
 
-  // ------------------------------------------------------------- 1. rf2-onozm
+  // --------------------------------------------------- 1. the R = 20 census
   say('');
-  say('=== 1. THE R = 20 CENSUS, PER ARM FAMILY (rf2-onozm) ===');
+  say('=== 1. THE R = 20 CENSUS, PER ARM FAMILY ===');
   const famR20 = new Map();
   for (const c of ws.filter((x) => x.rungKey === 'R20')) {
     if (!famR20.has(c.family)) famR20.set(c.family, []);
@@ -453,16 +453,15 @@ function report() {
   // magnitude -- so neither can see a window's later negative legs at all. This
   // census can, and it is printed FIRST for that reason.
   //
-  // IT COUNTS LEG OBSERVATIONS, NOT COLLECTIONS (rf2-onozm, merged-PR audit of
-  // #8597). An earlier version called these 76 readings "EVENTS" and offered them
-  // as a lower bound on the number of collections. That does not follow from this
-  // instrument and it contradicted the page's own surviving caveat. It fails in
-  // BOTH directions: one collection spanning a leg boundary can make several legs
-  // negative, so 76 legs are not 76 collections; and one leg can contain several
-  // collections that are never separately observable, so it is not a bound the
-  // other way either. What the census DOES establish is unchanged and is stated
-  // below -- every refusing window carries at least one negative leg, so the
-  // collection-count lower bound is ONE PER WINDOW, exactly where it already was.
+  // IT COUNTS LEG OBSERVATIONS, NOT COLLECTIONS. Calling these 76 readings
+  // "EVENTS", or offering them as a lower bound on the number of collections,
+  // would not follow from this instrument, and it fails in BOTH directions: one
+  // collection spanning a leg boundary can make several legs negative, so 76
+  // legs are not 76 collections; and one leg can contain several collections
+  // that are never separately observable, so it is not a bound the other way
+  // either. What the census DOES establish is stated below -- every refusing
+  // window carries at least one negative leg, so the collection-count lower
+  // bound is ONE PER WINDOW.
   const perWin = {};
   r20neg.forEach((c) => {
     const k = negLegs(c).length;
@@ -527,14 +526,14 @@ function report() {
   say(`        (all ${band.length} are ${[...new Set(band.map((c) => c.family))].join(', ')}, so the`);
   say(`         in-band rate is NOT independent of the surviving family.)`);
 
-  // ---------------------------------------------------------- 6. rf2-2rtt6.140
+  // --------------------------------------------------- 6. the fixed cost
   say('');
-  say('=== 6. THE FIXED COST AND THE LADDER ARITHMETIC (rf2-2rtt6.140) ===');
+  say('=== 6. THE FIXED COST AND THE LADDER ARITHMETIC ===');
   const F = med(ws.filter((c) => c.rungKey === 'floor').map((c) => c.perWrite));
   const allow = MASKING_BOUND_B / (W + 1);
   const budget = allow - F;
-  say(`    THE ${n0(MASKING_BOUND_B)} B MASKING BOUND IS RETIRED AND DELETED (rf2-2rtt6.141, 2026-08-08).`);
-  say(`    It is reconstructed below ONLY because rf2-2rtt6.140's uncertifiability argument`);
+  say(`    THE ${n0(MASKING_BOUND_B)} B MASKING BOUND IS RETIRED, AND NOTHING IN THE TREE APPLIES IT.`);
+  say(`    It is reconstructed below ONLY because the fixed-cost uncertifiability argument`);
   say(`    is written in its terms. Nothing live rests on it; the certificate is the leg`);
   say(`    witness and the falls gate.`);
   say('');
@@ -561,22 +560,22 @@ function report() {
   say(`    artefact of dividing by it. Its perWrite lands ${n0(T.find((r) => r.rung === 'R0').perWrite - F)} B from the floor's,`);
   say(`    which is the independent check that F is the WRITE and not the mount.`);
   say('');
-  say(`    RECONSTRUCTING THE BEAD'S OWN ARGUMENT in the retired bound's terms. A ladder`);
+  say(`    RECONSTRUCTING THE UNCERTIFIABILITY ARGUMENT in the retired bound's terms. A ladder`);
   say(`    holds ONE B across all rungs, so on that argument the binding rung decides:`);
   const LADDER = T.filter((r) => r.maxB != null && r.rung !== 'R0');
   say(`      ${LADDER.map((r) => `${r.rung} B<=${r.maxB}`).join(', ')}`);
   const stopAt = LADDER.filter((r) => r.maxB >= 1).map((r) => r.rung);
   say(`      -> R20 alone forces B = 0. Stop at ${stopAt[stopAt.length - 1]} and B = 1 certifies.`);
-  say(`    THAT ARGUMENT NO LONGER HAS A LIVE WARRANT: every max-B above is computed from a`);
+  say(`    THAT ARGUMENT HAS NO LIVE WARRANT: every max-B above is computed from a`);
   say(`    DELETED constant. What survives it is the empirical certified column, which is`);
   say(`    measured rather than modelled and reaches the SAME rung -- R20 at ` +
       `${T.find((r) => r.rung === 'R20').certified}/${T.find((r) => r.rung === 'R20').n} against`);
   say(`    ${LADDER.filter((r) => r.rung !== 'R20').map((r) => `${r.rung} ${r.certified}/${r.n}`).join(', ')}` +
-      ` -- and rf2-onozm's observed ceiling, which is a`);
+      ` -- and section 3's observed ceiling, which is a`);
   say(`    quantity rather than a constant. The conclusion stands on those two, not on the bound.`);
   say('');
   say(`    AND THE RETIRED BOUND DISAGREES WITH THE CERTIFICATE IN BOTH DIRECTIONS, which`);
-  say(`    is an independent re-derivation of why it was retired rather than a case for it.`);
+  say(`    is an independent re-derivation of why it is retired rather than a case for it.`);
   say(`    (i) it REFUSES what the certificate ADMITS -- rungs over the ${n0(MASKING_BOUND_B)} B bound:`);
   for (const r of overBound) {
     say(`      ${r.rung.padEnd(4)} (W+1) x perWrite = ${n0(r.bracket)} B, yet certifies ` +
@@ -591,14 +590,14 @@ function report() {
   say(`    So the two criteria are INDEPENDENT, not nested either way. Any claim that the`);
   say(`    bound "refuses nothing the certificate admits and admits nothing it refuses" is`);
   say(`    false in both directions on this corpus.`);
-  say(`    The bound's status is NOT an open question: it was retired and deleted on`);
-  say(`    2026-08-08. This reader moves no reading, threshold, band or budget status.`);
+  say(`    The bound's status is NOT an open question: it is retired, and nothing applies`);
+  say(`    it. This reader moves no reading, threshold, band or budget status.`);
 
-  // ------------------------------------------------------------- 7. rf2-2k3vo
+  // --------------------------------------------------- 7. live terms
   say('');
-  say('=== 7. THE SAME QUESTION IN LIVE TERMS (rf2-2k3vo) ===');
+  say('=== 7. THE SAME QUESTION IN LIVE TERMS ===');
   const L = liveLadder(ws);
-  say(`    Section 6 divides by a DELETED constant. This section asks the bead's question of`);
+  say(`    Section 6 divides by a DELETED constant. This section asks section 6's question of`);
   say(`    the quantity the instrument exhibits: the observed ceiling from section 3.`);
   say('');
   say(`    THE MODEL CONDITION, STATED BEFORE THE ARITHMETIC THAT ASSUMES IT: everything`);
@@ -629,13 +628,13 @@ function report() {
   say(`      full 1/3/7/20 ladder : projected B <= ${bFull}      (binding rung R20)`);
   say(`      reduced 1/3/7 ladder : projected B <= ${bShort}      (binding rung R7)`);
   say('');
-  say(`    THE BEAD'S CONCLUSION DOES NOT SURVIVE THE RESTATEMENT, and it falls with the`);
+  say(`    THE ARGUMENT'S CONCLUSION DOES NOT SURVIVE THE RESTATEMENT, and it falls with the`);
   say(`    constant that carried it rather than because this projection replaces it. "At six`);
   say(`    writes there is no page of one boundary or more that certifies the 1/3/7/20 ladder"`);
   say(`    rests on the RETIRED bound's tightness -- a ${n0(MASKING_BOUND_B)} B window bracket against an`);
   say(`    observed ${n0(L.CEIL)} B ceiling, ${(L.CEIL / MASKING_BOUND_B).toFixed(2)}x looser. Take the observed ceiling as a cap and`);
   say(`    the same arithmetic projects B <= ${bFull}, one boundary UNDER the page this corpus runs.`);
-  say(`    DO NOT READ THAT AS THE PAGE-SIZE NECESSITY THE BEAD CLAIMED: it is the same shape`);
+  say(`    DO NOT READ THAT AS THE PAGE-SIZE NECESSITY THE ARGUMENT CLAIMS: it is the same shape`);
   say(`    of claim with an observation in place of the constant, and an observed maximum is`);
   say(`    not a cap.`);
   say('');
@@ -682,8 +681,7 @@ function report() {
 // The first feeds hand-built windows through the identities and the cell summary,
 // so a regression in either shows up without a dataset. The second reads the real
 // corpus, because the claims it guards are about the corpus and a synthetic
-// stand-in cannot fail on them -- the merged-PR audit of #8591 found exactly that
-// shape here and it is not repeated.
+// stand-in cannot fail on them.
 function selfTest() {
   const fail = [];
   let checks = 0;
@@ -720,24 +718,23 @@ function selfTest() {
   ck('median, odd n', med([3, 1, 2]), 2);
   ck('pos clamps', pos(-1) + pos(5), 5);
 
-  // THE CARDINALITY GUARD, added when the merged-PR audit of #8591 caught this
-  // page claiming "one collection" where the corpus holds three windows with
-  // more than one NEGATIVE LEG. These checks pin the DISTINCTION rather than the
-  // figures: a per-window reading must not be read as a count of negative legs.
+  // THE CARDINALITY GUARD. The corpus holds three windows with more than one
+  // NEGATIVE LEG, so a page claiming "one collection" from a per-window reading
+  // would misread it. These checks pin the DISTINCTION rather than the figures:
+  // a per-window reading must not be read as a count of negative legs.
   //
-  // NOTE THE UNITS, corrected on the merged-PR audit of #8597 (rf2-onozm). These
-  // guards are about LEG OBSERVATIONS throughout. An earlier version wrote them
-  // as "3 collections vs 1", which smuggled back in the very inference the same
-  // audit struck from the report -- a synthetic window has three negative LEGS,
-  // and how many collections produced them is not something this instrument, or
-  // this guard, can say.
+  // NOTE THE UNITS. These guards are about LEG OBSERVATIONS throughout. Writing
+  // them as "3 collections vs 1" would smuggle in the very inference the report
+  // refuses -- a synthetic window has three negative LEGS, and how many
+  // collections produced them is not something this instrument, or this guard,
+  // can say.
   const synth = { legs: [100, -700, 100, -300, 100, -50] };
   ck('negLegs counts every negative leg', negLegs(synth).length, 3);
   ck('first-negative-leg position sees only the first', synth.legs.findIndex((l) => l < 0) + 1, 2);
   ck('deepest-leg magnitude sees only the deepest', Math.min(...synth.legs), -700);
   // The two per-window readings above agree on a window with THREE negative legs
-  // and on one with a single -700 B leg. That is exactly the blindness the
-  // audit found, so it is asserted rather than described.
+  // and on one with a single -700 B leg. That is exactly the blindness at
+  // issue, so it is asserted rather than described.
   const single = { legs: [100, -700, 100, 100, 100, 100] };
   ck('first-position cannot separate 3 negative legs from 1',
     (synth.legs.findIndex((l) => l < 0) + 1) === (single.legs.findIndex((l) => l < 0) + 1), true);
@@ -746,12 +743,11 @@ function selfTest() {
   ck('negLegs CAN separate them', negLegs(synth).length !== negLegs(single).length, true);
   // And the claim the census may NOT make: the collection-count lower bound is
   // one PER WINDOW, and the leg count does not raise it. PINNED THROUGH THE
-  // PRODUCTION DERIVATION THE REPORT USES. The previous version of this check read
-  // `Math.min(negLegs(synth).length, 1) === 1`, which is 1 by construction for any
-  // window with a negative leg -- a synthetic answer carrying itself, exactly the
-  // shape struck from the set-relation guard below, and the merged-PR audit of
-  // #8602 caught it here. The three checks below go red if `collectionLowerBound`
-  // ever becomes a function of the leg count.
+  // PRODUCTION DERIVATION THE REPORT USES. A check reading
+  // `Math.min(negLegs(synth).length, 1) === 1` would be 1 by construction for any
+  // window with a negative leg -- a synthetic answer carrying itself, the shape
+  // the set-relation guard below also avoids. The three checks below go red if
+  // `collectionLowerBound` ever becomes a function of the leg count.
   ck('a 3-negative-leg window and a 1-negative-leg window support the SAME bound',
     collectionLowerBound(synth), collectionLowerBound(single));
   ck('and that bound is ONE collection, not one per negative leg',
@@ -759,19 +755,17 @@ function selfTest() {
   ck('a window with no negative leg supports no collection at all',
     collectionLowerBound({ legs: [100, 100, 100, 100, 100, 100] }), 0);
 
-  // THE SET-RELATIONSHIP GUARD, added when the merged-PR audit of #8591 caught
-  // this page asserting that the retired bound "refuses nothing the certificate
-  // admits and admits nothing the certificate refuses". Both halves are false on
-  // this corpus, so the two criteria are INDEPENDENT rather than nested either
-  // way.
+  // THE SET-RELATIONSHIP GUARD. The claim that the retired bound "refuses nothing
+  // the certificate admits and admits nothing the certificate refuses" is false in
+  // both halves on this corpus, so the two criteria are INDEPENDENT rather than
+  // nested either way.
   //
-  // DERIVED FROM THE LOADED CORPUS, not from a literal. An earlier version built
-  // three synthetic rungs carrying the answer, filtered those literals, and
-  // asserted the filter had found them -- which cannot fail and could not notice
-  // the reader reversing the relationship, the one regression it names. The
-  // second merged-PR audit of #8591 caught that; this version reads the real 528
-  // windows through `rungTable`, so it fails if the reader's own arithmetic
-  // moves, and pins the 3 / 5 / 10 under-bound refusal counts the page publishes.
+  // DERIVED FROM THE LOADED CORPUS, not from a literal. Synthetic rungs carrying
+  // the answer, filtered and asserted found, could not fail and could not notice
+  // the reader reversing the relationship, the one regression this names. This
+  // reads the real 528 windows through `rungTable`, so it fails if the reader's
+  // own arithmetic moves, and pins the 3 / 5 / 10 under-bound refusal counts the
+  // page publishes.
   //
   // Everything from here down reads the committed `alloc-0gjqi` corpus, which
   // is archived in git history (`data_archive.cjs`); without it the synthetic
@@ -796,14 +790,14 @@ function selfTest() {
   ck('the under-bound-yet-refusing rungs refuse 3 / 5 / 10 windows',
     underAndRefused.map((r) => `${r.rung}:${r.n - r.certified}`).join(','), 'floor:3,R0:5,R1:10');
 
-  // SECTION 7's ANSWER, pinned against the corpus for the same reason. The bead's
-  // conclusion is that no page of one boundary or more certifies the full ladder;
-  // the projection on the observed ceiling gives B <= 3, so the guard that matters
-  // is the one that fires if that ever silently returns 0 -- the reconstruction's
-  // answer arriving in the live section would be exactly the defect rf2-2k3vo
-  // exists to fix.
+  // SECTION 7's ANSWER, pinned against the corpus for the same reason. The
+  // uncertifiability argument concludes that no page of one boundary or more
+  // certifies the full ladder; the projection on the observed ceiling gives
+  // B <= 3, so the guard that matters is the one that fires if that ever
+  // silently returns 0 -- the reconstruction's answer arriving in the live
+  // section would be exactly the defect section 7 exists to prevent.
   //
-  // NOTE THE UNITS, corrected on the merged-PR audit of #8602. These are
+  // NOTE THE UNITS. These are
   // PROJECTIONS under an assumed cap, not necessary conditions, and the check
   // names say so: an observed maximum bounds a real maximum from BELOW, so 0 of
   // 72 above it excludes nothing.

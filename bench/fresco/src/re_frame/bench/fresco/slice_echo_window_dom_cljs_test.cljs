@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.slice-echo-window-dom-cljs-test
-  "THE INSTRUMENT'S OWN SELF-TEST (rf2-xa8wo, deliverable 2).
+  "THE INSTRUMENT'S OWN SELF-TEST.
 
   `slice-echo-clock-app` measures one discrete interaction on the slice
   application through to the paint that follows it. This file asks
@@ -17,9 +17,8 @@
 
   **Does the echo prove a SLICE-APPLICATION echo?** A scripted
   interaction sets its control up by mutating it, so a check taken over
-  that same control's state can read true with the application removed —
-  and the first version of this instrument had two of them. The three
-  SABOTAGE rows are the answer:
+  that same control's state can read true with the application removed.
+  The three SABOTAGE rows are the answer:
   [[the-echo-refuses-the-setup-mutation-alone]] runs the driver's own
   built-in negative control, and
   [[a-keystroke-whose-handler-never-runs-does-not-verify]] and
@@ -34,7 +33,7 @@
   [[the-window-extends-past-the-commit-by-the-injected-cost]] is the
   discriminating row, and it is worth reading before the others.
 
-  Every clock this lane had before this one stops when the commit returns.
+  Every other clock this lane takes stops when the commit returns.
   The control arm spends `blocked-ms` on the main thread STRICTLY BETWEEN
   the commit and the frame, so a commit-bounded window sees none of it and
   a paint-bounded window sees all of it. The assertion is therefore
@@ -42,28 +41,28 @@
       (>= (- :ms :commit-ms) blocked-ms)
 
   which reads *at least `blocked-ms` of this window lies after the point
-  the old window stopped*. It is flake-proof in the direction a shared CI
+  a commit-bounded window stops*. It is flake-proof in the direction a shared CI
   runner can move it: a busy loop that spins for `blocked-ms` takes at
   least that long, and load can only make the left-hand side larger. That
   is why the row is stated as a floor over an injected duration rather
   than as a band around a measured one — a band would be a threshold in a
-  correctness gate, which is exactly the thing this bead refuses to add.
+  correctness gate, which is exactly the thing this file refuses to add.
 
   ## What is NOT asserted, deliberately
 
   The positive control's own verdict. `control-verdict-strict` adjudicates
   a difference of per-round medians, and adjudicating it here would mean
   running the full schedule on a shared runner and then believing the
-  answer — a latency threshold in a PR gate by another name. Its
+  answer — a latency threshold in a correctness gate by another name. Its
   ARITHMETIC is pinned below on synthetic readings, where it cannot flake;
   its VERDICT belongs to the quiet-box run.
 
   ## Runtime
 
-  The DOM rows need a real browser and carry the `-dom-cljs-test` suffix
-  so `:browser-test` runs them; each degrades to a stated skip under
-  `:node-test`, which is the posture every other `*-dom` suite in this
-  tree keeps. The pure rows run on both."
+  The DOM rows need a real browser and carry the `-dom-cljs-test` suffix,
+  the mark of a suite that needs a real DOM; each degrades to a stated
+  skip where there is none, which is the posture every other `*-dom`
+  suite in this tree keeps. The pure rows run anywhere."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
@@ -309,9 +308,8 @@
            handler never runs, `::events/edit` is never dispatched, the
            draft never moves and nothing commits.
 
-           `set-native-value!` still put the character on the glass. The
-           version of this arm that shipped verified exactly that and
-           would have passed here."
+           `set-native-value!` still puts the character on the glass, so
+           an arm that verified only that would pass here."
     (if-not (browser?)
       (skip! off-browser)
       (async done
@@ -340,8 +338,8 @@
            whatever any listener does, so `checked` still flips; only the
            application is missing.
 
-           This is the row that retires the old toggle check: it asserted
-           `checked`, and `checked` is true here."
+           A toggle check over `checked` would pass: `checked` is true
+           here."
     (if-not (browser?)
       (skip! off-browser)
       (async done
@@ -386,7 +384,7 @@
             (.then (fn [_] (done)) (fail-async done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The instrument end to end, at a schedule small enough for a PR gate
+;; The instrument end to end, at a schedule small enough for a unit suite
 ;; ---------------------------------------------------------------------------
 
 (deftest the-whole-schedule-runs-and-every-echo-verifies
@@ -550,8 +548,8 @@
 (deftest the-arm-roster-is-the-four-rows-the-file-documents
   (testing "The namespace docstring names four rows and says which
            estimands they can and cannot serve. A fifth added silently
-           would leave that prose describing an instrument that no longer
-           exists — the drift class this lane keeps paying for."
+           would leave that prose describing a different instrument — the
+           prose drift this row pins."
     (is (= [:idle-frame :keystroke :toggle :ctl-blocked] (mapv :id rf.bench.fresco.slice-echo-clock-app/arms))
         "floor first, so it leads the schedule")
     (is (= [:ctl-blocked] (mapv :id (filter :control? rf.bench.fresco.slice-echo-clock-app/arms)))

@@ -7,10 +7,10 @@
   without uix having to be in the room.
 
   `?install=reagent` runs the identical probe with the stock-Reagent
-  substrate installed instead. That is the bead's positive control (the
-  arm that passed 78 of 78 while the slim arm failed 78 of 78), preserved
-  here as the brief requires: a negative result about reagent-slim is only
-  meaningful beside a positive one taken in the same harness."
+  substrate installed instead. That is the positive control (in HD-008's
+  harness it passed 78 of 78 while the slim arm failed 78 of 78), kept
+  here because a negative result about reagent-slim is only meaningful
+  beside a positive one taken in the same harness."
   (:require [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]
             [re-frame.bench.fresco.z3vlz-reagent-substrate :as rf.bench.fresco.z3vlz-reagent-substrate]
             [re-frame.bench.fresco.z3vlz-slim-substrate :as rf.bench.fresco.z3vlz-slim-substrate]

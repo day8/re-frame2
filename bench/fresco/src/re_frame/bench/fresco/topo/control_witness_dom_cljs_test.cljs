@@ -1,7 +1,7 @@
 (ns re-frame.bench.fresco.topo.control-witness-dom-cljs-test
-  "**THE CONTROL'S OWN DETERMINISTIC HALF** — why the changed-set control
-  was degenerate, why the rendered-scale one is not, and the witness in
-  which its read-back refuses (rf2-m6i0).
+  "**THE CONTROL'S OWN DETERMINISTIC HALF** — why a changed-set control
+  is degenerate, why the rendered-scale one is not, and the witness in
+  which its read-back refuses.
 
   ## Why this file needs no quiet box, and the clock run does
 
@@ -10,18 +10,17 @@
   fence: a counter *\"reads the same on a loaded box\"*. Everything
   asserted here is an integer on a monotone counter or a string read out
   of the DOM, so contention cannot move any of it. This file is an
-  ordinary blocking gate that runs in CI on every PR and is repeatable by
-  anyone.
+  ordinary assertion suite, repeatable by anyone on any box.
 
   What it establishes is exactly the half a clock session cannot
   establish for itself:
 
   1. **The degeneracy premise, at source.** `:topo/bump-stride` — the
-     write the refused control used — builds the same rows of markup at
-     stride 10 and stride 5 on `coarse` and `chunked`. The claim that
-     those two arms had no positive control is a MEASUREMENT here, not an
-     argument, and it stays measured.
-  2. **The replacement discriminates on all four arms**, in exact
+     write a changed-set control would use — builds the same rows of
+     markup at stride 10 and stride 5 on `coarse` and `chunked`. The
+     claim that such a control is no positive control on those two arms
+     is a MEASUREMENT here, not an argument.
+  2. **The rendered-scale control discriminates on all four arms**, in exact
      integers, before any clock is started.
   3. **The read-back bites.** A page whose writes do not commit is
      mounted for real and the control refuses it.
@@ -42,8 +41,8 @@
   the probes read afterwards. There is nothing to restore and nothing to
   hash.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -97,9 +96,9 @@
   100)
 
 (deftest the-changed-set-control-is-degenerate-on-the-coarse-family
-  (testing "rf2-hic-036 built rf2-7iqb5's prescribed changed-set doubling over
-           `:topo/bump-stride` and predicted 2.00x. This is the measurement
-           that says it could never have certified two of the four arms:
+  (testing "a changed-set doubling over `:topo/bump-stride` predicts
+           2.00x. This is the measurement that says it cannot certify two
+           of the four arms:
            `coarse` and `chunked` rebuild every rendered row whichever stride
            runs, so doubling the changed set doubles nothing they do. A
            control predicting 2.00x there refuses a healthy instrument; one
@@ -129,7 +128,7 @@
             (finally (rf.bench.fresco.arm1.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — the replacement discriminates on every arm
+;; 2 — the rendered-scale control discriminates on every arm
 ;; ---------------------------------------------------------------------------
 
 (deftest every-arm-carries-a-prediction-bounded-away-from-one
@@ -148,16 +147,16 @@
             (str arm "'s band floor " lo " must exclude 1.00, or the control admits
                  an instrument that saw nothing"))
         (is (< 1.471 lo)
-            (str arm "'s band must still REFUSE the changed-set run this replaces,
-                 whose worst round was 1.471. A band that admitted it would be a
+            (str arm "'s band must REFUSE the recorded changed-set run,
+                 whose worst round is 1.471. A band that admitted it would be a
                  widening wearing a new control's clothes"))))))
 
 (deftest the-rendered-scale-control-doubles-the-work-on-every-arm
-  (testing "THE REPLACEMENT'S DISCRIMINATING POWER, in exact integers and
-           before any clock. On each arm the control's large page builds
-           exactly twice the rows of markup its small page does — including
-           `coarse` and `chunked`, where the changed-set control built the
-           same number twice"
+  (testing "THE RENDERED-SCALE CONTROL'S DISCRIMINATING POWER, in exact
+           integers and before any clock. On each arm the control's large
+           page builds exactly twice the rows of markup its small page does
+           — including `coarse` and `chunked`, where a changed-set control
+           builds the same number twice"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (doseq [arm rf.bench.fresco.topo.arms/arm-ids]
@@ -213,10 +212,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-control-refuses-a-page-whose-writes-do-not-commit
-  (testing "THE NON-COMMIT WITNESS, and the audit obligation on this control
-           (rf2-m6i0). The predecessor's `window!` said the read-back happened
-           after the clock and then returned elapsed time without reading
-           anything, so it could have adjudicated a no-op from event and
+  (testing "THE NON-COMMIT WITNESS. A `window!` that said the read-back
+           happened after the clock and then returned elapsed time without
+           reading anything could adjudicate a no-op from event and
            subscription work alone.
 
            Here a real `fine` page is mounted and the control's OWN `window!`
@@ -262,9 +260,9 @@
 (def ^:private clean {:writes 120 :unverified 0})
 
 (deftest the-verdict-refuses-on-band-sign-and-read-back
-  (testing "three gates, any of which refuses. The sign gate is PR #7634's fix:
+  (testing "three gates, any of which refuses. The sign gate exists because
            a band alone admits a control certifying that MORE WORK READS
-           FASTER, which rf2-7iqb5 captured live"
+           FASTER, which a live run has captured"
     (let [{:keys [predicted]} (rf.bench.fresco.topo.control-app/band-of :fine)]
       (is (:ok? (rf.bench.fresco.topo.control-app/verdict :fine (repeat 5 predicted) clean))
           "a run measuring exactly its prediction passes")
@@ -278,11 +276,12 @@
           "and a control that measured nothing certifies nothing"))))
 
 (deftest the-refused-changed-set-run-would-still-refuse-here
-  (testing "the one test that says this control is not a widening. The run this
-           replaces measured 1.331 / 1.387 / 1.424 / 1.471 / 1.325 and refused.
-           Fed to the NEW verdict on every arm, it refuses again"
+  (testing "the one test that says this control is not a widening. The
+           recorded changed-set run measured 1.331 / 1.387 / 1.424 / 1.471 /
+           1.325 and refused. Fed to this control's verdict on every arm, it
+           refuses again"
     (let [measured [1.331 1.387 1.424 1.471 1.325]]
       (doseq [arm rf.bench.fresco.topo.arms/arm-ids]
         (is (not (:ok? (rf.bench.fresco.topo.control-app/verdict arm measured clean)))
-            (str "the replacement's band on " arm " must not retro-admit the
-                 refusal it replaces"))))))
+            (str "the rendered-scale band on " arm " must not retro-admit the
+                 changed-set refusal"))))))

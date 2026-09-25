@@ -1,28 +1,24 @@
 (ns re-frame.bench.fresco.arm1.cell-table-laws-cljs-test
-  "THE SIX INDEX LAWS, against the fused cell table (rf2-2rtt6.8,
-  rf2-dabt3).
+  "THE SIX INDEX LAWS, against the fused cell table.
 
   architecture.md restates six laws the local `spike-01` pure model
-  proved, and HD-017 graduated that model into the tracked bench/test
-  tree *with its six-law algebra as the index's unit tests*. This file is
-  the descendant of that graduation, renamed rather than discarded when
-  the index stopped being a separate structure.
+  proved, and HD-017 puts that model into the tracked bench/test tree
+  *with its six-law algebra as the index's unit tests*. The index is the
+  runtime's fused cell table, so that is what this file discharges them
+  against.
 
-  ## What moved, and why the tests moved with it
+  ## Why the laws are discharged against the runtime's own doors
 
-  The laws used to be discharged against `front.sub-index`, a pure
-  algebra over two process-global maps: `sub-key -> #{boundary}` and
-  `boundary -> #{sub-key}`. Both were keyed by the same B·R key space the
-  runtime's own cell table is keyed by, so every read paid two persistent
-  map entries and — at the fan-out the distinct-query ladder rung
-  measures — a singleton set per key holding one pointer. rf2-dabt3
-  retired deliverable 2 of the shared front half: the readers live on the
-  cell, the forward edge was already on the registration (`.-reads`), and
-  the namespace went with them.
+  The readers live on the cell and the forward edge on the registration
+  (`.-reads`); there is no separate index structure. A pure algebra over
+  two process-global maps — `sub-key -> #{boundary}` and
+  `boundary -> #{sub-key}` — would be keyed by the same B·R key space the
+  runtime's own cell table is keyed by, so every read would pay two
+  persistent map entries and — at the fan-out the distinct-query ladder
+  rung measures — a singleton set per key holding one pointer.
 
-  **All six laws are statements about the reverse edge**, so they lost
-  their subject entirely rather than partially — and they are ported
-  here, one `deftest` per law under its own number, discharged against
+  **All six laws are statements about the reverse edge**, so they are
+  discharged here, one `deftest` per law under its own number, against
   the runtime's own doors rather than against a rebuilt value algebra:
   [[rf.bench.fresco.arm1.runtime/commit-boundary!]] (the seam React occupies), [[rf.bench.fresco.arm1.runtime/dispatch!]]
   (which drives `flush!`), [[rf.bench.fresco.arm1.runtime/stats]] and [[rf.bench.fresco.arm1.runtime/cell-readers]]. That
@@ -40,29 +36,29 @@
     6. an unknown dirty sub yields the empty set — no phantom boundaries.
 
   Below the six sit the obligations the laws would silently lose. Three
-  of them changed shape with the fusion, and the changes are the point:
+  of them take a particular shape on the fused table:
 
-  - **Abandoned-render safety is now structural.** The retired index
-    needed `record-reads` to ignore a boundary that was not live, because
+  - **Abandoned-render safety is structural.** A separate index would
+    need `record-reads` to ignore a boundary that was not live, because
     a stale body run could otherwise resurrect edges `unmount` had just
     dropped. Here the only write is inside `subscribe`, which React calls
     at commit and nowhere else, so there is no render-phase write to
     guard. It is asserted as a witness rather than as a guard.
-  - **Mount idempotence dissolves.** There is no `mount` to be idempotent
-    in: a `subscribe` mints a fresh registration and its cleanup releases
-    exactly that one. What the old test protected — StrictMode's double
-    invoke must not leave residue — lives in the zero-residue witness.
-  - **The `identical?`-sharing witness changed subject.** It used to say
-    `record-reads` coerces rather than copies its caller's set; it now
-    says the registration shares the entry's key set, which is the whole
-    reason the fused table stores no forward edge.
+  - **There is no mount idempotence to test.** There is no `mount` to be
+    idempotent in: a `subscribe` mints a fresh registration and its
+    cleanup releases exactly that one. What idempotence would protect —
+    StrictMode's double invoke must not leave residue — lives in the
+    zero-residue witness.
+  - **The `identical?`-sharing witness** says the registration shares
+    the entry's key set, which is the whole reason the fused table stores
+    no forward edge.
 
   The adapter is UIx's, not `plain-atom`'s, and that is load-bearing:
   plain-atom has no reactivity layer at all, so a subscription under it
   never notifies and every dirty-set assertion below would pass vacuously
-  by never firing. That is also why the screen-shaped discharge migrated
-  here from `front/dogfood_cljs_test` — it drove the retired index's pure
-  algebra directly, and the fused doors need a substrate that moves."
+  by never firing. That is also why the screen-shaped discharge lives
+  here rather than in `front/dogfood_cljs_test`: the fused doors need a
+  substrate that moves."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -150,9 +146,9 @@
                            (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/draft 0]))]))]
     (try
       (testing "ONE cell for the shared key, holding all three readers —
-               shared structure, not per-boundary fan-out, which is the
-               claim the two-global-maps design used to carry and the
-               fused table carries with one container fewer"
+               shared structure, not per-boundary fan-out, which the fused
+               table carries with one container fewer than a
+               two-global-maps design would"
         (is (= 3 (count (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/remaining])))))
         (is (= #{(:reg a) (:reg b) (:reg c)}
                (set (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/remaining])))))
@@ -194,11 +190,9 @@
         (is (= 0 @(:hits gone)))
         (is (= 1 @(:hits stay))))
       (is (= 1 (:edges (rf.bench.fresco.arm1.runtime/stats))) "one membership survives, and it is the survivor's")
-      ;; A cell whose readers all left is REAPED, which is the fused
-      ;; counterpart of the old index dropping an emptied reader set
-      ;; rather than retaining it — an index that kept empty sets grew
-      ;; without bound across a long session, and a table that kept
-      ;; readerless cells would too.
+      ;; A cell whose readers all left is REAPED rather than retained — a
+      ;; table that kept readerless cells would grow without bound across
+      ;; a long session.
       (js/setTimeout (fn []
                        (is (= 1 (:cells (rf.bench.fresco.arm1.runtime/stats)))
                            "the readerless key left the table entirely")
@@ -212,14 +206,13 @@
 
 (deftest law-4-a-rerun-with-fewer-reads-drops-the-edges-it-stopped-reading
   (seeded! 3)
-  (testing "**Law 4 IS the subscribe/cleanup pair on this wiring, and that
-           is not a degenerate case of something more general any more.**
+  (testing "**Law 4 IS the subscribe/cleanup pair on this wiring.**
            The boundary id is the registration React mints per
            `subscribe`, so a narrowed read set takes a different entry, a
            different `subscribe` identity and therefore a fresh
            registration; React's own sequence — the previous cleanup,
            then the new subscribe — performs the whole edge-set
-           replacement. rf2-2rtt6.47, rf2-dabt3"
+           replacement"
     (let [wide (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                                 (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))]
       (is (= 2 (:edges (rf.bench.fresco.arm1.runtime/stats))))
@@ -306,17 +299,17 @@
         (is (= 1 @(:hits row-1))))
       (testing "and asking about an unread key does not intern it — the
                fused table has nowhere to intern one, which is stronger
-               than the old index's `get` with a default"
+               than a `get` with a default"
         (let [before (:cells (rf.bench.fresco.arm1.runtime/stats))]
           (is (= [] (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:no-such/query]))))
           (is (= before (:cells (rf.bench.fresco.arm1.runtime/stats))))))
-      (testing "**the fused table's own version of an unknown key, and the
-               one the retired index could not have.** A cell outlives its
+      (testing "**the fused table's own version of an unknown key.** A cell
+               outlives its
                last reader by a reaper's grace, so between a cleanup and
                the next macrotask there is a live cell with an EMPTY
                reader list. A write that dirties it must contribute
                nothing — the same claim law 6 makes about a key nobody
-               ever read, now about a key nobody reads any more"
+               ever read, made about a key nobody reads any more"
         (let [tmp (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/draft 1]))]))]
           ((:stop! tmp))
           (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 1 "into the void"])
@@ -326,17 +319,15 @@
       (finally (stop-all! row-1)))))
 
 ;; ===========================================================================
-;; The screen-shaped discharge, migrated from front/dogfood_cljs_test
+;; The screen-shaped discharge
 ;; ===========================================================================
 
 (deftest the-table-answers-the-screens-own-narrow-and-broad-writes
-  (testing "**Migrated from `front/dogfood_cljs_test` (rf2-dabt3).** That
-           file proved the front half composes, and closed with the index
-           saying which boundary a real screen's write dirtied — driven
-           through `front.sub-index`'s pure doors, because the front half
-           owned the index. It no longer does. The claim is the same one,
-           now taken through the fused doors against real notifications
-           rather than against a value algebra"
+  (testing "the index says which boundary a real screen's write dirtied,
+           taken through the fused doors against real notifications rather
+           than against a value algebra. `front/dogfood_cljs_test` proves
+           the front half composes; the index is the runtime's, so this
+           claim is discharged here"
     (seeded! 3)
     (let [header (mount! (fn [_] [:span (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))
                                   (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids]))]))
@@ -385,11 +376,10 @@
 
 (deftest an-abandoned-render-writes-nothing-because-the-only-write-is-the-commits
   (seeded! 3)
-  (testing "**The abandoned-render obligation, now structural.** The
-           retired index needed `record-reads` to ignore a boundary that
-           was not live, because React can abandon a render and an
-           abandoned render's reads must not resurrect the edges
-           `unmount` had just dropped. There is no render-phase write to
+  (testing "**The abandoned-render obligation, structurally.** React can
+           abandon a render, and an abandoned render's reads must not
+           resurrect the edges `unmount` has just dropped. There is no
+           render-phase write to
            guard here: the only write to the table is inside `subscribe`,
            which React calls at commit and nowhere else. So this is a
            witness rather than a guard — and it is the stronger of the
@@ -403,7 +393,7 @@
         (is (= (:edges before) (:edges after)) "no edge added")
         (is (= (:cells before) (:cells after)) "no cell built")))
     (testing "and a body run AFTER its boundary's cleanup adds nothing
-             either, which is exactly what the old guard existed for"
+             either, which is exactly what a liveness guard would exist for"
       (let [b (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]
         ((:stop! b))
         (is (= 0 (:edges (rf.bench.fresco.arm1.runtime/stats))))
@@ -416,12 +406,12 @@
 (deftest a-double-subscribe-and-its-two-cleanups-leave-zero-residue
   (async done
     (seeded! 3)
-    (testing "**Where mount idempotence went.** There is no `mount` to be
+    (testing "**No mount idempotence to test.** There is no `mount` to be
              idempotent in: a `subscribe` mints a fresh registration and
              its cleanup releases exactly that one. StrictMode's double
              invoke is therefore two registrations on one entry rather
-             than one registration mounted twice, and what the old test
-             actually protected — the second pass must not corrupt the
+             than one registration mounted twice, and what idempotence
+             would protect — the second pass must not corrupt the
              first's edges, and neither must survive teardown — is this"
       (let [entry (render! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
             hits  (volatile! 0)
@@ -449,17 +439,11 @@
 
 (deftest the-registration-shares-the-entrys-key-set-rather-than-copying-it
   (seeded! 3)
-  (testing "**Where the `identical?` sharing witness went (rf2-aqgr2,
-           rf2-dabt3).** It used to assert that `record-reads` coerced
-           rather than copied its caller's set, because the forward-edge
-           map retained that set for the life of the mount and a rebuild
-           would have left the boundary holding a second hash set with
-           the same contents — measured at +46 B/read (Reagent segment)
-           and +47 (UIx), and invisible to every value-equality assertion
-           in the old suite. There is no forward-edge map to retain
-           anything now, and the sharing claim is one step shorter and
-           one step stronger: the registration's read set IS the entry's,
-           so the fused table stores no forward edge at all"
+  (testing "**The `identical?` sharing witness.** The registration's read
+           set IS the entry's, so the fused table stores no forward edge
+           at all. A copy would leave the boundary holding a second hash
+           set with the same contents — +46 B/read (Reagent segment) and
+           +47 (UIx) — invisible to every value-equality assertion"
     (let [b (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
                              (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))]
       (try
@@ -472,13 +456,12 @@
   (async done
     (seeded! 3)
     (testing "**The fusion, as an executable statement rather than an
-             argument.** The table used to run beside a second global
-             structure over the same key space, and the two had to be
-             kept in step: a boundary's reference count and its edge
-             count were separate records that were always equal and could
-             always drift. They are now one slot, counted once — walked
-             across the reachable values so a regression that reintroduces
-             a second record has to make two numbers disagree"
+             argument.** A boundary's reference count and its edge count
+             are one slot, counted once; kept as separate records beside a
+             second global structure over the same key space, they would
+             always be equal and could always drift. Walked across the
+             reachable values so a regression that reintroduces a second
+             record has to make two numbers disagree"
       (let [steps (volatile! [])
             note! (fn [step]
                     (let [s (rf.bench.fresco.arm1.runtime/stats)]
@@ -513,10 +496,9 @@
 
 (deftest the-evidence-seam-is-detached-by-default-and-attachable-without-redesign
   (seeded! 3)
-  (testing "the `:edges-changed` and `:commit` event shapes are kept
-           verbatim across the move off `front.sub-index`, so anything
-           written against the seam attaches to the fused table without
-           being redesigned (rf2-dabt3)"
+  (testing "the `:edges-changed` and `:commit` event shapes are the seam's
+           fixed contract, so anything written against the seam attaches
+           to the fused table without being redesigned"
     (let [seen (atom [])]
       (testing "with no sink attached the table does its work and says nothing"
         (let [b (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]

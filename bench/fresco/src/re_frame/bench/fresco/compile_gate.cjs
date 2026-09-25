@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE BENCH PROJECT'S COMPILE CHECK — rf2-2rtt6.73, re-homed by rf2-6c12m.1.
+// THE BENCH PROJECT'S COMPILE CHECK.
 //
 //     npm run check        # from bench/fresco/ — this, then the .cjs self-tests
 //     node src/re_frame/bench/fresco/compile_gate.cjs --list
@@ -8,11 +8,11 @@
 // ## The gap this closes
 //
 // The lane's arms are deliberately LOCAL COPIES of shipping code (the
-// rf2-2rtt6.32 call-convention discipline), so they drift by construction, and
+// call-convention discipline), so they drift by construction, and
 // nothing test-shaped requires them: `:node-test` and `:browser-test` select by
-// namespace suffix and never see an arm. Before this gate the only compiler
-// that ever saw one was `:fresco-bench`, driven BY HAND through drivers that
-// passed on warnings — an arm could stop compiling and no run could go red.
+// namespace suffix and never see an arm. Without this gate the only compiler
+// to see one would be `:fresco-bench`, driven BY HAND — an arm could stop
+// compiling and no run would go red.
 //
 // ## The shape
 //
@@ -33,17 +33,14 @@
 // new arm would land uncovered and look covered. Every `.cljs`/`.cljc` under
 // the walk is an entry, INCLUDING the `*_cljs_test.cljs` suites: a
 // filename-shaped exclusion is one more thing that can silently drop the file
-// you cared about. Since rf2-6c12m.1 the whole lane lives under this one
-// source root — the four riders that used to sit beside the artefacts they
-// measure (`p0_app`, `p0_pageerror_probe`, `fresco_narrow`,
-// `fresco_narrow_app`) moved in with it — so the walk IS the lane and no
-// stated roster is needed any more.
+// you cared about. The whole lane lives under this one source root, so the
+// walk IS the lane and no stated roster is needed.
 //
-// The optional-module and re-homed-core-instrument entry sources this gate
-// used to carry are PRODUCT concerns, not the lane's, and they stayed in the
-// package when the lane left it: `implementation/fresco/scripts/
-// check_modules_compile.cjs`, run by `npm run test:fresco-compile` on every
-// PR. Nothing here reaches `implementation/fresco/src/` on purpose.
+// The optional-module and core-instrument entry sources are PRODUCT
+// concerns, not the lane's, and they live in the package:
+// `implementation/fresco/scripts/check_modules_compile.cjs`, run by
+// `npm run test:fresco-compile` on every PR. Nothing here reaches
+// `implementation/fresco/src/` on purpose.
 //
 // ## What it cannot see
 //
@@ -64,10 +61,10 @@ const BUILD_ID = 'fresco-bench';
 const OUT_DIR = 'out/fresco-compile-gate';
 const TAG = 'fresco-compile';
 
-// The lane is ~100 namespaces today. A derivation that silently recovers a
-// handful has broken, and a gate that compiles three namespaces while
-// reporting success is the fail-open it replaced. The floor is deliberately
-// far below the real count — it catches collapse, not growth.
+// The lane is well over a hundred namespaces. A derivation that silently
+// recovers a handful has broken, and a gate that compiles three namespaces
+// while reporting success is the fail-open it exists to prevent. The floor is
+// deliberately far below the real count — it catches collapse, not growth.
 const MIN_NAMESPACES = 40;
 
 /** Every `.cljs` / `.cljc` under the lane, recursively, sorted. */
@@ -94,8 +91,8 @@ function namespaceOf(file) {
 
 /**
  * The lane's entries. A file with no readable `ns` form is a FAILURE, not a
- * skip: skipping it would drop it from the gate silently, which is the whole
- * defect being repaired.
+ * skip: skipping it would drop it from the gate silently, which is the
+ * defect this gate exists to catch.
  */
 function laneNamespaces() {
   const files = laneSourceFiles();
@@ -138,7 +135,7 @@ if (require.main === module) {
 
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(
-      `[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`,
+      `[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`,
     );
   }
 

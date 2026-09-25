@@ -1,6 +1,5 @@
 (ns re-frame.bench.fresco.arm1.lang
-  "`defview`, `event` and `defhost` — the three macros Arm 1 has
-  (rf2-2rtt6.9, rf2-2rtt6.35, rf2-2rtt6.65).
+  "`defview`, `event` and `defhost` — the three macros Arm 1 has.
 
   It exists because the authoring surface is a *deliverable*: HD-002 has
   the dogfood screen written in three renderings and judged on diff and
@@ -28,10 +27,10 @@
 
   Macros only. The runtime it names is CLJS-only (it requires React), and
   a `.cljc` would invite a JVM-side implementation this arm does not
-  have. SSR becoming required scope (the 2026-08-04 HD-020 addendum) did
-  not change that: the arm renders on **Node**, calling
+  have. SSR being required scope (HD-020) does not change that: the arm
+  renders on **Node**, calling
   `react-dom/server` from CLJS ([[re-frame.bench.fresco.ssr.node]]), so
-  there is still no JVM render path for a `.cljc` to imply.")
+  there is no JVM render path for a `.cljc` to imply.")
 
 (defmacro defview
   "Mint a boundary — a real React function component (HD-016).
@@ -55,9 +54,8 @@
 (defmacro event
   "**The one callback form** (HD-024). `h/event` in the authoring surface,
   and `event` here — the same name, since the door is reached qualified.
-  It was `hfn` until naming-ledger row 1 was swept (rf2-hic-066); `fn`
-  itself was never available, since a bare `fn` shadows `cljs.core/fn`
-  for anyone who `:refer`s it.
+  Not `fn`: a bare `fn` shadows `cljs.core/fn` for anyone who `:refer`s
+  it.
 
   Expands to nothing but a marked `fn`:
 
@@ -65,7 +63,7 @@
       ;; =>
       (re-frame.bench.fresco.front.intent/callback (fn [e] …))
 
-  The value is an ORDINARY FUNCTION — that is the point of the ruling.
+  The value is an ORDINARY FUNCTION — that is the point of HD-024.
   The contract comes from the position it is written at, so there is
   nothing to choose between and nothing that can fail to be callable
   where Fresco does not walk. See

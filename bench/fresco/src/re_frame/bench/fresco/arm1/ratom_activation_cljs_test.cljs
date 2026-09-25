@@ -1,12 +1,12 @@
 (ns re-frame.bench.fresco.arm1.ratom-activation-cljs-test
   "**ARM 1 UNDER THE STOCK REAGENT ADAPTER** — a committed cell is on the
-  substrate's push path, so a write after the mount is re-render work
-  (rf2-2kshh).
+  substrate's push path, so a write after the mount is re-render work.
 
-  THE DEFECT THIS PINS. `runtime/wire-cell!` is the whole of a cell's
-  attachment to the substrate, and it used to perform three acts:
-  subscribe, deref once for the baseline, `add-watch`. Under the ratom
-  family that is a channel that cannot fire. A subscription there IS a
+  WHAT THIS PINS. `runtime/wire-cell!` is the whole of a cell's
+  attachment to the substrate, and it ACTIVATES the subscription before
+  it watches it. Subscribe, deref once for the baseline and `add-watch`,
+  with no activation, is a channel that cannot fire under the ratom
+  family. A subscription there IS a
   bare `reagent.ratom/Reaction`, built deliberately without `:auto-run`,
   and a Reaction learns its sources only through `deref-capture`: the
   baseline deref is taken outside `*ratom-context*`, so it runs the body
@@ -14,28 +14,22 @@
   app-db's watcher set, the `add-watch` above never fires,
   `runtime/mark-dirty!` never fires — that watch is its only caller —
   `flush!` finds an empty dirty set, and React is handed nothing. **The
-  arm painted once at mount and was deaf from that instant.**
+  arm would paint once at mount and be deaf from that instant.**
 
-  It is the identical defect the observation port carried as rf2-8cnxg
-  and repaired at `re-frame.substrate.observation/build-node-handle!`
-  (\"ACTIVATE, then watch, then observe — and the order is the whole
-  fix\"). Arm 1's runtime is a second consumer of the same channel that
-  never received the call. The port's own unit arms are
-  `re-frame.observation-port-activates-ratom-node-cljs-test`, whose
-  docstring already names and excludes the cheap wrong diagnosis: **even
-  `reagent.core/flush` moves nothing** when the node never captured.
+  **Even `reagent.core/flush` moves nothing** when the node never
+  captured, so a drain is no substitute for the activation.
 
-  WHY IT WENT UNCAUGHT FOR SO LONG. Every other suite in this arm
+  WHY ONLY THIS SUITE CAN SEE IT. Every other suite in this arm
   installs the **UIx** adapter, whose React-hook spine wires one watch
   per source at construction and is push-based from birth — the activate
   op is a routed no-op there and the channel works without it. The
   Fresco clock bench likewise gives the candidate its own UIx segment
-  on purpose. rf2-2rtt6.76's P0 allocation row was the first time in the
-  programme a write was driven at lad/fresco with the *Reagent* adapter
-  installed, and the arm read flat at the FLOOR's figure — an arm with
-  no subscription at all reads the same, because both re-render never.
+  on purpose. Only a write driven at lad/fresco with the *Reagent*
+  adapter installed reaches this channel, and a deaf arm there reads
+  flat at the FLOOR's figure — an arm with no subscription at all reads
+  the same, because both re-render never.
 
-  WHAT EACH ARM IS FOR. The first is the bead's own smallest
+  WHAT EACH ARM IS FOR. The first is the smallest
   reproduction, taken through the arm's real seam rather than by hand:
   render a body, commit it at [[re-frame.bench.fresco.arm1.runtime/commit-boundary!]]
   — the same `subscribe` closure `useSyncExternalStore` calls — write,
@@ -107,10 +101,10 @@
   `reagent.core/flush` is the drain the P0 bench performs for this
   segment (inside one `flushSync`), and it is what turns an ACTIVATED
   reaction's enqueued recompute into the `notify-w` that reaches the
-  cell's watch. It is deliberately the only thing added here: the bead's
-  falsified hypothesis was that the bench's drain was at fault, and a
-  reaction that never captured is not enqueued by anything, so this call
-  moves precisely nothing until [[wire-cell!]] activates."
+  cell's watch. It is deliberately the only thing added here: the drain
+  is not what makes the channel live — a reaction that never captured is
+  not enqueued by anything, so this call moves precisely nothing unless
+  [[wire-cell!]] activates."
   [event]
   (rf.bench.fresco.arm1.runtime/dispatch! frame-id event)
   (r/flush)
@@ -128,15 +122,15 @@
     [:span (str n)]))
 
 ;; ===========================================================================
-;; the bead's reproduction: a committed cell is on the push path
+;; the reproduction: a committed cell is on the push path
 ;; ===========================================================================
 
 (deftest a-committed-cell-notifies-its-boundary-under-the-reagent-adapter
-  (testing "rf2-2kshh's exact reproduction. One boundary, one query, the
+  (testing "The exact reproduction. One boundary, one query, the
             REAGENT adapter installed: the commit must leave the cell's
             reaction CAPTURING, so a later write reaches React's own
-            `onStoreChange`. Before the fix the cell held a watch on a
-            reaction that could not fire and the count stayed at zero
+            `onStoreChange`. Without activation the cell holds a watch on
+            a reaction that cannot fire and the count stays at zero
             for the life of the mount"
     (fresh! 1)
     (let [b  (mounted! readout-body)
@@ -150,7 +144,7 @@
              and not the host's")
         (is (capturing? rx)
             "the commit ACTIVATED it: the reaction is subscribed to its
-             sources. Before the fix this was nil — watchable, watched,
+             sources. Without activation this is nil — watchable, watched,
              and unable to notify")
         (is (zero? @(:hits b))
             "and the activation itself fanned nothing at the boundary — it
@@ -158,8 +152,9 @@
 
         (write! [:hic/set-n 2])
         (is (= 1 @(:hits b))
-            "THE MEASUREMENT THAT WAS ZERO: the write became re-render
-             work. This is the whole of the arm's dirty channel — the
+            "THE MEASUREMENT A DEAF CHANNEL LEAVES AT ZERO: the write
+             became re-render work. This is the whole of the arm's
+             dirty channel — the
              cell's watch is `mark-dirty!`'s only caller")
 
         (testing "…and the channel stays armed rather than firing once
@@ -228,7 +223,7 @@
                 (is (some? rx) "the rebuild re-subscribed")
                 (is (capturing? rx)
                     "and ACTIVATED the replacement — the second caller of
-                     `wire-cell!` gets the same repair as the first")
+                     `wire-cell!` gets the same activation as the first")
                 (write! [:hic/set-n 3])
                 (is (= (inc before) @(:hits b))
                     "a write after the re-registration still becomes

@@ -3,20 +3,18 @@
 
   ## The mistake this instrument exists to prevent
 
-  The withdrawn predecessor programme published a narrow-update row that
-  looked catastrophic — roughly 15x — and the number was not a valid
-  target as measured. Two separate faults, and this namespace is built
-  around both.
+  A narrow-update row can look catastrophic — roughly 15x — and still not
+  be a valid target as measured. Two separate faults produce that, and
+  this namespace is built around both.
 
-  **The comparison arm was not the same amount of framework.** The
-  compared substrate read a bare `reagent.core/atom` through a
-  `reagent.core/cursor`. That is Reagent's own idiom and it is a fair
-  arm for the question *what does Reagent cost*, but it is not the
-  question *what does re-frame on Reagent cost*: a re-frame-shaped
-  Reagent application pays a frame write and a subscription graph that
-  the bare-ratom arm never touches. Roughly 90% of the reported gap
-  decomposed to exactly that — the write and the signal graph, not
-  rendering. Optimising against it would have been optimising re-frame
+  **A comparison arm that is not the same amount of framework.** A bare
+  `reagent.core/atom` read through a `reagent.core/cursor` is Reagent's
+  own idiom and a fair arm for the question *what does Reagent cost*, but
+  it is not the question *what does re-frame on Reagent cost*: a
+  re-frame-shaped Reagent application pays a frame write and a
+  subscription graph that the bare-ratom arm never touches. Roughly 90% of
+  such a 15x gap decomposes to exactly that — the write and the signal
+  graph, not rendering. Optimising against it would be optimising re-frame
   under another substrate's name.
 
   **And the write leg alone means nothing on this substrate.** On the
@@ -31,9 +29,8 @@
   ## The four arms
 
   `:bare-ratom`            b6's arm, reproduced — `r/cursor` over an
-                           `r/atom`, no re-frame at all. This is the arm
-                           the predecessor compared against, and it is
-                           here so the size of the framing error is a
+                           `r/atom`, no re-frame at all. It is here so
+                           the size of the framing error is a
                            measurement rather than an assertion.
 
   `:spine-replace`         re-frame2 on the Reagent adapter — which is
@@ -42,7 +39,7 @@
                            Reagent's own batching. 300 layer-1
                            subscriptions, one per cell. The write door is
                            `rf.frame/replace-app-db!`, the SAME door the
-                           donor row used, so the two are comparable
+                           donor row uses, so the two are comparable
                            leg-for-leg.
 
   `:spine-dispatch`        the same views and the same graph, written
@@ -81,19 +78,19 @@
 
   ## Every write is verified at the DOM inside its own window
 
-  A clock alone once accepted a window in which 1,320 of 1,320 writes
-  never reached the page. So the written cell is read back out of the
+  A clock alone accepts a window in which 1,320 of 1,320 writes never
+  reach the page. So the written cell is read back out of the
   DOM after `t3` — inside the write's own window, not once at the end —
   and the count of failures is published beside every figure as
   \"N unverified of M\".
 
   **M COUNTS ONLY WRITES THAT COULD HAVE BEEN VERIFIED.** `:instrument`
   renders no cell and forces `ok` true, so its windows are not evidence of
-  anything having reached a page; folding them into the denominator
-  inflated it from 3,600 to 4,320 and made the headline claim \"every write
+  anything having reached a page; folding them into the denominator would
+  inflate it from 3,600 to 4,320 and make the headline claim \"every write
   read out of the DOM\" true of 83% of the writes it named. Skip-verify
   arms are excluded from the tally and reported on their own line, and a
-  nonzero count on a REAL arm now fails the run rather than being printed
+  nonzero count on a REAL arm fails the run rather than being printed
   beside a `reportable` verdict.
 
   ## Chrome clamps `performance.now()` to 100 microseconds
@@ -119,20 +116,19 @@
   ## Every property crossing the JS boundary is a string literal
 
   Under `:advanced`, `(.-bad o)` is renamed and a `#js {:bad 0}` literal
-  key is not. The donor recorded the consequence: `undefined + 1` is
+  key is not. The consequence: `undefined + 1` is
   `NaN`, the literal's `bad: 0` stands, and the driver reads ZERO
   unverified writes for ever. So every accumulator goes through
   `goog.object` with string literals, and [[integrity-probe]] proves it
   from inside the shipped bundle before anything is measured.
 
-  ## Two instruments, one method (rf2-uhw11)
+  ## Two instruments, one method
 
   `re-frame.bench.fresco.lane` is the other P0 harness, and it is not a
   rival: a mount is ONE timed commit and a narrow write is write,
   microtask, flush, verify, so the two windows genuinely differ and
-  neither subsumes the other. What must not differ is the METHOD, and it
-  was written down twice — `summarise`, `chain`, the schedule and the
-  verification tally all existed here and there.
+  neither subsumes the other. What must not differ is the METHOD —
+  `summarise`, `chain`, the schedule and the verification tally.
 
   So the shared parts are TAKEN from the lane rather than restated:
   [[summarise]] and `chain` are `rf.bench.fresco.lane/`'s, and the schedule is
@@ -141,16 +137,13 @@
   with no branch inside a timed leg), the six-leg accumulator, and the
   `goog.object` string-literal discipline the `:advanced` bundle needs.
 
-  The cost of getting this wrong is on record: `slot-order` was one rule
-  written down three times, one copy was repaired, and the other two went
-  on returning a single order for two-arm plans until the guard refused
-  four rows (rf2-ouwh8).
+  The cost of getting this wrong is concrete: one rule written down three
+  times is three copies to repair, and an unrepaired copy of `slot-order`
+  returns a single order for a two-arm plan, which the guard refuses.
 
   Authority: `docs/EP/EP-0038-the-fresco-view-layer-programme.md`;
-  the bar and the P0 table are operator-owned on the governance set that
-  superseded bead rf2-2rtt6.1 on 2026-08-10, enumerated once in
-  `docs/design/fresco/studio/README.md`.
-  Spec donor: rf2-ssn1o (closed, do-not-refile)."
+  the bar and the P0 table are operator-owned on the governance set
+  enumerated in `docs/design/fresco/studio/README.md`."
   (:require ["react-dom" :as react-dom]
             [goog.object :as gobj]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -170,7 +163,7 @@
 (def writes-per-sample
   "Chrome clamps `performance.now()` to 100 us and a single narrow write
   sits on that clamp — measured one at a time, the donor's Reagent arm
-  returned exactly 0.1 ms, which is the quantum itself wearing a result's
+  reads exactly 0.1 ms, which is the quantum itself wearing a result's
   hat. Twenty writes to a sample lifts every arm clear of it."
   20)
 
@@ -253,8 +246,8 @@
   window.
 
   The sink is not decoration: Closure is entitled to delete a loop whose
-  result nothing reads, and this surface has already published a leg of
-  exactly 0.000 in every arm because a property read was dropped. The
+  result nothing reads, which would publish a leg of exactly 0.000 in
+  every arm. The
   final clock reading is summed into a volatile that outlives the call,
   so the loop must run."
   []
@@ -310,28 +303,25 @@
   commits the one cell that changed, and a single number cannot say which
   of those the money went to.
 
-  THE FIRST CUT DID NOT ISOLATE THE THING IT NAMED, and the correction is
-  the reason this reads the way it does. Each rung was built by handing
-  `spine-arm` a cell count, so a rung changed the app-db vector, the
+  A RUNG MOVES THE SUBSCRIPTION COUNT AND NOTHING ELSE. Handing
+  `spine-arm` a cell count per rung would change the app-db vector, the
   mounted component count, the DOM span count, the reaction count AND the
-  subscription count together. The page said \"the React commit is the same
-  one-cell commit at every rung, and only the subscription count moves\";
-  it was not, and a slope fitted through those rungs described a compound
-  FIXTURE-SIZE ladder. The negative intercept and the super-linear
-  exponent were real properties of that ladder, but they could not be
-  attributed to layer-1 subscriptions, which is exactly what the page did.
+  subscription count together, and a slope fitted through those rungs
+  would describe a compound FIXTURE-SIZE ladder — whose intercept and
+  exponent are real properties of that ladder but cannot be attributed to
+  layer-1 subscriptions.
 
-  So the rungs now hold everything constant but the subscription. Every
-  rung seeds 300 cells into app-db, mounts 300 `spine-cell` occurrences and
+  So the rungs hold everything constant but the subscription. Every rung
+  seeds 300 cells into app-db, mounts 300 `spine-cell` occurrences and
   renders 300 spans; the rung's number is how many of those cells actually
   `subscribe`, and the rest render an inert dash. Writes target the
   SUBSCRIBING range, so the React commit is one cell at every rung by
   construction rather than by assertion.
 
-  Three rungs rather than two is the earlier repair, kept: two points
-  cannot show a line refusing the model it was fitted to, and 30/300 fitted
-  2.27 us per subscription on an intercept of MINUS 0.048 ms. Work that
-  does not scale with the count cannot cost less than nothing.
+  Three rungs rather than two, because two points cannot show a line
+  refusing the model it was fitted to: a two-point 30/300 fit has read
+  2.27 us per subscription on an intercept of MINUS 0.048 ms, and work
+  that does not scale with the count cannot cost less than nothing.
 
   30 rather than 1 at the bottom: one subscription in a 300-cell page is a
   degenerate graph, and a ladder wants one shape at three sizes."
@@ -342,8 +332,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; `defonce` takes no docstring, hence the comment. This is Reagent's own
-;; reactive primitive with no re-frame anywhere near it: the arm the
-;; predecessor's narrow row compared against.
+;; reactive primitive with no re-frame anywhere near it: b6's arm.
 (defonce bare-cells (r/atom []))
 
 (defn bare-cell
@@ -410,8 +399,8 @@
   arm seeds `cells-n` cells into app-db, mounts `cells-n` `spine-cell`
   occurrences and renders `cells-n` spans; only the first `n-subs` of them
   hold a subscription. That is what makes the ladder in [[ladder-cells]] a
-  subscription ladder — the audit's first correction, and the reason
-  `n-subs` is the ONLY thing a rung is allowed to move.
+  subscription ladder, and the reason `n-subs` is the ONLY thing a rung is
+  allowed to move.
 
   Writes target `[0, n-subs)` so a narrow write always lands on a
   SUBSCRIBING cell, which keeps the React commit one cell at every rung by
@@ -526,15 +515,15 @@
 
 (def ^:private chain
   "Fold `xs` into a serial promise chain, threading an accumulator —
-  `rf.bench.fresco.lane/chain`, not a restatement of it (rf2-uhw11)."
+  `rf.bench.fresco.lane/chain`, not a restatement of it."
   rf.bench.fresco.lane/chain)
 
 (defn- timed-write!
   "One narrow write, clocked at every leg boundary, then verified at the
   DOM. Answers a promise of a `js-obj` of legs plus the read-back verdict.
 
-  The microtask between the write and the force is the donor window's and
-  is kept so the two are comparable; on this substrate no arm requires it
+  The microtask between the write and the force is the donor window's, so
+  the two are comparable; on this substrate no arm requires it
   (a `reagent.core/flush` is already on React's sync lane), so `:gap`
   prices the boundary itself and is expected to be ~0."
   [{:keys [arm container]} i val]
@@ -662,9 +651,8 @@
   `rf.bench.fresco.lane/summarise`, not a restatement of it. This lane and the mount lane
   are two INSTRUMENTS — a mount is one timed commit, a narrow write is
   write, microtask, flush, verify — but they are one METHOD, and the
-  method must not be written down twice (rf2-uhw11). The `slot-order`
-  degeneracy this repository has just finished repairing was a method
-  written down three times and fixed in one of them (rf2-ouwh8)."
+  method must not be written down twice: a method written down three
+  times gets fixed in one copy and stays wrong in the other two."
   rf.bench.fresco.lane/summarise)
 
 (defn per-write
