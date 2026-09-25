@@ -24,7 +24,7 @@
 
   ## Substrate
 
-  Per the user-feedback rule + `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`, the lifecycle is
+  Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`, the lifecycle is
   expressed as a `re-frame.machines` machine — NOT ad-hoc state
   tracking. The machine is registered at Story-boot under the id
   `:rf.story.lifecycle/machine`. Each variant frame holds its own
@@ -84,7 +84,7 @@
 ;; the lifecycle from `:pre-mount` straight to `:ready` via this event
 ;; so the canvas's loading skeleton never engages. The
 ;; classical four-phase path (`mount → loaders-started → loaders-complete`)
-;; stays in place for variants that legitimately have loader work.
+;; serves variants that legitimately have loader work.
 (def event-mount-ready       :rf.story.lifecycle/mount-ready)
 (def event-loaders-started   :rf.story.lifecycle/loaders-started)
 (def event-loaders-complete  :rf.story.lifecycle/loaders-complete)
@@ -206,8 +206,8 @@
   live in the `:rf.db/runtime` partition at
   `[:rf.runtime/machines :snapshots <machine-id>]`, NOT in app-db.
   `(:rf.db/runtime (rf/frame-state-value frame-id))` returns the
-  value-form runtime-db map (rf2-t3lftq — API-shrink #3 retired the
-  dedicated `rf/runtime-db-value` reader); we then `get-in` to the
+  value-form runtime-db map (there is no dedicated runtime-db
+  reader); we then `get-in` to the
   machine's snapshot slot."
   [frame-id]
   (let [rt (:rf.db/runtime (rf/frame-state-value frame-id))]
@@ -318,7 +318,7 @@
 ;; in a single transition for variants whose body declares no `:loaders`,
 ;; no `:frame-setup` decorators, and no `:loaders-complete-when`
 ;; predicate. The runtime (`frames/allocate!`) selects this path via
-;; `events-only-variant?`; the four-phase path stays in place for
+;; `events-only-variant?`; the four-phase path serves
 ;; variants that legitimately have loader work to advance through.
 (defn mount-ready!    [frame-id]     (transition! frame-id event-mount-ready))
 (defn start-loaders!  [frame-id]     (transition! frame-id event-loaders-started))
