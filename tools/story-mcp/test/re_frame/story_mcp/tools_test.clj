@@ -2820,9 +2820,10 @@
       (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
             s (:structuredContent r)]
         (is (success? r))
-        ;; The registry slot at `[:rf.runtime/elision :declarations]` survives
-        ;; the run (Story doesn't clear it). The redaction must show
-        ;; in the response.
+        ;; The run resets the frame's runtime-db, wiping the registry slot at
+        ;; `[:rf.runtime/elision :declarations]`; `declare-sensitive!`'s
+        ;; `:setup` step re-applies the declaration after the reset. The
+        ;; redaction must show in the response.
         (is (= :rf/redacted (get-in s [:app-db :secret]))
             "the :secret slot is redacted at egress")))))
 
@@ -5226,13 +5227,15 @@
 ;;
 ;; `protocol/normalize-frame` only drops keys outside the UNION of every
 ;; tool's argument keys (`protocol/arg-keys`). A key valid for ANOTHER
-;; tool — `:body` (register-variant),
-;; `:dedup` on a non-eligible tool — therefore SURVIVES normalisation as a
+;; tool — `:body` (register-variant) — therefore SURVIVES normalisation as a
 ;; keyword entry, which the selected handler would silently ignore.
 ;; The per-tool check (`tool-invalid-arg-keys`) is the descriptor-level
 ;; `additionalProperties false` backstop: it rejects globally-known keys
 ;; the SELECTED tool doesn't advertise, with the same
 ;; `:rf.story-mcp/unknown-arguments` shape as the global-unknown diagnostic.
+;; The wire-managed knobs (`wire-managed-arg-keys`, `:dedup` on a
+;; non-eligible tool among them) are exempt: the wire boundary consumes
+;; them, so they are tolerated.
 ;; ---------------------------------------------------------------------------
 
 (deftest invoke-tool-rejects-tool-invalid-but-globally-known-arg
