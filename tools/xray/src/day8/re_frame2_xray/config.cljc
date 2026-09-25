@@ -2,9 +2,9 @@
   "Compile-time and runtime configuration for Xray.
 
   Holds Xray's config concerns: the 'Open in editor' preference, the
-  default inline layout-host selector, the default auto-open switch, and
-  the ribbon filter pill seed + persistence key. Future phases extend
-  this with theme defaults, buffer depth, etc.
+  default inline layout-host selector, the default auto-open switch,
+  the keybinding opt-out, the egress profile, the ribbon filter pill
+  seed, and the persisted Settings map (theme, buffer depths, …).
 
   ## Why a separate config ns
 
@@ -95,7 +95,7 @@
   resize handle writes the live value back through
   `--rf-xray-inline-width` so the inline-host contract above (the
   documented `var(--rf-xray-inline-width, 560px)` event-bundle) keeps
-  working unchanged — drag is simply a UX surface that drives that
+  working — drag is simply a UX surface that drives that
   same CSS custom property reactively."
   560)
 
@@ -327,21 +327,21 @@
 ;; its own open-Xray affordance); only the global listener is
 ;; suppressed.
 ;;
-;; The flip is REACTIVE (rf2-y8doi.17): `keybinding.cljs` watches this
+;; The flip is REACTIVE: `keybinding.cljs` watches this
 ;; atom and calls `detach!` / `attach!` on every change, so the slot
 ;; works at any point in the boot sequence. It has to, because on the
 ;; `:devtools/preloads` path the host CANNOT get in first — shadow-cljs
 ;; loads preloads before the app's `:init-fn`, so `keybinding/attach!`
 ;; has already installed the listener by the time the host's
-;; `configure!` runs, and a flag read only at attach time was a no-op
-;; for every host that took the documented route. `attach!` still reads
+;; `configure!` runs, and a flag read only at attach time would be a
+;; no-op for every host that takes the documented route. `attach!` reads
 ;; the slot too, for the case where a host DOES get in first (its own
-;; preload ordered ahead of Xray's), and `keybinding/detach!` remains
+;; preload ordered ahead of Xray's), and `keybinding/detach!` is
 ;; public for a host that wants the removal without the slot flip.
 ;;
 ;; Standalone Xray (the default) keeps the listener attached — the
-;; default is `true` so existing hosts that never set the flag observe
-;; no behaviour change.
+;; default is `true`, so a host that never sets the flag keeps the
+;; listener.
 
 (defonce
   ^{:doc "Atom controlling whether `keybinding/attach!` installs the
@@ -357,13 +357,13 @@
   "Replace the `:rf.xray/keybinding-enabled?` flag. `nil` resets to the
   default (`true`).
 
-  Takes effect whenever it is called (rf2-y8doi.17): `keybinding.cljs`
+  Takes effect whenever it is called: `keybinding.cljs`
   watches this atom and detaches / re-attaches the global listener on
   every change, so a host that flips it AFTER Xray's preload has
   already attached — which, on the `:devtools/preloads` path, is every
   host — gets the listener removed rather than a silent no-op. The
-  explicit `keybinding/detach!` escape hatch is unchanged and still
-  supported; it is simply no longer mandatory alongside the flip."
+  explicit `keybinding/detach!` escape hatch is supported, but not
+  needed alongside the flip."
   [v]
   (reset! keybinding-enabled? (if (nil? v) true (boolean v)))
   nil)
@@ -599,7 +599,7 @@
 ;;
 ;; This atom holds Xray's TRACE-COLLECTOR egress PROFILE. It governs
 ;; the trace collector's whole-event `:sensitive?` drop ONLY (spec 013
-;; §Trace-Consumer + spec 015 §Cross-tool visibility grain, rf2-g7zayk):
+;; §Trace-Consumer + spec 015 §Cross-tool visibility grain):
 ;; Xray is a framework-published trace consumer (its preload listener
 ;; feeds the trace rings the L2 event list + Trace panel read), and the
 ;; profile decides whether a `:sensitive?`-tagged event survives that
@@ -837,24 +837,25 @@
 ;; the `:rf.xray/suppressed-sensitive-count` sub fires on the
 ;; standard reactive write path — the `[● REDACTED N]` indicator
 ;; updates within one task of the bumps, with no dependency on sibling
-;; subs recomputing. The atom here remains the JVM-runnable data
+;; subs recomputing. The atom here is the JVM-runnable data
 ;; primitive so `config.cljc`'s shape is testable without a CLJS
 ;; runtime + re-frame frame.
 ;;
-;; ## The mirror is task-coalesced (rf2-p03xh)
+;; ## The mirror is task-coalesced
 ;;
-;; Pre-rf2-p03xh every bump cost its own
-;; `:rf.xray/note-sensitive-suppressed` round-trip into `:rf/xray`. A host
+;; Were every bump to cost its own
+;; `:rf.xray/note-sensitive-suppressed` round-trip into `:rf/xray`, a host
 ;; burst of more than ~100 frameless sensitive traces in one task
-;; therefore carried Xray's queue past the router's depth-100 cap: the
-;; `:rf.error/drain-depth-exceeded` halt was attributed to `:rf/xray`, and
-;; Xray's own queued UI events were dropped behind the burst.
+;; would carry Xray's queue past the router's depth-100 cap: the
+;; `:rf.error/drain-depth-exceeded` halt would be attributed to
+;; `:rf/xray`, and Xray's own queued UI events would be dropped behind
+;; the burst.
 ;;
-;; The remedy is the one Xray already applies twice —
-;; `trace-collector/request-mirror-sync!` (rf2-wq6gx) and install.cljs's
-;; epoch pump (rf2-chs7): pending state keyed by FRAME-ID, a
+;; The remedy is the one Xray applies in two other places —
+;; `trace-collector/request-mirror-sync!` and install.cljs's
+;; epoch pump: pending state keyed by FRAME-ID, a
 ;; `compare-and-set!` sentinel, and one `rf.interop/next-tick` drain. The
-;; atom still takes every bump, so the count stays exact; the drain
+;; atom takes every bump, so the count stays exact; the drain
 ;; dispatches ONE event per task carrying `{frame-id → n}`.
 ;;
 ;; The payload is each frame's count for THE TASK, and the handler ADDS
@@ -934,7 +935,7 @@
   to Xray's app-db `:suppressed-counters` slot; the
   `:rf.xray/suppressed-sensitive-count` sub reads off the same db). One
   dispatch per task, never one per bump — see §The mirror is
-  task-coalesced above (rf2-p03xh)."
+  task-coalesced above."
   [frame-id]
   (let [k (or frame-id :global)]
     (swap! suppressed-counters update k (fnil inc 0))
@@ -972,7 +973,7 @@
 
   In CLJS it also drops the pending per-task counts, so a bump noted
   before the reset cannot be dispatched after the reset's own dispatch
-  and re-add what the reset cleared (rf2-p03xh)."
+  and re-add what the reset cleared."
   ([]
    (reset! suppressed-counters {})
    #?(:cljs (reset! pending-suppressed-counts {}))
@@ -1007,19 +1008,18 @@
 ;; subscription contract) folds onto `get-in` / `assoc-in` over the
 ;; same shape.
 ;;
-;; ## Locked decisions
+;; ## Defaults
 ;;
 ;; - auto-open-on-error default OFF (the user is in their app, not
 ;;   asking for Xray to interrupt them)
-;; - panel-position default `:right-rail` (matches the existing
+;; - panel-position default `:right-rail` (matches the
 ;;   `:rf.xray/layout-host-selector` inline-host posture)
 ;; - theme default `:light` (the authoritative reference
 ;;   `tools/xray/design-reference/xray_devtools_reference.cljs` renders
 ;;   light by default; Xray boots onto the same default. Both palettes
 ;;   exist in `theme/tokens.cljc` and the user can flip to dark.)
 ;; - text-size default 13 (matches `theme/tokens.cljc :type-scale
-;;   :body` — the popup's slider is the one knob that scales every
-;;   subsequent inline-style reads via the published CSS custom
+;;   :body`; `apply-text-size!` publishes it as the CSS custom
 ;;   property `--rf-xray-text-size`).
 ;;
 ;; ## Unknown-section tolerance
@@ -1033,16 +1033,14 @@
 ;; write to an unknown section is a no-op + a tap>.
 
 (def settings-storage-key
-  "localStorage key the settings round-trip uses. Versioned so a future
-  schema change can ignore stale payloads without colliding with the
-  old shape.
+  "localStorage key the settings round-trip uses. Versioned so a
+  schema change can ignore stale payloads without colliding with an
+  older shape.
 
-  `.v2` since rf2-3x7nj.27.1: the payload became a SPARSE overlay of
-  explicit overrides, where `.v1` held the whole resolved map. A `.v1`
-  payload read as an overlay would still pin every key it carries, so
-  it is ignored rather than migrated — a one-time reset of saved Xray
-  preferences. The orphaned `.v1` slot is inert; nothing reads or
-  removes it."
+  The `.v2` payload is a SPARSE overlay of explicit overrides; a `.v1`
+  payload holds a whole resolved map. Read as an overlay, a `.v1`
+  payload would pin every key it carries, so it is ignored rather than
+  migrated. A `.v1` slot is inert; nothing reads or removes it."
   "re-frame2.xray.settings.v2")
 
 (def default-settings
@@ -1054,20 +1052,18 @@
   ## :diff section (hiccup-diff micro-engine)
 
   `:highlight-fn-ref-changes?` — opt-in toggle for the hiccup-diff
-  engine's fn-ref classification (`ai/findings/2026-05-18-difftastic-
-  in-xray.md` §4.5). Default `false`: function-valued props with
+  engine's fn-ref classification. Default `false`: function-valued props with
   identity-different references render as `:same` so idiomatic fresh-
   per-render closures don't drown the actual hiccup diff. Flip to
   `true` when diagnosing memoization issues — child re-renders because
   the parent passes a new fn every time.
 
-  ## :general additions (Settings popup v1)
+  ## :general keys
 
   - `:density` (#{:cosy :compact}, default `:cosy`) — vertical-rhythm
     knob applied to Views detail rows + App-db diff rows. Two densities
-    ship in v1. Consumers read `:rf.xray/density` and branch
-    padding/line-height. Runtime plumbing into individual panels lands
-    incrementally.
+    ship. Consumers read `:rf.xray/density` and branch
+    padding/line-height.
   - `:long-keyword-threshold` (integer, default 24) — character count
     above which a fully-qualified keyword is elided in compact list
     cells. Per spec/007-UX-IA.md §Long-keyword treatment.
@@ -1099,7 +1095,7 @@
     values save memory in long sessions, higher values retain more
     time-travel coverage.
 
-  ## :buffer section (Settings popup v1)
+  ## :buffer section
 
   Buffer-depth tunables surfaced in the Buffer tab.
 
@@ -1125,17 +1121,14 @@
   Header + every row read these widths via the same
   `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
   out of column alignment."
-  {:general   {:text-size              13              ; px — slider range 10–18
+  {:general   {:text-size              13              ; px
                :panel-position         :right-rail     ; :right-rail | :fullscreen (pop-out launches from the chrome ⛶ button)
                :panel-width-px         default-panel-width-px ; resize handle
                :events-list-height-px  default-events-list-height-px ; L2/L3 seam handle
                :auto-open-on-error?    false
                :density                :cosy           ; #{:cosy :compact}
-               ;; (`:show-tool-frames?` was REMOVED here — rf2-y8doi.27.
-               ;; Mike removed its Settings UI on 2026-05-27 and nothing
-               ;; replaced it: the picker hardcoded `false`, no surface
-               ;; could ever write the slot, and the tool-frame exclusion
-               ;; is `frame-switcher/internal-frames` alone.)
+               ;; (There is no `:show-tool-frames?` key: the tool-frame
+               ;; exclusion is `frame-switcher/internal-frames` alone.)
                :show-unchanged-subs?   false           ; Reactive-panel disclosure pin
                :show-ungrouped?        false           ; opt-in pseudo-event-bundle surface
                :epoch-history          50              ; per-frame epoch ring depth
@@ -1160,7 +1153,7 @@
                ;; `theme/global-styles/motion-css` is paired with a
                ;; sibling selector that fires on the attribute too,
                ;; so authors can preview / live in the system-token
-               ;; chrome on demand. Additive to the OS detection —
+               ;; chrome on demand. Works alongside the OS detection —
                ;; both paths produce the same painted chrome.
                :use-system-colors?      false
                ;; L2 event-list user-resizable column widths in pixels.
@@ -1186,7 +1179,7 @@
                ;;   :vscode | :cursor | :windsurf | :zed | :idea
                ;;   {:custom "<uri-template>"}
                ;;
-               ;; Persists via the existing settings localStorage
+               ;; Persists via the settings localStorage
                ;; round-trip — one key + one merge path for every
                ;; per-user preference. The override lives entirely
                ;; client-side; it never mutates the host's atom and
@@ -1205,7 +1198,7 @@
   `(deep-merge-maps a nil)` → `a` (a src section absent a key leaves
   the default's value at that key intact, at every depth — this is
   the property `merge` lacks and `merge-known-sections` needs, per
-  rf2-8j3gyt / spec/015-Configuration.md §606)."
+  spec/015-Configuration.md §606)."
   [a b]
   (cond
     (and (map? a) (map? b))
@@ -1221,7 +1214,7 @@
   JVM-testable.
 
   The 2-arg arity lets callers compose more than one merge layer
-  (rf2-rr2yw3 — `load-settings-from-storage!` merges the persisted
+  (`load-settings-from-storage!` merges the persisted
   payload over `(merge-known-sections default-settings configure!-
   seed)` rather than over bare defaults, realising the `defaults <
   configure! < persisted` order in one composable step).
@@ -1229,16 +1222,13 @@
   ONE source of truth for the known-section list. Both persistence
   paths — `load-settings-from-storage!` (src = the localStorage
   payload) and `configure!` (src = the bulk-config `:rf.xray/settings`
-  map) — reconstruct the SAME shape, so the merge lived here twice
-  verbatim. Folding it into one helper means a NEW section added to
-  `default-settings` (the docstring anticipates future theme / buffer /
-  placement keys) is honoured by both paths from a single edit — the
-  forgot-the-other-half bug family is structurally removed.
+  map) — reconstruct the SAME shape, so one helper means a NEW section
+  added to `default-settings` is honoured by both paths from a single
+  edit — two copies would invite the forgot-the-other-half bug family.
 
-  Per-section semantics preserved exactly, now genuinely DEEP (rf2-8j3gyt
-  — the prior body called `merge`, which is one level only, and silently
-  truncated nested sub-maps like `:general`'s `:event-list-col-widths`
-  on any partial-nested `src`):
+  Per-section semantics, genuinely DEEP (a one-level `merge` would
+  silently truncate nested sub-maps like `:general`'s
+  `:event-list-col-widths` on any partial-nested `src`):
   - `:general` / `:diff` / `:buffer` — `deep-merge-maps` the src's
     nested map over the base's, recursing into every nested sub-map
     (e.g. `:general`'s `:event-list-col-widths`) so a partial nested
@@ -1376,7 +1366,7 @@
          order (spec/015-Configuration.md §`configure!` vs `init!` vs
          persisted Settings). `configure!` also applies the seed to
          the live atom immediately for a synchronous read, but never
-         persists it (rf2-3x7nj.27.1): the seed is re-applied on every
+         persists it: the seed is re-applied on every
          boot, so it lands for every key the user holds no explicit
          override for, and can never clobber one the user does."}
   configured-settings-seed
@@ -1485,15 +1475,16 @@
      "Record ONE explicit override in the persisted Settings payload:
      `value` assoc'd at `path` onto the payload ALREADY IN STORAGE, and
      nothing else. The payload is a sparse overlay of the exact paths a
-     user gesture or an `init!` opt wrote — never the resolved live map
-     (rf2-3x7nj.27.1). That map carries the compiled-in defaults and the
-     `configure!` seed as well, and read back as the TOP layer it made
-     every key behave as user-set: after one panel drag, no later host
-     `configure!` value and no later Xray default reached that browser.
+     user gesture or an `init!` opt wrote — never the resolved live map.
+     That map carries the compiled-in defaults and the `configure!` seed
+     as well, and read back as the TOP layer it would make every key
+     behave as user-set: after one panel drag, no later host
+     `configure!` value and no later Xray default would reach that
+     browser.
 
      Starts from storage rather than from an in-memory copy, so the
      write stays order-independent with `configure!` and
-     `load-settings-from-storage!` (rf2-y8doi.17). `assoc-in` REPLACES
+     `load-settings-from-storage!`. `assoc-in` REPLACES
      the value at `path` — what `:editor-override`'s keyword-or-
      `{:custom …}` values need — and a leaf path (one event-list column)
      records that leaf alone. Quota errors, private-mode refusals and a
@@ -1511,8 +1502,7 @@
      override at `path`, e.g. `[:general :panel-width-px]`. The boot
      width clamp asks this so that it repairs an override the user wrote
      but never manufactures one out of an inherited default or host
-     value (rf2-3x7nj.27.1). A nil value counts as absent, as it does in
-     the merge."
+     value. A nil value counts as absent, as it does in the merge."
      [path]
      (some? (get-in (persisted-settings) path))))
 
@@ -1521,19 +1511,19 @@
   precedence first: `default-settings` < the `configure!` seed
   (`configured-settings-seed`) < the persisted localStorage payload —
   the documented `hardcoded defaults < configure! overrides <
-  persisted Settings overrides` order (rf2-rr2yw3 /
-  spec/015-Configuration.md §`configure!` vs `init!` vs persisted
+  persisted Settings overrides` order
+  (spec/015-Configuration.md §`configure!` vs `init!` vs persisted
   Settings).
 
-  ORDER-INDEPENDENT, and that is the whole point (rf2-y8doi.17). The
+  ORDER-INDEPENDENT, and that is the whole point. The
   persisted layer is re-read on every call, so it makes no difference
   whether the host's `configure!` runs before the preload's
   `load-settings-from-storage!` or after it — both recompute the same
   answer. Under `:devtools/preloads` the host CANNOT get in first:
   shadow-cljs loads preloads ahead of the app's `:init-fn`, so a
-  `configure!` that merely `reset!`-ed its seed onto the live atom
-  delivered the merge order INVERTED (persisted < configure!) on the
-  one path every shipped host actually takes.
+  `configure!` that merely `reset!`s its seed onto the live atom
+  would deliver the merge order INVERTED (persisted < configure!) on
+  the one path every shipped host actually takes.
 
   JVM target: there is no storage layer, so the answer is
   `defaults < seed`. On the CLJS side every failure mode (no window,
@@ -1558,7 +1548,7 @@
      the user holds no explicit override for; an override the user HAS
      written (a Settings-popup edit, a resize drag) always wins over
      what the host configures on a later boot. The payload holds only
-     those overrides (rf2-3x7nj.27.1), so every other key follows the
+     those overrides, so every other key follows the
      host and the compiled-in defaults as they change. Idempotent —
      safe to call more than once. Failures degrade silently to the
      defaults+configure! base.
@@ -1567,8 +1557,7 @@
      from `core/init!` for hosts that install manually rather than via
      `:devtools/preloads`.
 
-     NOTE THE REAL ORDERING, which this docstring previously had
-     backwards (rf2-y8doi.17): on the preload path this runs BEFORE any
+     NOTE THE ORDERING: on the preload path this runs BEFORE any
      host `configure!` call, not after, because shadow-cljs loads
      `:devtools/preloads` ahead of the app's `:init-fn` — the same
      ordering `mount.cljs` states for `auto-open?` (§`auto-open-enabled?`
@@ -1579,7 +1568,7 @@
      (reset! settings (resolve-settings))
      nil))
 
-;; ---- settings-effects applier hook (rf2-y8doi.17) -----------------------
+;; ---- settings-effects applier hook --------------------------------------
 ;;
 ;; `configure!` has to re-apply the DOM / substrate effects of the
 ;; settings map it just recomputed, but `settings/effects.cljs` requires
@@ -1641,8 +1630,8 @@
 (defn update-setting!
   "Write `value` into the settings slot at `[section key]`, and on CLJS
   record it as an explicit override in localStorage so the change
-  survives reload. Storage gains exactly that one path
-  (rf2-3x7nj.27.1); every key nobody wrote keeps following the host's
+  survives reload. Storage gains exactly that one path;
+  every key nobody wrote keeps following the host's
   `configure!` seed and the compiled-in defaults.
 
   This is the writer for a user's choice — a Settings-popup edit, a
@@ -1664,8 +1653,8 @@
   nowhere else: nothing reaches localStorage. For a value Xray derives
   rather than one the user chose — the boot width clamp fitting an
   inherited width to a narrow viewport — which must never be recorded
-  as an override, or a later host `configure!` value could not land
-  (rf2-3x7nj.27.1). Same `[:theme nil <kw>]` addressing and the same
+  as an override, or a later host `configure!` value could not land.
+  Same `[:theme nil <kw>]` addressing and the same
   unknown-path rejection as `update-setting!`."
   [section key value]
   (if (valid-section-key? section key)
@@ -1681,7 +1670,7 @@
 
   The live map takes the full next map, which is what every reader
   expects. The persisted overlay records ONLY
-  `[:general :event-list-col-widths col-id]` (rf2-3x7nj.27.1): recording
+  `[:general :event-list-col-widths col-id]`: recording
   the whole map would pin the untouched columns at their current width,
   so a later host `configure!` width for one of them could never land.
   Nothing deep-merges on write, so `update-setting!` keeps its replace
@@ -1698,11 +1687,10 @@
 (defn reset-settings!
   "Reset the in-memory settings map to `default-settings`, clear the
   localStorage payload, AND clear the `configure!` settings seed
-  (rf2-rr2yw3 — otherwise a prior test's/host's `configure!` call
+  (otherwise a prior test's/host's `configure!` call
   would silently leak into a later `load-settings-from-storage!` call
   via `configured-settings-seed`). CLJS-only on the storage side; the
-  JVM target just resets the atoms. Useful from test fixtures + from a
-  future 'reset to defaults' affordance in the popup."
+  JVM target just resets the atoms. Useful from test fixtures."
   []
   (reset! settings default-settings)
   (reset! configured-settings-seed nil)
@@ -1715,24 +1703,21 @@
 ;; ---- *filter-pills* (ribbon filter boot-baseline seed) -----------------
 ;;
 ;; Per `tools/xray/spec/018-Event-Spine.md` §7 'Filter reset-on-load'
-;; the ribbon pills have NO localStorage layer at all (rf2-y8doi.27).
+;; the ribbon pills have NO localStorage layer at all.
 ;; They live in `:active-filters` for the duration of a session and a
-;; fresh load starts unfiltered (rf2-swclw), so reset-on-load holds by
+;; fresh load starts unfiltered, so reset-on-load holds by
 ;; construction rather than by cleanup. ONE configure! axis:
 ;;
 ;;   - `:filters/seed` — an explicit host BOOT BASELINE pill set. When a
 ;;     host opts in, `mount.cljs`'s `::seed-configured-filters` first-mount
 ;;     hook applies it to `:active-filters` on EVERY load, AFTER the
-;;     transient-user-filter reset (rf2-fhtes) — Story testbeds use this to
+;;     transient-user-filter reset — Story testbeds use this to
 ;;     inject a known, reproducible starting posture. Default `nil` — no
 ;;     seed; the slot stays fully unfiltered per spec/018 §7 'Empty
 ;;     defaults'.
 ;;
-;; (`:rf.xray/filters-storage-key` was REMOVED — rf2-y8doi.27. It named
-;; the localStorage key for a filter-persistence layer that no longer
-;; exists: the pills are transient by policy (rf2-swclw), so the write
-;; had no reader and every load cleared the slot. A knob whose only
-;; effect is to rename a store nothing reads is not a knob.)
+;; (There is no `:rf.xray/filters-storage-key`: the pills are transient
+;; by policy, so there is no filter store for a key to name.)
 ;;
 ;; The seed atom here is a data primitive. CLJC so the JVM test corpus
 ;; can exercise the configure! round-trip without a CLJS runtime.
@@ -1748,8 +1733,8 @@
   ^{:doc "Atom holding the host-supplied `:rf.xray/filters` seed — the
          explicit BOOT BASELINE for `:active-filters`. `mount.cljs`'s
          `::seed-configured-filters` first-mount hook applies a non-empty
-         seed on EVERY load, AFTER the transient-user-filter reset
-         (rf2-fhtes): this is an opted-in host posture, NOT durable
+         seed on EVERY load, AFTER the transient-user-filter reset:
+         this is an opted-in host posture, NOT durable
          user-filter persistence and NOT a first-install-only value.
          Default `nil` — no seed; the slot stays at its unfiltered
          registry default `{:in [] :out []}`."}
@@ -1759,8 +1744,8 @@
 (defn set-filter-seed!
   "Set the `:rf.xray/filters` seed — the explicit host boot baseline
   `mount.cljs`'s `::seed-configured-filters` first-mount hook applies to
-  `:active-filters` on every load, AFTER the transient-filter reset
-  (rf2-fhtes). `nil` clears the seed (fully unfiltered). Shape:
+  `:active-filters` on every load, AFTER the transient-filter reset.
+  `nil` clears the seed (fully unfiltered). Shape:
   `{:in [{:pattern <kw-or-str>}] :out [{:pattern <…>}]}`."
   [seed]
   (reset! filter-seed seed)
@@ -1771,7 +1756,7 @@
   []
   @filter-seed)
 
-;; ---- error-override filter bypass (rf2-jqqsh9) --------------------------
+;; ---- error-override filter bypass ---------------------------------------
 ;;
 ;; spec/018-Event-Spine.md §7 Error overrides + §5.4 (`error` never filtered
 ;; out) + spec/015-Configuration.md §Must-haves: an errored event that a
@@ -1862,7 +1847,7 @@
        the host's command palette — are not swallowed by Xray's
        capture-phase listener. Takes effect whenever it is set: the
        flip is watched, so a `false` arriving AFTER the preload has
-       attached detaches the listener (rf2-y8doi.17).
+       attached detaches the listener.
     `{:rf.xray/egress-profile <kw>}` — Xray's on-box dev-UI egress
        profile (EP-0015 issue 7). One of the closed
        `:rf.egress/*` enum (`re-frame.projection/profiles`); for the
@@ -1884,9 +1869,9 @@
        override for — an override the user HAS written (a Settings-popup
        edit, a resize drag) always wins on a later boot, per the
        `hardcoded defaults < configure! overrides < persisted Settings
-       overrides` order (rf2-rr2yw3 / spec/015-Configuration.md
+       overrides` order (spec/015-Configuration.md
        §`configure!` vs `init!` vs persisted Settings). Never written to
-       storage (rf2-3x7nj.27.1): re-applied on every boot instead. The
+       storage: re-applied on every boot instead. The
        popup's event surface (`:rf.xray/settings-update`) is the
        normal per-knob write path; this key is the bulk-set escape
        hatch (e.g. host wants to ship its own default theme).
@@ -1894,7 +1879,7 @@
        seed pill set applied to `:active-filters` as the explicit boot
        BASELINE. `mount.cljs`'s `::seed-configured-filters` first-mount
        hook lands a non-empty seed on EVERY load, AFTER the transient-
-       user-filter reset (rf2-fhtes) — an opted-in host posture, NOT
+       user-filter reset — an opted-in host posture, NOT
        durable user-filter persistence. Default `nil` per spec/018 §7
        'Empty defaults' — first-session honesty beats first-session
        quietness; a `nil` seed keeps the first paint fully unfiltered.
@@ -1906,8 +1891,6 @@
        (spec/018 §7 Error overrides — the silent-failure footgun the
        feature prevents). Default `true`; set `false` to let filters hide
        errored events too. `nil` resets to the default.
-
-  Future phases extend this with theme / buffer / placement keys.
 
   Hosts typically call this once at boot:
 
@@ -1974,55 +1957,48 @@
   ;; Unknown sections in the bulk-config map are silently dropped — the
   ;; per-section merge here only knows about known slots.
   ;;
-  ;; rf2-rr2yw3: this used to unconditionally `reset!` + persist,
-  ;; which — for a host that calls `configure!` on every boot (the
-  ;; documented pattern) — permanently clobbered a user's already-
+  ;; The raw map SEEDS `configured-settings-seed`; it is not `reset!` +
+  ;; persisted. A host calls `configure!` on every boot (the documented
+  ;; pattern), so a persisting write would permanently clobber a user's
   ;; persisted Settings-popup mutations, violating the documented
-  ;; `defaults < configure! < persisted` merge order. The raw map now
-  ;; seeds `configured-settings-seed`.
+  ;; `defaults < configure! < persisted` merge order.
   ;;
-  ;; rf2-3x7nj.27.1: and it NEVER writes storage. A write guarded on an
-  ;; empty slot survived rf2-rr2yw3 "so a fresh install's posture
-  ;; survives a reload", but the host re-seeds on every boot, so that
-  ;; bought nothing — and it persisted the whole resolved map, which then
-  ;; sat ABOVE every later seed, freezing the host's posture at first
-  ;; boot. Storage holds only the user's explicit overrides now; the seed
-  ;; lands, every boot, for every key the user never wrote.
+  ;; And it NEVER writes storage. The host re-seeds on every boot, so
+  ;; persisting buys nothing — and a persisted resolved map would sit
+  ;; ABOVE every later seed, freezing the host's posture at first boot.
+  ;; Storage holds only the user's explicit overrides; the seed lands,
+  ;; every boot, for every key the user never wrote.
   ;;
-  ;; rf2-y8doi.17: the SECOND half of that fix. Seeding alone was not
-  ;; enough, because the live atom was still `reset!` to
-  ;; `(merge-known-sections settings-opt)` — defaults+seed with the
-  ;; persisted layer dropped. That is harmless only if
-  ;; `load-settings-from-storage!` runs afterwards, and on the
-  ;; `:devtools/preloads` path it does NOT: shadow-cljs loads preloads
-  ;; before the app's `:init-fn`, so the preload's load has already run
-  ;; by the time the host calls `configure!`, and the `reset!` landed
-  ;; ON TOP of the user's persisted values — the documented order
-  ;; delivered inverted, on the one path every shipped host takes.
-  ;; Recomputing through `resolve-settings` re-reads the persisted
-  ;; payload and re-merges it above the seed, so the result is the same
-  ;; whichever of the two runs first, and a synchronous read right
-  ;; after `configure!` still sees the host's posture for every key the
-  ;; user has not persisted.
+  ;; Nor is the live atom `reset!` to `(merge-known-sections
+  ;; settings-opt)` — defaults+seed with the persisted layer dropped.
+  ;; That would be harmless only if `load-settings-from-storage!` ran
+  ;; afterwards, and on the `:devtools/preloads` path it does NOT:
+  ;; shadow-cljs loads preloads before the app's `:init-fn`, so the
+  ;; preload's load has already run by the time the host calls
+  ;; `configure!`, and such a `reset!` would land ON TOP of the user's
+  ;; persisted values — the documented order delivered inverted, on the
+  ;; one path every shipped host takes. Recomputing through
+  ;; `resolve-settings` re-reads the persisted payload and re-merges it
+  ;; above the seed, so the result is the same whichever of the two runs
+  ;; first, and a synchronous read right after `configure!` sees the
+  ;; host's posture for every key the user has not persisted.
   (when (contains? opts :rf.xray/settings)
     (when (map? settings-opt)
       (reset! configured-settings-seed settings-opt)
       (reset! day8.re-frame2-xray.config/settings (resolve-settings))
       ;; The recomputed map has to reach the DOM / substrate as well:
-      ;; on the preload path `apply-all!` ran before this call, against
+      ;; on the preload path `apply-all!` runs before this call, against
       ;; the pre-`configure!` map, so without this a host's configured
-      ;; theme / text-size / width never painted at all. Late-bound via
+      ;; theme / text-size / width would never paint at all. Late-bound via
       ;; `settings-applier` to keep config.cljc free of a require on
       ;; `settings/effects.cljs`; inert when nothing is registered.
       (apply-settings-effects!)))
   ;; Filter seed — an in-memory boot baseline whose first-mount hook
   ;; never reads or writes localStorage. It is not durable across loads
-  ;; and is re-applied from `configure!` each time (rf2-fhtes). Its old
-  ;; companion `:rf.xray/filters-storage-key` went in rf2-y8doi.27 with
-  ;; the persistence layer it keyed.
+  ;; and is re-applied from `configure!` each time.
   (when (contains? opts :rf.xray/filters)
     (set-filter-seed! filters-opt))
-  ;; Error-override bypass (rf2-jqqsh9). `contains?`-gated so an explicit
+  ;; Error-override bypass. `contains?`-gated so an explicit
   ;; `nil` resets to the default (`true`) and an ABSENT key leaves the atom
   ;; untouched — matching every other key above.
   (when (contains? opts :rf.xray/filters-auto-hide-error-overrides?)
