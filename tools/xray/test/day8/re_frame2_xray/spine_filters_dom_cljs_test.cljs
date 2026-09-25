@@ -1,7 +1,6 @@
 (ns day8.re-frame2-xray.spine-filters-dom-cljs-test
-  "Browser-lane half of the per-event-id mute-filter tests (rf2-ikuwt),
-  promoted out of `day8.re-frame2-xray.spine-filters-cljs-test` under
-  rf2-r51p.
+  "Browser-lane half of the per-event-id mute-filter tests; the node
+  half is `day8.re-frame2-xray.spine-filters-cljs-test`.
 
   WHY A SEPARATE NAMESPACE. The sibling keeps the pure reducers
   (`mute-event-id` / `unmute-event-id` / `clear`), the EDN round-trip
@@ -10,26 +9,22 @@
   hydrate-on-install lift need a real `window.localStorage`, and only a
   namespace ending `-dom-cljs-test` is ever loaded by the
   `:browser-test` build, whose `:ns-regexp` is `.*-dom-cljs-test$`.
-  Sitting in the sibling file these rows executed in NEITHER lane:
+  In the sibling file these rows would execute in NEITHER lane:
   skipped under `:node-test` for want of storage (no jsdom in any
   dependency list), and never loaded by `:browser-test` at all. The
-  file's LOCATION was the defect. The guard was not.
+  file's LOCATION decides that, not the guard.
 
   THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES. `:node-test`'s
   `:ns-regexp` is `cljs-test$` — a bare SUFFIX match, which
   `-dom-cljs-test` satisfies exactly as `-cljs-test` does, so the node
   build loads this namespace too and the overlap is deliberate (see the
   comment above `:browser-test` in `implementation/shadow-cljs.edn`).
-  Moving a row here ADDS the browser lane; it does not take the row off
+  Placing a row here ADDS the browser lane; it does not take the row off
   the node one. `ls/available?` is what keeps the node run inert.
 
   THE SKIP BRANCH ASSERTS RATHER THAN VANISHING, so the node lane never
-  holds a deftest with zero assertions — the hollow shape rf2-r51p
-  exists to remove.
-
-  These assertions had never executed in ANY lane before this namespace
-  existed. A failure here is evidence arriving for the first time, not a
-  regression introduced by the move."
+  holds a deftest with zero assertions — a hollow row that passes while
+  testing nothing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.local-storage :as ls]
