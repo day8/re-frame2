@@ -13,8 +13,8 @@
                :filters  {:out [:my/noise]    ; filter pre-population
                           :in  []}}}
 
-  Every slot is optional. A missing `:xray` slot is the v0 behaviour
-  (no auto-mount, no tab focus).
+  Every slot is optional. A missing `:xray` slot means no auto-mount and
+  no tab focus.
 
   ## Xray is a declared dependency, not a feature-detect
 
@@ -22,9 +22,9 @@
   Xray's mount, config, filter, and keybinding surfaces are guaranteed
   on the classpath and are reached through direct `:require`s. There is
   no runtime availability probe of any kind: a build that resolves this
-  namespace has already resolved Xray's (rf2-r8trk).
+  namespace has already resolved Xray's.
 
-  ## The `:filters` seam (rf2-q5pd6)
+  ## The `:filters` seam
 
   Story's public filter API is the compact keyword vector authors
   actually want to write (`{:out [:app/noise]}`). Xray's runtime
@@ -39,7 +39,7 @@
   the RHS panel's first mount:
 
   - `xray-config/configure! {:rf.xray/filters …}` seeds Xray's own
-    established config surface, the value `filters/hydrate!` reads.
+    config surface, the value `filters/hydrate!` reads.
   - `:rf.xray/hydrate-filters` dispatched into `:rf/xray` updates the
     LIVE slot — this is what actually hides events, and it needs the
     frame to exist. When it doesn't yet, the lowered set parks in
@@ -130,7 +130,7 @@
   `{:pattern :app/noise}` as the `:event-id-pattern` kind, but reads a
   BARE `:app/noise` as `:never` — a filter that matches nothing. Passing
   Story's shape through unlowered would therefore produce a filter set
-  that is present, well-formed, and completely inert (rf2-q5pd6).
+  that is present, well-formed, and completely inert.
 
   Both axes are normalised to a vector, so the result is always the
   full `{:in [...] :out [...]}` shape Xray's `:active-filters` slot
@@ -153,7 +153,7 @@
 
 #?(:cljs
    (defn- safe-call!
-     "Call `f` with `args` swallowing throwing only with a console
+     "Call `f` with `args`, swallowing any throw with only a console
      breadcrumb. Used so a misbehaving Xray internal can't take down
      the variant render."
      [where f & args]
@@ -239,7 +239,7 @@
 ;; When Story drives Xray as RHS (the always-on RHS panel), set
 ;; `:rf.xray/keybinding-enabled? false` on Xray's
 ;; config slot so Xray's `keybinding/attach!` short-circuits. Story's
-;; Cmd/Ctrl+K reaches its own command palette; Xray is still
+;; Cmd/Ctrl+K reaches its own command palette; Xray is
 ;; mountable / dispatchable / inspectable via every other surface
 ;; (Story owns the open-Xray affordance for the RHS).
 ;;
@@ -253,13 +253,11 @@
 ;; convention) BEFORE the Xray preload runs. Setting it from
 ;; `wire-cross-host!` means the slot lands at variant-selection time,
 ;; after the preload's `keybinding/attach!` has already fired with the
-;; default `true`. The Xray-side bead is the slot owner; preload-time
-;; sequencing (e.g. a Story preload that sets the slot before Xray's
-;; preload runs) is the follow-on shape for live runtime collision
-;; removal. This wire-up is the in-source declaration of intent —
-;; every embed surface that drives Xray through `wire-cross-host!`
-;; sets the slot, so downstream load-order fixes have a single
-;; canonical site to honour.
+;; default `true` — which is why `detach-keybinding!` below removes the
+;; listener at runtime. Xray owns the slot. This wire-up is the
+;; in-source declaration of intent — every embed surface that drives
+;; Xray through `wire-cross-host!` sets the slot, so a preload-time
+;; setter has a single canonical site to honour.
 
 #?(:cljs
    (defn disable-keybinding!
@@ -289,21 +287,19 @@
 ;; `keybinding/attach!`). Xray's preload runs BEFORE Story's mount-time
 ;; bridge fires — so by the time `disable-keybinding!` flips the slot,
 ;; `attach!` has already installed the global keydown listener under the
-;; default-true posture. The listener stays on `js/document` and
-;; continues swallowing Story's `Cmd/Ctrl+K` despite the intent
-;; declaration.
+;; default-true posture. Left alone, the listener stays on `js/document`
+;; and swallows Story's `Cmd/Ctrl+K` despite the intent declaration.
 ;;
 ;; Xray exposes
 ;; a public `detach!` fn (idempotent, safe to call without prior
 ;; `attach!`). Story drives it after `disable-keybinding!` so the
-;; intent-declaration is matched by a runtime removal. Slot remains the
+;; intent-declaration is matched by a runtime removal. The slot is the
 ;; baseline contract; `detach!` is the embed-host escape hatch.
 ;;
-;; Option (a) — making the slot reactive (watcher on the atom that
-;; detaches on true → false transitions) — was considered but rejected:
-;; expands Xray's reactive surface for one case; option (b) is the
-;; smaller commitment and matches the existing symmetry with
-;; `attach!`.
+;; The removal is an explicit call rather than a reactive slot (a
+;; watcher on the atom that detaches on true → false transitions),
+;; because a watcher would expand Xray's reactive surface for one case;
+;; the explicit call is the smaller commitment and mirrors `attach!`.
 
 #?(:cljs
    (defn detach-keybinding!
@@ -324,28 +320,28 @@
        (safe-call! "keybinding/detach!" xray-keybinding/detach!)
        true)))
 
-;; ---- the drive boundary (rf2-n440v) -------------------------------------
+;; ---- the drive boundary -------------------------------------------------
 ;;
 ;; Story may only DRIVE Xray where Xray can actually be there. Under
 ;; `static-mode?` the bundle is a shadow-cljs `release`, and Xray is
 ;; non-functional there BY CONSTRUCTION, for two independent reasons:
 ;; `:devtools/preloads` is a `watch`/`compile` slot that `release`
 ;; ignores, so nothing registers Xray's `:rf.xray/*` instruction set;
-;; and rf2-y8doi.60 gates Xray's four top-level `rf/reg-view` forms on
+;; and Xray's four top-level `rf/reg-view` forms are gated on
 ;; `debug-enabled?`, which leaves those symbols UNDEFINED because
-;; `reg-view` carries its `def` INSIDE the gate. rf2-cljo6 ruled that
-;; loss ACCEPTED — a published Story export ships no inspector, by
-;; intent — so this is a settled disposition, not a gap awaiting repair.
+;; `reg-view` carries its `def` INSIDE the gate. That is intended — a
+;; published Story export ships no inspector — so this is a boundary,
+;; not a gap awaiting repair.
 ;;
-;; The shell's selection-watcher already refuses to drive Xray under
-;; `static-mode?` (`re-frame.story.ui.shell`, rf2-n7lql). This predicate
-;; closes the same boundary at the namespace entry points, so the
-;; MOUNT-TIME path — a deep link whose variant is already selected when
+;; The shell's selection-watcher also refuses to drive Xray under
+;; `static-mode?` (`re-frame.story.ui.shell`). This predicate closes the
+;; same boundary at the namespace entry points, so the MOUNT-TIME path —
+;; a deep link whose variant is already selected when
 ;; `component-did-mount` runs — cannot route around it, and neither can
-;; any future caller. Driving anyway threw twice over: core's deliberate
-;; `:rf.error/image-zero-match` guard on the frame seat, then a render
-;; TypeError on the undefined view. Both guards are correct and neither
-;; is weakened here — the defect was the ASKING.
+;; any other caller. Driving anyway would throw twice over: core's
+;; deliberate `:rf.error/image-zero-match` guard on the frame seat, then
+;; a render TypeError on the undefined view. Both guards are correct and
+;; neither is weakened here — the fault would be in the ASKING.
 ;;
 ;; Dev is UNAFFECTED: `static-mode?` is false in every `watch`/`compile`
 ;; build and in both test lanes. See
@@ -372,7 +368,7 @@
      `mount/open!` — under the per-panel embed the RHS panel-host
      component owns the mount lifecycle on its own.
 
-     No-op in a published static export (rf2-n440v — `drive-xray?`):
+     No-op in a published static export (`drive-xray?`):
      there is no Xray to bridge configuration into.
 
      Idempotent — each bridge is a plain reset! / no-op on repeat."
@@ -394,30 +390,29 @@
    (defn- apply-panel!
      "Select the Xray panel via `:rf.xray/select-tab`, the L3 tab-bar
      event Xray's registry registers against the `:rf/xray` frame
-     (`day8.re-frame2-xray.registry`). Xray no longer registers the
-     older `:rf.xray/select-panel`, so dispatching that id selected
-     nothing and raised no error (rf2-dsbob)."
+     (`day8.re-frame2-xray.registry`). There is no
+     `:rf.xray/select-panel` event; dispatching that id would select
+     nothing and raise no error."
      [panel]
      (when panel
        (safe-call! ":rf.xray/select-tab"
                    rf/dispatch [:rf.xray/select-tab panel] {:frame :rf/xray}))))
 
-;; ---- :filters bridge (rf2-q5pd6) ----------------------------------------
+;; ---- :filters bridge ----------------------------------------------------
 ;;
-;; `apply-filters!` used to probe `day8.re-frame2-xray.filters.config/
-;; configure!` through a `find-ns-obj` walk. That namespace has never
-;; existed, so the probe was permanently false and EVERY non-empty
-;; `:filters` preset only warned. The slot was schema-valid, accepted
-;; without complaint, and did nothing — the worst shape a public API can
-;; take. The surface Story actually needs was already shipped by Xray:
+;; `apply-filters!` drives the surface Xray ships for this:
 ;; `config/configure!`'s `:rf.xray/filters` seed plus the
-;; `:rf.xray/hydrate-filters` event on the `:rf/xray` frame.
+;; `:rf.xray/hydrate-filters` event on the `:rf/xray` frame. There is no
+;; `day8.re-frame2-xray.filters.config` namespace; a `find-ns-obj` probe
+;; for one would be permanently false, leaving every non-empty
+;; `:filters` preset schema-valid, accepted without complaint, and
+;; doing nothing — the worst shape a public API can take.
 
 #?(:cljs
    (defonce ^:private pending-filters
      ;; Lowered pill set from a preset that resolved BEFORE the `:rf/xray`
      ;; frame existed. Parked here rather than dropped, because dropping it
-     ;; is precisely the silent-no-op this bead removes. Flushed by
+     ;; would make the preset a silent no-op. Flushed by
      ;; `flush-pending-filters!` from the embed's panel-host — see below.
      (atom nil)))
 
@@ -468,7 +463,7 @@
      panel's first mount:
 
        1. Seed `xray-config/configure! {:rf.xray/filters …}` — Xray's
-          established host-seed surface, read by `filters/hydrate!`.
+          host-seed surface, read by `filters/hydrate!`.
        2. Update the LIVE slot via `:rf.xray/hydrate-filters` when the
           `:rf/xray` frame exists; park the set in `pending-filters` for
           the embed's post-mount flush when it does not.
@@ -508,12 +503,12 @@
      Returns the resolved preset (or nil) so the shell can log /
      debug-introspect what fired.
 
-     No-op in a published static export (rf2-n440v — `drive-xray?`).
+     No-op in a published static export (`drive-xray?`).
      Every one of the three steps targets an Xray that a `release` build
      does not have: `:open?` reaches `mount/open!`, and the other two
      dispatch `:rf.xray/*` at a `:rf/xray` frame that was never seated.
      A story carrying a valid `:xray {:open? true :panel :epoch}` preset
-     is therefore inert in a published export and unchanged in dev."
+     is therefore inert in a published export and fully applied in dev."
      [variant-id]
      (when (drive-xray?)
        (when-let [preset (resolve-preset variant-id)]
@@ -530,7 +525,7 @@
 #?(:cljs
    (defn on-variant-selected!
      "Hook the shell's selection-watcher calls when a variant becomes
-     selected. Feature-detect-safe; cheap when no preset is registered.
+     selected. Cheap when no preset is registered.
 
      Re-applies the preset on every selection edge so a story author
      who edits `:xray` and hot-reloads sees the change without
