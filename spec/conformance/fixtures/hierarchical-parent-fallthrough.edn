@@ -67,7 +67,7 @@
    :expect-effects       [[:log {:msg "leaf handled :help"}]]}
 
   ;; Case 3: no level handles :unknown-event — snapshot unchanged, no fx.
-  ;; (See §Transition resolution: emits :rf.warning/unhandled-event trace —
+  ;; (See §Transition resolution: emits :rf.machine.event/unhandled-no-op trace —
   ;; trace assertion is left to a per-host instrumentation fixture.)
   {:call         :machine-transition
    :definition
