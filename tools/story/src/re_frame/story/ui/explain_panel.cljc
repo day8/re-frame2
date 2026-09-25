@@ -100,8 +100,8 @@
   as `story/explain` and `rf.story.plan/effective-args`; an inline plan map
   runs with no ambient layers and is explained bare. The bare compiler
   deliberately carries the variant-chain layer alone, so without the fold a
-  variant whose args live on its story showed `{}` for Args / Effective
-  args while every other surface showed the story's values (rf2-noxox).
+  variant whose args live on its story would show `{}` for Args / Effective
+  args while every other surface shows the story's values.
   This calls the compiler rather than the `story/explain` facade because
   `re-frame.story` loads the shell that mounts this panel.
 
