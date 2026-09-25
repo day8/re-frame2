@@ -34,7 +34,7 @@
   Walks `(rf/registrations {:source :store :kind :event})` and harvests the
   `:interceptors` chain from each entry — after dropping Xray's own
   `:rf.xray*` events, which share the process source store with the
-  host's (rf2-y8doi.22) — and collapses by `:id` so an
+  host's — and collapses by `:id` so an
   interceptor that appears on many chains shows up once with the count
   of chains it appears on. A REFERENCE entry contributes its referenced
   id (a `[id arg]` ref contributes the head keyword); an inline value
@@ -46,10 +46,10 @@
 
   ## Pure-browse — no simulate
 
-  Per the bead body: 'Pure-browse (no simulate-input — interceptors
-  are composition; simulate fires through the handler-level simulate
-  above).' The Events panel's hermetic simulate is the only simulate
-  affordance in the Static surface.
+  Interceptors are composition, not an input surface, so this tab is
+  pure-browse with no simulate-input verb. The Static surface's simulate
+  affordances live on the Machines tab (Sim) and the Routes tab
+  (Simulate-URL, Simulate-navigation).
 
   ## State slots (all under `:rf.xray.static.interceptors/*`)
 
@@ -57,7 +57,7 @@
 
   ## Public surface
 
-  - `Panel`        — the tab's root. Since rf2-k97c.3 an
+  - `Panel`        — the tab's root. An
                      `rf.fresco/defview` BOUNDARY — a real React function
                      component, not an `rf/reg-view`.
   - `panel-tree`   — the whole body, as a pure fn of the read's VALUE and
@@ -164,7 +164,7 @@
   REFERENCE (bare keyword / `[id arg]`) into the `:interceptor` registrar.
   References are surfaced by their authored form (`:ref?`/`:authored`/`:arg`)
   and enriched with the registered descriptor's hooks + doc; inline values
-  flow through as before. `resolve-ref-fn` (default `default-resolve-ref`)
+  surface their own hooks + doc. `resolve-ref-fn` (default `default-resolve-ref`)
   maps an interceptor id → its registered metadata map (or nil) so the pure
   helper stays testable without a live registrar."
   ([registrations-map] (collect-interceptors registrations-map default-resolve-ref))
@@ -210,8 +210,8 @@
 (defn- host-registrations
   "`registrations-map` without Xray's OWN registrations. The process source
   store holds Xray's `:rf.xray*` events beside the host's, each carrying the
-  framework-appended `:rf/event-handler`, so an unfiltered catalogue counted
-  Xray's own events as host chains and was never cold-empty (rf2-y8doi.22).
+  framework-appended `:rf/event-handler`, so an unfiltered catalogue would
+  count Xray's own events as host chains and never be cold-empty.
   The identity is the one the Dynamic side drops self-noise by
   (`self-noise/xray-internal-event-id?`)."
   [registrations-map]
@@ -233,10 +233,10 @@
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
-  ;; CALLED, never used as a hiccup head (rf2-k97c.3). `search-box/search-box`
+  ;; CALLED, never used as a hiccup head. `search-box/search-box`
   ;; is a plain fn, and a plain function in head position is a loud error
   ;; inside a Fresco body by design; applying it renders the identical
-  ;; markup. The flex-row chrome still lives in the shared component.
+  ;; markup. The flex-row chrome lives in the shared component.
   ;;
   ;; `dispatch` arrives from the boundary rather than being captured here.
   ;; The keystroke dispatch is an OUT-OF-RENDER affordance — it fires after
@@ -315,7 +315,7 @@
          (pr-str arg)])
       (when default?
         [:span {:data-testid (str "rf-xray-static-interceptors-default-" row-id)
-                :title "Framework-emitted auto-wrapper (rf2-twt7m)"
+                :title "Framework-emitted auto-wrapper"
                 :style {:color (:text-tertiary tokens)
                         :font-family sans-stack
                         :font-size "9px"
@@ -350,10 +350,10 @@
   value [[Panel]] reads — the `:rf.xray.static.interceptors/tab-data`
   composite — and the frame-bound `dispatch` the search box needs.
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
+  SPLIT OUT OF [[Panel]], and the split is `defview`'s own
   documented extract-a-helper spelling rather than an invention. A
   boundary's body may only run inside a React render window, so `(Panel)`
-  is no longer a callable that answers hiccup — while the catalogue's
+  is not a callable that answers hiccup — while the catalogue's
   projection is ordinary data → data and is worth testing in the fast node
   lane. `panel_cljs_test` drives THIS fn with the value it takes from the
   sub directly; the boundary's own behaviour — first paint, liveness,
@@ -369,17 +369,16 @@
     :silent?    silent?
     :rows       interceptors
     :search     (search-box dispatch query total filtered?)
-    ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata
-    ;; (rf2-k97c.3). Fresco's codec reads a literal `:key` from an
-    ;; ATTRIBUTE MAP and reads Clojure metadata nowhere, so the
-    ;; `^{:key …}` this line used to carry survives Reagent and reaches
+    ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata.
+    ;; Fresco's codec reads a literal `:key` from an
+    ;; ATTRIBUTE MAP and reads Clojure metadata nowhere, so a
+    ;; `^{:key …}` on this line would survive Reagent and reach
     ;; React as NOTHING once the panel renders through the codec — a lost
     ;; key does not fail, it degrades silently into index-based
     ;; reconciliation. The fragment carries the key without adding a DOM
     ;; node, which is what keeps `catalogue-row`'s `li` chrome the shared
-    ;; presentational helper it is: the key expression is unchanged, and
-    ;; identity stays domain-shaped and local, exactly as
-    ;; `catalogue-panel`'s `:row-render` contract asks.
+    ;; presentational helper it is: identity stays domain-shaped and
+    ;; local, exactly as `catalogue-panel`'s `:row-render` contract asks.
     :row-render (fn [row]
                   [:<> {:key (pr-str (:id row))}
                    (interceptor-row row)])}))
@@ -387,30 +386,28 @@
 ;; ---- root view -----------------------------------------------------------
 
 (rf.fresco/defview Panel
-  "The Static Interceptors tab's root — a FRESCO BOUNDARY (rf2-k97c.3),
+  "The Static Interceptors tab's root — a FRESCO BOUNDARY,
   not an `rf/reg-view`. Reads the interceptors composite and hands its
   value plus a frame-bound dispatcher to [[panel-tree]].
 
   The READ is `rf.fresco/sub`, a plain call the shipped collector records
   an edge for — no deref, no reaction owned by the installed adapter, and
   a re-wire that NOTIFIES when the substrate disposes the underlying
-  derived value. That is the third of the epic's three couplings, and the
-  one a first-paint smoke test cannot see.
+  derived value. That re-wire is the coupling a first-paint smoke test
+  cannot see.
 
   The FRAME the read resolves against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this resolves
-  `:rf/xray` identically under the Fresco tree the Static shell is today
+  `:rf/xray` identically under the Fresco tree the Static shell is
   and under an `rf/frame-provider` a Reagent parent writes. It never
   consults `:adapter/current-component`, the hook a foreign root cannot
   answer.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
-  which answers the boundary's DECLARED frame inside a body. It replaces
-  the render-time `(rf/current-frame-id)` capture the `reg-view` body did:
-  same guarantee, one call, and it is the spelling every migrated panel
-  now uses. The search box's keystroke dispatch therefore still lands on
+  which answers the boundary's DECLARED frame inside a body. The search
+  box's keystroke dispatch therefore lands on
   THIS Xray instance's frame after render scope unwinds; a bare global
   `rf/dispatch` would there resolve no frame and raise
   `:rf.error/no-frame-context`, EP-0002 leaving no `:rf/default` floor.
@@ -429,9 +426,9 @@
   (panel-tree (rf.fresco/sub [:rf.xray.static.interceptors/tab-data])
               (:dispatch (rf/capture-frame))))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge -----------------------------------------
 ;;
-;; Xray's Static shell is a Fresco tree, but it still reaches this panel
+;; Xray's Static shell is a Fresco tree, but it reaches this panel
 ;; across an `as-child` seam. `static/shell.cljs`'s `detail-panel` mounts
 ;; the active tab as the hiccup head `[(:panel tab)]`, and
 ;; `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
@@ -444,17 +441,16 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; BOTH DEFS ARE PRIVATE, and that is a measured property of this panel
+;; BOTH DEFS ARE PRIVATE, and that is a property of this panel
 ;; rather than a default: `Panel` is named nowhere outside this file — the
 ;; L4 registry is the only consumer, and `install!` below is the only
 ;; thing that passes the bridge. A panel carrying a standalone `mount-*!`
 ;; facade needs a PUBLIC bridge instead, because `panels/render-panel!`
 ;; takes the view to mount as an argument and needs a name to pass.
 ;;
-;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
-;; The Static shell is a Fresco tree now and both defs stayed anyway: it
-;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; THIS IS NOT SCAFFOLDING. The Static shell is a Fresco tree, yet it
+;; reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` requires a
 ;; callable `:panel`.
 
 (def ^:private Panel-component
@@ -549,13 +545,12 @@
      :mnem  "i"
      :modes #{:static}
      :order 4
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary) and the Static shell mounts `:panel`
-     ;; as a Reagent hiccup head; the bridge is the one line between them
-     ;; and STAYS (rf2-lect, ruled option 2). The Static shell is a Fresco
-     ;; tree now and the bridge stayed anyway: it still reaches the panel
+     ;; as a Reagent hiccup head; the bridge is the one line between them.
+     ;; The Static shell is a Fresco tree, but it reaches the panel
      ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent hiccup
-     ;; vector and `reg-l4-tab!`'s `:pre` still requires a callable
+     ;; vector and `reg-l4-tab!`'s `:pre` requires a callable
      ;; `:panel`.
      :panel Panel-bridge})
 
