@@ -1,10 +1,9 @@
 (ns day8.re-frame2-xray.panels.derivation-graph-consumer-cljs-test
-  "Behavioral consumer test for the Derivation-Graph panel (EP-0014 prop-3,
-  rf2-9ett2d; the test-coverage gap rf2-4wtllq).
+  "Behavioral consumer test for the Derivation-Graph panel (EP-0014 prop-3).
 
-  ## The seam this closes
+  ## The seam this covers
 
-  The existing Derivation-Graph tests are valuable but partial:
+  The other Derivation-Graph tests are valuable but partial:
     - `derivation_graph_helpers_cljs_test.cljc` — PURE helper behavior over a
       fixture graph (classification / grouping / role counts / summary).
     - `derivation_graph_redaction_cljs_test.cljc` — `redact-graph-for-egress`
@@ -19,7 +18,7 @@
   graph into `:rf.xray/derivation-graph-tab-data`. A regression could wire
   live mode to the static graph, drop the target-frame argument, pass the
   wrong contributor map, or strip the EP-0013 relocation coordinates in
-  tab-data while every helper/registry test still passed.
+  tab-data while every helper/registry test passes.
 
   ## What's under test (the actual subscriptions, end to end)
 
@@ -28,18 +27,18 @@
        machine become nodes; the composer's edge roles appear), and
        `:rf.xray/derivation-graph-tab-data` reports `:mode :static`, the
        node/edge tally, by-family grouping, and edge roles.
-    2. ALL FIVE families wired (rf2-1fc459) — the contributor map carries
+    2. ALL FIVE families wired — the contributor map carries
        `:subs :flows :resources :routes :machines`; a registered machine +
        its selector flow through to the graph as a `:machine` process node
        and a precise `:selector` edge.
-    3. PRECISE selector targeting (rf2-4qmiij) — two machines, one selector
+    3. PRECISE selector targeting — two machines, one selector
        reading only one: the unrelated machine gets NO selector edge through
        the Xray consumer path.
     4. LIVE mode — switching `:rf.xray/set-derivation-graph-mode :live` +
        setting `:rf.xray/set-target-frame` makes `:rf.xray/derivation-graph`
        call `live-derivation-graph` with `:frame <target>` (the live shape,
        carrying the observed frame id).
-    5. OVERRIDE path — the test override still bypasses composer output.
+    5. OVERRIDE path — the test override bypasses composer output.
     6. Optional node metadata — a node carrying optional image/frame metadata
        (`:rf.frame/id` / `:rf.image/id`) survives tab-data summarization
        unchanged (arbitrary node metadata rides through)."
@@ -56,10 +55,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
+  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 (defn- setup-xray! []
@@ -128,7 +125,7 @@
 
 (deftest machine-family-and-precise-selector-edge-flow-through-the-consumer
   (testing "a registered machine + its selector flow through Xray's contributor
-            map as a :machine node + a :selector edge (rf2-1fc459 wires :machines)"
+            map as a :machine node + a :selector edge"
     (setup-xray!)
     (register-machine+selector!)
     (let [graph (read-xray [:rf.xray/derivation-graph])]
@@ -140,7 +137,7 @@
                 (:edges graph))
           "the machine → selector :selector edge is drawn through the Xray consumer")))
   (testing "in a multi-machine app the selector edge targets ONLY the machine
-            it reads — no cross product (rf2-4qmiij)"
+            it reads — no cross product"
     (setup-xray!)
     (rf/reg-machine :upload/main
                     {:initial :idle :data {:progress 0}
@@ -164,7 +161,7 @@
                :role :selector}]
              (vec our-target))
           "exactly one selector edge to :upload/progress, from the machine it reads")
-      ;; The unrelated machine receives NO edge to OUR selector (the cross-product bug).
+      ;; The unrelated machine receives NO edge to OUR selector (no cross product).
       (is (not-any? #(and (= [:machine :download/main] (:from %))
                           (= [:sub :upload/progress] (:to %)))
                     sel)
@@ -196,7 +193,7 @@
     (let [{:keys [mode]} (read-xray [:rf.xray/derivation-graph-tab-data])]
       (is (= :live mode) "tab-data reflects the live mode"))))
 
-;; ---- (4b) LIVE mode carries REAL live CONTENT + frame isolation (rf2-k0meap.3)
+;; ---- (4b) LIVE mode carries REAL live CONTENT + frame isolation
 ;;
 ;; The §4 test above proves the live composer is CALLED with the target frame,
 ;; but a regression that returned an EMPTY live graph for the selected frame,
@@ -224,7 +221,7 @@
           slice (get (:nodes graph) :rf/route)]
       (is (= :live (:mode graph)))
       ;; The realized route slice is a LIVE node in the composed graph — not
-      ;; an empty graph (the regression this closes).
+      ;; an empty graph.
       (is (some? slice) "the live route slice node is present in the live graph")
       (is (= :route/article (:route-id slice)) "the realized matched route id")
       (is (= {:slug "welcome"} (:params slice)) "the realized live params")
@@ -295,7 +292,7 @@
         (is (some? summarized) "the metadata-carrying node is grouped under :subs")
         (is (= :checkout/main (:rf.frame/id summarized)) ":rf.frame/id preserved through tab-data")
         (is (= :checkout/img (:rf.image/id summarized)) ":rf.image/id preserved through tab-data")
-        ;; the value-bearing field still got its on-box summary attached
+        ;; the value-bearing field gets its on-box summary attached
         (is (contains? summarized :summaries) "the on-box summary is attached")
         ;; structure preserved: kind + family ride through
         (is (= :derivation (:kind summarized)))
