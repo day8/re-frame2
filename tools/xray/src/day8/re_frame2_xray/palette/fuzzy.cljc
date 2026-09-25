@@ -10,7 +10,7 @@
 
   ## Why we ship our own scorer
 
-  There is no existing fuzzy implementation under `tools/xray/` or
+  There is no fuzzy implementation under `tools/xray/` or
   `implementation/core/`. Bringing in an npm dep would breach the
   bundle-isolation contract for the dev surface and pull a runtime
   dependency that production builds can't elide cleanly. ~60 lines
@@ -69,7 +69,7 @@
   #{\- \_ \/ \. \: \space \tab \> \<})
 
 (defn- separator?
-  ;; No `^Character` hint: `contains?` needs none, and the tag was a
+  ;; No `^Character` hint: `contains?` needs none, and the tag would be a
   ;; JVM-only claim about a value that is a one-character STRING under
   ;; CLJS — see `char-code`. The set lookup itself is already portable,
   ;; because `\-` reads as that same one-character string.
@@ -77,20 +77,17 @@
   (contains? separators ch))
 
 (defn- char-code
-  "`ch`'s code unit, on either host (rf2-odlm3).
+  "`ch`'s code unit, on either host.
 
   `(nth some-string idx)` hands back a `Character` on the JVM and a
   ONE-CHARACTER STRING in ClojureScript. `int` reads the code point of
   the former, but `cljs.core/int` is `(bit-or x 0)` — and JavaScript
-  coerces a non-numeric string to 0 in a bitwise op. So both range
-  checks below answered FALSE for every character under CLJS, the
-  camelCase and word-start bonuses never fired in the browser, and the
-  palette ranked its results by a scorer missing two of its four
-  bonuses precisely where it is the only thing that runs.
-
-  Nothing caught it because this namespace's suite was JVM-only until
-  rf2-odlm3 armed it on the `:node-test` lane, at which point
-  `camelcase-boundary-bonus` failed on its first CLJS run."
+  coerces a non-numeric string to 0 in a bitwise op. So with `int` both
+  range checks below would answer FALSE for every character under
+  CLJS, the camelCase and word-start bonuses would never fire in the
+  browser, and the palette would rank its results by a scorer missing
+  two of its four bonuses precisely where it is the only thing that
+  runs."
   [ch]
   #?(:clj  (int ch)
      :cljs (.charCodeAt ^string ch 0)))
