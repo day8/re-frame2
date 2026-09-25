@@ -1,14 +1,14 @@
 (ns day8.re-frame2-xray.panels-e2e.parallel-frames-e2e-cljs-test
-  "Multi-frame end-to-end coverage for two panel-refresh bugs caught
-  live on the parallel-frames testbed (rf2-ulpp8 + rf2-1p1j4).
+  "Multi-frame end-to-end coverage for two panel-refresh bug classes on
+  the parallel-frames testbed.
 
-  Both bugs share the panel-refresh class — Xray's user-visible state
+  Both share the panel-refresh class — Xray's user-visible state
   pivots on `:rf.xray/focus`-slot axes, and a mis-aligned axis leaves
   the panel surface frozen against the wrong slice of the trace stream.
 
-  ## rf2-ulpp8 — L2 list shows non-target-frame events on initial mount
+  ## L2 list scoped to the target frame on initial mount
 
-  Repro (Mike live observation 2026-05-20):
+  The symptom of a mis-aligned mount:
 
     1. Open parallel-frames testbed fresh
     2. Xray picker shows `:above`
@@ -16,43 +16,34 @@
     4. The 2 phantom events are from `:below`
     5. Clicking anywhere flips the list to the correct 2 events
 
-  Root cause: at install time `mount.cljs/ensure-xray-frame!` seeds
-  `:target-frame` (via `:rf.xray/set-target-frame`) but never seeds
-  `:focus :frame`. The L2 list filters via `:rf.xray/filtered-event-bundles`
-  which reads `:rf.xray/focus-slot` → `:frame`. When that slot is
-  nil the frame filter is a no-op and every frame's cascades pass.
-  The picker view shows `(or selected-frame (first frames))` so the
-  user sees `:above` selected while the underlying focus slot is
-  unset — the picker lies and the filter no-ops.
+  The L2 list filters via `:rf.xray/filtered-event-bundles`, which
+  reads `:rf.xray/focus-slot` → `:frame`. When that slot is nil the
+  frame filter is a no-op and every frame's cascades pass. The picker
+  view shows `(or selected-frame (first frames))`, so a mount that
+  seeds `:target-frame` without `:focus :frame` shows `:above`
+  selected while the underlying focus slot is unset — the picker lies
+  and the filter no-ops.
 
-  Clicking any L2 row dispatches `:rf.xray/focus-event` which
-  writes `:focus :frame` (line 446 of `spine.cljs`), aligning the
-  filter slot for the first time.
+  So `:rf.xray/set-target-frame` (which `mount.cljs/ensure-xray-frame!`
+  dispatches at install time) writes `:focus :frame` in addition to
+  `:target-frame` — the symmetric counterpart to `set-frame-reducer`
+  (the picker write, which aligns BOTH axes). Mount-time and
+  picker-time gestures write the same two axes. Clicking any L2 row
+  dispatches `:rf.xray/focus-event`, which writes `:focus :frame` too.
 
-  Fix: align `:rf.xray/set-target-frame` to write `:focus :frame`
-  in addition to `:target-frame` — the symmetric counterpart to
-  `set-frame-reducer` (the picker write, which aligns BOTH axes
-  per rf2-ug1r6 + rf2-thodq). Mount-time and picker-time gestures
-  now write the same two axes.
+  ## Issues panel event-scoped
 
-  ## rf2-1p1j4 — Issues panel not event-scoped
+  Dispatch two host events that produce issues (e.g. deliberate
+  throws), focus event A, observe the Issues panel; focus event B, and
+  the panel content flips.
 
-  Repro: dispatch two host events that produce issues (e.g.
-  deliberate throws), focus event A, observe Issues panel; focus
-  event B, observe the panel content flip.
-
-  Root cause: in the LIVE-mode auto-track branch of `compose-focus`
-  the published `:rf.xray/focus` `:dispatch-id` is always `head-id`,
-  not the stored slot id. Clicking a non-head row flips the spine
-  to RETRO (`focus-event-bundle-reducer` writes `:mode :retro`) — which
-  then makes `:dispatch-id` track the stored slot via the RETRO
-  branch.
-
-  The bug landed because the regression test surface had no
-  coverage for the focus-flip path against the Issues sub. The fix
-  is to extend `:rf.xray/set-target-frame` (which seed-mounts the
-  filter slot) so the first head dispatch lands the issue at a
-  matching :dispatch-id; symmetric with rf2-ulpp8 above.
+  In the LIVE-mode auto-track branch of `compose-focus` the published
+  `:rf.xray/focus` `:dispatch-id` is always `head-id`, not the stored
+  slot id. Clicking a non-head row flips the spine to RETRO
+  (`focus-event-bundle-reducer` writes `:mode :retro`) — which then
+  makes `:dispatch-id` track the stored slot via the RETRO branch. And
+  because `:rf.xray/set-target-frame` seed-mounts the filter slot, the
+  first head dispatch lands the issue at a matching :dispatch-id.
 
   Test approach: two host frames `:above` + `:below`, register
   both, dispatch into each, install Xray with `:above` as initial
@@ -83,7 +74,7 @@
   "Register counter event/sub once globally. Resolves per-dispatch via
   the `:frame` option each frame's dispatch carries."
   []
-  ;; rf2-h1vqa4 bundle co-load hygiene: the story testbed registers the
+  ;; Bundle co-load hygiene: the story testbed registers the
   ;; same canonical counter ids at its ns load; CLAIM them (drop sibling
   ;; provenance rows) before registering ours, or the host frame's
   ;; default-image assembly fails loud on the cross-ns duplicate.
@@ -116,13 +107,12 @@
   "Mirror of `mount.cljs/ensure-xray-frame!` — registers the
   `:rf/xray` frame, seeds `:trace-buffer` from the framework's
   per-frame rings + Xray's frameless secondary ring via the
-  `refresh-trace-rings!` sync entrypoint (per the rf2-3g9nw D3=b
-  ruling), and forces the seed frame so the test exercises the
-  picker-aligned-on-install invariant rather than relying on whatever
-  the head walk picks."
+  `refresh-trace-rings!` sync entrypoint, and forces the seed frame so
+  the test exercises the picker-aligned-on-install invariant rather
+  than relying on whatever the head walk picks."
   [target]
   (rf/make-frame {:id :rf/xray})
-  ;; D3=b sync entrypoint — snapshot every registered host frame's
+  ;; Sync entrypoint — snapshot every registered host frame's
   ;; per-frame ring + the frameless secondary ring into Xray's
   ;; `:trace-buffer` slot so the cascade subs read the pre-mount
   ;; events on the next subscribe. Bypasses the production task
@@ -137,12 +127,12 @@
 
 (defn- dispatch-host-frame [event frame-id]
   (rf/dispatch-sync event {:frame frame-id})
-  ;; D3=b sync entrypoint — refresh Xray's app-db slot from the
+  ;; Sync entrypoint — refresh Xray's app-db slot from the
   ;; framework's per-frame rings + Xray's secondary ring deterministically
   ;; after each host dispatch, bypassing the task coalescer.
   (trace-collector/refresh-trace-rings!)
   (rf/with-frame :rf/xray
-    ;; rf2-jio48 — Issues panel reads the focused epoch's
+    ;; The Issues panel reads the focused epoch's
     ;; :trace-events (not the global trace bus). Re-target so Xray's
     ;; :epoch-history slot mirrors the framework's per-frame ring for
     ;; the host frame the test is observing.
@@ -150,9 +140,9 @@
 
 (deftest rf2-ulpp8-l2-list-scoped-to-target-frame-on-initial-mount
   (testing "fresh mount with `:above` as the seed frame — L2 list MUST
-  show only `:above` cascades. Pre-fix the list also included `:below`
-  cascades because `:rf.xray/set-target-frame` seeded `:target-frame`
-  without aligning `:focus :frame` (the slot the filter pivots on)."
+  show only `:above` cascades. A `:rf.xray/set-target-frame` that seeded
+  `:target-frame` without aligning `:focus :frame` (the slot the filter
+  pivots on) would let `:below` cascades into the list too."
     ;; Xray preload-time surface runs BEFORE any host dispatch —
     ;; the trace-bus collector must be registered first so the bus
     ;; accumulates the pre-mount cascades.
@@ -182,7 +172,7 @@
           "test setup: should have exactly one :below cascade in the raw list")
       (is (= #{frame-above} filtered-frames)
           (str "L2 filtered-event-bundles shows frames other than :above on initial "
-               "mount — rf2-ulpp8 regression. Saw: " (pr-str filtered-frames))))))
+               "mount. Saw: " (pr-str filtered-frames))))))
 
 (deftest rf2-ulpp8-focus-slot-frame-aligned-after-seed
   (testing "after `:rf.xray/set-target-frame` the `:focus :frame` slot
@@ -199,10 +189,10 @@
       (is (= frame-above target)
           "test setup: :target-frame should be :above after seed")
       (is (= frame-above (:frame focus-slot))
-          (str ":focus :frame slot did not align with :target-frame after seed — "
-               "rf2-ulpp8 root cause. focus-slot was: " (pr-str focus-slot))))))
+          (str ":focus :frame slot did not align with :target-frame after seed. "
+               "focus-slot was: " (pr-str focus-slot))))))
 
-;; ---- rf2-1p1j4 — Issues panel event-scoped on focus flip ---------------
+;; ---- Issues panel event-scoped on focus flip ----------------------------
 
 (defn- install-throw-handlers!
   "Two distinct throwing handlers — gives us two cascades that each
@@ -219,10 +209,9 @@
 (deftest rf2-1p1j4-issues-panel-scopes-to-focused-event-bundle
   (testing "after two host throws on separate cascades, Issues sub
   surfaces ONLY the issues from the focused epoch's :trace-events
-  (rf2-jio48 — focused-epoch scope per spec/021 §1.2 + §8). Flipping
-  focus flips the panel content. Pre-fix the panel never re-scoped
-  because the focused `:dispatch-id` did not change in LIVE auto-
-  track mode."
+  (focused-epoch scope per spec/021 §1.2 + §8). Flipping
+  focus flips the panel content. If the focused `:dispatch-id` did not
+  change in LIVE auto-track mode, the panel would never re-scope."
     (install-xray-handlers-and-collector!)
     (rf/make-frame {:id :rf/default})
     (install-throw-handlers!)
@@ -260,8 +249,8 @@
       (let [feed-a (sub-xray [:rf.xray/issues-ribbon])
             msgs   (row-msg-set feed-a)]
         (is (= #{"throw-a"} msgs)
-            (str "Issues panel did not scope to focused epoch (cascade A) — "
-                 "rf2-1p1j4 / rf2-jio48 regression. messages: "
+            (str "Issues panel did not scope to focused epoch (cascade A). "
+                 "messages: "
                  (pr-str msgs))))
       ;; Flip focus to cascade B → assert the feed flips with it.
       (rf/with-frame :rf/xray
@@ -269,29 +258,28 @@
       (let [feed-b (sub-xray [:rf.xray/issues-ribbon])
             msgs   (row-msg-set feed-b)]
         (is (= #{"throw-b"} msgs)
-            (str "Issues panel did not re-scope on focus flip — "
-                 "rf2-1p1j4 / rf2-jio48 regression. messages: "
+            (str "Issues panel did not re-scope on focus flip. "
+                 "messages: "
                  (pr-str msgs)))))))
 
 (deftest rf2-1p1j4-issues-panel-scoped-on-multi-frame-initial-mount
   (testing "multi-frame variant: when an :above throw and a :below
   throw both land in the trace bus PRE-mount, then Xray mounts with
   `:above` as the seed frame, the Issues panel MUST surface only
-  the :above throw's issue — not the :below one. Pre-rf2-ulpp8 the
-  composer's head walk picked the global most-recent cascade (which
-  could be :below's), and the Issues sub scoped to the wrong frame's
-  issue on first paint — the live-observed shape of rf2-1p1j4.
+  the :above throw's issue — not the :below one. A head walk that
+  picked the global most-recent cascade (which could be :below's)
+  would scope the Issues sub to the wrong frame's issue on first
+  paint.
 
-  rf2-jio48 — panel is now focused-epoch-scoped (spec/021 §8); the
-  assertion shape changed from a `:dispatch-id` set to a description-
-  substring set since rows no longer carry `:dispatch-id` (the focused
-  epoch IS the scope)."
+  The panel is focused-epoch-scoped (spec/021 §8), so the assertion
+  reads a set of exception messages: rows carry no `:dispatch-id`
+  (the focused epoch IS the scope)."
     (install-xray-handlers-and-collector!)
     (rf/make-frame {:id frame-above})
     (rf/make-frame {:id frame-below})
     (install-throw-handlers!)
     ;; Dispatch :above first, :below second — :below is "head" by the
-    ;; global ordering and would have been auto-focused pre-fix.
+    ;; global ordering and a frame-blind head walk would auto-focus it.
     (rf/dispatch-sync [:throws/a] {:frame frame-above})
     (rf/dispatch-sync [:throws/b] {:frame frame-below})
     (mount-xray-with-target! frame-above)
@@ -305,19 +293,18 @@
                                 (map #(get-in % [:raw :tags :exception-message]))
                                 (:issues feed))]
       (is (some? above-id) "test setup: should have an :above cascade")
-      ;; rf2-ulpp8 alignment — `[:focus :frame]` is the slot the L2
-      ;; filter + the compose-focus head-walk both pivot on. The
-      ;; rf2-ulpp8 fix in `epoch.cljs/set-target-frame` writes this
-      ;; slot in lockstep with `:target-frame`. If this assertion fails
-      ;; the fix has regressed.
+      ;; Focus-slot alignment — `[:focus :frame]` is the slot the L2
+      ;; filter + the compose-focus head-walk both pivot on.
+      ;; `:rf.xray/set-target-frame` (epoch.cljs) writes this slot in
+      ;; lockstep with `:target-frame`.
       (is (= frame-above (:frame focus-slot))
           (str "focus-slot :frame did not align with :target-frame after "
-               "seed (rf2-ulpp8 fix regressed) — got: " (pr-str focus-slot)))
+               "seed — got: " (pr-str focus-slot)))
       (is (= frame-above (:frame focus))
           (str "composed focus :frame is not :above — head walk did not "
                "honour the picker scope. focus was: " (pr-str focus)))
       (is (= #{"throw-a"} msgs)
           (str "Issues panel did not surface :above's exception on initial "
-               "mount when :above was the seed frame — rf2-1p1j4 / "
-               "rf2-jio48 / rf2-ulpp8 regression. messages: "
+               "mount when :above was the seed frame. "
+               "messages: "
                (pr-str msgs))))))
