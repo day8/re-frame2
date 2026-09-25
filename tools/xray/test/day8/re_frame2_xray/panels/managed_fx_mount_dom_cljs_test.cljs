@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.panels.managed-fx-mount-dom-cljs-test
-  "`mount-managed-fx!` COMMITS THE PANEL TO A REAL DOM (rf2-fcy5).
+  "`mount-managed-fx!` COMMITS THE PANEL TO A REAL DOM.
 
   ## Why this needs a DOM, and why nothing else could stand in
 
-  rf2-fcy5 migrated `panels/ManagedFxList` from `rf/reg-view` to an
-  `rf.fresco/defview` boundary, mounted through the public facade behind
-  `panels/ManagedFxList-bridge`. Three things moved at once and NONE of
-  them is observable from a hiccup assertion:
+  `panels/ManagedFxList` is an `rf.fresco/defview` boundary, mounted
+  through the public facade behind `panels/ManagedFxList-bridge`. Three
+  things make that up and NONE of them is observable from a hiccup
+  assertion:
 
     1. The bridge — `rf.fresco/as-component` interoped into the Reagent
        tree `panels/render-panel!` builds. The node lane cannot see it:
@@ -19,24 +19,23 @@
        or a `reg-view` head in a Fresco body raises
        `:rf.error/fresco-bad-head`, and on this render path there is no
        error boundary above it — React unmounts the whole root, which
-       presents as A PANEL THAT NEVER APPEARS rather than as an error.
-       That is the rf2-qhoj shape, and rf2-90kv is this very panel
-       throwing before painting with no red row anywhere in the tree.
+       presents as A PANEL THAT NEVER APPEARS rather than as an error,
+       with no red row anywhere in the tree.
 
-  So the claim under test is the plain one every tier so far has had to
+  So the claim under test is the plain one every other tier has to
   assume: mounting this panel puts its records on the screen.
 
   ## And the Xray feature-matrix gate is NOT this row's substitute
 
-  Measured at this slice's base: `rf-xray-managed-fx` appears in no
-  testbed, example or scenario file in the repository — `mount-managed-fx!`
+  `rf-xray-managed-fx` appears in no testbed, example or scenario file
+  in the repository — `mount-managed-fx!`
   has zero call sites outside `tools/xray` — so no browser scenario mounts
   this panel and none can go red on it. `016-Auxiliary-Panels.md` says as
   much in its own row: \"standalone mount — no current panel embeds it\".
   This file is the browser-lane coverage for the surface, not a second
   opinion about it.
 
-  ## The two observables are the two things that moved
+  ## The two observables
 
   `data-testid=\"rf-xray-managed-fx-record-…\"` — one per record, written
   by `record-panel`, so its presence says the boundary rendered and the
@@ -110,9 +109,9 @@
   "One cascade carrying TWO `:rf.http/managed` invocations.
 
   Two is what makes the distinctness assertions discriminating, and both
-  carry the SAME fx-id deliberately: that is the case the pre-rf2-fcy5
-  node-keys could not tell apart, since they were composed from the fx-id
-  alone. `record-key` separates them on `:origin-event-id`, which is the
+  carry the SAME fx-id deliberately: node-keys composed from the fx-id
+  alone could not tell them apart. `record-key` separates them on
+  `:origin-event-id`, which is the
   trace-event id of the fx event and so differs per record."
   []
   [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
@@ -201,7 +200,7 @@
 ;; ===========================================================================
 
 (deftest mounting-commits-one-record-panel-per-record
-  (testing "rf2-fcy5 — `mount-managed-fx!` wraps `ManagedFxList-bridge` in a
+  (testing "`mount-managed-fx!` wraps `ManagedFxList-bridge` in a
             frame-provider and hands it to the adapter; the bridge interops
             to the `as-component` React component; the boundary resolves
             `:rf/xray` from React context and renders. If ANY link in that
@@ -230,7 +229,7 @@
 ;; ===========================================================================
 
 (deftest each-record-owns-its-inspector-mount-ids
-  (testing "rf2-fcy5 — with the payload sections open, the `edn/inspect-view`
+  (testing "with the payload sections open, the `edn/inspect-view`
             heads really rendered rather than raising
             `:rf.error/fresco-bad-head`, which is what a committed
             `data-rf-mount-id` says. A seeded `:rf.fx/handled` carries a
@@ -239,10 +238,10 @@
             counts what is there rather than a fixed number.
 
             Their `:mount-id`s are derived from `record-key`, so two records
-            carrying the SAME fx-id still own disjoint sets — the pre-rf2-fcy5
-            keys were composed from the fx-id alone and the HANDLER key was
-            the bare constant `\"managed-fx/handler\"`, so every record in
-            every list shared one."
+            carrying the SAME fx-id own disjoint sets — keys composed from
+            the fx-id alone, or a bare-constant HANDLER key such as
+            `\"managed-fx/handler\"`, would be shared by every record in
+            every list."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
