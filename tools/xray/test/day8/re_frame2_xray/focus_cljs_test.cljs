@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.focus-cljs-test
-  "Coverage for the host-facing Story→Xray focus API (rf2-crtmq).
+  "Coverage for the host-facing Story→Xray focus API.
 
   Two bands:
 
@@ -14,7 +14,7 @@
      untouched.
 
   Per `tools/xray/spec/008-Embedding-Contract.md` §Host-facing focus
-  API + the §D3 decision (`ai/findings/StoryUI/06-open-decisions.md`):
+  API + the §D3 decision:
   Story owns the intent/action (sends the command); Xray owns panel
   semantics (receives + focuses) — no second Xray runtime model."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -28,8 +28,7 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): plain-atom adapter
+  ;; `make-xray-runtime-fixture`: plain-atom adapter
   ;; + the `:all` reset tier — install (== preload's alias) + registry +
   ;; mount idempotency sentinels plus the trace-collector rings.
   (xray-test-support/make-xray-runtime-fixture))
@@ -111,9 +110,9 @@
               :panel :app-db
               :epoch-id 42
               :dispatch-id 17
-              ;; rf2-y8doi.29 — `:path` is retired and IGNORED; it is
-              ;; left in the command deliberately so this assert also
-              ;; pins that a stale host command still translates
+              ;; `:path` is not a focus field and is IGNORED; it sits
+              ;; in the command deliberately so this assert also
+              ;; pins that a host command carrying it translates
               ;; cleanly rather than erroring.
               :path [:checkout :state]
               :source {:kind :story/assertion}}))
@@ -125,16 +124,13 @@
       ":epoch-id is the lighter selector for callers without a cascade id"))
 
 (deftest path-is-ignored
-  (testing "rf2-y8doi.29 — `:path` was a focus field until 2026-09-17,
-            mapping to `:rf.xray/focus-slice-path`. Nothing rendered the
-            slot that event wrote, so the field was retired with the rest
-            of the unreachable App-DB path-click machinery. `focus!`
-            stays PERMISSIVE: `:path` is now ignored exactly like any
+  (testing "`:path` is not a focus field. `focus!` is PERMISSIVE:
+            `:path` is ignored exactly like any
             other unknown key — no `:unknown-field` refusal."
     (is (= [] (focus/focus-command->dispatches {:path [:user :profile :name]}))
         "a path-only command is a well-formed no-op")
-    ;; The control: the same command with a live field beside the dead
-    ;; one still translates, so the `[]` above is `:path` being ignored
+    ;; The control: the same command with a live field beside the ignored
+    ;; one translates, so the `[]` above is `:path` being ignored
     ;; rather than the translator being broken.
     (is (= [[:rf.xray/select-tab :app-db]]
            (focus/focus-command->dispatches
@@ -142,19 +138,19 @@
         ":path contributes nothing beside a field that does")))
 
 (deftest valid-panels-is-the-tab-inventory
-  ;; rf2-1sddi6 / rf2-7ed9ms — `valid-panels` MIRRORS the live Dynamic
+  ;; `valid-panels` MIRRORS the live Dynamic
   ;; L4 tab registry. The Routing tab's id is `:routing` (renders as
   ;; "Routes"), and the EP-0016 / EP-0014 / EP-0013 cohesive-sub-domain
-  ;; tabs `:resources` / `:derivation-graph` / `:module-view` ship, and
-  ;; rf2-hic-023 added `:fresco` (the Fresco evidence tab) — so all ten
-  ;; live ids are focusable. (rf2-gbz39 removed the Issues tab under
-  ;; Option (c) — `:issues` is no longer a focusable panel.)
+  ;; tabs `:resources` / `:derivation-graph` / `:module-view` and
+  ;; `:fresco` (the Fresco evidence tab) ship — so all ten
+  ;; live ids are focusable. There is no Issues tab, so `:issues` is not
+  ;; a focusable panel.
   (is (= #{:epoch :app-db :views :trace :machines :routing
            :resources :derivation-graph :module-view :fresco}
          focus/valid-panels)))
 
 (deftest valid-panels-mirrors-the-live-registry
-  ;; rf2-1sddi6 / rf2-7ed9ms — the static mirror MUST equal the live
+  ;; The static mirror MUST equal the live
   ;; Dynamic L4 registry so focus can never drift from the shipped tab
   ;; inventory (the shell mounts a tab via the same registry; a drift
   ;; would let focus validate a panel that lands the unknown-tab stub,
@@ -167,7 +163,7 @@
       "focus/valid-panels == the live Dynamic L4 tab registry ids"))
 
 (deftest routes-alias-normalises-to-routing
-  ;; rf2-7ed9ms F1 — a host that sends the display-noun `:routes`
+  ;; A host that sends the display-noun `:routes`
   ;; lands the real `:routing` tab, not the unknown-tab stub.
   (is (= :routing (focus/normalize-panel :routes)))
   (is (= :app-db (focus/normalize-panel :app-db))
@@ -188,8 +184,8 @@
 
 (deftest focus-app-db-panel-via-command
   (testing "focusing app-db from an assertion focuses the right Xray
-            panel + cascade. The command still carries the retired
-            `:path` (rf2-y8doi.29) to pin that `focus!` stays permissive
+            panel + cascade. The command also carries `:path` (not a
+            focus field) to pin that `focus!` is permissive
             about it: `:ok?` is true and no slice dispatch is applied."
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
@@ -210,7 +206,7 @@
       (is (= :checkout (:frame (focus-sub))) "spine bound to the host frame")
       (is (= :checkout (view-scope-frame)) "L2 view scope re-bound")
       (is (not-any? #(= :rf.xray/focus-slice-path (first %)) (:applied result))
-          "the retired :path applies no dispatch")
+          "the ignored :path applies no dispatch")
       (is (some #(= :rf.xray/select-tab (first %)) (:applied result))
           "control: :applied is populated, so the assert above is not vacuous"))))
 
@@ -234,7 +230,7 @@
       (is (= :c2 (:dispatch-id (focus-sub)))))))
 
 (deftest focus-routes-alias-lands-the-routing-tab
-  (testing "rf2-7ed9ms F1 — `{:panel :routes}` (the host-friendly
+  (testing "`{:panel :routes}` (the host-friendly
             display-noun) renders the live Dynamic Routing tab
             (`:routing`), NOT the unknown-tab stub"
     (setup-xray-frame!)
@@ -248,20 +244,14 @@
           "the selected id resolves to an installed tab — no unknown-tab stub"))))
 
 (deftest focus-shipped-l4-tabs-select-real-panels
-  (testing "rf2-1sddi6 / rf2-7ed9ms acceptance — every shipped Dynamic
+  (testing "acceptance — every shipped Dynamic
             tab id (including the L4-only Graph, Frames and Fresco
             tabs) is focusable and resolves to an installed panel,
             never the unknown-tab stub.
 
-            rf2-v1fg3 — this used to walk a HAND-LISTED
-            `[:resources :derivation-graph :module-view]` while
-            claiming to cover 'every shipped Dynamic tab id'. When
-            rf2-hic-023 shipped `:fresco` as a fourth L4-only registry
-            tab on exactly the same footing, the list was not extended
-            and the newest shipped tab went unasserted — the docstring
-            said 'every' and the loop meant 'three'. It now walks
-            `focus/valid-panels`, so the claim is true by construction
-            and a tab cannot be skipped by omission again."
+            It walks `focus/valid-panels` rather than a hand-listed
+            roster, so the claim is true by construction
+            and a tab cannot be skipped by omission."
     (setup-xray-frame!)
     (doseq [panel focus/valid-panels]
       (let [result (focus/focus! {:frame :checkout :panel panel :sync? true})]
@@ -271,13 +261,12 @@
             (str panel " resolves to an installed tab — no unknown-tab stub"))))))
 
 (deftest focus-acceptance-inventory-cannot-silently-shrink
-  (testing "rf2-v1fg3 ADVERSARIAL — the negative half of the acceptance
+  (testing "ADVERSARIAL — the negative half of the acceptance
             above. Walking `focus/valid-panels` only proves 'every
             shipped tab' if `valid-panels` is itself the shipped set; a
             tab registered at runtime but missing from the mirror would
-            be skipped by BOTH, silently, which is the exact shape of
-            the defect this bead fixes. Assert the mirror against the
-            LIVE registry, and assert a retired id is still rejected so
+            be skipped by BOTH, silently. Assert the mirror against the
+            LIVE registry, and assert a retired id is rejected so
             the mirror cannot be widened into a rubber stamp."
     (setup-xray-frame!)
     (is (= (set (panel-registry/tab-ids-for-mode :dynamic))
@@ -289,12 +278,12 @@
              ", mirrored but unregistered: "
              (pr-str (sort (remove (set (panel-registry/tab-ids-for-mode :dynamic))
                                    focus/valid-panels)))))
-    ;; A RETIRED tab id is not a typo — it is the regression that would
-    ;; follow from widening the mirror carelessly. `:issues` was removed
-    ;; per rf2-gbz39 and must stay rejected.
+    ;; A RETIRED tab id is not a typo — accepting one is the regression
+    ;; that would follow from widening the mirror carelessly. `:issues`
+    ;; names no tab and must be rejected.
     (let [result (focus/focus! {:frame :checkout :panel :issues :sync? true})]
       (is (false? (:ok? result))
-          ":issues was retired per rf2-gbz39 and is still rejected")
+          ":issues names no tab and is rejected")
       (is (not= :issues (selected-tab))
           "a retired tab id never becomes the selected tab"))))
 
@@ -305,8 +294,7 @@
             focuses identically"
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
-    ;; rf2-gbz39 — uses :trace (the Issues panel was removed under
-    ;; Option (c)); the point of this test is host-agnostic + no-source
+    ;; Uses :trace; the point of this test is host-agnostic + no-source
     ;; focusing, independent of which panel is targeted.
     (let [result (focus/focus! {:frame :checkout :panel :trace :sync? true})]
       (is (:ok? result))
