@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/reg-error-compound-state-missing-initial
 ;;
 ;; Per [005 §Initial-state cascading](../../005-StateMachines.md#initial-state-cascading)
-;; and rf2-boryv: every COMPOUND state-node (one that declares `:states`)
+;; every COMPOUND state-node (one that declares `:states`)
 ;; MUST declare `:initial` — the substate to enter when control reaches
 ;; the compound state without a deeper target. Without it the cascade has
 ;; no entry-point and would silently yield a non-leaf `:state` snapshot
