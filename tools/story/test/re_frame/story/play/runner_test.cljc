@@ -1,6 +1,6 @@
 (ns re-frame.story.play.runner-test
   "Pure unit tests for the rich-DSL play runner's step executor +
-  state machine (rf2-8i2a9). JVM-runnable; no re-frame dependency."
+  state machine. JVM-runnable; no re-frame dependency."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.play.runner :as rf.story.play.runner]))
 
@@ -26,17 +26,15 @@
   (testing "async-yield? returns true for steps whose effects queue
             outside the runner — :click / :type (synthetic-event handlers
             re-entering dispatch) and :wait (explicit sleep). Used by
-            run-loop! to decide whether to recur synchronously or yield.
-            rf2-ftow6."
+            run-loop! to decide whether to recur synchronously or yield."
     (is (true? (rf.story.play.runner/async-yield? [:click "[data-test=x]"])))
     (is (true? (rf.story.play.runner/async-yield? [:type "[data-test=x]" "text"])))
     (is (true? (rf.story.play.runner/async-yield? [:wait 0])))
     (is (true? (rf.story.play.runner/async-yield? [:wait 100]))))
-  (testing "sync-class steps must NOT yield — that's the bug the race
-            fix corrects. :dispatch (now settled through settled-boundary
-            — the dispatch-sync! drain, rf2-5x1wt.2), :dispatch-sync,
+  (testing "sync-class steps must NOT yield. :dispatch (settled through
+            settled-boundary — the dispatch-sync! drain), :dispatch-sync,
             :assert-db, :assert-dom are synchronous at the step boundary
-            on CLJS; yielding between them allowed concurrent runs to
+            on CLJS; yielding between them would let concurrent runs
             interleave and overshoot counter incs."
     (is (false? (rf.story.play.runner/async-yield? [:dispatch [:foo]])))
     (is (false? (rf.story.play.runner/async-yield? [:dispatch-sync [:foo]])))
@@ -79,7 +77,7 @@
     (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] 1])))
     (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:a :b] nil])))
     (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred 'my-ns/pos-int?])))
-    ;; rf2-inbad: fn-direct is the advanced-CLJS-safe authoring path.
+    ;; fn-direct is the advanced-CLJS-safe authoring path.
     (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred pos?])))
     (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred (fn [_] true)])))
     (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred "not-a-sym-or-fn"])))
@@ -199,7 +197,7 @@
     (is (zero? (:failures s1)))))
 
 (deftest record-step-result-cannot-run-refusal-does-not-bump-failures
-  ;; rf2-eztym.1 — a :cannot-run / :skipped? refusal sets :passed? false but is
+  ;; A :cannot-run / :skipped? refusal sets :passed? false but is
   ;; the distinct THIRD status, NOT a genuine fail. record-step-result must NOT
   ;; count it toward :failures, else the emitted run-state's :failures and
   ;; finish's :status :cannot-run verdict disagree and a CI consumer keying off
@@ -227,7 +225,7 @@
           "a :cannot-run? refusal is not a genuine failure"))))
 
 (deftest cannot-run-only-run-has-zero-failures-and-cannot-run-status
-  ;; rf2-eztym.1 — the report-shape invariant end to end: a run whose ONLY
+  ;; The report-shape invariant end to end: a run whose ONLY
   ;; non-pass step is a refusal must emit BOTH :status :cannot-run AND
   ;; :failures 0 so the two fields cannot disagree in the CI/JSON report.
   (let [step  [:assert-dom "[data-test=x]" :visible]
@@ -264,7 +262,7 @@
                                          (rf.story.play.runner/step-exception 0 [:dispatch [:bad]] "boom"))]
     (is (= :fail (:status (rf.story.play.runner/finish exc 1))))))
 
-;; ---- finish :cannot-run aggregation (rf2-taq2j) -------------------------
+;; ---- finish :cannot-run aggregation -------------------------------------
 ;;
 ;; finish has a THREE-way precedence (the runner-state analogue of
 ;; requirements/aggregate-status): :fail > :cannot-run > :pass. A run whose
@@ -272,7 +270,7 @@
 ;; boundary :cannot-run?) must terminate :cannot-run — NEVER a silent :pass.
 ;; This is the headline "cannot-run is a distinct third status, never a
 ;; silent pass" invariant, guarded at the requirements + settled-boundary
-;; layers but previously UNTESTED at the runner-state finish consumers see.
+;; layers and pinned here at the runner-state finish consumers see.
 ;; A real refusal is the shape the step executor mints:
 ;;   (step-fail idx step {:skipped? true :message "no DOM — …"})  → :passed? false + :skipped?
 ;;   (step-fail idx step {:cannot-run? true :message "…"})        → :passed? false + :cannot-run?
@@ -335,7 +333,7 @@
                           (rf.story.play.runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
       (is (= :fail (:status (rf.story.play.runner/finish state 100)))))))
 
-;; ---- run-state-refusals projection (rf2-taq2j) --------------------------
+;; ---- run-state-refusals projection --------------------------------------
 
 (deftest run-state-refusals-projects-one-record-per-refusing-step
   (testing "run-state-refusals projects each :skipped? / :cannot-run? step
@@ -384,7 +382,7 @@
       (is (= {:status :cannot-run :unit step :reason :runner-cannot-attempt-step} r)
           "no :message slot when the step-result carried none"))))
 
-;; ---- run-state-failures projection (rf2-3x7nj.30.1) ------------------------
+;; ---- run-state-failures projection --------------------------------------
 
 (deftest run-state-failures-projects-the-steps-no-record-carries
   (testing "run-state-failures projects every genuine step failure that
@@ -464,7 +462,7 @@
   (is (= "assert-db [:k] = 1" (rf.story.play.runner/step-summary [:assert-db [:k] 1])))
   (is (= "assert-db [:k] :pred my/pred?"
          (rf.story.play.runner/step-summary [:assert-db [:k] :pred 'my/pred?])))
-  ;; rf2-inbad: fn-direct refs render as <fn> so messages don't leak
+  ;; fn-direct refs render as <fn> so messages don't leak
   ;; compiler-munged identifiers under advanced CLJS.
   (is (= "assert-db [:k] :pred <fn>"
          (rf.story.play.runner/step-summary [:assert-db [:k] :pred pos?])))
@@ -552,7 +550,7 @@
   (is (true?  (rf.story.play.runner/any-failure?
                 {:results [{:exception true :passed? false}]}))))
 
-;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
+;; ---- multi-play ----------------------------------------------------------
 
 (deftest parse-plays-empty
   (testing "parse-plays of nil / [] returns []"
@@ -652,7 +650,7 @@
   (is (true?  (rf.story.play.runner/multi? [{:name "one"} {:name "two"}]))))
 
 (deftest auto-runnable?-predicate
-  ;; rf2-jh42p sibling rf2-4gw9p: the ONE definition of "this play
+  ;; The ONE definition of "this play
   ;; auto-runs" — :auto-run? true AND a non-empty :script.
   (testing "auto-run? true + non-empty script → runnable"
     (is (true? (rf.story.play.runner/auto-runnable? {:auto-run? true :script [[:dispatch [:a]]]}))))
@@ -666,7 +664,7 @@
 
 (deftest auto-runnable-plays-filters-order-preserving
   (testing "the shared filter both runtime/run-phase-4! and
-            runner-events/auto-run! delegate to (rf2-4gw9p) keeps only the
+            runner-events/auto-run! delegate to keeps only the
             auto-run? + non-empty-script plays, in order"
     (let [plays [{:name "a" :auto-run? true  :script [[:dispatch [:a]]]}
                  {:name "b" :auto-run? false :script [[:dispatch [:b]]]}
