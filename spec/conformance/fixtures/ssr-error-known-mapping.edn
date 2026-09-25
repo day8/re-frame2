@@ -39,7 +39,7 @@
  :fixture/expect
  {;; The runtime's error-projection listener writes :status 404 to the
   ;; response accumulator (a framework-private side-channel atom keyed
-  ;; on frame-id, per rf2-jbcmt — Spec 011 §Response storage substrate).
+  ;; on frame-id, per Spec 011 §Response storage substrate).
   ;; The accumulator is NOT in app-db, so :final-app-db carries no
   ;; assertion on it; the projector's output is pinned via
   ;; :ssr/public-error below.
