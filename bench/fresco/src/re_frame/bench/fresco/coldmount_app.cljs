@@ -676,8 +676,7 @@
                                      "hand-off. Under "
                                      "THIS harness's forced-synchronous schedule the cold read "
                                      "builds ONCE and the commit adopts it; on the public "
-                                     "createRoot().render() path at a setTimeout 0 horizon the "
-                                     "reaper wins first and the "
+                                     "createRoot().render() path at a setTimeout 0 horizon the reaper wins first and the "
                                      "same hook builds TWICE. "
                                      "`xcript` is the double build, kept as the reference the "
                                      "delta is measured against")

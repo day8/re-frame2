@@ -415,12 +415,12 @@
                                    :mounts-per-sample k
                                    :measurement-method
                                    (str "a SAMPLE is " k " mount(s) inside ONE "
-                                        "react-dom/flushSync window, and the per-mount "
-                                        "figure is the sample divided by " k ". No witness "
-                                        "here batches: Chrome clamps performance.now() to "
-                                        "100 us, so the 51-element witness's ratios are "
-                                        "quantised and it is published as DIAGNOSTIC (its "
-                                        ":clock-note). Wall time across "
+                                        "react-dom/flushSync window. No witness here batches: "
+                                        "Chrome clamps performance.now() to 100 us, so the "
+                                        "51-element witness's ratios are quantised and it is "
+                                        "published as DIAGNOSTIC (its :clock-note). The "
+                                        "per-mount figure is the "
+                                        "sample divided by " k ". Wall time across "
                                         "react-dom/flushSync around each "
                                         "arm's own mount door, into fresh containers "
                                         "attached BEFORE the window; arms interleaved at "
