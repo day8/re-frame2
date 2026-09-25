@@ -1,38 +1,33 @@
 (ns day8.re-frame2-xray.init-filter-reset-cljs-test
   "Init policy: reset TRANSIENT filters to unfiltered on every page load;
-  persist only DURABLE view prefs (rf2-swclw).
+  persist only DURABLE view prefs.
 
-  Xray's L2 filters used to persist across reload via localStorage,
-  which silently hid events and made the inspector look broken (rf2-jvghz
-  — it fooled even the project author). The decision (Mike, 2026-05-22):
-  an inspector's prime directive is to show the truth, so a fresh load
-  must never silently carry a stale filter from a past session. The
-  three transient exploration filters —
+  An inspector's prime directive is to show the truth, so a fresh load
+  must never silently carry a stale filter from a past session — a
+  restored filter would silently hide events and make the inspector look
+  broken. The three transient exploration filters —
 
     1. the IN/OUT filter pills  (no localStorage at all — see below)
     2. the muted-event-ids set  (localStorage `xray.spine.muted-event-ids`)
     3. the frame pin            (localStorage `re-frame2.xray.frame-switcher.v1`)
 
   — do NOT restore on init regardless of what localStorage holds, and
-  the stale slots that still EXIST are CLEARED so storage stays honest.
-  DURABLE view prefs (the Dynamic ↔ Static mode under `xray.mode`) still
+  their localStorage slots are CLEARED so storage stays honest.
+  DURABLE view prefs (the Dynamic ↔ Static mode under `xray.mode`)
   restore.
 
-  ## Surface 1 reached the end of that argument (rf2-y8doi.27)
+  ## Surface 1 has no localStorage slot
 
-  The IN/OUT pills no longer have a localStorage slot to reset. Every
-  pill mutation still WROTE one long after reset-on-load had removed
-  the only reader, so the store existed purely to be cleared by the
-  hook below. `filters/persistence.cljs` was deleted; the pills now
-  start at the registry default `{:in [] :out []}` because nothing
-  writes them anywhere else.
+  Nothing writes the IN/OUT pills to localStorage, so there is no slot
+  to reset: the pills start at the registry default `{:in [] :out []}`
+  because nothing writes them anywhere else.
 
   That makes the surface-1 half of this suite TRIVIALLY TRUE, and a
   test that cannot fail is worth less than the space it occupies — so
-  the scenarios that SEEDED a stale pill set are gone along with the
-  seam that made seeding possible. What survives is everything that
-  can still go red: surfaces 2 and 3, the durable-mode half, and the
-  host-seed contract (rf2-fhtes), which never involved localStorage.
+  no scenario seeds a stale pill set, and there is no seam that could.
+  What this suite pins is everything that can go red: surfaces 2 and 3,
+  the durable-mode half, and the host-seed contract, which never
+  involves localStorage.
 
   These tests drive the REAL production init path
   (`mount/ensure-xray-frame!` — the first-mount hook walker) so the
@@ -77,7 +72,7 @@
   (js-delete js/globalThis "window"))
 
 (def ^:private runtime-fixture
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom + the `:all` reset
+  ;; `make-xray-runtime-fixture`: plain-atom + the `:all` reset
   ;; tier; `:post-reset` starts every scenario from a clean localStorage so
   ;; the seeding below is the only signal the init path can read.
   (xray-test-support/make-xray-runtime-fixture
@@ -85,8 +80,8 @@
                    (spine-filters/clear-raw!)
                    (frame-switcher/clear!)
                    (static-persistence/clear!)
-                   ;; rf2-fhtes — the host `:rf.xray/filters` seed atom is
-                   ;; process-global and now LOAD-BEARING on the boot path
+                   ;; The host `:rf.xray/filters` seed atom is
+                   ;; process-global and LOAD-BEARING on the boot path
                    ;; (`::seed-configured-filters`). Clear it before each
                    ;; test so a sibling test's `configure!` cannot leak a
                    ;; seed into the reset-policy scenarios below.
@@ -144,11 +139,11 @@
 ;; -------------------------------------------------------------------------
 
 (deftest init-comes-up-with-unfiltered-pills
-  (testing "rf2-y8doi.27 — the pills come up unfiltered. This is now
+  (testing "the pills come up unfiltered. This is
             TRIVIALLY TRUE, there being no pill localStorage to restore
             from, and it is kept only because it is the property the
-            whole policy is ABOUT: if a future change reintroduces a
-            restore path, this is the assertion that goes red."
+            whole policy is ABOUT: should any code path restore pills,
+            this is the assertion that goes red."
     (boot!)
     (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
         "first paint is fully unfiltered")))
@@ -196,20 +191,19 @@
 ;; -------------------------------------------------------------------------
 
 (deftest init-resets-all-transient-filters-together
-  (testing "a fresh load with every REMAINING transient slot stale comes
-            up fully unfiltered (the pill slot no longer exists —
-            rf2-y8doi.27)"
+  (testing "a fresh load with every transient localStorage slot stale
+            comes up fully unfiltered (the pills have no slot)"
     (spine-filters/save! stale-mutes)
     (frame-switcher/save! stale-frame)
     (boot!)
     (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters])))
     (is (= #{} (frame-sub [:rf.xray/muted-event-ids])))
-    (testing "and every surviving transient localStorage slot is cleared"
+    (testing "and every transient localStorage slot is cleared"
       (is (= #{} (spine-filters/load)))
       (is (nil? (frame-switcher/load))))))
 
 ;; -------------------------------------------------------------------------
-;; (5) durable view prefs STILL restore (the policy's other half)
+;; (5) durable view prefs restore (the policy's other half)
 ;; -------------------------------------------------------------------------
 
 (deftest init-restores-durable-mode-pref
@@ -241,20 +235,17 @@
         "transient frame-pin slot cleared")))
 
 ;; -------------------------------------------------------------------------
-;; (6) EXPLICIT host filter SEED lands as the boot baseline (rf2-fhtes)
+;; (6) EXPLICIT host filter SEED lands as the boot baseline
 ;; -------------------------------------------------------------------------
 ;;
-;; `configure!` accepts `:rf.xray/filters` and the config/spec/API prose
-;; promised the seed would hydrate `:active-filters`, but production never
-;; called the filters hydrate fn — the real `ensure-xray-frame!` hook
-;; table only RESET transient filters and never READ the seed, so a host
-;; using the documented key got no error and an unfiltered first paint.
-;; The passing persistence tests only proved otherwise by calling that
-;; hydrate fn MANUALLY (routing around the hook table), so the gap
-;; stayed green. rf2-y8doi.27 deleted the fn and those tests together.
-;;
-;; These tests drive the REAL production `ensure-xray-frame!` path (the
-;; same `boot!` the reset-policy tests above use). The policy: an
+;; `configure!` accepts `:rf.xray/filters`, and the seed hydrates
+;; `:active-filters` through `mount.cljs`'s `::seed-configured-filters`
+;; first-mount hook. A test that hydrated the seed MANUALLY would route
+;; around the hook table, and would stay green even if the real
+;; `ensure-xray-frame!` hook table never READ the seed — leaving a host
+;; that uses the documented key with no error and an unfiltered first
+;; paint. So these tests drive the REAL production `ensure-xray-frame!`
+;; path (the same `boot!` the reset-policy tests above use). The policy: an
 ;; EXPLICITLY configured seed is the host's opt-in and lands as the boot
 ;; baseline AFTER the transient reset; a `nil` seed stays fully unfiltered.
 
@@ -266,46 +257,40 @@
 
 (deftest configured-seed-lands-as-boot-baseline
   (testing "an explicitly configured :rf.xray/filters seed is observed in
-            :active-filters after the REAL ensure-xray-frame! path — WITHOUT
-            calling filters/hydrate! manually (rf2-fhtes criterion 1)"
+            :active-filters after the REAL ensure-xray-frame! path — with
+            no manual hydrate call"
     (config/configure! {:rf.xray/filters host-seed})
-    ;; Nothing persists pills at all since rf2-y8doi.27, so the
+    ;; Nothing persists pills at all, so the
     ;; configured seed is necessarily the only source.
     (boot!)
     (is (= host-seed (frame-sub [:rf.xray/active-filters]))
         "the host seed IS the boot baseline for :active-filters on the real
-         production path — the false-hydrate contract is now honoured")))
+         production path")))
 
 (deftest no-seed-first-mount-stays-fully-unfiltered
   (testing "with NO host seed, production first mount comes up fully
-            unfiltered (rf2-fhtes criterion 2 — nil remains unfiltered)"
+            unfiltered (a nil seed means unfiltered)"
     (is (nil? (config/get-filter-seed))
         "precondition: the fixture cleared any seed")
     (boot!)
     (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
         "no seed → registry-default empty pills → unfiltered first paint")))
 
-;; (`configured-seed-wins-over-stale-localstorage` was REMOVED —
-;; rf2-y8doi.27. It seeded a stale pill set into localStorage and
-;; asserted the host seed won anyway. There is no longer any way to
-;; put a stale pill set into localStorage, so the scenario cannot be
-;; constructed: the contest it staged has exactly one contestant now.
-;; `configured-seed-lands-as-boot-baseline` above is what remains of
-;; it, and it is the half that could ever have gone red.)
+;; (There is no seed-versus-stale-pills test: nothing can put a stale pill
+;; set into localStorage, so that contest has exactly one contestant.
+;; `configured-seed-lands-as-boot-baseline` above is the half that can go
+;; red.)
 
 (deftest configured-seed-is-not-durable-user-persistence
   (testing "the seed is an explicit boot baseline re-applied each load — it
-            is NOT written to localStorage as durable user pills (rf2-fhtes
-            criterion 3 — not durable user-filter persistence)"
+            is NOT written to localStorage as durable user pills"
     (config/configure! {:rf.xray/filters host-seed})
     (boot!)
     (is (= host-seed (frame-sub [:rf.xray/active-filters]))
         "seed is the live baseline in app-db")
     (is (nil? (.getItem js/window.localStorage "re-frame2.xray.filters.v1"))
-        "the seed did NOT reach localStorage under the key the deleted
-         persistence layer used: the seed hook writes app-db only, so the
-         baseline is re-derived from configure! on every load. Read
-         through the raw stub rather than a loader, because
-         rf2-y8doi.27 removed the loader — and a raw read is the
-         stronger instrument anyway, since it would still see a write
+        "the seed did NOT reach localStorage under the pill key: the seed
+         hook writes app-db only, so the baseline is re-derived from
+         configure! on every load. Read through the raw stub rather than a
+         loader — there is no pill loader, and a raw read sees a write
          made by any code path at all.")))
