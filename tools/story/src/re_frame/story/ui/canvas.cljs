@@ -10,8 +10,8 @@
     active modes / cell-overrides / substrate and resumes the play script
     exactly once per prepared generation.
   - Renders the variant's `:component` (registered re-frame view) under
-    the `:hiccup` decorator stack from `resolve-decorators` — which reads
-    the FULL stack (globals + story + variant chain) off the compiled
+    the `:hiccup` decorator stack `resolve-decorator-refs` resolves from
+    the FULL stack (globals + story + variant chain) on the compiled
     plan's `[:world :decorators]`, the SAME refs
     `render-variant`'s host applies, so canvas + render-variant paint the
     identical decorated tree.
@@ -562,14 +562,13 @@
   [variant-id & [rk]]
   (let [rk             (or rk (run-key @rf.story.ui.state/shell-state-atom variant-id))
         variant-body   (rf.story.registrar/handler-meta :variant variant-id)
-        ;; The SAME per-run opts the `eff-args` resolve below
-        ;; uses, threaded into `resolve-decorators` so the plan it
-        ;; recompiles to read `[:world :decorators]` substitutes `[:arg]`
-        ;; keys with the mode/cell-aware args. Without this an `[:arg key]`
-        ;; resolvable ONLY through an active-mode / cell-override layer
-        ;; (never the variant chain) throws `:rf.error/story-missing-arg`
-        ;; here even though the runtime's plan compile handles it — the
-        ;; canvas decorator recompile needs the same opts.
+        ;; The per-run opts, lowered to `:run-args` for the ONE plan
+        ;; compile below, so the `[:world :decorators]` refs and the
+        ;; effective args it produces substitute `[:arg]` keys with the
+        ;; mode/cell-aware args. Without them an `[:arg key]` resolvable
+        ;; ONLY through an active-mode / cell-override layer (never the
+        ;; variant chain) throws `:rf.error/story-missing-arg` here even
+        ;; though the runtime's plan compile handles it.
         run-opts       {:active-modes   (:active-modes rk)
                         :cell-overrides (:cell-overrides rk)}
         ;; ONE plan compile per render, and every SCENARIO-shaped read below
@@ -731,12 +730,12 @@
        ;; and `render-view`'s docstring says why the two are not folded.
        ;;
        ;; Decoration stays HERE, exactly once. `render-decorated-view` bundles
-       ;; render + decorate, but resolves the decorator refs itself, WITHOUT
-       ;; the mode / cell-override `run-opts` threaded into `resolve-decorators`
-       ;; above (see that binding's comment — an `[:arg …]` resolvable only
-       ;; through a mode layer throws without them). Calling it here would
-       ;; either decorate twice or lose those opts, so the canvas consumes the
-       ;; render half and keeps its own `safe-decorated-view` wrap.
+       ;; render + decorate, but it resolves the refs it is handed through
+       ;; `resolve-decorator-refs` itself, and the canvas already holds that
+       ;; resolution in `decorator-pack` (its `:errors` render below, and it
+       ;; feeds `events-only?`). So the canvas consumes the render half and
+       ;; wraps with `safe-decorated-view` over the pack's `:hiccup` stack
+       ;; rather than resolving the same refs twice.
        ;;
        ;; The variant's frame is already allocated; scope the rendered view's
        ;; subscribe / dispatch to it (scope-only) via the merged
