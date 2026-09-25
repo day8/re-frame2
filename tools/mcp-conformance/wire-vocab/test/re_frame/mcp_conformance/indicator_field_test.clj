@@ -1,12 +1,12 @@
 (ns re-frame.mcp-conformance.indicator-field-test
-  "Cross-MCP indicator-field ROUTING conformance (rf2-6m8tq, rf2-tdn6oi).
+  "Cross-MCP indicator-field ROUTING conformance.
 
   Pins the MUST-level contract from
   [Spec 009 §Indicator field on tool responses][1] and
   [Conventions §Cross-MCP indicator-field vocabulary][2]:
 
     Tools that return structured response maps and walk a tree-typed
-    payload MUST carry an `:elided-large` count alongside the existing
+    payload MUST carry an `:elided-large` count alongside the
     `:dropped-sensitive` count. Both slots are unqualified keys. Omit
     when zero.
 
@@ -15,8 +15,7 @@
   This file pins that every tree-walking tool ROUTES its envelope through
   the ONE centralised emit-path, and that no tool inlines the slot
   literals to bypass it. It deliberately does NOT re-test the helper's
-  behaviour or re-declare the slot schemas — those have single owners
-  (rf2-tdn6oi deduplication):
+  behaviour or re-declare the slot schemas — those have single owners:
 
   - Helper SEMANTICS (the omit-when-zero `cond->`, value pass-through,
     canonical vocab-key usage) — owned by
@@ -26,9 +25,7 @@
     their positive-fixture conformance AND the present-zero rejection —
     owned by `wire_vocab/schemas.clj` + `wire_vocab_test.clj`.
 
-  What this file OWNS — the centralised single-emit-path guarantee (per
-  audit `ai/findings/refactor-audit-tools-re-frame2-pair-mcp-2026-05-14.md`
-  §TE8):
+  What this file OWNS — the centralised single-emit-path guarantee:
 
     Every re-frame2-pair-mcp tool that walks a tree-typed payload routes
     its envelope through the centralised `wire/with-indicators` helper;
@@ -60,8 +57,8 @@
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
-;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
-;; (rf2-113ti). `io` is still required below for the `re-frame2-pair-mcp-source-files`
+;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`.
+;; `io` is required below for the `re-frame2-pair-mcp-source-files`
 ;; walker.
 ;; ---------------------------------------------------------------------------
 
@@ -69,7 +66,7 @@
 ;; Tree-walking-tool routing pin.
 ;;
 ;; The catalogue below lists every re-frame2-pair-mcp tool that walks a
-;; tree-typed payload (per Spec 009:1411 — "one MUST-level row per
+;; tree-typed payload (per Spec 009 §Size elision in traces — "one MUST-level row per
 ;; consumer-facing tool that walks a tree-typed payload"). Each MUST
 ;; route its envelope through the centralised `wire/with-indicators`
 ;; helper — that single emit-path is the contract's structural
@@ -93,10 +90,8 @@
     (testing (str "tool " tool " — wire/with-indicators call-site in " rel)
       ;; Match against `rf.mcp-conformance.fixtures/strip-comments-and-strings`-neutered source so a
       ;; docstring / comment MENTION of `wire/with-indicators` can't satisfy
-      ;; the routing pin — only a real CODE reference counts (rf2-qyfy1m).
-      ;; (The motivating case was the since-retired subscribe.cljs, which
-      ;; named the helper in two docstrings — rf2-ahjbc; the hazard is
-      ;; generic to any tool source and the strip stays.)
+      ;; the routing pin — only a real CODE reference counts. Any tool
+      ;; source can name the helper in a docstring.
       (let [src      (rf.mcp-conformance.fixtures/read-source rel)
             stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings src)]
         (is (str/includes? stripped "wire/with-indicators")
@@ -105,22 +100,21 @@
                  "The centralised emit-path is the structural contract — a "
                  "tool that inlines `(assoc :dropped-sensitive ...)` or "
                  "`(assoc :elided-large ...)` directly violates the MUST-"
-                 "level parity rule per Conventions:154 / Spec 009:1411."))))))
+                 "level parity rule per Conventions §Cross-MCP indicator-field vocabulary / Spec 009 §Size elision in traces."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pair-mcp delegation pin — the per-tool call-sites read
-;; `wire/with-indicators` (the pair-local namespace the tools already
+;; `wire/with-indicators` (the pair-local namespace the tools
 ;; require), but the RULE BODY lives ONCE in mcp-base. The canonical helper
-;; was HOISTED out of pair-mcp into the shared `mcp-base.envelope`
-;; namespace (rf2-ee38b.19) so the single emit-path the spec mandates lives
-;; in one CLJC place — and its semantics are unit-tested directly there
-;; (`envelope_test.clj`), not re-simulated here. pair-mcp's `wire.cljs`
-;; keeps a thin re-export `with-indicators` that delegates to the base, so
-;; the per-tool call-sites still read `wire/with-indicators` (the routing
-;; pin above) while the omit-when-zero MUST stays centralised. This pin
-;; asserts that re-export still exists and still delegates — a regression
-;; that re-inlined the rule (forking the emit-path across servers) trips
-;; here. The story-mcp delegation pin is the sibling
+;; lives in the shared `mcp-base.envelope` namespace so the single
+;; emit-path the spec mandates lives in one CLJC place — and its semantics
+;; are unit-tested directly there (`envelope_test.clj`), not re-simulated
+;; here. pair-mcp's `wire.cljs` carries a thin re-export `with-indicators`
+;; that delegates to the base, so the per-tool call-sites read
+;; `wire/with-indicators` (the routing pin above) while the omit-when-zero
+;; MUST stays centralised. This pin asserts that re-export exists and
+;; delegates — a regression that inlined the rule (forking the emit-path
+;; across servers) trips here. The story-mcp delegation pin is the sibling
 ;; `story-mcp-routes-envelope-through-the-centralised-helper` in
 ;; `wire_vocab_test.clj`.
 ;; ---------------------------------------------------------------------------
@@ -135,10 +129,10 @@
           (str "`with-indicators` re-export missing from " pair-mcp-reexport-rel)))
     (testing "pair-mcp wire.cljs delegates to the mcp-base canonical helper"
       (is (str/includes? src "rf.mcp-base.envelope/with-indicators")
-          (str "pair-mcp `with-indicators` no longer delegates to "
+          (str "pair-mcp `with-indicators` does not delegate to "
                "`re-frame.mcp-base.envelope/with-indicators`. The emit-path "
-               "MUST stay centralised in mcp-base (rf2-ee38b.19) — a "
-               "re-inlined copy forks the omit-when-zero MUST across "
+               "MUST stay centralised in mcp-base — an "
+               "inlined copy forks the omit-when-zero MUST across "
                "servers.")))))
 
 ;; ---------------------------------------------------------------------------
@@ -160,8 +154,8 @@
   This set holds ONE entry by design. Documentation that names the slots
   — descriptor prose shipped in the `tools/list` response, docstrings
   cross-linking the helper — needs no entry: the gate strips comments,
-  docstrings and strings BEFORE it greps (efd0c8dbf32), so prose is
-  already invisible to it. A whitelist row is strictly stronger than that:
+  docstrings and strings BEFORE it greps, so prose is invisible to it.
+  A whitelist row is strictly stronger than that:
   it skips the file WHOLE, so a later real emission there would evade the
   gate. Add a row only for a file that must carry the literal in CODE."
   #{"tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"})
@@ -200,10 +194,9 @@
   ;; helper they delegate to. Those are documentation, not
   ;; emissions; the strip-then-grep posture catches real inline emits
   ;; (`(assoc envelope :dropped-sensitive N)`) while letting prose
-  ;; through. Same posture as the wire-vocab gate's source-text pin
-  ;; (rf2-vj8y3).
+  ;; through. Same posture as the wire-vocab gate's source-text pin.
   ;;
-  ;; The substring grep uses `rf.mcp-conformance.fixtures/variant-regex` (rf2-qnmne) rather than
+  ;; The substring grep uses `rf.mcp-conformance.fixtures/variant-regex` rather than
   ;; raw `str/includes?` so a future legitimate extension like
   ;; `:dropped-sensitive-warning` or `:elided-large-summary` wouldn't
   ;; false-positive-trip the gate on the prefix match. Same pattern
@@ -223,7 +216,7 @@
               (str "Inline `" slot "` literal found in " rel
                    " (in code, AFTER stripping comments/docstrings/strings).\n"
                    "Every emit MUST go through `wire/with-indicators` "
-                   "(per Conventions:154 / Spec 009:1411). If this file "
+                   "(per Conventions §Cross-MCP indicator-field vocabulary / Spec 009 §Size elision in traces). If this file "
                    "is a legitimate exception (a destructuring binding "
                    "reading internal state, an internal state-atom name), "
                    "add it to `inline-emit-whitelist` with a justification.")))))))
