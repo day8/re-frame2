@@ -798,7 +798,7 @@ else
         cljs_node_test=true
         ;;
       implementation/core/*)
-        # rf2-8jz9t + rf2-k9ekz + rf2-t5slp — adapter_testbed_smokes
+        # adapter_testbed_smokes
         # and story_xray_browser are NOT fired here. The Playwright
         # gates exist to catch surface-specific browser bugs (adapter
         # mount lifecycle, Story variant boot, Xray panel layout) —
@@ -818,18 +818,15 @@ else
         template_expensive=true
         mcp_conformance=true
         mcp_live=true
-        # rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN re-frame2
-        # core. The bundle is no longer committed (it is generated in CI and on
+        # The docs/cljs live-cell SCI bundle BAKES IN re-frame2
+        # core. The bundle is not committed (it is generated in CI and on
         # docs deploy), so there is no committed snapshot to go stale — but the
-        # tools-playground job is now the ONLY PR-time proof that current core
-        # source still compiles into a working SCI bundle and renders live under
-        # headless Chromium. Fire it for any core change. (Before this ruling
-        # the cost trade-off ran the other way: the job was scoped out of core
-        # PRs precisely because a core change forced a bundle REBUILD + RECOMMIT,
-        # which is exactly the write lock this bead retired.)
+        # tools-playground job is the ONLY PR-time proof that current core
+        # source compiles into a working SCI bundle and renders live under
+        # headless Chromium. Fire it for any core change.
         playground=true
-        # rf2-wq17m (audit reopen of #7005) — the DEPENDENCY side of the two
-        # tools JVM lanes that PR created. Both artefacts resolve
+        # The DEPENDENCY side of the two tools JVM lanes
+        # (tools_jvm_machines_viz, tools_jvm_testbed_support). Both artefacts resolve
         # `day8/re-frame2` by :local/root onto implementation/core, and both
         # carry a suite whose subject is CORE behaviour seen from the tool:
         #   * tools/testbed-support — open_in_editor_server_test.clj verifies
@@ -840,36 +837,32 @@ else
         #     representative definitions through BOTH the viz mirror and the
         #     engine, and core is on that classpath under the mirror.
         # `tools_jvm` above does NOT reach either job: it gates
-        # jvm-tools-xray / -story / -story-mcp / -mcp-base. So a core change
-        # armed four probes that do not run these artefacts and left both of
-        # the artefacts' own lanes skipped — the same hole the PR closed on
-        # the tools side, still open on the framework side.
+        # jvm-tools-xray / -story / -story-mcp / -mcp-base. Without these
+        # arms a core change would arm four probes that do not run these
+        # artefacts and leave both of the artefacts' own lanes skipped.
         #
-        # Two booleans on already-declared :local/root edges, not a
+        # Two booleans on declared :local/root edges, not a
         # dependency-graph engine and not mark_all: every other reverse edge
         # in this file is spelled out the same way.
         tools_jvm_machines_viz=true
         tools_jvm_testbed_support=true
         tools_cljs_machines_viz=true
-        # rf2-fk5jy — the migration/from-re-frame-v1 codemod's lane, a FOURTH
-        # reverse edge of exactly the shape of the three above, and the newest.
+        # The migration/from-re-frame-v1 codemod's lane, a FOURTH
+        # reverse edge of exactly the shape of the three above.
         # That artefact's `:test` alias keeps re-frame2 off its classpath on
-        # purpose, which is why this arm did not carry the edge when the lane
-        # landed (rf2-0qzh) — the comment on the codemod's own arm still said
-        # `:paths ["src"]`, deps clojure and rewrite-clj only, and it was true.
-        # rf2-36u96 (PR #8857) then wired a SECOND step into the job,
-        # `clojure -M:integration`, and that alias declares
-        # `day8/re-frame2-core {:local/root "../../../implementation/core"}`:
+        # purpose (`:paths ["src"]`, deps clojure and rewrite-clj only), but
+        # the job's SECOND step, `clojure -M:integration`, runs an alias that
+        # declares `day8/re-frame2-core {:local/root "../../../implementation/core"}`:
         # it evaluates the codemod's emitted output against the REAL v2
         # `reg-event` contract at namespace load, with four negative controls
         # proving the harness observes registration rather than parsing. A
         # codemod whose output core REJECTS is precisely what that step exists
         # to catch — and core is the half of the pair that can change under it.
         #
-        # So between #8857 and this line the lane was armed by the codemod
-        # subtree alone: a core-only diff left it SKIPPED on exactly the commit
-        # that could break it, while the rollup read green throughout.
-        # TESTING.md's changed-surface section names that shape.
+        # Armed by the codemod subtree alone, the lane would be SKIPPED on a
+        # core-only diff — exactly the commit that could break it — while the
+        # rollup read green throughout. TESTING.md's changed-surface section
+        # names that shape.
         #
         # SCOPED to this arm and no wider. implementation/core/deps.edn puts
         # only `:paths ["src"]` and two mvn coordinates on its BASE classpath;
@@ -884,17 +877,17 @@ else
         migration_v1_codemod=true
         ;;
       implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
-        # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
-        # used to ship a paired spec.cjs but the bundle-isolation contract
+        # The examples/ tree is test-free: the bundle-isolation contract
         # at scripts/check-reagent-slim-bundle-isolation.cjs is the
-        # canonical gate; adapter_testbed_smokes is no longer fired here.
+        # canonical gate for the slim counter, so adapter_testbed_smokes is
+        # not fired here.
         implementation_jvm=true
         cljs_node_test=true
         adapter_diagnostic=true
         cljs_browser=true
         cljs_prod=true
         reagent_slim_bundle=true
-        # rf2-tzy13 — reagent-slim is the substrate baked into the docs/cljs SCI
+        # Reagent-slim is the substrate baked into the docs/cljs SCI
         # bundle (re-frame.adapter.reagent-slim + reagent2.*), so an adapter
         # source change must prove the bundle still builds + renders. Scoped to
         # the adapter source only: the examples/ counter and the bundle-isolation
@@ -912,21 +905,20 @@ else
         # manifest) but does NOT change adapter
         # or substrate source, so it fires ONLY that gate — not the full
         # adapter-source fan-out the broad implementation/adapters/* case
-        # below triggers. This mirrors the dedicated harness-script case
-        # the examples tree used before the harness moved here.
+        # below triggers.
         # (spec-helpers.cjs / examples-port.cjs / examples-staging.cjs
-        # still live under examples/scripts/ and have their own cases
+        # live under examples/scripts/ and have their own cases
         # there, since the example dev runner and the Story launchers
         # share them.)
         adapter_testbed_smokes=true
         ;;
-      # rf2-6r9j.87 — Test-React, routed by the files each lane actually
+      # Test-React, routed by the files each lane actually
       # consumes. Sits ABOVE the generic adapter arm because `case` is
       # first-match; the src/test/deps arm sits above the prose catch-all for
       # the same reason. TWO owning lanes, and only two:
       #
       #   * `jvm-adapters-test-react` — this artefact's own `clojure -M:test`,
-      #     scheduled by the `test_react_jvm` output added here.
+      #     scheduled by the `test_react_jvm` output.
       #   * the consolidated `cljs` job — Shadow's `:node-test`, whose
       #     `cljs-test$` selector discovers both `.cljc` test namespaces
       #     because implementation/shadow-cljs.edn lists this artefact's
@@ -943,15 +935,15 @@ else
       # does not need to, are the always-on jobs: `verify-version-lockstep`,
       # `check_jvm_lane_rosters.py` and `check_test_lane_bijection.py` all run
       # unconditionally in test.yml, so a deps.edn edit that added a
-      # `:clein/build` alias, or a test file that no lane reaches, is still
+      # `:clein/build` alias, or a test file that no lane reaches, is
       # caught with no surface signal involved.
       implementation/adapters/test-react/src/*|implementation/adapters/test-react/test/*|implementation/adapters/test-react/deps.edn)
         test_react_jvm=true
         case "$file" in
-          # deps.edn feeds the JVM lane only: shadow reads its own
-          # `:source-paths` from implementation/shadow-cljs.edn and its deps
-          # from implementation/deps.edn, so this file cannot change what the
-          # node lane compiles.
+          # deps.edn feeds the JVM lane only: shadow reads its
+          # `:source-paths` and `:dependencies` from
+          # implementation/shadow-cljs.edn alone, so this file cannot change
+          # what the node lane compiles.
           implementation/adapters/test-react/deps.edn) ;;
           *) cljs_node_test=true ;;
         esac
@@ -959,13 +951,13 @@ else
       implementation/adapters/test-react/*)
         # Prose and anything else at the artefact root — README.md is the case
         # that matters. No gate pins its bytes or its content, so it opens no
-        # executable lane. Its markdown links are still gated: test.yml's
+        # executable lane. Its markdown links are gated regardless: test.yml's
         # always-on `verify-readme-links` job runs
         # `scripts/check_readme_links.py --ci`, which covers READMEs beside
         # source, and the README inventory validator runs in the same job.
         ;;
       implementation/adapters/*)
-        # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
+        # The adapter-testbed-smokes gate is
         # scoped to the 2 adapter smokes at
         # implementation/adapters/<reagent|uix>/testbed/. Adapter
         # source changes are the canonical trigger; harness-script
@@ -983,39 +975,39 @@ else
         mcp_live=true
         ;;
       examples/scripts/spec-helpers.cjs)
-        # rf2-bxdk8 + rf2-cjp0i — the shared Playwright assertion matchers.
-        # The adapter-smoke harness moved to implementation/adapters/scripts/
+        # The shared Playwright assertion matchers.
+        # The adapter-smoke harness lives in implementation/adapters/scripts/
         # (its own case above), but this helper stays under examples/scripts/
         # because THREE gate families require it: the adapter smokes (their
         # testbed spec.cjs files import the matchers), the Story/Xray
         # PR-smoke tier (serve-and-run-story-play-scripts.cjs and
         # tools/xray/testbeds/feature_matrix/scenarios.cjs — the module the
         # Xray feature gate loads — both require it; the full-gate roster's
-        # is_story_full_gate_path comment above already assumed the shared
-        # helpers were armed for story_xray_browser), and the tenant-switcher
-        # smoke (testbeds/tenant_switcher/spec.cjs requires it). Before the
-        # rf2-6ng7-class fix this case armed only the first pair, so a break
-        # confined to the Story/Xray-only exports (navigate, reloadPage, …)
-        # or the tenant spec's matchers merged green and was caught only by
-        # the nightly. Fire every gate that actually loads the file.
+        # is_story_full_gate_path comment above relies on the shared
+        # helpers being armed for story_xray_browser), and the tenant-switcher
+        # smoke (testbeds/tenant_switcher/spec.cjs requires it). Arming only
+        # the first family would let a break confined to the Story/Xray-only
+        # exports (navigate, reloadPage, …) or the tenant spec's matchers
+        # merge green and be caught only by the nightly. Fire every gate that
+        # actually loads the file.
         adapter_testbed_smokes=true
         story_xray_browser=true
         tenant_switcher_smoke=true
         ;;
       examples/scripts/examples-port.cjs)
-        # rf2-y9o5e3 — the port resolver the adapter-smoke orchestrator's
+        # The port resolver the adapter-smoke orchestrator's
         # main() calls before any compile/serve; a break there false-greens
         # the adapter smoke gate. Its consumers are the adapter-smoke
         # orchestration + dev runners only (no Story/Xray/tenant edge — the
         # Story launchers use story-feature-load-port.cjs), so unlike
         # spec-helpers.cjs above it stays scoped to the smoke pair. The rest
-        # of examples/** is test-free per rf2-8cevm. (port-resolver.cjs is
+        # of examples/** is test-free. (port-resolver.cjs is
         # shared with the Story launchers and is handled in its own case
         # below so it fires BOTH gates; examples-staging.cjs likewise.)
         adapter_testbed_smokes=true
         ;;
       examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs)
-        # rf2-65ajl — the full gate's own orchestrator + runner. Their gate is
+        # The full gate's own orchestrator + runner. Their gate is
         # `story_full_gate`, armed by is_story_full_gate_path above for every
         # file in this arm, so nothing is set here.
         #
@@ -1024,33 +1016,32 @@ else
         # fall through to the generic `examples/*` case below, which arms
         # cljs_node_test + cljs_browser. Neither compiles a line of CLJS — they
         # are Node launchers — so the fall-through would put two heavy jobs on
-        # every edit to them, coverage they did not carry before and cannot use.
-        # (`examples_compile` still fires, from the first case block at the top
-        # of the loop, exactly as it did before.)
+        # every edit to them, coverage they cannot use.
+        # (`examples_compile` fires regardless, from the first case block at
+        # the top of the loop.)
         :
         ;;
       examples/scripts/serve-and-run-story-play-scripts.cjs|examples/scripts/story-feature-load-port.cjs)
-        # rf2-y9o5e3 — the Story CI-as-test launchers + their dedicated
+        # The Story CI-as-test launchers + their dedicated
         # port resolver under examples/scripts/ are the executable
         # orchestration for `npm run test:story-feature-load` and
         # `npm run test:story-play-scripts`. A break in one of these launchers
         # (compile step, server staging, port resolution, runner spawn)
         # can break the Story browser gate, so editing one must fire that
-        # gate — closing the false-green hole where the launcher could
-        # break and still avoid the gate it drives.
+        # gate — otherwise the launcher could break and still avoid the gate
+        # it drives.
         #
-        # rf2-65ajl — the arm was right about the principle and wrong about
-        # which output carries it, for two of the four files it used to list.
+        # WHICH OUTPUT carries that principle matters per file.
         # `story_xray_browser` schedules the PR-SMOKE tier, whose two steps are
         # `test:xray-feature-gate:smoke` and `test:story-play-scripts`. These
         # two files ARE on the play-script path — serve-and-run-story-play-
         # scripts.cjs is the command, story-feature-load-port.cjs is the port
         # resolver it calls — so the smoke tier really does execute them and
-        # they stay here. The other two, serve-and-run-story-feature-load-
+        # they belong here. The full-gate pair, serve-and-run-story-feature-load-
         # tests.cjs and run-story-feature-load-tests.cjs, are reachable from
         # `npm run test:story-feature-load` and from nothing else: arming the
-        # smoke tier for them scheduled a job running two commands that never
-        # load them. They now arm `story_full_gate` (is_story_full_gate_path
+        # smoke tier for them would schedule a job running two commands that
+        # never load them. They arm `story_full_gate` (is_story_full_gate_path
         # above), which schedules the step that DOES run them, and they are off
         # this arm so a full-gate-only PR does not also pay for two smoke
         # compiles it cannot affect. story-feature-load-port.cjs arms both,
@@ -1058,7 +1049,7 @@ else
         story_xray_browser=true
         ;;
       examples/scripts/port-resolver.cjs)
-        # rf2-y9o5e3 — port-resolver.cjs is the shared free-port resolver
+        # port-resolver.cjs is the shared free-port resolver
         # imported by BOTH examples-port.cjs (adapter smoke orchestrator)
         # and story-feature-load-port.cjs (Story launchers). A break here
         # affects every examples/scripts browser gate, so it fires the
@@ -1067,7 +1058,7 @@ else
         story_xray_browser=true
         ;;
       examples/scripts/examples-staging.cjs)
-        # rf2-eqjxya — false-green fix, mirroring port-resolver.cjs above.
+        # Mirrors port-resolver.cjs above.
         # examples-staging.cjs is the SHARED staging/cleaning helper (it owns
         # stageShared, cleanStageDirs, stageExample) require'd by BOTH browser
         # gate families: the adapter-smoke orchestrator
@@ -1079,7 +1070,7 @@ else
         # both under story_xray_browser — import cleanStageDirs. A regression in
         # the staging/cleaning code (e.g. cleanStageDirs or the _shared fan-out)
         # can break the files those gates serve before they run, yet a PR
-        # touching only this helper used to fall through to the generic
+        # touching only this helper would otherwise fall through to the generic
         # examples/* case below (cljs_browser only), skipping both Playwright
         # gates it underpins — a CI false-green for this slice. Fire BOTH gates,
         # exactly like the shared port-resolver.cjs case, so editing the shared
@@ -1090,9 +1081,9 @@ else
         story_xray_browser=true
         ;;
       examples/scripts/examples-asset-manifest.cjs)
-        # rf2-78th1g — false-green fix, mirroring the examples-staging.cjs
+        # Mirrors the examples-staging.cjs
         # case above. examples-asset-manifest.cjs is the SINGLE side-effect-free
-        # owner of every examples external-asset EXCEPTION (rf2-phpbo8): what
+        # owner of every examples external-asset EXCEPTION: what
         # extra static asset each departing example stages and which _shared
         # asset it may omit. The staging helper examples-staging.cjs require's
         # its `stagedAssetsByBuild` projection to decide what to STAGE before
@@ -1100,8 +1091,8 @@ else
         # browser-gate families (adapter_testbed_smokes via the adapter-smoke
         # orchestrator, story_xray_browser via the two Story launchers). So a
         # regression in the manifest data or its projection can break the files
-        # those gates serve, yet a PR touching only the manifest used to fall
-        # through to the generic examples/* case below (cljs_browser +
+        # those gates serve, yet a PR touching only the manifest would otherwise
+        # fall through to the generic examples/* case below (cljs_browser +
         # cljs_node_test), skipping both Playwright gates it underpins — a CI
         # false-green for this slice. Fire BOTH gates, exactly like the shared
         # examples-staging.cjs case, so editing the manifest runs the browser
@@ -1112,7 +1103,7 @@ else
         story_xray_browser=true
         ;;
       implementation/epoch/*)
-        # rf2-ribu5a — false-green fix. Epoch is the ONLY per-feature
+        # Epoch is the ONLY per-feature
         # artefact wired into a LIVE MCP conformance gate: the
         # re-frame2-pair live fixture
         # (skills/re-frame2-pair/tests/fixture/deps.edn) resolves
@@ -1121,15 +1112,15 @@ else
         # `live-re-frame2-pair-redaction.cjs` — the egress-protection
         # regression net for the pull-mode epoch tools (trace-window /
         # watch-epochs) that asserts a declared-sensitive epoch is
-        # WHOLE-DROPPED gate-OFF / shipped gate-ON across the MCP wire
-        # (rf2-q4o83 / rf2-5613h). That job is gated on mcp_live='true'.
+        # WHOLE-DROPPED gate-OFF / shipped gate-ON across the MCP wire.
+        # That job is gated on mcp_live='true'.
         # Folded into the generic per-feature bucket below, an
-        # `implementation/epoch/src/...` change set NEITHER mcp_live NOR
+        # `implementation/epoch/src/...` change would set NEITHER mcp_live NOR
         # mcp_conformance — so a PR that broke the epoch egress/redaction
-        # contract merged GREEN at PR time (a conformance false-green on
+        # contract would merge GREEN at PR time (a conformance false-green on
         # a DATA-LEAK guard), surfacing only in the nightly cron. Split
         # out here so epoch source changes arm the live redaction gate.
-        # All the generic per-feature gates still fire (epoch is not in
+        # All the generic per-feature gates fire too (epoch is not in
         # the scaffold, so no template_expensive; not baked into the SCI
         # bundle, so no playground).
         implementation_jvm=true
@@ -1141,14 +1132,14 @@ else
         mcp_live=true
         ;;
       implementation/ssr-node/*)
-        # rf2-n8vp — the ssr-node package's own lane, and ONE output.
+        # The ssr-node package's own lane, and ONE output.
         #
         # WHY IT SITS ABOVE ITS SIBLINGS rather than joining the per-feature arm
-        # directly below. A POSIX `case` takes the FIRST match, and today
+        # directly below. A POSIX `case` takes the FIRST match, and
         # neither `implementation/ssr/*` nor `implementation/ssr-ring/*` matches
         # a path under `implementation/ssr-node/` — the literal `/` after `ssr`
-        # sees to that, which is exactly why this package classified to NOTHING
-        # on arrival rather than to something wrong. That is a fact about two
+        # sees to that, which is why without this arm the package classifies
+        # to NOTHING rather than to something wrong. That is a fact about two
         # patterns, not a property anybody maintains: widen either to
         # `implementation/ssr*` and this tree silently joins a five-lane JVM/CLJS
         # fan-out that cannot execute a line of it. Placed first, this arm keeps
@@ -1170,8 +1161,8 @@ else
         # files a change is most likely to be in.
         ssr_node=true
         ;;
-      # rf2-qxg24 — `implementation/security/*` LEFT this arm for the src-less
-      # tier below. This arm is the PRODUCTION per-feature fan-out: every other
+      # `implementation/security/*` is NOT in this arm; it has the src-less
+      # tier below. This arm is the PRODUCTION per-feature fan-out: every
       # tree in it publishes a Maven artefact whose source rides a shipped
       # bundle, which is what earns `cljs_browser` + `cljs_prod` +
       # `bundle_isolation`. The security partition publishes nothing. Its
@@ -1179,10 +1170,10 @@ else
       # only `*-dom-cljs-test`, so the browser lane cannot observe an edit to
       # it; the production and bundle-isolation builds do not require the test
       # tree at all. Its JVM job and its consolidated `:node-test` inclusion
-      # are unchanged — those are the two lanes that DO run these tests, and
-      # the tier below sets exactly them.
+      # are the two lanes that DO run these tests, and the tier below sets
+      # exactly them.
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn)
-        # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
+        # adapter_testbed_smokes NOT fired here. Per-feature
         # artefact changes are covered by their own JVM + CLJS unit
         # suites (implementation_jvm, cljs_browser, cljs_prod) and by
         # bundle_isolation; the adapter smokes under
@@ -1190,17 +1181,18 @@ else
         # (createRoot lifecycle, hydration, real concurrent scheduling).
         # Nightly + post-merge gate runs the full matrix.
         #
-        # rf2-dxndhc — implementation/resources/* (the EP-0003
-        # day8/re-frame2-resources artefact, on the root CLJS/test
-        # classpath via implementation/deps.edn + shadow-cljs.edn) was
-        # NOT routed here before: a PR touching only resources/* left
-        # every output false, so the aggregator could pass with the
-        # jvm-resources suite + the consolidated :node-test resources
-        # surface both skipped. It is a published, src-carrying
-        # per-feature artefact exactly like schemas/ssr/…, so it gets the
-        # full per-feature treatment (implementation_jvm fires the
-        # jvm-resources job added in test.yml; cljs_node_test/cljs_browser/
-        # cljs_prod/bundle_isolation cover its CLJS surface + isolation).
+        # implementation/resources/* is the EP-0003
+        # day8/re-frame2-resources artefact: its src/ and test/ are on the
+        # consolidated CLJS build's :source-paths in shadow-cljs.edn, and
+        # implementation/deps.edn carries it for the REPL :test alias. Not
+        # routed here, a PR touching only resources/* would leave every
+        # output false, so the aggregator could pass with the jvm-resources
+        # suite + the consolidated :node-test resources surface both
+        # skipped. It is a published, src-carrying per-feature artefact
+        # exactly like schemas/ssr/…, so it gets the full per-feature
+        # treatment (implementation_jvm fires test.yml's jvm-resources job;
+        # cljs_node_test/cljs_browser/cljs_prod/bundle_isolation cover its
+        # CLJS surface + isolation).
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
