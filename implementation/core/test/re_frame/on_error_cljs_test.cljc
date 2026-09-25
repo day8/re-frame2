@@ -19,8 +19,12 @@
   ## Posture
 
   POSTURE-INDEPENDENT throughout, and that is the point of the namespace.
-  Every assertion here captures through the ALWAYS-ON `:errors` stream, never
-  the dev-only `:trace` stream, so this namespace is deliberately NOT on
+  The error-record assertions capture through the ALWAYS-ON error-listener
+  registry (`register-error-listener!`), never the dev-only `:trace` stream.
+  The one exception is the two install-atomicity deftests: they pin app-db
+  directly, and their \"no `:rf.event/db-changed`\" checks read a `:trace`
+  listener, which receives nothing under `-Dre-frame.debug=false`, so there
+  only the app-db checks bite. This namespace is deliberately NOT on
   `scripts/test-core-prod-gate.sh`'s exclusion roster and runs under
   `-Dre-frame.debug=false` as well as in the ordinary suite. It is therefore
   the production witness for the component-attribution
