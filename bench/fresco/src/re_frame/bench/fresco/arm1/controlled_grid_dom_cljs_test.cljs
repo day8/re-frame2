@@ -1,10 +1,9 @@
 (ns re-frame.bench.fresco.arm1.controlled-grid-dom-cljs-test
-  "THE 100-CELL CONTROLLED GRID, ON ARM 1 (K4, HD-019's full door —
-  rf2-2rtt6.41).
+  "THE 100-CELL CONTROLLED GRID, ON ARM 1 (K4, HD-019's full door).
 
-  rf2-2rtt6.9 witnessed two of validation.md's six `:controlled/grid-100`
-  claims, on the dogfood screen's own single field: the same-turn echo and
-  the explicit-revision reset. The other four are here, at the witness's
+  Two of validation.md's six `:controlled/grid-100` claims — the
+  same-turn echo and the explicit-revision reset — are witnessed on the
+  dogfood screen's own single field. The other four are here, at the witness's
   stated size, on the arm's own element path —
   **`:mid-string-caret`, `:selection-preserved`,
   `:ime-composition-commits-nothing`, `:unchanged-model-rejection`** and
@@ -25,9 +24,9 @@
   repo carries Reagent, so a UIx `:input` here is **not** a plain React
   controlled input: it is a port of Reagent's workaround that makes the
   element uncontrolled and drives it from a `requestAnimationFrame`
-  queue, one frame late. Two rows were once green while measuring that
-  port and reading it as React (rf2-n3dxw), which is the whole reason
-  `*use-reagent-input-enabled?*` exists to pin with.
+  queue, one frame late. A row can be green while measuring that port and
+  reading it as React, which is why this file pins
+  `*use-reagent-input-enabled?*`.
 
   **Arm 1 does not go through UIx at all**, and the first row below proves
   it rather than asserting it. `front.codec` emits `[:input …]` with
@@ -39,15 +38,14 @@
 
   ## AND THE PIN GOES BACK WHERE THE ADAPTER PUT IT
 
-  Since rf2-heqwo, `re-frame.adapter.uix` `set!`s the var to `false` at
-  LOAD, so a re-frame2 UIx app no longer runs the classpath sniff at all.
+  `re-frame.adapter.uix` `set!`s the var to `false` at LOAD, so a
+  re-frame2 UIx app does not run the classpath sniff at all.
   `cljs.test` runs every namespace in ONE shared JS runtime, so a row here
   that cleared the pin and walked away would hand the `:input` choice back
   to the bundle for every namespace scheduled after this one — a fault
   that is invisible where it is caused and reds a suite nobody is looking
-  at. This file shipped exactly that (rf2-2rtt6.41: the teardown wrote
-  `nil`) and nothing noticed, so the discipline is now enforced rather
-  than described: rows restore through [[restore-adapter-pin!]], the raw
+  at. A teardown that wrote `nil` would go unnoticed, so the discipline is
+  enforced rather than described: rows restore through [[restore-adapter-pin!]], the raw
   `nil` selector is reachable only inside [[with-uix-raw-default]]'s
   `try`/`finally`, and [[pin-is-adapters-default!]] re-reads the var after
   EVERY row in the `:each` teardown.
@@ -69,12 +67,12 @@
   React restores a selection only around a commit in which focus MOVED.
   So every write React makes lands the caret at the end.
 
-  ## The half the arm adds, and where it lives (rf2-fki5d)
+  ## The half the arm adds, and where it lives
 
   Neither shipped implementation gives both same-turn convergence and the
   caret where the edit left it: React converges in-turn and throws the
   caret to the end, UIx's port gets the caret right an animation frame
-  late. rf2-n3dxw recorded that residue and this arm closes it, in the
+  late. This arm closes that residue in the
   **element path** — `front.controlled/install!` wraps the change handler
   `front.codec` was about to emit, and at the end of that handler, still
   inside the discrete event and still ahead of React's own restore, it
@@ -89,10 +87,9 @@
   fires no change event, so a write arriving from a timer is still
   React's to converge, with React's caret.
 
-  Nothing was added to the cell, to `defview`, or to the boundary shell.
-  The grid below is the same grid, `grid.cljs` is unchanged, and HD-020's
-  ≤2-hook budget is untouched — `arm1_hook_ledger_dom_cljs_test` still
-  reads the same ledger.
+  The converge adds nothing to the cell, to `defview`, or to the boundary
+  shell: the grid below is `grid.cljs`'s ordinary grid, and HD-020's
+  ≤2-hook budget is untouched — `arm1_hook_ledger_dom_cljs_test` gates it.
 
   ## Typing is simulated the way the browser does it
 
@@ -139,7 +136,7 @@
   {:react false :uix-reagent-input true})
 
 (def adapter-default-implementation
-  "What `re-frame.adapter.uix` pins at load (rf2-heqwo), and therefore what
+  "What `re-frame.adapter.uix` pins at load, and therefore what
   every row here restores. NOT `nil`: see the ns docstring's second
   section — clearing the pin re-arms the classpath sniff for every later
   namespace in the same build."
@@ -361,14 +358,15 @@
          snapshot taken at this namespace's load, so no sibling suite's
          per-row pinning can stand in for the pin and mask its absence")
     (is (false? (uix.compiler.input/should-use-reagent-input?))
-        "and that is still the live answer here: React's own controlled
+        "and that is the live answer here: React's own controlled
          input, by the adapter's decision rather than the classpath's")
     (with-uix-raw-default
       (fn []
         (is (true? (uix.compiler.input/should-use-reagent-input?))
-            "CLEAR the pin and the bundle chooses instead — the port. This
-             is the accident rf2-heqwo removed, and it is what makes the
-             assertion above a measurement rather than a coincidence")))
+            "CLEAR the pin and the bundle chooses instead — the port. That
+             accident is what the adapter's pin prevents, and it is what
+             makes the assertion above a measurement rather than a
+             coincidence")))
     (is (false? (uix.compiler.input/should-use-reagent-input?))
         "the pin is back, because the raw probe ran inside a `finally` and
          not merely before a restore that an early return could skip")
@@ -376,8 +374,8 @@
     (is (false? (uix.compiler.input/should-use-reagent-input?)))
     (pin! :uix-reagent-input)
     (is (true? (uix.compiler.input/should-use-reagent-input?))
-        "the port stays reachable by name — the ruling made React the
-         default, not the only option")
+        "the port stays reachable by name — React is the default, not the
+         only option")
     (restore-adapter-pin!)))
 
 (deftest the-arms-input-is-reacts-own-whatever-the-selector-says
@@ -418,9 +416,7 @@
             (fn []
               (try
                 (is (= "12" (.-value u))
-                    "one animation frame later the port has converged —
-                     which is the timing rf2-n3dxw originally recorded as
-                     React's")
+                    "one animation frame later the port has converged")
                 (catch :default e
                   (is false (str "the deferred converge threw: " (ex-message e)))))
               (uix-release! ctrl)
@@ -510,7 +506,7 @@
            so a write happens — and every write React makes lands the
            caret at the end of the string. The converge puts it back
            before the event returns, by offset from the END, so the user
-           carries on typing where they were (rf2-fki5d).
+           carries on typing where they were.
 
            Measured against the same keystroke on the shipped paths:
            React alone leaves [5 5], and UIx's port reaches [3 3] one
@@ -532,11 +528,11 @@
 
 (deftest a-grouping-model-keeps-the-caret-after-the-digit-just-typed
   (testing "1,234 + \"5\" becomes 12,345 — one character longer than what
-           was typed, so every absolute offset in the string moved. This
-           row was green before the converge existed, because the edit was
-           at the END of the field and that is where React's write leaves
-           the caret anyway; it stays green for the better reason, which
-           is that the offset is taken from the end"
+           was typed, so every absolute offset in the string moved. The
+           edit is at the END of the field, which is where React's write
+           leaves the caret anyway, so this row would be green without the
+           converge too; it is green for the better reason, which is that
+           the offset is taken from the end"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -572,16 +568,16 @@
             (is (= "abcdef" (.-value n)))))))))
 
 (deftest a-range-collapses-when-the-restore-writes-this-field
-  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR (rf2-n3dxw). Arm 2
-           restored both ends of a selection by distance from the end of
-           the string. React does not: it assigns `value`, which collapses
+  (testing "RECORDED BEHAVIOUR, NOT DESIRED BEHAVIOUR. Both ends of a
+           selection can be restored by distance from the end of the
+           string. React does not: it assigns `value`, which collapses
            the selection to a cursor at the end of the new string.
 
            The converge does not reach this row and is not meant to: an
            out-of-band write fires no change event, so there is no handler
            to run at the end of. Restoring a RANGE is a second algorithm
-           besides — two offsets rather than one — and rf2-n3dxw keeps it.
-           Nothing here pretends otherwise"
+           besides — two offsets rather than one — that the converge does
+           not implement. Nothing here pretends otherwise"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -609,15 +605,14 @@
 ;; What is NOT asserted HERE, and where it is: the **value** path during
 ;; composition. Synthetic `compositionstart` / `compositionend` events do
 ;; not exercise React's composition plugin — or the browser's composition
-;; range — so the real-composition harness owns it instead (rf2-o27h3):
+;; range — so the real-composition harness owns it instead:
 ;; `bench/fresco/ime_run.cjs` drives trusted CDP composition against this
 ;; arm's element path (converge included), plain React and the port, and
-;; asserts the fence there. Its one open residue — every implementation
-;; rewrote a refused/normalised value mid-composition, destroying the
-;; exchange — was rf2-digtt, and the operator ruled the carve-out IN on
-;; 2026-08-03: this arm no longer writes during a composition, and §7
-;; below witnesses the half of that a dispatched event CAN reach. The two
-;; rows below stay: they witness the gate's two signals through React's
+;; asserts the fence there. Rewriting a refused/normalised value
+;; mid-composition would destroy the exchange, so this arm does not write
+;; during a composition, and §7 below witnesses the half of that a
+;; dispatched event CAN reach. The two rows below witness the gate's two
+;; signals through React's
 ;; keydown plumbing cheaply, on every PR, in-page — while the events they
 ;; build are exactly the synthetic kind the harness exists to go beyond,
 ;; which is why the harness, not these rows, is what establishes the
@@ -728,9 +723,9 @@
                  re-render")))))))
 
 (deftest a-refused-keystroke-is-taken-off-the-screen-inside-the-event
-  (testing "the row rf2-n3dxw was opened for, taken on the arm. Nothing
-           re-rendered — the row above counts zero body runs on this exact
-           keystroke — so the write below cannot have come from a render.
+  (testing "taken on the arm. Nothing re-renders — the row above counts
+           zero body runs on this exact keystroke — so the write below
+           cannot have come from a render.
            It is React's own controlled-state restore, and all of it lands
            before `dispatchEvent` returns"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
@@ -754,7 +749,7 @@
 
 (deftest a-refused-keystroke-mid-string-converges-with-the-caret-where-it-was
   (testing "THE ROW NEITHER SHIPPED IMPLEMENTATION GETS RIGHT, and the
-           reason rf2-fki5d exists. React removes the refused character
+           reason the converge exists. React removes the refused character
            in the same turn and throws the cursor to the end of the field
            — so a user correcting the middle of a number is dumped at the
            end of it on every keystroke the model refuses. UIx's port
@@ -910,7 +905,7 @@
   `error` event on `window`. So a `try`/`catch` around the keystroke sees
   NOTHING, and a row that relied on one would be green over a live
   exception — the browser runner's uncaught-pageerror gate would fail the
-  build (`rf2-mwx08`) while every assertion here passed. A listener is
+  build while every assertion here passed. A listener is
   what makes the throw this row's own to assert."
   [f]
   (let [!errs (atom [])
@@ -922,7 +917,7 @@
     @!errs))
 
 (deftest a-type-change-inside-the-flush-leaves-the-converge-inert
-  (testing "THE GUARD THAT HAS TO BE TAKEN TWICE (PR #7371 audit).
+  (testing "THE GUARD THAT HAS TO BE TAKEN TWICE.
 
            `front.controlled/install!` decides an element is
            caret-bearing from the props that MINT the wrapper. Step 1 of
@@ -1033,7 +1028,7 @@
               0)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7 — the composition carve-out (rf2-digtt)
+;; 7 — the composition carve-out
 ;; ---------------------------------------------------------------------------
 ;;
 ;; **What these rows can witness, and what they cannot.** A composition
@@ -1092,9 +1087,10 @@
   nil)
 
 (deftest the-events-a-composition-carries-are-verified-on-the-native-event
-  (testing "the instrument before the rows that trust it — the
-           dead-`isComposing` lesson applied to this file's own composing
-           input. A row whose event silently carried `isComposing false`
+  (testing "the instrument before the rows that trust it — the check
+           `reacts-synthetic-keyboard-event-drops-is-composing` makes,
+           applied to this file's own composing input. A row whose event
+           silently carried `isComposing false`
            would be green over a carve-out that never engaged"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM, and no InputEvent constructor")
@@ -1113,11 +1109,11 @@
              this file's")))))
 
 (deftest a-composing-keystroke-writes-nothing-and-the-refusal-lands-at-the-end
-  (testing "THE CARVE-OUT (rf2-digtt). On a refusing cell, every write
-           that used to land mid-composition is gone — the arm's converge
-           by one reading of the native event, React's own restore because
-           the value it compares against is the live draft — and the
-           refusal arrives whole at `compositionend` instead"
+  (testing "THE CARVE-OUT. On a refusing cell, no write lands
+           mid-composition — the arm's converge is suppressed by one
+           reading of the native event, React's own restore because the
+           value it compares against is the live draft — and the refusal
+           arrives whole at `compositionend` instead"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (with-grid
@@ -1138,9 +1134,8 @@
               (is (= [3 3] (caret n))
                   "and the caret is where the IME left it, untouched")
               (is (= "12" (model-value 11))
-                  "while the model refused it, exactly as it always did —
-                   the authored handler still runs and the policy still
-                   applies"))
+                  "while the model refused it — the authored handler runs
+                   and the policy applies"))
             (testing "and the next update continues the same draft"
               (compose-into! n "12しん")
               (is (= "12しん" (.-value n)))
@@ -1191,14 +1186,14 @@
             (compose-into! n "12し")
             (is (= "12" (.-value n))
                 "plain React put the refused-to value back over the live
-                 draft, in-turn — the conduct this arm now diverges from")
+                 draft, in-turn — the conduct this arm diverges from")
             (is (= "12" (model-value 11)) "the model refused, as everywhere")
             (finally
               (react-dom/flushSync (fn [] (.unmount (:root handle))))
               (restore-adapter-pin!))))))))
 
 (deftest a-composing-keystroke-on-an-agreeing-cell-changes-nothing
-  (testing "the survival law, kept: where the model takes what is composed
+  (testing "the survival law: where the model takes what is composed
            there was never a write to suppress, so the carve-out is
            invisible — the field tracks the draft and the model tracks it
            too, update by update"
@@ -1222,7 +1217,7 @@
 
 (deftest a-normalising-cell-shows-the-normalisation-at-the-commit
   (testing "the other half of the carve-out's behavioural claim: the model
-           normalises every intermediate state as it always did, and the
+           normalises every intermediate state, and the
            FIELD shows the composition until the exchange closes"
     (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
@@ -1354,11 +1349,11 @@
               "a hundred cell registrations are really standing before the
                teardown. The enclosing `grid` is a `defview` too and its
                registration is standing beside them — but its body READS
-               NOTHING, so since rf2-dabt3 it holds no reader membership
-               anywhere and the table has no record of it. That is the
-               design and not an omission: a registration is live exactly
-               while React holds its cleanup, and the arm keeps no second
-               record of liveness (rf2-ixb92 removed the last one). An
+               NOTHING, so it holds no reader membership anywhere and the
+               table has no record of it. That is the design and not an
+               omission: a registration is live exactly while React holds
+               its cleanup, and the arm keeps no second record of
+               liveness. An
                edgeless boundary retains its read-set entry and React's own
                hook cells, and nothing else of this arm's")
           (is (= (inc rf.bench.fresco.arm1.grid/cells) (:entries (rf.bench.fresco.arm1.runtime/stats)))
