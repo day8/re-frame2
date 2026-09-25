@@ -1,10 +1,10 @@
 (ns day8.re-frame2-xray.static.machines.browse-list-cljs-test
-  "CLJS render tests for the Static Machines browse-list (rf2-o5f5f.2).
+  "CLJS render tests for the Static Machines browse-list.
 
   ## What's under test
 
     1. Pip cluster — pip-cap dots inline, '>cap N live' textual count
-       beyond. Silent for zero (per rf2-g3ghh).
+       beyond. Silent for zero.
     2. Sort button label reflects the active axis.
     3. Per-row `→ Dynamic` chip dispatches the JUMP fn (verified via
        app-db side-effects).
@@ -25,9 +25,8 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` carries the
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + `:all` tier,
+  ;; which resets the trace-collector rings too); `:post-reset` carries the
   ;; suppressed-count + static-persistence + machines-localStorage slate.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
@@ -35,11 +34,9 @@
                    (static-persistence/clear!)
                    (ls/clear!))}))
 
-;; The private expand-tree / find-by-testid copies were semantically identical
-;; to `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` directly
-;; (rf2-vj80u8 — no Xray walker facade). The unused find-all-by-testid was
-;; dropped. `hiccup-seq` (depth-first nodes over the expanded tree) is not
-;; exposed by test-helpers, so it is kept as a thin wrapper over
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade. `hiccup-seq` (depth-first nodes over the expanded tree) is
+;; not exposed by test-helpers, so it is a thin wrapper over
 ;; `rf.test-helpers/expand-tree` for the string-leaf extraction below.
 (defn- hiccup-seq [tree]
   (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
@@ -185,19 +182,19 @@
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-no-results"))))))
 
 ;; -------------------------------------------------------------------------
-;; React keys ride the ATTRIBUTE MAP, never Clojure metadata (rf2-k97c.3)
+;; React keys ride the ATTRIBUTE MAP, never Clojure metadata
 ;; -------------------------------------------------------------------------
 ;;
-;; Both of this pane's seqs used to key with reader metadata — `^{:key …}`
-;; on a vector literal. Reagent reads that; Fresco's codec reads `:key`
-;; from the ATTRIBUTE MAP and reads Clojure metadata NOWHERE, so once the
-;; pane renders through a boundary the metadata spelling reaches React as
-;; nothing at all.
+;; Both of this pane's seqs key on the ATTRIBUTE MAP. Reader metadata —
+;; `^{:key …}` on a vector literal — would not do: Reagent reads it, but
+;; Fresco's codec reads `:key` from the ATTRIBUTE MAP and reads Clojure
+;; metadata NOWHERE, so under a boundary the metadata spelling reaches
+;; React as nothing at all.
 ;;
 ;; THIS ROW DOES NOT ASSERT WITH `meta`, and that is deliberate: `(meta …)`
-;; reads nil at a REPAIRED site too, because the key now lives in the
+;; reads nil at a CORRECT site too, because the key lives in the
 ;; attribute map — so a metadata assertion is hollow in BOTH directions,
-;; green on broken code and red on fixed code. It asserts the codec-readable
+;; green on broken code and red on correct code. It asserts the codec-readable
 ;; spelling instead. The other half of the evidence is the browser lane's
 ;; W5, which asserts the row key REACHES REACT by surviving a head removal;
 ;; the pip key cannot have a row like that, because its expression is
@@ -230,7 +227,7 @@
            place Fresco's codec looks for a key")
       (is (= #{":foo/alpha" ":foo/beta"}
              (set (map #(:key (second %)) fragments)))
-          "and the keys are the unchanged domain-shaped expressions
+          "and the keys are the domain-shaped expressions
            `(str machine-id)`, distinct within the seq")
 
       ;; ---- the pip seq ----
@@ -243,5 +240,4 @@
           "each pip carries `:key` in its attribute map rather than on
            reader metadata")
       (is (= [0] (mapv #(:key (second %)) pip-spans))
-          "and the key expression is unchanged — the positional index the
-           site has always used"))))
+          "and the key expression is the positional index"))))
