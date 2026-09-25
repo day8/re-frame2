@@ -31,7 +31,7 @@
 
  ;; The :derive fn is described declaratively here. The conformance
  ;; harness realises it as `(fn [w h] (* w h))`. Implementations that
- ;; have not wired flow-body realisation yet will skip the fixture
+ ;; do not wire flow-body realisation skip the fixture
  ;; (capability :flow/basic not claimed) and report not-exercised.
  :fixture/flow-bodies
  {:rectangle/area [[:fn :* [:event-arg 0] [:event-arg 1]]]}
