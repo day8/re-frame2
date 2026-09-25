@@ -179,15 +179,17 @@
 
 ;; ---- density ------------------------------------------------------------
 ;;
-;; The density radio (Compact / Cosy; Comfy is the spec's third
-;; tier, catalogued here for forward compat) writes a px value to the canonical
+;; The density setting (Compact / Cosy, written by the palette's
+;; density toggle and the host's `init!` `:density` opt; Comfy is
+;; the spec's third tier, catalogued here for forward compat) writes a
+;; px value to the canonical
 ;; `--rf-xray-font-size` CSS custom property that anchors the whole
 ;; `theme/tokens/type-scale`. Every `type-scale` entry
 ;; resolves to `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`;
 ;; flipping the var rescales every typographic surface in lockstep on
 ;; the next paint (no re-render needed). This completes the "one knob
-;; per density" loop beside the radio's other two legs: persisting the
-;; value and driving the `:rf.xray/density` sub.
+;; per density" loop beside the setting's other two legs: persisting
+;; the value and driving the `:rf.xray/density` sub.
 ;;
 ;; ## Why we write here AND `theme/global-styles/motion-css` already
 ;; publishes a default on `:root`
@@ -204,9 +206,9 @@
 
 (def density->font-size-px
   "Pure-data map from density keyword → font-size pixel value to write
-  into `--rf-xray-font-size`. The radio surfaces only `:compact`
-  and `:cosy`; `:comfy` is catalogued so surfacing the third tier
-  needs no code change here.
+  into `--rf-xray-font-size`. The palette's density toggle flips only
+  `:compact` and `:cosy`; `:comfy` is catalogued so surfacing the
+  third tier needs no code change here.
 
   - `:compact` → 12px (one step tighter than the baseline)
   - `:cosy`    → 13px (the baseline; matches
