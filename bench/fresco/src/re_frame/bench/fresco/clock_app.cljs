@@ -242,7 +242,7 @@
    :unmount  (fn [root] (.unmount root))})
 
 ;; ---------------------------------------------------------------------------
-;; THE THREE-POINT STATISTIC — DIAGNOSTIC, NON-GATING (rf2-8a746)
+;; THE THREE-POINT STATISTIC — DIAGNOSTIC, NON-GATING
 ;; ---------------------------------------------------------------------------
 
 (def ^:private ctl3-dirty
@@ -251,11 +251,11 @@
   sample rewrites every one of its cells with a value that is fresh on
   every operation.
 
-  ## IT IS NO LONGER A CONTROL, AND THE ARMS STAY (rf2-8a746)
+  ## IT IS NOT A CONTROL, AND THE ARMS STAY
 
   As a difference-of-differences CONTROL gating every bulk row these arms
-  refuse 42 of 42 bulk row-runs across two independent quiet-box
-  ensembles, so they gate nothing — not re-sited, not re-tried. The
+  would refuse 42 of 42 bulk row-runs across two independent quiet-box
+  ensembles, so they gate nothing. The
   diagnosis is arithmetic and both halves are
   independently fatal: the prediction `(2D - eps)/(D - eps)` holds only if
   `T` is affine in `d` and it is not, so the statistic's true centre sits
@@ -318,12 +318,12 @@
 
   `ctl-2x` is invariant under the second only. That is the whole repair.
 
-  ## THIS CONTROL IS REFUTED, AND BY WHAT
+  ## WHAT REFUTES IT AS A CONTROL
 
   Built as it stands — eps = 1, D = 100, 2D = 200, on the floor's own
   300-boundary page, canonical-DOM identical and not exempted from the
-  fairness gate — it REFUSES, 11 of 18 blocks inside the band, at a
-  per-block median of 1.609x against a predicted 2.0101x. The refusal is
+  fairness gate — it reads 11 of 18 blocks inside the band, at a
+  per-block median of 1.609x against a predicted 2.0101x. The miss is
   not noise: the denominator is a healthy 0.96 ms [0.84–1.42] and the
   shortfall is consistent across all three segments.
 
@@ -342,7 +342,7 @@
   three-point statistic reading 2.14x on the layout counter — so the
   workload's LAYOUT half is affine and something else is not.
 
-  WHAT IS ESTABLISHED, AND WHAT IS ONLY INFERRED (rf2-8a746). Established,
+  WHAT IS ESTABLISHED, AND WHAT IS ONLY INFERRED. Established,
   on both committed ensembles: the concave term is in the NON-LAYOUT half,
   it collapses 7.1 -> 1.8 µs per dirty cell, and it saturates below
   d = 100. That is enough to kill the control, because it is not a constant
@@ -355,8 +355,8 @@
   0..d-1 damages a region that grows with `d` only until it covers the
   viewport, and the viewport holds a few tens of rows — but these datasets
   carry Task, Script, Layout and DevTools and NO paint counter, so nothing
-  here measures paint. rf2-8a746 carries this as residual uncertainty: no
-  published row may state paint causation.
+  here measures paint. That is residual uncertainty, so no published row
+  may state paint causation.
 
   RECORDED AS A REFUTATION. The driver prints the marginal cost per dirty
   cell over each interval on every row, so the shape above is re-measured
@@ -510,7 +510,7 @@
 (defn- ctl3-arms
   "The three-point statistic's arms, and they exist on BULK ROWS ONLY.
 
-  THEY GATE NOTHING (rf2-8a746) — see [[ctl3-dirty]]. What they feed is a
+  THEY GATE NOTHING — see [[ctl3-dirty]]. What they feed is a
   printed diagnostic of the page's dirty-set shape.
 
   A mount row's operation IS the mount, so it has no standing page to
