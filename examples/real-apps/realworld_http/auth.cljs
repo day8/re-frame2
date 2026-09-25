@@ -117,21 +117,19 @@
 ;; classified reply events (`:auth/session-established` /
 ;; `:auth/session-restored` further down, plus settings.cljs's
 ;; `:settings/submit-success`) need. It is a PLAIN FUNCTION, not a second
-;; event, and that is load-bearing: the token-bearing `user` is only ever
-;; SAFE to move between handlers as an already-classified event's OWN
-;; arg-map (path-addressable, `:sensitive` reaches it). Handing it to a
-;; SECOND event via a nested `[:dispatch [:auth/store-session user]]` fx
-;; would not be — `:dispatch`'s own fx registration carries no
-;; `:sensitive`, so the classification on the event it TARGETS does not
-;; reach the DISPATCHING handler's own `:rf.fx/handled` / `:rf.event/fx`
-;; trace (a framework-projector gap, tracked separately; see the reply
-;; events' docs). So every credential-classified caller below computes this
-;; `:db` write DIRECTLY and INLINE, never by dispatching a second event with
-;; the raw token still in tow.
+;; event: every credential-classified caller below folds it into its OWN
+;; `:db` write, so the session lands in the same app-db commit as the reply
+;; that carried it, with no second event in between. The token-bearing
+;; `user` stays redacted in the caller's traces either way — it rides the
+;; caller's own `:sensitive`-classified arg-map, and a nested
+;; `[:dispatch [:auth/store-session user]]` would ride `:auth/store-session`'s
+;; `:sensitive` too, because the framework redacts a `:dispatch` fx's target
+;; event through the TARGET's own registration classification at the
+;; DISPATCHING handler's `:rf.fx/handled` / `:rf.event/fx` trace.
 (defn store-session-db
   "Public (not `defn-`) so settings.cljs's own classified reply handler
-   (`:settings/submit-success`) can call it directly too, for the identical
-   reason — its PUT /user reply also carries a fresh User+token."
+   (`:settings/submit-success`) can fold it into its own `:db` write too —
+   its PUT /user reply also carries a fresh User+token."
   [db user]
   (-> db
       (assoc-in [:auth :user] (dissoc user :token))
@@ -206,9 +204,9 @@
          missing slot is a silent no-op, so the JWT would ship RAW while the
          declaration read as protection. The handler's own `[_ user]`
          destructuring is a different coordinate system and does not move the
-         classification root. Note this event is for DIRECT/top-level dispatch
-         only — a classified caller inlines `store-session-db` instead of
-         routing through here via a nested `:dispatch` (see that fn's doc).
+         classification root. The classified reply handlers in this app
+         inline `store-session-db` rather than routing through here via a
+         nested `:dispatch` (see the comment above that fn).
          See the keep-secrets how-to:
          ../../../docs/core/how-to/keep-secrets-out-of-traces.md"
    :sensitive [[:token]]}
@@ -367,7 +365,7 @@
    ;; validated right here via [:schemas :data] instead.
    :schemas {:data app-schema/AuthFlowData}
    :guards
-   ;; `:auth/initialise` below now passes a plain boolean, not the JWT itself
+   ;; `:auth/initialise` below passes a plain boolean, not the JWT itself
    ;; — the guard only ever needed the presence/absence question, and routing
    ;; the raw token through as a positional sub-event arg would ship it raw
    ;; in the dispatched-event + machine trace slots for no reason: the
@@ -499,10 +497,8 @@
 ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 ;;
 ;; Both call `store-session-db` DIRECTLY (returning `:db` themselves) rather
-;; than dispatching `:auth/store-session` — see that helper's doc for why a
-;; nested nested `[:dispatch [:auth/store-session user]]` would leak the raw
-;; token at THIS handler's own `:rf.fx/handled` / `:rf.event/fx` trace
-;; regardless of `:auth/store-session`'s own classification.
+;; than dispatching `:auth/store-session`, so the session lands in the reply's
+;; own `:db` commit — see the comment above that helper.
 
 (rf/reg-event :auth/session-established
   {:doc       "Interactive login/register succeeded: store the session,
