@@ -25,7 +25,7 @@
   - Pairs with Xray's `#7C5CFF` violet on the color wheel as a near-
     complementary contrast (amber yellow ↔ violet purple) without
     landing on the AI-slop 'purple gradient' floor.
-  - WCAG-AA contrast preserved across every foreground/background
+  - WCAG-AA contrast holds across every foreground/background
     pairing. Amber on `#0F1115` ground
     scores ~8:1; `#1A1D24` ground ~6.5:1.
 
@@ -59,10 +59,9 @@
 
 (def tokens
   "Story's semantic colour tokens. Chrome colour resolves through here;
-  new code adds no hex literals at use-sites (some pre-palette panels
-  still carry raw hex — spec/016 §Zero-raw contract). The
-  foundation ships as inline styles without a CSS asset pipeline; a
-  v1.0 styling pass replaces these with CSS variables.
+  new code adds no hex literals at use-sites (some panels carry raw hex
+  that duplicates no token — spec/016 §Zero-raw contract). The tokens
+  ship as inline styles, with no CSS asset pipeline.
 
   ## Categories
 
@@ -81,7 +80,7 @@
   - **tag-*** — per-tag palette for the sidebar badge row.
   - **mono-*** — neutral greys for tertiary chrome.
 
-  Values picked so foreground/background pairings preserve WCAG-AA."
+  Values picked so foreground/background pairings meet WCAG-AA."
   {;; ── surfaces ──
    :bg-0           "#0B0D11"   ; deepest — outer canvas matte / behind everything
    :bg-1           "#13161D"   ; sidebar / right rail base
@@ -165,10 +164,10 @@
 ;;
 ;; Chrome colour resolves through one canonical token in this map, and
 ;; new code adds no hex literals at use-sites. The rule binds new code:
-;; some pre-palette panels and dialogs still carry raw hex that
-;; duplicates no token, and colour values that are DATA (canvas
-;; background presets, colour-control defaults) are exempt — see
-;; spec/016 §Zero-raw contract (rf2-x7h5b). Each token
+;; some panels and dialogs carry raw hex that duplicates no token, and
+;; colour values that are DATA (canvas background presets,
+;; colour-control defaults) are exempt — see spec/016 §Zero-raw
+;; contract. Each token
 ;; carries a single semantic meaning (e.g. `:bg-canvas` for the variant
 ;; render surface, `:accent-amber` for the hero accent), so call sites
 ;; name the role rather than a raw colour and the palette stays a single
