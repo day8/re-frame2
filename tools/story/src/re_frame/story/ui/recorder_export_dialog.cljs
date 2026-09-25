@@ -18,7 +18,7 @@
 
   ## UX
 
-  Opens off an `[Export as :script]` button on the existing
+  Opens off an `[Export as :script]` button on the
   recorder review dialog. The export dialog shows:
 
   - A `[Name]` text input — flows into the `:name` field of the
@@ -60,7 +60,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Dialog state — a single Reagent ratom carrying the dialog's
-;; configuration. The dialog opens off the existing recorder save-
+;; configuration. The dialog opens off the recorder save-
 ;; dialog, so it snapshots the *recorded* events + variant-id when
 ;; opened (mirrors the snapshot guard on the parent dialog — a
 ;; subsequent start-recording! cannot mutate the in-flight export).
@@ -71,7 +71,7 @@
   state` carries plus the export-specific options."
   {:open?               false
    :source-id           nil   ; the recorded variant-id (rides into :extends)
-   :events              []    ; captured events snapshot (legacy)
+   :events              []    ; captured bare-events snapshot (fallback)
    :entries             []    ; rich :entries snapshot
    :variant-id          nil   ; the new variant id (user-editable)
    :name                ""    ; optional :name field on the play-script
@@ -91,7 +91,7 @@
   "Open the export dialog. `opts`:
 
     :source-id        — the recorded variant-id (rides into `:extends`).
-    :events           — captured events snapshot (legacy bare-vectors).
+    :events           — captured events snapshot (bare event vectors).
     :entries          — rich :entries snapshot. When
                         non-empty, the translator consumes this in
                         preference to `:events` so DOM-events + per-
@@ -101,7 +101,7 @@
                         consumed by the auto-assert option.
     :seed-db          — optional app-db the recording started from; with
                         it auto-assert asserts only the paths the
-                        recording changed (rf2-3x7nj.29.2).
+                        recording changed.
 
   Idempotent — opening twice replaces the in-flight state."
   [{:keys [source-id events entries variant-id final-db seed-db]}]
@@ -141,7 +141,8 @@
   [{:keys [events entries source-id variant-id name auto-assert? final-db seed-db]}]
   ;; Prefer the rich :entries snapshot when it carries anything —
   ;; that's where DOM-events + per-event timestamps live.
-  ;; Fall back to the legacy :events vector for back-compat.
+  ;; Fall back to the bare :events vector when no rich entries were
+  ;; snapshotted.
   (let [src (if (seq entries) entries events)]
     (rf.story.recorder.play-export-events/build-export
       src
@@ -159,8 +160,8 @@
 
 (defn- run-replay!
   "Replay the just-exported `:script` as a FRESH run of the recorded
-  variant — reset to its declared start, exactly as the pasted form runs
-  (rf2-3x7nj.29.4). Updates the dialog's `:replay-status` slot so the UI
+  variant — reset to its declared start, exactly as the pasted form runs.
+  Updates the dialog's `:replay-status` slot so the UI
   can surface the outcome; the callback fires once, on the settled run,
   so anything but a pass reads FAIL."
   [{:keys [source-id]} spec]
@@ -181,7 +182,7 @@
                  :replay-failure-msg msg))))))
 
 ;; ---------------------------------------------------------------------------
-;; Styles — mirrors the existing recorder save-dialog modal aesthetic
+;; Styles — mirrors the recorder save-dialog modal aesthetic
 ;; via the shared review-dialog styling. Local additions for the
 ;; export-specific affordances (checkbox row, name input, replay
 ;; status pill).
@@ -418,7 +419,7 @@
   record) alongside `:events` so the translator emits `:click` /
   `:type` / `:wait` steps when DOM-events were captured, and the
   recording's `:seed-db` so auto-assert diffs against the recording's
-  start (rf2-3x7nj.29.2)."
+  start."
   [{:keys [events entries source-id seed-db]}]
   (when rf.story.config/enabled?
     (open-dialog!
