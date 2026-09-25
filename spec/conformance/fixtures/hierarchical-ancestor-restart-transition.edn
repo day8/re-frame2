@@ -11,10 +11,10 @@
 ;; re-descends its `:initial` chain. Net effect: A's :exit + :entry both fire
 ;; and A re-initialises.
 ;;
-;; This is the case the longest-common-PREFIX-as-LCA computation missed: the
+;; A longest-common-PREFIX-as-LCA computation would miss this case: the
 ;; ancestor target's `:initial` chain re-descends to the source, so the LCP
-;; equalled the full path and the exit AND entry sets were BOTH empty — a
-;; SILENT NO-OP. The true LCCA (computed against the target BASE, before its
+;; would equal the full path and the exit AND entry sets would BOTH be empty
+;; — a SILENT NO-OP. The true LCCA (computed against the target BASE, before its
 ;; own initial cascade) pulls the boundary up to A's parent so A restarts.
 ;;
 ;; Per [005 §Entry/exit cascading along the LCA]
@@ -26,7 +26,7 @@
 {:fixture/id           :machine/hierarchical-ancestor-restart-transition
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
- :fixture/doc          "External transition to a proper ANCESTOR A on the active path restarts A: exit A's active subtree (deepest-first, INCLUDING A) → transition action at the LCCA (A's parent) → re-enter A → re-descend A's :initial chain. The LCCA-restart geometry (rf2-emz8l); the longest-common-prefix LCA made this a silent no-op."
+ :fixture/doc          "External transition to a proper ANCESTOR A on the active path restarts A: exit A's active subtree (deepest-first, INCLUDING A) → transition action at the LCCA (A's parent) → re-enter A → re-descend A's :initial chain. The LCCA-restart geometry; a longest-common-prefix LCA would make this a silent no-op."
 
  :fixture/registry
  {:machine-action
@@ -61,7 +61,7 @@
               {:x {:entry :auth/log-enter-x
                    :exit  :auth/log-exit-x
                    :on    {:restart {:target [:p :a]      ;; vector :target — PROPER ANCESTOR
-                                     :reenter? true        ;; external (exit+re-enter) — rf2-eicq0
+                                     :reenter? true        ;; external (exit+re-enter)
                                      :action :auth/log-action}}}}}}}}}
    :snapshot     {:state [:p :a :x] :data {}}
    :event        [:restart]
