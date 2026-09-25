@@ -1,9 +1,9 @@
 (ns re-frame.story.requirements-test
   "Tests for the runner capability / requirement registry + `:cannot-run`
-  refusal + fail-closed post-run evidence-slot validation (rf2-5x1wt.16).
+  refusal + fail-closed post-run evidence-slot validation.
 
   Per `tools/story/spec/017-Testing-Story.md` §Runner model + §Runner
-  requirements + §`:cannot-run` and `ai/findings/NewTestStory` §B4. Every
+  requirements + §`:cannot-run`. Every
   fn under test is PURE data → data, so the whole suite runs under
   `clojure -M:test` with no host: capability sets in, selection / refusal /
   validation maps out."
@@ -20,7 +20,7 @@
   (testing "the cost-ordered runners form a superset chain for ordered tokens"
     (is (= [:headless :hiccup :cljs-reactive :dom :browser]
            (mapv :runner rf.story.requirements/concrete-runners))
-        "cheapest → richest; :cljs-reactive sits between :hiccup and :dom (rf2-5x1wt.30)")
+        "cheapest → richest; :cljs-reactive sits between :hiccup and :dom")
     ;; headless ⊂ hiccup ⊂ cljs-reactive ⊂ dom ⊂ browser
     (is (every? (rf.story.requirements/runner-provides :hiccup)        (rf.story.requirements/runner-provides :headless)))
     (is (every? (rf.story.requirements/runner-provides :cljs-reactive) (rf.story.requirements/runner-provides :hiccup)))
@@ -33,7 +33,7 @@
     (is (contains? (rf.story.requirements/runner-provides :browser)       :pixels))
     (is (contains? (rf.story.requirements/runner-provides :browser)       :a11y-engine)))
 
-  (testing ":reactive-counts is advertised by :cljs-reactive (and the richer rungs) — rf2-5x1wt.30"
+  (testing ":reactive-counts is advertised by :cljs-reactive (and the richer rungs)"
     (is (= :reactive-counts rf.story.requirements/reactive-counts-token))
     (is (not (contains? (rf.story.requirements/runner-provides :headless) :reactive-counts)))
     (is (not (contains? (rf.story.requirements/runner-provides :hiccup)   :reactive-counts))
@@ -72,13 +72,13 @@
           ":headless cannot prove hiccup structure"))))
 
 (deftest browser-tier-assertion-tokens
-  (testing "the browser-tier oracle assertions declare their capability tokens (rf2-5x1wt.28)"
+  (testing "the browser-tier oracle assertions declare their capability tokens"
     ;; visual snapshot + axe-a11y are browser-only
     (is (= #{:pixels}      (rf.story.requirements/assertion-tokens [:rf.assert/visual-snapshot])))
     (is (= #{:a11y-engine} (rf.story.requirements/assertion-tokens [:rf.assert/a11y])))
     (is (= :browser (rf.story.requirements/cheapest-runner #{:pixels})))
     (is (= :browser (rf.story.requirements/cheapest-runner #{:a11y-engine})))
-    ;; structural a11y is the :hiccup rung — the NET-NEW id (rf2-5x1wt.28)
+    ;; structural a11y is the :hiccup rung
     (is (= #{:hiccup-structure} (rf.story.requirements/assertion-tokens [:rf.assert/a11y-structural])))
     (is (= :hiccup (rf.story.requirements/cheapest-runner #{:hiccup-structure}))
         "structural a11y rides :hiccup, NOT :browser")
@@ -137,18 +137,18 @@
         "a [:assert visual-snapshot] checkpoint requires :pixels")))
 
 (deftest reactive-count-assertions-run-under-cljs-reactive
-  (testing "reactive-count assertions require :reactive-counts — proven by :cljs-reactive (rf2-5x1wt.30)"
+  (testing "reactive-count assertions require :reactive-counts — proven by :cljs-reactive"
     (is (= #{:reactive-counts} (rf.story.requirements/assertion-tokens [:rf.assert/caused])))
     (is (= #{:reactive-counts}
            (rf.story.requirements/assertion-tokens [:rf.assert/no-cascade-rerender])))
-    ;; :cljs-reactive is now the cheapest runner that satisfies it (the
+    ;; :cljs-reactive is the cheapest runner that satisfies it (the
     ;; projection over the :rf.sub/run / :rf.view/rendered rows).
     (is (= :cljs-reactive (rf.story.requirements/cheapest-runner #{:reactive-counts})))
     (let [sel (rf.story.requirements/select-runner #{:reactive-counts} {:mode :auto})]
       (is (= :ok (:status sel)))
       (is (= :cljs-reactive (:runner sel)))
       (is (empty? (:unmet sel))))
-    ;; under :headless / :hiccup the reactive-count assertions still refuse.
+    ;; under :headless / :hiccup the reactive-count assertions refuse.
     (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :headless) #{:reactive-counts})))
     (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :hiccup)   #{:reactive-counts})))
     (let [unmet (rf.story.requirements/unmet-assertions :headless [[:rf.assert/caused]
@@ -284,7 +284,7 @@
   (testing "a required :reactive-counts proof fails closed when the tape carried no reactive rows"
     ;; :cljs-reactive CLAIMS :reactive-counts (preflight), but if the run's
     ;; tape produced no sub-run / render rows the slot is absent → the
-    ;; post-run check refuses :cannot-run, never a silent pass (rf2-5x1wt.30).
+    ;; post-run check refuses :cannot-run, never a silent pass.
     (let [ev (rf.story.play.evidence/project-evidence [{:epoch-id 1 :outcome :ok
                                           :effects [{:fx-id :db :outcome :ok}]}])]
       (is (not (rf.story.requirements/evidence-slot-satisfied? #{:reactive-counts} ev))
@@ -307,7 +307,7 @@
           "evidence present → no refusal; the assertion's own verdict stands"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-qoxw7 — empty :trace / :renders is NOT no-proof. The trace stream is
+;; Empty :trace / :renders is NOT no-proof. The trace stream is
 ;; always-on and its :warnings projection is empty precisely when a
 ;; :no-warnings / :dispatched? assertion is HEALTHY; :renders is empty when a
 ;; DOM/structural assertion legitimately asserts ABSENCE. Keying a post-run
@@ -317,7 +317,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trace-token-imposes-no-evidence-slot
-  (testing ":trace is NOT in the token->evidence-slots presence map (rf2-qoxw7)"
+  (testing ":trace is NOT in the token->evidence-slots presence map"
     ;; :trace has no faithful presence slot — :warnings / :schema-violations
     ;; are FILTERED projections, not the whole always-on trace stream.
     (is (nil? (get rf.story.requirements/token->evidence-slots :trace))
@@ -331,7 +331,7 @@
     (is (= #{:app-db :trace}  (rf.story.requirements/assertion-tokens [:rf.assert/dispatched? [:e]])))))
 
 (deftest no-warnings-on-clean-tape-is-not-cannot-run
-  (testing ":rf.assert/no-warnings on a clean (empty-:warnings) tape does NOT false-:cannot-run (rf2-qoxw7)"
+  (testing ":rf.assert/no-warnings on a clean (empty-:warnings) tape does NOT false-:cannot-run"
     ;; A clean headless run: one committed epoch, no warning trace events.
     (let [tape [{:epoch-id 1 :outcome :ok :trace-events []}]
           ev   (rf.story.play.evidence/project-evidence tape)]
@@ -344,10 +344,10 @@
           "no false :required-evidence-missing — the assertion's own verdict (PASS) stands"))))
 
 (deftest dispatched-on-warning-free-tape-is-not-cannot-run
-  (testing ":rf.assert/dispatched? on a warning-free tape does NOT false-:cannot-run (rf2-qoxw7)"
+  (testing ":rf.assert/dispatched? on a warning-free tape does NOT false-:cannot-run"
     ;; An event was dispatched (one epoch committed) but emitted no warning —
     ;; :dispatched? proves against trace DISPATCH rows, not :warnings, so the
-    ;; empty :warnings slot is the wrong (and now removed) gate.
+    ;; empty :warnings slot would be the wrong gate.
     (let [tape [{:epoch-id 1 :outcome :ok
                  :trigger-event [:counter/inc]
                  :trace-events  [{:operation :rf.event/dispatch :op-type :info}]}]
@@ -359,7 +359,7 @@
           "no false refusal — the :app-db + :trace tokens impose no presence gate"))))
 
 (deftest dom-absence-assertion-is-not-cannot-run-on-empty-renders
-  (testing "a :dom assertion on a tape with no render rows does NOT false-:cannot-run (rf2-qoxw7)"
+  (testing "a :dom assertion on a tape with no render rows does NOT false-:cannot-run"
     ;; :rf.assert/dom-hidden legitimately PASSES when an element is absent /
     ;; the tree committed no render row; :renders is the wrong presence gate.
     (let [ev (rf.story.play.evidence/project-evidence [{:epoch-id 1 :outcome :ok :renders []}])]
@@ -370,9 +370,9 @@
           "no false :required-evidence-missing for an absence assertion"))))
 
 (deftest validate-run-evidence-clean-trace-tape-is-ok
-  (testing "run-level validation of :no-warnings + :dispatched? on a clean tape is :ok (rf2-qoxw7)"
-    ;; The regression the bead pins: before the fix, validate-run-evidence
-    ;; would return :cannot-run for this normal passing plan once wired in.
+  (testing "run-level validation of :no-warnings + :dispatched? on a clean tape is :ok"
+    ;; A presence gate on empty :warnings would make validate-run-evidence
+    ;; return :cannot-run for this normal passing plan.
     (let [ev (rf.story.play.evidence/project-evidence [{:epoch-id 1 :outcome :ok :trace-events []}])]
       (is (= :ok (:status (rf.story.requirements/validate-run-evidence
                             [[:rf.assert/no-warnings]
@@ -428,7 +428,7 @@
     (is (= {:mode :fixed :runner :headless :frame-binding :fresh :platform :client}
            (rf.story.requirements/normalize-run-opts {:runner :bogus}))))
 
-  (testing ":cljs-reactive is now a valid fixed runner (rf2-5x1wt.30)"
+  (testing ":cljs-reactive is a valid fixed runner"
     (is (= :cljs-reactive (:runner (rf.story.requirements/normalize-run-opts {:runner :cljs-reactive})))
         ":cljs-reactive proves :reactive-counts → it is a P1 selection target")
     (is (= :fixed (:mode (rf.story.requirements/normalize-run-opts {:runner :cljs-reactive}))))))
