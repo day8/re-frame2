@@ -1,6 +1,6 @@
 (ns re-frame.story.play.runner-events-cljs-test
   "Integration tests for the rich-DSL play runner against a live
-  re-frame frame (rf2-8i2a9).
+  re-frame frame.
 
   Most tests live under a JVM `#?(:clj ...)` reader gate because
   `re-frame.story.async/deref-blocking` is JVM-only. CLJS tests of
@@ -14,7 +14,7 @@
   - The runner's pure state machine (via `runner-test`).
   - The chip + banner label helpers (via `play-status-cljs-test`).
   - The dispatch→assertion outcome-matching bridge (`failed-since` +
-    `dispatch-step-result`, exercised directly below — rf2-uhq5j)."
+    `dispatch-step-result`, exercised directly below)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.core              :as rf]
@@ -24,7 +24,7 @@
             [re-frame.story.loaders     :as rf.story.loaders]
             [re-frame.story.play        :as rf.story.play]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
-            ;; rf2-rkd14 — the EXACT narrative attribution tests read a live
+            ;; The EXACT narrative attribution tests read a live
             ;; epoch tape via `rf/epoch-history`; requiring the epoch artefact
             ;; installs its late-bind capture hooks so the tape is real (it
             ;; degrades to `[]` without the dep, mirroring artifact-test). The
@@ -38,7 +38,7 @@
             ;; blocks a thread) and `rf.story.config/set-global-args!` is only
             ;; needed by the JVM `reset-all` lineage — the integration
             ;; tests below that use them are themselves JVM-gated. The
-            ;; rf2-rkd14 EXACT-attribution tests are likewise `:clj`-gated, so
+            ;; EXACT-attribution tests are likewise `:clj`-gated, so
             ;; their `evidence` / `fingerprint` deps ride this block too.
             #?@(:clj [[re-frame.story.async  :as rf.story.async]
                       [re-frame.story.config :as rf.story.config]
@@ -49,13 +49,13 @@
 ;;
 ;; `failed-since` + `dispatch-step-result` (runner_events.cljc) turn a
 ;; handler-recorded `:rf.assert/*` failure into a runner `step-fail` so
-;; the play's terminal status flips. Before rf2-uhq5j these were hit only
-;; transitively via the heavy JVM `run-blocking` integration tests below;
+;; the play's terminal status flips. The heavy JVM `run-blocking`
+;; integration tests below reach them only transitively;
 ;; this section drives them directly on BOTH runtimes by seeding a known
 ;; `:rf.story/assertions` vector on a live frame, then asserting the
 ;; step-fail / step-skip shape + `:message`/`:expected`/`:actual`
 ;; projection. Both fns are private — reached via var-quote (the
-;; established Story-test seam pattern, e.g. play/listener-for-frame).
+;; Story-test seam pattern, e.g. play/listener-for-frame).
 
 (def ^:private failed-since        @#'rf.story.play.runner-events/failed-since)
 (def ^:private dispatch-step-result @#'rf.story.play.runner-events/dispatch-step-result)
@@ -72,8 +72,8 @@
   (count (:rf.story/assertions (rf/app-db-value bridge-frame))))
 
 (defn- bridge-reset!
-  "Single namespace fixture (rf2-uhq5j unified the prior JVM-only
-  `reset-all`). Resets every Story side-table + the re-frame frame
+  "Single namespace fixture, shared by both runtimes. Resets every
+  Story side-table + the re-frame frame
   registry, reinstalls the canonical vocabulary, and registers the
   bridge test frame + its `::seed` event. Runs on both runtimes; the
   JVM-only `:reload` of machines + `rf.story.config/set-global-args!` are gated."
@@ -81,7 +81,7 @@
   (rf.story/clear-all!)
   (registrar/clear-all!)
   (reset! rf.frame/frames {})
-  ;; rf2-rkd14 — clear the epoch ring + listeners so each EXACT-attribution
+  ;; Clear the epoch ring + listeners so each EXACT-attribution
   ;; test reads only its own freshly-captured tape.
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
@@ -93,7 +93,7 @@
   #?(:clj (rf.story.config/set-global-args! {}))
   (reset! rf.story.play/stepper-state {})
   (reset! rf.story.play.runner-events/run-state {})
-  ;; rf2-vkdam — reset the per-dispatch-step settle boundaries so a test
+  ;; Reset the per-dispatch-step settle boundaries so a test
   ;; observes only its own run's boundaries, not a prior test's accumulation.
   (reset! rf.story.play.runner-events/step-boundaries {})
   (rf.story/install-canonical-vocabulary!)
@@ -179,7 +179,7 @@
         (is (= 1 (:idx out)))
         (is (= step (:step out)))))))
 
-;; ---- CLJS+JVM: terminal assertions auto-run (rf2-nyjoa) -----------------
+;; ---- CLJS+JVM: terminal assertions auto-run -----------------------------
 ;;
 ;; `run-terminal-assertions!` is the lifecycle entry the runtime calls after
 ;; the script phase settles. It reuses the ONE in-script executor
@@ -216,7 +216,7 @@
             dispatched by run-terminal-assertions! — it carries no
             reg-event handler; the result boundary owns its verdict
             against the tape, so no handler-backed record is minted here
-            (rf2-nyjoa critical guard against double-processing)"
+            (the critical guard against double-processing)"
     (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
     (rf.story.play.runner-events/run-terminal-assertions!
@@ -241,44 +241,42 @@
 
 ;; ---- CLJS-runnable: pure-data coverage of the script lift ---------------
 ;;
-;; (rf2-uhq5j) the former `bare-event-vector-lift-via-coerce` test here
-;; was removed: it duplicated the pure `coerce-script` / `parse-spec`
-;; contract already asserted in `runner-test`
+;; The bare-event-vector lift is the pure `coerce-script` / `parse-spec`
+;; contract, asserted in `runner-test`
 ;; (coerce-script-lifts-bare-event-vectors + parse-spec-lifts-bare-
-;; vectors-inside-map). The wrong-layer copy added no signal.
+;; vectors-inside-map) — its own layer, so it is not repeated here.
 
-;; ---- CLJS+JVM: every run-loop! exit path settles done-cb (rf2-9x5fm) -----
+;; ---- CLJS+JVM: every run-loop! exit path settles done-cb -----------------
 ;;
-;; The run loop has TWO silent-abort branches that previously returned `nil`
-;; WITHOUT invoking `done-cb`:
+;; The run loop has TWO abort branches:
 ;;
 ;;   1. `(nil? state)` — the frame was torn down mid-run (run-state entry
 ;;      gone). Reachable on CLJS when a hot-reload reset / teardown clears the
 ;;      run-state during an async `:wait` yield.
-;;   2. token mismatch (rf2-ftow6) — a concurrent `run!` took over the
+;;   2. token mismatch — a concurrent `run!` took over the
 ;;      run-state slot, stamping a fresher `:run-token`.
 ;;
-;; When either fired, `done-cb` was never called, so the awaiting continuation
-;; (`runtime/run-phase-4!`'s `step!`) never resolved the play-promise, and the
-;; outer `run-variant` promise hung forever (it chains only `then`, no `catch`
-;; / timeout). The fix routes both branches through `settle-abort!`, which
-;; ALWAYS settles `done-cb` (with the last-known/aborted state) WITHOUT
-;; mutating the shared run-state slot — so the stale loop releases its
-;; continuation but never clobbers a newer run's state.
+;; Both route through `settle-abort!`, which ALWAYS settles `done-cb` (with
+;; the last-known/aborted state) WITHOUT mutating the shared run-state slot —
+;; so the stale loop releases its continuation but never clobbers a newer
+;; run's state. A branch that returned `nil` without invoking `done-cb` would
+;; leave the awaiting continuation (`runtime/run-phase-4!`'s `step!`) never
+;; resolving the play-promise, and the outer `run-variant` promise would hang
+;; forever (it chains only `then`, no `catch` / timeout).
 ;;
-;; These drive `run-loop!` directly (private, var-quoted — the established
+;; These drive `run-loop!` directly (private, var-quoted — the
 ;; Story-test seam). Both abort branches are the FIRST `cond` clauses and
 ;; return synchronously (no `setTimeout` yield), so the test is deterministic
 ;; on both runtimes: it asserts `done-cb` fired, which is the exact fact a hang
-;; violates. Runs under `npm run test:cljs` — the CLJS runtime where the hang
-;; was reachable.
+;; violates. Runs under `npm run test:cljs` — the CLJS runtime where a hang
+;; is reachable.
 
 (def ^:private run-loop!    @#'rf.story.play.runner-events/run-loop!)
 (def ^:private set-state!   @#'rf.story.play.runner-events/set-state!)
 (def ^:private settle-abort! @#'rf.story.play.runner-events/settle-abort!)
 
 (deftest run-loop-aborts-on-missing-state-still-settles-done-cb
-  (testing "rf2-9x5fm — the `(nil? state)` abort branch (frame torn down
+  (testing "the `(nil? state)` abort branch (frame torn down
             mid-run) STILL invokes done-cb so the awaiting continuation
             resolves rather than hanging the play-promise forever"
     (let [frame-id :story.abort/torn-down
@@ -298,8 +296,8 @@
            when the slot is gone"))))
 
 (deftest run-loop-aborts-on-token-mismatch-still-settles-done-cb
-  (testing "rf2-9x5fm — the token-mismatch abort branch (a newer run! took
-            over the slot, rf2-ftow6) STILL invokes the STALE loop's done-cb
+  (testing "the token-mismatch abort branch (a newer run! took
+            over the slot) STILL invokes the STALE loop's done-cb
             so its continuation resolves; it does NOT clobber the newer run's
             run-state (no finish! / update-state!)"
     (let [frame-id :story.abort/token-swap
@@ -326,26 +324,26 @@
              stale abort (finish! would have set :pass/:fail/:cannot-run)")))))
 
 (deftest settle-abort-tolerates-nil-done-cb
-  (testing "rf2-9x5fm — settle-abort! is a clean no-op when done-cb is nil
+  (testing "settle-abort! is a clean no-op when done-cb is nil
             (a run! called with no completion hook) and never throws"
     (is (nil? (settle-abort! :story.abort/no-cb nil nil))
         "no done-cb → settle-abort! returns nil without throwing")))
 
-;; ---- JVM-only: many :wait steps do not grow the call stack (rf2-epqsvh) --
+;; ---- JVM-only: many :wait steps do not grow the call stack ---------------
 ;;
-;; On the JVM the `:wait` branch used to call `(schedule! ms #(run-loop! …))`,
-;; and `schedule!` did `(Thread/sleep ms)(f)` — a NESTED run-loop! call, not a
-;; `recur`. Every wait added a run-loop! frame, so a script with many
-;; `[:wait ms]` steps risked StackOverflowError and blocked the caller for the
-;; summed waits. The fix folds the JVM wait inline (`Thread/sleep` + `recur`)
-;; so the loop stays tail-position; CLJS keeps async `setTimeout` scheduling.
-;; This drives `run-loop!` directly (the established var-quoted seam) with a
-;; high wait-count and ms 0 — the nested path would deepen the stack past
-;; overflow well before completing; the recur path settles flat + fast.
+;; On the JVM the `:wait` branch folds the wait inline (`Thread/sleep` +
+;; `recur`) so the loop stays in tail position; CLJS schedules asynchronously
+;; with `setTimeout`. A wait that called `(schedule! ms #(run-loop! …))`
+;; would NEST a run-loop! call per wait rather than `recur`, so a script with
+;; many `[:wait ms]` steps would risk StackOverflowError and block the caller
+;; for the summed waits. This drives `run-loop!` directly (the var-quoted
+;; seam) with a high wait-count and ms 0 — a nested path would deepen the
+;; stack past overflow well before completing; the recur path settles flat +
+;; fast.
 
 #?(:clj
    (deftest jvm-many-wait-steps-do-not-grow-the-stack
-     (testing "rf2-epqsvh — a JVM run of MANY [:wait 0] steps completes
+     (testing "a JVM run of MANY [:wait 0] steps completes
                through the loop (done-cb fires, every step consumed, terminal
                :pass) WITHOUT StackOverflowError — the wait recurs in tail
                position instead of nesting a schedule! frame per wait"
@@ -366,8 +364,7 @@
 
 ;; ---- JVM-only: integration tests against a live re-frame frame ----------
 ;;
-;; These reuse the namespace-wide `bridge-reset!` fixture above (which
-;; unified the prior JVM-only `reset-all`).
+;; These use the namespace-wide `bridge-reset!` fixture above.
 
 #?(:clj
    (defn- run-blocking
@@ -407,9 +404,9 @@
            (is (= [:hit :hit] @seen))
            (is (= 2 (count (:results final)))))))))
 
-;; ---- rf2-l2cn5d (EP-0017): captured :rf.cofx replays into the handler ----
+;; ---- EP-0017: captured :rf.cofx replays into the handler -----------------
 ;;
-;; The headline acceptance criterion — a replayed `[:dispatch evec {:rf.cofx …}]`
+;; The headline contract — a replayed `[:dispatch evec {:rf.cofx …}]`
 ;; / `[:dispatch-sync evec {:rf.cofx …}]` step re-presents the RECORDED
 ;; recordable coeffects (a PROVIDED fact + the framework `:rf/time-ms`) to the
 ;; handler, rather than restamping `:rf/time-ms` or failing
@@ -479,8 +476,8 @@
          {:rf.cofx/requires [:rf2-l2cn5d.token/v]}
          (fn [{:keys [db] tok :rf2-l2cn5d.token/v} _]
            {:db (assoc db :tok tok)}))
-       ;; The bare 2-element step (no envelope) — the pre-fix recorder
-       ;; behaviour. The provided fact is absent → the step must fail.
+       ;; The bare 2-element step (no envelope). The provided fact is
+       ;; absent → the step must fail.
        (rf.story/reg-variant :story.runner/cofx-missing
          {:setup []
           :script {:auto-run? false
@@ -492,8 +489,8 @@
 
 #?(:clj
    (deftest assert-db-equals-pass-and-fail
-     (testing ":assert-db pass / fail outcomes against frame app-db. Per
-              rf2-5x1wt.19 the runtime consumes the folded plan: a shipping
+     (testing ":assert-db pass / fail outcomes against frame app-db. The
+              runtime consumes the folded plan: a shipping
               :assert-db step is rewritten to the canonical
               [:assert [:rf.assert/path-equals …]] checkpoint, so the
               recorded step type is :assert."
@@ -509,7 +506,7 @@
        (let [final (run-blocking :story.runner/assert-db)]
          (is (= :fail (:status final)))
          (is (= 1 (:failures final)))
-         ;; rf2-5x1wt.19 — folded :assert-db steps run as :assert checkpoints.
+         ;; Folded :assert-db steps run as :assert checkpoints.
          (let [assert-results (filterv #(= :assert (:type %)) (:results final))]
            (is (= 2 (count assert-results)))
            (is (true?  (:passed? (nth assert-results 0))))
@@ -523,18 +520,18 @@
            (is (= :wrong  (:expected (nth pe 1))))
            (is (= :loaded (:actual   (nth pe 1)))))))))
 
-;; ---- rf2-ee38b.3 / rf2-5x1wt.19: folded assert outcomes reach the slot ---
+;; ---- folded assert outcomes reach the slot ------------------------------
 ;;
-;; Before rf2-ee38b.3 a failing `:assert-db` / `:assert-dom` step landed
-;; ONLY in run-state; the `:rf.story/assertions` app-db slot stayed empty
-;; so `run-variant`'s :assertions slot, `assertions-passing?`, the test
-;; pane, the inline strip, and the Xray panel all read FALSE-GREEN.
+;; A failing `:assert-db` / `:assert-dom` step must reach the
+;; `:rf.story/assertions` app-db slot, not ONLY run-state: an empty slot
+;; would make `run-variant`'s :assertions slot, `assertions-passing?`, the
+;; test pane, the inline strip, and the Xray panel all read FALSE-GREEN.
 ;;
-;; rf2-5x1wt.19 — the runtime now consumes the `.18`-folded plan: a shipping
+;; The runtime consumes the folded plan: a shipping
 ;; `:assert-db` step is rewritten to the canonical `[:assert
 ;; [:rf.assert/path-equals …]]` checkpoint, whose reg-event handler
 ;; records the CANONICAL `:rf.assert/path-equals` record on the slot. There
-;; is no longer a synthetic `:rf.assert/db` / `:rf.assert/dom` rail — one
+;; is no synthetic `:rf.assert/db` / `:rf.assert/dom` rail — one
 ;; assertion-record vocabulary.
 
 #?(:clj
@@ -586,7 +583,7 @@
      (testing "the run-variant result map's :assertions slot carries the
               folded failure as a canonical :rf.assert/path-equals record —
               the cljs.test adapter path (assertions-passing? on the result)
-              is no longer false-green; and the unified :status is :fail"
+              is not false-green; and the unified :status is :fail"
        (rf/reg-event :rt/set-status
          (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (rf.story/reg-variant :story.bridge/result
@@ -596,7 +593,7 @@
        (let [result (rf.story.async/deref-blocking
                       (rf.story/run-variant :story.bridge/result) 5000)]
          (is (= :fail (:status result))
-             "the unified run-result :status is :fail (rf2-5x1wt.19)")
+             "the unified run-result :status is :fail")
          (is (some (fn [r] (and (= :rf.assert/path-equals (:assertion r))
                                 (false? (:passed? r))))
                    (:assertions result))
@@ -604,7 +601,7 @@
          (is (false? (rf.story/assertions-passing? result))
              "assertions-passing? on the result map flips to false")))))
 
-;; ---- rf2-rkd14: EXACT narrative attribution on the LIVE run path ---------
+;; ---- EXACT narrative attribution on the LIVE run path --------------------
 ;;
 ;; The runtime records each dispatch step's settle boundary
 ;; (`runner-events/step-boundaries`) and `record-result-map` feeds it to
@@ -619,7 +616,7 @@
    (deftest run-variant-narrative-exact-attribution-of-redispatch-fanout
      (testing "the unified result's :narrative attributes a re-dispatching
               step's fan-out to THAT step's span — EXACT, not the EVEN
-              partition that mis-groups it (rf2-rkd14, live run path)"
+              partition that mis-groups it (live run path)"
        (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
        ;; :rkd/c re-dispatches :rkd/d, so step 1 settles to 2 epochs.
        (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
@@ -650,8 +647,8 @@
              "step 0's span holds ONLY its own leaf epoch")
          (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch-sync [:rkd/c]]))
              "step 1's span holds its dispatch AND its re-dispatch — EXACT")
-         ;; RED-before pin: the EVEN partition (5 script-attributable epochs
-         ;; split [3 2] front-loaded, or any forward split) front-loads
+         ;; Contrast pin: the EVEN partition (5 script-attributable epochs
+         ;; split [3 2] front-loaded, or any forward split) would front-load
          ;; :rkd/c onto step 0; EXACT keeps :rkd/c under step 1.
          (is (not= [[:rkd/a] [:rkd/c]] (get by [:dispatch-sync [:rkd/a]]))
              "step 0 does NOT swallow step 1's epoch (the EVEN mis-grouping)")
@@ -666,7 +663,7 @@
      (testing "the :rf.story/script-idx stamp is stripped by the determinism
               projection — the EXACT-attributed result's run-hash equals its
               narrative-free baseline, and the :epoch-tape slot stays raw
-              (rf2-rkd14 determinism guard)"
+              (the determinism guard)"
        (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
        (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
        (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
@@ -683,28 +680,28 @@
                 (rf.story.fingerprint/run-hash (dissoc result :narrative)))
              "dropping the stamped :narrative does not change the run-hash")))))
 
-;; ---- rf2-76l69l: multi-play auto-run attribution spans EVERY play --------
+;; ---- multi-play auto-run attribution spans EVERY play --------------------
 ;;
 ;; The unified result's :narrative spans the CONCATENATED auto-run play
 ;; scripts. The per-play settle boundaries MUST accumulate across the whole
 ;; sequence — the sequencer clears once up front and each play APPENDS its
 ;; absolute boundaries (the append-only epoch tape is never reset between
-;; plays). Before the fix every `run!` cleared the boundaries on entry, so
-;; after two+ auto-run plays only the LAST play's boundaries survived; the
-;; concatenated-script narrative then mis-attributed later-play effects to
-;; earlier-play steps while earlier effects appeared as unattributed setup —
-;; a green run with false provenance.
+;; plays). If every `run!` cleared the boundaries on entry, only the LAST
+;; play's boundaries would survive two+ auto-run plays; the
+;; concatenated-script narrative would then mis-attribute later-play effects
+;; to earlier-play steps while earlier effects appeared as unattributed
+;; setup — a green run with false provenance.
 
 #?(:clj
    (deftest run-variant-multi-play-narrative-attributes-every-play-step
      (testing "two :auto-run? plays (the second re-dispatching) attribute each
               epoch beat to its OWN step across the concatenated script —
               earlier-play effects are NOT lost to setup, later-play effects
-              are NOT mis-credited to earlier steps (rf2-76l69l)"
+              are NOT mis-credited to earlier steps"
        (rf/reg-event :ml/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
        (rf/reg-event :ml/b (fn [{:keys [db]} _] {:db (assoc db :b true)}))
        ;; :ml/c re-dispatches :ml/d, so the second play's second step settles
-       ;; to two epochs — the discriminating re-dispatch the bead calls for.
+       ;; to two epochs — the discriminating re-dispatch.
        (rf/reg-event :ml/c (fn [_ _] {:fx [[:dispatch [:ml/d]]]}))
        (rf/reg-event :ml/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (rf.story/reg-variant :story.ml/two-plays
@@ -729,10 +726,11 @@
          ;; …and beta's re-dispatching step owns its dispatch AND its fan-out.
          (is (= [[:ml/c] [:ml/d]] (get by [:dispatch-sync [:ml/c]]))
              "play beta's step owns its dispatch AND its re-dispatch — EXACT")
-         ;; RED-before pin: per-play clearing kept only beta's single boundary,
-         ;; which the concatenated script (3 dispatch steps) zipped onto step 0
-         ;; (alpha's :ml/a) — so :ml/c/:ml/d effects landed under :ml/a and the
-         ;; later steps held nothing. Assert that mis-grouping is gone.
+         ;; Contrast pin: per-play clearing would keep only beta's single
+         ;; boundary, which the concatenated script (3 dispatch steps) would
+         ;; zip onto step 0 (alpha's :ml/a) — so :ml/c/:ml/d effects would land
+         ;; under :ml/a and the later steps hold nothing. Assert that
+         ;; mis-grouping is absent.
          (is (not (contains? (set (get by [:dispatch-sync [:ml/a]])) [:ml/c]))
              "beta's :ml/c is NOT mis-attributed to alpha's first step")
          (is (not (contains? (set (get by [:dispatch-sync [:ml/a]])) [:ml/d]))
@@ -743,7 +741,7 @@
      (testing "a no-DOM :assert-dom step (JVM) records NO slot pass — it
               folds to :rf.assert/dom-visible, is evaluated by the DOM
               executor (no DOM → skipped), and the run is :cannot-run, not a
-              false-green pass (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
+              false-green pass (spec/017 §`:cannot-run`)"
        (rf.story/reg-variant :story.bridge/dom-skip
          {:setup      []
           :script {:auto-run? false
@@ -760,14 +758,13 @@
    (deftest assert-dom-skipped-unified-result-is-cannot-run
      (testing "the UNIFIED run-result (rf.story/run-variant's resolved value),
               not just run-state, reads :cannot-run for a DOM-skip-only
-              variant on the headless JVM (rf2-q5jw4, spec/017 §Unified run
-              result). Before the fix record-result-map dropped the
-              run-state's :cannot-run refusals: a no-DOM [:assert-dom …] skip
-              records NO :rf.story/assertions entry, so result/run-result
-              aggregated zero records + a clean tape to :pass (vacuous
-              green) while run-state correctly read :cannot-run — the exact
-              consumer-disagreement false-GREEN .19 set out to kill. This
-              exercises the unified-result PATH (the existing
+              variant on the headless JVM (spec/017 §Unified run
+              result). A no-DOM [:assert-dom …] skip records NO
+              :rf.story/assertions entry, so a record-result-map that dropped
+              the run-state's :cannot-run refusals would aggregate zero
+              records + a clean tape to :pass (vacuous green) while run-state
+              read :cannot-run — a consumer-disagreement false-GREEN. This
+              exercises the unified-result PATH (the
               assert-dom-skipped-on-jvm-is-cannot-run test discards the
               result and checks only run-blocking's run-state)."
        (rf.story/reg-variant :story.bridge/dom-skip-unified
@@ -789,7 +786,7 @@
 #?(:clj
    (deftest assert-db-pred-form
      (testing ":assert-db :pred folds to :rf.assert/path-matches [:fn sym];
-              the symbol resolves at validation time (rf2-5x1wt.19)"
+              the symbol resolves at validation time"
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (rf.story/reg-variant :story.runner/pred
@@ -811,9 +808,9 @@
 
 #?(:clj
    (deftest assert-db-pred-fn-direct
-     (testing ":assert-db :pred accepts a fn directly (rf2-inbad —
-              advanced-CLJS-safe); it folds to :rf.assert/path-matches
-              [:fn fn] which Malli validates by calling the fn (rf2-5x1wt.19)"
+     (testing ":assert-db :pred accepts a fn directly (advanced-CLJS-safe);
+              it folds to :rf.assert/path-matches
+              [:fn fn] which Malli validates by calling the fn"
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (rf.story/reg-variant :story.runner/pred-fn
@@ -839,7 +836,7 @@
      (testing ":assert-db :pred with an unresolvable symbol fails gracefully:
               it folds to :rf.assert/path-matches [:fn 'bogus]; the symbol
               cannot resolve, so the assertion reports a readable failure
-              rather than an opaque sci error (rf2-5x1wt.19)"
+              rather than an opaque sci error"
        (rf/reg-event :rt/set-n
          (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (rf.story/reg-variant :story.runner/pred-bogus
@@ -874,24 +871,23 @@
          (is (= 4 (count (:results final))))
          (is (= [0 1 2 3] (mapv :idx (:results final))))))))
 
-;; ---- rf2-vkdam: the public driver OWNS the boundary reset ----------------
+;; ---- the public driver OWNS the boundary reset ---------------------------
 ;;
 ;; `record-settle-boundary!` APPENDS a per-dispatch-step settle boundary onto
-;; the process-global `step-boundaries` atom (keyed by `[frame-id play-key]`
-;; — rf2-m0cge5 finding 2). Previously only the orchestrator
-;; (`runtime/run-phase-4!`) cleared, so a non-orchestrator
-;; re-run via the public `run!` (interactive Re-run / replay-in-place) kept
-;; accumulating boundaries until teardown — a latent hazard for any future
-;; consumer reading `settle-boundaries` after such a run (stale offsets →
-;; mis-attributed narrative). `run!` now resets the frame's boundaries at the
-;; SAME entry that writes them, so two consecutive public `run!`s leave exactly
-;; ONE run's worth — not the doubled accumulation.
+;; the process-global `step-boundaries` atom (keyed by `[frame-id play-key]`).
+;; `run!` resets the frame's boundaries at the SAME entry that writes them,
+;; so two consecutive public `run!`s leave exactly ONE run's worth — not the
+;; doubled accumulation. If only the orchestrator (`runtime/run-phase-4!`)
+;; cleared, a non-orchestrator re-run via the public `run!` (interactive
+;; Re-run / replay-in-place) would keep accumulating boundaries until
+;; teardown — stale offsets for any consumer reading `settle-boundaries`
+;; after such a run, and so a mis-attributed narrative.
 
 #?(:clj
    (deftest run-resets-step-boundaries-public-driver
      (testing "two consecutive public `run!`s of the same play leave the
               frame's settle-boundaries reset to THIS run's worth — `run!`
-              owns the reset, so the count does not accumulate (rf2-vkdam)"
+              owns the reset, so the count does not accumulate"
        (rf/reg-event :vk/touch
          (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (rf.story/reg-variant :story.vkdam/rerun
@@ -906,8 +902,8 @@
        (run-blocking :story.vkdam/rerun)
        ;; `run-blocking` drives `run!`'s 2-arity form, which resolves to
        ;; play-key nil (the `:script` variant's single default play) —
-       ;; `settle-boundaries` is keyed by `[frame-id play-key]` (rf2-m0cge5
-       ;; finding 2), so reads pass that same nil.
+       ;; `settle-boundaries` is keyed by `[frame-id play-key]`, so reads
+       ;; pass that same nil.
        (let [after-first (count (rf.story.play.runner-events/settle-boundaries :story.vkdam/rerun nil))]
          (is (= 3 after-first)
              "three dispatch steps record three boundaries")
@@ -918,24 +914,22 @@
          (is (= 3 (count (rf.story.play.runner-events/settle-boundaries :story.vkdam/rerun nil)))
              "the public driver reset its boundaries — no stale accumulation")))))
 
-;; ---- rf2-m0cge5 finding 2: step-boundaries keyed by [frame-id play-key] --
+;; ---- step-boundaries keyed by [frame-id play-key] ------------------------
 ;;
-;; `step-boundaries` was previously keyed by `frame-id` ALONE. A multi-play
+;; `step-boundaries` is keyed by the `[frame-id play-key]` pair. A multi-play
 ;; sequencer (`run-plays-sequentially!` / `runtime/run-phase-4!`) accumulates
 ;; boundaries across several plays on ONE frame via `:clear-boundaries?
 ;; false`; the per-`[frame play-key]` run-token guard does NOT block a
-;; CONCURRENT `run!` for a DIFFERENT play-key on that SAME frame — that
-;; concurrent call's default `:clear-boundaries? true` used to wipe the ONE
-;; shared frame-id bucket out from under the in-flight sequence. Keying by
-;; the `[frame-id play-key]` pair confines each play's boundaries to its own
-;; slot, closing the hazard.
+;; CONCURRENT `run!` for a DIFFERENT play-key on that SAME frame, and that
+;; concurrent call's default `:clear-boundaries? true` would wipe a shared
+;; frame-id-only bucket out from under the in-flight sequence. The pair key
+;; confines each play's boundaries to its own slot.
 
 #?(:clj
    (deftest concurrent-run-for-different-play-key-does-not-wipe-boundaries
      (testing "a concurrent run! for a DIFFERENT play-key on the SAME frame
               (default :clear-boundaries? true) does not wipe an in-flight
-              sequence's accumulated boundaries for ANOTHER play-key
-              (rf2-m0cge5 finding 2)"
+              sequence's accumulated boundaries for ANOTHER play-key"
        (rf/reg-event :m0cge5/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (rf.story/reg-variant :story.m0cge5/two-key
@@ -963,12 +957,12 @@
          (deref done-b 5000 :timeout)
          (is (= 1 (count (rf.story.play.runner-events/settle-boundaries :story.m0cge5/two-key "A")))
              "play A's boundaries are UNTOUCHED by the concurrent play B run
-              — before the fix both shared the frame-id-only key, so B's
-              default clear wiped A's entry mid-sequence")
+              — a shared frame-id-only key would let B's default clear wipe
+              A's entry mid-sequence")
          (is (= 1 (count (rf.story.play.runner-events/settle-boundaries :story.m0cge5/two-key "B")))
              "play B recorded its own boundary under its own key")))))
 
-;; ---- rf2-96qsjr: narrative attribution survives epoch-ring eviction ------
+;; ---- narrative attribution survives epoch-ring eviction ------------------
 ;;
 ;; End-to-end sibling of the pure `evidence-test` stamp-tape gates: a REAL
 ;; run, through the orchestrator (`rf.story/run-variant`), whose dispatch-step
@@ -979,7 +973,7 @@
 
 #?(:clj
    (deftest narrative-attribution-survives-epoch-ring-eviction
-     (testing "rf2-96qsjr: five dispatch steps against a depth-3 epoch-
+     (testing "five dispatch steps against a depth-3 epoch-
               history ring still attribute each SURVIVING epoch to its
               correct originating script step — the boundary bookkeeping
               records the framework's genuine monotonic :epoch-id (never
@@ -1013,9 +1007,9 @@
                "step 1's own epoch (n=2) was likewise evicted")
            (is (= [[:re-eviction/set 3]] (mapv :trigger-event (:epochs (span-for 3))))
                "step 2's surviving epoch is attributed to step 2 — NOT
-                step 0, which is where the old ring-length-snapshot
-                boundary scheme (plateaued at the ring depth) would have
-                shifted it")
+                step 0, which is where a ring-length-snapshot
+                boundary scheme (plateaued at the ring depth) would
+                shift it")
            (is (= [[:re-eviction/set 4]] (mapv :trigger-event (:epochs (span-for 4))))
                "step 3's surviving epoch is attributed to step 3")
            (is (= [[:re-eviction/set 5]] (mapv :trigger-event (:epochs (span-for 5))))
@@ -1141,7 +1135,7 @@
      (testing "DOM-touching steps record :skipped? on JVM (no DOM); a run
               whose only unmet steps are no-DOM skips is :cannot-run — the
               distinct THIRD status, not a fail or a silent pass
-              (rf2-5x1wt.19, spec/017 §`:cannot-run`)"
+              (spec/017 §`:cannot-run`)"
        (rf.story/reg-variant :story.runner/dom
          {:setup []
           :script {:auto-run? false
@@ -1154,7 +1148,7 @@
              "no-DOM click + assert-dom → :cannot-run (a refusal, not a fail)")
          (is (every? (fn [r] (or (:skipped? r) (true? (:passed? r)))) results))))))
 
-;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
+;; ---- multi-play ----------------------------------------------------------
 
 #?(:clj
    (defn- run-play-blocking
@@ -1197,7 +1191,7 @@
 
 #?(:clj
    (deftest variant-plays-wraps-legacy-play-script
-     (testing "variant-plays wraps a legacy :script body in a one-entry vector"
+     (testing "variant-plays wraps a single :script body in a one-entry vector"
        (rf.story/reg-variant :story.multi/legacy
          {:setup []
           :script {:name "lone" :script [[:dispatch [:a]]]}})
@@ -1355,7 +1349,7 @@
            (is (empty? out2)
                "subsequent reads stay silent — warning is one-shot per variant"))))))
 
-;; rf2-a1lvd — the one-shot warning cache (`warned-both-slots`) is re-armed
+;; The one-shot warning cache (`warned-both-slots`) is re-armed
 ;; by `clear-all-runs!` (the test-fixture path). Without the reset, a prior
 ;; test (or a prior hot-reload session) that warned for a variant id would
 ;; suppress the warning forever after. Verify the full re-arm cycle: warn
@@ -1389,17 +1383,15 @@
            (is (re-find #":script.*:plays" warn2)
                "after clear-all-runs! the warning re-arms and fires again"))))))
 
-;; ---- rf2-ftow6: concurrent-run race fix ---------------------------------
+;; ---- concurrent-run race ------------------------------------------------
 ;;
-;; The Playwright matrix-before-load scenario could overshoot counter
-;; increments when `runtime/run-phase-4!` and the shell's
-;; `selection-watcher` both fired `runner-events/run!` against the same
-;; variant in quick succession. The blanket setTimeout-0 between every
-;; step let the second `run!` reset state mid-script, and BOTH loops
-;; then walked the shared state, double-dispatching the increment
-;; events. The fix stamps a unique `:run-token` on every fresh run and
-;; bails any loop whose token no longer matches the state slot — see
-;; `run-loop!`.
+;; `runtime/run-phase-4!` and the shell's `selection-watcher` can both fire
+;; `runner-events/run!` against the same variant in quick succession. A
+;; yield between steps lets the second `run!` reset state mid-script, and
+;; two loops walking the shared state would double-dispatch the increment
+;; events, overshooting a counter. So every fresh run stamps a unique
+;; `:run-token`, and a loop whose token no longer matches the state slot
+;; bails — see `run-loop!`.
 
 #?(:clj
    (deftest run-stamps-token-on-state
@@ -1437,11 +1429,10 @@
 
 #?(:clj
    (deftest sync-steps-do-not-yield-between
-     (testing "rf2-ftow6: a script of pure :dispatch-sync + :assert-db steps
+     (testing "a script of pure :dispatch-sync + :assert-db steps
               runs end-to-end without intermediate yields — no extra event
               dispatches sneak in mid-script. Probes the run-to-completion
-              semantics the old bare dispatch-sync play rail had, which the
-              migration accidentally lost."
+              semantics of synchronous steps."
        (let [n (atom 0)]
          (rf/reg-event :rt/inc (fn [{:keys [db]} _] (swap! n inc) {:db (update db :n (fnil inc 0))}))
          (rf.story/reg-variant :story.runner/sync-tight
@@ -1458,21 +1449,19 @@
            (is (= 6 @n)
                "no stray increments leaked from concurrent paths"))))))
 
-;; ---- tape-evaluated in-script [:assert …] checkpoints (rf2-8y47c + fh7g4) --
+;; ---- tape-evaluated in-script [:assert …] checkpoints ---------------------
 ;;
 ;; An in-script `[:assert [:rf.assert/schema-error …]]` /
 ;; `[:assert [:rf.assert/caused …]]` / `[:assert [:rf.assert/no-cascade-
 ;; rerender …]]` checkpoint names a TAPE-EVALUATED assertion family: these
 ;; ids carry NO `reg-event` handler — the result boundary mints their
-;; verdict against the epoch tape (`re-frame.story.result`). Before the
-;; `tape-evaluated-assertion?` guard, `exec-assert!` special-cased ONLY the
-;; DOM family, so every other id (schema-error / causal) fell through to
-;; `boundary/dispatch-and-settle!` — i.e. it was DISPATCHED into the frame.
-;; With no handler that hit `re-frame.router.diagnostics/handle-no-handler!`
-;; → a spurious `:rf.error/no-such-handler` error trace on the tape (which
-;; can trip `rf.story.play.evidence/tape-shows-failure?` into a false `:fail`), AND the
-;; real tape evaluation was skipped. The fix routes these to a no-op
-;; step-skip — the result boundary still owns the verdict.
+;; verdict against the epoch tape (`re-frame.story.result`). `exec-assert!`
+;; consults the `tape-evaluated-assertion?` guard and routes these to a
+;; no-op step-skip — the result boundary owns the verdict. Dispatched into
+;; the frame through `boundary/dispatch-and-settle!` instead, such an id
+;; would hit `re-frame.router.diagnostics/handle-no-handler!` → a spurious
+;; `:rf.error/no-such-handler` error trace on the tape (which can trip
+;; `rf.story.play.evidence/tape-shows-failure?` into a false `:fail`).
 ;;
 ;; These tests drive the in-script checkpoint end-to-end and assert (a) NO
 ;; `:rf.error/no-such-handler` trace lands, and (b) the checkpoint records a
@@ -1503,7 +1492,7 @@
    (deftest in-script-schema-error-checkpoint-is-tape-evaluated-not-dispatched
      (testing "an in-script [:assert [:rf.assert/schema-error …]] checkpoint
               is recorded as a no-op step-skip — NOT dispatched into the
-              frame — so no :rf.error/no-such-handler trace lands (rf2-8y47c)"
+              frame — so no :rf.error/no-such-handler trace lands"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (rf.story/reg-variant :story.tape/schema-error
@@ -1532,8 +1521,7 @@
    (deftest in-script-no-cascade-rerender-checkpoint-is-tape-evaluated-not-dispatched
      (testing "an in-script [:assert [:rf.assert/no-cascade-rerender …]]
               checkpoint (the causal family) is a no-op step-skip — NOT
-              dispatched — so no :rf.error/no-such-handler trace lands
-              (rf2-fh7g4)"
+              dispatched — so no :rf.error/no-such-handler trace lands"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (rf.story/reg-variant :story.tape/no-cascade
@@ -1561,7 +1549,7 @@
    (deftest in-script-caused-checkpoint-is-tape-evaluated-not-dispatched
      (testing "an in-script [:assert [:rf.assert/caused …]] checkpoint is a
               no-op step-skip — NOT dispatched — so no
-              :rf.error/no-such-handler trace lands (rf2-fh7g4)"
+              :rf.error/no-such-handler trace lands"
        (rf/reg-event :rt/touch
          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (rf.story/reg-variant :story.tape/caused
@@ -1580,11 +1568,11 @@
          (is (nil? (:passed? checkpoint))
              "the tape-evaluated causal checkpoint is a no-op step-skip")))))
 
-;; ---- unit: the tape-evaluated-assertion? classifier (rf2-8y47c + fh7g4) ----
+;; ---- unit: the tape-evaluated-assertion? classifier -----------------------
 ;;
 ;; The single authoritative classifier the in-script executor consults so a
 ;; tape-evaluated family is never dispatched. Runs on BOTH runtimes (pure
-;; data → boolean), reached via var-quote (the established Story-test seam).
+;; data → boolean), reached via var-quote (the Story-test seam).
 
 (def ^:private tape-evaluated-assertion? @#'rf.story.play.runner-events/tape-evaluated-assertion?)
 
@@ -1595,8 +1583,8 @@
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/schema-error {}]))))
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/caused {:event :e}]))))
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/no-cascade-rerender {:event :e}]))))
-    ;; rf2-9ikj0 — the browser-tier oracle family now has its OWN inline
-    ;; executor (`exec-assert-browser-atom!`), so it is NO LONGER
+    ;; The browser-tier oracle family has its OWN inline
+    ;; executor (`exec-assert-browser-atom!`), so it is NOT
     ;; tape-evaluated: a11y-structural EVALUATES at :hiccup, visual / a11y
     ;; fail closed to :cannot-run headless — neither is a no-op skip.
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/visual-snapshot])))
