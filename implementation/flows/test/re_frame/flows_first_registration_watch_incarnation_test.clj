@@ -1,25 +1,25 @@
 (ns re-frame.flows-first-registration-watch-incarnation-test
-  "rf2-ytpeqf — exact-incarnation fence for FIRST-TIME flow registration
+  "Exact-incarnation fence for FIRST-TIME flow registration
   evidence (`:rf.flow/registered`).
 
-  rf2-vxgfnd.155 fenced the callback-bearing REPLACEMENT / clear tails (the
-  output-mark refresh + path vacation + the bare-id registry / dirty-check /
-  commit-epoch mutations), but the first-time `:rf.flow/registered` trace was
-  emitted OUTSIDE the exact-owner continuation, gated only on
-  `(nil? prior-frame-flow)`. A first-time flow that declares output marks reaches
-  a callback-bearing runtime-db write (`write-flow-output-marks!`); a
-  synchronous container watch can destroy incarnation A there and publish a
-  same-id B. The merged .155 fixtures only exercise the REPLACEMENT branch
-  (prior non-nil), so they never reach the first-registration emit.
+  A first-time flow that declares output marks reaches a callback-bearing
+  runtime-db write (`write-flow-output-marks!`); a synchronous container watch
+  can destroy incarnation A there and publish a same-id B. The callback-bearing
+  REPLACEMENT / clear tails (the output-mark refresh + path vacation + the
+  bare-id registry / dirty-check / commit-epoch mutations) are fenced too, but
+  their fixtures (`re-frame.flows-clear-reg-watch-incarnation-test`) exercise
+  only the REPLACEMENT branch (prior non-nil), so they never reach the
+  first-registration emit.
 
-  Before the fix the exact mark write correctly reported ownership loss, yet the
-  outer first-registration trace still fired after the terminal fence — a stale
-  A `:rf.flow/registered` delivery with no incarnation discriminator, consulting
+  The exact mark write reports ownership loss, and the first-registration
+  evidence lives INSIDE the same exact-owner postcheck, so the loss suppresses
+  it: zero A deliveries, B's registration trace (emitted by B's own reg-flow)
+  intact, B's stores byte-identical, and B's trace policy never consulted for A.
+  Were the trace emitted OUTSIDE the exact-owner continuation, gated only on
+  `(nil? prior-frame-flow)`, it would fire after the terminal fence — a stale A
+  `:rf.flow/registered` delivery with no incarnation discriminator, consulting
   B's current trace policy/capture and synchronously notifying tooling after A
-  was gone. After the fix the first-registration evidence lives INSIDE the same
-  exact-owner postcheck, so the loss suppresses it: zero A deliveries, B's
-  registration trace (emitted by B's own reg-flow) intact, B's stores
-  byte-identical, and B's trace policy never consulted for A.
+  was gone.
 
   The watch is driven SYNCHRONOUSLY on the single JVM test thread (it destroys A
   and publishes B reentrantly), so the cross-incarnation ordering is fully
@@ -74,12 +74,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest first-registration-mark-watch-loss-withholds-registered-trace-from-successor
-  ;; rf2-ytpeqf (red before fix). Registering A's FIRST flow installs its output
+  ;; Registering A's FIRST flow installs its output
   ;; marks through a container write; that write's synchronous watch destroys A
   ;; and publishes same-id B (with B's own flow row + dirty-check cache +
-  ;; output-mark declaration, and B's own :rf.flow/registered). Before the fix A's
-  ;; first-time :rf.flow/registered still fired outside the exact-owner
-  ;; continuation, delivering a stale A registration to tooling after A was gone.
+  ;; output-mark declaration, and B's own :rf.flow/registered). Were A's
+  ;; first-time :rf.flow/registered emitted outside the exact-owner
+  ;; continuation, it would deliver a stale A registration to tooling after A
+  ;; was gone.
   (let [id            :flow.incarnation/first-loss
         armed?        (atom false)
         captured      (atom [])
@@ -153,12 +154,12 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Green control — when A retains ownership through a NON-destroying watch, the
-;; ordinary first-time registration still emits :rf.flow/registered exactly once.
+;; ordinary first-time registration emits :rf.flow/registered exactly once.
 ;; A wrongly-fencing exact path would silently swallow the trace.
 ;; ---------------------------------------------------------------------------
 
 (deftest first-registration-with-live-owner-emits-registered-once
-  ;; rf2-ytpeqf mutation tooth. The exact-incarnation fence must NOT suppress the
+  ;; Mutation tooth. The exact-incarnation fence must NOT suppress the
   ;; normal first-registration trace when A stays live: :rf.flow/registered fires
   ;; exactly once, carrying A's own payload.
   (let [id          :flow.incarnation/first-live
