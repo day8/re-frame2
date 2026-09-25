@@ -1,5 +1,5 @@
 /*
- * Shared staging helpers for the example runners (rf2-pdo5mx).
+ * Shared staging helpers for the example runners.
  *
  * Two scripts need to stage an example's hand-written `index.html` plus the
  * `examples/_shared/` design-system tree next to the compiled `main.js`:
@@ -7,10 +7,9 @@
  *   - serve-and-run-adapter-smokes.cjs  (the adapter-smoke orchestrator)
  *   - serve-example.cjs                 (the standalone-example dev runner)
  *
- * The recursive copy + `_shared` fan-out logic used to live inline in the
- * orchestrator. It is hoisted here so the dev runner reuses the SAME hardened
- * staging rather than re-implementing an ad hoc copy. One source of truth for
- * "what lands in an example's output dir".
+ * The recursive copy + `_shared` fan-out logic lives here so both runners use
+ * the SAME hardened staging rather than each re-implementing an ad hoc copy.
+ * One source of truth for "what lands in an example's output dir".
  *
  * The Story feature-load and play-script runners also consume the path-guarded
  * cleanStageDirs helper, but stage their testbed-specific HTML themselves; they
@@ -20,7 +19,7 @@
  * output dir + source folder + index.html) directly from shadow-cljs.edn, so
  * the dev runner has no hardcoded build->folder table that could drift. The
  * derivation reads shadow-cljs.edn ONLY (it is a hot-zone file — never edited
- * here), mirroring the read-only enumeration the compile gate already does.
+ * here), mirroring the read-only enumeration the compile gate does.
  */
 
 'use strict';
@@ -37,7 +36,7 @@ const EXAMPLES_ROOT = path.join(REPO_ROOT, 'examples');
 const SHARED_SRC = path.join(EXAMPLES_ROOT, '_shared');
 
 // ---------------------------------------------------------------------------
-// Recursive copy + _shared staging (hoisted from serve-and-run-adapter-smokes).
+// Recursive copy + _shared staging.
 // ---------------------------------------------------------------------------
 
 // Minimal recursive copy. Each file overwrites the destination
@@ -67,7 +66,7 @@ function stageShared(outDir) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-example static assets (rf2-cq6va5).
+// Per-example static assets.
 //
 // `index.html` + `_shared` are the assets EVERY standalone example shares. A
 // handful of examples additionally reference per-example static assets via flat
@@ -137,15 +136,15 @@ function stagePerExampleAssets(entry, { perExampleAssets = PER_EXAMPLE_ASSETS } 
 }
 
 // ---------------------------------------------------------------------------
-// Clean-stage boundary (rf2-bf4vdy).
+// Clean-stage boundary.
 //
 // The examples + Story browser harnesses all serve the SHARED
-// implementation/out/examples root and previously OVERLAID their staged
-// fixtures onto it — copyDirRecursive only creates dirs + overwrites the files
-// it touches, so a file that a PREVIOUS run staged (a retired _shared asset, an
-// extra static file the manifest no longer declares, an old generated subtree)
-// stayed under the served root and could satisfy a browser request the current
-// source no longer produces — a stale-file false green.
+// implementation/out/examples root, and OVERLAYING staged fixtures onto it is
+// not enough — copyDirRecursive only creates dirs + overwrites the files
+// it touches, so a file that a PREVIOUS run staged (a _shared asset since
+// removed, an extra static file the manifest does not declare, an old generated
+// subtree) would stay under the served root and could satisfy a browser request
+// the current source does not produce — a stale-file false green.
 //
 // The Xray feature gate avoids this by owning a dedicated root it recreates
 // wholesale (serve-and-run-xray-feature-gate.cjs cleanAndStageRoot —
@@ -188,7 +187,7 @@ function cleanStageDirs(dirs, outRoot, { io = fs } = {}) {
         `cleanStageDirs: refusing to clean '${target}' — it is not strictly ` +
           `under the owned staging root '${path.resolve(outRoot)}'. ` +
           `Recursive deletion may only target a selected output dir under ` +
-          `OUT_ROOT (rf2-bf4vdy).`,
+          `OUT_ROOT.`,
       );
     }
     io.rmSync(target, { recursive: true, force: true });
@@ -202,7 +201,7 @@ function cleanStageDirs(dirs, outRoot, { io = fs } = {}) {
 // per-example static assets into its output dir. Creates the output dir if the
 // build hasn't emitted into it yet (so the dev runner can stage before the first
 // watch compile lands). Throws with the offending path when the HTML source —
-// or any declared per-example asset — is missing (fail-loud, rf2-cq6va5).
+// or any declared per-example asset — is missing (fail-loud).
 //
 // `entry` shape: { build, outDir, htmlSrc, srcDir } — as produced by
 // listStandaloneExamples() (and compatible with the orchestrator's EXAMPLES
@@ -224,7 +223,7 @@ function stageExample(entry, opts = {}) {
 // We hand-roll a focused scan rather than pull in an EDN dependency — the only
 // shapes we read are the `:examples/<name> { ... :output-dir "..." ...
 // :init-fn <ns>/run }` build defs. This mirrors the parser style the compile
-// gate (check-examples-compile.cjs) already uses on the same file.
+// gate (check-examples-compile.cjs) uses on the same file.
 // ---------------------------------------------------------------------------
 
 function readShadowEdn() {
@@ -251,7 +250,7 @@ function stripEdnComments(edn) {
 //
 // `target` is what separates a PAGE build from a server-side one. Not every
 // `:examples/*` build is a page: a `:node-library` (the Fresco login arm's
-// SSR bundle, rf2-8arzr.5) publishes an `:exports-var` for a Node sidecar to
+// SSR bundle) publishes an `:exports-var` for a Node sidecar to
 // `require` and correctly carries no `:init-fn` and no colocated index.html.
 // Such a build is still parsed — it IS an example build, and
 // check-examples-compile.cjs compiles it — but it is legitimately absent from
@@ -304,11 +303,11 @@ let _nsIndex = null;
 
 // Build the ns -> source-folder index over the examples/ tree, FAIL-CLOSED. A
 // directory that cannot be read — OR a matched source file whose head cannot be
-// read — is NOT silently dropped (the old catch-and-continue turned a hidden ns
+// read — is NOT silently dropped (catching and continuing would turn a hidden ns
 // into an ordinary "build not runnable", so a torn checkout / permissions fault
-// under one subtree made listStandaloneExamples advertise an INCOMPLETE runnable
-// set — rf2-3fc89f.31). Both failure classes are collected and thrown by name via
-// assertWalkComplete. The `node_modules` / `_shared` prunes stay a POLICY skip.
+// under one subtree would make listStandaloneExamples advertise an INCOMPLETE
+// runnable set). Both failure classes are collected and thrown by name via
+// assertWalkComplete. The `node_modules` / `_shared` prunes are a POLICY skip.
 // `io` is injectable so a test can drive a deterministic partial-walk / unreadable
 // -source failure.
 function buildNsIndex(root = EXAMPLES_ROOT, { io = fs } = {}) {
@@ -350,7 +349,7 @@ function folderForNs(ns) {
 // The set of standalone examples that are RUNNABLE by the dev server: a build
 // def whose init-fn namespace resolves to an examples/ source folder that
 // carries a hand-written index.html. Builds whose source lives outside
-// examples/ (none today) or that lack a colocated index.html are skipped — the
+// examples/ (there are none) or that lack a colocated index.html are skipped — the
 // dev server can only serve a page that exists.
 //
 // Each returned entry: { build, outDir, htmlSrc, srcDir } — `outDir` is the
