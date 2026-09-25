@@ -11,7 +11,7 @@
       │ ─ sort cycle button  │     · N states · M live (→ Dynamic)│
       │ ─ scrollable rows    │  ─ sub-strip [T][S][I][C]          │
       │                      │  ─ mode renderer (Topology / Sim   │
-      │                      │     placeholder / Instances JUMP / │
+      │                      │     rail / Instances JUMP /        │
       │                      │     Cascade dimmed)                │
       └──────────────────────┴────────────────────────────────────┘
 
@@ -61,12 +61,12 @@
   subscribes / dispatches to the shell's instance frame, default
   `:rf/xray`.
 
-  ## Substrate (rf2-k97c.3)
+  ## Substrate
 
   This sub-tab is THREE Fresco boundaries, not one: [[panel]] here plus
   `browse-list/browse-list` and `definition-detail/detail`, each an
   `rf.fresco/defview`. The count is not an accident of file layout — it
-  is the reactive granularity the three `reg-view`s already had, kept.
+  is the reactive granularity the sub-tab needs.
   Collapsing the two panes into this one boundary would move their reads
   up here, and every search keystroke would then re-render the Topology
   chart. Boundary count tracks READS and head-position use.
@@ -103,9 +103,9 @@
   the borders — is one definition either way, so a node-lane row that
   walks it is walking the real thing.
 
-  SPLIT OUT OF [[panel]] BY rf2-k97c.3, for the reason every migrated
+  SPLIT OUT OF [[panel]], for the reason every Fresco
   panel splits: a boundary's body may only run inside a React render
-  window, so `(panel)` is no longer a callable that answers hiccup."
+  window, so `(panel)` is not a callable that answers hiccup."
   [left right]
   [:div {:data-testid "rf-xray-static-machines-panel"
          :style {:display          "flex"
@@ -137,11 +137,11 @@
 
 (rf.fresco/defview panel
   "L4 detail-panel content for the Static Machines tab — a FRESCO
-  BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Master-detail with a
+  BOUNDARY, not an `rf/reg-view`. Master-detail with a
   browse-all list on the left and the per-machine definition detail on
   the right.
 
-  IT READS NOTHING, and it is still a boundary rather than a plain fn
+  IT READS NOTHING, and it is a boundary rather than a plain fn
   for two reasons. First, it is what the L4 registry mounts, so it is
   where the Reagent→Fresco crossing has to sit — one bridge for the
   whole sub-tab. Second, a boundary is the only legal hiccup head for
@@ -153,9 +153,8 @@
   BOTH `spec/api-manifest.edn` and its curated
   `spec/api-manifest-metadata.edn` sidecar row
   `day8.re-frame2-xray.static.machines.panel/panel` with
-  `:runtime-verified? true`. Both are hot zone. Keeping the natural name
-  on the BOUNDARY — the #9581 spelling the mayor's RULING 1 fixed as the
-  surviving one — means neither file moves.
+  `:runtime-verified? true`, and the BOUNDARY is what carries that
+  name.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. The L4 registry mounts it with none, so it is destructured
@@ -163,9 +162,9 @@
   [_props]
   (panel-tree [browse-list/browse-list] [definition-detail/detail]))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge -----------------------------------------
 ;;
-;; Xray's Static shell is a Fresco tree, but it still reaches this panel
+;; Xray's Static shell is a Fresco tree, but it reaches this panel
 ;; across an `as-child` seam. `static/shell.cljs`'s `detail-panel` mounts
 ;; the active tab as the hiccup head `[(:panel tab)]`, and
 ;; `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
@@ -178,7 +177,8 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; BOTH DEFS ARE PRIVATE, and that is measured rather than defaulted:
+;; BOTH DEFS ARE PRIVATE, and that is a property of this panel rather
+;; than a default:
 ;; `panel` is named outside this file only in `static/shell.cljs`'s PROSE
 ;; (a docstring listing the L4 tabs) and in the two `spec/api-manifest*.edn`
 ;; rows — never mounted or called by name. The L4 registry is the only
@@ -186,13 +186,11 @@
 ;; A panel carrying a standalone `mount-*!` facade would need a PUBLIC
 ;; bridge instead, because `panels/render-panel!` takes the view to mount
 ;; as an argument and needs a name to pass; this panel has none —
-;; `panels.cljs` names no Static sub-tab, so no caller line changes and
-;; nothing outside `tools/xray/{src,test}/…/static/machines/` is touched.
+;; `panels.cljs` names no Static sub-tab.
 ;;
-;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
-;; The Static shell is a Fresco tree now and both defs stayed anyway: it
-;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; THIS IS NOT SCAFFOLDING. The Static shell is a Fresco tree, yet it
+;; reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` requires a
 ;; callable `:panel`.
 
 (def ^:private panel-component
@@ -241,7 +239,7 @@
       (h/normalise-sub-mode
         (get by-id machine-id h/default-sub-mode))))
 
-  ;; Copy-Mermaid feedback for ONE machine (rf2-sxw06). The db slot is a
+  ;; Copy-Mermaid feedback for ONE machine. The db slot is a
   ;; single `{:machine-id <mid> :status :pending|:copied|:failed}` map —
   ;; keyed answers for any OTHER machine read nil, so a stale outcome can
   ;; never masquerade as feedback about the machine on screen. `:pending`
@@ -258,7 +256,7 @@
           status))))
 
   ;; Composite — feeds the browse-list + detail header. Reads the
-  ;; existing :rf.xray/registered-machines + machine-definitions +
+  ;; :rf.xray/registered-machines + machine-definitions +
   ;; machine-snapshots subs registered by panels.machine-inspector
   ;; (install order is purely cosmetic — re-frame resolves declared inputs lazily).
   ;; The `:rf.xray/machine-snapshots-override` test-seam composes on top
@@ -289,7 +287,7 @@
   (rf/reg-event :rf.xray.static.machines/select
     (fn [{:keys [db]} [_ machine-id]]
       ;; Selection change also clears the Copy-Mermaid feedback span
-      ;; (rf2-sxw06) — feedback is about ONE machine's copy gesture and
+      ;; — feedback is about ONE machine's copy gesture and
       ;; must not survive onto another machine's header.
       (let [next-db (-> db
                         (assoc :rf.xray.static.machines/selected-id machine-id)
@@ -332,9 +330,8 @@
         (map? sub-mode-by-id)
         (assoc :rf.xray.static.machines/sub-mode-by-id sub-mode-by-id))}))
 
-  ;; Click-on-state in the Topology mode. v1 is a no-op slot — the
-  ;; metadata rail wires in a follow-on bead (per the bead's §Topology
-  ;; mode 'Click state → metadata rail'). The event is registered now
+  ;; Click-on-state in the Topology mode. A no-op slot: no metadata rail
+  ;; consumes the click. The event is registered
   ;; so the chart's `:on-state-click` dispatch lands on a known handler
   ;; rather than emitting a `:rf.warning/no-handler` trace.
   (rf/reg-event :rf.xray.static.machines/state-clicked
@@ -342,30 +339,30 @@
 
   ;; Open-chart-popout — a reserved no-op slot. The pop-out window
   ;; orchestration is not built, so `topology.cljs` renders NO pop-out
-  ;; button and nothing dispatches this today (rf2-h6ooa); the id stays
-  ;; registered for the affordance that returns once the window exists.
+  ;; button and nothing dispatches this; the id is registered for the
+  ;; pop-out affordance, which needs that window first.
   (rf/reg-event :rf.xray.static.machines/open-chart-popout
     (fn [{:keys [db]} [_ _machine-id]] {:db db}))
 
-  ;; ---- Copy Mermaid (rf2-sxw06) -----------------------------------------
+  ;; ---- Copy Mermaid -----------------------------------------------------
   ;;
   ;; The definition-detail header's one-gesture "copy this registered
   ;; topology as Mermaid" action. The HOST owns the gesture: the view
   ;; passes the selected machine's definition (which it already holds)
   ;; straight to the pure `mermaid/emit`, and the fenced markdown block
-  ;; crosses the clipboard through the existing Xray-owned
+  ;; crosses the clipboard through the Xray-owned
   ;; `:rf.xray.fx/copy-to-clipboard` fx — MachineChart stays
-  ;; presentation-only and gains no registry subscription.
+  ;; presentation-only and carries no registry subscription.
   ;;
   ;; Egress posture: the copied text is STATIC TOPOLOGY ONLY — state /
   ;; event / guard / action NAMES from the registered definition, never
   ;; runtime or definition `:data` values (`mermaid/emit` is value-free
-  ;; by contract; its invalid-definition diagnostic is value-free too,
-  ;; rf2-8nzxib). This is therefore NOT a value-egress site, so the text
+  ;; by contract; its invalid-definition diagnostic is value-free too).
+  ;; This is therefore NOT a value-egress site, so the text
   ;; rides the fx directly rather than through `egress/egress-value` —
   ;; routing it there would `pr-str` the block (breaking the exact-emit
-  ;; contract) without ever finding a value to elide. Since rf2-6r9j.24
-  ;; this is the only gesture in Xray that reaches the clipboard fx.
+  ;; contract) without ever finding a value to elide. This is the only
+  ;; gesture in Xray that reaches the clipboard fx.
   ;;
   ;; `emit` throws on a definition it cannot project. The header already
   ;; gates the control on `grammar/valid-definition?` (whose truth means
@@ -420,11 +417,11 @@
   ;; Hydrate from localStorage. The persistence ns guards storage
   ;; availability internally so the JVM test path is a no-op, and guards
   ;; on the shell frame being registered so this orchestrator-time call
-  ;; short-circuits cleanly when it isn't (rf2-qw0o). On the production
+  ;; short-circuits cleanly when it isn't. On the production
   ;; path it isn't: `register-xray-handlers!` runs well before
   ;; `mount/ensure-xray-frame!`, whose `::hydrate-static-machines`
   ;; first-mount hook is the call that actually lands the restore. This
-  ;; call stays for the paths where the frame ALREADY exists when the
+  ;; call serves the paths where the frame ALREADY exists when the
   ;; handlers (re-)register — a shadow-cljs `:after-load`, or a test
   ;; installing handlers against a live frame.
   (persistence/hydrate!)
@@ -435,13 +432,12 @@
      :mnem  "m"
      :modes #{:static}
      :order 0
-     ;; rf2-k97c.3 — `panel-bridge`, not `panel`. `panel` is now a React
+     ;; `panel-bridge`, not `panel`. `panel` is a React
      ;; component (a Fresco boundary) and the Static shell mounts
      ;; `:panel` as a Reagent hiccup head; the bridge is the one line
-     ;; between them and STAYS (rf2-lect, ruled option 2). The Static
-     ;; shell is a Fresco tree now and the bridge stayed anyway: it still
+     ;; between them. The Static shell is a Fresco tree, but it
      ;; reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-     ;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still
+     ;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre`
      ;; requires a callable `:panel`.
      :panel panel-bridge})
   nil)
