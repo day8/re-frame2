@@ -39,16 +39,16 @@
 ;; survive the snapshot; per-test registrations roll back. Map-form
 ;; fixture is needed for cljs.test's async test bodies to suspend.
 ;;
-;; ---- Why this cluster stays HAND-ROLLED (rf2-y90h6h / rf2-vyzqca) --------
+;; ---- Why this cluster is HAND-ROLLED ----------------------------------
 ;;
 ;; This testbed cluster — this ns, its sibling `elision_demo_cljs_test`, and
-;; the `login_form` story test — DELIBERATELY does NOT migrate its per-test
-;; reset onto `re-frame.test-support/make-reset-runtime-fixture` (nor the
+;; the `login_form` story test — DELIBERATELY does NOT put its per-test
+;; reset on `re-frame.test-support/make-reset-runtime-fixture` (nor the
 ;; Story-flavoured `re-frame.story.test-support/use-fixtures` that composes
-;; it). rf2-vyzqca (#5578) proved a file-by-file migration breaks 16
-;; run-order-coupled tests here. DO NOT re-attempt the migration in a corpus
-;; "one-idiom" sweep without first addressing ALL THREE reasons below — they
-;; are intrinsic to how these co-located testbeds demo EP-0026:
+;; it): moving it there file by file would break run-order-coupled tests
+;; here. DO NOT move it in a corpus "one-idiom" sweep without first
+;; addressing ALL THREE reasons below — they are intrinsic to how these
+;; co-located testbeds demo EP-0026:
 ;;
 ;;   1. ASYNC story tests need the MAP-form fixture. Every variant test
 ;;      below drives `rf.story/run-variant` (a Promise) under `(async done …)`.
@@ -61,14 +61,13 @@
 ;;
 ;;   2. The sibling `elision_demo_cljs_test` is NOT a story test (EP-0025
 ;;      elision, no variants) and does NOT `:require` this ns's app slices
-;;      (`counter-with-stories.{events,subs,stories}`). So ITS
-;;      `make-reset-runtime-fixture` source-store baseline — captured at that
-;;      ns's load from its own require chain — MISSES the counter app
-;;      descriptors. The fixture restores the SHARED process-global source
-;;      store to that incomplete baseline on teardown, dropping
+;;      (`counter-with-stories.{events,subs,stories}`). So a
+;;      `make-reset-runtime-fixture` source-store baseline there — captured
+;;      at that ns's load from its own require chain — would MISS the counter
+;;      app descriptors. That fixture would restore the SHARED process-global
+;;      source store to that incomplete baseline on teardown, dropping
 ;;      `:counter/initialise` / `:count` for this ns's variant-frame images
-;;      (`:select-ns {:include ["counter-with-stories.**"]}`) — the exact
-;;      14-in-`stories`/2-in-elision-family break rf2-vyzqca observed.
+;;      (`:select-ns {:include ["counter-with-stories.**"]}`).
 ;;
 ;;   3. This ns's app events / subs register at NS-LOAD via top-level
 ;;      `reg-event` / `reg-sub` forms (see events.cljs / subs.cljs) — there
@@ -77,7 +76,7 @@
 ;;      ns-load baseline, which is exactly what the hand-rolled reset below
 ;;      does (mirroring `login_form/stories_cljs_test`).
 ;;
-;; So the cluster stays on `rf.story/clear-all!` + `register-all!` + an ns-load
+;; So the cluster uses `rf.story/clear-all!` + `register-all!` + an ns-load
 ;; SOURCE-STORE baseline restore — the async-compatible map-form idiom — and
 ;; is uniformly run-order-INDEPENDENT without the fixture.
 
@@ -85,7 +84,7 @@
 
 ;; EP-0026 §Default Image — STABLE ns-load source-store baseline. Mirrors
 ;; `login_form/stories_cljs_test`'s baseline and `make-reset-runtime-fixture`'s
-;; `source-store-baseline` (rf2-7hwnu). Captured ONCE here at ns-load, AFTER
+;; `source-store-baseline`. Captured ONCE here at ns-load, AFTER
 ;; the `:require` chain above has fired every `reg-*`, so the
 ;; provenance-tagged `counter-with-stories.*` app descriptors this ns's
 ;; variant-frame images select (`:select-ns {:include
@@ -94,7 +93,7 @@
 ;; what a sibling ns's fixture last left the SHARED source store at — a
 ;; per-ns-baseline fixture (make-reset-runtime-fixture) resetting the store to
 ;; ITS own incomplete baseline is exactly the run-order coupling this restore
-;; makes us immune to (rf2-vyzqca / rf2-y90h6h).
+;; makes us immune to.
 (def ^:private source-store-baseline @rf.source-store/kind->id->ns->descriptor)
 
 (defn- before! []
@@ -148,7 +147,7 @@
     (is (rf.story/registered? :story-panel :Panel.counter-with-stories/notes))))
 
 (deftest example-broken-render-panel-registered
-  (testing "rf2-76wo5 testbed — the broken-render panel registered, and
+  (testing "The broken-render testbed panel registered, and
             its :render id is NOT registered as a view. Together those
             two facts drive the panel-host into the broken-render
             fallback branch (asserted live in story_browser_scenarios.cjs)."
@@ -167,8 +166,7 @@
 
 (deftest example-five-variants-registered
   (testing "the five canonical variants registered on :story.counter
-            (four authoring shapes + the rf2-9jfo1.2 events-only loader-
-            body shape folded in from the retired xray_rhs_smoke testbed)"
+            (four authoring shapes + the events-only loader-body shape)"
     (let [vs (rf.story/variants-of :story.counter)]
       (is (contains? vs :story.counter/empty))
       (is (contains? vs :story.counter/loaded))
@@ -250,7 +248,7 @@
               (done)))))))
 
 (deftest failing-fx-stub-miss-variant-fails-with-canonical-reason
-  (testing "rf2-0uo4e testbed — :story.counter-matrix/failing-fx-stub-miss runs
+  (testing ":story.counter-matrix/failing-fx-stub-miss runs
             and its :rf.assert/effect-emitted assertion FAILS with the
             canonical reason text 'fx :never-stubbed was not emitted
             during play'. This is the source-side fixture the test pane
@@ -279,7 +277,7 @@
               (done)))))))
 
 (deftest example-workspaces-registered
-  (testing "both workspaces registered"
+  (testing "all five workspaces registered"
     (is (rf.story/registered? :workspace :Workspace.counter/all-states))
     (is (rf.story/registered? :workspace :Workspace.counter/auto-grid))
     (is (rf.story/registered? :workspace :Workspace.counter/prose))
@@ -291,7 +289,7 @@
 (deftest variant-edn-roundtrip
   (testing "variant->edn returns the registered body for each variant
             under the keys it was authored with — `:setup` reads back as
-            `:setup` (rf2-7dewo: the registrar stores the body verbatim)."
+            `:setup` (the registrar stores the body verbatim)."
     (doseq [vid [:story.counter/empty
                  :story.counter/loaded
                  :story.counter/clicked-three-times
@@ -376,7 +374,7 @@
   (testing ":story.counter-diagnostics/failing-event-throws — the handler
             exception is captured by the play module's trace listener
             and drained into `:rf.story/assertions` as a
-            :rf.error/exception record. Per rf2-z2dq8 the router
+            :rf.error/exception record. The router
             catches the handler throw, the script step resolves
             cleanly, and `runner-events` drains the captured
             exception into the assertions list so the test-mode UI
@@ -417,7 +415,7 @@
 ;; Under node-test there is no DOM, so we don't actually mount. We
 ;; confirm the surface is callable + that `active-shell` returns nil
 ;; before any mount. (The browser-mount path is exercised by the
-;; Playwright spec at counter_with_stories.spec.cjs.)
+;; browser scenarios in tools/story/test/story_browser_scenarios.cjs.)
 
 (deftest shell-surface-callable
   (testing "mount-shell! / unmount-shell! / active-shell are public fns"
