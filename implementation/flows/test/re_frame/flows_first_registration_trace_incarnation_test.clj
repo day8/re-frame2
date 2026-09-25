@@ -1,11 +1,12 @@
 (ns re-frame.flows-first-registration-trace-incarnation-test
-  "rf2-pwum1g — exact-incarnation fence for the FIRST-registration flow trace
+  "Exact-incarnation fence for the FIRST-registration flow trace
   THROUGH the synchronous trace-emit callback pipeline (classification
   projection → epoch capture → ordered tooling listeners).
 
-  rf2-ytpeqf moved the first-time `:rf.flow/registered` evidence behind ONE
-  exact-owner postcheck, so a loss during the PRECEDING mark write withholds
-  the trace. But that postcheck only proves A is live at the instant emission
+  The first-time `:rf.flow/registered` evidence sits behind ONE exact-owner
+  postcheck, so a loss during the PRECEDING mark write withholds the trace
+  (`re-frame.flows-first-registration-watch-incarnation-test`). But that
+  postcheck only proves A is live at the instant emission
   STARTS. `trace/emit!` is itself a callback-bearing pipeline whose stages
   recheck ownership ONLY while a continuation predicate is installed
   (`trace/continuation-live?` reads the always-true default otherwise). The
@@ -17,16 +18,16 @@
   listener would still receive A's incarnation-less `:rf.flow/registered`
   after B owns the bare id (and later policy/capture could observe B).
 
-  rf2-pwum1g wraps that emit in `trace/call-with-continuation-predicate` bound
-  to A's pinned incarnation, so the trace pipeline is fenced to A: the
+  `reg-flow` therefore wraps that emit in `trace/call-with-continuation-predicate`
+  bound to A's pinned incarnation, so the trace pipeline is fenced to A: the
   already-entered delivery (the listener that destroys A) stands once, and
   every LATER listener / capture / policy stage is suppressed the instant A's
   exact ownership is lost.
 
   The seam here is DELIBERATELY the trace-internal listener boundary, not the
-  ytpeqf mark write: A's flow declares NO output marks, so `reg-flow` reaches
+  mark write: A's flow declares NO output marks, so `reg-flow` reaches
   `trace/emit!` with A fully live and the ONLY callback seam is the ordered
-  listener fan-out inside emission — the boundary the merged ytpeqf fixture
+  listener fan-out inside emission — the boundary the mark-write fixture
   (which loses A during the preceding mark write, before emission starts, with
   a passive recorder) cannot reach. Removing the `call-with-continuation-
   predicate` wrapper (leaving the always-true default) makes the subsequent
@@ -61,12 +62,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest first-registration-trace-listener-loss-fences-subsequent-listeners
-  ;; rf2-pwum1g (red before fix). Registering A's first flow (NO output marks)
+  ;; Registering A's first flow (NO output marks)
   ;; reaches `trace/emit!` with A live. The destroyer listener — the
   ;; already-entered delivery — destroys A and publishes same-id B mid-fan-out.
-  ;; Before the fix the emit ran under the always-true continuation, so the
-  ;; observer (the subsequent listener) still received A's incarnation-less
-  ;; :rf.flow/registered after B owned the id. After the fix the pinned-A
+  ;; Were the emit to run under the always-true continuation, the
+  ;; observer (the subsequent listener) would receive A's incarnation-less
+  ;; :rf.flow/registered after B owned the id; the pinned-A
   ;; continuation predicate suppresses every listener past the loss.
   (let [id               :flow.trace.fence/subject
         a-flow-id        :flow.trace.fence/a
@@ -85,7 +86,7 @@
     ;; own :rf.flow/registered — the already-entered delivery — it destroys A
     ;; and publishes same-id B, exactly once (one-shot CAS), then snapshots B's
     ;; stores for the byte-identical assertions. This is the trace-internal loss
-    ;; the ytpeqf mark-write seam cannot reach.
+    ;; the mark-write seam cannot reach.
     (rf.trace.tooling/register-listener!
       ::destroyer
       (fn [ev]
@@ -163,13 +164,13 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Green control / over-fence tooth — when A retains ownership through a
-;; NON-destroying listener, the ordinary first-registration trace still reaches
+;; NON-destroying listener, the ordinary first-registration trace reaches
 ;; the subsequent listener exactly once. A wrongly-over-fencing predicate would
 ;; silently swallow the trace.
 ;; ---------------------------------------------------------------------------
 
 (deftest first-registration-trace-with-live-owner-emits-once
-  ;; rf2-pwum1g mutation tooth. The exact-incarnation fence must NOT suppress
+  ;; Mutation tooth. The exact-incarnation fence must NOT suppress
   ;; the normal first-registration trace when A stays live through the fan-out:
   ;; :rf.flow/registered reaches BOTH the first and the subsequent listener,
   ;; carrying A's own payload.
@@ -205,14 +206,14 @@
         (rf.trace.tooling/unregister-listener! ::live-observer)))))
 
 ;; ---------------------------------------------------------------------------
-;; The reserved-effect `:rf.fx/reg-flow` route already runs the first-
+;; The reserved-effect `:rf.fx/reg-flow` route runs the first-
 ;; registration emit UNDER the router's own exact-owner continuation predicate
 ;; (`re-frame.router` binds `#(frame/event-continuation-live? frame owner-token)`
-;; around the event pipeline). rf2-pwum1g's wrapper AND-composes with any parent
+;; around the event pipeline). The direct wrapper AND-composes with any parent
 ;; predicate (see `trace/call-with-continuation-predicate`), so a first
 ;; registration reached through the reserved-effect route inherits the router
 ;; fence and gains this one — the DIRECT cold `reg-flow` covered above is the
-;; only path that lacked a predicate. The reserved-effect route's exactly-once
+;; only path with no predicate of its own. The reserved-effect route's exactly-once
 ;; live-owner registration behaviour is exercised by
 ;; `re-frame.flows-trace-test` (e.g. `fx-reg-flow-cycle-routes-through-error-
 ;; emit-substrate`) and the router's incarnation-fence suite.
