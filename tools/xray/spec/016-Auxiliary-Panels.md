@@ -655,7 +655,7 @@ drive different surfaces:
 | CSS var | Slot | Surface | Origin |
 |---|---|---|---|
 | `--rf-xray-text-size` | `:general :text-size` (px; default 13 — the removed slider's 10–18 range is not enforced) | Xray surfaces that opt-in read `var(--rf-xray-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | Pre-existing user knob |
-| `--rf-xray-font-size` | `:general :density` (`:compact` 12 / `:cosy` 13 / `:comfy` 14 — `:comfy` catalogued for forward-compat) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`. Flipping the var rescales every typographic surface in lockstep on the next paint. | rf2-n8i2c / PR #1571 |
+| `--rf-xray-font-size` | `:general :density` (`:compact` 12 / `:cosy` 13; any other value, such as a persisted `:comfy`, renders at 13) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`. Flipping the var rescales every typographic surface in lockstep on the next paint. | rf2-n8i2c / PR #1571 |
 
 Each var has its own write path
 (`settings/effects/apply-text-size!` for `--rf-xray-text-size`;

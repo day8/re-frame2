@@ -190,7 +190,7 @@ The Settings shape (validated by Malli):
 
 ```clojure
 {:theme         :dark / :light / :high-contrast
- :density       :compact / :cosy / :comfy
+ :density       :compact / :cosy
  :ai-provider   {:provider :claude / :openai / :gemini / :local / :custom
                  :api-key      "sk-..."
                  :model        "claude-3-5-sonnet"
@@ -231,11 +231,11 @@ Xray carries three orthogonal configuration surfaces. The split is principled �
 |---|---|---|---|
 | **Defaults** | Hardcoded in `config.cljc` | Compile-time constants | Editor `:vscode`, auto-open `true`, layout host `[data-rf-xray-host]` |
 | **Boot-time `configure!`** | Host's app boot | Process-global, fixed for session | `(configure! {:rf.xray/editor :cursor})` — flips the editor for this dev session |
-| **Persisted Settings** | The Settings popup | User-mutable, localStorage | User picks `:density :comfy` from the popup — sticks across reloads |
+| **Persisted Settings** | The Settings popup | User-mutable, localStorage | User switches `:density` to `:compact` with the palette's *Cycle display density* command — sticks across reloads |
 
 **Merge order: defaults < `configure!` < persisted Settings.** A host config knob is the *default* from the user's perspective; the user's Settings overrides win at the per-knob level. `(xray/init! opts)` receives the merged config.
 
-The three answer different questions: `configure!` is the boot-time data knob (set once, don't change at runtime); the in-shell Settings popup is the user-mutable preference layer (user changes density from `:cosy` to `:comfy`, sticks across reloads); per-frame metadata (not in scope here) is the frame-scoped override.
+The three answer different questions: `configure!` is the boot-time data knob (set once, don't change at runtime); the in-shell Settings popup is the user-mutable preference layer (user changes density from `:cosy` to `:compact`, sticks across reloads); per-frame metadata (not in scope here) is the frame-scoped override.
 
 ## See also
 

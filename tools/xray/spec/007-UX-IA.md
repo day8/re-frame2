@@ -976,7 +976,6 @@ removed 2026-05-27 — is the in-shell consumer of the same var
 |---|---|---|
 | **Compact** | 12px | One step tighter than baseline |
 | **Cosy** (default) | 13px | Anchor; matches `tokens/font-size-default` |
-| **Comfy** | 14px | Catalogued for forward compat — radio surfaces only Compact / Cosy in v1 (Mike 2026-05-19) |
 
 `effects/apply-density-font-size!` is the canonical writer. On every
 density change it writes the resolved px value into
