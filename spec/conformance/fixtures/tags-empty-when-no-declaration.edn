@@ -2,9 +2,8 @@
 ;;
 ;; When no active state-node declares `:tags`, the tag union is empty
 ;; and the runtime ELIDES the `:tags` slot from the committed snapshot.
-;; This keeps snapshots small for the common (no-tags) case and means
-;; pre-tags machines are byte-identical to post-tags machines that
-;; happen to declare no tags.
+;; This keeps snapshots small for the common (no-tags) case: a machine
+;; that declares no tags carries no `:tags` slot at all.
 ;;
 ;; Conformant implementations may either (a) elide the slot entirely,
 ;; or (b) carry `:tags #{}`. This fixture asserts the canonical
@@ -12,12 +11,12 @@
 ;; instead should declare that as a port-specific divergence.
 ;;
 ;; Per [005 §State tags](../../005-StateMachines.md#state-tags) §Snapshot
-;; shape change and rf2-ee0d (Nine States Stage 1).
+;; shape change.
 
 {:fixture/id           :machine/tags-empty-when-no-declaration
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/tags}
- :fixture/doc          "A machine whose active state declares no :tags produces a snapshot WITHOUT a :tags slot. Pre-tag machines are byte-identical to post-tag machines that declare no tags."
+ :fixture/doc          "A machine whose active state declares no :tags produces a snapshot WITHOUT a :tags slot, which keeps tag-free snapshots small."
 
  :fixture/registry
  {}
