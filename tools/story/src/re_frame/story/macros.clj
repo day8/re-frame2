@@ -61,20 +61,19 @@
   same artefact core stamps and is read back by the same consumers
   (`re-frame.source-coords.editor-uri`, the Story / Xray open-in-editor
   chips, the Pair MCP source surface), so the derivation belongs in one
-  place. Three properties come with that reuse, and Story previously
-  carried only the first:
+  place. Three properties come with that reuse:
 
   1. **`:file` picking.** `(:file form-meta)` wins over `*file*`, and the
      `\"NO_SOURCE_PATH\"` sentinel is rejected from either source (with
      `:file` omitted outright when both resolve to it — better no `:file`
-     than a poison value that defeats jump-to-source). This is rf2-ulxi:
+     than a poison value that defeats jump-to-source). The reason:
      `cljs.analyzer/macroexpand-1*` binds `*cljs-file*`, not Clojure's
      `*file*`, so under CLJS `*file*` retains the JVM compiler's
      `\"NO_SOURCE_PATH\"` default while tools.reader HAS stamped `{:file
      ...}` onto every collection form's metadata. Form-meta is the answer
      that survives both compilation hosts.
 
-  2. **`:file` absolutisation, at MACRO-EXPANSION time** (rf2-wvsxg).
+  2. **`:file` absolutisation, at MACRO-EXPANSION time.**
      Both shadow-cljs and the JVM compiler put only the
      CLASSPATH-RELATIVE portion of the source file in `:file` —
      `counter_with_stories/stories.cljs`, never the on-disk path — and
@@ -87,23 +86,22 @@
      PREFERS the dev-server endpoint and FALLS BACK to an `editor://`
      URI on any non-2xx — including the 422 the endpoint answers when
      `launch-editor` declines a coordinate-bearing request. With a
-     relative `:file` that fallback ships
+     relative `:file` that fallback would ship
      `windsurf://file/counter_with_stories/stories.cljs:196:3`, which no
-     editor's scheme handler can resolve, and the chip silently misses.
+     editor's scheme handler can resolve, and the chip would silently miss.
 
      Note where the resolution happens: ONCE, in Clojure, while the macro
      expands. The CLJS runtime only ever sees a baked literal string.
      Story does NOT discover a source root in the browser — the
-     repository's browser-side checkout-root pipeline was retired
-     precisely because the endpoint plus this compile-time stamp make it
-     redundant, and nothing here reintroduces it. Hosts that need a root
+     endpoint plus this compile-time stamp make a browser-side
+     checkout-root pipeline redundant. Hosts that need a root
      at runtime (static exports, non-shadow hosts, in-jar sources whose
      classpath probe finds no `file:` URL) still set the public
      `:rf.story/project-root` knob, which `editor-uri/compose-path`
      applies only to a `:file` that is still relative.
 
   3. **Expansion-time literal, not an emitted runtime `cond->`**
-     (rf2-i3dvj evaluation-order transparency): the returned value is a
+     (evaluation-order transparency): the returned value is a
      map, not a form that builds one.
 
   Story registrations are dev-only — every expansion sits under
