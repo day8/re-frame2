@@ -1,36 +1,34 @@
 (ns re-frame.bench.fresco.read-profile-baseline-cljs-test
   "PHASE B'S RESIDUE BASELINE IS THE STATE THE RUNTIME SETTLES TO —
-  pinned (rf2-981nt).
+  pinned.
 
   `read_profile_app`'s phase B gates every sample on residue EQUALITY
   against a baseline read once, at setup. The gate is right and the
   equality is right: these are counts of live references and a tolerance
-  on them would only make room for the fault. What was wrong was WHERE
-  the baseline was read.
+  on them would only make room for the fault. What matters is WHERE
+  the baseline is read.
 
   Phase B's setup harvests one unclaimed read-set entry per commit frame
   — minted by a render, `refs` still zero, reaper armed. `arm1/runtime`
-  arms that reaper at [[rf.bench.fresco.arm1.runtime/quiesced!]]'s horizon, which rf2-2rtt6.84 moved
-  from 0 ms to 4 ms so an entry survives long enough for `hydrateRoot`'s
+  arms that reaper at [[rf.bench.fresco.arm1.runtime/quiesced!]]'s horizon, 4 ms rather
+  than 0, so an entry survives long enough for `hydrateRoot`'s
   passive subscribe to claim it. A baseline read one bare macrotask later
-  therefore counts every one of those entries, and by the first sampled
-  arm they are gone. Six, then five, byte-identical on both attempts of
-  the granted quiet-box run, and no phase-B number at all.
+  would therefore count every one of those entries, and by the first
+  sampled arm they are gone: six against five, and no phase-B number at
+  all.
 
-  ## Why this file, and why it would have caught the move
+  ## Why this file
 
-  Both published phase-B runs predate the horizon change, so the studio
-  page records a residue gate that had never once fired. A gate that
-  never fires looks exactly like a gate that passes — which is the whole
-  reason the 0 -> 4 move could land under a faithful instrument without
+  A gate that never fires looks exactly like a gate that passes, so a
+  move of the reap horizon could land under a faithful instrument without
   anything going red.
 
   The rows below drive `read-profile-app/residue-settle!` itself rather
   than the runtime primitive underneath it, and that is deliberate: a
   witness that called [[rf.bench.fresco.arm1.runtime/quiesced!]] directly would stay green however
   the instrument settled, which is precisely the vacuum this file exists
-  to fill. Put the instrument back on a bare macrotask and both rows go
-  red; move the horizon again and they stay green, because the settle
+  to fill. Put the instrument on a bare macrotask and both rows go
+  red; move the horizon and they stay green, because the settle
   point is derived from the runtime's own number instead of copying it.
 
   ## Shape
@@ -65,8 +63,7 @@
 
 (def ^:private commit-frames
   "Phase B's identically-seeded commit frames, in miniature — FOUR here
-  against the instrument's 32 (rf2-3l6hf raised that count, and this
-  docstring went on attributing four to phase B itself).
+  against the instrument's 32.
 
   Four is right for THIS file and the shortfall costs it nothing: the
   claim below is that an unclaimed entry is still reachable at the
@@ -118,7 +115,7 @@
              reading the runtime settles to on its own. Read it a bare
              macrotask earlier and it counts four cached entries the
              reapers are about to drop — a baseline the run can never
-             return to, and the six-against-five the gate threw on"
+             return to, and the six-against-five the gate throws on"
       (let [!baseline (volatile! nil)]
         (-> (rf.bench.fresco.read-profile-app/residue-settle!)
             (.then (fn [_] (vreset! !baseline (rf.bench.fresco.arm1.runtime/residue)) (rf.bench.fresco.arm1.runtime/quiesced!)))
@@ -148,18 +145,17 @@
     ;; pass, so the row turns on a single comparison: the settle's expiry
     ;; against the FIRST reaper's, which is `settle-armed - first-mint`
     ;; against 3 ms. Armed at the end, that interval is three whole
-    ;; renders — ~1.3 ms on a quiet box, past 3 ms on a loaded CI runner
-    ;; inside the consolidated node-test bundle, where this read 2 of 4
-    ;; on one and 1 of 4 on another. That is the SETUP'S COST arriving as
+    ;; renders — ~1.3 ms on a quiet box, past 3 ms on a loaded runner,
+    ;; where the row reads 2 or 1 of 4: the SETUP'S COST arriving as
     ;; a residue reading. Armed here it is the tail of one render, and
-    ;; 4 ms goes back to being React's commit margin rather than a budget
+    ;; 4 ms stays React's commit margin rather than a budget
     ;; for a test's own setup.
     (render-one! (first commit-frames))
     (let [settled (rf.bench.fresco.lane/settle!)]
       (run! render-one! (rest commit-frames))
       (testing "why row 1 is not free: one `rf.bench.fresco.lane/settle!` after the render
                every unclaimed entry is STILL cached — that survival is the
-               hydration margin rf2-2rtt6.84 bought, and it is what makes a
+               hydration margin the 4 ms horizon buys, and it is what makes a
                residue reading taken there disagree with one taken after the
                runtime has quiesced"
         (-> settled
