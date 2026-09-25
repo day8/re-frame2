@@ -46,7 +46,7 @@
 // matching string with its expanded cache entry, memoising to keep
 // shared subtrees shared in the reconstructed tree.
 //
-// ## Reference grammar (rf2-kjv05) — MIRRORED, not invented here
+// ## Reference grammar — MIRRORED, not invented here
 //
 // Occupying the namespace is not the same as owning it: an ordinary
 // payload value can spell `de-dupe.cache/…`. On the Clojure side that is
@@ -55,9 +55,9 @@
 // exactly the spelling a real reference arrives under. That erasure is
 // the reason this decoder cannot be the place the collision is settled,
 // and the reason the encoder escapes all three types rather than the
-// symbols alone (rf2-kjv05 was reopened on precisely the keyword gap:
-// the Clojure round-trip stayed exact while the JSON projection was
-// corrupt, in value and map-KEY position both). A PREFIX-only decoder
+// symbols alone (escaping symbols alone would keep the Clojure
+// round-trip exact while corrupting the JSON projection, in value and
+// map-KEY position both). A PREFIX-only decoder
 // reads every such value as a reference and turns payload data into
 // another subtree, into `undefined`, or into a thrown missing-entry
 // error. So in VALUE position a token `de-dupe.cache/<name>` is
@@ -75,9 +75,9 @@
 //
 // The grammar here is deliberately TYPE-BLIND, which is what lets the
 // two halves stay in step: a JSON string is all this side ever sees, so
-// widening the encoder's escape set (symbols, then keywords and strings)
-// changed nothing here — the same three rules already decoded the wider
-// output. What this decoder does NOT do is recover which Clojure type a
+// the encoder's escape set (symbols, keywords and strings) can widen
+// without a change here — the same three rules decode the wider output.
+// What this decoder does NOT do is recover which Clojure type a
 // token started as; nothing on the JSON wire can, and the codec's claim
 // is that the JSON PROJECTION survives it unchanged, not that the
 // Clojure type does.
@@ -102,9 +102,9 @@ const CACHE_NS_PREFIX = 'de-dupe.cache/';
 const ROOT_CACHE_ID = 'de-dupe.cache/cache-0';
 const ESCAPE_MARKER = '!';
 
-// The allocator's own spelling, anchored at both ends. Anchoring is the
-// whole fix: `startsWith(CACHE_NS_PREFIX)` matched every payload value
-// in the namespace, not just the ids `make-cache-element` emits.
+// The allocator's own spelling, anchored at both ends, because
+// `startsWith(CACHE_NS_PREFIX)` would match every payload value in the
+// namespace, not just the ids `make-cache-element` emits.
 const CACHE_REF_RE = /^de-dupe\.cache\/cache-\d+$/;
 
 function isCacheRefString(v) {
@@ -167,7 +167,7 @@ function expandCache(cache) {
           typeof expandedKey === 'string' || typeof expandedKey === 'number'
             ? expandedKey
             : JSON.stringify(expandedKey);
-        // DEFINE, never assign (rf2-gwye.36). `out['__proto__'] = …` runs
+        // DEFINE, never assign. `out['__proto__'] = …` runs
         // the inherited `Object.prototype.__proto__` setter instead of
         // creating the key — the payload entry vanishes and its value
         // becomes the rebuilt object's prototype. `JSON.parse` keeps that
@@ -215,7 +215,7 @@ function expandCache(cache) {
     // re-entering this entry is DETECTED (above) and thrown — not blown up
     // as a stack overflow, and not silently short-circuited to `undefined`.
     // Real de-dupe caches are acyclic; the cheap defensive guard costs
-    // nothing and now fails loud on adversarial input.
+    // nothing and fails loud on adversarial input.
     memo.set(cacheId, EXPANDING);
     const expanded = expandValue(cache[cacheId]);
     memo.set(cacheId, expanded);
@@ -246,12 +246,12 @@ function decodeDedupEnvelope(structuredContent) {
   ) {
     return structuredContent;
   }
-  // The wrapper is CLOSED and SINGLE-KEY (rf2-gwye.38), held exactly as
+  // The wrapper is CLOSED and SINGLE-KEY, held exactly as
   // `unwrapClosedOverflow` in `overflow-marker.cjs` holds the overflow
   // wrapper: the JVM contract pins `DedupTable` as
   // `[:map {:closed true} [:rf.mcp/dedup-table …]]`. Expansion returns the
   // cache root and so would ERASE a sibling — a sibling `ok? false` beside
-  // an inner `ok? true` was then graded on the sanitised value. Neither side
+  // an inner `ok? true` would be graded on the sanitised value. Neither side
   // has precedence; the envelope is malformed, so reject it here.
   const siblings = Object.keys(structuredContent).filter((k) => k !== DEDUP_TABLE_KEY);
   if (siblings.length > 0) {
