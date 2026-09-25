@@ -3476,7 +3476,7 @@
   registry reconstruction because the summary reflects what ACTUALLY took
   effect on THIS dispatch (per-frame ++ per-call merge), which the registry
   read alone cannot show. A row whose ref the summary did not touch is
-  unchanged."
+  returned as-is."
   [{:keys [authored] :as row} {:keys [replaced removed] :as _summary}]
   (cond
     (some #(authored-matches-summary-ref? authored %) removed)
@@ -3489,7 +3489,7 @@
 
 (defn authored-interceptors-step
   "Build the INTERCEPTORS step — the AUTHORED interceptor chain wrapping
-  `event-id`'s handler (EP-0022 §11, rf2-se9a9t) — or nil when the event
+  `event-id`'s handler (EP-0022 §11) — or nil when the event
   carries NO authored (non-`:rf/default?`) interceptors (the common case;
   the step is then OMITTED so the numbered cascade reads HANDLER directly).
 
@@ -3497,7 +3497,7 @@
   `(handler-meta :event event-id)`; `resolve-meta-fn` resolves each ref to
   its registered `:interceptor` descriptor (see `interceptor-ref-row`).
 
-  `override-summary` (rf2-9vx0jk) is the per-dispatch
+  `override-summary` is the per-dispatch
   `:rf.interceptor/override-summary` trace fact off the cascade's
   `:rf.event/run-start` event — `{:matched [..] :replaced [..] :removed [..]
   :count N}`, id-only — or nil on the override-free hot path. When present it
@@ -3525,7 +3525,7 @@
    (let [rows (->> (or authored-entries [])
                    (keep #(interceptor-ref-row % resolve-meta-fn))
                    vec)
-         ;; rf2-9vx0jk — PREFER the per-dispatch override-summary trace fact
+         ;; PREFER the per-dispatch override-summary trace fact
          ;; to mark replaced/removed rows; falls back to the registry-only
          ;; reconstruction (no `:override` stamp) on the override-free path.
          rows (if (map? override-summary)
@@ -3537,17 +3537,17 @@
         :event-id event-id
         :rows     rows}))))
 
-;; ---- SKIPPED-step marking (rf2-yz57h) -----------------------------------
+;; ---- SKIPPED-step marking -----------------------------------------------
 ;;
 ;; When an EARLIER pipeline step throws on the way IN — a coeffect injector
 ;; (`:rf.error/coeffect-exception`) or a user-interceptor `:before`
 ;; (`:rf.error/interceptor-exception` with `:phase :before`) — the event
-;; HANDLER never runs. Pre-rf2-yz57h the HANDLER step still rendered its
-;; body and the `:db` sub-section read "— no :db (handler returned no :db)"
-;; — WRONG: the handler's body returns a `:db` via `bump`, it simply never
-;; executed (buttons 17 / coeffect throw). The fix marks the HANDLER step
-;; (and the SIDE EFFECTS step, which equally never ran) `:status :skipped`
-;; so the view renders it as SKIPPED rather than "ran, returned no :db".
+;; HANDLER never runs. Rendering its body with the `:db` sub-section
+;; reading "— no :db (handler returned no :db)" would be WRONG: the
+;; handler's body returns a `:db` via `bump`, it simply never executed
+;; (buttons 17 / coeffect throw). So the HANDLER step (and the SIDE
+;; EFFECTS step, which equally never ran) is marked `:status :skipped`
+;; and the view renders it as SKIPPED rather than "ran, returned no :db".
 ;;
 ;; An interceptor `:after` throw is NOT a skip-the-handler case — the
 ;; handler ran successfully and the throw fired on the way OUT — so it does
@@ -3555,7 +3555,7 @@
 
 (defn handler-skipped-by-upstream?
   "True iff an UPSTREAM `:before`-chain throw skipped the event handler
-  this cascade (rf2-yz57h): a coeffect injector threw
+  this cascade: a coeffect injector threw
   (`:rf.error/coeffect-exception`), or a user interceptor threw in its
   `:before` phase (`:rf.error/interceptor-exception` + `:phase :before`).
   Both abort the chain on the way IN, so the handler body never executes.
@@ -3574,8 +3574,8 @@
 (defn mark-skipped-handler
   "When an upstream `:before`-chain throw skipped the handler
   (`handler-skipped-by-upstream?`), stamp the HANDLER step + the SIDE
-  EFFECTS step (which equally never ran) with `:status :skipped`
-  (rf2-yz57h). The view reads `:skipped` to render the step as SKIPPED
+  EFFECTS step (which equally never ran) with `:status :skipped`.
+  The view reads `:skipped` to render the step as SKIPPED
   rather than 'ran, returned no :db'. Pure fn over the step vector; a
   cascade with no upstream skip returns `steps` unchanged."
   [steps events]
@@ -3587,22 +3587,22 @@
           steps)
     steps))
 
-;; ---- HALTED-DEPTH record (rf2-3x7nj.22.1) --------------------------------
+;; ---- HALTED-DEPTH record -------------------------------------------------
 ;;
 ;; A `:halted-depth` record marks the event the drain REFUSED: the depth
 ;; limit tripped with it at the head of the queue, so it never ran (Spec-
 ;; Schemas §`:rf/epoch-record` §Outcomes). Its trace carries only the
-;; `:rf.event/dispatched` marker, so every trace-driven pass reads it as a
-;; clean event whose handler wrote nothing — HANDLER "returned no :db",
+;; `:rf.event/dispatched` marker, so every trace-driven pass would read it
+;; as a clean event whose handler wrote nothing — HANDLER "returned no :db",
 ;; outcome `:ok` — on the head epoch of a runaway loop. The record's own
 ;; `:outcome` / `:halt-reason` are the only evidence, so this pass reads
-;; them: HANDLER + SIDE EFFECTS go `:skipped` (the rf2-yz57h machinery,
+;; them: HANDLER + SIDE EFFECTS go `:skipped` (the skipped-step machinery,
 ;; with a `:skip-reason` the view words the body from), and one card built
 ;; from `:halt-reason` lands on DISPATCH, which also turns `epoch-outcome`
 ;; `:error`.
 
 (defn halt-row
-  "The DISPATCH-step card for a `:halted-depth` epoch record (rf2-3x7nj.22.1);
+  "The DISPATCH-step card for a `:halted-depth` epoch record;
   nil for any other record. Built from `:halt-reason`'s `:operation` /
   `:depth` / `:queue-size` only, in the `exception-row` shape so
   `error-block` renders it unchanged."
@@ -3617,7 +3617,7 @@
                          (str "; " queue-size " queued event(s) dropped"))
                        ".")})))
 
-;; ---- HALTED-DESTROY record (rf2-v6ftp) ----------------------------------
+;; ---- HALTED-DESTROY record ----------------------------------------------
 ;;
 ;; A `:halted-destroy` record marks the event during which its own frame was
 ;; destroyed. That is a deliberate lifecycle stop, not an error — the
@@ -3646,10 +3646,9 @@
 (defn mark-halted
   "When `epoch-record` is a `:halted-depth` record (`halt-row`), attach its
   halt card to the DISPATCH step (`:status :error`) and stamp the HANDLER +
-  SIDE EFFECTS steps `:status :skipped` with `:skip-reason :halted-depth`
-  (rf2-3x7nj.22.1).
+  SIDE EFFECTS steps `:status :skipped` with `:skip-reason :halted-depth`.
 
-  When it is a `:halted-destroy` record (rf2-v6ftp), stamp DISPATCH
+  When it is a `:halted-destroy` record, stamp DISPATCH
   `:halted :halted-destroy` (the `:blocked` outcome, no card) and, when
   nothing of the handler's result was committed, HANDLER
   `:result-discarded? true`. SIDE EFFECTS is left exactly as the trace
@@ -3680,7 +3679,7 @@
 
 (defn- attach-to-fx-error-row
   "Attach an fx exception row to the SIDE EFFECTS step's matching
-  `:fx-id` row (rf2-ahhgn / rf2-kt6js). When `:failing-id` matches a
+  `:fx-id` row. When `:failing-id` matches a
   row's `:fx-id`, attach there; otherwise attach to the step-level
   `:errors`. Mirrors `attach-to-fx-row` for schema violations."
   [step row]
@@ -3697,7 +3696,7 @@
 
 (defn- coeffect-exception-target
   "Index of the COEFFECT step a `:rf.error/coeffect-exception` row attaches
-  to (rf2-yz57h). Prefers the step whose `:id` == the row's `:failing-id`
+  to. Prefers the step whose `:id` == the row's `:failing-id`
   (the cofx that threw); falls back to the FIRST COEFFECT step when the
   throwing cofx produced no `:rf.cofx/run` step (it threw on injection, so
   the granular cofx-run trace may be absent — `project` synthesises a
@@ -3709,12 +3708,12 @@
 
 (defn- interceptor-exception-target
   "Index of the INTERCEPTOR step a `:rf.error/interceptor-exception` row
-  attaches to (rf2-vew2n). With the phase-split INTERCEPTOR steps the
+  attaches to. With the phase-split INTERCEPTOR steps the
   cascade may carry TWO interceptor steps — a `:before` one (before
   HANDLER) and an `:after` one (after HANDLER). Match the step whose
   `:phase` == the exception row's `:phase` so a `:before` throw lands on
   the pre-HANDLER step and an `:after` throw on the post-HANDLER step.
-  Falls back to ANY interceptor step (phase-less legacy fixtures), else
+  Falls back to ANY interceptor step (phase-less fixtures), else
   nil."
   [steps phase]
   (or (index-of #(and (= :interceptor (:step %)) (= phase (:phase %))) steps)
@@ -3723,16 +3722,16 @@
 (defn attach-exceptions
   "Take a projected step vector + a vec of `exception-row` records and
   return the step vector with each exception attached to its owning step
-  (rf2-ahhgn · rf2-mszrz component attribution · rf2-yz57h per-step
-  placement — per `exception-op->step`). Returns `steps` unchanged when
+  (component attribution, per-step placement — per
+  `exception-op->step`). Returns `steps` unchanged when
   `rows` is empty.
 
-  Placement (rf2-yz57h — each under the step where it actually occurred):
+  Placement (each under the step where it actually occurred):
 
     - COEFFECT exception → the matching COEFFECT step (by `:failing-id` =
       cofx `:id`; falls back to the first COEFFECT step), step-level.
     - INTERCEPTOR exception → the INTERCEPTOR step matching the row's
-      `:phase` (rf2-vew2n — the `:before` step before HANDLER, the
+      `:phase` (the `:before` step before HANDLER, the
       `:after` step after HANDLER; falls back to any interceptor step),
       step-level.
     - HANDLER / FLOW exception → that step, step-level (the exception
@@ -3740,9 +3739,9 @@
     - FX exception → the SIDE EFFECTS row whose `:fx-id` = `:failing-id`
       (row-level), falling back to step-level when no row matches.
 
-  Each touched step additionally gains `:status :error` so the per-step
-  ✓/✗ primitive paints the failure glyph; the same `:status` slot is what
-  rf2-kt6js's SIDE-EFFECTS sub-steps reuse.
+  Each touched step additionally gains `:status :error`, which
+  `step-status` (and so `epoch-outcome`) reads; the SIDE EFFECTS ledger
+  reuses the same `:status` slot.
 
   Catch-all: when the owning step is absent from the cascade (e.g. a
   flow-eval throw with no FLOW step projected) the exception attaches to
@@ -3783,23 +3782,23 @@
       steps
       rows)))
 
-;; ---- GENERIC error catch-all (rf2-y8doi.19) -----------------------------
+;; ---- GENERIC error catch-all ---------------------------------------------
 ;;
-;; `cascade-exception-ops` is a CLOSED SET OF SEVEN, and every cascade
-;; error outside it surfaced NOWHERE: no card, no `:status :error`, and
-;; `epoch-outcome` reading `:ok` for an event that did not complete. The
-;; framework's `:rf.error/*` vocabulary is far wider than seven and grows
-;; — `router.cljc` alone emits more than twenty — so the closed set was
-;; never going to hold, and the failure mode is the worst available: a
+;; `cascade-exception-ops` is a CLOSED SET OF SEVEN, and without this pass
+;; every cascade error outside it would surface NOWHERE: no card, no
+;; `:status :error`, and `epoch-outcome` reading `:ok` for an event that
+;; did not complete. The framework's `:rf.error/*` vocabulary is far wider
+;; than seven and grows — `router.cljc` alone emits more than twenty — so
+;; no closed set holds, and the failure mode is the worst available: a
 ;; clean-looking cascade with a green outcome for an event that was
 ;; refused.
 ;;
-;; The instance that found it: a handler returning a foreign top-level
+;; For example, a handler returning a foreign top-level
 ;; effect key. The router REFUSES that pre-commit with
-;; `:rf.error/effect-map-shape` (rf2-04tx) — no `:db`, no `:fx`, the
-;; event aborted — and the panel drew a tidy `{:db}` cascade reading
-;; `outcome="ok"` while the L2 row and the ribbon went red beside it. The
-;; operator's two surfaces disagreed and the panel was the wrong one.
+;; `:rf.error/effect-map-shape` — no `:db`, no `:fx`, the
+;; event aborted — and without this pass the panel would draw a tidy
+;; `{:db}` cascade reading `outcome="ok"` while the L2 row and the ribbon
+;; go red beside it.
 ;;
 ;; This pass runs AFTER `attach-exceptions` and takes what that left. It
 ;; is deliberately a SWEEP over an open predicate rather than a second
@@ -3808,7 +3807,7 @@
 
 (def ^:private unclassified-error-op->step
   "Best-step placement for a cascade error trace OUTSIDE
-  `cascade-exception-ops` (rf2-y8doi.19).
+  `cascade-exception-ops`.
 
   A TABLE OF EXCEPTIONS TO THE HANDLER DEFAULT, NOT AN INVENTORY. An op
   absent from here is not unhandled — it lands on HANDLER with its
@@ -3839,7 +3838,7 @@
    :rf.error/cofx-value-invalid          :coeffect})
 
 (defn cascade-error-event?
-  "True iff `ev` is a cascade ERROR trace (rf2-y8doi.19).
+  "True iff `ev` is a cascade ERROR trace.
 
   TWO tests, and the second is not redundant. `re-frame.trace/emit-error!`
   stamps `:op-type :error` on every error it emits, which is the
@@ -3855,18 +3854,18 @@
 
 (defn unclassified-error-row
   "`exception-row` for a cascade error OUTSIDE `cascade-exception-ops`,
-  with one addition (rf2-y8doi.19): a `:message` lifted from `:reason`
+  with one addition: a `:message` lifted from `:reason`
   when the trace carried no exception message.
 
-  rf2-oqi0c dropped the `[:tags :reason]` fallback from `exception-row`
+  `exception-row` has no `[:tags :reason]` fallback
   because for a THROW `:reason` is terse category boilerplate the card's
   own position already conveys. A REFUSAL is the opposite case: nothing
   threw, so there is no `.getMessage` at all, and `:reason` is the entire
   diagnosis — for `:rf.error/effect-map-shape` it is the sentence naming
   the offending key. Without this the card would render a heading and no
   text. The narrowing is deliberate: `:message` is only ever filled from
-  `:reason` when `exception-row` found nothing, so rf2-oqi0c's rule still
-  governs every op it was written about."
+  `:reason` when `exception-row` found nothing, so `exception-row`'s rule
+  governs every op in `cascade-exception-ops`."
   [ev]
   (let [row (exception-row ev)]
     (cond-> row
@@ -3876,24 +3875,24 @@
 
 (defn unclassified-error-rows
   "Every cascade error trace in `events` that NO other pass handles, as
-  `unclassified-error-row` records in trace order (rf2-y8doi.19). Empty
+  `unclassified-error-row` records in trace order. Empty
   vec when none fired.
 
   TWO exclusions, and the second is not optional. `cascade-exception-ops`
   is the obvious one — those ride `attach-exceptions`. `schema-violation-
   ops` is the one that bites: those traces are `:op-type :error` too, and
   `:rf.error/schema-validation-failure` is an `:rf.error/*` op, so a sweep
-  that excluded only the first set picked up EVERY schema violation and
-  attached it a SECOND time as an exception card beside the violation
-  block it already had. `cascade-exception-ops`' own docstring states the
+  that excluded only the first set would pick up EVERY schema violation and
+  attach it a SECOND time as an exception card beside the violation
+  block it already has. `cascade-exception-ops`' own docstring states the
   division — schema failures ride `schema-violation-rows` +
   `attach-violations`, carrying `:explain` / `:where` / recovery chrome
   rather than an exception message — and this honours it.
 
   It shows up first on `:where :hot-reload`, which is the one violation
-  kind `attach-violations` drops DELIBERATELY: swept up here it turned a
-  green cascade `:error` on dev-time schema drift that has nothing to do
-  with the event. That is the arm that caught it."
+  kind `attach-violations` drops DELIBERATELY: swept up here it would turn
+  a green cascade `:error` on dev-time schema drift that has nothing to do
+  with the event."
   [events]
   (vec
     (for [ev events
@@ -3905,7 +3904,7 @@
 (defn- synthesise-side-effects-step
   "Insert a SIDE EFFECTS step carrying `row`, for a refusal at the
   effects boundary in a cascade where no effect ran and so no SIDE
-  EFFECTS step was projected (rf2-y8doi.19).
+  EFFECTS step was projected.
 
   `side-effects-step` builds nothing when the ledger has no rows, which
   is exactly the shape a pre-commit refusal produces: no `:db` commit, no
@@ -3932,7 +3931,7 @@
 
 (defn attach-unclassified-errors
   "Take a projected step vector + `unclassified-error-rows` and return it
-  with every row attached to its best step (rf2-y8doi.19). Returns
+  with every row attached to its best step. Returns
   `steps` unchanged when `rows` is empty.
 
   Placement is `unclassified-error-op->step`, defaulting to HANDLER — the
@@ -3943,9 +3942,8 @@
   `:after`-interceptor-authored key would be worse than saying nothing.
   Every other target falls back to HANDLER when absent.
 
-  Each touched step gains `:status :error`, so `epoch-outcome` stops
-  reading `:ok` for an event that did not complete — which was the
-  visible half of this defect."
+  Each touched step gains `:status :error`, so `epoch-outcome` does not
+  read `:ok` for an event that did not complete."
   [steps rows]
   (if (empty? rows)
     steps
@@ -3966,24 +3964,24 @@
       (vec steps)
       rows)))
 
-;; ---- per-step status + epoch outcome (rf2-ahhgn) ------------------------
+;; ---- per-step status + epoch outcome ------------------------------------
 
 (defn step-status
-  "The status of a projected step (rf2-ahhgn · rf2-yz57h) — one of:
+  "The status of a projected step — one of:
 
     `:error`   — the step (or any of its rows) carries an attached
                  exception or schema violation.
     `:skipped` — the step never RAN because an upstream `:before`-chain
-                 throw aborted the cascade (rf2-yz57h `mark-skipped-handler`
+                 throw aborted the cascade (`mark-skipped-handler`
                  stamps `:status :skipped` on the HANDLER + SIDE EFFECTS
                  steps). Distinct from `:ok` — the step did NOT run, so it
                  must NOT read as 'ran, returned no :db'.
     `:ok`      — otherwise (the step ran cleanly).
 
-  The view no longer paints a per-stage glyph off this primitive (the
-  per-stage ✓/✗/⊘ retired in rf2-9wq0v — a clean run was all ticks / no
-  information, and a failure already shows on its inline exception card).
-  This status still drives the SKIPPED-body branch (`:skipped` → the
+  The view paints no per-stage glyph off this primitive (a per-stage
+  ✓/✗/⊘ would be all ticks / no information on a clean run, and a
+  failure shows on its inline exception card).
+  This status drives the SKIPPED-body branch (`:skipped` → the
   'did not run' placeholder) and the overall event-bundle-outcome banner
   (`event-bundle-outcome` / `epoch-outcome` scan `:error`).
 
@@ -4012,7 +4010,7 @@
 
 (defn epoch-outcome
   "Derive the Epoch panel's consumer-facing outcome for a projected step
-  vector (rf2-ahhgn) — `:error` when ANY step settled `:error` (an
+  vector — `:error` when ANY step settled `:error` (an
   exception or a schema violation fired this cascade), else `:ok`.
 
   This is the TOOL-SIDE outcome the Epoch panel surfaces — the SAME
@@ -4024,14 +4022,14 @@
   §Outcomes line 245 — the reference runtime recovers + settles `:ok`;
   `:halted-handler-exception` is reserved for a future drain-aborting
   runtime). Surfacing the framework slot's `:ok` as the panel's outcome
-  is the rf2-ahhgn bug; deriving from the trace stream fixes it without a
+  would hide the failure; deriving from the trace stream avoids a
   framework-contract change (which would ripple into `restore-epoch`'s
-  non-`:ok` refusal + Story / MCP consumers — see rf2-ahhgn settle-first).
+  non-`:ok` refusal + Story / MCP consumers).
 
-  rf2-v6ftp — `:blocked` for a `:halted-destroy` record (`mark-halted`
+  `:blocked` for a `:halted-destroy` record (`mark-halted`
   stamps DISPATCH `:halted`), following the framework's own consumer-facing
   mapping: a destroy is a deliberate lifecycle stop, not an error. An
-  `:error` step still wins."
+  `:error` step wins over it."
   [steps]
   (cond
     (some #(= :error (step-status %)) steps)      :error
@@ -4041,7 +4039,7 @@
 (defn cascade-rolled-back?
   "True iff any STATE-partition schema violation in `rows` carries
   `:rollback? true` — `:where :app-db` (the app-db partition) OR
-  `:where :machine-data` (the runtime-db partition, EP-0001 rf2-ff9b0d).
+  `:where :machine-data` (the runtime-db partition, EP-0001).
   Either partition's post-commit boundary failing unwinds the WHOLE
   transition (Spec 010 §Per-step recovery rows 4 + 7), so both signal a
   rolled-back cascade. The view layer reads this off the cascade context
@@ -4058,11 +4056,11 @@
 (defn mark-rolled-back-downstream
   "When the cascade carries an `:app-db` rollback violation, mark
   every step downstream of the SIDE EFFECTS step (SUBSCRIPTIONS /
-  VIEWS / any standalone hot-reload tail) with `:rolled-back? true`.
+  VIEWS) with `:rolled-back? true`.
   The view paints those steps with mute chrome. Pure fn over the step
   vector.
 
-  Per rf2-8resu / rf2-kt6js / rf2-j630b: the SIDE EFFECTS step itself is
+  The SIDE EFFECTS step itself is
   NOT marked rolled-back — its `:db` row carries the red ✗ + violation
   reason box that's the visible rollback indicator. Muting the entire
   step would hide the very signal the operator needs. User-fx rows don't
@@ -4087,19 +4085,17 @@
 ;; A cascade that returns dispatch-family fx (`:dispatch / :dispatch-n /
 ;; :dispatch-later`) triggers child cascades — each child rides its own
 ;; epoch-record carrying `:parent-dispatch-id` (the parent's
-;; `:dispatch-id`; Spec-Schemas §`:rf/epoch-record`, rf2-rly4a). The
+;; `:dispatch-id`; Spec-Schemas §`:rf/epoch-record`). The
 ;; DISPATCH step's `:fx-dispatch` chrome resolves the PARENT epoch off
 ;; that link via the O(1) index below.
 ;;
-;; rf2-zkiu5 (pair-debug 2026-05-26) retired the standalone
-;; CHILD-DISPATCHES step (and its `child-dispatch-rows` /
-;; `child-dispatches-step` / `find-child-epoch` projection) — the FX
-;; step already surfaces every dispatch-family fx entry per row, so the
-;; cascade-link affordance lives on the FX rows themselves.
+;; There is no standalone CHILD-DISPATCHES step — the SIDE EFFECTS
+;; step surfaces every dispatch-family fx entry per row, so the
+;; cascade-link affordance lives on those rows themselves.
 
 (defn parent-dispatch-ids
   "The DISTINCT `:parent-dispatch-id`s a projected step vector carries,
-  in cascade order (rf2-y8doi.19).
+  in cascade order.
 
   Only the DISPATCH step's `:source-enrichment` carries one, and only
   for the `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`
@@ -4123,20 +4119,18 @@
   "Build a `{dispatch-id → epoch-id}` map from an `epoch-history`
   vector, restricted to the dispatch ids in `wanted-dispatch-ids`.
 
-  rf2-x25e0 — collapses the per-row O(N) scan that `find-parent-epoch`
-  previously did to an O(1) lookup. Each record contributes both its
-  first-class `:dispatch-id` slot (rf2-rly4a; the common case) AND
+  It gives `find-parent-epoch` an O(1) lookup in place of a per-row
+  O(N) scan. Each record contributes both its
+  first-class `:dispatch-id` slot (the common case) AND
   the value derived via `dispatch-id-of-epoch` (the trace-walk
-  fallback for legacy / restored records lacking the slot). Same
-  matching surface as the prior `some`-based lookup; nil keys are
+  fallback for restored records lacking the slot); nil keys are
   skipped so records with neither identifier don't collide.
 
-  rf2-y8doi.19 — THE NARROWING IS ABOUT INVALIDATION, NOT LOOKUP COST.
-  This replaced a whole-ring `dispatch-id->epoch-id-index`, and the
-  whole-ring map gains an entry every time an epoch settles. A panel
-  reading it therefore re-derived and re-rendered on every host event
-  even while pinned to an old epoch, for a map whose one interesting
-  entry had not moved. A settled parent's `:epoch-id` never changes, so
+  THE NARROWING IS ABOUT INVALIDATION, NOT LOOKUP COST.
+  A whole-ring `dispatch-id->epoch-id` map gains an entry every time an
+  epoch settles, so a panel reading it would re-derive and re-render on
+  every host event even while pinned to an old epoch, for a map whose
+  one interesting entry had not moved. A settled parent's `:epoch-id` never changes, so
   the narrowed map is `=`-equal across settles and the substrate's
   propagation collapse stops there (spec/006 §Invalidation algorithm —
   `=`-equal upstream values suppress recompute). An empty request
@@ -4165,18 +4159,17 @@
 (defn find-parent-epoch
   "Resolve a parent epoch's `:epoch-id` against a precomputed
   `dispatch-id->epoch-id` index given the child's
-  `:parent-dispatch-id` (rf2-5qp4g).
+  `:parent-dispatch-id`.
 
   Child's `:parent-dispatch-id` → parent's `:dispatch-id` → parent's
   `:epoch-id`. Returns nil when no
   parent epoch is in the buffer (root cascade, or aged out).
 
-  rf2-x25e0 — O(1) lookup. The prior O(N) `some`-walk over
-  `epoch-history` is replaced by a map `get`. rf2-y8doi.19 — the index
-  now arrives from the `:rf.xray.epoch/parent-epoch-index` sub
+  O(1) lookup — a map `get`, not a walk over `epoch-history`. The index
+  arrives from the `:rf.xray.epoch/parent-epoch-index` sub
   (`parent-epoch-index` above) rather than being built per render from
   the whole ring, and is threaded down `ctx` to every DISPATCH-row
-  lookup (clean-swap; the arity-2 history-walking form is gone)."
+  lookup."
   [dispatch-id->epoch-id parent-dispatch-id]
   (when (some? parent-dispatch-id)
     (get dispatch-id->epoch-id parent-dispatch-id)))
@@ -4191,29 +4184,29 @@
 
       :dispatch        — always present (every epoch starts here)
       :recordable-cofx — only when the dispatch envelope surfaced a
-                         flat `:rf.cofx` map (rf2-9fyn40 · EP-0010 ·
+                         flat `:rf.cofx` map (EP-0010 ·
                          EP-0017 §9); sits right after DISPATCH SITE
-      :coeffect…       — one row per declared AMBIENT coeffect (folded
-                         into a single step group by the view layer)
+      :coeffect…       — one step per declared AMBIENT coeffect, each
+                         numbered as its own cascade step
       :interceptors    — only when the dispatched event carries authored
                          (non-`:rf/default?`) interceptor refs AND the
                          caller supplied a `:resolve-event-interceptors`
-                         resolver (EP-0022 §11, rf2-se9a9t); sits right
+                         resolver (EP-0022 §11); sits right
                          before HANDLER (the authored chain wraps the
                          handler). OMITTED entirely otherwise.
       :handler        — always present; adapts to handler flavour
       :flow           — only when flows fired
       :side-effects   — when ANY side effect occurred (a :db commit —
-                        including a bare reg-event — and/or :fx and/or
-                        other top-level effects); :db / :fx / other
-                        sub-steps each shown only when present (rf2-kt6js)
+                        including a bare reg-event — a runtime-db commit,
+                        and/or :fx); a flat per-effect ledger whose rows
+                        each appear only when present
       :subscriptions  — only when subs recomputed
       :views          — only when views re-rendered
 
   Returns a vector of step maps. The view layer numbers steps via
   `number-steps` so absent optional steps consume no number.
 
-  ## opts (rf2-se9a9t)
+  ## opts
 
   The 2-arg form takes an opts map. `:resolve-event-interceptors` is a fn
   `event-id → {:entries <authored :interceptors vector> :resolve-meta-fn
@@ -4221,33 +4214,33 @@
   (non-`:rf/default?`) refs, the INTERCEPTORS step is emitted before HANDLER.
   The default (1-arg) form supplies no resolver — the registry-read concern
   belongs to the composite sub (`epoch_panel`), so `project` stays pure /
-  JVM-testable and byte-identical for callers that don't pass opts.
+  JVM-testable, and callers that don't pass opts get no INTERCEPTORS step.
 
-  `:resolve-event-recordables` (rf2-n9v5ga) is a fn `event-id → #{declared
+  `:resolve-event-recordables` is a fn `event-id → #{declared
   recordable cofx ids}` (or nil). When supplied, the RECORDABLE COEFFECTS
   step filters the raw token's `:rf.cofx` leaves to that declared set so
   the lens shows the handler's declared recordable inputs (EP-0017 §9), not
   arbitrary leaves the dispatch token happened to carry. nil keeps the
   show-all fallback (see `recordable-cofx-rows`).
 
-  ## Coeffect folding
+  ## Coeffects
 
-  COEFFECT renders as ONE step group containing N rows (one per
-  injected coeffect) — the numbered circle counts as a single step,
-  but the body lists every coeffect. This matches the bead body's
-  numbered-cascade contract.
+  Each injected coeffect is its own COEFFECT step, so a cascade
+  injecting N user-defined coeffects carries N numbered COEFFECT
+  circles; framework-injected coeffects (`system-cofx-ids`) carry none.
 
   ## Pure-data
 
-  Reads only `:trace-events`, `:event-id`, `:dispatch-id` off the
-  record, plus `:outcome` / `:halt-reason` for a `:halted-depth` or
+  Reads only `:trace-events`, `:event-id` (falling back to `:event`) and
+  `:db-before` off the record, plus `:outcome` / `:halt-reason` for a `:halted-depth` or
   `:halted-destroy` record (`mark-halted`); no DOM, no substrate runtime, JVM-testable. The optional opts
-  map's `:resolve-event-interceptors` (rf2-se9a9t) is the ONLY runtime-fed
-  input — a fn, not data — and is itself injectable for pure tests."
+  map's resolvers (`:resolve-event-interceptors`,
+  `:resolve-event-recordables`) are the ONLY runtime-fed inputs — fns,
+  not data — and are themselves injectable for pure tests."
   ([epoch-record] (project epoch-record nil))
   ([epoch-record opts]
   (let [resolve-icpts (:resolve-event-interceptors opts)
-        ;; rf2-n9v5ga — the focused event's DECLARED RECORDABLE id set
+        ;; The focused event's DECLARED RECORDABLE id set
         ;; (`:rf.cofx/requires` ∩ recordable cofx registrations), resolved by
         ;; the panel (`resolve-event-recordables`). The RECORDABLE COEFFECTS
         ;; lens filters the raw token's `:rf.cofx` leaves to this set so it
@@ -4274,20 +4267,16 @@
       ;; :no-events empty-state line.
       []
       (let [cofx-rows (coeffect-rows events)
-            ;; Pair-debug 2026-05-26 — one COEFFECT step per
-            ;; installed cofx (vs. the prior single step with N
-            ;; rows). The view layer numbers each as its own step
-            ;; in the cascade so the operator reads them as
-            ;; first-class pipeline entries.
+            ;; One COEFFECT step per installed cofx. The view layer
+            ;; numbers each as its own step in the cascade so the
+            ;; operator reads them as first-class pipeline entries.
             ;;
-            ;; rf2-w2r4p — the flattening MUST thread the row's
-            ;; `:duration-ms` through to the step map; the prior
-            ;; shape silently dropped it, so even with `coeffect-
-            ;; rows-from-runs` correctly stamping the canonical
-            ;; `:rf.cofx/elapsed-ms` the duration never reached the
-            ;; numbered cascade. `long-step?` keys off `:duration-ms`
-            ;; on the step row, so the cofx step now participates
-            ;; in long-step chrome detection.
+            ;; The flattening MUST thread the row's `:duration-ms`
+            ;; through to the step map: `long-step?` keys off
+            ;; `:duration-ms` on the step row, so dropping it here
+            ;; would keep the canonical `:rf.cofx/elapsed-ms` that
+            ;; `coeffect-rows-from-runs` stamps from ever reaching
+            ;; long-step chrome detection.
             cofx-steps (mapv (fn [{:keys [id value duration-ms input]}]
                                (cond-> {:step  :coeffect
                                         :badge :COEFFECT
@@ -4295,17 +4284,16 @@
                                         :value value}
                                  (some? duration-ms)
                                  (assoc :duration-ms duration-ms)
-                                 ;; rf2-lz6gl9 — preserve the parameterized
-                                 ;; cofx request arg (`:rf.cofx/arg`, surfaced
-                                 ;; as `:input` by `coeffect-rows`) through the
-                                 ;; numbered-step flattening so the view can
-                                 ;; render the requirement that selected/
-                                 ;; configured the produced value. The prior
-                                 ;; shape dropped `:input` before the UI saw it.
+                                 ;; Preserve the parameterized cofx request arg
+                                 ;; (`:rf.cofx/arg`, surfaced as `:input` by
+                                 ;; `coeffect-rows`) through the numbered-step
+                                 ;; flattening so the view can render the
+                                 ;; requirement that selected/configured the
+                                 ;; produced value.
                                  (some? input)
                                  (assoc :input input)))
                              cofx-rows)
-            ;; rf2-yz57h — a coeffect that throws ON INJECTION
+            ;; A coeffect that throws ON INJECTION
             ;; (`:rf.error/coeffect-exception`) produces NO `:rf.cofx/run`
             ;; trace (it threw before completing), so `cofx-steps` carries no
             ;; step for it. Synthesise a placeholder COEFFECT step (no
@@ -4331,18 +4319,15 @@
                     ;; the view renders the failed-injection body, not a
                     ;; `+ [id] <value>` line.
                     :no-value? true}))
-            ;; rf2-xnb1x — one FLOW step per flow that fired (mirror
-            ;; of the cofx-steps splat above). The operator counts
-            ;; flows by counting numbered circles in the cascade
-            ;; rather than counting rows inside a single aggregate
-            ;; step. `flow-rows` projection (per-row data) is
-            ;; unchanged; the aggregation shape was the only thing
-            ;; that changed.
-            ;; rf2-4wywy / rf2-48oc4 — thread the pre-flow / post-flow db
+            ;; One FLOW step per flow that fired (mirror of the
+            ;; cofx-steps splat above). The operator counts flows by
+            ;; counting numbered circles in the cascade rather than
+            ;; counting rows inside a single aggregate step.
+            ;; Thread the pre-flow / post-flow db
             ;; snapshots onto every FLOW step so the view can render the
             ;; flow's OWN contribution as a `:db` DIFF (the t1→t2 reshape),
-            ;; rather than the per-path before/after scalar line that read
-            ;; as a flow-internal value rather than an app-db change. The
+            ;; rather than a per-path before/after scalar line, which would
+            ;; read as a flow-internal value rather than an app-db change. The
             ;; snapshots are shared across all flow steps of the epoch (one
             ;; flows pass produces one transition); each step scopes the
             ;; rendered diff to its own `:path`.
@@ -4350,11 +4335,11 @@
             ;; PRE endpoint = the EFFECTIVE post-handler db (the db AS IT
             ;; STOOD AT END-OF-HANDLER): t1 when the handler returned `:db`,
             ;; else `db-before` when the handler wrote NO `:db` yet a flow
-            ;; fired (rf2-48oc4 — the flow's baseline is the actual
-            ;; post-handler db, which equals db-before). POST endpoint = t2
-            ;; (what the flow returned). When neither endpoint resolves
-            ;; (pre-rf2-ta0y7 / no flow snapshots) the FLOW step carries no
-            ;; pair and the view falls back to the scalar before→after line.
+            ;; fired (the flow's baseline is the actual post-handler db,
+            ;; which equals db-before). POST endpoint = t2 (what the flow
+            ;; returned). When neither endpoint resolves (no flow
+            ;; snapshots) the FLOW step carries no pair and the view falls
+            ;; back to the scalar before→after line.
             flow-db-pre  (effective-post-handler-db events db-before)
             flow-db-post (db-pending-t2 events)
             flow-steps (mapv (fn [{:keys [flow-id frame path before after duration-ms]}]
@@ -4373,29 +4358,29 @@
                                  (assoc :db-post-flow flow-db-post)))
                              (flow-rows events))
             violations (schema-violation-rows events)
-            ;; rf2-s6oqd — stamp the cascade-level `:db-rolled-back?` onto
-            ;; every exception row so the view's 'Rolled back' chip paints
-            ;; ONLY when the cascade ACTUALLY rolled back — i.e. a
+            ;; Stamp the cascade-level `:db-rolled-back?` onto every
+            ;; exception row so the view's 'Rolled back' chip paints ONLY
+            ;; when the cascade ACTUALLY rolled back — i.e. a
             ;; `:where :app-db` schema-validation failure reverted the
-            ;; commit. `db-committed?` (the rf2-wnvid predicate) was the
-            ;; WRONG gate: fx are POST-COMMIT / best-effort (the FX
-            ;; atomicity asymmetry), so a throwing fx (button-20
-            ;; `:standard-epochs/boom`) leaves `:db` COMMITTED yet nothing
-            ;; rolled back — the spurious chip. `db-rolled-back?` is true
-            ;; iff a real rollback happened:
+            ;; commit. `db-committed?` would be the WRONG gate: fx are
+            ;; POST-COMMIT / best-effort (the FX atomicity asymmetry), so a
+            ;; throwing fx (button-20 `:standard-epochs/boom`) leaves `:db`
+            ;; COMMITTED yet nothing rolled back, and a commit-keyed chip
+            ;; would be spurious. `db-rolled-back?` is true iff a real
+            ;; rollback happened:
             ;;   - :db schema-fail rollback → committed AND rolled back →
-            ;;     chip (correct);
+            ;;     chip;
             ;;   - post-commit fx throw → committed, NOT rolled back → NO
             ;;     chip (the baseline bump survives);
             ;;   - pre-commit handler throw (button-16) → no commit, no
-            ;;     rollback → no chip (already correct under wnvid).
+            ;;     rollback → no chip.
             db-rolled-back? (db-rolled-back? events)
             exceptions (mapv #(assoc % :db-rolled-back? db-rolled-back?)
                              (exception-rows events))
             base-steps (vec
                         (concat
                           [(dispatch-row events fallback)
-                           ;; rf2-9fyn40 · EP-0017 §9 — RECORDABLE COEFFECTS
+                           ;; EP-0017 §9 — RECORDABLE COEFFECTS
                            ;; sits RIGHT AFTER DISPATCH SITE: the flat
                            ;; `:rf.cofx` map (`:rf/time-ms` +
                            ;; privacy-summarized owner-qualified recordable
@@ -4403,9 +4388,9 @@
                            ;; what world facts", so it reads next to the
                            ;; dispatch site. Silent-by-default — nil
                            ;; (filtered below) when the event bundle surfaced no
-                           ;; `:rf.cofx` map (older runtimes / the prod-
-                           ;; elided arm). rf2-n9v5ga — the declared
-                           ;; recordable id set (when a resolver is supplied)
+                           ;; `:rf.cofx` map (the prod-elided arm). The
+                           ;; declared recordable id set (when a resolver is
+                           ;; supplied)
                            ;; filters the surfaced leaves to the handler's
                            ;; declared inputs, never arbitrary token cargo.
                            (recordable-cofx-row
@@ -4414,7 +4399,7 @@
                                (resolve-recordables event-id)))]
                           cofx-steps
                           cofx-placeholder-steps
-                          ;; rf2-yz57h / rf2-vew2n — the INTERCEPTOR step is
+                          ;; The INTERCEPTOR step is
                           ;; PHASE-SPLIT + placed on the correct side of the
                           ;; EVENT HANDLER, reflecting execution ORDER:
                           ;; DISPATCH → COEFFECTS → [:before interceptors] →
@@ -4427,7 +4412,7 @@
                           ;; nil (filtered out below) when no interceptor
                           ;; threw in that phase this cascade.
                           ;;
-                          ;; rf2-se9a9t / EP-0022 §11 — the AUTHORED chain
+                          ;; EP-0022 §11 — the AUTHORED chain
                           ;; (the clean, non-throwing case) renders as the
                           ;; INTERCEPTORS step (plural) right before HANDLER:
                           ;; the chain WRAPS the handler, and frame-then-event
@@ -4437,7 +4422,7 @@
                           [(when resolve-icpts
                              (let [{:keys [entries resolve-meta-fn]}
                                    (resolve-icpts event-id)
-                                   ;; rf2-9vx0jk — the per-dispatch override-
+                                   ;; The per-dispatch override-
                                    ;; summary rides the `:rf.event/run-start`
                                    ;; trace event's `:tags`; PREFER it over the
                                    ;; registry reconstruction to mark which
@@ -4452,33 +4437,29 @@
                            (interceptor-step events :before)
                            (handler-row events event-id db-before)
                            (interceptor-step events :after)]
-                          ;; APP-DB DIFF removed pair-debug 2026-05-26 —
-                          ;; redundant with the HANDLER step's `:db`
-                          ;; sub-section's [diff][all] toggle which
+                          ;; There is no APP-DB DIFF step: the HANDLER
+                          ;; step's `:db` sub-section's [diff][all] toggle
                           ;; surfaces the same data IN-context.
                           flow-steps
                           [(side-effects-step events)
-                           ;; CHILD DISPATCHES step removed pair-debug
-                           ;; 2026-05-26 — redundant with the FX step which
-                           ;; already surfaces each `:dispatch` /
+                           ;; There is no CHILD DISPATCHES step: the SIDE
+                           ;; EFFECTS step surfaces each `:dispatch` /
                            ;; `:dispatch-n` / `:dispatch-later` fx entry.
                            (subscriptions-step events)
                            (views-step events)
-                           ;; SCHEMA HOT-RELOAD tail step retired per
-                           ;; rf2-7gf7v (Mike pair-debug 2026-05-27);
+                           ;; There is no SCHEMA HOT-RELOAD tail step;
                            ;; hot-reload drift surfaces via the Issues
-                           ;; panel exclusively, no cascade step.
+                           ;; panel exclusively.
                            ]))
             present    (filterv some? base-steps)
             attached   (attach-violations present violations)
-            ;; rf2-ahhgn · rf2-mszrz · rf2-yz57h — attach cascade-level
-            ;; exceptions (coeffect / interceptor / handler / fx / flow
+            ;; Attach cascade-level exceptions (coeffect / interceptor / handler / fx / flow
             ;; throws) to the step where each actually occurred AFTER schema
             ;; violations so both inline-failure surfaces coexist;
             ;; `attach-exceptions` additionally stamps `:status :error` on
             ;; each touched step for the per-step ✓/✗ primitive.
             with-errs  (attach-exceptions attached exceptions)
-            ;; rf2-y8doi.19 — the generic pass: every cascade `:rf.error/*`
+            ;; The generic pass: every cascade `:rf.error/*`
             ;; trace the CLOSED `cascade-exception-ops` set does not name
             ;; lands on its best step as the same shared exception card,
             ;; instead of vanishing and leaving the panel green. Runs AFTER
@@ -4487,14 +4468,14 @@
             ;; effects boundary in a cascade where no effect ran.
             with-errs  (attach-unclassified-errors
                          with-errs (unclassified-error-rows events))
-            ;; rf2-yz57h — when an upstream `:before`-chain throw (coeffect /
+            ;; When an upstream `:before`-chain throw (coeffect /
             ;; interceptor :before) skipped the handler, mark the HANDLER +
             ;; SIDE EFFECTS steps `:status :skipped` so the view renders them
             ;; as SKIPPED rather than 'ran, returned no :db'.
             skipped    (mark-skipped-handler with-errs events)
-            ;; rf2-3x7nj.22.1 — a `:halted-depth` record's event never ran;
-            ;; only the record's `:outcome` / `:halt-reason` say so.
-            ;; rf2-v6ftp — a `:halted-destroy` record reads `:blocked`.
+            ;; A `:halted-depth` record's event never ran; only the
+            ;; record's `:outcome` / `:halt-reason` say so. A
+            ;; `:halted-destroy` record reads `:blocked`.
             skipped    (mark-halted skipped epoch-record)
             steps      (mark-rolled-back-downstream skipped violations)]
         steps)))))
@@ -4508,9 +4489,9 @@
 
 (defn project-numbered
   "Convenience: `(number-steps (project record opts))`. The 2-arg form
-  threads the projection opts (rf2-se9a9t — `:resolve-event-interceptors`;
-  rf2-n9v5ga — `:resolve-event-recordables`) through to `project`; the
-  1-arg form keeps the pure default."
+  threads the projection opts (`:resolve-event-interceptors`,
+  `:resolve-event-recordables`) through to `project`; the 1-arg form
+  keeps the pure default."
   ([epoch-record] (number-steps (project epoch-record nil)))
   ([epoch-record opts] (number-steps (project epoch-record opts))))
 
