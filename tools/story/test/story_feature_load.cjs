@@ -16,11 +16,11 @@ const {
   waitForValue,
 } = require('../../../examples/scripts/spec-helpers.cjs');
 
-// rf2-taj9b — see the twin note in story_browser_scenarios.cjs. Both shell
-// navigations here carried no timeout and took Playwright's 30s default; the
-// number is unchanged, but it is now this file's own, and a failure names the
-// navigation rather than reading like the gate's 300000ms whole-spec cap.
-// `waitUntil: 'load'` is KEPT: the 10s locator budgets below assume a booted
+// See the twin note in story_browser_scenarios.cjs. Both shell navigations
+// here carry this explicit timeout — the same number as Playwright's 30s
+// default — so a failure names the navigation rather than reading like the
+// gate's 300000ms whole-spec cap.
+// `waitUntil: 'load'` is used: the 10s locator budgets below assume a booted
 // shell, and the `primeHelpDismissed` write is read by the shell on mount.
 const NAV_TIMEOUT_MS = 30000;
 
@@ -251,7 +251,7 @@ async function assertTestPaneStatus(page, pattern, description) {
 }
 
 // A run whose tape-floor verdict is an exception lands as the distinct
-// :error run-status (rf2-ba86n.11, spec/021 §1), not a plain assertion
+// :error run-status (spec/021 §1), not a plain assertion
 // :fail. Anchor on the pill's data-status attribute (text would read the
 // CSS-uppercased "ERROR") and accept either :error or :fail.
 async function assertTestPaneErrorOrFail(page, description) {
@@ -336,11 +336,11 @@ async function assertCounterCore(page, phase) {
     );
     await page.locator('[data-test="story-save-variant-close"]').click();
 
-    // rf2-ymnfx Issue B retired the per-variant Share button + QR popover.
-    // The share URL is the browser's address bar URL (Cmd-L copies it);
-    // the URL-builder + URL-state contract are still validated by the
-    // Share URL probe (`assertShareUrlContract`) and the address-bar
-    // hydration scenarios in `story_browser_scenarios.cjs`.
+    // There is no per-variant Share button or QR popover. The share URL
+    // is the browser's address bar URL (Cmd-L copies it); the
+    // URL-builder + URL-state contract are validated by the Share URL
+    // probe (`assertShareUrlContract`) and the address-bar hydration
+    // scenarios in `story_browser_scenarios.cjs`.
 
     await expectVisible(page.locator('[data-test="story-open-in-editor"]').first(), 5000);
     await page.getByRole('button', { name: /Show playground help/i }).click();
@@ -350,11 +350,10 @@ async function assertCounterCore(page, phase) {
 }
 
 async function assertShareUrlContract(page, phase) {
-  // rf2-ymnfx Issue B removed the per-variant Share button + QR popover.
-  // The share URL is the address-bar URL maintained by `url-state`
-  // pushState. This probe drives the address-bar URL the same way the
-  // popover-shape probe used to drive the popover output: select the
-  // variant, set a mode + an override, then assert the live URL carries
+  // There is no per-variant Share button or QR popover. The share URL is
+  // the address-bar URL maintained by `url-state` pushState. This probe
+  // drives the address-bar URL: select the variant, set a mode + an
+  // override, then assert the live URL carries
   // the variant + modes + overrides + #/stories route the share URL
   // contract promises (per `tools/story/spec/Tutorial-Embed.md`).
   await ensureCounterLoaded(page);
@@ -378,10 +377,10 @@ async function assertShareUrlContract(page, phase) {
   const parsed = new URL(shareUrl);
   const variant = parsed.searchParams.get('variant');
   const modes = (parsed.searchParams.get('modes') || '').split(',');
-  // `URLSearchParams.get` returns the percent-decoded value. Per rf2-j0hwf
-  // the overrides wire form is ONE `pr-str`-printed EDN map (delimiter-safe
-  // — string values may carry the list separator), e.g. `{:label "Share
-  // Slice phase"}`. NOT the retired `label:"<value>"` comma-pair token.
+  // `URLSearchParams.get` returns the percent-decoded value. The overrides
+  // wire form is ONE `pr-str`-printed EDN map (delimiter-safe — string
+  // values may carry the list separator), e.g. `{:label "Share Slice
+  // phase"}`. NOT a `label:"<value>"` comma-pair token.
   const overrides = parsed.searchParams.get('overrides') || '';
   if (variant !== 'story.counter/loaded') {
     throw new Error(`share URL variant mismatch: expected story.counter/loaded, got ${variant}`);
@@ -389,11 +388,11 @@ async function assertShareUrlContract(page, phase) {
   if (!modes.includes('Mode.app/dark')) {
     throw new Error(`share URL modes missing Mode.app/dark: ${parsed.searchParams.get('modes')}`);
   }
-  // rf2-fkmnh: validate the CURRENT EDN-map wire contract (rf2-j0hwf), not
-  // the retired legacy codec. The decoded payload is the single EDN map.
+  // Validate the EDN-map wire contract: the decoded payload is the single
+  // EDN map.
   if (!/^\s*\{.*\}\s*$/.test(overrides)) {
     throw new Error(
-      `share URL overrides is not the EDN-map wire form (rf2-j0hwf): ${overrides}`,
+      `share URL overrides is not the EDN-map wire form: ${overrides}`,
     );
   }
   if (!overrides.includes(`:label ${JSON.stringify(label)}`)) {
@@ -401,11 +400,11 @@ async function assertShareUrlContract(page, phase) {
       `share URL overrides EDN map missing :label ${JSON.stringify(label)}: ${overrides}`,
     );
   }
-  // Guard: reject the old comma-pair-only token so the probe can never drift
-  // back to the delimiter-prone legacy codec rf2-j0hwf retired.
+  // Guard: reject a comma-pair-only `key:value` token, a delimiter-prone
+  // codec, so the probe can never accept that form.
   if (overrides.includes(`label:"${label}"`)) {
     throw new Error(
-      `share URL overrides used the RETIRED legacy comma-pair codec (rf2-j0hwf); ` +
+      `share URL overrides used a comma-pair key:value token; ` +
       `expected the EDN-map wire form: ${overrides}`,
     );
   }
@@ -418,10 +417,8 @@ async function assertShareUrlContract(page, phase) {
 }
 
 async function assertA11y(page, phase) {
-  // Per rf2-sgdd3 the trace / actions / scrubber assertions in this
-  // step retired alongside the Story-side panels they exercised; the
-  // a11y panel assertion (the last surviving section) carries on as
-  // the body of this step.
+  // This step asserts the a11y panel. Story ships no trace / actions /
+  // scrubber panels, so the step asserts nothing about them.
   await step(page, phase, 'a11y', async () => {
     await clickVariant(page, '/loaded');
     await waitForCanvasVariant(page, ':story.counter/loaded');
@@ -479,18 +476,14 @@ async function assertToolbarRecorder(page, phase) {
     }
     await page.locator('[data-test="story-recorder-close"]').click();
 
-    // rf2-0wrud post-:script: navigate to a variant whose state
-    // settles deterministically from `:setup` alone — the prior
-    // `/clicked-three-times` target relied on three play-script
-    // increments landing synchronously before this read; the
-    // runner-events driver now yields between steps on CLJS, so a
-    // remount mid-script could double-fire the increments and the
-    // canvas would read past 3. `/loaded` initialises via
+    // Navigate to a variant whose state settles deterministically from
+    // `:setup` alone. `/clicked-three-times` would not do: it relies on
+    // three play-script increments landing before this read, and the
+    // runner-events driver yields between steps on CLJS, so a remount
+    // mid-script could double-fire the increments and the canvas would
+    // read past 3. `/loaded` initialises via
     // `:setup [[:counter/initialise 7]]` with no play-script
     // increments, so the post-recorder navigation read is race-free.
-    // The architectural plan (rf2-tglku) is to migrate this Playwright
-    // surface to CLJS; the variant swap is the mechanical fix for the
-    // intervening PR (rf2-7ycvy).
     await clickVariant(page, '/loaded');
     await waitForCanvasVariant(page, ':story.counter/loaded');
     await expectTextEquals(
@@ -500,18 +493,14 @@ async function assertToolbarRecorder(page, phase) {
     );
   });
 
-  // toolbar/recorder/redacts-sensitive-events step removed per rf2-hjs2d:
-  // the reverse of rf2-pisq6 dropped the handler-meta `:sensitive?`
-  // annotation and the `:rf.event/dispatched` queue-time emit no longer
-  // stamps `:sensitive?` from any source (the schema-overlap path stamps
-  // only AFTER handler-scope binding, which is established AFTER the
-  // queue-time emit fires). The recorder's redaction substrate is still
-  // present and gates on `(privacy/sensitive? ev)`, but there is no
-  // longer a mechanism that flips that bit on the `:rf.event/dispatched`
-  // trace event the recorder listens for. The replacement classification
-  // surface (add-marks / set-marks) lands in a separate impl PR; the
-  // browser-side assertion will be rewritten there once a triggering
-  // mechanism exists.
+  // There is no toolbar/recorder/redacts-sensitive-events step.
+  // Handler-meta `:sensitive?` is not consulted, and the
+  // `:rf.event/dispatched` queue-time emit stamps `:sensitive?` from no
+  // source (the schema-overlap path stamps only AFTER handler-scope
+  // binding, which is established AFTER the queue-time emit fires). The
+  // recorder's redaction gates on `(privacy/sensitive? ev)`, but no
+  // mechanism flips that bit on the `:rf.event/dispatched` trace event
+  // the recorder listens for.
 }
 
 async function assertDiagnostics(page, phase) {
@@ -557,7 +546,7 @@ async function assertDiagnostics(page, phase) {
       5000,
     );
     // An event-handler exception is a tape-floor :error — the unified
-    // run-result UX (rf2-ba86n.11, spec/021 §1) surfaces it as the
+    // run-result UX (spec/021 §1) surfaces it as the
     // distinct :error run-status, not a plain assertion :fail. The pill
     // stamps data-status="error" (text "error"); anchor on data-status
     // rather than the CSS-uppercased innerText.
@@ -597,8 +586,8 @@ async function assertDiagnostics(page, phase) {
       ':story.counter-diagnostics/loader-throws',
       5000,
     );
-    // A loader-phase exception is a tape-floor :error (rf2-ba86n.11,
-    // spec/021 §1), surfaced via data-status="error" on the pill.
+    // A loader-phase exception is a tape-floor :error (spec/021 §1),
+    // surfaced via data-status="error" on the pill.
     await waitForValue(
       () => page.locator('[data-test="story-test-status-pill"]').getAttribute('data-status').catch(() => ''),
       (value) => value === 'error' || value === 'fail',
@@ -715,9 +704,9 @@ async function assertCommandPalette(page) {
 
   await page.keyboard.press('Control+K');
   await expectVisible(page.locator('[data-test="story-command-palette"]'), 5000);
-  // Navigate to a deterministic, play-script-free variant. The prior
-  // `/clicked-three-times` target runs three `:dispatch-sync` increments
-  // from its `:script` on every (re)mount, and the variant frame
+  // Navigate to a deterministic, play-script-free variant.
+  // `/clicked-three-times` would flake here: it runs three `:dispatch-sync`
+  // increments from its `:script` on every (re)mount, and the variant frame
   // re-mounts under React StrictMode — so `[data-test-variant]` churns
   // and `waitFor({state:'visible'})` flakes. `:story.counter/events-only
   // -loaded` settles from `:setup [[:counter/initialise 5]]` alone (no
@@ -827,7 +816,7 @@ async function assertNoPlayEmptyState(page) {
 }
 
 async function assertPlayStepDebugger(page) {
-  // rf2-ulw5m — drive the play step-debugger UI on the canonical loaded
+  // Drive the play step-debugger UI on the canonical loaded
   // variant: assert Start renders the controls, Step advances the cursor,
   // Step-back decrements it, Rewind resets to step 0, and Stop tears
   // down the section back to the inactive placeholder.
@@ -889,7 +878,7 @@ async function assertLoaderSuccess(page) {
 
 async function expandFirstFailDetail(page, description) {
   // The actionable, disclosure-bearing rows are :fail / :error /
-  // :cannot-run (rf2-ba86n.11 — the view discloses detail for all three).
+  // :cannot-run (the view discloses detail for all three).
   // An event-handler / loader exception lands as an :error row, not a
   // plain assertion :fail, so match any of the three.
   const row = page
@@ -1086,9 +1075,9 @@ async function assertTestWidgetRunAll(page) {
 
 // Row 32 (Test watch mode) — assert the watch toggle round-trips its
 // aria-pressed state. Distinct from row 31 (run-all): this probe asserts
-// only the watch affordance toggle, not the run-all counts. (Drift
-// detection assertion remains deferred per the bd:rf2-s75sy Partial
-// status on the matrix row.)
+// only the watch affordance toggle, not the run-all counts. (The
+// selective drift-rerun contract is CLJS-covered by
+// test_watch_mode_cljs_test.cljc.)
 async function assertTestWatchToggle(page) {
   await ensureCounterLoaded(page);
   await expectVisible(page.locator('[data-test="story-test-widget"]'), 5000);
@@ -1107,17 +1096,16 @@ async function assertTestWatchToggle(page) {
   );
 }
 
-// `assertActionsScrubberExactBurst` and `assertTracePanelCascadeRows`
-// retired per rf2-sgdd3 — Story no longer ships the actions / scrubber
-// / trace panels they probed. Equivalent coverage lives in
-// tools/xray/ browser tests against Xray's L2 event list + Trace
-// tab + Event-tab cascade view.
+// Story ships no actions / scrubber / trace panels, so this gate has no
+// probes for them. Equivalent coverage lives in tools/xray/ browser
+// tests against Xray's L2 event list + Trace tab + Event-tab cascade
+// view.
 
 async function assertSidebarNavigationSelectsEveryRow(page) {
   await gotoStoryShell(page, '/counter-with-stories/#/stories');
-  // `:story.counter/clicked-three-times` deliberately skipped here · brittle
-  // count-3 assertion fails under :script runner-events timing.
-  // CLJS-unit migration covers the variant body shape directly.
+  // `:story.counter/clicked-three-times` deliberately skipped here · a
+  // count-3 assertion is brittle under :script runner-events timing.
+  // CLJS unit coverage covers the variant body shape directly.
   for (const [slash, vid, count] of [
     ['/empty', ':story.counter/empty', 0],
     ['/loaded', ':story.counter/loaded', 7],
@@ -1182,16 +1170,13 @@ const COVERAGE_MATRIX = [
       await setMode(page, 'dev');
     },
   },
-  // rf2-6r9j.14 — this row was a `kind: 'probe'` whose body only printed
-  // `console.warn('SKIP: …')` and returned, so the matrix reported it green
-  // without touching the feature. The condition it was waiting on had already
-  // been met: rf2-8awk1's count assertions went brittle when `:script`
-  // (rf2-0wrud, PR #1726) replaced the pre-render `:play` slot and shifted the
-  // canvas counts, and the CLJS replacement named in that skip landed in the
-  // SAME commit that installed the no-op (c47f1925c3, 2026-05-20). The row is
-  // demoted per this file's own rule ("never wire a probe whose body does not
-  // exercise the row's feature"), and `validateCoverageMatrix` now rejects the
-  // shape structurally so it cannot come back.
+  // This row is owned-by rather than a probe: a browser count assertion on
+  // the counter variants is brittle under `:script` runner-event timing,
+  // while the CLJS suite drives `story/run-variant` directly with no
+  // DOM-count race. A probe whose body only warns and returns would report
+  // green without touching the feature (this file's own rule: "never wire a
+  // probe whose body does not exercise the row's feature"), and
+  // `validateCoverageMatrix` rejects that shape structurally.
   {
     feature: 'reg-variant',
     kind: 'owned-by',
@@ -1205,15 +1190,10 @@ const COVERAGE_MATRIX = [
     why: 'Form B desugaring is a macro/registration shape comparison; the browser shell cannot distinguish Form A from Form B at runtime.',
   },
   { feature: 'reg-workspace layouts', kind: 'probe', probe: assertWorkspaceLayouts },
-  // rf2-kvsm1 — this row was a probe that returned early behind a
-  // `console.warn`, its body held live only by an `eslint-disable
-  // no-unreachable` pair, waiting on a "follow-on bead" that was never
-  // filed. The count-based assertions went brittle when `:script`
-  // (rf2-0wrud, PR #1726) shifted runner-event timing — the same break
-  // that skipped the reg-variant row above. The wait is over: every
-  // assertion the dead body held now has a live owner elsewhere, so the
-  // row is demoted per this file's own rule ("never wire a probe whose
-  // body does not exercise the row's feature"). Where each went:
+  // This row is owned-by rather than a probe: count-based browser
+  // assertions on /clicked-three-times are brittle under `:script`
+  // runner-event timing (as for the reg-variant row above), and every
+  // assertion such a probe would make has a live owner elsewhere:
   //   - 'decorator: story-level' + 'decorator: variant-level' on
   //     /clicked-three-times → story_browser_scenarios.cjs's
   //     'substrate-decorator-and-frame-isolation' scenario asserts both
@@ -1225,14 +1205,13 @@ const COVERAGE_MATRIX = [
   //     render_shell_cljs_test.cljs's `render-variant-and-canvas-resolve-
   //     same-inherited-decorators` (inherited pack) and
   //     `render-decorated-view-bare-when-no-decorators` (no spurious wrap).
-  //   - assertDecoratorFailure → still called live by the 'Error projection'
+  //   - assertDecoratorFailure → called live by the 'Error projection'
   //     row below, and by the browser scenario's /decorator-throws leg.
-  // Deleting the body retires the tree's last eslint suppression with it.
   {
     feature: 'reg-decorator composition',
     kind: 'owned-by',
     gate: 'npm run test:cljs + story_browser_scenarios.cjs',
-    why: 'rf2-kvsm1 — composition/inheritance asserted in CLJS units; the rendered story-level + variant-level decorator text is asserted live by the sibling browser scenario.',
+    why: 'composition/inheritance asserted in CLJS units; the rendered story-level + variant-level decorator text is asserted live by the sibling browser scenario.',
   },
   {
     feature: 'reg-story-panel',
@@ -1381,34 +1360,34 @@ const COVERAGE_MATRIX = [
   },
   { feature: 'Chrome test widget', kind: 'probe', probe: assertTestWidgetRunAll },
   { feature: 'Test watch mode', kind: 'probe', probe: assertTestWatchToggle },
-  // Actions panel / Trace panel / Scrubber / Trace-scrubber cross-ref
-  // retired per rf2-sgdd3 — Xray is the RHS primary inspector now
-  // (L1 ribbon + L2 event list replace the scrubber; Trace tab
-  // replaces the trace panel; Event-tab cascade view replaces the
-  // actions panel). Coverage now lives in tools/xray/.
+  // Story ships no Actions panel / Trace panel / Scrubber /
+  // Trace-scrubber cross-ref — Xray is the RHS primary inspector
+  // (the L1 ribbon + L2 event list cover the scrubber's ground; the
+  // Trace tab is the trace view; the Event-tab cascade view covers the
+  // actions panel's). Coverage lives in tools/xray/.
   {
     feature: 'Actions panel',
     kind: 'owned-by',
     gate: 'tools/xray browser tests',
-    why: 'rf2-sgdd3 — replaced by Xray Event-tab cascade view',
+    why: 'Story has no actions panel; the Xray Event-tab cascade view is the equivalent',
   },
   {
     feature: 'Trace panel',
     kind: 'owned-by',
     gate: 'tools/xray browser tests',
-    why: 'rf2-sgdd3 — replaced by Xray Trace tab',
+    why: 'Story has no trace panel; the Xray Trace tab is the equivalent',
   },
   {
     feature: 'Scrubber',
     kind: 'owned-by',
     gate: 'tools/xray browser tests',
-    why: 'rf2-sgdd3 — replaced by Xray L1 ribbon + L2 event list',
+    why: 'Story has no scrubber; the Xray L1 ribbon + L2 event list are the equivalent',
   },
   {
     feature: 'Trace/scrubber cross-reference',
     kind: 'owned-by',
     gate: 'tools/xray browser tests',
-    why: 'rf2-sgdd3 — Xray Event-tab focused-event run is the replacement',
+    why: 'Story has no trace/scrubber cross-reference; the Xray Event-tab focused-event run is the equivalent',
   },
   {
     feature: 'A11y panel',
@@ -1497,7 +1476,7 @@ const COVERAGE_MATRIX = [
       await assertNoRecordedRequestMatching(
         page,
         /api\.qrserver|chart\.google|quickchart|qrcode/i,
-        'share URL should stay local — no QR-image service request fires (rf2-20w5i / rf2-ymnfx).',
+        'share URL should stay local — no QR-image service request fires.',
       );
       await assertNoRecordedRequestMatching(
         page,
@@ -1553,11 +1532,11 @@ function validateCoverageMatrix() {
           `COVERAGE_MATRIX row '${row.feature}' kind=probe requires a probe function`,
         );
       }
-      // rf2-6r9j.14 — a probe that only warns and returns exercises nothing,
-      // so the row completes green as if the feature had been driven. That
-      // false-green shipped for months behind a console.warn nobody read.
-      // The contract at the top of this file already forbids it in prose;
-      // this makes the prose enforceable.
+      // A probe that only warns and returns exercises nothing, so the row
+      // would complete green as if the feature had been driven — a
+      // false-green hidden behind a console.warn nobody reads. The contract
+      // at the top of this file forbids it in prose; this check makes the
+      // prose enforceable.
       if (isUnconditionalSkip(row.probe)) {
         throw new Error(
           `COVERAGE_MATRIX row '${row.feature}' kind=probe has a body that only ` +
@@ -1633,11 +1612,10 @@ async function runTwentyEventBurst(page) {
   await toolbar.locator('[data-toolbar-mode=":Mode.app/light"]').click(); // 11
   await toolbar.locator('[data-test="story-toolbar-reset"]').click(); // 12
 
-  // rf2-5fyo3: the per-variant Share popover (open/close) that events
-  // 13-14 used to drive was retired by rf2-ymnfx — the live address-bar
-  // URL is the share surface now (and the Share-URL probe asserts it).
-  // Substitute the backgrounds-menu open/close popover so the burst
-  // still exercises a real open-then-dismiss chrome interaction.
+  // Events 13-14 open and dismiss the backgrounds-menu popover, so the
+  // burst exercises a real open-then-dismiss chrome interaction. (There is
+  // no per-variant Share popover: the share surface is the live
+  // address-bar URL, which the Share-URL probe asserts.)
   await toolbar.locator('[data-test="story-toolbar-backgrounds"]').click(); // 13
   await page.locator('[data-test="story-backgrounds-backdrop"]').click(); // 14
 
@@ -1671,7 +1649,7 @@ module.exports = {
   // Exported so the matrix and its structural contract can be inspected
   // without a browser: `node -e "require('./story_feature_load.cjs')
   // .validateCoverageMatrix()"` is the whole policy witness, and
-  // COVERAGE_MATRIX is the coverage report's source of truth (rf2-6r9j.14).
+  // COVERAGE_MATRIX is the coverage report's source of truth.
   // The runner reads `name` / `url` / `context` / `run` by name and ignores
   // the rest.
   COVERAGE_MATRIX,
