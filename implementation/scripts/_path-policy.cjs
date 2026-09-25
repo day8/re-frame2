@@ -18,8 +18,9 @@
  *
  *   - Approved roots for OUTPUT paths default to `implementation/out`.
  *   - Approved roots for INDEX-HTML source paths default to
- *     `<repo>/examples` (the canonical staging source) and
- *     `<repo>/implementation` (per-feature index.html templates).
+ *     `<repo>/examples` (the canonical staging source), `<repo>/tools`
+ *     (tool-owned testbeds) and `<repo>/implementation` (per-feature
+ *     index.html templates).
  *   - Out-of-tree paths require explicit opt-in via the environment
  *     variable `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`. This one knob covers
  *     EVERY out-of-tree path `enforcePolicy` gates — whether the candidate
