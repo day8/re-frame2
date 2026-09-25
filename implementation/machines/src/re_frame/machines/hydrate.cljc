@@ -277,13 +277,16 @@
 
   ## One incarnation for the whole reconcile
 
-  Both phases emit callback-bearing traces —
+  Both phases emit traces —
   `:rf.machine.timer/cancelled` in phase 1, and in phase 2 both each
   arm's leading `:on-supersede` and the arm's own
   `:rf.machine.timer/scheduled` (hydration arms with
   `:emit-scheduled-trace?` true, so it is emitted here rather than by a
   transition; on a frame that held no prior timer it is the FIRST
-  callback of the whole reconcile) — and a listener on any of them can
+  callback of the whole reconcile). From the `:rf.machine/hydrate-rearm`
+  fx, inside the hydrating event's drain, their listeners run after the
+  drain. On a direct call they run synchronously on this stack, so each
+  trace is a callback boundary, and a listener on any of them can
   `destroy-frame!` this frame and publish a same-id successor B. The
   declarations being reconciled are A's: they were enumerated from the
   runtime-db A held. Installing them into B would be host work derived

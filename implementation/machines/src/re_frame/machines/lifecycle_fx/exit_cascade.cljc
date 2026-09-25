@@ -114,8 +114,10 @@
              ;; `rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!`.
              (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure! actor-id frame-id (rf.machines.result/info r))
 
-             ;; The cascade's `:rf.machine/action-ran` listeners may have lost
-             ;; A: nothing of A's may be written into, or run against, B.
+             ;; On a direct call the cascade's `:rf.machine/action-ran`
+             ;; listeners run synchronously (inside a drain they run after
+             ;; it), so they may have lost A: nothing of A's may be written
+             ;; into, or run against, B.
              (owner-gone?)
              nil
 
