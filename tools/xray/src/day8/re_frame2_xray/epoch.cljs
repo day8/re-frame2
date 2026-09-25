@@ -349,8 +349,8 @@
   ;; SUCCESSFUL reset would leave the "Reset failed" message standing —
   ;; a silent lie (the sub would return the stale string, the ribbon
   ;; would keep rendering it). Dissoc-ing `:reset-flash` here in the `:db`
-  ;; honours the documented "the next successful reset" clear contract
-  ;; (`:rf.xray/clear-reset-flash` docstring): a fresh attempt wipes the
+  ;; is the flash's steady-state clear (the comment on
+  ;; `:rf.xray/clear-reset-flash` below names it): a fresh attempt wipes the
   ;; prior failure, and the fx re-sets the flash only when THIS attempt
   ;; also fails. The dissoc runs before the fx so a failure that fires
   ;; `:rf.xray/reset-flash-failed` synchronously still wins.
