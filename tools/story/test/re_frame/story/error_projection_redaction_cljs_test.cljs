@@ -1,6 +1,5 @@
 (ns re-frame.story.error-projection-redaction-cljs-test
-  "Error-projection-with-redaction scenario (rf2-q0ec2; implemented by
-  rf2-294yq5.5).
+  "Error-projection-with-redaction scenario.
 
   Per `tools/story/spec/015-Test-Coverage.md` §Assertion vocabulary
   scenarios, row 'Handler exception with sensitive ex-data: redaction
@@ -14,14 +13,12 @@
   - the `:error :message` string is NOT auto-walked (author
     responsibility per spec/Security.md §Author guidance).
 
-  ## Status: WIRED (rf2-294yq5.5)
-  ##
-  ## `re-frame.story.error/throwable->error-map` now threads the variant
-  ## frame into the `:data` projection (the frame-scoped wire-elision
-  ## walker). The tests below mark a path sensitive on the variant frame,
-  ## then throw an `ex-info` whose `ex-data` carries a value at that path
-  ## from a phase-4 play event, and assert the recorded `:error :data`
-  ## redacts it while the message survives verbatim."
+  `re-frame.story.error/throwable->error-map` threads the variant
+  frame into the `:data` projection (the frame-scoped wire-elision
+  walker). The tests below mark a path sensitive on the variant frame,
+  then throw an `ex-info` whose `ex-data` carries a value at that path
+  from a phase-4 play event, and assert the recorded `:error :data`
+  redacts it while the message survives verbatim."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -54,16 +51,17 @@
 (use-fixtures :each {:before reset-all!})
 
 ;; ===========================================================================
-;; rf2-294yq5.5 / rf2-bsk1d9 — handler-exception ex-data redaction propagates
+;; Handler-exception ex-data redaction propagates
 ;;
 ;;   The variant declares its sensitive ex-data path at registration via the
-;;   EP-0015 frame-owned `:sensitive` slot — installed as part of frame
-;;   creation, so a single `run-variant` captures the throw under the
-;;   classification. No public `add-marks` mutation.
+;;   EP-0015 frame-owned `:sensitive` slot — applied to the variant frame's
+;;   elision registry right after `make-frame`, so a single `run-variant`
+;;   captures the throw under the classification. No public `add-marks`
+;;   mutation.
 ;; ===========================================================================
 
 (deftest exception-ex-data-redacts-sensitive-slot
-  (testing "rf2-bsk1d9: a handler that throws ex-info with a value at a
+  (testing "a handler that throws ex-info with a value at a
             frame-owned sensitive key records :rf/redacted in :error :data,
             NOT the raw secret; the :error :message survives verbatim"
     (rf/reg-event :auth/boom
@@ -96,7 +94,7 @@
               (done)))))))
 
 (deftest exception-ex-data-non-sensitive-passes-through
-  (testing "rf2-294yq5.5: with NO marks, the captured ex-data passes through
+  (testing "with NO marks, the captured ex-data passes through
             unredacted (frame-scoped elision only redacts marked paths)"
     (rf/reg-event :plain/boom
       (fn [_ _]
