@@ -446,7 +446,8 @@
   schedule, not the consumer's. `witness!` mounts inside `flushSync`, so
   React's passive subscribe runs before control returns and the hand-off
   reaches its adoption; that is what makes `rebuilt 0` predictable here.
-  On the public `createRoot().render()` path the reaper wins first and
+  On the public `createRoot().render()` path, at a `setTimeout 0`
+  horizon, the reaper wins first and
   the same hook reads the `xcript` row — `rebuilt N`, `bodyRuns 2N`.
   So this prediction adjudicates that the
   MECHANISM runs to completion when it is allowed to; it is not an
@@ -600,7 +601,8 @@
   control is the clock half of the MECHANISM arm: the shipped arm must
   sit inside the single-build band on the schedule the harness forces.
   It says nothing about the public `createRoot().render()` path, where
-  the reaper wins and the shipped clock is the double build's — see the
+  at a `setTimeout 0` horizon the reaper wins and the shipped clock is
+  the double build's — see the
   ns docstring's schedule section. `xcript` stays in the run as the
   double-build reference; it is what the published delta is measured
   against, and on THIS schedule it is deliberately NOT expected to match
@@ -674,7 +676,8 @@
                                      "hand-off. Under "
                                      "THIS harness's forced-synchronous schedule the cold read "
                                      "builds ONCE and the commit adopts it; on the public "
-                                     "createRoot().render() path the reaper wins first and the "
+                                     "createRoot().render() path at a setTimeout 0 horizon the "
+                                     "reaper wins first and the "
                                      "same hook builds TWICE. "
                                      "`xcript` is the double build, kept as the reference the "
                                      "delta is measured against")

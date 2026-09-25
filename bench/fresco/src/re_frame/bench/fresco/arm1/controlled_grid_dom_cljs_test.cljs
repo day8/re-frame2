@@ -613,7 +613,7 @@
 ;; during a composition, and §7 below witnesses the half of that a
 ;; dispatched event CAN reach. The two rows below witness the gate's two
 ;; signals through React's
-;; keydown plumbing cheaply, on every PR, in-page — while the events they
+;; keydown plumbing cheaply, in-page — while the events they
 ;; build are exactly the synthetic kind the harness exists to go beyond,
 ;; which is why the harness, not these rows, is what establishes the
 ;; fence.
@@ -1039,7 +1039,7 @@
 ;; that the refusal lands whole at `compositionend`.
 ;;
 ;; What is witnessable here is the WRITE — the cause the harness measured
-;; the effect of — and it is worth witnessing on every PR because it is
+;; the effect of — and it is worth witnessing here because it is
 ;; the mechanism, in-page, beside plain React on the same model in the
 ;; same turn. The rows below assert that during a composing input event
 ;; **nothing writes the field**: not this arm's converge (suppressed by

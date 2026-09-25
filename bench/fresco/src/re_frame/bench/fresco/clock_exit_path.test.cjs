@@ -4498,9 +4498,10 @@ function fixtureRoundsTask(over) {
       }
     }
     assert.strictEqual(n, 42, 'the corpus the bulk class is calibrated from');
-    // The consistency check the standard's own provenance calls NOT
-    // INDEPENDENT: v1 was seeded from these medians, so 42 of 42 is what it
-    // must say, and a drift here means the limits and the corpus have parted.
+    // An IN-SAMPLE consistency check: the shipped limits are fitted on these
+    // medians, so 42 of 42 is what it must say, and a drift here means the
+    // limits and the corpus have parted. The out-of-sample evidence is the
+    // session-level hold-out in `provenance.holdOut`, pinned further down.
     assert.strictEqual(inControl, 42, `the frozen limits must still admit their own baseline — got ${inControl}`);
   });
 
@@ -4732,9 +4733,9 @@ function fixtureRoundsTask(over) {
       }
     }
     assert.strictEqual(n, 14, 'the corpus the mount class is calibrated from');
-    // The same consistency check the bulk class carries, and the same caveat:
-    // v2 was seeded from these medians, so 14 of 14 is what it must say, and a
-    // drift here means the limits and the corpus have parted.
+    // The same in-sample consistency check the bulk class carries: the shipped
+    // mount limits are fitted on these medians, so 14 of 14 is what it must
+    // say, and a drift here means the limits and the corpus have parted.
     assert.strictEqual(inControl, 14, `the frozen limits must still admit their own baseline — got ${inControl}`);
   });
 
