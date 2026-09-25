@@ -1,6 +1,5 @@
 (ns re-frame.bench.fresco.ssr.node
-  "THE NODE ENTRY POINT — what the bake and the live demo call
-  (rf2-2rtt6.86 clauses 3 and 4).
+  "THE NODE ENTRY POINT — what the bake and the live demo call.
 
   This namespace is the *process* half of the render entry, and it is
   deliberately thin: it installs the reactive substrate (Spec 006 allows
@@ -48,10 +47,10 @@
   #js {"html"       html
        "document"   document
        "payloadEdn" payload-edn
-       ;; NO `renderHash` (rf2-2rtt6.91). An adoption-tier root carries no
-       ;; structural hash — Spec 011 §Hydration-mismatch detection — and a
-       ;; column that was always the same value for every fixture is the
-       ;; kind of number a manifest is worse for carrying.
+       ;; NO `renderHash`. An adoption-tier root carries no structural
+       ;; hash — Spec 011 §Hydration-mismatch detection — and a column
+       ;; that would be the same value for every fixture is the kind of
+       ;; number a manifest is worse for carrying.
        ;; The per-request gensym, as a string, so a driver can SHOW that
        ;; two requests took two frames. It is already destroyed.
        "frameId"    (str frame-id)})
@@ -82,8 +81,8 @@
 
 (defn render-dogfood
   "The LIVE DEMO's own request: the dogfood screen seeded with `n` to-dos,
-  with no bootstrap `<script src>` — this bead ships no client bundle,
-  because the hydration door is rf2-2rtt6.84's.
+  with no bootstrap `<script src>` — the live demo ships no client
+  bundle, because hydration is a separate door.
 
   `n` comes off the request, so a reader watching the demo can see that
   the state is the REQUEST'S and not the process's."
