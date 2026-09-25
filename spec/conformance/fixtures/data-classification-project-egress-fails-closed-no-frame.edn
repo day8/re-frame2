@@ -18,7 +18,7 @@
 ;; Mirrors the unit-level `re-frame.projection-cljs-test/fails-closed-with-no-
 ;; frame` deftest AND the runtime fail-closed leg in
 ;; `re-frame.observability-routing-cljs-test/unresolved-frame-routes-nothing-
-;; no-default-synthesis` (rf2-t55hxg.7), lifted to the host-agnostic corpus.
+;; no-default-synthesis`, lifted to the host-agnostic corpus.
 
 {:fixture/id           :data-classification/project-egress-fails-closed-no-frame
  :fixture/spec-version "1.0"
