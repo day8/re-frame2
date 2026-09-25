@@ -2493,13 +2493,11 @@
   "SUBSCRIPTIONS step row. nil when no `:rf.sub/*` events fired (the
   step is OMITTED — conditional).
 
-  Per rf2-kfh1v the step header counts split the rows by
-  `:changed?` so the operator sees `N recomputed (M changed,
-  K unchanged)` at a glance — the unchanged rows are hidden behind
-  a toggle in the view, the count makes the toggle's value
-  predictable.
+  The step carries `:changed` / `:unchanged` counts that split the
+  rows by `:changed?`; the view hides unchanged rows behind its
+  `[all][changed][unchanged]` filter bar (default `:changed`).
 
-  Per rf2-wpfjo the step also carries `:disposed-rows` when the
+  The step also carries `:disposed-rows` when the
   cascade fired `:rf.sub/dispose` events (one row per cache eviction).
   Omit-by-absence — the slot is present only when populated. The
   step surfaces when ANY of the two surfaces (`:run/:skip` OR
@@ -2521,7 +2519,7 @@
 ;; ---- VIEWS step ----------------------------------------------------------
 
 (defn render-cause
-  "Classify WHY a view rendered this cascade (rf2-bhi3t), purely from
+  "Classify WHY a view rendered this cascade, purely from
   data the substrate already stamps on `:rf.view/rendered`:
 
     `:mount`                     — the instance's FIRST render
@@ -2530,13 +2528,13 @@
     {:kind :sub :sub-id <id>}    — a SUBSCRIPTION the view derefs
                                    changed value: `:rf.view/triggered-by`
                                    (the first sub in the view's read-set
-                                   whose value changed — rf2-8wrzz.1).
+                                   whose value changed).
     :props                       — a re-render where NONE of the view's
                                    own subs changed value. The view
                                    re-rendered anyway, so the cause is
                                    the orthogonal `:rf/props` channel
                                    (a prop changed / parent re-rendered).
-                                   We never name the parent (rf2-8ve8z).
+                                   We never name the parent.
 
   A view re-renders for exactly one of two reasons — a sub it derefs
   changed, or its props changed — so the absence of a `triggered-by`
@@ -2549,7 +2547,7 @@
     :else                :props))
 
 (defn sub-status-index
-  "rf2-3b9w4 — build a `{<sub-key> <status>}` lookup from the epoch's
+  "Build a `{<sub-key> <status>}` lookup from the epoch's
   `subscription-rows`, so the VIEWS table can colour-code each sub a
   view dereffed by how it behaved THIS epoch:
 
@@ -2589,26 +2587,24 @@
   "Project view-render events into rows. Each row carries the view-id,
   the instance (`:rf.view/render-key`), the subs the view dereffed
   during this render, the wall-clock duration of the render-fn, the
-  render `:cause` (rf2-bhi3t — `:mount` / `{:kind :sub :sub-id <id>}` /
-  `:props`), a `:status` (`:rendered`), a `:sub-status` map (rf2-3b9w4)
+  render `:cause` (`:mount` / `{:kind :sub :sub-id <id>}` /
+  `:props`), a `:status` (`:rendered`), a `:sub-status` map
   joining each dereffed sub to its `:new` / `:changed` / `:unchanged`
-  posture this epoch, and the rf2-u3lii render-args slots
+  posture this epoch, and the render-args slots
   (`:render-args` + `:prev-render-args`).
 
-  Per rf2-6djth the projection reads `:rf.view/rendered` (the rich
-  per-render marker — rf2-25zo2 / rf2-9hoos / rf2-8wrzz.1) rather than
+  The projection reads `:rf.view/rendered` (the rich
+  per-render marker) rather than
   the simpler `:rf.view/render` marker; only `:rf.view/rendered`
   carries `:rf.view/id`, `:rf.view/deref-subs`, and `:rf.view/elapsed-ms`.
-  The pre-rf2-6djth read against the bare `render` marker returned nil
-  for every payload slot, hence the VIEWS step rendered a count with
-  no per-row detail. Legacy `:view-id` / `:subs-read` reads are
-  retained as fixture-compatibility fallbacks.
+  `:view-id` / `:subs-read` reads are
+  fixture-compatibility fallbacks.
 
-  ## rf2-u3lii — render-args DIFF (col-2)
+  ## render-args DIFF (col-2)
 
   Each row carries `:render-args` — the positional render args/props
-  passed to THIS render, off the `:rf.view/render-args` trace slot
-  (rf2-rpgq8). The value is ALREADY ELIDED at the substrate emit
+  passed to THIS render, off the `:rf.view/render-args` trace slot.
+  The value is ALREADY ELIDED at the substrate emit
   chokepoint (PRIVACY — `re-frame.classification/project-trace-event` routes it
   through `project-egress` against the frame's app-db elision
   registry before delivery, the identical treatment `:rf.event/db`
@@ -2632,7 +2628,7 @@
   scope (the projection sees one epoch's `:trace-events`)."
   [events]
   (let [sub-idx (sub-status-index events)]
-    ;; rf2-u3lii — thread a `{render-key => last-render-args}` accumulator
+    ;; Thread a `{render-key => last-render-args}` accumulator
     ;; left-to-right so each row's `:prev-render-args` is the SAME
     ;; instance's prior render args (NOT a neighbouring view's). `reduce`
     ;; (not `for`) because the previous-args lookup is order-dependent.
@@ -2642,7 +2638,7 @@
                   triggered-by (common/tag-of ev :rf.view/triggered-by)
                   instance     (common/tag-of ev :rf.view/render-key)
                   ;; ALREADY-ELIDED at the substrate emit chokepoint
-                  ;; (rf2-rpgq8) — consume as-is, no re-elision (rf2-u3lii).
+                  ;; — consume as-is, no re-elision.
                   render-args  (common/tag-of ev :rf.view/render-args)
                   ;; the SAME instance's previous render args (nil on the
                   ;; instance's first render this cascade).
@@ -2655,7 +2651,7 @@
                                                  (common/tag-of ev :view-id))
                                :instance     instance
                                :subs-read    subs-read
-                               ;; rf2-3b9w4 — per-sub status for the col-3
+                               ;; Per-sub status for the col-3
                                ;; colour code. Keyed by the SAME value the
                                ;; view cell renders (sub-vec or bare keyword)
                                ;; so the cell looks up its colour directly.
@@ -2670,7 +2666,7 @@
                                :cause        (render-cause mount? triggered-by)
                                :duration-ms  (or (common/tag-of ev :rf.view/elapsed-ms)
                                                  (common/tag-of ev :duration-ms))}
-                        ;; rf2-u3lii — render-args slots (omit-by-absence):
+                        ;; Render-args slots (omit-by-absence):
                         ;; absent on a no-arg render; `:prev-render-args`
                         ;; absent on an instance's first render this cascade.
                         (some? render-args) (assoc :render-args render-args)
@@ -2689,18 +2685,18 @@
         :rows)))
 
 (defn unmounted-views-rows
-  "Project `:rf.view/unmounted` events into rows (rf2-gmw1i). Each row
+  "Project `:rf.view/unmounted` events into rows. Each row
   carries the view-id of an instance that tore down during this
   cascade.
 
-  Per `re-frame.views/emit-view-unmounted!` (Spec 006 / rf2-9hoos /
-  rf2-te71r) the substrate stamps:
+  Per `re-frame.views/emit-view-unmounted!` (Spec 006) the substrate
+  stamps:
 
       :rf.view/id          — the registered view-id
       :rf.view/render-key  — the per-instance tuple (used as :instance)
       :frame               — the originating frame
 
-  rf2-3b9w4 — each row is tagged `:status :unmounted` + `:unmounted?
+  Each row is tagged `:status :unmounted` + `:unmounted?
   true` so it can ride in the SAME `views-step` `:rows` table as the
   re-rendered rows (rendered with a red strikethrough, diff-removed
   posture) rather than in a separate sub-section. `:subs-read` is `[]`
@@ -2723,9 +2719,8 @@
   "VIEWS step row. nil when no view-render events fired AND no view-
   unmount events fired (the step is OMITTED — conditional).
 
-  rf2-3b9w4 (Mike pair 2026-06-01, SUPERSEDES the rf2-gmw1i separate
-  `:unmounted-rows` sub-section) — re-rendered AND unmounted views ride
-  in ONE `:rows` collection. Rendered rows (`:status :rendered`) come
+  Re-rendered AND unmounted views ride in ONE `:rows` collection (no
+  separate unmounted sub-section). Rendered rows (`:status :rendered`) come
   first, unmounted rows (`:status :unmounted`) follow; the view renders
   unmounted rows with a red strikethrough (diff-removed posture) inline
   in the same table, so the operator reads the epoch's full view delta —
@@ -2746,7 +2741,7 @@
 
 ;; ---- SCHEMA VIOLATIONS step ----------------------------------------------
 ;;
-;; rf2-17vxj — surface schema violations that fired during this epoch.
+;; Surface schema violations that fired during this epoch.
 ;; Two trace operations carry violations:
 ;;
 ;;   :rf.error/schema-validation-failure — runtime per-event boundary
@@ -2772,21 +2767,21 @@
 ;; Surfaced when the cascade carried at least one of either op.
 
 (def schema-violation-ops
-  "Closed set of trace ops the SCHEMA-VIOLATIONS step harvests
-  (rf2-17vxj). The runtime per-boundary failure and the hot-reload
+  "Closed set of trace ops the schema-violation projection harvests.
+  The runtime per-boundary failure and the hot-reload
   drift check ride distinct ops + tag shapes; both project into the
   same row schema with `:kind` flagging the source."
   #{:rf.error/schema-validation-failure
     :rf.schema/violation})
 
 (defn decode-malli-explain
-  "Decompose a Malli `explain` map into the at-a-glance summary the
-  bead body's §SCHEMA VIOLATION section asks for (rf2-zn6u5).
+  "Decompose a Malli `explain` map into the at-a-glance schema-violation
+  summary.
 
   Returns `{:expected <schema-form> :got <value> :more-errors <int>}`
   when `explain` carries the canonical Malli shape — `{:errors [{...}
   ...] :value <root>}`. Returns `nil` otherwise (non-Malli validators,
-  pre-rf2-2ek7t framework, malformed input) so the caller can drop
+  malformed input) so the caller can drop
   the decomposition row cleanly.
 
   - `:expected` reads the FIRST error's `:schema` slot (the schema
@@ -2796,9 +2791,8 @@
   - `:more-errors` is `(count errors) - 1` so the call-site can paint
     a `(+N more)` chip when more than one error rode in.
 
-  Pure data; JVM-testable. rf2-plev0 relocated this from the epoch
-  view (`view.cljs`) into the projection layer beside its sibling
-  `schema-violation-row` — `schema-violation-row` now stamps the
+  Pure data; JVM-testable. It lives in the projection layer beside its
+  sibling `schema-violation-row`, which stamps the
   decoded summary onto each row's `:decoded` slot so the view
   consumes projected data rather than computing the transform."
   [explain]
@@ -2814,16 +2808,15 @@
 
 (defn- schema-violation-row
   "Project one schema-violation trace event into the per-row data
-  shape (rf2-17vxj). Empty / nil values are kept absent so the view
+  shape. Empty / nil values are kept absent so the view
   can elide slots cleanly.
 
-  rf2-plev0 — the row carries a `:decoded` slot when the violation's
+  The row carries a `:decoded` slot when the violation's
   `:explain` is a canonical Malli explain map (`decode-malli-explain`
   returns a summary). The view renders the `expected:` / `got:` /
   `(+N more)` decomposition off this projected field; non-Malli /
   malformed explains leave `:decoded` absent so the view drops the
-  block cleanly (the same nil-gate it used when it computed the
-  decode itself)."
+  block cleanly."
   [ev]
   (let [op-kw   (op ev)
         tags    (:tags ev)
@@ -2835,36 +2828,35 @@
              :failing-id         (or (:failing-id tags)
                                      (when (= :rf.schema/violation op-kw)
                                        (:frame tags)))
-             ;; rf2-3x7nj.22.2 — first PRESENT: a `false` value is the value.
+             ;; First PRESENT: a `false` value is the value.
              :value              (let [v (:value tags)]
                                    (if (some? v) v (:mismatching-value tags)))
              :explain            (:explain tags)
-             ;; rf2-2ek7t — when the substrate's humanize hook is
+             ;; When the substrate's humanize hook is
              ;; installed (Malli adapter ships malli.error/humanize
              ;; under :schemas/humanize-explain!), the trace event
              ;; carries a humanized version of the explain map.
              ;; View prefers this for display; falls back to :explain
-             ;; when absent (non-Malli validators, or framework
-             ;; predating rf2-2ek7t).
+             ;; when absent (non-Malli validators, or no hook installed).
              :explain-humanized  (:explain-humanized tags)
              :rollback?          (boolean (:rollback? tags))
              :recovery           (:recovery tags)
              :sensitive?         (boolean (:sensitive? tags))}
-      ;; rf2-plev0 / rf2-zn6u5 — the at-a-glance expected/got/+N-more
+      ;; The at-a-glance expected/got/+N-more
       ;; decomposition, computed here so the view reads it off the row.
       ;; Absent when the explain isn't a canonical Malli map.
       (some? decoded)
       (assoc :decoded decoded)
-      ;; rf2-kuky.84 — the violation's OWN frame, stamped on EVERY row
-      ;; rather than only the hot-reload ones. `re-frame.schemas/app-schema-meta` now
+      ;; The violation's OWN frame, stamped on EVERY row
+      ;; rather than only the hot-reload ones. `re-frame.schemas/app-schema-meta`
       ;; REQUIRES an explicit `{:frame f}`, and the view's schema
       ;; source-coord link reads it off this slot; resolving ambiently
-      ;; there would have resolved Xray's own `:rf/xray` frame, not the
+      ;; there would resolve Xray's own `:rf/xray` frame, not the
       ;; host frame whose app-db failed. Absent when the trace event
       ;; carried no frame tag.
       (some? (:frame tags))
       (assoc :frame (:frame tags))
-      ;; rf2-tspmp — an `:app-db` failure's registration ROOT. The producer
+      ;; An `:app-db` failure's registration ROOT. The producer
       ;; stamps the failing LEAF as `:path` and the root it was registered at
       ;; as `:registered-path` (Spec 010 §When schemas are checked), and only
       ;; the root names a registration, so the view's `schema check` link
@@ -2878,34 +2870,30 @@
 (defn schema-violation-rows
   "Walk every schema-violation trace event in `events` (both runtime
   per-event validation failures + hot-reload drift) into a vec of
-  per-row maps (rf2-17vxj). Empty vec when none fired."
+  per-row maps. Empty vec when none fired."
   [events]
   (vec
     (for [ev events
           :when (contains? schema-violation-ops (op ev))]
       (schema-violation-row ev))))
 
-;; rf2-xgeag — the trailing SCHEMA-VIOLATIONS aggregate step retired
-;; pair-debug 2026-05-27. Violations now attach to their owning
-;; pipeline step via `attach-violations`. Hot-reload drift surfaces
-;; via the issues RIBBON exclusively (rf2-7gf7v retired the standalone
-;; `:schema-hot-reload` step; rf2-gbz39 then retired the Issues TAB
-;; itself, so "the Issues panel" names nothing today — the surviving
-;; surface is `panels/issues_ribbon_helpers.cljc`, which harvests by
-;; `:op-type` and so picks the drift up as a `:warning` row). The per-row data (`schema-violation-rows`)
-;; is unchanged — only the aggregation + view shape moved.
+;; There is no aggregate schema-violations step: violations attach to
+;; their owning pipeline step via `attach-violations`. Hot-reload drift
+;; surfaces via the issues RIBBON exclusively — there is no
+;; `:schema-hot-reload` step and no Issues tab;
+;; `panels/issues_ribbon_helpers.cljc` harvests by `:op-type` and so
+;; picks the drift up as a `:warning` row.
 
-;; Per the attachment mapping (post-rf2-8resu + rf2-7gf7v):
+;; The attachment mapping:
 ;;
 ;;   :where slot    | owning step
 ;;   ---------------|-----------------------------------------------
 ;;   :event         | DISPATCH (one step)
 ;;   :cofx          | COEFFECT step matching :failing-id against :id
-;;   :app-db        | SIDE EFFECTS step :db row (the handler db write;
-;;                  | rf2-8resu / rf2-kt6js)
+;;   :app-db        | SIDE EFFECTS step :db row (the handler db write)
 ;;   :fx-args       | SIDE EFFECTS step (row-level :fx-id match)
 ;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
-;;   :hot-reload    | issues ribbon only — no pipeline step (rf2-7gf7v)
+;;   :hot-reload    | issues ribbon only — no pipeline step
 
 (defn- attach-step-violation
   "Append `row` to `step`'s `:violations` vec when `step` is non-nil."
@@ -2937,7 +2925,7 @@
       (attach-step-violation step row))))
 
 (defn- attach-to-fx-db-row
-  "Per rf2-8resu / rf2-kt6js — attach a `:where :app-db` schema-violation
+  "Attach a `:where :app-db` schema-violation
   to the SIDE EFFECTS step's `:db` row (the handler's app-db write).
   Falls back to the step-level `:violations` if the `:db` row isn't
   present (shouldn't happen — an :app-db violation implies a `:db`
@@ -2954,7 +2942,7 @@
     (attach-step-violation step row)))
 
 (defn- attach-to-runtime-db-row
-  "Per EP-0001 rf2-ff9b0d — attach a `:where :machine-data` schema-
+  "Per EP-0001 — attach a `:where :machine-data` schema-
   violation to the SIDE EFFECTS step's `:rf.db/runtime` row (the handler's
   runtime-db partition write). The runtime-db sibling of
   `attach-to-fx-db-row`. Falls back to the step-level `:violations` if the
@@ -2974,8 +2962,8 @@
 (defn- attach-to-sub-row
   "When `step` is the SUBSCRIPTIONS step + the violation's `:failing-id`
   matches a `sub-id` in the step's `:rows`, attach to that row.
-  Otherwise attach to the step-level `:violations` (per the bead's
-  edge case: indirect recompute outside the cascade's surfaced rows)."
+  Otherwise attach to the step-level `:violations` (the edge case of an
+  indirect recompute outside the cascade's surfaced rows)."
   [step row]
   (let [sub-id (:failing-id row)]
     (if (some #(= sub-id (:sub-id %)) (:rows step))
@@ -2995,11 +2983,11 @@
 
 (defn- attach-violation-to-handler
   "The catch-all for a schema violation whose owning step is not in this
-  cascade, or whose `:where` this projection does not recognise
-  (rf2-y8doi.19). Attaches to the HANDLER step — the one step every
+  cascade, or whose `:where` this projection does not recognise.
+  Attaches to the HANDLER step — the one step every
   epoch has — so the failure surfaces somewhere rather than nowhere.
 
-  Mirrors the catch-all `attach-exceptions` has always had. Returns
+  Mirrors the catch-all `attach-exceptions` has. Returns
   `steps` unchanged only when even HANDLER is absent, which is the
   degenerate empty-cascade case `project` short-circuits before this
   pass runs.
@@ -3014,27 +3002,27 @@
 (defn attach-violations
   "Take a projected step vector + a vec of schema-violation rows (post-
   `schema-violation-rows`) and return the step vector with each
-  violation attached to its owning step (per the rf2-xgeag
-  attachment mapping). Returns `steps` unchanged when `rows` is
+  violation attached to its owning step (per the attachment mapping
+  above). Returns `steps` unchanged when `rows` is
   empty.
 
   The hot-reload subset is NOT attached here. Hot-reload drift is a
-  dev-time event rather than a cascade event, and rf2-7gf7v retired the
-  standalone SCHEMA-HOT-RELOAD step it used to ride: the issues ribbon
+  dev-time event rather than a cascade event, and there is no
+  SCHEMA-HOT-RELOAD step for it to ride: the issues ribbon
   owns it exclusively, harvesting it by `:op-type :warning` off the
   trace stream. Those rows are dropped from this pass DELIBERATELY and
   are the ONE kind that is.
 
-  rf2-y8doi.19 — EVERY OTHER ROW LANDS SOMEWHERE. Each branch below
-  resolves an owning step, and until this bead a branch that could not
-  find one returned the step vector untouched, as did any `:where` the
-  `case` did not name — so a violation whose owning step was absent from
-  this cascade, or one carrying a `:where` the framework grew later,
-  vanished with the panel still reading `:ok`. The catch-all is the same
+  EVERY OTHER ROW LANDS SOMEWHERE. Each branch below
+  resolves an owning step; a branch that returned the step vector
+  untouched when it found none, or a `:where` the `case` did not name,
+  would let a violation whose owning step is absent from
+  this cascade, or one carrying a `:where` the framework grows later,
+  vanish with the panel reading `:ok`. The catch-all is the same
   one `attach-exceptions` uses: fall back to the HANDLER step, where the
   operator at least sees that something failed and what it said. A
   violation attached anywhere makes `step-status` read `:error` (it
-  scans `:violations`), so the epoch outcome is no longer green either."
+  scans `:violations`), so the epoch outcome is not green either."
   [steps rows]
   (if (empty? rows)
     steps
@@ -3062,19 +3050,19 @@
                 (attach-violation-to-handler s row))))
 
           :app-db
-          ;; rf2-8resu / rf2-kt6js / rf2-j630b — :where :app-db violations
+          ;; :where :app-db violations
           ;; attach to the SIDE EFFECTS step's :db row (the handler's
-          ;; app-db write). The :db row leads the flat ledger and still
+          ;; app-db write). The :db row leads the flat ledger and
           ;; carries the `:fx-id :db` marker, so the row-level attach
-          ;; (`attach-to-fx-db-row`, matching `:fx-id :db` over the flat
-          ;; `:rows`) matches unchanged across the kt6js→j630b flatten.
+          ;; (`attach-to-fx-db-row`) matches `:fx-id :db` over the flat
+          ;; `:rows`.
           (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-fx-db-row row)
               (attach-violation-to-handler s row)))
 
           :machine-data
-          ;; EP-0001 rf2-ff9b0d — `:where :machine-data` violations are
+          ;; EP-0001 — `:where :machine-data` violations are
           ;; the runtime-db partition's post-commit boundary; attach to
           ;; the SIDE EFFECTS step's `:rf.db/runtime` row (the runtime-db
           ;; sibling of the :app-db → :db row attach).
@@ -3095,38 +3083,35 @@
               (update s i attach-to-sub-row row)
               (attach-violation-to-handler s row)))
 
-          ;; rf2-y8doi.19 — an unrecognised `:where`. It used to land
-          ;; here and be discarded, under a comment saying it rode the
-          ;; standalone hot-reload step; rf2-7gf7v had already retired
-          ;; that step, so it rode nothing. A `:where` the framework
+          ;; An unrecognised `:where`. There is no standalone hot-reload
+          ;; step for it to ride, so it attaches to HANDLER rather than
+          ;; being discarded. A `:where` the framework
           ;; grows later reaches this branch by construction, which is
           ;; exactly when the panel must not go quiet.
           (attach-violation-to-handler s row)))
       steps
       (remove #(= :hot-reload (:where %)) rows))))
 
-;; SCHEMA HOT-RELOAD pipeline step retired per rf2-7gf7v (Mike
-;; pair-debug 2026-05-27). Hot-reload drift is a dev-time event
-;; (re-registered schema invalidates existing app-db state) — not
-;; a cascade event. Rendering it as a cascade pipeline step
-;; produced an opaque step (`schema hot-reload · :rf/default ·
+;; There is no SCHEMA HOT-RELOAD pipeline step. Hot-reload drift is a
+;; dev-time event (re-registered schema invalidates existing app-db
+;; state) — not a cascade event. Rendered as a cascade pipeline step it
+;; would be an opaque step (`schema hot-reload · :rf/default ·
 ;; path [:user/profile :age] · value -3`) lacking the rich
 ;; context the operator needs (pre/post schema, file:line of the
-;; re-registration). Hot-reload drift continues to fire its
+;; re-registration). Hot-reload drift fires its
 ;; `:rf.schema/violation` trace events at `:op-type :warning`, and
-;; the issues RIBBON consumes them — not an "Issues panel", which
-;; rf2-gbz39 retired along with the Issues tab (rf2-y8doi.19). The Epoch panel's pipeline now stays
+;; the issues RIBBON consumes them. The Epoch panel's pipeline is
 ;; exclusively for runtime-cascade events.
 
-;; ---- INLINE EXCEPTION attachment (rf2-ahhgn) ----------------------------
+;; ---- INLINE EXCEPTION attachment ----------------------------------------
 ;;
 ;; A handler / interceptor / coeffect / fx EXCEPTION (distinct from a
-;; schema VIOLATION) leaves a `:rf.error/*` cascade trace but, pre-rf2-ahhgn,
-;; surfaced NOWHERE in the Epoch panel — the cascade rendered as if it ran
-;; clean and the epoch read `:outcome :ok` (the framework recovers handler
+;; schema VIOLATION) leaves a `:rf.error/*` cascade trace, while the
+;; epoch record reads `:outcome :ok` (the framework recovers handler
 ;; exceptions through the interceptor error-capture seam and settles `:ok`
 ;; deliberately — per spec/009 §`:rf.epoch/*` + Spec-Schemas §`:rf/epoch-record`
-;; §Outcomes; we do NOT touch that framework slot — see rf2-ahhgn settle-first).
+;; §Outcomes; this panel does NOT touch that framework slot). Without this
+;; block the cascade would render as if it ran clean.
 ;;
 ;; This block harvests the cascade-level exception traces and attaches each
 ;; to its OWNING pipeline step, mirroring the schema-`attach-violations`
@@ -3134,38 +3119,33 @@
 ;; `[:tags :reason]`); the failing handler's SOURCE-COORD rides the hoisted
 ;; top-level `:rf.trace/trigger-handler :source-coord` slot (or
 ;; `:rf.trace/call-site`) — confirmed against `re-frame.router/
-;; emit-handler-exception!` + `re-frame.trace/build-event` (rf2-ahhgn
-;; settle-first prong 2; the bead's probe checked `:message` / `:source`,
-;; which the substrate does not stamp).
+;; emit-handler-exception!` + `re-frame.trace/build-event` (the substrate
+;; does not stamp `:message` / `:source`).
 ;;
-;; The error-record + per-step `:status` (`:ok` / `:error`) primitive this
-;; introduces is GENERAL — rf2-kt6js's future SIDE-EFFECTS sub-steps reuse
-;; the same `step-status` + `error-record` shape rather than rolling a
-;; one-off.
+;; The error-record + per-step `:status` (`:ok` / `:error`) primitive is
+;; GENERAL — the SIDE EFFECTS ledger reuses the same `step-status` +
+;; error-record shape rather than rolling a one-off.
 
 (def cascade-exception-ops
   "Closed set of cascade-level `:rf.error/*` trace ops the Epoch panel
-  surfaces as INLINE per-step exceptions (rf2-ahhgn · per-component
-  attribution rf2-mszrz / placement rf2-yz57h). Schema-validation
+  surfaces as INLINE per-step exceptions. Schema-validation
   failures are NOT here — they ride the distinct `schema-violation-rows`
   + `attach-violations` path (they carry `:explain` + `:where` + recovery
   chrome, not an exception message). New exception ops extend this set
   AND the `exception-op->step` table in lockstep.
 
-  rf2-mszrz split the pre-existing blanket `:rf.error/handler-exception`
-  (which the pre-mszrz router emitted for EVERY interceptor-chain throw —
-  handler, user interceptor, coeffect injector alike) into THREE
-  component-attributed ops. The Epoch panel now places each under the
-  step where it actually occurred (rf2-yz57h) instead of collapsing them
-  all onto HANDLER:
+  An interceptor-chain throw arrives as one of THREE component-attributed
+  ops (handler, user interceptor, coeffect injector), and the Epoch panel
+  places each under the step where it actually occurred rather than
+  collapsing them all onto HANDLER:
 
-  - `:rf.error/coeffect-exception` (rf2-mszrz) — a coeffect injector threw
+  - `:rf.error/coeffect-exception` — a coeffect injector threw
     during `:before`-chain coeffect injection. `:failing-id` = the cofx id.
     Owns the COEFFECT step (the matching cofx's step; falls back to any
     COEFFECT step / step-level). The handler never ran.
-  - `:rf.error/interceptor-exception` (rf2-mszrz) — a USER interceptor threw
+  - `:rf.error/interceptor-exception` — a USER interceptor threw
     in its `:before` or `:after` phase (`:phase` discriminates). `:failing-id`
-    = the interceptor `:id`. Owns the INTERCEPTOR step (NEW, rf2-yz57h). A
+    = the interceptor `:id`. Owns the INTERCEPTOR step. A
     `:before` throw skips the handler; an `:after` throw runs the handler
     first, then throws on the way out.
   - `:rf.error/handler-exception` — the event HANDLER itself threw. The chain
@@ -3179,13 +3159,13 @@
   - `:rf.error/flow-eval-exception` — a flow's compute fn threw (pre-commit
     abort). Owns the FLOW step (step-level; the throwing flow aborted the
     cascade).
-  - `:rf.error/machine-action-exception` (rf2-e7yhv) — a machine action body
+  - `:rf.error/machine-action-exception` — a machine action body
     threw during a transition (the xstate-v5 'fail loudly on unknown' idiom
     is a `:*` wildcard whose action throws). The machine handler IS an
     event handler, so the throw owns the HANDLER step where its machine
     cascade renders. Carries `:exception` / `:exception-message` /
-    `:exception-data` + `:transition` (whose `:rf/via-wildcard?` flag, per
-    rf2-e7yhv, lets the card attribute the throw to a wildcard action) +
+    `:exception-data` + `:transition` (whose `:rf/via-wildcard?` flag
+    lets the card attribute the throw to a wildcard action) +
     `:state-path` + `:action-id`."
   #{:rf.error/coeffect-exception
     :rf.error/interceptor-exception
@@ -3197,12 +3177,12 @@
 
 (def ^:private exception-op->step
   "Map a cascade-exception trace op → the `:step` keyword of the pipeline
-  step it attaches to (rf2-ahhgn · rf2-mszrz · rf2-yz57h). Each
-  component-attributed op (rf2-mszrz) lands under the step where it
-  actually occurred (rf2-yz57h) rather than all collapsing onto HANDLER:
+  step it attaches to. Each
+  component-attributed op lands under the step where it
+  actually occurred rather than all collapsing onto HANDLER:
 
     - coeffect injector throw → COEFFECT step
-    - user-interceptor :before/:after throw → INTERCEPTOR step (NEW)
+    - user-interceptor :before/:after throw → INTERCEPTOR step
     - event handler throw → HANDLER step
     - fx-handler throw / no-such-fx → SIDE EFFECTS step
     - flow compute throw → FLOW step"
@@ -3212,22 +3192,22 @@
    :rf.error/fx-handler-exception :side-effects
    :rf.error/no-such-fx           :side-effects
    :rf.error/flow-eval-exception  :flow
-   ;; rf2-e7yhv — a machine-action throw aborts the machine handler; its
+   ;; A machine-action throw aborts the machine handler; its
    ;; cascade renders under the HANDLER step, so the exception card lands
    ;; there too.
    :rf.error/machine-action-exception :handler})
 
 (defn- exception-message
-  "Lift the REAL exception message off an exception trace event (rf2-ahhgn
-  / rf2-oqi0c). Reads `[:tags :exception-message]` ONLY — the exception's
+  "Lift the REAL exception message off an exception trace event.
+  Reads `[:tags :exception-message]` ONLY — the exception's
   own `.getMessage` (`re-frame.router/emit-handler-exception!` stamps it).
   nil when absent.
 
-  rf2-oqi0c — the `[:tags :reason]` fallback is DROPPED. `:reason` is the
+  There is no `[:tags :reason]` fallback. `:reason` is the
   terse CATEGORY boilerplate ('Event handler threw.' / '…interceptor
   threw.') already conveyed by the card's position (under the failing
   step) + its 'Exception Thrown' heading; surfacing it as the card's
-  message line was redundant chrome. The card now shows the message line
+  message line would be redundant chrome. The card shows the message line
   ONLY when the throw carried a real `.getMessage`."
   [ev]
   (let [msg (common/tag-of ev :exception-message)]
@@ -3235,7 +3215,7 @@
 
 (defn- exception-source-coord
   "Resolve the `{:file :line}` source-coord of the failing handler off an
-  exception trace event (rf2-ahhgn). The handler's reg-site coord rides
+  exception trace event. The handler's reg-site coord rides
   the hoisted top-level `:rf.trace/trigger-handler :source-coord` slot
   (per `re-frame.trace/build-event`); the dispatch call-site
   (`:rf.trace/call-site`) is the fallback. nil when neither carries a
@@ -3248,7 +3228,7 @@
 
 (defn exception-row
   "Project one cascade-exception trace event into the per-step error
-  record (rf2-ahhgn). Mirrors the issues-ribbon projection shape so the
+  record. Mirrors the issues-ribbon projection shape so the
   inline display reads the same message + coord the issues ribbon does:
 
       {:operation  <error-op kw>           ;; e.g. :rf.error/handler-exception
@@ -3257,7 +3237,7 @@
        :failing-id <kw-or-nil>             ;; the failing handler / fx id
        :phase      <kw-or-nil>             ;; :before / :after (interceptor)
        :recovery   <kw-or-nil>             ;; e.g. :no-recovery
-       :exception  <Throwable-or-nil>      ;; rf2-wnvid — the raw exception
+       :exception  <Throwable-or-nil>      ;; the raw exception
                                            ;; object (carries the stack)
        :raw        <trace-event>}          ;; the underlying trace event
 
@@ -3265,7 +3245,7 @@
   collapsible details (stack / ex-data). Empty slots are tolerated
   absent by the view.
 
-  rf2-s6oqd — the cascade-level `:db-rolled-back?` slot is stamped LATER
+  The cascade-level `:db-rolled-back?` slot is stamped LATER
   by `project` (it needs the whole event stream, not the one exception
   event); it gates the view's 'Rolled back' chip so the chip paints ONLY
   when the cascade ACTUALLY rolled back (a `:where :app-db` schema-fail),
@@ -3283,15 +3263,15 @@
              :recovery   (or (:recovery ev) (common/tag-of ev :recovery))
              :exception  (common/tag-of ev :exception)
              :raw        ev}
-      ;; rf2-e7yhv — machine-action throws carry the machine attribution so
+      ;; Machine-action throws carry the machine attribution so
       ;; the exception card can name WHAT threw (the action), in WHICH
       ;; machine, on WHICH event, and — crucially — whether it came from a
       ;; `:*` WILDCARD action (the xstate-v5 'fail loudly on unknown' idiom)
       ;; vs a named transition. The `:rf/via-wildcard?` flag rides the
       ;; transition map (stamped by `transition/match-on-clause`).
       (= :rf.error/machine-action-exception (op ev))
-      ;; rf2-yyvtk5 — the throwing action's row now addresses the live actor
-      ;; under `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+      ;; The throwing action's row addresses the live actor under
+      ;; `:actor-id`; fall back to `:machine-id` for fixtures that stamp only that.
       (assoc :machine-id   (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
              :action-id    (common/tag-of ev :action-id)
              :event        (common/tag-of ev :event)
@@ -3302,20 +3282,19 @@
 (defn exception-rows
   "Walk every cascade-exception trace event in `events` (the
   `cascade-exception-ops` subset) into a vec of `exception-row` records
-  in trace order (rf2-ahhgn). Empty vec when none fired."
+  in trace order. Empty vec when none fired."
   [events]
   (vec
     (for [ev events
           :when (contains? cascade-exception-ops (op ev))]
       (exception-row ev))))
 
-;; ---- INTERCEPTOR step (rf2-yz57h) ---------------------------------------
+;; ---- INTERCEPTOR step ---------------------------------------------------
 ;;
-;; The pipeline had no distinct interceptor step before rf2-yz57h —
-;; interceptors WRAP the handler chain rather than appearing as their own
-;; cascade entry, so a user-interceptor `:before` / `:after` throw
-;; (rf2-mszrz `:rf.error/interceptor-exception`) had no home and collapsed
-;; onto HANDLER.
+;; Interceptors WRAP the handler chain rather than appearing as their own
+;; cascade entry, so without a distinct step a user-interceptor `:before`
+;; / `:after` throw (`:rf.error/interceptor-exception`) would have no home
+;; and collapse onto HANDLER.
 ;;
 ;; The substrate does NOT emit a per-interceptor "ran" trace (the chain
 ;; runs as one unit; only a throw surfaces a trace), so the INTERCEPTOR
@@ -3323,17 +3302,17 @@
 ;; this cascade, and its rows are the throwing interceptor(s) — each row
 ;; carries the interceptor `:id` + the `:phase` (`:before` / `:after`) it
 ;; threw in, so the operator reads WHICH interceptor failed on WHICH side
-;; of the chain. rf2-siheh — the jump-to-source coord rides the row's
+;; of the chain. The jump-to-source coord rides the row's
 ;; `:coord` slot, resolved here off the `:rf.error/interceptor-exception`
 ;; trace's `:source-coord` tag (captured by the `reg-interceptor` macro at
 ;; the registration site); it degrades to plain text when no coord was
 ;; captured (the `reg-interceptor*` fn path, framework interceptors, or a
-;; production CLJS bundle). The shared "Exception Thrown" card (rf2-wnvid) attaches
+;; production CLJS bundle). The shared "Exception Thrown" card attaches
 ;; per the standard `attach-exceptions` path.
 
 (defn interceptor-exception-rows
   "The `:rf.error/interceptor-exception` subset of `exception-rows`
-  (rf2-yz57h / rf2-mszrz) — one per user-interceptor throw, in trace
+  — one per user-interceptor throw, in trace
   order. Empty vec when no interceptor threw."
   [events]
   (filterv #(= :rf.error/interceptor-exception (op (:raw %)))
@@ -3341,10 +3320,10 @@
 
 (defn- interceptor-row-coord
   "Resolve the throwing interceptor's definition-site `{:ns :file :line}`
-  source-coord off the `:rf.error/interceptor-exception` trace event
-  (rf2-siheh). The router threads it onto the trace under the `:source-
+  source-coord off the `:rf.error/interceptor-exception` trace event.
+  The router threads it onto the trace under the `:source-
   coord` tag (the `reg-interceptor` macro captured it at the registration
-  site, riding the rf2-wvsxg absolutise path). Returns nil when no coord was
+  site, riding the absolutise path). Returns nil when no coord was
   captured — the interceptor was registered via the `reg-interceptor*` fn or
   is a framework interceptor (`:rf.interceptor/path` or a cofx injector), or
   the build is a production CLJS bundle that elided the coord. The view's
@@ -3357,17 +3336,17 @@
 (defn interceptor-step
   "Build the INTERCEPTOR step for ONE chain `phase` (`:before` / `:after`),
   or nil when no interceptor threw in that phase this cascade (the step is
-  OMITTED — conditional, rf2-yz57h / rf2-vew2n). The step's `:rows` are the
+  OMITTED — conditional). The step's `:rows` are the
   throwing interceptors of that phase (one per
   `:rf.error/interceptor-exception` with the matching `:phase`), each
   carrying the interceptor `:interceptor-id` (== the exception row's
-  `:failing-id`), the `:phase` it threw in, and (rf2-siheh) the
+  `:failing-id`), the `:phase` it threw in, and the
   interceptor's definition-site `:coord` (when the `reg-interceptor` macro
   captured one) so the view renders a jump-to-source chip — parity with
   the EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows. The shared exception
   card attaches to this step via `attach-exceptions`.
 
-  rf2-vew2n — a `:before` interceptor throws on the way IN (the chain
+  A `:before` interceptor throws on the way IN (the chain
   aborts before the handler runs), so the `:before` step renders BEFORE
   the EVENT HANDLER step. An `:after` interceptor throws on the way OUT
   (the handler ran first), so the `:after` step renders AFTER the EVENT
@@ -3386,17 +3365,15 @@
                        :coord          (interceptor-row-coord raw)})
                     exc)})))
 
-;; ---- INTERCEPTORS step — the authored / resolved chain (rf2-se9a9t) ------
+;; ---- INTERCEPTORS step — the authored / resolved chain ------------------
 ;;
 ;; EP-0022 §11 + Spec 002 §Tooling and metadata: "Trace / Xray surfaces
 ;; SHOULD distinguish: authored refs; the resolved executable chain;
 ;; per-frame override substitutions; per-call override substitutions;
 ;; removed refs; and missing-ref failures." The exception-only INTERCEPTOR
-;; step above (rf2-yz57h / rf2-vew2n) only ever surfaced a THROWING
-;; interceptor — a CLEAN chain left nothing on screen, so an operator could
-;; not see WHICH interceptors wrap an event until one failed. That deferral
-;; was tracked as rf2-rvxem change-4 (now closed → untracked); rf2-se9a9t
-;; completes it.
+;; step above surfaces only a THROWING
+;; interceptor — alone, a CLEAN chain would leave nothing on screen, so an
+;; operator could not see WHICH interceptors wrap an event until one failed.
 ;;
 ;; The authored chain is NOT recoverable from the trace stream — the
 ;; substrate emits no per-interceptor "ran" trace for a clean chain (the
@@ -3410,7 +3387,7 @@
 ;; testable; instead the composite sub threads a `resolve-event-interceptors`
 ;; fn (event-id → authored-ref-row vector) through `project`, and these pure
 ;; builders shape its output into a step. Absent the resolver (the default
-;; arity, every existing test) NO step is emitted — byte-identical.
+;; arity) NO step is emitted.
 
 (defn interceptor-ref-row
   "Normalise ONE authored `:interceptors` chain entry (off
