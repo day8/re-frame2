@@ -78,9 +78,10 @@
   HANDLER + FLOW share `:accent` — the Figma export's single-accent
   identity.
 
-  Schema violations render as an inline per-step sub-block; hot-reload
-  drift rides a standalone SCHEMA-HOT-RELOAD tail step, which pulls
-  `:warning`.
+  Schema violations render as an inline per-step sub-block. The
+  SCHEMA-HOT-RELOAD entry (`:warning`) resolves a badge no projected
+  step emits — hot-reload drift surfaces on the issues ribbon, and
+  `projection/badge-set` omits it.
   INTERCEPTOR pulls `:accent` (the same blue as HANDLER —
   the interceptor chain WRAPS the handler; they read as one identity
   family in the cascade, the chain around the handler body)."
