@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.amp-merge-clock-app
-  "THE `:&` ATTRIBUTE-MERGE SPELLING, ON THE CLOCK (rf2-pqyxz).
+  "THE `:&` ATTRIBUTE-MERGE SPELLING, ON THE CLOCK.
 
   HD-023 rules one attribute merge, spelled `:&`, and closes with a
   caveat it wrote against itself rather than let pass:
@@ -47,8 +47,8 @@
                  body — identical work, a different arm slot. Its ratio to
                  `:expanded` is what this instrument reads when there is
                  NOTHING to read, and it is the only honest answer to the
-                 bead's own question, *state plainly whether it is inside
-                 instrument resolution*. Without it, a `:merged/:expanded`
+                 question this row must answer, *state plainly whether it
+                 is inside instrument resolution*. Without it, a `:merged/:expanded`
                  range that straddles 1.0 says the effect was not seen and
                  cannot say whether it could have been.
     :merged      the helper plus four `:&` call sites
@@ -57,19 +57,20 @@
                  literally the same operation performed twice, so the
                  per-sample additive constants double with it and the
                  prediction is a clean 2.00x rather than a modelled one.
-                 rf2-5yn9 records the same construction and its reason.
-    :helper      LADDER RUNG 1 (rf2-z143r). The same page written with a
+                 `direct_return_clock_app` uses the same construction for
+                 the same reason.
+    :helper      LADDER RUNG 1. The same page written with a
                  helper that takes EXPLICIT ARGUMENTS and writes no `:&`:
                  each call site builds a remainder map, the helper is
                  called with it, and the helper spells the five forwarded
                  attributes out as ordinary keys. Call-site map plus
                  helper call, no merge.
-    :no-dissoc   LADDER RUNG 2 (rf2-z143r). `:helper`'s call sites
+    :no-dissoc   LADDER RUNG 2. `:helper`'s call sites
                  CHARACTER FOR CHARACTER, and `:helper`'s helper with its
                  five spelled-out keys replaced by one `:&`. Nothing else
                  differs between the two, which is what makes the pair a
                  price for `merge-caller` and for nothing else.
-    :helper-lean RUNG (1) AGAIN, AS A CLEAN PAIR (rf2-v5oto). `:helper`
+    :helper-lean RUNG (1) AGAIN, AS A CLEAN PAIR. `:helper`
                  with the `:class` passenger taken out: no call site
                  carries a `:class` key, and the title's extra class
                  rides the TAG exactly as `:expanded` has it. Its
@@ -77,14 +78,14 @@
                  `:expanded`'s order, so `:helper-lean`/`:expanded`
                  differ only by the wrapper.
     :no-dissoc-lean
-                 RUNG (3) AGAIN, AS A CLEAN PAIR (rf2-v5oto).
+                 RUNG (3) AGAIN, AS A CLEAN PAIR.
                  `:no-dissoc` with the same passenger taken out: the
                  three classless call sites drop `:class nil`, so every
                  field's merged attribute map holds exactly what
                  `:merged`'s holds. `:merged`/`:no-dissoc-lean` differ
                  only by the `:k`/`:busy?` round trip.
 
-  ## The decomposition ladder (rf2-z143r)
+  ## The decomposition ladder
 
   The five arms above price the authoring change WHOLE and apportion
   nothing, and the three things inside it do not have the same standing:
@@ -161,11 +162,10 @@
   So the three rungs answer TWO questions and not three: rung (2) is the
   CODEC'S share and is clean, and rungs (1) + (3) summed are the
   AUTHOR'S share and are clean. That sum is the quantity a reader of
-  this ladder actually wants, and the record used to make them add two
-  printed vectors to get it — so it is a key of its own now, `:author`,
-  term by term and round by round over values already in the record.
+  this ladder actually wants, so it is a key of its own, `:author`, term
+  by term and round by round over values already in the record.
 
-  ## Splitting the author's share — the clean pairs (rf2-v5oto)
+  ## Splitting the author's share — the clean pairs
 
   A sum is not a split. `:helper-lean` and `:no-dissoc-lean` are the two
   arms that make each half a pair differing by ONE thing whose two
@@ -182,8 +182,8 @@
          than as a literal. This rung also sheds the SECOND passenger
          named above: the title's class reaches the emitted class slot
          by the same route in both arms, so `fold-shorthand!` takes it
-         by identity in both and HD-023(c″)'s shorthand fold is no
-         longer inside the rung.
+         by identity in both and HD-023(c″)'s shorthand fold is not
+         inside the rung.
 
          The lean arm spends TWO helpers to do it — `field-lean-lg` is
          `field-lean` with one extra class on the tag and nothing else —
@@ -212,23 +212,22 @@
   the slot through the tag in (1') but through `:&` in (3'). A residual
   with contents, not a check.
 
-  ## The control is adjudicated STRICTLY, and per round (rf2-egdaq)
+  ## The control is adjudicated STRICTLY, and per round
 
   `rf.bench.fresco.lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
   `:expanded` ratio must sit inside ±25% of 2.00x, and one bad round
   refuses the run however good the others were. This instrument is
-  entitled to that rule and the coarse-leg rows are not — the 2026-07-31
-  ruling keeps the weaker OVERLAP rule for legs sitting on Chrome's
-  100 µs clamp and names a batched window clear of the quantum as its own
-  revisit trigger. This one reads ~4 ms judged and ~8 ms control, forty to
-  eighty quanta clear, so a round outside the band here is not the clock.
+  entitled to that rule and the coarse-leg rows are not — legs sitting on
+  Chrome's 100 µs clamp keep the weaker OVERLAP rule, and a batched window
+  clear of the quantum is what earns the strict one. This one reads ~4 ms
+  judged and ~8 ms control, forty to eighty quanta clear, so a round
+  outside the band here is not the clock.
 
-  The adjudication is also PER ROUND rather than aggregate. The three runs
-  published on 2026-08-15 compared a cross-round prediction against a
-  cross-round range, which never puts a round beside its own denominator,
-  and recorded only that aggregate — so their strict verdict is not
-  recoverable and this file now records `:per-round` for the control as
-  well as for the effect and the null. A run that cannot be
+  The adjudication is also PER ROUND rather than aggregate. A cross-round
+  prediction against a cross-round range never puts a round beside its
+  own denominator, and a record of only that aggregate leaves the strict
+  verdict unrecoverable — so this file records `:per-round` for the
+  control as well as for the effect and the null. A run that cannot be
   re-adjudicated without re-running the window is a run that has to be
   re-run to answer a question it already had the data for.
 
@@ -251,15 +250,14 @@
   with its range and beside the null arm's, which is the same arithmetic
   over a difference known to be zero.
 
-  **Both carry their per-round vector** (rf2-j7o9w). They did not, and the
-  null was the single figure this instrument kept no round-by-round record
-  of — so `rf2-adld3`, whose whole window turned on the null, had to
-  reconstruct it from the ladder's rungs before it could state a
-  resolution bound. Every ns/field row now comes through the one
-  summariser [[ns-terms]], so nothing here needs a sibling row to be
-  re-adjudicated.
+  **Both carry their per-round vector.** Without it the null would be the
+  one figure with no round-by-round record, and a resolution bound that
+  turns on the null would have to reconstruct it from the ladder's rungs.
+  Every ns/field row comes through the one summariser [[ns-terms]], so
+  nothing here needs a sibling row to be re-adjudicated.
 
-  Owner: rf2-pqyxz. Witness: `front/census_article_editor_cljs_test`'s
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`. Witness: `front/census_article_editor_cljs_test`'s
   ported RealWorld article-editor fieldset (HD-023, *Demonstrated, not
   asserted*), scaled to [[boundaries]] boundaries because a page of one
   cannot be timed. Instrument: `lane.cljs`, ridden through `run.cjs` on
@@ -288,7 +286,7 @@
   the divisor of every per-element figure this file prints.
 
   It is also the FIELD count, which is what makes it the right divisor for
-  the ladder's rungs too (rf2-z143r): `:helper` writes no `:&` at all, but
+  the ladder's rungs too: `:helper` writes no `:&` at all, but
   every rung's cost is per field, and a field is a `:&` site in the arms
   that have one. A ladder row therefore reads `ns/field`, and the two
   published rows keep reading `ns/:& site` — the same number, named for
@@ -424,7 +422,7 @@
              :data-testid "editor-tags"})]))
 
 ;; ---------------------------------------------------------------------------
-;; THE TWO LADDER RUNGS — the same page a third and a fourth way (rf2-z143r)
+;; THE TWO LADDER RUNGS — the same page a third and a fourth way
 ;; ---------------------------------------------------------------------------
 ;;
 ;; These two exist to be DIFFERENCED, against `:expanded` below them and
@@ -534,7 +532,7 @@
                        :data-testid "editor-tags"})]))
 
 ;; ---------------------------------------------------------------------------
-;; THE TWO CLEAN PAIRS — the same page a fifth and a sixth way (rf2-v5oto)
+;; THE TWO CLEAN PAIRS — the same page a fifth and a sixth way
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Each of these is differenced against ONE FROZEN ARM, so what matters
@@ -692,8 +690,8 @@
   ;; every arm root SCOPEs it (`frame-provider`) rather than ENSUREing it —
   ;; the k roots of one batch are k roots sharing the one frame. The handle
   ;; is allocated here rather than answered by the door, because `render!`
-  ;; answers nil; `client-root` is an inert atom, so what sits inside the
-  ;; timed window is what `mount!` used to allocate inside it too.
+  ;; answers nil; `client-root` is an inert atom, so allocating it inside
+  ;; the timed window adds one atom to it and nothing else.
   (fn [container _props _n]
     (let [handle (rf.fresco/client-root)]
       (rf.fresco/render! handle
@@ -714,15 +712,15 @@
     :mount (mount-page merged-arm) :unmount unmount-page}
    {:id :ctl-2x :k 2 :elements page-elements :parity-exempt? true
     :mount (mount-page expanded-arm) :unmount unmount-page}
-   ;; THE TWO LADDER RUNGS, appended so the five above keep their entries
-   ;; exactly (rf2-z143r). Neither is `:parity-exempt?`: both build the
+   ;; THE TWO LADDER RUNGS, after the five above so those keep their
+   ;; entries exactly. Neither is `:parity-exempt?`: both build the
    ;; judged page and both belong in the equality, so the fairness gate
    ;; holds five arms to one 1,001-element page rather than three.
    {:id :helper :k 1 :elements page-elements
     :mount (mount-page explicit-arm) :unmount unmount-page}
    {:id :no-dissoc :k 1 :elements page-elements
     :mount (mount-page no-dissoc-arm) :unmount unmount-page}
-   ;; THE TWO CLEAN PAIRS' arms, appended for the same reason (rf2-v5oto):
+   ;; THE TWO CLEAN PAIRS' arms, last for the same reason:
    ;; every entry above keeps its position, so no arm the published rows
    ;; or the ladder's rungs are read off changes slot. Neither is
    ;; `:parity-exempt?` — both build the judged page.
@@ -734,53 +732,53 @@
 (defn- arm-named [id] (first (filter #(= id (:id %)) arms)))
 
 (def ^:private sampling
-  "THE LANE'S PAGE-MOUNT SAMPLING, which this arm now runs (rf2-6ta5r).
+  "THE LANE'S PAGE-MOUNT SAMPLING.
 
-  It ran `{:warmup 3 :samples 6}`, and on that sampling the NULL arm
-  degraded: `:expanded-b`/`:expanded` read `[0.9467 1.4737 1.0294 1
-  0.9853]` on a quantity that is 1.0 BY CONSTRUCTION — the same body under
-  a second boundary head. Four rounds sit within 5.3% of 1.0 and round two
-  reads +47%, which on the per-field arithmetic is +4,500 ns on a
-  difference of zero. An impossible reading bounds nothing, so that window
-  claimed no term inside instrument resolution, its own included.
+  At `{:warmup 3 :samples 6}` the NULL arm degrades: `:expanded-b`/
+  `:expanded` read `[0.9467 1.4737 1.0294 1 0.9853]` on a quantity that
+  is 1.0 BY CONSTRUCTION — the same body under a second boundary head.
+  Four rounds sit within 5.3% of 1.0 and round two reads +47%, which on
+  the per-field arithmetic is +4,500 ns on a difference of zero. An
+  impossible reading bounds nothing, so a window at that sampling claims
+  no term inside instrument resolution, its own included.
 
-  ROUND TWO IS A WARM-UP ROUND, and that is the connection to `rf2-h904p`
-  on `direct_return_clock_app`. Replaying [[rf.bench.fresco.lane/rounds!]] against
+  ROUND TWO IS A WARM-UP ROUND, and that is the same shape
+  `direct_return_clock_app`'s guard refuses on. Replaying
+  [[rf.bench.fresco.lane/rounds!]] against
   `order-guard/slot-order` puts every arm's FIRST-THIRD phase stratum at
   rounds one and two — 3 to 15 prior executions of the arm — and its
-  LAST-THIRD at rounds four and five, 32 to 44. The null degraded inside
-  exactly the span the other harness's guard refused on. `p50` over six
+  LAST-THIRD at rounds four and five, 32 to 44. The null degrades inside
+  exactly the span the other harness's guard refuses on. `p50` over six
   samples cannot be moved 1.47x by one outlier: at least three of the six
   were elevated, so the round-two event was sustained across half that
   arm's round rather than a single pause, which is the shape of a ramp and
   not of a transient.
 
-  THE ARM COUNT IS NOT THE LEVER, and this settles it for `rf2-v5oto`.
-  `run.cjs` names `fewer arms per round` as one of the three moves, and
-  `rf2-z143r` taking the schedule from five arms to seven is the lead the
-  bead was filed on. The schedule arithmetic answers it: replaying
+  THE ARM COUNT IS NOT THE LEVER. `run.cjs` names `fewer arms per round`
+  as one of the three moves, and the ladder taking the schedule from five
+  arms to seven is the obvious suspect. The schedule arithmetic answers
+  it: replaying
   [[rf.bench.fresco.lane/rounds!]] against `order-guard/slot-order` at n = 5, 7, 8 and 9
   on the sampling that failed, every arm still banks 30 samples per run,
   every arm's phase strata are still rounds 1-2 against rounds 4-5 at the
   same prior-execution counts, and the null's true predecessor
   distribution is `{:expanded 20, :merged 10}` at every one of the four.
-  The null's POSITION did not move when the ladder landed. Arm count buys
+  The null's POSITION does not move with the arm count. Arm count buys
   wall-clock per round and a different set of neighbours; it does not
-  touch the axis the null failed on. So the ladder stays whole, and
-  `rf2-v5oto`'s two clean-pair arms — the eighth and the ninth — are not
-  blocked by this either.
+  touch the axis the null fails on. So the ladder stays whole, and the
+  two clean-pair arms — the eighth and the ninth — are not blocked by
+  this either.
 
   WHAT IS LEFT IS WARM-UP, and three is below the step the lane itself
   records: `lane.cljs`'s live reproduction read one control `10.32 10.26
   10.26 10.26 10.33 10.28` and then `8.12` for ever, a +27% step falling
   after the SIXTH execution of the site. `{:warmup 8 :samples 12}` puts
   that step inside the warm-up, doubles each phase stratum to n = 20, and
-  is what every other harness riding [[rf.bench.fresco.lane/mount-batch!]] already runs.
+  is what every harness riding [[rf.bench.fresco.lane/mount-batch!]] runs.
   That set is checkable and small — `(rf.bench.fresco.lane/mount-batch!` has five call
   sites on this lane, this file, `direct_return_clock_app`,
-  `coldmount_app`, `p0_converge_app` and `p0_reagent_app` — and the last
-  three all sample at 8/12, so the two clocks were the lane's only
-  batched-mount outliers.
+  `coldmount_app`, `p0_converge_app` and `p0_reagent_app` — and all five
+  sample at 8/12.
 
   WHAT THIS DOES NOT CLAIM. That warm-up PRODUCED the 1.4737. One round of
   five, no second window, and a box bracketed quiet at its two ends but
@@ -878,22 +876,18 @@
   the floor would rescale a difference by a quantity that has nothing to
   do with it.
 
-  ## THE VECTOR IS THE POINT, and this file has already paid for the
-  ## version that kept only the summary (rf2-j7o9w)
+  ## THE VECTOR IS THE POINT, and a summary alone is not enough
 
-  A second summariser used to serve the two published rows and answered
-  `{:n :min :max :p50}` and nothing else — so the NULL, the quantity every
-  resolution claim this instrument makes rests on, was the ONE quantity it
-  did not retain round by round. `rf2-adld3`'s window recovered the null's
-  five values anyway, by arithmetic over the ladder's rungs: each round's
+  A summariser answering `{:n :min :max :p50}` and nothing else would
+  leave the NULL — the quantity every resolution claim this instrument
+  makes rests on — as the ONE quantity not retained round by round. It
+  could be recovered by arithmetic over the ladder's rungs (each round's
   `:expanded` median falls out of a rung's own per-round ns and ratio, and
-  the null's difference follows. The recovery was exact and checked against
-  the rig's own printed `{min max p50}` in all three runs. **That it was
-  NEEDED is the defect**, and it needed a SIBLING ROW to be possible at
-  all — an instrument should not be re-adjudicable only by way of a
-  neighbour that happens to keep better records. One summariser now, so
-  the effect, the null and the four rungs are all re-adjudicable from what
-  the run printed.
+  the null's difference follows), but **needing that recovery is the
+  defect**, and it needs a SIBLING ROW to be possible at all — an
+  instrument should not be re-adjudicable only by way of a neighbour that
+  happens to keep better records. One summariser, so the effect, the null
+  and the four rungs are all re-adjudicable from what the run printed.
 
   The summary is taken over the ROUNDED vector rather than beside it, so a
   reader can check `{:min :max :p50}` against the printed `:per-round` and
@@ -913,8 +907,8 @@
   second time and no estimator is re-run; a reader with the printed
   vectors can reproduce every key this builds with a pencil.
 
-  Two callers, both of them quantities a reader was previously left to
-  compute: the AUTHOR'S passenger-free share, which is the sum of two
+  Two callers, both of them quantities a reader would otherwise be left
+  to compute: the AUTHOR'S passenger-free share, which is the sum of two
   rungs that are individually uninterpretable, and the clean pairs'
   residual, which is a difference of two such sums."
   [f & terms]
@@ -927,7 +921,7 @@
   "One rung: the ratio of two arms over the floor-normalised per-round
   ratios, and the same pair's raw per-round difference in nanoseconds per
   field. `:standing` records WHOSE code the rung prices, which is the
-  whole question rf2-z143r was opened to answer."
+  whole question the ladder exists to answer."
   [ratios p50s a b standing]
   {:from      b
    :to        a
@@ -974,11 +968,11 @@
        "NULL arm — a second boundary head over the same "
        "body, carrying no effect by construction, so its reading against "
        ":expanded is this instrument's resolution rather than a result. :helper "
-       "and :no-dissoc are the DECOMPOSITION LADDER's two rungs (rf2-z143r), "
+       "and :no-dissoc are the DECOMPOSITION LADDER's two rungs, "
        "placed between :expanded and :merged so each step changes exactly one "
        "thing; they are judged by the fairness gate with the other three and are "
        "differenced, never published as a figure of their own. :helper-lean and "
-       ":no-dissoc-lean are rf2-v5oto's CLEAN PAIRS — the same two author-side "
+       ":no-dissoc-lean are the CLEAN PAIRS — the same two author-side "
        "steps, each taken against a frozen arm, with the :class key that put "
        "rungs (1) and (3) on the far side of cljs.core/PersistentArrayMap's "
        "eight-entry HASHMAP-THRESHOLD from their partners removed, so no pair's "
@@ -1051,7 +1045,7 @@
                 eff-ns   (ns-terms p50s :merged :expanded)
                 null-ns  (ns-terms p50s :expanded-b :expanded)
                 gv       (rf.bench.fresco.lane/guard! samples "amp-merge clock arms (in-page ms)")
-                ;; THE POSITIVE CONTROL, per round and strictly (rf2-egdaq).
+                ;; THE POSITIVE CONTROL, per round and strictly.
                 ;; `:ctl-2x` is `:expanded`'s own operation performed twice
                 ;; in one window, so 2.00x is arithmetic rather than a
                 ;; model, and dividing each round by ITS OWN `:expanded`
@@ -1059,7 +1053,7 @@
                 ctl-ratio (rf.bench.fresco.lane/ratio-between ratios :ctl-2x :expanded)
                 ctl      (rf.bench.fresco.lane/control-verdict-strict
                            2.0 (:per-round ctl-ratio) control-slack)
-                ;; THE APPORTIONMENT (rf2-z143r). A chain, so the three
+                ;; THE APPORTIONMENT. A chain, so the three
                 ;; rungs sum to `:whole` term by term and there is no
                 ;; residual to report; `:standing` is what the reader
                 ;; came for.
@@ -1068,7 +1062,7 @@
                 wrapper  (rung :helper :expanded :authors-code)
                 merge-r  (rung :no-dissoc :helper :codecs-code)
                 trip     (rung :merged :no-dissoc :authors-code)
-                ;; THE CLEAN PAIRS (rf2-v5oto). Each is one author-side
+                ;; THE CLEAN PAIRS. Each is one author-side
                 ;; step against a FROZEN arm, with the `:class` passenger
                 ;; that put rungs (1) and (3) a map REPRESENTATION apart
                 ;; taken out. They are two pairs and not a chain, so
@@ -1129,7 +1123,7 @@
                            :ladder      ladder
                            :ladder-sum-residual sum-check
                            :writes      tv})
-            (js/console.log ";; ==== AMP-MERGE CLOCK (rf2-pqyxz) ====")
+            (js/console.log ";; ==== AMP-MERGE CLOCK ====")
             (js/console.log (str ";;   " boundaries " boundaries/page, " page-elements
                                  " elements, " amp-sites " :& sites; " rounds
                                  " rounds x (" (:warmup sampling) "+" (:samples sampling) ")"))
@@ -1166,27 +1160,27 @@
             (js/console.log (str ";;   control (" (name (:rule ctl)) ", ctl-2x/expanded): "
                                  (:why ctl)))
             (js/console.log (str ";;   control per-round: " (pr-str (:per-round ctl))))
-            ;; THE LADDER (rf2-z143r). Printed with every per-round value,
+            ;; THE LADDER. Printed with every per-round value,
             ;; so the apportionment is re-adjudicable without a re-run.
-            (js/console.log ";; ---- APPORTIONMENT (rf2-z143r) ----")
+            (js/console.log ";; ---- APPORTIONMENT ----")
             (doseq [[k label] [[:whole      "WHOLE      merged/expanded    (author + codec)"]
                                [:wrapper    "(1) wrapper   helper/expanded    AUTHOR'S code"]
                                [:merge      "(2) merge     no-dissoc/helper   CODEC'S code"]
                                [:round-trip "(3) roundtrip merged/no-dissoc   AUTHOR'S code"]
                                ;; The derived key. (1) and (3) each carry the
                                ;; `:class` passenger with opposite signs, so
-                               ;; only their sum is interpretable — and until
-                               ;; now only a reader with a pencil had it.
+                               ;; only their sum is interpretable, and it is
+                               ;; printed rather than left to a pencil.
                                [:author     "(1)+(3)  AUTHOR'S share, passenger-free (derived)"]]]
               (log-rung! label (get ladder k)))
             (js/console.log
               (str ";;   ladder sum residual (ns/field, ZERO BY CONSTRUCTION — the rungs "
                    "are a chain): " (pr-str sum-check)))
-            ;; THE AUTHOR'S SHARE, SPLIT (rf2-v5oto). Two pairs, each one
+            ;; THE AUTHOR'S SHARE, SPLIT. Two pairs, each one
             ;; step against a frozen arm, neither crossing the array-map
             ;; cliff on any field — so unlike (1) and (3) each is
             ;; separately interpretable.
-            (js/console.log ";; ---- THE AUTHOR'S SHARE, SPLIT (rf2-v5oto) ----")
+            (js/console.log ";; ---- THE AUTHOR'S SHARE, SPLIT ----")
             (doseq [[k label] [[:wrapper-clean    "(1') wrapper   helper-lean/expanded    AUTHOR'S code"]
                                [:round-trip-clean "(3') roundtrip merged/no-dissoc-lean   AUTHOR'S code"]
                                [:author-clean     "(1')+(3') AUTHOR'S share, split total"]]]
