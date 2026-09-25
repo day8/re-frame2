@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.ssr.fixtures
-  "THE SSR CONFORMANCE CORPUS (rf2-2rtt6.86 clause 3) — the requests the
+  "THE SSR CONFORMANCE CORPUS — the requests the
   bake driver bakes and the witnesses assert on.
 
   One ordered vector, because the corpus is a ROSTER and a roster whose
@@ -11,7 +11,7 @@
 
   ## What the census covers
 
-  - **The dogfood screen**, which is what rf2-2rtt6.87's X-rows hydrate,
+  - **The dogfood screen**, which is what the hydration X-rows hydrate,
     at two sizes and through BOTH seeding doors (`:rf/set-db` snapshot-in
     and ordinary `:initial-events`) and BOTH arms of the hydration-payload
     contract (a key allowlist and the explicit whole-app-db opt-in).
@@ -19,17 +19,17 @@
     is the size the charter's bar rows are taken at and the only row here
     whose markup is a port of a real application's.
   - **`defhost`'s `:ssr` policy**, all three meanings and both USE-SITE
-    positions: a host with no declared policy (the ruled `:client-only`
+    positions: a host with no declared policy (the `:client-only`
     default — its component's markup MUST be absent from the server
     HTML), a host declaring a fallback (whose placeholder markup MUST be
     present), and a host declaring `:render` (whose component, CHILDREN
-    and declared context value MUST all be present — rf2-l0wfx), each
+    and declared context value MUST all be present), each
     rendered once from the hiccup the entry is handed and once from
     inside a `defview` body. See [[host-screen]],
     [[render-host-screen]] — separate for the reason its docstring
     gives — and [[nested-host-screen]], which carries all three.
-  - **Presence's `::h/mounting` overrides** — and that row is a PINNED
-    DEFECT rather than a feature. See [[presence-tray]].
+  - **Presence's `::h/mounting` overrides** — and that row guards a
+    hydration hazard rather than a feature. See [[presence-tray]].
   - **The instance-key payload obligation, TWICE** — one page whose boot
     events write `h/reg-state` instance state, rendered once with `:ui`
     on the allowlist and once without it. The two rows are a matched
@@ -37,17 +37,14 @@
     [[re-frame.bench.fresco.ssr.instance-key]] and the witness
     `ssr/instance-key-payload-dom-cljs-test`.
 
-  ## The host rows are REAL DECLARATIONS (rf2-2rtt6.92)
+  ## The host rows are REAL DECLARATIONS
 
-  They were not always. rf2-2rtt6.86 wrote this corpus while
-  rf2-2rtt6.85 — which owns `mint-host!`'s `:ssr` option — was still an
-  open PR, so the fallback row stamped the policy slot onto a minted
-  head by hand. A hand-stamped slot proves a READER, never the door: the
-  two halves could have disagreed about the spelling forever and this
-  corpus would have gone on passing. Both halves are on main now, so
-  both rows are written the way an author writes them —
-  `(defhost … {:ssr …})` — and the server HTML they assert on is
-  therefore evidence about the public declaration."
+  A row that stamped the policy slot onto a minted head by hand would
+  prove a READER, never the door: the two halves could disagree about
+  the spelling forever and the corpus would go on passing. So both rows
+  are written the way an author writes them — `(defhost … {:ssr …})` —
+  and the server HTML they assert on is evidence about the public
+  declaration."
   (:require [re-frame.bench.fresco.arm1.dogfood-collector :as rf.bench.fresco.arm1.dogfood-collector]
             [re-frame.bench.fresco.arm1.presence :refer [presence]]
             ;; `defview` and `defhost` are not compilers — they expand to
@@ -77,7 +74,7 @@
 
 (defhost default-host
   "A declaration that writes no `:ssr` at all, which is how most authors
-  will write one — so the policy under test is the ruled `:client-only`
+  will write one — so the policy under test is the `:client-only`
   DEFAULT, taken from the door rather than named here."
   client-widget)
 
@@ -88,15 +85,15 @@
   {:ssr {:fallback [:span.host-fallback "loading…"]}})
 
 (def ^:private corpus-context
-  "A React context, so the `:render` row can carry the shape that filed
-  rf2-l0wfx — a transparent wrapper whose whole job is a subtree."
+  "A React context, so the `:render` row can carry the shape `:render`
+  exists for — a transparent wrapper whose whole job is a subtree."
   (react/createContext "unset"))
 
 (defn- context-reader
   "A consumer BELOW the provider. Its text is the corpus's evidence that
   `:ssr :render` puts the DECLARED context value in the server bytes and
-  not the default — the one property that separated the ruled policy
-  from the rejected `:ssr :children`."
+  not the default — the one property that separates `:render` from the
+  rejected `:ssr :children`."
   [_js-props]
   (react/createElement "em" #js {"className" "context-reader"}
                        (react/useContext corpus-context)))
@@ -136,9 +133,9 @@
   (`entry_cljs_test` → `the-hash-this-root-would-have-had-is-a-constant`
   takes it over [[host-screen]] as its non-vacuity control). Nothing on
   a live path hashes an interpreted root — this tier deliberately ships
-  no `:rf/render-hash` at either end (rf2-2rtt6.91) — so the cycle is
-  filed rather than worked around, and this row keeps the measurement
-  row's input free of it."
+  no `:rf/render-hash` at either end — so the cycle is left alone rather
+  than worked around, and this row keeps the measurement row's input
+  free of it."
   [:div.render-hosts
    [:h1 "render"]
    [render-host {:value "dark"}
@@ -181,18 +178,18 @@
   "A presence tray whose children carry `::h/mounting` attribute
   overrides.
 
-  This row MEASURED a defect the rf2-2rtt6.84 worker predicted, and now
-  guards its repair. Presence's machine starts a child at `:mounting`
+  Presence's machine starts a child at `:mounting`
   (`arm1/presence.cljs` — `(react/useState presence/initial)`), and
   while a child is in that phase the tray applies its `::h/mounting`
-  overrides. A server render with no adoption window open therefore
-  shipped the ENTER appearance — the `opacity: 0` class an animation is
-  about to move off — into the HTML, while the hydrating client's first
-  pass rendered those same children `:present` (born-present under an
-  open window): a hydration mismatch on every presence-managed node.
+  overrides. A server render with no adoption window open would
+  therefore ship the ENTER appearance — the `opacity: 0` class an
+  animation is about to move off — into the HTML, while the hydrating
+  client's first pass renders those same children `:present`
+  (born-present under an open window): a hydration mismatch on every
+  presence-managed node.
 
-  rf2-2rtt6.94 opened the same window around `renderToString`, so this
-  row's server bytes are born-present too and carry no `toast--enter` at
+  The entry opens the same window around `renderToString`, so this row's
+  server bytes are born-present too and carry no `toast--enter` at
   all. `the-server-render-ships-no-mounting-overrides` asserts exactly
   that, and this row is the only shape in the corpus that can go red if
   the window is ever removed. See [[re-frame.bench.fresco.ssr.entry]]
@@ -249,7 +246,7 @@
     :script-src "/main.js"}
 
    {:id     "presence-mounting"
-    :why    "presence's children are born PRESENT server-side — the adoption window is open around renderToString, so no ::h/mounting override reaches the HTML (rf2-2rtt6.94)"
+    :why    "presence's children are born PRESENT server-side — the adoption window is open around renderToString, so no ::h/mounting override reaches the HTML"
     :hiccup presence-tray
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
@@ -265,7 +262,7 @@
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-render"
-    :why    "the third policy (rf2-l0wfx) — :render mints no gate, so the component, its CHILDREN and the declared context value are all in the server bytes; the only policy under which a crossing's subtree reaches the response at all"
+    :why    "the third policy — :render mints no gate, so the component, its CHILDREN and the declared context value are all in the server bytes; the only policy under which a crossing's subtree reaches the response at all"
     :hiccup render-host-screen
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
