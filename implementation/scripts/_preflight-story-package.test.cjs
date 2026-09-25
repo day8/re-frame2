@@ -1,5 +1,5 @@
 /**
- * Unit tests for .github/scripts/preflight-story-package.sh (rf2-wht9a).
+ * Unit tests for .github/scripts/preflight-story-package.sh.
  *
  * # Why these exist
  *
@@ -12,8 +12,8 @@
  * script's PARSING + VERDICT half is proved here against fixture poms,
  * exactly as the reagent-slim sibling does.
  *
- * The failure this pins is not hypothetical. Run against today's
- * unrewritten tools/story/deps.edn, `clein pom` emits a pom carrying only
+ * The failure this pins is not hypothetical. Run against the unrewritten
+ * tools/story/deps.edn in the repo, `clein pom` emits a pom carrying only
  * {org.clojure/clojure, reagent/reagent, metosin/malli} — all five
  * `:local/root` coordinates (core, reagent adapter, machines, HTTP, Xray)
  * are silently skipped. That pom is UNREWRITTEN_POM below.
@@ -24,8 +24,8 @@
  * dir that looks like a post-`clein pom` build tree, put a stub `clojure` on
  * PATH so the script's own `clojure -M:clein pom` is a no-op, and run the
  * real script against it. See that file's `buildCommand` comment for the
- * WSL double-expansion portability contract this runner also honours
- * (rf2-sefx0): the `bash -lc` string may reference only $PWD and $PATH.
+ * WSL double-expansion portability contract this runner also honours:
+ * the `bash -lc` string may reference only $PWD and $PATH.
  */
 
 'use strict';
@@ -40,7 +40,7 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const SCRIPT_REL = '.github/scripts/preflight-story-package.sh';
 // Process-scoped fixture lanes under the gitignored in-repo `.scratch/`;
 // the shared root is never removed, so a concurrent suite cannot delete
-// this one's fixtures mid-run (rf2-2i1ay).
+// this one's fixtures mid-run.
 const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const VERSION = '0.0.1.alpha';
@@ -104,7 +104,7 @@ const IN_REPO_NAMES = [
   're-frame2-xray',
 ];
 
-// Story excludes reagent-slim from its Xray edge (rf2-qvyr). It is
+// Story excludes reagent-slim from its Xray edge. It is
 // load-bearing — without it a published Story consumer resolves TWO
 // providers of re-frame.adapter.reagent — so the preflight asserts it and
 // the CORRECT fixture must carry it.
@@ -127,9 +127,9 @@ function inRepoDeps(version = VERSION) {
 // coordinates at the lockstep version, plus the three third-party deps.
 const REWRITTEN_POM = pomWith([...THIRD_PARTY, ...inRepoDeps()]);
 
-// What today's UNREWRITTEN deps.edn produces — verbatim shape captured by
-// running `clojure -M:clein pom` in tools/story on main. This is the pom
-// the bead exists to stop reaching Clojars.
+// What the UNREWRITTEN deps.edn produces — verbatim shape captured by
+// running `clojure -M:clein pom` in tools/story. This is the pom the
+// preflight exists to stop reaching Clojars.
 const UNREWRITTEN_POM = pomWith(THIRD_PARTY);
 
 // ── Fixture construction ────────────────────────────────────────────────
@@ -215,7 +215,7 @@ test('a correctly rewritten pom PASSES', () => {
   expectPass(makeFixture(), 'rewritten pom');
 });
 
-// ── The bug this bead fixes ─────────────────────────────────────────────
+// ── The unrewritten pom ─────────────────────────────────────────────────
 
 test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () => {
   const fixture = makeFixture({ pom: UNREWRITTEN_POM });
@@ -234,8 +234,8 @@ test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () =>
 });
 
 test('a pom missing ONLY Xray fails — the rf2-r8trk edge at the package boundary', () => {
-  // Xray became a required Story dep in #6435. A rewrite loop that was
-  // never extended to the new coordinate produces exactly this pom.
+  // Xray is a required Story dep. A rewrite loop that does not cover
+  // every in-repo coordinate produces exactly this pom.
   const deps = [...THIRD_PARTY, ...IN_REPO_NAMES
     .filter((n) => n !== 're-frame2-xray')
     .map((n) => inRepoDep(n))];
@@ -259,12 +259,12 @@ test('an in-repo dep at the WRONG version fails', () => {
   );
 });
 
-// ── The reagent-slim exclusion on the Xray edge (rf2-iz4x) ──────────────
+// ── The reagent-slim exclusion on the Xray edge ─────────────────────────
 //
 // The deletion this guards against looks like tidy-up to anyone meeting the
 // exclusion cold, and the failure it prevents is silent at build time: the
 // consumer just gets the wrong adapter. `clojure -Stree` and a complete pom
-// are both entirely consistent with the colliding graph (rf2-qvyr), so this
+// are both entirely consistent with the colliding graph, so this
 // assertion is the only thing standing over it.
 
 test('an Xray edge that has LOST its reagent-slim exclusion fails', () => {
@@ -339,7 +339,7 @@ test('a malformed pom fails rather than parsing to an empty dep set', () => {
   expectFail(makeFixture({ pom: '<project><dependencies>' }), 'malformed pom', /not well-formed XML/);
 });
 
-// ── Portability contract (rf2-sefx0) ────────────────────────────────────
+// ── Portability contract ────────────────────────────────────────────────
 
 test('the bash -lc command references only pre-existing shell variables', () => {
   const referenced = [...buildCommand('some/rel', VERSION).matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)]
@@ -349,7 +349,7 @@ test('the bash -lc command references only pre-existing shell variables', () => 
     notPreExisting, [],
     'WSL\'s bash.exe expands the -c string TWICE, so a variable this command assigns '
       + 'itself resolves to EMPTY before the assignment runs — dropping the fixture stub off '
-      + `PATH. Offending: ${notPreExisting.join(', ')} (rf2-sefx0).`,
+      + `PATH. Offending: ${notPreExisting.join(', ')}.`,
   );
 });
 
