@@ -1317,24 +1317,21 @@
 
 ;; ---- pure helpers --------------------------------------------------------
 ;;
-;; rf2-n2jig — the home-grown classifier (`diff-op`,
-;; `changed-descendant?`, `op->gutter-glyph`, `op->gutter-tone-key`,
-;; `op->row-wash-key`, `op->row-stripe-key`) was retired in favour of
-;; the Editscript-backed projection engine at
-;; `day8.re-frame2-xray.diff.engine`. Per the bead's pre-alpha posture:
-;; clean delete, no shim. The engine's own test suite at
+;; Diff classification lives in the Editscript-backed projection engine
+;; at `day8.re-frame2-xray.diff.engine`; the widget has no classifier of
+;; its own. The engine's own test suite at
 ;; `day8.re-frame2-xray.diff.engine-cljs-test` carries the classification
 ;; pins (R1-R8 grammar rules). The diff-leaf rendering tests below
-;; continue to drive `render-node` end-to-end with `:before` and assert
+;; drive `render-node` end-to-end with `:before` and assert
 ;; against the resulting DOM chrome attributes.
 
 (deftest gutter-glyph-colour-is-syntax-palette-disjoint
-  (testing "rf2-awqts — the reserved `:diff-gutter` hue must NOT match
-            any `:syntax-*` token. Pre-fix the per-op gutter colour
-            mapped through `:green` / `:red` / `:yellow` / `:accent`
-            which collided with `:syntax-string` / `:syntax-number` /
+  (testing "the reserved `:diff-gutter` hue must NOT match
+            any `:syntax-*` token. A per-op gutter colour mapped
+            through `:green` / `:red` / `:yellow` / `:accent` would
+            collide with `:syntax-string` / `:syntax-number` /
             `:syntax-boolean` etc., conflating type semantics with
-            diff state. The new reserved hue (cyan-teal in dark,
+            diff state. The reserved hue (cyan-teal in dark,
             darker-teal in light) sits outside every `:syntax-*`
             family by design."
     (doseq [palette [dark-palette light-palette]]
@@ -1352,12 +1349,12 @@
                  "in palette " (if (= palette dark-palette) :dark :light)))))))
 
 (deftest diff-leaf-preserves-syntax-token-colour
-  (testing "rf2-awqts — per-token text colour PRESERVED across `:added`
-            and `:modified` ops. Pre-fix the diff path overrode to
-            `:green` / `:yellow` text colour which clashed with the
+  (testing "per-token text colour PRESERVED across `:added`
+            and `:modified` ops: the row chrome (wash + stripe +
+            glyph) carries the diff signal. A diff path overriding to
+            `:green` / `:yellow` text colour would clash with the
             Calva-aligned syntax palette (numbers orange ≡ modified
-            yellow); now the row chrome (wash + stripe + glyph)
-            carries the diff signal."
+            yellow)."
     ;; :added — number value keeps `:syntax-number` orange
     (let [h (ei/render-node {:value 42 :before ::ei/missing :diff? true
                              :panel-id :p :mount-id "m" :path [] :depth 0
@@ -1376,7 +1373,7 @@
           ":syntax-boolean token preserved on the modified scalar"))))
 
 (deftest diff-row-wrapper-carries-wash-and-stripe-attrs
-  (testing "rf2-awqts — diff row wrapper carries data-attributes so
+  (testing "diff row wrapper carries data-attributes so
             tests + DOM inspectors can confirm the wash + stripe are
             applied per op"
     (let [h (ei/render-node {:value 42 :before ::ei/missing :diff? true
@@ -1514,15 +1511,14 @@
     (is (= {:a 1} (:before (nth h 2))))))
 
 ;; =========================================================================
-;; rf2-zuh1e — diff renders REMOVED items (children-of walks the union of
+;; diff renders REMOVED items (the child walk is the union of
 ;; BEFORE + AFTER, not just AFTER)
 ;; =========================================================================
 ;;
-;; Pre-fix the render-container body walked `(children-of value)` (AFTER
-;; only). Items present in BEFORE but absent from AFTER — the common
-;; `dissoc` / set-`disj` / vector-`pop` case — silently disappeared from
-;; the rendered tree. Now `children-of-pair` returns the UNION of BEFORE
-;; + AFTER triples; removed slots render with the existing rf2-awqts
+;; A body walking `(children-of value)` (AFTER only) would silently drop
+;; items present in BEFORE but absent from AFTER — the common
+;; `dissoc` / set-`disj` / vector-`pop` case. `children-of-pair` returns
+;; the UNION of BEFORE + AFTER triples; removed slots render with the
 ;; removed chrome (strike-through + red wash + `-` gutter glyph).
 
 (deftest children-of-pair-map-union
@@ -1586,17 +1582,17 @@
     (is (re-find #":b" all)
         "removed key :b still appears in the rendered hiccup")
     (is (re-find #":a" all)
-        "surviving key :a still renders (no regression)")
+        "surviving key :a renders alongside it")
     (is (re-find #"data-rf-diff-op.*removed" s)
         "a row carries the removed diff-op marker")
     (is (re-find #"line-through" s)
         "removed row carries the strike-through text-decoration")))
 
 (deftest diff-renders-fully-dissocd-map
-  ;; Edge case — AFTER is `{}` (all keys dropped). Pre-fix the empty
-  ;; AFTER short-circuited the header into the `{}` empty-bracket-pair
-  ;; render, hiding every removed row. Now the union count drives the
-  ;; header so the body still expands.
+  ;; Edge case — AFTER is `{}` (all keys dropped). The union count
+  ;; drives the header, so the body expands; an empty AFTER
+  ;; short-circuiting the header into the `{}` empty-bracket-pair
+  ;; render would hide every removed row.
   (let [before {:a 1 :b 2}
         after  {}
         h (ei/render-node {:value after
@@ -1629,19 +1625,19 @@
         "a row carries the removed diff-op marker")))
 
 ;; =========================================================================
-;; rf2-vu42n — scattered / mid-vector removals render the genuinely-removed
-;; members struck, and the surviving-shifted members NOT struck. The fixed
+;; scattered / mid-vector removals render the genuinely-removed
+;; members struck, and the surviving-shifted members NOT struck. The
 ;; renderer consumes the engine's off-path `:vector-removals` + `:same-
 ;; shifted` projection instead of index-aligning the raw before/after
 ;; vectors via `children-of-pair`.
 ;; =========================================================================
 ;;
-;; Pre-fix, the vector body renderer index-aligned position-by-position:
-;; for `[:a :b :c :d] -> [:a :c]` it rendered `[ :a :c(was…) -:c -:d ]` —
-;; it struck `:c` (which SURVIVES at after-index 1) and `:d`, and never
-;; surfaced the genuinely-removed `:b`. Contiguous TAIL removals happened
-;; to line up under index alignment, so only mid / scattered removals
-;; mis-rendered. These tests drive `render-node` WITH a projection (the
+;; Index-aligning position-by-position would render
+;; `[:a :b :c :d] -> [:a :c]` as `[ :a :c(was…) -:c -:d ]` — striking
+;; `:c` (which SURVIVES at after-index 1) and `:d`, and never surfacing
+;; the genuinely-removed `:b`. Contiguous TAIL removals line up under
+;; index alignment, so only mid / scattered removals would mis-render.
+;; These tests drive `render-node` WITH a projection (the
 ;; real diff path; the no-projection test/REPL path still falls back to
 ;; `children-of-pair`), and assert which members are struck.
 
@@ -1683,7 +1679,7 @@
                    :opts {:default-expanded-depth 4}}))
 
 (deftest diff-vector-scattered-removal-strikes-removed-not-survivors
-  ;; Canonical rf2-vu42n repro: `[:a :b :c :d] -> [:a :c]` removes :b@1
+  ;; Canonical repro: `[:a :b :c :d] -> [:a :c]` removes :b@1
   ;; and :d@3; :c survives (shifted from index 2 → 1).
   (let [before [:a :b :c :d]
         after  [:a :c]
@@ -1707,14 +1703,15 @@
       ;; The engine's R6 shift detector reports :c's before-index for
       ;; this edit script; the renderer surfaces it verbatim as `(was N)`.
       ;; We only assert that SOME shift suffix renders for the survivor,
-      ;; not the exact N (that's the engine's contract, tested under
-      ;; rf2-yucxn / the engine suite) — the renderer's job is to PAINT it.
+      ;; not the exact N (that's the engine's contract, tested in the
+      ;; engine suite) — the renderer's job is to PAINT it.
       (is (re-find #"\(was \d+\)" all)
           ":c is surviving-shifted → carries a (was N) shift suffix"))))
 
 (deftest diff-vector-single-mid-removal-strikes-only-the-gap
   ;; A single mid-vector removal: `[:a :b :c] -> [:a :c]` removes :b@1.
-  ;; :c survives (shifted 2 → 1). Pre-fix this struck :c and dropped :b.
+  ;; :c survives (shifted 2 → 1). Index alignment would strike :c and
+  ;; drop :b.
   (let [before [:a :b :c]
         after  [:a :c]
         h      (render-vec-diff before after)
@@ -1725,9 +1722,9 @@
     (is (not (contains? struck ":a")) ":a survives in place — not struck")))
 
 (deftest diff-vector-tail-removal-still-correct-with-projection
-  ;; Re-verify the contiguous-tail case under the projection path (it was
-  ;; the ONE case index alignment happened to get right; the projection
-  ;; walk must not regress it). `[:x :y :z] -> [:x]` removes :y@1 + :z@2.
+  ;; The contiguous-tail case under the projection path (the ONE case
+  ;; index alignment gets right; the projection walk must get it right
+  ;; too). `[:x :y :z] -> [:x]` removes :y@1 + :z@2.
   (let [before [:x :y :z]
         after  [:x]
         h      (render-vec-diff before after)
@@ -1750,22 +1747,21 @@
     (is (not (contains? struck "10")) "10 survives in place — not struck")))
 
 ;; =========================================================================
-;; rf2-3eplfk — MIXED insert+delete edit scripts render the genuinely-
+;; MIXED insert+delete edit scripts render the genuinely-
 ;; removed member struck and the survivors un-morphed. Mirrors
 ;; `diff-removed-vector-element-no-sentinel-leak` (the delete-only render
-;; guard) for the mixed-edit case the engine bug uncovered.
+;; guard) for the mixed-edit case.
 ;; =========================================================================
 ;;
-;; These exercise the SAME render path as the rf2-vu42n scattered-removal
+;; These exercise the SAME render path as the scattered-removal
 ;; tests above (`render-vec-diff` threads the real `engine/project`), so a
-;; regression in the unified-replay engine fix surfaces here as the WRONG
-;; member struck (or a survivor morphed). Each case is a repro from the
-;; rf2-3eplfk bead.
+;; regression in the engine's unified replay surfaces here as the WRONG
+;; member struck (or a survivor morphed).
 
 (deftest diff-vector-insert-before-delete-strikes-removed-not-survivor
-  ;; rf2-3eplfk repro 1: `[:a :b :c] -> [:X :a :c]` ⇒ `[[0] :+ :X] [[2] :-]`.
-  ;; :b (before-idx 1) is removed; :X added; :a/:c survive. Pre-fix struck
-  ;; :c (a SURVIVOR) and never surfaced :b.
+  ;; Repro 1: `[:a :b :c] -> [:X :a :c]` ⇒ `[[0] :+ :X] [[2] :-]`.
+  ;; :b (before-idx 1) is removed; :X added; :a/:c survive. A misaligned
+  ;; replay strikes :c (a SURVIVOR) and never surfaces :b.
   (let [before [:a :b :c]
         after  [:X :a :c]
         h      (render-vec-diff before after)
@@ -1787,9 +1783,9 @@
       (is (re-find #":X" all)))))
 
 (deftest diff-vector-insert-before-double-delete-survivor-not-struck
-  ;; rf2-3eplfk repro 2: `[:a :b :c :d] -> [:X :a :d]` ⇒
+  ;; Repro 2: `[:a :b :c :d] -> [:X :a :d]` ⇒
   ;; `[[0] :+ :X] [[2] :-] [[2] :-]`. :b + :c removed; :d SURVIVES.
-  ;; Pre-fix struck :d (a survivor) and dropped :c.
+  ;; A misaligned replay strikes :d (a survivor) and drops :c.
   (let [before [:a :b :c :d]
         after  [:X :a :d]
         h      (render-vec-diff before after)
@@ -1802,10 +1798,11 @@
           ":d SURVIVES at after-idx 2 — must not be struck"))))
 
 (deftest diff-vector-insert-then-tail-delete-shows-dropped-removal
-  ;; rf2-3eplfk repro 3: `[:a :b :c :d] -> [:a :X :b :c]` ⇒
-  ;; `[[1] :+ :X] [[4] :-]`. :d (before-idx 3) removed. Pre-fix DROPPED the
-  ;; removal entirely (edit-index 4 out-of-range vs pristine `(range 4)`),
-  ;; so :d never rendered struck. The fix must surface it.
+  ;; Repro 3: `[:a :b :c :d] -> [:a :X :b :c]` ⇒
+  ;; `[[1] :+ :X] [[4] :-]`. :d (before-idx 3) removed. Replaying
+  ;; edit-index 4 against the pristine `(range 4)` would be out of range
+  ;; and DROP the removal entirely, so :d would never render struck; the
+  ;; renderer must surface it.
   (let [before [:a :b :c :d]
         after  [:a :X :b :c]
         h      (render-vec-diff before after)
@@ -1863,15 +1860,14 @@
     (is (= (vec (ei/children-of-pair before after :vector)) pairs)
         "nil projection falls back to children-of-pair")))
 
-;; ---- rf2-brmyq — the sequential diff ENTRY path is bounded --------------
+;; ---- the sequential diff ENTRY path is bounded ---------------------------
 ;;
-;; rf2-y8doi.24 (PR #10053) bounded `children-of-pair`, but the LIVE diff
-;; render path never calls it for a vector / list / seq: `render-container`
-;; routes those three kinds to `sequential-diff-children`, whose own `let`
-;; realised BOTH sides with a bare `vec` BEFORE the `cond` that would have
-;; delegated. So the new bound was unreachable on exactly the shapes most
-;; likely to be lazy, and — the item's words — "an actual infinite sequence
-;; never reaches the fallback".
+;; `children-of-pair` is bounded, but the LIVE diff render path never
+;; calls it for a vector / list / seq: `render-container` routes those
+;; three kinds to `sequential-diff-children`. A `let` there realising BOTH
+;; sides with a bare `vec` BEFORE the `cond` that delegates would make the
+;; bound unreachable on exactly the shapes most likely to be lazy: an
+;; actual infinite sequence would never reach the fallback.
 ;;
 ;; TWO properties are asserted, deliberately, because either alone is green
 ;; against a plausible wrong fix:
@@ -1881,9 +1877,9 @@
 ;;                          `(take count-bound (vec after))`, which bounds
 ;;                          the OUTPUT while still realising the INPUT and
 ;;                          therefore still hangs on an endless sequence.
-;;   P2 ALIGNMENT + FINITE — rf2-vu42n's in-place strike still lands on the
+;;   P2 ALIGNMENT + FINITE — the in-place strike lands on the
 ;;                          genuinely-removed member, and an ordinary finite
-;;                          sequence LONGER than the bound is still rendered
+;;                          sequence LONGER than the bound is rendered
 ;;                          whole. A bounded-work assertion alone says
 ;;                          nothing about either, and a blanket
 ;;                          `(take count-bound …)` would silently truncate
@@ -1892,7 +1888,7 @@
 (def ^:private count-bound
   "Mirrors the view's own private `count-bound` (1001) — the single
   ceiling `child-count`, `children-of`, `children-of-pair`,
-  `diff-pair-count` and now `bounded-vec` all share."
+  `diff-pair-count` and `bounded-vec` all share."
   1001)
 
 (def ^:private render-path-bound
@@ -1909,14 +1905,13 @@
   one element past the ceiling, and the walk that follows re-reads a
   sequence already realised that far.
 
-  MEASURED, not assumed, and the two tests localise it between them: the
-  walker on its own realises exactly 1001 (the deftest above asserts
-  `<= count-bound` and passes), while the render path realises 1002. The
-  overshoot is `cljs.core`'s, is constant, and is inside `bounded-count*`
-  — rf2-jh12f's function, deliberately untouched here.
+  The two tests below localise it between them: the walker on its own
+  realises exactly 1001 (its deftest asserts `<= count-bound`), while
+  the render path realises 1002. The overshoot is `cljs.core`'s, is
+  constant, and is inside `bounded-count*`.
 
   This is NOT a bound widened to hide a defect: 1002 against a guard of
-  50000 still fails loudly on any genuinely unbounded walk."
+  50000 fails loudly on any genuinely unbounded walk."
   (inc count-bound))
 
 (defn- counting-seq
@@ -1925,10 +1920,10 @@
   `guard`.
 
   The guard is the instrument, not a shortcut: it converts \"loops for
-  ever\" into \"fails in milliseconds\", so the pre-fix RED is observable
-  at all. A true `(range)` against the unbounded walk does not fail —
-  it exhausts the heap and takes the whole lane's exit file with it.
-  The item's own Babashka probe guarded its generator for this reason.
+  ever\" into \"fails in milliseconds\", so an unbounded walk's RED is
+  observable at all. A true `(range)` against an unbounded walk does not
+  fail — it exhausts the heap and takes the whole lane's exit file with
+  it.
 
   `lazy-seq` + `cons` is unchunked, so `counter` tracks single-element
   pulls exactly."
@@ -1943,12 +1938,12 @@
     (step 0)))
 
 (deftest sequential-diff-children-bounds-the-entry-path-rf2-brmyq
-  ;; The item's reproduction, verbatim: "a guarded lazy sequence throws
-  ;; after element 1500 through `sequential-diff-children`, while
+  ;; A guarded lazy sequence that throws after element 1500 must not
+  ;; throw through `sequential-diff-children`, just as
   ;; `children-of-pair` directly returns 1001 rows from the same
-  ;; generator."
+  ;; generator.
   (let [guard 1500]
-    (testing "CONTROL — children-of-pair was already bounded (PR #10053)"
+    (testing "CONTROL — children-of-pair is bounded"
       (let [seen (atom 0)
             rows (vec (ei/children-of-pair
                         (counting-seq seen guard) [1 2 3] :vector))]
@@ -1976,10 +1971,10 @@
             "and still emits count-bound rows")))))
 
 (deftest diff-render-path-bounds-an-endless-sequence-rf2-brmyq
-  ;; Through `render-node` — the CALLER the item names — rather than the
+  ;; Through `render-node` — the CALLER — rather than the
   ;; walker in isolation. `render-container` routes a `:seq` in diff mode
   ;; to `sequential-diff-children` and NEVER to `children-of-pair`, so
-  ;; this is the path that hung. A guard far above the bound stands in for
+  ;; this is the path an unbounded walk would hang. A guard far above the bound stands in for
   ;; a truly endless sequence: reaching it at all is the failure.
   (let [guard 50000]
     (testing "endless AFTER side renders instead of hanging"
@@ -2009,7 +2004,7 @@
 
 (deftest bounding-preserves-removal-alignment-over-the-bound-rf2-brmyq
   ;; P2. A FINITE vector LONGER than the bound, with a scattered
-  ;; mid-vector removal — the rf2-vu42n shape, at a size where a blanket
+  ;; mid-vector removal — the scattered-removal shape, at a size where a blanket
   ;; `(take count-bound …)` would show its hand.
   ;;
   ;; A vector is `counted?` and finite by construction, and
@@ -2032,8 +2027,8 @@
                         (filter (fn [[_ a _]] (= a ::ei/missing)))
                         (mapv (fn [[_ _ b]] b)))]
         (is (= [drop-at] struck)
-            (str "exactly element " drop-at " is struck — rf2-vu42n's whole "
-                 "point is that index alignment strikes the SURVIVOR that "
+            (str "exactly element " drop-at " is struck — index alignment "
+                 "would strike the SURVIVOR that "
                  "slid up into the vacated slot instead"))))
     (testing "rows read in BEFORE-order with the deletion struck in place"
       (let [in-before-order (mapv (fn [[_ a b]] (if (= a ::ei/missing) b a)) rows)]
@@ -2049,29 +2044,28 @@
         (is (= 0 (get survivors 0))
             "and element 0 is unmoved")))))
 
-;; ---- rf2-jh12f — a `counted?` sequence renders every row its header
+;; ---- a `counted?` sequence renders every row its header
 ;; ---- promises ------------------------------------------------------------
 ;;
-;; #10053 gave every "how many children" question ONE ceiling
-;; (`count-bound`, 1001). #10102 then split the WALKERS on `counted?`
+;; Every "how many children" question shares ONE ceiling
+;; (`count-bound`, 1001), and the WALKERS split on `counted?`
 ;; (`bounded-vec`), so a finite collection is realised whole while only an
-;; endless-capable one is capped. Two walkers were left behind taking
-;; `count-bound` UNCONDITIONALLY, while the header function beside each
+;; endless-capable one is capped. The header function beside each walker
 ;; reports through `bounded-count*` — which is EXACT for anything
-;; `counted?`:
+;; `counted?` — so a walker taking `count-bound` UNCONDITIONALLY would
+;; disagree with it:
 ;;
 ;;   `children-of`'s `:list` / `:seq` arms  vs  `child-count`
 ;;   `children-of-pair`'s sequential arm    vs  `diff-pair-count`
 ;;
-;; So a 1200-element list or vector printed a header promising 1200 and
-;; rendered 1001 rows. The 199 missing rows were not marked, not counted
-;; and not reachable — the inspector simply said one thing and showed
-;; another. rf2-brmyq's fallback (`sequential-diff-children` with no
-;; projection) opened a SECOND route onto the same walker.
+;; A 1200-element list or vector would print a header promising 1200 and
+;; render 1001 rows, the 199 missing rows not marked, not counted and
+;; not reachable — the inspector saying one thing and showing another.
+;; `sequential-diff-children` with no projection reaches the same walker
+;; by a SECOND route.
 ;;
 ;; TWO properties are asserted, because either alone is green against a
-;; plausible wrong fix — this family has proved that three times
-;; (rf2-kbo64, rf2-mj4jp, and rf2-brmyq inside its own run):
+;; plausible wrong fix:
 ;;
 ;;   P1 AGREEMENT — the header's number and the rendered row count are
 ;;                  EQUAL for a `counted?` sequence at a size that crosses
@@ -2089,9 +2083,8 @@
 ;; of `(take count-bound …)`, and the most a walker realises on its own.
 ;; `render-path-bound` (1002) is the RENDER path's, because the header is
 ;; computed BEFORE the walk and `cljs.core/bounded-count` looks one element
-;; past the ceiling to discover whether another exists (rf2-brmyq measured
-;; it and named its third commit for it). Every assertion below says which
-;; of the two it means.
+;; past the ceiling to discover whether another exists. Every assertion
+;; below says which of the two it means.
 
 (def ^:private jh12f-n
   "Fixture size — comfortably past `count-bound` (1001), so a walker that
@@ -2108,8 +2101,8 @@
   and not a re-derivation of it. A `max-chars` of 0 forces that fallback
   rather than an element preview.
 
-  rf2-3x7nj.25.1 — a sequence CUT at the bound prints `N+`; the `+` is
-  read past, so this still answers the number."
+  A sequence CUT at the bound prints `N+`; the `+` is read past, so
+  this answers the number either way."
   [v]
   (let [s (ei/inline-preview-string v 3 0)]
     (some-> (re-find #"(\d+)\+? items" s) second js/parseInt)))
@@ -2158,8 +2151,8 @@
         (is (= jh12f-n header)
             "the header promises the collection's full count")
         (is (= jh12f-n rows)
-            (str "and the body must render all " jh12f-n " of them. Before "
-                 "this fix it rendered " count-bound " — the WALKER's "
+            (str "and the body must render all " jh12f-n " of them. A walker "
+                 "capped at the bound would render " count-bound " — the WALKER's "
                  "number — under that very header."))
         (is (= header rows)
             "header and body describe the same collection")))))
@@ -2167,14 +2160,14 @@
 (deftest diff-header-and-body-agree-for-a-counted-vector-rf2-jh12f
   ;; SITE: `children-of-pair`'s `(:vector :list :seq)` arm against
   ;; `diff-pair-count`'s. Reached by TWO routes and both are asserted:
-  ;; directly, and through rf2-brmyq's `:projection nil` fallback.
+  ;; directly, and through the `:projection nil` fallback.
   (let [after  (vec (range jh12f-n))
         before [0 1 2]]
     (testing "P1 AGREEMENT — direct route (`children-of-pair`)"
       (is (= jh12f-n (count (ei/children-of-pair before after :vector)))
           (str "an added " jh12f-n "-element vector emits " jh12f-n
                " rows, not " count-bound)))
-    (testing "P1 AGREEMENT — rf2-brmyq's fallback route (`:projection nil`)"
+    (testing "P1 AGREEMENT — the fallback route (`:projection nil`)"
       (is (= jh12f-n (count (ei/sequential-diff-children
                               before after :vector [] nil)))
           "the fallback bounds at the same ceiling as the direct route"))
@@ -2197,7 +2190,7 @@
         (is (= ::ei/missing b)  "with no BEFORE counterpart — it is :added")))))
 
 (deftest bounding-still-holds-for-an-endless-sequence-rf2-jh12f
-  ;; P2. The fix must not re-open what #10102 closed. A REALISATION
+  ;; P2. Agreement must not cost the bound on an endless sequence. A REALISATION
   ;; counter, never an output length — `counting-seq` throws if anything
   ;; pulls past the guard, which turns "loops for ever" into a failure in
   ;; milliseconds.
@@ -2233,14 +2226,15 @@
                  "is " render-path-bound " — `count-bound` plus the single "
                  "element `cljs.core/bounded-count` looks ahead"))))))
 
-;; ---- rf2-3x7nj.25.1 — a sequence cut at the bound SAYS so ---------------
+;; ---- a sequence cut at the bound SAYS so ---------------------------------
 ;;
-;; A not-`counted?` sequence longer than `count-bound` rendered as exactly
-;; `count-bound` elements: header, `(…1001 items)` summary and body all
-;; agreed on 1001, and the body closed after row 1000 with nothing saying
-;; the sequence went on. An endless `(iterate inc 0)` read as a finite
-;; 1001-element seq. The diff path already refuses that lie with
-;; `::unrealised`; the browse path had no equivalent.
+;; Without a marker, a not-`counted?` sequence longer than `count-bound`
+;; would render as exactly `count-bound` elements: header, `(…1001 items)`
+;; summary and body all agreeing on 1001, and the body closing after row
+;; 1000 with nothing saying the sequence goes on. An endless
+;; `(iterate inc 0)` would read as a finite 1001-element seq. The diff
+;; path refuses that lie with `::unrealised`; the browse path's
+;; equivalent is the trailing unrealised-tail row.
 ;;
 ;; The marker must cost NOTHING past the bound: it looks at the one element
 ;; `cljs.core/bounded-count` already realises, so `render-path-bound` still
@@ -2266,7 +2260,7 @@
         (is (<= @seen render-path-bound)
             (str "and realised " @seen " elements; the marker adds nothing to "
                  "the RENDER path's bound of " render-path-bound))))
-    (testing "the DIFF body says so too — the item's App-DB scenario is a diff"
+    (testing "the DIFF body says so too — the App-DB panel renders a diff"
       (let [seen (atom 0)
             h    (render-expanded {:value      (counting-seq seen guard)
                                    :before     [0 1 2]
@@ -2297,17 +2291,14 @@
     (is (nil? (unrealised-tail (render-expanded {:value (apply list (range jh12f-n))})))
         (str "nor does a `counted?` list of " jh12f-n ": it is rendered whole"))))
 
-;; ---- rf2-zk4he — a capped BEFORE side must not hide the counted AFTER
+;; ---- a capped BEFORE side must not hide the counted AFTER
 ;; ---- tail ----------------------------------------------------------------
 ;;
-;; #10102 bounded BOTH sides of `sequential-diff-children` through
-;; `bounded-vec`, and argued in a comment that the reconstruction stayed
-;; exact because both sides met "the SAME ceiling". That premise was TRUE
-;; while `bounded-vec` was an unconditional `(take count-bound …)`. #10109
-;; then split it on `counted?` — realise a finite collection whole, cap only
-;; one that could be endless — and the two ceilings became INDEPENDENT.
-;; Nothing said so: the comment still read as a proof, and the docstrings
-;; beside it still claimed the header and the body agree on EVERY shape.
+;; `sequential-diff-children` bounds BOTH sides through `bounded-vec`,
+;; which realises a finite (`counted?`) collection whole and caps only one
+;; that could be endless — so the two sides' ceilings are INDEPENDENT. A
+;; reconstruction that assumed both sides meet "the SAME ceiling" would be
+;; exact only when both sides are `counted?` or neither is.
 ;;
 ;; The MIXED representation is where they part, and it is an ordinary shape
 ;; rather than an exotic one — `map`, `filter`, `concat`, `for` and `rest`
@@ -2318,26 +2309,25 @@
 ;;
 ;; `bi->ai` is a `zipmap`, which truncates to the SHORTER side, and
 ;; `before-order` walks `(range (count b-vec))` — so after-indices past the
-;; before bound are visited by no arm of the walk. `added-rows` does not
+;; before bound are visited by no arm of that walk. `added-rows` does not
 ;; recover them either: they are MODIFIED / SAME survivors, not additions.
 ;; The header, reading the `counted?` after side through `bounded-count*`,
-;; goes on promising 1050. The body shows 1001, and the changed tail element
-;; disappears with nothing on screen saying so.
+;; promises 1050; a body showing 1001 would lose the changed tail element
+;; with nothing on screen saying so.
 ;;
-;; `rf2-brmyq`'s own alignment test uses TWO VECTORS, so both sides are
-;; `counted?`, both ceilings coincide, and neither exercises the changed
-;; bound. That is why this shipped.
+;; An alignment test over TWO VECTORS has both sides `counted?` and both
+;; ceilings coinciding, so it exercises neither independent bound.
 ;;
-;; TWO properties, per this family's standing rule — either alone is green
-;; against a plausible wrong fix:
+;; TWO properties — either alone is green against a plausible wrong
+;; fix:
 ;;
 ;;   P1 NO SILENT LOSS  — every accessible after row is emitted, and the
 ;;                        changed TAIL element is there carrying its REAL
 ;;                        value. A row count alone would be satisfied by
 ;;                        1050 placeholders.
 ;;   P2 STILL BOUNDED,  — the walk realises no more of the before side than
-;;      STILL ALIGNED     it did (a REALISATION counter, never an output
-;;                        length), and rf2-vu42n's in-place strike still
+;;      STILL ALIGNED     the bound (a REALISATION counter, never an output
+;;                        length), and the in-place strike still
 ;;                        lands on the genuinely-removed member. The two
 ;;                        obvious wrong fixes are green on P1 and red here:
 ;;                        widening the before bound loses P2's first half,
@@ -2345,7 +2335,7 @@
 ;;                        loses its second.
 
 (deftest capped-before-side-keeps-the-counted-after-tail-rf2-zk4he
-  ;; The item's reproduction, verbatim.
+  ;; The mixed-representation reproduction.
   (let [n      1050
         before (map identity (range n))
         after  (assoc (vec (range n)) (dec n) :changed-at-tail)
@@ -2363,11 +2353,11 @@
                " elements past the ceiling the other side stopped at")))
     (testing "P1 — every accessible AFTER row is emitted"
       (is (= n (count rows))
-          (str n " rows. Pre-fix the walk emitted " count-bound ": "
+          (str n " rows. A walk without the after-side recovery emits " count-bound ": "
                "`before-order` iterates `(range (count b-vec))` and `b-vec` "
                "stops at the bound, while the header — reading the `counted?` "
-               "AFTER side through `bounded-count*` — went on promising " n
-               ". The gap was neither marked nor reachable.")))
+               "AFTER side through `bounded-count*` — promises " n
+               ". That gap is neither marked nor reachable.")))
     (testing "P1 — the CHANGED TAIL element is present with its real value"
       (is (some? tail)
           (str "after-index " (dec n) " is rendered at all"))
@@ -2385,7 +2375,7 @@
                  "`render-leaf-with-diff`'s `:added` path, which would paint a "
                  "modified element green as newly added — a confident lie in "
                  "place of a silent drop"))))
-    (testing "the header and the body now describe the same collection"
+    (testing "the header and the body describe the same collection"
       (is (= n (header-promise after))
           (str "the header promises the `counted?` after side's full " n
                " — `header-promise` reads it through the production code's own "
@@ -2396,7 +2386,7 @@
 
 (deftest unrealised-before-slot-is-not-an-addition-rf2-zk4he
   ;; The one place a plausible fix tells a NEW lie. `::missing` in a before
-  ;; slot is a STRUCTURAL sentinel that OVERRIDES the projection (rf2-8pfkk):
+  ;; slot is a STRUCTURAL sentinel that OVERRIDES the projection:
   ;; it means "no such slot existed", and `render-leaf-with-diff` paints it
   ;; green as `:added`. Reusing it for a survivor whose prior value is merely
   ;; UNKNOWN swaps a silent drop for a confident falsehood. `::unrealised` is
@@ -2431,7 +2421,7 @@
     (testing "the sentinel is never printed, and the chip says UNKNOWN"
       ;; With no projection there is no prior to recover, so the
       ;; `← was <prior>` chip would `pr-str` the sentinel straight into the
-      ;; output — the rf2-8pfkk leak, reached through a new door.
+      ;; output — a sentinel leak, reached through a new door.
       (let [tree (render ::ei/unrealised nil)
             txt  (collect-text tree)]
         (is (not (str/includes? txt "edn-inspector/unrealised"))
@@ -2441,16 +2431,15 @@
             "an explicit unknown-prior chip is rendered in its place")))))
 
 (deftest capped-before-side-stays-bounded-and-aligned-rf2-zk4he
-  ;; P2, both halves. Each is green on TRUNK and must stay green: their job
-  ;; is to refuse a WRONG fix, not to catch the current defect.
+  ;; P2, both halves. Their job is to refuse a WRONG tail recovery, not
+  ;; to catch a missing one.
   (testing "P2 — lazy work is still bounded (guarded input)"
     ;; The generator is ENDLESS and throws if anything pulls past the guard,
     ;; so this measures REALISATION and not output length: a "fix" that
     ;; recovered the tail by widening or dropping the before bound is green
     ;; on P1 and red right here. The projection is built from an equivalent
     ;; VECTOR so that computing it does not itself realise the generator —
-    ;; `engine/project` over an endless input is rf2-bmed1's subject, not
-    ;; this one's.
+    ;; `engine/project` over an endless input is a separate subject.
     (let [n     1050
           guard 1500
           after (assoc (vec (range n)) (dec n) :changed-at-tail)
@@ -2461,14 +2450,14 @@
       (is (<= @seen count-bound)
           (str "realised " @seen " elements of the endless BEFORE side; the "
                "WALKER's bound is " count-bound ". Recovering the after tail "
-               "must not cost the bound that rf2-brmyq installed."))
+               "must not cost the walker's bound."))
       (is (= n (count rows))
           (str "and still emits all " n " accessible AFTER rows"))))
-  (testing "P2 — two VECTORS: rf2-vu42n's removal alignment is untouched"
+  (testing "P2 — two VECTORS: the removal alignment holds"
     ;; Both sides `counted?`, so the two ceilings coincide, no row can be
-    ;; unpairable, and the new tail rows must be EMPTY. A fix that slid
+    ;; unpairable, and the recovered tail rows must be EMPTY. A fix that slid
     ;; `bi->ai` to soak up surplus after-side survivors would strike the
-    ;; wrong element here — the very defect rf2-vu42n closed — while still
+    ;; wrong element here — the scattered-removal defect — while still
     ;; passing P1.
     (let [n       1050
           drop-at 500
@@ -2484,51 +2473,50 @@
                   (mapv (fn [[_ _ b]] b))))
           (str "exactly element " drop-at " is struck — index alignment "
                "strikes the SURVIVOR that slid up into the vacated slot, "
-               "which is what rf2-vu42n exists to prevent"))
+               "which is what the projection-aware walk prevents"))
       (is (empty? (filter (fn [[_ _ b]] (= b ::ei/unrealised)) rows))
           (str "and NO row claims an unrealised prior: neither side was "
                "capped, so every survivor pairs and the tail run is empty")))))
 
-;; ---- rf2-f8nm7 — a capped AFTER side must not DROP the counted before
+;; ---- a capped AFTER side must not DROP the counted before
 ;; ---- tail ----------------------------------------------------------------
 ;;
-;; The MIRROR of rf2-zk4he directly above, in the same walker, and the fourth
-;; failure of the independent-ceiling confusion. rf2-zk4he capped the BEFORE
-;; side and lost the surplus AFTER rows; swap the two representations and the
-;; walk loses the surplus BEFORE rows instead:
+;; The MIRROR of the capped-BEFORE rows directly above, in the same walker.
+;; A capped BEFORE side loses the surplus AFTER rows; swap the two
+;; representations and the walk loses the surplus BEFORE rows instead:
 ;;
 ;;   BEFORE  a vector of 1050     →  `bounded-vec` realises `b-vec` whole
 ;;   AFTER   a lazy seq of 1050   →  `bounded-vec` caps `a-vec` at 1001
 ;;
-;; `bi->ai` is a `zipmap`, which truncates to the SHORTER side — now the
+;; `bi->ai` is a `zipmap`, which truncates to the SHORTER side — here the
 ;; AFTER side — so `survivor-bis` past the after ceiling pair with nothing.
-;; `before-order`'s survivor arm is `(when-let [ai (bi->ai bi)] …)`, whose
-;; else-branch is NOTHING, so those before-indices are emitted by no arm and
-;; leave the walk silently. The recovery run does not reach them either: it
-;; iterates `after-idxs` ONLY, so it recovers the AFTER direction and has no
-;; arm pointing the other way. The header, reading the `counted?` BEFORE side
-;; through `bounded-count*` and taking the `max`, goes on promising 1050.
+;; A survivor arm shaped `(when-let [ai (bi->ai bi)] …)` would emit
+;; NOTHING for those before-indices, which is why `before-order`'s arm has
+;; an else-branch. The after-side recovery run does not reach them: it
+;; iterates `after-idxs` ONLY, so it recovers the AFTER direction and has
+;; no arm pointing the other way. The header, reading the `counted?` BEFORE
+;; side through `bounded-count*` and taking the `max`, promises 1050.
 ;;
-;; The body shows 1001 — `count-bound` exactly — and `sequential-diff-children`'s
-;; own docstring says in terms that this cannot happen ("It never falls SHORT
-;; of it"), as does `count-bound`'s ("A body that fell SHORT of the header is
-;; the direction that loses data, and that is what this ceiling now refuses")
-;; and `children-of-pair`'s repaired arm ("Dropping them instead would put the
-;; body SHORT of the header `diff-pair-count` prints"). Three normative
-;; statements, one walker that breaks all three in one direction.
+;; A body showing 1001 — `count-bound` exactly — would break three
+;; normative statements in one direction: `sequential-diff-children`'s own
+;; docstring ("The body never falls SHORT of the header, in either
+;; direction"), `count-bound`'s ("A body that fell SHORT of the header is
+;; the direction that loses data, and that is what this ceiling refuses")
+;; and `children-of-pair`'s arm ("Dropping them instead would put the
+;; body SHORT of the header `diff-pair-count` prints").
 ;;
-;; TWO properties, per this family's standing rule — either alone is green
-;; against a plausible wrong fix:
+;; TWO properties — either alone is green against a plausible wrong
+;; fix:
 ;;
 ;;   P1 NO SILENT LOSS  — every before-side row the walk can still account for
 ;;                        is emitted, carrying its REAL prior value, and its
 ;;                        AFTER slot says UNKNOWN rather than claiming a
 ;;                        deletion. A row count alone would be satisfied by
-;;                        1050 placeholders, and `::missing` there is
-;;                        rf2-g61nr's confident lie reached through a new door.
-;;   P2 STILL BOUNDED,  — the walk realises no more of the AFTER side than it
-;;      STILL ALIGNED     did (a REALISATION counter, never an output length),
-;;                        rf2-vu42n's in-place strike still lands on the
+;;                        1050 placeholders, and `::missing` there would be
+;;                        a confident false deletion.
+;;   P2 STILL BOUNDED,  — the walk realises no more of the AFTER side than
+;;      STILL ALIGNED     the bound (a REALISATION counter, never an output length),
+;;                        the in-place strike still lands on the
 ;;                        genuinely-removed member, and every emitted row still
 ;;                        carries a DISTINCT key. Widening the after bound
 ;;                        loses P2's first half; sliding `bi->ai` to soak up
@@ -2538,14 +2526,14 @@
 ;;                        already own that integer.
 
 (deftest capped-after-side-keeps-the-counted-before-tail-rf2-f8nm7
-  ;; The item's reproduction: rf2-zk4he's fixture with the two sides swapped.
+  ;; The capped-BEFORE fixture with the two sides swapped.
   (let [n      1050
         before (assoc (vec (range n)) (dec n) :changed-at-tail)
         after  (map identity (range n))
         proj   (engine/project before after)
         rows   (vec (ei/sequential-diff-children before after :vector [] proj))
-        ;; Found by its BEFORE value, not by a key: pre-fix the row is absent
-        ;; entirely, and post-fix its key is a synthetic segment.
+        ;; Found by its BEFORE value, not by a key: its key is a synthetic
+        ;; segment, and a walk that drops it leaves no row to find.
         tail   (first (filter (fn [[_ _ b]] (= b :changed-at-tail)) rows))]
     (testing "CONTROL — the fixture really is the shape this turns on"
       (is (counted? before)
@@ -2576,11 +2564,11 @@
                " while the capped AFTER side answers " count-bound)))
     (testing "P1 — every accessible BEFORE row is emitted"
       (is (= n (count rows))
-          (str n " rows. Pre-fix the walk emitted " count-bound ": "
+          (str n " rows. A walk without the before-side recovery emits " count-bound ": "
                "`bi->ai`'s `zipmap` truncates to the capped AFTER side, and "
-               "`before-order`'s `when-let` yields NOTHING for a before-index "
-               "past it while the recovery run walks `after-idxs` only. The "
-               "gap was neither marked nor reachable.")))
+               "a `when-let` survivor arm yields NOTHING for a before-index "
+               "past it while the recovery run walks `after-idxs` only. That "
+               "gap is neither marked nor reachable.")))
     (testing "P1 — the CHANGED TAIL element is present with its real prior"
       (is (some? tail)
           (str "before-index " (dec n) " is rendered at all"))
@@ -2596,8 +2584,8 @@
         (is (not= ::ei/missing a)
             (str "`::missing` is the STRUCTURAL sentinel and forces "
                  "`leaf-diff-op`'s `:removed` path, which would present a "
-                 "RETAINED element as a confirmed deletion — rf2-g61nr's "
-                 "defect reached through a new door. A false addition "
+                 "RETAINED element as a confirmed deletion — the worse "
+                 "of the two false readings. A false addition "
                  "overstates what arrived; a false deletion tells the "
                  "operator that data they still have is gone."))))
     (testing "P1 — and NO row in the set claims a deletion"
@@ -2620,7 +2608,7 @@
   ;; certification. That is a fourth confident falsehood in the family that
   ;; exists to refuse the other three.
   ;;
-  ;; `:modified` is the honest op — `leaf-diff-op`'s own rf2-g61nr note calls
+  ;; `:modified` is the honest op — `leaf-diff-op`'s own note calls
   ;; it "an honest 'something here is not settled'" — and it paints `value`,
   ;; which `paint` turns into the explicit unknown-value token, beside the
   ;; `← was <prior>` chip carrying the prior we really do know.
@@ -2635,7 +2623,7 @@
         txt    (collect-text tree)]
     (testing "CONTROL — the body renders every row the header promises"
       (is (= n (rendered-rows tree))
-          (str "all " n " rows reach the screen; pre-fix the body rendered "
+          (str "all " n " rows reach the screen; a body without the recovery shows "
                count-bound " under a header promising " n)))
     (testing "the recovered row states the unknown rather than painting a
               stale value as settled"
@@ -2647,9 +2635,9 @@
       (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
           (str "and NO row is painted as a deletion — nothing was removed "
                "from this collection, and `::missing` in the after slot "
-               "would be rf2-g61nr's confident lie reached through a new "
+               "would be a confident false deletion reached through a new "
                "door")))
-    (testing "CONTROL — the sentinels never reach the screen (rf2-8pfkk)"
+    (testing "CONTROL — the sentinels never reach the screen"
       (is (not (str/includes? txt "edn-inspector/unrealised"))
           "the internal unknown-value sentinel is never `pr-str`ed out")
       (is (not (str/includes? txt "edn-inspector/unreached"))
@@ -2657,16 +2645,16 @@
                "is addressed by")))))
 
 (deftest capped-after-side-stays-bounded-and-aligned-rf2-f8nm7
-  ;; P2, all three halves. Each is green on TRUNK and must stay green: their
-  ;; job is to refuse a WRONG fix, not to catch the current defect.
+  ;; P2, all three halves. Their job is to refuse a WRONG tail recovery,
+  ;; not to catch a missing one.
   (testing "P2 — lazy work is still bounded (guarded AFTER input)"
     ;; The generator is ENDLESS and throws if anything pulls past the guard,
     ;; so this measures REALISATION and not output length: a "fix" that
     ;; recovered the before tail by widening or dropping the AFTER bound is
     ;; green on P1 and red right here. The projection is built from an
     ;; equivalent VECTOR so that computing it does not itself realise the
-    ;; generator — `engine/project` over an endless input is rf2-bmed1's
-    ;; subject, not this one's.
+    ;; generator — `engine/project` over an endless input is a separate
+    ;; subject.
     (let [n     1050
           guard 1500
           before (assoc (vec (range n)) (dec n) :changed-at-tail)
@@ -2677,7 +2665,7 @@
       (is (<= @seen count-bound)
           (str "realised " @seen " elements of the endless AFTER side; the "
                "WALKER's bound is " count-bound ". Recovering the before tail "
-               "must not cost the bound that rf2-brmyq installed."))
+               "must not cost the walker's bound."))
       (is (= n (count rows))
           (str "and still emits all " n " accessible BEFORE rows"))))
   (testing "P2 — every emitted row carries a DISTINCT key"
@@ -2700,11 +2688,11 @@
                (- (count ks) (count (distinct ks)))
                " collided. A bare before-index would clash with the "
                "after-index of an added element."))))
-  (testing "P2 — two VECTORS: rf2-vu42n's removal alignment is untouched"
+  (testing "P2 — two VECTORS: the removal alignment holds"
     ;; Both sides `counted?`, so the two ceilings coincide, no row can be
     ;; unpairable, and the recovered before rows must be EMPTY. A fix that
     ;; slid `bi->ai` to soak up surplus before-side survivors would strike the
-    ;; wrong element here — the very defect rf2-vu42n closed — while still
+    ;; wrong element here — the scattered-removal defect — while still
     ;; passing P1.
     (let [n       1050
           drop-at 500
@@ -2720,7 +2708,7 @@
                   (mapv (fn [[_ _ b]] b))))
           (str "exactly element " drop-at " is struck — index alignment "
                "strikes the SURVIVOR that slid up into the vacated slot, "
-               "which is what rf2-vu42n exists to prevent"))
+               "which is what the projection-aware walk prevents"))
       (is (empty? (filter (fn [[_ a _]] (= a ::ei/unrealised)) rows))
           (str "and NO row claims an unrealised CURRENT value: neither side "
                "was capped, so every survivor pairs and the recovery run is "
