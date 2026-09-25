@@ -1,14 +1,13 @@
-// THE IN-PAGE LADDER'S AGGREGATOR — fail-closed (rf2-409ab).
+// THE IN-PAGE LADDER'S AGGREGATOR — fail-closed.
 //
 // `inpage_ladder_app.cljs` publishes per-arm summaries and a named
 // decomposition; this recomputes BOTH from each run's RAW per-sample rounds
-// and refuses if they disagree. It exists because two merged-PR audits on
-// this instrument family (rf2-yd52q, rf2-emvod) found published ensembles
-// that a fresh checkout could not regenerate, and named the remedy: land the
-// datasets and one fail-closed command that rebuilds every published figure
+// and refuses if they disagree. It exists because a published ensemble that
+// a fresh checkout cannot regenerate cannot be checked: the datasets are
+// landed, and this one fail-closed command rebuilds every published figure
 // from them.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/inpage_ladder_aggregate.cjs
+//   node src/re_frame/bench/fresco/inpage_ladder_aggregate.cjs   (from bench/fresco/)
 //
 // Exit 0  every run presents the whole raw shape this instrument published,
 //         its stored aggregates reproduce from its own raw rounds, no
@@ -20,14 +19,11 @@
 //         instrument published; or any figure that recomputes to a non-finite
 //         number.
 //
-// ## The last two clauses of that promise were never computed (rf2-bml5u)
+// ## The last two clauses of that promise are RECONSTRUCTED
 //
-// The header above has said "a guard refusal or a failed control" since the
-// file landed, and until rf2-bml5u nothing in it read either. That is the
-// INVERSE of rf2-rr6do's defect class: not a refusal computed and left
-// unread, but a refusal the file promised and never computed at all — and a
-// gate that does not exist cannot be seen to fail, which is why a sweep for
-// printed-but-unread refusals walked straight past it.
+// A refusal a file promises and never computes is worse than one computed
+// and left unread: a gate that does not exist cannot be seen to fail, so a
+// sweep for printed-but-unread refusals walks straight past it.
 //
 // The datasets carry no `:guard-refused` or `:control-ok` field, so there is
 // no stored flag to read. What they do carry is every sample the page took,
@@ -38,34 +34,30 @@
 // **The rules are the page's, reproduced exactly, and deliberately not
 // improved.** `lane/control-verdict`'s `:ok?` asks whether the measured
 // range OVERLAPS the ±slack band; `hd8-rows/positive-control!` asks the
-// stricter question, whether EVERY round sits inside it. rf2-egdaq settled
-// that disagreement on 2026-08-21, and it settled as a SPLIT — one rule per
-// instrument, not one rule for both arms. The HEAP arm went strict; the
-// CLOCK arm REFUSED strict under the 2026-07-31 quantum ruling, where a low
-// round is the clock's resolution rather than a defect, and THAT REFUSAL
-// STANDS. This ladder is a clock instrument, so OVERLAP is the rule the
-// ruling LEAVES IN PLACE for it — not a defect it still carries, and not a
-// question awaiting an answer. This file reconstructs a check that was never
-// run; it is not the place to also change the rule it reconstructs, so it
-// applies the OVERLAP rule the page applied and no other — and that is now
-// the ruled rule as well as the published one.
+// stricter question, whether EVERY round sits inside it. The lane keeps one
+// rule per instrument, not one rule for every arm: a heap instrument judges
+// every round, and a clock instrument judges overlap, because on Chrome's
+// 100 µs clamp a low round is the clock's resolution rather than a defect.
+// This ladder is a clock instrument, so OVERLAP is its rule — not a defect
+// it carries, and not a question awaiting an answer. This file reconstructs
+// the page's check and applies the OVERLAP rule the page applied and no
+// other.
 //
-// ## And it FAILED OPEN on a structural omission (rf2-409ab, audit item 2)
+// ## It must not FAIL OPEN on a structural omission
 //
-// A third defect, and the one that matters most for a command whose whole
-// job is to refuse. The audit's own mutation: strip every run-A `:noreads`
-// RAW row and leave its stored summary block untouched. This file exited 0
-// and printed "every published aggregate reproduces" while emitting `NaN`
-// across `h-reads+commit`, `h-memo-fiber`, `reads`, `shell+memo` and
-// `residual`.
+// This matters most for a command whose whole job is to refuse. Strip every
+// run-A `:noreads` RAW row and leave its stored summary block untouched: a
+// verifier built the obvious way exits 0 and prints "every published
+// aggregate reproduces" while emitting `NaN` across `h-reads+commit`,
+// `h-memo-fiber`, `reads`, `shell+memo` and `residual`.
 //
-// Two causes compounded, and both are fixed below.
+// Two causes compound, and both are closed below.
 //
 // **The arm set was DERIVED from whatever rows survived.** `[...new
 // Set(raw.map(x => x.arm))]` cannot report a missing arm, because a wholly
 // absent arm is not a missing arm to it — it is simply not an arm. A verifier
 // that lets the data choose the roster verifies the data against itself. The
-// roster, the round count and the samples-per-cell are now a CONTRACT
+// roster, the round count and the samples-per-cell are a CONTRACT
 // (`ARMS`/`ROUNDS_PER_RUN`/`SAMPLES_PER_CELL`), measured off all four
 // committed datasets and asserted, not inferred.
 //
@@ -99,7 +91,7 @@ const CONTROL_SLACK = 0.25;
 // `lane/guard!`'s default, which is the tolerance the page ran at.
 const GUARD_TOLERANCE = 0.1;
 
-// --- THE RAW SHAPE, ASSERTED RATHER THAN DERIVED (rf2-409ab) --------------
+// --- THE RAW SHAPE, ASSERTED RATHER THAN DERIVED --------------------------
 //
 // `inpage_ladder_app.cljs` runs a fixed ladder: 15 arms interleaved within
 // each sample index, 6 rounds, 10 post-warm-up samples per arm per round.
@@ -131,10 +123,10 @@ function readMap(text, key) {
   // brace/bracket counting is exact, and a mis-parse fails the comparison
   // rather than passing silently.
   //
-  // THE LINE ENDING IS NOT PART OF THE DATA (rf2-bml5u). The anchor is a
-  // newline, and the datasets are tracked text that materialises CRLF on a
-  // normal Windows checkout — so an anchor spelled LF-only matched nothing
-  // and every run of this file on such a checkout died right here with
+  // THE LINE ENDING IS NOT PART OF THE DATA. The anchor is a newline, and
+  // the datasets are tracked text that materialises CRLF on a normal Windows
+  // checkout — so an anchor spelled LF-only would match nothing and every run
+  // of this file on such a checkout would die right here with
   // `dataset has no :rounds`, before a single figure was compared. A gate
   // that cannot start is not a gate. Normalising on read is the robust fix
   // and travels with the parser; a `.gitattributes` eol rule would only fix
@@ -248,9 +240,9 @@ function perRoundRatio(raw, id, floorId, roundIds) {
  * OVERLAP, not every-round: `ok` asks whether the measured range meets the
  * ±`slack` band anywhere, which is the weaker of the two rules this
  * programme uses and the one this instrument published under. See the header
- * — rf2-egdaq settled as a SPLIT and REFUSED strict for the CLOCK arm, which
- * is this one, so overlap is the ruled rule here; and applying the stricter
- * reading would in any case retroactively fail an already-published run.
+ * — the lane judges a clock instrument, which this is, on overlap; and
+ * applying the stricter reading would retroactively fail an already-published
+ * run.
  *
  * A non-finite measurement needs no separate test: `NaN <= hi` and
  * `NaN >= lo` are both false, so a control that did not produce numbers
@@ -283,7 +275,7 @@ function controlVerdict(predicted, measured, slack) {
  * The sample stream `lane/guard!` adjudicated, rebuilt from the stored
  * rounds.
  *
- * `rounds-async!` conj'd `[round arm ms]` at the SAME site as its
+ * `rounds-async!` conjs `[round arm ms]` at the SAME site as its
  * `lane/collect!` call and under the same `(>= s warmup)` test, so the
  * stored vector IS the sequence the guard saw, in measured order and with
  * the warm-ups already dropped from both. `lane/collect!` tags each sample
@@ -317,7 +309,7 @@ function guardSamples(raw) {
  *
  * Driven by `ARMS` x `ROUND_IDS`, never by the surviving rows — that
  * direction is the whole point. An absent arm is invisible to a roster
- * derived from the data, and it was exactly the omission that used to exit 0.
+ * derived from the data, which would exit 0 on exactly that omission.
  */
 function shapeProblems(runId, raw) {
   const problems = [];
@@ -380,7 +372,7 @@ function checkRun(runId, text) {
 
   // BEFORE ANY FIGURE IS COMPARED: is this the run the page took? A shape
   // failure does not stop the comparisons below — they still run and still
-  // report — but it can no longer be answered by silence.
+  // report — but it cannot be answered by silence.
   problems.push(...shapeProblems(runId, raw));
 
   const tmean = {};
@@ -416,9 +408,9 @@ function checkRun(runId, text) {
       problems.push(`run${runId}/${a}: stored tmean ${blk[5]} != recomputed ${round4(tmean[a])}`);
   }
 
-  // NON-FINITE IS A REFUSAL, NOT A COMPARISON (rf2-409ab). `Math.abs(stored -
-  // NaN) > EPS` is FALSE, so a term that failed to recompute used to read as
-  // agreement and print as `NaN` in a published cell under an exit 0. Test
+  // NON-FINITE IS A REFUSAL, NOT A COMPARISON. `Math.abs(stored - NaN) > EPS`
+  // is FALSE, so, compared first, a term that failed to recompute would read
+  // as agreement and print as `NaN` in a published cell under an exit 0. Test
   // finiteness first, and name the arms that produced no mean — that is what
   // was absent; the NaN is only where it surfaced. Every cell of the ensemble
   // table is one of these terms, so a finite decomposition per run is what
