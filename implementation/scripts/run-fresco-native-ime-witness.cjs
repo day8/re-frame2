@@ -4,7 +4,7 @@
 /*
  * THE SCRIPTED NATIVE-IME WITNESS — a real Windows IME, driven from a
  * script, in Playwright's pinned Firefox and WebKit with Chromium as the
- * control (rf2-hic-016).
+ * control.
  *
  *   node implementation/scripts/run-fresco-native-ime-witness.cjs --dry-run
  *   node implementation/scripts/run-fresco-native-ime-witness.cjs --inject
@@ -15,7 +15,7 @@
  * NOT A CI GATE, and it can never become one. It needs Windows, an INSTALLED
  * Japanese IME, a visible desktop session, and the physical keyboard focus of
  * the machine it runs on. There is no hosted runner with those things. The
- * recurring three-engine regression net is and remains the SYNTHETIC witness
+ * recurring three-engine regression net is the SYNTHETIC witness
  * — `implementation/fresco/testbed/spec.cjs`, driven by
  * `serve-and-run-fresco-controlled-testbed.cjs` in the required
  * `cljs-fresco-controlled` job. This script replaces the HUMAN in the
@@ -59,26 +59,24 @@
  *
  * ================== AND WHY IT IS VERIFIED BY CONDUCT =====================
  *
- * Two armed runs on 2026-08-12, and the second is why the gate below reads
- * the PAGE rather than the input stack.
+ * The gate below reads the PAGE rather than the input stack, because the
+ * input stack's reading cannot be trusted in either direction.
  *
- * The first seized the foreground on all three engines and delivered both
- * the romaji and the ESC — and decided nothing: `langid 0x0411`,
- * `japanese: true`, `open: 0` everywhere. The IME had ignored
- * `IMC_SETOPENSTATUS`. The repair was to open it by its own toggle key
- * (`kanji`, 半角/全角) through `KEYS` — the door the keystrokes were
- * demonstrably arriving by — and to REQUIRE `open: 1` back from `IMESTATE`
- * before driving a plan.
+ * The IME can ignore `IMC_SETOPENSTATUS`: a run can seize the foreground on
+ * all three engines and deliver both the romaji and the ESC and decide
+ * nothing, reading `langid 0x0411`, `japanese: true`, `open: 0` everywhere.
+ * So the rig opens the IME by its own toggle key (`kanji`, 半角/全角)
+ * through `KEYS` — the door the keystrokes demonstrably arrive by.
  *
- * The second run returned `open: 1`, `conversion: 9`, `native: true` on
- * Chromium — engaged, by that gate — with `compositionstart` at ZERO on
- * every check and the romaji in the box as literal ASCII. And `conversion: 9`
- * is `IME_CMODE_HIRAGANA`, the exact constant this rig had just written.
- * THE IMM32 SHIM'S STATE IS WRITE-THROUGH: the gate read back the bit it had
- * itself set, so it proved a value had been written and nothing else. It
- * could not have failed — a fail-open sitting inside the guard against one.
+ * And `open: 1` does not mean engaged: Chromium can return `open: 1`,
+ * `conversion: 9`, `native: true` with `compositionstart` at ZERO on every
+ * check and the romaji in the box as literal ASCII. `conversion: 9` is
+ * `IME_CMODE_HIRAGANA`, the exact constant this rig writes. THE IMM32 SHIM'S
+ * STATE IS WRITE-THROUGH: a gate on it reads back the bit it set itself, so
+ * it proves a value was written and nothing else. It cannot fail — a
+ * fail-open sitting inside the guard against one.
  *
- * So that reading is now a LOG LINE, and engagement is decided by CONDUCT.
+ * So that reading is a LOG LINE, and engagement is decided by CONDUCT.
  * `probeComposition` types ONE romaji letter into the plain field and
  * requires `compositionstart > 0` off the page's own observer. It is the
  * gate precisely because that event cannot be produced by the thing under
@@ -88,13 +86,14 @@
  *
  * ================= A REFUSAL IS PER-ENGINE, NOT PER-BATCH =================
  *
- * On that same run Firefox read `open: 0` after `IMEON` and two toggles and
- * aborted with nothing typed. That was correct conduct — the abort is the
- * deliverable — but it was a THROW out of the engine loop, so WebKit never
- * launched at all: one engine's rig failure cost the run an engine it exists
- * to measure. Engagement failure is now caught at the engine boundary and
- * recorded as NOT ENGAGED for that engine — no check driven, no cell
- * fillable, exit non-zero — and the batch continues to the next engine.
+ * An engine whose IME will not open after `IMEON` and two toggles aborts
+ * with nothing typed. That is correct conduct — the abort is the
+ * deliverable — but as a THROW out of the engine loop it would stop the
+ * engines after it from launching at all: one engine's rig failure would
+ * cost the run an engine it exists to measure. So engagement failure is
+ * caught at the engine boundary and recorded as NOT ENGAGED for that
+ * engine — no check driven, no cell fillable, exit non-zero — and the batch
+ * continues to the next engine.
  *
  * Between the ladder and that refusal sits a bounded OPERATOR-ASSIST WAIT:
  * up to ninety seconds in which the run prints what to press and polls by
@@ -105,11 +104,11 @@
  *
  * ====================== AND WHY DELIVERY IS VERIFIED ======================
  *
- * The same run turned up a SECOND rig failure wearing the first one's
- * clothes: WebKit received zero keystrokes for five of the eight checks
- * (`settledIn=0`, the ESC uncounted) and then came alive. "The keys never
- * arrived" and "the IME was closed" both end in a field full of nothing,
- * and no line of that output told them apart. So `probeDelivery` sends one
+ * A SECOND rig failure wears the first one's clothes: an engine can receive
+ * zero keystrokes for several checks (`settledIn=0`, the ESC uncounted) and
+ * then come alive. "The keys never arrived" and "the IME was closed" both
+ * end in a field full of nothing, and no other line of output tells them
+ * apart. So `probeDelivery` sends one
  * key and reads it back off the page before each plan is driven, and a
  * check whose probe never lands says KEYS ARE NOT ARRIVING in those words
  * instead of borrowing the IME's excuse.
@@ -172,8 +171,8 @@ const CONDUCT_SETTLE_MS = 600;
 // an unattended run cannot sit on the keyboard indefinitely.
 const ASSIST_TIMEOUT_MS = 90000;
 const ASSIST_POLL_MS = 6000;
-// The delivery probe's key. Escape, for two reasons: the 2026-08-12 run
-// PROVED it reaches the page, and with no field focused it mutates nothing —
+// The delivery probe's key. Escape, for two reasons: it demonstrably
+// reaches the page, and with no field focused it mutates nothing —
 // no text, no caret, no focus. Its keydown is read off the observer and then
 // erased by the check's own `resetEvents`, so no verdict ever sees it.
 const PROBE_KEY = 'escape';
@@ -285,7 +284,7 @@ const NOT_REAL = {
 // immediately before the keystroke (a real exchange, not yet closed), CLOSED
 // the one taken immediately after it. Feeding a verdict OPEN twice says the
 // edge closed nothing; feeding it CLOSED twice says the exchange was already
-// over when the edge arrived. Both are what audit #7896 found ticking.
+// over when the edge arrived. Neither may tick.
 const OPEN = { ...REAL, compositionend: 0, compositionendData: null };
 const CLOSED = { ...REAL, compositionend: 1 };
 
@@ -293,17 +292,16 @@ const CLOSED = { ...REAL, compositionend: 1 };
  * Did the REHEARSAL actually rehearse? Pure, so the teeth below can drive it.
  *
  * The rehearsal's whole claim is procedural — "every page-side step of every
- * check ran and every read came back" — and until now nothing checked it.
+ * check ran and every read came back" — and this is what checks it.
  * `driveEngine` catches a prepare failure and returns `results: []` so that one
- * engine's refusal cannot take the other two down with it (the right conduct,
- * added after Firefox's honest abort discarded WebKit on 2026-08-12), and it
+ * engine's refusal cannot take the other two down with it, and it
  * catches a per-check throw into an INCONCLUSIVE. Both are correct locally and
- * both were invisible to the caller: `main` returned 0 for every non-inject
- * mode regardless, so a run that found no window, mounted nothing and drove
- * ZERO checks printed REHEARSAL COMPLETE and exited 0.
+ * both are invisible to the caller, so without this check a run that found no
+ * window, mounted nothing and drove ZERO checks would print REHEARSAL COMPLETE
+ * and exit 0.
  *
  * That is the same fail-open shape as wall 2 one layer out — a claim that
- * satisfied itself instead of being measured — so it is measured here.
+ * satisfies itself instead of being measured — so it is measured here.
  *
  * READBACK is the load-bearing clause. Every one of the eight runners emits
  * one, and a check that threw mid-drive is caught into a verdict that has
@@ -387,11 +385,11 @@ function runMutationTeeth() {
       evBefore: OPEN, evAfter: CLOSED, seed: 'abc',
     })) === W.CROSS);
 
-  // #7896, THE FIRST OF THE TWO NEW REFUSALS. An aggregate reading could not
+  // THE FIRST OF TWO REFUSALS. An aggregate reading cannot
   // tell an exchange that was open when ESC arrived from one the IME had
-  // already closed — so a field sitting at its committed value ticked either
-  // way, and the tick said "the abort worked" about an abort that aborted
-  // nothing. This exact input ticked before the repair.
+  // already closed — so a field sitting at its committed value would tick
+  // either way, and the tick would say "the abort worked" about an abort that
+  // aborted nothing.
   bite('a composition already CLOSED before the ESC cannot tick', () => {
     const r = W.abortVerdict({
       before: { value: 'abc', committed: '"abc"', edits: 5 },
@@ -518,11 +516,11 @@ function runMutationTeeth() {
       evBefore: OPEN, evAfter: CLOSED,
     })) === W.CROSS);
 
-  // #7896 again, one edge along: the candidate-window Space can close the
-  // exchange itself, and an aggregate `compositionend > 0` cannot tell that
-  // close from the Enter's. A no-op Enter then ticked on the Space's
+  // The same refusal, one edge along: the candidate-window Space can close
+  // the exchange itself, and an aggregate `compositionend > 0` cannot tell
+  // that close from the Enter's. A no-op Enter would then tick on the Space's
   // transition — "the close added no intent" said of a close that had already
-  // happened. This exact input ticked before the repair.
+  // happened.
   bite('an exchange the SPACE already closed cannot tick on the Enter', () => {
     const r = W.commitAddsNoIntentVerdict({
       before: { value: 'abc日本語', committed: '"abc日本語"', edits: 5 },
@@ -570,12 +568,12 @@ function runMutationTeeth() {
       evBlur: CLOSED, evUnmount: OPEN, seed: '9', pageErrors: ['boom'],
     })) === W.CROSS);
 
-  // #7896, THE SECOND OF THE TWO NEW REFUSALS, and the sharpest of them. The
+  // THE SECOND OF THE TWO REFUSALS, and the sharper. The
   // check reloads between its two phases, so the blur phase's evidence is
-  // about a page that no longer exists. Passing only that evidence made the
-  // unmount half unfalsifiable: real blur evidence + a fired unmount + NO
-  // composition whatever in the second phase returned a TICK for a check whose
-  // entire subject is the word "mid-composition".
+  // about a page that no longer exists. Passing only that evidence would make
+  // the unmount half unfalsifiable: real blur evidence + a fired unmount + NO
+  // composition whatever in the second phase would return a TICK for a check
+  // whose entire subject is the word "mid-composition".
   bite('an unmount phase with no composition of its own cannot tick', () => {
     const r = W.teardownVerdict({
       afterBlur: { value: '9' }, afterUnmount: { gone: true },
@@ -635,8 +633,8 @@ function runMutationTeeth() {
   });
 
   // --- the REHEARSAL's own claim, fail-closed in every direction ---
-  // Merged-PR audit #7956 found `--dry-run` able to exit 0 having executed no
-  // check at all. These four are the alternatives that used to pass.
+  // A `--dry-run` must not exit 0 having executed no check at all. The
+  // complete case, then the three shapes that would otherwise pass.
   const drove = (engine) => ({
     engine,
     refusal: null,
@@ -672,7 +670,7 @@ function runMutationTeeth() {
 
 // ---------------------------------------------------------------------------
 // Build and serve — the same three steps the synthetic gate performs, and the
-// same three the manual session did by hand.
+// same three a manual session does by hand.
 // ---------------------------------------------------------------------------
 
 function compile() {
@@ -968,8 +966,8 @@ const fmtIme = (s) => `open=${s.open} conversion=${s.conversion} ` +
  *
  * It is the gate because it is the one thing in this rig the thing under test
  * cannot fake. `IMC_GETOPENSTATUS` answers from an input context this process
- * writes to, and on 2026-08-12 it handed back the very bit that had just been
- * written while nothing composed. `compositionstart` is emitted by the BROWSER
+ * writes to, and it can hand back the very bit just written while nothing
+ * composes. `compositionstart` is emitted by the BROWSER
  * in response to input a real IME actually consumed; no message this driver
  * can send produces one.
  *
@@ -1063,9 +1061,9 @@ async function awaitOperatorEngagement({ driver, hwnd, engine, probe, timeoutMs 
  * Get this window's IME COMPOSING, or refuse the engine.
  *
  * A ladder of attempts, each one followed by the same conduct probe, because
- * none of them can be trusted to have worked and the IMM32 reading that used
- * to answer that question turned out to be reading this process's own
- * writes (see the header). `state` is the reading `IMEON` already produced,
+ * none of them can be trusted to have worked and the IMM32 reading that
+ * might answer that question reads this process's own writes (see the
+ * header). `state` is the reading `IMEON` already produced,
  * and it is PRINTED rather than tested.
  *
  * The toggle is sent twice at most and the second is deliberate: it TOGGLES,
@@ -1082,9 +1080,9 @@ async function engageIme({
   assistMs = ASSIST_TIMEOUT_MS,
 }) {
   const probe = () => probeComposition({ page, driver, hwnd, keyDelayMs, reload });
-  console.log(`> IMM32 reports ${fmtIme(state)} — A LOG LINE, NOT A GATE: on ` +
-    '2026-08-12 it read back the values this rig had written while nothing ' +
-    'composed.');
+  console.log(`> IMM32 reports ${fmtIme(state)} — A LOG LINE, NOT A GATE: it ` +
+    'can read back the values this rig wrote while nothing ' +
+    'composes.');
 
   const ladder = [
     { what: 'as IMEON left it', act: async () => {} },
@@ -1135,9 +1133,9 @@ async function engageIme({
     `IMEON, an IMECONV, two ${IME_TOGGLE_KEY} (半角/全角) keystrokes and a ` +
     `${Math.round(assistMs / 1000)}s wait for you to open it by hand. Last ` +
     `reading: ${conduct.detail}. IMM32 says ${fmtIme(ime)}, and that is worth ` +
-    'nothing here: on 2026-08-12 it said open=1 conversion=9 native=true on ' +
-    'Chromium — the exact values this rig had written — while compositionstart ' +
-    'stayed 0 and the romaji landed as ASCII. Nothing was typed for this ' +
+    'nothing here: it can say open=1 conversion=9 native=true — the exact ' +
+    'values this rig writes — while compositionstart ' +
+    'stays 0 and the romaji lands as ASCII. Nothing was typed for this ' +
     'engine and no check was driven.');
 }
 
@@ -1164,7 +1162,7 @@ async function probeDelivery({ page, driver, hwnd, keyDelayMs, inject }) {
   if (!observing) {
     // Neither a delivery fault nor an IME one: there is nothing on the page
     // to read arrival WITH. Conflating it with "no keys arrived" is the exact
-    // mistake this probe was added to stop making.
+    // mistake this probe exists to prevent.
     throw new Error('the page observer is not installed, so key arrival ' +
       'cannot be read; no delivery claim is possible for this check');
   }
@@ -1229,9 +1227,8 @@ async function driveEngine(engine, baseUrl, driver, args) {
     // THE PREPARE PHASE — find the window, engage its IME, or refuse THIS
     // ENGINE. Every failure below is a statement about this window and this
     // IME and nothing else, so it is caught HERE rather than thrown at the
-    // batch: on 2026-08-12 Firefox's honest abort took WebKit down with it,
-    // and the engine that never launched was one of the two this bead exists
-    // to record.
+    // batch, where one engine's honest abort would take every later engine
+    // down with it.
     let refusal = null;
     try {
       // A nonce in the document title is how the OS side finds THIS window.
@@ -1256,8 +1253,8 @@ async function driveEngine(engine, baseUrl, driver, args) {
       }
 
       // What the toggle would actually carry, resolved under THIS window's
-      // layout and read out before anything is sent. A `0x00` here is the
-      // defect of 2026-08-12 — `MapVirtualKey` answering for the driver's own
+      // layout and read out before anything is sent. A `0x00` here is
+      // `MapVirtualKey` answering for the driver's own
       // English layout, where 半角/全角 is not a key — and it is the one part
       // of the engage ladder the REHEARSAL can measure without typing.
       const toggle = await driver.send('RESOLVE', IME_TOGGLE_KEY, hwnd);
@@ -1335,7 +1332,7 @@ async function driveEngine(engine, baseUrl, driver, args) {
       console.log(`${mark} ${label}\n      ${out.why}`);
       if (out.readback) console.log(`      READBACK ${out.readback}`);
       if (check.priority) {
-        console.log('      ^ PRIORITY CASE (the ruling\'s check 5, and the ' +
+        console.log('      ^ PRIORITY CASE (check 5, and the ' +
           'unresolved operator observation of 2026-08-11)');
       }
     }
@@ -1527,8 +1524,8 @@ async function main() {
 // as arguments, so their REFUSALS can be forced and read back without an
 // interactive desktop — which is the only place the armed run they guard can
 // ever happen. `probeComposition` is the one that matters most: it is the gate
-// the whole engagement now rests on, and a gate whose refusal nobody has ever
-// seen fire is the gate that read `open: 1` on 2026-08-12.
+// the whole engagement rests on, and a gate whose refusal nobody has ever
+// seen fire is a gate that can read `open: 1` while nothing composes.
 module.exports = {
   runMutationTeeth, parseArgs, worst, RUNNERS, engageIme, probeComposition,
   probeDelivery,
