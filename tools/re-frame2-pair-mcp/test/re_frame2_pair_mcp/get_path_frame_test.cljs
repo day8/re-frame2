@@ -1,24 +1,24 @@
 (ns re-frame2-pair-mcp.get-path-frame-test
-  "Operating-frame resolution for the `get-path` tool (rf2-q17a).
+  "Operating-frame resolution for the `get-path` tool.
 
   ## What this pins
 
   `get-path` is frame-targeted, so the Tool-Pair contract makes it
   resolve explicit override -> session pin -> sole app frame -> nil,
-  and REFUSE at nil rather than read some other frame. Before
-  rf2-q17a it did neither: the emitted form called `(snapshot)` with
-  no frame and no guard, which resolves to `(rf/app-db-value nil)` =
-  nil, and `get-in` over nil answers `:path-not-found` (singular) or
-  `{:exists? false}` for every path (batch). The tool told the agent
-  \"that path does not exist\" when the truth was \"I could not tell
-  which frame you meant\" — and an agent that believes it goes off and
-  adds a path that was already there.
+  and REFUSE at nil rather than read some other frame. An
+  implicit-frame form — `(snapshot)` with no frame and no guard —
+  would resolve to `(rf/app-db-value nil)` = nil, and `get-in` over
+  nil answers `:path-not-found` (singular) or `{:exists? false}` for
+  every path (batch). The tool would tell the agent \"that path does
+  not exist\" when the truth is \"I could not tell which frame you
+  meant\" — and an agent that believes it goes off and adds a path
+  that was already there.
 
   ## Why the stub reads the form
 
   A test that canned an `:ambiguous-frame` response would pass on the
   DEFECT, because the tool faithfully relays whatever the runtime
-  hands it — the bug was never in the relay. So `runtime-answer`
+  hands it — the relay is not where the defect lives. So `runtime-answer`
   below does not take a canned envelope. It plays a live runtime with
   a given set of app frames and a given pin, DERIVES the operating
   frame from the emitted form exactly as `pure/resolve-operating-frame`
@@ -27,11 +27,12 @@
     - resolved id is nil AND the form guards on it -> the refusal;
     - resolved id is nil and the form does NOT guard -> the read runs
       against `(get db nil)` = nil, and reports the miss — the very
-      falsehood this bead is about;
+      falsehood the refusal exists to prevent;
     - resolved id is non-nil -> the read runs against that frame's db.
 
-  So the same test body distinguishes the fix from the defect, and
-  the singular/batch refusal tests fail on the pre-fix tree.
+  So the same test body distinguishes a guarded form from an
+  unguarded one, and the singular/batch refusal tests fail on an
+  implicit-frame tree.
 
   Note `elision_test/build-get-path-form` is a hand-written MIRROR of
   the form composition and asserts against itself, so it can go green
@@ -84,10 +85,10 @@
   holding `app-frames` with `pin` selected. Mirrors
   `pure/resolve-operating-frame`: override -> pin -> sole app frame ->
   nil. The override is read off the form because that is where the
-  tool puts it — from the resolve call once the fix routes it there,
-  and from the `snapshot` call on the pre-fix shape, so this models
-  BOTH trees faithfully and tier 1 stays a real control rather than
-  an artefact of the simulator."
+  tool puts it — on the resolve call, or on the `snapshot` call of an
+  implicit-frame shape — so this models BOTH shapes faithfully and
+  tier 1 stays a real control rather than an artefact of the
+  simulator."
   [form app-frames pin]
   (if-let [override (second (or (re-find #"current-frame\s+(:[^\s)]+)\)" form)
                                 (re-find #"snapshot\s+(:[^\s)]+)\)" form)))]
@@ -121,7 +122,7 @@
       (ambiguous-envelope app-frames pin)
       ;; No guard (or an unambiguous session): the read proceeds. For a
       ;; nil frame `(get db nil)` is nil and every lookup misses —
-      ;; reproducing the pre-fix falsehood exactly.
+      ;; reproducing the implicit-frame falsehood exactly.
       (let [frame-db (get db fid)
             missing  (js-obj)]
         (if paths
@@ -166,11 +167,11 @@
             ([_c _b form _o] (respond form))))))
 
 ;; ---------------------------------------------------------------------------
-;; The witnesses — these fail on the pre-fix tree.
+;; The witnesses — these fail on an implicit-frame tree.
 ;; ---------------------------------------------------------------------------
 
 (deftest singular-ambiguous-frame-refuses-rather-than-reporting-path-not-found
-  ;; Acceptance 1: two app frames, no pin, no `frame` arg.
+  ;; Two app frames, no pin, no `frame` arg.
   (async done
     (let [captured (atom nil)]
       (stub-runtime! captured {:app-frames two-frames
@@ -196,7 +197,7 @@
                    (done)))))))
 
 (deftest batch-ambiguous-frame-refuses-rather-than-reporting-every-path-absent
-  ;; Acceptance 2: the batch shape must not answer `:ok? true` with an
+  ;; The batch shape must not answer `:ok? true` with an
   ;; all-missing results map — the more damaging of the two, since it
   ;; presents as a SUCCESS.
   (async done
@@ -263,8 +264,9 @@
                                   (done)))))))))))
 
 (deftest one-resolution-serves-both-the-read-and-the-walker
-  ;; The read and the elision handle must describe the same frame. The
-  ;; walker used to issue a SECOND, independent `(current-frame)` call.
+  ;; The read and the elision handle must describe the same frame. A
+  ;; SECOND, independent `(current-frame)` call from the walker could
+  ;; resolve a different one.
   (async done
     (let [captured (atom nil)]
       (stub-runtime! captured {:app-frames [:rf/default] :pin nil
@@ -305,7 +307,7 @@
                                   (done)))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Acceptance 3 — the resolvable sessions keep their existing shapes.
+;; Resolvable sessions keep their ordinary shapes.
 ;; ---------------------------------------------------------------------------
 
 (deftest explicit-frame-still-reads-that-frame
