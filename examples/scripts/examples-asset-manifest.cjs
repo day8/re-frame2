@@ -1,26 +1,24 @@
 'use strict';
 
 /*
- * ONE owner for every examples EXTERNAL-ASSET EXCEPTION (rf2-phpbo8).
+ * ONE owner for every examples EXTERNAL-ASSET EXCEPTION.
  *
- * The problem this closes
- * -----------------------
+ * Why one owner
+ * -------------
  * A handful of examples depart from the "index.html + _shared, nothing else"
  * staging baseline: they stage an extra static asset (TodoMVC's official CSS,
  * managed-http-counter's success fixture, the RealWorld fallback avatar) and/or
  * opt out of a required _shared asset (TodoMVC links the vendored TodoMVC CSS
- * instead of the shared stylesheet). Before this manifest each such exception
- * was declared INDEPENDENTLY in up to three places with no cross-consistency:
+ * instead of the shared stylesheet). Each such exception has two consumers:
  *
  *   - examples/scripts/examples-staging.cjs  PER_EXAMPLE_ASSETS  (what to STAGE)
  *   - examples/scripts/check-examples-assets.cjs  ALLOWLIST       (what the
  *                                                                  SCANNER accepts)
- *   - the two implementation script test suites, each pinning its side with a
- *     LITERAL list that restated the production data.
  *
- * TodoMVC's base.css/index.css lived as BOTH staged destinations AND scanner
- * `localAssets`, redeclared verbatim — so the two could drift with nothing to
- * catch it. This module is the single side-effect-free owner. Each entry binds
+ * Declared independently in each, TodoMVC's base.css/index.css would live as
+ * BOTH staged destinations AND scanner `localAssets`, redeclared verbatim — free
+ * to drift with nothing to catch it. This module is the single side-effect-free
+ * owner. Each entry binds
  * a build id (staging's key) to a source page (the scanner's key), the assets
  * to stage, the shared-asset exemptions the page may omit, and one reason. Both
  * consumers PROJECT their view out of it (stagedAssetsByBuild / pageExemptions /
@@ -129,8 +127,8 @@ const EXAMPLE_ASSET_MANIFEST = [
 // ---------------------------------------------------------------------------
 // Projection for the STAGING consumer (examples-staging.cjs): build id ->
 // [{ from, src, dest }]. EVERY declared asset is staged (staging copies them
-// all regardless of htmlLinked; htmlLinked only concerns the scanner). Mirrors
-// the old PER_EXAMPLE_ASSETS shape so the staging helper is a drop-in consumer.
+// all regardless of htmlLinked; htmlLinked only concerns the scanner). This is
+// the staging helper's PER_EXAMPLE_ASSETS.
 // ---------------------------------------------------------------------------
 function stagedAssetsByBuild(manifest = EXAMPLE_ASSET_MANIFEST) {
   const out = {};
@@ -149,8 +147,8 @@ function stagedAssetsByBuild(manifest = EXAMPLE_ASSET_MANIFEST) {
 // missing) — so TodoMVC's base.css/index.css are the SAME declaration the
 // staging projection reads, never a second literal list. Only entries with a
 // scanner-relevant exception (a shared-asset exemption OR an html-linked asset)
-// are emitted, so a staging-only entry adds no empty ALLOWLIST noise. Mirrors
-// the old ALLOWLIST shape so the scanner is a drop-in consumer.
+// are emitted, so a staging-only entry adds no empty ALLOWLIST noise. This is
+// the scanner's ALLOWLIST.
 // ---------------------------------------------------------------------------
 function pageExemptions(manifest = EXAMPLE_ASSET_MANIFEST) {
   const out = {};
@@ -167,7 +165,7 @@ function pageExemptions(manifest = EXAMPLE_ASSET_MANIFEST) {
 }
 
 // ---------------------------------------------------------------------------
-// Projection for the SCANNER's staging check (rf2-3x7nj.44.2): page relIndex ->
+// Projection for the SCANNER's staging check: page relIndex ->
 // [dest], EVERY dest the manifest stages for that page, whatever its
 // htmlLinked flag. `npm run dev:example` serves a freshly cleaned output dir
 // holding only index.html, _shared/ and these dests, so a page-local asset the
