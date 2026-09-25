@@ -83,7 +83,7 @@ test('Splint job stays gated on lint_surface so routing decides whether it runs 
   assert.match(
     splintBlock,
     /if: needs\.detect\.outputs\.lint_surface == 'true'/,
-    'Splint must be gated on lint_surface (the routing the .splint.edn fix lights)',
+    'Splint must be gated on lint_surface (the routing a .splint.edn change lights)',
   );
 });
 
