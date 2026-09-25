@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/parallel-root-on-multi-region-target
 ;;
 ;; Per [005 §Transition broadcast §Root parallel `:on`]
-;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (../../005-StateMachines.md#transition-broadcast)
 ;; (verified against xstate@5.32.0).
 ;;
 ;; A root parallel `:on` with MULTIPLE region-qualified targets
