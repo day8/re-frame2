@@ -1,7 +1,7 @@
 (ns re-frame.bench.fresco.link-inner-probe-app
-  "DIAGNOSTIC ONLY (rf2-cno31), SECOND PASS. `link_decomp_probe_app`
-  attributed the 8.21 µs/link term to `route-url` (4.71 µs) and found the
-  two suspects it named were NOT the cost — the CEDN fail-closed guard is
+  "DIAGNOSTIC ONLY, SECOND PASS. `link_decomp_probe_app`
+  attributes the 8.21 µs/link term to `route-url` (4.71 µs) and shows the
+  two suspects it names are NOT the cost — the CEDN fail-closed guard is
   0.36 µs/call and the route-meta `registrar/lookup` is 0.12. That leaves
   ~4.2 µs of `route-url` unattributed, so this probe replicates
   `route-url`'s remaining inner stages VERBATIM as arms of their own and
