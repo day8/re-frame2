@@ -21,9 +21,9 @@
   docstring sets out; `:fresco` is the member that makes the difference
   visible, because a Fresco deck's authoring layer is Fresco's whichever
   adapter sits beneath it — Fresco's own `re-frame.fresco.substrate`
-  (`:kind :rf.adapter/fresco`, rf2-hvr5h), or Reagent's, or UIx's.
+  (`:kind :rf.adapter/fresco`), or Reagent's, or UIx's.
 
-  ## The `:fresco` recipe (rf2-2dbpd)
+  ## The `:fresco` recipe
 
   Story ships no installer for it, for exactly the reason it ships none
   for `:uix`: the renderer's one dependency is the HOST's, and Story core
@@ -43,16 +43,14 @@
 
   Four facts about those lines, and each is a reason there are so few.
 
-  **`h/defview` publishes the keyword a story names** (rf2-5qaf4). The
+  **`h/defview` publishes the keyword a story names.** The
   declaration registers one `:view` entry under `(keyword \"<ns>\" \"<sym>\")`
   carrying the minted head at `:handler-fn` — the one executable slot every
   substrate's `:view` entry uses — so `rf/view` resolves a Fresco view
-  exactly as it resolves a Reagent or a UIx one (rf2-kuky.60). This recipe
-  used to read a private `:fresco/component` off `rf/handler-meta`,
-  because the entry deliberately carried no `:handler-fn` and `rf/view`
-  answered nil; that is why the line above is now the framework's own
-  lookup rather than a second descriptor shape a host has to know. The
-  alias stays debug-gated, so `rf/view` answers nil for a Fresco view in a
+  exactly as it resolves a Reagent or a UIx one, and the line above is the
+  framework's own lookup rather than a second descriptor shape a host has
+  to know. The
+  alias is debug-gated, so `rf/view` answers nil for a Fresco view in a
   release build — the documented answer, and no concern for a Story deck,
   which is a dev artefact. A story therefore names a Fresco view exactly
   as it names a Reagent one, and `:component` stays a keyword everywhere.
@@ -85,34 +83,20 @@
 
   Fresco stories hand-author `:argtypes`. Auto-derivation reads the
   view's `[:rf/props :schema]` `reg-view` metadata and `defview` carries
-  no props-schema slot — deferred by rf2-1gy4e until someone asks for
-  auto-Controls, rather than invented here.
+  no props-schema slot, and none is invented here.
 
-  ### The limit that WAS here is gone, and it was never the crossing
-  ### (rf2-phabt)
+  ### A crossed Fresco boundary repaints on a write
 
-  This section used to record a live limit: *a Fresco boundary crossed
-  into from a Reagent parent — which is what the canvas is — paints once
-  and does not re-render on a write into its own frame.* Read literally
-  that said a fresco story could render and not respond to its own
-  dispatches, which would have made the substrate a demo rather than a
-  place to author.
-
-  It was an artefact of the measurement, not a defect in the bridge. The
-  original comparison varied the mounting route AND the frame id at once;
-  the actual cause was `re-frame.fresco.impl.collector/acquire-cell!`
-  REUSING a cell without rebuilding its attachment, so the notification
-  never reached a body that had already painted correctly. Fixed in
-  Fresco, and both outward doors — `h/as-element` and a memoized
-  `h/as-component` — repaint on a write today. The two rows that measured
-  it are back, green, in
-  `re-frame.story.ui.fresco-substrate-dom-cljs-test`
+  A Fresco boundary crossed into from a Reagent parent — which is what
+  the canvas is — re-renders on a write into its own frame, through both
+  outward doors: `h/as-element` and a memoized `h/as-component`.
+  `re-frame.story.ui.fresco-substrate-dom-cljs-test` pins it
   ([[a-write-repaints-a-crossed-boundary]] and its `as-component` pair).
 
   So a fresco story renders, takes its args, resolves its variant frame,
   reads it AND responds to writes into it. Nothing here works around
   anything: there is no second reactivity path for one substrate, because
-  none was ever needed.
+  none is needed.
 
   ## Grid layout
 
@@ -242,12 +226,10 @@
   yes/no question would put the host's dependency in Story itself, which
   is the same reason no installer ships for those substrates.
 
-  This became necessary when Fresco started publishing its boundary
-  under `:handler-fn` (rf2-kuky.60). Before that, `rf/view` answered nil
-  for a Fresco view and the diagnostic below fell out for free. Now the
-  lookup succeeds and the head is a React component type, so splicing it
-  into a Reagent tree would call a plain function with the wrong ABI —
-  the failure this guard converts into a sentence."
+  Fresco publishes its boundary under `:handler-fn`, so `rf/view`
+  succeeds for a Fresco view and the head is a React component type;
+  splicing it into a Reagent tree would call a plain function with the
+  wrong ABI — the failure this guard converts into a sentence."
   [head]
   (cond
     (gobj/get head "frescoBoundary") :fresco
@@ -311,7 +293,7 @@
   over. The `:uix` arms in `story/ui/render_shell_cljs_test.cljs` drive
   the canvas grid, so they reach `safe-render-cell` and never arrive
   here; this fn is covered on its own terms in
-  `story_multi_substrate_cljs_test.cljs` (rf2-nfwbt). A test that
+  `story_multi_substrate_cljs_test.cljs`. A test that
   exercises one copy settles nothing about the other."
   [substrate variant-id view-id eff-args]
   (if-let [render-fn (get @substrate->render-fn substrate)]
@@ -396,7 +378,7 @@
   sets on its own surfaces (the `:text-primary` colour, the chrome font
   stack and type size) to their CSS initial values, so a subject that
   sets none of its own renders in the browser defaults, as on a plain
-  page, instead of in Story's warm off-white (rf2-w72ij).
+  page, instead of in Story's warm off-white.
 
   Only the subject subtree is reset. The chrome parts beside it (titles,
   labels, the assertion strip) keep their tokens, and anything a subject
@@ -415,7 +397,7 @@
   (render-fn variant-id view-id eff-args))
 
 (def ^:private cell-boundary
-  "The per-cell React error boundary (rf2-3x7nj.29.3). ONE class, defined
+  "The per-cell React error boundary. ONE class, defined
   here rather than per render: a fresh class is a fresh element type, and
   React answers that by remounting the cell and discarding the subject's
   local state on every re-render of the grid.
@@ -499,21 +481,21 @@
 
   The side-by-side grid renders every declared substrate; a single-tree
   render — the `render-variant` host hook — has to choose one, and the
-  choice is constrained by a rule this ns had no way to state before
-  rf2-3afns: **never paint under a substrate the variant did not declare.**
+  choice is constrained by one rule: **never paint under a substrate the
+  variant did not declare.**
 
   - Exactly one declared → that one. This is the whole point: a variant
     declaring `#{:uix}` paints under `:uix`.
   - More than one declared → `host-default` when the variant actually
-    declared it (the overwhelmingly common `#{:reagent :uix}` case, whose
-    behaviour is therefore unchanged), otherwise the name-sorted first of
+    declared it (the overwhelmingly common `#{:reagent :uix}` case),
+    otherwise the name-sorted first of
     the declared set. Sorted rather than `first`, because `first` over a
     set of two is not a decision, it is whatever the hash order was.
   - Nothing declared → `host-default`.
 
   Choosing a single tree for a MULTI-substrate variant is a policy this
-  fn pins, not a feature: `render-variant` returns one render result and
-  always did. The grid remains the surface that shows all of them."
+  fn pins, not a feature: `render-variant` returns one render result.
+  The grid is the surface that shows all of them."
   [substrates host-default]
   (let [declared (set substrates)]
     (cond
@@ -543,7 +525,7 @@
         ;; The subject, its substrates and its args all come off ONE compiled
         ;; plan, as on the canvas: the raw variant body misses an
         ;; `:extends`-inherited `:component` / `:substrates`, so a child
-        ;; rendered its story's view here, or none (rf2-3x7nj.28.2).
+        ;; would render its story's view here, or none.
         ;; `[:world :substrates]` already folds the story in
         ;; `resolve-substrate-set`'s order, which then only adds the host
         ;; fallback.
@@ -558,7 +540,7 @@
     ;; variant declares ≥2 substrates. `role="group"` + `aria-label`
     ;; exposes the substrate-comparison surface as a group of cells; each
     ;; cell is a `role="region"` with the substrate name as its accessible
-    ;; label (set in `safe-render-cell` below), so the cells read as
+    ;; label (set on each cell's wrapper below), so the cells read as
     ;; labelled regions in landmark navigation.
     [:div {:style       (:grid styles)
            :role        "group"
