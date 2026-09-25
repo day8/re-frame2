@@ -1,27 +1,27 @@
 (ns day8.re-frame2-xray.palette.empty-row-frame-context-dom-cljs-test
-  "Real-DOM witness for the palette's EMPTY-RESULTS row (rf2-ap5w).
+  "Real-DOM witness for the palette's EMPTY-RESULTS row.
 
-  ## The fault this file was written to reproduce
+  ## The fault this file guards against
 
-  `palette/view.cljs` used to HEAD its empty row — `[empty-row]` — and
-  `empty-row` performed an ambient `(rf/subscribe [:rf.xray/palette-query])`
-  of its own. A head makes Reagent mint a component for the plain `defn`,
-  and a plain `defn` carries no `:contextType`, so `(.-context cmp)` is
-  React's empty default, `re-frame.views.provider/current-frame` coerces
-  that to nil, and the ambient subscribe raises
-  `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun). The repair
-  passes the already-bound `query` down — `(empty-row query)` — which
-  both inlines the call and removes the duplicate read.
+  `palette/view.cljs` passes the already-bound `query` down to its empty
+  row — `(empty-row query)` — which both inlines the call and avoids a
+  duplicate read. Were the row HEADED — `[empty-row]` — with `empty-row`
+  performing an ambient `(rf/subscribe [:rf.xray/palette-query])` of its
+  own, Reagent would mint a component for the plain `defn`; a plain
+  `defn` carries no `:contextType`, so `(.-context cmp)` is React's empty
+  default, `re-frame.views.provider/current-frame` coerces that to nil,
+  and the ambient subscribe raises `:rf.error/no-frame-context` (Spec 006
+  §Plain-fn footgun).
 
-  ## Why no existing lane could see it
+  ## Why only a real-DOM row can see it
 
-  Three independent reasons, and all three had to hold at once:
+  Three independent reasons:
 
   1. `sources/rank`'s contract is \"Empty query keeps every item\", so the
      palette's OPEN state renders RESULTS. The empty row needs a TYPED
      query that matches nothing.
-  2. `rf-xray-palette-empty` had no reference in any lane — node, browser
-     or `scenarios.cjs`. Nothing drove the branch.
+  2. No other lane — node, browser or `scenarios.cjs` — references
+     `rf-xray-palette-empty`, so nothing else drives the branch.
   3. THE NODE LANE CANNOT SEE THIS EVEN IF IT DROVE THE BRANCH. Xray's
      node rows build the tree with `(rf/with-frame :rf/xray …)` and walk
      it with a hiccup walker that CALLS function heads — inside that
@@ -48,18 +48,17 @@
   THROW, and that is the lane's rule rather than a softening. The browser
   runner fails any run in which the page emitted an uncaught error at all
   — a dedicated `pageerror` array, deliberately independent of the
-  `cljs.test` summary (rf2-mwx08 / rf2-wf5al) — so a suite that plants
-  one reddens the whole lane with a green summary beside it. Measured:
-  with a planted throw here the run read `0 failures, 0 errors` and
-  still exited 1, naming `1 uncaught pageerror(s)`.
+  `cljs.test` summary — so a suite that plants one reddens the whole lane
+  with a green summary beside it: with a planted throw here the run reads
+  `0 failures, 0 errors` and still exits 1, naming
+  `1 uncaught pageerror(s)`.
 
   What the synthetic event leaves unproven — that React really does
-  re-raise a render refusal onto `window` — was measured directly rather
-  than assumed. Before the repair, W1 caught
-  `:rf.error/no-frame-context` through this very listener, with neither
-  the dialog nor the empty row committed. That run is the end-to-end
-  evidence for the channel; W0 is the standing check that the listener
-  is still armed and still reads the payload off the event.
+  re-raise a render refusal onto `window` — is W1's own job: with the
+  empty row headed, W1 catches `:rf.error/no-frame-context` through this
+  very listener, with neither the dialog nor the empty row committed.
+  That is the end-to-end evidence for the channel; W0 is the standing
+  check that the listener is armed and reads the payload off the event.
 
   ## Node-lane behaviour
 
@@ -145,10 +144,9 @@
   root — under the outer `frame-provider` `mount.cljs` installs. That
   wrapper is the whole point: a BARE mount fails for an entirely
   different reason, which would be a false positive for the fault under
-  test. Under rf2-k97c.3 that different reason has simply changed hands
-  and stayed a refusal — `Modal` is the `as-component` bridge onto the
-  `ModalView` BOUNDARY now, and a boundary at a bare root resolves no
-  frame from React context either. The wrapper is what supplies one.
+  test: `Modal` is the `as-component` bridge onto the `ModalView`
+  BOUNDARY, and a boundary at a bare root resolves no frame from React
+  context. The wrapper is what supplies one.
 
   Committed synchronously — React 19's `root.render` is otherwise async
   and the first assertion would read an empty container."
@@ -173,7 +171,7 @@
 ;; ===========================================================================
 
 (deftest w0-the-listener-bites
-  (testing "rf2-ap5w — the window `error` listener this suite reads W1's
+  (testing "the window `error` listener this suite reads W1's
             verdict through is armed, and extracts the `ex-data` off the
             event rather than merely noting that something happened.
             Without this row a silent W1 could mean either 'nothing
@@ -208,15 +206,15 @@
 ;; ===========================================================================
 
 (deftest w1-empty-row-commits-under-a-provider
-  (testing "rf2-ap5w — a typed query that matches nothing drives the
+  (testing "a typed query that matches nothing drives the
             palette to its empty-results branch, and that branch COMMITS
             under the production provider shape instead of refusing with
             `:rf.error/no-frame-context`.
 
-            This is the row the fault failed: with `[empty-row]` in head
-            position, the plain `defn`'s ambient subscribe reads a nil
-            frame and raises, React discards the whole subtree, and the
-            palette paints nothing at all."
+            This row fails if the empty row is headed: with `[empty-row]`
+            in head position, the plain `defn`'s ambient subscribe would
+            read a nil frame and raise, React would discard the whole
+            subtree, and the palette would paint nothing at all."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
