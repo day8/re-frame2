@@ -7,7 +7,7 @@
 ;; `:rf.reply/work-id`, stale-suppression, and egress-projection contracts.
 ;; The tests depend on several implementation
 ;; artefacts, so no single family's test tree can own them. Reply-target functor
-;; laws remain owned by the core substrate and its independent timer consumer.
+;; laws are owned by the core substrate and its independent timer consumer.
 ;;
 ;; The `.cljc` suites run in the top-level CLJS `:node-test` build. This alias
 ;; supplies the JVM counterpart, including the JVM reader-conditional paths,
@@ -15,7 +15,7 @@
 ;;
 ;; ## Why test-only deps, not :local/root in :deps
 ;;
-;; The top-level `:deps` stays empty because this artefact ships nothing.
+;; The top-level `:deps` is empty because this artefact ships nothing.
 ;; `:extra-paths` limits test discovery to this directory; the local-root
 ;; dependencies contribute production source, not their own test trees.
 ;;
