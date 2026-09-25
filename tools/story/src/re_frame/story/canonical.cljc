@@ -87,8 +87,8 @@
     (fn [frame-id]
       (rf.story.play.runner-events/clear-state! frame-id)))
   ;; The a11y panel's per-frame axe state (`violations-by-frame` /
-  ;; `run-state`) is evicted on frame teardown via `drop-frame-state!`
-  ;; (rf2-cpbut). This is a MEMORY eviction before it is a correctness one:
+  ;; `run-state`) is evicted on frame teardown via `drop-frame-state!`.
+  ;; This is a MEMORY eviction before it is a correctness one:
   ;; the violations bag holds raw axe-core violation objects, and each one
   ;; references the offending elements through `:nodes` / `:target`, so an
   ;; un-evicted entry pins the destroyed variant's detached DOM subtree for
@@ -130,15 +130,14 @@
      `subscribe`'s `interop/debug-enabled?` gate). See
      `re-frame.story.sub-overrides` ns docstring §STATUS.
 
-     The substrate is READ off the variant, not assumed. rf2-3afns: this hook
-     passed a LITERAL `:reagent` into the seam, so `render-variant` painted a
-     `:substrates #{:uix}` variant under Reagent — the same defect the canvas
-     single-pane branch carried, which is why the two agreed with each other.
+     The substrate is READ off the variant, not assumed: passing a LITERAL
+     `:reagent` into the seam would make `render-variant` paint a
+     `:substrates #{:uix}` variant under Reagent.
      The declared set rides the compiled plan at `[:world :substrates]` (folded
      there by `plan/variant-plan`, so it arrives already `:extends`-merged) and
      `rf.story.ui.multi-substrate/single-render-substrate` reduces it to the one
      substrate a single-tree render can paint under. Multi-substrate variants
-     that declare `:reagent` are unaffected."
+     that declare `:reagent` paint under Reagent, the host default."
      [{:keys [view frame effective-args sub-overrides decorators plan]}]
      (rf.story.sub-overrides/override-provider sub-overrides
        (rf.story.ui.multi-substrate/render-decorated-view
@@ -161,8 +160,8 @@
      (spec/017 §View-state subscription overrides). The result is whatever
      that substrate's render fn returns — a hiccup tree for the `:reagent`
      default — and it is the SAME decorated render the canvas paints, so
-     render-variant and the live shell agree. They agree on the SUBSTRATE too
-     (rf2-3afns): both read the declared set rather than assuming Reagent.
+     render-variant and the live shell agree. They agree on the SUBSTRATE too:
+     both read the declared set rather than assuming Reagent.
 
      The bare JVM installs NO render host, so `render-variant` returns
      `:cannot-run` there rather than a silent empty render."
@@ -187,11 +186,11 @@
    install-late-bind-shims!
    rf.story.layout-debug/install-canonical-layout-debug!
    rf.story.ui.cofx/install-canonical-cofx!
-   ;; The `:settled-boundary-hooks` producer (rf2-ek9qb). Unconditional
+   ;; The `:settled-boundary-hooks` producer. Unconditional
    ;; rather than CLJS-gated: it names no substrate — it reads
    ;; `:flush-render!` off whatever adapter is seated — so it adds nothing
    ;; to the JVM classpath, and on the JVM (no adapter) it resolves to the
-   ;; headless hooks the runner already defaulted to. Installing it in both
+   ;; headless hooks the runner defaults to. Installing it in both
    ;; readers keeps ONE settle story rather than a CLJS-only one.
    rf.story.play.substrate-boundary/install!
    #?@(:cljs [rf.story.ui.multi-substrate/install-reagent-substrate!
