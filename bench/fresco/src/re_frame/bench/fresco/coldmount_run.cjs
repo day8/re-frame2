@@ -1,25 +1,23 @@
 #!/usr/bin/env node
-// THE COLD-MOUNT DOUBLE BUILD, PRICED AGAINST THE MOUNT RED-ZONE — driver
-// (rf2-2rtt6.15; decision input for the rf2-2rtt6.14 ruling).
+// THE COLD-MOUNT DOUBLE BUILD, PRICED AGAINST THE MOUNT RED-ZONE — driver.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/coldmount_run.cjs
+//   node src/re_frame/bench/fresco/coldmount_run.cjs   (from bench/fresco/)
 //   COLDMOUNT_ONLY=M1L1,M1L2 node .../coldmount_run.cjs      # a subset of rows
 //
 // Build once, serve once, load the page ONE ROW AT A TIME, and refuse a
 // figure that moves with its position in the plan. The method is the
 // converged arm's (`p0_converge_run.cjs`), on its witnesses, on its lane;
-// what is new is the pair of transcription arms whose difference is the
+// what this adds is the pair of transcription arms whose difference is the
 // cold-mount double build, and the fraction their delta makes of the
 // UIx-minus-Reagent mount excess measured in the SAME page loads.
 //
 // ## No new build id
 //
-// `implementation/shadow-cljs.edn` is not touched. This rides
-// `:fresco-bench` with an output directory and an `:init-fn` merged in at
-// the CLI — HD-017's seam, the same one every driver in this directory
-// uses. The lane's one cache rule runs first (`lane_cache.cjs`,
-// rf2-2rtt6.20): one build id means one build cache, so it is cleared
-// before the build and the bundle starts cold.
+// This rides `:fresco-bench` with an output directory and an `:init-fn`
+// merged in at the CLI — HD-017's seam, the same one every driver in this
+// directory uses. The lane's one cache rule runs first (`lane_cache.cjs`):
+// one build id means one build cache, so it is cleared before the build
+// and the bundle starts cold.
 //
 // ## Exit codes
 //
@@ -36,20 +34,21 @@
 //      transcription failed the clock fidelity control against the
 //      shipped hook. The records are on stdout before the refusal, so
 //      the evidence survives it; the deltas are void and must not be
-//      quoted (the rf2-2rtt6.12 audit's fail-closed discipline).
+//      quoted (the lane's fail-closed discipline).
 //
 // A Chromium `pageerror` is FATAL: a benchmark that threw and kept going
 // publishes a precise number for a page that is not the page under test.
 //
-// ## WHICH SCHEDULE THESE ROWS SPEAK FOR (rf2-2rtt6.25, audit of #7326)
+// ## WHICH SCHEDULE THESE ROWS SPEAK FOR
 //
 // Every mount this driver provokes runs inside `react-dom/flushSync`, which
 // forces React's passive `useSyncExternalStore` subscribe before control
-// returns — the ordering the rf2-2rtt6.25 provisional hand-off needs to win
-// its race with its own reaper. The public client mount path
+// returns — the ordering the provisional hand-off needs to win its race
+// with its own reaper. The public client mount path
 // (`re-frame.substrate.adapter/render`, a bare `createRoot().render()`) does
-// NOT force it, and when these rows were taken — 2026-07-31, reap horizon
-// `setTimeout 0` — the reaper fired first there and the cold mount rebuilt.
+// NOT force it, and at the reap horizon the published rows were taken
+// under — `setTimeout 0` — the reaper fires first there and the cold mount
+// rebuilds.
 //
 // So the `shipped` arm below is the forced-synchronous MECHANISM arm: it says
 // what the hand-off costs and saves when it runs to completion, and it is NOT
@@ -58,10 +57,10 @@
 // costs a construction, never correctness (Spec 006 §Render-phase provisional
 // acquisition and commit adoption).
 //
-// UPDATE, 2026-08-03 (rf2-2rtt6.71): the reap horizon is now `setTimeout 4`,
-// ruled off the swap-the-primitive probe — a measured margin, not a React
-// guarantee. No row here was re-taken, so the qualifier above stands as
-// written, and the browser assertions do not witness the win either (that
+// The spine's reap horizon is `setTimeout 4`, set off the
+// swap-the-primitive probe — a measured margin, not a React guarantee. The
+// published rows are the `setTimeout 0` ones, so the qualifier above
+// stands, and the browser assertions do not witness the win either (that
 // runner's render-to-flush gap measures >128 ms).
 
 'use strict';
@@ -70,14 +69,14 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-// The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
+// The directory's ONE navigation, with its ceiling named.
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
-// The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
+// The directory's ONE sentinel wait, raced against the page dying.
 const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -89,7 +88,7 @@ const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.COLDMOUNT_PORT || 8143);
 
 // One row, one page, one fresh heap. M1 is the primary witness; M2 is
-// DIAGNOSTIC per rf2-2rtt6.2's own grading and stays diagnostic here. The
+// DIAGNOSTIC by P0's own grading and stays diagnostic here. The
 // layer ladder is the split that attributes the double-build clock between
 // the reaction allocation (layer 1, no declared-input chain) and the per-hop input
 // rebuild + re-deref (the L2−L1 / L3−L2 increments).
@@ -124,7 +123,7 @@ const CONFIG_MERGE =
 
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[coldmount] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[coldmount] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[coldmount] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   shadowBuild({
@@ -159,15 +158,15 @@ function serve() {
 }
 
 async function runRow(browser, row) {
-  // A FRESH PAGE per row: the fault this lane's drivers were rebuilt
-  // around is a page that gets slower the longer it runs, and a reused
-  // page carries whatever caused that across the row boundary.
+  // A FRESH PAGE per row: the fault this lane's drivers are built around
+  // is a page that gets slower the longer it runs, and a reused page
+  // carries whatever caused that across the row boundary.
   const page = await browser.newPage();
   page.on('console', (msg) => {
     const t = msg.text();
     if (t.startsWith(';; ') || t.startsWith('[coldmount]')) console.log(t);
   });
-  // Watching starts BEFORE the navigation (rf2-f5roa): a throw before the
+  // Watching starts BEFORE the navigation: a throw before the
   // sentinel must not cost the full budget before the driver looks.
   const watch = watchPage(page, `coldmount:${row.id}`);
 
@@ -289,8 +288,8 @@ async function runRow(browser, row) {
     process.exit(1);
   }
   // LAST among the gates, so every more specific failure names itself
-  // first. Exit 4 is the fail-closed refusal the rf2-2rtt6.12 audit
-  // established: the table was written, and it may not be published.
+  // first. Exit 4 is the lane's fail-closed refusal: the table was
+  // written, and it may not be published.
   const claimFailed = outcomes.filter((o) => o.claimFailed);
   if (claimFailed.length > 0) {
     console.error(
