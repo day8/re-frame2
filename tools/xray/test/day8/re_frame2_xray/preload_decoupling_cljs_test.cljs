@@ -1,27 +1,27 @@
 (ns day8.re-frame2-xray.preload-decoupling-cljs-test
-  "rf2-5w06uu — requiring the manual facade `day8.re-frame2-xray.core`
+  "Requiring the manual facade `day8.re-frame2-xray.core`
   must NOT trigger preload side-effects before the host's
   `configure!` / `init!`.
 
-  ## The bug
+  ## Why it matters
 
-  `core.cljs` used to `(:require [day8.re-frame2-xray.preload …])`, and
   `preload.cljs`'s top-level `(when interop/debug-enabled? …)` boot block
   registers the trace + epoch collectors, installs the browser-API
   globals, attaches the Ctrl+Shift+C keybinding, applies persisted
-  settings, and schedules auto-open. So a host that chose the MANUAL
-  `require core → configure! → init!/open!` integration got the full
-  zero-config preload behaviour merely by requiring `core` — defeating
-  `configure!`-before-auto-open ordering and boot flags like
+  settings, and schedules auto-open. Were `core.cljs` to
+  `(:require [day8.re-frame2-xray.preload …])`, a host that chose the
+  MANUAL `require core → configure! → init!/open!` integration would get
+  the full zero-config preload behaviour merely by requiring `core` —
+  defeating `configure!`-before-auto-open ordering and boot flags like
   `:rf.xray/auto-open? false` / `:rf.xray/keybinding-enabled? false`.
 
-  ## The fix under test
+  ## The contract under test
 
-  The callable install primitives moved to the inert-on-load
+  The callable install primitives live in the inert-on-load
   `day8.re-frame2-xray.install` ns; `core` requires THAT (not `preload`).
-  Requiring / touching the `core` facade's manual surface is now inert —
+  Requiring / touching the `core` facade's manual surface is inert —
   the install side-effects fire only when the host calls `core/init!`
-  (or `core/open!`). The zero-config `:devtools/preloads` path still
+  (or `core/open!`). The zero-config `:devtools/preloads` path
   auto-installs (the preload boot block invokes the same `install/*`
   helpers + `keybinding/attach!`).
 
@@ -99,7 +99,7 @@
 
 ;; ---- stub js/document + js/window ----------------------------------------
 ;;
-;; Mirrors keybinding_cljs_test's rf2-higwg stub-and-detect pattern.
+;; Mirrors keybinding_cljs_test's stub-and-detect pattern.
 
 (defn- can-stub? [prop]
   (let [marker (js-obj "rf2-5w06uu-marker" true)
@@ -149,7 +149,7 @@
 ;; ---- (1) manual facade is inert until init! ------------------------------
 
 (deftest requiring-core-and-touching-config-is-inert
-  (testing "rf2-5w06uu — the manual `core` facade's config surface does NOT
+  (testing "the manual `core` facade's config surface does NOT
             register the trace/epoch collectors (the manual require/use path
             is side-effect-free until init!/open!)"
     ;; Baseline: clear-world! left the registries empty.
@@ -158,8 +158,8 @@
     (is (not (epoch-collector-registered?))
         "no epoch collector registered at baseline")
     ;; Exercise the manual facade's config surface — the host's
-    ;; configure!-at-boot path. Before the fix, `core`'s require of
-    ;; `preload` had already run the boot block; now these are inert.
+    ;; configure!-at-boot path. Were `core` to require `preload`, the
+    ;; boot block would already have run; these calls are inert.
     (core/configure! {:rf.xray/auto-open? false
                       :rf.xray/keybinding-enabled? false})
     (core/set-auto-open! false)
@@ -172,7 +172,7 @@
         "configure! did NOT mount/auto-open the shell")))
 
 (deftest init!-performs-the-manual-install
-  (testing "rf2-5w06uu — core/init! explicitly performs the documented
+  (testing "core/init! explicitly performs the documented
             manual install: trace + epoch collectors registered"
     (is (not (trace-collector-registered?)) "clean before init!")
     (is (not (epoch-collector-registered?)) "clean before init!")
@@ -183,7 +183,7 @@
         "init! registered the epoch collector")))
 
 (deftest init!-does-not-auto-open
-  (testing "rf2-5w06uu — the manual init! path does NOT auto-open the shell
+  (testing "the manual init! path does NOT auto-open the shell
             (auto-open is a zero-config preload concern; the manual path is
             open-explicit via core/open!)"
     (core/init!)
@@ -191,16 +191,16 @@
         "init! did not mount the shell — host must call open! explicitly")))
 
 (deftest init!-installs-browser-api-exports-for-late-bound-actions
-  (testing "rf2-xxo3zz — manual core/init! installs the browser-API exports on
+  (testing "manual core/init! installs the browser-API exports on
             window.day8.re_frame2_xray.*, the SAME exports the preload boot
             block installs. The palette pop-out fx (palette/events §mount-popout!
             → popout_BANG_) and the Settings panel-position effect
             (settings/effects/apply-panel-position! → open_BANG_ / open_overlay_BANG_,
             visible-shell? → status) late-bind their mount calls through these
             exports to break the mount→shell→palette/settings→mount require cycle.
-            Before this fix init! registered every handler but left the exports
-            uninstalled, so those late-bound actions silently no-op'd under the
-            manual install path while the preload path worked."
+            Were init! to register every handler but leave the exports
+            uninstalled, those late-bound actions would silently no-op under
+            the manual install path while the preload path worked."
     (with-stub-dom*
       (fn [{:keys [window]}]
         ;; Baseline: clear-world! ran in the fixture; the stub window is a
@@ -225,7 +225,7 @@
 ;; ---- (2) configure! before init! wins deterministically ------------------
 
 (deftest configure!-before-init!-suppresses-keybinding
-  (testing "rf2-5w06uu — core/configure! {:rf.xray/keybinding-enabled? false}
+  (testing "core/configure! {:rf.xray/keybinding-enabled? false}
             BEFORE init! wins: init!'s keybinding/attach! reads the config
             slot the host already set and does NOT attach the keydown
             listener."
@@ -243,7 +243,7 @@
             "no keydown listener attached to document")))))
 
 (deftest configure!-keybinding-enabled-true-attaches-on-init!
-  (testing "rf2-5w06uu — control: with keybinding enabled (default), init!
+  (testing "control: with keybinding enabled (default), init!
             DOES attach under a DOM, proving the suppression above is the
             config slot's effect, not a stub artefact."
     (with-stub-dom*
@@ -256,9 +256,9 @@
             "exactly one keydown listener on document")))))
 
 (deftest configure!-auto-open-false-is-honoured-at-boot
-  (testing "rf2-5w06uu — :rf.xray/auto-open? false set via configure! before
+  (testing ":rf.xray/auto-open? false set via configure! before
             boot wins: the preload's boot-on-runtime-ready! records the
-            disabled diagnostic rather than mounting. rf2-avi7 — it still
+            disabled diagnostic rather than mounting. It still
             SEATS `:rf/xray`; only the OPEN is suppressed."
     (core/configure! {:rf.xray/auto-open? false})
     (is (= false (config/auto-open-enabled?))
@@ -269,10 +269,10 @@
     (is (= :auto-open-disabled (get-in (mount/status) [:diagnostic :reason]))
         "auto-open short-circuited to the disabled diagnostic")))
 
-;; ---- (3) the zero-config :devtools/preloads path still auto-installs ------
+;; ---- (3) the zero-config :devtools/preloads path auto-installs ------------
 
 (deftest preload-boot-helpers-still-install
-  (testing "rf2-5w06uu — the zero-config preload path still works: invoking
+  (testing "the zero-config preload path works: invoking
             the install helpers + keybinding/attach! (exactly what the
             preload boot block does) registers the collectors, installs the
             browser globals, and attaches the keybinding."
@@ -302,19 +302,19 @@
           (is (fn? (aget xray "toggle_BANG_"))
               "the toggle! launch API is exported on the global"))))))
 
-;; ---- (2b) install-browser-api-exports! `core` branch (rf2-3t7rs8) --------
+;; ---- (2b) install-browser-api-exports! `core` branch --------------------
 ;;
-;; rf2-3t7rs8 finding 2: install-browser-api-exports! (install.cljs:156-173)
-;; exports onto `window.day8.re_frame2_xray` and CONDITIONALLY augments an
+;; install-browser-api-exports! (install.cljs) exports onto
+;; `window.day8.re_frame2_xray` and CONDITIONALLY augments an
 ;; EXISTING `window.day8.re_frame2_xray.core`, explicitly NEVER pre-creating
 ;; `core` (pre-creating it races `goog.provide` in browser-test with a
-;; "Namespace already declared" failure). The pre-existing coverage above
-;; only asserted the top-level `toggle_BANG_` export — neither conditional
-;; `core` branch was pinned. These two cases close that gap without relying
-;; on real browser globals (they drive the stub window directly).
+;; "Namespace already declared" failure). The coverage above asserts only
+;; the top-level `toggle_BANG_` export; these two cases pin both arms of the
+;; conditional `core` branch without relying on real browser globals (they
+;; drive the stub window directly).
 
 (deftest install-browser-api-exports-does-not-create-core-when-absent
-  (testing "rf2-3t7rs8 — install-browser-api-exports! must NOT pre-create
+  (testing "install-browser-api-exports! must NOT pre-create
             `core`. With no pre-existing core object on the stub window,
             `re_frame2_xray.core` stays absent after install (the
             `when-let [core …]` guard skips the augment branch). This is
@@ -335,7 +335,7 @@
                no-op, never a `goog.provide`-racing object creation"))))))
 
 (deftest install-browser-api-exports-augments-preexisting-core
-  (testing "rf2-3t7rs8 — when Closure has ALREADY created the real
+  (testing "when Closure has ALREADY created the real
             `window.day8.re_frame2_xray.core` namespace object, install!
             augments it in place with the launch API (the `when-let
             [core …]` branch fires). The existing object identity is
@@ -371,7 +371,7 @@
                  core augment")))))))
 
 (deftest install-ns-load-is-side-effect-free
-  (testing "rf2-5w06uu — the install ns is load-inert: its re-exports are
+  (testing "the install ns is load-inert: its re-exports are
             identity-equal to the preload re-exports (one shared backing
             fn), so requiring either reaches the same callable helpers and
             neither load registers anything on its own."
