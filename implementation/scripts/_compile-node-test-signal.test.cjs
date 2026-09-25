@@ -3,21 +3,21 @@
 'use strict';
 
 /*
- * rf2-i7q4 — a signal-killed compile must not report success.
+ * A signal-killed compile must not report success.
  *
- * THE DEFECT. Node's `close` event reports a signal death as
- * `(code=null, signal='SIGTERM')`. `compile-node-test.cjs` kept only the first
- * argument, and its abnormal-exit branch returned that `null` straight to
- * `process.exit()` — which reads a non-number as SUCCESS. The wrapper printed
- * `did not complete (exit null)` on stderr and handed its caller exit 0 in the
+ * THE HAZARD. Node's `close` event reports a signal death as
+ * `(code=null, signal='SIGTERM')`. A wrapper that keeps only the first
+ * argument and returns that `null` straight to `process.exit()` exits with
+ * SUCCESS, because `process.exit()` reads a non-number that way: it prints
+ * `did not complete (exit null)` on stderr and hands its caller exit 0 in the
  * same breath. An OOM kill, a cancelled CI job, or an administrative taskkill
- * of the shadow-cljs JVM all land there, and every one of them recorded a
+ * of the shadow-cljs JVM all land there, and every one of them would record a
  * green compile.
  *
  * WHY THIS RUNS A REAL PROCESS. The defect lives at the process boundary: it
  * is about what Node reports when a child is killed, and what
  * `process.exit(null)` then does. A unit test over a hand-made result object
- * would assert the fix's own arithmetic back at itself and could not see
+ * would assert the wrapper's own arithmetic back at itself and could not see
  * either half. So this suite kills a REAL child with a REAL signal and reads
  * the REAL exit status of the REAL CLI:
  *
@@ -42,7 +42,7 @@
  * about signals, and neither number means anything.
  *
  * EXPECTED EXIT CODES, stated per arm, because refusing IS this wrapper's job:
- * the signal arm expects 1 (and expected 0 before the fix — that is the bug),
+ * the signal arm expects 1 (a 0 there is the bug),
  * the control arm expects 0, the numeric-status arm expects the child's own 3,
  * and the missing-output arm expects 1.
  *
@@ -66,7 +66,7 @@ const { test, run } = createPolicyTestSuite('compile-node-test-signal');
 
 // The lane holds the two fixture programs and the wrapper's `:output-to`
 // target. Per-process and torn down by the shared helper, so a concurrent
-// sibling suite in the same checkout is never touched (rf2-2i1ay).
+// sibling suite in the same checkout is never touched.
 const lane = makeScratchDir(REPO_ROOT, 'rf2-i7q4-signal');
 
 // A stand-in for shadow-cljs. The wrapper spawns whatever
@@ -165,7 +165,7 @@ function runWrapper(mode) {
 
 // ── The defect ───────────────────────────────────────────────────────────
 
-// EXPECTED EXIT: 1. Before the fix this arm read 0 — the whole bug.
+// EXPECTED EXIT: 1. A 0 from this arm is the whole bug.
 test('a signal-killed child makes the CLI exit 1 and names the signal (rf2-i7q4)', () => {
   // A stale bundle from a previous, successful compile. The wrapper deletes
   // `:output-to` before every attempt, and a signal must not resurrect that
@@ -187,9 +187,9 @@ test('a signal-killed child makes the CLI exit 1 and names the signal (rf2-i7q4)
     /terminated by signal SIGTERM/,
     `the diagnostic must name the signal; stderr was:\n${result.stderr}`,
   );
-  // Nothing in the diagnostic may still describe the death as an exit status:
-  // "exit null" is the sentence that used to sit beside the false green.
-  assert.doesNotMatch(result.stderr, /exit null/, 'stderr still calls a signal death an exit status');
+  // Nothing in the diagnostic may describe the death as an exit status:
+  // "exit null" is the sentence that sits beside the false green.
+  assert.doesNotMatch(result.stderr, /exit null/, 'stderr calls a signal death an exit status');
   assert.equal(
     fs.existsSync(OUTPUT_ABS),
     false,
@@ -223,8 +223,8 @@ test("a numeric child status is the child's own, not a normalised 1", () => {
   assert.match(result.stderr, /did not complete \(exit 3\)/, result.stderr);
 });
 
-// EXPECTED EXIT: 1. Preserved from before this change: a child that exits 0
-// without writing the bundle is still fatal.
+// EXPECTED EXIT: 1. A child that exits 0 without writing the bundle is
+// fatal.
 test('a clean exit that writes no bundle is still refused', () => {
   fs.rmSync(OUTPUT_ABS, { force: true });
   const result = runWrapper('no-output');
