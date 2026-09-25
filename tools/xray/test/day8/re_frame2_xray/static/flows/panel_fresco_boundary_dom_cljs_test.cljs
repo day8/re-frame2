@@ -1,17 +1,17 @@
 (ns day8.re-frame2-xray.static.flows.panel-fresco-boundary-dom-cljs-test
-  "The Static Flows tab re-authored in the re-frame-native view layer, read
-  off a real React commit (rf2-k97c.3).
+  "The Static Flows tab in the re-frame-native view layer, read off a real
+  React commit.
 
-  `static.flows.panel/Panel` is now an `rf.fresco/defview` reading through
+  `static.flows.panel/Panel` is an `rf.fresco/defview` reading through
   Fresco's shipped collector rather than an `rf/reg-view` reading through
   whatever view build the installed substrate adapter supplies. This file
-  is the behavioural evidence for that swap.
+  is the behavioural evidence for that boundary.
 
-  The five rows are the template `static/interceptors/panel_fresco_boundary
-  _dom_cljs_test` established, adapted to this panel's own read, its own
+  The five rows follow the template of `static/interceptors/panel_fresco_
+  boundary_dom_cljs_test`, adapted to this panel's own read, its own
   dependency lever and its own two key sites.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes
@@ -30,13 +30,12 @@
   frame-bound. A click row would assert about a control the panel does not
   have.
 
-  ## W5 IS NOT ONE OF THE SIX, AND THIS PANEL NEEDED IT TWICE OVER
+  ## W5 IS NOT ONE OF THE SIX, AND THIS PANEL NEEDS IT AT TWO SITES
 
-  The migration moved React keys out of Clojure metadata — which Fresco's
-  codec reads NOWHERE — and onto keyed fragments' attribute maps, at TWO
+  The panel carries its React keys on keyed fragments' attribute maps, not
+  in Clojure metadata — which Fresco's codec reads NOWHERE — at TWO
   independent sites: the catalogue row, and each row's inputs `for` seq.
-  The inputs site had already been wrong ONCE before, as `^{:key …}` on a
-  CALL FORM, which reached React not at all.
+  `^{:key …}` on a CALL FORM would reach React not at all.
 
   A LOST KEY DOES NOT FAIL — it degrades into index-based reconciliation,
   which paints identically and corrupts identity only once the list changes
@@ -50,8 +49,8 @@
   W5 covers the CATALOGUE ROW site, whose key is `\"<frame>/<flow-id>\"` —
   domain-shaped, so it survives a reorder and a DOM-identity row can see it.
 
-  A sibling row was written for the INPUTS SEQ site and it went RED. The red
-  was the ROW being wrong, not the panel. That seq's key expression is
+  A sibling row for the INPUTS SEQ site goes RED against a correct panel:
+  the red is the ROW being wrong, not the panel. That seq's key expression is
   `(str \"in-\" i)` — POSITIONAL. Removing the head input shifts the
   survivor from `in-1` to `in-0`, so React correctly reuses the removed
   head's node for it, and the survivor is legitimately NOT the node it was.
@@ -59,10 +58,9 @@
   operation a reorder-identity row performs, so there is nothing at that
   site for a DOM row to witness.
 
-  The key expression was deliberately left alone: rf2-k97c.3's key ruling is
-  that expressions do not change during the migration, and a value-based key
-  here (`pr-str` of the path) could also collide when one flow lists the same
-  input path twice. So the inputs site's evidence stays where it can be real
+  The key expression stays positional: a value-based key here (`pr-str` of
+  the path) could collide when one flow lists the same input path twice. So
+  the inputs site's evidence lives where it can be real
   — `panel_cljs_test` asserts the key is present IN THE ATTRIBUTE MAP, which
   is the codec-readable spelling, and distinct within any one row's seq.
 
@@ -82,7 +80,7 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is the family Xray supports —
   because the claim being made is that the boundary is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing exactly as it is in the template:
   the fixture's default ambient scope is still in effect during a
@@ -292,10 +290,10 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-read-lands-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Static Flows panel commits real DOM
+  (testing "the Static Flows panel commits real DOM
             through the registry entry the Static shell mounts, and its
             `rf.fresco/sub` read resolves against the frame the enclosing
-            `frame-provider` named rather than the ambient one. Epic criteria
+            `frame-provider` named rather than the ambient one. Criteria
             1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -336,9 +334,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panel re-renders itself and commits new
+  (testing "the mounted panel re-renders itself and commits new
             DOM when its read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control that
+            nothing it watches moved. Criterion 2, with the control that
             makes the update mean liveness rather than a commit that simply
             had not happened yet."
     (if-not (browser?)
@@ -407,9 +405,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated panel contributes
+  (testing "rendering the panel contributes
             NOTHING to the substrate's view-trace stream, even when it is
-            mounted INSIDE an application frame. Epic criterion 5, proven
+            mounted INSIDE an application frame. Criterion 5, proven
             structurally rather than by the `:rf/xray` frame gate: a Fresco
             boundary is not a substrate view render, so there is no event to
             gate. The control is an ordinary `reg-view` in the same root, the
@@ -466,12 +464,12 @@
   (zero? (ref-count-of :rf/xray tab-data-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the panel releases its subscription
+  (testing "unmounting the panel releases its subscription
             reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+            count rather than a higher one. Criterion 6, and the number
+            that separates a correct binding from a four-call interop
+            binding, under which the `:rf/xray` ref-count would climb across
+            renders and never fall on unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once: the collector gives a cell whose last reader
@@ -527,9 +525,9 @@
 ;; ===========================================================================
 
 (deftest w5-row-identity-survives-a-head-removal
-  (testing "rf2-k97c.3 — the row React key the migration moved out of Clojure
-            metadata and into a keyed fragment's ATTRIBUTE MAP is the key
-            React actually reconciles on. Removing the HEAD of a two-row list
+  (testing "the row React key, carried on a keyed fragment's ATTRIBUTE MAP
+            rather than in Clojure metadata, is the key React actually
+            reconciles on. Removing the HEAD of a two-row list
             leaves the survivor as the SAME DOM node; under index-based
             reconciliation — which is what a lost key silently degrades to —
             React would reuse the head's node for the survivor and destroy the
