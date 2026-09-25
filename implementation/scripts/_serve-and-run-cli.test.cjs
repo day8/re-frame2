@@ -2,15 +2,13 @@
 'use strict';
 
 /*
- * CLI-option contract for serve-and-run-browser-tests.cjs (rf2-hmgwk2).
+ * CLI-option contract for serve-and-run-browser-tests.cjs.
  *
  * The two production browser gates (test:browser-prod-elision,
- * test:browser-schemas-boundary-prod) used to route through mirrored
- * ~81-line wrapper launchers whose only job was to set BROWSER_TEST_ROOT /
- * BROWSER_TEST_PORT before spawning an inner serve-and-run-browser-tests.cjs
- * — an extra Node process per gate. rf2-hmgwk2 collapsed them: the shared
- * runner now takes strict `--root` / `--port` options and the gates call it
- * directly.
+ * test:browser-schemas-boundary-prod) call the shared runner directly with
+ * strict `--root` / `--port` options, rather than through wrapper launchers
+ * that set BROWSER_TEST_ROOT / BROWSER_TEST_PORT before spawning an inner
+ * serve-and-run-browser-tests.cjs — an extra Node process per gate.
  *
  * This suite pins the STRICT half of that contract — the error paths the two
  * gates' happy-path browser runs don't exercise. Each spawns the real runner
@@ -20,7 +18,7 @@
  *   - an unknown flag is rejected,
  *   - a `--port` that is not a 1..65535 integer is rejected,
  *   - a flag missing its value is rejected,
- *   - a CLI `--root` cannot bypass the rf2-o38lb path policy (an out-of-tree
+ *   - a CLI `--root` cannot bypass the path policy (an out-of-tree
  *     root is refused, just as $BROWSER_TEST_ROOT would be).
  *
  * These all fail at module load (option parse / enforcePolicy), so the suite
@@ -92,7 +90,7 @@ test('a CLI --root cannot bypass the path policy (rf2-hmgwk2 / rf2-o38lb)', () =
   // BROWSER_TEST_ROOT env override would be — the CLI is not an escape hatch.
   // Process-scoped name: a FIXED machine-global path is shared by every
   // concurrent worktree on the box, and the policy this asserts is about
-  // the path being out-of-tree, not about its spelling (rf2-2i1ay).
+  // the path being out-of-tree, not about its spelling.
   const outOfTree = path.join(os.tmpdir(), `rf2-hmgwk2-out-of-tree-${process.pid}`);
   const { status, out } = runWith(['--root', outOfTree]);
   assert.notEqual(status, 0, `expected non-zero exit; got ${status}`);
