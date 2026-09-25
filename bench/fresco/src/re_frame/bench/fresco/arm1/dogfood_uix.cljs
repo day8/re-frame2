@@ -9,8 +9,8 @@
   `use-frame`, `:on-change` on controlled inputs, shorthand closures at
   the one-expression event positions. The control is kept as good as its
   authors can make it, deliberately — a comparator quoted from memory, or
-  written as a strawman, would invalidate the preference case it anchors
-  (rf2-2rtt6.67). The one shared piece is the state layer
+  written as a strawman, would invalidate the preference case it anchors.
+  The one shared piece is the state layer
   (`re-frame.bench.fresco.front.dogfood`): the events and subscriptions
   are identical by construction, so what differs between the renderings
   is the view layer and nothing else. The intents are NOT shared — each
@@ -19,9 +19,8 @@
 
   ## Three placement costs — stated as costs, not as impossibilities
 
-  An earlier revision of this docstring called these three things the
-  rendering *cannot express*. That was too strong, and the merged-PR
-  audit of #7395 was right to catch it. React's rules constrain WHERE a
+  None of these three is something the rendering *cannot express*.
+  React's rules constrain WHERE a
   read may be written, not WHETHER the value can be had; each item below
   is available to a UIx author at a stated structural price. The price
   is the finding.
@@ -61,9 +60,9 @@
   must read the NATIVE event ([[ime-gated]] — the same law
   `front.intent/composing?` centralises for every data key-map, measured
   at `arm1_controlled_grid_dom_cljs_test/reacts-synthetic-keyboard-event-drops-is-composing`).
-  This file's first cut read the synthetic event and carried exactly that
-  bug; the intent-parity witness's composing probe is what a regression
-  reds against.
+  A handler reading the synthetic event would carry exactly that bug; the
+  intent-parity witness's composing probe is what a regression reds
+  against.
 
   What the rendering needs beyond React itself: nothing. No macro, no
   codec, no lowering — which is raw UIx's own half of the preference
@@ -72,7 +71,7 @@
   costs above.
 
   Not a third runtime: this comparator spine's substrate is the one the
-  retired grouped rendering rides too, and the DOM this file builds is
+  grouped rendering rides too, and the DOM this file builds is
   asserted identical to the collector's — elements AND dispatched
   intents — by `arm1_dogfood_dom_cljs_test`."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
