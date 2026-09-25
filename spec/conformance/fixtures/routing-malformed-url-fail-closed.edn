@@ -2,13 +2,11 @@
 ;;
 ;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding.
 ;; Hostile or partner-malformed URLs (`%`, `%a`, `%XX`, ...) MUST never
-;; throw through the matcher. Per the rf2-tfgdv security review and
-;; rf2-4ic0f follow-up the fail-closed contract is uniform across the
+;; throw through the matcher. The fail-closed contract is uniform across the
 ;; URL surface — path captures, query keys, query values, AND the
 ;; `#fragment` portion all surface as a route-miss with the structured
 ;; `:reason :malformed-url` discriminator on the `:rf.route/not-found`
-;; slice. The pre-rf2-4ic0f "lenient drop the bad query pair" branch is
-;; gone (pre-alpha — no back-compat shim).
+;; slice. There is no "lenient drop the bad query pair" branch.
 ;;
 ;; `match-url` itself returns nil for the malformed case (the same
 ;; sentinel the no-route-matched branch uses);
@@ -21,7 +19,7 @@
 {:fixture/id           :routing/malformed-url-fail-closed
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url}
- :fixture/doc          "Malformed percent-encoding in path, query, or fragment fails closed as a route-miss (`match-url` returns nil). The lenient `drop the bad query pair` branch is gone — pre-alpha, no back-compat shim. `:rf.route/handle-url-change` translates the miss to `:rf.route/not-found` with `{:url url :reason :malformed-url}`."
+ :fixture/doc          "Malformed percent-encoding in path, query, or fragment fails closed as a route-miss (`match-url` returns nil). There is no lenient `drop the bad query pair` branch. `:rf.route/handle-url-change` translates the miss to `:rf.route/not-found` with `{:url url :reason :malformed-url}`."
 
  :fixture/registry
  {:route
@@ -37,7 +35,7 @@
   {:call :match-url :url "/articles/x%XX"         :expect nil}    ;; non-hex %-pair
 
   ;; --- Malformed in query ----------------------------------------------
-  ;; Pre-rf2-4ic0f the bad pair was silently dropped; post-rf2-4ic0f the
+  ;; A bad pair is not silently dropped; the
   ;; whole URL fails closed. `match-url` returns nil -- the
   ;; `:rf.route/not-found` slice writeback happens at `:rf.route/handle-url-change`.
   {:call :match-url :url "/search?x=%"            :expect nil}    ;; bad value
