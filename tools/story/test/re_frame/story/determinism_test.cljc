@@ -1,7 +1,7 @@
 (ns re-frame.story.determinism-test
   "Tests for the determinism gate `assert-deterministic` + the per-run
-  stamp strip the gate adds to `canonicalize` (rf2-5x1wt.8,
-  spec/017-Testing-Story.md §Determinism gate).
+  stamp strip the gate adds to `canonicalize`
+  (spec/017-Testing-Story.md §Determinism gate).
 
   Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
   build:
@@ -13,7 +13,7 @@
     set of hand-built run-results.
   - HEADLESS gate (against a live frame): `assert-deterministic` replays
     into N FRESH frames and reports `:deterministic` / `:non-deterministic`
-    / `:cannot-run` — the §A4 acceptance bullets:
+    / `:cannot-run` — the acceptance bullets:
       • same event program twice is equal after canonicalization;
       • a real semantic difference IS detected;
       • volatile fields do NOT cause false drift;
@@ -31,7 +31,7 @@
             [re-frame.story.registrar   :as rf.story.registrar]))
 
 ;; ===========================================================================
-;; PURE: the per-run stamp strip in canonicalize  (rf2-5x1wt.8)
+;; PURE: the per-run stamp strip in canonicalize
 ;; ===========================================================================
 ;;
 ;; A fresh-frame replay restarts the process-global epoch / dispatch /
@@ -172,11 +172,10 @@
       (is (= {:http/get :http/stub} (:fx-decisions a))
           "[:world :frame :fx-overrides] become :fx-decisions")
       (is (not (contains? (:source a) :args))
-          "the folded setup already holds its resolved args (rf2-30a8k)")))
+          "the folded setup already holds its resolved args")))
 
   (testing "a plan of a REGISTERED variant leaves [:world :setup] out of the
-            program: promotion :extends that variant, which supplies it
-            (rf2-hyheo)"
+            program: promotion :extends that variant, which supplies it"
     (rf.story.registrar/reg-variant* :story.det/registered
       {:setup [[:dispatch [:seed]]] :script [[:dispatch [:act]]]})
     (try
@@ -190,7 +189,7 @@
             "the artifact records its source, so promotion can extend it")
         (is (= {:n 9} (get-in a [:source :args]))
             "and the args the plan resolved, which that setup was compiled
-             with (rf2-30a8k)"))
+             with"))
       (finally (rf.story.registrar/unregister! :variant :story.det/registered)))))
 
 ;; ===========================================================================
@@ -217,11 +216,11 @@
       (is (not= (get-in c [:divergence :run-hash-0])
                 (get-in c [:divergence :run-hash-n])))))
 
-  ;; rf2-12wg5 — compare-runs canonicalizes each run-slice ONCE and derives
+  ;; compare-runs canonicalizes each run-slice ONCE and derives
   ;; the hash from the canon (via rf.story.fingerprint/hash-canonical) rather than
   ;; re-canonicalizing inside run-hash. The reported hashes MUST stay
   ;; byte-identical to run-hash, so a recorded :run-hash and a
-  ;; determinism-gate hash never disagree. (rf2-lvrqa — the type-tagged
+  ;; determinism-gate hash never disagree. (The type-tagged
   ;; canonical-form is NOT idempotent, so the canon is hashed via
   ;; hash-canonical with no second canonicalization pass.)
   (testing "the reported hashes are byte-identical to rf.story.fingerprint/run-hash (no double canon)"
@@ -237,16 +236,15 @@
       (is (= (rf.story.fingerprint/run-hash r0) (:run-hash c))
           "the shared run-hash is the canonical run-hash"))))
 
-;; rf2-ewrse — the determinism gate inherited the rf2-4gwja fn-slot
-;; nondeterminism: a raw fn in the run-slice (`:app-db` or an effect `:args`)
-;; re-allocated per replay hashed by object identity, so compare-runs read a
-;; genuinely-deterministic program as a FALSE `:non-deterministic`. The
-;; rf2-4gwja `opaque-fn` fold closes it — these runs must now compare
-;; `:deterministic?` true.
+;; A raw fn in the run-slice (`:app-db` or an effect `:args`) is
+;; re-allocated per replay; hashed by object identity it would make
+;; compare-runs read a genuinely-deterministic program as a FALSE
+;; `:non-deterministic`. Canonicalization folds every fn to the `opaque-fn`
+;; sentinel, so these runs must compare `:deterministic?` true.
 (deftest compare-runs-fn-slot-is-deterministic
   (testing "two runs whose ONLY difference is the IDENTITY of fns in :app-db
-            / effect :args compare deterministic (rf2-ewrse) — each replay
-            re-allocates the closure, the exact false-RED the gate produced"
+            / effect :args compare deterministic — each replay re-allocates
+            the closure, which an identity hash would read as a false RED"
     (let [run-with (fn [f] {:status :pass
                             :app-db  {:n 1 :cb f}
                             :effects [{:fx-id :x :args f :outcome :ok}]})
@@ -262,7 +260,7 @@
       (is (not (:deterministic? c)) "the :n 1 vs :n 2 difference still diverges"))))
 
 ;; ===========================================================================
-;; HEADLESS gate: against a live frame  (the §A4 acceptance)
+;; HEADLESS gate: against a live frame  (spec/017 §Determinism gate)
 ;; ===========================================================================
 
 (defn- reset-rf! [test-fn]
@@ -295,7 +293,7 @@
   (rf/reg-event :det/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
   (testing "a normalized plan is REFUSED before any replay — the artifact
             `->artifact` builds from it is a program projection, not the
-            variant's run (rf2-3x7nj.31.2)"
+            variant's run"
     (let [plan {:variant/id :story.det/plan
                 :world  {:setup [[:dispatch [:det/seed 10]]]}
                 :script [[:dispatch [:det/bump]]]}
@@ -312,9 +310,9 @@
       (is (= :deterministic (:status res)))
       (is (= 3 (:runs res))))))
 
-;; rf2-3x7nj.31.3 — an fx-error run carries a per-run `:error-trace` pointer
-;; and the raw thrown exception; the gate read a perfectly reproducible
-;; failing program as :non-deterministic.
+;; An fx-error run carries a per-run `:error-trace` pointer and the raw
+;; thrown exception; compared raw, they would make the gate read a perfectly
+;; reproducible failing program as :non-deterministic.
 (deftest gate-throwing-fx-program-is-deterministic
   (testing "a program whose fx throws replays :fail twice and the gate reads
             :deterministic, not :non-deterministic"
@@ -394,14 +392,14 @@
             "the stub fired on BOTH fresh-frame replays")))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.31.2 — a REGISTERED variant: the gate refuses its plan, and the
-;; variant is judged by running it
+;; A REGISTERED variant: the gate refuses its plan, and the variant is
+;; judged by running it
 ;; ===========================================================================
 ;;
 ;; `:rf.story/force-fx-stub` is installed by the variant's own frame and
-;; never reaches `->artifact`, so replaying the plan's artifact called the
-;; REAL effect — and, with an effect that returns normally, the gate still
-;; read `:deterministic`. JVM-only: `rf.story/run` derefs a CompletableFuture
+;; never reaches `->artifact`, so replaying the plan's artifact would call
+;; the REAL effect — and, with an effect that returns normally, the gate
+;; would still read `:deterministic`. JVM-only: `rf.story/run` derefs a CompletableFuture
 ;; here (a Promise on CLJS).
 
 #?(:clj
@@ -448,7 +446,7 @@
            (is (= 2 (count (:assertions r1))) "assertion records ride the compared slice"))
          (testing "compare-runs reads two runs of one variant as the same run —
                    the structural :source / :elapsed-ms strip keeps this
-                   green (rf2-3x7nj.30.4)"
+                   green"
            (is (:deterministic? (rf.story.determinism/compare-runs [r1 r2])))
            (is (= (:run-hash r1) (:run-hash r2)))))
        (finally (rf.story/clear-all!)))))
