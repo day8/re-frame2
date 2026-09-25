@@ -19,8 +19,8 @@
   runtime-db and trace data alone. That is a fact about the PANEL's read
   path, NOT about the Xray package: `tools/xray/deps.edn` declares
   `day8/re-frame2-resources` at top level, and the Derivation-Graph tab —
-  a SEPARATE surface — `:require`s `re-frame.resources.tooling`
-  (rf2-1fc459). `tools/xray/spec/024-Resources-Panel.md` §Decoupling
+  a SEPARATE surface — `:require`s `re-frame.resources.tooling`.
+  `tools/xray/spec/024-Resources-Panel.md` §Decoupling
   keeps the two apart; do not collapse them. The panel reads everything
   decoupled, exactly the way the Routing tab reads the route slice and
   the Machine Inspector reads machine snapshots:
@@ -48,7 +48,7 @@
   value; it renders a `summarize`d shape (type + bounded size + a small
   redaction-aware preview). The on-box render additionally routes each
   payload slot through the framework's wire-elision walker under the
-  observed frame (rf2-9zix0u). This ns supplies the IN-PANEL summary safe to
+  observed frame. This ns supplies the IN-PANEL summary safe to
   render to a human operator and bounded so a huge data blob never
   floods the panel.
 
@@ -81,21 +81,21 @@
 
 (defn resource-payload-path-suffix
   "The lowered-declaration path SUFFIX, relative to an entry's `key-id`, a
-  payload `slot-key` re-roots under (rf2-aw9cfs) — mirrors
+  payload `slot-key` re-roots under — mirrors
   `re-frame.resources.classification/instance-declaration-paths`'s re-rooting:
   a `:data`-rooted declaration lands directly under the entry (`[key-id
   :data]`); a `:scope`- / `:params`-rooted one lands under the scoped-key
   `:resource/key` carrier at index 0 / 2 (the scoped key is `[scope
-  resource-id params]`). `:error` / `:refresh-error` are not currently lowered
+  resource-id params]`). `:error` / `:refresh-error` are not lowered
   by the resources registry but live at the entry's own key, so they re-root
-  there too — a harmless no-match today that is correct the day the registry
-  starts classifying them.
+  there too — a harmless no-match that stays correct if the registry ever
+  classifies them.
 
   The absolute egress `:path` for a slot is
   `(into (conj (vec entries-rel-path) key-id) (resource-payload-path-suffix
   slot-key))`. Canonical home for the pure path logic so every caller — the
   on-box Resources-panel
-  egress (`resources/on-box-resource-egress-fn`, rf2-9zix0u) today — re-roots each slot
+  egress (`resources/on-box-resource-egress-fn`) — re-roots each slot
   to the SAME absolute coordinate the resources artefact lowers its per-instance
   `:sensitive?` / `:large?` declarations to — one source of truth, no drift."
   [slot-key]
@@ -118,7 +118,7 @@
   `:current` route + the per-nav-token unsettled-blocking set from here
   (Spec 016 §Route integration). Duplicated literal — this ns does not
   require the routing artefact; mirrors the literal the resources
-  route integration uses (rf2-m5u3gt)."
+  route integration uses."
   :rf.runtime/routing)
 
 (def routing-blocking-key
@@ -127,8 +127,7 @@
   <nav-token>]` holds `{<key-id> <scoped-key>}` for the resources whose
   blocking ensure has NOT yet settled for that navigation (Spec 016 §Route
   integration — the SSR / route wait points). Byte-keyed, so two `=`-equal
-  requirements with different collection KINDS stay two wait points
-  (rf2-btdl1)."
+  requirements with different collection KINDS stay two wait points."
   :resource-blocking)
 
 ;; ---------------------------------------------------------------------------
@@ -287,9 +286,9 @@
   projections — the `:rf.resource/*` family, the `:rf.mutation/*` family, or
   one of `projection-warning-ops`.
 
-  This is the PRE-FILTER predicate (rf2-y8doi.15). The composite used to hand
-  the WHOLE trace buffer to a dozen projections, each of which re-scanned it
-  end to end on every trace row; filtering once to the family's own share and
+  This is the PRE-FILTER predicate. Handed the WHOLE trace buffer, a dozen
+  projections would each re-scan it end to end on every trace row;
+  filtering once to the family's own share and
   feeding the projections from that leaves each projection's own filter intact
   (they stay correct on an unfiltered buffer) while dropping the per-row cost
   to the share of trace rows this panel can actually use.
@@ -398,7 +397,7 @@
   `{:scope <summary> :resource-id <kw> :params <summary>}`. A malformed
   key (not a 3-vector) summarizes the whole key as a single value.
 
-  Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
+  Optional `egress-fn`: `(fn [value] -> egressed)` applied to
   the PII-bearing scope + params BEFORE `summarize`, so an off-box
   (AI / log) caller routes those values through the framework
   `egress-value` walker — a `:sensitive?` slot summarizes as `[redacted]`
@@ -419,10 +418,9 @@
         :params      (summarize nil)}))))
 
 ;; ---------------------------------------------------------------------------
-;; ON-BOX sensitive-resource redaction for the TRACE-BORNE projections
-;; (rf2-y8doi.15, extending rf2-9zix0u).
+;; ON-BOX sensitive-resource redaction for the TRACE-BORNE projections.
 ;;
-;; rf2-9zix0u closed the on-box leak for the LIVE INSTANCE rows: their payload
+;; The LIVE INSTANCE rows' payload
 ;; slots route through the observed frame's `:sensitive` classification before
 ;; `summarize`, so a sensitive resource renders `[redacted]` rather than a
 ;; 120-char `pr-str` preview on a screen-shared panel. That gate is keyed on a
@@ -435,7 +433,7 @@
 ;; static registry carries the coarse root `:sensitive?` declaration per
 ;; resource (`registry-row`). Joining those two gives the on-box gate for the
 ;; trace-borne sections: a row that NAMES a `:sensitive?` resource redacts its
-;; value-bearing slots, exactly as that resource's instance row already does.
+;; value-bearing slots, exactly as that resource's instance row does.
 ;;
 ;; The rule is deliberately ROW-level rather than slot-level: a row's scope,
 ;; params, cause and matched keys are all identity-bearing evidence about the
@@ -590,7 +588,7 @@
       (->> (sort-by (comp str :resource-id)) vec)))
 
 ;; ---------------------------------------------------------------------------
-;; Named resource-scope resolver registry projection (rf2-hls77w, EP-0016 D3 /
+;; Named resource-scope resolver registry projection (EP-0016 D3 /
 ;; Spec 016 §Named resource-scope resolvers). The `:resource-scope` registrar
 ;; kind carries each resolver's canonical spec under `:rf/resource-scope`
 ;; (`{:inputs {name [:db rf-path]} :whole-db? :resolve …}`). The panel reads
@@ -670,7 +668,7 @@
   invalidated, or `now-ms` has passed its `:stale-at`. nil `now-ms` or a
   nil `:stale-at` falls back to the invalidation flag alone.
 
-  ## Second implementation, deliberately (rf2-vyvo8)
+  ## Second implementation, deliberately
 
   This MIRRORS `re-frame.resources.state/entry-stale?`, which Spec 016
   §Stale and GC scheduling calls \"the single shared derivation\". The
@@ -714,10 +712,10 @@
   the entry currently carries usable last-known-good `:data`. A `nil`
   `:data` is no-data; a value already redacted/elided UPSTREAM (`:rf/redacted`
   / `:rf.size/large-elided`) means data WAS present (the sentinel replaced a
-  real value), so it counts as has-data (rf2-tgm1xu — the egress redaction
+  real value), so it counts as has-data (the egress redaction
   of a payload must not flip the derived `:has-data?` fact).
 
-  EP-0021 R1 (rf2-o5iv): an `:infinite?` feed's `:data` is the ordered PAGE
+  EP-0021 R1: an `:infinite?` feed's `:data` is the ordered PAGE
   VECTOR, seeded EMPTY (`[]`) before page 0 loads — an empty page vector is
   NO usable data, so the feed reads first-load (`:loading`), not `:fresh`.
   This mirrors the SINGLE canonical derivation in
@@ -756,16 +754,16 @@
        :tags            [<tag> …]
        :gc-eligible?    false}
 
-  Optional `egress-fn` (rf2-tgm1xu, rf2-aw9cfs): `(fn [value slot-key key-id]
+  Optional `egress-fn`: `(fn [value slot-key key-id]
   -> egressed)` applied to the PAYLOAD-bearing values (the key's
   scope/params + the entry's `:data`/`:error`/`:refresh-error`) BEFORE
   `summarize`, so a `:sensitive?` slot summarizes as `[redacted]` and a
   `:large?` slot as `[large — elided]` on the off-box path. `key-id` is the
-  entry's own `map-key` (the CEDN-1 byte key-id the live `:entries` map uses,
-  rf2-9e0tyq) — threaded so the off-box `resource-egress-fn` can re-root its
+  entry's own `map-key` (the CEDN-1 byte key-id the live `:entries` map
+  uses) — threaded so the off-box `resource-egress-fn` can re-root its
   declaration-matching `:path` at the SAME absolute coordinate the resources
   artefact lowers its per-instance `:sensitive?` / `:large?` declarations to
-  (a slot-only path, missing the key-id, never matches — rf2-aw9cfs). The
+  (a slot-only path, missing the key-id, never matches). The
   METADATA (status, owners, tags, request-id, generation, timestamps) is
   projected from the raw entry and NEVER routed through egress — a redacted
   summary STILL exposes the metadata. The RAW `scoped-key` is kept verbatim
@@ -777,10 +775,10 @@
   ([[map-key entry] now-ms egress-fn]
    (let [egress       (or egress-fn (fn [v _slot _key-id] v))
          eg           (fn [v slot] (when (some? v) (egress v slot map-key)))
-         ;; rf2-9e0tyq — the `:entries` map key is now the opaque CEDN-1 byte
+         ;; The `:entries` map key is the opaque CEDN-1 byte
          ;; `key-id` STRING; the kind-preserving scoped-key VECTOR lives on the
          ;; entry as `:resource/key`. Read the scope/rid/params from there (fall
-         ;; back to the map key for a legacy entry that lacks the stamp).
+         ;; back to the map key for an entry that lacks the stamp).
          scoped-key   (or (:resource/key entry) map-key)
          [raw-scope raw-rid raw-params]
                       (if (and (vector? scoped-key) (= 3 (count scoped-key)))
@@ -821,8 +819,8 @@
        ;; key, so it is the only tool-facing record of the page-by-page fetch
        ;; sequence (Spec 016 §Tooling — "per-page params … since cursors can
        ;; carry ids"; EP-0021). Each element is a cursor value the SAME shape as
-       ;; `:cursor`, so each is egress-projected `:params`-slot identically (the
-       ;; rf2-3tysyj cursor-egress treatment) — never the raw cursor.
+       ;; `:cursor`, so each is egress-projected `:params`-slot identically
+       ;; — never the raw cursor.
        ;; `:fetching-next?` (a load-more vs a whole-feed refresh) is NOT a pure
        ;; function of the entry — it joins the in-flight work record's
        ;; `:page-index` (see `work-row` `:page-index`); the panel reads it off
@@ -846,7 +844,7 @@
   the freshness clock (the panel passes the current ms; tests pass a
   fixed clock). Per Spec 016 §Xray and AI tooling.
 
-  Optional `egress-fn` (rf2-tgm1xu) is threaded to `instance-row` so the
+  Optional `egress-fn` is threaded to `instance-row` so the
   on-box render redacts the payload values (scope/params/data) BEFORE
   summarization while the metadata projects from the raw entry. A caller
   may omit it — the bare `summarize` is sufficient for human
@@ -861,8 +859,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Live work-ledger table projection (Spec 016 §Frame work ledger —
-;; the 2026-06-10 EP amendment: per-frame work-ledger table joined to
-;; resource entries).
+;; the per-frame work-ledger table joined to resource entries).
 ;; ---------------------------------------------------------------------------
 
 (def terminal-work-statuses
@@ -874,7 +871,7 @@
 
 (defn work-row
   "Project ONE work-ledger record `[work-id record]` into a render-safe
-  row (Spec 016 §Frame work ledger / 2026-06-10 EP amendment). Raw host
+  row (Spec 016 §Frame work ledger). Raw host
   handles (AbortControllers, timeout handles, promises) live OUTSIDE
   durable frame-state in side tables and are STRUCTURALLY inaccessible to
   this projection — the ledger record carries only serializable facts:
@@ -896,10 +893,10 @@
   [[map-key record]]
   (let [rkey (:resource/key record)
         {:keys [scope resource-id params]} (scoped-key-summary rkey)
-        ;; rf2-9e0tyq / rf2-hgy5kf: the `:rf.runtime/work-ledger` map is keyed
+        ;; The `:rf.runtime/work-ledger` map is keyed
         ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
         ;; work-id VECTOR is carried on the record as `:work/id`. Read it from
-        ;; there (fall back to the map key for a legacy record that lacks the
+        ;; there (fall back to the map key for a record that lacks the
         ;; stamp) so the displayed `:work-id` is the kind-preserving identity,
         ;; NOT the byte string.
         work-id (or (:work/id record) map-key)]
@@ -945,7 +942,7 @@
   (`{:rf.runtime/routing {:current {:route-id … :nav-token … :params … :path …}}}`
   shape, read decoupled off the target frame's runtime-db). Returns the
   `:current` map (carrying `:route-id` + `:nav-token`) or nil when no route is
-  active (rf2-m5u3gt). Pure — accepts the already-extracted routing slice."
+  active. Pure — accepts the already-extracted routing slice."
   [routing-slice]
   (when (map? routing-slice)
     (:current routing-slice)))
@@ -954,9 +951,9 @@
   "Extract the live UNSETTLED-blocking scoped keys from the routing-runtime
   subtree. `[:resource-blocking <nav-token>]` is a map of per-nav-token
   `{<key-id> <scoped-key>}` maps naming the resources whose blocking ensure
-  has not yet settled (rf2-btdl1); this returns their scoped-key VALUES.
+  has not yet settled; this returns their scoped-key VALUES.
 
-  TWO arities (rf2-cduftx F2):
+  TWO arities:
 
   - `[routing-slice nav-token]` — the SCOPED read: returns ONLY the scoped
     keys still unsettled for `nav-token`. This is the form the route graph
@@ -967,12 +964,12 @@
     has no live wait point.
 
   - `[routing-slice]` — the ALL-TOKEN flatten: every unsettled key across
-    every coexisting nav-token bucket. Retained for an all-routes / global
+    every coexisting nav-token bucket. For an all-routes / global
     wait-point diagnostic; it must NOT be used to flag a single route's
     `:blocking-live`, because an OLD token's bucket can still hold a key
     that shares a resource-id with the current route, which would falsely
     report the active route as blocked by a wait point belonging to a
-    superseded navigation (the rf2-cduftx F2 cross-token bleed).
+    superseded navigation (a cross-token bleed).
 
   Pure; nil/missing ⇒ `[]`."
   ([routing-slice]
@@ -988,7 +985,7 @@
 
 (defn- resource-liveness
   "Aggregate the LIVE state of one declared resource-id across the projected
-  `instance-rows` + `work-rows` (rf2-m5u3gt). The route graph node is static
+  `instance-rows` + `work-rows`. The route graph node is static
   (a registry declaration), but the operator's bug-class question is whether
   THIS route's read is stale, fresh, or just fetching — so each node carries
   a `:live` rollup over the cache entries + work ledger for its resource-id:
@@ -1009,12 +1006,12 @@
 
   `:error` sits BEFORE `:stale` because a blocking SSR wait point whose
   first load FAILED carries no data and no live work, so without it the
-  rollup fell to `:idle` — the graph painted a failed wait point as if
-  nothing had been asked of it, which is the bug class Xray spec 024
+  rollup would fall to `:idle` — the graph would paint a failed wait point
+  as if nothing had been asked of it, which is the bug class Xray spec 024
   §Bug classes names (\"a permanent skeleton … did the last background
   refresh fail?\"). `:error` is a first-class entry status per Spec 016
-  §Status semantics, and `freshness-colour` in the view already carried an
-  `:error` arm this rollup could never reach."
+  §Status semantics, and `freshness-colour` in the view carries an
+  `:error` arm for it."
   [resource-id instance-rows work-rows]
   (let [rows  (filterv #(= resource-id (:resource-id %)) (or instance-rows []))
         works (filterv #(and (= resource-id (:resource-id %))
@@ -1046,12 +1043,12 @@
 (defn- route-resource-node
   "Project ONE `:resources` entry on a route into a graph node. The
   `:params` resolver is a fn (opaque) and `:scope` is a declared override
-  (a concrete value or a `{:from-db <id>}` reference — never a fn, since
-  rf2-kuky.83 retired that tier), so the node records THAT each is
+  (a concrete value or a `{:from-db <id>}` reference — never a fn), so the
+  node records THAT each is
   declared, the blocking flag (SSR wait point), the keep-previous flag, the
   local `:id` + `:after` dependency, and any `:when` guard — the structure
   Xray draws without parsing handlers. When
-  live inputs are supplied (rf2-m5u3gt) the node also carries a `:live`
+  live inputs are supplied the node also carries a `:live`
   rollup of the resource-id's current cache/work state."
   [entry instance-rows work-rows]
   {:resource        (:resource entry)
@@ -1086,7 +1083,7 @@
   Routes WITHOUT `:resources` are omitted (the graph is the resource view
   of the route table).
 
-  ## Live state join (rf2-m5u3gt)
+  ## Live state join
 
   EP-0003 asks the route graph to surface the CURRENT route/nav-token,
   active work, and fresh/stale state — not just static declarations. The
@@ -1097,7 +1094,7 @@
        :current        {:route-id <route-id> :nav-token <token>}   ; routing slice
        :blocking-keys  [<scoped-key> …]}  ; the live unsettled-blocking set
                                           ;   SCOPED to the current route's
-                                          ;   nav-token (rf2-cduftx F2) — the
+                                          ;   nav-token — the
                                           ;   caller passes
                                           ;   `(routing-blocking-keys slice
                                           ;     (:nav-token current))`, not the
@@ -1110,9 +1107,9 @@
   `:blocking-live` lists the declared blocking resources whose scoped keys
   are still in the live unsettled-blocking set (the SSR/route wait points
   that have NOT yet settled for the current nav-token). The bare
-  `(project-route-graph routes-map)` arity stays a pure STATIC projection
-  (nil live inputs ⇒ `:live` rollups are `:none`, no `:current?` flag) so
-  the SSR/JVM path and existing callers are unchanged. Per Spec 016 §Route
+  `(project-route-graph routes-map)` arity is a pure STATIC projection
+  (nil live inputs ⇒ `:live` rollups are `:none`, no `:current?` flag).
+  Per Spec 016 §Route
   integration / §Xray and AI tooling."
   ([routes-map] (project-route-graph routes-map nil))
   ([routes-map {:keys [instance-rows work-rows current blocking-keys]}]
@@ -1164,7 +1161,7 @@
   "The frame a `:rf.resource/*` / `:rf.mutation/*` trace event was emitted
   under — its `:rf.frame/id` tag, or nil when the event carries none.
 
-  WHICH SPELLING, and why it is this one (rf2-l9vb09): the resources,
+  WHICH SPELLING, and why it is this one: the resources,
   machines and mutation families stamp the EP-0002 carried-frame stamp
   `:rf.frame/id` in `:tags`, which is the vocabulary every producer op this
   ns joins on emits. HTTP instead stamps the bare `[:tags :frame]`
@@ -1182,8 +1179,8 @@
   can use (`resource-projection-op?`), oldest-first order preserved.
 
   The composite feeds every trace-borne projection from this ONE pass instead
-  of handing each the whole buffer (rf2-y8doi.15). Each projection keeps its
-  own filter, so passing it an unfiltered buffer is still correct — this only
+  of handing each the whole buffer. Each projection keeps its
+  own filter, so passing it an unfiltered buffer is also correct — this only
   removes the repeated full-buffer scan. Pure; nil ⇒ `[]`."
   [trace-buffer]
   (filterv #(resource-projection-op? (trace-op %)) (or trace-buffer [])))
@@ -1213,7 +1210,7 @@
     - `:load-more-skipped` → `:reason` (+ `:page-count` on the terminal arm)
     - `:page-failed`       → `:page-error` (the THIRD error channel)
 
-  EGRESS (rf2-3tysyj / 3.4): the CURSOR-bearing facts (`:page-param` on
+  EGRESS: the CURSOR-bearing facts (`:page-param` on
   load-more, `:next-page-param` on page-appended) and the `:page-error`
   envelope (an error value that may carry mutation data) are value-bearing —
   each routes through `eg` (the off-box `egress-value` walker on the off-box
@@ -1266,7 +1263,7 @@
   panel renders this as the per-resource lifecycle strip; filtering by
   resource-id happens in the composite. Per Spec 016.
 
-  Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
+  Optional `egress-fn`: `(fn [value] -> egressed)` applied to
   the VALUE-BEARING fields — the `:resource/key`'s scope/params (PII) and
   the `:cause` (may carry mutation data) — BEFORE `summarize`. An off-box
   (AI / log) caller threads the framework's
@@ -1280,10 +1277,10 @@
   `summarize` is sufficient; values never leave the box). Pure when
   `egress-fn` is pure.
 
-  Optional `sensitive-rids` (rf2-y8doi.15): the `sensitive-resource-ids` set
+  Optional `sensitive-rids`: the `sensitive-resource-ids` set
   from the static registry. A row whose resource-id is in it redacts its
-  value-bearing slots ON BOX — the screen-share gate rf2-9zix0u closed for the
-  live instance rows, reached here through the resource-id rather than a
+  value-bearing slots ON BOX — the same screen-share gate the live instance
+  rows carry, reached here through the resource-id rather than a
   runtime-db path (see §ON-BOX sensitive-resource redaction above). Metadata
   is untouched, so a redacted row still shows its whole lifecycle shape."
   ([trace-buffer] (lifecycle-timeline trace-buffer nil nil))
@@ -1310,7 +1307,7 @@
                        ;; Most resource-lifecycle ops carry the bare `:work/id`
                        ;; identity; the `:rf.resource/stale-suppressed` reply row
                        ;; carries the work identity ONLY as `:rf.reply/work-id`
-                       ;; (rf2-o6c2jr — one name per fact on reply-envelope rows).
+                       ;; (one name per fact on reply-envelope rows).
                        :work-id      (or (:work/id tags) (:rf.reply/work-id tags))
                        :owner        (:owner tags)
                        :cause        (when (contains? tags :cause)
@@ -1320,7 +1317,7 @@
                       ;; EP-0021 — the four infinite-feed ops carry op-specific
                       ;; page evidence (cursor / page index / count / terminal /
                       ;; skip reason / page-error) the generic fields drop. A
-                      ;; non-infinite op gets no `:page` slot (rf2-byl7bk.3.5).
+                      ;; non-infinite op gets no `:page` slot.
                       (page-detail op tags eg)
                       (assoc :page (page-detail op tags eg))))))))))
 
@@ -1341,7 +1338,7 @@
   a zero-match invalidation surfaces `:match-count 0` so 'no match in
   this scope' is visible. Pure over the trace vector. Per Spec 016.
 
-  Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
+  Optional `egress-fn`: `(fn [value] -> egressed)` applied to
   the VALUE-BEARING fields — `:scope` (PII), `:cause` (may carry mutation
   data), and each `:matched` scoped key's scope/params — BEFORE `summarize`.
   An off-box (AI / log) caller
@@ -1353,7 +1350,7 @@
   on the default-redacted path. The in-panel caller omits the fn. Pure when
   `egress-fn` is pure.
 
-  Optional `sensitive-rids` (rf2-y8doi.15): an invalidation row that MATCHED a
+  Optional `sensitive-rids`: an invalidation row that MATCHED a
   key belonging to a `:sensitive?` resource redacts its value-bearing slots on
   box (`:scope`, `:cause`, every matched key's scope/params). The row is the
   unit because a broad-tag invalidation's scope and cause identify the same
@@ -1430,8 +1427,8 @@
 ;; ---------------------------------------------------------------------------
 ;; EP-0016 D1/D2 — mutation continuation + descriptor-level invalidation
 ;; evidence (Spec 016 §Mutation completion continuations / §Trace evidence for
-;; invalidation / §Phase order). The descriptor evidence rides ADDITIVELY on
-;; the existing `:rf.mutation/succeeded` / `:rf.mutation/failed` settlement op
+;; invalidation / §Phase order). The descriptor evidence rides on
+;; the `:rf.mutation/succeeded` / `:rf.mutation/failed` settlement op
 ;; under `:invalidation` (resolved scope PER descriptor + the fail-closed
 ;; `:unresolved` `{:from-db …}` ids + the Rider-1 `:populate-exempt` keys); the
 ;; call-site `:reply-to` continuation dispatch is the `:rf.mutation/replied`
@@ -1455,7 +1452,7 @@
   identity, not PII. `:cross-scope?` marks the audited scope-agnostic escape
   (privacy-relevant per EP-0015); `:refetch-populated?` marks the partial-reply
   opt-in to a same-mutation refetch of a populated key. `:exempt-keys` is the
-  truthful per-descriptor evidence (rf2-fi6tda.3 finding 2): the populated keys
+  truthful per-descriptor evidence: the populated keys
   THIS descriptor's pass spared (empty when it opted into `:refetch-populated?
   true`). Surfacing it per-descriptor — not just the collapsed top-level
   `:populate-exempt` union — keeps a MIXED plan (one descriptor opts in, another
@@ -1463,7 +1460,7 @@
   exactly which pass spared which populated key. Each exempt scoped key carries
   PII in its scope/params → summarized.
 
-  `eg` (rf2-y8doi.15) is the ROW's on-box value gate — `identity` by default,
+  `eg` is the ROW's on-box value gate — `identity` by default,
   the redacting fn when the settled mutation touched a `:sensitive?` resource."
   ([descriptor] (descriptor-summary descriptor identity))
   ([{:keys [scope cross-scope? tags refetch-populated? exempt-keys]} eg]
@@ -1499,14 +1496,14 @@
   fail-closed `:unresolved` descriptor (a `{:from-db …}` reference that
   resolved nil and produced NO invalidation, never an implicit global blast).
   Each `:dispatched` descriptor carries its OWN `:exempt-keys` — the truthful
-  per-pass evidence (rf2-fi6tda.3 finding 2) a MIXED `:refetch-populated?` plan
+  per-pass evidence a MIXED `:refetch-populated?` plan
   needs (one descriptor opts in and spares nothing while a default descriptor
   spares the populated key it matched). The top-level `:populate-exempt` is the
   union of those per-descriptor exempt sets. PRIVACY: each descriptor's resolved
   scope is summarized; tags are identity; exempt scoped keys are summarized.
   Pure over the trace vector. Per Spec 016.
 
-  Optional `sensitive-rids` (rf2-y8doi.15): a settlement row any of whose
+  Optional `sensitive-rids`: a settlement row any of whose
   exempt scoped keys names a `:sensitive?` resource redacts every descriptor's
   resolved `:scope` and every exempt key on box. `:unresolved` /
   `:descriptor-count` / `:tags` are identity and counts, never redacted."
@@ -1654,17 +1651,17 @@
 
 (defn- optimistic-supersession-index
   "PURE: index the `:rf.mutation/stale-suppressed` rows by the identity an
-  `:applied` row can be joined on (rf2-y8doi.15).
+  `:applied` row can be joined on.
 
-  A superseded mutation reply emits neither settle op, so `optimistic-lifecycle`
-  paired its `:applied` row with nothing and reported `:pending` — \"still in
-  flight\" for a request that has SETTLED and will never reconcile. That is the
-  first bug class a network inspector exists to catch, and the evidence is
-  already in the same buffer.
+  A superseded mutation reply emits neither settle op, so without this index
+  `optimistic-lifecycle` would pair its `:applied` row with nothing and report
+  `:pending` — \"still in flight\" for a request that has SETTLED and will
+  never reconcile. That is the first bug class a network inspector exists to
+  catch, and the evidence is in the same buffer.
 
   Both ops carry the mutation work identity, so the join is EXACT rather than
   instance-wide: the suppression row's `:rf.reply/work-id` (one name per fact —
-  the bare `:work/id` duplicate was dropped) equals the apply row's `:work/id`,
+  the row carries no bare `:work/id` duplicate) equals the apply row's `:work/id`,
   and both carry `:instance` + `:generation` from the same execution. Indexed
   under BOTH `[:work <frame> <instance> <work-id>]` and `[:gen <frame>
   <instance> <generation>]` so a row missing one identity still joins on the
@@ -1672,17 +1669,17 @@
   apply for the same instance genuinely in flight would then be mislabelled
   superseded.
 
-  THE FRAME IS PART OF THE KEY (rf2-qqi7u), because every other element of it
+  THE FRAME IS PART OF THE KEY, because every other element of it
   is FRAME-LOCAL. The runtime says so of the work-id outright — its scoped key
   and generation \"carry no frame identity, so two frames issuing the same
   resource at the same generation mint the SAME work-id\" — and a mutation
   instance id is either the caller's own value (a form keyed by a row id, which
   two frames can trivially share) or one derived from the mutation id and the
   frame's own monotone generation. The panel feeds this index ONE deliberately
-  cross-frame buffer, so without the frame a suppression in frame B marked
-  frame A's apply `:superseded` and handed it B's terminal, reporting a request
+  cross-frame buffer, so without the frame a suppression in frame B would mark
+  frame A's apply `:superseded` and hand it B's terminal, reporting a request
   that is still genuinely in flight as settled — the inverse of the bug class
-  this outcome was added to catch. Both producer ops stamp `:rf.frame/id`, so
+  this outcome exists to catch. Both producer ops stamp `:rf.frame/id`, so
   the frame is simply read off the event rather than reconstructed.
 
   Each value is `{:outcome :superseded :id <trace-id>}`."
@@ -1710,13 +1707,13 @@
   left `:pending` — see `optimistic-supersession-index` for the third case.
 
   THE FRAME IS PART OF THE KEY for the same reason it is part of the
-  supersession index's (rf2-qqi7u), and the reason is easy to miss here because
+  supersession index's, and the reason is easy to miss here because
   a `:snapshot-id` LOOKS opaque enough to be unique. It is not: the runtime
   derives it from the mutation instance id plus the generation and nothing else,
   both of them frame-local, so it INHERITS that collision rather than escaping
   it. Two frames settling the same instance at the same generation therefore
   mint the same `:snapshot-id`, and on this panel's deliberately cross-frame
-  buffer frame B's reconcile settled frame A's apply."
+  buffer frame B's reconcile would settle frame A's apply."
   [trace-buffer]
   (reduce (fn [acc ev]
             (let [op (trace-op ev)]
@@ -1737,7 +1734,7 @@
   render-safe row. PRIVACY: the scoped key carries PII in scope/params →
   summarized; `:restored` / `:conflict` / `:on-conflict` are bookkeeping.
 
-  `eg` (rf2-y8doi.15) is the row's on-box value gate — `identity` by default."
+  `eg` is the row's on-box value gate — `identity` by default."
   ([disposition] (rollback-disposition-summary disposition identity))
   ([{scoped-key :resource/key :keys [restored conflict on-conflict]} eg]
    (cond-> {:resource/key (scoped-key-summary scoped-key eg)
@@ -1782,9 +1779,9 @@
   rule); and a SUPERSEDED one is `:superseded` — its reply arrived for an
   already-stale generation, so the runtime emitted `:rf.mutation/stale-
   suppressed` and no settle op at all, discarding the inverse rather than
-  replaying it (Spec 016 §Optimistic settle). Before rf2-y8doi.15 that last
-  case read `:pending` for ever, claiming a settled request was still in
-  flight; the suppression row was already in the same buffer and is joined by
+  replaying it (Spec 016 §Optimistic settle). Read as `:pending`, that last
+  case would claim for ever that a settled request is still in flight; the
+  suppression row is in the same buffer and is joined by
   the mutation work identity (see `optimistic-supersession-index`).
   A `:superseded` row carries `:settled-id` — the suppression event's id — and
   none of the reconcile / rollback facets, because none were emitted.
@@ -1795,7 +1792,7 @@
   Pure over the trace vector; preserves apply order (oldest-first). Per Spec
   016.
 
-  Optional `sensitive-rids` (rf2-y8doi.15): an apply row any of whose scoped
+  Optional `sensitive-rids`: an apply row any of whose scoped
   keys names a `:sensitive?` resource redacts its value-bearing slots on box
   (`:scope`, `:cause`, and every scoped key it renders). The counts, outcome,
   mutation/instance identity and `:target-unresolved` ids are never redacted."
@@ -1806,8 +1803,8 @@
         super-ix  (optimistic-supersession-index buffer)
         ;; index the terminal settle EVENTS by [frame snapshot-id] so the apply
         ;; row can pull the matching facets (committed / restored / … ). Keyed
-        ;; exactly as `optimistic-settlement-index` is and for the same reason
-        ;; (rf2-qqi7u); a bare snapshot-id let a FOREIGN frame's settle lend this
+        ;; exactly as `optimistic-settlement-index` is and for the same reason;
+        ;; a bare snapshot-id would let a FOREIGN frame's settle lend this
         ;; apply the keys IT committed, which is the worse half of the collision
         ;; — a wrong `:outcome` at least reads as a settlement, where a borrowed
         ;; `:committed` list reads as this mutation's own evidence.
@@ -1825,8 +1822,8 @@
                  (let [tags     (trace-tags ev)
                        sid      (:snapshot-id tags)
                        instance (:instance tags)
-                       ;; Every lookup below is scoped to THIS apply's own frame
-                       ;; (rf2-qqi7u). The buffer is deliberately cross-frame and
+                       ;; Every lookup below is scoped to THIS apply's own
+                       ;; frame. The buffer is deliberately cross-frame and
                        ;; each of instance / work-id / generation / snapshot-id
                        ;; is frame-local, so the frame is what makes an otherwise
                        ;; exact-looking join actually exact.
@@ -1904,7 +1901,7 @@
   mutation/instance/recovery/reason are bookkeeping. Pure over the trace
   vector; preserves order. Per Spec 016.
 
-  Optional `sensitive-rids` (rf2-y8doi.15): a warning whose forced keys name a
+  Optional `sensitive-rids`: a warning whose forced keys name a
   `:sensitive?` resource redacts those keys' scope/params on box. The warning
   itself — mutation, instance, count, recovery and reason — always renders, so
   a clobber on a sensitive resource stays exactly as LOUD as any other."
@@ -1966,7 +1963,7 @@
 (defn global-scope-audit
   "The STANDING scope audit surface (Spec 016 §Xray scope diagnostics):
   enumerate every `:rf.scope/global` resource — the structural
-  security-review list that replaces the old `/me` heuristic. Returns the
+  security-review list. Returns the
   registry rows whose scope policy is the explicit-global claim. Pure
   over the projected registry rows."
   [registry-rows]
@@ -1976,7 +1973,7 @@
 
 (def ^:private session-ish-tokens
   "Substrings that make an explicit-global request look session-dependent
-  — the downgraded-to-defense-in-depth heuristic (Spec 016: warn about
+  — a defense-in-depth heuristic (Spec 016: warn about
   SUSPICIOUS explicit-global, not compensate for a missing scope)."
   ["/me" "/current-user" "/current_user" "current-session" "/profile"
    "/account" "impersonat"])
@@ -1986,7 +1983,7 @@
   `:rf.scope/global` audit list, flag any whose registered doc /
   resource-id LOOKS session-dependent (`/me`, `/current-user`, profile/
   account/impersonation hints). NOT the boundary (a missing scope is a
-  loud runtime error now); a hint the operator should re-examine an
+  loud runtime error); a hint the operator should re-examine an
   explicit-global claim. Returns `[{:resource-id … :hint \"…\"}]`."
   [registry-rows]
   (->> (global-scope-audit registry-rows)
@@ -2030,26 +2027,26 @@
          vec)))
 
 (defn optimistic-reach-lint
-  "Optimistic-reach lint (rf2-ynkzj): a settled optimistic mutation whose
+  "Optimistic-reach lint: a settled optimistic mutation whose
   patch reached a cache key that its settlement never did. The canonical
   case is a favourite whose `:optimistic-tags` patch the viewer's feed while
   its `:invalidates` forgets the feed descriptor — the feed stays on the
   optimistic value, loaded and never marked stale, and nothing says so.
 
-  A set difference over records the runtime already emits: the
+  A set difference over records the runtime emits: the
   `:rf.mutation/optimistic-reconciled` `:optimistic-keys`, minus its
   `:committed` keys and `:reconciliation-refetches`, minus the
   `:affected-keys` on the `:rf.mutation/succeeded` settlement of the same
   FRAME, instance and work id (the union survives that settlement row having
   left the buffer, since both reconcile facets are subsets of it). The frame
   is part of that identity because instance and work id are both frame-local
-  — rf2-qqi7u; see `optimistic-supersession-index` for the full reasoning.
+  — see `optimistic-supersession-index` for the full reasoning.
 
   A key in a scope the write-side `:rf.warning/mutation-scope-mismatch`
   tripwire already named as `:other-scope` for the same mutation IN THE SAME
   FRAME is left to that warning: a wrong-scope descriptor gets one diagnostic,
   not two. The frame is part of THAT identity for the same reason it is part
-  of the settlement one — rf2-389dv.
+  of the settlement one.
 
   Informational and dedupe-keyed on `[frame mutation instance missing-keys]`
   (raw keys, not their summaries), so a settled instance seen twice is one
@@ -2066,18 +2063,18 @@
   hint says what settlement did not reach rather than calling it a defect.
   PRIVACY: the missing scoped keys are summarized. Pure; preserves order.
 
-  Optional `sensitive-rids` (rf2-y8doi.15): a row whose missing keys name a
+  Optional `sensitive-rids`: a row whose missing keys name a
   `:sensitive?` resource redacts those keys' scope/params on box. The hint
   names RESOURCE-IDS only (never a scope or params value), so it is left
   intact and the finding stays readable."
   ([trace-buffer] (optimistic-reach-lint trace-buffer nil))
   ([trace-buffer sensitive-rids]
   (let [buffer (or trace-buffer [])
-        ;; Keyed by [frame instance work-id] (rf2-qqi7u) — the same correction
-        ;; the two optimistic settlement indexes above carry, and needed here
-        ;; for the same reason: instance and work-id are both frame-local, so
-        ;; without the frame a settlement in ANOTHER frame answered for this
-        ;; one and the finding simply disappeared. That is the reassuring
+        ;; Keyed by [frame instance work-id] — as the two optimistic
+        ;; settlement indexes above are, and for the same reason: instance
+        ;; and work-id are both frame-local, so without the frame a
+        ;; settlement in ANOTHER frame would answer for this one and the
+        ;; finding would simply disappear. That is the reassuring
         ;; direction for a lint — silence reads as a clean panel.
         affected-by-work
         (reduce (fn [acc ev]
@@ -2087,13 +2084,14 @@
                               (fnil into #{}) (:affected-keys tags)))
                     acc))
                 {} buffer)
-        ;; Keyed by [frame mutation other-scope] (rf2-389dv) — the same
-        ;; correction `affected-by-work` above carries, for the same reason.
+        ;; Keyed by [frame mutation other-scope] — as `affected-by-work`
+        ;; above is, for the same reason.
         ;; A wrong-scope descriptor is a property of the frame that dispatched
-        ;; it, so keyed without the frame a warning in ANOTHER frame erased
-        ;; this frame's finding outright. Reassuring direction again, and a
-        ;; worse one than the join above: there the finding merely went
-        ;; missing, here a DIFFERENT diagnostic's existence is what deleted it.
+        ;; it, so keyed without the frame a warning in ANOTHER frame would
+        ;; erase this frame's finding outright. Reassuring direction again,
+        ;; and a worse one than the join above: there the finding would
+        ;; merely go missing, here a DIFFERENT diagnostic's existence would
+        ;; delete it.
         warned-scopes
         (into #{}
               (comp (filter #(= :rf.warning/mutation-scope-mismatch (trace-op %)))
@@ -2118,11 +2116,11 @@
                                    (sort-by pr-str)
                                    vec)]
                   (when (seq missing)
-                    ;; The frame leads the dedupe key (rf2-389dv) because
+                    ;; The frame leads the dedupe key because
                     ;; `mutation`, `instance` and the missing keys are all
                     ;; frame-local: without it, two frames' genuinely
-                    ;; independent findings read as one finding seen twice and
-                    ;; the reducer below dropped the second.
+                    ;; independent findings would read as one finding seen
+                    ;; twice and the reducer below would drop the second.
                     {:dedupe-key   [(trace-frame ev) mutation instance missing]
                      :id           (:id ev)
                      :mutation     mutation
@@ -2148,7 +2146,7 @@
               [[] #{}] candidates)))))
 
 ;; ---------------------------------------------------------------------------
-;; Per-slot value egress contract (rf2-tgm1xu). Spec 016 §Xray, line 314:
+;; Per-slot value egress contract. Spec 016 §Xray, line 314:
 ;; "Params, scopes, and data carry :sensitive? / :large? classification
 ;; through the shared project-egress door; Xray sees REDACTED SUMMARIES,
 ;; NOT raw values."
@@ -2168,11 +2166,11 @@
 ;;
 ;; `instance-row` takes an optional `egress-fn` `(fn [value slot-key key-id])`
 ;; and applies it to ONLY the value-bearing slots before `summarize`, keeping
-;; the RAW scoped-key as the row identity. The PRIOR design routed the WHOLE
-;; entry through `egress-runtime-db-value` BEFORE projection: with the
-;; off-box runtime-db default the entry collapsed to the bare `:rf/redacted`
-;; sentinel, so the projection read nil for status/owners/tags/request-id —
-;; the default rows were USELESS and the metadata filters (which filter the
+;; the RAW scoped-key as the row identity. Routing the WHOLE entry through
+;; `egress-runtime-db-value` BEFORE projection would, under the off-box
+;; runtime-db default, collapse the entry to the bare `:rf/redacted`
+;; sentinel, so the projection would read nil for status/owners/tags/request-id —
+;; the default rows would be USELESS and the metadata filters (which filter the
 ;; projected rows) could never match. Egressing the KEY ITSELF would also
 ;; collapse two entries whose scope/params redact to the same sentinel; the
 ;; row keeps the raw key as identity to avoid that.
