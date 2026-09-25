@@ -589,9 +589,10 @@
 
   (rf.story/reg-variant :story.counter-matrix/recorder-redaction
     {:doc       "Recorder browser fixture: the visible button dispatches
-                a :sensitive? event with a password payload. The Story
-                recorder must preserve the row position while emitting
-                [:rf/redacted] in the generated :script snippet."
+                :counter/sign-in, whose registration classifies the
+                payload's :password path sensitive. The Story recorder
+                keeps the row in position and records :rf/redacted at
+                that path in the generated :script snippet."
      :component :counter-with-stories.views/recorder-redaction-card
      :args      {:label "Recorder redaction"
                  :settings {:title "Recorder" :enabled? true}}

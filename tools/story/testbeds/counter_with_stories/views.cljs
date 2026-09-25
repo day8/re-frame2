@@ -120,8 +120,9 @@
                  :flex-direction "column"
                  :gap "0.75em"}}
    [counter-card {:label label}]
-   ;; `:counter/sign-in` is the counter slice's own `:sensitive?`
-   ;; handler (counter-with-stories.events) — so this card is
+   ;; `:counter/sign-in` is the counter slice's own sign-in handler
+   ;; (counter-with-stories.events), whose registration classifies the
+   ;; `:password` payload path sensitive — so this card is
    ;; self-contained: the same requires that bring in the variant
    ;; (events + views) register the handler it dispatches. No reliance
    ;; on core.cljs requiring the sibling elision-demo namespace at
