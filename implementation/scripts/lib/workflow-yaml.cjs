@@ -2,12 +2,11 @@
 'use strict';
 
 /*
- * Dependency-free object-model reader for GitHub Actions workflow YAML
- * (rf2-p4a93).
+ * Dependency-free object-model reader for GitHub Actions workflow YAML.
  *
  * # Why this exists
  *
- * Workflow policy in this repo has so far been asserted with regexes over
+ * Some workflow policy in this repo is asserted with regexes over
  * workflow TEXT (`_lint-workflow-policy.test.cjs`,
  * `_docs-workflow-policy.test.cjs`, the deploy-leaf matrix scrape in
  * `_rewrite-local-root-coord.test.cjs`). That is fine for "does this string
@@ -18,7 +17,8 @@
  * scalar are three spellings of the same structure.
  *
  * So: a real parse into a real object model, then assertions over the model.
- * The suites that consume it live in `_release-dag-policy.test.cjs`.
+ * The suites that consume it live in `_release-dag-policy.test.cjs` and
+ * `_post-merge-sanity-base.test.cjs`.
  *
  * # Why not a YAML library
  *
@@ -32,7 +32,7 @@
  *
  * # Scope, honestly stated
  *
- * This is NOT a YAML implementation. It reads the strict subset the 13
+ * This is NOT a YAML implementation. It reads the strict subset the
  * workflow files in .github/workflows/ are written in:
  *
  *   - block mappings and block sequences, nested by indentation;
