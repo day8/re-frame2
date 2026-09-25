@@ -4993,13 +4993,12 @@
       ;; Per-row violations attach inline as `:row-extras`
       ;; so the schema-violation sub-block renders directly below its
       ;; owning row (mirrors the FX step's `fx-row-with-violations`
-      ;; shape). The step-level violations (non-row attributed) still
+      ;; shape). The step-level violations (non-row attributed)
       ;; ride at the foot via the call-site below.
-      ;; rf2-1ar7 — `instance` reaches here too. The per-row explainer mounts
-      ;; an `ei/edn-inspector-view` for the humanized explain map, so two
-      ;; named mounts showing the same sub's violation composed one mount-id
-      ;; until this argument was passed. It was already in scope — the value
-      ;; cell above uses it — which is the whole of what was wrong here.
+      ;; `instance` reaches here too: the per-row explainer mounts
+      ;; an `ei/edn-inspector-view` for the humanized explain map, so
+      ;; without it two named mounts showing the same sub's violation
+      ;; would compose one mount-id.
       :row-extras
       (fn [row _i]
         (when (seq (:violations row))
@@ -5009,10 +5008,10 @@
             instance)))}]))
 
 (defn- dispose-reason-label
-  "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
-  (rf2-wpfjo). Closed set per rf2-mrnur — `:no-more-derefers /
+  "Render a `:rf.sub/dispose` `:reason` keyword as a UI label.
+  Closed set — `:no-more-derefers /
   :hot-reload / :cache-clear`. Falls through `name` for unknown
-  reasons so future extensions still paint text."
+  reasons so they still paint text."
   [reason]
   (case reason
     :no-more-derefers "no-more-derefers"
@@ -5021,12 +5020,12 @@
     (when (keyword? reason) (name reason))))
 
 (defn- disposed-subs-table
-  "Render the DISPOSED sub-section (rf2-wpfjo) — one row per
+  "Render the DISPOSED sub-section — one row per
   `:rf.sub/dispose` trace event. Visually distinct from the
   recompute rows: a red/error glyph conveys eviction; a muted
   reason chip carries the dispose path.
 
-  rf2-jnxfj — mounts through the shared `rt/resizable-table` so
+  Mounts through the shared `rt/resizable-table` so
   column widths are user-draggable + persist across reloads via
   the `:rf.xray.epoch/subscriptions-disposed` table-id slot."
   [rows]
@@ -5053,7 +5052,7 @@
          [:div {:data-rf-xray-resizable-col "glyph"
                 :style disposed-glyph-cell-style}
           ;; Eviction glyph — `✗` red/error tone conveys "removed from
-          ;; the reactive graph" (rf2-wpfjo).
+          ;; the reactive graph".
           "✗"]
          ;; disposed-sub cell
          [:div {:data-rf-xray-resizable-col "disposed"
@@ -5065,7 +5064,7 @@
              (some? sub-id)  (ei/mini sub-id 40)
              :else           [:span {:style disposed-anonymous-style}
                               "<anonymous sub>"])
-           ;; rf2-d2akf — click-to-source affordance for the reg-sub,
+           ;; Click-to-source affordance for the reg-sub,
            ;; parity with the sibling unmounted-views row. Resolves
            ;; `(rf/handler-meta {:source :store :kind :sub :id sub-id})` → coord; chip drops out
            ;; cleanly when meta is absent (anonymous sub / production
@@ -5080,37 +5079,35 @@
 
 (defn render-subscriptions-step
   "Render the SUBSCRIPTIONS step (present when subs recomputed OR
-  when sub-cache entries were disposed — rf2-wpfjo).
+  when sub-cache entries were disposed).
 
-  Per rf2-tzmmf the chrome to the right of the SUBSCRIPTIONS badge
-  is a 3-button filter bar `[all][changed][unchanged]` — mirrors the
-  HANDLER step's `[diff][all]` toggle shape. SUPERSEDES the prior
-  rf2-kfh1v `Show unchanged` boolean toggle AND the badge-adjacent
-  `N recomputed (M changed, K unchanged)` summary text — Mike
-  pair-debug 2026-05-26: the button-bar IS the new right-of-badge
-  chrome (no coexistence; pre-alpha masterpiece posture).
+  The chrome to the right of the SUBSCRIPTIONS badge
+  is a 3-button filter bar `[all][changed][unchanged]` — there is no
+  separate `Show unchanged` boolean toggle and no badge-adjacent
+  `N recomputed (M changed, K unchanged)` summary text: the button-bar
+  IS the right-of-badge chrome.
 
   Filter mode lives in `:rf.xray.epoch/subs-filter-mode` on the Xray
-  app-db. Default is `:changed` — the rf2-kfh1v hide-unchanged-by-
-  default rationale (most subs recompute but report no value change;
-  unchanged rows crowd out signal) is preserved as the default mode.
+  app-db. Default is `:changed` — unchanged rows are hidden by default,
+  because most subs recompute but report no value change and unchanged
+  rows crowd out signal.
 
-  Frame-anchor pattern (rf2-p56sk / rf2-nesy9): the read pins to the
+  Frame-anchor pattern: the read pins to the
   SURROUNDING instance frame captured at render time, and the button-
   bar's click dispatches into that same captured frame — so toggle
   writes + reads hit THIS instance's Xray app-db (N isolated shells
   stay independent), not the `:rf/xray` singleton.
 
-  rf2-k97c.3 — THE MODE ARRIVES IN `ctx`; it used to be read here with
-  `@(rf/subscribe [:rf.xray.epoch/subs-filter-mode] {:frame frame})`.
-  [[Panel]] is now a Fresco boundary and reads it there, so this fn is a
-  pure function of its arguments and stays drivable from the fast node
-  lane. The ANCHOR is unchanged in effect: the boundary resolves the read
+  THE MODE ARRIVES IN `ctx` rather than being read here with
+  `@(rf/subscribe [:rf.xray.epoch/subs-filter-mode] {:frame frame})`:
+  [[Panel]] is a Fresco boundary and reads it there, so this fn is a
+  pure function of its arguments and is drivable from the fast node
+  lane. The boundary resolves the read
   against the same React-context frame `rf/current-frame-id` answers
-  here, so the read and the click still name ONE frame — and `frame`
-  stays bound for the CLICK, which fires after the render extent has
+  here, so the read and the click name ONE frame — and `frame`
+  is bound for the CLICK, which fires after the render extent has
   unwound and so must have captured it during render. The 1-arity means
-  no mode, which the `case` below already treats as the `:changed`
+  no mode, which the `case` below treats as the `:changed`
   default."
   ([step] (render-subscriptions-step step {}))
   ([{:keys [rows disposed-rows step-number violations]} ctx]
@@ -5131,14 +5128,14 @@
      (step-header
        {:step :subscriptions
         :badge :SUBSCRIPTIONS
-        ;; Per rf2-tzmmf the badge-adjacent recompute summary text
-        ;; is REMOVED — the button-bar is the new chrome. The
-        ;; disposed-clause stays because there's no button-bar
+        ;; No badge-adjacent recompute summary text — the button-bar
+        ;; is the chrome. The disposed-clause is shown because there's
+        ;; no button-bar
         ;; affordance for that surface (and the count is small
-        ;; enough that "L disposed" still reads at a glance).
+        ;; enough that "L disposed" reads at a glance).
         ;;
-        ;; rf2-vv3m6 (2026-05-29) — the prior value-mode toggle
-        ;; `[diff][full][full+diff]` (rf2-yqjrd) is retired; each
+        ;; There is no value-mode toggle
+        ;; `[diff][full][full+diff]`; each
         ;; changed row's value cell renders unconditionally under
         ;; FULL+DIFF.
         :verb [:span {:style subs-verb-style}
@@ -5154,16 +5151,16 @@
        (subscriptions-table visible-rows (:instance ctx)))
      (when (pos? l)
        (disposed-subs-table disposed-rows))
-     ;; rf2-xgeag · rf2-zuh3p — `:sub-return` boundary violations.
-     ;; Per-row attachments now render INLINE with their matching sub
-     ;; row via `subscriptions-table`'s `:row-extras` slot (no longer
+     ;; `:sub-return` boundary violations.
+     ;; Per-row attachments render INLINE with their matching sub
+     ;; row via `subscriptions-table`'s `:row-extras` slot (not
      ;; pooled at the foot of the step). Step-level violations
-     ;; (indirect recomputes that don't surface a row) continue to
+     ;; (indirect recomputes that don't surface a row)
      ;; ride at the foot.
-     ;; rf2-1ar7 — qualified by the mount, like the per-row explainers
-     ;; above and every other inspector-bearing site in this file. Two named
-     ;; mounts of one epoch both composed
-     ;; `epoch/violation-explain/:subscriptions/0` before this argument.
+     ;; Qualified by the mount, like the per-row explainers
+     ;; above and every other inspector-bearing site in this file —
+     ;; otherwise two named mounts of one epoch would both compose
+     ;; `epoch/violation-explain/:subscriptions/0`.
      (violation-blocks :subscriptions violations (:instance ctx))])))
 
 ;; ---- VIEWS step ----------------------------------------------------------
@@ -5178,19 +5175,17 @@
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m) :ns (:ns m)}))))
 
-;; rf2-3b9w4 — `render-cause-chip` (rf2-bhi3t) RETIRED. Mike pair
-;; 2026-06-01: the col-1 cause chip + duration are dropped from the
-;; VIEWS row. The mount/re-render GLYPH (`+` / `~`) now carries the
+;; A VIEWS row carries no render-cause chip and no duration. The
+;; mount/re-render GLYPH (`+` / `~`) carries the
 ;; first-class "why did this render" signal; the col-3 sub colour-code
-;; (green/orange/grey) shows WHICH dereffed sub drove a re-render. The
-;; render-args DIFF column that supersedes the inferred `← props` cause
-;; landed as the col-2 `views-render-args-cell` (rf2-u3lii, consuming
-;; rf2-rpgq8's `:rf.view/render-args` trace slot) — a props-driven
-;; re-render now shows the actual prop delta inline rather than the
+;; (green/orange/grey) shows WHICH dereffed sub drove a re-render; and
+;; the col-2 `views-render-args-cell` (consuming the
+;; `:rf.view/render-args` trace slot) shows a props-driven
+;; re-render's actual prop delta inline rather than an
 ;; inferred `← props` label.
 
 (defn- views-glyph
-  "rf2-3b9w4 — the col-1 mount/re-render/unmount indicator. Mirrors the
+  "The col-1 mount/re-render/unmount indicator. Mirrors the
   SUBSCRIPTIONS leaf-scalar glyph vocabulary:
 
     `+`  first MOUNT  (`:cause :mount`)          — green.
@@ -5212,26 +5207,26 @@
      glyph]))
 
 (defn- views-render-args-cell
-  "rf2-u3lii — the col-2 'render-args (DIFF)' cell. Shows the positional
+  "The col-2 'render-args (DIFF)' cell. Shows the positional
   args/props passed to THIS render as an edn-inspector DIFF vs the SAME
   view INSTANCE's PREVIOUS render (the projection keys the previous-args
   retention by `:rf.view/render-key` — see `proj/view-rows`), so a
   prop change is visible inline.
 
   The args value (`render-args`) is PRIVACY-elided at the substrate emit
-  chokepoint (rf2-rpgq8) — sensitive / schema-`:large?` slots land as
+  chokepoint — sensitive / schema-`:large?` slots land as
   `:rf/redacted` / `:rf.size/large-elided` before delivery. That walk is
   SCHEMA-DRIVEN, so arbitrary fat props (which ANY real app passes — a big
   map / collection that no schema marks `:large?`) ride through un-elided
   AND Xray reads RAW records in-process. We therefore size-guard the args
-  HERE through `fmt/elide-large-render-args` (rf2-yi0nr): an oversized
+  HERE through `fmt/elide-large-render-args`: an oversized
   element collapses to the SAME `:rf.size/large-elided` chip the App-db
   panel surfaces for large state; small args render inline unchanged. Both
   the current AND the `:before` (prev) args are size-guarded so the DIFF
   doesn't dump a fat prior value.
 
   Three render states — the SAME `:before` diff-mode the App-db / subs
-  value cells ship (rf2-vv3m6 FULL+DIFF; reused, not reinvented):
+  value cells ship (FULL+DIFF; reused, not reinvented):
 
     - args CHANGED  → `prev-render-args` present + differs → mount
                       `ei/edn-inspector` with `{:before <prev>}`; the
@@ -5250,7 +5245,7 @@
   muted, parity with the col-3 `(none)` subs placeholder. Unmounted
   rows carry no `:render-args` so they read `(no args)` too."
   [{:keys [view-id render-args prev-render-args]} idx instance]
-  ;; rf2-yi0nr — size-guard the args (and the prev-args the diff annotates
+  ;; Size-guard the args (and the prev-args the diff annotates
   ;; against) so a fat prop collapses to the shared `:rf.size/large-elided`
   ;; chip rather than dumping the whole value inline.
   (let [render-args (fmt/elide-large-render-args render-args)]
@@ -5269,10 +5264,10 @@
                             :site-id  [:rf.xray.epoch/view-render-args view-id idx]
                             :default-expanded-depth 2}
                      ;; same `:before` diff-mode the App-db / subs value cells use —
-                     ;; reused, not reinvented (rf2-u3lii). Threaded ONLY when the
+                     ;; reused, not reinvented. Threaded ONLY when the
                      ;; instance had a previous render this cascade; first render =>
                      ;; plain mount (no `:before`), args shown without a delta. The
-                     ;; prev value is size-guarded too (rf2-yi0nr).
+                     ;; prev value is size-guarded too.
                      (some? prev-render-args)
                      (assoc :before (fmt/elide-large-render-args prev-render-args)))}]]
       [:span {:data-rf-render-args-diff "none"
@@ -5280,7 +5275,7 @@
        "(no args)"])]))
 
 (defn- views-subs-cell
-  "rf2-3b9w4 — the col-3 subs cell. Each dereffed sub renders through
+  "The col-3 subs cell. Each dereffed sub renders through
   `ei/mini` (the edn-inspector leaf primitive — syntax-token chrome)
   wrapped in a per-sub colour-code span:
 
@@ -5312,16 +5307,15 @@
      [:span {:style italic-style} "(none)"])])
 
 (defn- views-table
-  "Render the VIEWS table — 3 columns (view / render-args / subs) — for
-  the rf2-3b9w4 redesign (Mike pair 2026-06-01) + the rf2-u3lii col-2.
+  "Render the VIEWS table — 3 columns (view / render-args / subs).
 
   Each row carries:
     - a col-1 GLYPH (`+` mount / `~` re-render / `−` unmount) +
       the view NAME (routed through `ei/mini` so it reads as an
       inspectable data entity — syntax-token chrome, parity with the
       App-db / subs value cells) + the go-to-source coord-chip.
-      The prior render-cause chip + duration are REMOVED.
-    - col-2 RENDER-ARGS (rf2-u3lii) — the positional args/props passed
+      There is no render-cause chip and no duration.
+    - col-2 RENDER-ARGS — the positional args/props passed
       to THIS render, as an edn-inspector DIFF vs the SAME instance's
       previous render (`views-render-args-cell`). Args that changed show
       the delta; unchanged show none; a first render shows them plain.
@@ -5336,12 +5330,12 @@
   affordance stays on unmounted rows (the view's definition outlives the
   torn-down instance).
 
-  rf2-jnxfj — mounts through the shared `rt/resizable-table` so
+  Mounts through the shared `rt/resizable-table` so
   column widths are user-draggable + persist across reloads via
   the `:rf.xray.epoch/views` table-id slot."
   [rows instance]
   (let [columns [{:id :view :label "view" :default-flex "1fr"}
-                 ;; rf2-u3lii — col-2 render-args DIFF, between view + subs.
+                 ;; Col-2 render-args DIFF, between view + subs.
                  {:id :render-args :label "render-args" :default-flex "1fr"}
                  {:id :subs :label "subs" :default-flex "1fr"}]]
     [rt/resizable-table-view
@@ -5356,7 +5350,7 @@
                          {:data-testid  (str "rf-xray-epoch-view-row-" i)
                           :data-view-id (when view-id (pr-str view-id))
                           :data-rf-view-status (if unmounted? "unmounted" "rendered")
-                          ;; rf2-2f962 — pink-stripe view-name hover
+                          ;; Pink-stripe view-name hover
                           ;; affordance. Pure DOM side-effect on the
                           ;; row wrapper; no layout perturbation.
                           :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
@@ -5375,20 +5369,20 @@
                   :style (if (and view-id (not unmounted?))
                            views-cell-id-clickable-style
                            views-cell-id-span-style)}
-           ;; rf2-309cy / rf2-3b9w4 — view-id keyword routes through
+           ;; The view-id keyword routes through
            ;; `ei/mini` so the row reads as an inspectable data entity,
            ;; same syntax-token chrome the App-db / subs value cells use.
            (if (some? view-id)
              (ei/mini view-id 60)
              [:span {:style views-anonymous-style}
               "<anonymous view>"])
-           ;; rf2-3b9w4 — go-to-source coord-chip stays on EVERY row,
+           ;; The go-to-source coord-chip rides EVERY row,
            ;; including unmounted (the view's definition outlives the
-           ;; instance). Empty in standard_epochs (no coords); a real
-           ;; jump-to-source in apps with coords.
+           ;; instance). Empty without coords (e.g. standard_epochs); a
+           ;; real jump-to-source in apps with coords.
            (coord-chip/coord-chip (view-coord view-id)
                                   (str "rf-xray-epoch-view-row-coord-" i))]]
-         ;; col-2 render-args DIFF (rf2-u3lii) — this render's args vs
+         ;; col-2 render-args DIFF — this render's args vs
          ;; the SAME instance's previous render (edn-inspector :before).
          (views-render-args-cell row i instance)
          ;; subs cell — colour-coded per-sub (green/orange/grey).
@@ -5398,8 +5392,8 @@
   "Render the VIEWS step (present when views re-rendered OR when
   views unmounted during the cascade).
 
-  rf2-3b9w4 (SUPERSEDES rf2-gmw1i's separate UNMOUNTED sub-section) —
-  re-rendered AND unmounted views render in ONE table (`views-table`):
+  Re-rendered AND unmounted views render in ONE table (`views-table`),
+  not a separate UNMOUNTED sub-section:
   rendered rows first, unmounted rows (red strikethrough, diff-removed
   posture) following. Header verb reads `N re-rendered; M unmounted`
   when both halves are non-empty; collapses to one half when the other
@@ -5430,7 +5424,7 @@
      (when (pos? total)
        (views-table rows instance))])))
 
-;; ---- SCHEMA VIOLATION sub-block (rf2-xgeag) -----------------------------
+;; ---- SCHEMA VIOLATION sub-block ------------------------------------------
 ;;
 ;; The violation sub-block rides INSIDE its owning pipeline step's
 ;; body. Each step renderer (DISPATCH / COEFFECT / HANDLER / FX /
@@ -5440,7 +5434,7 @@
 
 (defn- violation-recovery-label
   "Render the recovery posture chip on a violation's title bar.
-  Per rf2-2ek7t — short chip text; the prose sentence below carries
+  Short chip text; the prose sentence below carries
   the full explanation ('commit to app-db', 'this sub returned
   nil', etc.) so the chip can be tight."
   [where rollback? recovery]
@@ -5454,10 +5448,8 @@
     (keyword? recovery)    (name recovery)
     :else                  nil))
 
-;; `violation-open-source-action` retired (rf2-wnvid) — its only caller
-;; was the error-card's jump-to-source link, which rf2-wnvid dropped as
-;; redundant with the HANDLER step's verb link. The schema-violation
-;; block's `schema check` link routes through `coord-link` directly.
+;; The schema-violation block's `schema check` link routes through
+;; `coord-link` directly.
 
 (defn- meta-coord
   "Call `read-meta` (a zero-arg read of some registration's metadata) and
@@ -5476,7 +5468,7 @@
     (meta-coord #(rf/handler-meta {:source :store :kind kind :id id}))))
 
 (def ^:private violation-registration-kind
-  "rf2-1t8fn — the registrar KIND of the registration whose `:schema` failed,
+  "The registrar KIND of the registration whose `:schema` failed,
   keyed by the violation's `:where`. On each of these surfaces the producer
   names that registration in `:failing-id`, and `:where` supplies the kind
   the lookup needs. Read off the emit sites:
@@ -5501,18 +5493,18 @@
 
 (defn- violation-schema-coord
   "The `{:file :line}` coord of the registration whose schema a violation row
-  failed, or nil (rf2-1t8fn). Each `:where` reads through the door that
+  failed, or nil. Each `:where` reads through the door that
   registration actually lives behind:
 
     - `:app-db` — the schema is registered at a PATH, in the schemas
       artefact's per-frame side table, so the read is
-      `rf.schemas/app-schema-meta`. Since rf2-kuky.84 that read REQUIRES a
+      `rf.schemas/app-schema-meta`. That read REQUIRES a
       `:frame`, so the violation's own frame (off the projected row) is
       passed explicitly: resolving ambiently would resolve Xray's own
       `:rf/xray` frame, not the host frame whose app-db failed. The read
       is an EXACT registered-path lookup, so it takes the row's
       `:registered-path` — the registration ROOT — and not `:path`, which
-      is the failing LEAF below it (rf2-tspmp): a map schema registered at
+      is the failing LEAF below it: a map schema registered at
       `[:user]` failing at `:age` carries `:path [:user :age]`, which names
       no registration. A row without `:registered-path` falls back to
       `:path`. The row's `:failing-id` names the HANDLER whose write
@@ -5539,8 +5531,8 @@
 (def ^:private violation-prose-style
   ;; sans-stack overrides the outer block's monospace inheritance —
   ;; the prose is natural-language ('This value failed a schema
-  ;; check…'), not code/data. Monospace was reading as if the
-  ;; framework was quoting a literal expression. Mono stays for the
+  ;; check…'), not code/data. Monospace would read as if the
+  ;; framework were quoting a literal expression. Mono stays for the
   ;; humanized explain map below (which IS data).
   {:color       (:text-primary tokens)
    :font-family sans-stack
@@ -5559,11 +5551,11 @@
 
 (defn- violation-inline-link
   "Render the inline `[schema check]` link inside a violation prose
-  sentence (rf2-2ek7t). When `coord` resolves, the text is a clickable
+  sentence. When `coord` resolves, the text is a clickable
   button that dispatches `:rf.xray/open-in-editor`; absent a coord,
   it degrades to plain inline text so the sentence stays readable.
 
-  rf2-vw5pi — routes through the shared `coord-link` with `:glyph?
+  Routes through the shared `coord-link` with `:glyph?
   false` (this is a pure inline TEXT link inside a sentence — no
   trailing `external-link` glyph)."
   [{:keys [label coord testid]}]
@@ -5573,7 +5565,7 @@
 
 (defn- violation-prose
   "Per-`:where` natural-language sentence with an inline `schema check`
-  link (rf2-2ek7t). Each `:where` value has its own canned prose so
+  link. Each `:where` value has its own canned prose so
   the operator reads a one-sentence explanation of what happened +
   why, with the schema source-coord one click away."
   [where schema-coord testid-base]
@@ -5597,18 +5589,17 @@
                     "See " link " for the new shape."]
        [:<> "Schema violation. " link " for details."])]))
 
-;; rf2-plev0 — `decode-malli-explain` (the pure explain-map →
-;; {:expected :got :more-errors} transform) moved to the projection
-;; layer (`projection.cljc`, beside its sibling `schema-violation-row`).
-;; The projection now stamps the decoded summary onto each violation
+;; `decode-malli-explain` (the pure explain-map →
+;; {:expected :got :more-errors} transform) lives in the projection
+;; layer (`projection.cljc`, beside its sibling `schema-violation-row`),
+;; which stamps the decoded summary onto each violation
 ;; row's `:decoded` slot; `violation-block` below reads that projected
 ;; field rather than computing the transform in the view.
 
 (defn violation-block
-  "Render one schema-violation sub-block (rf2-2ek7t redesign,
-  supersedes rf2-xgeag).
+  "Render one schema-violation sub-block.
 
-  Three pieces of content:
+  Its content:
 
     1. Title bar: ⚠ + 'Schema Violation Error' + right-aligned
        recovery chip (per-`:where` text: 'Aborted' / 'Skipped' /
@@ -5616,15 +5607,17 @@
     2. Prose sentence: per-`:where` canned natural-language
        explanation, with an inline `schema check` link to the
        schema's source registration.
-    3. Humanized explain map: rendered inline via `ei/mini`. Reads
-       `:explain-humanized` from the row (Malli adapter populates
-       via `malli.error/humanize` per rf2-2ek7t framework piece);
+    3. Expected / got summary, when the projection decoded one
+       (`:decoded`).
+    4. Humanized explain map: rendered inline via the edn-inspector.
+       Reads `:explain-humanized` from the row (the Malli adapter
+       populates it via `malli.error/humanize`);
        falls back to raw `:explain` when humanized isn't there
-       (non-Malli validators, or framework predating rf2-2ek7t).
+       (non-Malli validators).
 
-  Previously-discrete fields (headline `where · failing-id`, path,
-  value, separate handler + schema 'open' buttons) all retired —
-  subsumed by the prose + humanized explain."
+  There are no discrete fields beyond these (a `where · failing-id`
+  headline, path, value, separate handler + schema 'open' buttons) —
+  the prose + humanized explain carry them."
   ([step-key idx row] (violation-block step-key idx row nil))
   ([step-key idx {:keys [where rollback? recovery
                          explain explain-humanized kind sensitive? decoded]
@@ -5632,11 +5625,11 @@
     instance]
   (let [recovery-label  (violation-recovery-label where rollback? recovery)
         ;; The `schema check` link's coord: the registration whose schema
-        ;; failed, read through the door it lives behind for this `:where`
-        ;; (rf2-1t8fn). nil degrades the link to plain text.
+        ;; failed, read through the door it lives behind for this `:where`.
+        ;; nil degrades the link to plain text.
         schema-coord    (violation-schema-coord row)
         humanized-shown (or explain-humanized explain)
-        ;; rf2-plev0 — `:decoded` (the expected/got/+N-more summary) is
+        ;; `:decoded` (the expected/got/+N-more summary) is
         ;; computed in the projection layer (`schema-violation-row`) and
         ;; rides on the row; the view consumes it rather than running the
         ;; decode itself.
@@ -5662,14 +5655,14 @@
          recovery-label])]
      ;; 2. Prose sentence with inline schema link
      (violation-prose where schema-coord testid-base)
-     ;; 3. Expected / Got decomposition (rf2-zn6u5) — the projection's
-     ;; `schema-violation-row` decoded the row's `:explain` (canonical
+     ;; 3. Expected / Got decomposition — the projection's
+     ;; `schema-violation-row` decodes the row's `:explain` (canonical
      ;; Malli shape) into `:decoded {:expected :got :more-errors}` and
-     ;; stamped it on the row (rf2-plev0). Surface the first error's
+     ;; stamps it on the row. Surface the first error's
      ;; `:schema` (expected) + `:value` (got) as programmer-friendly
      ;; summary lines ABOVE the full humanized explain map. Multi-error
-     ;; explain maps gain a `(+N more)` chip so the operator sees the
-     ;; first-error-prominent summary the rf2-xgeag bead body designed.
+     ;; explain maps gain a `(+N more)` chip so the operator sees a
+     ;; first-error-prominent summary.
      ;; Drops out cleanly when `:decoded` is absent (non-Malli validator —
      ;; the projection's `decode-malli-explain` returned nil).
      (when decoded
@@ -5693,12 +5686,11 @@
            (str "(+" (:more-errors decoded) " more error"
                 (when (> (:more-errors decoded) 1) "s") ")")])])
      ;; 4. Humanized explain map (or raw fallback) — render via
-     ;; edn-inspector fully expanded ("FULL" per Mike pair-debug
-     ;; 2026-05-27). `:default-expanded-depth 16` matches the
+     ;; edn-inspector fully expanded. `:default-expanded-depth 16` matches the
      ;; widget's `:max-depth` ceiling so every nested level of the
      ;; explain tree is visible on first paint. The operator needs
      ;; to SEE the failure detail, not click to discover it.
-     ;; (`mini`'s one-line truncated rendering collapsed to
+     ;; (`mini`'s one-line truncated rendering would collapse to
      ;; `{:errors […1 items]}`, hiding the actual content.)
      (when (some? humanized-shown)
        [:div {:data-testid (str testid-base "-explain")
@@ -5722,14 +5714,13 @@
   current step's body. `step-key` is the owning step keyword (used
   for stable test ids). nil-safe.
 
-  `instance` (rf2-3ymg) qualifies the explainer's inspector `:mount-id`.
+  `instance` qualifies the explainer's inspector `:mount-id`.
   THE TWO-ARGUMENT ARITY MEANS `UNNAMED SINGLE MOUNT` — it is not a
-  shorthand for `whatever the caller has`. It composes ids byte-for-byte as
-  they were before rf2-3ymg, which is right for a direct test call and wrong
+  shorthand for `whatever the caller has`. It composes the bare ids,
+  which is right for a direct test call and wrong
   for any renderer that has an instance in scope: two named mounts showing
-  the same violation then share one lifecycle entry, one ResizeObserver and
-  one width slot. rf2-1ar7 is the bead filed because two call sites in this
-  file took the short arity while holding the value — say `nil` deliberately
+  the same violation would then share one lifecycle entry, one
+  ResizeObserver and one width slot. So say `nil` deliberately
   or pass what you have. Every call site in this file passes it."
   ([step-key violations] (violation-blocks step-key violations nil))
   ([step-key violations instance]
@@ -5738,19 +5729,17 @@
       (map-indexed (fn [i v] (violation-block step-key i v instance))
                    violations)])))
 
-;; ---- inline EXCEPTION card (rf2-ahhgn) ----------------------------------
+;; ---- inline EXCEPTION card -----------------------------------------------
 
 (defn- error-recovery-label
-  "Short recovery chip text for an exception card (rf2-ahhgn / rf2-wnvid /
-  rf2-s6oqd).
+  "Short recovery chip text for an exception card.
 
-  rf2-s6oqd — `db-rolled-back?` gates the `Rolled back` chip: it paints
+  `db-rolled-back?` gates the `Rolled back` chip: it paints
   ONLY when the cascade ACTUALLY rolled back (a `:where :app-db`
   schema-validation failure reverted the commit). The substrate stamps
   `:recovery :no-recovery` on EVERY `:rf.error/*`, so keying off recovery
-  alone painted a SPURIOUS `Rolled back`. The earlier rf2-wnvid gate
-  (`db-committed?`) fixed the pre-commit handler throw (button-16 — no
-  commit) but still mis-fired on a POST-COMMIT fx throw (button-20
+  alone would paint a SPURIOUS `Rolled back`, and gating on
+  `db-committed?` would mis-fire on a POST-COMMIT fx throw (button-20
   `:standard-epochs/boom`): fx are best-effort post-commit, so the `:db`
   stays committed yet nothing reverted. Gating on actual rollback paints
   the chip on a :db schema-fail rollback (correct) and omits it on a
@@ -5762,15 +5751,15 @@
     :no-recovery (when db-rolled-back? "Rolled back")
     (when (keyword? recovery) (name recovery))))
 
-;; rf2-oqi0c — `error-block-label` (the one-line category-reason headline
-;; 'The event handler threw.' / '…interceptor threw.') was REMOVED. The
-;; card's position (under the failing step) + its 'Exception Thrown'
-;; heading already attribute the failure; the headline merely restated
-;; the category as boilerplate chrome. The card now leads with the real
+;; The card carries no one-line category-reason headline ('The event
+;; handler threw.' / '…interceptor threw.'): its position (under the
+;; failing step) + its 'Exception Thrown' heading attribute the failure,
+;; and such a headline would merely restate the category as boilerplate
+;; chrome. The card leads with the real
 ;; `.getMessage` (when present) + the collapsible stack / ex-data.
 
 (defn- exception-stack
-  "Lift the stack trace string off a thrown exception object (rf2-wnvid).
+  "Lift the stack trace string off a thrown exception object.
   CLJS errors carry `.-stack` (the panel runs in the browser). nil-safe —
   returns nil for a non-error / stack-less exception."
   [exception]
@@ -5780,7 +5769,7 @@
       (when (and (string? s) (not (str/blank? s))) s))))
 
 (defn- exception-ex-data
-  "Lift the `ex-data` map off a thrown exception object (rf2-wnvid).
+  "Lift the `ex-data` map off a thrown exception object.
   nil-safe — returns nil when the exception carries no ex-data (a bare
   `(throw (js/Error. …))` rather than an `ex-info`)."
   [exception]
