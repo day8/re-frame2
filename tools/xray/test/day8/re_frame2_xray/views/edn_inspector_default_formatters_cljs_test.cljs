@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.views.edn-inspector-default-formatters-cljs-test
-  "Unit tests for the default `IXrayEdnInspector` formatters
-  (rf2-x16b1 · follow-on to rf2-0qrcr phase 7).
+  "Unit tests for the default `IXrayEdnInspector` formatters.
 
   ## What's under test
 
@@ -72,7 +71,7 @@
 ;; format-relative — pure-data bucketing
 ;; =========================================================================
 
-(def ^:private epoch-2026 1764547200000) ;; 2026-01-01T00:00:00.000Z
+(def ^:private epoch-2026 1764547200000) ;; 2025-12-01T00:00:00.000Z
 
 (defn- ms-ago [now ms] (js/Date. (- now ms)))
 (defn- ms-future [now ms] (js/Date. (+ now ms)))
