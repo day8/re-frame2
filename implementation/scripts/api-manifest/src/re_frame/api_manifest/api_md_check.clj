@@ -20,7 +20,7 @@
   are skipped — they are not vars and carry no Tier-for-a-var.
 
   QUALIFIER RESOLUTION. API.md writes some var names
-  namespace-qualified (`uix-adapter/adapter`,
+  namespace-qualified (`rf.adapter.uix/adapter`,
   `re-frame.interop/debug-enabled?`) and others bare (`reg-event`). The
   two SHAPES resolve against DIFFERENT manifest indexes, because they carry
       different identity:
@@ -28,21 +28,22 @@
     - A QUALIFIED row names BOTH a namespace (or its documented `:as`
       alias) AND a var. It resolves STRICTLY against the `[namespace var]`
       index — resolving by bare var alone is unsound, because the manifest
-      carries the SAME `:var \"adapter\"` for THREE distinct namespaces
-      (`re-frame.adapter.{reagent,uix}` at tier `:adapter`, plus
-      `re-frame.ssr` at `:internal-public`). A bare-`:var` match would let
+      carries the SAME `:var \"adapter\"` for FOUR distinct namespaces
+      (`re-frame.adapter.{reagent,uix}` and `re-frame.fresco.substrate` at
+      tier `:adapter`, plus `re-frame.ssr` at `:implementation`). A
+      bare-`:var` match would let
       a qualified row drift to a stale/wrong/unknown qualifier
       (`uix-adapter/adapter` → `bogus-adapter/adapter`) and still pass the
       moment ANY manifest row with bare name `adapter` carried the stated
       tier — a false-green drift gate. The qualifier is first resolved to
       an EXACT manifest namespace: a documented adapter `:as` alias via
       `adapter-aliases`, otherwise the qualifier verbatim (the
-      full-namespace rows `re-frame.interop/...`, `re-frame.performance/...`,
-      `re-frame.alpha/...` ARE literal manifest namespaces). A
+      full-namespace rows `re-frame.interop/...` and
+      `re-frame.performance/...` ARE literal manifest namespaces). A
       qualifier that resolves to neither a known alias nor a manifest
       namespace+var pair fails as a wrong/unknown qualifier.
 
-    - A BARE row names only a var. It keeps the original name-resolution
+    - A BARE row names only a var. It keeps name-resolution
       latitude: it resolves if ANY manifest row with that var-name carries
       the stated tier (a bare API.md row is unambiguous in practice), and
       its knowingly-unmanifested allowlist (`:api-md-known-unmanifested`)
@@ -60,34 +61,23 @@
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private min-var-rows
-  "Non-vacuous extracted-row floor for the spec/API.md projection
-   (rf2-4ka7c2.2). A parser / table-shape / tier-header / marker-cell drift
-   that collapses extraction toward zero would otherwise let `check!` report a
-   VACUOUS OK while most of API.md's public-var references go unchecked
-   against the manifest. The floor sits well below the live count so it trips
-   ONLY on a near-total collapse (the vacuous-green class), never on ordinary
-   API.md churn — the same calibration the secondary projection floors use
-   (rf2-utvst).
+  "Non-vacuous extracted-row floor for the spec/API.md projection. A parser /
+   table-shape / tier-header / marker-cell drift that collapses extraction
+   toward zero would otherwise let `check!` report a VACUOUS OK while most of
+   API.md's public-var references go unchecked against the manifest. The
+   floor sits well below the live count so it trips ONLY on a near-total
+   collapse (the vacuous-green class), never on ordinary API.md churn — the
+   same calibration the secondary projection floors use.
 
-   RE-CALIBRATED (rf2-kuky.31) from 150. The docstring above used to cite a
-   live count of ~196 and that premise had gone stale: API.md is SHRINKING
-   under the rf2-kuky API-review epic, whose whole purpose is to retire
-   overlapping public surfaces, and the live count had fallen to 151. A floor
-   of 150 against 151 live is not a non-vacuity floor at all — it is a
-   hair-trigger that ANY retirement of two public var-rows trips, which is the
+   A floor close to the live count is not a non-vacuity floor at all: it is a
+   hair-trigger that retiring a couple of public var-rows trips, which is the
    opposite of `never on ordinary API.md churn`. The sibling floors in this
-   family sit 3.7x-8.3x below their live counts (skills 601/100,
-   docs-guide 825/100, story API.md 73/20); 150/151 sat at 1.007x. 50 puts
-   this floor back in that band (3.0x below live) while still refusing any
-   collapse past a third of the table, which is the class it exists to catch.
+   family sit several times below their live counts, and 50 puts this one
+   about 3x below the ~150 live var-rows while still refusing any collapse
+   past a third of the table, which is the class it exists to catch.
 
-   The mis-calibration was visible in this ns's OWN TESTS, which had come to
-   contradict each other: `near-collapse-extraction-violates-the-floor`
-   asserted 149 must trip as a near-total collapse, while
-   `healthy-extraction-does-not-violate-the-floor` asserted the REAL parse over
-   the committed API.md must clear the floor. Both cannot hold once the real
-   parse reads 149. Do NOT repair a future breach by adding var-rows to
-   API.md for names that are not public: that inverts the gate."
+   Do NOT repair a future breach by adding var-rows to API.md for names that
+   are not public: that inverts the gate."
   50)
 
 (def ^:private api-md-file (delay (io/file rf.api-manifest.gen/repo-root "spec" "API.md")))
@@ -136,9 +126,9 @@
    explicit and a new adapter alias is an intentional one-line addition."
   {"rf.adapter.reagent" "re-frame.adapter.reagent"
    "rf.adapter.uix"     "re-frame.adapter.uix"
-   ;; The pre-rf2-z5zy spellings. spec/ no longer teaches them (rf2-gbuh
-   ;; ruled them a defect, not an exemption), but they stay resolvable so a
-   ;; row carrying one is graded rather than silently unresolved.
+   ;; The non-dialect spellings. spec/ does not teach them (a row using one
+   ;; is a defect, not an exemption), but they stay resolvable so a row
+   ;; carrying one is graded rather than silently unresolved.
    "reagent-adapter"    "re-frame.adapter.reagent"
    "uix-adapter"        "re-frame.adapter.uix"})
 
@@ -151,7 +141,7 @@
    the qualifier is nil (`reg-event` -> `[nil \"reg-event\"]`). The
    qualifier is PRESERVED (not stripped) so a qualified row can be resolved
    strictly against the manifest's `[namespace var]` index — see the ns
-   docstring's QUALIFIER RESOLUTION note (rf2-41j0a)."
+   docstring's QUALIFIER RESOLUTION note."
   [ident]
   (let [trimmed-ident (str/trim ident)]
     (if-let [last-slash-index (str/last-index-of trimmed-ident "/")]
@@ -186,17 +176,17 @@
            cells)))
 
 (defn parse-var-rows
-  "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines
-   (rf2-asxo3 — extracted from `parse-api-md-var-rows` so parser DISAPPEARANCE
-   is unit-testable with synthetic lines, mirroring the reconcile /
-   option-guard pure cores). Returns the `[{:var :qualifier :tier :line :raw}
+  "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines,
+   separate from `parse-api-md-var-rows` so parser DISAPPEARANCE is
+   unit-testable with synthetic lines, like the pure `reconcile` core.
+   Returns the `[{:var :qualifier :tier :line :raw}
    ...]` vector — exactly the fields `reconcile` reads, and nothing else.
 
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
    SKIPPED: it never becomes a var-row. That disappearance is silent by
    construction, which is why `floor-violation` refuses a green once
-   extraction collapses (rf2-asxo3 / rf2-4ka7c2.2)."
+   extraction collapses."
   [indexed-lines]
   (loop [remaining-lines   indexed-lines
          tier-column-index nil
@@ -239,8 +229,7 @@
    found in any table that has a `Tier` column. `:qualifier` is the
    namespace/alias prefix for a qualified row (`uix-adapter`,
    `re-frame.interop`) or nil for a bare row — preserved so qualified rows can
-   resolve strictly against the manifest `[namespace var]` index
-   (rf2-41j0a).
+   resolve strictly against the manifest `[namespace var]` index.
 
    We track the CURRENT table's `Tier` column index (from its header row)
    and read the tier from EXACTLY that cell — not by scanning every cell,
@@ -249,7 +238,7 @@
    second cell is a var-kind marker; a table with no `Tier` column
    contributes no rows (its surface is keyword-registrations / schemas).
 
-   The pure loop is extracted as `parse-var-rows` (rf2-asxo3) so parser
+   The pure loop is `parse-var-rows`, so parser
    DISAPPEARANCE — a deleted row, or a row whose M/Fn marker drifted to an
    unknown spelling and is therefore SKIPPED — is unit-testable against
    synthetic lines; `floor-violation` turns a collapsed extraction into a
@@ -261,8 +250,8 @@
                    (line-seq r)))))
 
 (defn reconcile
-  "Pure reconciler (rf2-41j0a — extracted so the qualifier-resolution
-   contract is unit-testable with synthetic inputs). Returns the seq of
+  "Pure reconciler, so the qualifier-resolution contract is unit-testable
+   with synthetic inputs. Returns the seq of
    problem maps for the supplied API.md var-rows.
 
    `rows`               — manifest rows (each `{:namespace :var :tier ...}`).
@@ -304,7 +293,7 @@
                   (not (contains? manifest-tiers tier))
                   {:kind :tier-mismatch :var var :raw raw :line line
                    :api-tier tier :manifest-tiers manifest-tiers}))
-              ;; BARE: original by-name latitude + bare-name allowlist.
+              ;; BARE: by-name latitude + bare-name allowlist.
               (let [manifest-tiers (get by-name var)]
                 (cond
                   (contains? known-unmanifested var) nil
@@ -316,9 +305,9 @@
           api-rows)))
 
 (defn floor-violation
-  "Pure non-vacuous-floor predicate (rf2-4ka7c2.2 — extracted so the
-   zero-row / near-collapse contract is unit-testable without the live
-   spec/API.md file). Returns the projection floor-problem map when
+  "Pure non-vacuous-floor predicate, so the zero-row / near-collapse
+   contract is unit-testable without the live spec/API.md file. Returns the
+   projection floor-problem map when
    `extracted` (the number of API.md var-rows the parser actually recovered)
    is below `min-var-rows`, else nil. A non-nil result MUST fail `check!`:
    an empty problem list with a collapsed extraction would otherwise report
@@ -348,7 +337,7 @@
         known-unmanifested (set (:api-md-known-unmanifested (rf.api-manifest.gen/read-sidecar)))
         api-rows   (parse-api-md-var-rows)
         extracted  (count api-rows)
-        ;; Non-vacuous floor (rf2-4ka7c2.2): if extraction has collapsed
+        ;; Non-vacuous floor: if extraction has collapsed
         ;; (table-shape / tier-header / marker drift), an empty `problems`
         ;; seq below would report a VACUOUS OK with most of API.md unchecked.
         ;; Detect that BEFORE the tier reconcile so a near-collapse fails
@@ -360,10 +349,10 @@
                                :aliases            adapter-aliases})
         api-md-lines (read-api-md-lines)
         ;; Var-row reconciliation cannot see retired keyword vocabulary in
-        ;; API.md prose. The reply-envelope
+        ;; API.md prose, so the `:rf.world/inputs`, reply-envelope
         ;; (`:stale-key` / bare `:work-id`) and egress-profile (retired
-        ;; `:rf.egress/on-box-*` / `trusted-local-*`) keyword guards over the
-        ;; same API.md prose, all on the same retirement-marker discipline.
+        ;; `:rf.egress/on-box-*` / `trusted-local-*`) keyword guards run over
+        ;; the same API.md prose, all on the same retirement-marker discipline.
         ;; These fire only on retired keyword forms, not prose phrasing.
         kw-probs   (concat
                      (rf.api-manifest.projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
