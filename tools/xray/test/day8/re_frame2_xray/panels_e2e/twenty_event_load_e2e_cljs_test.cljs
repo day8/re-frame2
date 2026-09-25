@@ -1,22 +1,20 @@
 (ns day8.re-frame2-xray.panels-e2e.twenty-event-load-e2e-cljs-test
-  "Multi-frame e2e port of the Xray feature-matrix Playwright scenarios
+  "Multi-frame e2e coverage for the Xray feature-matrix scenarios
   `20-event feature/load re-check` and `20-event launch-mode shared
-  runtime re-check` (rf2-rviu8).
+  runtime re-check`.
 
-  The Playwright originals (`scenarios.cjs::runTwentyEventLoad`,
-  `runLaunchModesTwentyEventLoad`) drove 20 host `+/-` button clicks on
-  the counter testbed, opened the Xray shell, and asserted:
+  In the browser those scenarios drive 20 host `+/-` button clicks on
+  the counter testbed, open the Xray shell, and check:
 
-    1. The trace count grew (proves dispatch reached the trace bus).
-    2. The focused-epoch panel default-focused the head cascade after
-       load (proves the spine pipeline emitted routable cascades).
-       Originally the Event/Handler panel; rf2-5gl5r migrated the
-       surface to the Epoch panel.
+    1. The trace count grows (proves dispatch reached the trace bus).
+    2. The focused-epoch panel (the Epoch panel) default-focuses the
+       head cascade after load (proves the spine pipeline emitted
+       routable cascades).
     3. The focused-event-bundle overlay state synchronises across launch
        modes (overlay vs popout).
 
   At the data layer — which is what the bug class actually probes —
-  none of that needs a browser. With the rf2-7icrs multi-frame harness
+  none of that needs a browser. With the multi-frame harness
   the same chain runs in <10 ms per assertion:
 
     host counter/inc x20  →  trace-bus mirror  →  Xray
@@ -24,14 +22,14 @@
       :rf.xray/focus auto-follows head
       :rf.xray/epoch-history grows by ~20
 
-  ## Why we still keep DOM coverage out of scope here
+  ## Why DOM coverage stays out of scope here
 
   The popout-launch-mode (window.open) and the L4 overlay surface are
-  DOM-level surfaces — those stay covered by the cross-site Playwright
+  DOM-level surfaces — those are covered by the cross-site Playwright
   smokes (story_play_scripts.cjs + the launch-mode chrome scenario)
   which exercise the actual window.open + overlay tree. This file
-  covers the data invariants that broke in rf2-70tkv (panel frozen
-  after head-event-bundle flip) and rf2-hwuki (`:frame` tag dropped)."
+  covers the data invariants: no panel frozen after a head-event-bundle
+  flip, and no dropped `:frame` tag."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -71,7 +69,7 @@
                 ":rf.xray/event-bundles did not surface every host dispatch — spine ingestion lost events")))))))
 
 (deftest xray-focus-tracks-final-head-after-load
-  (testing "spine focus is on the final dispatch after 20 events (rf2-70tkv panel-frozen regression class)"
+  (testing "spine focus is on the final dispatch after 20 events (panel-frozen regression class)"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
