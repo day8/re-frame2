@@ -3853,7 +3853,8 @@
 
   Single source of truth: every React-hook adapter calls this with the
   same shape — the only inputs are their already-substrate-specific
-  `spine-fns` map, `:kind`, and native `:frame-provider` — so the
+  `spine-fns` map, `:kind`, native `:frame-provider`, and the optional
+  `:componentize-view` — so the
   route-hook block and chained installs live once."
   [spine-fns {:keys [kind frame-provider componentize-view]}]
   (let [adapter {:kind                      kind
