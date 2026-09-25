@@ -1,8 +1,8 @@
 ;; Conformance fixture: routing/pattern-validation
 ;;
-;; Pins the path-pattern registration-error surface (rf2-5u1r6a): a malformed
+;; Pins the path-pattern registration-error surface: a malformed
 ;; `:path` throws `:rf.error/invalid-route-pattern` at registration, and the
-;; ONE canonical optional-group spelling is slash-INSIDE (`{/:name}?`, rf2-av1)
+;; ONE canonical optional-group spelling is slash-INSIDE (`{/:name}?`)
 ;; — the slash-OUTSIDE drift (`/{:base}?/about`) is rejected. Mode-B
 ;; `:reg-route` calls drive the PURE validator: `:expect-error` rows pin each
 ;; fail-loud discriminator; controls (no `:expect-error`) pin the well-formed
@@ -34,8 +34,8 @@
   {:call :reg-route :pattern "/*"}                       ;; bare catch-all
 
   ;; ---- Fail-loud: the slash-OUTSIDE optional-group spelling is REJECTED --
-  ;; This is the drift rf2-5u1r6a closes — the production table, the
-  ;; :rf/route-pattern regex, and the validator now all reject it.
+  ;; The production table, the :rf/route-pattern regex, and the validator
+  ;; all reject it.
   {:call :reg-route :pattern "/{:base}?/about"
    :expect-error :rf.error/invalid-route-pattern}
   {:call :reg-route :pattern "/{:base}?"
