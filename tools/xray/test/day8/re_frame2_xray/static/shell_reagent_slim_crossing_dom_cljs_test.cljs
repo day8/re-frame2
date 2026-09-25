@@ -1,31 +1,22 @@
 (ns day8.re-frame2-xray.static.shell-reagent-slim-crossing-dom-cljs-test
-  "rf2-7ds8 — Xray's Fresco boundaries must cross their surviving Reagent
-  islands through the INSTALLED ratom build, and this suite measures that
-  under **reagent-slim**, the adapter the defect was found on.
+  "Xray's Fresco boundaries must cross their surviving Reagent islands
+  through the INSTALLED ratom build, and this suite measures that under
+  **reagent-slim**, the adapter on which a crossing through any other
+  build fails.
 
-  ## The defect these rows stand over
+  ## The failure these rows stand over
 
   Xray's boundaries take the hiccup->React-element crossing as an
-  `as-child` PARAMETER. Nine sites across six sources passed
-  `reagent.core/as-element` — STOCK Reagent's walk, named statically.
-  Under reagent-slim the installed build is `reagent2`, and the mismatch
-  is quiet rather than loud:
+  `as-child` PARAMETER, and pass `substrate/as-element`, which reads the
+  walk off the installed adapter. A boundary passing
+  `reagent.core/as-element` — STOCK Reagent's walk, named statically —
+  would fail under reagent-slim, whose installed build is `reagent2`,
+  and the mismatch would be quiet rather than loud:
 
     * React mounts the element, and the `:contextType` the `reg-view`
       head carries IS honoured — `reagent2.impl.component` reads
       `(:contextType (meta f))` exactly as stock's `fn-to-class` does —
       so the frame keyword genuinely reaches the mounted class.
-
-  rf2-k97c.3 LATER RETIRED THE L1 RIBBON'S OWN TWO ISLANDS —
-  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` are
-  Fresco boundaries now and the ribbon heads them directly. W2 below is
-  written against what the ribbon renders rather than against the
-  crossing spelling, so it still stands over the same DOM; what it can
-  no longer claim is that the node it finds arrived through an
-  `as-child` seam. The door itself is unchanged and W1 is untouched —
-  the L2/L3 seam handle and the L4 `[(:panel tab)]` mount still cross
-  through it, which is why this suite is still the one that measures
-  it.
     * But the foreign build renders the subtree with ITS
       in-flight-component slot bound, while `:adapter/current-component`
       routes to the INSTALLED build and answers nil inside it.
@@ -35,6 +26,15 @@
       `:rf.error/no-frame-context`, in React's RENDER phase, and React
       takes the subtree down. A blank Xray, not a diagnostic.
 
+  The L1 ribbon has no islands of its own —
+  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` are
+  Fresco boundaries the ribbon heads directly. W2 below is written
+  against what the ribbon renders rather than against the crossing
+  spelling, so it does not claim that the node it finds arrived through
+  an `as-child` seam. The door itself is W1's — the L2 event list and
+  the L4 `[(:panel tab)]` mounts cross through it, which is why this
+  suite is the one that measures it.
+
   ## Two rows, and they fail in different registers ON PURPOSE
 
   W1 is the DURABLE PIN. It reads the door itself and needs no DOM, so a
@@ -43,18 +43,15 @@
   a shell rather than a blank panel — and it can only be had from a real
   React commit.
 
-  ## Why W2 mounts under `h/error-boundary`, which is not decoration
+  ## Why W2 mounts under `rf.fresco/error-boundary`, which is not decoration
 
-  rf2-7ds8's own bead argued this defect could not be pinned at all:
-  reproducing it needs an UNCAUGHT RENDER-PHASE THROW, and the browser
-  runner fails any run carrying an uncaught `pageerror` independently of
-  the `cljs.test` summary — so a naive pin would red the whole lane for
-  every unrelated suite and make one real defect look like a broken
-  runner. That reasoning is sound about a NAKED mount and is answered
-  rather than contradicted here: an error boundary above the crossing
-  makes the throw a HANDLED one, so a regression reddens this row on its
-  own message and every neighbouring namespace still runs. The bead's
-  conclusion was right for the instrument it had in mind.
+  Under a NAKED mount this failure is an UNCAUGHT RENDER-PHASE THROW,
+  and the browser runner fails any run carrying an uncaught `pageerror`
+  independently of the `cljs.test` summary — so a naked pin would red
+  the whole lane for every unrelated suite and make one real defect look
+  like a broken runner. An error boundary above the ribbon makes the
+  throw a HANDLED one, so a regression reddens this row on its own
+  message and every neighbouring namespace runs.
 
   ## Test target
 
@@ -103,7 +100,7 @@
 ;; ===========================================================================
 
 (deftest w1-as-element-door-is-the-installed-builds-walk
-  (testing "rf2-7ds8 — with reagent-slim installed, `:adapter/as-element`
+  (testing "with reagent-slim installed, `:adapter/as-element`
             walks hiccup the way reagent2 does and NOT the way stock
             Reagent does.
 
@@ -154,13 +151,13 @@
                and the subtree raises :rf.error/no-frame-context"))))))
 
 ;; ===========================================================================
-;; W2 — the Static ribbon's Reagent island actually PAINTS under slim
+;; W2 — the Static ribbon actually PAINTS under slim
 ;; ===========================================================================
 
 (def ^:private caught
-  "The error `h/error-boundary` caught below this row's crossing, or nil.
-  Non-nil is the defect returning: the island raised in React's render
-  phase and React took the subtree down."
+  "The error `rf.fresco/error-boundary` caught below it, or nil. Non-nil
+  is the failure this suite guards against: something beneath raised in
+  React's render phase and React took the subtree down."
   (atom nil))
 
 (rf.fresco/defview guarded-ribbon
@@ -183,7 +180,7 @@
 
 (defn- setup!
   "Register Xray's handlers — which is what registers the sub family the
-  ribbon's islands read — and make the frame the tree names."
+  ribbon's frame switcher reads — and make the frame the tree names."
   []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
@@ -218,43 +215,42 @@
   (some-> container (.querySelector (str "[data-testid=\"" id "\"]"))))
 
 (deftest w2-ribbon-reagent-island-paints-under-reagent-slim
-  (testing "rf2-7ds8 — under reagent-slim the Static L1 ribbon commits
+  (testing "under reagent-slim the Static L1 ribbon commits
             its frame switcher to the DOM, which it can only do if the
             frame resolved beneath the ribbon boundary.
 
             `frame-switcher-view` READS, so its node exists ONLY when the
             frame resolver found a frame to read against — the node's
             presence is the frame-context claim, not merely a paint
-            claim. rf2-k97c.3 made it a BOUNDARY (it was a `reg-view`
-            island crossed through `as-child` when this row was written),
-            so what the row now witnesses is the boundary's own context
-            resolution rather than the crossing's. That is a weaker
-            statement about the DOOR and an equally strong one about the
+            claim. It is a BOUNDARY rather than a `reg-view` island
+            crossed through `as-child`, so what the row witnesses is the
+            boundary's own context resolution rather than the crossing's.
+            That says little about the DOOR and a great deal about the
             FRAME, which is what the row is for; W1 is the door's
-            durable pin and is untouched."
+            durable pin."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (reset! caught nil)
         (setup!)
         (let [{:keys [container root]} (mount-ribbon!)]
-          ;; The ribbon's own chrome — present even if the islands are gone,
-          ;; so it separates "the boundary painted nothing at all" from "the
-          ;; boundary painted but its island was taken down".
+          ;; The ribbon's own chrome — present even if its selectors are
+          ;; gone, so it separates "the boundary painted nothing at all" from
+          ;; "the boundary painted but a child was taken down".
           (is (some? (testid container "rf-xray-static-ribbon"))
               "the Static ribbon boundary committed its own chrome")
           (is (nil? @caught)
               (str "no render-phase error reached the boundary above the "
-                   "crossing. A :rf.error/no-frame-context here is rf2-7ds8 "
-                   "returning: the island was crossed by a build the "
+                   "ribbon. A :rf.error/no-frame-context here means a child "
+                   "was rendered by a build the "
                    "installed adapter cannot see into. Caught: "
                    (pr-str @caught)))
           (is (nil? (testid container "rf-slim-crossing-fallback"))
               "the error boundary did NOT swap in its fallback")
           (is (some? (testid container "rf-xray-ribbon-frame"))
               (str "frame-switcher-view — the ribbon's frame switcher, a "
-                   "boundary since rf2-k97c.3 — is committed under "
-                   "reagent-slim. This is the node the defect removed"))
+                   "Fresco boundary — is committed under "
+                   "reagent-slim. This is the node a lost frame removes"))
           (is (some? (testid container "rf-xray-ribbon-frame-picker"))
               "it rendered its frame picker, so its read ran rather than
                raising")
