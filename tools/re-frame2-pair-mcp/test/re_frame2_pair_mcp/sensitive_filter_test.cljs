@@ -166,7 +166,7 @@
   ;; trace / epoch ITEMS; it must NOT touch :app-db / :sub-cache /
   ;; :machines. Those slices are projected UPSTREAM, server-side, before
   ;; they reach this scrubber: :app-db / :sub-cache through
-  ;; `re-frame.core/elide-wire-value`, and the :machines runtime-db slice
+  ;; `re-frame.core/project-egress`, and the :machines runtime-db slice
   ;; fail-closed to `:rf/redacted` by default (EP-0015 / EP-0001 — Spec 011
   ;; §Off-box redaction). Here the slices arrive already-projected, so the
   ;; scrubber passes them through verbatim even when they carry literal
