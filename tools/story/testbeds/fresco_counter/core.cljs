@@ -1,6 +1,6 @@
 (ns fresco-counter.core
   "Fresco story testbed entry — the proof that a Fresco boundary paints
-  in Story's canvas (rf2-kttom, Phase D of rf2-5czki).
+  in Story's canvas.
 
   URL-hash-routed between two surfaces, like every other Story testbed:
 
@@ -12,10 +12,10 @@
 
   ## The host installs the `:fresco` renderer — all five lines of it
 
-  Story ships no `install-fresco-substrate!`, and that is a ruling
-  (rf2-1gy4e placement 1) rather than an omission: the renderer's one
-  dependency is the HOST's, so registering it here keeps Story core free
-  of Fresco and `tools/story/deps.edn` untouched. `:uix` is host-registered
+  Story ships no `install-fresco-substrate!`, deliberately rather than by
+  omission: the renderer's one dependency is the HOST's, so registering
+  it here keeps Story core and `tools/story/deps.edn` free of Fresco.
+  `:uix` is host-registered
   for the same reason. [[install-fresco-substrate!]] below is byte-for-byte
   the recipe written out in `re-frame.story.ui.multi-substrate`'s ns
   docstring, which is also what
@@ -27,9 +27,9 @@
   because the Story shell and the hash-routing host are Reagent trees.
   A substrate in Story names WHICH REGISTERED RENDER FN embeds the
   subject — the authoring layer — and not the adapter `rf/init!` seated;
-  the two axes coincided while the members were `:reagent` and `:uix`,
-  and `:fresco` is the member that separates them — Fresco does ship
-  an adapter of its own (`:kind :rf.adapter/fresco`, rf2-hvr5h), and
+  the two axes coincide for `:reagent` and `:uix`, and `:fresco` is
+  the member that separates them — Fresco does ship an adapter of its
+  own (`:kind :rf.adapter/fresco`), and
   this testbed deliberately does not seat it, which is exactly the
   separation. The canvas wraps every variant in
   `[rf/frame-provider {:frame variant-id} …]`, whose provider is
@@ -66,17 +66,15 @@
 
 (defn install-fresco-substrate!
   "Register the `:fresco` render fn with Story. Three decisions ride in
-  these lines and each is ruled on rf2-2dbpd:
+  these lines:
 
   - resolve LATE, per render, off `(rf/view id)`, so re-evaluating a
     `defview` — which replaces the registrar entry behind the same id —
     reaches the deck with no deck change;
   - use `rf/view`, the framework's own late-bind lookup, because the
     alias publishes its minted head at `:handler-fn` like every other
-    substrate's `:view` entry (rf2-kuky.60). This read used to be
-    `(:fresco/component (rf/handler-meta :view id))`, a private slot a
-    host had to know about, because the entry deliberately carried no
-    `:handler-fn` and `rf/view` answered nil for it (rf2-5qaf4);
+    substrate's `:view` entry, so a host needs to know no private slot
+    to find it;
   - mint the element with `rf.fresco/as-element` rather than bridging through
     `rf.fresco/as-component`. `defview` already mints ONE `React.memo` wrapper per
     head, so a fresh element per pass rides a stable TYPE and the boundary
