@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.views.edn-widget-two-heads-dom-cljs-test
-  "THE FACADE'S TWO HEADS, EACH READ OFF A REAL REACT COMMIT (rf2-k97c.3).
+  "THE FACADE'S TWO HEADS, EACH READ OFF A REAL REACT COMMIT.
 
-  `views/edn_widget.cljs` ships the T4 dual-head facade: `inspect` emits
+  `views/edn_widget.cljs` ships the dual-head facade: `inspect` emits
   the Reagent head `[ei/edn-inspector …]` and `inspect-view` emits the
   Fresco boundary `[ei/edn-inspector-view …]`. Same value, same opts, same
   renderer — only the observer differs.
 
   ## WHY THIS FILE EXISTS, AND WHAT IT IS EVIDENCE *FOR*
 
-  The Reagent lane of this facade is not vestigial. It has ONE live caller
-  at tip — `static/routes/row_expand.cljs`'s `value-block`, which CALLS
+  The Reagent lane of this facade is not vestigial. It has ONE live
+  caller — `static/routes/row_expand.cljs`'s `value-block`, which CALLS
   `(edn/inspect value node-key)` — and that caller renders inside the
   `as-child` REAGENT ISLAND `static/routes/panel.cljs` stands up, reached
   as `panel.cljs` → `(as-child [browse-list/render …])` →
@@ -17,14 +17,13 @@
   docstring names this crossing as the TENTH head its in-file census could
   not see, \"because a CALL into a fifth file RETURNS it\".
 
-  So the standing claim is *this caller must keep the Reagent head*. Until
-  this file, that claim rested entirely on READING — and the routes
-  panel's own browser witness deliberately cannot carry it: its
-  `base-routes` seed no `:params` / `:query` schema meta precisely so that
-  `edn-inspector`, a `reg-view`, is never dragged into the island's
+  So the standing claim is *this caller must keep the Reagent head*, and
+  the routes panel's own browser witness deliberately cannot carry it:
+  its `base-routes` seed no `:params` / `:query` schema meta precisely so
+  that `edn-inspector`, a `reg-view`, is never dragged into the island's
   subtree and cannot put a `:rf.view/*` op in that suite's trace census.
-  The crossing the claim is about is therefore the one crossing no live
-  row exercises.
+  The crossing the claim is about is therefore one no other live row
+  exercises.
 
   This file exercises it, in the shape `row_expand` uses: a plain Reagent
   fn CALLING the facade, inside a `frame-provider`.
@@ -41,7 +40,7 @@
 
   W2 and W3 are a pair. Neither is evidence on its own.
 
-  ## WHAT W2 ACTUALLY MEASURED, AND WHY IT IS NOT A RE-FRAME REFUSAL
+  ## WHAT W2 MEASURES, AND WHY IT IS NOT A RE-FRAME REFUSAL
 
   The failure is one level below re-frame. Reagent renders a fn in head
   position as a CLASS component, so `edn-inspector-view` — a minted Fresco
@@ -65,21 +64,21 @@
   ## W2 MUST CONTAIN ITS OWN THROW, AND THAT IS THE RUNNER'S RULE
 
   `scripts/run-browser-tests.cjs` treats ANY Chromium `pageerror` as fatal
-  BY DESIGN (rf2-wf5al / rf2-mwx08) — console noise stays diagnostic, an
-  uncaught error does not. Measured: with W2's mount left bare, this file's
-  three rows all passed, the summary read `0 failures, 0 errors`, and the
-  runner still exited 1 on the single `pageerror` in the whole lane, which
-  was W2's. A row that deliberately throws therefore has to CATCH, or it
-  reddens every other suite on the page.
+  BY DESIGN — console noise stays diagnostic, an uncaught error does not.
+  With W2's mount left bare, this file's three rows would all pass, the
+  summary would read `0 failures, 0 errors`, and the runner would exit 1
+  on the single `pageerror` in the whole lane, W2's. A row that
+  deliberately throws therefore has to CATCH, or it reddens every other
+  suite on the page.
 
   So W2 mounts inside a minimal React class error boundary — error
-  boundaries must be class components — modelled on the one
+  boundaries must be class components — the same shape as the one
   `re_frame/frame_provider_context_dom_cljs_test.cljs` uses for the same
   purpose. `getDerivedStateFromError` both contains the throw and hands the
   row the error to assert on, which is better evidence than the window
-  listener would have been.
+  listener would be.
 
-  ## TWO INSTRUMENT FACTS INHERITED FROM THE EARLIER SLICES
+  ## TWO INSTRUMENT FACTS
 
   A refusal raised inside a React render does NOT reach a `try/catch`
   around `flushSync`. W1 and W3 therefore assert on the committed DOM and
@@ -99,7 +98,7 @@
   build (real DOM + React via Chromium) — `npm run test:browser`. The
   `:node-test` build's `cljs-test$` regex also matches, so it LOADS under
   Node — where every row short-circuits through [[browser?]] and reports
-  the skip rather than passing silently. The node lane could not carry
+  the skip rather than passing silently. The node lane cannot carry
   these rows anyway: `expand-tree` INVOKES a fn head, so `[x …]` and
   `(x …)` expand identically there and head legality is invisible to it
   by construction."
@@ -263,9 +262,9 @@
    (inspect-fn subject-value node-key)])
 
 (rf.fresco/defview FrescoHost
-  "A migrated panel, in miniature. Holds the value on the Fresco side and
+  "A Fresco panel, in miniature. Holds the value on the Fresco side and
   reaches the widget through the facade's Fresco head, which is what a
-  migrated panel writes."
+  Fresco panel writes."
   [_props]
   [:div {:data-testid "rf-xray-two-heads-fresco-host"}
    (edn/inspect-view subject-value node-key)])
@@ -322,7 +321,7 @@
   the panel-id as `:rf.xray.inspect/<node-key>` — so the name half is the
   node-key and the mount-id half is a UUID the form-2 head mints per
   mount. PREFIX-matched for that reason: the Reagent lane's id is
-  unpredictable by design (rf2-sndui — the public API takes no
+  unpredictable by design (the public API takes no
   `:render-id`)."
   [container]
   (q container (str "[data-testid^=\"rf-xray-edn-inspector-" node-key "-\"]")))
@@ -352,12 +351,11 @@
 ;; ===========================================================================
 
 (deftest w1-reagent-head-paints-under-a-reagent-parent
-  (testing "rf2-k97c.3 — `edn-widget/inspect`, CALLED from an ordinary
+  (testing "`edn-widget/inspect`, CALLED from an ordinary
             Reagent fn the way `static/routes/row_expand.cljs` calls it,
             commits the widget's own container and renders the value. This
             is the live evidence for the standing claim that the routes
-            island's caller must keep the Reagent head; before this row the
-            claim rested on reading the call chain."
+            island's caller must keep the Reagent head."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
@@ -381,7 +379,7 @@
 ;; ===========================================================================
 
 (deftest w2-fresco-head-throws-under-a-reagent-parent
-  (testing "rf2-k97c.3 — the SAME Reagent host, handed `inspect-view`
+  (testing "the SAME Reagent host, handed `inspect-view`
             instead of `inspect`, RAISES during render and commits no
             widget. So `row_expand`'s caller cannot be moved onto the
             Fresco side while it renders inside `static/routes/panel.cljs`'s
@@ -418,7 +416,7 @@
 ;; ===========================================================================
 
 (deftest w3-fresco-head-paints-inside-a-fresco-boundary
-  (testing "rf2-k97c.3 — the positive control W2 needs. The same
+  (testing "the positive control W2 needs. The same
             `inspect-view` call, made from a `defview` body and mounted
             through `as-component`, commits the widget and renders the
             value. Without this row W2 is consistent with `inspect-view`
