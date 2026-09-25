@@ -18,8 +18,8 @@
   OS-installed Inter / JetBrains Mono / Fraunces resolves
   automatically and ABSENT THAT no HTTP fetch is attempted. The
   re-frame2 testbed enforces a 'no third-party egress by default'
-  gate; an earlier wiring to Google Fonts (a `<link rel='stylesheet'>`
-  to `fonts.googleapis.com`) tripped it. Consuming projects opt-in
+  gate, which a Google Fonts wiring (a `<link rel='stylesheet'>`
+  to `fonts.googleapis.com`) would trip. Consuming projects opt-in
   to web-hosted fonts by layering their own `@font-face` rules with
   `url()` entries — see the `font-faces-css` docstring.
 
@@ -35,7 +35,7 @@
   ## Lifetime
 
   `install!` is invoked once from `shell.cljs`'s `ShellView` body — a
-  `rf.fresco/defview` boundary, not an `rf/reg-view` (rf2-k97c.3). The
+  `rf.fresco/defview` boundary, not an `rf/reg-view`. The
   public `shell-view` callable is a plain `defn` answering the element
   `ShellView` lowers to, so a Reagent embed reaches this install
   through it. It guards against `js/document` being absent (node-test)
@@ -45,10 +45,10 @@
   (:require [clojure.string :as string]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
-;; ---- font loading (rf2-5kfxe.1 + rf2-5kfxe.1 follow-up) ----------------
+;; ---- font loading -------------------------------------------------------
 ;;
 ;; Inter + JetBrains Mono are the brand faces per spec/007 §Typography;
-;; Fraunces (rf2-5kfxe.9) is the variable serif display face reached
+;; Fraunces is the variable serif display face reached
 ;; through `tokens/display-stack`. They appear in `tokens/sans-stack` + `tokens/mono-stack`
 ;; + `tokens/display-stack` as the FIRST entries of their fallback
 ;; cascades — when an OS-installed copy is present the page renders in
@@ -58,8 +58,7 @@
 ;; Mechanism: a `<style>` block carrying `local()`-only `@font-face`
 ;; declarations. No `url()` entries, no third-party HTTP fetch, no
 ;; preconnect hints — the re-frame2 testbed enforces a 'no third-party
-;; egress by default' gate (Xray's previous wiring to Google Fonts
-;; tripped it), and most consuming projects do not vendor WOFF2s at
+;; egress by default' gate, and most consuming projects do not vendor WOFF2s at
 ;; predictable URLs anyway. With `local()`-only rules an OS-installed
 ;; Inter / JetBrains Mono / Fraunces (Mike's machines; design-system
 ;; users) still resolves automatically; absent that, the fallback chain
@@ -95,7 +94,7 @@
 
   Every rule below ships `src: local('<face name>')` and NO `url()`
   entry. The re-frame2 testbed enforces a 'no third-party egress by
-  default' gate; an earlier wiring to Google Fonts tripped it. With
+  default' gate, which a Google Fonts `url()` would trip. With
   `local()`-only rules an OS-installed copy is picked up automatically
   and absent that the per-stack fallback chain in `tokens/sans-stack`
   / `tokens/mono-stack` / `tokens/display-stack` takes over.
@@ -112,16 +111,11 @@
   - Inter — weights 400 / 500 / 600 / 700 (chrome, labels, prose).
   - JetBrains Mono — weights 400 / 500 / 600 / 700 (code, EDN).
   - Fraunces — weights 500 / 600 / 700 / 900, requested for whatever
-    reaches `tokens/display-stack` (rf2-5kfxe.9). Variable optical-size
+    reaches `tokens/display-stack`. Variable optical-size
     axis 9-144 isn't expressible in a `local()` reference so the
     per-weight family names are used.
 
-    This read \"L4 panel `<h1>` only\" until rf2-y8doi.24. Those
-    headings are GONE — `[:h1` occurs zero times across
-    `tools/xray/src` (controls: `[:h2` 5, `[:div` 464), the large
-    Machine-panel `h1` having been removed under rf2-6xezz on
-    2026-05-21 — so the scope named a surface that no longer exists.
-    The one live `display-stack` consumer today is the static
+    The one `display-stack` consumer is the static
     machines' definition-detail title, which is a `<div>` rendering at
     BODY type-scale by deliberate choice, not a heading.
 
@@ -165,11 +159,11 @@
     "@font-face{font-family:'Fraunces';font-style:normal;font-weight:900;"
     "font-display:swap;src:local('Fraunces Black');}\n"))
 
-;; ---- document-targeted `<style>` write (rf2-czcg5) ----------------------
+;; ---- document-targeted `<style>` write ----------------------------------
 ;;
 ;; Every injector below writes a fixed-id `<style>` node into a target
 ;; document's `<head>`. The main inline shell installs into
-;; `js/document`; the second-window pop-out (rf2-czcg5) installs the
+;; `js/document`; the second-window pop-out installs the
 ;; SAME stylesheet set into its own `window.document` so the shell's
 ;; `var(--rf-xray-*)` reads resolve there too (otherwise the detached
 ;; window renders unstyled — the `:root` custom properties live only on
@@ -183,7 +177,7 @@
   or when `doc` is absent / lacks the DOM surface (node-test). Returns
   nil. The single seam every per-style injector funnels through so the
   main-document and pop-out-document install paths share one
-  implementation (rf2-czcg5)."
+  implementation."
   [doc style-id css]
   (when (and (some? doc)
              (.-head doc)
@@ -206,14 +200,14 @@
   [doc]
   (inject-style-node! doc fonts-style-id font-faces-css))
 
-;; ---- per-theme CSS custom properties (rf2-5kfxe.6) ---------------------
+;; ---- per-theme CSS custom properties -----------------------------------
 ;;
 ;; Emit one CSS custom-property block per theme keyed by the theme
 ;; class the shell carries (`rf-xray-theme-dark` / `rf-xray-theme-
 ;; light`). Properties land at `:root` for the active theme so any
 ;; descendant can read them via `var(--rf-xray-bg-1)`. The LIGHT
 ;; block also publishes at `:root` *unconditionally* as a default
-;; (rf2-3f2di) — until the shell mounts (or under a host that never
+;; — until the shell mounts (or under a host that never
 ;; adds a theme class) the light palette is the safe fallback, matching
 ;; the authoritative reference's light-by-default render.
 ;;
@@ -242,20 +236,20 @@
 
 (defn- themes-css
   "Build the per-theme CSS block. The LIGHT palette publishes at `:root`
-  (the safe fallback — rf2-3f2di flipped the default from dark to light
-  so the pre-mount fallback matches the authoritative reference, which
-  renders light by default) AND at `.rf-xray-theme-light` (so the class
+  (the safe fallback, so the pre-mount render matches the authoritative
+  reference, which renders light by default) AND at
+  `.rf-xray-theme-light` (so the class
   toggle has a matched landing). The dark palette publishes at
   `.rf-xray-theme-dark` so the class toggle activates it.
 
   `--rf-xray-accent` is the SINGLE accent token (GitHub blue `#539bf5`
   dark / `#0969da` light — the Figma export's `--devtools-active`).
-  Per rf2-ad7zx.13 there is NO per-mode accent colour swap: the
-  Dynamic/Static mode is functional only and no longer re-points the
+  There is NO per-mode accent colour swap: the
+  Dynamic/Static mode is functional only and does not re-point the
   accent, so the whole shell reads the same blue accent in both modes."
   [themes]
   (str
-    ;; Default — :root carries the LIGHT palette (rf2-3f2di) so any
+    ;; Default — :root carries the LIGHT palette so any
     ;; descendant reading `var(--rf-xray-bg-1)` resolves the light
     ;; default even before the shell class is attached, matching the
     ;; authoritative reference's light-by-default render.
@@ -277,11 +271,11 @@
   [doc themes]
   (inject-style-node! doc themes-style-id (themes-css themes)))
 
-;; ---- atmospheric grain overlay (rf2-5kfxe.7) ---------------------------
+;; ---- atmospheric grain overlay -----------------------------------------
 ;;
 ;; Spec/007 §Colour system flags 'defaulting to solid colors' as an
-;; anti-pattern. Every Xray surface (bg-0 through bg-3) is currently
-;; a solid hex; this commit lifts the shell root with a fractal-
+;; anti-pattern. Every Xray surface (bg-0 through bg-3) is
+;; a solid hex, so the shell root carries a fractal-
 ;; turbulence SVG noise overlay at ~3.5% opacity. Zero JS, zero extra
 ;; DOM nodes — the grain is a CSS `::before` pseudo-element with a
 ;; data-URI SVG filter, tiled across the shell root. The browser's
@@ -364,21 +358,20 @@
   [doc]
   (inject-style-node! doc grain-style-id grain-css))
 
-;; ---- motion keyframes (rf2-5kfxe.3) ------------------------------------
+;; ---- motion keyframes --------------------------------------------------
 ;;
-;; One injected `<style>` block carries the L4 tab cross-fade
-;; (rf2-5kfxe.3). The App-db diff-flash that shared it (rf2-5kfxe.2)
-;; was declared but never applied to any element, and went with the
-;; rest of the unreachable path-click machinery under rf2-y8doi.29
-;; (2026-09-17).
+;; One injected `<style>` block carries the motion seam, the L4 tab
+;; cross-fade, and the rules inline styles cannot express:
+;; `:focus-visible` rings, forced-colors mappings and `:hover`
+;; treatments.
 
 (def ^:private motion-style-id
   "rf-xray-motion-keyframes")
 
 (def ^:private motion-css
-  "Keyframes + the reduced-motion seam (rf2-5kfxe.5).
+  "Keyframes + the reduced-motion seam.
 
-  ## The single motion seam (rf2-5kfxe.5)
+  ## The single motion seam
 
   `--rf-xray-motion-scale` is a `:root` CSS custom property —
   consumers interpolate it into their inline `animation-duration:
@@ -403,7 +396,7 @@
   (str
     ;; Root-level CSS custom-property defaults. The motion-scale is
     ;; the single seam every downstream animation reads through; the
-    ;; font-size knob (rf2-n8i2c) anchors the entire type scale —
+    ;; font-size knob anchors the entire type scale —
     ;; every `type-scale` entry resolves as
     ;; `calc(var(--rf-xray-font-size, 13px) * <multiplier>)` so
     ;; overriding the knob at `:root` (host stylesheet or DevTools)
@@ -412,14 +405,14 @@
     "  --rf-xray-motion-scale: 1;\n"
     "  " tokens/font-size-var-name ": " tokens/font-size-default ";\n"
     "}\n"
-    ;; rf2-5kfxe.5 — reduced-motion override. Single rule, every
+    ;; Reduced-motion override. Single rule, every
     ;; downstream calc(…ms * var(--rf-xray-motion-scale, 1)) collapses
     ;; to a vanishingly small duration. See ns docstring for the
     ;; 0.001-vs-0 rationale.
     "@media (prefers-reduced-motion: reduce) {\n"
     "  :root { --rf-xray-motion-scale: 0.001; }\n"
     "}\n"
-    ;; rf2-ybjkx — user-side override of the OS media query. A body /
+    ;; User-side override of the OS media query. A body /
     ;; <html> class set by `settings/effects.cljs/apply-reduced-motion-
     ;; override!` overrides the media-query-derived value:
     ;;
@@ -430,8 +423,7 @@
     ;;
     ;; Higher specificity (a single class selector outranks `:root`)
     ;; and authored AFTER the media-query rule so it wins on equal
-    ;; specificity collisions too — covers the legacy media rule
-    ;; injection order. The selector targets `:where(html, body)` so
+    ;; specificity collisions too. The selector targets `:where(html, body)` so
     ;; either node carrying the class flips the var without bumping
     ;; specificity to the point that downstream consumer overrides
     ;; can't beat it.
