@@ -14,15 +14,15 @@
 
   ## axe-core source: opt-in CDN
 
-  Per the security audit, axe-core is **opt-in only**: the CDN fetch is
+  axe-core is **opt-in only**: the CDN fetch is
   **default-OFF** and the panel surfaces a clear consent prompt
   explaining that running the scan loads remote JS with full DOM access
   to the dev's session, and the dev must click 'enable' (via
   `set-cdn-opt-in!`) to proceed. The opt-in survives reloads (persisted
   in `localStorage` under `:rf.story.a11y/cdn-opt-in`).
 
-  Why not vendor axe-core directly? The audit's preferred fix
-  (`:require [\"axe-core\" ...]` static-bundling) trips Closure
+  Why not vendor axe-core directly? Static bundling
+  (`:require [\"axe-core\" ...]`) trips Closure
   :advanced's strict ECMAScript parser on axe-core's UMD wrapper
   (`function te(e){return(te=...)(e)}` reads as a duplicate
   block-scoped declaration). Closure 2025-vintage rejects this with
@@ -109,13 +109,12 @@
   `destroy-inline!` — the same three seams that evict the play-runner's
   per-frame run-state and the assertion accumulators.
 
-  NOT called from the canvas or the shell, despite what this docstring
-  claimed until rf2-cpbut: `ui/canvas`'s `component-will-unmount` clears
-  its own render sentinels but never destroys a variant frame, and no
-  `ui/` namespace calls `destroy!` at all. The UI reaches teardown only
-  indirectly, via `runtime/reset-variant` (test-mode re-run, stepper) and
-  via `run-variant`'s fresh-run boundary. Naming a caller that did not
-  exist is what let this go unwired.
+  NOT called from the canvas or the shell: `ui/canvas`'s
+  `component-will-unmount` clears its own render sentinels but never
+  destroys a variant frame, and no `ui/` namespace calls `destroy!` at
+  all. The UI reaches teardown only indirectly, via
+  `runtime/reset-variant` (test-mode re-run, stepper) and via
+  `run-variant`'s fresh-run boundary.
 
   Why it matters that this runs at all. The violations bag holds raw
   axe-core violation objects, each referencing the offending elements
@@ -177,8 +176,8 @@
 ;; the same frame. A settlement that mutates the run-state slot without
 ;; re-checking it therefore lands on a surface that is no longer its own.
 ;;
-;; WHAT THAT COSTS, and why it is not a crash (rf2-2amkm, the shape
-;; rf2-6pfpt measured on the play-runner's sibling path): under teardown
+;; WHAT THAT COSTS, and why it is not a crash (the same shape as the
+;; play-runner's sibling path): under teardown
 ;; the mutation does not throw. `(swap! run-state assoc frame-id :done)`
 ;; over a map the frame was dissoc'd from RESURRECTS the entry — a
 ;; phantom slot reading `:done`, alongside a resurrected
@@ -232,8 +231,8 @@
   A token-less caller never owns the slot: ownership requires holding a
   real token AND its being the one in the slot. (This is deliberately
   stricter than the play-runner's `stale-run?`, which treats a
-  token-LESS slot as still-owned so hand-seeded run states predating the
-  token scheme keep working. There is no such caller here — every a11y
+  token-LESS slot as still-owned so hand-seeded, token-less run states
+  keep working. There is no such caller here — every a11y
   run is minted by `run-axe!` — so the stricter rule costs nothing and
   refuses more.)
 
@@ -245,7 +244,7 @@
 
 ;; ---- axe-core CDN load (opt-in) -----------------------------------------
 ;;
-;; Per the security audit, axe-core is loaded from a public CDN only
+;; axe-core is loaded from a public CDN only
 ;; when the dev explicitly opts in. The opt-in is persisted in
 ;; `localStorage` under `cdn-opt-in-key` so a single click per session
 ;; (and not per panel-open) gives consent. The pinned version is
@@ -391,7 +390,7 @@
   variant's frame so the play-runner's per-frame trace listener
   captures it and `:rf.assert/no-warnings` records a failure.
 
-  The trace event piggybacks on the existing warning op-type per
+  The trace event piggybacks on the warning op-type per
   spec/009 §Trace bus."
   [frame-id ^js violation]
   (rf.trace/emit!
@@ -475,7 +474,7 @@
 
   The default scope is the variant's
   `data-rf-story-variant-root` element, NOT `document.body`. Scanning
-  the whole body flagged Story's OWN chrome (sidebar buttons, toolbar
+  the whole body would flag Story's OWN chrome (sidebar buttons, toolbar
   tabs, side-rail items) as violations — which is wrong: Story chrome
   a11y is Story's concern, not the variant author's.
 
@@ -512,7 +511,7 @@
        (js/Promise.resolve nil))
 
      :else
-     ;; SUPERSESSION FENCE (rf2-2amkm). Claiming the slot and every later
+     ;; SUPERSESSION FENCE. Claiming the slot and every later
      ;; mutation of it are gated on ONE token — see `stale-run?` for the
      ;; full rationale. Each check sits in the SAME synchronous turn as
      ;; the mutation it guards, so nothing can take the slot between
@@ -651,8 +650,8 @@
   "The line the panel shows for `frame-id` once its scan is done: the
   violations count, then the incomplete count. Both are always named,
   because a scan reading zero violations beside incomplete checks is not
-  a clean bill. The violations clause is worded as it always was, so a
-  reader keyed on it keeps working."
+  a clean bill. The violations clause leads with a fixed wording
+  (`N violation(s) found in variant`), which readers key on."
   [frame-id]
   (str (count (get @violations-by-frame frame-id [])) " violation(s) found in variant, "
        (count (get @incomplete-by-frame frame-id [])) " incomplete"))
