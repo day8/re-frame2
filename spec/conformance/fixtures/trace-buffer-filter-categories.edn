@@ -79,11 +79,11 @@
 
    ;; :rf.sub/* category — sub computation. The runner's :sub-values
    ;; check below invokes rf/subscribe-once, which the runtime
-   ;; instruments with a :rf.sub/run emit (Spec 009 §:rf.sub/run trace event,
-   ;; rf2-i7eb). The :op-type is :rf.sub; trace-buffer's
+   ;; instruments with a :rf.sub/run emit (Spec 009 §:rf.sub/run trace
+   ;; event). The :op-type is :rf.sub; trace-buffer's
    ;; `{:op-type :rf.sub}` filter selects on that.
    ;;
-   ;; Per rf2-l1jz8 the reactive recompute path enriches the :rf.sub/run
+   ;; The reactive recompute path enriches the :rf.sub/run
    ;; tag with value-change + cascade attribution (Spec 009 §:rf.sub/run
    ;; trace event). This is the FIRST recompute of `:count` (subscribe-
    ;; once subscribes fresh), so `:rf.sub/value-changed?` is true (the
