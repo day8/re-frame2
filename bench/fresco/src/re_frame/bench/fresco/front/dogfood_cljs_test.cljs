@@ -1,9 +1,8 @@
 (ns re-frame.bench.fresco.front.dogfood-cljs-test
-  "THE DOGFOOD STATE LAYER, and the front half composed end to end
-  (rf2-2rtt6.8).
+  "THE DOGFOOD STATE LAYER, and the front half composed end to end.
 
   Two things are being proved. First, that the events and subscriptions
-  the three renderings will share behave — which is worth its own tests
+  the three renderings share behave — which is worth its own tests
   precisely because all three renderings depend on them and none of them
   owns them. Second, and the reason this file is not merely a state
   test: that the front half **composes**. An intent written in the
@@ -11,20 +10,14 @@
   prop walk, invoked as the browser would invoke it, reaches a real
   re-frame2 event handler and moves a real app-db.
 
-  **The dependency index is no longer part of that composition
-  (rf2-dabt3).** This file used to close with a row driving
-  `front.sub-index`'s pure doors over the screen's own read sets, because
-  the index was deliverable 2 of the shared front half. The tournament
-  ended, the sole surviving consumer took the reverse edge onto its key
-  cells, and the namespace was deleted; that row lives on as
+  **No dependency index is part of that composition.** The screen's
+  narrow and broad writes against the arm's dependency edges are
   `the-table-answers-the-screens-own-narrow-and-broad-writes` in
   `arm1/cell_table_laws_cljs_test`, where the fused doors and a substrate
-  that actually notifies make the same claim against real notifications
+  that actually notifies make the claim against real notifications
   rather than against a value algebra.
 
-  Nothing here mounts a screen. HD-014 starts the six-week clock at the
-  first Fresco-arm commit that mounts the dogfood screen, and that
-  commit belongs to rf2-2rtt6.9 / rf2-2rtt6.10, not to this bead."
+  Nothing here mounts a screen; the arms do."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
