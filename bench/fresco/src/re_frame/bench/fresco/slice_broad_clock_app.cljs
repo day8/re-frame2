@@ -1,18 +1,16 @@
 (ns re-frame.bench.fresco.slice-broad-clock-app
   "THE SLICE'S BROAD-UPDATE CLOCK, WITH A DONOR ARM BESIDE IT — one broad
   application operation, through to the paint that follows it, taken on
-  the Fresco page and on the UIx page that renders the same feed
-  (rf2-9wmqd).
+  the Fresco page and on the UIx page that renders the same feed.
 
       FRESCO_INIT_FN=re-frame.bench.fresco.slice-broad-clock-app/-main \\
       FRESCO_OUT_DIR=out/fresco-slice-broad \\
       FRESCO_PORT=8139 \\
-        node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+        node bench/fresco/src/re_frame/bench/fresco/run.cjs
 
   NO NEW BUILD ID. `run.cjs` takes its entry from `FRESCO_INIT_FN` and
-  rides `:fresco-bench`, the id the whole lane already shares, so this
-  arm costs `implementation/shadow-cljs.edn` — an HD-017 hot-zone file —
-  nothing.
+  rides `:fresco-bench`, the id the whole lane shares, so this arm adds
+  nothing to `bench/fresco/shadow-cljs.edn`.
 
   ## WHY THERE IS A SECOND DRIVER AT ALL
 
@@ -31,8 +29,8 @@
   `window!` and `after-paint` are [[re-frame.bench.fresco.slice-echo-clock-app]]'s,
   REQUIRED rather than transcribed, and so are its `measured-mask` and
   `structure-over-measured`. This lane pays for local copies deliberately
-  where the copy is of SHIPPING code (the rf2-2rtt6.32 call-convention
-  discipline), and that reason does not reach a sibling arm: two copies
+  where the copy is of SHIPPING code (the call-convention discipline),
+  and that reason does not reach a sibling arm: two copies
   of one bench mechanism is two things that can drift with nothing
   holding them in step, which is the shape `rf.bench.fresco.lane/visit-plan`'s own
   docstring is written against. So the two drivers cannot disagree about
@@ -93,7 +91,7 @@
   A row over either would not be a slower reading of `U3`, it would be a
   reading of the click that requested the operation — the same class of
   error as a `p95` of a mount published against a line about a paint,
-  which is the error the first driver exists to have stopped making. So
+  which is the error the first driver exists to prevent. So
   the async-door operations are OUT, and what they need is a different
   window — one bounded by the drain AND the paint that follows it — which
   is not this mechanism and is not built here.
@@ -111,7 +109,7 @@
   click, a select. A per-frame estimator driven by repeating one of those
   once a frame would be measuring a scripted repetition of a discrete
   interaction and publishing it against a line written about a continuous
-  one, and this programme has refused that shape before.
+  one — a shape this programme refuses.
 
   Adding a drag to the slice is not the repair either: it would move the
   population, and `U1`–`U4` are governed on the application's own
@@ -122,8 +120,8 @@
   list over a real scroll viewport — its `virtualized-dom-cljs-test`
   drives `scrollTop` and a real `scroll` event, and the vendor artefact's
   own note names *host-local animation/drag state* — which is a genuinely
-  CONTINUOUS interaction and the population `U4` is stated over. A
-  per-frame driver belongs there, on this same `window!` mechanism but
+  CONTINUOUS interaction and the population `U4` is stated over. The
+  per-frame driver is [[re-frame.bench.fresco.ledger-frame-clock-app]],
   with an estimator over FRAME INTERVALS rather than over window lengths.
   It is a third driver on a third page, and it is not this one.
 
@@ -173,12 +171,12 @@
   the two frames — so two arms that started on the same page can spend the
   run on different ones, and nothing in the paragraph above would notice.
 
-  PR #8599's audit measured exactly that on this file's first cut: at
-  `{:warmup 8 :samples 12}`, `:theme` ran in the non-seed locale on 4 of
-  its 12 measured visits per round and `:donor-theme` on 8 of 12, because
-  two arms move the Fresco frame's locale and only one moves the donor's.
-  The comparative theme figure was therefore a ratio between two
-  populations. [[pre-state]] closes it by making each arm's page state a
+  Left to inherit, exactly that happens: at `{:warmup 8 :samples 12}`,
+  `:theme` would run in the non-seed locale on 4 of its 12 measured
+  visits per round and `:donor-theme` on 8 of 12, because two arms move
+  the Fresco frame's locale and only one moves the donor's, and the
+  comparative theme figure would be a ratio between two populations.
+  [[pre-state]] closes it by making each arm's page state a
   pure function of its own visit index, and
   `slice-broad-window-dom-cljs-test` asserts the closure over a replay of
   the schedule rather than trusting this paragraph.
@@ -279,11 +277,11 @@
   **`:straddles-1?` asks whether ONE arm cleared the floor. A bar row
   asks whether TWO arms separate from EACH OTHER at a stated line, and a
   pair can answer yes to the first and no to the second.** That is not
-  hypothetical: under `rf2-9wmqd` the `:locale` pair cleared the gate in
-  all three evidence runs and still could not resolve `1.25x`, because
-  the same `~96%` frame grid that flattens the ratio also flattens any
-  difference in it. A reader applying only `:straddles-1?` would have
-  quoted that as a pass.
+  hypothetical: in all three of this driver's evidence runs the `:locale`
+  pair cleared the gate and could not resolve `1.25x`, because the same
+  `~96%` frame grid that flattens the ratio also flattens any difference
+  in it. A reader applying only `:straddles-1?` would quote that as a
+  pass.
 
   So `:resolution` is published beside `:comparative`, one entry per
   pair, from `rf.bench.fresco.lane/resolution` — see that function for the arithmetic.
@@ -300,9 +298,7 @@
   slice's feed page** — which is a finding about the row, and never a
   licence to widen a band or to quote an unresolved ratio. A pair that
   clears the floor but whose `:resolves-at` sits above the row's line is
-  the same finding reached one step later.
-
-  Owner: rf2-9wmqd."
+  the same finding reached one step later."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.fresco.slice-donor-views :as rf.bench.fresco.slice-donor-views]
@@ -321,7 +317,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def sampling
-  "Per-round warm-up and measured counts. `rf2-h904p`'s values, carried
+  "Per-round warm-up and measured counts. The lane's values, carried
   rather than chosen, and the sibling driver's — a comparative figure
   taken on a different schedule from the row it sits beside is a
   comparison a reader has to reconcile before they can read it.
@@ -423,10 +419,10 @@
 
   A COUNT, not the last index. [[pre-state]] is a function of the INDEX,
   which is one less, and [[claim-visit!]] is the one place that conversion
-  happens. The distinction is worth a line because the first cut of this
-  reader published the index under this docstring's words, and the suite
-  row that compares it against `rf.bench.fresco.lane/visit-plan`'s per-arm visit count is
-  what found the disagreement.
+  happens. The distinction is worth a line because the index, published
+  under this docstring's words, would disagree with
+  `rf.bench.fresco.lane/visit-plan`'s per-arm visit count, and a suite row
+  compares the two.
 
   Exposed because a suite that wants to check the pre-state the driver
   actually established against the one the schedule predicts needs to see
@@ -593,8 +589,8 @@
   than deciding it: [[pre-state]] puts the frame in the seed locale on
   even visits and the other one on odd ones, so `now` alternates and the
   target with it. Each arm therefore takes both directions in equal
-  numbers over any even block of visits, which used to be a consequence of
-  the plan and is now a statement about the arm."
+  numbers over any even block of visits, as a statement about the arm
+  rather than a consequence of the plan."
   [side]
   (fn [_]
     (let [select (locale-select side)
@@ -714,8 +710,8 @@
   would put it before `t-commit`, where a `flushSync` window would see
   every millisecond of it and the control would prove only that the
   instrument can measure a busy loop. On the seam it lands strictly
-  between the commit and the frame — invisible to the window this one
-  replaces, and fully inside this one.
+  between the commit and the frame — invisible to a commit-bounded
+  window, and fully inside this one.
 
   It rides the LOCALE arm rather than the theme arm because
   [[control-per-round]] subtracts the two, and a control paired with the
@@ -725,8 +721,8 @@
   A SUBTRACTION IS A COMPARATIVE, so this arm is bound by the same
   requirement the two published ones are: it declares `:locale` at
   [[pre-state]] exactly as `:locale` does, and the two therefore run over
-  one population. Before that rule existed they did not — the audit's
-  replay puts this arm in the non-seed THEME on 8 of 12 measured visits
+  one population. Without that rule they would not — a replay of the
+  plan puts this arm in the non-seed THEME on 8 of 12 measured visits
   per round against `:locale`'s 4 of 12, the same divergence as the
   published theme pair with the dimensions swapped."
   [state]
@@ -774,7 +770,7 @@
   frames, so the two halves of a comparative are not drawn from the same
   population.
 
-  PR #8599's audit measured it on this file's own roster. `:locale` and
+  A replay of this file's own roster measures it. `:locale` and
   `:ctl-blocked` both move the FRESCO frame's locale while only
   `:donor-locale` moves the donor's, so replaying `rf.bench.fresco.lane/visit-plan` at
   `{:warmup 8 :samples 12}` puts `:theme` in the non-seed locale on 4 of
@@ -792,7 +788,7 @@
   mixes at every schedule, by construction — which is the property
   `slice-broad-window-dom-cljs-test` asserts over a replay of the plan.
 
-  The audit named a second candidate, ISOLATING THE CONTROL — restoring
+  The other candidate is ISOLATING THE CONTROL — restoring
   the locale the control moved, or giving the control its own root — and
   it is rejected on a replay rather than on taste. Both variants happen to
   equalise `:theme` against `:donor-theme` at `{:warmup 8 :samples 12}`,
@@ -806,18 +802,18 @@
   own root never has its theme moved at all — so it does not close the
   second divergence in any case.
 
-  ## THE ARM'S OWN DIMENSION STILL ALTERNATES, AND NOW IT IS GUARANTEED
+  ## THE ARM'S OWN DIMENSION ALTERNATES, BY CONSTRUCTION
 
   `:alternates` names the dimension the arm MOVES; that one is put into
   the seed value on even visits and the other value on odd ones, so the
   arm's target — always *the one the page is not in* — alternates too.
   The rotor property [[locale-plan]] and [[theme-plan]] are written for is
-  therefore no longer inherited from whatever ran before: it is stated
-  here, and each arm takes both directions in equal numbers over any even
+  therefore stated here rather than inherited from whatever ran before,
+  and each arm takes both directions in equal numbers over any even
   block of visits rather than as a happy consequence of the plan.
 
   The dimension the arm does NOT move is pinned to the seed's value. That
-  NARROWS each measured arm's population — `:theme` now always switches
+  NARROWS each measured arm's population — `:theme` always switches
   theme on a page in the seeded locale — and the narrowing is the point: a
   comparative is a statement about two arms, and two arms narrowed to the
   same stated population are comparable where two arms drifting
@@ -904,15 +900,14 @@
   [[establish-pre-state!]] runs FIRST, putting this arm's frame into the
   state its own visit index names, so what the window measures does not
   depend on which arms the schedule happened to run before it. Its
-  docstring carries the divergence that made this necessary and the
-  alternative that was rejected.
+  docstring carries the divergence this prevents and the alternative it
+  is chosen over.
 
   `after-paint` runs next, so every window starts in the first task after
   a paint: a paint-bounded window is PREDECESSOR-DEPENDENT by
   construction, and aligning the phase makes it a constant of the
   instrument rather than a property of whatever ran before. The sibling's
-  `measure-one!` carries the incident that established this, and what the
-  alignment costs the estimand.
+  `measure-one!` carries why, and what the alignment costs the estimand.
 
   The plan is built last and still outside — reading the node, deciding
   what the echo must be — so nothing but the interaction and the frame is
@@ -940,15 +935,14 @@
   `rf.fresco/render!`, the application's own root door, with the
   application's own views and `initial-events`. Its frame is spelled in
   the TREE, on `rf.fresco/frame-root`, which ENSUREs it — so the Fresco
-  arm still makes its own frame, exactly as it did when the root door
-  carried `:frame`. The donor arm makes its frame with `rf/make-frame` —
+  arm makes its own frame. The donor arm makes its frame with `rf/make-frame` —
   core's own door, carrying the SAME `:initial-events` — and renders
   through `uix.dom`, which is how a UIx application mounts.
 
   `:identifier-prefix` on both, distinct: `useId` numbers every root from
   the same start, and a page with two roots either names them apart or
   watches their generated ids collide. Neither page renders a `useId`
-  value today; if one ever did, distinct prefixes would put the
+  value; if one did, distinct prefixes would put the
   difference in front of the canonical-DOM gate rather than under it.
 
   INSTALLING THE ADAPTER AND LEAVING REACT'S `act` ENVIRONMENT ARE NOT
@@ -977,11 +971,11 @@
   installed, so nothing on the page ever re-renders.
 
   The symptom is silent in the worst way — the first render is perfect.
-  PR #8606's first cut booted every row on these two defaults and CI read
-  it exactly so: the mount row passed, the Fresco arm's captured read
-  roster came back `#{}` against the donor's 34, every locale and theme
-  pre-state failed to reach the page, and all nine Fresco-side windows
-  went unverified while all six donor-side ones verified.
+  A suite booting every row on these two defaults reads exactly so: the
+  mount row passes, the Fresco arm's captured read roster comes back `#{}`
+  against the donor's 34, every locale and theme pre-state fails to reach
+  the page, and all nine Fresco-side windows go unverified while all six
+  donor-side ones verify.
 
   So a repeat caller passes fresh ids, which is the discipline
   `slice-echo-window-dom-cljs-test` already keeps against a milder form of
@@ -1187,7 +1181,7 @@
 
   ## Why here rather than only in a suite
 
-  The sibling's argument, unchanged: a suite row is the right place to
+  The sibling's argument: a suite row is the right place to
   prove a repair and the wrong place to keep a driver honest, because the
   driver is what a quiet-box window runs and the suite is not. So the run
   itself asks, once, at a cost of four frames."
