@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.views.resizable-table
-  "Shared draggable-column-resize affordance for Xray tables (rf2-uji72).
+  "Shared draggable-column-resize affordance for Xray tables.
 
   Wraps a header row + N body rows in a CSS-grid layout where
   `grid-template-columns` is driven from column defs + a re-frame
@@ -9,7 +9,7 @@
   before any override exists), pointer-move computes a delta,
   pointer-up releases the listeners.
 
-  Widths persist to localStorage across sessions (rf2-xzg1y; see the
+  Widths persist to localStorage across sessions (see the
   §localStorage persistence section below). The view is mode-
   agnostic: consumers pass column defs, a row-key fn, a row-attrs fn,
   and a row-cells fn that returns one hiccup node per column. The
@@ -36,25 +36,22 @@
   See `subscriptions-table` in `panels/epoch/view.cljs` for the
   canonical consumer.
 
-  ## TWO HEADS, one renderer (rf2-fcy5)
+  ## TWO HEADS, one renderer
 
   `resizable-table` is the Reagent `reg-view` head; `resizable-table-view`
   is the Fresco boundary. Same props, same output — both delegate to
   `render-table` and differ only in how they resolve the column-widths
   read and the frame-bound dispatcher. **Mount the one your parent is**: a
   Fresco boundary in a Reagent head position fails as loudly as the
-  reverse, so a panel adopts `resizable-table-view` when its own mount
-  becomes a boundary and not before.
+  reverse.
 
-  THAT MIGRATION IS DONE, AND `resizable-table-view` IS NOW THE ONLY MOUNT
-  SPELLING IN THE TREE (rf2-k97c.3). Both consumer panels became Fresco
-  boundaries — Trace in `04350d02e5`, Epoch in `5c6b56f7ab` — so all five
-  production call sites head the boundary: `panels/epoch/view.cljs` ×3 and
-  `panels/trace.cljs` ×2. **A new consumer mounts `resizable-table-view`.**
-  The Reagent head keeps NO production call site and survives for the
+  `resizable-table-view` IS THE ONLY PRODUCTION MOUNT SPELLING: both
+  consumer panels, `panels/epoch/view.cljs` and `panels/trace.cljs`, are
+  Fresco boundaries. **A new consumer mounts `resizable-table-view`.**
+  The Reagent head has NO production call site and ships for the
   reasons its own docstring gives; do not mount it.
 
-  ## localStorage persistence (rf2-xzg1y)
+  ## localStorage persistence
 
   Column-widths are durable per browser profile. The slot
   `{table-id {col-id px}}` round-trips to localStorage under the key
@@ -64,19 +61,19 @@
   `mount.cljs`'s first-mount hook. Mirrors the durable-pref pattern
   the Static-mode + Static-Machines selection slots use; differs from
   the transient filter / mute / frame slots that reset on every page
-  load (rf2-swclw). Column widths are NOT exploration filters — they
+  load. Column widths are NOT exploration filters — they
   encode the operator's preferred reading shape for each table, so
   carrying them across sessions is the desired behaviour."
   (:require [clojure.string :as string]
             [cljs.reader :as reader]
             [re-frame.core :as rf]
-            ;; rf2-y8doi.60 — `debug-enabled?` gates the `reg-view` below,
+            ;; `debug-enabled?` gates the `reg-view` below,
             ;; so a release bundle that mis-ships the preload registers
             ;; nothing of Xray's in the host's registrar.
             [re-frame.interop :as rf.interop]
-            ;; rf2-fcy5 — `resizable-table-view` below is the Fresco
-            ;; boundary; `resizable-table` stays the Reagent `reg-view`
-            ;; head its call sites mount. Both delegate to `render-table`.
+            ;; `resizable-table-view` below is the Fresco
+            ;; boundary; `resizable-table` is the Reagent `reg-view`
+            ;; head. Both delegate to `render-table`.
             [re-frame.fresco :as rf.fresco]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.defaults :as defaults]
@@ -85,12 +82,12 @@
 (def ^:private gutter-width-px 4)
 (def ^:private min-col-width-px 24)
 
-;; ---- localStorage round-trip (rf2-xzg1y) --------------------------------
+;; ---- localStorage round-trip --------------------------------------------
 
 (def default-storage-key
   "Default localStorage key the column-widths slot persists under.
-  One root key carries the full `{table-id {col-id px}}` map per the
-  bead's scope — no per-frame / per-host partitioning. Hand-edited
+  One root key carries the full `{table-id {col-id px}}` map — no
+  per-frame / per-host partitioning. Hand-edited
   values that fail to parse are ignored (the load falls back to the
   registry's empty default)."
   "re-frame2.xray.column-widths.v1")
@@ -111,8 +108,8 @@
   []
   @storage-key)
 
-;; Raw browser access lives in the shared `local-storage` seam
-;; (rf2-jkake.24). The key is resolved per call through
+;; Raw browser access lives in the shared `local-storage` seam.
+;; The key is resolved per call through
 ;; `get-storage-key` so a runtime `set-storage-key!` re-key takes
 ;; effect immediately.
 
@@ -218,7 +215,7 @@
   fx. Called from `registry/register-xray-handlers!`. Re-entrant:
   re-frame's registrar tolerates same-id re-registration.
 
-  ## Persistence shape (rf2-xzg1y)
+  ## Persistence shape
 
   Every mutation (resize-pair + reset) attaches the
   `:rf.xray.column-widths/persist` fx so the post-mutation slot lands
@@ -240,7 +237,7 @@
   ;; ---- events -----------------------------------------------------------
   ;;
   ;; The drag flow is split into two events so the localStorage write
-  ;; rides ONLY the commit, not every pointermove tick (rf2-xm1jy):
+  ;; rides ONLY the commit, not every pointermove tick:
   ;;
   ;;   :resize-pair-tick   — pointermove cadence (~1 event/px).
   ;;                         Writes the slot in app-db; NO persist fx.
@@ -254,13 +251,13 @@
   ;;                         and the operator's interest is the
   ;;                         settled widths, not the commit marker.
   ;;
-  ;; Pre-rf2-xm1jy a single `:resize-pair` event-fx fired the persist
-  ;; fx on every tick — ~200 localStorage writes per typical drag,
-  ;; each serialising the full multi-table widths map. The split keeps
-  ;; the data-flow shape explicit (one event per semantic step) and
-  ;; trades a one-off pointerup commit for the bursty steady-state
-  ;; pattern. `reset` keeps its single-event shape; it has no drag
-  ;; cadence — one click → one mutation → one persist.
+  ;; A single event firing the persist fx on every tick would make
+  ;; ~200 localStorage writes per typical drag, each serialising the
+  ;; full multi-table widths map. The split keeps the data-flow shape
+  ;; explicit (one event per semantic step) and replaces the bursty
+  ;; per-tick writes with a one-off pointerup commit. `reset` is a
+  ;; single event; it has no drag cadence — one click → one mutation
+  ;; → one persist.
 
   (rf/reg-event :rf.xray.column-widths/resize-pair-tick
     {:rf.trace/no-emit? true}
@@ -311,7 +308,7 @@
       losing state — the localStorage value is still readable at
       the second call.
 
-  `frame-id` (rf2-lnluk) defaults to the production singleton
+  `frame-id` defaults to the production singleton
   `defaults/default-frame-id` (`:rf/xray`). A second shell instance
   passes its own frame-id (threaded by `ensure-xray-frame!`'s first-
   mount hook) so the durable column-widths land on that instance's
@@ -337,7 +334,7 @@
   (.querySelector grid-el
                   (str "[data-rf-xray-resizable-col='" (name col-id) "']")))
 
-;; rf2-65015d — hold the active drag's window listeners so an
+;; Hold the active drag's window listeners so an
 ;; interrupted drag can always tear them down. Without this the
 ;; `pointermove` listener stays bound to `window` whenever `pointerup`
 ;; is never delivered (a `pointercancel` from a touch/gesture preempt,
@@ -347,8 +344,7 @@
 ;; pointermove. `defonce` so a shadow-cljs `:after-load` mid-drag
 ;; doesn't strand a half-installed listener (the next pointerdown
 ;; re-installs cleanly). Mirrors the sibling `resize_handle.cljs`
-;; drag-state + `detach-…!` pattern — `resizable-table` was the lone
-;; drag surface diverging from it.
+;; drag-state + `detach-…!` pattern.
 (defonce ^:private drag-state
   ;; {:win <Window> :on-move <fn> :on-up <fn> :on-cancel <fn>} — the
   ;; gutter's own window and the handlers bound on it for the in-progress
@@ -360,7 +356,7 @@
   simply `js/window`. In pop-out mode the table is painted into the
   pop-out's document by code running in the OPENER's realm, so
   `js/window` there is the opener, whose listeners the pop-out's pointer
-  events never reach (rf2-3x7nj.25.5). Falls back to `js/window` for an
+  events never reach. Falls back to `js/window` for an
   element with no document (the drag tests' stubs), nil without either."
   [^js gutter-el]
   (or (some-> gutter-el .-ownerDocument .-defaultView)
@@ -368,7 +364,7 @@
 
 (defn dragging?
   "Test seam — true iff a column-resize drag is in progress. Pure read
-  of the drag-state atom; the drag lifecycle tests (rf2-65015d) assert
+  of the drag-state atom; the drag lifecycle tests assert
   the start/teardown transitions through it."
   []
   (some? @drag-state))
@@ -396,10 +392,10 @@
   carries no override), register window-level move/up/cancel handlers,
   dispatch resize-pair events on each move, clean up on up OR cancel.
 
-  Public for the drag-lifecycle test seam (rf2-65015d) — the shell
+  Public for the drag-lifecycle test seam — the shell
   never calls it except through the `header-gutter` `:on-pointer-down`.
 
-  `dispatch-fn` (rf2-r0o63) is the frame-bound `dispatch` the
+  `dispatch-fn` is the frame-bound `dispatch` the
   surrounding head supplies — the `reg-view` head's injected `dispatch`
   (the macro expands it over a `capture-frame` capturing the render
   frame), or `(:dispatch (rf/capture-frame))` in the Fresco boundary,
@@ -410,17 +406,16 @@
   `dispatch` already bound the instance frame synchronously during
   render, so every tick/commit lands on the SURROUNDING instance
   frame's app-db, not a `:rf/xray` literal and not the host's
-  `:rf/default`. (Pre rf2-r0o63 this wrapped each dispatch in
-  `(rf/with-frame :rf/xray …)` — correct for the single shell, but it
-  entrenched the singleton: two shells would both write the global
-  `:rf/xray` column-widths and clobber each other. The frame-bound
-  `dispatch` keeps N instances isolated; it also preserves the
-  Mike-pair-debug-2026-05-27 fix — dispatches never leak to the host's
+  `:rf/default`. (Wrapping each dispatch in
+  `(rf/with-frame :rf/xray …)` instead would entrench the singleton:
+  two shells would both write the global `:rf/xray` column-widths and
+  clobber each other. The frame-bound `dispatch` keeps N instances
+  isolated, and its dispatches never leak to the host's
   `:rf/default`.)"
   [dispatch-fn table-id left-id right-id ev]
   (.preventDefault ev)
   (.stopPropagation ev)
-  ;; rf2-65015d — defensive: tear down any stranded prior drag before
+  ;; Defensive: tear down any stranded prior drag before
   ;; attaching a fresh listener set (a missed pointerup / pointercancel
   ;; from a previous drag would otherwise leave its move listener bound
   ;; and pile a second pair here).
@@ -433,7 +428,7 @@
         (let [left-px0  (.-offsetWidth left-el)
               right-px0 (.-offsetWidth right-el)
               start-x   (.-clientX ev)
-              ;; rf2-xm1jy — pointermove dispatches the no-persist
+              ;; Pointermove dispatches the no-persist
               ;; tick; pointerup dispatches the commit (one
               ;; localStorage write per drag, not one per pixel).
               on-move   (fn [m-ev]
@@ -444,7 +439,7 @@
                                           table-id
                                           left-id new-left
                                           right-id new-right])))
-              ;; rf2-65015d — pointerup AND an interrupted-drag
+              ;; Pointerup AND an interrupted-drag
               ;; pointercancel both commit the last tick (persisting the
               ;; widths already painted on screen, so stored never
               ;; diverges from displayed after a preempted drag) and
@@ -462,7 +457,7 @@
             (try (.addEventListener win "pointerup" on-up)         (catch :default _ nil))
             (try (.addEventListener win "pointercancel" on-cancel) (catch :default _ nil))))))))
 
-;; ---- test seams (rf2-65015d) --------------------------------------------
+;; ---- test seams ---------------------------------------------------------
 ;; Drive the window-level drag handlers without a real DOM — node-test
 ;; has no `js/window`, so `on-pointer-down` sets the drag state but
 ;; never attaches real listeners. Mirrors resize_handle.cljs's
@@ -506,23 +501,20 @@
 ;; disappears under the fill which is fine — the operator is grabbing the
 ;; handle, not reading the boundary.
 ;;
-;; THE HOVER FILL IS CSS, AND THAT IS WHAT MAKES THE WIDGET PORTABLE
-;; (rf2-fcy5). `background: transparent` is the only state this map
+;; THE HOVER FILL IS CSS, AND THAT IS WHAT MAKES THE WIDGET PORTABLE.
+;; `background: transparent` is the only state this map
 ;; carries; `theme/global_styles.cljs` §motion-css paints the accent under
 ;; `[data-testid^="rf-xray-resizable-gutter-"]:hover`, with `!important`
 ;; because this inline declaration would otherwise win. Same shape the
-;; sibling `rf-xray-event-list-col-divider-` handle already uses.
+;; sibling `rf-xray-event-list-col-divider-` handle uses.
 ;;
-;; It used to be a Form-2 Reagent component holding a `r/atom` hover flag.
-;; That flag was this file's ONLY component-local state and its only
-;; `reagent.core` use, and it was the one thing standing between the
+;; A hover flag held as component-local state would stand between the
 ;; widget and a Fresco boundary: a React function component has no form-2
 ;; outer body to allocate per-instance state in, and `rf.fresco/reg-state`
-;; consumes an instance key rather than minting one — so keeping the hover
-;; as STATE would have forced a stable instance key onto every call site.
-;; With the flag gone the gutter is a pure function CALLED like
-;; `body-spacer`, so it is no longer a head at all and the codec has
-;; nothing to grade `:invalid`.
+;; consumes an instance key rather than minting one — so hover STATE
+;; would force a stable instance key onto every call site. As CSS, the
+;; gutter is a pure function CALLED like `body-spacer`, so it is not a
+;; head at all and the codec has nothing to grade `:invalid`.
 (def ^:private gutter-style
   {:cursor      "col-resize"
    :background  "transparent"
@@ -537,7 +529,7 @@
   CSS rule named above, so this holds no state and is CALLED rather than
   mounted.
 
-  `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
+  `:dispatch-fn` is the frame-aware dispatcher captured by
   the surrounding head's body; threaded into the raw-window-listener drag
   flow so resize ticks land on the instance frame."
   [{:keys [table-id left-id right-id dispatch-fn]}]
@@ -561,27 +553,22 @@
   [_left-id]
   [:div {:style body-spacer-style}])
 
-;; ---- React keys ride the ATTRS MAP, never metadata (rf2-fcy5) ------------
+;; ---- React keys ride the ATTRS MAP, never metadata ----------------------
 ;;
-;; Every woven cell, gutter and row below used to be keyed with `with-meta`
-;; on a vector literal. That reaches React under Reagent — `reagent.impl.
+;; A key set with `with-meta` on a vector literal
+;; reaches React under Reagent — `reagent.impl.
 ;; template` reads meta FIRST and the props map second — and reaches it
 ;; NOWHERE under Fresco: `re-frame.fresco.impl.codec`'s component-ABI table
 ;; (HD-016) takes a literal `:key` from the ATTRIBUTE MAP for every head
 ;; kind it accepts (native tag, `defview` boundary, host, fragment), and
 ;; the words `meta` / `with-meta` do not occur anywhere in that file.
 ;;
-;; So this is not the `^{:key …}`-on-a-call-form defect rf2-hxfy fixed —
-;; these keys DO work today. The hazard is that they stop working silently
-;; the moment the shared widget renders under a Fresco boundary: every row
+;; So metadata keys would fail silently under a Fresco boundary: every row
 ;; and every header cell in BOTH consumer panels (`panels/trace.cljs`,
 ;; `panels/epoch/view.cljs`) would lose its key with no error and no
 ;; warning, leaving React to reconcile by position.
 ;;
-;; A `:key` in the attrs map is honoured by BOTH substrates, so moving it
-;; there is a no-op today and a fix on migration — which is why it is worth
-;; doing on its own terms, before anything migrates. Same repair rf2-hxfy
-;; and rf2-twil made at their own sites; this is the shared widget's half.
+;; A `:key` in the attrs map is honoured by BOTH substrates.
 
 (defn- keyed
   "Return hiccup `node` carrying React key `k` in its ATTRIBUTE MAP — the
@@ -605,8 +592,8 @@
   sibling keys. Note this deliberately does NOT clear a `:key` left in
   Clojure metadata by a caller: Reagent would still prefer that stale meta
   key over the attrs one, but no consumer puts key-meta on the cells it
-  hands in (checked at tip across both panels), so policing it here would
-  be machinery for a case that does not exist."
+  hands in, so policing it here would be machinery for a case that does
+  not exist."
   [node k]
   (if (and (vector? node) (seq node))
     (if (map? (nth node 1 nil))
@@ -618,7 +605,7 @@
 
 (defn- weave-header
   "Interleave interactive gutter handles between N header cells.
-  Returns a flat seq of (2N-1) hiccup nodes. `dispatch-fn` (rf2-r0o63)
+  Returns a flat seq of (2N-1) hiccup nodes. `dispatch-fn`
   is threaded to each gutter so the raw-window-listener drag flow
   dispatches on the surrounding instance frame."
   [header-cells columns table-id dispatch-fn]
@@ -629,12 +616,12 @@
                (let [col-id (:id (nth columns i))]
                  (if (< i (dec n))
                    [(keyed cell (str "h-" (name col-id)))
-                    ;; CALLED, not mounted (rf2-fcy5) — `header-gutter` is
-                    ;; a pure fn since its hover flag became a CSS rule, so
+                    ;; CALLED, not mounted — `header-gutter` is
+                    ;; a pure fn (its hover is a CSS rule), so
                     ;; what lands here is the gutter's own `[:div …]` and
                     ;; its key rides that div's ATTRS MAP like every other
-                    ;; woven node. Before, it was a component call form
-                    ;; `[header-gutter {…}]` whose key rode the props map —
+                    ;; woven node. A component call form
+                    ;; `[header-gutter {…}]` would put
                     ;; a plain `defn` in head position, which the Fresco
                     ;; codec grades `:invalid` and refuses.
                     (keyed (header-gutter
@@ -691,7 +678,7 @@
   pass that nil straight through: `template-track` reads the map with
   `get`, so nil means 'no overrides' and the default flex tracks apply.
 
-  ## Optional `:row-extras` (rf2-jnxfj)
+  ## Optional `:row-extras`
 
   Some consumers (the Trace panel's op rows) need to render content
   BELOW a row's grid cells — sub-lists (the per-path db-diff triple
@@ -702,11 +689,10 @@
         [:div {:style grid-style} ...cells/gutters...]
         ...extras...]
 
-  Without `:row-extras` the row keeps the original layout where the
-  consumer's row-attrs `:div` IS the grid (the subscriptions-table
-  shape — no behavioural change for existing callers).
+  Without `:row-extras` the consumer's row-attrs `:div` IS the grid
+  (the subscriptions-table shape).
 
-  ## Optional `:header?` (rf2-jnxfj)
+  ## Optional `:header?`
 
   Defaults to `true`. The Trace panel renders a single header
   resizable-table at the top of the panel (carrying the drag-gutters)
@@ -747,9 +733,9 @@
            ;; skips it, and the Fresco codec's `:nothing` arm renders nil
            ;; and false as nothing (HD-016).
            header-hiccup]
-          ;; Body rows — eager `map-indexed` (per rf2-9ec65 / spec/006
-          ;; §Lazy-seq deref tracking, rf2-atqkg): a substrate widget
-          ;; must NOT hand React a `LazySeq` chunk because any future
+          ;; Body rows — eager `map-indexed` (per spec/006
+          ;; §Lazy-seq deref tracking): a substrate widget
+          ;; must NOT hand React a `LazySeq` chunk because a
           ;; consumer that derefs a `(rf/subscribe ...)` inside its
           ;; `:row-cells` fn would have the deref fall outside the
           ;; parent render's reactive scope at the chunk boundary.
@@ -781,51 +767,44 @@
 
 ;; ---- The two heads -------------------------------------------------------
 ;;
-;; BOTH SHIP, and that is the sequencing rather than an indecision
-;; (rf2-fcy5). A Fresco boundary in a Reagent head position fails exactly
-;; as loudly as the reverse, so the boundary could not be ADOPTED until
-;; each consumer's own mount was one. Same pair, same reason, as
+;; BOTH SHIP. A Fresco boundary in a Reagent head position fails exactly
+;; as loudly as the reverse, so each head serves a parent of its own
+;; kind. Same pair, same reason, as
 ;; `views/edn_inspector.cljs`'s `edn-inspector` / `edn-inspector-view`.
 ;;
-;; THAT CONDITION IS NOW MET AND THE SEQUENCING IS SPENT (rf2-k97c.3).
-;; `panels/trace.cljs` became a boundary in `04350d02e5` and
-;; `panels/epoch/view.cljs` in `5c6b56f7ab`, and both adopted
-;; `resizable-table-view` in the same commit. Censused at the tip that
-;; carries this comment: ZERO code references to the Reagent head remain
-;; under `tools/xray/src` — head-position, alias-qualified or by-name via
-;; `(rf/view …)` — against a control of 5 live `resizable-table-view`
-;; mounts on the same instrument.
+;; Every production mount is `resizable-table-view`: `panels/trace.cljs`
+;; and `panels/epoch/view.cljs` are both boundaries, and no code under
+;; `tools/xray/src` references the Reagent head — head-position,
+;; alias-qualified or by-name via `(rf/view …)`.
 ;;
-;; THE REAGENT HEAD IS NOT RETIRED, AND THAT IS A DECISION RATHER THAN AN
-;; OVERSIGHT. `render-table` is `defn-`, so the Reagent head is the ONLY
-;; public pure-render door into it, and four test namespaces depend on
-;; that door — see its docstring for the inventory. Retiring it would
-;; delete real coverage to remove a var that costs a bundle-isolated dev
-;; tool almost nothing. Nothing here blocks a later retirement; it would
-;; just have to re-point those namespaces first.
+;; THE REAGENT HEAD SHIPS ON PURPOSE. `render-table` is `defn-`, so the
+;; Reagent head is the ONLY public pure-render door into it, and test
+;; namespaces depend on that door — see its docstring for the inventory.
+;; Removing it would delete real coverage to remove a var that costs a
+;; bundle-isolated dev tool almost nothing, and would first mean
+;; re-pointing those namespaces.
 ;;
 ;; Neither head has any state to hold, so neither needs an instance key:
-;; the widget's one piece of component-local state was the gutter's hover
-;; flag, and §Header gutter is where that went.
+;; the gutter's hover is a CSS rule (§Header gutter).
 
 (when rf.interop/debug-enabled?
   (rf/reg-view resizable-table
     "THE REAGENT HEAD. See the ns docstring for the consumer API and
     `render-table` for the option inventory.
 
-    ## NO PRODUCTION CONSUMER — do not mount this (rf2-k97c.3)
+    ## NO PRODUCTION CONSUMER — do not mount this
 
-    Every production call site heads `resizable-table-view` since Trace and
-    Epoch became Fresco boundaries; a censused ZERO code references survive
-    under `tools/xray/src`. Mounting this head inside either panel now
+    Every production call site heads `resizable-table-view`: Trace and
+    Epoch are Fresco boundaries, and no code under `tools/xray/src`
+    references this head. Mounting this head inside either panel
     raises `:rf.error/fresco-bad-head`, which is the refusal
     `reagent-head-is-invalid-to-the-codec` pins.
 
-    ## WHY IT STILL SHIPS — it is the tree's only pure-render door
+    ## WHY IT SHIPS — it is the tree's only pure-render door
 
     `render-table` is `defn-`. This head is the one PUBLIC way to drive it
-    and get hiccup back without entering a React render window, and nine
-    live call sites across four test namespaces depend on exactly that:
+    and get hiccup back without entering a React render window, and these
+    test namespaces depend on exactly that:
 
       - `views/resizable_table_key_cljs_test`     renders through it to
         grade React keys at both substrate doors.
@@ -841,10 +820,11 @@
 
     The last two roles are the ones a reader is most likely to mistake for
     dead weight: those suites assert this head does NOT appear in a panel
-    tree, so the var is the REFERENT that makes a revert detectable. Delete
-    it and those rows cannot be written, let alone go red.
+    tree, so the var is the REFERENT that makes a stray Reagent head
+    detectable. Delete it and those rows cannot be written, let alone go
+    red.
 
-    ## Frame-aware via `reg-view` (rf2-r0o63)
+    ## Frame-aware via `reg-view`
 
     `resizable-table` is `reg-view`-registered so its rendered component
     carries `:contextType frame-context`: the injected `subscribe` /
@@ -852,10 +832,8 @@
     `frame-id`) through React-context. The column-widths slot is read via
     the injected `subscribe` and the raw-window-listener drag flow
     dispatches via the injected frame-bound `dispatch` — so N shells keep
-    independent column widths. (Pre rf2-r0o63 this was a plain `defn`
-    that escaped to a hardcoded `:rf/xray` frame via `rf/with-frame`,
-    which entrenched the singleton; the `reg-view` registration is the
-    same shape every other Xray panel uses.)
+    independent column widths. (A plain `defn` escaping to a hardcoded
+    `:rf/xray` frame via `rf/with-frame` would entrench the singleton.)
 
     Defensive nil: `subscribe` returns nil when the sub isn't registered
     (a pure-render test that never ran `registry/register-xray-handlers!`).
@@ -882,8 +860,8 @@
 
   `rf.fresco/sub` in place of `@(subscribe …)`. It returns the VALUE, not
   a reaction, and the edge is recorded by Fresco's own collector where the
-  read happens — which is the coupling this migration exists to sever: a
-  `reg-view` body's reads are tracked only by whichever reaction machinery
+  read happens — which severs the coupling a `reg-view` body has: its
+  reads are tracked only by whichever reaction machinery
   the installed adapter happens to ship. No `some->` guard is needed here
   and its absence is not an oversight: an unregistered query is
   `cold-read!`'s recovery path, which answers nil (emitting
@@ -906,8 +884,8 @@
   because a React function component has no form-2 outer body to allocate
   per-mount identity in. This widget needs none: its state lives in app-db
   keyed by the consumer's own `:table-id`, its drag bookkeeping is a
-  module-level `defonce`, and the gutter's hover flag — the one piece of
-  genuinely component-local state it ever had — is now a CSS rule."
+  module-level `defonce`, and the gutter's hover — the one candidate for
+  genuinely component-local state — is a CSS rule."
   [props]
   (render-table props
                 (rf.fresco/sub [:rf.xray.column-widths/for-table
