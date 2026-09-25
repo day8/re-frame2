@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 //
-// THE MINTED KEY WARNING'S PRODUCTION-ISOLATION PROBE (rf2-2rtt6.104).
+// THE MINTED KEY WARNING'S PRODUCTION-ISOLATION PROBE.
 //
-//     node fresco/test/re_frame/bench/fresco/keywarn_elision_run.cjs
+//     node src/re_frame/bench/fresco/keywarn_elision_run.cjs     (from bench/fresco/)
 //
 // ## The claim
 //
@@ -11,7 +11,8 @@
 // pairing check, the per-member scan and every message string — sits behind
 // `^boolean js/goog.DEBUG`. Under `:advanced` with `goog.DEBUG=false` Closure
 // folds each gate to `false`, the branches die, and the strings die with
-// them. The ordinary render path is byte-identical to what it was.
+// them. The ordinary render path is byte-identical to a build without the
+// warning.
 //
 // That is a claim about BYTES, so it is proven with bytes, the F3d way: a
 // CONTROL BUILD rather than a grep of source. Two `:advanced` bundles of the
@@ -26,10 +27,9 @@
 //   PRESENT in the control bundle  (the branch is live — the grep has teeth)
 //
 // The control's PRESENT half is the positive control, and it is not
-// ceremony: `scripts/check-freehand-evidence-elision.cjs` records why the
-// naive oracles fail here (a debug flag survived 225 times inside prose;
-// Closure inlines a small function's name, so grepping for the name can never
-// go red). Without the control leg, a probe that stopped rooting the seam
+// ceremony, because the naive oracles fail here (a debug flag's name
+// survives inside prose strings; Closure inlines a small function's name, so
+// grepping for the name can never go red). Without the control leg, a probe that stopped rooting the seam
 // entirely — the call sites deleted, the fns orphaned — would pass
 // vacuously. With it, that mistake goes red on the control.
 //
@@ -42,19 +42,17 @@
 // the wrong reason. Both legs therefore name `jsfb-fresco-app/-main`, which
 // requires `arm1.mount` -> `arm1.runtime` -> `front.codec`.
 //
-// ## NO EDIT TO shadow-cljs.edn
+// ## ONE BUILD ID, MERGED
 //
 // The pair rides `:fresco-bench` through `--config-merge`, exactly as
 // `compile_gate.cjs` and `jsfb_build.cjs` do, supplying its own `:output-dir`
-// and `:closure-defines` per leg. HD-017 makes a new build id a hot-zone edit;
-// the lane was built so a sibling never has to pay that. The shared build
-// cache is cleared before EACH leg (rf2-2rtt6.20): one build id and two
-// configurations is precisely the shape that trap has.
+// and `:closure-defines` per leg, so the lane keeps its one build id (HD-017).
+// The shared build cache is cleared before EACH leg: one build id and two
+// configurations would otherwise run a bundle the leg did not build
+// (`lane_cache.cjs`).
 //
-// Two `:advanced` releases of one arm are ~2 minutes, which is too heavy for
-// the recurring PR spine. This is a runnable-on-demand probe, run once in the
-// PR that landed the warning with its output quoted in the PR body. Promoting
-// it to a nightly is the mayor's call, not this file's.
+// Two `:advanced` releases of one arm take ~2 minutes, which is too heavy for
+// the recurring PR spine, so this is a runnable-on-demand probe.
 //
 // Exit 0 on PASS, 1 on FAIL.
 
@@ -108,8 +106,8 @@ const PROD_SURVIVING = [
 ];
 
 function build(leg, debug, outputDir) {
-  // One build id, N arms (rf2-2rtt6.20) — and the clear goes through the shared
-  // `resetLaneBuildCache` rather than a local `fs.rmSync` (rf2-d19nf). Both
+  // One build id, N arms — and the clear goes through the shared
+  // `resetLaneBuildCache` rather than a local `fs.rmSync`. Both
   // remove the same directory, but the helper carries the Windows retry loop: a
   // scanner or a just-exited JVM can hold a handle for a moment, and a bare
   // `rmSync` throws where the helper waits. One rule, one implementation.
@@ -131,7 +129,7 @@ function build(leg, debug, outputDir) {
   }
   const bundle = path.join(PROJECT, outputDir, 'main.js');
   const blob = fs.readFileSync(bundle, 'utf8');
-  // The FILE's size and not `blob.length` (rf2-2rtt6.121). `blob` is a
+  // The FILE's size and not `blob.length`. `blob` is a
   // decoded string, so `.length` counts UTF-16 code units — and an
   // `:advanced` bundle carries non-ASCII in its string literals, so the two
   // differ. The bytes are already on disk; ask the file system rather than
