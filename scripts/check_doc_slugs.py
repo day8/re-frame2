@@ -3067,7 +3067,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             "prunes vendored trees\n"
         )
 
-    # rf2-k30r7 — the roster is Git tracking, not the filesystem. An UNTRACKED
+    # The roster is Git tracking, not the filesystem. An UNTRACKED
     # scratch source carrying a genuinely broken covered link must not reach the
     # production scan. The tooth is causal in both directions: the same file is
     # first proven poisonous via an explicit `source_files` input (it DOES report
@@ -3123,9 +3123,9 @@ def _run_self_tests(verbose: bool = False) -> int:
             "tracked sources stay covered\n"
         )
 
-    # rf2-zq5i6 — placement ordering logic, driven directly with a correct and a
+    # Placement ordering logic, driven directly with a correct and a
     # drifted (mutated) line list. This is the focused tooth that fails if the
-    # routing loader-failure bookmark ever drifts behind its explanation again.
+    # routing loader-failure bookmark drifts behind its explanation.
     _placement_passage = re.compile(r"On loader failure")
     _correct_lines = [
         '<a id="when-a-loader-fails"></a>',
@@ -3162,23 +3162,22 @@ def _run_self_tests(verbose: bool = False) -> int:
             "rejects the drifted mutation\n"
         )
 
-    # rf2-vpc4c / rf2-skpf — link extraction driven directly with explicit line
+    # Link extraction driven directly with explicit line
     # lists, so the wrap contract is pinned at the mechanism rather than only
     # through a fixture's aggregate count. Each case states the (line_no,
     # destination) pairs `_iter_inline_links` must yield from FENCE-STRIPPED
     # input — `_extract_links` reduces a file to exactly this shape, and inline
     # code is masked inside `_iter_inline_links` over the joined unit, so these
     # inputs are raw source lines. The cases run in both directions: the join
-    # must reach across a wrap (rf2-vpc4c) and must stop at every real block
-    # boundary and inside a multiline code span (rf2-skpf).
+    # must reach across a wrap and must stop at every real block
+    # boundary and inside a multiline code span.
     extraction_cases: list[tuple[str, list[tuple[int, str]], list[tuple[int, str]]]] = [
-        # POSITIVE CONTROL — the unwrapped case that always worked. The reported
-        # line is the link's own line, exactly as before the fix.
+        # POSITIVE CONTROL — the unwrapped case. The reported line is the
+        # link's own line.
         ("single-line link still extracted",
          [(1, "See [the doc](target.md#anchor) for detail.")],
          [(1, "target.md#anchor")]),
-        # THE FIX — text wraps, so `](dest)` lands on the next line. The
-        # predecessor yielded nothing here.
+        # Text wraps, so `](dest)` lands on the next line.
         ("wrapped link extracted, reported at the destination's line",
          [(1, "See [the"), (2, "doc](target.md#anchor) for detail.")],
          [(2, "target.md#anchor")]),
@@ -3210,9 +3209,9 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "An unclosed [ bracket opens here,"),
           (2, "and [the real link](target.md#anchor) follows.")],
          [(2, "target.md#anchor")]),
-        # rf2-skpf — NON-BLANK block boundaries. A blank line is not the only
+        # NON-BLANK block boundaries. A blank line is not the only
         # boundary; each pair below spans a real one, so no renderer produces a
-        # link from it. THE BEAD'S SECOND COUNTEREXAMPLE leads.
+        # link from it.
         ("ATX heading is not bridged",
          [(1, "A stray [opening"), (2, "# Separate heading"),
           (3, "](missing.md)")],
@@ -3249,10 +3248,10 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "> Per the note, [§Compiled"),
           (2, "views](API.md#compiled-views) is live.")],
          [(2, "API.md#compiled-views")]),
-        # rf2-skpf — code spans are masked over the JOINED unit, because a
-        # CommonMark code span may contain a line ending. THE BEAD'S FIRST
-        # COUNTEREXAMPLE: per-line masking saw two unpaired backticks, masked
-        # neither, and invented a link the renderer never produces.
+        # Code spans are masked over the JOINED unit, because a
+        # CommonMark code span may contain a line ending: per-line masking
+        # would see two unpaired backticks, mask neither, and invent a link
+        # the renderer never produces.
         ("multiline code span yields no link",
          [(1, "`[literal"), (2, "link](missing.md)`")],
          []),
@@ -3262,29 +3261,28 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "target.md#anchor")]),
         # POSITIVE CONTROL for the mask: an UNPAIRED backtick opens no span in
         # CommonMark, so it must not swallow the rest of the unit — the risk
-        # that kept masking per-line in the first place.
+        # a joined-unit mask carries.
         ("unpaired backtick masks nothing",
          [(1, "A stray ` backtick opens no span,"),
           (2, "and [the real link](target.md#anchor) follows.")],
          [(2, "target.md#anchor")]),
         # ------------------------------------------------------------------
-        # rf2-b2cr — an ATX heading interrupts a paragraph only at COLUMN ZERO.
+        # An ATX heading interrupts a paragraph only at COLUMN ZERO.
         #
-        # `_LEAF_LINE_BLOCK_RE` allowed the ≤3-space indent CommonMark permits.
-        # python-markdown does not: `HashHeaderProcessor.RE` is anchored
+        # CommonMark permits a ≤3-space indent; python-markdown does not:
+        # `HashHeaderProcessor.RE` is anchored
         # `(?:^|\n)#{1,6}`, with no leading-space allowance at all, so an
-        # indented `###` is ordinary paragraph text.  `_HEADING_RE` above
-        # already encodes the column-zero rule — this predicate was the lone
-        # dissenter, and the two now agree.
+        # indented `###` is ordinary paragraph text.  `_LEAF_LINE_BLOCK_RE`
+        # and `_HEADING_RE` above both encode the column-zero rule, so the
+        # two agree.
         #
-        # It cost the gate in BOTH directions, which is why the bead's
-        # "spurious complaint" framing understates it.  Renderer-derived, via
+        # Getting it wrong costs the gate in BOTH directions.  Renderer-derived, via
         # mkdocs.config.load_config('mkdocs.yml') into a markdown.Markdown.
         #
         # FALSE POSITIVE — the span really does close on line 3, so the
-        # bracket is code and the renderer resolves nothing.  The gate ended
-        # the unit at line 2, saw two unpaired backtick runs, masked neither
-        # and invented a link to check.
+        # bracket is code and the renderer resolves nothing.  Ending the unit
+        # at line 2 would leave two unpaired backtick runs, mask neither and
+        # invent a link to check.
         ("indented ATX heading does not bound an inline code span",
          [(1, "Prose with `a code span"),
           (2, "   ### not a heading to python-markdown"),
@@ -3297,8 +3295,8 @@ def _run_self_tests(verbose: bool = False) -> int:
          []),
         # FALSE GREEN, the direction that actually costs coverage: with no code
         # span in play the three lines are ONE paragraph, and the renderer
-        # emits `<a href="missing.md">`.  Bounding the unit at line 2 dropped
-        # that link on the floor — a real broken link, never checked.
+        # emits `<a href="missing.md">`.  Bounding the unit at line 2 would
+        # drop that link on the floor — a real broken link, never checked.
         ("indented ATX heading does not bound a paragraph at all",
          [(1, "A stray [opening"),
           (2, "   ### Separate heading"),
@@ -3314,20 +3312,19 @@ def _run_self_tests(verbose: bool = False) -> int:
           (3, "[in](in-target.md)` closing here.")],
          [(3, "in-target.md")]),
         # ------------------------------------------------------------------
-        # rf2-skpf — the two blockquote boundaries `_inline_blocks` did not
-        # have.  Renderer-derived, via mkdocs.config.load_config('mkdocs.yml')
+        # Two blockquote boundaries.  Renderer-derived, via mkdocs.config.load_config('mkdocs.yml')
         # into a markdown.Markdown against python-markdown 3.10 + pymdownx
         # 10.21.3, one case per verdict the renderer actually returned.
         #
         # FIRST: a line of nothing but blockquote markers.
         # `BlockQuoteProcessor.clean` maps it to the empty string, so it ends
         # the quoted paragraph — 569 of them are in this corpus.  Reading it as
-        # a continuation line let the join reach across a paragraph break.
+        # a continuation line would let the join reach across a paragraph break.
         #
         # FALSE GREEN, the expensive direction: the two backtick runs are in
         # DIFFERENT paragraphs, so neither opens a span, and the renderer emits
-        # `<a href="in-target.md">`.  Joining across the break paired them and
-        # masked a real link out of existence — unchecked, silently.
+        # `<a href="in-target.md">`.  Joining across the break would pair them
+        # and mask a real link out of existence — unchecked, silently.
         ("a bare > ends the quoted paragraph, so no span swallows the link",
          [(1, "> Prose with `a code span"),
           (2, ">"),
@@ -3345,8 +3342,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           (3, "> ](missing.md)")],
          []),
         # CONTROLS.  Without these both cases above are satisfied by a rule
-        # that bounds at EVERY quoted line, which would undo rf2-vpc4c's
-        # blockquoted wrapped links.
+        # that bounds at EVERY quoted line, which would drop blockquoted
+        # wrapped links.
         ("a quoted continuation line does not end the span",
          [(1, "> Prose with `a code span"),
           (2, "> continues"),
@@ -3359,13 +3356,13 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(3, "missing.md")]),
         # SECOND: lazy continuation RESUMES a quote, it does not enter one.
         # The unit's depth is the depth it OPENED at, not the previous line's —
-        # after an unmarked middle line the previous line's depth is 0, so a
-        # `>`-marked third line read as an entry and split a paragraph the
-        # renderer keeps whole.
+        # after an unmarked middle line the previous line's depth is 0, so
+        # comparing against it reads a `>`-marked third line as an entry and
+        # splits a paragraph the renderer keeps whole.
         #
         # FALSE GREEN: `BlockQuoteProcessor` cleans all three lines into one
-        # paragraph and emits `<a href="API.md#compiled-views">`.  The split
-        # dropped it unchecked.
+        # paragraph and emits `<a href="API.md#compiled-views">`.  A split
+        # would drop it unchecked.
         ("a re-marked line after lazy continuation is not a new quote",
          [(1, "> Per the note, see [§Compiled"),
           (2, "views and the"),
@@ -3373,7 +3370,7 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(3, "API.md#compiled-views")]),
         # FALSE POSITIVE, same boundary: with a code span in play the three
         # lines are one run, the span closes on line 3, and the renderer
-        # resolves nothing.  The split saw two unpaired runs and invented a
+        # resolves nothing.  A split would see two unpaired runs and invent a
         # link to check.
         ("...and a span across that resume still masks",
          [(1, "> Prose with `a code span"),
@@ -3396,14 +3393,13 @@ def _run_self_tests(verbose: bool = False) -> int:
           (2, "> views](API.md#compiled-views).")],
          [(2, "API.md#compiled-views")]),
         # ------------------------------------------------------------------
-        # rf2-2ryk — REFERENCE-STYLE links, which this extractor matched not at
-        # all: nine links the renderer emits from `[label]: dest` definitions
-        # were never checked, and a link checker's false negatives are the
+        # REFERENCE-STYLE links: the renderer emits links from `[label]: dest`
+        # definitions, and a link checker's false negatives are the
         # expensive direction.
         #
         # The cases are driven from the GRAMMAR — every legal form, each
         # position a definition may take relative to its use, and the label
-        # normalisation on both sides — not from the repair, and every verdict
+        # normalisation on both sides — and every verdict
         # is what mkdocs' own markdown.Markdown returned for that exact input.
         # A reference use is reported at its DEFINITION's line, because that is
         # where the destination is written, and ONCE per definition however
@@ -3557,12 +3553,11 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
-    # rf2-mmyc — FENCE RECOGNITION, driven directly at `_strip_fences`.  That
+    # FENCE RECOGNITION, driven directly at `_strip_fences`.  That
     # function is the scanner's only notion of "this is code, not prose", so
-    # every other check inherits whatever it gets wrong: the rf2-re0m bulk link
-    # pass rewrote six lines inside three Clojure samples and the gate stayed
-    # green because a column-0-anchored matcher could not see the indented
-    # fences those samples lived in.
+    # every other check inherits whatever it gets wrong: a column-0-anchored
+    # matcher cannot see an indented fence, so links written into the sample
+    # it holds would pass the gate.
     #
     # Each case states the 1-based line numbers that survive as PROSE.  Driving
     # the primitive rather than a fixture matters here: the inline-code-span
@@ -3573,8 +3568,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     # confirmed against python-markdown + pymdownx.superfences, the pair MkDocs
     # actually runs, which is stricter than CommonMark about closing fences.
     fence_cases: list[tuple[str, list[str], list[int]]] = [
-        # POSITIVE CONTROL — the column-0 case that always worked.  It cannot
-        # red before the fix; its job is to stay green after it.
+        # POSITIVE CONTROL — the column-0 case, whose job is to stay green.
         ("column-0 fence still blanks its body",
          ["Prose before.",
           "",
@@ -3583,7 +3577,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "```",
           "Prose after."],
          [1, 6]),
-        # THE DEFECT — a fence carrying its container's indent.
+        # A fence carrying its container's indent.
         ("fence indented inside a list item is a fence",
          ["- A bullet:",
           "",
@@ -3623,7 +3617,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 7]),
-        # THE CONTROL THAT REJECTS THE ONE-CHARACTER FIX.  Four or more spaces
+        # THE CONTROL THAT REJECTS A ONE-CHARACTER RELAXATION.  Four or more spaces
         # in ordinary context is an INDENTED CODE BLOCK, a different construct
         # with no closing delimiter.  A matcher relaxed to `^\s*` opens a fence
         # here and, finding no closer, blanks the rest of the file.  Lines 3-4
@@ -3655,12 +3649,11 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [9]),
-        # RUNAWAY GUARD.  rf2-re0m shipped three unbalanced fences, so this is
-        # not hypothetical.  An unclosed opener cannot blank the rest of the
-        # document — which is the mirror-image failure of the defect: a gate
-        # that goes quiet.
+        # RUNAWAY GUARD.  Unbalanced fences do occur.  An unclosed opener
+        # cannot blank the rest of the document — which is the mirror-image
+        # failure of an unrecognised fence: a gate that goes quiet.
         #
-        # It cannot blank its OWN body either (rf2-mmyc, audit #7785): with no
+        # It cannot blank its OWN body either: with no
         # closer there is no fenced block, so superfences restores the source
         # and the renderer emits `<p>```clojure\n  (unclosed</p>`.  Lines 3-4
         # are prose on the rendered page and must be scanned as prose here.
@@ -3673,7 +3666,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "Prose after, back at column zero."],
          [1, 3, 4, 6]),
         # ------------------------------------------------------------------
-        # rf2-1cpt — BLOCKQUOTED fences.  A blockquote is a container like any
+        # BLOCKQUOTED fences.  A blockquote is a container like any
         # other, and superfences opens a fence at the column its prefix leaves
         # (`parse_whitespace` consumes `>`, spaces and tabs alike).  These
         # expectations were read off python-markdown + pymdownx.superfences
@@ -3763,7 +3756,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [7]),
-        # THE CONTROL THAT REJECTS "STRIP THE `>` AND REUSE THE OLD MATCHER".
+        # THE CONTROL THAT REJECTS "STRIP THE `>` AND REUSE THE UNQUOTED MATCHER".
         # A quote-stripping pre-pass turns line 3 into a bare closing fence and
         # ends the block early, flipping lines 4-5 back to prose.  The renderer
         # disagrees: a fence opened at quote depth 0 measures a content line's
@@ -3782,11 +3775,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         # The closing rules inside a quote are superfences' usual strict ones:
         # the closer must be the opener's EXACT marker run with nothing after
         # it.  Neither of these closes — and an opener with no closer is not a
-        # fence at all (rf2-mmyc, audit #7785), so the quoted lines are prose.
+        # fence at all, so the quoted lines are prose.
         # The renderer emits `<blockquote><p>```clojure ...</p></blockquote>`
-        # for both, which is where the earlier "runs to the end of its
-        # blockquote" reading went wrong: superfences does not leave a fence
-        # open, it withdraws the fence.
+        # for both: superfences does not leave a fence open to the end of its
+        # blockquote, it withdraws the fence.
         ("longer closing run does not close a blockquoted fence",
          ["> ```clojure",
           "> (code)",
@@ -3840,8 +3832,8 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after at column zero."],
          [1, 2, 4]),
-        # POSITIVE CONTROL — the blockquoted HEADING support added by rf2-869k9m
-        # must survive.  `> #### Foo` is a real `<h4 id="quoted-heading">`, so
+        # POSITIVE CONTROL — blockquoted HEADING support.
+        # `> #### Foo` is a real `<h4 id="quoted-heading">`, so
         # the line stays prose and the indexer keeps minting its slug.
         ("blockquoted heading outside a fence is still prose",
          ["> #### Quoted heading",
@@ -3849,24 +3841,23 @@ def _run_self_tests(verbose: bool = False) -> int:
           "> Quoted prose."],
          [1, 2, 3]),
         # ------------------------------------------------------------------
-        # rf2-mmyc (MERGED-PR AUDIT #7785) — MALFORMED AND UNTERMINATED fences.
+        # MALFORMED AND UNTERMINATED fences.
         #
         # A fenced block is a MATCHED PAIR.  superfences collects lines from an
         # opener until it finds THAT opener's closer; if it never finds one it
         # restores the source verbatim (`_store` / `restore_raw_text`) and
-        # python-markdown reads those lines as ordinary prose.  The predecessor
-        # read "this closer does not close the block" as "the block stays
-        # open", which is the opposite conclusion: it blanked the body AND
-        # every line after it, so a broken link or heading below a malformed
-        # fence was invisible to this gate — the same going-silent failure as
-        # rf2-re0m, reached from the other side.
+        # python-markdown reads those lines as ordinary prose.  Reading "this
+        # closer does not close the block" as "the block stays open" is the
+        # opposite conclusion: it would blank the body AND every line after
+        # it, so a broken link or heading below a malformed fence would be
+        # invisible to this gate.
         #
         # Every expectation below was READ OFF THE RENDERER, driven through
         # MkDocs' own configuration (`mkdocs.config.load_config('mkdocs.yml')`,
         # then its `markdown_extensions` / `mdx_configs` into a
         # `markdown.Markdown`) — not off CommonMark, and not off a probe.
         # CommonMark disagrees with what MkDocs actually does in BOTH
-        # directions here, which is how the wrong reading survived review.
+        # directions here.
         # ------------------------------------------------------------------
         # CONTROL — the well-formed pair, which must keep working.  Without it
         # the five cases below are satisfied by a scanner that recognises no
@@ -3935,8 +3926,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 4, 5, 7]),
-        # THE CONTAINER-PUSH GUARD, which had no coverage until the lookahead
-        # refactor above went looking for it.  A list marker four or more spaces
+        # THE CONTAINER-PUSH GUARD.  A list marker four or more spaces
         # past the current content column is an INDENTED CODE BLOCK, not a list
         # item, so it must not push a content column — otherwise the fence two
         # lines down is measured against a phantom container and recognised
@@ -3966,7 +3956,7 @@ def _run_self_tests(verbose: bool = False) -> int:
           "Prose after."],
          [1, 3, 9]),
         # ------------------------------------------------------------------
-        # rf2-1cpt (MERGED-PR AUDIT #7786) — the quote prefix's SPELLING is
+        # The quote prefix's SPELLING is
         # renderer-significant, and quote DEPTH alone is not parity.
         #
         # superfences does not parse blockquote markers as markers.  Its
@@ -3977,21 +3967,21 @@ def _run_self_tests(verbose: bool = False) -> int:
         # is narrower (`len(ws) < self.ws_len`) or quoted deeper
         # (`quote_level > self.quote_level`).
         #
-        # The previous model stored (marker, in-quote indent, quote DEPTH) and
-        # compared with `_quote_depth_and_body`, which normalises the prefix:
-        # it absorbs one optional space after each `>`, so `>` and `> ` and
-        # `>  ` all read as depth 1.  Three shapes therefore closed a fence the
-        # renderer never opens, and each hid a REAL, VISIBLE link — the exact
-        # going-silent failure rf2-mmyc fixed from the other direction.
+        # A model storing (marker, in-quote indent, quote DEPTH) and
+        # comparing with `_quote_depth_and_body` would normalise the prefix:
+        # that absorbs one optional space after each `>`, so `>` and `> ` and
+        # `>  ` all read as depth 1.  Three shapes would then close a fence the
+        # renderer never opens, and each would hide a REAL, VISIBLE link — the
+        # going-silent failure, from the other direction.
         #
         # All three render as `<blockquote><p>```clojure</p><blockquote><p><a
         # href="missing.md">…` — the deeper-quoted line is a nested blockquote,
         # which is a separate block, so the stray backtick runs cannot pair into
         # a code span and the link resolves for real.
         #
-        # A sweep of 1728 opener/body/closer prefix triples against the renderer
-        # found 235 disagreements before this change; these three are
-        # representative, not exhaustive.
+        # These three are representative of the disagreements a sweep of
+        # opener/body/closer prefix triples against the renderer finds, not
+        # exhaustive.
         ("a closer whose prefix is narrower than the opener's closes nothing",
          [">```clojure",
           "> >[a real link](missing.md)",
@@ -4017,7 +4007,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         # on all three lines: this IS a fence, the renderer emits
         # `<pre><code>`, and the link inside it must stay unresolved.  Without
         # it the three cases above are satisfied by a scanner that recognises no
-        # quoted fence at all — which would silently undo rf2-1cpt's first half.
+        # quoted fence at all — which would silently lose blockquoted fences.
         ("matched quote prefixes still open and close a fence",
          ["> ```clojure",
           "> [not a link](missing.md)",
@@ -4045,10 +4035,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         # The trailing constant counts the PASS lines the four lists above do
         # NOT cover: three duplicate-anchor diagnostics, plus the manifest
         # derivation, placement-key, source-scan roster, untracked-scratch and
-        # placement-mutation checks. It read 4 while eight such lines were
-        # emitted, so this total ran four short of the PASS lines on screen
-        # (rf2-co91r) — which matters because the total is the number a worker
-        # quotes when showing that a change ADDED self-tests. Keep it equal to
+        # placement-mutation checks. The total is the number quoted when
+        # showing that a change ADDED self-tests, so keep it equal to
         # the PASS-line count: `--self-test --verbose | grep -c 'self-test PASS'`.
         sys.stderr.write(
             f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + len(fence_cases) + 8} "
