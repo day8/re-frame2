@@ -1885,26 +1885,25 @@
          :after       (common/tag-of ev :result)
          :duration-ms (common/tag-of ev :elapsed-ms)}))))
 
-;; rf2-xnb1x — FLOW is splatted into ONE step per flow that fired
+;; FLOW is splatted into ONE step per flow that fired
 ;; (mirror of the COEFFECT per-cofx split). Each step map carries the
 ;; row's slots directly; the cascade reads the count of FLOW steps
 ;; the same way it reads the count of COEFFECT steps — one numbered
-;; circle per first-class entry. The `flow-step` aggregate retired
-;; with rf2-xnb1x; the splicing in `project` consumes `flow-rows`
-;; directly.
+;; circle per first-class entry. There is no aggregate flow step; the
+;; splicing in `project` consumes `flow-rows` directly.
 
-;; ---- SIDE EFFECTS step (rf2-j630b — supersedes rf2-kt6js 3-tier) --------
+;; ---- SIDE EFFECTS step ---------------------------------------------------
 ;;
 ;; The cascade's side effects render as ONE numbered step — SIDE EFFECTS —
-;; whose body is a FLAT per-effect ledger (rf2-j630b, supersedes the
-;; rf2-kt6js 3-tier `:db` / `:fx` / other sub-step grouping). One row per
+;; whose body is a FLAT per-effect ledger (not a `:db` / `:fx` / other
+;; sub-step grouping). One row per
 ;; effect, down the page, in EXECUTION order; NO group headers. Each row
 ;; carries a leading status glyph + the effect-id + the effect ARGS in an
-;; edn-inspector. After the "EFFECT HANDLERS" badge the view paints ONE
-;; overall glyph — TICK when every present row succeeded, CROSS when one
-;; or more FAILED (SKIPPED rows are NEUTRAL). No post-commit / best-effort
-;; labels. Each row reuses the shared per-step `:status` (`:ok` /
-;; `:error`) primitive (rf2-ahhgn) for its per-effect tick:
+;; edn-inspector. The "EFFECT HANDLERS" badge carries NO overall glyph —
+;; the per-row glyphs are the whole signal (`side-effects-badge-status`
+;; names the AND-of-rows outcome; SKIPPED rows are NEUTRAL). No
+;; post-commit / best-effort labels. Each row reuses the shared per-step
+;; `:status` (`:ok` / `:error`) primitive for its per-effect tick:
 ;;
 ;;   :db    — the handler's app-db write (the `:db` effect), FIRST in the
 ;;            ledger when present. ✓ on a successful commit; ✗ when the
@@ -1912,26 +1911,23 @@
 ;;            cascade rolled back. Shown whenever a `:db` commit was
 ;;            attempted — INCLUDING a plain reg-event that returns only
 ;;            `:db` (no `:fx`); ABSENT when the handler returned only
-;;            `:fx` / nothing, or THREW (no phantom `:db`, rf2-wnvid).
+;;            `:fx` / nothing, or THREW (no phantom `:db`).
 ;;            Its args slot is the DESTINATION marker
 ;;            "→ app-db" (the actual db diff lives in the App-db panel —
 ;;            no duplication here), made clickable to jump there.
 ;;   :fx    — the entries in the handler's `:fx` vector, in order, each
-;;            `[fx-id arg]` with the rf2-g1mfc open-code chip + a per-effect
+;;            `[fx-id arg]` with the open-code chip + a per-effect
 ;;            tick (✓ ran / ✗ threw / ↺ overridden / – skipped-on-platform).
 ;;
-;; There is no `other` tier — rf2-m2ye2 deleted it; see `side-effects-step`.
+;; There is no `other` tier; see `side-effects-step`.
 ;;
-;; SETTLE-FIRST (rf2-kt6js, confirmed against the live substrate; carried
-;; through rf2-j630b — the data source is unchanged, only the presentation
-;; flattens):
+;; SETTLE-FIRST (confirmed against the live substrate):
 ;;
-;; - PER-`:fx` SUCCESS IS ALREADY RECORDED. Every entry in the `:fx`
+;; - PER-`:fx` SUCCESS IS RECORDED. Every entry in the `:fx`
 ;;   vector emits exactly one of `:rf.fx/handled` / `:rf.fx/override-
 ;;   applied` / `:rf.fx/skipped-on-platform` / `:rf.error/fx-handler-
 ;;   exception` / `:rf.error/no-such-fx` (spec 009 §`re-frame.fx`;
-;;   `re-frame.fx/handle-one-fx`). The per-fx tick reads that op directly
-;;   — NO framework-instrumentation change (no (A) prong).
+;;   `re-frame.fx/handle-one-fx`). The per-fx tick reads that op directly.
 ;;
 ;; - THE `:db` COMMIT IS RECORDED BY `:rf.event/db-changed`, NOT a
 ;;   fx-id-less `:rf.fx/handled`. `re-frame.fx/emit-handled!` ALWAYS
@@ -1939,19 +1935,15 @@
 ;;   (`re-frame.router/commit-frame-effects!`) emits `:rf.event/db-changed`
 ;;   for the single forward commit — it does NOT route `:db` through the
 ;;   fx pipeline, and a schema-REJECTED candidate emits NO db-changed at
-;;   all (rf2-uhk9ko: validate-before-install; the rejection's signal is
-;;   the `:where :app-db` violation trace with `:rollback? true`). The
-;;   pre-rf2-kt6js heuristic looked for a non-existent fx-id-less
-;;   `:rf.fx/handled`, so the `:db` row only ever appeared on the
-;;   rejection path; a clean reg-event showed NO side-effects step at
-;;   all. Keying off `:rf.event/db-changed` fixes the ALWAYS-APPEARS
-;;   contract tool-side.
+;;   all (validate-before-install; the rejection's signal is
+;;   the `:where :app-db` violation trace with `:rollback? true`). Keying
+;;   off a fx-id-less `:rf.fx/handled` would show the `:db` row only on
+;;   the rejection path, and a clean reg-event would show NO side-effects
+;;   step at all; keying off `:rf.event/db-changed` keeps the
+;;   ALWAYS-APPEARS contract tool-side.
 ;;
-;; - A FOREIGN TOP-LEVEL EFFECT KEY IS REFUSED, NOT DROPPED (rf2-04tx,
-;;   corrected here under rf2-y8doi.19). This comment used to say such a
-;;   key was "silently ignored (no trace, no run)" and that the runtime
-;;   "never touched them", which was true before rf2-04tx and is the
-;;   opposite of the contract now. `re-frame.events/effect-map-defect`
+;; - A FOREIGN TOP-LEVEL EFFECT KEY IS REFUSED, NOT DROPPED.
+;;   `re-frame.events/effect-map-defect`
 ;;   validates the FINAL effects map's top level, and the router's
 ;;   FINAL-effects boundary emits `:rf.error/effect-map-shape` in-band
 ;;   and ABORTS the event pre-commit: `restore!`, outcome `:error`, no
@@ -1960,24 +1952,23 @@
 ;;   key REFUSES the event pre-commit … nothing is committed, and
 ;;   nothing is silently dropped."
 ;;
-;;   That refusal is WHY this panel needed `attach-unclassified-errors`:
-;;   there IS a trace now, it is simply not one of the seven ops
-;;   `cascade-exception-ops` names, so it used to be read and discarded.
+;;   That refusal is WHY this panel has `attach-unclassified-errors`:
+;;   the refusal's trace is not one of the seven ops
+;;   `cascade-exception-ops` names, so without it the trace would be read
+;;   and discarded.
 ;;
 ;;   The legal top level is SEVEN keys, not three —
 ;;   `events/closed-effect-map-keys` is `{:db :rf.db/runtime :fx}` plus
 ;;   the four EP-0025 commit-plane classification effects (`:sensitive` /
 ;;   `:large` / `:clear-sensitive` / `:clear-large`), which are applied
 ;;   WITH the `:db` write rather than routed through do-fx. It is the
-;;   AUTHORITY, and this panel no longer keeps a copy of it: rf2-m2ye2
-;;   deleted the 3-key `closed-effect-keys` and the `other` diagnostic it
-;;   fed, which could only ever have accused those four legal effects of
-;;   not running. The reasoning, and the live measurement both ways, are
-;;   recorded above `handler-fx-vec`.
+;;   AUTHORITY, and this panel keeps no copy of it and no `other`
+;;   diagnostic, which could only ever accuse those four legal effects of
+;;   not running. The reasoning is recorded above `handler-fx-vec`.
 
 (def ^:private fx-outcome-op->status
-  "Map a per-fx trace op → the fx-row `:status` (rf2-kt6js, lifted from
-  the inline `status-fn`). Closed set — a `:fx`-vector entry surfaces
+  "Map a per-fx trace op → the fx-row `:status`. Closed set — a
+  `:fx`-vector entry surfaces
   exactly one of these ops per `re-frame.fx/handle-one-fx`."
   {:rf.fx/handled                 :ok
    :rf.fx/override-applied        :overridden
@@ -1987,7 +1978,7 @@
 
 (defn- fx-attribution-map
   "Build the `{fx-id → {:action-id … :phase …}}` per-action attribution
-  map for a cascade (rf2-uffov). Each entry maps a fx-id (first element
+  map for a cascade. Each entry maps a fx-id (first element
   of a machine action's emitted fx tuple) to the FIRST action that
   emitted it (cascade order). Empty map for non-machine cascades."
   [events]
@@ -2016,9 +2007,8 @@
 (defn db-rolled-back?
   "True iff a `:where :app-db` schema-validation failure flagged the
   cascade transaction-REJECTED — `:rollback? true` is the stable public
-  vocabulary; under rf2-uhk9ko the candidate is rejected BEFORE install,
-  so app-db was never touched (rf2-kt6js; lifted from the rf2-8resu
-  inline signal). The `:db` sub-step paints ✗ in this case; the schema
+  vocabulary; the candidate is rejected BEFORE install,
+  so app-db is never touched. The `:db` sub-step paints ✗ in this case; the schema
   reason attaches to the `:db` row via `attach-to-fx-db-row`."
   [events]
   (boolean
@@ -2029,7 +2019,7 @@
           events)))
 
 (defn db-noop?
-  "True iff this cascade's `:db` commit was a NO-OP (rf2-ekq28v) — the
+  "True iff this cascade's `:db` commit was a NO-OP — the
   handler returned a `:db` effect that left app-db UNCHANGED, so the
   framework emitted `:rf.event/db-noop` (the complement of db-changed)
   and skipped the container write. Used to paint the `:db` ledger row's
@@ -2043,27 +2033,26 @@
        (not (db-rolled-back? events))))
 
 (defn db-commit?
-  "True iff this cascade attempted a `:db` commit (rf2-kt6js). Three
+  "True iff this cascade attempted a `:db` commit. Three
   signals, ANY sufficient:
 
     (a) A `:rf.event/db-changed` trace — the framework emits this for
-        EVERY actual `:db` install (the single forward commit; rf2-uhk9ko
-        removed the `:phase :rollback` re-emit — a rejected candidate
-        emits none). This is the canonical `:db`-commit signal, present
+        EVERY actual `:db` install (the single forward commit; a
+        rejected candidate emits none). This is the canonical `:db`-commit signal, present
         for a plain reg-event that returns only `:db`.
     (b) A `:where :app-db` schema violation — the candidate `:db` was
         built and REJECTED pre-install (no db-changed fires), so the
         commit was ATTEMPTED; the SIDE EFFECTS `:db` row surfaces it.
-    (c) A `:rf.event/db-noop` trace (rf2-ekq28v) — the handler returned a
+    (c) A `:rf.event/db-noop` trace — the handler returned a
         `:db` effect that left app-db unchanged (the no-op fast-path
         skipped the write). The commit was ATTEMPTED, so the SIDE EFFECTS
         step still surfaces the `:db` row (status `:noop`) so the operator
         sees the event ran and committed nothing rather than the row
         silently vanishing.
 
-  Pre-rf2-kt6js this keyed off a fx-id-less `:rf.fx/handled` that the
-  substrate never emits (`emit-handled!` always stamps `:rf.fx/id`), so
-  the `:db` row only ever appeared on rollback. Keying off `:rf.event/
+  The substrate never emits a fx-id-less `:rf.fx/handled`
+  (`emit-handled!` always stamps `:rf.fx/id`), so keying off one would
+  show the `:db` row only on rollback. Keying off `:rf.event/
   db-changed` is what makes the SIDE EFFECTS step ALWAYS appear on a
   bare `:db`."
   [events]
@@ -2073,21 +2062,21 @@
 
 (defn db-effect-row
   "The synthesised `:db` row — the handler's app-db write, leading the
-  flat SIDE EFFECTS ledger (rf2-kt6js synthesis · rf2-j630b ledger).
+  flat SIDE EFFECTS ledger.
   nil when no `:db` commit was attempted (a reg-event that returned no
-  `:db`, or a handler that threw — no phantom `:db`, rf2-wnvid). `:status`
+  `:db`, or a handler that threw — no phantom `:db`). `:status`
   is `:error` on a schema-fail rollback (so the badge / `step-status`
   paints ✗ and the attached `:where :app-db` violation carries the reason
   box), `:noop` when the commit left app-db unchanged (∅ — \"returned
-  unchanged db, nothing committed\"; rf2-ekq28v), else `:ok`. Carries the
+  unchanged db, nothing committed\"), else `:ok`. Carries the
   `:fx-id :db` marker — the view renders its args slot as the clickable
   \"→ app-db\" DESTINATION marker (the actual db diff lives in the App-db
   panel; no duplication) and the attachment machinery matches `:fx-id :db`
   for the rollback reason box.
 
-  Reconciles with rf2-4wywy: this is the HANDLER db write (the post-
+  This is the HANDLER db write (the post-
   handler / pre-flow `:db` effect). The FLOW step's `:db` diff (the
-  flow's own t1→t2 reshape) stays a SEPARATE step."
+  flow's own t1→t2 reshape) is a SEPARATE step."
   [events]
   (when (db-commit? events)
     {:fx-id  :db
@@ -2096,7 +2085,7 @@
                (db-noop? events)        :noop
                :else                    :ok)}))
 
-;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 (rf2-ff9b0d) --
+;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 --------------
 ;;
 ;; Under EP-0001 a handler may write the RUNTIME-DB partition with a
 ;; reserved `:rf.db/runtime` effect, committed atomically alongside any
@@ -2104,7 +2093,7 @@
 ;; signals a partition commit with `:rf.event/frame-state-changed`, whose
 ;; `:rf.event/partitions` tag is a subset of `#{:app-db :runtime-db}`
 ;; naming which partition(s) changed (Spec 009 §Canonical per-event trace
-;; sequence). Mike ruling #6: `:rf.event/db-changed` is APP-DB-ONLY — a
+;; sequence). `:rf.event/db-changed` is APP-DB-ONLY — a
 ;; runtime-only commit emits ONLY `frame-state-changed` (`#{:runtime-db}`)
 ;; and NO `db-changed`. So keying the runtime-db row off
 ;; `frame-state-changed` is what makes a runtime-ONLY cascade render a SIDE
@@ -2113,9 +2102,9 @@
 (defn- frame-state-partitions
   "The set of partition tags carried on the `:rf.event/frame-state-changed`
   trace — a subset of `#{:app-db :runtime-db}` (Spec 009). nil when no
-  frame-state-changed fired. Every emission is a forward commit: rf2-uhk9ko
-  removed the `:rf.trace/phase :rollback` re-emit (a schema-rejected
-  candidate never commits, so at most one emission exists per cascade)."
+  frame-state-changed fired. Every emission is a forward commit (a
+  schema-rejected candidate never commits, so at most one emission
+  exists per cascade)."
   [events]
   (some (fn [ev]
           (when (= :rf.event/frame-state-changed (op ev))
@@ -2124,8 +2113,8 @@
 
 (defn runtime-db-rolled-back?
   "True iff a `:where :machine-data` schema-validation failure flagged the
-  cascade transaction-REJECTED (EP-0001 rf2-jbbp7 · Spec 010 §Per-step
-  recovery row 7; under rf2-uhk9ko the candidate runtime-db is validated
+  cascade transaction-REJECTED (EP-0001 · Spec 010 §Per-step
+  recovery row 7; the candidate runtime-db is validated
   BEFORE install). The runtime-db partition carries durable machine
   snapshots; its commit boundary is the `:where :machine-data` validator
   (the runtime sibling of `db-rolled-back?`'s `:where :app-db`). A `false`
@@ -2141,12 +2130,12 @@
 
 (defn runtime-db-commit?
   "True iff this cascade committed (or attempted) a runtime-db write
-  (EP-0001 rf2-ff9b0d). Two signals, EITHER sufficient:
+  (EP-0001). Two signals, EITHER sufficient:
 
     (a) A forward `:rf.event/frame-state-changed` whose
         `:rf.event/partitions` includes `:runtime-db` — the canonical
         runtime-db-commit signal (fires for a runtime-only commit, which
-        emits NO `:rf.event/db-changed` per Mike ruling #6).
+        emits NO `:rf.event/db-changed`).
     (b) A `:where :machine-data` schema violation — implies a runtime-db
         commit was ATTEMPTED even on the abort path.
 
@@ -2159,8 +2148,8 @@
 
 (defn runtime-db-effect-row
   "The synthesised `:rf.db/runtime` row — the handler's RUNTIME-DB
-  partition write, a first-class SIDE EFFECTS state effect (EP-0001
-  rf2-ff9b0d). nil when no runtime-db commit was attempted. `:status` is
+  partition write, a first-class SIDE EFFECTS state effect (EP-0001).
+  nil when no runtime-db commit was attempted. `:status` is
   `:error` on a `:where :machine-data` schema-fail rollback (so the badge
   / `step-status` paints ✗ and the attached machine-data violation carries
   the reason box), else `:ok`. Carries the `:fx-id :rf.db/runtime` marker
@@ -2181,7 +2170,7 @@
 
 (defn- fn-value-overrides
   "`{<event index> -> <replacement>}` for each `:rf.fx/handled` row a
-  FUNCTION override replaced (rf2-3x7nj.22.3).
+  FUNCTION override replaced.
 
   `re-frame.fx` emits `:rf.fx/override-applied` — carrying only
   `:rf.fx/from` / `:rf.fx/to`, never `:rf.fx/id` — immediately before the
@@ -2213,19 +2202,18 @@
       acc)))
 
 (defn fx-effect-rows
-  "The `:fx` sub-step rows — one per entry in the handler's `:fx` vector
-  (rf2-kt6js, the user-emitted fx rows formerly carried inline in
-  `fx-rows`). Each row carries `:fx-id`, `:status` (`:ok / :overridden /
+  "The `:fx` sub-step rows — one per entry in the handler's `:fx` vector.
+  Each row carries `:fx-id`, `:status` (`:ok / :overridden /
   :skipped / :error` per `fx-outcome-op->status`), `:args`,
-  `:duration-ms`, and — for machine cascades — `:attributed-to`
-  (rf2-uffov · rf2-9c27r). Each row's `fx-id` carries the rf2-g1mfc
+  `:duration-ms`, and — for machine cascades — `:attributed-to`.
+  Each row's `fx-id` carries the
   open-code chip at the view layer.
 
   Reads the `:rf.fx/*` + fx-error trace ops directly (per-fx success is
-  ALREADY RECORDED — see the SIDE EFFECTS step settle-first note); the
+  RECORDED — see the SIDE EFFECTS step settle-first note); the
   implicit `:db` commit is NOT here (it has its own `db-effect-row`).
 
-  OVERRIDDEN (rf2-3x7nj.22.3). `↺` is read off override PROVENANCE only —
+  OVERRIDDEN. `↺` is read off override PROVENANCE only —
   a keyword-redirected handled row's `:rf.fx/from`, or a function
   override's `:rf.fx/override-applied` row paired by `fn-value-overrides`
   — never off the absence of some other row. An overridden handled row
@@ -2254,11 +2242,11 @@
                                 :overridden
                                 (get fx-outcome-op->status o :ok))
                  :args        (common/tag-of ev :rf.fx/args)
-                 ;; rf2-ipaza — substrate stamps the per-fx-handler
+                 ;; The substrate stamps the per-fx-handler
                  ;; invocation duration as `:rf.fx/elapsed-ms` on
-                 ;; `:rf.fx/handled` (rf2-hhh92 · `re-frame.fx`;
-                 ;; spec 009 §241). Legacy `:duration-ms` retained
-                 ;; as a fixture-compat fallback for older runtimes.
+                 ;; `:rf.fx/handled` (`re-frame.fx`;
+                 ;; spec 009 §241). `:duration-ms` is read
+                 ;; as a fixture-compat fallback.
                  :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
                                   (common/tag-of ev :duration-ms))}
           (some? to)
@@ -2267,7 +2255,7 @@
           (assoc :attributed-to (get attribution-map fx-id)))))))
 
 (defn row-failed?
-  "True iff a SIDE EFFECTS ledger row is a REAL failure (rf2-j630b) —
+  "True iff a SIDE EFFECTS ledger row is a REAL failure —
   its own `:status` is `:error` / `:rollback`, OR it carries an attached
   `:errors` (exception) / `:violations` (schema) vec. A `:skipped` row
   (`:skipped-on-platform`) is NOT a failure — it is NEUTRAL and never
@@ -2283,18 +2271,17 @@
 
 (defn side-effects-badge-status
   "The SINGLE overall badge status for the flat SIDE EFFECTS ledger
-  (rf2-j630b) — `:error` iff ANY present row is a real failure
+  — `:error` iff ANY present row is a real failure
   (`row-failed?`), else `:ok`. The AND-of-rows: TICK when every present
   row succeeded, CROSS when one or more FAILED. `:skipped` rows are
   NEUTRAL — they do not trip the badge.
 
-  Reuses the rf2-ahhgn closed `:ok` / `:error` shape so the view paints
-  the badge ✓/✗ off the same `badge/step-status-*` primitive the other
-  step headers use. Defined over the step's flat `:rows` so attached
-  errors / violations (which land AFTER `side-effects-step` builds the
-  step) lift the badge to `:error`. The view reads this via the generic
-  `step-status` (which dispatches to the same scan); this fn names the
-  contract for tests."
+  Reuses the closed `:ok` / `:error` shape. Defined over the step's flat
+  `:rows` so attached errors / violations (which land AFTER
+  `side-effects-step` builds the step) lift the status to `:error`. The
+  view paints no overall badge glyph (the per-row glyphs are the whole
+  signal) and reads the generic `step-status` only for its skipped
+  branch; this fn names the contract for tests."
   [rows]
   (if (some row-failed? rows) :error :ok))
 
