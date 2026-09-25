@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.managed-fx-template-cljs-test
-  "Smoke render tests for the managed-fx wire-boundary diff template
-  (rf2-uyp86, parent rf2-5aw5v).
+  "Smoke render tests for the managed-fx wire-boundary diff template.
 
   Pure hiccup; the test asserts the structural shape of the panel
   per-surface without booting a substrate. The data-testid attributes
@@ -9,7 +8,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [reagent.core :as r]
-            ;; rf2-twil — the HD-016 row's positive control is the
+            ;; The HD-016 row's positive control is the
             ;; renderer's own head classifier, so the codec is the
             ;; instrument (same reason `cancellation_cascade_cljs_test`
             ;; requires it).
@@ -70,10 +69,10 @@
             would describe an outcome. WIRE TIMING, RESPONSE and APP-DB SLICE
             are absent rather than empty: the issuing event-bundle carries one
             HTTP fact — the request went out — so a section drawn over nothing
-            could only mislead. The old RESPONSE row read '(no response payload
-            yet)', which promises a reply that will never arrive here."
+            could only mislead. A RESPONSE row reading '(no response payload
+            yet)' would promise a reply that never arrives here."
     ;; `:res nil` — an unjoined HTTP record carries no response summary
-    ;; (rf2-6ooch draws RESPONSE exactly when the join found one).
+    ;; (RESPONSE is drawn exactly when the join found one).
     (let [r   (assoc (record {:surface :http :fx-id :rf.http/managed
                               :status :issued
                               :handler [:user/loaded]})
@@ -90,7 +89,7 @@
       (is (not (contains? ids "rf-xray-managed-fx-section-response")))
       (is (not (contains? ids "rf-xray-managed-fx-section-app-db")))))
 
-  (testing "CONTROL — a NON-HTTP record still draws all five sections, so the
+  (testing "CONTROL — a NON-HTTP record draws all five sections, so the
             absences above are a statement about the HTTP surface and not about
             the renderer having lost three sections"
     (let [ids (set (testids (template/record-panel
@@ -159,7 +158,7 @@
 ;; surface (section header is always rendered; body shows up once the
 ;; section is expanded).
 ;;
-;; There is no cross-link here any more (rf2-y8doi.18): the section shows
+;; There is no cross-link here: the section shows
 ;; the reply target the caller CONFIGURED, and the panel observes no
 ;; delivery, so there is nowhere for it to pivot to.
 
@@ -185,16 +184,16 @@
 (deftest records-list-nil-for-empty-records
   (is (nil? (template/records-list []))))
 
-;; ---- React keys reaching the renderer (rf2-hxfy) ------------------------
+;; ---- React keys reaching the renderer ------------------------------------
 
 (defn- react-key
   "The key REACT actually receives for one hiccup node. `r/as-element`
   runs Reagent's own `key-from-vec` (meta first, then the props map),
   so this reads the rendered element rather than the authoring shape.
 
-  Asserting on `(meta node)` instead would be a HOLLOW GATE: it reads
-  nil both BEFORE and AFTER this repair, because the key now rides the
-  attribute map — which is the whole point of rf2-hxfy."
+  Asserting on `(meta node)` instead would be a HOLLOW GATE: the key
+  rides the attribute map, so `(meta node)` reads nil whether or not a
+  key reaches React."
   [node]
   (.-key (r/as-element node)))
 
@@ -207,19 +206,17 @@
   (vec (nth out 3)))
 
 (deftest records-list-keys-reach-react
-  (testing "rf2-hxfy — `^{:key …}` reader meta on the `(record-panel …)`
-            CALL form attached to the source list, so the returned vector
-            carried no key and React received none (measured before the
-            repair: `.-key` nil for every panel). The key now rides the
-            `:section` attribute map, which Reagent reads via props and
-            Fresco's codec reads as a literal `:key`."
+  (testing "`^{:key …}` reader meta on the `(record-panel …)`
+            CALL form would attach to the source list, so the returned
+            vector would carry no key and React would receive none. The key
+            rides the `:section` attribute map, which Reagent reads via
+            props and Fresco's codec reads as a literal `:key`."
     (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
                 (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
           kids (record-panel-nodes (template/records-list recs))
           ks   (mapv react-key kids)]
       (is (= 2 (count kids)))
-      ;; The composed value is unchanged from the pre-repair call site:
-      ;; surface "-" origin-event-id "-" fx-id.
+      ;; The composed value: surface "-" origin-event-id "-" fx-id.
       (is (= [":http-99-:rf.http/managed" ":flow-99-:rf.fx/reg-flow"] ks))
       (is (every? some? ks) "every panel reaches React with a key")
       (is (= 2 (count (distinct ks))) "sibling keys are distinct")
@@ -227,7 +224,7 @@
       (is (= ks (mapv #(:key (second %)) kids))))))
 
 (deftest records-list-keys-are-stable-across-renders
-  (testing "rf2-hxfy — a key that changes value between renders is worse
+  (testing "a key that changes value between renders is worse
             than no key, so the same record must key identically twice."
     (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
                 (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
@@ -238,60 +235,50 @@
       (is (every? some? once))
       (is (= once twice)))))
 
-;; ---- HD-016: `edn/inspect` is CALLED, never a hiccup head (rf2-twil) -------
+;; ---- HD-016: `edn/inspect` is CALLED, never a hiccup head ----------------
 ;;
 ;; `views/edn-widget/inspect` is a plain `defn`. Under Reagent a plain
-;; function in hiccup head position is a form-1 component, so the four
-;; `[edn/inspect …]` sites this file used to carry rendered happily; under
-;; Fresco a plain function in head position is a LOUD ERROR by design
-;; (HD-016), and on this panel's render path there is no error boundary
-;; above it — the throw escapes and React unmounts the entire Xray root,
-;; which presents as a panel that never appears rather than as an error.
-;; That is the rf2-qhoj P1, and it was one token wide there too.
+;; function in hiccup head position is a form-1 component and renders
+;; happily; under Fresco a plain function in head position is a LOUD ERROR
+;; by design (HD-016), and on this panel's render path there is no error
+;; boundary above it — the throw escapes and React unmounts the entire Xray
+;; root, which presents as a panel that never appears rather than as an
+;; error. The whole mistake is one token wide.
 ;;
 ;; The instrument is Fresco's OWN head classifier rather than a shape
 ;; assertion of ours, so the zero below is the renderer's answer and not
 ;; a claim about what we think the renderer would say.
 ;;
-;; BOTH BLOCKING CLASSES ARE NOW CLEARED (rf2-fcy5). rf2-twil removed the
-;; first — `inspect` is CALLED, never headed. The second was the head inside
-;; the value it returns: `[ei/edn-inspector …]` is a `reg-view` head, which
+;; BOTH BLOCKING CLASSES ARE CLEAR. `inspect` is CALLED, never headed. The
+;; value it returns heads `[ei/edn-inspector …]`, a `reg-view` head, which
 ;; the codec refuses for the same reason it refuses a plain `defn` —
 ;; `views/edn_inspector.cljs` says it outright, "Only `edn-inspector-view`
-;; is a head in a Fresco body". That one could not be repaired until the
-;; panel's own mount was a boundary, because a Fresco head in a Reagent
-;; position is the mirror failure; `panels/ManagedFxList` is an
-;; `rf.fresco/defview` now, so the four sites call `edn/inspect-view` and
-;; the tree this file folds is codec-clean all the way down. The
+;; is a head in a Fresco body". `panels/ManagedFxList` is an
+;; `rf.fresco/defview`, so the four sites call `edn/inspect-view` and the
+;; tree this file folds is codec-clean all the way down. The
 ;; every-section-open row below states that in the codec's own words.
 ;;
-;; WHAT THIS ROW CANNOT DO, STATED PLAINLY BECAUSE THE FIRST DRAFT OF IT
-;; LIED. It walks the DEFAULT tree, where three of the five sections are
-;; shut. `theme/section/section-row` renders its body under `(when expanded?
-;; …)`, so a collapsed body is computed (it is a positional argument) and
-;; then DISCARDED — three of the four `edn/inspect` sites are therefore
-;; absent from the tree this row walks, which is the blind spot all three
-;; tiers of coverage shared. So a revert to `[edn/inspect …]` in one of those
-;; three would NOT turn THIS row red, and it does not claim it would: the
-;; absence assertion is a FLOOR, and the controls above it are what stop the
-;; floor reading as a proof. Measured, not assumed — the draft that asserted
-;; the returned inspector was present in the tree read zero, and that is how
-;; the discard was found.
+;; WHAT THIS ROW CANNOT DO. It walks the DEFAULT tree, where three of the
+;; five sections are shut. `theme/section/section-row` renders its body
+;; under `(when expanded? …)`, so a collapsed body is computed (it is a
+;; positional argument) and then DISCARDED — three of the four inspector
+;; sites are therefore absent from the tree this row walks. So an
+;; `[edn/inspect …]` head in one of those three would NOT turn THIS row red,
+;; and it does not claim it would: the absence assertion is a FLOOR, and the
+;; controls above it are what stop the floor reading as a proof. Measured,
+;; not assumed — asserting the returned inspector present in this tree
+;; reads zero.
 ;;
-;; THE GAP IS NOW COVERED ELSEWHERE IN THIS FILE. rf2-s6m6 wired the
-;; disclosure, so the sections can be opened, and
 ;; `no-plain-fn-in-head-position-with-every-section-open` restates this floor
 ;; over the FULLY OPEN tree — where all four sites really are present, as it
 ;; asserts before reading the absence. Keep both: this row grades what the
 ;; operator sees on first paint, that one grades what a click reveals.
 ;;
-;; THE PRIMITIVE IS NOT AT FAULT, AND SAYING SO MATTERS because the first
-;; version of this comment blamed it. `section-row` is non-interactive BY
+;; THE PRIMITIVE IS NOT AT FAULT. `section-row` is non-interactive BY
 ;; DESIGN — `theme/section.cljc` states the contract in terms: "No
 ;; interactivity. Click-to-toggle wiring is the caller's responsibility." —
 ;; and it is shared with `panels/fresco` and `panels/module_view`. The panel
-;; simply passed literals and never did the caller's half; rf2-s6m6 did it,
-;; in the panel, leaving the primitive untouched.
+;; does the caller's half.
 
 (defn- hiccup-vectors
   "Every hiccup vector in `node`, root included, walked structurally.
@@ -309,20 +296,17 @@
   (map first (hiccup-vectors node)))
 
 (deftest no-plain-fn-sits-in-hiccup-head-position
-  (testing "rf2-twil — a plain function in hiccup head position is a loud
+  (testing "a plain function in hiccup head position is a loud
             error under Fresco (HD-016) and the throw escapes with no error
-            boundary above this render path. `edn/inspect` was this tree's
-            only head-position user of the widget facade; it is called now.
-            This row is the FLOOR for the panel's REACHABLE tree — see the
+            boundary above this render path. `edn/inspect` is called, never
+            headed. This row is the FLOOR for the panel's REACHABLE tree — see the
             section comment for what it deliberately does not claim."
-    ;; BOTH SHAPES THE PANEL CAN DRAW, because since rf2-y8doi.18 there are
-    ;; two: an `:http` record draws REQUEST and REPLY TARGET only, while the
-    ;; other four surfaces draw all five sections. Sampling the narrow one
-    ;; alone shrank this row's tree until its own population control — the
-    ;; `(< 20 …)` floor below, unchanged — stopped holding, which is the
-    ;; control doing its job: it refused a sample too small to make the
-    ;; absence meaningful. The answer is a bigger sample rather than a lower
-    ;; floor, and covering both shapes is what the row wanted anyway.
+    ;; BOTH SHAPES THE PANEL CAN DRAW: an `:http` record draws REQUEST and
+    ;; REPLY TARGET only, while the other four surfaces draw all five
+    ;; sections. The narrow one alone is too small a tree for this row's
+    ;; population control — the `(< 20 …)` floor below — to hold, and that
+    ;; control refuses a sample too small to make the absence meaningful. So
+    ;; the sample covers both shapes rather than the floor being lowered.
     (let [http-rec (record {:surface :http
                             :fx-id   :rf.http/managed
                             :status  :issued
@@ -345,8 +329,7 @@
       ;; No plain function anywhere in head position — stated over the
       ;; whole reachable tree rather than named against `inspect` alone,
       ;; so a DIFFERENT facade helper (`ei/mini`, `edn/inspect-inline`)
-      ;; put in head position here is caught too. That is the mistake
-      ;; rf2-qhoj actually made, one file over.
+      ;; put in head position here is caught too.
       (is (empty? (filter fn? heads))
           "no plain function is in head position in the rendered panel"))))
 
@@ -386,27 +369,28 @@
     (str/join " " @acc)))
 
 (deftest app-db-section-never-warns
-  (testing "The amber 'app-db wasn't updated' warning is GONE, on every surface
-            and in every state. It fired whenever the status was :ok and the
-            path list was empty — and because production wires no diff feed the
-            list was empty on every record, so it fired on every successful one,
-            told the author their handler was broken, and guessed at the cause.
-            Even a genuinely unchanged app-db is frequently correct."
+  (testing "There is no amber 'app-db wasn't updated' warning, on any
+            surface or in any state. A warning firing whenever the status is
+            :ok and the path list is empty would fire on every successful
+            record — production wires no diff feed, so the list is empty on
+            every record — telling the author their handler was broken and
+            guessing at the cause. Even a genuinely unchanged app-db is
+            frequently correct."
     (let [measured-empty (record {:surface :websocket :fx-id :rf.ws/connect
                                   :status :ok :paths []})
           combined       (visible-text (template/record-panel measured-empty))]
       (is (not (str/includes? combined "app-db wasn't updated")))
       (is (not (str/includes? combined "Likely a")))
       (is (str/includes? combined "no app-db changes in this event-bundle")
-          "measured-and-empty still says so, plainly")
+          "measured-and-empty says so, plainly")
       ;; silent-by-default: no internal F-code in user-visible prose
       (is (not (re-find #"F\.\d" combined))
           "user-visible text leaks an internal F-code")))
 
   (testing "An UNTRACKED record — `:paths-touched` nil, which is what the
             production 1-arity produces — says it is untracked rather than
-            claiming nothing changed. The two are different facts and the
-            warning conflated them."
+            claiming nothing changed. The two are different facts, and a
+            warning would conflate them."
     (let [untracked (assoc (record {:surface :websocket :fx-id :rf.ws/connect
                                     :status :ok})
                            :paths-touched nil)
@@ -416,7 +400,7 @@
       (is (not (str/includes? combined "no app-db changes in this event-bundle"))
           "untracked must not read as measured-and-empty")))
 
-  (testing "CONTROL — a record with real paths still lists them, so the
+  (testing "CONTROL — a record with real paths lists them, so the
             assertions above are about the warning and not about the section
             having gone blank"
     (let [combined (visible-text
@@ -428,7 +412,7 @@
 
 ;; ---- chrome leak guard: no bead IDs / spec citations in user-facing text ----
 ;;
-;; Per rf2-6lp7k + the silent-by-default policy (Conventions.md
+;; Per the silent-by-default policy (Conventions.md
 ;; §Silent-by-default), no internal reference (bead IDs `rf2-*`,
 ;; F-codes `F.\d`, "Spec N" citations, "spec/0NN" paths) may appear
 ;; in user-facing chrome (rendered text or tooltips). These tests
@@ -447,21 +431,20 @@
     (is (not (re-find pat text))
         (str label " leaks an internal " kind ": " (pr-str (re-find pat text))))))
 
-;; ---- section disclosure (rf2-s6m6) ---------------------------------------
+;; ---- section disclosure --------------------------------------------------
 ;;
-;; The defect: all five `:expanded?` values were LITERALS, so REQUEST,
-;; RESPONSE and REPLY TARGET drew a `▶` that nothing could operate and
-;; their payloads never reached a rendered tree. `theme/section/section-row`
-;; is not at fault and is unchanged — it is non-interactive by design and
-;; shared with two other panels — so the state and the click are the panel's.
+;; `:expanded?` LITERALS would leave REQUEST, RESPONSE and REPLY TARGET
+;; drawing a `▶` that nothing could operate, with payloads that never reach
+;; a rendered tree. `theme/section/section-row` is non-interactive by design
+;; and shared with two other panels, so the state and the click are the
+;; panel's.
 
 (def ^:private disclosure-record
   "A WEBSOCKET record, deliberately, because the disclosure machinery is
   surface-independent and every row below needs all FIVE sections to exist.
 
-  It was an HTTP record until rf2-y8doi.18 narrowed that surface to issuance —
-  an HTTP record now draws two sections, so using one here would have quietly
-  converted these rows from 'the toggle works' into 'HTTP draws three fewer
+  An HTTP record draws two sections, so using one here would quietly
+  convert these rows from 'the toggle works' into 'HTTP draws three fewer
   sections', which is `record-panel-http-smoke`'s job and not theirs."
   (record {:surface :websocket :fx-id :rf.ws/connect
            :status  :ok
@@ -486,17 +469,15 @@
   vectors with `mapv` — that would substitute its own vectors for the ones
   under test, and strips reader metadata besides.
 
-  rf2-fcy5 — IT DESCENDS INTO MAP VALUES, and that is what keeps \"payload
-  values included\" true. A Reagent component took its value as a POSITIONAL
-  argument (`[ei/edn-inspector v opts]`), so a vectors-and-seqs walk reached
-  it; a Fresco boundary takes ONE PROPS MAP (`[ei/edn-inspector-view
-  {:value v …}]`), so the payload now sits behind a map key. Without this
-  arm the walk still returns the props map itself and simply never looks
-  inside it — an absence that reads exactly like a payload the panel failed
-  to render, which is the direction that matters here, since every caller
-  below asserts PRESENCE. `body-shown?` and `testids` are unaffected: they
-  are a different walker that reads the attribute map by position and never
-  descends into one."
+  IT DESCENDS INTO MAP VALUES, and that is what keeps \"payload values
+  included\" true. A Fresco boundary takes ONE PROPS MAP
+  (`[ei/edn-inspector-view {:value v …}]`), so the payload sits behind a
+  map key, out of reach of a vectors-and-seqs walk. Without this arm the
+  walk returns the props map itself and never looks inside it — an absence
+  that reads exactly like a payload the panel failed to render, which is
+  the direction that matters here, since every caller below asserts
+  PRESENCE. `body-shown?` and `testids` are a different walker that reads
+  the attribute map by position and never descends into one."
   [node]
   (cond
     (vector? node) (cons node (mapcat tree-nodes node))
@@ -517,9 +498,9 @@
             open and REQUEST + RESPONSE + REPLY TARGET shut on first
             paint. A nil override map is that first-paint state.
 
-            This row is a FLOOR for the defaults, not a gate for the repair —
-            it passed before it too, because the pre-repair literals painted
-            the same thing. The gate is the toggle rows below."
+            This row is a FLOOR for the defaults, not a gate for the
+            disclosure — literals painting the defaults would pass it too.
+            The gate is the toggle rows below."
     (let [tree (template/record-panel disclosure-record)
           ids  (set (testids tree))]
       ;; every section draws its header, open or shut
@@ -533,7 +514,7 @@
       (is (body-shown? tree :app-db)))))
 
 (deftest opening-a-collapsed-section-puts-its-payload-in-the-tree
-  (testing "rf2-s6m6 — the deliverable. A section starts collapsed, the
+  (testing "the disclosure's core claim. A section starts collapsed, the
             expansion state changes, and the PAYLOAD is present afterwards.
 
             Asserting the body testid alone would be half a gate: the
@@ -557,7 +538,7 @@
       (is (not (body-shown? opened :handler))))))
 
 (deftest opening-response-and-handler-puts-their-payloads-in-the-tree
-  (testing "The other two sections the defect hid."
+  (testing "The other two collapsed-by-default sections."
     (let [opened (template/record-panel noop-dispatch (open-all disclosure-record)
                                         disclosure-record)
           shut   (template/record-panel noop-dispatch nil disclosure-record)]
@@ -569,21 +550,21 @@
       (is (not (some #{[:user/loaded {:id 1}]} (tree-nodes shut)))))))
 
 (deftest the-reply-target-section-carries-no-focus-affordance
-  (testing "The '→ focus event ↗' button is GONE, open or shut (rf2-y8doi.18).
-            It dispatched `:rf.xray/focus-event` with the ISSUING record's own
-            dispatch-id and frame — the event-bundle already in focus — so it
-            advertised a pivot to where the response landed and re-focused the
+  (testing "There is no '→ focus event ↗' button, open or shut.
+            Dispatching `:rf.xray/focus-event` with the ISSUING record's own
+            dispatch-id and frame — the event-bundle already in focus — would
+            advertise a pivot to where the response landed and re-focus the
             panel you were looking at."
     (let [opened (template/record-panel noop-dispatch (open-all disclosure-record)
                                         disclosure-record)
           shut   (template/record-panel noop-dispatch nil disclosure-record)]
       (is (not (contains? (set (testids opened)) "rf-xray-managed-fx-focus-handler")))
       (is (not (contains? (set (testids shut)) "rf-xray-managed-fx-focus-handler")))
-      ;; Control, taken from the target: the section itself is still there and
-      ;; still opens, so the absence above is the button's and not the whole
+      ;; Control, taken from the target: the section itself is there and
+      ;; opens, so the absence above is the button's and not the whole
       ;; section having vanished.
       (is (contains? (set (testids opened)) "rf-xray-managed-fx-section-handler-body")
-          "control: the section still opens")))
+          "control: the section opens")))
 
   (testing "and opening it dispatches nothing of its own — the only dispatch a
             reply-target section can make is its own disclosure toggle"
@@ -630,9 +611,9 @@
       (is (not (some #{{:status 500 :body "oops"}} (tree-nodes shut)))))))
 
 (deftest a-default-open-section-can-be-shut
-  (testing "The disclosure runs both ways — WIRE TIMING and APP-DB SLICE
-            TOUCHED drew a `▼` that could not be closed, the same dead
-            affordance in the opposite direction."
+  (testing "The disclosure runs both ways — a `▼` on WIRE TIMING and
+            APP-DB SLICE TOUCHED that could not be closed would be the same
+            dead affordance in the opposite direction."
     (let [rk   (h/record-key disclosure-record)
           tree (template/record-panel noop-dispatch
                                       {(h/expansion-key rk :wire)   false
@@ -683,8 +664,8 @@
   (testing "The wrapper has to enclose the whole section, because
             `section-row` renders its own header and there is no inner header
             node to hang the handler on. Without a stop on the body, every
-            click inside an opened payload — the edn-inspector's chevrons,
-            the edn-inspector's chevrons among them — would bubble to the wrapper and
+            click inside an opened payload — the edn-inspector's chevrons
+            among them — would bubble to the wrapper and
             shut the section the operator just opened."
     (let [tree  (template/record-panel noop-dispatch (open-all disclosure-record)
                                        disclosure-record)
@@ -713,24 +694,23 @@
       (is (= "false" (aria :response)))
       (is (= "false" (aria :handler))))))
 
-;; ---- HD-016 on the tree the disclosure MAKES reachable (rf2-s6m6) ---------
+;; ---- HD-016 on the tree the disclosure MAKES reachable --------------------
 ;;
 ;; `no-plain-fn-sits-in-hiccup-head-position` above is a floor over the
 ;; DEFAULT tree, and its own comment says plainly what it cannot do: with
-;; three sections shut, the four `edn/inspect` sites are constructed as
+;; three sections shut, the four inspector sites are constructed as
 ;; positional arguments and then discarded by `section-row`'s `(when
-;; expanded? …)`, so they never appear in the tree it walks. Wiring the
-;; disclosure is exactly what makes them reachable — the risk this bead
-;; carries — so the same floor is restated over the FULLY OPEN tree, where
-;; all four are really present.
+;; expanded? …)`, so they never appear in the tree it walks. The disclosure
+;; is exactly what makes them reachable, so the same floor is restated over
+;; the FULLY OPEN tree, where all four are really present.
 
 (deftest no-plain-fn-in-head-position-with-every-section-open
-  (testing "rf2-twil repaired four `edn/inspect` head-position sites that no
-            tier of coverage could reach, because they sat inside collapsed
-            sections. With every section open they are in the rendered tree,
-            and a plain fn in head position is an HD-016 throw that escapes
-            with no error boundary above this panel — a panel that never
-            appears rather than an error (the rf2-qhoj shape)."
+  (testing "the four inspector sites sit inside sections that are
+            collapsed by default, out of reach of a default-tree row. With
+            every section open they are in the rendered tree, and a plain fn
+            in head position is an HD-016 throw that escapes with no error
+            boundary above this panel — a panel that never appears rather
+            than an error."
     (let [tree  (template/record-panel noop-dispatch (open-all disclosure-record)
                                        disclosure-record)
           heads (hiccup-heads tree)]
@@ -746,33 +726,31 @@
           "Fresco's own classifier grades the plain fn an invalid head")
       (is (< 30 (count heads))
           "the walker reached a populated tree, so a zero below means absence")
-      ;; rf2-fcy5 — THE DISCRIMINATOR IS THE CODEC, and it is the only
-      ;; instrument that survives BOTH sides of this migration.
+      ;; THE DISCRIMINATOR IS THE CODEC.
       ;;
-      ;; Neither of the two obvious shapes does. `(empty? (filter fn? heads))`
+      ;; Neither of the two obvious shapes works. `(empty? (filter fn? heads))`
       ;; — what the DEFAULT-tree row above can use, because the default tree
       ;; carries no inspector at all — is wrong here in the permissive
       ;; direction AND the strict one: a reg-view head IS a fn value on CLJS
       ;; (`build-frame-aware-view` returns `(with-meta (fn …) {:contextType …})`,
       ;; a `cljs.core.MetaFn`), and so is a Fresco boundary, by
-      ;; `codec/boundary-head?`'s own definition. And `(some? (meta head))` —
-      ;; what this row asserted while the heads were reg-views — reads NIL on
-      ;; the correct code now: a boundary is a plain React function component
-      ;; carrying a JS own-property and no Clojure metadata at all.
+      ;; `codec/boundary-head?`'s own definition. And `(some? (meta head))`
+      ;; reads NIL on a boundary: a boundary is a plain React function
+      ;; component carrying a JS own-property and no Clojure metadata at all.
       ;;
-      ;; `head-kind` answers both eras without a branch, because it is the
-      ;; renderer's own question: a plain `defn` and a reg-view head both grade
-      ;; `:invalid`, a boundary grades `:boundary`, a native tag `:tag`. A
-      ;; revert of any of the four call sites from `edn/inspect-view` to
-      ;; `edn/inspect` puts an `:invalid` head back in this tree and reds the
-      ;; row — which is the whole point, since that revert is silent under
+      ;; `head-kind` answers without a branch, because it is the renderer's
+      ;; own question: a plain `defn` and a reg-view head both grade
+      ;; `:invalid`, a boundary grades `:boundary`, a native tag `:tag`. Any
+      ;; of the four call sites spelled `edn/inspect` rather than
+      ;; `edn/inspect-view` puts an `:invalid` head in this tree and reds the
+      ;; row — which is the whole point, since that spelling is silent under
       ;; Reagent and unmounts the Xray root under Fresco.
       (is (= :invalid (rf.fresco.impl.codec/head-kind
                         (first (edn-widget/inspect {:probe 1} "probe"))))
-          "the Reagent head these sites used to carry grades :invalid")
+          "the Reagent head `edn/inspect` returns grades :invalid")
       (is (= :boundary (rf.fresco.impl.codec/head-kind
                          (first (edn-widget/inspect-view {:probe 1} "probe"))))
-          "the Fresco head they carry now grades :boundary")
+          "the Fresco head these sites carry grades :boundary")
       (let [kinds (frequencies (map rf.fresco.impl.codec/head-kind heads))]
         (is (pos? (get kinds :boundary 0))
             "the inspector heads are in the tree, so the absence below is not vacuous")
@@ -781,24 +759,24 @@
         (is (zero? (get kinds :invalid 0))
             (str "every head in the rendered panel is one Fresco accepts — " kinds))))))
 
-;; ---- RULING 2: the app-db path rows key through the ATTRIBUTE MAP ---------
+;; ---- the app-db path rows key through the ATTRIBUTE MAP ------------------
 ;;
-;; rf2-fcy5 — `app-db-slice-section` wrote its per-path keys as `^{:key i}`
-;; reader META on the `[:li …]` vector. Reagent reads meta THEN props and so
-;; returned the same key either way, which is why that spelling survived this
-;; long; Fresco's codec reads a literal `:key` from a native tag's attrs and
-;; reads Clojure metadata NOWHERE, so on the migration every row in the list
-;; would have lost its key, with nothing on screen to say so.
+;; `app-db-slice-section` writes its per-path keys into the `[:li …]`
+;; ATTRIBUTE MAP. Reagent reads meta THEN props, so `^{:key i}` reader META
+;; on the vector would answer the same key either way under Reagent;
+;; Fresco's codec reads a literal `:key` from a native tag's attrs and reads
+;; Clojure metadata NOWHERE, so with reader meta every row in the list would
+;; lose its key, with nothing on screen to say so.
 ;;
 ;; THE OBVIOUS INSTRUMENT IS HOLLOW HERE, which is the whole reason this row
 ;; exists beside `records-list-keys-reach-react` rather than inside it. That
 ;; row reads `(.-key (r/as-element node))` — exactly right for ITS defect
 ;; (meta on a CALL form, dead on every substrate) and BLIND to this one,
-;; because Reagent reads meta AND props and answers the same key before and
-;; after. Measured under rf2-k97c.3 on `views/resizable_table.cljs`: on
-;; reverted source the Reagent assertion PASSED while the Fresco assertion on
-;; the very next line read `[nil nil nil]`. The door that can tell meta from
-;; attrs is the codec's own.
+;; because Reagent reads meta AND props and answers the same key either
+;; way. Measured on `views/resizable_table.cljs`: with reader-meta keys the
+;; Reagent assertion PASSED while the Fresco assertion on the very next line
+;; read `[nil nil nil]`. The door that can tell meta from attrs is the
+;; codec's own.
 
 (defn- emitted-key
   "The React key the FRESCO codec commits for one hiccup node — the
@@ -810,16 +788,15 @@
   read off the attribute map by both renderers, so dropping the subtree
   cannot change the answer; what it buys is that the codec lowers children
   EAGERLY, so a whole-node call raises HD-016
-  `:rf.error/fresco-bad-head` the moment anything below the node is still
-  a plain fn in head position. That is unmigrated tree rather than a key
+  `:rf.error/fresco-bad-head` the moment anything below the node is a
+  plain fn in head position. That is a head defect rather than a key
   defect, and letting it throw here would hide the key answer behind it.
 
-  MEASURED on this file rather than assumed, because it is file-dependent:
-  at the time of writing the whole-node form ANSWERS on these rows — the
-  `[:li]` subtree is one `[:span]` — and reads `[nil nil nil]` under a
-  revert to `^{:key …}` rather than raising. The subvec is taken anyway,
-  so a future child with a fn head cannot turn this row's answer into an
-  exception about something else.
+  On these rows the whole-node form ANSWERS — the `[:li]` subtree is one
+  `[:span]` — and reads `[nil nil nil]` with `^{:key …}` reader meta
+  rather than raising. The subvec is taken anyway, so a child with a fn
+  head cannot turn this row's answer into an exception about something
+  else.
 
   `subvec` DROPS VECTOR METADATA, which would matter if the metadata-vs-attrs
   discrimination lived in a Reagent/Fresco PAIR — subvec both doors and the
@@ -833,13 +810,12 @@
   (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
 
 (deftest app-db-path-rows-key-through-the-fresco-codec
-  (testing "rf2-fcy5 / RULING 2 — the one `^{:key …}` metadata site in this
-            file writes its key into the `[:li]` ATTRIBUTE MAP now, which is
-            the only spelling Fresco reads. Reverting it to reader meta makes
-            `:key` absent from the attrs and the codec's key nil, and both
-            halves below go red."
+  (testing "the `[:li]` path rows write their key into the ATTRIBUTE
+            MAP, which is the only spelling Fresco reads. Reader meta instead
+            makes `:key` absent from the attrs and the codec's key nil, and
+            both halves below go red."
     ;; A WEBSOCKET record: the path rows live in the APP-DB SLICE section, and
-    ;; since rf2-y8doi.18 an HTTP record does not draw one. The `:key` contract
+    ;; an HTTP record does not draw one. The `:key` contract
     ;; under test is surface-independent.
     (let [r   (record {:surface :websocket :fx-id :rf.ws/connect
                        :status :ok
@@ -864,7 +840,7 @@
                        :status :ok :http-status 200
                        :handler [:user/loaded] :paths [[:users 42]]})
               (record {:surface :http :fx-id :rf.http/managed
-                       :status :issued})          ;; the narrowed HTTP record
+                       :status :issued})          ;; an unjoined HTTP record
               (record {:surface :websocket :fx-id :rf.ws/connect
                        :status :ok :paths []})    ;; measured-and-empty app-db slice
               (assoc (record {:surface :websocket :fx-id :rf.ws/connect
@@ -889,13 +865,12 @@
         (assert-no-internal-refs! (str "visible-text[" label "]") (visible-text panel))
         (assert-no-internal-refs! (str "tooltip-text[" label "]") (tooltip-text panel))))))
 
-;; ---- the OVERRIDE marker (rf2-3x7nj.23.5) --------------------------------
+;; ---- the OVERRIDE marker -------------------------------------------------
 ;;
-;; The pill used to read STUB with a tooltip claiming the effect ran
-;; "instead of running for real". An override replaces the HANDLER; a
-;; delegating override really issues a request. So the pill says OVERRIDE,
-;; names the replacement, and claims nothing about I/O — the status beside
-;; it carries what the capture evidences.
+;; An override replaces the HANDLER; a delegating override really issues a
+;; request. So the pill says OVERRIDE rather than STUB, names the
+;; replacement, and claims nothing about I/O — no "instead of running for
+;; real" — while the status beside it carries what the capture evidences.
 
 (defn- override-node [panel]
   (first (filter #(and (vector? %) (map? (second %))
@@ -930,7 +905,7 @@
                 (template/record-panel
                   (record {:surface :http :fx-id :rf.http/managed :status :issued})))))))
 
-;; ---- the joined HTTP record (rf2-6ooch) ----------------------------------
+;; ---- the joined HTTP record ----------------------------------------------
 ;;
 ;; The join itself is pinned on producer captures in
 ;; `managed_fx_http_join_cljs_test`; these rows grade only the RENDERING of
@@ -996,15 +971,15 @@
       (is (not (contains? ids "rf-xray-managed-fx-attempts")))
       (is (not (contains? ids "rf-xray-managed-fx-reply-link"))))))
 
-;; ---- the per-mount qualifier (rf2-5ykm) ----------------------------------
+;; ---- the per-mount qualifier ---------------------------------------------
 ;;
 ;; THIS IS THE NODE LANE'S HALF AND IT IS NOT THE WHOLE CLAIM. The rows
 ;; below grade the template's PURE COMPOSITION — that a named mount qualifies
-;; both ids the widget keys on, that an unnamed one composes byte-for-byte
-;; what it always did, and what `instance-token` refuses. What they cannot
-;; see is the thing the defect actually broke: two REAL mounts sharing one
+;; both ids the widget keys on, that an unnamed one composes the plain
+;; record-keyed ids, and what `instance-token` refuses. What they cannot see
+;; is what a shared identity actually breaks: two REAL mounts sharing one
 ;; memoised ref callback and one ResizeObserver, and the survivor being
-;; released when its sibling detached. That needs a real React commit and
+;; released when its sibling detaches. That needs a real React commit and
 ;; lives in `panels/managed_fx_mount_instance_id_dom_cljs_test`, under
 ;; `npm run test:browser`.
 ;;
@@ -1028,7 +1003,7 @@
 (defn- widget-panel-ids [node] (mapv #(get-in % [:opts :panel-id]) (inspect-view-props node)))
 
 (deftest instance-token-normalises-and-refuses
-  (testing "rf2-5ykm — nil and blank name no instance; a keyword's NAMESPACE
+  (testing "nil and blank name no instance; a keyword's NAMESPACE
             is part of the name (the property Reagent's `[:>]` crossing would
             otherwise drop); and the fn is idempotent, which is what lets the
             bridge and the boundary both call it and compose one answer."
@@ -1047,10 +1022,9 @@
                (pr-str bad))))))
 
 (deftest unnamed-record-panel-composes-the-ids-it-always-did
-  (testing "rf2-5ykm — the regression guard. Every single-mount call site in
-            this tree passes no instance, and those composed ids must not
-            move: they key the operator's expansion state and the measured
-            column width."
+  (testing "a mount that names no instance composes the plain ids
+            below, and those ids must be stable: they key the operator's
+            expansion state and the measured column width."
     (let [tree (template/record-panel noop-dispatch (open-all disclosure-record)
                                       disclosure-record)
           rk   (h/record-key disclosure-record)]
@@ -1069,9 +1043,9 @@
              (widget-panel-ids tree))))))
 
 (deftest a-named-record-panel-qualifies-both-widget-ids
-  (testing "rf2-5ykm — naming the mount splices the instance in after the
+  (testing "naming the mount splices the instance in after the
             panel's own prefix and before the record key, so the qualifier
-            names the MOUNT while `record-key` still names the record inside
+            names the MOUNT while `record-key` names the record inside
             it. Both ids move together because both are built from the one
             node-key — qualifying only the lifecycle key would leave two
             mounts sharing one expansion identity."
@@ -1106,7 +1080,7 @@
           "stable across renders — an identity, not a per-render nonce"))))
 
 (deftest record-identity-and-disclosure-survive-the-qualifier
-  (testing "rf2-5ykm — the qualifier composes WITH `record-key`; it does not
+  (testing "the qualifier composes WITH `record-key`; it does not
             replace it. The React key and the disclosure toggle are that
             identity's two consumers and BOTH stay untouched, or naming a
             mount would remount every row and orphan the operator's open
@@ -1123,17 +1097,17 @@
           (str "the React keys are identical — " (pr-str (keys-of named))))
       ;; The disclosure toggle carries `rec-key` in its dispatch payload and
       ;; `body-shown?` reads the testid that payload is keyed to, so an
-      ;; override map built from `record-key` alone must still open a NAMED
-      ;; mount's sections.
+      ;; override map built from `record-key` alone must open a NAMED
+      ;; mount's sections too.
       (let [rec    (first recs)
             opened (template/record-panel noop-dispatch (open-all rec) "left" rec)]
         (is (body-shown? opened :request)
-            "a `record-key`-keyed override still opens a named mount's
+            "a `record-key`-keyed override opens a named mount's
              REQUEST — disclosure is deliberately shared between two lists
              of the same records")))))
 
 (deftest records-list-threads-the-instance-to-every-record
-  (testing "rf2-5ykm — the 4-arity reaches every record, not just the first."
+  (testing "the 4-arity reaches every record, not just the first."
     (let [recs  [(record {:surface :http :fx-id :rf.http/managed
                           :status :ok :http-status 200})
                  (record {:surface :websocket :fx-id :rf.ws/connect :status :ok})]
@@ -1148,6 +1122,6 @@
                (pr-str ids)))
       (is (every? (fn [rec] (some #(str/includes? % (h/record-key rec)) ids))
                   recs)
-          (str "and each record's own key is still inside them, so the "
+          (str "and each record's own key is inside them, so the "
                "qualifier composed WITH `record-key` rather than replacing "
                "it — " (pr-str ids))))))
