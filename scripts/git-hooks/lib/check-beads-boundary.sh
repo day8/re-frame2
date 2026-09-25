@@ -4,9 +4,9 @@
 # Two checks over the same file, asking different questions of it:
 #
 #   check_beads_boundary   — WHO may commit the beads database
-#                            (the STALE WORKER-SNAPSHOT guard, rf2-ia8o7)
+#                            (the STALE WORKER-SNAPSHOT guard)
 #   check_beads_truncation — WHAT is in it when they do
-#                            (the TRUNCATION FLOOR, rf2-or8te)
+#                            (the TRUNCATION FLOOR)
 #
 # The boundary check is sourced by two consumers, so both enforce one rule
 # from one place:
@@ -25,26 +25,22 @@
 #   worker worktree therefore carries a snapshot of the tracker as it stood
 #   when that worktree was created. Committing it TIME-TRAVELS the tracker:
 #   beads closed since the snapshot reopen, beads filed since it vanish.
-#   PR #6677 landed exactly that — 135 insertions / 136 deletions of pure
-#   collateral (rf2-oe9xi reopened, rf2-ncm8j removed, memories replaced).
 #
 #   The tracker database is the MAYOR checkout's to commit. Worker PRs carry
 #   code, spec, docs and tests — never the tracker database.
 #
 # WHY NOT `git update-index --skip-worktree`?
 #
-#   rf2-ia8o7 originally proposed setting `--skip-worktree` on
-#   `.beads/issues.jsonl` in every new worker checkout, so the auto-export
-#   could never be staged at all. Measured, that is STRICTLY WORSE than
-#   refusing the commit:
+#   Setting `--skip-worktree` on `.beads/issues.jsonl` in every new worker
+#   checkout, so the auto-export could never be staged at all, is STRICTLY
+#   WORSE than refusing the commit:
 #
 #     skip-worktree hides the local edit from `git status` (clean tree), but
 #     `git pull --rebase` still refuses to advance over it —
 #       "error: Your local changes to the following files would be
 #        overwritten by merge: .beads/issues.jsonl ... Aborting"
 #     — leaving HEAD frozen with NOTHING in `git status` to explain why. The
-#     worktree then silently rots at a stale base. This repo has already been
-#     bitten by that exact silent-pull-abort shape.
+#     worktree then silently rots at a stale base.
 #
 #   A loud refusal at commit time, naming the file and the remedy, is the
 #   better trade: it fires only when it must, and it says why. The remedy
@@ -62,10 +58,10 @@
 #   `.beads/PRIME.md` is on that list for the same reason as README.md: it is
 #   hand-written prose, not a database export. It overrides `bd prime`'s
 #   SessionStart output, so it is edited like any other doc and reviewed in
-#   the PR that changes it. The allow-list being ENUMERATED is what made the
-#   entry necessary — the file would otherwise fall to the `.beads/*` arm and
-#   be refused from every worker worktree, reddening the CI arm on every PR
-#   that touched it.
+#   the PR that changes it. The allow-list is ENUMERATED, so the entry is
+#   necessary — without it the file falls to the `.beads/*` arm and is
+#   refused from every worker worktree, reddening the CI arm on every PR that
+#   touches it.
 #
 # This file is a pure shell library (no `set -e`, no global state mutation)
 # so scripts/git-hooks/test-pre-commit.sh can drive it with synthetic stdin
@@ -243,33 +239,29 @@ check_beads_boundary() {
 }
 
 # ---------------------------------------------------------------------------
-# The truncation floor (rf2-or8te).
+# The truncation floor.
 #
 # THE SAME FILE, A DIFFERENT QUESTION. Everything above decides WHO may commit
-# the beads database and says nothing about WHAT is in it. Twice now the answer
-# to "what" has been "nothing":
+# the beads database and says nothing about WHAT is in it — and the answer to
+# "what" can be "nothing". A plain `git add` of the JSONL caught mid-rewrite
+# stages an empty or badly shrunken tracker, and from the MAYOR checkout —
+# where committing the tracker is the intended flow and the boundary check
+# above correctly no-ops — it commits. Afterwards working tree, index and HEAD
+# are all empty and `git status` is CLEAN, so nothing on screen says anything
+# is wrong.
 #
-#     2026-06-10  7aea52459   7172 rows deleted
-#     2026-07-26  4d8042d80d  2573 rows deleted
-#
-# Both were a plain `git add` of the JSONL caught mid-rewrite, and both came
-# from the MAYOR checkout — where committing the tracker is the intended flow
-# and the boundary check above correctly no-ops. Afterwards working tree, index
-# and HEAD were all empty and `git status` was CLEAN, so nothing on screen said
-# anything was wrong.
-#
-# WHY HERE. scripts/beads-checkpoint.sh already refuses this: it re-exports from
-# Dolt rather than trusting the working file, refuses an empty export outright,
-# and refuses anything below 90% of HEAD. That guard is sound and unchanged.
-# Neither commit went through it. So the floor is repeated at the one place no
-# committer can route around, with the checkpoint's own thresholds.
+# WHY HERE. scripts/beads-checkpoint.sh refuses this: it re-exports from Dolt
+# rather than trusting the working file, refuses an empty export outright, and
+# refuses anything below 90% of HEAD. But a plain `git add` never goes through
+# it. So the floor is repeated at the one place no committer can route around,
+# with the checkpoint's own thresholds.
 #
 # WHY REFUSING IS SAFE. An empty export is a REGENERATION event, not a
-# data-loss one. The Dolt database is the source of truth and was never at risk
-# — `bd list` worked throughout the 2026-07-26 incident and one checkpoint
-# rebuilt 2576 rows over a HEAD of 0. Restoring an older export from git
-# history would instead TIME-TRAVEL the tracker, reopening beads closed since
-# and vanishing beads filed since. The remedy text says so.
+# data-loss one. The Dolt database is the source of truth and is not at risk —
+# `bd list` keeps working, and one checkpoint rebuilds the export over a HEAD
+# of 0. Restoring an older export from git history would instead TIME-TRAVEL
+# the tracker, reopening beads closed since and vanishing beads filed since.
+# The remedy text says so.
 #
 # WHY IT DOES NOT BLOCK A GENUINE MASS DELETE. It does refuse one — and names
 # the escape. That mirrors the checkpoint script's own answer, "refuse and say
@@ -277,10 +269,9 @@ check_beads_boundary() {
 # `bd gc` is rare and worth one extra flag, and an emptied export is neither
 # rare nor deliberate.
 #
-# SCOPE. This is a guard for a failure that is silent and has already happened,
-# twice. It is deliberately not extended to the CI arm: a mayor checkpoint goes
-# to main directly and never appears in a pull-request diff, so neither
-# incident could have been seen there.
+# SCOPE. This is a guard for a failure that is silent. It is deliberately not
+# extended to the CI arm: a mayor checkpoint goes to main directly and never
+# appears in a pull-request diff, so the CI arm could never see it.
 # ---------------------------------------------------------------------------
 
 RF2_BEADS_TRACKER=".beads/issues.jsonl"
@@ -312,9 +303,10 @@ check_beads_truncation() {
   _rf2t_new=$(rf2_beads_rows ':')
   _rf2t_old=$(rf2_beads_rows 'HEAD:')
 
-  # ONE condition covers both incidents: with HEAD non-empty, a staged 0 is
-  # just the extreme of the same shrink. Same arithmetic as the checkpoint
-  # script's line 236, deliberately — two spellings of one floor would drift.
+  # ONE condition covers both an empty and a shrunken export: with HEAD
+  # non-empty, a staged 0 is just the extreme of the same shrink. Same
+  # arithmetic as the checkpoint script's own shrink floor, deliberately — two
+  # spellings of one floor would drift.
   [ "$_rf2t_old" -gt 0 ] || return 0
   [ $((_rf2t_new * 10)) -lt $((_rf2t_old * 9)) ] || return 0
 
