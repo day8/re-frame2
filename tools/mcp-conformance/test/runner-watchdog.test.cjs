@@ -96,13 +96,13 @@ test('watchdog tears the child down when connect hangs mid-initialize (rf2-2js41
   // 2. THE load-bearing assertion: teardown ran before exit. The marker
   // is printed only from the stub `client.close()`, which the watchdog
   // path reaches only if it had a teardown handle (`activeClient` set
-  // before the connect await). This is the assertion that fails when the
-  // fix is reverted.
+  // before the connect await). This is the assertion that fails if
+  // `activeClient` is published only after connect resolves.
   assert.ok(
     out.includes(CLOSE_MARKER),
     'the watchdog timeout path did NOT tear the spawned child down on a ' +
       'connect-hang (the stub client.close() marker is absent). This is ' +
-      'the rf2-2js41 finding-2 orphan: activeClient was undefined when ' +
+      'the connect-hang orphan: activeClient was undefined when ' +
       'the watchdog fired, so the child was abandoned.\n--- output ---\n' + out,
   );
 });
@@ -150,12 +150,12 @@ test('watchdog tears the SECONDARY (body-booted) client down when its connect ha
       '--- output ---\n' + out,
   );
   // 2. THE load-bearing assertion: the SECONDARY (body-booted) client was
-  // ALSO torn down. Absent the registerAuxClient fix the watchdog has no
-  // handle to it and the secondary child is orphaned.
+  // ALSO torn down. Without registerAuxClient the watchdog has no handle
+  // to it and the secondary child is orphaned.
   assert.ok(
     out.includes(AUX_CLOSE_MARKER),
     'the watchdog timeout path did NOT tear the SECONDARY client down ' +
-      '(the aux close marker is absent). This is the rf2-wqi4n4 finding-1 ' +
+      '(the aux close marker is absent). This is the secondary-client ' +
       'orphan: a body-booted secondary server was unreachable by the outer ' +
       'watchdog.\n--- output ---\n' + out,
   );
@@ -190,13 +190,13 @@ test('flag-gates module watchdog tears the hung JVM client down on a connect-han
     'flag-gates connect-hang MUST exit via the module watchdog with code 2; ' +
       'got ' + child.status + '.\n--- output ---\n' + out,
   );
-  // THE load-bearing assertion: the hung JVM client was torn down. Absent
-  // the onClient fix `activeFlagGateClient` is null when the watchdog fires
-  // and the marker never prints.
+  // THE load-bearing assertion: the hung JVM client was torn down. Were the
+  // handle published only after connect, `activeFlagGateClient` would be
+  // null when the watchdog fires and the marker would never print.
   assert.ok(
     out.includes(FLAG_GATE_CLOSE_MARKER),
     'the flag-gates module watchdog did NOT tear the hung JVM client down ' +
-      '(close marker absent). This is the rf2-wqi4n4 finding-1 orphan: ' +
+      '(close marker absent). This is the connect-hang orphan: ' +
       'activeFlagGateClient was null when the watchdog fired because the ' +
       'handle was published only after connectServer resolved.\n' +
       '--- output ---\n' + out,
