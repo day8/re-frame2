@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Unit test for `.github/scripts/transform-reagent-slim-ns.sh` (rf2-olo8rc).
+ * Unit test for `.github/scripts/transform-reagent-slim-ns.sh`.
  *
  * The script performs the reagent-slim publication-time ns rename
  * (re_frame/adapter/reagent_slim.cljs → reagent.cljs, with the
@@ -27,12 +27,12 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 // The script and the throwaway fixtures are addressed by paths RELATIVE to
 // REPO_ROOT, which is handed to `bash` as its `cwd`. Relative POSIX paths
 // are the only form every supported Bash flavour accepts unchanged — see
-// the `run()` comment for the cross-platform rationale (rf2-6m7pn4).
+// the `run()` comment for the cross-platform rationale.
 const SCRIPT_REL = '.github/scripts/transform-reagent-slim-ns.sh';
 // Fixtures are kept INSIDE the repo (not os.tmpdir()) so a repo-relative
 // path reaches them; `.scratch/` is gitignored. Each lane is scoped to THIS
 // process and torn down individually — the shared root is never removed, so
-// a concurrent suite's fixtures cannot be deleted underneath it (rf2-2i1ay).
+// a concurrent suite's fixtures cannot be deleted underneath it.
 const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const tests = [];
@@ -90,20 +90,19 @@ function shQuote(s) {
 }
 
 // Invoke the shell script under `bash` so it runs identically on Windows
-// (Git Bash / WSL) and Ubuntu (rf2-6m7pn4).
+// (Git Bash / WSL) and Ubuntu.
 //
-// History — the bug this guards against:
-//   - The original form — `spawnSync('bash', [SCRIPT, adapterDir])` with a
-//     raw `C:\...` argv — failed on Git Bash (MSYS/MinGW), where the
-//     backslashes in the argv path are consumed as shell escapes
-//     (rf2-rcepku).
-//   - The follow-up forward-slashed `C:/...` form fixed Git Bash but still
-//     failed when `bash` resolves to WSL's `C:\Windows\system32\bash.exe`
+// Why not an absolute path:
+//   - `spawnSync('bash', [SCRIPT, adapterDir])` with a raw `C:\...` argv
+//     fails on Git Bash (MSYS/MinGW), where the backslashes in the argv
+//     path are consumed as shell escapes.
+//   - A forward-slashed `C:/...` form works on Git Bash but
+//     fails when `bash` resolves to WSL's `C:\Windows\system32\bash.exe`
 //     (the default on a stock Windows box): WSL bash treats a
 //     `C:/Users/...` argument as a literal *relative* path — it mounts
-//     Windows drives at `/mnt/c/...`, not `C:/...` — so it reported
-//     `…transform-reagent-slim-ns.sh: No such file or directory` and all
-//     four cases failed (rf2-6m7pn4).
+//     Windows drives at `/mnt/c/...`, not `C:/...` — so it reports
+//     `…transform-reagent-slim-ns.sh: No such file or directory` and every
+//     case fails.
 //
 // Why no in-shell path conversion: a Windows drive path is not portable
 // across the supported Bash flavours (Git Bash mounts `C:` at `/c`, WSL at
@@ -111,7 +110,7 @@ function shQuote(s) {
 // end on WSL — `cygpath`/`wslpath` are Windows interop binaries whose
 // output is silently lost when captured via `$( … )`.
 //
-// Fix: address everything by paths RELATIVE to a `cwd` of REPO_ROOT, the
+// So: address everything by paths RELATIVE to a `cwd` of REPO_ROOT, the
 // proven `_changed-surfaces.test.cjs` pattern. A relative POSIX path needs
 // no drive translation and is accepted unchanged by Git Bash, WSL bash, and
 // Linux bash alike. Fixtures therefore live under `.scratch/` inside the
@@ -208,14 +207,14 @@ test('abort: ns form not found → non-zero exit (in-tree source restructured)',
   }
 });
 
-// rf2-6m7pn4 — regression for the Windows path-portability defect. The
-// fix addresses the script + fixture by paths RELATIVE to a bash `cwd` of
+// The Windows path-portability contract. The script + fixture are
+// addressed by paths RELATIVE to a bash `cwd` of
 // REPO_ROOT, because an absolute Windows drive path (`C:\…` or `C:/…`) is
 // not resolvable across all three supported Bash flavours. This test locks
 // that contract: makeFixture() must hand back a forward-slashed,
 // drive-letter-free, repo-relative path, and that relative path must
 // resolve to the real fixture dir under bash's cwd. If a future edit
-// reverts to an os.tmpdir() absolute path (the form that broke under WSL),
+// switches to an os.tmpdir() absolute path (the form that breaks under WSL),
 // the first two assertions fire before the four functional cases do,
 // pointing straight at the path layer.
 test('fixture path handed to bash is relative + drive-letter-free, and resolves under cwd (rf2-6m7pn4)', () => {
@@ -238,7 +237,7 @@ test('fixture path handed to bash is relative + drive-letter-free, and resolves 
   }
 });
 
-// rf2-83jsbh — the publication ns-rename rewrites ONLY the leading `(ns …)`
+// The publication ns-rename rewrites ONLY the leading `(ns …)`
 // token (by design, to protect docstrings/requires from over-rewrite). So a
 // docstring `(require '[re-frame.adapter.reagent-slim …])` usage example would
 // survive the ns-only rename into the published jar, where that namespace does
@@ -252,7 +251,7 @@ test('fixture path handed to bash is relative + drive-letter-free, and resolves 
 // every `re-frame.adapter.reagent-slim` substring: the `(ns …)` declaration
 // (which the transform rewrites) and any bare qualified-symbol reference such
 // as a diagnostic `'re-frame.adapter.reagent-slim/foo` marker are legitimately
-// distinct concerns and must not trip this rf2-83jsbh gate.
+// distinct concerns and must not trip this gate.
 test('real adapter source is rename-safe: no require form references the -slim ns (rf2-83jsbh)', () => {
   const realSrc = path.join(
     IMPL_ROOT, 'adapters', 'reagent-slim', 'src', 're_frame', 'adapter', 'reagent_slim.cljs',
@@ -271,8 +270,8 @@ test('real adapter source is rename-safe: no require form references the -slim n
     'no `(require [re-frame.adapter.reagent-slim …])` form may appear in the adapter '
       + 'source — the ns-only publication rename leaves it pointing at a namespace '
       + 'that does not exist in the published jar (which ships at '
-      + 're-frame.adapter.reagent); usage examples must require the published ns '
-      + '(rf2-83jsbh)',
+      + 're-frame.adapter.reagent); usage examples must require '
+      + 'the published ns',
   );
 });
 
