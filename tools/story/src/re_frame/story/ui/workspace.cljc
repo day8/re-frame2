@@ -406,10 +406,12 @@
           ;; the canvas.
           ;;
           ;; Decoration stays HERE, exactly once. `render-decorated-view`
-          ;; bundles render + decorate but resolves decorator refs WITHOUT the
-          ;; mode / cell-override `run-opts` threaded into `resolve-decorators`
-          ;; above, so the cell consumes the render half and keeps its own
-          ;; `safe-decorated-view` wrap — the same choice the canvas makes.
+          ;; bundles render + decorate, but it resolves the refs it is handed
+          ;; through `resolve-decorator-refs` itself, and the cell already
+          ;; holds that resolution in `decorator-pack` (its `:errors` render
+          ;; below). So the cell consumes the render half and wraps with
+          ;; `safe-decorated-view` over the pack's `:hiccup` stack — the same
+          ;; choice the canvas makes.
           (let [substrate (rf.story.ui.multi-substrate/single-render-substrate
                             (rf.story.ui.canvas/variant-substrate-set plan (:substrate shell))
                             :reagent)]
