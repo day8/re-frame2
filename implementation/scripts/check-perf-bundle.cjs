@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Performance-API bundle-isolation / bundle-presence verifier
- * (Spec 009 §Performance instrumentation, bead rf2-du3i).
+ * (Spec 009 §Performance instrumentation).
  *
  * Asserts the production-elision contract for the perf flag, the dual
  * of scripts/check-elision.cjs:
@@ -23,11 +23,11 @@
  * but does not rewrite string literals. Matching `performance.measure`
  * proves the JS-interop emit site (from `(.measure js/performance ...)`)
  * survived; matching `clearMeasures` proves the per-emit buffer clear
- * survived (the leak fix, rf2-2yv859); matching the bracketed entry-name
+ * survived (it keeps the measure buffer from growing); matching the bracketed entry-name
  * shape `rf:` proves the helper's name-building survived too.
  *
  * Note: `performance.mark` is intentionally NOT a sentinel — the bracket
- * no longer allocates marks (options-bag measure with numeric
+ * allocates no marks (options-bag measure with numeric
  * timestamps), so it must be ABSENT from BOTH bundles.
  *
  * Exit 0 on PASS, 1 on FAIL.
@@ -59,7 +59,7 @@ const report = createGateReporter();
 const PERF_SENTINELS = [
   { source: 're-frame.performance/mark-and-measure (performance.measure)',
     sentinel: 'performance.measure' },
-  { source: 're-frame.performance/mark-and-measure (clearMeasures — per-emit buffer clear, rf2-2yv859)',
+  { source: 're-frame.performance/mark-and-measure (clearMeasures — per-emit buffer clear)',
     sentinel: 'clearMeasures' },
   { source: 're-frame.performance/build-name (rf: name prefix)',
     sentinel: '"rf:' },
@@ -68,7 +68,7 @@ const PERF_SENTINELS = [
 // ----- helpers ---------------------------------------------------------------
 
 // Bundle reading is shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). Top-level *.js
+// scripts/lib/read-release-bundle.cjs. Top-level *.js
 // only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function checkBundle(label, bundlePath, mustContain) {
@@ -79,7 +79,7 @@ function checkBundle(label, bundlePath, mustContain) {
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
   if (status === 'empty') {
-    // Non-vacuous floor (rf2-utvst): a present-but-empty bundle satisfies
+    // Non-vacuous floor: a present-but-empty bundle satisfies
     // every sentinel-absence check and would false-GREEN the perf-off
     // isolation assertion.
     console.error(`[perf-bundle] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
@@ -111,8 +111,8 @@ function checkBundle(label, bundlePath, mustContain) {
 }
 
 // Count `performance.measure|clearMeasures|re-frame.performance` for
-// the report. The PR body wants the raw count number for both bundles,
-// per the bundle-grep contract. The actual global-match count is
+// the report, which carries the raw count for both bundles per the
+// bundle-grep contract. The actual global-match count is
 // delegated to the shared `countMatches` (lib/read-release-bundle.cjs —
 // it resets the /g RegExp's lastIndex defensively); this wrapper keeps
 // the patterns-array → alternation construction and the null-blob → null
