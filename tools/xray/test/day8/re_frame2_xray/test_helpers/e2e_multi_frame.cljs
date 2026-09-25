@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.test-helpers.e2e-multi-frame
-  "Multi-frame end-to-end test harness for Xray (rf2-7icrs).
+  "Multi-frame end-to-end test harness for Xray.
 
   Spins up TWO re-frame frames in one Node CLJS test process:
 
@@ -22,13 +22,13 @@
 
   ## Why no test seam
 
-  The synthetic-cascade approach (rf2-dhoc9) writes pre-formed
-  cascades directly into Xray's app-db via
+  The synthetic-cascade approach (`test-helpers.sub-reactivity`) writes
+  pre-formed cascades directly into Xray's app-db via
   `:rf.xray/set-epoch-history-for-test` (or analogous). That bypasses
-  the trace-bus + epoch-capture pipeline where 3 of 4 critical bugs
-  this session lived (rf2-hwuki `:frame` tag drop, rf2-83d4x wrong-
-  frame dispatch, rf2-2f8jv machines empty). This harness uses the
-  REAL pipeline — every test exercises the full ingest path.
+  the trace-bus + epoch-capture pipeline, where a dropped `:frame` tag,
+  a wrong-frame dispatch or an empty Machines panel would originate.
+  This harness uses the REAL pipeline — every test exercises the full
+  ingest path.
 
   ## Cost
 
@@ -86,7 +86,7 @@
     1. `xray-test-support/reset-sentinels!` — wipe idempotency
        sentinels so a re-install in a re-used test process actually
        re-installs. Sentinels ONLY — NOT the trace rings: the host
-       frame is already registered by this point (rf2-sdqsla), and
+       frame is already registered by this point, and
        clearing the rings here would wipe its per-frame recording
        config. The harness teardown owns the ring clear (below).
     2. `registry/register-xray-handlers!` — every `:rf.xray/*` sub /
@@ -108,7 +108,7 @@
   []
   (xray-test-support/reset-sentinels!)
   (registry/register-xray-handlers!)
-  ;; rf2-e8330v (xxo3zz F3) — production registration installs no
+  ;; Production registration installs no
   ;; `-for-test` ids; opt the e2e surface into the per-panel override +
   ;; seeding seam the harness's tests drive.
   (xray-test-support/install-test-overrides!)
