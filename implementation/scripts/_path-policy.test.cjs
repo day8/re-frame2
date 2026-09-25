@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Tests for `_path-policy.cjs` (rf2-o38lb security audit).
+ * Tests for `_path-policy.cjs`.
  *
  * Standalone node-runnable suite — no external test framework. Each
  * test logs PASS / FAIL; the process exits 0 only when every test
@@ -41,7 +41,7 @@ function it(label, f) {
   }
 }
 
-console.log('path-policy tests (rf2-o38lb)');
+console.log('path-policy tests');
 
 it('accepts a path inside the default out root', () => {
   const out = path.join(DEFAULT_OUT_ROOT, 'browser-test');
@@ -94,7 +94,7 @@ it('rejects path-traversal attempts', () => {
   );
 });
 
-// ---- symlink / junction escape (rf2-l9upzf) ------------------------------
+// ---- symlink / junction escape --------------------------------------------
 //
 // A symlink/junction UNDER an allowed root whose target resolves OUTSIDE
 // the approved boundary must be REJECTED — the lexical prefix check alone
@@ -298,7 +298,7 @@ it("the opt-in env var doesn't fire on 'false' / '0' / unset", () => {
 });
 
 it('accepts paths under multiple allowed roots', () => {
-  // STORY_BUILD_INDEX_HTML default policy (rf2-p8f2s): under <repo>/examples,
+  // STORY_BUILD_INDEX_HTML default policy: under <repo>/examples,
   // <repo>/tools, OR <repo>/implementation.
   const examplesPath = path.join(REPO_ROOT, 'examples', 'core', 'foo.html');
   const result1 = enforcePolicy('STORY_BUILD_INDEX_HTML', examplesPath, {
