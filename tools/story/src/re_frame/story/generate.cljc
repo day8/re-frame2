@@ -1,8 +1,7 @@
 (ns re-frame.story.generate
   "Generated / property-style Story runs that emit run artifacts carrying
   their SEED and SHRINK data — and promote only curated failures
-  (NewTestStory rf2-5x1wt.31, `tools/story/spec/017-Testing-Story.md`
-  §Generated runs and artifacts).
+  (`tools/story/spec/017-Testing-Story.md` §Generated runs and artifacts).
 
   ## Generated runs emit artifacts FIRST
 
@@ -10,13 +9,13 @@
   it (`re-frame.story.artifact/replay-run-artifact`), and judges the
   resulting run-result. Most generated programs PASS and are throwaway; a
   failing one is the interesting case. This ns wires generated runs to the
-  EXISTING run-artifact surface: every generated run produces a
+  run-artifact surface: every generated run produces a
   `:rf.test/run-artifact` carrying the `:seed` it was generated from (and,
   for a shrunk failure, the `:shrink-path`), so a generated failure is
   replayable off-CI and promotable into a curated regression variant
   (§Promotion) — artifacts FIRST, promotion only when curated. The `:seed` /
-  `:shrink-path` artifact slots already exist (§Artifacts — Run artifact,
-  rf2-5x1wt.7); this ns is the producer that fills them.
+  `:shrink-path` artifact slots are part of the run artifact (§Artifacts —
+  Run artifact); this ns is the producer that fills them.
 
   ## Generator-agnostic — a `gen-fn` of the seed
 
@@ -26,7 +25,7 @@
   steps, or bare event vectors the artifact coerces). The seed sequence is a
   pure, seedable splitmix64 PRNG (`seed-seq`), so a property run over N seeds
   is fully reproducible: the same root seed replays the same N programs. This
-  keeps the substrate self-contained (no new dependency) while leaving the
+  keeps the substrate self-contained (no generator dependency) while leaving the
   CHOICE of generator to the caller — a `clojure.test.check` generator, a
   hand-rolled state-machine walk, or a recorded-interaction fuzzer all fit by
   wrapping their draw in a `gen-fn`.
@@ -300,7 +299,7 @@
 (defn check-property!
   "Run a property over `n` generated programs and return a result that —
   on falsification — carries the SHRUNK, seed-bearing failing
-  `:rf.test/run-artifact` (rf2-5x1wt.31, spec/017 §Generated runs and
+  `:rf.test/run-artifact` (spec/017 §Generated runs and
   artifacts). The generated-run entry point.
 
   `gen-fn` is a pure `(fn [seed] event-program)`; `opts`:
@@ -388,7 +387,7 @@
             (recur (rest seeds) (inc tried))))))))
 
 ;; ===========================================================================
-;; FAULT LATTICE SWEEP  (impure — derived from the existing fx-override world)
+;; FAULT LATTICE SWEEP  (impure — derived from the fx-override world)
 ;; ===========================================================================
 ;;
 ;; A fault lattice sweep replays ONE base program across a small lattice of
@@ -396,13 +395,13 @@
 ;; fx-override world input `replay-run-artifact` already reapplies, and the
 ;; same surface the `:network` world slot lowers to). It collects one
 ;; seed-bearing artifact per cell, so an author can see which fault states
-;; falsify the program. This is DERIVED entirely from the existing
-;; fx-override world input + the run-artifact surface — no new fault-injection
-;; contract: a "fault" is just a different override map.
+;; falsify the program. This is DERIVED entirely from the
+;; fx-override world input + the run-artifact surface — there is no separate
+;; fault-injection contract: a "fault" is just a different override map.
 
 (defn sweep-faults!
   "Replay `base-program` across a `fault-lattice` of `:fx-decisions` cells and
-  collect one `:rf.test/run-artifact` per cell (rf2-5x1wt.31, spec/017
+  collect one `:rf.test/run-artifact` per cell (spec/017
   §Fault lattice sweep). Impure — each cell replays into a fresh frame.
 
   `fault-lattice` is a map `{cell-id fx-decisions}` (or a seq of `[cell-id
