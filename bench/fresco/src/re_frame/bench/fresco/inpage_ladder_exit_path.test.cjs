@@ -1,41 +1,39 @@
 #!/usr/bin/env node
 'use strict';
 // THE IN-PAGE LADDER AGGREGATE'S EXIT PATH — a promised refusal must refuse.
-// rf2-bml5u, the inverse of the rf2-rr6do defect class that #7450 repaired.
 //
-//     node fresco/test/re_frame/bench/fresco/inpage_ladder_exit_path.test.cjs
+//     node src/re_frame/bench/fresco/inpage_ladder_exit_path.test.cjs   (from bench/fresco/)
 //
-// THE DEFECT THIS PINS. `inpage_ladder_aggregate.cjs`'s header has promised
-// since it landed that it exits 1 on "a run that recorded a guard refusal or
-// a failed control". Nothing in the file read either. That is not a refusal
-// computed and left unread — it is a refusal never computed at all, and a
-// gate that does not exist cannot be seen to fail, which is why the sweep
-// for printed-but-unread refusals walked past it.
+// WHAT THIS PINS. `inpage_ladder_aggregate.cjs`'s header promises that it
+// exits 1 on "a run that recorded a guard refusal or a failed control", so
+// the file must compute and read both. A refusal never computed at all is
+// worse than one computed and left unread: a gate that does not exist
+// cannot be seen to fail, so a sweep for printed-but-unread refusals walks
+// past it.
 //
-// A SECOND DEFECT SAT IN FRONT OF THE FIRST. `readMap`'s anchor was spelled
-// LF-only, and the tracked datasets materialise CRLF on a normal Windows
-// checkout, so the whole file died with `dataset has no :rounds` before
-// comparing a single figure. Both halves are pinned below: a gate nobody can
-// start is worth exactly as much as a gate nobody computed.
+// A SECOND FAULT WOULD SIT IN FRONT OF THE FIRST. A `readMap` anchor spelled
+// LF-only matches nothing on the CRLF datasets a normal Windows checkout
+// materialises, so the whole file would die with `dataset has no :rounds`
+// before comparing a single figure. Both halves are pinned below: a gate
+// nobody can start is worth exactly as much as a gate nobody computed.
 //
 // WHY IT IS PINNED HERE. The aggregate reads four stored datasets and takes
 // no measurement, so its decisions ARE testable directly — every case below
 // is a real dataset with one field mutated, and the mutations are the ones
-// the file promises to catch. `clock_exit_path.test.cjs` and
-// `b8_exit_path.test.cjs` are the precedent for the shape.
+// the file promises to catch. `clock_exit_path.test.cjs` is the precedent
+// for the shape.
 //
 // THE RETROACTIVITY FENCE IS ALSO PINNED. The control rule reconstructed
 // here is `lane/control-verdict`'s OVERLAP rule, not the stricter
-// every-round reading — the two disagree, and rf2-egdaq settled that
-// disagreement as a SPLIT, one rule per instrument: the HEAP arm went
-// strict, and the CLOCK arm REFUSED strict under the 2026-07-31 quantum
-// ruling, a refusal that STANDS. This ladder is a clock instrument, so
-// overlap is the ruled rule for it. Run D contains a round at 1.2653 that
+// every-round reading — the two disagree, and the lane keeps one rule per
+// instrument: a clock instrument, whose legs sit on Chrome's 100 µs
+// `performance.now()` clamp, is judged on overlap. This ladder is a clock
+// instrument, so overlap is its rule. Run D contains a round at 1.2653 that
 // sits below the band floor and passes anyway, and a test below pins exactly
-// that, so a later worker who "tightens" the rule discovers they are
-// overturning a settled ruling rather than fixing a bug.
+// that, so "tightening" the rule shows up as overturning the lane's clock
+// rule rather than as fixing a bug.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Run by `npm run check` in bench/fresco/.
 
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -69,7 +67,7 @@ test('all four published datasets adjudicate CLEAN', () => {
 
 test('readMap finds its key with CRLF line endings, and with LF', () => {
   // The slice runs from the start of the form's own line, so it carries that
-  // line's leading space — the parser's long-standing shape, unchanged here.
+  // line's leading space — the parser's shape.
   const lf = '{\n :rounds\n [[0 :floor 1.5]]\n :arms\n {:floor {:n 1}}}\n';
   const crlf = lf.replace(/\n/g, '\r\n');
   assert.strictEqual(agg.readMap(lf, 'rounds'), ' [[0 :floor 1.5]]');
@@ -77,24 +75,23 @@ test('readMap finds its key with CRLF line endings, and with LF', () => {
 });
 
 test('THE CRLF CRASH: a real dataset adjudicates identically as CRLF and as LF', () => {
-  // The exact input that used to kill this file before it compared a single
+  // The exact input an LF-only anchor dies on before comparing a single
   // figure — held HERE rather than read off the disk. Both variants are built
   // from the tracked dataset however git materialised it: a Windows checkout
   // (`core.autocrlf=true`) lands CRLF, a Linux one lands the stored LF, and
   // normalising then re-rendering gives both on either.
   //
-  // THIS TEST USED TO ASSERT `runA.edn` CARRIES CRLF, which is a fact about
-  // git's checkout settings, not about this code: true on Windows, false on
-  // Linux CI, and it failed there while passing here. The behaviour worth
-  // pinning was never "the file is CRLF" — it is "the ending is not part of
-  // the data", and that is what is asserted now, on every platform.
+  // Asserting that `runA.edn` CARRIES CRLF would pin a fact about git's
+  // checkout settings, not about this code: true on Windows, false on Linux
+  // CI. The behaviour worth pinning is "the ending is not part of the data",
+  // and that is what is asserted, on every platform.
   const lf = read('A').replace(/\r\n/g, '\n');
   const crlf = lf.replace(/\n/g, '\r\n');
   assert.ok(!lf.includes('\r'), 'the LF variant must carry no CR at all');
   assert.ok(crlf.includes('\r\n'), 'the CRLF variant must really carry CRLF');
 
-  // The crash itself: `readMap`'s anchor was spelled LF-only, so on CRLF it
-  // matched nothing and threw `dataset has no :rounds` for every key.
+  // The crash itself: an anchor spelled LF-only matches nothing on CRLF and
+  // throws `dataset has no :rounds` for every key.
   for (const key of ['rounds', 'arms', 'decomposition', 'ratio-to-floor']) {
     assert.strictEqual(
       agg.readMap(crlf, key),
@@ -125,14 +122,12 @@ test('the control rule is OVERLAP, exactly as `lane/control-verdict` spells it',
 });
 
 test('THE RETROACTIVITY FENCE: run D holds a round below the band and still passes', () => {
-  // rf2-egdaq settled overlap-vs-strict as a SPLIT: the HEAP arm went strict,
-  // the CLOCK arm REFUSED strict under the 2026-07-31 quantum ruling, and
-  // THAT REFUSAL STANDS. This is a clock instrument, so overlap is its ruled
-  // rule — and tightening it would still turn a PUBLISHED pass into a
+  // The lane splits overlap-vs-strict per instrument, and a clock instrument
+  // keeps overlap — tightening it would turn a PUBLISHED pass into a
   // published failure. Run D is that case here: its worst round reads 1.2653
-  // against a band floor of 1.4819. If this test ever goes red because
-  // someone made the rule stricter, the change overturns that ruling — take
-  // it to the operator, do not relax this test.
+  // against a band floor of 1.4819. If this test goes red because the rule
+  // was made stricter, the change overturns the lane's clock rule — take it
+  // to the operator, do not relax this test.
   const out = agg.checkRun('D', read('D'));
   assert.ok(out.control.ok, 'run D passes under the overlap rule the page published under');
   assert.ok(
@@ -239,17 +234,16 @@ test('a REFUSAL can never reach the exit as an empty problem list', () => {
   assert.ok(out.problems.length > 0, 'a refusing guard must contribute at least one problem');
 });
 
-// --- the raw shape, and the NaN that used to pass -------------------------
+// --- the raw shape, and the NaN that would pass ---------------------------
 //
-// rf2-409ab audit item 2. The command exited 0, printed "every published
-// aggregate reproduces", and emitted `NaN` across five cells — because the
-// arm roster was derived from the rows that survived, and because every
-// comparison against a NaN is false.
+// An arm roster derived from the rows that survived would exit 0, print
+// "every published aggregate reproduces", and emit `NaN` across five cells,
+// because every comparison against a NaN is false.
 //
 // EVERY FIXTURE BELOW IS BUILT IN-TEST from the tracked dataset text, never
 // asserted about the checkout. That is the CRLF tests' model above and it is
-// deliberate: an earlier version of one of those asserted a fact about git's
-// checkout settings, passed on Windows and failed on Linux CI.
+// deliberate: a fixture asserted about the checkout pins git's checkout
+// settings, true on Windows and false on Linux CI.
 
 /** Every `[round :arm ms]` row for one arm, gone; the stored block stays. */
 const stripArm = (text, arm) =>
@@ -289,8 +283,9 @@ test('THE CONTRACT IS THE COMMITTED DATA\'S OWN SHAPE, on all four runs', () => 
 });
 
 test('THE FAIL-OPEN: an arm stripped from the raw rounds REFUSES', () => {
-  // The audit's own mutation, verbatim: remove every run-A `:noreads` RAW
-  // row and leave its stored summary block in place. This exited 0.
+  // The mutation: remove every run-A `:noreads` RAW row and leave its stored
+  // summary block in place. A roster derived from the surviving rows exits 0
+  // on it.
   const text = stripArm(read('A'), 'noreads');
   assert.ok(!/\[\d+ :noreads /.test(text), 'no raw :noreads row survives the mutation');
   assert.ok(/:noreads \{:n /.test(text), 'and its stored summary block is untouched');
@@ -300,7 +295,7 @@ test('THE FAIL-OPEN: an arm stripped from the raw rounds REFUSES', () => {
     out.problems.some((p) => /arm :noreads is ABSENT from the raw rounds/.test(p)),
     `an absent arm must be named as absent; got: ${out.problems.join(' | ')}`
   );
-  // And the second half of the defect: the terms that went NaN must refuse on
+  // And the second half: the terms that go NaN must refuse on
   // their non-finiteness rather than compare equal to their stored values.
   for (const term of ['h-reads+commit', 'h-memo-fiber']) {
     assert.ok(
