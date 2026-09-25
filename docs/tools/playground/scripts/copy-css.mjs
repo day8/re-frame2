@@ -1,5 +1,5 @@
 // Copy the playground stylesheet to its deployed location next to the bundle.
-// Kept as a tiny copy (not an esbuild CSS bundle) because the stylesheet has no
+// A tiny copy (not an esbuild CSS bundle) because the stylesheet has no
 // @import graph — it is hand-authored and one file. Run as part of `npm run build`.
 import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
