@@ -131,17 +131,16 @@
       ;; (a process-global atom) + the framework's frame registry
       ;; via the public rf wrappers.
       ;;
-      ;; rf2-anbabs — inject the canonical `frame-switcher/internal-frames`
+      ;; Inject the canonical `frame-switcher/internal-frames`
       ;; exclusion set so the palette's "Switch focus to frame …" source
       ;; filters the SAME tool frames the ribbon picker hides (spec/018
       ;; §8 I1). This is the `.cljs` seam that reaches the cljs-only
       ;; frame-switcher contract; the pure `.cljc` aggregator takes the
       ;; set as data.
       ;;
-      ;; rf2-y8doi.27 dropped the `:rf.xray/show-tool-frames?` input:
-      ;; its Settings UI went on 2026-05-27, no surface could write the
-      ;; slot, and the sub could only ever answer `false` — so the
-      ;; exclusion set is the whole contract.
+      ;; There is no `:rf.xray/show-tool-frames?` input: no surface
+      ;; writes such a setting, so the exclusion set is the whole
+      ;; contract.
       (sources/build-index
         {:panels             (palette-panels)
          :static-tabs        (palette-static-tabs)
