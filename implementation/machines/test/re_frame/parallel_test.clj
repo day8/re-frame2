@@ -17,8 +17,12 @@
     - Compound region: a region's state-tree can itself be hierarchical
       (its own :initial cascade + LCA exit/entry semantics, snapshot's
       region-value is a vector path inside the region).
-    - Per-region `:always`: a region's eventless transitions fire only
-      against that region's state, not against siblings'.
+    - Per-region `:always`: a region selects its eventless transitions
+      from its own active state and targets within its own tree, so its
+      `:always` step leaves sibling regions' states alone. The parent owns
+      each eventless round, and every region's guards see the same frozen
+      whole-machine context (`:all-state`, `:tags`, shared `:data`), so a
+      guard can read sibling state.
     - Initial snapshot stamped at registration with the full region map.
     - Print/read round-trip: parallel snapshots survive pr-str ↔
       read-string with shape intact.
