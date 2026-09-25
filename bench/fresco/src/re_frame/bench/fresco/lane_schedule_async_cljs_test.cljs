@@ -1,15 +1,13 @@
 (ns re-frame.bench.fresco.lane-schedule-async-cljs-test
-  "ONE SCHEDULE, TWO LOOPS (rf2-xa8wo).
+  "ONE SCHEDULE, TWO LOOPS.
 
   [[re-frame.bench.fresco.lane/rounds-async!]] exists because a window
   that ends at a PAINT cannot close inside one synchronous call, and
   [[re-frame.bench.fresco.lane/rounds!]] takes a number back. It is a
-  second driver over the same plan, and the failure mode of a second
-  driver is the one this lane has already paid for twice: `slot-order`'s
-  `k = 2` degeneracy survived a fix to its own sibling because
-  `b6-harness` held a copy of the rule, and `rf.bench.fresco.lane/observe!`'s missing call
-  was repaired privately in two hand-rolled loops while the ten apps
-  riding the shared one kept the fault.
+  second driver over the same plan, and a second driver fails by
+  drifting from the first: a harness holding a copy of the rule keeps a
+  defect its sibling's fix removed, and a repair made privately in one
+  loop never reaches the apps riding the other.
 
   So the two loops are not argued to agree. They are RUN AGAINST EACH
   OTHER, on one deterministic stub, and the banked samples and readings
