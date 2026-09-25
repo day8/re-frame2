@@ -1,23 +1,23 @@
 (ns day8.re-frame2-xray.panels.trace-fresco-boundary-dom-cljs-test
-  "THE TRACE TAB RE-AUTHORED IN THE RE-FRAME-NATIVE VIEW LAYER, read off a
-  real React commit (rf2-fcy5, slice 3 of 3).
+  "THE TRACE TAB IN THE RE-FRAME-NATIVE VIEW LAYER, read off a real React
+  commit.
 
-  `trace/Panel` is now an `rf.fresco/defview` reading through Fresco's
+  `trace/Panel` is an `rf.fresco/defview` reading through Fresco's
   shipped collector rather than an `rf/reg-view` reading through whatever
   view build the installed substrate adapter supplies. This file is the
-  behavioural evidence for that swap. It is the merged
+  behavioural evidence for that. It follows the
   `resources_fresco_boundary_dom_cljs_test` template, trimmed to the three
-  rows this panel's migration can actually be wrong about.
+  rows this panel's boundary can actually be wrong about.
 
-  ## Why a DOM row at all, when `trace_view_cljs_test` has thirty
+  ## Why a DOM row at all, when `trace_view_cljs_test` has dozens
 
-  Because every one of those thirty drives `trace/panel-tree`, the pure
+  Because every one of those rows drives `trace/panel-tree`, the pure
   body — which is right for what they assert and blind to the one thing
-  this slice could break outright. A NAIVE MIGRATION SHIPS A TAB THAT
-  RENDERS NOTHING while the node lane stays green, because the node lane
-  never asks React to mount the boundary through the bridge the registry
-  holds. That is the failure this file exists to catch, and it caught
-  nothing else the unit rows already cover.
+  the boundary could break outright. A TAB THAT RENDERS NOTHING passes
+  while the node lane stays green, because the node lane never asks React
+  to mount the boundary through the bridge the registry holds. That is the
+  failure this file exists to catch, and it covers nothing the unit rows
+  already do.
 
   ## Which row answers what
 
@@ -32,7 +32,7 @@
   is covered structurally by `trace_view_cljs_test`'s row-click rows
   against `op-row-attrs`; criterion 5 (tool activity never masquerading as
   application evidence) is a property of the boundary rather than of this
-  panel, and `resources_fresco_boundary_dom_cljs_test`'s W3 already proves
+  panel, and `resources_fresco_boundary_dom_cljs_test`'s W3 proves
   it in both directions for the same mechanism.
 
   ## The mount is the SHELL's mount, taken from the registry
@@ -47,7 +47,7 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is a family Xray supports —
   because the claim being made is that the boundary is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing exactly as it is in the template:
   the fixture's default ambient `:rf/default` scope would otherwise SHADOW
@@ -58,7 +58,7 @@
 
   The ns ends in `-dom-cljs-test`, so it runs under the `:browser-test`
   build (real DOM + React via Chromium) per
-  `implementation/shadow-cljs.edn`, whose `:source-paths` already carry
+  `implementation/shadow-cljs.edn`, whose `:source-paths` carry
   `tools/xray/test`. The `:node-test` build's `cljs-test$` regex also
   matches, so it LOADS under Node — where every row short-circuits through
   [[browser?]] and reports the skip rather than passing silently."
@@ -144,7 +144,7 @@
        (some? (.-createElement js/document))))
 
 ;; NO `flush-render!` HELPER HERE, and its absence is a finding rather than
-;; an omission — the template records it and it cost that worker a red row.
+;; an omission — the template records why.
 ;; A Fresco boundary is NOT in Reagent's render queue: its update is
 ;; scheduled by the collector through React, so draining Reagent's queue
 ;; commits nothing of this panel's and a row written that way reads a DOM
@@ -224,15 +224,15 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-read-lands-in-the-named-frame
-  (testing "rf2-fcy5 — the migrated Trace panel commits real DOM through the
+  (testing "the Trace panel commits real DOM through the
             registry entry the shell mounts, and its `rf.fresco/sub` reads
             resolve against the frame the enclosing `frame-provider` named
-            rather than the ambient one. Epic criteria 1 and 4.
+            rather than the ambient one. Criteria 1 and 4.
 
             THE ROW ALSO GRADES THE THREE INTERIOR HEADS, without naming
             them: `rf-xray-trace-row-101` is emitted by `op-row-attrs`,
             which only runs if `rt/resizable-table-view` rendered. A
-            `reg-view` head left behind would raise HD-016 inside the
+            `reg-view` head would raise HD-016 inside the
             boundary with no error boundary above it, and the panel would
             paint nothing at all."
     (if-not (browser?)
@@ -283,9 +283,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-fcy5 — the mounted panel re-renders itself and commits new DOM
+  (testing "the mounted panel re-renders itself and commits new DOM
             when its read's value really changes, and does NOT when nothing it
-            watches moved. Epic criterion 2, with the control that makes the
+            watches moved. Criterion 2, with the control that makes the
             update mean liveness rather than a commit that simply had not
             happened yet."
     (if-not (browser?)
@@ -318,7 +318,7 @@
                 (fn [_]
                   (is (not (row?))
                       "CONTROL: given a full settling window, the committed DOM
-                       still does NOT carry the row. A panel that re-rendered
+                       does NOT carry the row. A panel that re-rendered
                        here would make phase 3 pass for a reason that is not
                        liveness")
                   ;; ---- phase 3: a declared input moves, the read re-runs ---
@@ -352,12 +352,12 @@
 (defn- released? [] (zero? (ref-count-of :rf/xray feed-q)))
 
 (deftest w3-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-fcy5 — unmounting the panel releases its subscription
+  (testing "unmounting the panel releases its subscription
             reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed 22 → 25 → 32 across
-            renders and never fell on unmount.
+            count rather than a higher one. Criterion 6, and the number that
+            catches a leaky design: with a four-call interop binding the
+            `:rf/xray` ref-count would climb across renders and never fall
+            on unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once. `impl.collector`'s `cell-reapers` gives a cell
@@ -365,9 +365,9 @@
             reorder which unmounts and remounts a row within a single turn
             reuses the reaction instead of rebuilding it. A synchronous read
             straight after `flushSync(root.unmount)` returns 1 and the same
-            read one macrotask later returns 0 — measured here on the first
-            draft of this row, which duly reported a LEAK against a collector
-            behaving exactly as documented."
+            read one macrotask later returns 0, so a synchronous assertion
+            would report a LEAK against a collector behaving exactly as
+            documented."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
