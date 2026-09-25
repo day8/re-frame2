@@ -23,8 +23,8 @@
 
   Three is the sweet spot Vue DevTools and Linear converge on: enough
   to surface the user's last meaningful gestures, not so many that the
-  recents block crowds out fresh fuzzy hits. The cap is a `def` so a
-  future tuning bead can flip it without re-touching every call site.
+  recents block crowds out fresh fuzzy hits. The cap is a `def` so
+  tuning it touches one place, not every call site.
 
   ## Production posture
 
@@ -45,8 +45,8 @@
 (def max-recents
   "Cap on the recents list. Three matches Vue DevTools / Linear /
   GitHub command palettes — enough to surface the user's recent
-  gestures without crowding fuzzy hits. A `def` so a future tuning
-  bead can flip the cap in one place."
+  gestures without crowding fuzzy hits. A `def` so the cap is tuned
+  in one place."
   3)
 
 ;; ---- localStorage helpers -----------------------------------------------
