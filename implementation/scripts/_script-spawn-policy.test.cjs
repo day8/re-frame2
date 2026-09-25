@@ -5,16 +5,15 @@
 /*
  * Source-policy gate: every `implementation/scripts/**` launcher AND
  * every executable `examples/scripts/**` browser-gate launcher that
- * spawns a child process must use the HARDENED, shell-free posture
- * (rf2-wn4o1; examples/scripts coverage added by rf2-y9o5e3). Two
+ * spawns a child process must use the HARDENED, shell-free posture. Two
  * accident classes are gated here, both static (no process is spawned by
  * this suite — it reads the script sources and asserts on their text):
  *
  *   1. No `shell: true` / `shell: isWin` on any spawn in these scripts.
  *      On Windows `shell:true` + a bare exe name (`npx`/`npm`/`clojure`)
  *      + a repo-controlled `cwd` resolves a workspace-local `.cmd` ahead
- *      of PATH — the rf2-33vvc command-hijack accident class. It also
- *      re-introduces the DEP0190 args-concatenation warning/quoting
+ *      of PATH — the command-hijack accident class. It also
+ *      triggers the DEP0190 args-concatenation warning/quoting
  *      class on every Windows launch.
  *
  *   2. No bare `npx` / `npx.cmd` passed as the spawn EXECUTABLE. The
@@ -215,11 +214,11 @@ for (const [base, dir] of GATE_LAUNCHERS) {
 const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
 // These launchers compose the http-server argv inline: they publish + verify a
 // per-run /.rf-harness-token via waitForOwnedHttpReady directly, rather than
-// routing through startLocalHttpServer. (startLocalHttpServer now performs that
-// same owned-readiness handshake by default for ITS callers — rf2-3fc89f.14 —
+// routing through startLocalHttpServer. (startLocalHttpServer performs that
+// same owned-readiness handshake by default for ITS callers,
 // but these three don't call it.) Each serves its bundle on loopback only
 // (readiness probe + headless browser both hit 127.0.0.1), so a future edit
-// dropping the explicit `-a 127.0.0.1` would silently re-expose the bundle on
+// dropping the explicit `-a 127.0.0.1` would silently expose the bundle on
 // 0.0.0.0 and trip no test. startLocalHttpServer callers delegate this policy
 // to the shared owner and are covered by the caller-use guard below.
 const IMPL_LOOPBACK_LAUNCHERS = [
@@ -236,7 +235,7 @@ for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
       `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
         `http-server's default is 0.0.0.0, and this launcher only ever serves ` +
         `127.0.0.1 (readiness probe + headless browser). The canonical loopback ` +
-        `bind now lives in startLocalHttpServer (local-browser-harness.cjs).`,
+        `bind lives in startLocalHttpServer (local-browser-harness.cjs).`,
     );
   });
 }
@@ -303,7 +302,7 @@ for (const base of CONSOLIDATED_LAUNCHERS) {
     );
     for (const re of LOCAL_HARNESS_DEFN_RES) {
       assert.doesNotMatch(code, re,
-        `${base} redefines a harness primitive that now lives in ` +
+        `${base} redefines a harness primitive that lives in ` +
           `./lib/local-browser-harness.cjs — import it instead of keeping ` +
           `a bespoke copy.`);
     }
@@ -336,12 +335,12 @@ for (const base of TOKEN_LIFECYCLE_LAUNCHERS) {
         `publishOwnershipToken(root) from ./lib/local-browser-harness.cjs.`);
     for (const re of LOCAL_TOKEN_DEFN_RES) {
       assert.doesNotMatch(code, re,
-        `${base} defines a local ownership-token lifecycle fn that now lives ` +
+        `${base} defines a local ownership-token lifecycle fn that lives ` +
           `in ./lib/local-browser-harness.cjs (publishOwnershipToken) — import ` +
           `it instead of keeping a bespoke copy.`);
     }
     assert.doesNotMatch(code, CRYPTO_REQUIRE_RE,
-      `${base} still imports 'crypto' — the per-run token nonce now comes ` +
+      `${base} imports 'crypto' — the per-run token nonce comes ` +
         `from the shared publishOwnershipToken; drop the token-only crypto ` +
         `import.`);
   });
