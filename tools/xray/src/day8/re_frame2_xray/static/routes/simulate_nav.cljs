@@ -15,7 +15,7 @@
       (`[:rf.runtime/routing :current ...]`, EP-0001 — the
       framework-owned route slice lives in runtime-db, not app-db) shape:
       the slice's own `{:route-id :params :query :fragment :transition
-      :error :nav-token}` keys (rf2-y8doi.22).
+      :error :nav-token}` keys.
 
   The hermetic posture is the spec point — Xray is a lens, not a
   remote control. Real navigation lives behind `:rf.route/navigate`
@@ -25,7 +25,7 @@
 
   The pure-data projection lives in
   `panels/routing-helpers/simulate-navigation-preview` — JVM-portable
-  so the unit-test target covers the event-bundle. This ns is the view
+  so the unit-test target covers the projection. This ns is the view
   layer only."
   (:require [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
