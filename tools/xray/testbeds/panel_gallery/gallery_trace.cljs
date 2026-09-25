@@ -1,16 +1,14 @@
 (ns panel-gallery.gallery-trace
   "Story coverage for the **Trace tab** of the Xray 4-layer chrome
-  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine; epoch-scoped
-  rewire rf2-ofoqu; FLAT-list refresh rf2-aqusw).
+  (spec/018-Event-Spine).
 
   The Trace tab body is the `trace/Panel` view: the focused epoch's
-  whole trace as a SINGLE FLAT LIST of op rows (rf2-aqusw — the prior
-  4-band hierarchy is gone), scoped to the spine's FOCUSED EPOCH
-  (rf2-td380). The panel reads the focused epoch's `:trace-events`
+  whole trace as a SINGLE FLAT LIST of op rows (no band hierarchy),
+  scoped to the spine's FOCUSED EPOCH. The panel reads the focused epoch's `:trace-events`
   slice — resolved via the shared `focus-resolver` over
   `:rf.xray/focus` + `:rf.xray/epoch-history` — NOT the trace bus.
 
-  ## The flat row shape (rf2-aqusw)
+  ## The flat row shape
 
   The list reads top-down, OLDEST-FIRST. Each op is a row of six
   columns — `Δt · stage · area badge · what-happened · target/detail ·
@@ -23,14 +21,13 @@
   rides the severity colour over the stage colour so a failure stands
   out. Clicking any row opens the edn-inspector on its raw trace MAP
   inline (spec/023 §3). No chip-filtering (the focused epoch IS the
-  scope, rf2-gkczt); no row cap (every op renders).
+  scope); no row cap (every op renders).
 
-  ## Why seed via `:rf.xray/sync-epoch-history` (rf2-ofoqu)
+  ## Why seed via `:rf.xray/sync-epoch-history`
 
-  Pre-rewire each variant seeded the trace BUS via
-  `:rf.xray/sync-trace-buffer`, which the epoch-scoped panel no longer
-  reads — so the variants rendered empty. Each variant now seeds its
-  frame's `:epoch-history` via `:rf.xray/sync-epoch-history` (a vector
+  The epoch-scoped panel does not read the trace BUS, so a variant
+  seeded via `:rf.xray/sync-trace-buffer` would render empty. Each
+  variant seeds its frame's `:epoch-history` via `:rf.xray/sync-epoch-history` (a vector
   of `:rf/epoch-record` maps, each carrying a populated `:trace-events`
   slice). No variant pins focus: with no bus seeded there are no
   cascades, so the focus-resolver's head-fallback renders the HEAD
@@ -53,11 +50,11 @@
   (rf.story/reg-tag :feature/xray-trace
     {:axis :feature
      :doc  "Xray Trace tab — the focused-epoch domino-trail ribbon
-            (per spec/018-Event-Spine §5.4 + rf2-td380)."})
+            (per spec/018-Event-Spine §5.4)."})
 
   (rf.story/reg-story :story.xray.trace
     {:doc        "Visual gallery of the Xray Trace tab (the FLAT
-                 oldest-first op-row list, rf2-aqusw) under varying
+                 oldest-first op-row list) under varying
                  epoch trace-event depth + shape. Each variant seeds
                  its frame's :epoch-history via
                  :rf.xray/sync-epoch-history; the panel reads the
@@ -91,7 +88,7 @@
   (rf.story/reg-variant :story.xray.trace/medium-trace
     {:doc        "Focused epoch with a 100-row domino trail spanning
                  all four op-types. The flat list renders every row
-                 (no row cap, rf2-aqusw); exercises the panel under a
+                 (no row cap); exercises the panel under a
                  mid-density epoch with the full stage taxonomy."
      :setup     [[:rf.xray/sync-epoch-history (fixtures/medium-trace-history)]]
      :tags       #{:dev :state/medium}
@@ -135,13 +132,12 @@
      :substrates #{:reagent}})
 
   ;; ----- 7. mixed op-types -------------------------------------------
-  ;; rf2-gkczt: chip-filtering was removed from the Trace panel — the
-  ;; focused epoch IS the scope. This variant exercises a mixed-op-type
-  ;; trail with no filter event.
+  ;; The Trace panel has no chip-filtering — the focused epoch IS the
+  ;; scope. This variant exercises a mixed-op-type trail with no
+  ;; filter event.
   (rf.story/reg-variant :story.xray.trace/mixed-op-types
     {:doc        "Focused epoch whose trail mixes event + fx op-types.
-                 The feed renders every row (no chip-filtering
-                 post-rf2-gkczt)."
+                 The feed renders every row (no chip-filtering)."
      :setup     [[:rf.xray/sync-epoch-history (fixtures/mixed-op-types-history)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
@@ -181,7 +177,7 @@
   ;; ----- workspace ---------------------------------------------------
   (rf.story/reg-workspace :Workspace.xray.trace/all
     {:doc      "All ten Trace tab variants (the FLAT oldest-first
-                op-row list, rf2-aqusw) in one auto-grid. Scroll to see
+                op-row list) in one auto-grid. Scroll to see
                 the panel's response across empty / short / medium /
                 long / errors / flows / mixed-op-types / redacted /
                 cross-frame / source-coord — each row carrying its
