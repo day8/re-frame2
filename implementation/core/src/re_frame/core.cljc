@@ -2143,7 +2143,10 @@
   "Return the coherent frame-state projection for the named frame —
   `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, or `nil` for an
   unknown / destroyed frame. The full-frame read for SSR / epoch /
-  time-travel / Xray.
+  time-travel / Xray, and the supported production read for persistence: an
+  app serialises the partitions and runtime-db subtrees it keeps (e.g. with
+  `pr-str`) and installs them back with `[:rf/install-frame-state saved]`
+  (Spec 002 §Installing a persisted frame-state).
 
   Reads both partitions from the one physical frame-state container. A fresh
   frame's state is `{:rf.db/app {} :rf.db/runtime {}}`; read the runtime-db
@@ -3048,6 +3051,9 @@
       ;; (into both the regular registrar AND the image standard registry) so it
       ;; resolves after a `rf.registrar/clear-all!`. Idempotent.
       (rf.events/register-set-db-standard!)
+      ;; The framework-standard `:rf/install-frame-state` event, re-seeded the
+      ;; same way and for the same reason. Idempotent.
+      (rf.events/register-install-frame-state-standard!)
       nil)))
 
 ;; ---- feature inspection --------------------------------------------------
