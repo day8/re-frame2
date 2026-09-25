@@ -11,10 +11,7 @@
   is load-bearing defence: a closing-repeat vector built from a dead
   end would lie to tools (Xray flow panel, re-frame-10x cycle
   visualisation) about the offending chain. Pin the throw + ex-data
-  shape so a future refactor cannot silently break the invariant.
-
-  Per audit `ai/findings/flows-slice-audit-2026-05-15.md` §T2 (prior
-  round) + audit-r2 carried forward."
+  shape so a future refactor cannot silently break the invariant."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.flows.topo :as rf.flows.topo]))
 
@@ -56,7 +53,7 @@
         (is (= :rf.error/flow-cycle-extract-invariant (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
         (is (string? (:reason data))
-            "ex-data carries :reason as a human-readable sentence (no longer the overloaded kw)")
+            "ex-data carries :reason as a human-readable sentence")
         (is (= :no-recovery (:recovery data))
             "ex-data carries :recovery :no-recovery — the dead-end means topo state is internally inconsistent")
         (is (= :a (:node data))
@@ -95,13 +92,13 @@
         (is (= :rf.error/flow-cycle (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator")
         (is (nil? (:error data))
-            "the legacy :error slot is gone (rename, not back-compat shim)")
+            "ex-data carries no :error slot — :rf.error/id is the discriminator")
         (is (= 'rf/reg-flow (:where data))
             "ex-data carries :where 'rf/reg-flow — points at the user-facing call site")
         (is (= :fix-registration (:recovery data))
             "ex-data carries :recovery :fix-registration — a cycle is caller-fixable
              (detected at reg-flow time on a prospective map; prior state preserved),
-             so it reads as user-fixable like the sibling validate-flow rejections (rf2-ee38b.9)")
+             so it reads as user-fixable like the sibling validate-flow rejections")
         (is (string? (:reason data))
             "ex-data carries :reason as a string diagnostic")
         (is (vector? (:cycle data))
@@ -129,7 +126,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest depends-on?-direct-prefix-match
-  (testing "rf2-m05md — depends-on? is true when one of B's :inputs IS
+  (testing "depends-on? is true when one of B's :inputs IS
             A's :output-path (the canonical case — B reads exactly the slot
             A writes)"
     (let [a {:id :a :output-path [:foo]   :inputs [[:other]]}
@@ -138,7 +135,7 @@
           "B's :inputs include A's :output-path exactly → B depends on A"))))
 
 (deftest depends-on?-true-when-input-is-prefix-of-output-path
-  (testing "rf2-m05md — depends-on? is true when one of B's :inputs is
+  (testing "depends-on? is true when one of B's :inputs is
             a PREFIX of A's :output-path (B reads a parent slot of what A
             writes — Spec 013 'prefix in either direction')"
     (let [a {:id :a :output-path [:foo :bar :baz] :inputs []}
@@ -147,7 +144,7 @@
           "B reads :foo (a prefix of A's :output-path [:foo :bar :baz])"))))
 
 (deftest depends-on?-true-when-output-path-is-prefix-of-input
-  (testing "rf2-m05md — depends-on? is true when A's :output-path is a PREFIX
+  (testing "depends-on? is true when A's :output-path is a PREFIX
             of one of B's :inputs (B reads a CHILD slot of what A
             writes — also covered by 'prefix in either direction')"
     (let [a {:id :a :output-path [:foo]              :inputs []}
@@ -156,7 +153,7 @@
           "A writes [:foo] which is a prefix of B's input [:foo :bar :baz]"))))
 
 (deftest depends-on?-self-edge-via-overlapping-path
-  (testing "rf2-m05md / rf2-j538f7.6 — depends-on? returns true for a self-edge
+  (testing "depends-on? returns true for a self-edge
             when a flow's own :inputs share a prefix with its own :output-path.
             The consumer (topo-sort) RETAINS this `id -> id` self-edge and
             rejects the flow as a single-node cycle (a flow is a pure
@@ -168,7 +165,7 @@
            true; topo-sort retains this self-edge to reject the self-cycle"))))
 
 (deftest depends-on?-false-when-no-overlap
-  (testing "rf2-m05md — depends-on? returns false when no input shares
+  (testing "depends-on? returns false when no input shares
             a prefix with A's :output-path in either direction"
     (let [a {:id :a :output-path [:foo :bar] :inputs []}
           b {:id :b :output-path [:other]    :inputs [[:unrelated] [:other-thing]]}]
@@ -176,7 +173,7 @@
           "B's inputs are disjoint from A's :output-path tree → no dependency"))))
 
 (deftest depends-on?-false-when-paths-share-no-prefix-but-share-element
-  (testing "rf2-m05md — depends-on? is PREFIX-based, not element-
+  (testing "depends-on? is PREFIX-based, not element-
             membership-based: a shared NON-PREFIX element does NOT
             create a dependency edge"
     (let [a {:id :a :output-path [:foo :bar] :inputs []}
@@ -187,7 +184,7 @@
           "shared elements without a prefix relationship → false"))))
 
 (deftest depends-on?-empty-inputs
-  (testing "rf2-m05md — depends-on? returns false when B has no :inputs
+  (testing "depends-on? returns false when B has no :inputs
             (cannot depend on anything if it reads nothing)"
     (let [a {:id :a :output-path [:foo] :inputs []}
           b {:id :b :output-path [:bar] :inputs []}]
@@ -195,7 +192,7 @@
           "B has no :inputs → cannot depend on A (or anything else)"))))
 
 (deftest depends-on?-multiple-inputs-any-match-wins
-  (testing "rf2-m05md — depends-on? is an `or` across B's :inputs: a
+  (testing "depends-on? is an `or` across B's :inputs: a
             single matching input is enough to establish the
             dependency edge"
     (let [a {:id :a :output-path [:foo] :inputs []}
