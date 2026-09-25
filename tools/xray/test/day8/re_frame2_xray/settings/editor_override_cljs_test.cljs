@@ -1,13 +1,13 @@
 (ns day8.re-frame2-xray.settings.editor-override-cljs-test
-  "CLJS tests for the end-user editor override surface (rf2-dudqz).
+  "CLJS tests for the end-user editor override surface.
 
   The override is a per-machine preference that lets an individual
   operator on a mixed-editor team override the project's
   `:rf.xray/editor` default without touching the host app's boot
   config. The override:
 
-  - Persists via the existing settings localStorage round-trip
-    (no new key; the slot lives in `[:general :editor-override]`).
+  - Persists via the settings localStorage round-trip (the slot
+    lives in `[:general :editor-override]`).
   - Wins immediately — `config/get-editor` consults it before the
     host `editor` atom.
   - Falls back to the host default when `nil` (the cleared state).
@@ -201,20 +201,20 @@
 ;; ---- robustness --------------------------------------------------------
 
 (deftest invalid-override-shape-degrades-to-host-default
-  (testing "rf2-a1tv6 — a persisted override that fails
+  (testing "a persisted override that fails
             `valid-editor-override?` (corrupted localStorage payload,
             hand-edit, stale experimental shape) falls back to the
             host default on read. `get-editor` filters the slot
             through the predicate so a malformed value can never
             reach the URI builder."
     (config/set-editor! :idea)
-    ;; Force an invalid value in directly to bypass the picker (which
-    ;; is the single writer that today enforces the shape contract).
+    ;; Force an invalid value in directly to bypass the picker (the
+    ;; single writer that enforces the shape contract).
     (swap! config/settings assoc-in [:general :editor-override] "not-a-keyword")
     (is (= :idea (config/get-editor))
         "invalid override degrades to the host default")
     ;; Empty-template :custom is also rejected (the picker's seed
-    ;; window — see rf2-rc35g — would otherwise leak through here).
+    ;; window would otherwise leak through here).
     (swap! config/settings assoc-in [:general :editor-override] {:custom ""})
     (is (= :idea (config/get-editor))
         "empty :custom template is rejected; host default wins")
@@ -224,7 +224,7 @@
         "map without valid :custom string is rejected")))
 
 (deftest valid-editor-override?-predicate-coverage
-  (testing "rf2-a1tv6 — the predicate accepts exactly the shapes
+  (testing "the predicate accepts exactly the shapes
             `set-editor!` accepts (modulo nil for cleared)."
     (is (config/valid-editor-override? nil))
     (is (config/valid-editor-override? :vscode))
@@ -237,7 +237,7 @@
     (is (not (config/valid-editor-override? "string-keyword")))
     (is (not (config/valid-editor-override? :unknown-editor)))
     (is (not (config/valid-editor-override? {:custom ""}))
-        "empty :custom template is invalid (rf2-rc35g)")
+        "empty :custom template is invalid")
     (is (not (config/valid-editor-override? {:custom 42}))
         ":custom must be a string")
     (is (not (config/valid-editor-override? [:vscode]))
