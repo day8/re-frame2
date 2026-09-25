@@ -1,4 +1,4 @@
-# Release workflow for tools/machines-viz/ (rf2-4u3t1).
+# Release workflow for tools/machines-viz/.
 #
 # Publishes `day8/re-frame2-machines-viz` to Clojars on a tag push of the
 # form `machines-viz-v[0-9]+.[0-9]+.[0-9]+*`
@@ -6,20 +6,19 @@
 #
 # # Why this workflow exists at all
 #
-# tools/machines-viz/deps.edn has declared a publishable
-# `:clein/build {:lib day8/re-frame2-machines-viz …}` since rf2-o9arp, and
-# .github/scripts/verify-version-lockstep.sh has enforced its lockstep
-# version the whole time — but no workflow could publish it. The gate was
-# guarding the release-readiness of an artefact with no release path
-# (rf2-4u3t1). Two things were missing, and BOTH had to be fixed:
+# tools/machines-viz/deps.edn declares a publishable
+# `:clein/build {:lib day8/re-frame2-machines-viz …}`, and
+# .github/scripts/verify-version-lockstep.sh enforces its lockstep
+# version; this workflow is its release path. A gate guarding the
+# release-readiness of an artefact with no release path would guard
+# nothing. The artefact needs both:
 #
 #   1. this workflow; and
 #   2. `:main` in the `:clein/build` map. The day8 clein fork's
-#      `build-opts` spec requires it, so every clein invocation in that
-#      directory aborted before doing any work — the artefact was not
-#      merely un-deployed, it was un-BUILDABLE. The lockstep gate cannot
-#      see that: it reads `:version` and the `:local/root` coordinates,
-#      never whether clein would accept the map.
+#      `build-opts` spec requires it, so without it every clein invocation
+#      in that directory aborts before doing any work — the artefact would
+#      be not merely un-deployed but un-BUILDABLE. The lockstep gate's
+#      check_clein_main asserts it.
 #
 # # Why a separate workflow rather than a job on an existing one
 #
@@ -44,21 +43,19 @@
 # `implementation/` and served beside `viewer.html`. See
 # tools/machines-viz/README.md §Building and hosting the viewer page.
 #
-# What DOES exist, since rf2-8m344, is a PR-time gate on that recipe:
-# test.yml's required `machines-viz-viewer-page` job runs the same
-# command and asserts the emitted bundle and the checked-in HTML fit
-# together. Building the page is gated; deploying it is still nobody's
-# job, because there is nowhere to deploy it to.
+# What DOES exist is a PR-time gate on that recipe: test.yml's required
+# `machines-viz-viewer-page` job runs the same command and asserts the
+# emitted bundle and the checked-in HTML fit together. Building the page is
+# gated; deploying it is nobody's job, because there is nowhere to deploy
+# it to.
 #
-# This is stated here because the inference is easy to make and was made:
-# `share/encode-share-url` used to default its `:host` to
-# `https://day8.github.io/re-frame2-machines-viz/viewer.html`, which 404s
-# and names a repository that does not exist. Publishing the jar deploys
-# nothing (rf2-8m344).
+# This is stated here because the inference is easy to make: publishing the
+# jar deploys nothing, and `share/encode-share-url` therefore REQUIRES its
+# `:host` — the viewer page the consumer hosts — with no default.
 #
 # # Lockstep versioning
 #
-# Per spec/Conventions.md §Packaging conventions (rf2-w05l) every
+# Per spec/Conventions.md §Packaging conventions every
 # published artefact ships at the repo-root VERSION.
 # tools/machines-viz/deps.edn declares
 # `:clein/build :version "../../VERSION"` so clein picks up the lockstep
@@ -69,24 +66,22 @@
 #
 # # :local/root → :mvn/version rewrite
 #
-# `clein pom` SILENTLY SKIPS `:local/root` coordinates (rf2-do3m2 /
-# #6340), so a pom built straight from the in-tree deps.edn declares NO
-# `day8/re-frame2` dependency at all — verified locally for this artefact
-# while wiring this workflow up: the generated pom carried
-# org.clojure/clojure, com.cognitect/transit-cljs and reagent/reagent,
-# and core was reported as `Skipping coordinate`. The rewrite below is
+# `clein pom` SILENTLY SKIPS `:local/root` coordinates, so a pom built
+# straight from the in-tree deps.edn declares NO `day8/re-frame2`
+# dependency at all — clein reports core as `Skipping coordinate` and
+# emits only the Maven coordinates beside it. The rewrite below is
 # therefore load-bearing for correctness, not convenience. It uses the
-# shared comment-aware helper (rf2-ldkuk), which ABORTS rather than
+# shared comment-aware helper, which ABORTS rather than
 # guesses if the coordinate is renamed, removed, or ambiguous — that
 # fail-loud exit is what stands in for release-story.yml's generated-pom
 # preflight, and it suffices here because every remaining dependency is
 # an `:mvn/version` coordinate clein demonstrably emits.
 #
 # Machines-Viz has exactly ONE in-repo coordinate: core. `transit-cljs`
-# (the share-URL encode path) and `reagent` (component-local Ratom state
-# in MachineChart, `reagent.dom.client` in the standalone viewer) are
-# ordinary Maven coordinates and need no rewrite. The rewrite is never
-# committed — it happens on the throwaway runner checkout.
+# (the share-URL encode path), `reagent` (component-local Ratom state in
+# MachineChart) and `uix.core` (the UIx adapter shell) are ordinary Maven
+# coordinates and need no rewrite. The rewrite is never committed — it
+# happens on the throwaway runner checkout.
 #
 # # Dependency availability (the ordering contract)
 #
@@ -134,7 +129,7 @@ jobs:
   # 1. Lockstep version contract gate. Fails fast on a mismatched tag
   #    or a hand-edited deps.edn that breaks the framework-wide
   #    lockstep (the shared script's tools/ loop covers
-  #    tools/machines-viz/ per rf2-lwtke).
+  #    tools/machines-viz/).
   # ─────────────────────────────────────────────────────────────────
   verify-version:
     name: Verify Machines-Viz tag matches lockstep VERSION
