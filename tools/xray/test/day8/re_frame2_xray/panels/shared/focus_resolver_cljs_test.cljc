@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.shared.focus-resolver-cljs-test
-  "Pure-data tests for the shared focus-resolver (rf2-o9suo).
+  "Pure-data tests for the shared focus-resolver.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -12,7 +12,7 @@
 
     - `resolve-focus-status` — classifies the focus + history pair
       into `:no-focus` / `:focused` / `:epoch-evicted`, honouring the
-      rf2-h0120 head-fallback (nil focus + non-empty history →
+      head-fallback (nil focus + non-empty history →
       `:focused`).
     - `find-epoch-record` — looks up the matching `:rf/epoch-record`
       or returns the head record under the same head-fallback
@@ -38,7 +38,7 @@
     (is (= :no-focus (focus/resolve-focus-status nil nil)))))
 
 (deftest resolve-focus-status-head-fallback
-  (testing "rf2-h0120 — focus nil but history non-empty → head-fallback
+  (testing "focus nil but history non-empty → head-fallback
             (resolves to :focused; the find-epoch-record lookup returns
             the most-recent record). This is the natural debugging UX —
             show the latest unless the operator explicitly picks an
@@ -76,7 +76,7 @@
     (is (nil? (focus/find-epoch-record 99 hist)))))
 
 (deftest find-epoch-record-head-fallback
-  (testing "rf2-h0120 — focus nil + history non-empty returns the HEAD
+  (testing "focus nil + history non-empty returns the HEAD
             (most-recent) record. epoch-history is oldest-first per
             re-frame.epoch/epoch-history, so the head is the last
             element."
@@ -106,7 +106,7 @@
 ;; ---- composite — exercise the sub call-site shape ---------------------
 
 (deftest resolver-end-to-end-head-fallback
-  (testing "rf2-h0120 + rf2-o9suo — the L4 sub call-site shape: when
+  (testing "the L4 sub call-site shape: when
             :rf.xray/focus carries no :epoch-id but :rf.xray/epoch-
             history has records, resolve-focus-status returns :focused
             AND find-epoch-record returns the head. Panels relying on
