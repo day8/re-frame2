@@ -297,19 +297,18 @@ changed_files="$(gather_changed_files)"
 # how the classifier arms a gate whenever its own gate-script changes, and how
 # docs.yml keys the MkDocs build on documentation paths.
 #
-# THE SPINE'S OWN TREE IS ON THIS SURFACE (rf2-fhdd3) — `scripts/test-fast-pr.sh`,
-# this very file, and the fixture tree of its self-test, delegated to
-# `is_spine_self_path`.  Until they were listed, a diff touching only the spine matched no
+# THE SPINE'S OWN TREE IS ON THIS SURFACE — `scripts/test-fast-pr.sh`, this
+# very file, and the fixture tree of its self-test, delegated to
+# `is_spine_self_path`.  Unlisted, a diff touching only the spine would match no
 # runtime surface AND no documentation surface: the runtime classifier does not
-# know the runner (it classifies runtime source), and `run_docs` keyed on the
-# predicate above, which the runner never matched.  So A CHANGE TO THE SPINE'S
-# OWN DOCUMENTATION GATE — including one that BROKE it — got a green spine that
-# never ran the documentation tier, and every verification run during rf2-g7p7l
-# had to pass `--with-docs` by hand.  The runner is where the docs tier and the
-# mkdocs resolution are DEFINED; editing them has to run them.  CI already
-# agrees: `scripts/test-fast-pr.sh` is on docs.yml's documentation surface (both
-# its `push.paths` and its PR-side `detect` classifier), so this also closes a
-# local/CI divergence rather than inventing a local rule.
+# know the runner (it classifies runtime source), and `run_docs` keys on the
+# predicate above, which the runner would never match.  So A CHANGE TO THE
+# SPINE'S OWN DOCUMENTATION GATE — including one that BROKE it — would get a
+# green spine that never ran the documentation tier.  The runner is where the
+# docs tier and the mkdocs resolution are DEFINED; editing them has to run them.
+# CI agrees: `scripts/test-fast-pr.sh` is on docs.yml's documentation surface
+# (both its `push.paths` and its PR-side `detect` classifier), so this mirrors
+# CI rather than inventing a local rule.
 #
 # NAMED EXACTLY, never `scripts/*`.  Widening to every script would make an
 # ordinary `scripts/` change pay for the whole documentation tier — trading a
@@ -330,13 +329,15 @@ is_doc_surface_path() {
     scripts/check_provenance_pins.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
-    # The residue sweeps added to this tier by rf2-ejm7m, same rule as their
-    # neighbours above: a gate whose own script changed has to run.  The first
-    # three are named IDENTICALLY in docs.yml's `detect` classifier, so this is
-    # mirroring CI, not inventing a local surface.  `check_retired_image_keys.py`
-    # is the one CI's classifier does not list — added anyway because this spine
-    # executes both of its arms, and a gate that runs here should arm on its own
-    # source; the direction is the safe one (over-arming a ~1s check).
+    # The residue sweeps in this tier, same rule as their neighbours above: a
+    # gate whose own script changed has to run.  `check_failure_corpus_residue.py`
+    # and `check_retired_composition_vocab.py` are named IDENTICALLY in
+    # docs.yml's `detect` classifier, so for them this mirrors CI rather than
+    # inventing a local surface.  `check_inject_cofx_residue.py` and
+    # `check_retired_image_keys.py` are not listed there — they are listed here
+    # because this spine executes both of their arms, and a gate that runs here
+    # should arm on its own source; the direction is the safe one (over-arming
+    # a ~1s check).
     scripts/check_inject_cofx_residue.py|scripts/check_failure_corpus_residue.py) return 0 ;;
     scripts/check_retired_composition_vocab.py|scripts/check_retired_image_keys.py) return 0 ;;
     scripts/_test_fixtures/check_inject_cofx_residue/*) return 0 ;;
@@ -386,8 +387,8 @@ fi
 # own JVM lane) and `cljs_node_test` (npm/CLJS/JS-harness/isolation), and note
 # whether ANY surface was recognised at all.
 #
-# rf2-6r9j.87 — `test_react_jvm` is read here because the classifier no longer
-# sets `implementation_jvm` for a Test-React-only diff. The per-artefact
+# `test_react_jvm` is read here because the classifier does not set
+# `implementation_jvm` for a Test-React-only diff. The per-artefact
 # selector below is a PATH-PREFIX match over the roster in
 # scripts/test-jvm-implementation.sh (which lists
 # implementation/adapters/test-react), but it only ever runs INSIDE the
@@ -476,18 +477,15 @@ elif [ -z "$changed_files" ]; then
   # always-on static checks are meaningful.
   plan_reason="no changes (static checks only)"
 elif [ "$spine_self_surface" = true ]; then
-  # The spine's own tree changed (rf2-fhdd3): EVERY tier runs.
+  # The spine's own tree changed: EVERY tier runs.
   #
   # The documentation tier because the runner is where the doc gates and the
-  # mkdocs resolution live — that is the whole bead.  The JVM and node tiers
-  # because they already ran: before this branch existed, a spine-only diff
-  # matched no surface at all and fell into the `unknown surface` fallback
-  # below, which arms both.  Now that the runner is ON the documentation
-  # surface that fallback no longer fires for it, and without this branch the
-  # fix would have SILENTLY NARROWED the runtime coverage of every spine edit
-  # — a repair that quietly removes a gate is the same defect in a new coat.
-  # They also earn their place: the spine INVOKES those suites, so running
-  # them is what proves a reworked invocation still works.
+  # mkdocs resolution live.  The JVM and node tiers because the runner is ON
+  # the documentation surface, so the `unknown surface` fallback below — which
+  # arms both — never fires for it, and without this branch every spine edit
+  # would SILENTLY NARROW its own runtime coverage.  They also earn their
+  # place: the spine INVOKES those suites, so running them is what proves a
+  # reworked invocation still works.
   #
   # The fixture tree rides the same branch.  It could be argued into
   # docs-tier-only (it cannot affect runtime code), but the two paths change a
@@ -504,10 +502,10 @@ elif [ "$recognised_surface" != true ] && [ "$doc_surface" != true ]; then
   run_node=true
   plan_reason="conservative fallback (unknown surface)"
 else
-  # rf2-6r9j.87 — either broad JVM signal arms the tier. `test_react_jvm` is
-  # the narrow one the classifier now sets for a Test-React-only diff; the
-  # per-artefact selector then picks implementation/adapters/test-react by
-  # prefix, so the artefact still runs exactly its own suite.
+  # Either JVM signal arms the tier. `test_react_jvm` is the narrow one the
+  # classifier sets for a Test-React-only diff; the per-artefact selector then
+  # picks implementation/adapters/test-react by prefix, so the artefact runs
+  # exactly its own suite.
   { [ "$impl_jvm" = true ] || [ "$test_react_jvm" = true ]; } && run_jvm=true
   [ "$cljs_node" = true ] && run_node=true
   run_docs="$doc_surface"
@@ -533,15 +531,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# WHICH JVM ARTEFACT SUITES — the roster is READ, never listed here (rf2-uwszd).
+# WHICH JVM ARTEFACT SUITES — the roster is READ, never listed here.
 #
-# `scripts/test-jvm-implementation.sh` already carries the canonical roster of
-# implementation JVM artefacts, and the spine's header already points workers at
-# it.  Parsing that array is therefore not a second surface map: it is the same
+# `scripts/test-jvm-implementation.sh` carries the canonical roster of
+# implementation JVM artefacts, and the spine's header points workers at it.
+# Parsing that array is therefore not a second surface map: it is the same
 # roster, from the file that owns it, so an artefact added there is armed here
-# without a second edit.  The alternative the bead sketched — one new classifier
-# key per artefact — would have to be kept in step with test.yml's per-artefact
-# jobs by hand, which is the staleness class this whole pair of beads is about.
+# without a second edit.  The alternative — one new classifier key per
+# artefact — would have to be kept in step with test.yml's per-artefact jobs
+# by hand, which is exactly the staleness a read roster avoids.
 #
 # `implementation/core` runs whenever the tier runs even if the diff never
 # touched it: it is the substrate every other artefact sits on, and its suite
@@ -587,8 +585,8 @@ fi
 
 if [ "$plan_only" = true ]; then
   # Report how mkdocs resolved, so the docs gate's availability is observable
-  # without running an 18-second site build — and so the self-test can pin it
-  # (rf2-g7p7l).  Resolved ONLY when the documentation tier would run, so a
+  # without running an 18-second site build — and so the self-test can pin it.
+  # Resolved ONLY when the documentation tier would run, so a
   # code-only `--plan` stays free.
   mkdocs_plan="(docs tier skipped)"
   if [ "$run_docs" = true ]; then
@@ -610,17 +608,17 @@ if [ "$plan_only" = true ]; then
   printf '  JVM artefact suites: %s\n' \
     "$([ "$run_jvm" = true ] && echo "${jvm_run_list# }" || echo '(tier skipped)')"
   # The tier NAMES understate their contents; say so here too, so `--plan` is
-  # not read as a coverage claim (rf2-dgzaf, rf2-uwszd).
+  # not read as a coverage claim.
   printf '  note:                the JVM tier is implementation/core PLUS the'
   printf ' artefacts the diff touched —\n'
   printf '                       every other artefact suite runs in CI, not'
   printf ' here (scripts/test-jvm-implementation.sh).\n'
   printf '                       No browser, bundle, adapter, Xray, MCP or'
   printf ' tool-JVM gate is in any tier.\n'
-  # `PLAN` keeps its three fields (rf2-x1mz): the self-test asserts that line
-  # verbatim in fourteen cases, and a fourth field would rewrite every one of
-  # them to say nothing new.  The kondo lane gets its own machine-readable
-  # line, as `PLAN-JVM` / `PLAN-MKDOCS` / `PLAN-SELFTEST` already do.
+  # `PLAN` has three fields: the self-test asserts that line verbatim across
+  # its tiering cases, and a fourth field would rewrite every one of them to
+  # say nothing new.  The kondo lane gets its own machine-readable line, as
+  # `PLAN-JVM` / `PLAN-MKDOCS` / `PLAN-SELFTEST` do.
   printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
   printf 'PLAN-KONDO %s\n' "$([ "$run_kondo" = true ] && echo run || echo skip)"
   printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
