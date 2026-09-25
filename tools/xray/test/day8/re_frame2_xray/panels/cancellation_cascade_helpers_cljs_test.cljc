@@ -479,7 +479,7 @@
                             :reason :explicit})
                ;; A parent-cascade child teardown is an fx-substrate
                ;; `:explicit` destroy — `:parent-frame-destroyed` would
-               ;; be an impossible tuple on this channel (rf2-3uixf4).
+               ;; be an impossible tuple on this channel.
                (destroy-ev {:machine-id :child-a :dispatch-id 1
                             :time 1011 :id 3
                             :reason :explicit})
