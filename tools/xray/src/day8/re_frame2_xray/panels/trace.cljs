@@ -4,9 +4,8 @@
   ## What this panel shows
 
   Every trace operation the substrate emits during the focused epoch, in
-  fire order, as a SINGLE FLAT LIST of rows (rf2-aqusw — the 4-band
-  hierarchy is gone). Its contract is COMPLETENESS: every op-family in
-  the Spec-009 vocabulary surfaces.
+  fire order, as a SINGLE FLAT LIST of rows. Its contract is
+  COMPLETENESS: every op-family in the Spec-009 vocabulary surfaces.
 
   The list reads top-down, oldest-first:
 
@@ -19,11 +18,11 @@
       +2.6  SUBSCRIPTIONS    SUB       recalculated :counter/value     0.3 ms
       +3.1  VIEWS            VIEW      re-rendered  counter-display    1.8 ms
 
-  Each op is a row of six columns (rf2-aqusw):
+  Each op is a row of six columns:
 
       Δt · stage · area badge · what-happened · target/detail · duration
 
-  ## Stage column + colour-coded left edge (rf2-aqusw)
+  ## Stage column + colour-coded left edge
 
   The STAGE column names the Epoch-panel pipeline step each op belongs
   to — DISPATCH · COEFFECT · EVENT HANDLER · FLOW · EFFECT HANDLERS ·
@@ -31,8 +30,8 @@
   that step's colour. Both the label and the colour resolve through the
   Epoch panel's own `panels.epoch.badge` taxonomy (NOT a parallel
   palette) so the Trace stage column + edge match the Epoch numbered
-  event-bundle exactly — one step model, DRY. The flat list recovers, at a
-  glance, the phase information the removed hierarchy conveyed.
+  event-bundle exactly — one step model, DRY. So the flat list shows, at
+  a glance, which phase each op belongs to.
 
   The area badge is a NEUTRAL text badge (EVENT · COEFFECT · DB · FX ·
   FLOW · SUB · VIEW · MACHINE · ROUTING · EPOCH · ERROR · WARNING) — no
@@ -45,13 +44,13 @@
   trace-event MAP inline (spec/023 §3) via the first-class edn-inspector
   widget (spec/021 §10 / `views.edn-inspector`).
 
-  ## Design system (PR #2089 · Handler panel idiom)
+  ## Design system (Handler panel idiom)
 
   The list is rendered in the established Xray devtools design language —
   the `--devtools-*` dark tokens via `theme/tokens`, the 13/12/11/10
   type scale, mono font for the data columns, and the `+`/`~`/`-` diff
   idiom for DB rows. The stage column + colour-coded left edge reuse the
-  Epoch panel's `panels.epoch.badge` step taxonomy (rf2-aqusw).
+  Epoch panel's `panels.epoch.badge` step taxonomy.
 
   ## Epoch-scoped feed (spec/018 §6)
 
@@ -67,14 +66,15 @@
 
     :no-events     -> 'No events.' (focused epoch carries no trace events)
     :no-focus      -> 'Select an event to see its trace arc.' (spec/023 §14)
-    :no-epoch      -> the SELECTED event bundle settled no epoch (rf2-c4abp)
+    :no-epoch      -> the SELECTED event bundle settled no epoch
     :epoch-evicted -> the focused epoch aged out of the ring buffer.
 
   ## Pure hiccup
 
-  Same contract as every other Xray panel — pure hiccup, no Reagent /
-  UIx references. Frame isolation comes from the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in shell.cljs.
+  Same contract as every other Xray panel — the body is pure hiccup, no
+  Reagent / UIx references outside [[Panel-bridge]]. Frame isolation
+  comes from the enclosing `[rf.fresco/frame-provider {:frame :rf/xray}]`
+  in shell.cljs.
 
   ## Helpers
 
@@ -82,8 +82,8 @@
   classification, the stage column + edge colour (via
   `panels.epoch.badge`), epoch-scoped feed, empty-state classification —
   lives in `trace_helpers.cljc` so the algebra runs under the JVM
-  unit-test target. (The band-projection helpers are retained there for
-  cross-panel consumers + tests; the flat panel no longer renders them.)"
+  unit-test target. (The band-projection helpers there serve
+  cross-panel consumers + tests; the flat panel does not render them.)"
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -102,22 +102,22 @@
             [day8.re-frame2-xray.views.edn-widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
-;; ---- resizable-table columns (rf2-jnxfj · rf2-aqusw) --------------------
+;; ---- resizable-table columns --------------------------------------------
 ;;
 ;; The op-row's 6-column grid — Δt · stage · area badge · what-happened ·
 ;; target/detail · duration — is driven by the shared `rt/resizable-table`
 ;; view. Δt + stage + badge + verb columns are fixed/compact; the
 ;; target/detail column is the flexible one and truncates first (spec/023
 ;; §14 — usable at the ≈420px docked width, no horizontal scroll);
-;; duration right-aligns. The STAGE column (rf2-aqusw) names the Epoch
-;; pipeline step each op belongs to — DISPATCH / COEFFECT / EVENT HANDLER /
-;; FLOW / EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS — recovering flatly the
-;; phase information the (now-removed) hierarchy conveyed.
+;; duration right-aligns. The STAGE column names the Epoch pipeline step
+;; each op belongs to — DISPATCH / COEFFECT / EVENT HANDLER / FLOW /
+;; EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS — so the flat list carries
+;; each op's phase.
 ;;
 ;; One `:table-id :rf.xray.trace/ops` is shared between the single header
 ;; bar at the top of the panel and the flat row list, so a drag in the
-;; header live-resizes every row. Column widths persist via the rf2-xzg1y
-;; localStorage round-trip. The `minmax(0, 1fr)` on the target column
+;; header live-resizes every row. Column widths persist via
+;; `resizable-table`'s localStorage round-trip. The `minmax(0, 1fr)` on the target column
 ;; survives the resolver because `build-template` passes the
 ;; `:default-flex` string through verbatim when no px override is in the
 ;; slot.
@@ -151,17 +151,15 @@
                  :border-bottom (str "1px solid " (:border-subtle tokens))
                  :margin-bottom "4px"}})
 
-;; ---- style primitives (rf2-5venq) ---------------------------------------
+;; ---- style primitives ---------------------------------------------------
 ;;
-;; All inline `:style {...}` maps in the row + band + envelope renderers
-;; below are hoisted to ns-level defs (rf2-qx414 / rf2-xjgdk / rf2-gjiog
-;; / rf2-alsnz pattern). The Trace panel arc routinely renders ~200 op
+;; All inline `:style {...}` maps in the row renderers below are hoisted
+;; to ns-level defs. The Trace panel arc routinely renders ~200 op
 ;; rows × ~9 style cells per row — without hoisting each Panel re-render
-;; allocated ~1800 fresh JS objects to feed the React reconciler (audit
-;; F1 of rf2-qa75r).
+;; would allocate ~1800 fresh JS objects to feed the React reconciler.
 ;;
 ;; Stable shapes live as plain maps; per-row variation (severity colour,
-;; op-family border, outcome verb tint, expansion-state background) is
+;; stage-colour border, outcome verb tint, expansion-state background) is
 ;; layered in via `cond->`-merged overlays at call sites. Tokens resolve
 ;; to `var(--rf-xray-*)` strings at ns load — the active theme class
 ;; (light / dark) picks the hex at paint time, so resolution-once is
@@ -240,10 +238,11 @@
 (def ^:private op-row-time-default-style
   (assoc op-row-time-base-style :color (:text-tertiary tokens)))
 
-;; ---- stage column (rf2-aqusw) -------------------------------------------
+;; ---- stage column -------------------------------------------------------
 ;;
 ;; The flat list's STAGE column names the Epoch pipeline step (DISPATCH /
-;; COEFFECT / HANDLER / FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS). The
+;; COEFFECT / EVENT HANDLER / FLOW / EFFECT HANDLERS / SUBSCRIPTIONS /
+;; VIEWS). The
 ;; label rides the step's own colour (from `panels.epoch.badge`, the same
 ;; hue the colour-coded left edge paints) so the column reads as a tinted
 ;; pill-less label that ties to the edge at a glance.
@@ -321,12 +320,11 @@
 (def ^:private op-row-bg-warning
   "color-mix(in srgb, var(--rf-xray-yellow) 9%, transparent)")
 
-;; ---- flat row list (rf2-aqusw) ------------------------------------------
+;; ---- flat row list ------------------------------------------------------
 ;;
-;; The flat list (rf2-aqusw) renders every row in one container — no band
-;; rails, no envelope chrome. The list reads top-down oldest-first; the
-;; per-row STAGE column + colour-coded left edge recover the phase shape
-;; the removed bands carried.
+;; The flat list renders every row in one container — no band rails, no
+;; envelope chrome. The list reads top-down oldest-first; the per-row
+;; STAGE column + colour-coded left edge carry each op's phase.
 
 (def ^:private flat-rows-container-style
   {:list-style "none" :margin 0 :padding 0})
@@ -374,77 +372,71 @@
 ;; expansion state keyed by `[panel-id mount-id path]`, so two rows
 ;; expanded simultaneously each keep an independent expansion tree.
 ;;
-;; Per rf2-hhtbl (rf2-oqa60 phase 2) this call site invokes
-;; `[ei/edn-inspector-view {…}]` directly — no facade hop through
-;; `edn/browse`. The per-row `panel-id` qualifier embeds the row id so
-;; two simultaneously-expanded rows can't collide on expansion state.
+;; This call site invokes `[ei/edn-inspector-view {…}]` directly — no
+;; facade hop through `edn/browse`. The per-row `panel-id` qualifier
+;; embeds the row id so two simultaneously-expanded rows can't collide on
+;; expansion state.
 ;;
-;; rf2-fcy5 — THE HEAD IS `edn-inspector-view`, NOT `edn-inspector`, and
-;; the swap is downstream of this panel's own mount becoming a boundary,
-;; never ahead of it. `ei/edn-inspector` is an `rf/reg-view` head, which
-;; `codec/head-kind` grades `:invalid` down the identical arm it grades a
-;; plain `defn` — `views/edn_inspector.cljs` says so in terms, "Only
-;; `edn-inspector-view` is a head in a Fresco body". The reverse is just as
-;; loud, so this line could not move until `Panel` below was a `defview`.
+;; THE HEAD IS `edn-inspector-view`, NOT `edn-inspector`, because
+;; `Panel` below is a `defview`. `ei/edn-inspector` is an `rf/reg-view`
+;; head, which `codec/head-kind` grades `:invalid` down the identical arm
+;; it grades a plain `defn` — `views/edn_inspector.cljs` says so in terms,
+;; "Only `edn-inspector-view` is a head in a Fresco body". The reverse is
+;; just as loud, so this head has to match the kind of mount `Panel` is.
 ;;
-;; `:mount-id` IS REQUIRED and is PER ROW, which is the node-key question
-;; slice 2 had to repair in `managed_fx_template` and which this file
-;; already answers. `edn-inspector-view` qualifies the id by its frame and
-;; hands the result to `container-ref-for`, which MEMOISES the ref callback
-;; on it — so two mounts sharing an id share a ResizeObserver entry and a
-;; measured-width slot. The row id is this panel's own per-record identity
-;; (it is the trace event's `:id`, the same value `:panel-id` and `:site-id`
-;; below already qualify with), so all three now derive from one source.
+;; `:mount-id` IS REQUIRED and is PER ROW. `edn-inspector-view` qualifies
+;; the id by its frame and hands the result to `container-ref-for`, which
+;; MEMOISES the ref callback on it — so two mounts sharing an id share a
+;; ResizeObserver entry and a measured-width slot. The row id is this
+;; panel's own per-record identity (it is the trace event's `:id`, the
+;; same value `:panel-id` and `:site-id` below qualify with), so all three
+;; derive from one source.
 ;;
-;; rf2-pua3 — AND THE ROW ID IS NOT ENOUGH ONCE TWO TRACE PANELS SHARE ONE
-;; FRAME. The sentence that stood here assigned that case to rf2-5ykm; that
-;; bead is closed and covers Managed FX only, and the case is reachable from
-;; here the moment a caller mounts this panel twice. Two mounts of one
-;; focused epoch with matching rows expanded composed the SAME
-;; `rf-xray-trace-row-<id>`, so the second element installed no
-;; ResizeObserver at all and `release-mount!` tore the SHARED entry down —
-;; and cleared the SHARED width — when EITHER detached, leaving the survivor
-;; on screen unobserved and unmeasured. Measured on a real two-container
-;; commit before the repair, in
-;; `panels/trace_mount_instance_id_dom_cljs_test`.
+;; AND THE ROW ID IS NOT ENOUGH ONCE TWO TRACE PANELS SHARE ONE FRAME,
+;; which is reachable the moment a caller mounts this panel twice. Two
+;; mounts of one focused epoch with matching rows expanded would compose
+;; the SAME `rf-xray-trace-row-<id>`, so the second element would install
+;; no ResizeObserver at all and `release-mount!` would tear the SHARED
+;; entry down — and clear the SHARED width — when EITHER detached, leaving
+;; the survivor on screen unobserved and unmeasured.
+;; `panels/trace_mount_instance_id_dom_cljs_test` pins this on a real
+;; two-container commit.
 ;;
-;; The caller names them, which is the ruling rf2-d2aj closed with and the
-;; shape `app-db-diff` and `managed-fx` already ship: an optional
-;; `:instance-id`, threaded from `mount-trace!` through the bridge and the
-;; boundary to [[payload-mount-id]] below.
+;; The caller names them, in the shape `app-db-diff` and `managed-fx`
+;; ship: an optional `:instance-id`, threaded from `mount-trace!` through
+;; the bridge and the boundary to [[payload-mount-id]] below.
 ;;
 ;; ONE QUALIFIER, AND IT MOVES THE `:mount-id` ALONE — which is a THIRD
 ;; shape rather than a copy of either sibling. `managed-fx` needs one
 ;; because `edn-widget/inspect-view` builds the `:mount-id` AND the
 ;; `:panel-id` from one node-key and passes no `:site-id`; `app-db-diff`
 ;; needs two because `value-body` composes its `:mount-id` and its
-;; `:site-id` separately. This panel passes a stable `:site-id` (rf2-pvsxs,
-;; just below), and the widget's `effective-id` is `(or site-id mount-id)` —
+;; `:site-id` separately. This panel passes a stable `:site-id` (just
+;; below), and the widget's `effective-id` is `(or site-id mount-id)` —
 ;; so expansion and zoom are keyed `[panel-id site-id path]` and DO NOT READ
 ;; THE MOUNT-ID AT ALL. The logical identity is therefore already separate
 ;; from the physical one, and qualifying the mount-id moves exactly the two
 ;; things that are per-live-mount — the store's lifecycle key `[frame-id
 ;; mount-id]` and the measured-width slot, which is keyed by the bare
 ;; `mount-id` — while leaving expansion, zoom, the row's own testids and the
-;; React keys byte-for-byte where they were. Two Trace panels of one epoch
-;; still open and close together ON PURPOSE; what they no longer share is a
-;; ResizeObserver and a width.
+;; React keys unqualified. Two Trace panels of one epoch open and close
+;; together ON PURPOSE; what they do not share is a ResizeObserver and a
+;; width.
 
 (defn instance-token
   "Normalise `trace/Panel`'s optional `:instance-id` prop to the string that
   qualifies one mount's inspector `:mount-id`, or nil when the caller named
   no instance — the single-mount default, which composes every id
-  byte-for-byte as it did before rf2-pua3.
+  unqualified.
 
   A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
   the name: `:left/trace` tokenises to `left/trace`. `(subs (str id) 1)` is
-  what preserves it; `cljs.core/name` would drop it and restore the very
-  collision this removes, which is rf2-4bsq's landed repair one level up —
-  see [[Panel-bridge]], which tokenises BEFORE the Reagent crossing for
-  exactly that reason.
+  what preserves it; `cljs.core/name` would drop it and reintroduce the
+  very collision this removes — see [[Panel-bridge]], which tokenises
+  BEFORE the Reagent crossing for exactly that reason.
 
   It is this panel's own normaliser rather than a call into a sibling's:
-  the panels are independent surfaces, they migrate on their own schedules,
+  the panels are independent surfaces, they change on their own schedules,
   and the refusal has to name the caller's OWN panel to be worth reading."
   [instance-id]
   (cond
@@ -467,7 +459,7 @@
   one per live mount of one row.
 
   `instance` is the already-tokenised per-mount name, or nil. nil composes
-  the string this panel has always composed; a name splices in after the
+  the unqualified `rf-xray-trace-row-<id>`; a name splices in after the
   panel's own prefix and LEAVES THE ROW ID INTACT inside it, so the row
   stays identifiable in a two-panel DOM."
   [instance id]
@@ -478,9 +470,9 @@
   `:rf.trace/dispatch-id` trace-event EDN (spec/023 §3), rendered via
   the first-class edn-inspector widget's FRESCO boundary.
 
-  `instance` (rf2-pua3) is the tokenised per-mount name, or nil. It
-  qualifies the `:mount-id` and NOTHING else below — see the comment above
-  for why the `:panel-id` and `:site-id` deliberately stay shared."
+  `instance` is the tokenised per-mount name, or nil. It qualifies the
+  `:mount-id` and NOTHING else below — see the comment above for why the
+  `:panel-id` and `:site-id` deliberately stay shared."
   [instance {:keys [id raw] :as _row}]
   [:div {:data-testid (str "rf-xray-trace-row-" id "-payload")
          :style       payload-container-style}
@@ -488,13 +480,13 @@
     {:mount-id (payload-mount-id instance id)
      :value    raw
      :opts     {:panel-id (keyword "rf.xray.trace" (str "row-" id))
-                ;; rf2-pvsxs — trace rows survive tab leave-and-return
+                ;; Trace rows survive tab leave-and-return
                 ;; because the trace event-id is itself stable; the
                 ;; `:site-id` reuses it so the operator's expansion
                 ;; choices persist across tab churn.
                 :site-id  [:rf.xray.trace/row id]
                 :default-expanded-depth 1
-                ;; rf2-l4625 — trace rows expand within the row's narrow
+                ;; Trace rows expand within the row's narrow
                 ;; column; tags + payload maps are routinely cramped.
                 ;; Popup gives the operator a full-modal inspection
                 ;; surface.
@@ -503,8 +495,8 @@
 ;; ---- per-path db-changed diff rows (spec/023 §APP-DB CHANGES) -----------
 ;;
 ;; The trace event `:rf.event/db-changed` carries only `:event` + `:frame`
-;; — no per-path diff payload (Mike-decided rf2-8q8i4 = (b), 2026-05-25:
-;; PANEL-SIDE derive). Per-path before→after rows are derived at render
+;; — no per-path diff payload, so the panel derives it. Per-path
+;; before→after rows are derived at render
 ;; time from the focused epoch record's `:db-before` / `:db-after` slots
 ;; by `trace_helpers/db-changed-diff-triples` (which routes through
 ;; `app-db-diff-helpers/diff-paths` — the same structural-sharing engine
@@ -513,7 +505,7 @@
 ;; triples to every `:rf.event/db-changed` row's `:db-diff` slot so the
 ;; view stays dumb-and-pure.
 ;;
-;; rf2-y8doi.14 — and the VALUES in those triples are ALREADY PROJECTED.
+;; The VALUES in those triples are ALREADY PROJECTED.
 ;; `:rf.xray/trace-feed` re-seats each triple's `:before` / `:after` on
 ;; the observed frame's on-box local-render projection of the db pair, so
 ;; a slot the frame declared `:sensitive` arrives here as `:rf/redacted`
@@ -523,9 +515,8 @@
 ;; `:op` and `:path` are NEVER withheld, so the row still renders — glyph,
 ;; path and all — with the sentinel where the values would be. That is
 ;; deliberate: redacting both sides BEFORE the diff would make
-;; `diff-paths` read them as equal and emit no row at all, and a changed
-;; secret rendering as NOTHING is the very blindness this item removes
-;; from the App-DB tab. `trace_helpers`' block comment above
+;; `diff-paths` read them as equal and emit no row at all, so a changed
+;; secret would render as NOTHING. `trace_helpers`' block comment above
 ;; `db-changed-diff-triples` carries the full reasoning, including why the
 ;; path-scoped alternative leaks.
 ;;
@@ -535,7 +526,7 @@
 ;;     ~ [:path] old → new      (modified — amber)
 ;;     - [:path]                (removed — red — path alone)
 ;;
-;; The diff helper itself (`diff-paths`) is extracted to
+;; The diff helper itself (`diff-paths`) lives in
 ;; `app_db_diff_helpers.cljc` (shared); the render-side helpers below
 ;; are this trace arc's changed-path renderer and are the SOLE copy of
 ;; this table-style idiom. The Epoch panel renders changed paths in a
@@ -576,18 +567,16 @@
   Indented under the parent op row so the diff reads as a sub-list of
   the db-changed event.
 
-  ## The React key rides the ATTRIBUTE MAP (rf2-bqzk · RULING 2)
+  ## The React key rides the ATTRIBUTE MAP
 
-  `db-diff-rows` below used to wrap this fn's RETURN VALUE in
-  `(with-meta … {:key (pr-str path)})`. That is not the dead
-  metadata-on-a-call-form shape — the metadata genuinely attached and the
-  key genuinely reached React under Reagent, which is why it worked and
-  why its failure is invisible: Fresco's codec reads a literal `:key` off
-  a native tag's attrs and reads Clojure metadata NOWHERE, so faithfully
-  preserving that spelling through this panel's migration would have
-  preserved a NO-OP and every diff row in every changed-path list would
-  have silently lost its identity. The key expression is unchanged; only
-  its carrier moved, to the one place BOTH substrates read."
+  Wrapping this fn's RETURN VALUE in `(with-meta … {:key (pr-str path)})`
+  would not be the dead metadata-on-a-call-form shape — the metadata
+  genuinely attaches and the key genuinely reaches React under Reagent,
+  which is why its failure would be invisible: Fresco's codec reads a
+  literal `:key` off a native tag's attrs and reads Clojure metadata
+  NOWHERE, so under Fresco it is a NO-OP and every diff row in every
+  changed-path list would silently lose its identity. The attrs map is
+  the one place BOTH substrates read."
   [parent-row-id {:keys [op path before after] :as _triple}]
   (let [suffix     (path-suffix path)
         glyph      (get diff-op->glyph op "?")
@@ -630,8 +619,8 @@
   `rf-xray-trace-row-<id>-db-diff` so tests can target the section
   regardless of contents.
 
-  rf2-bqzk — the per-row `:key` is `db-diff-row`'s own now (see there);
-  this fn no longer wraps the returned vector in `with-meta`."
+  The per-row `:key` is `db-diff-row`'s own (see there); this fn does not
+  wrap the returned vector in `with-meta`."
   [parent-row-id triples]
   (when (seq triples)
     (into [:div {:data-testid (str "rf-xray-trace-row-" parent-row-id "-db-diff")
@@ -641,28 +630,26 @@
 
 ;; ---- one op row (spec/023 §3) -------------------------------------------
 ;;
-;; rf2-jnxfj — the op row's 5-column grid is now driven by the shared
-;; `rt/resizable-table` view (one `:table-id :rf.xray.trace/ops` per
-;; arc, shared by header + every band so a drag re-aligns every row).
-;; The pre-conversion `op-row` returned a single `:li` containing the
-;; grid + db-diff + payload; resizable-table now owns the `:div` row
-;; wrapper, and the per-row attrs / cells / extras are produced by the
-;; three helpers below. testids land verbatim on the new structure so
-;; the existing trace_view_cljs_test corpus still resolves them.
+;; The op row's 6-column grid is driven by the shared
+;; `rt/resizable-table` view (one `:table-id :rf.xray.trace/ops`, shared
+;; by the header and the flat row list so a drag re-aligns every row).
+;; resizable-table owns the `:div` row wrapper, and the per-row attrs /
+;; cells / extras are produced by the three helpers below. Their testids
+;; are the ones the trace_view_cljs_test corpus resolves.
 
 (defn- op-row-attrs
-  "Per-row attrs for the resizable-table — preserves the click /
-  context-menu handlers + the colour-coded STAGE left edge (rf2-aqusw)
-  + severity / expansion backgrounds.
+  "Per-row attrs for the resizable-table — the click / context-menu
+  handlers + the colour-coded STAGE left edge + severity / expansion
+  backgrounds.
 
   Stamps `:key` into the attrs map alongside the meta-key
-  resizable-table emits, so the rf2-l2f2g React-key contract surface
+  resizable-table emits, so the React-key contract surface
   (rf-xray-trace-row-N row vectors stably keyed by `(h/row-key row)`)
   is observable in the rendered hiccup — the test corpus reads
   `:key` from the row attrs map because the framework hiccup walker
   rebuilds inner vectors via `mapv` and drops their metadata."
   [{:keys [id operation area stage stage-colour dispatch-id] :as row} expanded?]
-  ;; rf2-nesy9 — capture the surrounding instance frame at render time
+  ;; Capture the surrounding instance frame at render time
   ;; so the deferred row handlers dispatch into it, not a `:rf/xray`
   ;; literal. op-row-attrs is invoked during the Trace Panel reg-view's
   ;; render, so `current-frame-id` resolves through the React-context tier.
@@ -676,7 +663,7 @@
      :data-testid           row-test-id
      :data-rf-xray-expanded (boolean expanded?)
      :data-rf-xray-area     (some-> area name)
-     ;; rf2-aqusw — the Epoch pipeline STAGE drives the column + edge.
+     ;; The Epoch pipeline STAGE drives the column + edge.
      :data-rf-xray-stage    (some-> stage name)
      :data-rf-xray-severity (when severity? (name area))
      :on-click              (fn []
@@ -690,7 +677,7 @@
                                   [:rf.xray/cancellation-cascade-open
                                    {:kind :dispatch-id :id dispatch-id}]
                                   {:frame frame})))
-     ;; rf2-aqusw — colour-coded STAGE left edge: a 3px LEFT-BORDER in
+     ;; Colour-coded STAGE left edge: a 3px LEFT-BORDER in
      ;; the Epoch pipeline step's colour (reused via `panels.epoch.badge`
      ;; through `h/stage-colour`). Error / warning override the stage
      ;; colour so a failure stands out (spec/023 §7). Severity rows carry
@@ -709,15 +696,14 @@
 
 (defn- op-row-cells
   "Per-row cells — the 6 hiccup nodes resizable-table interleaves into
-  the grid template (rf2-aqusw — Δt · stage · badge · verb · target ·
-  duration). Each carries `data-rf-xray-resizable-col` so the
-  pointer-down handler can locate the adjacent cell off the live DOM,
-  AND keeps the original `data-testid` so the trace_view tests resolve
-  unchanged."
+  the grid template (Δt · stage · badge · verb · target · duration).
+  Each carries `data-rf-xray-resizable-col` so the pointer-down handler
+  can locate the adjacent cell off the live DOM, AND the `data-testid`
+  the trace_view tests resolve."
   [{:keys [id operation rel-time time area area-badge stage-label
            stage-colour verb target duration-ms source-coord dispatch-id]
     :as row}]
-  ;; rf2-nesy9 — render-time frame capture for the deferred cell handlers.
+  ;; Render-time frame capture for the deferred cell handlers.
   (let [frame       (rf/current-frame-id)
         row-test-id (str "rf-xray-trace-row-" id)
         verb-colour (h/outcome-colour row)
@@ -738,9 +724,9 @@
         (and severity? rel-time) (str "!" (subs rel-time 1))
         rel-time                 rel-time
         :else                    "—")]
-     ;; ② stage — the Epoch pipeline step (DISPATCH / COEFFECT / HANDLER /
-     ;; FLOW / SIDE EFFECTS / SUBSCRIPTIONS / VIEWS) the op belongs to,
-     ;; tinted with the step's own colour (rf2-aqusw — same hue the
+     ;; ② stage — the Epoch pipeline step (DISPATCH / COEFFECT / EVENT
+     ;; HANDLER / FLOW / EFFECT HANDLERS / SUBSCRIPTIONS / VIEWS) the op
+     ;; belongs to, tinted with the step's own colour (the same hue the
      ;; colour-coded left edge paints, both via `panels.epoch.badge`).
      [:span {:data-rf-xray-resizable-col "stage"
              :data-testid (str row-test-id "-stage")
@@ -772,13 +758,13 @@
               :title (or target "")}
        (or target "—")]
       (when source-coord
-        ;; rf2-vw5pi — open-in-editor dispatch via the shared
+        ;; Open-in-editor dispatches via the shared
         ;; `coord-link/open-in-editor!`. The `↗` text-glyph cell chrome
-        ;; stays local (column layout, not the bespoke dispatch).
+        ;; is local (column layout, not a bespoke dispatch).
         [:button {:data-testid (str row-test-id "-source-coord")
                   :title       source-coord
                   :on-click    (fn [e]
-                                 ;; rf2-nesy9 — route the open-in-editor
+                                 ;; Route the open-in-editor
                                  ;; dispatch through the captured instance
                                  ;; frame, not the singleton default.
                                  (coord-link/open-in-editor!
@@ -806,11 +792,11 @@
 (defn- op-row-extras
   "Per-row extras rendered BELOW the grid (the resizable-table's
   `:row-extras` slot — see ns docstring of `views.resizable-table`).
-  Returns the per-path db-diff sub-list (rf2-b3zw2) when the row is a
+  Returns the per-path db-diff sub-list when the row is a
   `:rf.event/db-changed` op AND/OR the raw-EDN payload (spec/023 §3)
   when the row is expanded.
 
-  `instance` (rf2-pua3) is the tokenised per-mount name, or nil, and is
+  `instance` is the tokenised per-mount name, or nil, and is
   passed STRAIGHT THROUGH to the payload. The db-diff sub-list does not
   take it: `db-diff-rows` renders through `edn/inspect-inline`, which
   mounts no inspector and holds no per-mount lifecycle."
@@ -824,26 +810,25 @@
       payload              payload
       :else                nil)))
 
-;; ---- flat row list (rf2-aqusw) ------------------------------------------
+;; ---- flat row list ------------------------------------------------------
 ;;
-;; The 4-band hierarchy + EPOCH OPEN / CLOSE envelope are GONE (rf2-aqusw).
-;; Every op the focused epoch emitted — including the `:rf.epoch/*`
-;; lifecycle ops (snapshotted / outcome / restored / …) that used to live
-;; in the envelope — renders as an ORDINARY row in one flat list, in fire
-;; order (oldest-first), exactly as the feed's `:rows` are ordered. The
-;; epoch-lifecycle ops classify to the DISPATCH stage (their muted grey
-;; edge), so the open/close lifecycle still surfaces, flatly. The phase
-;; information the bands conveyed is recovered by each row's STAGE column
-;; + colour-coded left edge.
+;; There is no band hierarchy and no EPOCH OPEN / CLOSE envelope. Every op
+;; the focused epoch emitted — including the `:rf.epoch/*` lifecycle ops
+;; (snapshotted / outcome / restored / …) — renders as an ORDINARY row in
+;; one flat list, in fire order (oldest-first), exactly as the feed's
+;; `:rows` are ordered. The epoch-lifecycle ops classify to the DISPATCH
+;; stage (their muted grey edge), so the open/close lifecycle surfaces as
+;; ordinary rows. Each row's STAGE column + colour-coded left edge carries
+;; its phase.
 
 (defn- flat-row-list
   "Render the focused epoch's whole trace as a SINGLE flat list of op
-  rows (rf2-aqusw). Rows mount through `rt/resizable-table-view` with
+  rows. Rows mount through `rt/resizable-table-view` with
   `:header? false` (the header lives once at the top of the panel) so
   the list shares the `:rf.xray.trace/ops` column-widths slot — a drag
   on the panel header re-aligns every row live.
 
-  rf2-fcy5 — the head is `resizable-table-VIEW`, the widget's Fresco
+  The head is `resizable-table-VIEW`, the widget's Fresco
   boundary, because `Panel` below is a `defview` and the `rf/reg-view`
   head `resizable-table` is one `codec/head-kind` grades `:invalid`.
   Identical props and identical rendering — both heads hand the same map
@@ -851,20 +836,20 @@
   the column-widths read and the drag dispatcher. It needs no instance
   key: its state is keyed by the `:table-id` this panel supplies.
 
-  rf2-pua3 — `instance` is the tokenised per-mount name, or nil, and this
+  `instance` is the tokenised per-mount name, or nil, and this
   fn only FORWARDS it to `op-row-extras`. It is deliberately NOT composed
   into `:table-id`: the ops table's column widths are the operator's
   chosen column layout for this arc, which two panels of one epoch share on
   purpose, exactly as they share their expansion state."
   [instance rows expanded-row-ids]
   [rt/resizable-table-view
-   ;; rf2-hxfy — the React key lives in this props map rather than as
+   ;; The React key lives in this props map rather than as
    ;; `^{:key "rows"}` reader meta on the `(flat-row-list …)` call in
    ;; `Panel` below. Reader meta on a CALL form attaches to the source
-   ;; LIST, so the returned vector carried none of it and React received
-   ;; no key (measured against the sibling `ops-header`, whose meta rides
-   ;; a vector LITERAL and does reach React: `REACT .-key ["ops-header"
-   ;; nil]`). Reagent reads meta THEN props, and Fresco's codec reads a
+   ;; LIST, so the returned vector would carry none of it and React would
+   ;; receive no key (reader meta on a vector LITERAL, by contrast, does
+   ;; reach React under Reagent). Reagent reads meta THEN props, and
+   ;; Fresco's codec reads a
    ;; literal `:key` off the props map and strips it before the body sees
    ;; them — so this one attribute satisfies both substrates.
    ;; `resizable-table` destructures named opts and never spreads them,
@@ -905,7 +890,7 @@
   (empty-state-message :no-focus "Select an event to see its trace arc."))
 
 (defn- empty-state-no-epoch []
-  ;; rf2-c4abp / rf2-y8doi.19 — the operator SELECTED an event bundle that
+  ;; The operator SELECTED an event bundle that
   ;; settled no epoch. Distinct from `:no-focus` (nothing selected at all)
   ;; and from `:no-events` (a real epoch that emitted nothing).
   ;;
@@ -915,8 +900,8 @@
   ;; and the shared resolver can tell none of them apart from focus alone —
   ;; a dispatch refused before any handler ran, a bundle still mid-build, a
   ;; bundle whose epoch aged out of the ring, and a focus pinning
-  ;; `:ungrouped` — so naming the refusal would read as fact and be a fresh
-  ;; falsehood on the other three.
+  ;; `:ungrouped` — so naming the refusal would read as fact and be false
+  ;; for the other three.
   (empty-state-message :no-epoch "The selected event settled no epoch."))
 
 (defn- empty-state-epoch-evicted []
@@ -954,9 +939,9 @@
   boundary below reads. Same markup, same testids; it simply takes its
   inputs as an argument instead of subscribing for them.
 
-  rf2-k97c.3 — split out of the view when `Panel` became a Fresco
-  boundary, so the panel's whole render contract stays drivable from the
-  node lane without a React commit. A Fresco boundary is a real React
+  Split out of the view because `Panel` is a Fresco boundary, so the
+  panel's whole render contract is drivable from the node lane without a
+  React commit. A Fresco boundary is a real React
   function component: CALLING it outside a render extent would run
   `rf.fresco/sub` with no collector in flight, so the ~30 pure-hiccup
   rows in `trace_view_cljs_test` call THIS instead and supply the four
@@ -964,14 +949,13 @@
 
   `feed` is the whole `:rf.xray/trace-feed` map — only `:rows` and
   `:empty-kind` are rendered (the `:envelope` / `:bands` / `:outcome`
-  slots are retained for cross-panel consumers, per `install!` below).
+  slots serve cross-panel consumers, per `install!` below).
 
-  `instance` (rf2-pua3) is OPTIONAL and is the ALREADY-TOKENISED per-mount
+  `instance` is OPTIONAL and is the ALREADY-TOKENISED per-mount
   name — `Panel` below runs [[instance-token]] once and hands the result
   here, so the node-lane rows that drive this fn directly pass the token
-  itself rather than a raw `:instance-id`. Omitted (the shape every
-  existing caller in this tree passes) every id below is byte-for-byte what
-  it was."
+  itself rather than a raw `:instance-id`. Omitted, every id below is
+  unqualified."
   [{:keys [feed focus focused-event-bundle expanded-ids instance]}]
   (let [{:keys [rows empty-kind]} feed]
     [:section {:data-testid "rf-xray-trace"
@@ -991,24 +975,22 @@
         ;; row list.
         [:div {:data-testid "rf-xray-trace-feed"
                :style panel-feed-container-style}
-         ;; rf2-jnxfj — column-widths drag-handle bar. One header bar at
+         ;; Column-widths drag-handle bar. One header bar at
          ;; the top carries the gutter handles for the shared
          ;; `:rf.xray.trace/ops` table-id; the flat row list renders its
          ;; own resizable-table with `:header? false` reading the SAME
          ;; slot, so a drag here re-aligns every row.
-         ;; rf2-twil — the React key lives in this props map rather than as
-         ;; `^{:key "ops-header"}` reader meta on the vector below. The meta
-         ;; form was CORRECT here and is the sibling rf2-hxfy measured
-         ;; against (`REACT .-key ["ops-header" nil]`): reader meta rides a
-         ;; vector LITERAL, and Reagent reads meta THEN props. But Fresco's
-         ;; codec reads `:key` from the ATTRIBUTE MAP and reads Clojure
-         ;; metadata NOWHERE, so faithfully preserving the meta form through
-         ;; the migration would preserve a NO-OP — the key silently stops
+         ;; The React key lives in this props map rather than as
+         ;; `^{:key "ops-header"}` reader meta on the vector below. Reader
+         ;; meta on a vector LITERAL does reach React under Reagent, which
+         ;; reads meta THEN props. But Fresco's codec reads `:key` from the
+         ;; ATTRIBUTE MAP and reads Clojure metadata NOWHERE, so the meta
+         ;; form would be a NO-OP here — the key would silently stop
          ;; reaching React with nothing on screen to say so. The props map is
          ;; the one place BOTH substrates read, which is why the sibling
-         ;; below already keys there. `resizable-table` destructures named
+         ;; below keys there too. `resizable-table` destructures named
          ;; opts and never spreads them, so `:key` is inert for its body.
-         ;; rf2-fcy5 — head is the Fresco boundary, as in `flat-row-list`.
+         ;; The head is the Fresco boundary, as in `flat-row-list`.
          [rt/resizable-table-view
           {:key             "ops-header"
            :table-id        trace-ops-table-id
@@ -1018,16 +1000,16 @@
            :row-cells       (fn [_ _] [])
            :header-attrs    trace-header-attrs
            :header-cell-style trace-header-cell-style}]
-         ;; rf2-aqusw — the flat list of every op the focused epoch
+         ;; The flat list of every op the focused epoch
          ;; emitted, in fire order (oldest-first). No bands, no envelope.
-         ;; rf2-hxfy — its `:key` rides the props map `flat-row-list`
+         ;; Its `:key` rides the props map `flat-row-list`
          ;; builds (see there); reader meta on this CALL form would
          ;; attach to the list and never reach React.
          (flat-row-list instance rows expanded-ids)])]]))
 
 (rf.fresco/defview Panel
   "The Trace panel's root view — the focused epoch's whole trace as a
-  FLAT list (spec/023-Trace-Panel.md · rf2-aqusw). Reads
+  FLAT list (spec/023-Trace-Panel.md). Reads
   `:rf.xray/trace-feed` (the epoch-scoped feed) and renders the focused
   epoch's `:rows` as a single oldest-first list of op rows: each row
   carries a STAGE column + colour-coded left edge (the Epoch pipeline
@@ -1035,42 +1017,40 @@
   on its raw trace MAP inline. No bands, no envelope, no hierarchy. No
   mock data — fed by real trace data throughout.
 
-  ## THE READS (rf2-k97c.3 · rf2-fcy5, slice 3 of 3)
+  ## THE READS
 
-  Four `rf.fresco/sub`s in place of four `@(rf/subscribe …)`. Each returns
-  the VALUE rather than a reaction, and the edge is recorded by Fresco's
-  own collector WHERE THE READ HAPPENS — which is the coupling this
-  migration exists to sever: a `reg-view` body's reads are tracked only by
-  whichever reaction machinery the installed adapter happens to ship.
+  Four `rf.fresco/sub`s. Each returns the VALUE rather than a reaction,
+  and the edge is recorded by Fresco's own collector WHERE THE READ
+  HAPPENS — so the reads do not depend on whichever reaction machinery
+  the installed adapter ships, which is how a `reg-view` body's reads
+  are tracked.
 
-  ## THE DISPATCHES DID NOT MOVE, AND THAT IS THE MEASURED ANSWER
+  ## THE DISPATCHES CAPTURE THE FRAME AT RENDER TIME
 
-  This panel never used `reg-view`'s lexically injected bare `dispatch` /
-  `subscribe` — the only name a `defview` body does not bind. Its row and
-  cell handlers already capture the frame at render time (rf2-nesy9) and
+  This panel does not use `reg-view`'s lexically injected bare
+  `dispatch` / `subscribe` — the only name a `defview` body does not
+  bind. Its row and cell handlers capture the frame at render time and
   dispatch `{:frame frame}` explicitly, which is exactly right under a
   boundary: `intent/with-frame`'s refusal tier deletes the ambient FIND
   and not the CARRYING, and `rf/current-frame-id` answers the declared
-  frame while reading and dispatching nothing. So `op-row-attrs` and
-  `op-row-cells` carry over verbatim.
+  frame while reading and dispatching nothing.
 
-  ## THE THREE HEADS INSIDE THE BODY MOVED WITH IT
+  ## THE HEADS INSIDE THE BODY ARE FRESCO BOUNDARIES TOO
 
   A `reg-view` head grades `:invalid` to `codec/head-kind` down the
-  IDENTICAL arm a plain `defn` does, so migrating the mount without
-  migrating them would be the same HD-016 throw one level down — and with
-  no error boundary above this render path it presents as a tab that never
-  appears rather than as an error. The three WERE the two
-  `rt/resizable-table` heads (`flat-row-list` and the ops header) and
-  `ei/edn-inspector` in `render-payload`; each has a shipped Fresco
-  sibling and now heads it instead — `rt/resizable-table-view` and
-  `ei/edn-inspector-view` respectively, which is what the code reads
-  today. Every OTHER helper in this file is CALLED, so
-  Fresco's plain-fn-in-head-position rule never meets one.
+  IDENTICAL arm a plain `defn` does, so a `reg-view` head inside this
+  body would be the same HD-016 throw one level down — and with no error
+  boundary above this render path it would present as a tab that never
+  appears rather than as an error. So the three heads — the two
+  resizable tables (`flat-row-list` and the ops header) and the payload
+  inspector in `render-payload` — are the Fresco boundaries
+  `rt/resizable-table-view` and `ei/edn-inspector-view`. Every OTHER
+  helper in this file is CALLED, so Fresco's plain-fn-in-head-position
+  rule never meets one.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
 
-  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT (rf2-pua3)
+  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT
 
   This panel reads no DATA from props: everything it renders comes from the
   four subs below and from nothing else, and the L4 registry and the
@@ -1094,16 +1074,16 @@
 
   A non-blank string or a keyword — and a keyword's NAMESPACE is part of
   the name, so `:left/trace` and `:right/trace` are two instances and not
-  one (rf2-4bsq). It must be STABLE across that instance's renders — it is
+  one. It must be STABLE across that instance's renders — it is
   an identity, not a per-render nonce — and [[instance-token]] refuses,
   loudly, the shapes that could not be. OMIT IT when only one Trace panel
-  renders in this frame, which is every call site in this tree today: the
-  ids are then byte-for-byte what they were.
+  renders in this frame, which is every call site in `tools/xray/src`: the
+  ids are then unqualified.
 
   IT QUALIFIES THE PHYSICAL IDENTITY ONLY. Expansion, zoom and the row's
-  own testids are keyed by the `:site-id` and the row id and are left
-  exactly where they were, so two Trace panels of one epoch still open and
-  close together. The comment above `render-payload` carries the mechanism.
+  own testids are keyed by the `:site-id` and the row id and are not
+  qualified, so two Trace panels of one epoch open and close together.
+  The comment above `render-payload` carries the mechanism.
 
   BOTH DOORS INTO THIS BOUNDARY ANSWER THE SAME. Mounted from a Fresco body
   the prop arrives as written; mounted through [[Panel-bridge]] from a
@@ -1116,7 +1096,7 @@
     {:instance (instance-token instance-id)
      :feed  (rf.fresco/sub [:rf.xray/trace-feed])
      :focus (rf.fresco/sub [:rf.xray/focus])
-     ;; rf2-wcfsy — focused-event-bundle is a layer-3 composite over
+     ;; focused-event-bundle is a layer-3 composite over
      ;; `:rf.xray/event-bundles` + `:rf.xray/focus`, NOT an inline scan in
      ;; the render body. The composite memoises on its two input signals
      ;; so the scan only re-runs when event-bundles / focus actually
@@ -1124,16 +1104,13 @@
      :focused-event-bundle (rf.fresco/sub [:rf.xray.trace/focused-event-bundle])
      :expanded-ids         (rf.fresco/sub [:rf.xray/trace-expanded-row-ids])}))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge --------------------------------------------------
 ;;
-;; `panels/mount-trace!` mounts this panel BY NAME, and RULING 1's
-;; surviving spelling puts the Fresco boundary on the natural name with a
-;; PUBLIC bridge passed by the caller — the shape `resources/Panel-bridge`
-;; already ships. `mount-trace!` was pointed at the bridge name while it
-;; was still a plain alias (PR #9654), which is what let this panel's
-;; migration happen entirely INSIDE THIS FILE: `panels.cljs` is untouched.
+;; `panels/mount-trace!` mounts this panel BY NAME: the Fresco boundary
+;; sits on the natural name, with a PUBLIC bridge passed by the caller —
+;; the shape `resources/Panel-bridge` ships.
 ;;
-;; `shell/detail-panel` — a Fresco boundary since rf2-k97c.3 — reaches the
+;; `shell/detail-panel` — a Fresco boundary — reaches the
 ;; active tab across an `as-child` seam as the hiccup head
 ;; `[(:panel tab)]`, `panel-registry/reg-l4-tab!`'s `:pre` requires
 ;; `:panel` to be CALLABLE, and `render-panel!` builds the component VECTOR
@@ -1145,10 +1122,10 @@
 ;; rather than from a second root. No second root, no adapter-kind branch,
 ;; no props ABI.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-trace!` reaches this
-;; bridge through `render-panel!`, which rf2-l1jm keeps ratom-family, so a
-;; Reagent parent heads it by ruling whatever the L4 registry does. The
-;; chain is `[:>]` -> `as-component` -> `Panel`.
+;; NOT SCAFFOLDING — THE PAIR IS PERMANENT. `panels/mount-trace!` reaches
+;; this bridge through `render-panel!`, which is ratom-family, so a
+;; Reagent parent heads it whatever the L4 registry does. The chain is
+;; `[:>]` -> `as-component` -> `Panel`.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
@@ -1167,16 +1144,16 @@
   facade and `panels/render-panel!` takes the view to mount as an
   ARGUMENT — so the embedding contract needs a name it can pass.
 
-  rf2-pua3 — the 1-arity is how a REAGENT parent names an instance when it
+  The 1-arity is how a REAGENT parent names an instance when it
   renders two of these under one `frame-provider`:
 
       [Panel-bridge {:instance-id \"left\"}]
 
-  The 0-arity stays because that is how the shell mounts an L4 tab
+  The 0-arity is how the shell mounts an L4 tab
   (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
   (`[panel-view]`) — one panel per frame, no instance to name.
 
-  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+  ## The prop is TOKENISED HERE, before the crossing
 
   `[:>]` converts each prop VALUE before React sees it, and Reagent's
   `convert-prop-value` converts a named value with `cljs.core/name` — which
@@ -1185,7 +1162,8 @@
   had deliberately named apart would compose the same
   `rf-xray-trace-row-trace/101` — one lifecycle entry, one ResizeObserver,
   one width slot, and detaching either releasing the other's. That is
-  precisely the collision rf2-pua3 repairs, restored by the crossing.
+  precisely the collision `:instance-id` exists to prevent, reintroduced
+  by the crossing.
 
   So the bridge runs [[instance-token]] — the SAME normaliser the boundary
   uses — and a STRING crosses, which Reagent preserves intact. The
@@ -1220,52 +1198,52 @@
   ;; `panels.shared.focus-resolver` — which classifies the focus status
   ;; (`:no-focus` / `:no-epoch` / `:focused` / `:epoch-evicted`) and looks
   ;; up the record. `h/project-feed-from-epoch` projects that record's
-  ;; `:trace-events` into the feed shape. The flat panel (rf2-aqusw)
+  ;; `:trace-events` into the feed shape. The flat panel
   ;; reads only `:rows` + `:empty-kind`; the `:envelope` / `:bands` /
-  ;; `:outcome` slots are RETAINED for cross-panel consumers + the
-  ;; band-projection helper tests, but the view no longer renders them.
+  ;; `:outcome` slots serve cross-panel consumers + the
+  ;; band-projection helper tests, and the view does not render them.
   ;;
   ;; Shape of `:rf.xray/trace-feed`:
   ;;
   ;;     {:rows       [<row> ...]   ;; the epoch's domino trail, oldest-first
   ;;                                ;; (the flat list the panel renders)
-  ;;      :envelope   [<row> ...]   ;; the :rf.epoch/* ops (retained — not rendered)
-  ;;      :outcome    <:ok/:blocked/:error-or-nil>  ;; (retained — not rendered)
-  ;;      :bands      [{:id :label :rows :count :empty?} ...]  ;; (retained — not rendered)
+  ;;      :envelope   [<row> ...]   ;; the :rf.epoch/* ops (not rendered)
+  ;;      :outcome    <:ok/:blocked/:error-or-nil>  ;; (not rendered)
+  ;;      :bands      [{:id :label :rows :count :empty?} ...]  ;; (not rendered)
   ;;      :total      <int>         ;; the epoch's trace-event count
   ;;      :rendered   <int>         ;; same as :total (no filtering)
   ;;      :epoch-id   <int-or-nil>  ;; the focused epoch's id
   ;;      :empty-kind <:no-events / :no-focus / :no-epoch / :epoch-evicted / nil>}
   ;;
-  ;; rf2-c4abp — THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
+  ;; THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
   ;; second data axis. A focus the operator SET to an event bundle that
   ;; settled no epoch carries a nil `:epoch-id`
   ;; (`spine/epoch-id-for-event-bundle` answers nil for a refused dispatch,
   ;; a bundle still mid-build, a bundle whose epoch aged out, and an
   ;; `:ungrouped` pin alike), which is SHAPE-IDENTICAL to the cold-start
-  ;; UNSET focus that rf2-h0120's head-fallback exists to serve. So the
-  ;; 2-arities could not tell the two apart and answered the HEAD for both:
-  ;; this tab painted a complete, plausible domino trail belonging to a
+  ;; UNSET focus that the head-fallback exists to serve. The 2-arities
+  ;; cannot tell the two apart and answer the HEAD for both, so this tab
+  ;; would paint a complete, plausible domino trail belonging to a
   ;; DIFFERENT event underneath the operator's selection. Passing the
-  ;; pinned `:dispatch-id` into the 3-arities (what rf2-y8doi.19 landed for
-  ;; the Epoch panel) is what separates them.
+  ;; pinned `:dispatch-id` into the 3-arities (as the Epoch panel does) is
+  ;; what separates them.
   ;;
   ;; The `:no-epoch` `:empty-kind` comes from `project-feed-from-epoch`
-  ;; itself, like every other status (rf2-p766c). It must never read
+  ;; itself, like every other status. It must never read
   ;; `:no-events`, which would assert that a focused epoch ran and emitted
   ;; nothing when in truth no epoch was resolved at all.
   ;;
-  ;; rf2-y8doi.14 — THE THIRD INPUT IS THE REDACTION SEAM, not a data axis.
+  ;; THE THIRD INPUT IS THE REDACTION SEAM, not a data axis.
   ;; `:rf.xray/observed-frame` names the frame whose `:sensitive` policy
   ;; governs the record's `:db-before` / `:db-after`, and the 3-arity of
   ;; `project-feed-from-epoch` projects both through the SAME
   ;; `local-render/local-render-value` the App-DB tab applies at
   ;; `app_db_diff_subs/:rf.xray/app-db-state` before deriving the per-path
-  ;; diff. Without it this sub handed `db-diff-row` the raw values and the
-  ;; panel printed a declared-sensitive slot the App-DB tab redacts for the
-  ;; identical record.
+  ;; diff. Without it this sub would hand `db-diff-row` the raw values and
+  ;; the panel would print a declared-sensitive slot the App-DB tab
+  ;; redacts for the identical record.
   ;;
-  ;; It is the seam the App-DB tab already uses, which is the point: one
+  ;; It is the seam the App-DB tab uses, which is the point: one
   ;; policy resolved once, so the two tabs cannot disagree about what a
   ;; frame declared. It costs one extra input signal; `observed-frame`
   ;; itself derives from `:rf.xray/focus` + `:rf.xray/target-frame`, so
@@ -1285,31 +1263,25 @@
                                                        epoch-history)]
         (h/project-feed-from-epoch record focus-status observed-frame))))
 
-  ;; ---- focused event-bundle (rf2-wcfsy) -----------------------------------
+  ;; ---- focused event-bundle -----------------------------------------------
   ;;
   ;; Layer-3 composite over `:rf.xray/event-bundles` + `:rf.xray/focus`. The
   ;; Trace panel reads this directly instead of scanning the event-bundles
-  ;; vector in its render body (the previous shape: a linear
-  ;; `(some #(when (= focused-id (:dispatch-id %)) %) event-bundles)` that
-  ;; ran on every Panel render — O(N) over the event-bundles vector, defeats
-  ;; memoisation because the result was reconstructed per render).
+  ;; vector in its render body, where a linear scan would run on every
+  ;; Panel render — O(N) over the event-bundles vector, with the result
+  ;; reconstructed per render, defeating memoisation.
   ;;
   ;; As a layer-3 composite the scan only re-runs when its input
-  ;; signals (event-bundles or focus) actually change. The result is the
-  ;; same record `(some #(= focused-id (:dispatch-id %)) event-bundles)`
-  ;; would return — so the downstream `event-bundle-status-bar` call site
-  ;; continues to work verbatim.
+  ;; signals (event-bundles or focus) actually change.
   ;;
-  ;; Why both input subs are still subscribed in the Panel: the Panel
-  ;; passes `focus` itself (not just the focused-event-bundle) into
-  ;; `event-bundle-status-bar`, so it still needs the focus signal. The
-  ;; event-bundles sub feeds many other panels (L2 list, Issues ribbon, …);
-  ;; reg-sub de-dupes the underlying signal so subscribing here costs
-  ;; nothing extra.
+  ;; The Panel also reads the focus signal itself, because it passes
+  ;; `focus` (not just the focused-event-bundle) into
+  ;; `event-bundle-status-bar`; reg-sub de-dupes the underlying signal so
+  ;; reading it there costs nothing extra.
   (rf/reg-sub :rf.xray.trace/focused-event-bundle
     {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus]]}
     (fn [[event-bundles focus] _query]
-      ;; rf2-bz7flo — resolve frame-strictly. Dispatch ids are unique only
+      ;; Resolve frame-strictly. Dispatch ids are unique only
       ;; within a frame, so a same-id event-bundle from a foreign frame could be
       ;; returned here when focus is on another frame. `event-bundle-by-focus`
       ;; keys by both `:frame` + `:dispatch-id` when focus carries a frame.
@@ -1332,26 +1304,24 @@
                  (disj current row-id)
                  (conj current row-id))))}))
 
-  ;; rf2-aqusw — the flat list lost the collapsible phase bands; the
-  ;; expand set is the only per-row UI state left to clear.
+  ;; The flat list has no collapsible phase bands; the expand set is the
+  ;; only per-row UI state to clear.
   (rf/reg-event :rf.xray/clear-trace-expand
     (fn [{:keys [db]} _event]
       {:db (dissoc db :trace-expanded-row-ids)}))
 
-  ;; rf2-2moh1 — register the Dynamic Trace tab with the internal L4
-  ;; tab registry. The tab keeps its `t` mnemonic + order-3 placement.
+  ;; Register the Dynamic Trace tab with the internal L4 tab registry,
+  ;; with its `t` mnemonic + order-3 placement.
   (panel-registry/reg-l4-tab!
     {:id    :trace
      :label "Trace"
      :mnem  "t"
      :modes #{:dynamic}
      :order 3
-     ;; rf2-fcy5 — `Panel-bridge`, not `Panel`. `Panel` is now a React
-     ;; component (a Fresco boundary) and the shell mounts `:panel` as a
-     ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
-     ;; and the bridge stayed anyway: the shell still reaches the panel
-     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
-     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
-     ;; callable `:panel`.
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React component (a
+     ;; Fresco boundary) and the shell mounts `:panel` as a Reagent
+     ;; hiccup head; the bridge is the one line between them. The shell
+     ;; is a Fresco tree, but it reaches the panel across an `as-child`
+     ;; seam, so `[(:panel tab)]` is a Reagent hiccup vector and
+     ;; `reg-l4-tab!`'s `:pre` requires a callable `:panel`.
      :panel Panel-bridge}))
