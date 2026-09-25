@@ -3148,7 +3148,7 @@ async function main() {
   console.log(`;; design    ${ROUNDS} rounds x (${WARMUP} warm-up + ${SAMPLES} samples) per arm per segment`);
   console.log(
     `;; reproduce ${ONLY ? `HCLOCK_ONLY=${ONLY} ` : ''}node ` +
-      `implementation/fresco/test/re_frame/bench/fresco/clock_run.cjs`
+      `bench/fresco/src/re_frame/bench/fresco/clock_run.cjs`
   );
   console.log(`;; tare      ${TARE ? 'ON' : 'OFF'} — plumb, an arm that mounts nothing and settles the same frame`);
   console.log(`;; PREDICTIONS, written before the run:`);
