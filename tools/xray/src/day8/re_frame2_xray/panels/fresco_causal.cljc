@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.fresco-causal
-  "ONE complete causal slice, link by link (rf2-hic-037).
+  "ONE complete causal slice, link by link.
 
   Spec SN §10 states the causal lens as a chain:
 
@@ -71,7 +71,7 @@
   IDENTICAL rows. `:host-opaque` therefore means *React owns commit and
   paint for any boundary* and never *a foreign subtree was crossed* —
   the two are indistinguishable in this output because only the first is
-  a fact this projection computes (rf2-t2d3).
+  a fact this projection computes.
 
   What DOES change past the fence is what the four rosters can see, and
   that is visible in the prefix rather than in the opacity: an island's
@@ -138,14 +138,14 @@
   still holds it, else [[newest-dispatch]].
 
   `focus` is `:rf.xray/focus`, Spec 018 §6's single selection axis. Its
-  *Atomicity contract* is the ruling and needs no new one: *No panel
-  maintains its own selection state; no panel reads `(peek history)`*, and
-  its per-layer table binds L4 detail content to `:dispatch-id`,
-  `:epoch-id` and `:frame`. [[newest-dispatch]] is `(peek history)` under
-  another name — which made the ONE view whose job is *one dispatch,
-  walked* the only Dynamic surface that moved under the reader on every
-  application dispatch. A developer who clicked an event on the spine and
-  opened Causal to walk it got whatever had happened since.
+  *Atomicity contract* settles it: *No panel maintains its own selection
+  state; no panel reads `(peek history)`*, and its per-layer table binds
+  L4 detail content to `:dispatch-id`, `:epoch-id` and `:frame`.
+  [[newest-dispatch]] is `(peek history)` under another name — walking it
+  would make the ONE view whose job is *one dispatch, walked* the only
+  Dynamic surface that moves under the reader on every application
+  dispatch, and a developer who clicked an event on the spine and opened
+  Causal to walk it would get whatever had happened since.
 
   **Retention is checked through [[bundle-for]] rather than beside it**,
   so *the ring holds this dispatch* has one definition here: a focus
@@ -182,14 +182,14 @@
   `slice` was given, so these three rows are identical over every subject
   — including one whose subtree crosses into the native tier or into a
   foreign React component. See the namespace docstring for why that is
-  the honest shape rather than a missing discrimination (rf2-t2d3)."
+  the honest shape rather than a missing discrimination."
   [{:id    :bodies-run
     :label "bodies run"
     :says  (str "Whether a notified boundary re-ran, retried, was abandoned or "
                 "was bailed out by its memo comparator is React's to know. The "
                 "comparator sits ABOVE the boundary's own function, so a "
                 "bail-out never enters it. Fresco emits no `:rf.view/render` "
-                "trace, and per-boundary self time was killed as a decision: "
+                "trace, and per-boundary self time is ruled out by design: "
                 "the 0.1 ms timer grain is coarser than the quantity, so a "
                 "ranking built on it would order noise.")
     :authority "React DevTools Profiler"}
@@ -239,14 +239,13 @@
   "Link 2 — the subscriptions this dispatch RECOMPUTED.
 
   The roster is filtered on `hh/sub-recompute?`, which is the same
-  predicate `fresco-advisor`'s timing fold asks of the same events. It
-  was not: this link collected every `:subs` item carrying an
-  `:rf.sub/id`, and the projection's `:subs` slot holds `:rf.sub/skip`,
-  `:rf.sub/create` and `:rf.sub/dispose` alongside `:rf.sub/run` (Spec 009
-  §`:op-type` vocabulary). A memo hit therefore appeared in a roster
-  labelled *subscriptions recomputed*, under an `evidenced` chip, while
-  the advisor was correctly calling the same event a skip — one window,
-  two public answers, and they disagreed (rf2-hic-037, audit #8027).
+  predicate `fresco-advisor`'s timing fold asks of the same events. The
+  projection's `:subs` slot holds `:rf.sub/skip`, `:rf.sub/create` and
+  `:rf.sub/dispose` alongside `:rf.sub/run` (Spec 009 §`:op-type`
+  vocabulary), so collecting every `:subs` item carrying an `:rf.sub/id`
+  would put a memo hit in a roster labelled *subscriptions recomputed*,
+  under an `evidenced` chip, while the advisor calls the same event a
+  skip — one window, two public answers, and they would disagree.
 
   The memo hits are REPORTED rather than discarded. A skip is real
   evidence that the cell was considered and did not run, which is the
@@ -272,9 +271,8 @@
           skip-ids  (into [] (distinct) (keep #(get-in % [:tags :rf.sub/id]) skips))
           skip-count (count skips)]
       {:id :subs-recomputed :ordinal 2 :label "subscriptions recomputed"
-       ;; `:rf.sub/run` ALONE since rf2-y8doi.26 — a `:rf.sub/create` is a
-       ;; REGISTRATION (Spec 009 §199, §241), so naming it here would
-       ;; promise the reader that this roster holds bodies that ran.
+       ;; `:rf.sub/run` ALONE — a `:rf.sub/create` is a REGISTRATION
+       ;; (Spec 009 §199, §241), so naming it here would promise the reader that this roster holds bodies that ran.
        :seam (str "the bundle's `:subs` RECOMPUTE events "
                   "(`:rf.sub/run`), keyed `:rf.sub/id`")
        :basis :observation
@@ -287,7 +285,7 @@
        :holds (if (and (empty? named) (pos? unnamed)) hh/unknown named)
        ;; The memo hits, on their OWN field. Never merged into `:holds`:
        ;; the two are different events with opposite meanings, and one
-       ;; roster holding both is the defect this link had.
+       ;; roster holding both would report work that did not happen.
        :skipped {:count skip-count :sub-ids skip-ids}
        :loss  (if (pos? unnamed)
                 {:reason :uncorrelated :dropped unnamed}
@@ -335,7 +333,7 @@
 
   It earns its place anyway: a slice whose recompute roster and whose
   moved reads share nothing at all is a different situation from one where
-  they coincide exactly, and before this the reader had two adjacent lists
+  they coincide exactly, and without it the reader has two adjacent lists
   and no statement about their relationship in either direction."
   [recomputed latest-reads]
   (when (and (coll? recomputed) (coll? latest-reads))
@@ -427,22 +425,22 @@
 
     :else
     ;; THE KEY IS THE CELL — `[frame-id sub-id query]` — and not the
-    ;; registration (rf2-y8doi.26). It was `[frame-id sub-id]`, so ONE
-    ;; moved cell matched EVERY parameterization of its registration and
-    ;; this link named all of their readers as notified. On a list of
+    ;; registration. Keyed on `[frame-id sub-id]`, ONE moved cell would
+    ;; match EVERY parameterization of its registration and this link
+    ;; would name all of their readers as notified. On a list of
     ;; `[:todo/by-id n]` rows that is every row on the page reported as
     ;; notified by a commit that touched one of them — and it is the
     ;; reverse edge, the one link here that answers *who re-runs because
-    ;; of this*, so the fabrication lands on the question the slice exists
-    ;; to answer.
+    ;; of this*, so the fabrication would land on the question the slice
+    ;; exists to answer.
     ;;
     ;; The finer key is the producer's own and needs no new field:
     ;; `edge-row` carries `:query` on every edge, and `explanation`'s
     ;; `:latest-reads` carries it on every moved read for exactly this
     ;; reason — its comment says `[:row 1]` and `[:row 2]` are one sub-id
     ;; and two different reads, and that a Why view collapsing them would
-    ;; answer "`:row` moved" to a developer looking at eight rows. Link 4
-    ;; was that collapse, one link further on.
+    ;; answer "`:row` moved" to a developer looking at eight rows. A
+    ;; registration key here would be that collapse, one link further on.
     (let [moved   (into #{} (map (juxt :frame-id :sub-id :query)) (:latest-reads ex))
           matched (filter #(contains? moved [(:frame-id %) (:sub-id %) (:query %)])
                           (:edges attribution))
@@ -496,7 +494,7 @@
   it, else the newest — so this view obeys Spec 018 §6's single selection
   axis like every other L4 surface instead of tracking the head on its
   own. `:focus` is `:rf.xray/focus` and may be absent, in which case the
-  answer is the newest retained dispatch as before. `:boundary-key` has no
+  answer is the newest retained dispatch. `:boundary-key` has no
   default here: the panel passes the advisor's top-ranked boundary, so the
   slice is about the boundary the roster just pointed at.
 
@@ -513,9 +511,8 @@
         attribution    (:read-attribution envelopes)
         ;; Link 2 is built FIRST and link 3 reads its roster, so the
         ;; overlap sentence quotes the roster this slice actually renders
-        ;; rather than re-deriving one beside it. A second derivation is
-        ;; how link 2 and the advisor came to give one window two public
-        ;; answers (audit #8027).
+        ;; rather than re-deriving one beside it. A second derivation could
+        ;; give one window two public answers.
         l2             (link-subs bundle)
         links          (into [(link-event fid bundle did frames)
                               l2
