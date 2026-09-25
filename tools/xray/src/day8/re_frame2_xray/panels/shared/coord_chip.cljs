@@ -2,28 +2,23 @@
   "Shared `coord-chip` — the canonical 'open in editor' icon-only chip
   used across panels (Epoch, future surfaces).
 
-  ## Why this exists (rf2-xjgdk, audit L2)
+  ## Why this exists
 
-  Before rf2-xjgdk two near-identical icon-only chip components lived
-  as private `defn-`s in `panels/epoch/view.cljs` and (the now-
-  retired) `panels/event_detail.cljs`. The hiccup was 99% the same —
-  a `<button>` carrying the lucide `external-link` glyph, dispatching
+  Every icon-only open-in-editor chip is the same hiccup — a `<button>`
+  carrying the lucide `external-link` glyph, dispatching
   `[:rf.xray/open-in-editor {:source-coord coord}]` on the `:rf/xray`
   frame, hidden when the coord has no `:file`. Only two pixel knobs
-  varied:
+  vary, and they are options here:
 
-  - **`:color`** — Epoch used `\"inherit\"` (the chip rides whatever
-    text colour its parent set); the retired Event-detail panel used
-    `(:accent tokens)`.
-  - **`:margin-left`** — Epoch `4px`, Event-detail `6px`.
+  - **`:color`** — `\"inherit\"` by default (the chip rides whatever
+    text colour its parent set), or `(:accent tokens)` for a chip
+    standing alone.
+  - **`:margin-left`** — `4px` by default, `6px` for a wider tap target.
 
-  Folding the two into one shared component removes the duplication
-  and makes UX changes to the open-in-editor affordance a one-file
-  edit. Per the bead the Epoch panel's coord-chip (rf2-ehd8v +
-  rf2-80u5a) is the canonical version; this ns mirrors its shape and
-  exposes the two knobs as options.
+  One shared component keeps the chips identical and makes UX changes
+  to the open-in-editor affordance a one-file edit.
 
-  ## Style hoist (rf2-xjgdk, audit F4)
+  ## Style hoist
 
   The chip's button style is hoisted to a ns-top `def` so a single
   immutable map is reused across every chip render rather than
@@ -40,8 +35,7 @@
   the click is observable as a first-class operation on the
   `:rf/xray` frame, and the URI resolution happens inside the
   `:rf.xray/open-in-editor` reg-event → `:rf.xray.fx/open-in-editor` reg-fx
-  pipeline. Both surfaces co-exist by design (rf2-evgf5 / rf2-g5q8d
-  decision)."
+  pipeline. Both surfaces co-exist by design."
   (:require [day8.re-frame2-xray.panels.event.icons :as icons]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
@@ -70,10 +64,10 @@
   cleanly).
 
   Clicking dispatches `[:rf.xray/open-in-editor {:source-coord coord}]`
-  through the caller-supplied frame-aware dispatcher (rf2-r0o63) so the
+  through the caller-supplied frame-aware dispatcher so the
   open-in-editor event lands on the surrounding instance frame; the
   trace bus records the click, the `:rf.xray.fx/open-in-editor` fx resolves the
-  URI through the rf2-cm93v allowlist, and `Location.assign` fires.
+  URI through the editor-URI allowlist, and `Location.assign` fires.
 
   Accessibility: the chip is a `<button>` (so Enter / Space activate
   natively), `aria-label` reads 'open in editor', and the inline SVG
@@ -89,19 +83,16 @@
   - `opts` (optional) — pixel-knob overrides:
     - `:color`        — chip colour. Defaults to `\"inherit\"` (rides
                         whatever text colour the parent set, the Epoch
-                        idiom). Pass `(:accent tokens)` for the
-                        Event-detail idiom where the chip stands
-                        alone in a `:text-primary` row.
+                        idiom). Pass `(:accent tokens)` where the chip
+                        stands alone in a `:text-primary` row.
     - `:margin-left`  — chip left-margin. Defaults to `\"4px\"`. Pass
-                        `\"6px\"` to match Event-detail's slightly
-                        wider tap target.
-    - `:dispatch-fn`  — (rf2-r0o63) the frame-aware dispatcher captured
-                        by the surrounding `reg-view` body so the
+                        `\"6px\"` for a slightly wider tap target.
+    - `:dispatch-fn`  — the frame-aware dispatcher captured
+                        by the surrounding view body so the
                         open-in-editor click lands on the instance
                         frame. Defaults to `coord-link/default-dispatch`
                         (the production singleton frame) for call-sites
-                        the rf2-nesy9 sweep hasn't yet threaded a
-                        captured dispatcher through."
+                        that pass no captured dispatcher."
   ([coord testid]
    (coord-chip coord testid nil))
   ([coord testid {:keys [color margin-left dispatch-fn]
