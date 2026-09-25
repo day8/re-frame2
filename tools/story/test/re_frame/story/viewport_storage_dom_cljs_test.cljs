@@ -1,51 +1,32 @@
 (ns re-frame.story.viewport-storage-dom-cljs-test
-  "Browser-lane home for viewport-selection persistence (rf2-zll4h),
-  assembled under rf2-r51p out of rows that ran in NO lane at all.
+  "Browser-lane home for viewport-selection persistence.
 
-  ## Where these rows came from, and why neither source could run them
+  ## Why these rows need a real host
 
-  `re-frame.story.viewport-test` (`viewport_test.cljc`) held four
-  `#?(:cljs (deftest storage-* ...))` rows. Its namespace ends `-test`,
-  not `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`) does not
-  select it, `:browser-test`'s (`.*-dom-cljs-test$`) does not match it,
-  and nothing else requires it. Those rows were not merely guarded-false
-  — they were UNREACHABLE: no CLJS build compiled them at all.
-
-  That file's docstring was candid about half of this and wrong about the
-  rest. It said CLJS coverage \"comes from the parallel
-  `viewport_switcher_cljs_test`\" — but the corresponding rows THERE were
-  themselves dead, sitting inside `(when (browser?) ...)` in a namespace
-  the browser lane never loads and a node runtime that has no
-  `window.localStorage` (this repo ships no jsdom, no happy-dom and no
-  DOM shim in any dependency list). Both layers of the intended coverage
-  were inert, and each pointed at the other.
-
-  Both defects have one repair, because both want the same thing: a real
-  `window.localStorage`. Every row below is a genuine round-trip —
-  `save-to-storage!` writes through `.setItem`, `load-from-storage` reads
-  back through `.getItem`, `hydrate!` seeds the shell slot from what
-  survived. That is real host-storage semantics, which rf2-r51p rules
-  needs a real host rather than a stub.
+  Every row below is a genuine round-trip against a real
+  `window.localStorage` — `save-to-storage!` writes through `.setItem`,
+  `load-from-storage` reads back through `.getItem`, `hydrate!` seeds the
+  shell slot from what survived. That is real host-storage semantics, so
+  it needs a real host rather than a stub, and a node runtime has no
+  `window.localStorage` (this repo ships no jsdom, no happy-dom and no DOM
+  shim in any dependency list). The `-dom-cljs-test` suffix is what puts
+  the rows on `:browser-test` (`.*-dom-cljs-test$`): in a namespace ending
+  plain `-test` neither `:node-test`'s `cljs-test$` nor that regex would
+  select them, and no CLJS build would compile them at all.
 
   ## THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES
 
   `:node-test`'s `cljs-test$` is a bare SUFFIX match that
   `-dom-cljs-test` satisfies exactly as `-cljs-test` does, and
-  `implementation/shadow-cljs.edn` records that overlap as deliberate. So
-  moving a row here ADDS the browser lane; it removes nothing. Each row
-  answers the node lane with a VISIBLE marker assertion rather than a
-  silent `when`, so no deftest here holds zero assertions — a bare `when`
-  would merely relocate the hollow shape rf2-r51p exists to remove.
+  `implementation/shadow-cljs.edn` records that overlap as deliberate.
+  Each row answers the node lane with a VISIBLE marker assertion rather
+  than a silent `when`, so no deftest here holds zero assertions — a bare
+  `when` would leave a hollow deftest on the node lane.
 
-  The JVM half of both source files is untouched: neither carries a
-  single `#?(:clj ...)` form, and every cross-host row in them (preset
-  table, custom `{:width :height}` validation, resolve precedence,
-  `wrap-style`) is a bare unconditional `deftest` that still runs under
-  `clojure -M:test`.
-
-  These assertions had never executed in ANY lane. A failure here is
-  evidence about `save-to-storage!` / `load-from-storage` / `hydrate!`
-  arriving for the first time, not a regression introduced by the move."
+  The cross-host viewport rows (preset table, custom `{:width :height}`
+  validation, resolve precedence, `wrap-style`) live in
+  `viewport_test.cljc` as unconditional `deftest`s, so they run under
+  `clojure -M:test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.story.viewport :as rf.story.viewport]
             [re-frame.story.ui.viewport-switcher
@@ -115,10 +96,9 @@
       (is true skip-msg)
       (do
         (clear-storage!)
-        ;; This row used to assert `(nil? (load-from-storage))` straight
-        ;; after a `clear-storage!`, which passes against a storage that
-        ;; silently swallows every write — the exact vacuity rf2-r51p
-        ;; tightens for. Seed a VALID value first, so the assertions below
+        ;; Asserting `(nil? (load-from-storage))` straight after a
+        ;; `clear-storage!` would pass against a storage that silently
+        ;; swallows every write. Seed a VALID value first, so the assertions below
         ;; distinguish "the invalid save was refused" from "nothing works".
         (rf.story.viewport/save-to-storage! :tablet)
         (is (= :tablet (rf.story.viewport/load-from-storage))
