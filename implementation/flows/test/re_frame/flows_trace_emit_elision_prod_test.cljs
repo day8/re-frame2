@@ -31,7 +31,7 @@
 
   Note: the cascade-level `:rf.error/flow-eval-exception` carried by
   the always-on error-emit substrate is the production observability
-  signal for `:derive` failures per rf2-gmrks; the per-flow
+  signal for `:derive` failures; the per-flow
   `:rf.flow/failed` trace is detail-grain only and DCEs in prod. The
   prod-survival of the error-emit substrate is pinned by
   `re-frame.flow-eval-exception-elision-prod-test`."
@@ -76,7 +76,7 @@
 ;; ---- :rf.flow/registered elides under prod --------------------------------
 
 (deftest reg-flow-emits-no-registered-trace-under-prod
-  (testing "Per Spec 009 §Production-elision (rf2-xxd6z): `reg-flow`
+  (testing "Per Spec 009 §Production-elision: `reg-flow`
             installs the flow into the per-frame flow store but emits NO
             `:rf.flow/registered` trace under `:advanced` +
             `goog.DEBUG=false`. The listener records EVERY event, so the
@@ -194,7 +194,7 @@
 ;; ---- :schema output validation elides under prod --------------------------
 
 (deftest flow-output-schema-validation-elides-under-prod
-  (testing "Per Spec 009 §Production-elision (rf2-ee38b.9): a flow whose
+  (testing "Per Spec 009 §Production-elision: a flow whose
             computed `:derive` output VIOLATES its `:schema` emits NO
             `:rf.error/schema-validation-failure :where :flow-output`
             trace under `:advanced` + `goog.DEBUG=false`. A predicate
