@@ -42,7 +42,7 @@
 
 (def sub-mode-ids
   "Set of valid sub-mode ids for input validation. Per spec the strip
-  ALWAYS exposes all four cells (even if Sim is a placeholder + Cascade
+  ALWAYS exposes all four cells (even though Cascade
   is dimmed); a stored value outside this set normalises back to
   `:topology` (the default mode)."
   (set sub-modes))
