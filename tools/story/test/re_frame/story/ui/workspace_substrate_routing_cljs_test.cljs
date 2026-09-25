@@ -85,7 +85,7 @@
 
 (defn- register-probe-views! []
   (rf/reg-view* :views/probe reagent-probe-view)
-  (rf.story/reg-story* :story.workspace-routing {:doc "rf2-r4coe witness story"})
+  (rf.story/reg-story* :story.workspace-routing {:doc "workspace-routing witness story"})
   (rf.story/reg-variant* :story.workspace-routing/uix-only
     {:doc        "Declares ONE substrate, and it is not Reagent."
      :component  :views/probe
@@ -99,7 +99,7 @@
      :component  :views/probe})
   ;; The subject and layer inherited through `:extends`
   ;; from a variant of a story that names neither.
-  (rf.story/reg-story* :story.workspace-extends {:doc "rf2-3x7nj.28.2 witness story"})
+  (rf.story/reg-story* :story.workspace-extends {:doc "workspace-extends witness story"})
   (rf.story/reg-variant* :story.workspace-extends/base
     {:doc        "Names the subject and the layer."
      :component  :views/probe
