@@ -496,25 +496,39 @@
   (testing "density keyword resolves to the canonical px value the
             radio writes into `--rf-xray-font-size`. Compact tightens
             by 1px, cosy is the baseline (matches
-            `tokens/font-size-default`), comfy loosens by 1px."
+            `tokens/font-size-default`); those are the only tiers."
     (is (= 12 (:compact effects/density->font-size-px)))
     (is (= 13 (:cosy    effects/density->font-size-px)))
-    (is (= 14 (:comfy   effects/density->font-size-px)))
+    (is (= #{:compact :cosy} (set (keys effects/density->font-size-px))))
     (is (= "13px" tokens/font-size-default)
         "cosy mapping matches the type-scale's baseline default")))
 
 (deftest density->px-falls-back-to-cosy-on-unknown
   ;; The `:rf.xray/density` sub coerces unknown values to `:cosy`;
-  ;; the apply-fn mirrors that posture so a persisted pre-2026-05-19
-  ;; `:comfy` payload (now dropped from the radio enumeration) lands
-  ;; on a coherent px value rather than nil/throw.
+  ;; the apply-fn mirrors that posture, so a persisted `:comfy` or any
+  ;; other stray value lands on the cosy px rather than nil/throw.
   (is (= 13 (effects/density->px :cosy)))
   (is (= 12 (effects/density->px :compact)))
-  (is (= 14 (effects/density->px :comfy)))
+  (is (= 13 (effects/density->px :comfy))
+      "a persisted :comfy renders at the size the sub's :cosy reading promises")
   (is (= 13 (effects/density->px :something-weird))
       "unknown density coerces to the cosy default")
   (is (= 13 (effects/density->px nil))
       "nil density coerces to the cosy default"))
+
+(deftest density-effect-agrees-with-the-density-sub
+  (testing "whatever the stored density — either tier, a persisted
+            `:comfy`, or a stray value — the px the effect writes for the
+            stored value is the px of the tier `:rf.xray/density` reports,
+            so the font size and the row rhythm never disagree"
+    (setup!)
+    (doseq [stored [:compact :cosy :comfy :something-weird]]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/settings-update :general :density stored])
+        (let [reported @(rf/subscribe [:rf.xray/density])]
+          (is (= (effects/density->px reported) (effects/density->px stored))
+              (str "stored " stored " → sub reports " reported
+                   "; the effect must write that tier's px")))))))
 
 ;; ---- use-system-colors? (rf2-846h2) ------------------------------------
 

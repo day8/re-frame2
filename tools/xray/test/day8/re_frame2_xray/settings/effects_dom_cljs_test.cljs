@@ -307,9 +307,10 @@
       (effects/apply-density-font-size! :cosy)
       (is (= "13px" (css-var (shell-root) "--rf-xray-font-size"))
           "shell root rewrites to 13px on cosy flip")
+      (effects/apply-density-font-size! :compact)
       (effects/apply-density-font-size! :comfy)
-      (is (= "14px" (css-var (shell-root) "--rf-xray-font-size"))
-          "shell root rewrites to 14px on comfy"))))
+      (is (= "13px" (css-var (shell-root) "--rf-xray-font-size"))
+          "a persisted :comfy writes the cosy 13px the density sub reports"))))
 
 (deftest update-event-applies-density-font-size-effect
   ;; The settings-atom half of the sibling's test of the same name is
