@@ -145,8 +145,11 @@ positional locators — an id is stable under fragment reordering, which is the 
 - **SSR, emitter-synthesised container** (the server emitter is asked to produce the
   container itself): id is generated deterministically as
   `"rf2-root-" + root-id-slug` — unique per page because the slug is **injective** (§1),
-  so distinct root-ids yield distinct slugs, and root-ids are unique per page (§7): two
-  synthesised locators can therefore never collide.
+  so distinct root-ids yield distinct slugs, and a page's root-ids are required to be
+  unique (§7): two synthesised locators collide only on a page that breaks that
+  requirement. The registry that refuses such a page is §7's Layer 2, whose status is
+  *specified, not yet implemented*, so until it ships nothing refuses a page that
+  renders one root-id twice.
 - **Manifest placement:** the manifest rides a script element **adjacent** (immediately
   following sibling) to the root's container, EDN-safe-encoded per Spec 011.
   Discovery (`re-frame.ssr.manifest/discover`) finds the manifest *positionally*
