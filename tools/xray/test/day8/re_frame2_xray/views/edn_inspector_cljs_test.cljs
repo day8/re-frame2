@@ -4138,26 +4138,26 @@
         "removed-key cell DIV (not just inner span) carries line-through")))
 
 ;; =========================================================================
-;; rf2-y59tb — frame-leak + first-click regression guards
+;; Frame-leak + first-click guards
 ;; =========================================================================
 ;;
-;; Two independent bugs covered here:
+;; Two independent properties covered here:
 ;;
-;;   Bug A — `edn-inspector` was a plain `defn`, so dispatches from
-;;     its click handlers did NOT carry the surrounding frame; toggle
-;;     events landed on `:rf/default` while the App-DB panel mounted
-;;     the widget under `:rf/xray`. The expansion-slot mutation ended
-;;     up in the wrong frame's app-db, invisible to the surrounding
-;;     subscribe.
+;;   Frame — `edn-inspector` is a `reg-view`, so dispatches from its
+;;     click handlers carry the surrounding frame. As a plain `defn`
+;;     its toggle events would land on `:rf/default` while the App-DB
+;;     panel mounts the widget under `:rf/xray`, putting the
+;;     expansion-slot mutation in the wrong frame's app-db, invisible
+;;     to the surrounding subscribe.
 ;;
-;;   Bug B — the reducer's "no override → first click opens" logic
-;;     was wrong for paths the widget renders as default-expanded
-;;     (top-level triangles, depth ≤ default-expanded-depth). The
-;;     first click stored `:expanded? true` — the same value the path
-;;     already rendered with — producing a silent no-op.
+;;   First click — a reducer reading "no override → first click opens"
+;;     is wrong for paths the widget renders as default-expanded
+;;     (top-level triangles, depth ≤ default-expanded-depth): the
+;;     first click would store `:expanded? true` — the same value the
+;;     path already renders with — producing a silent no-op.
 
 (deftest edn-inspector-is-reg-view-registered
-  (testing "rf2-y59tb Bug A — the public widget is registered via
+  (testing "frame — the public widget is registered via
             `reg-view` so dispatches + subscribes inherit the
             surrounding frame from React context. Without this the
             App-DB panel's `:rf/xray` mount routes toggle dispatches
@@ -4167,7 +4167,7 @@
         "edn-inspector is registered under its ns/sym id")))
 
 (deftest edn-inspector-toggle-dispatches-to-mount-frame
-  ;; rf2-y59tb Bug A regression guard — the click handler dispatches
+  ;; Frame guard — the click handler dispatches
   ;; through the lexically-injected frame-aware dispatcher. We
   ;; simulate the inner render by calling `render-node` with a
   ;; `dispatch-fn` (which is what the reg-view body threads from its
@@ -4196,12 +4196,12 @@
         "canonical event id")))
 
 (deftest first-click-collapses-default-expanded-path
-  ;; rf2-y59tb Bug B regression guard — driven through dispatch-sync
+  ;; First-click guard — driven through dispatch-sync
   ;; against the registered toggle reducer with the rendered-
   ;; expanded? payload threaded. A default-expanded path passes
   ;; `true` as the rendered state; the reducer must store
   ;; `:expanded? false` (the inverted visible state), NOT
-  ;; `:expanded? true` (the prior "first click opens" no-op bug).
+  ;; `:expanded? true` (the "first click opens" no-op).
   (let [panel-id :rf.xray/app-db
         mount-id "m1"
         path     [:top-level]]
@@ -4215,7 +4215,7 @@
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 (deftest first-click-expands-default-collapsed-path
-  ;; rf2-y59tb Bug B regression guard — the symmetric case. A deep
+  ;; First-click guard — the symmetric case. A deep
   ;; path (past default-expanded-depth) renders collapsed by default.
   ;; The toggle dispatch carries `false`; the reducer must store
   ;; `:expanded? true` (opens the node) on the first click.
@@ -4255,7 +4255,7 @@
         "third click inverts stored override → false")
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
-;; ---- rf2-63ie5 — inspector card chrome on top-level mounts ---------------
+;; ---- inspector card chrome on top-level mounts ---------------------------
 ;;
 ;; `:card? true` opts the widget's outer container into the inspector-card
 ;; chrome (background, border, radius, padding, margin) so panels with
@@ -4270,7 +4270,7 @@
     (outer value opts)))
 
 (deftest card-opt-off-by-default
-  (testing "rf2-63ie5 — without `:card?` (or with `false`) the outer
+  (testing "without `:card?` (or with `false`) the outer
             container carries NO card chrome (background, border,
             radius, padding, margin all absent)"
     (let [h-default (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})
@@ -4290,7 +4290,7 @@
             (str label ": no margin-bottom"))))))
 
 (deftest card-opt-applies-card-chrome
-  (testing "rf2-63ie5 — `:card? true` adds background/border/radius/
+  (testing "`:card? true` adds background/border/radius/
             padding/margin to the outer container so the mount reads
             as a distinct inspector card"
     (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
@@ -4306,7 +4306,7 @@
           "margin-bottom 8px gaps adjacent cards"))))
 
 (deftest card-opt-carries-data-attr
-  (testing "rf2-63ie5 — the outer container publishes `:data-rf-card`
+  (testing "the outer container publishes `:data-rf-card`
             when card chrome is on; absent when off"
     (let [h-on  (invoke-edn-inspector {:a 1}
                                       {:panel-id :rf.xray/app-db :card? true})
@@ -4316,7 +4316,7 @@
       (is (nil? (:data-rf-card (second h-off)))
           "card-off omits the attribute"))))
 
-;; ---- rf2-726ol — map column alignment (triangle / line / keys / close) --
+;; ---- map column alignment (triangle / line / keys / close) --------------
 ;;
 ;; The map body's left margin + 1px border position the vertical guide
 ;; line at the triangle's visual centre (`margin-left 11px` per
@@ -4344,7 +4344,7 @@
           (walk-hiccup tree)))
 
 (deftest map-body-guide-line-at-triangle-center
-  (testing "rf2-726ol — the body div's `margin-left 11px` + `border-left
+  (testing "the body div's `margin-left 11px` + `border-left
             1px` puts the vertical guide line at the triangle-centred
             column (matching `body-grid-style` in impl); keys sit 6px
             past the line for a small breath"
@@ -4365,7 +4365,7 @@
               "keys sit 6px past the line for a small breath"))))))
 
 (deftest closing-brace-aligns-with-guide-line
-  (testing "rf2-726ol — the closing-bracket div sits at `padding-left
+  (testing "the closing-bracket div sits at `padding-left
             10px`, column-aligned with the vertical guide line above,
             so the bracket pair `▾ { … }` reads as a coherent vertical
             column at every nesting depth"
@@ -4391,7 +4391,7 @@
               "close-brace `padding-left 10px` matches the guide-line x"))))))
 
 (deftest block-body-shares-alignment-with-grid-body
-  (testing "rf2-726ol — sequential (vector / list / set) bodies use the
+  (testing "sequential (vector / list / set) bodies use the
             same `margin-left 11px` + `padding-left 6px` as map bodies
             so a vector's guide line / first item / closing bracket all
             converge on the same column structure"
@@ -4414,7 +4414,7 @@
         (is (= "6px"  (:padding-left style)) "same 6px padding as grid body")))))
 
 (deftest card-opt-theme-aware-via-tokens
-  (testing "rf2-63ie5 — the card chrome reads from the live `tokens`
+  (testing "the card chrome reads from the live `tokens`
             map (a CSS-variable shim per `theme/tokens.cljc`) so both
             light + dark themes resolve at paint time without a re-
             render. This test pins the inline-style values to the
@@ -4427,7 +4427,7 @@
       (is (= (str "1px solid " (:border-default tokens)) (:border style))
           "border reads through `:border-default` (CSS-var or hex per theme)"))))
 
-;; ---- rf2-okq7p — :header opt + three-shade card chrome -------------------
+;; ---- :header opt + three-shade card chrome -------------------------------
 ;;
 ;; `:header` opts the widget into the Machine-panel-aesthetic three-shade
 ;; card chrome: outer `<section>` (background `:bg-2`, 1px border, 4px
@@ -4438,7 +4438,7 @@
 ;; card rather than blending into one continuous block.
 ;;
 ;; Default (`:header` nil) — no `<section>` wrapper, single-div render
-;; (unchanged from rf2-63ie5's `:card?` semantics).
+;; (the `:card?` semantics above).
 
 (defn- find-tag
   "Return the first hiccup vector in `tree` whose tag is `tag`."
@@ -4448,9 +4448,9 @@
        first))
 
 (deftest header-opt-omitted-renders-no-section-wrapper
-  (testing "rf2-okq7p — without `:header` the widget emits a single
+  (testing "without `:header` the widget emits a single
             `<div>` root, with no `<section>` wrapper and no
-            `<header>` ribbon (back-compat with pre-rf2-okq7p mounts)"
+            `<header>` ribbon (the plain single-div mount)"
     (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
       (is (= :div (first h)) "root tag is `<div>`, not `<section>`")
       (is (nil? (find-tag h :section)) "no `<section>` anywhere in tree")
@@ -4459,7 +4459,7 @@
           "outer div omits the `data-rf-header` flag"))))
 
 (deftest header-opt-explicit-nil-renders-no-section-wrapper
-  (testing "rf2-okq7p — `:header nil` is equivalent to omitting the opt
+  (testing "`:header nil` is equivalent to omitting the opt
             (no section wrapper)"
     (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
                                           :header nil})]
@@ -4467,7 +4467,7 @@
       (is (nil? (find-tag h :section)) "no `<section>` wrapper"))))
 
 (deftest header-opt-string-renders-section-and-ribbon
-  (testing "rf2-okq7p — `:header \"label\"` wraps the render in a
+  (testing "`:header \"label\"` wraps the render in a
             `<section>` with a `<header>` ribbon containing the supplied
             string"
     (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
@@ -4483,7 +4483,7 @@
             "header ribbon contains the supplied string verbatim")))))
 
 (deftest header-opt-hiccup-passes-through-opaquely
-  (testing "rf2-okq7p — `:header [hiccup]` renders the supplied vector as
+  (testing "`:header [hiccup]` renders the supplied vector as
             the ribbon content unchanged (the widget treats hiccup as
             opaque — no parsing, no required shape)"
     (let [header-hiccup [:span
@@ -4499,10 +4499,9 @@
           "header ribbon embeds the hiccup vector verbatim"))))
 
 (deftest header-opt-composite-hiccup-with-children
-  (testing "rf2-okq7p — composite hiccup with label + code + button
-            children flows through the ribbon unchanged. Mike's bead
-            spec called out this composability — header carries label +
-            chips + per-inspector affordances"
+  (testing "composite hiccup with label + code + button
+            children flows through the ribbon unchanged — a header
+            composes label + chips + per-inspector affordances"
     (let [clicked (atom 0)
           header-hiccup [:span
                          [:strong "machine-app"]
@@ -4528,7 +4527,7 @@
              is clicked")))))
 
 (deftest header-opt-three-shade-chrome-via-tokens
-  (testing "rf2-okq7p — the section + header + body each read a distinct
+  (testing "the section + header + body each read a distinct
             shade from the live `tokens` map (`:bg-2` outer, `:bg-3`
             header, `:bg-1` body). Theme-aware via CSS variables — both
             light + dark resolve at paint time."
@@ -4567,10 +4566,10 @@
           "body sleeve padding 12px"))))
 
 (deftest header-opt-preserves-mount-id-and-testid-on-section
-  (testing "rf2-okq7p — when the widget chromes itself, the mount-id +
+  (testing "when the widget chromes itself, the mount-id +
             container testid + ref + data-rf-mode flag move to the
-            section so existing test selectors keep working. The body's
-            edn-inspector tree still renders inside the body div."
+            section so the same test selectors address it. The body's
+            edn-inspector tree renders inside the body div."
     (let [h (invoke-edn-inspector {:a 1 :b 2}
                                   {:panel-id :rf.xray/app-db
                                    :header "Counter"})
@@ -4586,7 +4585,7 @@
           "section carries the measurement ref callback"))))
 
 (deftest header-opt-renders-body-content-inside-body-sleeve
-  (testing "rf2-okq7p — the actual edn-inspector tree (collection-kind
+  (testing "the actual edn-inspector tree (collection-kind
             scalars + brackets + body) lives inside the body sleeve, not
             inside the header ribbon"
     (let [h (invoke-edn-inspector {:counter 7}
@@ -4608,7 +4607,7 @@
           "body sleeve renders the numeric `7`"))))
 
 (deftest header-opt-keeps-popup-affordance-on-section
-  (testing "rf2-okq7p — when `:popup-affordance?` is on alongside
+  (testing "when `:popup-affordance?` is on alongside
             `:header`, the icon button still renders inside the section
             (positioned at the section's top-right corner via the
             outer `position: relative`)"
@@ -4629,13 +4628,13 @@
           "section contains the popup affordance button as a direct child"))))
 
 ;; =========================================================================
-;; rf2-kbdk8 — width-aware expansion heuristic
+;; Width-aware expansion heuristic
 ;; =========================================================================
 ;;
-;; The heuristic flips the auto-expand decision: render inline when the
+;; The heuristic drives the auto-expand decision: render inline when the
 ;; value's estimated pr-str width fits the measured column with a small
 ;; safety margin; otherwise expand to tree. `default-expanded-depth` is
-;; repurposed as a CEILING beyond which the widget never auto-expands.
+;; a CEILING beyond which the widget never auto-expands.
 ;;
 ;; These tests pin the pure decision functions (estimated-inline-px,
 ;; would-fit-inline?, default-expanded? width-aware branch) and the
@@ -4650,37 +4649,38 @@
 ;;     line with full syntax-palette colour.
 
 (deftest mono-char-width-and-safety-margin-are-stable
-  (testing "rf2-kbdk8 — width-estimation constants exposed for tests"
+  (testing "width-estimation constants exposed for tests"
     (is (= 7 ei/mono-char-width-px)
         "7px M-advance is the conservative pick for JetBrains Mono 12px")
     (is (= 16 ei/safety-margin-px)
         "16px safety margin covers closing bracket + gutter")
     (is (= 8 ei/default-ceiling-depth)
-        "new default `:default-expanded-depth` is 8 (CEILING, not trigger)")))
+        "default `:default-expanded-depth` is 8 (CEILING, not trigger)")))
 
 (deftest estimated-inline-px-multiplies-pr-str-by-mono-advance
-  (testing "rf2-kbdk8 — char-count × 7px estimate"
+  (testing "char-count × 7px estimate"
     (is (= (* 7 (count (pr-str {:a 1})))
            (ei/estimated-inline-px {:a 1}))
         "pure function — char count × mono-char-width-px")
     (is (= (* 7 (count "nil"))
            (ei/estimated-inline-px nil))
         "scalars route through the same pr-str pathway")
-    ;; Long compound values get proportionally wider estimates — the
-    ;; bead's example (~81-char nested value) lands around ~570px.
+    ;; Long compound values get proportionally wider estimates — an
+    ;; ~81-char nested value lands around ~570px.
     (let [big-value [:ws/connection [:rf.machine.timer/after-elapsed
                                      2501 [:active :authenticating]]]]
       (is (= (* 7 (count (pr-str big-value)))
              (ei/estimated-inline-px big-value))
           "nested compound value estimate matches pr-str-length × 7"))))
 
-;; ---- rf2-y8doi.24 — the estimate is BOUNDED -----------------------------
+;; ---- the estimate is BOUNDED ---------------------------------------------
 ;;
-;; `estimated-inline-px` was `(* mono-char-width-px (count (pr-str
-;; value)))` and runs on EVERY render to answer a yes/no question. Two
-;; costs: it serialised the whole subtree — the entire app-db, per
-;; render, to decide a boolean — and on an infinite lazy seq it never
-;; returned at all, freezing the tab with no error anywhere.
+;; `estimated-inline-px` runs on EVERY render to answer a yes/no
+;; question. As a bare `(* mono-char-width-px (count (pr-str value)))`
+;; it would cost twice: it would serialise the whole subtree — the
+;; entire app-db, per render, to decide a boolean — and on an infinite
+;; lazy seq it would never return at all, freezing the tab with no
+;; error anywhere.
 ;;
 ;; Note the shape of these tests: every assertion is on a value that
 ;; either terminates by construction or is proven to terminate by the
@@ -4690,9 +4690,9 @@
 ;; failure.
 
 (deftest estimated-inline-px-returns-on-an-infinite-seq
-  (testing "the value the item names: `(range)` at one key"
+  (testing "the canonical runaway: `(range)` at one key"
     (is (number? (ei/estimated-inline-px {:a (range)}))
-        "returns at all — this is the whole assertion; it used to hang")
+        "returns at all — this is the whole assertion; an unbounded print hangs")
     (is (pos? (ei/estimated-inline-px {:a (range)}))
         "and answers a positive width"))
   (testing "bare, nested, and beside real data"
@@ -4708,12 +4708,12 @@
   ;; bug than the freeze. Saturating HIGH can only ever read as
   ;; "does not fit".
   ;;
-  ;; The 100000px case is here because it caught the first cut of this
-  ;; fix, which saturated at a finite `inline-estimate-char-cap × 7`
-  ;; = 28,672px and called that "wider than any column". It is not,
-  ;; and `would-fit-inline?` reported a `(range)` as FITTING. No
-  ;; finite ceiling out-runs every argument a caller might pass, so
-  ;; the over-budget answer is `##Inf`.
+  ;; The 100000px case is here because a finite saturation —
+  ;; `inline-estimate-char-cap × 7` = 28,672px, "wider than any column"
+  ;; — is not wider than every column, and `would-fit-inline?` would
+  ;; then report a `(range)` as FITTING. No finite ceiling out-runs
+  ;; every argument a caller might pass, so the over-budget answer is
+  ;; `##Inf`.
   (is (false? (ei/would-fit-inline? {:a (range)} 966))
       "an infinite seq does not fit a real column")
   (is (false? (ei/would-fit-inline? {:a (range)} 100000))
@@ -4731,7 +4731,7 @@
 
 (deftest bounded-estimate-leaves-ordinary-values-EXACT
   ;; The control, and the reason the walk decides but `pr-str`
-  ;; measures: no existing estimate may move.
+  ;; measures: every ordinary estimate stays exact.
   (doseq [v [{:a 1}
              nil
              "a string"
@@ -4751,25 +4751,25 @@
              (ei/estimated-inline-px v))
           "200 elements sits under the char cap, so the answer is exact"))))
 
-;; ---- rf2-re7dn — a long STRING leaf is never serialised in full ---------
+;; ---- a long STRING leaf is never serialised in full ----------------------
 ;;
-;; The bounded walk above stops at the budget, but its scalar branch
-;; called `pr-str` on the WHOLE scalar and took `count` afterwards. So
-;; `{:body <500,000 characters>}` against a 100px column returned
-;; `##Inf` — the right answer — only after allocating a 500,002-
+;; The bounded walk above stops at the budget. A scalar branch that
+;; called `pr-str` on the WHOLE scalar and took `count` afterwards would
+;; return `##Inf` for `{:body <500,000 characters>}` against a 100px
+;; column — the right answer — only after allocating a 500,002-
 ;; character printed leaf, on every render, when the string's own
-;; `count` already proved it could not fit.
+;; `count` already proves it cannot fit.
 ;;
 ;; NOTE THE SHAPE OF THESE TESTS, because it is the whole point: one
-;; that asserts only `##Inf` PASSES ON THE UNFIXED TREE, since the
-;; unfixed branch returns `##Inf` too — just expensively. The expense
+;; that asserts only `##Inf` PASSES AGAINST A PRINT-IT-ALL BRANCH, since
+;; that branch returns `##Inf` too — just expensively. The expense
 ;; IS the defect, so these spy on `pr-str` and assert on the SIZES
 ;; PRINTED rather than on the value returned.
 ;;
 ;; The spy's own positive control is load-bearing. Were the
 ;; redefinition to miss the call site, `sizes` would be empty and
-;; "nothing large was printed" would pass vacuously on a tree that
-;; still has the bug. So each case asserts a SMALL leaf WAS recorded
+;; "nothing large was printed" would pass vacuously against a
+;; print-it-all branch. So each case asserts a SMALL leaf WAS recorded
 ;; before asserting the LARGE one was not.
 
 (defn- printed-sizes
@@ -4789,7 +4789,7 @@
     [result @sizes]))
 
 (deftest a-long-string-leaf-is-never-serialised-in-full
-  ;; The item's own probe shape: printed sizes were `[5 500002]`.
+  ;; The probe shape: a print-it-all branch records sizes `[5 500002]`.
   (let [big                   (apply str (repeat 500000 "x"))
         [_ control-sizes]     (printed-sizes
                                 #(ei/estimated-inline-px {:body "short"} 100))
@@ -4804,21 +4804,21 @@
            not that the walk stopped short"))
     (testing "the large leaf is not printed to discover it cannot fit"
       (is (some #(= 5 %) sizes)
-          "the key is still printed exactly — small scalars are unchanged")
+          "the key is printed exactly — small scalars are measured exactly")
       (is (not-any? #(>= % 500000) sizes)
           (str "no print may be proportional to the 500,000-character "
                "leaf; recorded sizes were " (pr-str sizes))))
-    (testing "and the answer itself does not move"
+    (testing "and the answer itself is the over-budget one"
       (is (= ##Inf px)
-          "over budget the estimate is still `##Inf`"))))
+          "over budget the estimate is `##Inf`"))))
 
 (deftest a-long-NESTED-string-leaf-is-never-serialised-in-full
   ;; The scalar branch is reached by recursion, so a top-level-only
   ;; case would not exercise the path a real app-db takes. The budget
   ;; here is the default ceiling rather than a column width: under a
   ;; 100px column the walk passes `cap` on the PREFIX and never
-  ;; reaches the leaf at all, which would pass on the unfixed tree for
-  ;; the wrong reason.
+  ;; reaches the leaf at all, which would pass against a print-it-all
+  ;; branch for the wrong reason.
   (let [big               (apply str (repeat 500000 "x"))
         [_ control-sizes] (printed-sizes
                             #(ei/estimated-inline-px {:response {:body "short"}}))
@@ -4839,11 +4839,11 @@
         "and the nested answer is still `##Inf`")))
 
 (deftest small-strings-are-still-measured-EXACTLY
-  ;; The other half of the fix, and the docstring's standing promise:
+  ;; The other half of the contract, and the docstring's standing promise:
   ;; the lower bound is charged ONLY when it already carries the
-  ;; running total past `cap`. Under budget the print still happens,
-  ;; so escapes — which make `pr-str` longer than `count` — are still
-  ;; counted and no existing estimate moves.
+  ;; running total past `cap`. Under budget the print happens,
+  ;; so escapes — which make `pr-str` longer than `count` — are
+  ;; counted and every ordinary estimate stays exact.
   (doseq [s ["plain"
              "has \"quotes\""
              "has \\ backslash"
@@ -4912,24 +4912,24 @@
         "and the sibling keys are still readable")))
 
 (deftest would-fit-inline-fits-when-estimate-plus-margin-le-available
-  (testing "rf2-kbdk8 — `would-fit-inline?` gate"
+  (testing "`would-fit-inline?` gate"
     ;; A short value pr-strs to ~10 chars × 7px = 70px + 16px margin = 86px.
     (let [v {:a 1}]
       (is (ei/would-fit-inline? v 200)
           "200px column trivially fits a 10-char value")
       (is (not (ei/would-fit-inline? v 50))
           "50px column rejects even short values"))
-    ;; The bead's worked example: ~81-char nested value in a 966px column.
+    ;; Worked example: an ~81-char value in a 966px column.
     (let [big-but-fitting (apply str (repeat 80 "x"))]
       (is (ei/would-fit-inline? big-but-fitting 966)
           "~570px estimate trivially fits 966px column"))
     (is (not (ei/would-fit-inline? {:a 1} nil))
-        "nil available-width falls back to legacy strict gate")
+        "nil available-width falls back to the strict (non-width) gate")
     (is (not (ei/would-fit-inline? {:a 1} 0))
         "zero or negative width is treated as no measurement")))
 
 (deftest default-expanded-width-aware-branch
-  (testing "rf2-kbdk8 — width-aware `default-expanded?` flips the verdict"
+  (testing "width-aware `default-expanded?` flips the verdict"
     ;; A 2-key map fits in 600px easily — should NOT auto-expand (the
     ;; inline-fit gate picks it up instead).
     (is (false? (ei/default-expanded?
@@ -4960,24 +4960,23 @@
           "changed-descendant rule beats width-fits for diff readability"))))
 
 (deftest default-expanded-no-measurement-fallback
-  (testing "rf2-kbdk8 — when no measurement yet (nil available-width-px)
-            the legacy depth-driven path runs unchanged so unit tests +
+  (testing "when no measurement yet (nil available-width-px)
+            the depth-driven path runs so unit tests +
             first-paint behaviour stay deterministic"
-    ;; depth 0, default-expanded-depth 2 → expanded (legacy behaviour).
+    ;; depth 0, default-expanded-depth 2 → expanded (depth-driven).
     (is (true? (ei/default-expanded?
                  {:depth 0 :child-count 2 :value {:a 1 :b 2}
                   :default-expanded-depth 2})))
-    ;; depth 5, default-expanded-depth 2 → collapsed (legacy behaviour).
+    ;; depth 5, default-expanded-depth 2 → collapsed (depth-driven).
     (is (false? (ei/default-expanded?
                   {:depth 5 :child-count 2 :value {:a 1 :b 2}
                    :default-expanded-depth 2})))))
 
 (deftest default-expanded-diff-collapses-unchanged
-  (testing "rf2-fqcdd / rf2-e28r3 — with a pre-image present (`:diff?`):
+  (testing "with a pre-image present (`:diff?`):
             unchanged subtrees collapse regardless of depth/width. Only
-            the root + ancestors of a change auto-expand. (The former
-            `:full-with-diff?` flag was removed; the collapse heuristic
-            now keys directly on `:diff?`.)"
+            the root + ancestors of a change auto-expand. (The collapse
+            heuristic keys directly on `:diff?`.)"
     ;; Root (depth 0) always expands so the operator sees the keys.
     (is (true? (ei/default-expanded?
                  {:depth 0 :child-count 5 :value {:a 1 :b 2}
@@ -4997,13 +4996,13 @@
                   :diff? true
                   :has-changed-descendant? true})))
     ;; No pre-image (`:diff?` absent) — width/depth heuristic applies
-    ;; (the regression pin: the collapse branch is gated on `:diff?`).
+    ;; (the pin: the collapse branch is gated on `:diff?`).
     (is (true? (ei/default-expanded?
                  {:depth 1 :child-count 5 :value {:a 1 :b 2}
                   :default-expanded-depth 3})))))
 
 (deftest render-container-width-fit-renders-inline-recursively
-  (testing "rf2-kbdk8 — when measured width fits the value's pr-str,
+  (testing "when measured width fits the value's pr-str,
             the renderer emits the FULL value (including nested
             containers) on one inline span — no expand glyph, no
             multi-row tree"
@@ -5025,7 +5024,7 @@
       (is (re-find #":authenticating" text)))))
 
 (deftest render-container-too-wide-expands-to-tree
-  (testing "rf2-kbdk8 — when measured width is too narrow for the
+  (testing "when measured width is too narrow for the
             value's pr-str, the renderer falls back to the tree form
             (▾ glyph + indented body)"
     (let [v {:a "much-longer-than-the-budget"
@@ -5046,7 +5045,7 @@
       (is (re-find #":e" text)))))
 
 (deftest render-container-respects-operator-override-over-width-fit
-  (testing "rf2-kbdk8 — operator's explicit expand override wins even
+  (testing "operator's explicit expand override wins even
             when the value would naturally render inline; the operator
             sees what they clicked, not the heuristic's verdict"
     (let [v {:tag :foo :n 1}
@@ -5064,7 +5063,7 @@
       (is (re-find #":tag" text)))))
 
 (deftest render-inline-recursive-paints-nested-containers
-  (testing "rf2-kbdk8 — the recursive inline renderer emits one-line
+  (testing "the recursive inline renderer emits one-line
             hiccup that includes nested brackets, separators, scalars"
     (let [v {:k1 1 :k2 [:a :b]}
           h (ei/render-inline-recursive v)
@@ -5081,7 +5080,7 @@
       (is (re-find #":a" text))
       (is (re-find #":b" text)))))
 
-;; ---- rf2-7hqwe — inline / collapsed inter-element spacing ----------------
+;; ---- inline / collapsed inter-element spacing ----------------------------
 ;;
 ;; The inline (one-line) + collapsed-preview renders MUST separate
 ;; consecutive elements with canonical EDN spacing — a single SPACE
@@ -5089,10 +5088,10 @@
 ;; between map / record entries — rather than running them together
 ;; (`["machine-epochs":machine-epochs/run-step26:rf/default]`) or
 ;; comma-separating sequentials (`[a, b, c]`). Pins the exact
-;; separator string so the regression can't silently re-appear.
+;; separator string so neither can appear silently.
 
 (deftest inline-separator-per-kind
-  (testing "rf2-7hqwe — sequential kinds space-separate; maps/records comma"
+  (testing "sequential kinds space-separate; maps/records comma"
     (is (= " "  (ei/inline-separator :vector)))
     (is (= " "  (ei/inline-separator :list)))
     (is (= " "  (ei/inline-separator :seq)))
@@ -5102,7 +5101,7 @@
     (is (= ", " (ei/inline-separator :record)))))
 
 (deftest render-inline-recursive-vector-space-separated
-  (testing "rf2-7hqwe — an inline vector renders elements space-separated,
+  (testing "an inline vector renders elements space-separated,
             matching canonical EDN (not comma-separated, not run-together)"
     (let [v    ["machine-epochs" :machine-epochs/run-step 26 :rf/default]
           text (collect-text (ei/render-inline-recursive v))]
@@ -5110,8 +5109,8 @@
       ;; element is the load-bearing assertion (no `, `, no concatenation).
       (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
              text))
-      ;; Defence-in-depth: the exact run-together symptom from the bug
-      ;; report (`run-step26`, `26:rf/default`) must NOT be present.
+      ;; Defence-in-depth: the exact run-together symptom
+      ;; (`run-step26`, `26:rf/default`) must NOT be present.
       (is (not (re-find #"run-step26" text))
           "the integer must not run into the preceding keyword")
       (is (not (re-find #"26:rf" text))
@@ -5120,20 +5119,20 @@
           "a sequential vector must not comma-separate its elements"))))
 
 (deftest render-inline-recursive-map-comma-separated
-  (testing "rf2-7hqwe — an inline map keeps `, ` between k/v pairs and a
+  (testing "an inline map keeps `, ` between k/v pairs and a
             space within each pair"
     (let [text (collect-text (ei/render-inline-recursive {:a 1 :b 2}))]
       (is (= "{:a 1, :b 2}" text)))))
 
 (deftest inline-preview-string-vector-space-separated
-  (testing "rf2-7hqwe — collapsed-preview of a sequential is space-separated"
+  (testing "collapsed-preview of a sequential is space-separated"
     (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
            (ei/inline-preview-string
              ["machine-epochs" :machine-epochs/run-step 26 :rf/default] 5 80)))
     (is (= "[1 2 3]" (ei/inline-preview-string [1 2 3] 5 80)))))
 
 (deftest width-slot-set-and-clear-events
-  (testing "rf2-kbdk8 — set-width / clear-width app-db reducers"
+  (testing "set-width / clear-width app-db reducers"
     (rf/dispatch-sync [:rf.xray.edn-inspector/set-width "m" 600])
     (let [widths @(rf/subscribe [ei/widths-slot])]
       (is (= 600 (get widths "m"))
@@ -5151,7 +5150,7 @@
           "clear-width removes the entry"))))
 
 (deftest widget-emits-ref-callback-and-available-width-attr
-  (testing "rf2-kbdk8 — the outer container carries a `:ref` callback
+  (testing "the outer container carries a `:ref` callback
             (function) for the ResizeObserver lifecycle, plus a data-
             attribute carrying the current measurement (or absent when
             not yet measured)"
@@ -5164,8 +5163,8 @@
           "data-rf-available-width-px absent until the ref fires"))))
 
 ;; =========================================================================
-;; rf2-h71e0 — zoom-into-node + breadcrumb navigation
-;; (gesture reworked rf2-zl4rs — double-click / Enter, no glyph)
+;; Zoom-into-node + breadcrumb navigation
+;; (gesture: double-click / Enter, no glyph)
 ;; =========================================================================
 ;;
 ;; The zoom feature turns the inspector into a focused window onto an
@@ -5175,10 +5174,10 @@
 ;; path from the original root; each segment is clickable for one-tap
 ;; zoom-to-that-depth.
 ;;
-;; rf2-zl4rs — zoom-in is a node-local gesture (double-click / Enter)
+;; Zoom-in is a node-local gesture (double-click / Enter)
 ;; on the container itself; there is NO `⊙` glyph button. Zoom applies
 ;; in the SINGLE full+diff renderer (re-root value always, before too
-;; when present). Esc + breadcrumb still zoom out.
+;; when present). Esc + breadcrumb zoom out.
 ;;
 ;; Tests under this section cover:
 ;;
@@ -5311,11 +5310,11 @@
       (is (= "1" (:data-rf-zoomable attrs))
           ":data-rf-zoomable=1 advertises zoom-capable to tooling")
       (is (nil? (:data-rf-zoomed attrs))
-          "no zoom active yet — :data-rf-zoomed is still absent"))))
+          "no zoom active yet — :data-rf-zoomed is absent"))))
 
-;; ---- zoom GESTURE — double-click / Enter, no glyph (rf2-zl4rs) -----------
+;; ---- zoom GESTURE — double-click / Enter, no glyph -----------------------
 ;;
-;; rf2-zl4rs removed the `⊙` glyph button entirely; zoom-in is now a
+;; There is no `⊙` glyph button; zoom-in is a
 ;; node-local gesture on the container's own outer div. These tests
 ;; assert: (a) NO `⊙` / zoom-affordance glyph renders anywhere; (b) the
 ;; non-root container carries the `data-rf-zoom-target` + handlers; (c)
@@ -5333,9 +5332,9 @@
           (walk-hiccup tree)))
 
 (defn- glyph-nodes
-  "Every hiccup node whose string content is the legacy `⊙` zoom glyph,
-  plus any `data-rf-affordance=zoom` button — the surfaces rf2-zl4rs
-  removed. Used to assert their TOTAL ABSENCE."
+  "Every hiccup node whose string content is a `⊙` zoom glyph,
+  plus any `data-rf-affordance=zoom` button — surfaces the widget
+  does not render. Used to assert their TOTAL ABSENCE."
   [tree]
   (filter (fn [n]
             (and (vector? n)
@@ -5345,8 +5344,8 @@
           (walk-hiccup tree)))
 
 (deftest zoomable-emits-no-glyph-button
-  ;; The `⊙` glyph + the `data-rf-affordance=zoom` button are GONE
-  ;; (rf2-zl4rs). The recursive walker emits neither, at any depth.
+  ;; No `⊙` glyph and no `data-rf-affordance=zoom` button: the
+  ;; recursive walker emits neither, at any depth.
   (let [v {:a {:nested 1} :b 2}
         h (ei/render-node {:value v
                            :panel-id :p
@@ -5358,7 +5357,7 @@
                            :zoom-path-prefix []
                            :opts {:default-expanded-depth 8}})]
     (is (empty? (glyph-nodes h))
-        "rf2-zl4rs — no `⊙` glyph / zoom-affordance button renders")))
+        "no `⊙` glyph / zoom-affordance button renders")))
 
 (deftest zoomable-marks-non-root-containers-as-zoom-targets
   ;; With zoomable? on, every non-root container's outer div carries the
@@ -5382,23 +5381,23 @@
       (is (= 0 (:tab-index attrs))
           "the target is keyboard-focusable (tab-index 0)")
       (is (string? (:aria-label attrs))
-          "the target carries an aria-label — preserves the removed
-           button's screen-reader affordance")
+          "the target carries an aria-label — the gesture's
+           screen-reader affordance")
       (is (fn? (:on-double-click attrs))
           "double-click handler present")
       (is (fn? (:on-key-down attrs))
           "key-down handler present (Enter zooms in)"))))
 
-;; ---- rf2-y8doi.24 — Enter/Space on the triangle TOGGLES ----------------
+;; ---- Enter/Space on the triangle TOGGLES ---------------------------------
 ;;
 ;; The toggle triangle announces itself `role="button"` with
 ;; `tabIndex 0`, so a keyboard user tabs to it and presses Enter
-;; expecting the node to open. It carried no `:on-key-down`, so the
-;; keydown bubbled to the enclosing zoomable container's handler
-;; (`zoom-trigger-attrs`) and the inspector RE-ROOTED instead: the
-;; announced affordance and the actual behaviour disagreed. Space did
-;; nothing at all — a `<span>` with `role="button"` gets no synthetic
-;; click from the UA the way a real `<button>` does.
+;; expecting the node to open. Without its own `:on-key-down` the
+;; keydown would bubble to the enclosing zoomable container's handler
+;; (`zoom-trigger-attrs`) and the inspector would RE-ROOT instead: the
+;; announced affordance and the actual behaviour would disagree. Space
+;; would do nothing at all — a `<span>` with `role="button"` gets no
+;; synthetic click from the UA the way a real `<button>` does.
 ;;
 ;; These drive the handler directly with a stub event, which is the
 ;; instrument this suite already uses for `:on-click`.
@@ -5555,7 +5554,7 @@
   `:on-key-down`; `evt` is the synthetic DOM event (nil → a stub that
   satisfies the Enter predicate). Returns `{:event ... :attrs ...}`.
 
-  Per rf2-r0o63 — the gesture dispatches through the SUPPLIED frame-aware
+  The gesture dispatches through the SUPPLIED frame-aware
   dispatcher (the one the surrounding `reg-view` body captured via
   `(:dispatch (rf/capture-frame))`), NOT a bare `rf/dispatch` with a `{:frame :rf/xray}`
   literal. The dispatcher closure already bound the instance frame at
@@ -5591,8 +5590,8 @@
         "double-click dispatches the canonical zoom-to with the absolute path")))
 
 (deftest zoom-trigger-enter-key-dispatches-zoom-to
-  ;; rf2-zl4rs — Enter on the focused node is the keyboard a11y path the
-  ;; removed glyph button used to provide.
+  ;; Enter on the focused node is the keyboard a11y path to zoom in,
+  ;; with no glyph button to tab to.
   (let [{:keys [event]}
         (with-captured-dispatch-spy
           (fn [spy]
@@ -5636,11 +5635,11 @@
                  ") must NOT trigger zoom"))))))
 
 (deftest zoom-trigger-dispatches-through-captured-dispatcher
-  ;; rf2-r0o63 — supersedes the rf2-kcaiz pin. The gesture dispatches
+  ;; The gesture dispatches
   ;; through the SUPPLIED frame-aware dispatcher so the zoom-slot write
   ;; lands on the instance frame — single-arg event vector, frame baked
   ;; into the closure, NOT a `{:frame :rf/xray}` literal.
-  (testing "rf2-r0o63 — the zoom gesture dispatches a single-arg
+  (testing "the zoom gesture dispatches a single-arg
             `[:rf.xray.edn-inspector/zoom-to ...]` (no `{:frame :rf/xray}`)"
     (let [{:keys [event]}
           (with-captured-dispatch-spy
@@ -5656,7 +5655,7 @@
       (is (= "m-1" mount-id) "mount-id flows through")
       (is (= [:cart :items 0] path) "absolute path flows through")
       (is (= 4 (count event))
-          "rf2-r0o63 — single-arg event vector; the frame is captured in
+          "single-arg event vector; the frame is captured in
            the dispatcher closure, not a `{:frame :rf/xray}` literal"))))
 
 (deftest zoom-trigger-composes-prefix-and-relative-path
@@ -5695,19 +5694,19 @@
              event)
           "the dispatched path is the absolute path = prefix + relative")
       (is (= 4 (count event))
-          "rf2-r0o63 — composed-path dispatch is ALSO a single-arg event
+          "composed-path dispatch is ALSO a single-arg event
            vector through the captured dispatcher (no `:rf/xray` literal)"))))
 
-;; ---- rf2-6nw3g — the toggle triangle owns its double-click gesture -------
+;; ---- the toggle triangle owns its double-click gesture -------------------
 ;;
 ;; A zoomable container's outer div carries `:on-double-click -> zoom-to`
 ;; (zoom-trigger-attrs). The `▸`/`▾` toggle glyph nested inside dispatches
-;; toggle on `:on-click`. Before the fix the glyph had no `:on-double-click`
-;; guard, so a double-click on the TRIANGLE fired toggle twice (net visual
-;; no-op, two dispatches) AND its `dblclick` bubbled to the container's zoom.
-;; The fix adds `swallow-dblclick` (preventDefault + stopPropagation, no
-;; dispatch) so the triangle owns its gesture: zoom only fires on a
-;; double-click OUTSIDE the triangle, and a single click still toggles.
+;; toggle on `:on-click`. Without an `:on-double-click` guard on the glyph,
+;; a double-click on the TRIANGLE would fire toggle twice (net visual
+;; no-op, two dispatches) AND its `dblclick` would bubble to the container's
+;; zoom. `swallow-dblclick` (preventDefault + stopPropagation, no
+;; dispatch) makes the triangle own its gesture: zoom only fires on a
+;; double-click OUTSIDE the triangle, and a single click toggles.
 
 (defn- stub-evt
   "A synthetic-event stub that records `preventDefault` / `stopPropagation`
@@ -5748,7 +5747,7 @@
             "stopPropagation — the dblclick never bubbles to the container's zoom")
         (is (empty? @dispatched)
             "the swallow dispatches NOTHING (no zoom-to, no toggle)")))
-    (testing "a single click still toggles (existing behaviour preserved)"
+    (testing "a single click still toggles"
       (on-click nil)
       (is (= [[:rf.xray.edn-inspector/toggle-node :p "m" [:parent] false]]
              @dispatched)
@@ -5892,12 +5891,11 @@
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest widget-diff-mode-zooms-and-reroots-both-halves
-  ;; rf2-zl4rs — zoom now applies in the SINGLE full+diff renderer.
+  ;; Zoom applies in the SINGLE full+diff renderer.
   ;; A zoom in diff mode re-roots `value` AND `before` onto the same
   ;; subtree, so the operator focuses the changed subtree with its diff
   ;; annotations intact — siblings outside the subtree are hidden, and
-  ;; the re-rooted before still feeds the projection so the change paints.
-  ;; (Supersedes the rf2-h71e0 "diff suppresses zoom" behaviour.)
+  ;; the re-rooted before feeds the projection so the change paints.
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [site-id [:rf.xray/app-db "top"]
         _ (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
@@ -5926,20 +5924,21 @@
          survives the zoom (before re-rooted along the same path)")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
-;; ---- rf2-3x7nj.25.2 — a list / seq element is zoomable, and an
+;; ---- a list / seq element is zoomable, and an
 ;; ---- unresolvable zoom renders un-zoomed ---------------------------------
 ;;
 ;; `children-of` keys a list / seq element by its integer index — the very
-;; segment a zoom stores — but the zoom walk was `get-in`, and `get`
-;; answers not-found on a `List`, `IndexedSeq` or `LazySeq`. The walk fell
-;; back to the WHOLE value while `zoom-active?` stayed true, so the
-;; breadcrumbs claimed a zoom over a body that was the un-zoomed root, and
-;; every further zoom composed a meaningless absolute path. A stale path
-;; (the zoomed key since removed) reached the same state.
+;; segment a zoom stores — and `get` answers not-found on a `List`,
+;; `IndexedSeq` or `LazySeq`, so a `get-in` zoom walk would fall back to
+;; the WHOLE value while `zoom-active?` stayed true: the breadcrumbs would
+;; claim a zoom over a body that is the un-zoomed root, and every further
+;; zoom would compose a meaningless absolute path. A stale path (the
+;; zoomed key since removed) reaches the same state unless an
+;; unresolvable zoom renders un-zoomed.
 
 (deftest resolve-zoom-into-steps-into-list-and-seq-elements-rf2-3x7nj-25-2
   (let [zoom (fn [path] {[:p "m"] path})]
-    (testing "CONTROL — a vector element resolved already"
+    (testing "CONTROL — a vector element resolves through `get`"
       (is (= {:id 2} (ei/resolve-zoom-into {:todos [{:id 1} {:id 2}]}
                                            (zoom [:todos 1]) :p "m"))))
     (testing "a LIST element resolves by index"
@@ -5953,7 +5952,7 @@
         (is (= v (ei/resolve-zoom-into v (zoom [:todos 5]) :p "m")))))))
 
 (deftest zoom-into-a-list-element-renders-that-element-rf2-3x7nj-25-2
-  ;; The item's scenario, end to end: the zoom path is the one the
+  ;; The list-element scenario, end to end: the zoom path is the one the
   ;; renderer's own double-click MINTS for the second todo, not one
   ;; written here.
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
@@ -6022,13 +6021,13 @@
         "the stored path itself is left as it was")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
-;; ---- rf2-pmux4 — a diff-mode zoom into a key ADDED this epoch ------------
+;; ---- a diff-mode zoom into a key ADDED this epoch ------------------------
 ;;
-;; The zoom is active because its path resolves in the AFTER value. The
-;; before side was re-rooted through `resolve-zoom-into`, whose fallback
-;; for a path it cannot walk is the WHOLE value. So the zoomed subtree
-;; was diffed against the whole before-root, and that root's own keys
-;; painted as removed ghosts inside what is a plain addition.
+;; The zoom is active because its path resolves in the AFTER value. Were
+;; the before side re-rooted through `resolve-zoom-into`, whose fallback
+;; for a path it cannot walk is the WHOLE value, the zoomed subtree would
+;; be diffed against the whole before-root, and that root's own keys
+;; would paint as removed ghosts inside what is a plain addition.
 
 (defn- diff-ops-in-order
   "Every `:data-rf-diff-op` value in `tree`, in document order."
@@ -6065,7 +6064,7 @@
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest zoom-persists-across-mount-unmount-via-site-id
-  ;; Acceptance #7: two renders with the same `:site-id` see the same
+  ;; Two renders with the same `:site-id` see the same
   ;; zoom slot — simulating a tab-leave / tab-return cycle.
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [site-id [:rf.xray/app-db "top"]
@@ -6091,7 +6090,7 @@
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest two-mounts-without-site-id-zoom-independently
-  ;; Acceptance #6: two side-by-side mounts (no shared site-id) zoom
+  ;; Two side-by-side mounts (no shared site-id) zoom
   ;; independently — the auto-mount-id default isolates them.
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
   (let [v {:a {:b 1}}
@@ -6116,7 +6115,7 @@
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest widget-zoom-keydown-handler-installed-and-dispatches-on-escape
-  ;; Acceptance #5: Esc keypress pops one zoom level. The widget
+  ;; Esc keypress pops one zoom level. The widget
   ;; installs an `:on-key-down` handler on the outer container ONLY
   ;; when a zoom is active; the handler dispatches `:zoom-up`.
   ;;
@@ -6140,9 +6139,9 @@
     (is (fn? handler)
         "an Esc keydown handler is installed while zoom is active")
     ;; Synthesise a minimal escape-key event; the handler internally
-    ;; dispatches `:zoom-up`. Since the test runtime processes events
-    ;; off the queue at the next macro-task, we wait one macro-task via
-    ;; the existing dispatch-sync of a no-op event to flush.
+    ;; dispatches `:zoom-up`, which the test runtime processes off the
+    ;; queue at the next macro-task, so this asserts on the event's
+    ;; preventDefault / stopPropagation rather than on the slot.
     (let [prevent-called (atom false)
           stop-called    (atom false)
           ev #js {:key "Escape"
@@ -6165,7 +6164,7 @@
 (deftest widget-no-keydown-handler-when-not-zoomed
   ;; Esc must NOT fire zoom-up when no zoom is active — the handler is
   ;; absent so the keystroke continues to bubble to any outer popup
-  ;; (rf2-7sdja) without being short-circuited by an unrelated mount.
+  ;; without being short-circuited by an unrelated mount.
   (let [h (invoke-edn-inspector {:a 1}
                                 {:panel-id :rf.xray/app-db
                                  :zoomable? true})
@@ -6173,18 +6172,17 @@
     (is (nil? (:on-key-down attrs))
         "no zoom active → no keydown handler (keystrokes bubble up)")))
 
-;; ---- rf2-4p1vl — engine/project memoisation across re-renders -------------
+;; ---- engine/project memoisation across re-renders -------------------------
 ;;
-;; The audit's H1 finding: in diff mode (mode-3) the inner render fn invoked
-;; `engine/project` on every render — expansion toggle, ResizeObserver width
-;; update, parent re-render. Even when the `(before, after)` inputs were
-;; byte-identical, the full Editscript A* walk + ancestor classification
-;; ran again from scratch.
+;; In diff mode the inner render fn runs on every render — expansion
+;; toggle, ResizeObserver width update, parent re-render. Unmemoised, each
+;; would rerun the full Editscript A* walk + ancestor classification from
+;; scratch, even when the `(before, after)` inputs are byte-identical.
 ;;
-;; The fix captures a per-mount projection cache in the form-2 outer body
-;; closure. Identity-stable inputs short-circuit to the cached projection.
-;; The cache key uses `identical?` on both `before` and `after`, matching
-;; the engine's own short-circuit at engine.cljc:515.
+;; A per-mount projection cache lives in the per-mount store, keyed by the
+;; mount's lifecycle key. Identity-stable inputs short-circuit to the
+;; cached projection. The cache key uses `identical?` on both `before` and
+;; `after`, matching `engine/project`'s own `identical?` short-circuit.
 ;;
 ;; Tests below spy on `engine/project` via `with-redefs` and count
 ;; invocations across multiple inner-fn calls with identical inputs.
@@ -6248,8 +6246,8 @@
             "engine/project re-runs when `after` reference changes")))))
 
 (deftest projection-memo-is-per-mount-isolated
-  ;; The cache lives in the form-2 outer body closure → each mount gets
-  ;; its OWN cache. Two side-by-side mounts must not share entries,
+  ;; The cache lives in the per-mount store under each mount's lifecycle
+  ;; key → each mount gets its OWN cache. Two side-by-side mounts must not share entries,
   ;; otherwise mount-A's projection could be served to mount-B with
   ;; different inputs.
   (let [before {:a 1}
@@ -6292,23 +6290,25 @@
         (is (= 0 @call-count)
             "browse mode never calls engine/project")))))
 
-;; ---- rf2-bmed1 — the PUBLIC PROJECTION STAGE is bounded too -------------
+;; ---- the PUBLIC PROJECTION STAGE is bounded too --------------------------
 ;;
-;; rf2-brmyq bounded the WALKER. The public widget computes a projection
+;; The WALKER is bounded, but the public widget computes a projection
 ;; BEFORE any walker runs: `render-inspector` calls `project-for`, which on
-;; a cache miss hands the ORIGINAL displayed pair to `engine/project`. That
+;; a cache miss hands the displayed pair to `engine/project`. That
 ;; function short-circuits `identical?` inputs and nothing else, so an
-;; ordinary pair goes to Editscript over the WHOLE pair, with structural
-;; equality inside it. Two DISTINCT endless sequences carrying the same
-;; prefix therefore compare for ever — before one bounded row is walked.
+;; unbounded pair would go to Editscript over the WHOLE pair, with
+;; structural equality inside it: two DISTINCT endless sequences carrying
+;; the same prefix would compare for ever — before one bounded row is
+;; walked. `project-for` bounds the pair through `bounded-projection-pair`
+;; first.
 ;;
-;; WHY rf2-brmyq'S TESTS COULD NOT CATCH IT, and the design constraint on
-;; the tests below: they call `render-node` directly with `:projection
-;; nil`, which SKIPS this stage entirely. These go through
+;; WHY the render-path tests above cannot see this stage, and the design
+;; constraint on the tests below: those call `render-node` directly with
+;; `:projection nil`, which SKIPS this stage entirely. These go through
 ;; `ei/edn-inspector` — the registered view — so the projection is computed
 ;; exactly as a mounted widget computes it.
 ;;
-;; THREE properties, and the last two are what keep the fix honest:
+;; THREE properties, and the last two are what keep the bound honest:
 ;;
 ;;   P1 BOUNDED    — neither generator is pulled past the render bound, at
 ;;                   the ROOT of the diff and NESTED under a map key. The
@@ -6321,20 +6321,21 @@
 ;;                   the SAME OBJECTS (`identical?`), not as copies. That
 ;;                   is the strongest available statement of "ordinary
 ;;                   finite diffs are unchanged": the computation is not
-;;                   merely equivalent, it is the one that ran before.
+;;                   merely equivalent, it is the one an unbounded stage
+;;                   would run.
 ;;   P3 MIXED PAIRS UNTOUCHED — where ONE side is `counted?` the pair is
 ;;                   already finite (the comparison stops when the counted
 ;;                   side runs out), and `unrealised-sentinel`'s own
 ;;                   docstring makes the projection load-bearing there: the
 ;;                   op "falls through to the projection — computed over
-;;                   the FULL inputs, and therefore correct" (rf2-zk4he).
+;;                   the FULL inputs, and therefore correct".
 ;;                   Bounding one side of a mixed pair would hand the
 ;;                   projection a SHORT before-side and paint surviving
 ;;                   after-rows green as `:added` — the precise lie
-;;                   `::unrealised` was added to refuse. So the bound fires
+;;                   `::unrealised` exists to refuse. So the bound fires
 ;;                   only when BOTH sides could be endless, and P3 pins
-;;                   that boundary so a later "simplification" to a blanket
-;;                   bound cannot quietly reintroduce rf2-zk4he's defect.
+;;                   that boundary so a "simplification" to a blanket
+;;                   bound cannot quietly bring that lie back.
 
 (defn- projection-inputs-via-public-path
   "Render `after` against `before` through the PUBLIC widget and return
@@ -6358,9 +6359,9 @@
 
 (deftest public-projection-bounds-two-endless-sequences-rf2-bmed1
   ;; P1. A guard far above the bound stands in for a truly endless
-  ;; sequence, exactly as rf2-brmyq's render-path test does: reaching it
+  ;; sequence, exactly as the render-path test above does: reaching it
   ;; at all is the failure. Both sides are DISTINCT generators carrying
-  ;; the same 0, 1, 2, … prefix, which is the shape the item measured —
+  ;; the same 0, 1, 2, … prefix, which is the hanging shape —
   ;; a single shared reference would short-circuit on `identical?` and
   ;; never reach Editscript.
   (let [guard 50000]
@@ -6401,23 +6402,23 @@
                  "render bound is " render-path-bound "."))))))
 
 (deftest container-op-equality-is-bounded-rf2-bmed1
-  ;; THE SECOND STAGE, and the reason a projection-only fix reads green
-  ;; while the widget still hangs.
+  ;; THE SECOND STAGE, and the reason a projection-only bound would read
+  ;; green while the widget still hangs.
   ;;
-  ;; `classify-container-op` carries rf2-8pfkk's structural override: when
+  ;; `classify-container-op` carries the structural override: when
   ;; the projection says `:same` but the two sides genuinely differ, it
   ;; promotes to `:children` so a dropped vector tail cannot hide inside a
-  ;; collapsed container. That test was a bare `not=` on the RAW pair, and
-  ;; it fires exactly when `proj-op` is `:same` — which is what a CORRECTLY
+  ;; collapsed container. As a bare `not=` on the RAW pair that test would
+  ;; fire exactly when `proj-op` is `:same` — which is what a CORRECTLY
   ;; BOUNDED projection reports for two endless sequences sharing a prefix.
-  ;; So bounding the projection alone moved the hang one line down rather
-  ;; than removing it.
+  ;; So bounding the projection alone would move the hang one line down
+  ;; rather than remove it.
   ;;
-  ;; WHY NOTHING CAUGHT IT: rf2-brmyq's render-path tests pass
+  ;; WHY THE RENDER-PATH TESTS CANNOT SEE IT: they pass
   ;; `:projection nil`, which skips the override entirely, AND their two
   ;; sides differ in LENGTH (`[0 1 2]` against an endless seq), so even the
   ;; no-projection `not=` stops as soon as the short side runs out. Both
-  ;; halves of that shape have to change at once to see this: a REAL
+  ;; halves of that shape differ here: a REAL
   ;; projection, and two sides that agree as far as anything looks.
   (let [guard 50000]
     (testing "render-node with a REAL projection is bounded"
@@ -6426,7 +6427,7 @@
             before (counting-seq seen-b guard)
             after  (counting-seq seen-a guard)
             ;; The projection the widget would compute, built the way
-            ;; `project-for` now builds it.
+            ;; `project-for` builds it.
             proj   (engine/project (take count-bound before)
                                    (take count-bound after))
             h      (ei/render-node {:value      after
@@ -6446,8 +6447,8 @@
             (str "the AFTER side realised " @seen-a " elements; the bound is "
                  render-path-bound "."))))
     (testing "CONTROL — the `:projection nil` route stays bounded too"
-      ;; rf2-brmyq's route, with the length difference removed so the
-      ;; no-projection `not=` is actually exercised.
+      ;; The render-path tests' route, with the length difference removed
+      ;; so the no-projection `not=` is actually exercised.
       (let [seen-b (atom 0)
             seen-a (atom 0)
             h      (ei/render-node {:value      (counting-seq seen-a guard)
@@ -6487,7 +6488,7 @@
           "the counted AFTER side reaches the projection whole")
       (is (identical? before b)
           "and as the same object, not a rebuilt copy")))
-  (testing "P3 — a MIXED pair keeps the FULL inputs (rf2-zk4he's contract)"
+  (testing "P3 — a MIXED pair keeps the FULL inputs (the capped-side contract)"
     ;; One side `counted?`, one not. The pair is already finite, and
     ;; `::unrealised` rows depend on the projection having seen the whole
     ;; of both. Bounding here would be the `:added` lie that sentinel
