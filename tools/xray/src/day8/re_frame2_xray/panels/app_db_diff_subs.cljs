@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-subs
   "Subscriptions and read-models for the app-db tab.
 
-  The app-db tab is a CURRENT-STATE inspector (rf2-okvit): it renders
+  The app-db tab is a CURRENT-STATE inspector: it renders
   the FOCUSED epoch's `:db-after` (its own post-state, per the
-  rf2-02j4r per-epoch-delta contract) sectioned by reserved `:rf/*`
+  per-epoch-delta contract) sectioned by reserved `:rf/*`
   area, with the focused epoch's `:db-before` threaded as the diff
   pre-image. The subs here surface that focused-epoch read-model:
 
@@ -19,51 +19,32 @@
                                          the panel body derives from
     - `:rf.xray/app-db-state`          — the section model the body renders
 
-  ## rf2-p53m2 — dead diff-sub family pruned
+  ## No composite diff sub
 
-  The `:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff` composite
-  family (plus its `:rf.xray/selected-epoch-redacted-modified-count` /
-  `:rf.xray/selected-epoch-flow-writes` inputs and the three
-  `[frame-id epoch-id]` caches rf2-nfgps frame-scoped) was removed: it
-  had NO production view consumer. The app-db panel body reads only
+  The app-db panel body reads only
   `:rf.xray/app-db-state` (+ `:rf.xray/app-db-current+diff` for the
   render key); the Epoch panel's `:db` diff reads
-  `:rf.xray/selected-epoch-record` and runs its own `db-diff-paths`;
-  the MCP `get-app-db-diff` tool projected directly through
-  `diff.engine/project`, never the sub chain (that tool went with
-  Xray's runtime seam in rf2-7htk7). The
-  composite + its inner subs + caches were a hardened-but-unrendered
-  surface carrying a docstring that claimed false consumers (the Epoch
-  panel + an MCP exporter — neither consumed it). Per the pre-alpha
-  masterpiece posture (CLARITY) the dead surface is gone; the canonical
+  `:rf.xray/selected-epoch-record` and runs its own `db-diff-paths`.
+  There is no composite app-db diff sub between them: the canonical
   per-path diff lens lives in the Editscript-backed engine at
   `day8.re-frame2-xray.diff.engine` (consumed by the Epoch HANDLER
   `:db` view + the Machine Inspector `:diff` lens).
 
-  ### rf2-zgrhw — the prune-cache growth RISK is resolved by THIS prune
+  ### No frame-keyed cache
 
-  rf2-zgrhw filed a latent RISK against the rf2-nfgps prune-cache: its
-  prune only ran on a cache MISS for the CURRENTLY observed frame, so a
-  frame observed once and never again kept its keyspace for the process
-  lifetime (bounded by distinct-frames × ring-size — slow growth across
-  dead frames in a long parallel-frames / SSR-hydration churn session).
-  That RISK no longer applies: the three `[frame-id epoch-id]` caches it
-  describes were the diff-sub family's memo atoms, removed wholesale
-  above. The surviving diff surface (`:rf.xray/app-db-current+diff` →
+  The diff surface (`:rf.xray/app-db-current+diff` →
   `:rf.xray/app-db-state`) is PURELY reactive — it re-derives from the
   live subs each render with NO memoization atom — so there is no
-  frame-keyed cache to grow and nothing to age out. No eviction
-  machinery is needed (adding any would be machinery for a surface that
-  no longer exists)."
+  frame-keyed cache to grow across frames observed once in a long
+  parallel-frames / SSR-hydration churn session, and nothing to age
+  out. No eviction machinery is needed."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.panels.local-render :as local-render]))
 
 (defn- find-epoch-in-history
   "Return the `:rf/epoch-record` in `history` whose `:epoch-id` matches
-  `epoch-id`, or nil if absent. Pure data → record-or-nil. Inlined
-  here when the Time Travel panel was deleted (rf2-qy0nu) — App-DB
-  Diff was the only remaining consumer."
+  `epoch-id`, or nil if absent. Pure data → record-or-nil."
   [history epoch-id]
   (when (some? epoch-id)
     (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
@@ -72,22 +53,18 @@
 (defn install!
   "Install the app-db tab's subscriptions."
   []
-  ;; rf2-fvplw — panel-observed frame follows the spine `:rf.xray/focus`.
+  ;; The panel-observed frame follows the spine `:rf.xray/focus`.
   ;; The frame-picker writes `[:focus :frame]` via `:rf.xray/set-frame`,
   ;; and `compose-focus` also derives `:frame` from the focused event-bundle.
-  ;; Without this seam the App-db panel previously read only the legacy
-  ;; `:target-frame` slot, which `:rf.xray/set-frame` did NOT then touch,
-  ;; so it stayed hardcoded to `:rf/default` no matter what the user
-  ;; picked. It touches it now — `set-frame-reducer` writes `:target-frame`
-  ;; and re-seeds `:epoch-history` (rf2-ug1r6 + rf2-thodq) — so the two
-  ;; axes no longer diverge at the writer; the seam stays because focus,
-  ;; not the slot, is the axis this panel follows.
+  ;; `set-frame-reducer` also writes `:target-frame` and re-seeds
+  ;; `:epoch-history`, so the two axes agree at the writer; the panel
+  ;; reads focus because focus, not the slot, is the axis it follows.
   ;;
-  ;; The legacy slot survives as the `or` fallback below when no focus has
-  ;; resolved a frame yet, but what it falls back TO has changed: EP-0002
-  ;; (rf2-bd4div) made an unselected target `nil` rather than `:rf/default`,
-  ;; so a cold start with no focusable event-bundles now yields nil and the
-  ;; panel renders its unselected-target state instead of a boot frame.
+  ;; The `:target-frame` slot is the `or` fallback below when no focus has
+  ;; resolved a frame yet. An unselected target is `nil` rather than
+  ;; `:rf/default`, so a cold start with no focusable event-bundles yields
+  ;; nil and the panel renders its unselected-target state instead of a
+  ;; boot frame.
   (rf/reg-sub :rf.xray/observed-frame
     {:inputs [[:rf.xray/focus] [:rf.xray/target-frame]]}
     (fn [[focus target] _query]
@@ -98,10 +75,10 @@
     (fn [[target _epoch-history] _query]
       (rf/app-db-value target)))
 
-  ;; EP-0001 (rf2-vzld77) — the observed frame's LIVE runtime-db partition
+  ;; The observed frame's LIVE runtime-db partition
   ;; value. Framework subsystem durable state (machine snapshots, the route
-  ;; slice, the spawn registry) moved out of app-db `:rf/runtime` into the
-  ;; reserved `:rf.db/runtime` partition; panels that inspect that state
+  ;; slice, the spawn registry) lives in the reserved `:rf.db/runtime`
+  ;; partition, not app-db; panels that inspect that state
   ;; (Machines inspector, Routing tab) source it from here rather than from
   ;; `:rf.xray/target-frame-db` (which carries app-db only). Sibling of the
   ;; app-db target sub above; same `:epoch-history` dependency so it
@@ -111,24 +88,22 @@
     (fn [[target _epoch-history] _query]
       (:rf.db/runtime (rf/frame-state-value target))))
 
-  ;; rf2-70tkv — derive the panel's epoch-id from the spine sub
-  ;; `:rf.xray/focus` rather than the legacy `:rf.xray/selected-
+  ;; Derive the panel's epoch-id from the spine sub
+  ;; `:rf.xray/focus` rather than the `:rf.xray/selected-
   ;; epoch-id` slot. The spine sub auto-tracks head in LIVE mode
   ;; (deriving `:epoch-id` from the head event-bundle via
-  ;; `epoch-id-for-event-bundle` against `:epoch-history`); the legacy
+  ;; `epoch-id-for-event-bundle` against `:epoch-history`); the
   ;; slot is only written by user clicks (L2 row select, epoch
   ;; chip, prev/next step) and so stays pinned to the last user
   ;; action.
   ;;
-  ;; Mike repro: user clicks an L2 row (legacy slot → pinned
-  ;; epoch); user clicks Follow-head (focus :mode flips to :live);
-  ;; new arrivals advance the focus's :dispatch-id correctly, but
-  ;; pre-fix the legacy slot was untouched so every App-DB diff
-  ;; sub kept resolving to the pinned epoch — the panel froze.
-  ;; Pivoting these subs on focus's :epoch-id closes the gap
-  ;; without changing the legacy slot's role (still authoritative
-  ;; under RETRO + LIVE-paused via the spine's compose-focus
-  ;; passthrough).
+  ;; Reading the slot would freeze the panel: a user clicks an L2
+  ;; row (slot → pinned epoch), then Follow-head (focus :mode flips
+  ;; to :live), and new arrivals advance the focus's :dispatch-id
+  ;; while the slot keeps naming the pinned epoch. Reading focus's
+  ;; :epoch-id follows head without changing the slot's role
+  ;; (authoritative under RETRO + LIVE-paused via the spine's
+  ;; compose-focus passthrough).
   (rf/reg-sub :rf.xray/focus-epoch-id
     {:inputs [[:rf.xray/focus]]}
     (fn [[focus] _query]
@@ -140,7 +115,7 @@
       (when selected-id
         (find-epoch-in-history history selected-id))))
 
-  ;; ---- rf2-02j4r — PER-EPOCH-DELTA current-state + before-image -------
+  ;; ---- PER-EPOCH-DELTA current-state + before-image -------------------
   ;;
   ;; The app-db tab shows the SELECTED epoch's OWN delta — what THIS
   ;; event changed, and nothing later (spec/021 §4.1, spec/004
@@ -157,28 +132,28 @@
   ;; ONLY what :media/deep changed; :media/shallow stays unhighlighted
   ;; until you select ITS epoch.
   ;;
-  ;; ## Why per-epoch-delta, not live-vs-before (rf2-02j4r reversal)
+  ;; ## Why per-epoch-delta, not live-vs-before
   ;;
-  ;; The rf2-yng0y design set `:value = the LIVE target-frame-db`
-  ;; ("constant as you scrub", a re-frame-10x current-state framing).
-  ;; Diffing LIVE-value vs focused-`:db-before` equals the per-epoch
+  ;; Setting `:value` to the LIVE target-frame-db ("constant as you
+  ;; scrub", a re-frame-10x current-state framing) and diffing it
+  ;; against the focused `:db-before` equals the per-epoch
   ;; delta ONLY when the focused epoch is HEAD (live == that epoch's
-  ;; `:db-after`). Scrub to ANY non-head epoch and it became a
+  ;; `:db-after`). Scrubbed to ANY non-head epoch it becomes a
   ;; CUMULATIVE diff — everything changed from the focused epoch forward
-  ;; to NOW — so later events' changes bled onto earlier selections.
-  ;; That actively misled during the core time-travel use case (Mike,
-  ;; 2026-06-04). The fix: `:value` follows the focused epoch's
-  ;; `:db-after`, so the diff is the epoch's own delta at every position.
+  ;; to NOW — so later events' changes bleed onto earlier selections,
+  ;; which misleads in the core time-travel use case. So `:value`
+  ;; follows the focused epoch's `:db-after`, and the diff is the
+  ;; epoch's own delta at every position.
   ;;
-  ;; ## Why one sub, not a 5-deep chain (rf2-yng0y root-cause fix KEPT)
+  ;; ## Why one sub, not a 5-deep chain
   ;;
-  ;; Previously the section model resolved through a deep composed
+  ;; Resolved through a deep composed
   ;; chain — `:rf.xray/focus → :rf.xray/focus-epoch-id →
-  ;; :rf.xray/selected-epoch-record → :rf.xray/app-db-state`. Under
+  ;; :rf.xray/selected-epoch-record → :rf.xray/app-db-state` — under
   ;; real mouse timing (dispatches landing mid-frame relative to
   ;; Reagent's rAF-batched flush) the panel could paint ONE frame
   ;; (~17–22 ms) reading `app-db-state` while the focus→record chain was
-  ;; still propagating, so the rendered `:before`/diff lagged the focus
+  ;; still propagating, so the rendered `:before`/diff would lag the focus
   ;; by a frame — the previous epoch's diff flashing as "stuck", most
   ;; visible when zoomed into a subtree (the stale frame IS the entire
   ;; visible content).
@@ -200,7 +175,7 @@
   ;;   the slots of the epoch named by `:epoch-id`. When no epoch is
   ;;   focused (cold boot, no event-bundles) `:value` falls back to the LIVE
   ;;   db and `:before` is nil — the panel renders plain current-state
-  ;;   with no diff overlay (unchanged from rf2-yng0y).
+  ;;   with no diff overlay.
   (rf/reg-sub :rf.xray/app-db-current+diff
     {:inputs [[:rf.xray/target-frame-db]
               [:rf.xray/target-frame-runtime-db]
@@ -210,11 +185,11 @@
       (let [epoch-id (:epoch-id focus)
             record   (when epoch-id (find-epoch-in-history history epoch-id))
             before   (when record (:db-before record))
-            ;; EP-0001 (rf2-tj6w9l) — the reserved AREAS read the runtime-db
-            ;; PARTITION (machines / routing / elision moved there), so the
+            ;; The reserved AREAS read the runtime-db
+            ;; PARTITION (machines / routing / elision live there), so the
             ;; section model needs the focused epoch's runtime-db value +
             ;; pre-image too. The epoch record stores the WHOLE frame-state
-            ;; (`:frame-state-before` / `-after`, decision #2), each carrying
+            ;; (`:frame-state-before` / `-after`), each carrying
             ;; the `:rf.db/runtime` partition; project it out so the runtime
             ;; areas move per-epoch in lockstep with the app-db `:value` /
             ;; `:before`. Cold boot / no focus → the LIVE runtime-db.
@@ -223,10 +198,10 @@
                         runtime-db)
             rt-before (when record
                         (get (:frame-state-before record) :rf.db/runtime))]
-        {;; rf2-02j4r — `:value` is the focused epoch's `:db-after` (its
+        {;; `:value` is the focused epoch's `:db-after` (its
          ;; OWN post-state), so the inline diff is db-before(N) →
          ;; db-after(N) = epoch N's per-epoch delta, not the cumulative
-         ;; live-vs-db-before(N) that bled later events onto earlier
+         ;; live-vs-db-before(N) that would bleed later events onto earlier
          ;; selections. Cold boot / no focus → fall back to the LIVE db
          ;; (plain current-state, no diff).
          :value    (if record (:db-after record) db)
@@ -234,11 +209,11 @@
          ;; record — they move together, never one-frame apart.
          :before   before
          ;; The runtime-db partition value + pre-image for the focused
-         ;; epoch (the reserved areas' source post-EP-0001).
+         ;; epoch (the reserved areas' source).
          :runtime-value  rt-value
          :runtime-before rt-before
          :epoch-id (when record epoch-id)
-         ;; rf2-y8doi.14 — the SUPPRESSED-SIGNAL count, read straight off
+         ;; The SUPPRESSED-SIGNAL count, read straight off
          ;; the focused record (the same record every slot above comes
          ;; from, so it can never describe a different epoch).
          ;;
@@ -260,16 +235,15 @@
          ;; renders only on a positive integer, so a host with no
          ;; classification layer draws no chip rather than a zero one.
          ;;
-         ;; NOT a revival of `:rf.xray/selected-epoch-redacted-modified-
-         ;; count`. That sub was pruned with the dead diff-sub family
-         ;; (rf2-p53m2) for having no view consumer and its absence is
+         ;; NOT a `:rf.xray/selected-epoch-redacted-modified-count` sub:
+         ;; there is none, and its absence is
          ;; pinned by `app_db_diff_subs_cljs_test/pruned-diff-sub-family-
-         ;; stays-gone`. This is a slot on the atomic sub the panel already
+         ;; stays-gone`. This is a slot on the atomic sub the panel
          ;; reads, and it has a consumer.
          :redacted-modified (when record
                               (:rf.epoch/redacted-modified-paths-count record))})))
 
-  ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state section model ---------
+  ;; ---- current-state section model ------------------------------------
   ;;
   ;; Decomposes the atomic `{:value :before :runtime-value :runtime-before
   ;; :epoch-id}` (above) into the section model `current-state-sections`
@@ -277,10 +251,10 @@
   ;; one section per reserved runtime subsystem (machines/spawned fan out
   ;; per instance; route + the other slices are singletons).
   ;;
-  ;; EP-0001 (rf2-tj6w9l) — the TWO partitions feed two halves of the
+  ;; The TWO partitions feed two halves of the
   ;; model: the app-db `:value` / `:before` drives the user-domain TOP
   ;; section; the runtime-db `:runtime-value` / `:runtime-before` drives
-  ;; the reserved areas (machines / routing / elision moved to the
+  ;; the reserved areas (machines / routing / elision live in the
   ;; runtime-db partition). Both move per focused-epoch in lockstep.
   ;;
   ;; The focused epoch's pre-images are threaded as the diff PRE-IMAGE
@@ -288,18 +262,18 @@
   ;; `← was X` annotation in place. Because this derives from the atomic
   ;; sub, the section model's `:before-top` / per-area `:before` slices
   ;; ALWAYS belong to the focused `:epoch-id` — no stale-`before`
-  ;; intermediate frame (rf2-yng0y).
+  ;; intermediate frame.
   ;;
   ;; nil-safe — absent / empty partitions yield an empty TOP + zero
-  ;; reserved-area entries (rf2-jcdvo — empty areas are filtered at
+  ;; reserved-area entries (empty areas are filtered at
   ;; projection time so the renderer never draws placeholder cards).
-  ;; EP-0015 (rf2-t55hxg.12) — the ON-BOX LOCAL-RENDER egress seam. Every
+  ;; The ON-BOX LOCAL-RENDER egress seam. Every
   ;; value-bearing partition of the section model (the app-db `value` /
   ;; `before` + the runtime-db `runtime-value` / `runtime-before`) is
   ;; projected through `re-frame.core/project-egress` under the on-box
   ;; dev-UI default profile `:rf.egress/local-redacted` (Spec 015
-  ;; §Projection profiles + §The graduation gate). Xray is the EP-0015
-  ;; issue-3 GRADUATING CONSUMER for that profile: the local operator sees
+  ;; §Projection profiles + §The graduation gate). Xray consumes that
+  ;; profile: the local operator sees
   ;; large values (the `include-large?` overlay) but NOT slots the OBSERVED
   ;; frame declared `:sensitive` — those redact to `:rf/redacted`, which
   ;; the shared edn-inspector already paints as a first-class chip. Per
@@ -314,7 +288,7 @@
   ;; unreachable observed frame redacts the whole value rather than ship it
   ;; raw under no policy (`local-render/local-render-value`).
   ;;
-  ;; rf2-y8doi.14 — the section model carries `:redacted-modified` through
+  ;; The section model carries `:redacted-modified` through
   ;; to the renderer. It is NOT part of the section decomposition (it
   ;; belongs to no section — it is a record-level rollup about the whole
   ;; epoch), so it rides as a sibling slot on the model map rather than
@@ -330,9 +304,8 @@
       (let [redact (fn [v] (local-render/local-render-value v observed-frame))
             value          (redact value)
             runtime-value  (redact runtime-value)
-            ;; Diff-mode is entered iff a real app-db pre-image is present,
-            ;; mirroring the pre-rf2-yng0y `(if-let [before (:db-before
-            ;; record)] …)` contract: an absent / nil `:db-before` (cold
+            ;; Diff-mode is entered iff a real app-db pre-image is present:
+            ;; an absent / nil `:db-before` (cold
             ;; boot, or a record with no pre-image slot) renders plain
             ;; current-state. When diffing, the runtime areas diff against
             ;; the SAME focused epoch's runtime-db pre-image.
