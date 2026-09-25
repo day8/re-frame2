@@ -123,8 +123,6 @@
 (deftest nil-and-map-structure-registers
   (doseq [machine [{:initial :a :states {:a {:states nil}}}
                    {:initial :a :states {:a {:states {}}}}
-                   {:initial :a :states {:a {:regions nil}}}
-                   {:initial :a :regions nil :states {:a {}}}
                    {:initial :a :states {:a nil :b {}}}
                    {:initial :o :states {:o {:initial :a :states {:a {}}}}}
                    {:type :parallel :regions {:r {:initial :a :states {:a {:initial :x :states {:x {}}}}}}}]]

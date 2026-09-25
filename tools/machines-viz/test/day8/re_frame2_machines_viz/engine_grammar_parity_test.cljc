@@ -937,7 +937,9 @@
        (catch #?(:clj Throwable :cljs :default) t (:offending-keys (ex-data t)))))
 
 (defn- flat-root-with [k] {:initial :a k nil :states {:a {}}})
-(defn- parallel-root-with [k] {:type :parallel k nil :regions {:r {:initial :a :states {:a {}}}}})
+;; `:regions` is itself one of the keys only a flat root refuses, so the
+;; parallel root's own regions are merged over the probed key.
+(defn- parallel-root-with [k] (merge {k nil} {:type :parallel :regions {:r {:initial :a :states {:a {}}}}}))
 
 (deftest root-slot-refusal-parity
   (testing "every key the engine refuses on a root, the viz refuses on that
