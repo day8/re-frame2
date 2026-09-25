@@ -19,8 +19,8 @@
   numeric inputs are not interrupted.
 
   Light/dark is driven by the ribbon's sun/moon icon (the canonical
-  affordance). The `:use-system-colors?` HCM-override checkbox lives
-  under General → Power user.
+  affordance). The `:use-system-colors?` HCM-override slot has no
+  control in the popup.
 
   Filter management lives in the top-ribbon pill strip
   (`filters/pills.cljs`), the per-pill edit popup
