@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.overflow-indicator
   "Shared overflow-indicator row + capped-list builder for long-list
-  panels (rf2-1k5r1).
+  panels.
 
   ## Why this lives in its own ns
 
@@ -9,10 +9,8 @@
   drops rows the view must surface a uniform 'N more hidden — narrow
   the filter to see more' affordance so the user knows their data is
   bigger than what's on screen. The panels that do this require this
-  ns, so its requirers ARE the roster (`panels.fresco` and
-  `panels.resources` today) — read those rather than a list restated
-  here. The eight-panel list this sentence used to carry had drifted
-  so far that neither of today's requirers was on it.
+  ns, so its requirers ARE the roster — read those rather than a list
+  restated here.
 
   The indicator is pure hiccup; a `.cljc` ns lets the JVM test target
   assert against the rendered shape without a CLJS runtime.
@@ -21,16 +19,15 @@
 
   The indicator is a `[:li]` so it slots into the same `[:ul]` the
   capped rows live in — keyboard / scroll behaviour stays consistent.
-  The user-visible text matches the existing
-  `machine_inspector.cljs` ribbon pattern (`N of M`) which already
-  shipped in v1 for the transition-history surface.
+  The user-visible text matches the `machine_inspector.cljs` ribbon
+  pattern (`N of M`) on the transition-history surface.
 
   ## capped-list builder
 
   `capped-list` folds the cap-list-then-append-overflow shape into one
-  fn so a per-panel view stays focused on the row hiccup. Neither
-  requirer above calls it today: both call `overflow-row` directly
-  after `common-helpers/cap-rows`."
+  fn so a per-panel view stays focused on the row hiccup. No requirer
+  calls it: each calls `overflow-row` directly after
+  `common-helpers/cap-rows`."
   (:require [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack]]))
