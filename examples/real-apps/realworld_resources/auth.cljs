@@ -137,14 +137,16 @@
 ;; classified reply events (`:auth/session-established` /
 ;; `:auth/session-restored` further down, plus settings.cljs's
 ;; `:settings/replied`) need. Public (not `defn-`) so settings.cljs can call
-;; it directly. A PLAIN FUNCTION, not a second event, and that is
-;; load-bearing: `:dispatch`'s own fx registration carries no `:sensitive`,
-;; so a `[:dispatch [:auth/store-session user]]` nested inside ANOTHER
-;; classified handler's `:fx` would leak the raw token at THAT handler's own
-;; `:rf.fx/handled` / `:rf.event/fx` trace — the target event's OWN
-;; classification does not reach the DISPATCHING handler's trace (a
-;; framework-projector gap, tracked separately). So every credential-classified
-;; caller computes this `:db` write DIRECTLY and INLINE instead.
+;; it directly. A PLAIN FUNCTION, not a second event: every
+;; credential-classified caller folds it into its OWN `:db` write, so the
+;; session lands in the same app-db commit as the reply that carried it, with
+;; no second event in between. The token-bearing `user` stays redacted in the
+;; caller's traces either way — it rides the caller's own
+;; `:sensitive`-classified arg-map, and a nested
+;; `[:dispatch [:auth/store-session user]]` would ride `:auth/store-session`'s
+;; `:sensitive` too, because the framework redacts a `:dispatch` fx's target
+;; event through the TARGET's own registration classification at the
+;; DISPATCHING handler's `:rf.fx/handled` / `:rf.event/fx` trace.
 (defn store-session-db
   [db user]
   (-> db
@@ -232,9 +234,9 @@
          slot is a silent no-op, so the JWT would ship RAW while the
          declaration read as protection. The handler's own `[_ user]`
          destructuring is a different coordinate system and does not move the
-         classification root. This event is for DIRECT/top-level dispatch
-         only — a classified caller inlines `store-session-db` instead (see
-         that fn's doc)."
+         classification root. The classified reply handlers in this app
+         inline `store-session-db` rather than routing through here (see the
+         comment above that fn)."
    :sensitive [[:token]]}
   (fn [{:keys [db]} [_ user]]
     {:db (store-session-db db user)}))
@@ -281,10 +283,10 @@
 ;; session` does), commit the NEW identity, then replan. A replan dispatched while
 ;; identity is transiently unresolved fails closed — deliberately — and relinquishes
 ;; the prior plan rather than keep settling bytes fetched under the new credentials
-;; into the old scope's entry. (This app used to carry its own 39-line copy of the
-;; planner here; it read the leaf route's `:resources` only, so on a composed route
-;; like the profile tabs it silently skipped the inherited banner read, and it never
-;; repaired the slice's readiness. The command is the planner.)
+;; into the old scope's entry. (Use the command rather than an app-side copy of the
+;; planner: a copy that reads only the leaf route's `:resources` would silently skip
+;; an inherited read on a composed route — the profile tabs' banner — and would
+;; never repair the slice's readiness. The command is the planner.)
 
 (rf/reg-event :auth/clear-session
   {:doc "Clear the auth slice AND drop the departing principal's scoped resource
@@ -353,8 +355,7 @@
 ;; nothing is parked, no route `:resources` are planned. routing.cljs's
 ;; `:rf.route/entry-denied` therefore stashes the destination and STAYS PUT while
 ;; `restoring-session?` holds, instead of bouncing a possibly-signed-in reader to
-;; login. This event resolves that stash once restore settles, either way
-;; (rf2-k85nd).
+;; login. This event resolves that stash once restore settles, either way.
 (rf/reg-event :auth/settle-deferred-entry
   {:doc "Resolve the protected deep link `:rf.route/entry-denied` DEFERRED while
          cold-boot identity was unknown. Dispatched once restore has settled, by
@@ -412,7 +413,7 @@
    :data    {:error nil}
    :schemas {:data app-schema/AuthFlowData}
    :guards
-   ;; `:auth/initialise` below now passes a plain boolean, not the JWT itself
+   ;; `:auth/initialise` below passes a plain boolean, not the JWT itself
    ;; — the guard only ever needed the presence/absence question, and routing
    ;; the raw token through as a positional sub-event arg would ship it raw in
    ;; the dispatched-event + machine trace slots for no reason: the
@@ -533,10 +534,8 @@
 ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 
 ;; Both call `store-session-db` DIRECTLY (returning `:db` themselves) rather
-;; than dispatching `:auth/store-session` — see that helper's doc for why a
-;; nested `[:dispatch [:auth/store-session user]]` would leak the raw token
-;; at THIS handler's own `:rf.fx/handled` / `:rf.event/fx` trace regardless
-;; of `:auth/store-session`'s own classification.
+;; than dispatching `:auth/store-session`, so the session lands in the reply's
+;; own `:db` commit — see the comment above that helper.
 
 (rf/reg-event :auth/session-established
   {:doc       "Interactive login/register succeeded: store the session,
