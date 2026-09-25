@@ -125,13 +125,13 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; Run scope — the epoch baseline (rf2-3okc)
+;; Run scope — the epoch baseline
 ;;
 ;; The epoch ring is FRAME-owned and survives the runtime's in-place
 ;; fresh-run reset (`re-frame.story.runtime/ensure-fresh-frame!` resets
-;; app-db / runtime-db, not the ring), so an unscoped read answers for EVERY
-;; run the frame has hosted: a same-id re-run whose script had stopped
-;; dispatching an event still passed `:rf.assert/dispatched?` on the previous
+;; app-db / runtime-db, not the ring), so an unscoped read would answer for EVERY
+;; run the frame has hosted: a same-id re-run whose script stopped
+;; dispatching an event would still pass `:rf.assert/dispatched?` on the previous
 ;; run's epoch. Phase 0 therefore records the last committed `:epoch-id` as
 ;; the frame's run baseline — the SAME `:epoch-baseline` the run-result tape
 ;; is scoped by — and `frame-tape` keeps only newer records, through the one
@@ -229,7 +229,7 @@
      (`:rf.story.fx-stub/<dec>+<fx>`), not its original id, so the
      authoritative record of which ORIGINAL fx-ids a `force-fx-stub`
      redirected is the stub log `re-frame.story.fx-stubs` already owns.
-     This is NOT a re-introduced parallel accumulator: it is the single
+     This is NOT a parallel accumulator: it is the single
      canonical source for stub-redirected fx, the one fact the epoch tape
      cannot carry under the original id.
 
@@ -318,10 +318,10 @@
     run-level `:cannot-run` returns FALSE even when every `:assertions`
     entry is `:passed? true`. `result.cljc`'s core invariant is that a
     verdict and the assertions slot can never disagree — folding
-    `:assertions` here (the old behaviour) was a floor-blind SECOND verdict
-    path, the false-GREEN class (rf2-x76af2.16). A zero-assertion `:pass`
-    run is still green (its `:status` is `:pass`), so the
-    /spec/007-Stories.md §Story-as-test duality still holds.
+    `:assertions` here would be a floor-blind SECOND verdict
+    path, the false-GREEN class. A zero-assertion `:pass`
+    run is green (its `:status` is `:pass`), so the
+    /spec/007-Stories.md §Story-as-test duality holds.
 
   - A bare ASSERTIONS VECTOR (render-only / live-introspection path, e.g.
     `read-assertions`) — true iff every entry has `:passed? true`. A vector
@@ -345,7 +345,7 @@
 ;; Assertion-evaluation helpers
 ;;
 ;; Each `:rf.assert/*` handler is a thin wrapper that:
-;;   1. resolves its inputs from the frame's app-db / trace-bus accumulators
+;;   1. resolves its inputs from the frame's app-db / epoch-tape projections
 ;;   2. computes :passed? / :expected / :actual / :reason
 ;;   3. dispatch-syncs `::append` to land the record on the frame
 ;;
@@ -389,7 +389,7 @@
   the Test pane's Evidence link.
 
   The router does NOT lift the dispatch id onto the coeffects map, so a
-  cofx-only read left every routed record without one (rf2-v5p6l).
+  cofx-only read would leave every routed record without one.
   Outside any router scope the lookup falls back to a caller-stamped
   `:dispatch-id` coeffect, then the play-runner's offline
   `:rf/play-dispatch-id` stamp, and finally nil. Identity is never
@@ -463,21 +463,18 @@
   root path) substitute `:rf/redacted`. A nil frame-id projects under no
   frame, which is the door's own fail-closed arm.
 
-  Named boundary (rf2-kuky.88): `:rf.egress/local-redacted`. Story is
+  Named boundary: `:rf.egress/local-redacted`. Story is
   ON-BOX — an assertion record is read by the local runner and the local
-  Story MCP surface, not shipped to a hosted sink — and that profile's
-  `:rf.egress/*` floor (sensitive redact, large elide, no digests) is
-  EXACTLY the floor the bare no-profile walk resolved to before, so the
-  projection is byte-identical. Naming it replaces a hand-rolled default
-  with the boundary the ruling asks every egress site to state.
+  Story MCP surface, not shipped to a hosted sink — so it takes that
+  profile's `:rf.egress/*` floor (sensitive redact, large elide, no
+  digests), and like every egress site it names its boundary rather than
+  relying on a hand-rolled default.
 
-  Record-don't-throw, but FAIL CLOSED (rf2-kuky.6): an elision error
-  yields the `:rf/redacted` sentinel, never `v`. This catch used to
-  return the raw value — harmless while the door could not reject an
-  opts map, and a LEAK the moment it could: once the egress opts map is
-  closed, a stale or misspelled key here becomes a throw, and a throw
-  that returns `v` ships the unprojected value to the very record the
-  projection exists to protect. Redaction failure still never breaks
+  Record-don't-throw, but FAIL CLOSED: an elision error
+  yields the `:rf/redacted` sentinel, never `v`. The egress opts map is
+  closed, so a stale or misspelled key here throws, and a catch that
+  returned `v` would ship the unprojected value to the very record the
+  projection exists to protect. Redaction failure never breaks
   the assertion — it just cannot be the thing that opens the door."
   [frame-id path v]
   (try
@@ -562,8 +559,8 @@
   both runtimes; production `:advanced` builds with Story disabled DCE
   the entire assertion vocabulary anyway.
 
-  A `[:fn sym]` schema (the `:assert-db :pred` symbol fold,
-  §B5.9) is resolved to `[:fn resolved-fn]` first (`resolve-fn-schema`),
+  A `[:fn sym]` schema (the `:assert-db :pred` symbol fold)
+  is resolved to `[:fn resolved-fn]` first (`resolve-fn-schema`),
   because Malli's `[:fn 'sym]` form needs sci (unavailable). An
   unresolvable symbol reports a readable failure rather than an opaque
   sci error."
@@ -792,8 +789,8 @@
   `:assert-dom selector :visible|:hidden|:text` step folds onto these so
   a DOM expectation rides the ONE assertion atom. Each carries the `:dom`
   runner requirement via `re-frame.story.requirements/assertion-capabilities`
-  (spec/017 §Runner requirements); the DOM runner that proves them lands
-  later."
+  (spec/017 §Runner requirements); the play runner evaluates them through
+  the DOM executor (`re-frame.story.play.dom`)."
   #{id-dom-visible
     id-dom-hidden
     id-dom-text})
@@ -841,8 +838,8 @@
   the folded DOM family, the browser-tier oracle family (visual / a11y /
   structural-a11y), and the wider set declared in the requirement registry
   (`re-frame.story.requirements/assertion-capabilities`: the schema /
-  visual / a11y / reactive-count ids whose runners land later or are
-  browser-tiered). Plan construction validates authored assertion atoms
+  visual / a11y / reactive-count ids and their runner-tier
+  requirements). Plan construction validates authored assertion atoms
   against this set (`assertion-id-known?`); an unknown id FAILS plan
   construction with a useful error (spec/017 §Assertions).
   Reading the requirement registry keeps this list a derived view of the
@@ -1222,8 +1219,8 @@
   1. Reads the current frame's app-db via the cofx `:db` slot (per
      spec/002 §Routing the router populates `:db` with the dispatch-
      targeted frame's snapshot).
-  2. Computes the assertion result against `:db` (or the per-frame
-     trace-bus accumulators for `:rf.assert/no-warnings` /
+  2. Computes the assertion result against `:db` (or the frame's
+     epoch-tape projections for `:rf.assert/no-warnings` /
      `:rf.assert/effect-emitted` / `:rf.assert/dispatched?`).
   3. Returns `{:db (update db :rf.story/assertions conj record)}` —
      writes the record onto the frame's app-db.
@@ -1260,7 +1257,7 @@
 (def assertion-event?
   "True iff `event` is a `:rf.assert/*` form. Used by the play-runner
   to distinguish 'real' dispatches from assertions so the dispatched-
-  events accumulator can skip recording assertion events themselves.
+  events projection can skip assertion events themselves.
 
   Aliased from `re-frame.story.predicates` (the canonical leaf ns)."
   rf.story.predicates/assertion-event?)
