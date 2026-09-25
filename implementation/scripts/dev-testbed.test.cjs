@@ -10,8 +10,8 @@
  * guarded by `require.main === module`, so importing it here only loads
  * the pure `resolveArgs` / `urlsForBuild` helpers + the DEV_HTTP map.
  *
- * Group aliases (xray / stories / epochs / all) were removed (rf2-trlj7):
- * `npm run dev` takes EXPLICIT build-ids only. `resolveArgs` now just
+ * There are no group aliases (xray / stories / epochs / all):
+ * `npm run dev` takes EXPLICIT build-ids only. `resolveArgs` just
  * passes tokens through, de-duplicating build-ids in first-seen order.
  */
 
@@ -24,15 +24,15 @@ const { DEV_HTTP, resolveArgs, urlsForBuild } = require('./dev-testbed.cjs');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
 
 // ---------------------------------------------------------------------------
-// Drift guard helpers (rf2-d3fb7.1).
+// Drift guard helpers.
 //
 // shadow-cljs.edn is the source of truth for which dev-testbed builds are
 // served on a `:dev-http` port; DEV_HTTP in dev-testbed.cjs mirrors it
-// (READ-only — shadow-cljs.edn is hot-zone). The managed-http omission
-// (port 8035 present in :dev-http, absent from DEV_HTTP + the README) shipped
-// green because nothing tied the two surfaces together. This guard parses the
+// (READ-only — shadow-cljs.edn is hot-zone). Nothing else ties the two
+// surfaces together, so a port present in :dev-http but absent from DEV_HTTP
+// + the README would ship green. This guard parses the
 // `:dev-http` map straight out of shadow-cljs.edn and asserts every served
-// build appears in DEV_HTTP at the matching port, so a future testbed
+// build appears in DEV_HTTP at the matching port, so a testbed
 // addition that forgets the launcher map fails THIS gate instead of silently
 // printing no URL.
 //
@@ -65,12 +65,12 @@ function stripEdnComments(edn) {
 
 /**
  * Parse the `:dev-http` map into { port -> [roots...] }. The map binds an
- * integer port to ONE of two value shapes (rf2-wn3bh):
+ * integer port to ONE of two value shapes:
  *
  *   - bare-vector  `<port> [ "root" "root" ... ]`
  *   - map form     `<port> {:roots [ "root" ... ] :handler sym}`
  *
- * The map form was introduced so each testbed port can wire the JVM-only
+ * The map form lets each testbed port wire the JVM-only
  * 'open in editor' not-found `:handler`. Both shapes carry the served roots
  * in a `[ ... ]` vector; the FIRST `[ ... ]` after the port is the roots
  * vector in either shape (in the map form `:roots` is the leading key). We
@@ -185,7 +185,7 @@ function it(label, f) {
   }
 }
 
-console.log('dev-testbed arg-resolution tests (rf2-trlj7)');
+console.log('dev-testbed arg-resolution tests');
 
 it('a single explicit build-id passes through unchanged', () => {
   assert.deepStrictEqual(resolveArgs([':examples/standard-epochs']), [
@@ -208,7 +208,7 @@ it('extra shadow-cljs flags pass straight through', () => {
 });
 
 it('a removed group name is NOT expanded — it passes through as a literal', () => {
-  // Post-removal: `xray` is just a token. It reaches shadow-cljs as an
+  // `xray` is just a token. It reaches shadow-cljs as an
   // unknown build-id (which shadow-cljs reports), never a 6-build expansion.
   assert.deepStrictEqual(resolveArgs(['xray']), ['xray']);
   assert.deepStrictEqual(resolveArgs(['stories']), ['stories']);
@@ -275,10 +275,10 @@ it('urlsForBuild prints the live URL for the managed-http testbed (rf2-d3fb7.1)'
   ]);
 });
 
-// --- Drift guard (rf2-d3fb7.1) --------------------------------------------
+// --- Drift guard ---------------------------------------------------------
 // Tie DEV_HTTP to shadow-cljs.edn's :dev-http map so the next testbed
 // addition can't ship with a served port that the launcher knows nothing
-// about (which is exactly how managed-http/8035 shipped green). Parses
+// about. Parses
 // shadow-cljs.edn directly (READ-only — it's a hot-zone file) and asserts
 // every :dev-http-served build appears in DEV_HTTP at the matching port.
 it('DEV_HTTP covers every :dev-http-served build in shadow-cljs.edn (drift guard)', () => {
@@ -324,13 +324,12 @@ it('DEV_HTTP covers every :dev-http-served build in shadow-cljs.edn (drift guard
   );
 });
 
-// --- Drift guard, the other direction (rf2-puwyb) --------------------------
+// --- Drift guard, the other direction --------------------------------------
 // The guard above is one-way: it catches a served build MISSING from DEV_HTTP.
 // It says nothing about an ORPHAN — a DEV_HTTP entry whose build and :dev-http
-// port are both gone — so `:testbeds/freehand-views` (port 8036) survived the
-// Freehand retirement here, mapping a port to something that cannot be served,
-// and every census missed it because it is executable config rather than prose.
-// An orphan is not merely untidy: `npm run dev :testbeds/freehand-views` prints
+// port are both gone — which maps a port to something that cannot be served,
+// and which a prose census misses because it is executable config.
+// An orphan is not merely untidy: `npm run dev <orphaned-build>` prints
 // a live-looking URL for a build shadow-cljs will reject. Assert the mirror is
 // exact in BOTH directions so the next deletion cannot leave one behind.
 it('DEV_HTTP carries no build that shadow-cljs.edn no longer serves (orphan guard)', () => {
