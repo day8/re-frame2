@@ -277,7 +277,7 @@
 ;; snapshots. Deliberately NOT a state-entry replay — see
 ;; `re-frame.machines.hydrate`.
 (rf.fx/reg-fx :rf.machine/hydrate-rearm
-  {:doc "Machine-internal: reconstruct the host `:after` timer table for the frame's just-installed machine snapshots, at each snapshot's existing `:rf/after-epoch` and without replaying entry effects. Emitted by `:rf/hydrate` (per Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\") and by `:rf/install-frame-state` (per Spec 002 §Installing a persisted frame-state). Not for direct application use."}
+  {:doc "Machine-internal: for the frame's just-installed machine snapshots, restore each actor's machine classification claims from its machine definition, then reconstruct the host `:after` timer table at each snapshot's existing `:rf/after-epoch`, without replaying entry effects. Emitted by `:rf/hydrate` (per Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\") and by `:rf/install-frame-state` (per Spec 002 §Installing a persisted frame-state). Not for direct application use."}
   (fn [{frame-id :frame} _args]
     (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
           ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
