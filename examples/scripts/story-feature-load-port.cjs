@@ -43,7 +43,8 @@ function preferredPort(repoRoot) {
 }
 
 // Wrap the shared scanner with the Story-specific exhausted-port wording
-// so the public signature (and the per-worktree hint) is unchanged.
+// (with its per-worktree hint), keeping the shared scanner's
+// `(startPort, opts)` signature.
 function findAvailablePort(startPort, opts = {}) {
   return findAvailablePortShared(startPort, {
     ...opts,
