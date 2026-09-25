@@ -14,7 +14,7 @@
   `server.clj` beside `server.cljs` would be loaded into every compile of
   the server bundle — as macros, on a classpath that has no Ring on it.
 
-  ## What this owns, and what Node owns (rf2-8arzr shared contract S2)
+  ## What this owns, and what Node owns
 
   The JVM keeps the request frame, the boot-event drain, the blocking-
   resource settle, the `<head>`, `__rf_payload`, the shell, the status,
@@ -46,13 +46,13 @@
   PUBLISHES its adapter; only `rf/init!` INSTALLS one, and without an
   installed adapter the first request cannot create its frame — `ssr-handler`
   projects the failure to a bare HTTP 500 before the renderer is reached, so
-  a perfectly healthy sidecar renders nothing (rf2-gwye.61).
+  a perfectly healthy sidecar renders nothing.
 
   `app` is the whole application: `handler` for the page, and the compiled
   browser bundle's output tree for everything else. `handler` ALONE renders
   a document for every request it is given, the `<script>` URL in the page
   it just served included — so serving it bare answers `/main.js` with
-  another login page and the page never becomes interactive (rf2-gwye.62).
+  another login page and the page never becomes interactive.
   Routing is the host application's job, which is what `app` shows; the
   library's own `ssr-middleware` is the other way to arrange it.
 
