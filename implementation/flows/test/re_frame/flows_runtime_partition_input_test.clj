@@ -4,14 +4,14 @@
   `read-inputs` / `elide-inputs` that only fires when `run-flows-on-db` is
   driven with a NON-nil `runtime-db`.
 
-  Coverage gap this file closes (rf2-826l3c): the runtime-qualified input was
-  tested only STATICALLY — the algebra-view projection lowering
+  Why this file exists: elsewhere the runtime-qualified input is tested only
+  STATICALLY — the algebra-view projection lowering
   (`flow_algebra_view_test.clj` §runtime-qualified-input-lowers-to-a-runtime-read)
   and the negative output-path reservation (`flows_test.clj`
-  §reg-flow-rejects-runtime-partition-rooted-output-path). Every DIRECT drive of
-  `run-flows-on-db` in the suite passed `nil` for `runtime-db`
-  (`flows_per_frame_last_inputs_test.clj`, `flows_trace_test.clj`), so the
-  RUNTIME partition branch never executed under test. A regression that read a
+  §reg-flow-rejects-runtime-partition-rooted-output-path) — and the other DIRECT
+  drive of `run-flows-on-db` (`flows_per_frame_last_inputs_test.clj`) passes
+  `nil` for `runtime-db`, so without this file the RUNTIME partition branch
+  would never execute under test. A regression that read a
   runtime input from app-db, failed to strip the `:rf.db/runtime` partition key,
   or omitted the resolved runtime value from the dirty-check vector would ship
   GREEN.
