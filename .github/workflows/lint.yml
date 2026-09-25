@@ -5,7 +5,7 @@ name: lint
 # Three complementary linters run as parallel jobs — two over the Clojure
 # trees, one over the JavaScript ones. They are not, however, the whole of what
 # this file gates, and reading the list below as the answer to "what does my
-# diff arm?" undercounts it (rf2-63il). Two further jobs sit alongside them.
+# diff arm?" undercounts it. Two further jobs sit alongside them.
 # `api-manifest` (Public-API manifest drift-check) is not a linter at all, yet
 # it is gated on the very same `lint_surface` output as clj-kondo and Splint,
 # so a change under implementation/ or tools/ arms FOUR gated jobs rather than
@@ -32,16 +32,16 @@ name: lint
 #     style warnings stay informational — the same shape as the
 #     clj-kondo job's `--fail-level error`.
 #
-#   - ESLint (rf2-2rtt6.78): bug-class linter over every
+#   - ESLint: bug-class linter over every
 #     AUTHOR-MAINTAINED `.cjs` / `.mjs` / `.js` file — bench drivers,
 #     gate runners, browser harnesses, MCP conformance suites — which
-#     until it landed were checked by NOTHING, so a syntax error or a
-#     typo'd `require` surfaced the first time somebody ran the file.
+#     nothing else checks, so without it a syntax error or a typo'd
+#     `require` would surface the first time somebody ran the file.
 #     AUTHOR-MAINTAINED, not "every TRACKED": `docs/cljs/playground.js`
 #     is tracked and is a minified generated bundle, one of the
 #     generated trees `eslint.config.mjs` ignores on purpose, so the
 #     stronger phrasing would claim coverage the config deliberately
-#     withholds (rf2-93u6). Config lives in
+#     withholds. Config lives in
 #     `eslint.config.mjs` at repo root, alongside `.clj-kondo/config.edn`
 #     and `.splint.edn`, and its rule set is deliberately hand-picked
 #     rather than `js.configs.recommended`: only rules that answer "what
@@ -49,11 +49,11 @@ name: lint
 #     import order or formatting. Everything in it is an error, so the
 #     job blocks on any finding while ESLint's own unused-disable-
 #     directive warnings stay informational — the same shape as the two
-#     jobs above. It landed green with zero suppressions in the tree and
-#     must stay that way: fix a finding, or file a bead naming it, but
+#     jobs above. The tree carries zero suppressions and must stay that
+#     way: fix a finding, or file a bead naming it, but
 #     never silence it with a disable comment.
 #
-# LINT SURFACE — ONE NAME, TWO DIFFERENT SETS (rf2-63il). The phrase names
+# LINT SURFACE — ONE NAME, TWO DIFFERENT SETS. The phrase names
 # both what the linters READ and what ARMS them on a PR, and those are not the
 # same set, so each is stated separately below. The distinction earns its words
 # because confusing the two fails OPEN: a worker who consults the shorter list
@@ -77,15 +77,14 @@ name: lint
 # docs/core/*, docs/*/concepts.md, spec/Privacy.md, docs/api/*,
 # docs/story/api/*). None of those is a lint TARGET: kondo lints no YAML and
 # no EDN config. Treat the classifier's `case` arms as the authority on this
-# set rather than any list up here — each arm carries the bead that added it,
-# and a copy kept at this distance from the code is what drifted in the first
-# place.
+# set rather than any list up here — a copy kept at this distance from the
+# code drifts.
 #
-# REQUIRED-CHECK SHAPE (rf2-aemyt). The `pull_request` trigger is
+# REQUIRED-CHECK SHAPE. The `pull_request` trigger is
 # deliberately UNFILTERED so the `Lint required` aggregator below posts a
 # status context on EVERY PR — a path-filtered workflow skips entirely on
 # an unrelated PR and emits NO context, which means a required-but-absent
-# context would sit permanently pending (the phantom trap rf2-dtvmb hit).
+# context would sit permanently pending (the phantom-pending trap).
 # The expensive clj-kondo + Splint jobs are instead gated job-side on a
 # tiny `detect` job that diffs the PR's changed files against the lint
 # surface, so they still skip on PRs that touch no lint paths while the
@@ -102,12 +101,12 @@ on:
       - 'testbeds/**'
       - '.clj-kondo/**'
       # Splint reads its per-project config from `.splint.edn` at repo root
-      # (rf2-nlnd9y.3). A push that changes ONLY `.splint.edn` — including
+      # A push that changes ONLY `.splint.edn` — including
       # broken syntax, disabled rules, or a missing exclude — must run the
       # lint workflow so the Splint gate validates the new config.
       - '.splint.edn'
       - '.github/workflows/lint.yml'
-      # (rf2-2rtt6.78) The ESLint gate's own surface. `eslint.config.mjs`
+      # The ESLint gate's own surface. `eslint.config.mjs`
       # is the rule set; the root `package.json` + `package-lock.json`
       # pin the linter version the job installs, so a bump there must
       # re-run the gate. The JS files themselves live under the trees
@@ -118,21 +117,21 @@ on:
       - 'package-lock.json'
       - 'scripts/**'
       - 'docs/tools/**'
-      # Public-API manifest drift-check surface (rf2-3nbl5.2).
+      # Public-API manifest drift-check surface.
       - 'spec/API.md'
       - 'spec/api-manifest.edn'
       - 'spec/api-manifest-metadata.edn'
-      # Secondary projection drift-check surfaces (rf2-gkp0t): the skills +
+      # Secondary projection drift-check surfaces: the skills +
       # doc-guide are manifest projections; a var rename there must run the
       # api-manifest job. (tools/story/spec + tools/xray/spec already ride
       # the tools/** entry above.)
       - 'skills/**'
       - 'docs/core/**'
-      # Per-capability CONCEPT docs (rf2-earvtz): the #4961 reorg moved each
-      # capability's concept doc to docs/<cap>/concepts.md; doc-guide-check now
-      # scans them, so a PR touching only one must run the api-manifest job.
+      # Per-capability CONCEPT docs live at docs/<cap>/concepts.md;
+      # doc-guide-check scans them, so a PR touching only one must run the
+      # api-manifest job.
       - 'docs/*/concepts.md'
-      # Human-doc API-reference projection surfaces (rf2-vzupmg): the three
+      # Human-doc API-reference projection surfaces: the three
       # API-reference trees the doc-api-check scans are manifest projections
       # too; a PR touching them must run the api-manifest job's doc-api-check
       # so a removed/renamed public surface goes RED. (spec/Privacy.md rides
@@ -158,7 +157,7 @@ on:
 
 # Cancel older in-flight runs of THIS workflow on the same PR when a
 # force-push / rebase lands a new HEAD — but never on the trunk. Mirrors
-# the shape test.yml has carried since rf2-d4t7g.
+# the shape test.yml carries.
 #
 # Keying: for PRs, group on the PR number so every push to the same PR
 # branch reuses one slot. On every other event — push to main, the nightly
@@ -166,16 +165,16 @@ on:
 # unique per run, so each trunk commit gets its own independent group and
 # successive main pushes cannot share one.
 #
-# BOTH HALVES ARE LOAD-BEARING (rf2-vktd); keying alone would half-fix it.
-# The previous shape grouped on `github.ref` and cancelled unconditionally,
-# and on main `github.ref` is the SAME VALUE for every push — so all trunk
-# runs shared one group and each push cancelled the one before it. A
+# BOTH HALVES ARE LOAD-BEARING; keying alone would half-fix it. Grouping
+# on `github.ref` and cancelling unconditionally puts every trunk run in
+# one group — on main `github.ref` is the SAME VALUE for every push — so
+# each push would cancel the one before it. A
 # cancelled run still REPORTS: the `Lint required` aggregator below is
 # `if: always()`, and a cancelled dependency is neither success nor
 # skipped, so the aggregate goes red with no lint finding behind it.
-# Measured over the last 200 main-branch runs before this change: 76
-# cancelled, 124 success, 0 failure — every red on trunk was a
-# cancellation — against 0 cancelled for test.yml over the same window,
+# Measured over 200 main-branch runs under that shape: 76 cancelled, 124
+# success, 0 failure — every red on trunk a cancellation — against 0
+# cancelled for test.yml over the same window,
 # branch and instrument. `Lint required` is a required status check in the
 # branch ruleset, so that noise sits on a signal that gates merges.
 concurrency:
@@ -183,7 +182,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Lightweight changed-surface gate (rf2-aemyt). On a pull_request this
+  # Lightweight changed-surface gate. On a pull_request this
   # diffs HEAD against the merge base and lights `lint_surface` only when a
   # path in the lint surface changed; on push / schedule / dispatch it
   # always lights so the linters run unconditionally. The heavy clj-kondo +
@@ -191,7 +190,7 @@ jobs:
   # aggregator does not — so an unrelated PR runs only this ~5-second job
   # plus the rollup, and both linters skip.
   #
-  # `js_surface` (rf2-2rtt6.78) is the same idea for the ESLint job, and is
+  # `js_surface` is the same idea for the ESLint job, and is
   # classified SEPARATELY because the two surfaces are not nested: a PR
   # touching only `scripts/*.mjs` lints under ESLint but has no Clojure to
   # lint, and a PR touching only `spec/api-manifest.edn` is the reverse.
@@ -220,7 +219,7 @@ jobs:
             echo "Non-PR event (${GITHUB_EVENT_NAME}): running linters unconditionally."
             exit 0
           fi
-          # Fetch the base branch BY NAME, with no depth cap (rf2-4sl9). Two
+          # Fetch the base branch BY NAME, with no depth cap. Two
           # things make that the right shape. First, this fetch is load-bearing
           # even under the `fetch-depth: 0` checkout above: a pull_request
           # checkout fetches `+<sha>:refs/remotes/pull/N/merge` and never
@@ -236,7 +235,7 @@ jobs:
           # reds rather than misclassifying the PR as lint-irrelevant — but a
           # spurious red on a long-lived branch is still worth not having.
           # docs.yml's `Detect docs surface` step fetches its base the same
-          # uncapped way, for the same reasons (rf2-ihfw).
+          # uncapped way, for the same reasons.
           git fetch --no-tags origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
           files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
           lint_surface=false
@@ -246,38 +245,36 @@ jobs:
             case "$file" in
               implementation/*|tools/*|examples/*|testbeds/*|.clj-kondo/*|.github/workflows/lint.yml)
                 lint_surface=true ;;
-              # `.splint.edn` is the Splint gate's per-project config
-              # (rf2-nlnd9y.3): a PR that changes ONLY it — broken syntax,
+              # `.splint.edn` is the Splint gate's per-project config:
+              # a PR that changes ONLY it — broken syntax,
               # disabled rules, a removed exclude — must run the Splint job so
-              # the config is validated. Without this the detect classifier
-              # left lint_surface=false and Splint skipped, letting a config
-              # change ship unverified behind a green `Lint required`.
+              # the config is validated. Without this arm the detect classifier
+              # would leave lint_surface=false and Splint would skip, letting a
+              # config change ship unverified behind a green `Lint required`.
               .splint.edn)
                 lint_surface=true ;;
               # spec/ feeds the public-API manifest drift-check (the
               # api-manifest job below): API.md, the curated sidecar, and
               # the generated manifest all live under spec/. A pure-spec PR
-              # that touches them must still run the drift-check (rf2-3nbl5.2).
+              # that touches them must still run the drift-check.
               spec/API.md|spec/api-manifest.edn|spec/api-manifest-metadata.edn)
                 lint_surface=true ;;
-              # The skills + doc-guide are secondary manifest projections
-              # (rf2-gkp0t): a var rename there is caught by the api-manifest
+              # The skills + doc-guide are secondary manifest projections:
+              # a var rename there is caught by the api-manifest
               # job's skills-check / doc-guide-check. A pure-skills or
               # pure-doc-guide PR must still run the drift-check. The
-              # per-capability concept docs (docs/<cap>/concepts.md from the
-              # #4961 reorg) are scanned by doc-guide-check now too (rf2-earvtz).
+              # per-capability concept docs (docs/<cap>/concepts.md) are
+              # scanned by doc-guide-check too.
               skills/*|docs/core/*|docs/*/concepts.md)
                 lint_surface=true ;;
               # The three human-doc API-reference trees are manifest
-              # projections too (rf2-vzupmg): a removed/renamed public surface
+              # projections too: a removed/renamed public surface
               # named there is caught by the api-manifest job's doc-api-check.
-              # A pure-doc PR touching them must still run the drift-check. The
-              # per-capability API docs (docs/<cap>/api.md from the #4961 reorg)
-              # are scanned by doc-api-check now too (rf2-earvtz).
+              # A pure-doc PR touching them must still run the drift-check.
               spec/Privacy.md|docs/api/*|docs/story/api/*)
                 lint_surface=true ;;
             esac
-            # (rf2-ydpr) The require-alias dialect ratchet gets its OWN `case`
+            # The require-alias dialect ratchet gets its OWN `case`
             # for the same first-match-wins reason the ESLint block below has
             # one: its surface is EVERY git-tracked Clojure file wherever it
             # lives, and `implementation/foo.cljc` is claimed by the
@@ -294,7 +291,7 @@ jobs:
               scripts/check_require_alias_dialect.py|scripts/require-alias-baseline.edn)
                 lint_surface=true ;;
             esac
-            # (rf2-2rtt6.78) The ESLint surface gets its OWN `case` rather than
+            # The ESLint surface gets its OWN `case` rather than
             # another arm above, and the reason is load-bearing: `case` is
             # first-match-wins, so `implementation/scripts/foo.cjs` is claimed
             # by the `implementation/*` arm and would never reach a JS arm
@@ -328,19 +325,19 @@ jobs:
       # on node12, deprecated by GitHub) or community-forked.
       - name: Install clj-kondo
         # Fetch the pinned release archive ourselves rather than delegating
-        # to upstream's `install-clj-kondo` script (rf2-rkl9). The script is
+        # to upstream's `install-clj-kondo` script. The script is
         # the documented path, but it fetches that archive with a bare
         # `curl -o "$filename" -sL` — no `-f`, no retry — and THAT hop is
-        # where this gate actually dies. PR #7881's job logged one line,
+        # where this gate dies: a job logs one line,
         # `Downloading …/clj-kondo-2026.04.15-linux-static-amd64.zip to
-        # /tmp`, then exit 35 (curl's SSL-connect error) 0.24s in, with no
+        # /tmp`, then exits 35 (curl's SSL-connect error) 0.24s in, with no
         # lint output anywhere. A transient install failure wearing the
         # costume of a RED LINT GATE is the worst possible disguise: the
         # natural response is to hunt the diff for an error that does not
-        # exist, and that is exactly what it cost.
+        # exist.
         #
-        # Retry-hardening the fetch of the SCRIPT (rf2-cq0s2j, below) was
-        # right in intent but one hop short of reach, and pre-fetching the
+        # Retry-hardening only the fetch of the SCRIPT would stop one hop
+        # short, and pre-fetching the
         # archive in front of the script cannot close the gap either — the
         # script `rm -rf`s the archive immediately before downloading it, so
         # a warm copy is discarded unread. Fetching it directly is the only
@@ -349,25 +346,25 @@ jobs:
         #
         # `--retry-all-errors` is what makes the retry cover the failures that
         # actually occur here — the SSL-connect drop above, and the CDN HTTP-429
-        # that `-f` alone treats as fatal (rf2-cq0s2j; cost a fix-worker cycle
-        # on #5304). GNU curl on ubuntu-24.04 runners supports it (since 7.71).
+        # that `-f` alone treats as fatal. GNU curl on ubuntu-24.04 runners
+        # supports it (since 7.71).
         # `-f` additionally means an error page can never be mistaken for an
         # archive.
         #
-        # THE ENVELOPE (rf2-gfvy). The first cut was `--retry 5 --retry-delay 3`
-        # — about FIFTEEN SECONDS of cover, and it lost twice on 2026-08-13
-        # against github.com 5xx storms. #8009 logged five 503s, which is
-        # exactly curl's five retries and therefore every request this step was
-        # willing to make; job 94263477384 logged four and died `exit code 56`,
-        # curl's own receive-error number. `-f` means the step dies AT the curl
-        # rather than falling through to a missing binary, so the mask is
-        # milder than the one rf2-xsfr fixed one toolchain over — but the red
-        # still aggregates into `Lint required` and reads as a lint failure,
-        # and no exit-code handling can substitute for simply covering the
-        # storm. 24 retries at a 15s delay is six minutes of backoff, hard-
-        # capped at seven by `--retry-max-time`, which is the same envelope
-        # `.github/scripts/install-clojure-cli.sh` now carries and roughly
-        # 3.5x the longest storm measured (1m48s, #8017). The healthy path is
+        # THE ENVELOPE. `--retry 5 --retry-delay 3` would give about FIFTEEN
+        # SECONDS of cover, and github.com 5xx storms outlast it: one measured
+        # run logged five 503s, which is exactly curl's five retries and
+        # therefore every request such a step is willing to make; another
+        # logged four and died `exit code 56`, curl's own receive-error
+        # number. `-f` means the step dies AT the curl rather than falling
+        # through to a missing binary, so the mask is milder than a silent
+        # install failure — but the red still aggregates into `Lint required`
+        # and reads as a lint failure, and no exit-code handling can
+        # substitute for simply covering the storm. 24 retries at a 15s delay
+        # is six minutes of backoff, hard-capped at seven by
+        # `--retry-max-time`, which is the same envelope
+        # `.github/scripts/install-clojure-cli.sh` carries and roughly
+        # 3.5x the longest storm measured (1m48s). The healthy path is
         # untouched: the first attempt succeeds and none of it costs anything.
         #
         # NO OUTER LOOP, AND NO JITTER, both deliberately. An outer `for` loop
@@ -394,7 +391,7 @@ jobs:
         # makes "the lint gate failed" and "the lint gate never ran"
         # distinguishable without opening the raw log. Same idiom, and the same
         # plain `exit 1`, as `install-clojure-cli.sh` and
-        # `resolve-clojure-deps.sh` (rf2-xsfr, rf2-vm036). The title carries no
+        # `resolve-clojure-deps.sh`. The title carries no
         # comma: `,` separates properties in GitHub's workflow-command grammar,
         # so a comma inside one truncates the rendered title.
         #
@@ -416,7 +413,7 @@ jobs:
           curl -fsSL --retry 24 --retry-all-errors --retry-delay 15 --retry-max-time 420 \
             -o /tmp/clj-kondo.zip \
             https://github.com/clj-kondo/clj-kondo/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip \
-            || { echo "::error title=clj-kondo install failed — CI infrastructure — not this diff::Downloading the pinned clj-kondo release archive failed for roughly seven minutes of retries. NO LINT RAN IN THIS JOB: this step provisions the linter, so the clj-kondo gate never started and this red says nothing whatever about the diff. The usual cause is a github.com 5xx storm on the release download (two PRs on 2026-08-13, rf2-gfvy; four more on the Clojure CLI the same day, rf2-xsfr); the URL fetched is a literal constant in .github/workflows/lint.yml, so no change can affect it UNLESS this PR edits that step, in which case read it first. Otherwise re-run the job."; exit 1; }
+            || { echo "::error title=clj-kondo install failed — CI infrastructure — not this diff::Downloading the pinned clj-kondo release archive failed for roughly seven minutes of retries. NO LINT RAN IN THIS JOB: this step provisions the linter, so the clj-kondo gate never started and this red says nothing whatever about the diff. The usual cause is a github.com 5xx storm on the release download; the URL fetched is a literal constant in .github/workflows/lint.yml, so no change can affect it UNLESS this PR edits that step, in which case read it first. Otherwise re-run the job."; exit 1; }
           unzip -qq -o /tmp/clj-kondo.zip clj-kondo -d /tmp
           sudo install -m 0755 /tmp/clj-kondo /usr/local/bin/clj-kondo
           clj-kondo --version
@@ -466,7 +463,7 @@ jobs:
             --lint tools/template/src \
             --lint tools/template/test
 
-      # THE FIXTURE WITNESS FOR FRESCO'S LINT EXPORT (rf2-hic-022).
+      # THE FIXTURE WITNESS FOR FRESCO'S LINT EXPORT.
       #
       # The step above loads that export's hooks against current repository
       # code, which proves they LOAD and stay quiet. It cannot prove they still
@@ -483,18 +480,15 @@ jobs:
       # positive fixture — requires each mutation to turn the gate RED, and
       # restores every one in a `finally`; then the gate itself runs.
       #
-      # HOW MANY mutations is deliberately not written here (rf2-93u6), and
-      # the history is the whole argument. rf2-zzdg corrected "three" to
-      # "four" (#7813); #7818 added another case one tick later, so the
-      # correction was stale before it was a day old; #7829 adds more still.
-      # Nothing links a count kept in THIS file to a case list kept in ANOTHER
-      # one, and nothing ever will, so the next correction is already
-      # scheduled and the one after that. The only fix that holds is to stop
-      # writing the number down — which is why this paragraph names no current
-      # value, and why adding one back would re-open the defect rather than
-      # tidy it. The self-test names its own cases as it runs, which is the
-      # copy that cannot drift; `check_lint_export.py`
-      # dropped the count from its docstring for the same reason, and its
+      # HOW MANY mutations is deliberately not written here. Nothing links a
+      # count kept in THIS file to a case list kept in ANOTHER one, and
+      # nothing ever will, so a count written here goes stale the next time a
+      # case is added. The only fix that holds is to not write the number
+      # down — which is why this paragraph names no current value, and why
+      # adding one would open the defect rather than tidy it. The self-test
+      # names its own cases as it runs, which is the copy that cannot drift;
+      # `check_lint_export.py` keeps no count in its docstring for the same
+      # reason, and its
       # `EXPECTED` table pins fixture ROWS rather than a total on exactly this
       # reasoning — a check that fires the right NUMBER of times in the wrong
       # PLACE is the collapse a count cannot see.
@@ -560,10 +554,10 @@ jobs:
             ../testbeds
 
   # ---------------------------------------------------------------------------
-  # ESLint over the JS corpus (rf2-2rtt6.78).
+  # ESLint over the JS corpus.
   #
   # The Clojure counterpart of the two jobs above, for the tracked
-  # `.cjs` / `.mjs` / `.js` files that no gate looked at before this landed.
+  # `.cjs` / `.mjs` / `.js` files that no other gate looks at.
   # Everything about the rule set — what it catches, what it deliberately
   # refuses to police, and why it is not `js.configs.recommended` — is
   # documented in `eslint.config.mjs` at repo root rather than repeated here.
@@ -611,7 +605,7 @@ jobs:
         run: npm run lint:js
 
   # ---------------------------------------------------------------------------
-  # Public-API manifest drift-check (rf2-3nbl5.2 — API-governance keystone).
+  # Public-API manifest drift-check (the API-governance keystone).
   #
   # Regenerates the machine-readable public-API manifest from the LIVE public
   # vars (core + every optional artefact + Story + the MCP support
@@ -669,13 +663,11 @@ jobs:
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.api-md-check
 
-      # (rf2-udl74a: the public-facade manifest-hygiene gate was RETIRED with the
-      # atomic re-frame.realm/migration removal — its disposition source
-      # (re-frame.migration/migration-map) and the superseded EP-0013 facade
-      # names it tracked no longer exist. The doc-surface retired-vocab grep
-      # (scripts/check_retired_composition_vocab.py) remains the live guard.)
+      # (There is no public-facade manifest-hygiene gate: the doc-surface
+      # vocabulary grep, scripts/check_retired_composition_vocab.py, is the
+      # live guard.)
 
-      # Secondary projection drift-checks (rf2-gkp0t). Each validates a
+      # Secondary projection drift-checks. Each validates a
       # surface's public-var references against the same manifest the way
       # api-md-check validates spec/API.md: Story API spec, Xray API spec
       # (report-only — the spec file is owned elsewhere; the check flags
@@ -697,43 +689,41 @@ jobs:
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-guide-check
 
-      # Human-doc API-reference projection drift-check (rf2-vzupmg). Extends
+      # Human-doc API-reference projection drift-check. Extends
       # the call-position discipline to the three human-facing API-reference
-      # trees the keystone + the checks above left uncovered:
-      # spec/Privacy.md + docs/core/api/** + docs/story/api/**. Goes RED on a
+      # trees the keystone + the checks above leave uncovered:
+      # spec/Privacy.md + docs/api/** + docs/story/api/**. Goes RED on a
       # call-position `(rf/<var>` / `(story/<var>` reference to a renamed /
       # removed / never-manifested public surface (the EP-graduation
-      # doc-drift class that previously passed every CI check).
-      - name: Assert spec/Privacy + docs/core/api + docs/story/api projection matches the manifest
+      # doc-drift class no other CI check catches).
+      - name: Assert spec/Privacy + docs/api + docs/story/api projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-api-check
 
-      # Pure-reconciler regression contracts (rf2-4v79f). The `:test` alias
+      # Pure-reconciler regression contracts. The `:test` alias
       # carries the unit tests that lock the reconcilers the check-mains
       # above drive: the api-md-check qualifier-resolution contract
-      # (rf2-41j0a — a fully-qualified symbol must match its EXACT [ns var],
-      # never merely share a bare var name) and the xray-spec-check contract
-      # (rf2-0u8kz). The check-mains go RED on real drift, but these unit
-      # contracts pin the reconciler logic itself; gating them here closes
-      # the local-only-dev-net hole.
+      # (a fully-qualified symbol must match its EXACT [ns var],
+      # never merely share a bare var name) and the xray-spec-check
+      # contract. The check-mains go RED on real drift, but these unit
+      # contracts pin the reconciler logic itself; gating them here keeps
+      # them from being a local-only dev net.
       - name: Run api-manifest reconciler regression tests
         working-directory: implementation/scripts/api-manifest
         run: clojure -M:test
 
   # ---------------------------------------------------------------------------
-  # Require-alias dialect ratchet (rf2-ydpr).
+  # Require-alias dialect ratchet.
   #
   # `spec/Conventions.md` §Require-alias dialect fixes one canonical alias per
   # framework namespace — `re-frame.core` keeps the bare root `rf`, every other
   # `re-frame.<tail>` takes the full dotted `rf.<tail>`, and the bare leaf form
-  # is reserved for APPLICATION namespaces. Three artefact sweeps migrated the
-  # tree to it (core and routing in #9103, machines in #9114, resources in
-  # #9129) and each of their beads asked for this ratchet.
+  # is reserved for APPLICATION namespaces.
   #
   # ONE REPO-WIDE INSTRUMENT, NOT ONE PER ARTEFACT, and that is the whole
-  # design rather than a convenience: rf2-6r9j.161 fenced core and rf2-6r9j.167
-  # fenced routing, and machines went unowned BETWEEN them because nothing
-  # looked at the whole tree. So the checker reads every git-tracked
+  # design rather than a convenience: per-artefact fences leave whatever falls
+  # BETWEEN them unowned, because nothing looks at the whole tree. So the
+  # checker reads every git-tracked
   # `.clj`/`.cljs`/`.cljc` in the repository and REFUSES to run over a surface
   # its baseline does not name — the anti-unowned rule, enforced rather than
   # remembered.
@@ -750,8 +740,8 @@ jobs:
   # fixture files — each `positive/` one must be NAMED, each `negative/` one
   # must be silent — and it pins the two halves of the scan surface a plausible
   # implementation would have omitted: that the runtime-`(require ...)` fixture
-  # goes GREEN when that context is withheld (the shape clj-kondo cannot see,
-  # and the core sweep's one-edge residue across 312 files), and that the
+  # goes GREEN when that context is withheld (the shape clj-kondo cannot
+  # see), and that the
   # host-conditional exemption is derived from the two-namespace binding rather
   # than from the file.
   #
@@ -779,7 +769,7 @@ jobs:
         run: python scripts/check_require_alias_dialect.py --verbose
 
   # ---------------------------------------------------------------------------
-  # Full-corpus provenance-pin audit (rf2-qpk2l, closing rf2-g7m6y's ruling).
+  # Full-corpus provenance-pin audit.
   #
   # docs.yml runs the same checker SCOPED TO CHANGED PAGES, and that scoping is
   # right: it holds a PR accountable for what it touched, and a corpus-wide
@@ -788,9 +778,9 @@ jobs:
   # week. What scoping cannot see is the corpus ROTTING UNDER A PAGE NOBODY
   # EDITS, and there are two routes in, neither of them a page edit:
   #
-  #   1. LEGACY. The scoped gate landed after the pages it would have caught.
-  #   2. HARDENING, which RECURS. The checker gained rules six times in eight
-  #      days; each new rule reclassifies the WHOLE corpus, but only touched
+  #   1. LEGACY. Pages older than the scoped gate have never been read by it.
+  #   2. HARDENING, which RECURS. The checker gains rules; each new rule
+  #      reclassifies the WHOLE corpus, but only touched
   #      pages are re-read, so each hardening silently mints a fresh backlog.
   #
   # This job is the periodic sweep that answers both. It is here rather than in
@@ -806,12 +796,12 @@ jobs:
   # should be told to run before every PR, for a job that never fires on one.
   #
   # IT DOES RUN ON PUSH TO MAIN, and that is load-bearing rather than free
-  # breadth (rf2-6ng7). `post-merge-workflow-sanity.yml` re-dispatches a
+  # breadth. `post-merge-workflow-sanity.yml` re-dispatches a
   # cron-only workflow after a workflow edit precisely so a typo is not silent
   # until the next tick — and it EXCLUDES lint.yml on the stated ground that
   # lint.yml "already runs on push". A schedule-only `if:` here would make that
   # excuse false for this job while leaving it standing for the workflow, which
-  # is the exact shape rf2-6ng7 names: an arming excuse outliving its coverage.
+  # is the shape of an arming excuse outliving its coverage.
   # `!= 'pull_request'` keeps the excuse true — the merge push that edits this
   # file runs the job within minutes (`.github/workflows/lint.yml` is in the
   # `push: paths:` filter above) — and mirrors the `detect` job's own idiom.
@@ -853,7 +843,7 @@ jobs:
         run: python scripts/check_provenance_pins.py
 
   # ---------------------------------------------------------------------------
-  # Required-checks aggregator (rf2-aemyt).
+  # Required-checks aggregator.
   #
   # ONE stable status context — `Lint required` — that is ALWAYS present on
   # every PR (the workflow's pull_request trigger is unfiltered) and that
