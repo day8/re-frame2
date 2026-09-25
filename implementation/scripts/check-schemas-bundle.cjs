@@ -1,34 +1,27 @@
 #!/usr/bin/env node
 /*
- * Schemas-artefact bundle-cost gate (Spec 010 §Bundle cost; beads
- * rf2-fqbcy, rf2-kybsf, rf2-v4o7e).
+ * Schemas-artefact bundle-cost gate (Spec 010 §Bundle cost).
  *
  * WHAT THIS GATE ASSERTS, AND WHY IT IS A MARGIN AND NOT A CEILING.
  *
  * Spec 010 §Bundle cost budgets a MARGINAL quantity: what requiring
  * `re-frame.schemas` adds on top of an app that already uses re-frame2.
- * Until rf2-v4o7e this gate asserted an ABSOLUTE gzipped ceiling on a
- * probe bundle instead — a number dominated by things the budget is not
- * about. `cljs.core` alone is ~186 KB of the probe's ~494 KB optimized
- * bytes, and `re-frame.core` is most of the rest, so every unrelated
- * framework change moved this gate's number.
+ * An ABSOLUTE gzipped ceiling on a probe bundle would measure a number
+ * dominated by things the budget is not about. `cljs.core` alone is ~186 KB
+ * of the probe's ~494 KB optimized bytes, and `re-frame.core` is most of
+ * the rest, so every unrelated framework change would move it.
  *
- * It duly went wrong. Measured, gzipped:
+ * Measured, gzipped, three months apart:
  *
- *   2026-05-14 (rf2-fqbcy, gate authored)   probe  80.1 KB, Malli marginal 29.8 KB
- *   2026-08-05 (rf2-kybsf, first-ever run)  probe 124.9 KB, Malli marginal 30.8 KB
+ *   2026-05-14   probe  80.1 KB, Malli marginal 29.8 KB
+ *   2026-08-05   probe 124.9 KB, Malli marginal 30.8 KB
  *
- * The probe grew 44.8 KB in three months; the schemas surface accounted
- * for 1.0 KB of it and `cljs.core` + `re-frame.core` for 43.8 KB. The
- * gate fired at the schemas artefact for growth that happened entirely
- * outside it — and its ceiling had never been derived from these probes
- * in the first place (rf2-fqbcy lifted 100/125 KB from Spec 010's
- * Reagent/React harness rows and parked them next to a bare probe
- * measuring 50.3 KB; rf2-v96fh then made both probes Malli-bearing and
- * LOWERED the Malli-bearing arm to the Malli-FREE 100 KB figure). No
- * absolute constant would have survived a quarter, so this gate no
- * longer has one. Absolute bundle size is owned by the perf-bundle and
- * bundle-isolation gates; this one owns the schemas margin.
+ * The probe grew 44.8 KB; the schemas surface accounted for 1.0 KB of it
+ * and `cljs.core` + `re-frame.core` for 43.8 KB. An absolute ceiling fires
+ * at the schemas artefact for growth that happens entirely outside it, and
+ * no absolute constant survives a quarter, so this gate has none. Absolute
+ * bundle size is owned by the perf-bundle and bundle-isolation gates; this
+ * one owns the schemas margin.
  *
  * THE A/B. Two `:advanced` + `goog.DEBUG=false` browser builds that
  * differ by EXACTLY ONE require:
@@ -37,23 +30,17 @@
  *   schemas-bundle-probe    `[re-frame.core]` + `[re-frame.schemas]`.
  *
  * `probe - control` is therefore the schemas opt-in and nothing else.
- * Per rf2-v96fh the `re-frame.schemas` facade `:require`s the
+ * The `re-frame.schemas` facade `:require`s the
  * `re-frame.schemas.malli` adapter in its own ns-form, so the probe's
  * posture is the ONLY schemas posture a consumer can buy — which is why
  * the control is core-only rather than a facade-with-the-adapter-
- * stripped counterfactual. That counterfactual remains a useful
- * ATTRIBUTION technique (rf2-kybsf used it once, to split "Malli grew"
- * from "core grew"); it is not a posture, so it is not the control.
+ * stripped counterfactual. That counterfactual is a useful
+ * ATTRIBUTION technique (it splits "Malli grew" from "core grew"); it is
+ * not a posture, so it is not the control.
  *
- * FIRST MATCHED RUN (2026-08-05, cold, Windows, node 24, malli 0.20.1):
- *
- *   schemas-bundle-control      86356 B gzipped (84.3 KB)
- *   schemas-bundle-probe       127926 B gzipped (124.9 KB)
- *   margin                      41570 B gzipped (40.6 KB)
- *
- * SECOND MATCHED RUN (2026-08-30, rf2-tiymn, Windows, node 24, malli
- * 0.20.1 — the run these thresholds are set from), after the adapter
- * stopped publishing the humanizer in production builds:
+ * MATCHED RUN (2026-08-30, Windows, node 24, malli
+ * 0.20.1 — the run these thresholds are set from), with the adapter's
+ * humanizer publication gated out of production builds:
  *
  *   schemas-bundle-control      86851 B gzipped (84.8 KB)
  *   schemas-bundle-probe       127736 B gzipped (124.7 KB)
@@ -64,12 +51,12 @@
  * every time — Closure's output is not byte-stable across runs here, so
  * read the last two digits of any figure in this file as noise.
  *
- * Both directions of the humanizer assertion were made to fire before
- * it was wired: ungating the adapter's publication puts the keyword back
+ * Both directions of the humanizer assertion fire: ungating the adapter's
+ * publication puts the keyword back
  * (probe 128485 B, margin 41634 B, exit 1), and an application that
  * calls `malli.error/humanize` itself, the login example's posture, is
  * left alone (keyword still absent, margin 41635 B — the app pays the
- * same ~750 B the gate stopped charging everyone — exit 0).
+ * ~750 B the gate does not charge everyone — exit 0).
  *
  * Composition of that margin, from `shadow.cljs.build-report` optimized
  * bytes (post-Closure, uncompressed): Malli 120.0 KB (`malli.core` 88.6,
@@ -88,7 +75,7 @@
  *
  * THE HUMANIZER, AND WHAT CLOSURE KEEPS OF `malli.error`. The adapter
  * publishes `malli.error/humanize` under `:schemas/humanize-explain!`
- * only when `interop/debug-enabled?` is true (rf2-tiymn) — the hook's
+ * only when `interop/debug-enabled?` is true — the hook's
  * sole reader, the `:explain-humanized` enrichment of dev traces, sits
  * behind the same gate. Under `:advanced` + `goog.DEBUG=false` the
  * publication folds away, so this gate asserts the hook keyword is
@@ -112,7 +99,7 @@
  * WHY IT IS TWO-SIDED. A margin that COLLAPSES is not good news — it
  * means the A/B stopped measuring what it measures, which is exactly how
  * a probe goes vacuous. The floor is also the in-gate structural echo of
- * schema-implies-validation (rf2-v96fh), and that was measured rather
+ * schema-implies-validation, and that was measured rather
  * than assumed: with `[re-frame.schemas.malli]` deleted from the facade's
  * ns-form the probe rebuilds at 96332 B (94.1 KB) and the margin falls to
  * 9976 B (9.7 KB) — 10.3 KB below the floor, exit 1. The invariant's
@@ -121,8 +108,7 @@
  * (the `:schemas/malli-validate` hook is bound by requiring the facade
  * alone, and a bad write to a registered slot fires
  * `:rf.error/schema-validation-failure`); this gate is the bundle-shaped
- * corroboration, which is why the old byte-equality guard between two
- * near-identical probes retired with the `-malli` probe it compared.
+ * corroboration.
  *
  * Strategy: gzip every top-level .js file under each bundle's output-dir
  * and sum the compressed sizes.
@@ -159,25 +145,25 @@ const BUNDLES = [
   {
     name:      PROBE,
     bundleDir: path.join(ROOT, 'out', PROBE),
-    role:      '`[re-frame.core]` + `[re-frame.schemas]` ⇒ Malli wired (rf2-v96fh)',
+    role:      '`[re-frame.core]` + `[re-frame.schemas]` ⇒ Malli wired',
   },
 ];
 
 // ----- the margin contract ---------------------------------------------------
 
-// Both bounds are set from the second matched A/B run recorded in the
-// header (40885 B / 39.9 KB), per the rf2-kybsf ruling: numbers from the
-// measurement, never inherited from a prior constant. The first run set
-// them at 45 / 20 KB from 41570 B; rf2-tiymn re-derived them from its own
-// measurement by the same rule, and the ceiling moved with the margin.
+// Both bounds are set from the matched A/B run recorded in the
+// header (40885 B / 39.9 KB): numbers from the
+// measurement, never inherited from a prior constant. When the margin
+// moves for a real reason, re-derive both from a fresh measurement by the
+// same rule, and move the ceiling with the margin.
 //
 // CEILING — 44 KB, i.e. the measured margin plus ~4.1 KB (~10 %) of
 // stated headroom. The headroom absorbs a Malli patch bump and small
 // additions to the schemas artefact's own surface; for scale, Malli's
-// marginal cost moved 29.8 -> 30.8 KB across the three months and the
-// version bump between rf2-fqbcy and rf2-kybsf.
+// marginal cost moved 29.8 -> 30.8 KB across three months and a
+// version bump.
 //
-// It was calibrated against the failure it exists to catch — a namespace
+// It is calibrated against the failure it exists to catch — a namespace
 // off Spec 010's restrict-to-dev/test list reaching the production path —
 // by MEASURING one rather than trusting the list's headline figures. Add
 // a `malli.transform` require to the probe and NOTHING HAPPENS (+0.2 KB):
@@ -185,8 +171,7 @@ const BUNDLES = [
 // "inter-namespace DCE works" claim holding. Add a call to
 // `malli.transform/json-transformer` and the namespace becomes reachable:
 // +5.5 KB gzipped on top of the already-present `malli.core`: measured
-// 2026-08-05 at margin 47201 B against the 45 KB ceiling, and again
-// 2026-08-30 at 46550 B (45.5 KB) against this one, 1.5 KB over, exit 1.
+// 2026-08-30 at margin 46550 B (45.5 KB), 1.5 KB over this ceiling, exit 1.
 // So the headroom is tight enough for the smallest of the two heavy
 // restrict-list namespaces, and `malli.generator` (heavier still, carries
 // test.check) reds by more. Note the list's per-namespace figures are
@@ -194,9 +179,9 @@ const BUNDLES = [
 // in the bundle is smaller, and the incremental one is what this gate
 // sees. The headroom is a tolerance, not a licence to grow into.
 //
-// FLOOR — 20 KB, about half the measured margin. It restores the "Malli
-// arm strictly larger" methodology guard rf2-fqbcy originally had, in the
-// shape the A/B allows: a reverted facade adapter require drops the
+// FLOOR — 20 KB, about half the measured margin. It is the "Malli
+// arm strictly larger" methodology guard, in the
+// shape the A/B allows: a facade without its adapter require drops the
 // margin to the measured 9.7 KB, and a control that accidentally became
 // Malli-bearing or a probe that stopped rooting the schemas surface drops
 // it toward 0. Both are FAILURES of the measurement rather than good news
@@ -212,14 +197,14 @@ const MARGIN_MIN_BYTES = 20 * 1024;
 // "malli-validate", "schemas/malli-validate", …)`), so the fully-qualified
 // name is a direct marker for "this publication reached production".
 // The humanizer's must be absent from the probe; the validator's must be
-// present, or the absence check inspected nothing (rf2-tiymn).
+// present, or the absence check inspected nothing.
 const HUMANIZE_HOOK = 'schemas/humanize-explain!';
 const VALIDATE_HOOK = 'schemas/malli-validate';
 
 // ----- helpers ---------------------------------------------------------------
 
 // Bundle file listing is shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-qlk4w). Top-level *.js
+// scripts/lib/read-release-bundle.cjs. Top-level *.js
 // only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function gzippedSize(file) {
@@ -242,7 +227,7 @@ function fmtKb(bytes) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Schemas bundle-cost gate (Spec 010 §Bundle cost, rf2-v4o7e) ===');
+  report.detail('=== Schemas bundle-cost gate (Spec 010 §Bundle cost) ===');
   report.detail('');
 
   const sizes = {};
@@ -250,7 +235,7 @@ function main() {
   let bundlesOk = true;
 
   for (const bundle of BUNDLES) {
-    // Non-vacuous floor (rf2-utvst): a present-but-empty output dir sums
+    // Non-vacuous floor: a present-but-empty output dir sums
     // to 0 gzipped bytes. Reject it before measuring — a margin computed
     // from a zero-byte arm measures nothing.
     const cls = classifyReleaseBundle(bundle.bundleDir);
@@ -330,7 +315,7 @@ function main() {
   const humanizerOk     = !humanizerLeaked && !validatorAbsent && !controlTainted;
 
   report.detail('');
-  report.detail(`  [${humanizerOk ? 'OK' : 'FAIL'}] humanizer publication is dev-only (Spec 010 §Humanize-hook, rf2-tiymn)`);
+  report.detail(`  [${humanizerOk ? 'OK' : 'FAIL'}] humanizer publication is dev-only (Spec 010 §Humanize-hook)`);
   report.detail(`        \`${HUMANIZE_HOOK}\`: probe ${humanizeInProbe}, control ${humanizeInControl} (both must be 0)`);
   report.detail(`        \`${VALIDATE_HOOK}\`:    probe ${validateInProbe}, control ${validateInControl} (probe > 0, control 0)`);
 
@@ -361,8 +346,8 @@ function main() {
   if (validatorAbsent) {
     console.error(`THE VALIDATOR HOOK IS MISSING FROM THE PROBE. \`${VALIDATE_HOOK}\``);
     console.error('is published unconditionally by the same ns-load, so its absence');
-    console.error('means the adapter never loaded (the rf2-v96fh regression, which');
-    console.error('the floor also catches) or the blob inspected is not the probe.');
+    console.error('means the adapter never loaded (a facade without its adapter require,');
+    console.error('which the floor also catches) or the blob inspected is not the probe.');
     console.error('The humanizer check above proves nothing until this is fixed.');
     console.error('');
   }
@@ -394,8 +379,8 @@ function main() {
     console.error('Note what this gate CANNOT be failing for: `cljs.core` and');
     console.error('`re-frame.core` growth cancels between the two arms. If the');
     console.error('cause turns out to be core, the margin is not where it shows');
-    console.error('up, and the answer is not a bigger number here — that is the');
-    console.error('mistake rf2-kybsf documents. Update Spec 010 §Bundle cost');
+    console.error('up, and the answer is not a bigger number here.');
+    console.error('Update Spec 010 §Bundle cost');
     console.error('first, with the measurement, and move this band in lockstep.');
   }
   if (underFloor) {
@@ -408,7 +393,7 @@ function main() {
     console.error('means one of the two arms stopped being what it claims:');
     console.error('  - The `re-frame.schemas` facade no longer `:require`s');
     console.error('    `re-frame.schemas.malli`, so requiring schemas no longer');
-    console.error('    implies validation (the rf2-v96fh regression). The');
+    console.error('    implies validation. The');
     console.error('    behavioural owner of that invariant is');
     console.error('    schemas/test/re_frame/schemas_implies_validation_test.clj');
     console.error('    — run it; it will red too, and it says why in words.');
