@@ -1,15 +1,13 @@
 (ns day8.re-frame2-xray.test-helpers.static-machines-tree
-  "The node lane's door onto the Static Machines sub-tab (rf2-k97c.3).
+  "The node lane's door onto the Static Machines sub-tab.
 
   ## Why this exists
 
-  The sub-tab's three views are now Fresco boundaries — `panel/panel`,
+  The sub-tab's three views are Fresco boundaries — `panel/panel`,
   `browse-list/browse-list` and `definition-detail/detail` are
   `rf.fresco/defview`s, i.e. real React function components. A
   boundary's body may only run inside a React render window, so
-  `(panel/panel)` is no longer a callable that answers hiccup and the
-  ~30 existing node-lane rows that walked its return value could not
-  survive unchanged.
+  `(panel/panel)` is not a callable that answers hiccup.
 
   The repair is `defview`'s own documented extract-a-helper spelling:
   each of the three files exports a PURE `*-tree` fn of its read's
@@ -32,8 +30,8 @@
       on that sub-mode, exactly as the boundary reads them;
     * it passes `identity` as `detail-tree`'s `as-child`, so the
       Topology and Sim bodies stay fn-headed hiccup vectors that
-      `rf.test-helpers/expand-tree` walks precisely as it always has.
-      The boundary passes `reagent.core/as-element` there; that
+      `rf.test-helpers/expand-tree` walks.
+      The boundary passes `substrate/as-element` there; that
       crossing's evidence is the browser lane's, not this one's.
 
   SINGLE-SOURCED ON PURPOSE. Four suites need this composition
@@ -46,8 +44,7 @@
   ## Call these INSIDE a frame scope
 
   Every fn here subscribes ambiently, so each call belongs inside
-  `(rf/with-frame :rf/xray …)` — the same requirement the `reg-view`
-  bodies had, and the same one every existing caller already satisfies."
+  `(rf/with-frame :rf/xray …)`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.machines.browse-list :as browse-list]
             [day8.re-frame2-xray.static.machines.definition-detail
@@ -103,9 +100,8 @@
 
 (defn panel-tree
   "The WHOLE sub-tab's hiccup — the shipped two-pane chrome from
-  `panel/panel-tree` with both panes' bodies expanded into it. This is
-  what `(panel/panel)` used to answer, and it is the drop-in every
-  migrated node-lane row takes."
+  `panel/panel-tree` with both panes' bodies expanded into it. It stands
+  in for `(panel/panel)` in every node-lane row."
   ([] (panel-tree (:dispatch (rf/capture-frame))))
   ([dispatch]
    (panel/panel-tree (browse-list-tree dispatch)
