@@ -2493,6 +2493,11 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ```clojure
 (def TransitionTable
   [:ref ::state-node])                                                     ;; a TransitionTable IS the root state-node (it just happens to be where :initial / :states begin)
+;; The root honours :entry / :exit (once at birth, once at teardown) and :tags. Registration
+;; refuses the state-node keys no runtime path reads on the root — :spawn, :spawn-all, :always,
+;; :choice, :final?, :output-key, :error?, :deep?, :default-target, and a flat root's :on-done —
+;; with :rf.error/machine-root-slot-not-supported. Per [005 §The machine root]
+;; (005-StateMachines.md#the-machine-root).
 
 ;; A state-node is recursive — a leaf has no :states; a compound state declares
 ;; :states and MUST declare :initial. Per [005 §Initial-state cascading]

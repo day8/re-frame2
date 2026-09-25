@@ -73,6 +73,8 @@ How the union is computed depends on the machine's shape:
 | [Hierarchical](hierarchical-states.md) | union along the active path, root to leaf |
 | [Parallel](parallel-states.md) | union of every active state in every region |
 
+Tags declared on the machine root join the union in every shape.
+
 The runtime owns `:tags`. An action cannot return `{:tags …}` — the slot is a
 projection of `:state`. When no active state declares tags, the runtime
 **elides** the key. Do not declare `:tags #{}` to force the slot; omit it.

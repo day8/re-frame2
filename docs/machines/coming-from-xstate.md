@@ -60,6 +60,7 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `states` | `:states` |
 | `initial` | `:initial` |
 | nested states | compound states with `:initial` + `:states` |
+| root `entry` / `exit` / `tags` | root `:entry` (once at birth) / `:exit` (once at teardown, including destroy) / `:tags`; a root `invoke` (`:spawn`) or `always` is refused at registration — declare the `:spawn` on a compound state wrapping the tree, and route `:initial` into a state whose `:always` fires |
 | `type: "parallel"` | `:type :parallel` + `:regions` |
 | `type: "history"` | `:type :history` (`:default-target` is optional and falls back to the compound's `:initial`; v6 requires a history `target`) |
 | `type: "final"` | `:final? true` (auto-destroys, and a later event restarts it from `:initial`; omit it on a resting leaf) |
