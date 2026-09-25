@@ -157,15 +157,14 @@
   "The conformance corpus lives at the repo root under
   `spec/conformance/fixtures/`.
 
-  Anchored to a CLASSPATH RESOURCE, not the working directory (rf2-ywrwkl,
-  the same fix rf2-55j4s3 applied to 3 sibling core tests). The earlier
-  `(io/file \"../../spec/conformance/fixtures\")` form assumed the JVM cwd
-  was `implementation/flows/` so that `../../` reached the repo root. That
+  Anchored to a CLASSPATH RESOURCE, not the working directory. A cwd-relative
+  `(io/file \"../../spec/conformance/fixtures\")` form would assume the JVM cwd
+  is `implementation/flows/` so that `../../` reaches the repo root. That
   holds for the canonical per-artefact gate (`clojure -M:test` run from
   `implementation/flows/`, which is what CI runs) but SILENTLY MIS-SCOPES
   under the combined `implementation/deps.edn :test` alias: run from
   `implementation/`, `../../` resolves ABOVE the repo root, `file-seq`
-  returns nothing, and the corpus discovers zero fixtures (the rf2-3hamsq
+  returns nothing, and the corpus discovers zero fixtures (the fixture-count
   floor turns that mis-discovery RED instead of silent-green).
 
   This test namespace's own source file is on the test classpath (the
@@ -192,16 +191,16 @@
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
   returns only the FIRST and silently discards the rest, so a fixture whose
-  expectation block closes early passes having verified less than it claims
-  (rf2-5mr6). Throws rather than returning `:fixture/load-error`, which the
+  expectation block closes early passes having verified less than it claims.
+  Throws rather than returning `:fixture/load-error`, which the
   runner classifies as a SKIP — as silent as the defect. Full rationale on
-  `re-frame.conformance-test/read-one-form` (rf2-98ni)."
+  `re-frame.conformance-test/read-one-form`."
   [text fixture-name]
   (let [eof  (Object.)
         rdr  (java.io.PushbackReader. (java.io.StringReader. text))
         fail (fn [why data]
                (throw (ex-info (str "conformance fixture " fixture-name " " why
-                                    " (rf2-98ni, rf2-5mr6)")
+                                    ".")
                                (assoc data :fixture/file fixture-name))))
         rd   (fn []
                (try (edn/read {:eof eof} rdr)
@@ -220,7 +219,7 @@
 (defn- load-fixture
   "Read one EDN fixture, applying the same `::name` rewrite the core
   runner uses so `clojure.edn/read-string` (no reader resolver) accepts
-  auto-resolved keywords. Per rf2-lu3f."
+  auto-resolved keywords."
   [file]
   (let [raw   (slurp file)
         fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
@@ -246,7 +245,7 @@
   cross-cuts. `:core/sub` is in the set because several fixtures
   (recompute-on-input-change, multi-input-topo) assert `:sub-values`
   against materialised flow outputs. `:core/error` covers the
-  flow-eval-exception fixture (rf2-gmrks) which asserts both the
+  flow-eval-exception fixture, which asserts both the
   cascade-level error trace and the always-on error-emit substrate."
   #{:core/event-handler
     :core/sub
@@ -263,7 +262,7 @@
 
 (def claimed-spec-versions
   "Fixture spec versions this runner claims to conform against. Matches
-  the core runner's set at rf2-4559c time."
+  the core runner's set."
   #{"1.0"})
 
 (defn- runnable-capability-set?
@@ -283,8 +282,8 @@
 ;; artefact's classpath) lifts the DSL into native fns. The wiring here
 ;; mirrors the relevant slice of `re-frame.conformance-test/realise-handlers`
 ;; — events, subs, fxs, flows. Cofx / schemas / views / heads /
-;; machines are not exercised by any flow-*.edn fixture today; if one
-;; lands later, extend this fn.
+;; machines are not exercised by any flow-*.edn fixture; a fixture that
+;; needs one extends this fn.
 
 (defn- adapter-helpers
   "Helper map for `realise-fx-handler` — gives the fx-body DSL access
@@ -302,7 +301,7 @@
   "Register every event / sub / fx handler the fixture declares. Excludes
   flow registration — flows are FRAME-SCOPED (per Spec 013), so a
   destroy-frame! call between handler-registration and dispatch would
-  clear them (rf2-wbtjn). Caller registers flows AFTER the frame is
+  clear them. Caller registers flows AFTER the frame is
   re-registered via `realise-flows!`.
 
   The fx slot reuses any `:rf.fx/reg-flow` / `:rf.fx/clear-flow` default
@@ -320,7 +319,7 @@
       (let [[kind handler] (rf.conformance/realise-event-handler steps)
             meta           (get event-meta id {})]
         (case kind
-          ;; EP-0018 Slice Z: one public `reg-event` (cofx-in, effects-map-out).
+          ;; EP-0018: one public `reg-event` (cofx-in, effects-map-out).
           ;; A :db-kind fixture handler is `(fn [db event] new-db)`; adapt it to
           ;; the single form by reading db from the coeffects and lowering the
           ;; returned db into a `{:db …}` effect — same observable behaviour.
@@ -339,8 +338,8 @@
           :layer-1 (if (seq meta) (rf/reg-sub id meta body) (rf/reg-sub id body))
           ;; Use the fn-form `subs/reg-sub` — the public `rf/reg-sub`
           ;; is a JVM macro (Spec 001 §Source-coordinate capture).
-          ;; A declared dependency list rides the metadata map
-          ;; (rf2-kuky.50), so the fixture's inputs go in as DATA.
+          ;; A declared dependency list rides the metadata map,
+          ;; so the fixture's inputs go in as DATA.
           :layer-2 (rf.subs/reg-sub id (assoc meta :inputs (vec inputs)) body))))
     ;; ---- fxs -----------------------------------------------------------
     ;; A fixture may declare additional fxs the event handlers emit.
@@ -365,14 +364,14 @@
   lifts the :body field into an :derive fn before the fx fires).
 
   Called AFTER the frame is (re-)registered — see the
-  ordering note in `run-fixture` (rf2-wbtjn)."
+  ordering note in `run-fixture`."
   [fixture]
   (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
         flow-bodies   (or (:fixture/flow-bodies fixture) {})]
     (doseq [[flow-id flow-meta] flow-registry]
       (when-let [body (get flow-bodies flow-id)]
         (let [output-fn (rf.conformance/realise-flow-output-fn body)]
-          ;; rf2-bqstzr — the 3-slot grammar: `(reg-flow flow-id metadata
+          ;; The 3-slot grammar: `(reg-flow flow-id metadata
           ;; derive-fn)`. The fixture `flow-meta` carries the reflection keys
           ;; (`:inputs` / `:output-path` / …) as the metadata middle slot; the
           ;; realised `output-fn` is the pure `:derive` value slot.
@@ -467,7 +466,7 @@
   expected entries (`trace-matches?`). Returns a vector of failure
   strings (empty ⇒ all absent). Powers the `:trace-absent` matcher used
   to pin, e.g., that a flow throw emits NO `:rf.event/db-changed` (the
-  event aborted before the install — atomicity contract, rf2-u0zz5)."
+  event aborted before the install — atomicity contract)."
   [actual forbidden]
   (reduce (fn [failures pat]
             (if (some #(trace-matches? pat %) actual)
@@ -499,14 +498,13 @@
   Spec 013 §Topological sort).
 
   Delegates to `re-frame.flows.topo/depends-on?` — single source of
-  truth with the production runtime. Previously this fn inlined a
-  local `prefix?` / `overlap?` pair that would silently disagree with
-  the runtime if the dependency rule ever evolved (e.g. self-edge
+  truth with the production runtime, so the matcher cannot silently
+  disagree with the runtime if the dependency rule evolves (e.g. self-edge
   short-circuit, path-equality fast-path).
 
   Returns `{flow-id #{dep-id ...}}` for the `:rf/default` frame's
   flows. Fixtures that register on a non-default frame would extend
-  this; today's flow-*.edn fixtures all target `:rf/default`."
+  this; the topology fixtures target `:rf/default`."
   []
   (let [registry (get (rf.flows/flows-snapshot) :rf/default {})]
     (into {}
@@ -522,8 +520,8 @@
 
 (defn- flow-registry-ids
   "Set of flow ids currently registered on `frame-id` (default
-  `:rf/default`). The single-arg form preserves the original
-  single-frame contract; the two-arg form is used by multi-frame
+  `:rf/default`). The single-arg form is the single-frame
+  contract; the two-arg form is used by multi-frame
   fixtures (per Spec 013 §Frame-scoping)."
   ([] (flow-registry-ids :rf/default))
   ([frame-id]
@@ -541,20 +539,19 @@
   "The id set of the REAL `:flow` registrar slot, read from the authoritative
   registrar via the public `registrar/ids` query API.
 
-  Per rf2-en00bk the `:flow` registrar kind is RESERVED but its slot is
+  The `:flow` registrar kind is RESERVED but its slot is
   intentionally EMPTY — `reg-flow` writes ONLY the per-frame `flows` store
   (`{frame-id {flow-id flow-map}}`), never the registrar — so this set MUST be
   `#{}` at all times, before and after teardown. This is the authoritative
   source the `:registrar-flow-slots-after` matcher asserts against.
 
-  rf2-3neiv: the prior matcher (`registrar-has-flow?`) read
-  `flows/flows-snapshot` (the per-frame STORE — the WRONG source, already
-  covered by `:flow-registry-after`) and the runner filtered the result over
-  the EXPECTED set, so an empty `#{}` expectation matched UNCONDITIONALLY and a
-  `:flow` registrar polluted with a forbidden row went undetected. Reading the
-  registrar slot directly and comparing the FULL slot to the expected set (in
-  `run-fixture` below) closes that gap — it proves the reserved-empty invariant
-  holds against the real registrar, not a proxy. The sibling JVM test
+  Reading the registrar slot directly and comparing the FULL slot to the
+  expected set (in `run-fixture` below) proves the reserved-empty invariant
+  holds against the real registrar, not a proxy. Reading the per-frame STORE
+  (`flows/flows-snapshot`, already covered by `:flow-registry-after`), or
+  filtering the result over the EXPECTED set, would let an empty `#{}`
+  expectation match UNCONDITIONALLY, so a `:flow` registrar polluted with a
+  forbidden row would go undetected. The sibling JVM test
   `re-frame.flows-destroy-frame-teardown-test` reads the registrar the same way
   (`registrar/lookup :flow …`)."
   []
@@ -585,7 +582,7 @@
           ;;
           ;; Multi-frame fixtures (per Spec 013 §Frame-scoping) declare
           ;; `:fixture/frames [{:id ...} ...]` and the single `:rf/default`
-          ;; seam is bypassed. Single-frame fixtures keep the original
+          ;; seam is bypassed. Single-frame fixtures use the single-frame
           ;; shape (`:fixture/frame-config` configures `:rf/default`).
           ;;
           ;; Order: event / sub / fx handlers must be registered BEFORE
@@ -661,8 +658,8 @@
             stream-failures  (when expected-stream
                                (check-trace-stream flow-traces expected-stream))
             ;; `:trace-emissions` is the README's generic channel — same
-            ;; matcher, no op-type filter. (Today's flow fixtures don't
-            ;; use it but support is cheap and keeps parity with siblings.)
+            ;; matcher, no op-type filter. (Support is cheap and keeps
+            ;; parity with siblings even where no flow fixture uses it.)
             expected-emits   (:trace-emissions expect)
             emit-failures    (when expected-emits
                                (check-trace-stream @traces expected-emits))
@@ -705,14 +702,14 @@
                                      (for [[flow-id _] expected-li]
                                        [flow-id (last-inputs-frame-set flow-id)])))
             ;; `:registrar-flow-slots-after` — strict set match of the REAL
-            ;; `:flow` registrar slot after the fixture's teardown. Per
-            ;; rf2-en00bk the `:flow` registrar kind is reserved-EMPTY (flows
+            ;; `:flow` registrar slot after the fixture's teardown. The
+            ;; `:flow` registrar kind is reserved-EMPTY (flows
             ;; live in the per-frame store, checked by `:flow-registry-after`),
             ;; so this MUST be `#{}`. Read the FULL slot from the authoritative
             ;; registrar and compare it EXACTLY to the expected set below — NOT
-            ;; a filter over the expected set (rf2-3neiv: filtering over an
-            ;; empty `#{}` expectation matched unconditionally, so a polluted
-            ;; registrar slid through undetected).
+            ;; a filter over the expected set (filtering over an empty `#{}`
+            ;; expectation would match unconditionally, so a polluted
+            ;; registrar would slide through undetected).
             expected-slots   (:registrar-flow-slots-after expect)
             actual-slots     (when expected-slots (registrar-flow-slot-ids))
             ;; `:error-emit-records` — order-preserving subset match against
@@ -810,7 +807,7 @@
     (let [all     @results
           passed  (filter :passed? all)
           failed  (remove :passed? all)]
-      ;; rf2-3hamsq — non-empty floor. This runner has no skip bucket:
+      ;; Non-empty floor. This runner has no skip bucket:
       ;; every discovered flow-*.edn fixture is runnable (an out-of-claim
       ;; capability or unclaimed spec-version is a FAILURE, not a skip),
       ;; so `all` IS the executed set. The lone (zero? (count failed))
@@ -819,8 +816,7 @@
       ;; Assert that fixtures actually executed:
       ;;   - (pos? (count all)) catches the fully-empty case;
       ;;   - the expected-minimum (>= 7) catches partial mass-orphaning
-      ;;     without pinning an exact count (today's count is 9 flow-*.edn
-      ;;     fixtures; the set grows).
+      ;;     without pinning an exact count (the set grows).
       (is (pos? (count all))
           "at least one flow-*.edn fixture must have executed")
       (is (>= (count all) 7)
@@ -899,16 +895,15 @@
 
 ;; ---- mutation control: the registrar-slots matcher has teeth --------------
 ;;
-;; rf2-3neiv regression guard. The `:registrar-flow-slots-after` matcher exists
+;; Regression guard. The `:registrar-flow-slots-after` matcher exists
 ;; to prove teardown leaves NO `:flow` registrar row behind (the reserved-empty
-;; invariant, rf2-en00bk). The pre-fix matcher read the per-frame STORE and
-;; filtered over the (empty) EXPECTED set, so a `:flow` registrar polluted with
-;; a forbidden row passed UNCONDITIONALLY — the channel could not fail. This
-;; control seats a forbidden `:flow` registrar row directly in the real
-;; registrar, runs the real destroy fixture through `run-fixture`, and asserts
-;; the fixture now FAILS specifically on the registrar-slots channel. It is the
-;; red-before/green-after neuter: without the fix it would pass (matcher blind
-;; to the registrar); with the fix it fails (matcher reads the real registrar).
+;; invariant). A matcher that read the per-frame STORE and filtered over the
+;; (empty) EXPECTED set would pass a `:flow` registrar polluted with a
+;; forbidden row UNCONDITIONALLY — the channel could not fail. This control
+;; seats a forbidden `:flow` registrar row directly in the real registrar, runs
+;; the real destroy fixture through `run-fixture`, and asserts the fixture
+;; FAILS specifically on the registrar-slots channel. It is the neuter: a
+;; registrar-blind matcher would pass; the real one fails.
 
 (defn- destroy-teardown-fixture
   "The `:flow/frame-destroy-teardown` fixture loaded from the corpus."
@@ -922,7 +917,7 @@
     (is (some? destroy-fixture)
         "the flow-frame-destroy-teardown fixture must be discoverable in the corpus")
     ;; Positive control: a clean run reads the real registrar and finds it
-    ;; empty — the matcher is now anchored to the authoritative slot.
+    ;; empty — the matcher is anchored to the authoritative slot.
     (reset-runtime-fixture
       (fn []
         (let [result (run-fixture destroy-fixture)]
@@ -935,11 +930,11 @@
     ;; the `:flow` registrar kind (it writes the per-frame store) and
     ;; `run-fixture` never clears it, so this row survives the whole fixture to
     ;; the matcher — the exact pollution the reserved-empty invariant forbids
-    ;; and the pre-fix matcher could not observe.
+    ;; and a store-reading matcher could not observe.
     (reset-runtime-fixture
       (fn []
         (rf.registrar/register! :flow :rf.test/forbidden-registrar-row
-                             {:doc "rf2-3neiv pollution control — teardown must not leave this behind"})
+                             {:doc "pollution control — teardown must not leave this behind"})
         (let [result (run-fixture destroy-fixture)]
           (is (not (:passed? result))
               "the fixture FAILS when the real `:flow` registrar carries a forbidden row")
