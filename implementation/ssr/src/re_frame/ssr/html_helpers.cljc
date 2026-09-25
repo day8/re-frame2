@@ -593,8 +593,8 @@
 ;; surfaces: `<meta>` / `<link>` are void and take no children at all, and
 ;; the Ring host shell's `:html-attrs` / `:body-attrs` are attribute bags
 ;; with no children slot. For the raw-HTML channel it would additionally
-;; mint a SECOND trusted-markup spelling, which 004B refuses in terms
-;; ("`v/html` is the one visible trusted-markup spelling").
+;; mint a SECOND trusted-markup spelling, where 004B gives the tree tier
+;; exactly one: the `:html` node variant.
 ;;
 ;; NOT A THROW, THOUGH 004B SAYS "REFUSED" FOR THE TREE-SPACE GRAMMAR.
 ;; That refusal is a compile/walk-time gate in a grammar that HAS a
