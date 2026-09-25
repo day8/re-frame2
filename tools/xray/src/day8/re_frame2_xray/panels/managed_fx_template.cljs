@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.managed-fx-template
-  "Managed-fx wire-boundary diff template (rf2-uyp86, parent rf2-5aw5v).
+  "Managed-fx wire-boundary diff template.
 
   The headline cross-cutting Xray feature from
   [`tools/xray/spec/019-Cross-Cutting-Insight.md`](../../../../tools/xray/spec/019-Cross-Cutting-Insight.md)
@@ -31,7 +31,7 @@
   went out — because almost every row the runtime emits afterwards is
   emitted from a transport callback with no handler scope, or inside a
   different run's drain. So the record's outcome is JOINED from the whole
-  trace buffer on the request's work id (rf2-6ooch; see
+  trace buffer on the request's work id (see
   `managed-fx-helpers/http-adapter`), and it draws what that join found:
 
   ```
@@ -63,11 +63,11 @@
   in the helpers ns (`panels/managed_fx_helpers`); this ns is purely a
   hiccup folder over the record shape.
 
-  ## Pure hiccup (rf2-tijr), rendered inside a Fresco boundary (rf2-fcy5)
+  ## Pure hiccup, rendered inside a Fresco boundary
 
   Same contract as every other Xray panel — pure hiccup, no Reagent /
   UIx references. Nothing here reads or dispatches ambiently: the reads
-  happen at the mount, `panels/ManagedFxList`, which since rf2-fcy5 is an
+  happen at the mount, `panels/ManagedFxList`, which is an
   `rf.fresco/defview` BOUNDARY, and the frame-aware `dispatch` it captures
   is threaded down as an ordinary argument. That is what makes this ns
   substrate-neutral — every head in the tree it folds is either a native
@@ -79,13 +79,11 @@
   The REPLY TARGET row shows the event vector the CALLER CONFIGURED for
   the reply; it does not observe a delivery and offers no pivot to one.
 
-  It used to carry a '→ focus event ↗' button, removed with rf2-y8doi.18:
-  it dispatched `:rf.xray/focus-event` with the ISSUING record's own
-  dispatch-id and frame, so it re-focused the event-bundle already in
-  focus. The header's `→ reply ↗` (rf2-6ooch) dispatches the same spine
-  event with the dispatch-id of the bundle that DELIVERED the reply,
-  found through the joined completion's work id — a different bundle by
-  construction."
+  The header's `→ reply ↗` dispatches the spine's `:rf.xray/focus-event`
+  with the dispatch-id of the bundle that DELIVERED the reply, found
+  through the joined completion's work id — a different bundle by
+  construction. A pivot carrying the ISSUING record's own dispatch-id and
+  frame would re-focus the event-bundle already in focus."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.chart.timing-waterfall :as waterfall]
@@ -94,11 +92,11 @@
             [day8.re-frame2-xray.theme.section :as section]
             [day8.re-frame2-xray.views.edn-widget :as edn]))
 
-;; Section rhythm hoisted to `theme/section.cljc` per rf2-pie8q —
-;; identical visual contract is shared with `panels/event_detail`.
+;; Section rhythm lives in `theme/section.cljc` — the visual contract is
+;; shared with `panels/fresco` and `panels/module_view`.
 ;; This panel passes `:container-padding "8px 0"` so the section sits
 ;; flush against the record-panel's surrounding `padding "8px 12px"`
-;; outer wrapper (added below in `record-panel`).
+;; outer wrapper (in `record-panel` below).
 
 ;; ---- panel header ------------------------------------------------------
 
@@ -133,7 +131,7 @@
 (defn- correlation-pill
   "Render the correlation-id pill. Right-click fires
   `:rf.xray/filter-by-http-correlation` to drop a typed
-  `:http-correlation` IN pill in the ribbon (rf2-piye4) — narrows the
+  `:http-correlation` IN pill in the ribbon — narrows the
   L2 event list to the event-bundles of this exchange that the trace
   can actually identify: the ISSUING event (which carries the caller's
   id on the effect's args) and the REPLY-DISPATCH event (which carries
@@ -141,10 +139,10 @@
 
   It does NOT list the completion row itself. That row is emitted from
   the transport callback outside any handler scope, so it belongs to no
-  event-bundle and an event-bundle filter cannot show it (rf2-st7j0).
+  event-bundle and an event-bundle filter cannot show it.
   The tooltip says `issue + reply` rather than `exchange` for that
-  reason — the earlier wording promised every downstream response and
-  abort event, which no producer data supports."
+  reason — promising every downstream response and abort event would
+  claim what no producer data supports."
   [dispatch correlation-id]
   (when correlation-id
     [:span {:data-testid "rf-xray-managed-fx-correlation"
@@ -191,7 +189,7 @@
      (str "cancel: " cancel-cause)]))
 
 (defn- attempts-pill
-  "`N attempts` when the joined terminal row is a retry's (rf2-6ooch). A
+  "`N attempts` when the joined terminal row is a retry's. A
   single attempt says nothing worth a pill."
   [attempts]
   (when (and (number? attempts) (< 1 attempts))
@@ -206,8 +204,8 @@
      (str attempts " attempts")]))
 
 (defn- completion-note
-  "The honest label for an issued row with no terminal row in the buffer
-  (rf2-6ooch). Never 'in flight': the ring cannot tell a request still
+  "The honest label for an issued row with no terminal row in the buffer.
+  Never 'in flight': the ring cannot tell a request still
   pending from one whose completion aged out."
   [completion]
   (when (= :none completion)
@@ -219,8 +217,8 @@
      "no completion in this capture"]))
 
 (defn- reply-link
-  "`→ reply ↗` — focus the bundle that DELIVERED this record's reply
-  (rf2-6ooch). Dispatches the spine's canonical `:rf.xray/focus-event`
+  "`→ reply ↗` — focus the bundle that DELIVERED this record's reply.
+  Dispatches the spine's canonical `:rf.xray/focus-event`
   with THAT bundle's dispatch-id and frame, so it always names a
   different bundle from the one in focus."
   [dispatch {:keys [dispatch-id frame] :as link}]
@@ -322,7 +320,7 @@
                    :font-family mono-stack
                    :font-size "11px"}}
     ;; An HTTP record's duration is ELAPSED — issued row to terminal row,
-    ;; retry backoff included — so it says so (rf2-6ooch).
+    ;; retry backoff included — so it says so.
     (if (and (= :http surface) (number? duration-ms))
       (str "elapsed " (h/format-duration-ms duration-ms))
       (h/format-duration-ms duration-ms))]
@@ -338,79 +336,72 @@
 
 ;; ---- section bodies ----------------------------------------------------
 ;;
-;; rf2-twil — `edn/inspect` IS CALLED, NEVER PUT IN HEAD POSITION.
+;; `edn/inspect` IS CALLED, NEVER PUT IN HEAD POSITION.
 ;;
 ;; `views/edn-widget/inspect` is a plain `defn`. Under Reagent a plain
 ;; function in hiccup head position is a form-1 component and renders
-;; happily, so `[edn/inspect v k]` worked; under Fresco it is a LOUD ERROR
-;; by design (HD-016, `:rf.error/fresco-bad-head`), and the throw escapes
-;; with no error boundary above it — React unmounts the entire Xray root,
-;; which presents as a panel that never appears rather than as an error.
-;; That is exactly the shape of the rf2-qhoj P1, one token wide.
+;; happily, so `[edn/inspect v k]` works there; under Fresco it is a LOUD
+;; ERROR by design (HD-016, `:rf.error/fresco-bad-head`), and the throw
+;; escapes with no error boundary above it — React unmounts the entire Xray
+;; root, which presents as a panel that never appears rather than as an
+;; error.
 ;;
-;; The four sites below were this tree's ONLY head-position users of
-;; `inspect`; the other six caller files already call it. Calling it is
-;; correct on BOTH substrates — the value rendered is the vector the facade
-;; RETURNS — so the call shape survived the migration, and the facade keeps
-;; its one-renderer-many-call-sites property because the facade's own shape
-;; is untouched.
+;; Calling it is correct on BOTH substrates — the value rendered is the
+;; vector the facade RETURNS — and the facade keeps its
+;; one-renderer-many-call-sites property.
 ;;
-;; rf2-fcy5 — AND THE HEAD INSIDE THAT RETURNED VECTOR HAS NOW MOVED TOO,
-;; which is the second of the two blocking classes rf2-twil could only name.
+;; AND THE HEAD INSIDE THAT RETURNED VECTOR MATTERS TOO.
 ;; `inspect` returns `[ei/edn-inspector …]`, a `reg-view` head, which
 ;; Fresco's codec refuses for the same reason it refuses a plain `defn` —
 ;; `views/edn_inspector.cljs`'s own ns docstring puts it plainly: "Only
-;; `edn-inspector-view` is a head in a Fresco body." Now that
+;; `edn-inspector-view` is a head in a Fresco body." Because
 ;; `panels/ManagedFxList` IS a boundary, the four calls below are
 ;; `edn/inspect-view`, the facade's Fresco head: same value, same opts,
 ;; same renderer, differing only in that it emits `[ei/edn-inspector-view
-;; …]`. The order was forced — adopting it before the mount migrated would
-;; have put a Fresco boundary in a Reagent head position, the mirror
-;; failure.
+;; …]`. Under a Reagent mount the same call would put a Fresco boundary in
+;; a Reagent head position, the mirror failure.
 ;;
-;; THE NODE-KEY IS NOW PER-RECORD, and that is load-bearing rather than
+;; THE NODE-KEY IS PER-RECORD, and that is load-bearing rather than
 ;; cosmetic. `inspect-view` hands the node-key straight to the boundary as
 ;; its `:mount-id`, and `edn-inspector/container-ref-for` MEMOISES the ref
 ;; callback on it, so two mounts sharing a node-key share one
 ;; ResizeObserver entry and one measured-width slot — detaching either
 ;; releases the survivor's (the defect `static/flows/panel.cljs` records
-;; against its own rows). The old keys were built from the fx-id alone,
-;; and an event-bundle routinely carries several invocations of the SAME
-;; fx-id; the HANDLER key was the bare constant `"managed-fx/handler"`, so
-;; every record in every list shared one. `record-key` is this file's own
-;; per-record identity — already the React `:key` and the expansion key —
-;; so deriving all three from it is what stops them drifting apart.
+;; against its own rows). Keys built from the fx-id alone would collide,
+;; because an event-bundle routinely carries several invocations of the
+;; SAME fx-id, and a bare constant HANDLER key would be shared by every
+;; record in every list. `record-key` is this file's own per-record
+;; identity — also the React `:key` and the expansion key — so deriving all
+;; three from it is what stops them drifting apart.
 ;;
-;; rf2-5ykm — AND `record-key` SEPARATES RECORDS WITHIN ONE LIST, NEVER TWO
-;; LISTS. That is the half the migration dropped: the Reagent head this
-;; panel used to be minted a per-mount identity, and a Fresco boundary
-;; cannot — it is a React function component with no per-instance storage
-;; its body may use. So two `mount-managed-fx!` mounts of the SAME focused
-;; event under ONE frame composed identical node-keys, and the paragraph
-;; above then describes them exactly: one memoised ref between them, the
-;; second element never observed, and `release-mount!` tearing the shared
-;; entry down when EITHER detached. Measured on a real two-container commit
-;; before the repair — `panels/managed_fx_mount_instance_id_dom_cljs_test`.
+;; AND `record-key` SEPARATES RECORDS WITHIN ONE LIST, NEVER TWO LISTS. A
+;; Fresco boundary cannot mint a per-mount identity — it is a React function
+;; component with no per-instance storage its body may use. So two
+;; `mount-managed-fx!` mounts of the SAME focused event under ONE frame
+;; would compose identical node-keys, and the paragraph above then
+;; describes them exactly: one memoised ref between them, the second
+;; element never observed, and `release-mount!` tearing the shared entry
+;; down when EITHER detached. `panels/managed_fx_mount_instance_id_dom_cljs_test`
+;; pins this on a real two-container commit.
 ;;
-;; The caller names them, which is the ruling rf2-d2aj closed with and the
-;; shape `app-db-diff` already ships: an optional `:instance-id`, threaded
-;; from `mount-managed-fx!` through the bridge and the boundary to
-;; [[node-key]] below. ONE qualifier does both halves here where app-db
-;; needs two, because `edn-widget/inspect-view` builds the `:mount-id` AND
-;; the `:panel-id` from this one string and passes no `:site-id` (so the
-;; widget's `effective-id` falls back to the mount-id).
+;; The caller names them, the same shape `app-db-diff` uses: an optional
+;; `:instance-id`, threaded from `mount-managed-fx!` through the bridge and
+;; the boundary to [[node-key]] below. ONE qualifier does both halves here
+;; where app-db needs two, because `edn-widget/inspect-view` builds the
+;; `:mount-id` AND the `:panel-id` from this one string and passes no
+;; `:site-id` (so the widget's `effective-id` falls back to the mount-id).
 ;;
 ;; WHAT IT DELIBERATELY DOES NOT TOUCH is record identity and disclosure.
-;; `record-key` stays the React `:key` and stays the expansion key, which
-;; lives in the frame's app-db and is therefore shared by two lists of the
-;; same records ON PURPOSE — they open and close together, and what they
-;; no longer share is a ResizeObserver.
+;; `record-key` is the React `:key` and the expansion key, which lives in
+;; the frame's app-db and is therefore shared by two lists of the same
+;; records ON PURPOSE — they open and close together, and what they do not
+;; share is a ResizeObserver.
 
 (defn instance-token
   "Normalise `panels/ManagedFxList`'s optional `:instance-id` prop to the
   string that qualifies one mount's inspector ids, or nil when the caller
   named no instance — the single-mount default, which composes every id
-  byte-for-byte as it did before rf2-5ykm.
+  with no qualifier.
 
   A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
   the name: `:left/list` tokenises to `left/list`. `(subs (str id) 1)` is
@@ -418,11 +409,11 @@
 
   IDEMPOTENT, because it is called TWICE on the way in and must compose one
   answer for one value. [[panels/ManagedFxList-bridge]] calls it BEFORE
-  handing the prop across `[:>]`, and that is a repair rather than tidiness
-  (rf2-4bsq, met first on `app-db-diff`): Reagent's `convert-prop-value`
+  handing the prop across `[:>]`, and that is load-bearing rather than
+  tidiness: Reagent's `convert-prop-value`
   converts a named value with `cljs.core/name`, which DROPS the namespace,
   so `:left/list` and `:right/list` would both arrive as `\"list\"` and the
-  two mounts a caller had deliberately named apart would collide again.
+  two mounts a caller had deliberately named apart would collide.
   Normalising first means a STRING crosses, which Reagent preserves.
 
   Anything else is REFUSED rather than `str`-ed, and that is the point of
@@ -435,7 +426,7 @@
 
   It is this panel's own normaliser rather than a call into
   `app-db-diff-state`'s: the two panels are independent surfaces, they
-  migrate on their own schedules, and the refusal has to name the caller's
+  change on their own schedules, and the refusal has to name the caller's
   OWN panel to be worth reading."
   [instance-id]
   (cond
@@ -462,8 +453,8 @@
   `instance` is the already-tokenised per-mount name, or nil. It is spliced
   in AFTER the panel's own prefix and BEFORE the record key, mirroring
   `app-db-diff-state`'s `app-db-state/<instance>/<render-id>`: the
-  qualifier names the mount, the record key still names the record inside
-  it, and an unnamed mount composes exactly the string it always did."
+  qualifier names the mount, the record key names the record inside
+  it, and an unnamed mount composes the string with no qualifier."
   [instance record role]
   (if instance
     (str "managed-fx/" instance "/" (h/record-key record) "/" role)
@@ -528,10 +519,10 @@
   with its own id, in its own event-bundle, so what the record holds is
   what the caller wrote and no more.
 
-  The '→ focus event ↗' button that used to sit here is GONE. It
-  dispatched `[:rf.xray/focus-event dispatch-id frame]` with the ISSUING
-  record's own dispatch-id and frame — the event-bundle already in focus —
-  so it advertised a pivot to the reply and delivered a no-op."
+  There is deliberately no '→ focus event ↗' button here: dispatching
+  `[:rf.xray/focus-event dispatch-id frame]` with the ISSUING record's own
+  dispatch-id and frame — the event-bundle already in focus — would
+  advertise a pivot to the reply and deliver a no-op."
   [instance {:keys [handler] :as record}]
   (if (and (vector? handler) (seq handler))
     [:div {:style {:flex 1 :min-width 0}}
@@ -543,14 +534,14 @@
   "Which app-db paths this record's event-bundle changed, when that is
   known at all.
 
-  `nil` means UNTRACKED — no diff feed is wired into the record today, so
+  `nil` means UNTRACKED — no diff feed is wired into the record, so
   nothing has been measured. `[]` means measured, and nothing changed.
-  Keeping those apart is the whole of this section: an amber warning used
-  to fire whenever the status was `:ok` and the list was empty, telling
-  the author their handler had failed to write a slice and guessing at
-  the cause. Because production supplies no feed the list was empty on
-  every record, so the warning fired on every successful one — and even a
-  genuinely unchanged app-db is frequently correct."
+  Keeping those apart is the whole of this section, and neither is a
+  warning: an amber warning whenever the status is `:ok` and the list is
+  empty would tell the author their handler had failed to write a slice
+  and guess at the cause. Because production supplies no feed the list is
+  empty on every record, so that warning would fire on every successful
+  one — and even a genuinely unchanged app-db is frequently correct."
   [{:keys [paths-touched]}]
   (cond
     (nil? paths-touched)
@@ -565,14 +556,13 @@
     [:ul {:style {:list-style "none"
                   :margin     0
                   :padding    0}}
-     ;; rf2-fcy5 (rf2-k97c.3 RULING 2) — the key rides the ATTRIBUTE MAP,
-     ;; not `^{:key …}` reader meta. Reagent reads meta THEN props, so both
-     ;; spellings worked while this panel mounted under `reg-view`; Fresco's
-     ;; codec reads a literal `:key` from a native tag's attrs and reads
-     ;; Clojure metadata NOWHERE, so on the migration the meta form becomes
-     ;; a silent nil — every row in the list loses its key with nothing on
-     ;; screen to say so. The attribute map satisfies both substrates and
-     ;; the key EXPRESSION is unchanged.
+     ;; The key rides the ATTRIBUTE MAP, not `^{:key …}` reader meta.
+     ;; Reagent reads meta THEN props, so both spellings work under a
+     ;; `reg-view` mount; Fresco's codec reads a literal `:key` from a
+     ;; native tag's attrs and reads Clojure metadata NOWHERE, so under
+     ;; Fresco the meta form is a silent nil — every row in the list loses
+     ;; its key with nothing on screen to say so. The attribute map
+     ;; satisfies both substrates.
      (for [[i path] (map-indexed vector paths-touched)]
        [:li {:key   i
              :style {:padding "2px 0"
@@ -632,10 +622,10 @@
 
 (defn record-panel
   "Render one managed-fx record as a hiccup panel. Pure function over
-  the record; CLJS-only (consumes Reagent re-frame subs via
-  `edn/inspect`).
+  the record; CLJS-only (renders the edn-inspector through
+  `edn/inspect-view`).
 
-  Section default-expanded state per the bead's contract:
+  Section default-expanded state:
 
     - STATUS + WIRE + APP-DB SLICE TOUCHED expanded by default
     - REQUEST + RESPONSE + REPLY TARGET collapsed by default
@@ -643,14 +633,14 @@
       first paint).
 
   Those defaults live in `managed-fx-helpers/section-defaults`, and every
-  section is now a real disclosure: the panel owns the open/closed state
-  and each header toggles it. Before rf2-s6m6 the five `:expanded?` values
-  were literals, so the three collapsed sections drew a `▶` nothing could
-  operate and their payloads — request, response (and the failure tags),
-  and the configured reply target — were unreachable in the UI.
+  section is a real disclosure: the panel owns the open/closed state
+  and each header toggles it. Literal `:expanded?` values would leave the
+  three collapsed sections drawing a `▶` nothing could operate, with their
+  payloads — request, response (and the failure tags), and the configured
+  reply target — unreachable in the UI.
 
   An `:http` record draws a SUBSET of those sections (see the ns
-  docstring); the defaults map is unchanged, and an unrendered section
+  docstring); the defaults map is shared, and an unrendered section
   simply has no row.
 
   `expanded` is the per-section override map (the value of
@@ -660,37 +650,36 @@
   first-paint state. This fn stays a PURE fn of `(dispatch, expanded,
   record)`: per Spec 006 §Plain-fn footgun an ambient `subscribe` in a
   plain fn raises `:rf.error/no-frame-context`, so the read cannot happen
-  here and the sub is read by the `reg-view` that mounts this panel.
+  here and the sub is read by the `defview` boundary that mounts this
+  panel.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
-  `panels/ManagedFxList` `reg-view` body, threaded to the header /
+  `dispatch` is the frame-aware dispatcher captured by the
+  `panels/ManagedFxList` `defview` body, threaded to the header /
   handler / disclosure affordances. Defaults to `rf/dispatch` so the test
-  seam (and any pre-sweep caller) renders without a captured dispatcher.
+  seam (and any caller without one) renders without a captured dispatcher.
 
-  `instance-id` (rf2-5ykm) is the optional per-mount name the caller gave
+  `instance-id` is the optional per-mount name the caller gave
   `mount-managed-fx!`, normalised ONCE here by [[instance-token]] so the
   four inspector sites can never disagree about it. nil — every arity below
   the 4-arity, and every single-mount call site in this tree — composes the
-  node-keys byte-for-byte as it did before. It qualifies the INSPECTOR ids
-  only: `rec-key` below is untouched, so the React `:key` and the
-  disclosure state stay exactly where they were."
+  node-keys with no qualifier. It qualifies the INSPECTOR ids only:
+  `rec-key` below does not see it, so the React `:key` and the disclosure
+  state are per record, not per mount."
   ([record] (record-panel rf/dispatch nil nil record))
   ([dispatch record] (record-panel dispatch nil nil record))
   ([dispatch expanded record] (record-panel dispatch expanded nil record))
   ([dispatch expanded instance-id record]
-  ;; rf2-hxfy — the React key lives in this ATTRIBUTE MAP rather than as
+  ;; The React key lives in this ATTRIBUTE MAP rather than as
   ;; `^{:key …}` reader meta on the `(record-panel …)` call in
   ;; `records-list` below. Reader meta on a CALL form attaches to the
   ;; source LIST; the value the call returns carries none of it, so React
-  ;; received no key at all (measured: `REACT .-key [nil nil]` across the
-  ;; two-record fixture). The attribute map is the shape that survives the
-  ;; Fresco migration too — Fresco's codec reads a literal `:key` from the
+  ;; would receive no key at all. The attribute map works under Fresco
+  ;; too — Fresco's codec reads a literal `:key` from the
   ;; attr map of a native tag and reads Clojure metadata nowhere, while
   ;; Reagent reads meta THEN props — so one attribute satisfies both
-  ;; substrates. The composed value is unchanged from the call site's:
-  ;; the same three record fields, same order, same separator.
+  ;; substrates.
   (let [rec-key  (h/record-key record)
-        ;; rf2-5ykm — tokenised (and type-refused) ONCE, so the four
+        ;; Tokenised (and type-refused) ONCE, so the four
         ;; inspector sites below compose one answer for one value.
         instance (instance-token instance-id)
         ;; One `section` per row: resolve this record's stored state for
@@ -718,19 +707,19 @@
    (panel-header dispatch record)
    ;; WHICH SECTIONS AN HTTP RECORD DRAWS DEPENDS ON WHAT ITS JOIN FOUND.
    ;; The issuing event-bundle holds essentially one HTTP fact — that the
-   ;; request went out — and the outcome is joined from the whole buffer
-   ;; (rf2-6ooch). WIRE TIMING is drawn once an elapsed exists and
+   ;; request went out — and the outcome is joined from the whole buffer.
+   ;; WIRE TIMING is drawn once an elapsed exists and
    ;; RESPONSE once there is a response summary or a failure to show;
    ;; APP-DB SLICE never, because what the reply did to app-db belongs to
    ;; the reply bundle `→ reply ↗` focuses. A section drawn over nothing
-   ;; is not neutral: the old RESPONSE row read "(no response payload
-   ;; yet)", which says a reply is still coming, and the old WIRE row read
-   ;; "this surface does not emit per-phase wire timing today", which says
-   ;; the runtime is at fault. The four surfaces whose end events DO land
-   ;; in-bundle keep all five sections and are untouched here.
+   ;; is not neutral: the RESPONSE row's "(no response payload yet)" says
+   ;; a reply is still coming, and the WIRE row's "this surface does not
+   ;; emit per-phase wire timing today" says the runtime is at fault. The
+   ;; four surfaces whose end events DO land in-bundle draw all five
+   ;; sections.
    ;;
-   ;; The section-ids are unchanged, so `section-defaults` and
-   ;; `resolve-expanded?` need no change — an unrendered section simply
+   ;; The section-ids are shared across surfaces, so `section-defaults` and
+   ;; `resolve-expanded?` serve every surface — an unrendered section simply
    ;; has no row, and its stored override (if the operator ever set one
    ;; on another surface) is inert rather than wrong.
    (let [http?    (= :http (:surface record))
@@ -761,21 +750,21 @@
 
 (defn records-list
   "Render a vector of managed-fx records as a stack of panels. Pure fn
-  over the records vector; used by `event_detail.cljs` to mount the
-  list under the six-domino event-bundle view, and by the tests to render
+  over the records vector; used by `panels/ManagedFxList` to mount the
+  list for the focused event-bundle, and by the tests to render
   a deterministic stack against canned records.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded to each
+  `dispatch` is the frame-aware dispatcher threaded to each
   `record-panel`. Defaults to `rf/dispatch` for the test seam.
 
   `expanded` is the per-section override map threaded to each
   `record-panel`; `nil` renders every section at its default. Keyed per
   record, so opening one panel's REQUEST leaves its siblings shut.
 
-  `instance-id` (rf2-5ykm) is the optional per-mount name, threaded to each
+  `instance-id` is the optional per-mount name, threaded to each
   `record-panel` and normalised there. nil — the shape every arity below
-  the 4-arity passes — composes the inspector node-keys exactly as they
-  were."
+  the 4-arity passes — composes the inspector node-keys with no
+  qualifier."
   ([records] (records-list rf/dispatch nil nil records))
   ([dispatch records] (records-list dispatch nil nil records))
   ([dispatch expanded records] (records-list dispatch expanded nil records))
@@ -791,7 +780,7 @@
       [:span (str (count records) " managed-fx record"
                   (if (= 1 (count records)) "" "s")
                   " in this event-bundle")]]
-     ;; rf2-hxfy — each panel carries its own `:key` in the `:section`
+     ;; Each panel carries its own `:key` in the `:section`
      ;; attribute map `record-panel` returns (see the comment there).
      ;; Reader meta here would attach to the CALL form and be lost.
      (for [rec records]
