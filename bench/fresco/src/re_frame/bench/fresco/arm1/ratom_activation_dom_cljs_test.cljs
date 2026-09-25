@@ -1,43 +1,41 @@
 (ns re-frame.bench.fresco.arm1.ratom-activation-dom-cljs-test
   "**ARM 1, MOUNTED UNDER THE STOCK REAGENT ADAPTER**, repaints when its
-  subscription moves (rf2-2kshh).
+  subscription moves.
 
   The mounted counterpart to
   `re-frame.bench.fresco.arm1.ratom-activation-cljs-test`, which proves
   the notification channel itself. This one proves the outcome the P0
-  allocation row measured and could not get: a real React root, a real
+  allocation row measures: a real React root, a real
   DOM press, and a readout that moves.
 
-  THE REPRODUCTION. rf2-2rtt6.137 drove `:p0/write-all` at lad/fresco on
-  the reagent-subs segment and read the arm's DOM back. It was stale by
-  exactly the number of writes the window had driven — every write since
-  mount, on every rung, in every round — and its allocation column sat
-  flat on the FLOOR's figure, which is what an arm with no subscription
-  at all reads. `runtime/wire-cell!` never called
-  `interop/activate-derived-value!`, so the cell's watch sat on a
-  `reagent.ratom/Reaction` that had never captured its sources and could
-  not fire. The arm painted once at mount and was deaf thereafter.
+  THE REPRODUCTION. Drive `:p0/write-all` at lad/fresco on the
+  reagent-subs segment and read the arm's DOM back. If
+  `runtime/wire-cell!` does not call `interop/activate-derived-value!`,
+  the cell's watch sits on a `reagent.ratom/Reaction` that has never
+  captured its sources and cannot fire: the DOM is stale by exactly the
+  number of writes the window drove — every write since mount, on every
+  rung, in every round — and the allocation column sits flat on the
+  FLOOR's figure, which is what an arm with no subscription at all
+  reads. The arm paints once at mount and is deaf thereafter.
 
   WHY IT MOUNTS RATHER THAN DRIVING THE SEAM BY HAND. A hand-driven read
   goes through the cell's reaction whatever the notification channel did
   — `Reaction`'s non-reactive `-deref` re-runs the body raw — so a
   scenario that renders on demand reads CURRENT values and stays green
-  straight through this bug. Only a repaint the DOM shows can tell a live
-  channel from a dead one. That is also why the drain here is the
+  straight through a dead channel. Only a repaint the DOM shows can tell a
+  live channel from a dead one. That is also why the drain here is the
   segment's own (`reagent.core/flush`, then the empty `flushSync` that
-  lets an already-scheduled sync-lane notification commit): the bead's
-  falsified hypothesis was that the drain was at fault, and this file
-  performs that very drain — it moves nothing at all until the cell is
-  activated.
+  lets an already-scheduled sync-lane notification commit): the drain is
+  not what makes the channel live, and this file performs that very
+  drain — it moves nothing at all unless the cell is activated.
 
   Every other DOM suite in this arm installs the **UIx** adapter, whose
   React-hook spine is push-based from birth and for which the activate op
   is a routed no-op. This file is the arm's only mounted witness under a
-  ratom host, which is the whole reason the defect survived here after
-  being repaired in the shipping observation port (rf2-8cnxg).
+  ratom host, the one place a missing activation shows.
 
-  `-dom-cljs-test`, so `:browser-test` runs it against a real React DOM;
-  under `:node-test` every DOM claim degrades to a stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -119,7 +117,7 @@
   (some-> (.querySelector (:container handle) "#readout") .-textContent))
 
 ;; ===========================================================================
-;; 1 — the bead's reproduction, as a gate
+;; 1 — the reproduction, as a gate
 ;; ===========================================================================
 
 (deftest a-mounted-boundary-repaints-under-the-reagent-adapter
@@ -130,18 +128,18 @@
       (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [page {}])]
         (try
           (is (= "0" (readout-text handle))
-              "the first render read the seeded value — it always did; the
-               bug was never the mount")
+              "the first render read the seeded value — a dead channel
+               gets the mount right too")
           (write! handle [:hic/bump])
           (is (= 1 (:n (rf/app-db-value frame-id)))
-              "precondition — the dispatch LANDS. app-db moved, and it moved
-               before the fix too")
+              "precondition — the dispatch LANDS. app-db moved, which it
+               does whether or not the channel is live")
           (is (= "1" (readout-text handle))
-              "THE READING THAT WAS STALE: the mounted arm repainted from
-               the write. Before the fix this stayed at its first render
-               forever, which is why the P0 row read the FLOOR's allocation
-               figure — an arm that never re-renders allocates nothing per
-               read")
+              "THE READING A DEAD CHANNEL LEAVES STALE: the mounted arm
+               repainted from the write. Without activation this stays at
+               its first render forever, which is why a deaf arm reads the
+               FLOOR's allocation figure — an arm that never re-renders
+               allocates nothing per read")
           (write! handle [:hic/bump])
           (is (= "2" (readout-text handle))
               "0 → 1 → 2: the channel stays armed rather than firing once")
