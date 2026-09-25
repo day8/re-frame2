@@ -1,5 +1,5 @@
 (ns re-frame.api-manifest.skills-check
-  "Skills projection check (rf2-gkp0t).
+  "Skills projection check.
 
   The re-frame2 skills (`skills/**/*.md`) teach authors against the public
   API. A skill that names a renamed / removed var teaches a broken call.
@@ -21,9 +21,8 @@
   `dispatcher`, `register-trace-cb!`, `get-frame-db`, …). Those references
   are CORRECTLY-absent from the manifest by design, and the set is large
   and churny. The skill is excluded wholesale rather than carrying a
-  brittle removed-names allowlist; the OTHER skills (implementor /
-  improver / pair / pair-retro) teach against the LIVE surface and are the
-  ones a stale-var reference would mislead. A bare-name allowlist
+  brittle removed-names allowlist; the OTHER skills teach against the LIVE
+  surface and are the ones a stale-var reference would mislead. A bare-name allowlist
   (`:skills-known-unmanifested`) catches any further legitimate
   non-manifest reference in the checked skills."
   (:require [clojure.string :as str]
@@ -38,9 +37,9 @@
   "skills/re-frame-migration")
 
 (def ^:private min-references
-  "Non-vacuous floor (rf2-utvst). The skills tree carries ~505 live
-   `(rf/<var>` references across ~127 checked `*.md` files; this floor sits
-   an order of magnitude below that, so it trips only on a near-total
+  "Non-vacuous floor. The skills tree carries several hundred live
+   `(rf/<var>` references (the check reports the count); this floor sits
+   far below that, so it trips only on a near-total
    collapse (the skills dir moved, the `(rf/<var>` extraction broke, the
    alias convention changed) — the cases that would otherwise turn the gate
    into a vacuous green — never on ordinary content churn."
@@ -54,7 +53,7 @@
         core-vars (set (map :var (rf.api-manifest.projection/rows-in-ns rows core-ns)))
         allow     (set (:skills-known-unmanifested (rf.api-manifest.gen/read-sidecar)))
         dir       (rf.api-manifest.projection/repo-file "skills")
-        ;; require-markdown-files (rf2-utvst): fail loudly if skills/ moves
+        ;; require-markdown-files: fail loudly if skills/ moves
         ;; or is renamed, rather than silently checking zero files.
         files     (->> (rf.api-manifest.projection/require-markdown-files "skills/" dir)
                        (remove #(str/includes?
@@ -69,7 +68,7 @@
                                {:file file :line line :raw raw
                                 :detail "no re-frame.core manifest row"}))
                            results)
-        ;; Keyword-drift guards (rf2-tawage / rf2-uhew69 / rf2-1zjkn8): scan
+        ;; Keyword-drift guards: scan
         ;; the SAME checked skill files (the migration skill is already excluded
         ;; above, where retired vocabulary legitimately appears) for stale
         ;; EP-0017 `:rf.world/inputs`, EP-0011 reply-envelope (`:stale-key` /
