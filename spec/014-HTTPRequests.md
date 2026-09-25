@@ -1222,7 +1222,7 @@ Apps may mix both freely. The two registrations coexist under `:rf.http/managed`
 
 HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP trace stream is the biggest leakage vector the framework ships.
 
-Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
+Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the request is sensitive — its per-call `:sensitive?` or `[:request :sensitive?]` ([§3](#3-per-request--per-call-sensitive)), never the originating event handler's registration metadata — MUST redact known-sensitive request headers and query-param values whatever the request's sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
 
 ### Privacy at a glance — declaration surfaces and owning namespaces
 
@@ -1243,7 +1243,7 @@ The composers that orchestrate per-emit redaction + stamping — `request-sensit
 
 ### 1. Header denylist (always-on)
 
-A canonical set of HTTP header names is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. Implementations MUST redact (substitute the framework-reserved `:rf/redacted` sentinel per [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) the values of these headers in every `:rf.http/*` trace event that carries a `:headers` slot — the failure-map `:headers` on error events **and** the successful reply's `[:meta :headers]` on the `:rf.http/replied` completion row ([§Successful-response metadata](#successful-response-metadata--meta); the reply *delivered to the app* stays raw — redaction is a trace-egress concern). Header-name matching is **case-insensitive**.
+A canonical set of HTTP header names is **always sensitive** — the names themselves declare the value secret whether or not the request is sensitive ([§3](#3-per-request--per-call-sensitive)). Implementations MUST redact (substitute the framework-reserved `:rf/redacted` sentinel per [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)) the values of these headers in every `:rf.http/*` trace event that carries a `:headers` slot — the failure-map `:headers` on error events **and** the successful reply's `[:meta :headers]` on the `:rf.http/replied` completion row ([§Successful-response metadata](#successful-response-metadata--meta); the reply *delivered to the app* stays raw — redaction is a trace-egress concern). Header-name matching is **case-insensitive**.
 
 The v1 closed denylist:
 
@@ -1274,7 +1274,7 @@ The carrier extension set is lower-cased and **unions** onto the immutable built
 
 ### 2. Query-param denylist (always-on)
 
-A parallel-axis canonical set of HTTP query-string **parameter names** is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. URLs in `:rf.http/*` trace events that carry a denylisted query-string parameter have the **value** redacted inline: `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`. The parameter name and position are preserved so the operator can still see which endpoint was called and which parameters were present, but the secret value is replaced with the framework-reserved sentinel text. Parameter-name matching is **case-insensitive**.
+A parallel-axis canonical set of HTTP query-string **parameter names** is **always sensitive** — the names themselves declare the value secret whether or not the request is sensitive ([§3](#3-per-request--per-call-sensitive)). URLs in `:rf.http/*` trace events that carry a denylisted query-string parameter have the **value** redacted inline: `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`. The parameter name and position are preserved so the operator can still see which endpoint was called and which parameters were present, but the secret value is replaced with the framework-reserved sentinel text. Parameter-name matching is **case-insensitive**.
 
 The v1 closed denylist:
 

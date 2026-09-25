@@ -398,8 +398,9 @@
                   ;; Route through the privacy composer so a
                   ;; denylisted query param (`?api_key=…`) is scrubbed
                   ;; and `:sensitive?` is stamped on the trace event when
-                  ;; either the handler/per-call sensitivity OR the URL's
-                  ;; query string carries a denylisted param name.
+                  ;; either the request is sensitive (per-call `:sensitive?`
+                  ;; or `[:request :sensitive?]`) OR the URL's query string
+                  ;; carries a denylisted param name.
                   ;;
                   ;; `sensitive-of` recomputes the EFFECTIVE
                   ;; sensitivity from the CURRENT accumulator (the evolving

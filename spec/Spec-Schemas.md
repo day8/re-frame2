@@ -1513,10 +1513,11 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:guard-id   :any]                       ;; keyword OR inline fn
    [:input      [:map
                  [:data  :any]
-                 [:event [:vector :any]]]]
+                 [:event [:maybe [:vector :any]]]]] ;; nil when an eventless `:always` transition drives the guard
    [:state      {:optional true} :any]      ;; the active state the guard ran against
    [:outcome    [:enum :pass :fail :threw]] ;; :threw is the guard-body-threw path
-   [:exception  {:optional true} :any]])    ;; present only on the :threw path
+   [:exception  {:optional true} :any]      ;; present only on the :threw path
+   [:frame      :keyword]])                 ;; the frame the actor runs in
 
 (def MachineActionRanTags
   ;; An action runs against a LIVE actor's snapshot (`:actor-id`).
@@ -1529,10 +1530,10 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
                  :initial-entry :destroy-exit]]
    [:input      [:map
                  [:data  :any]
-                 [:event [:vector :any]]]]
+                 [:event [:maybe [:vector :any]]]]] ;; nil when an eventless `:always` transition drives the action
    [:outcome    :any]                       ;; <return-value> | :ok | :rf.error/action-threw
    [:exception  {:optional true} :any]      ;; present only on the throw path
-   [:decl-path  {:optional true} [:vector :any]] ;; path of the node DECLARING the action; [] for a tree root (the machine root or a region body); region-relative inside a region
+   [:decl-path  [:vector :any]]             ;; path of the node DECLARING the action; [] for a tree root (the machine root or a region body); region-relative inside a region
    [:region     {:optional true} :keyword]      ;; the parallel region the action ran in; present only inside a region
    [:frame      :keyword]                       ;; the frame the actor runs in
    [:transition-slot {:optional true}           ;; present only on a transition `:action`: the selected transition's spec-path discriminator
