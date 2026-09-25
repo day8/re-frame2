@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.event-list-resizable-cols-cljs-test
-  "CLJS tests for the L2 event-list's user-resizable columns (rf2-6ni62).
+  "CLJS tests for the L2 event-list's user-resizable columns.
 
   Asserts the alignment-guarantee design + the drag lifecycle:
 
@@ -34,7 +34,7 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom + the `:runtime`
+  ;; `make-xray-runtime-fixture`: plain-atom + the `:runtime`
   ;; reset tier (sentinels + trace rings + persisted settings); `:post-reset`
   ;; force-clears the module-level drag-state defonce (survives the runtime
   ;; reset) so no stale drag leaks between tests. (`trace-collector` stays
@@ -48,10 +48,9 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
-;; prefix copies were semantically identical to `re-frame.test-helpers`; tests
-;; call `rf.test-helpers/find-by-testid` / `rf.test-helpers/find-by-testid-prefix` directly (rf2-vj80u8 —
-;; no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` /
+;; `rf.test-helpers/find-by-testid-prefix` directly — there is no Xray
+;; walker facade.
 
 (defn- style-of [node]
   (:style (rf.test-helpers/attrs node)))
@@ -72,7 +71,7 @@
 ;; ---- 1. dividers render between header cells ----------------------------
 
 (deftest column-dividers-render-between-header-cells
-  (testing "rf2-6ni62 — the L2 column header carries one divider per
+  (testing "the L2 column header carries one divider per
             user-resizable column (source, timestamp, duration)"
     (setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
@@ -96,15 +95,14 @@
 
 (defn- timer-cascade-trace-ev [id event]
   ;; A cascade with a dispatched-time so the row renders its time chip,
-  ;; and an `:after-timer` source (post-rf2-1ve9h — collapsed from the
-  ;; prior `:rf/dispatch-origin :timer`) so the source column tag
+  ;; and an `:after-timer` source so the source column tag
   ;; renders.
   (-> (dispatch-trace-ev id event)
       (assoc :time 1000)
       (assoc-in [:tags :source] :after-timer)))
 
 (deftest header-and-row-column-widths-stay-aligned-after-settings-write
-  (testing "rf2-6ni62 — after a settings-write changes a column's
+  (testing "after a settings-write changes a column's
             width, the header cell and the row cell both read the new
             width from the same `:rf.xray/event-list-col-widths` sub.
             This is the alignment-guarantee design — no need to simulate
@@ -127,7 +125,7 @@
             "row carries the SAME 120px width — alignment preserved")))))
 
 (deftest header-and-row-widths-default-when-settings-unwritten
-  (testing "rf2-6ni62 — with no settings write, the resolved widths
+  (testing "with no settings write, the resolved widths
             default to `event-list-col-default-widths`. Header + row
             read identical widths (the alignment guarantee on the
             silent default path)"
@@ -166,16 +164,15 @@
   (is (false? (shell/col-divider-dragging?))
       "simulate-up! tore down the capture"))
 
-;; rf2-8i1tg3 — the drag delta is INVERTED relative to the naive
+;; The drag delta is INVERTED relative to the naive
 ;; "drag right widens" intuition. `event id` (flex 1 1 auto) is the
 ;; row's sole elastic column, far to the LEFT of every divider; it
 ;; silently absorbs whatever a resizable column gives up or takes. If
-;; dragging right GREW `col-id` (the pre-fix behaviour — see the two
-;; tests this replaced), `event id` would shrink by the same amount,
-;; and the divider itself — sitting at `event id`'s trailing edge,
-;; transitively — would move LEFT while the pointer moved RIGHT: a
-;; 2×dx-per-frame divergence, the exact "handle recedes from the
-;; cursor" bug. Shrinking `col-id` on a rightward drag makes the
+;; dragging right GREW `col-id`, `event id` would shrink by the same
+;; amount, and the divider itself — sitting at `event id`'s trailing
+;; edge, transitively — would move LEFT while the pointer moved RIGHT:
+;; a 2×dx-per-frame divergence, with the handle receding from the
+;; cursor. Shrinking `col-id` on a rightward drag makes the
 ;; divider's rendered position track the pointer 1:1 (and matches
 ;; standard split-pane semantics: dragging the boundary TOWARD a
 ;; column shrinks it).
@@ -221,7 +218,7 @@
           "drag left widens: 200 - (-50) = 250"))))
 
 (deftest col-divider-drag-binds-the-dividers-own-document
-  (testing "rf2-3x7nj.25.5 — `ShellView` is also the pop-out's body, and
+  (testing "`ShellView` is also the pop-out's body, and
             there `js/document` names the OPENER's document, which the
             pop-out's pointer events never reach. The drag must bind its
             listeners and cursor to the divider's OWN document, and detach
@@ -294,11 +291,10 @@
         "unknown col-id (`:event-id` — flex; never sized) is a no-op")))
 
 (deftest set-event-list-col-width-persists-only-the-moved-column
-  (testing "rf2-3x7nj.27.1 — a column drag records ONLY that column as an
-            override. The handler used to persist the whole resolved
-            widths map, pinning the two untouched columns at their current
-            width so a later host `configure!` width for one of them never
-            landed."
+  (testing "a column drag records ONLY that column as an
+            override. Persisting the whole resolved widths map would pin
+            the two untouched columns at their current width, so a later
+            host `configure!` width for one of them would never land."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-event-list-col-width :source 100]))
@@ -310,7 +306,7 @@
            (config/get-setting :general :event-list-col-widths))
         "while the live map still carries all three columns")
     ;; A real reload (atom AND seed discarded, storage kept), then a host
-    ;; that now configures the timestamp column.
+    ;; that configures the timestamp column.
     (let [payload (#'config/storage-get config/settings-storage-key)]
       (config/reset-settings!)
       (#'config/storage-set! config/settings-storage-key payload))
@@ -425,7 +421,7 @@
 ;; ---- accessibility ---------------------------------------------------
 
 (deftest divider-carries-aria-attributes
-  (testing "rf2-6ni62 — each divider exposes WAI-ARIA separator with
+  (testing "each divider exposes WAI-ARIA separator with
             role + orientation + valuemin/max/now so screenreaders + the
             host's a11y tree announce the resize affordance correctly"
     (setup!)
