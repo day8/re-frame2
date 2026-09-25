@@ -8,11 +8,9 @@
 ;; "internal before external"). The cut is the dispatch's ORIGIN
 ;; (machine processing), NOT its target.
 ;;
-;; This is the front-of-queue observable NO prior fixture pinned: 002's
-;; retired `do-fx :dispatch` pseudocode appended EVERY child dispatch to
-;; the BACK unconditionally, so a port shipping that (missing the
-;; machine-origin front-insertion) stayed corpus-green. This fixture
-;; turns that gap RED (rf2-ne2wfv).
+;; This fixture pins the front-of-queue observable: a port whose `do-fx
+;; :dispatch` appends EVERY child dispatch to the BACK unconditionally
+;; (missing the machine-origin front-insertion) fails it.
 ;;
 ;; THE OBSERVABLE — "d-before-c is the BUG". A plain seed handler queues
 ;; TWO events onto the empty runtime FIFO, in this order:
