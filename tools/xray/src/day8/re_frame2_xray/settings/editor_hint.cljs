@@ -46,13 +46,12 @@
   Mounted at the shell-view root (sibling to the other modals) so its
   read resolves through the shell's `:rf/xray` frame-provider.
 
-  ## rf2-k97c.3 — the toast is a FRESCO BOUNDARY
+  ## The toast is a FRESCO BOUNDARY
 
   [[Hint]] is an `rf.fresco/defview`, not an `rf/reg-view`. [[toast-view]]
-  needed no change at all: it already performed ZERO reads and was
-  already a pure fn of `dispatch`, so the migration is confined to the
-  boundary and the one-line bridge [[Toast]] the Dynamic shell still
-  mounts by name."
+  performs ZERO reads and is a pure fn of `dispatch`, so the boundary
+  and the one-line bridge [[Toast]] the Dynamic shell mounts by name
+  are the only Fresco-aware code here."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.theme.tokens
@@ -135,8 +134,8 @@
 
 (defn toast-view
   "Hiccup for the open editor-hint toast. The caller that gates the
-  mount on `:rf.xray/editor-hint-open?` is [[Hint]] — since rf2-k97c.3
-  the gate lives in the boundary rather than in the [[Toast]] bridge.
+  mount on `:rf.xray/editor-hint-open?` is [[Hint]]; the gate lives in
+  the boundary rather than in the [[Toast]] bridge.
   `dispatch` is the frame-bound dispatcher [[Hint]] captured with
   `(:dispatch (rf/capture-frame))`, so the deferred `:on-click`
   handlers land on the surrounding instance frame."
@@ -147,7 +146,7 @@
   ;; focus sits. This toast is a non-modal `role=status` surface and
   ;; MUST NOT trap focus (that would steal it from the host app), so in
   ;; the normal click flow focus is never inside the toast and this
-  ;; in-DOM handler does not receive Esc. It is retained as
+  ;; in-DOM handler does not receive Esc. It is
   ;; defense-in-depth for the case where focus DOES land inside the
   ;; toast (e.g. after the operator tabs to / clicks a button in it),
   ;; so Esc still works there too.
@@ -190,12 +189,11 @@
     "Open Settings"]])
 
 (rf.fresco/defview Hint
-  "The open-in-editor editor-hint toast — a FRESCO BOUNDARY
-  (rf2-k97c.3), a real React function component rather than an
-  `rf/reg-view`.
+  "The open-in-editor editor-hint toast — a FRESCO BOUNDARY, a real
+  React function component rather than an `rf/reg-view`.
 
   Renders only when `:rf.xray/editor-hint-open?` is true, and the
-  closed-state cost is unchanged at ONE read and a `when`:
+  closed-state cost is ONE read and a `when`:
   `rf.fresco/sub` is legal inside a `when` and records its edge where
   the read happens (HD-002), so a branch not taken contributes no edge.
 
@@ -208,14 +206,13 @@
   satisfied by a process-global atom under a wrong frame.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
-  which answers the boundary's DECLARED frame inside a body. It replaces
-  the name `reg-view` used to inject lexically: `defview` binds NO name
-  inside your body, so the bare `dispatch` the old body closed over
-  would be a LOUD compile error.
+  which answers the boundary's DECLARED frame inside a body. `defview`
+  binds NO name inside your body — unlike `reg-view`, which injects
+  `dispatch` lexically — so a bare `dispatch` would be a LOUD compile
+  error.
 
-  [[toast-view]] is unchanged — it reads nothing and always was a pure
-  fn of `dispatch`, so it needed no hoist and stays callable from the
-  node lane exactly as before.
+  [[toast-view]] reads nothing and is a pure fn of `dispatch`, so it
+  needs no hoist and is callable from the node lane.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[Toast]] mounts it with none, so it is destructured away."
@@ -223,17 +220,16 @@
   (when (rf.fresco/sub [:rf.xray/editor-hint-open?])
     (toast-view (:dispatch (rf/capture-frame)))))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge ---------------------------------------------------
 ;;
 ;; Same shape as `settings/popup.cljs`'s bridge — its comment carries the
 ;; full reasoning and is not repeated here. `rf.fresco/as-component` is the
-;; outward door, and the frame comes from the enclosing
-;; `rf/frame-provider` through React context.
+;; outward door, and the frame comes from the enclosing frame-provider
+;; through React context.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
-;; this comment used to name has ARRIVED: `shell-view` lowers to a Fresco
-;; boundary. The pair stayed anyway, because a Reagent parent still heads
-;; it on purpose. The chain is `[:>]` -> `as-component` -> [[Hint]].
+;; NOT SCAFFOLDING — THE PAIR STAYS. `shell-view` lowers to a Fresco
+;; boundary, but a Reagent parent heads the pair on purpose. The chain is
+;; `[:>]` -> `as-component` -> [[Hint]].
 
 (def ^:private Hint-component
   "The React component [[Hint]] presents as, for a non-Fresco parent.
@@ -243,12 +239,11 @@
   (rf.fresco/as-component Hint))
 
 (defn Toast
-  "The callable `shell.cljs` mounts, as `[editor-hint/Toast]`. Returns
+  "The callable `shell.cljs` mounts, as `(editor-hint/Toast)`. Returns
   Reagent-shaped hiccup interoping to the React component above.
 
-  It KEEPS THE NAME because the mount site is in a file this slice does
-  not own. The gate moved INTO [[Hint]], so this bridge is unconditional
-  and the `nil`-when-closed answer now comes from the boundary rather
-  than from here — the committed DOM is identical either way."
+  The gate lives INSIDE [[Hint]], so this bridge is unconditional and
+  the `nil`-when-closed answer comes from the boundary rather than
+  from here."
   []
   [:> Hint-component {}])
