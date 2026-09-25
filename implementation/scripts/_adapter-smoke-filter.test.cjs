@@ -6,11 +6,10 @@
  * runner (run-adapter-smokes.cjs), both colocated with the adapters under
  * implementation/adapters/scripts/.
  *
- * Regression for rf2-l72e2: the two scripts used to apply the same
- * ADAPTER_SMOKE_FILTER value to two different string spaces (build ids vs
- * absolute spec paths), so a build-id-shaped filter like
- * `reagent-testbed` staged a surface in the orchestrator but matched
- * ZERO specs in the runner. These tests pin that:
+ * Applying the same ADAPTER_SMOKE_FILTER value to two different string
+ * spaces (build ids vs absolute spec paths) would let a build-id-shaped
+ * filter like `reagent-testbed` stage a surface in the orchestrator but
+ * match ZERO specs in the runner. These tests pin that:
  *
  *   - build-id-shaped and path-shaped filters select the SAME singleton,
  *   - the broad CI filter `adapters/` selects exactly the adapter smokes,
@@ -61,15 +60,13 @@ function selectBuildIds(filter) {
     .sort();
 }
 
-console.log('adapter-smoke-filter selection tests (rf2-l72e2)');
+console.log('adapter-smoke-filter selection tests');
 
 const ADAPTERS = ['reagent', 'uix'];
 
 // ---- manifest shape ------------------------------------------------------
 
-// The four-suites rule's smoke roster, minus the Helix arm (removed at
-// S7/W13, rf2-d6epb) and minus the re-frame.ui substrate smoke (retired
-// with the substrate, rf2-0yp7w.4): one smoke per shipped adapter.
+// The four-suites rule's smoke roster: one smoke per shipped adapter.
 it('manifest declares exactly the two adapter smokes', () => {
   assert.deepStrictEqual(
     ADAPTER_SMOKES.map((e) => e.build).sort(),
@@ -114,8 +111,8 @@ it('broad filter `adapters` (no slash) selects the two adapter smokes only', () 
   ]);
 });
 
-// rf2-0yp7w.4 — the retired re-frame.ui smoke's two filter shapes must now
-// select NOTHING, and in particular must not fall through onto UIx: the
+// There is no re-frame.ui smoke, so its two filter shapes must select
+// NOTHING, and in particular must not fall through onto UIx: the
 // `ui-testbed` / `uix-testbed` near-collision is the sharp edge here, and it
 // is exactly the shape a stale CI filter would arrive in.
 it('retired filter `ui/testbed` selects nothing', () => {
@@ -126,7 +123,7 @@ it('retired build-id shape `ui-testbed` selects nothing (never UIx)', () => {
   assert.deepStrictEqual(selectBuildIds('ui-testbed'), []);
 });
 
-// ---- the rf2-l72e2 core: build-id vs path form equivalence --------------
+// ---- build-id vs path form equivalence -----------------------------------
 
 for (const name of ADAPTERS) {
   const buildId = `adapters/${name}-testbed`;
@@ -135,7 +132,7 @@ for (const name of ADAPTERS) {
   // the one adapter: two build-id forms and two spec-path forms.
   const shapes = [
     `adapters/${name}-testbed`, // full build id
-    `${name}-testbed`,          // bare build-id segment (the rf2-l72e2 repro)
+    `${name}-testbed`,          // bare build-id segment
     `adapters/${name}/testbed`, // path form
     `${name}/testbed`,          // bare path segments
   ];
@@ -159,7 +156,7 @@ for (const name of ADAPTERS) {
 // test pins that, for every supported filter shape, the set the
 // orchestrator stages (build ids) and the set the runner runs (specPaths)
 // are one-to-one — i.e. no shape stages a surface the runner then can't
-// find (the rf2-l72e2 failure mode).
+// find.
 
 it('selected set maps one-to-one between build ids and specPaths for all shapes', () => {
   const allShapes = [
@@ -204,18 +201,18 @@ it('comma-separated filter OR-matches multiple shapes', () => {
   ]);
 });
 
-// ---- substring-trap protection preserved --------------------------------
+// ---- substring-trap protection ------------------------------------------
 
 it('an unrelated substring selects nothing (no over-selection)', () => {
   assert.deepStrictEqual(selectBuildIds('does-not-exist'), []);
 });
 
-// rf2-n4nc2o: a filter term that appears ONLY in the absolute spec-path
-// prefix (i.e. a directory the repo happens to be checked out under) must
-// NOT match — selection keys on repo-stable identities (build id +
-// repo-relative spec path), never the absolute filesystem prefix. The old
-// code matched the absolute specPath too, so a filter substring of the
-// workspace/worktree directory name over-selected EVERY entry.
+// A filter term that appears ONLY in the absolute spec-path prefix (i.e.
+// a directory the repo happens to be checked out under) must NOT match —
+// selection keys on repo-stable identities (build id + repo-relative spec
+// path), never the absolute filesystem prefix. Matching the absolute
+// specPath too would let a filter substring of the workspace/worktree
+// directory name over-select EVERY entry.
 //
 // We model this two ways:
 //   (a) directly: the candidate identities for a real entry never contain
@@ -294,10 +291,10 @@ it('normalizeForFilter collapses _, \\ and / to a single -', () => {
 // Exercise the REAL discovery + reconciliation the runner uses. isSpecFile,
 // listSpecFiles, and reconcile are imported from adapter-smoke-filter.cjs
 // (the module that owns the manifest) — the SAME functions
-// run-adapter-smokes.cjs calls before a Playwright run. Previously this
-// suite re-implemented copies of the walker and asserted on THOSE, so a bug
-// in the runner's own walk/partition was caught only at Playwright-run time
-// and the two copies could silently drift (rf2-qf45gu).
+// run-adapter-smokes.cjs calls before a Playwright run. Asserting on
+// re-implemented copies of the walker would catch a bug in the runner's own
+// walk/partition only at Playwright-run time, and the two copies could
+// silently drift.
 
 it('isSpecFile accepts spec.cjs and *.spec.cjs and rejects everything else (rf2-qf45gu)', () => {
   assert.ok(isSpecFile('spec.cjs'), 'bare spec.cjs is a spec file');
@@ -346,14 +343,14 @@ it('ADAPTER_SMOKE_SPEC_ROOTS resolve under the repo root', () => {
   }
 });
 
-// ---- root TESTING.md example/adapter-smoke-gate drift guard (rf2-n4nc2o) ---
+// ---- root TESTING.md example/adapter-smoke-gate drift guard ---------------
 // Pin the human-facing gate map to reality: every example/adapter-smoke gate
 // script the root testing guide names (the `test:examples*` family — e.g.
-// `test:examples-compile` — and the renamed `test:adapter-smokes` smoke
-// runner) must actually exist in implementation/package.json, so a guide row
-// pointing at a nonexistent command fails loud rather than sending
-// contributors to a dead script. (`test:adapter-smokes` drives the three
-// adapter testbed smokes only — the `examples/` tree is itself test-free.)
+// `test:examples-compile` — and the `test:adapter-smokes` smoke runner) must
+// actually exist in implementation/package.json, so a guide row pointing at
+// a nonexistent command fails loud rather than sending contributors to a
+// dead script. (`test:adapter-smokes` drives the adapter testbed smokes
+// only — the `examples/` tree is itself test-free.)
 
 const ROOT_TESTING_MD = path.join(REPO_ROOT, 'TESTING.md');
 const PKG_JSON = path.join(REPO_ROOT, 'implementation', 'package.json');
@@ -365,7 +362,7 @@ it('every `test:examples*` / `test:adapter-smokes` command named in root TESTING
 
   // The example/adapter-smoke gate lives in implementation/package.json;
   // scope the existence check to the `test:examples`/`test:examples-*` family
-  // the root guide documents PLUS the renamed `test:adapter-smokes` runner, so
+  // the root guide documents PLUS the `test:adapter-smokes` runner, so
   // cross-package script names (e.g. tools/mcp-conformance's
   // `test:re-frame2-pair*`) don't false-positive.
   const named = new Set();
