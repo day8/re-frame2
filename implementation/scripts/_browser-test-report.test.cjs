@@ -32,12 +32,12 @@ test('summary parser extracts cljs.test counts from noisy text', () => {
   });
 });
 
-// rf2-mwx08 (regression): a prelude app log shaped exactly like a
-// zero-failure cljs.test summary (`0 failures, 0 errors.`) that PRECEDES
-// the real `Ran ...` line must NOT be paired as the failure summary. The
-// old first-match-of-each parser returned `{failErr: "0 failures, 0
-// errors."}` here and false-greened a red run. The paired parser binds
-// the failures/errors line that FOLLOWS the selected `Ran ...` line.
+// A prelude app log shaped exactly like a zero-failure cljs.test summary
+// (`0 failures, 0 errors.`) that PRECEDES the real `Ran ...` line must NOT
+// be paired as the failure summary. A first-match-of-each parser would
+// return `{failErr: "0 failures, 0 errors."}` here and false-green a red
+// run. The paired parser binds the failures/errors line that FOLLOWS the
+// selected `Ran ...` line.
 test('noisy zero-failure prelude before the real run is not mis-paired as green (rf2-mwx08)', () => {
   const blob = [
     '[browser:log] app boot: 0 failures, 0 errors.',
@@ -54,7 +54,7 @@ test('noisy zero-failure prelude before the real run is not mis-paired as green 
     'red run must parse to a non-zero count, not green');
 });
 
-// rf2-mwx08: a bare `failures, errors` line with no preceding `Ran ...`
+// A bare `failures, errors` line with no preceding `Ran ...`
 // is console noise, not a summary — it must be ignored, leaving failErr
 // null (the "no verdict yet → run fails" signal in run-browser-tests).
 test('a failures/errors line with no preceding Ran line is ignored (rf2-mwx08)', () => {
@@ -65,7 +65,7 @@ test('a failures/errors line with no preceding Ran line is ignored (rf2-mwx08)',
   assert.deepEqual(parts, { ran: null, failErr: null });
 });
 
-// rf2-mwx08: when a page emits more than one cljs.test summary (e.g. a
+// When a page emits more than one cljs.test summary (e.g. a
 // re-run), the LAST complete pair wins, and each failErr stays bound to
 // its own Ran line.
 test('last complete cljs.test summary pair wins on a re-run (rf2-mwx08)', () => {
@@ -80,7 +80,7 @@ test('last complete cljs.test summary pair wins on a re-run (rf2-mwx08)', () => 
   assert.equal(parts.failErr, '2 failures, 1 errors.');
 });
 
-// rf2-mwx08: an un-paired `Ran ...` line (failures/errors not yet
+// An un-paired `Ran ...` line (failures/errors not yet
 // streamed) surfaces the `ran` half for a meaningful timeout message,
 // but failErr stays null so no green verdict can form.
 test('a Ran line with no failures/errors line yet surfaces ran only (rf2-mwx08)', () => {
@@ -92,18 +92,17 @@ test('a Ran line with no failures/errors line yet surfaces ran only (rf2-mwx08)'
   assert.equal(parts.failErr, null);
 });
 
-// rf2-qqzmf: the `Ran N tests containing M assertions.` integers were
-// captured by RAN_RE and never read, so every browser lane's verdict came
-// from the failure tally alone — and a lane that ran NOTHING satisfies it.
-// This is the auditor's own repro, now a pin: the zero-test blob must yield
-// a readable count of 0 for the runner's floor to act on.
+// The `Ran N tests containing M assertions.` integers must be READ: a
+// verdict taken from the failure tally alone is satisfied by a lane that
+// ran NOTHING. The zero-test blob must yield a readable count of 0 for the
+// runner's floor to act on.
 test('ran-count parser exposes the executed-test count (rf2-qqzmf)', () => {
   assert.deepEqual(
     parseRanCounts('Ran 12 tests containing 34 assertions.'),
     { tests: 12, assertions: 34 },
   );
-  // The zero-test summary the audit fed the runner's own library. Its
-  // failure tally is clean, so only this count distinguishes it from green.
+  // A zero-test summary. Its failure tally is clean, so only this count
+  // distinguishes it from green.
   const parts = summaryPartsFromText(
     'Ran 0 tests containing 0 assertions.\n0 failures, 0 errors.\n',
   );
@@ -133,7 +132,7 @@ test('failure count parser returns numeric counts', () => {
   });
 });
 
-// run-browser-tests.cjs line 149: `if (!summary.ran || !summary.failErr)`
+// run-browser-tests.cjs: `if (!summary.ran || !summary.failErr)`
 // → a null part means "no cljs.test summary was found" and the run FAILS
 // (return 1). Pin that the parser yields nulls when the summary is absent,
 // so a crashed / summary-less browser run can never be read as green.
@@ -151,7 +150,7 @@ test('summary parser tolerates null / empty input (returns null parts)', () => {
   assert.deepEqual(summaryPartsFromText(''), { ran: null, failErr: null });
 });
 
-// run-browser-tests.cjs line 156-157: a null from parseFailureCounts is the
+// In run-browser-tests.cjs a null from parseFailureCounts is the
 // "could not parse failures/errors; failing the run" guard. Pin it so a
 // malformed summary line is a FAIL, never a silent pass.
 test('failure count parser returns null for unparseable / null input', () => {
@@ -160,7 +159,7 @@ test('failure count parser returns null for unparseable / null input', () => {
   assert.equal(parseFailureCounts('all good!'), null);
 });
 
-// The green decision (line 164) keys off the parsed counts. Pin the
+// The green decision keys off the parsed counts. Pin the
 // red-path numerics: a clean run is 0/0; failures and errors are read
 // independently and exactly.
 test('failure count parser reads failures and errors independently', () => {
@@ -245,7 +244,7 @@ test('diagnostic buffer entries() returns a defensive copy', () => {
   assert.deepEqual(buffer.entries(), [{ stream: 'stdout', text: 'a' }]);
 });
 
-// rf2-u0j8 — the fixture abort. The literal below is the one cljs.test 1.12.x
+// The fixture abort. The literal below is the one cljs.test 1.12.x
 // rethrows from `test-var-block*`'s `::async-disabled` branch, captured from a
 // real aborted `npm run test:browser` run.
 const REAL_ABORT_TEXT =
@@ -303,7 +302,7 @@ test('a "Testing" mention inside a log line is not mistaken for a namespace (rf2
   assert.deepEqual(testingNamespaces(null), []);
 });
 
-// rf2-il7b — the trusted-input bridge's classification.
+// The trusted-input bridge's classification.
 //
 // The suites that DRIVE this bridge are the witness that it works: three of
 // them press a real Tab or a real Escape on every `npm run test:browser`, and
