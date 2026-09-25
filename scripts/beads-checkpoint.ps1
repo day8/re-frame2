@@ -583,7 +583,7 @@ if ($SelfTest) {
         '@echo off',
         'echo.%*| findstr /C:"--include-memories" >nul',
         'if errorlevel 1 (',
-        '  echo stub bd: a bare export would drop every memory row ^(rf2-fifk0^) 1>&2',
+        '  echo stub bd: a bare export would drop every memory row 1>&2',
         '  exit /b 1',
         ')',
         'type "%~dp0..\db.jsonl"'
@@ -652,7 +652,7 @@ if ($SelfTest) {
         }
     }
 
-    Write-Output 'beads-checkpoint -SelfTest: divergence guard (rf2-rjqtj)'
+    Write-Output 'beads-checkpoint -SelfTest: divergence guard'
 
     # THE FIXTURE: HEAD and Dolt hold the SAME NUMBER
     # of rows but different facts, one for one.
@@ -830,7 +830,7 @@ if ($SelfTest) {
         $_ -notmatch '"key":"mem-key-03"' -and $_ -notmatch '"key":"mem-key-07"'
     }
     Assert-True ($memCulled.Count -eq 28 -and $memHead.Count -eq 30) `
-                'T7 the fixture slides under the row floor (28/30 rows), as the real event did' `
+                'T7 the fixture slides under the row floor (28/30 rows)' `
                 "got $($memCulled.Count)/$($memHead.Count)"
 
     Write-Rows -Path $dbPath -Rows $memCulled
@@ -1033,7 +1033,7 @@ if ($SelfTest) {
     # oid the two-reads shape printed, and it recovers nothing.
     Assert-True (((Get-MemoryValueAt -Ref $raceB -Key 'mem-key-03') -eq '') -and
                  ((Get-MemoryValueAt -Ref 'HEAD' -Key 'mem-key-03') -eq '')) `
-                'T7 while the racing commit - the oid the two-reads shape printed - recovers nothing'
+                'T7 while the racing commit - the oid the two-reads shape would print - recovers nothing'
 
     # Put HEAD's tracker back exactly as it stood before this arm, so T8 and
     # T9 see the same inputs with or without it.
@@ -1191,8 +1191,8 @@ try {
             "  working $workRows rows, HEAD $headRows rows, in $tracker",
             '',
             '  `git checkout HEAD -- .beads` here would revert it, and the next',
-            '  checkpoint would write that revert back over the database - the',
-            '  rf2-51uz1 fault, which has silently reopened closed beads before.',
+            '  checkpoint would write that revert back over the database, which',
+            '  silently reopens closed beads.',
             '',
             '  Checkpoint first, then clear, then update:',
             '',
@@ -1290,8 +1290,8 @@ try {
         $lines.Add('beads-checkpoint: HEAD carries tracker facts the fresh export does NOT.')
         if ($exportRows -eq $headRows) {
             $lines.Add("  export $exportRows rows, HEAD $headRows rows. EQUAL COUNTS ARE NOT EQUALITY:")
-            $lines.Add('  commit 667c744dc875 passed this floor at 1938 == 1938 and still deleted three')
-            $lines.Add('  issues and reverted two closes, because Git and Dolt had diverged one for one.')
+            $lines.Add('  when Git and Dolt diverge one row for one row, an export passes this floor')
+            $lines.Add('  at an equal count and still deletes issues and reverts closes.')
         } else {
             $lines.Add("  export $exportRows rows, HEAD $headRows rows.")
         }
@@ -1364,14 +1364,14 @@ try {
     if ($memFacts.Count -gt 0 -and $keySetShort) {
         $lines = New-Object 'System.Collections.Generic.List[string]'
         $lines.Add('')
-        $lines.Add('beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****')
+        $lines.Add('beads-checkpoint: ***** MEMORY RECONCILIATION FAILED *****')
         $lines.Add('  The tracker''s `bd remember` rows do not reconcile against HEAD.')
         $lines.Add('')
         foreach ($r in $memFacts) { $lines.Add($r) }
         $lines.Add('')
         $lines.Add('  `bd stats` reports ISSUES ONLY, and the row-count floor above is dominated')
-        $lines.Add('  by issue rows, so a memory-only deletion passes both in silence. That is')
-        $lines.Add('  exactly how 210 keys disappeared on 2026-09-08 with nothing on screen.')
+        $lines.Add('  by issue rows, so a memory-only deletion passes both in silence. This')
+        $lines.Add('  warning is the only thing on screen that reports it.')
         $lines.Add('')
         $lines.Add('  THIS IS A WARNING, NOT A REFUSAL - the checkpoint continues and commits')
         $lines.Add('  the export. The database is the source of truth, and this may well be a')
@@ -1399,8 +1399,8 @@ try {
         }
         $lines.Add('')
         $lines.Add('  Select on `.key`. A bare grep for the key matches rows that merely MENTION')
-        $lines.Add('  it - bead prose naming a deleted key has already been mistaken for the')
-        $lines.Add('  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).')
+        $lines.Add('  it - bead prose naming a deleted key is easily mistaken for the')
+        $lines.Add('  memory itself (CLAUDE.md instrument item (f)).')
         $lines.Add('')
         [Console]::Error.WriteLine(($lines -join "`n"))
     }
@@ -1414,7 +1414,7 @@ try {
         $lines.Add('  The loss detector is the KEY-SET comparison against HEAD, it ran, and it')
         $lines.Add('  found nothing missing: every `bd remember` key HEAD carries is present in')
         $lines.Add('  the fresh export. What fired is the other arm - the two populations do not')
-        $lines.Add('  account for every row of the file (rf2-cve7, rf2-q88t).')
+        $lines.Add('  account for every row of the file.')
         $lines.Add('')
         foreach ($r in $memFacts) { $lines.Add($r) }
         $lines.Add('')
