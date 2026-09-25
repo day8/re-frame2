@@ -1,11 +1,13 @@
 (ns day8.re-frame2-xray.filters.right-click-integration-cljs-test
-  "Right-click event-row → OUT pill integration test (rf2-ak4ms).
+  "Right-click event-row → OUT pill integration test.
 
   Wires:
    - drop a trace event into the buffer
    - render the shell
    - fire `on-context-menu` on the row
-   - assert it dispatches :rf.xray/hide-event-type with the event-id
+   - assert it dispatches :rf.xray/open-row-context-menu with the
+     event-id + click coords; the menu's hide item dispatches
+     :rf.xray/hide-event-type, which opens the pre-filled popup
 
   Plus the OUT-pill → filtered-event-bundles round-trip: once a pill is
   installed via the canonical add-filter event, the L2 event list
@@ -22,10 +24,9 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture` owns the reset: plain-atom adapter + the
+  ;; default `:all` reset tier, which includes the trace-collector ring
+  ;; reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 (defn- xray-setup! []
@@ -33,9 +34,8 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade.
 
 (defn- dispatch-trace-ev [id event-vec]
   {:id           id
@@ -46,7 +46,7 @@
                   :rf.trace/dispatch-id id}})
 
 ;; -------------------------------------------------------------------------
-;; (1) Right-click row opens the context menu (rf2-ikuwt)
+;; (1) Right-click row opens the context menu
 ;; -------------------------------------------------------------------------
 
 (defn- mk-context-event
@@ -60,7 +60,7 @@
      :called called?}))
 
 (deftest right-click-row-opens-context-menu
-  (testing "rf2-ikuwt — `on-context-menu` on a row fires
+  (testing "`on-context-menu` on a row fires
             `:rf.xray/open-row-context-menu` with the event-id +
             click coords. The browser context menu is suppressed via
             preventDefault."
@@ -89,9 +89,9 @@
           ":rf.xray/open-row-context-menu fired with event-id + coords"))))
 
 (deftest hide-event-type-handler-pre-populates-popup
-  (testing "the handler that on-context-menu dispatches opens the
-            popup with OUT mode + pattern pre-filled — exercised
-            directly via dispatch-sync"
+  (testing "the handler the row context menu's hide item dispatches
+            opens the popup with OUT mode + pattern pre-filled —
+            exercised directly via dispatch-sync"
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/hide-event-type :user/mouse-move])
@@ -107,8 +107,8 @@
   (testing "the full right-click → confirm path lands the pill in OUT"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      ;; Step 1: handler dispatched from right-click (verified above
-      ;; via the rf/dispatch capture path).
+      ;; Step 1: the handler the right-click menu's hide item
+      ;; dispatches.
       (rf/dispatch-sync [:rf.xray/hide-event-type :mouse-move])
       ;; Step 2: user clicks Apply in the popup.
       (rf/dispatch-sync [:rf.xray/save-edit-popup])
