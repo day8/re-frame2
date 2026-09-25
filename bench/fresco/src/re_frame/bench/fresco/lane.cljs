@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.lane
   "THE FRESCO P0 MEASUREMENT LANE — the shared instrument every P0 arm
-  runs on (EP-0038, HD-017; built by rf2-2rtt6.2 for rf2-2rtt6.2/.3/.4/.5).
+  runs on (EP-0038, HD-017).
 
   One instrument, four arms' worth of consumers, so the METHOD is one
   thing a reader checks once. What lives here is everything that is the
@@ -11,28 +11,18 @@
 
   ## Where this file lives, and why the namespace does not say `freehand`
 
-  Physically under `implementation/fresco/test/`. It began under
-  `implementation/freehand/test/` — HD-017 carved the bench/test
-  measurement lane out of the donor freeze, and that tree was the one
-  whose classpath already carried Reagent, UIx, React and `react-dom`
-  together — and rf2-0yp7w moved the whole bench tree to its
-  evidence-owned home beside the substrate it measures. The NAMESPACE is
-  `re-frame.bench.fresco.*` because the charter's anti-regression fence
-  is explicit that Fresco carries no continuity claim to its
-  predecessors: an instrument that had to spell a withdrawn programme's
-  name to compile would be making one. `implementation/fresco/test` is a
-  shadow `:source-paths` root, so the path under it is the namespace and
-  nothing else is needed.
+  Under `bench/fresco/src/`, the bench lane's evidence-owned home, whose
+  classpath carries Reagent, UIx, React and `react-dom` together. The
+  NAMESPACE is `re-frame.bench.fresco.*` because the charter's
+  anti-regression fence is explicit that Fresco carries no continuity
+  claim to its predecessors: an instrument that had to spell a withdrawn
+  programme's name to compile would be making one. `bench/fresco/src` is
+  a shadow `:source-paths` root, so the path under it is the namespace
+  and nothing else is needed.
 
-  Nothing here requires anything out of `implementation/freehand/`. That
-  was deliberate before the move and it is why `now-ms`, `summarise` and
-  `quantile` are re-derived here rather than borrowed from the donor's
-  `bench.measure`: a frozen donor `src/` tree is not a dependency this
-  lane should acquire. The move did not create that independence, it
-  merely made it visible in the path. (That sentence used to count the
-  lines — *eleven* — and `rf2-xa8wo` adding `quantile` made the count
-  wrong while leaving the point untouched, so the point is what it now
-  states.)
+  Nothing here requires anything out of a donor tree, which is why
+  `now-ms`, `summarise` and `quantile` are this lane's own: a frozen
+  donor `src/` tree is not a dependency this lane should acquire.
 
   ## What a reading is
 
@@ -43,18 +33,16 @@
   what a browser does, and the whole point of the window is that it is
   the browser's.
 
-  ## The five disciplines this file enforces, and what each one cost
+  ## The five disciplines this file enforces, and what each one prevents
 
-  Fifteen instrument faults were caught on the predecessor programme's
-  harnesses, and every one of them produced a plausible PRECISE WRONG
-  NUMBER before it was caught. The five that are structural are enforced
-  here rather than left to each arm:
+  Each answers an instrument fault that produces a plausible PRECISE
+  WRONG NUMBER rather than an error. The five that are structural are
+  enforced here rather than left to each arm:
 
   1. **Both orders, and position before adjacency.** [[rounds!]] schedules
      with [[re-frame.bench.order-guard/slot-order]], which rotates AND
      REFLECTS, so every arm has at least two distinct immediate
-     predecessors. A bare cyclic rotation — which four harnesses published
-     as \"order rotating with the round\" — changes only which arm goes
+     predecessors. A bare cyclic rotation changes only which arm goes
      first and leaves every adjacency intact. And the larger effect is not
      adjacency at all: the recorded live reproduction read the same
      control `10.32 10.26 10.26 10.26 10.33 10.28` and then `8.12` for
@@ -74,8 +62,8 @@
      window.** [[verified-write!]] reads the written cell after the clock
      stops and before the sample is banked; [[tally]] carries the count
      forward so every published row states `N unverified of M`. A clock
-     alone once accepted a window in which 1,320 of 1,320 writes never
-     reached the page.
+     alone would accept a window in which 1,320 of 1,320 writes never
+     reach the page.
   4. **A positive control with predicted vs measured, every run.**
      [[control-verdict]] takes a stated prediction and the measured range
      and answers whether the instrument had the signal its own arithmetic
@@ -89,9 +77,9 @@
      the other one.
   5. **The guard refuses, and the refusal is exit code 2.** [[guard!]]
      runs the shared self-test before anything is measured and the
-     verdict after; `run.cjs` turns `:refuse? true` into `exit 2`. Four
-     workers have hit a refusal on the predecessor harnesses and every one
-     of them repaired the ARM. The tolerance is not the arm's to move."
+     verdict after; `run.cjs` turns `:refuse? true` into `exit 2`. A
+     refusal is answered by repairing the ARM. The tolerance is not the
+     arm's to move."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]
             [re-frame.bench.order-guard :as rf.bench.order-guard]
@@ -225,15 +213,14 @@
 
 (defn utf8-bytes
   "How many BYTES `s` occupies as UTF-8 — the lane's ONE answer to a
-  question asked under a byte label (rf2-2rtt6.121).
+  question asked under a byte label.
 
   `count` answers UTF-16 CODE UNITS, which agree with UTF-8 bytes only
   for ASCII. That is what makes the mistake fail open: on an ASCII page
   the wrong expression prints the right number, so nothing ever notices,
   and the error appears later as content grows a dash, an ellipsis or an
-  emoji. `rf2-2rtt6.114` found the same defect in the SSR bake manifest,
-  where the `dogfood-snapshot` document claimed 3,101 for a file of which
-  3,119 bytes were written.
+  emoji — `count` reads 3,101 for a `dogfood-snapshot` document of 3,119
+  bytes.
 
   `TextEncoder` and not `Buffer.byteLength`: these arms compile to
   `:browser` and `:advanced`, so `Buffer` is not there. It is not the
@@ -318,8 +305,8 @@
 
   Every teardown in this lane is wrapped, because a release that throws
   half way through must still detach the container and must not abort the
-  round. What it must NOT do is vanish, which is what `(catch :default _
-  nil)` did at four sites (rf2-f5roa, from the PR #7263 and #7268 audits).
+  round. What it must NOT do is vanish, which is what a `(catch :default _
+  nil)` does.
 
   An unmount that threw has left the arm's subscriptions, its watches and
   its React root STANDING. The next row is then measured on a page that is
@@ -358,8 +345,8 @@
   — [[residue]]'s body-children count sees only attached elements, its
   sub-cache census only frame subscriptions, and a ratom arm's reactions
   are rooted in a namespace-level atom outside both, still consuming every
-  later write. The rf2-2rtt6.2 second audit proved the gap by mutation: a
-  no-op'd bulk ratom unmount sailed through `residue-after-bulk`. This one
+  later write. A mutation shows the gap: with the bulk ratom unmount
+  no-op'd, `residue-after-bulk` alone still passes. This one
   read, taken while the container is still in hand, is where a SUCCESSFUL
   release is observable per arm, whatever family the arm belongs to."
   [where container]
@@ -405,7 +392,7 @@
 
   This is the ADJUDICATION half of [[teardown-failure!]]. Recording a
   failure and never asking about it is the same silence
-  `(catch :default _ nil)` produced, one indirection further out."
+  `(catch :default _ nil)` produces, one indirection further out."
   [after]
   (let [fs (drain-teardown-failures!)]
     (when (seq fs)
@@ -450,11 +437,11 @@
   `counters` is the caller's own additions to the census — `{key thunk}`,
   each thunk answering an integer — for an arm family whose live
   references are rooted where NEITHER built-in counter can see them. The
-  P0 ratom arms are the recorded case (rf2-2rtt6.2, second audit): their
-  cursor reactions watch a namespace-level `reagent.core/atom`, not the
-  frame's sub-cache, and a surviving root's tree is detached, not under
-  `document.body`, so a release that never happened was invisible to all
-  three integers while the detached tree consumed every later write. One
+  P0 ratom arms are the case: their cursor reactions watch a
+  namespace-level `reagent.core/atom`, not the frame's sub-cache, and a
+  surviving root's tree is detached, not under `document.body`, so a
+  release that never happens is invisible to all three integers while
+  the detached tree consumes every later write. One
   map of counts per run, compared by the same equality — the caller names
   where its arms' references live, and nothing more general than that."
   ([frame-id] (residue frame-id nil))
@@ -557,10 +544,10 @@
   restated. `order-guard`'s self-test carries the arithmetic proof that a
   bare rotation gives every arm exactly ONE within-round predecessor, that
   reflecting on odd rounds gives it two in balance, and that at `k = 2` the
-  reflection CANCELS the rotation and so is dropped (`rf2-ouwh8`); a second
-  copy here would be a second authority with nothing holding it in step —
-  and the copy that did exist, in `b6-harness`, is exactly where the `k = 2`
-  degeneracy survived a fix to this one."
+  reflection CANCELS the rotation and so is dropped; a second copy here
+  would be a second authority with nothing holding it in step, and a fix
+  to one copy — the `k = 2` degeneracy's among them — would leave the
+  fault standing in the other."
   rf.bench.order-guard/slot-order)
 
 (defn sample-collector
@@ -584,35 +571,29 @@
   not run immediately before is not a weaker fact than a real one; it is a
   different fact wearing its clothes.
 
-  ## This repair was made TWICE before it was made here (rf2-6ta5r)
+  ## Why it lives here rather than in each loop
 
-  `p0_converge_app` and `coldmount_app` hand-roll their sampling loops,
-  both hit this, and both fixed it locally — as a private
-  `mark-predecessor!` whose body was these same three lines. Their
-  incident is recorded: `p0_converge`'s first cut published the fault and
-  the guard REFUSED it, `narrow/reagent-subs/ctl-2x` contaminated by a
-  two-sample stratum labelled `M1/reagent-subs/reagent-subs`, an arm from
-  a different ROW; `rf2-2rtt6.4` met the same class from the other side,
-  where the untagged samples became a `<none>` stratum reading 1.35x its
-  siblings.
+  A sampling loop that skips it during warm-up carries exactly this
+  fault, and the guard sees it: `narrow/reagent-subs/ctl-2x` contaminated
+  by a two-sample stratum labelled `M1/reagent-subs/reagent-subs`, an arm
+  from a different ROW; or, from the other side, untagged samples forming
+  a `<none>` stratum reading 1.35x its siblings.
 
-  What never got the repair was [[rounds!]] — the SHARED loop every other
-  harness on this lane rides. TEN bench apps call it and every one of them
-  carried the fault, and the two that had fixed it were exactly the two
-  that do not call it. This is that fix moved to the one place it belongs,
-  and the private copies now call it: a second authority with nothing
-  holding it in step is the shape that let the `k = 2` degeneracy in
-  [[slot-order]] survive a fix to its own sibling.
+  [[rounds!]] — the SHARED loop the lane's harnesses ride — and the
+  hand-rolled loops in `p0_converge_app` and `coldmount_app` all call this
+  one function, because a private copy per loop is a second authority
+  with nothing holding it in step: a fix made to one copy leaves the
+  fault standing in every other.
 
-  ## What it cost on the two clocks this bead came from
+  ## What it prevents on the two clocks
 
   Replaying the schedule prices it exactly: at every arm count this lane
-  uses (4, 5, 7, 8) one arm — whichever holds the first slot at
-  `s = warmup` — carried 5 of its 30 samples under an adjacency that did
-  not happen. On the seven-arm `amp_merge_clock` schedule that arm is
-  `:expanded-b`, THE NULL, with 4 samples filed under `floor`, which never
-  runs before it; on the five-arm schedule those same 4 were filed under
-  `expanded-b` ITSELF, which no schedule can produce. The position counter
+  uses (4, 5, 7, 8), without it one arm — whichever holds the first slot
+  at `s = warmup` — would carry 5 of its 30 samples under an adjacency
+  that did not happen. On the seven-arm `amp_merge_clock` schedule that
+  arm is `:expanded-b`, THE NULL, with 4 samples filed under `floor`,
+  which never runs before it; on the five-arm schedule those same 4 would
+  be filed under `expanded-b` ITSELF, which no schedule can produce. The position counter
   is untouched by this function, because a discarded sample has no
   position."
   [coll id]
@@ -663,12 +644,11 @@
   inside its own `measure-one!`, which is handed an arm and not a visit.
   It therefore cannot tell a warm-up visit from a measured one, and a
   driver that publishes both under one heading publishes a distribution
-  whose population is not the population of the `:summary` it decomposes.
-  `slice-echo-clock-app` did exactly that: `100` banked values per arm
-  against a `60`-value summary at `{:warmup 8 :samples 12}` over five
-  rounds.
+  whose population is not the population of the `:summary` it decomposes
+  — at `{:warmup 8 :samples 12}` over five rounds, `100` banked values
+  per arm against a `60`-value summary.
 
-  The repair is to derive the measured mask FROM THIS PLAN rather than
+  So a driver derives the measured mask FROM THIS PLAN rather than
   from a second reading of the schedule — `(count arms)`, [[slot-order]]
   and the warm-up boundary re-implemented in a driver is the copy this
   whole namespace is written to avoid. Answering the plan is cheaper than
@@ -679,11 +659,9 @@
   obvious way to write the second is to give it its own nested loops —
   which would be a second copy of the reflecting order, the warm-up
   boundary and the round boundary, with nothing holding it in step with
-  the first. This file already prices that shape twice: [[slot-order]]'s
-  `k = 2` degeneracy survived a fix to its own sibling because
-  `b6-harness` held a copy, and [[observe!]]'s missing call was repaired
-  privately in the two hand-rolled loops while the ten apps riding the
-  shared one kept the fault. A plan both loops consume cannot disagree
+  the first. [[slot-order]] and [[observe!]] carry the price of that
+  shape: a fix made to one copy leaves the fault standing in every other.
+  A plan both loops consume cannot disagree
   with itself, and `lane-schedule-async-cljs-test` asserts that they do
   not rather than trusting this paragraph."
   [arms {:keys [warmup samples] :as _sampling} rounds]
@@ -736,7 +714,7 @@
 
   ## WARM-UP IS CHARGED PER ROUND, AND THE RAMP IT GUARDS IS RUN-LEVEL
 
-  Known, priced, and deliberately NOT repaired (rf2-ydqzt). `warmup`
+  Known, priced, and deliberately NOT repaired. `warmup`
   discarded samples are spent per arm inside EVERY round, but the ramp
   [[collect!]]'s `:position` exists to expose does not restart at a round
   boundary — that is [[sample-collector]]'s own reason for counting
@@ -754,11 +732,11 @@
   targeted repair is a run-level `:prewarm` that runs the arms P times,
   discarded, before the first round, leaving `warmup` as a small per-round
   settling allowance. **It is not built**,
-  because the knob sufficed: rf2-h904p raised the two clocks to `8`, which
-  puts the +27% step this lane records after a site's sixth execution
-  inside the warm-up, and rf2-adld3's three-run window on that warmed rig
-  then returned REPORTABLE on every arm by predecessor AND by phase, with
-  the null it was opened on inside ±7.9% of 1.0 across fifteen rounds.
+  because the knob suffices: `:warmup 8` on the two clocks puts the +27%
+  step this lane records after a site's sixth execution inside the
+  warm-up, and a three-run window on that warmed rig returns REPORTABLE
+  on every arm by predecessor AND by phase, with its null inside ±7.9% of
+  1.0 across fifteen rounds.
 
   WHAT WOULD WARRANT BUILDING IT: a window whose guard refuses on `:phase`
   at `:warmup 8` with the first-third stratum dominated by round one. Ten
@@ -778,21 +756,19 @@
   PROMISE of the reading rather than the reading. Answers a promise of
   the same `{:readings :samples}` map.
 
-  ## Why the lane needed this, and what its absence cost
+  ## Why the lane needs this
 
   [[rounds!]] calls `measure-one!` and takes a NUMBER back, so an arm it
   can schedule is an arm whose whole window closes inside one synchronous
   call. **A window that ends at a PAINT cannot.** The browser produces the
   frame after the task returns and the only handle on it is a callback, so
-  every arm this lane could schedule was one bracketed by
+  every arm [[rounds!]] alone can schedule is one bracketed by
   `react-dom/flushSync` — a commit, and not a paint.
 
-  That is not an accident of what happened to get written. It is the shape
-  the only shared schedule allowed, and it is the reason both of the clock
-  drivers pointed at the package measure a mount:
+  A synchronous-only schedule therefore measures mounts, and
   `docs/design/fresco/product/budgets.md` §4 registers `U1`–`U4` over
-  *latency to visible echo* and *latency to next paint* and records, in
-  those words, that the population is what still blocks them.
+  *latency to visible echo* and *latency to next paint*, which only a
+  paint-bounded window can take.
 
   ## It is the same schedule, and that is asserted rather than claimed
 
@@ -800,7 +776,7 @@
   `:position` tagging, same answer shape. `lane-schedule-async-cljs-test`
   runs one deterministic stub through both loops and asserts the banked
   samples and readings are `=`, so the two cannot drift into two
-  schedules the way [[slot-order]]'s copy once did.
+  schedules.
 
   ## What it does NOT change
 
@@ -857,9 +833,8 @@
   `:mean` IS AN ARITHMETIC MEAN — the average of the per-round ratios in
   `:per-round`, and not a median of anything. The distinction is worth a
   line because a median IS in the pipeline one level down (each round's
-  ratio is built from `summarise`'s within-round `:p50`s), which is how
-  PR #8326's publication came to call these values \"run-medians\" and
-  their spans \"effect medians\" — corrected under rf2-pqyxz. A row
+  ratio is built from `summarise`'s within-round `:p50`s), which makes
+  \"run-median\" the tempting and wrong name for these values. A row
   quoting this key names it a MEAN OF PER-ROUND RATIOS, each of which is
   a ratio of within-round medians."
   [round-ratios a b]
@@ -882,9 +857,9 @@
   `:straddles-1?` asks whether ONE arm separated from an empty frame. A
   bar row asks whether TWO arms separate from EACH OTHER at a stated
   line. Those are different questions, and the first can answer yes while
-  the second answers no — measured on `slice-broad-clock-app` under
-  rf2-9wmqd, where a pair cleared the floor in all three evidence runs
-  and still could not resolve `1.25x`. The gate is a sound NECESSARY
+  the second answers no — measured on `slice-broad-clock-app`, where a
+  pair cleared the floor in all three evidence runs and could not resolve
+  `1.25x`. The gate is a sound NECESSARY
   condition and stays exactly where it is; this is the other half.
 
   ## The arithmetic, and why the frame grid is the whole of it
@@ -947,10 +922,9 @@
 (defn assert-verified!
   "Throw unless the tally reads `0 unverified of M`. Answers the tally.
 
-  The count was PUBLISHED and never ADJUDICATED, on both P0 entries: a row
-  could report `400 unverified of 400` and the driver would still exit 0,
-  because nothing between the tally and the exit code ever looked at
-  `:unverified`. Every read-back this lane performs — the written cell, the
+  A count that is PUBLISHED and never ADJUDICATED lets a row report `400
+  unverified of 400` while the driver exits 0, because nothing between
+  the tally and the exit code looks at `:unverified`. Every read-back this lane performs — the written cell, the
   mount's element count, the far end of the page — banks here, so this one
   line is what makes ALL of them load-bearing rather than decorative.
 
@@ -984,13 +958,12 @@
   four quanta wide publishes a range that is mostly quantisation — the P0
   converged bulk-narrow row read four estimates of 1.0405 / 1.1556 /
   1.1738 / 1.1972 with one minimum of exactly 1.0000, which is the quantum
-  wearing a null result's clothes rather than a tie (rf2-zb3qg). Timing `k`
+  wearing a null result's clothes rather than a tie. Timing `k`
   operations as ONE sample lifts the window clear of the clamp, and it is
   NOT the same as summing `k` separately-clamped readings, which quantises
   `k` times and adds the errors. [[mount-batch!]] does this for mounts and
-  `hd8-rows/window-of` proved it for HD-008's narrow write (rf2-9zysg);
-  this is that shape lifted into the shared lane rather than a third copy
-  of it.
+  `hd8-rows/window-of` for HD-008's narrow write; this is that shape in
+  the shared lane rather than a third copy of it.
 
   ## WHY THE READ-BACK SURVIVES THE BATCHING
 
@@ -1096,25 +1069,24 @@
 
   The read-back is inside the sample's own window, not a spot check at
   the end: a window whose commit lands after the clock stops reads the
-  OLD value and its milliseconds are a measurement of nothing. The
-  recorded fault is 1,320 of 1,320 writes accepted by a clock that never
-  looked at the page.
+  OLD value and its milliseconds are a measurement of nothing. A clock
+  alone would accept 1,320 of 1,320 writes that never reach the page.
 
   ## THE WAIT BELONGS TO THE ARM'S SCHEDULER, NOT TO THE HARNESS
 
   An arm declares `:scheduler` — the family its OWN render queue is
-  scheduled on — and gets the window that family needs. This is the
-  general form of rf2-b69lw, which repaired it inside HD-008 only;
-  `hd8-rows/window-of` is these same two shapes, and this is deliberately
-  the same shape lifted rather than a second mechanism (rf2-pq7d8).
+  scheduled on — and gets the window that family needs.
+  `hd8-rows/window-of` is these same two shapes for HD-008, and this is
+  deliberately the same shape in the shared lane rather than a second
+  mechanism.
 
     `:scheduler :microtask`   write, then drain, with NOTHING between
                               them. `:gap-ms` is 0.0 and means it.
 
     anything else, or the
-    key absent                write, yield ONE microtask, drain. Today's
-                              window, unchanged — which is why no arm
-                              that does not declare `:microtask` moves.
+    key absent                write, yield ONE microtask, drain — the
+                              default window, which every arm that does
+                              not declare `:microtask` takes.
 
   ONE FIXED YIELD CANNOT SERVE BOTH FAMILIES, and that is the whole of
   this. The yield is load-bearing for an arm whose notification is queued
@@ -1128,7 +1100,7 @@
   the drain that follows finds nothing to commit. The arm then reads `N
   unverified of N` against a DOM that is merely LATE — and, with the
   read-back suppressed, `0.16–0.50x` the floor from a page that never
-  changed. rf2-z3vlz pinned it against a standalone rig and
+  changed. A standalone rig pins it, and
   `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md` carries
   the evidence.
 
@@ -1142,7 +1114,7 @@
 
   `probes` is a SEQ of cell indices and ALL of them must hold the written
   value. A broad write changes every cell, so verifying one of them
-  verifies almost nothing: the recorded fault is a commit that landed
+  verifies almost nothing: the fault this catches is a commit that lands
   outside the window, and a stale page can still have one fresh cell in
   it from the previous write. The rotating probe plus the far end of the
   grid is the cheapest read that a partial commit cannot satisfy.
@@ -1154,8 +1126,7 @@
   microtask between write and drain, the same read-back after the clock
   stops. Chrome's 100 µs clamp is why the general form exists — a witness
   whose window is 4 quanta wide publishes a range that is mostly quantum —
-  and `lane/mount-batch!` has done exactly this for mounts since the lane
-  landed."
+  and `lane/mount-batch!` does exactly this for mounts."
   [t mnt i val probes]
   (verified-writes! t mnt [[i val probes]]))
 
@@ -1170,10 +1141,9 @@
   to have been stale in the same place twice; the far end means a partial
   commit that got as far as the front of the grid is caught.
 
-  Stated once, here, because it is a RULE and not an argument list: HD-008
-  probed cell 0 alone on its bulk row while the P0 arm three files away
-  probed three cells, which is the shape of divergence this lane exists to
-  prevent (rf2-f5roa).
+  Stated once, here, because it is a RULE and not an argument list: one
+  driver probing cell 0 alone on its bulk row while another probes three
+  cells is the shape of divergence this lane exists to prevent.
 
   A NARROW write is the other case and does not use this: it changes
   exactly one cell, so its probe seq is that cell and nothing else."
@@ -1203,51 +1173,48 @@
   is not a control.
 
   ## KNOWN DEFECT: this rule is WEAKER than HD-008's, and the two
-  ## disagree on a row that is already published (rf2-egdaq)
+  ## disagree on a published row
 
   `:ok?` asks whether the measured range OVERLAPS the ±`slack` band.
   `hd8-rows/positive-control!` asks whether EVERY ROUND sits INSIDE it,
   and argues the stricter reading explicitly: a control whose worst round
   is wrong has caught something, and letting a good round vouch for a bad
-  one is how an instrument stops being one. rf2-egdaq settled that
-  disagreement on 2026-08-21, and it settled as a SPLIT, one rule per
-  instrument: the HEAP arm's ten published figures were re-adjudicated
-  under the strict rule and all ten pass; the CLOCK arm REFUSED strict
-  under the 2026-07-31 quantum ruling set out below, and THAT REFUSAL
-  STANDS. So a caller must not read `:ok?` as though it were the strict
-  answer — which is why the map
-  carries `:rule :overlap`, so a published record says which rule
+  one is how an instrument stops being one. The disagreement resolves as
+  a SPLIT, one rule per instrument: the HEAP arm's ten published figures
+  pass under the strict rule, and the CLOCK arm's clamp-limited legs are
+  adjudicated on overlap for the reason set out below. So a caller must
+  not read `:ok?` as though it were the strict answer — which is why the
+  map carries `:rule :overlap`, so a published record says which rule
   adjudicated it rather than leaving a reader to assume the other.
   [[control-verdict-strict]] is that other rule, spelled and callable.
 
-  ## Why the defective rule STANDS here anyway (ruling, 2026-07-31)
+  ## Why the weaker rule STANDS for clamp-limited legs
 
-  Tightening THIS function was adjudicated and refused. rf2-6i0i2's
-  balanced ensemble re-adjudicated 80 controls: 80 of 80 pass under
-  overlap, 64 of 80 under the strict reading — and every miss falls on a
-  row whose control leg is a handful of Chrome's 100 µs
-  `performance.now()` quanta, every miss is LOW, and four of them miss by
-  0.0014 on a two-quantum floor. A rule that refuses a fifth of its
-  controls by landing on the clock quantum is measuring RESOLUTION, not
-  correctness. So the overlap rule stands for clamp-limited legs, no
-  published row was re-adjudicated, and a pass here is a pass UNDER
-  OVERLAP rather than a claim that every round sat inside the band.
+  Tightening THIS function is refused on evidence. Over the balanced
+  ensemble's 80 controls, 80 of 80 pass under overlap and 64 of 80 under
+  the strict reading — and every miss falls on a row whose control leg is
+  a handful of Chrome's 100 µs `performance.now()` quanta, every miss is
+  LOW, and four of them miss by 0.0014 on a two-quantum floor. A rule that
+  refuses a fifth of its controls by landing on the clock quantum is
+  measuring RESOLUTION, not correctness. So the overlap rule stands for
+  clamp-limited legs, and a pass here is a pass UNDER OVERLAP rather than
+  a claim that every round sat inside the band.
 
-  The row this defect was filed over stands on its page under that
-  ruling:
+  The published row the two rules disagree on stands on its page under
+  the overlap rule:
 
       docs/design/fresco/studio/p0-converged-witness-set.md
       M2 mount, UIx segment — predicted 1.9412, slack 0.25, so the band
       is [1.4559 – 2.4265]. The published range is [1.333 – 2.000]: its
       worst round sits 8.4% BELOW the band's floor and it carries a ✅
       only because a good round vouched for a bad one. Its legs are
-      coarse — a handful of quanta — which is the whole reason the ruling
-      let it stand rather than re-adjudicating it.
+      coarse — a handful of quanta — which is the whole reason it stands
+      under overlap.
 
   ## And the condition under which this rule does NOT apply
 
-  That ruling named its own revisit trigger: a BATCHED window lifting the
-  legs clear of the quantum. [[control-verdict-strict]] is that rule, and
+  A BATCHED window that lifts the legs clear of the quantum.
+  [[control-verdict-strict]] is the rule for that, and
   a caller reading milliseconds against a 0.1 ms quantum wants it — there
   a round outside the band is not the clock."
   [predicted {:keys [min max mean] :as measured} slack]
@@ -1290,29 +1257,26 @@
   that missed and by how much, because an operator told only `FAILED`
   goes looking at the arms; `:per-round` is carried into the record so a
   later reader can re-adjudicate the run under either rule WITHOUT
-  re-running the window — which is the durability hole rf2-egdaq's audit
-  of PR #8326 found, and the reason the three runs it audited cannot now
-  be re-adjudicated at all.
+  re-running the window; a record without it can be re-adjudicated only
+  by taking the window again.
 
   `:stated?` is the other half of a control that can go red. A band built
   on a prediction of zero or less is cleared by any reading whatever, and
-  the walk profile shipped exactly that failure (`rf2-1huc`, merged-PR
-  audit #8149): a control whose own prediction has gone vacuous reports
-  that it saw what it never predicted. A control with no rounds is the
+  a control whose own prediction has gone vacuous reports that it saw
+  what it never predicted. A control with no rounds is the
   same thing said with no data, so both refuse here.
 
   ## Which of the two rules a caller wants
 
   [[control-verdict]] adjudicates on OVERLAP — the measured range need
   only meet the band — and STANDS for controls whose legs sit within a
-  few of Chrome's 100 µs `performance.now()` quanta. The 2026-07-31
-  ruling on rf2-egdaq keeps it there on evidence: of 80 controls in
-  rf2-6i0i2's balanced ensemble, 80 pass under overlap and 64 under this
-  rule, and every miss is a LOW excursion on a coarse-leg row. On those
-  legs this rule reports the clock clamp as an instrument defect.
+  few of Chrome's 100 µs `performance.now()` quanta. Evidence keeps it
+  there: of 80 controls in the balanced ensemble, 80 pass under overlap
+  and 64 under this rule, and every miss is a LOW excursion on a
+  coarse-leg row. On those legs this rule reports the clock clamp as an
+  instrument defect.
 
-  THIS rule is for the case that same ruling named as its own revisit
-  trigger — a batched window whose legs clear the quantum. `amp_merge_
+  THIS rule is for a batched window whose legs clear the quantum. `amp_merge_
   clock_app` reads ~4 ms on the judged arm and ~8 ms on the control
   against a 0.1 ms quantum, forty to eighty quanta clear of it, so a
   round outside a ±25% band there is not the clock. And a good round must
@@ -1395,19 +1359,19 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Playwright carries plain data and plain `js/Error`s back out of
-;; `page.evaluate`. A CLJS `ex-info` is neither, so what the driver was
-;; handed for an arm's own `fail!` was the MINIFIED TYPE NAME of the thing
-;; that was caught:
+;; `page.evaluate`. A CLJS `ex-info` is neither, so unconverted, what the
+;; driver is handed for an arm's own `fail!` is the MINIFIED TYPE NAME of
+;; the thing that was caught:
 ;;
 ;;     [clock] FAILED: M1: page.evaluate: vj
 ;;
 ;; `vj` is `cljs.core/ExceptionInfo` under `:advanced`. The `:rf.error/id`,
 ;; the message, the `:where` and the whole ex-data map — every field the
-;; thrower wrote precisely so the reader would know what broke — were
-;; destroyed at the boundary (rf2-029ed). An instrument that reports on
-;; itself instead of on its subject cannot be debugged by anyone.
+;; thrower wrote precisely so the reader would know what broke — would be
+;; destroyed at the boundary. An instrument that reports on itself instead
+;; of on its subject cannot be debugged by anyone.
 ;;
-;; The repair belongs HERE, on the page side, because this is the last
+;; The conversion belongs HERE, on the page side, because this is the last
 ;; place `ex-message` and `ex-data` are still in vocabulary. Every front
 ;; door goes through [[legible-doors]] once, at construction, and any
 ;; throw leaves as an ordinary `js/Error` whose message names the door,
@@ -1417,7 +1381,7 @@
 (def ^:private ^:const ex-data-cap
   "How much of an ex-data map crosses the boundary. A payload can carry a
   DOM node or a whole app-db, and a report that is itself unreadable is
-  the defect this repairs."
+  the defect this prevents."
   2000)
 
 (defn describe-throw
