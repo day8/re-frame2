@@ -5,9 +5,9 @@
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic where the host has a component-lifecycle equivalent; on the JVM there is no DOM to bridge, so the pattern is browser-side.
 
-> **What this pattern classifies as.** The outer/inner shape below is spelled on **today's shipping view adapters** — the **stock-Reagent compatibility/interop tier** (Form-3 via `reg-view*`, render-time `capture-frame`) and the **UIx and reagent-slim adapters**. All three are first-class and actively supported — they live on (see [Spec 006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for each adapter's lifecycle role; Helix was removed at S7/W13 — rf2-d6epb, 2026-07-22). It is the **current** guidance for bridging a stateful JS component.
+> **What this pattern classifies as.** The outer/inner shape below is spelled on **today's shipping view adapters** — the **stock-Reagent compatibility/interop tier** (Form-3 via `reg-view*`, render-time `capture-frame`) and the **UIx and reagent-slim adapters**. All three are first-class and actively supported (see [Spec 006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for each adapter's lifecycle role). It is the guidance for bridging a stateful JS component.
 >
-> The two donor view substrates that once carried a second answer here — the compiled `re-frame.ui` and Freehand — were removed on 2026-08-16 (rf2-0yp7w). The Form-3 / `reg-view*` / `capture-frame` shape documented here is the shipping bridge.
+> The Form-3 / `reg-view*` / `capture-frame` shape documented here is the shipping bridge.
 
 ## Role
 
