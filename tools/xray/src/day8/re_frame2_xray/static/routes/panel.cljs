@@ -10,8 +10,7 @@
   event triggered navigation; otherwise an empty state.
 
   This panel is the Static-side surface. The Dynamic-side lens lives
-  at `panels/routing.cljs` and is narrowed to the focused-event lens
-  per the parent epic.
+  at `panels/routing.cljs` and is the focused-event lens.
 
   ## Surface anatomy
 
@@ -54,10 +53,9 @@
 
   ## Public surface
 
-  - `Panel`      — the tab's root. Since rf2-k97c.3 an
+  - `Panel`      — the tab's root. An
                    `rf.fresco/defview` BOUNDARY — a real React function
-                   component, not an `rf/reg-view`. The LAST of the five
-                   Static sub-tabs to migrate.
+                   component, not an `rf/reg-view`.
   - `panel-tree` — the whole body, as a pure fn of the values [[Panel]]
                    reads, a frame-bound dispatcher and the `as-child`
                    spelling for the browse-list REAGENT ISLAND.
@@ -68,15 +66,15 @@
 
   The FRAME comes from React context, which the enclosing frame boundary
   writes — `rf.fresco/frame-provider` (the Fresco tree the Static shell
-  is today) and `rf/frame-provider` write the SAME context, so the reads
+  is) and `rf/frame-provider` write the SAME context, so the reads
   resolve `:rf/xray` under either root. Nothing here consults
   `:adapter/current-component`, the hook a foreign root cannot answer.
 
   ## Pure hiccup, and the ONE Reagent reference
 
-  The markup is still pure hiccup. `substrate/as-element` appears in
+  The markup is pure hiccup. `substrate/as-element` appears in
   exactly one place — [[Panel]]'s `as-child` argument — and is the
-  migration seam [[panel-tree]] documents, not a view-layer dependency."
+  `as-child` seam [[panel-tree]] documents, not a view-layer dependency."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.substrate :as substrate]
@@ -103,26 +101,23 @@
   Simulate-URL box need, and the `as-child` spelling for the browse-list
   REAGENT ISLAND.
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
-  documented extract-a-helper spelling rather than an invention: a
-  boundary's body may only run inside a React render window, so
-  `(Panel)` is no longer a callable that answers hiccup, while this fn
-  is ordinary values → hiccup and stays worth driving from the fast node
-  lane.
+  A separate fn from [[Panel]], in `defview`'s own documented
+  extract-a-helper spelling: a boundary's body may only run inside a
+  React render window, so `(Panel)` is not a callable that answers
+  hiccup, while this fn is ordinary values → hiccup and worth driving
+  from the fast node lane.
 
-  `ui` is the map [[browse-list/render]] already takes —
-  `{:expanded :sim-open :routes-map}` — threaded through unchanged.
+  `ui` is the map [[browse-list/render]] takes —
+  `{:expanded :sim-open :routes-map}` — threaded through as is.
 
-  ## WHY THE ISLAND, MEASURED RATHER THAN ASSUMED
+  ## WHY THE ISLAND
 
-  The migration's standard repair for a plain fn in hiccup head position
-  is to CALL the helper instead of heading with it. It works only when
-  the helper answers hiccup AND that hiccup is head-free ALL THE WAY
-  DOWN — the second limit `static/machines` recorded. It is not met
-  here. Census of every symbol-headed hiccup vector WRITTEN IN the four
-  `static/routes/*.cljs` files, taken at the base of this slice (line
-  numbers drift — they are here to make the census re-runnable, not to
-  be cited):
+  The standard repair for a plain fn in hiccup head position is to
+  CALL the helper instead of heading with it. It works only when the
+  helper answers hiccup AND that hiccup is head-free ALL THE WAY DOWN
+  — the same limit `static/machines` meets. It is not met here. Every
+  symbol-headed hiccup vector WRITTEN IN the four `static/routes/*.cljs`
+  files:
 
       panel.cljs        [browse-list/render …]        ×2   (this file)
       browse_list.cljs  [search-box/search-box …]
@@ -134,25 +129,21 @@
       row_expand.cljs   [sim-nav/preview …]
       simulate_nav.cljs none
 
-  NINE IN-FILE SITES, AND THE `search-box/search-box` ROW IS THE ONE
-  THE FIRST PASS OF THIS CENSUS MISSED (rf2-k97c.3, routes-witness
-  slice). Its head sits at END OF LINE — the opening bracket, the
-  symbol, then the line break, with the props map on the next line —
-  and a head pattern anchored on a following SPACE cannot see that.
-  Re-run the census with the end-of-line case included, or the count
-  comes back one short in the reassuring direction. LINE NUMBERS ARE
-  DELIBERATELY GONE from the rows above for the same reason the
-  original note gave for printing them: they drift, they were already
-  drifting, and a stale number invites citation.
+  NINE IN-FILE SITES. The `search-box/search-box` head sits at END OF
+  LINE — the opening bracket, the symbol, then the line break, with the
+  props map on the next line — and a head pattern anchored on a
+  following SPACE cannot see that, so a census without the end-of-line
+  case comes back one short in the reassuring direction. The rows carry
+  no line numbers because line numbers drift.
 
   AND A TENTH THAT NO SYNTACTIC CENSUS OF THOSE FILES CAN SEE, because a
   CALL into a fifth file RETURNS it: `row_expand.cljs` calls
   `edn/inspect`, and `views/edn_widget.cljs`'s `inspect` answers
   `[ei/edn-inspector …]` — a REAGENT component, hence a plain fn head.
-  That widget namespace already anticipates the migration with a second
-  head, `inspect-view`, emitting the Fresco boundary
-  `[ei/edn-inspector-view …]`; under the island `inspect` stays correct,
-  because the island IS Reagent. So read the census as a LOWER BOUND on
+  That widget namespace also carries a second head, `inspect-view`,
+  emitting the Fresco boundary `[ei/edn-inspector-view …]`; under the
+  island `inspect` is correct, because the island IS Reagent. So read
+  the census as a LOWER BOUND on
   a subtree-wide claim, and note the shape: a call site is not evidence
   of a head-free subtree — only reading what the callee returns is.
 
@@ -163,27 +154,27 @@
   `:invalid` and `vec->element` raises `:rf.error/fresco-bad-head`, so
   every one of those out-of-file sites would throw at first paint.
 
-  MEASURED, NOT ARGUED, and the measurement is worth more than the
-  census. Planting exactly the naive migration — `rf.fresco/sub` for the
-  reads, `(:dispatch (rf/capture-frame))` for the dispatcher, and the
-  hiccup left as it stood with NO `as-child` — the Static Routes tab
-  never paints at all: the browser gate fails with `expected Static
+  The browser lane is the evidence, and it is worth more than the
+  census. With `rf.fresco/sub` for the reads,
+  `(:dispatch (rf/capture-frame))` for the dispatcher, and the hiccup
+  left as it stands with NO `as-child`, the Static Routes tab would
+  never paint at all: the browser gate would fail with `expected Static
   sub-tab :routes real panel root rf-xray-static-routes mounted …
-  (last=null)`. On that same tree `npm run test:cljs` is GREEN, at
+  (last=null)`. On that same tree `npm run test:cljs` would be GREEN, at
   IDENTICAL totals, because the node lane's `as-child` is `identity` and
   so the seam is invisible to it BY CONSTRUCTION. A node-lane green is
   not evidence about this seam; only the browser lane is.
 
   So the door is the same one `static/shell.cljs` and
-  `static/machines/definition_detail.cljs` already use: Fresco's own ABI
+  `static/machines/definition_detail.cljs` use: Fresco's own ABI
   says a React ELEMENT is a legal child anywhere, reached through an
   `as-child` seam. `identity` for a hiccup caller and the node lane,
-  which leaves the browse list exactly the fn-headed vector it has
-  always been; `substrate/as-element` for the boundary, which answers
+  which leaves the browse list a fn-headed vector;
+  `substrate/as-element` for the boundary, which answers
   a React element Fresco splices in as a child.
 
-  THE SIMULATE-URL HEADER IS CALLED, NOT HEADED — it always was — and it
-  STILL needs the seam, because the hiccup it answers contains
+  THE SIMULATE-URL HEADER IS CALLED, NOT HEADED, and it
+  needs the seam too, because the hiccup it answers contains
   `[candidate-row c]`. That is the same limit stated from the other
   side, and it is why the call form alone is not evidence of safety.
 
@@ -213,7 +204,7 @@
 ;; ---- root view -----------------------------------------------------------
 
 (rf.fresco/defview Panel
-  "The Static Routes tab's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The Static Routes tab's root — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Reads the static-routes composite plus the three
   UI-state slots and hands their values, a frame-bound dispatcher and
   the island spelling to [[panel-tree]].
@@ -221,22 +212,20 @@
   The READS are `rf.fresco/sub`, plain calls the shipped collector
   records an edge for — no deref, no reaction owned by the installed
   adapter, and a re-wire that NOTIFIES when the substrate disposes the
-  underlying derived value. That is the third of the epic's three
-  couplings, and the one a first-paint smoke test cannot see. The four
-  reads keep the `reg-view` body's ORDER, which is the order the node
-  lane reproduces.
+  underlying derived value — the coupling a first-paint smoke test
+  cannot see. The four reads run in the ORDER the node lane
+  reproduces.
 
   ONE READ SITE, ONE BOUNDARY. Boundary count tracks reads and
-  head-position use, not file size (the #9581 sizing note): the four
+  head-position use, not file size: the four
   slots are read together and rendered together, so splitting them would
   buy nothing and cost a component type.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
-  which answers the boundary's DECLARED frame inside a body. It replaces
-  the name `reg-view` used to inject lexically: `defview` binds NO name
-  inside your body, so the bare `dispatch` this body used to close over
-  would be a LOUD compile error, which is the good failure.
+  which answers the boundary's DECLARED frame inside a body. `defview`
+  binds NO name inside your body, so a bare `dispatch` here would be a
+  LOUD compile error, which is the good failure.
 
   `substrate/as-element` is the `as-child` spelling for the browse-list island —
   [[panel-tree]] records the census that makes it necessary.
@@ -256,7 +245,7 @@
                 (:dispatch (rf/capture-frame))
                 substrate/as-element)))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge --------------------------------------------------
 ;;
 ;; Xray's Static shell mounts the active tab as the hiccup head
 ;; `[(:panel tab)]` (`static/shell.cljs`'s `detail-panel-tree`), and
@@ -270,7 +259,7 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; BOTH DEFS ARE PRIVATE, and that is measured rather than defaulted:
+;; BOTH DEFS ARE PRIVATE:
 ;; `Panel` is named outside this file only in `static/shell.cljs`'s PROSE
 ;; (a docstring listing the L4 tabs), in `tools/xray/spec/API.md`, and in
 ;; the two `spec/api-manifest*.edn` rows — never mounted or called by name.
@@ -278,17 +267,14 @@
 ;; thing that passes the bridge. A panel carrying a standalone `mount-*!`
 ;; facade would need a PUBLIC bridge instead, because `panels/render-panel!`
 ;; takes the view to mount as an argument and needs a name to pass; this
-;; panel has none — `panels.cljs` names no Static sub-tab, so no caller
-;; line changes.
+;; panel has none — `panels.cljs` names no Static sub-tab.
 ;;
-;; `Panel` KEEPS THE NATURAL NAME — RULING 1's surviving #9581 spelling —
-;; which is also what keeps the two hot-zone `api-manifest` rows for
-;; `static.routes.panel/Panel` valid without touching either file.
+;; `Panel` carries the natural name, which is the one the two
+;; `api-manifest` rows for `static.routes.panel/Panel` name.
 ;;
-;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
-;; The Static shell is a Fresco tree now and both defs stayed anyway: it
-;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; THIS IS NOT SCAFFOLDING. The Static shell is a Fresco tree, but it
+;; reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` requires a
 ;; callable `:panel`.
 
 (def ^:private Panel-component
@@ -380,7 +366,7 @@
 
   ;; ---- cross-link to Dynamic Routing -----------------------------------
 
-  ;; Per the parent epic findings §4.4: the `→ Dynamic` chip jumps to
+  ;; The `→ Dynamic` chip jumps to
   ;; Dynamic + opens the Routing lens. No route-id is plumbed down to
   ;; the Dynamic side — the lens IS the focused-event slice; the
   ;; orientation comes from whatever event is currently focused.
@@ -405,13 +391,12 @@
      :mnem  "r"
      :modes #{:static}
      :order 1
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary) and the Static shell mounts `:panel`
-     ;; as a Reagent hiccup head; the bridge is the one line between them
-     ;; and STAYS (rf2-lect, ruled option 2). The Static shell is a Fresco
-     ;; tree now and the bridge stayed anyway: it still reaches the panel
+     ;; as a Reagent hiccup head; the bridge is the one line between them.
+     ;; The Static shell is a Fresco tree, but it reaches the panel
      ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent hiccup
-     ;; vector and `reg-l4-tab!`'s `:pre` still requires a callable
+     ;; vector and `reg-l4-tab!`'s `:pre` requires a callable
      ;; `:panel`.
      :panel Panel-bridge})
 
