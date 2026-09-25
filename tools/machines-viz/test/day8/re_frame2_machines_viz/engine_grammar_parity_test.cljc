@@ -491,6 +491,19 @@
    ;; A spawn deadline is the spawn-level `:timeout` / `:on-timeout`.
    :valid-spawn-timeout  {:initial :a :states {:a {:spawn {:machine-id :m :timeout 500 :on-timeout :b}} :b {}}}
    :valid-timeout-iso    {:initial :a :states {:a {:timeout "PT2S" :on-timeout :b} :b {}}}
+   ;; `:on-done` completes a compound, a parallel region or the parallel root.
+   :valid-compound-on-done      {:initial :o :states {:o {:initial :i :on-done :b
+                                                          :states  {:i {:on {:f :fin}} :fin {:final? true}}}
+                                                      :b {}}}
+   :valid-region-on-done        {:type :parallel :regions {:r {:initial :a :on-done :a :states {:a {}}}}}
+   :valid-parallel-root-on-done {:type    :parallel :actions {:announce (fn [_ctx] nil)} :on-done {:action :announce}
+                                 :regions {:r {:initial :a :states {:a {:final? true}}}}}
+   ;; A single spawn's `:on-done` is a fn folding `:data`, or a transition.
+   :valid-spawn-on-done-fn      {:initial :a :states {:a {:spawn {:machine-id :m :on-done (fn [{:keys [data]}] data)}} :b {}}}
+   :valid-spawn-on-done-keyword {:initial :a :states {:a {:spawn {:machine-id :m :on-done :b}} :b {}}}
+   :valid-spawn-on-done-path    {:initial :a :states {:a {:spawn {:machine-id :m :on-done [:b]}} :b {}}}
+   :valid-spawn-on-done-map     {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target :b :reenter? true}}} :b {}}}
+   :valid-spawn-on-done-cands   {:initial :a :states {:a {:spawn {:machine-id :m :on-done [{:target :b} {:target :c}]}} :b {} :c {}}}
    ;; ---- invalid (both reject) ----
    :nested-no-init   {:initial :outer :states {:outer {:states {:inner {}}}}}
    :unresolved-kw    {:initial :idle :states {:idle {:on {:go :missing}}}}
@@ -551,6 +564,17 @@
    :timeout-without-on-timeout {:initial :a :states {:a {:timeout 1000} :b {}}}
    :on-timeout-without-timeout {:initial :a :states {:a {:on-timeout :b} :b {}}}
    :timeout-after-collision    {:initial :a :states {:a {:after {2000 :b} :timeout "PT2S" :on-timeout :b} :b {}}}
+   ;; ---- `:on-done` on a LEAF, which has no children to complete ----
+   :leaf-on-done          {:initial :a :states {:a {:on-done :b} :b {}}}
+   :leaf-on-done-final    {:initial :a :states {:a {:final? true :on-done :b} :b {}}}
+   :leaf-on-done-spawning {:initial :a :states {:a {:spawn {:machine-id :m} :on-done :b} :b {}}}
+   :leaf-on-done-timeout  {:initial :a :states {:a {:timeout 1000 :on-timeout :b :on-done :b} :b {}}}
+   :leaf-on-done-region   {:type :parallel :regions {:r {:initial :a :states {:a {:on-done :b} :b {}}}}}
+   ;; ---- a transition-shaped `:spawn :on-done` that does not resolve ----
+   :spawn-on-done-unresolved     {:initial :a :states {:a {:spawn {:machine-id :m :on-done :nope}} :b {}}}
+   :spawn-on-done-unresolved-map {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target [:nope]}}} :b {}}}
+   :spawn-on-done-bad-target     {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target 42}}} :b {}}}
+   :spawn-on-done-unknown-key    {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target :b :cond :ok?}}} :b {}}}
    ;; ---- non-Named KEYS ----
    ;;
    ;; Every entry above spells its keys as keywords, so without these rows the
@@ -628,6 +652,31 @@
   (testing "the viz refuses a non-map :spawn and a single-spawn :id with the
             engine's own category"
     (doseq [[label category] spawn-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
+
+(def ^:private on-done-refusal-rows
+  "Corpus labels → the category the engine refuses each `:on-done` with."
+  {:leaf-on-done                  :rf.error/machine-unknown-node-key
+   :leaf-on-done-final            :rf.error/machine-unknown-node-key
+   :leaf-on-done-spawning         :rf.error/machine-unknown-node-key
+   :leaf-on-done-timeout          :rf.error/machine-unknown-node-key
+   :leaf-on-done-region           :rf.error/machine-unknown-node-key
+   :spawn-on-done-unresolved      :rf.error/machine-unresolved-target
+   :spawn-on-done-unresolved-map  :rf.error/machine-unresolved-target
+   :spawn-on-done-bad-target      :rf.error/machine-bad-target
+   :spawn-on-done-unknown-key     :rf.error/machine-unknown-node-key})
+
+(deftest on-done-refusal-category-parity
+  (testing "the viz refuses a leaf's :on-done, and a transition-shaped
+            :spawn :on-done that does not resolve, with the engine's own
+            category"
+    (doseq [[label category] on-done-refusal-rows
             :let [m (get validation-parity-corpus label)]]
       (is (= category (engine-category m))
           (str label ": the engine's category"))

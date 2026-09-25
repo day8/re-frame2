@@ -89,10 +89,11 @@
   - `:spawn-all` rows — omitted; the parent state renders without
     spawn affordances.
   - `:spawn` — omitted with its whole map, INCLUDING its
-    `:on-error` parent transition, so a state whose only way out is
-    `:spawn :on-error` exports as a dead end and its target as unreached
-    (the chart and Mermaid do draw that edge). Nothing about it rides a
-    comment, and the import cannot recover it.
+    `:on-error` parent transition and a transition-shaped `:on-done`, so a
+    state whose only way out is `:spawn :on-error` or `:spawn :on-done`
+    exports as a dead end and its target as unreached (the chart and
+    Mermaid do draw those edges). Nothing about it rides a comment, and the
+    import cannot recover it.
   - `:entry` / `:exit` state actions — omitted; neither the names nor a
     comment carrying them survive the export.
   - INTERNAL-default SELF-TRANSITION semantics — re-frame2 / XState v5

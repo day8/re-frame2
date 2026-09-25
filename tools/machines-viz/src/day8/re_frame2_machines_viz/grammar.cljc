@@ -317,6 +317,7 @@
 
     {:category  <:rf.error/*>           ;; closed — the literals in this file
      :slot      :on | :after | :always | :on-done   ;; closed, when present
+                | :spawn/on-error | :spawn/on-done
      :depth     <int>      ;; how deep the defect sits, not WHERE
      :key-count <int>}     ;; how many keys offended, not WHICH
 
@@ -530,10 +531,11 @@
 ;;   - keyword state/region ids + non-empty `:states` maps;
 ;;   - compound-`:initial` PRESENCE (`machine-compound-state-missing-initial`);
 ;;   - transition `:target` shape + resolution for `:on` / `:after` /
-;;     `:always` / `:on-done` / `:spawn :on-error`
-;;     (`machine-bad-target` / `machine-unresolved-target`);
+;;     `:always` / `:on-done` / `:spawn :on-error` / transition-shaped
+;;     `:spawn :on-done` (`machine-bad-target` / `machine-unresolved-target`);
 ;;   - unknown BARE node / transition-map / spawn keys — NAMESPACED keys pass
-;;     (`machine-unknown-node-key` / `machine-unknown-spawn-key`);
+;;     (`machine-unknown-node-key` / `machine-unknown-spawn-key`), and an
+;;     `:on-done` on a leaf (`machine-unknown-node-key`);
 ;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
 ;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
 ;;   - `:tags` set-of-keywords (`machine-bad-tags`);
@@ -718,8 +720,17 @@
     (let [known     (cond-> known-state-node-keys
                        at-root? (into known-machine-root-extra-keys))
           offending (unknown-bare-keys node known)]
-      (when (seq offending)
-        {:category :rf.error/machine-unknown-node-key :path (vec path) :keys offending}))))
+      (cond
+        (seq offending)
+        {:category :rf.error/machine-unknown-node-key :path (vec path) :keys offending}
+        ;; `:on-done` fires when a node's children complete, so on a LEAF —
+        ;; no `:states`, no `:regions` — it could never fire. Mirror of the
+        ;; engine's placement check in `validation/validate-node-keys!`. A
+        ;; spawned child's completion is the `:spawn` spec's own `:on-done`.
+        (and (contains? node :on-done)
+             (not (and (map? (:states node)) (seq (:states node))))
+             (not (and (map? (:regions node)) (seq (:regions node)))))
+        {:category :rf.error/machine-unknown-node-key :path (vec path) :keys [:on-done]}))))
 
 (defn- tags-defect [path node]
   (when (contains? node :tags)
@@ -852,7 +863,10 @@
           (some (fn [[_ v]] (check :after v)) (:after node))
           (some (fn [entry] (check :always entry)) (always-entries node))
           (when (contains? node :on-done) (check :on-done (:on-done node)))
-          (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe))))))
+          (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe))
+          ;; A fn `:spawn :on-done` is the `:data` fold and carries no target.
+          (let [od (get-in node [:spawn :on-done])]
+            (when (and (some? od) (not (fn? od))) (check :spawn/on-done od)))))))
 
 (defn- transition-keys-defect
   "First transition map in `node`'s transition slots that carries an unknown
@@ -877,7 +891,8 @@
           (when (map? (:after node)) (some (fn [[_ v]] (check :after v)) (:after node)))
           (check :always (:always node))
           (check :on-done (:on-done node))
-          (when (map? spawn) (check :spawn/on-error (:on-error spawn)))))))
+          (when (map? spawn) (check :spawn/on-error (:on-error spawn)))
+          (when (map? spawn) (check :spawn/on-done (:on-done spawn)))))))
 
 (defn- node-defect
   "First defect on one MAP state-node at `path` within `scope` (its region /

@@ -218,7 +218,8 @@
   "Bucket a parsed edge by its event variant for the events-as-nodes
   paradigm: `:after` (clock glyph), `:always` (infinity glyph),
   `:on-done` (completion ✓ done chip — the XState `onDone`
-  compound/parallel completion transition), `:on-error` (the ✗ error
+  compound/parallel completion transition, or a transition-shaped
+  `:spawn :on-done`), `:on-error` (the ✗ error
   chip — a `:spawn` `:on-error` parent transition), or
   `:on` (regular event keyword). Pure data → keyword."
   [edge]
@@ -1692,8 +1693,10 @@
                       ;; An `:on-done` completion edge carries the reserved
                       ;; `:rf.machine/done` (an engine-RAISED event, not
                       ;; user-fireable), so it is not click-to-send. Nor is
-                      ;; a `:spawn :on-error` edge: `:rf.machine.spawn/error`
-                      ;; is raised by the engine when the child fails.
+                      ;; a `:spawn :on-error` or `:spawn :on-done` edge: the
+                      ;; engine raises `:rf.machine.spawn/error` /
+                      ;; `:rf.machine.spawn/done` when the child fails or
+                      ;; completes.
                       fireable?    (and (nil? (:after e))
                                         (not (:always? e))
                                         (not (:on-done? e))
@@ -1828,8 +1831,14 @@
                                        ;; the parallel-root so the chart label
                                        ;; matches SCXML (single source of truth
                                        ;; in `layout/parallel-root-done-state-id`).
+                                       ;;
+                                       ;; A `:spawn :on-done` edge is a
+                                       ;; completion too, but of a spawned
+                                       ;; child rather than a node, so it
+                                       ;; carries no `:done-path` and no label.
                                        :onDone      (boolean (:on-done? edge))
-                                       :doneState   (when (:on-done? edge)
+                                       :doneState   (when (and (:on-done? edge)
+                                                               (contains? edge :done-path))
                                                       (str "done.state."
                                                            (if (:parallel-root? edge)
                                                              layout/parallel-root-done-state-id
