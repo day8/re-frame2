@@ -6,7 +6,8 @@
   actively-supported browser adapters — the Reagent, reagent-slim and UIx
   renderer adapters. None of the three is transitional, a fallback, or
   scheduled for removal (EP-0036); they are permanent siblings. Alongside
-  them, plain-atom and ssr cover JVM / SSR / headless use.
+  them, the Fresco view layer ships its own adapter, and plain-atom and ssr
+  cover JVM / SSR / headless use — six shipped adapter kinds in all.
 
   Required functions (6):
     make-state-container, read-container, replace-container!,
@@ -21,7 +22,8 @@
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
   keyword. Canonical framework members live under the reserved
   `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
-  / `:rf.adapter/uix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`);
+  / `:rf.adapter/uix` / `:rf.adapter/fresco` / `:rf.adapter/plain-atom` /
+  `:rf.adapter/ssr`);
   a user-supplied adapter that picks no canonical kind simply has no
   `:kind` — nothing is synthesised for it. Retired members —
   `:rf.adapter/helix`, `:rf.adapter/ui`, `:rf.adapter/freehand` — stay
@@ -32,7 +34,8 @@
 
   There is no default-adapter registry and no ns-load side-effect.
   Each adapter ns (re-frame.adapter.reagent / .reagent-slim / .uix,
-  re-frame.substrate.plain-atom, re-frame.ssr) exports an `adapter`
+  re-frame.fresco.substrate, re-frame.substrate.plain-atom, re-frame.ssr)
+  exports an `adapter`
   var (the spec map); consumers require the ns and pass the var
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
   at the call site, and an app requiring only the adapter it needs
