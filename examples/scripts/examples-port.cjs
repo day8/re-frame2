@@ -3,22 +3,21 @@
  * (`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`) and
  * the standalone-example development server (`serve-example.cjs`).
  *
- * Why this exists (rf2-0u6ce). The orchestrator used to hard-bind
- * 0.0.0.0:8030. But 8030 is ALSO claimed by the top-level :dev-http map
- * in implementation/shadow-cljs.edn (8030 = the two_frame_isolation
- * testbed) — so the moment ANY `shadow-cljs watch` is running, 8030 is
- * already taken. The orchestrator's second bind then failed with a
+ * Why this exists. A hard-bound port that the top-level :dev-http map in
+ * implementation/shadow-cljs.edn also claims (8030, say — the
+ * two_frame_isolation testbed) is taken the moment ANY `shadow-cljs watch`
+ * is running. A second bind of 0.0.0.0:8030 then fails with a
  * cryptic `Error: listen EACCES 0.0.0.0:8030` on Windows (the dual-stack
  * 0.0.0.0/:: listener returns EACCES, not the clearer EADDRINUSE), which
- * gave no hint that the dev's own watch session was the cause.
+ * gives no hint that the dev's own watch session is the cause.
  *
- * This resolver fixes both halves:
+ * This resolver handles both halves:
  *   1. DEFAULT_PORT is 8050. It sits in the examples-orchestrator's OWNED
  *      range (805x), clear of every port the top-level :dev-http set
  *      claims. See the OWNED-RANGE PORT MAP in
  *      implementation/scripts/dev-testbed.cjs (the single source of truth
- *      for who-owns-what) for the convention; rf2-ot0lv moved this default
- *      off the 804x band to keep the bands non-overlapping. The pre-flight
+ *      for who-owns-what) for the convention, which keeps the bands
+ *      non-overlapping. The pre-flight
  *      + forward scan (step 2) still apply, so even an unexpected clash on
  *      805x lands on the next free port instead of hard-failing.
  *   2. It PRE-FLIGHTS the port (binds-and-releases on 127.0.0.1). If the
@@ -49,11 +48,10 @@ const {
 
 // Default port. The examples orchestrator OWNS the 805x band — clear of
 // every port the top-level :dev-http set claims. See the OWNED-RANGE PORT
-// MAP in implementation/scripts/dev-testbed.cjs for the convention
-// (rf2-ot0lv).
+// MAP in implementation/scripts/dev-testbed.cjs for the convention.
 // The pre-flight + forward scan (below) still cover an unexpected clash by
-// landing on the next free port; with the bands now non-overlapping a
-// running `shadow-cljs watch` no longer pre-claims this default.
+// landing on the next free port; with the bands non-overlapping a
+// running `shadow-cljs watch` does not pre-claim this default.
 const DEFAULT_PORT = 8050;
 
 const parseExplicitPort = makeParseExplicitPort('EXAMPLES_PORT', { actionable: true });
@@ -86,13 +84,11 @@ async function resolveExamplesPort({ env = process.env } = {}) {
   const explicit = parseExplicitPort(env.EXAMPLES_PORT);
   if (explicit != null) {
     if (!(await canListen(explicit))) {
-      // Deliberately NO port list here (rf2-5mk4u). A transcribed :dev-http
-      // enumeration goes stale in silence — this message named 8765 /
-      // 8030-8034 / 8040-8043 long after the map had grown 8035, 8044-8045
-      // and 8060-8061, and the test below pinned those fossils, so the gate
-      // certified the drift. Point at the two authorities instead; they are
-      // the ones that move. Same call, and for the same reason, as the
-      // OWNED-RANGE PORT MAP's own refusal to re-list DEV_HTTP (rf2-puwyb).
+      // Deliberately NO port list here. A transcribed :dev-http
+      // enumeration goes stale in silence as the map grows, and a test
+      // pinning it would certify the drift. Point at the two authorities
+      // instead; they are the ones that move. Same call, and for the same
+      // reason, as the OWNED-RANGE PORT MAP's own refusal to re-list DEV_HTTP.
       throw portError(
         `EXAMPLES_PORT=${explicit} is already in use. Is a 'shadow-cljs watch' ` +
           `running? A watch claims every port in the top-level :dev-http map ` +
