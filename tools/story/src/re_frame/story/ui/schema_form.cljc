@@ -14,10 +14,10 @@
   `:sub-overrides` entry the View-State section emits as a copy-paste
   scaffold (`re-frame.story.ui.view-state`).
 
-  ## SETTLE-FIRST — introspection is achieved with the EXISTING surface
+  ## Introspection reads the schema's EDN form
 
   Generating a form requires INTROSPECTING a schema into a field-shape
-  (key → widget-type). The mayor flagged that `re-frame.schemas` is a
+  (key → widget-type). `re-frame.schemas` is a
   pluggable-validator façade with only a FLAGGED-PATH walker
   (`walk-flagged-schema` — it walks for `:sensitive?` / `:large?` flags,
   not a general shape enumerator) and NO general introspection API; the
@@ -29,17 +29,17 @@
   We need no new artefact API. The re-frame2 schema REPRESENTATION is the
   Malli EDN VECTOR FORM — `[op props? children...]` — the same data the
   schemas-artefact walker pattern-matches on WITHOUT importing
-  `malli.core`, and the same shape `re-frame.story.malli-schema` already
+  `malli.core`, and the same shape `re-frame.story.malli-schema`
   decodes (`schema-op` / `schema-children` / `map-entry-key` /
   `map-entry-schema`) for the controls-panel argtype derivation and the
   schema-validation panel's args walk. We read the registered schema's EDN
-  form as data — exactly as the established Story surface does — and never
-  consult the validator. So introspection is a tiny localized READ over an
-  already-shared pure leaf, not a new general-introspection contract.
+  form as data — exactly as the rest of the Story surface does — and never
+  consult the validator. So introspection is a tiny localized READ over a
+  shared pure leaf, not a new general-introspection contract.
 
-  ## Flat shapes first, with a raw-EDN escape hatch
+  ## Flat shapes, with a raw-EDN escape hatch
 
-  The first cut renders the FLAT / common shapes only:
+  The form renders the FLAT / common shapes only:
 
   - `:string`        → text input
   - `:int` / `:double` / `:number` → number input
@@ -147,7 +147,7 @@
   A `[:map …]` is form-renderable ONLY when EVERY declared entry is itself
   a flat scalar (`scalar-widget` non-nil). A single non-flat entry (a
   nested map, a collection, an opaque predicate) makes the whole map
-  non-renderable — flat-shapes-first; the escape hatch covers the rest. An
+  non-renderable — flat shapes only; the escape hatch covers the rest. An
   optional-entry marker (`[k {:optional true} child]`) is fine as long as
   the child is a flat scalar.
 
