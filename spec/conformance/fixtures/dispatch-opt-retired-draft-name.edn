@@ -1,9 +1,9 @@
 ;; Conformance fixture: dispatch-opt/retired-draft-name
 ;;
-;; rf2-8rtuiq (Mike ruled OPTION A — the shipped-names-only tombstone rule):
+;; The shipped-names-only tombstone rule (Conventions §The tombstone rule):
 ;; a dedicated retired-name error id may exist ONLY for names that shipped in a
-;; released artefact. The dispatch opts `:rf.world/inputs` (renamed to `:rf.cofx`,
-;; EP-0017) and `:dispatched-at` (retired, EP-0010) only ever named a fact in the
+;; released artefact. The dispatch opts `:rf.world/inputs` (canonical
+;; replacement `:rf.cofx`, EP-0017) and `:dispatched-at` (retired, EP-0010) only ever named a fact in the
 ;; spec's own DRAFTS — they never shipped — so they earn NO dedicated retired-name
 ;; error id. They ride the GENERIC unrecognised-opt surface
 ;; (`:rf.warning/unknown-dispatch-opt`, per Conventions §The tombstone rule):
@@ -14,8 +14,7 @@
 ;;   - the warning message appends a did-you-mean naming the canonical
 ;;     replacement.
 ;;
-;; This fixture supersedes the old `cofx-world-inputs-retired.edn` (which pinned a
-;; dedicated `:rf.error/world-inputs-renamed` hard error, now deleted).
+;; There is no dedicated `:rf.error/world-inputs-renamed` hard error.
 ;;
 ;; The load-bearing behavioural contract asserted via `:final-app-db` (portable,
 ;; not dev-gated): the handler RUNS even when the retired draft opt is supplied
@@ -31,7 +30,7 @@
 {:fixture/id           :dispatch-opt/retired-draft-name
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler}
- :fixture/doc          "rf2-8rtuiq / Conventions §The tombstone rule: the retired DRAFT dispatch opts `:rf.world/inputs` / `:dispatched-at` earn no dedicated error id — they ride the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean, the dispatch PROCEEDS unchanged, and the retired key is NOT aliased. A port that throws a dedicated error or silently aliases the key FAILS this fixture."
+ :fixture/doc          "Conventions §The tombstone rule: the retired DRAFT dispatch opts `:rf.world/inputs` / `:dispatched-at` earn no dedicated error id — they ride the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean, the dispatch PROCEEDS unchanged, and the retired key is NOT aliased. A port that throws a dedicated error or silently aliases the key FAILS this fixture."
 
  :fixture/registry
  {:event {:probe/retired-draft {:doc "A plain handler; the load-bearing contract is that it RUNS despite the retired draft opt, not that the dispatch is refused."}}}
