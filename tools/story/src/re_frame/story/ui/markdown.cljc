@@ -35,7 +35,7 @@
 
   ## Output
 
-  Hiccup vector (`[:div.markdown ...]` wrapper containing the parsed
+  Hiccup vector (`[:div.rf-story-md ...]` wrapper containing the parsed
   block elements). Pure data → data so JVM tests can pin the parse.
 
   ## Performance
