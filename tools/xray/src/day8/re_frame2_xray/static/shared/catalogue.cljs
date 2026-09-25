@@ -35,9 +35,9 @@
 
   The interactive search box is frame-captured at each call-site and
   handed in as the `:search` slot — this ns never dispatches. Row React
-  keys stay local too: the caller's `:row-render` fn attaches
-  `^{:key …}` to its row form, so identity computation is domain-shaped
-  and lives with the projection.
+  keys stay local too: the caller's `:row-render` fn wraps its row form
+  in a keyed fragment (`[:<> {:key …} …]`), so identity computation is
+  domain-shaped and lives with the projection.
 
   ## Pure hiccup
 
@@ -95,8 +95,8 @@
   transparent style — and splices the caller's domain-specific row body
   `children` in order.
 
-  Carries no React key: the caller attaches `^{:key …}` to the row form
-  it hands `catalogue-panel` as `:row-render`, so row identity stays
+  Carries no React key: the caller's `:row-render` fn wraps the row in a
+  keyed fragment (`[:<> {:key …} …]`), so row identity stays
   local + domain-shaped.
 
   `opts`:
