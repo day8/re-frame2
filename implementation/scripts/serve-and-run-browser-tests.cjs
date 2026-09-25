@@ -30,7 +30,7 @@ const {
   spawnHarnessProcess,
   waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
-// rf2-u0cy4: computeRunnerEnv + the two constants live in their own module
+// computeRunnerEnv + the two constants live in their own module
 // (scripts/lib/browser-runner-drift-env.cjs) so the env-forwarding rule is
 // unit-testable without requiring this whole file (which runs real
 // top-level side effects — CLI parsing off process.argv, path-policy
@@ -47,7 +47,7 @@ const {
 // integer fails fast with a clear message rather than being silently coerced
 // or ignored. A CLI `--root` is routed through the SAME path policy as the
 // env var below (it cannot bypass the approved-roots check).
-// rf2-u0cy4: a lane whose bundle is `:advanced`-compiled DECLARES that the
+// A lane whose bundle is `:advanced`-compiled DECLARES that the
 // duplicate-`done` drift check cannot be performed against it. Closure renames
 // `cljs.test.run_block`, so the runner cannot read the warning literal out of
 // the installed ClojureScript there — the check is not failing, it is blind.
@@ -142,10 +142,10 @@ const INDEX = path.join(ROOT, 'index.html');
 const RUNNER = path.resolve(__dirname, 'run-browser-tests.cjs');
 // Resolve http-server's own JS entry-point so we can spawn it under THIS
 // `node` binary (`process.execPath`) with `shell:false` — never `npx`/
-// `npx.cmd` under a shell (rf2-wn4o1). Spawning the resolved `.js` under
+// `npx.cmd` under a shell. Spawning the resolved `.js` under
 // `process.execPath` sidesteps both the Windows command-hijack accident
 // class (a workspace-local `npx.cmd` resolving ahead of PATH when
-// `shell:true` + a repo-controlled `cwd` are combined — rf2-33vvc) and
+// `shell:true` + a repo-controlled `cwd` are combined) and
 // the `.cmd`-under-no-shell `EINVAL` that the CVE-2024-27980 mitigation
 // introduced. Same shell-free posture dev-testbed.cjs uses for
 // shadow-cljs and serve-and-run-xray-feature-gate.cjs uses for
@@ -256,7 +256,7 @@ async function resolvePort() {
 async function run() {
   ensureMountPoint();
 
-  // Publish the per-run ownership token (rf2-gkf9) before spawning
+  // Publish the per-run ownership token before spawning
   // http-server so the file is visible the moment the server starts
   // serving the directory. The returned `remove` (idempotent, only unlinks
   // our own token) is registered for teardown here rather than at module
@@ -272,14 +272,14 @@ async function run() {
   const port = await resolvePort();
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);
 
-  // Spawn http-server shell-free under this node binary (rf2-wn4o1): the
+  // Spawn http-server shell-free under this node binary: the
   // resolved absolute `.js` entry-point is the only thing the OS
-  // interprets, so a workspace-local `npx.cmd` can no longer hijack the
+  // interprets, so a workspace-local `npx.cmd` cannot hijack the
   // launch, and there is no `shell:true` warning/quoting class.
   // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
   // probe and the browser only ever hit loopback, so the listener must
   // not be exposed on non-loopback interfaces during a test run
-  // (rf2-utvst; matches serve-and-run-adapter-smokes.cjs).
+  // (matches serve-and-run-adapter-smokes.cjs).
   const args = [HTTP_SERVER_BIN, ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
   const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, args, {
     cwd: IMPL_ROOT,
@@ -298,7 +298,7 @@ async function run() {
   });
 
   // Readiness WITH ownership-token verification via the shared harness
-  // primitive (rf2-84gzw / rf2-gkf9): refuse to run tests against any
+  // primitive: refuse to run tests against any
   // server on `port` that does not serve this run's token.
   const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
     pollMs: POLL_MS,
@@ -356,12 +356,12 @@ async function run() {
   return code == null ? 1 : code;
 }
 
-// rf2-u0cy4: guard the real launch behind require.main. Matches the
+// Guard the real launch behind require.main. Matches the
 // established convention (e.g. run-fresco-native-ime-witness.cjs, the
 // sibling that pairs a `--self-test` with the same guard). Production
 // invocation is always `node
 // scripts/serve-and-run-browser-tests.cjs ...` (require.main === module is
-// always true there), so this changes nothing about how the two production
+// always true there), so the guard never affects how the two production
 // browser gates run this file.
 if (require.main === module) {
   run().then(async (code) => {
