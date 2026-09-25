@@ -1,5 +1,5 @@
 (ns re-frame.api-manifest.projection-test
-  "Regression tests for the projection non-vacuous floors (rf2-utvst).
+  "Regression tests for the projection non-vacuous floors.
 
   The vacuity class: a projection check reports OK whenever its problem
   list is empty — even if it reconciled ZERO references. A docs/skills
@@ -29,7 +29,7 @@
     (is (nil? (rf.api-manifest.projection/vacuity-floor-problem "skills/" 505 100)))))
 
 (deftest report-with-floor-goes-red-on-vacuous-empty
-  (testing "an empty problem list with a sub-floor count is RED (the bug)"
+  (testing "an empty problem list with a sub-floor count is RED (the vacuous-green case)"
     ;; The vacuous-green case: zero problems found because zero references
     ;; were extracted. Must be a FALSE verdict, not a vacuous OK.
     (is (false? (rf.api-manifest.projection/report-with-floor! "skills/" 0 100 []))))
@@ -56,7 +56,7 @@
       (is (pos? (count files))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0017 keyword-drift guard (rf2-tawage).
+;; EP-0017 keyword-drift guard.
 ;;
 ;; The projection checks scope to public-VAR references and exclude the
 ;; `:rf/*` keyword namespace, so a surface could reintroduce stale EP-0017
@@ -112,11 +112,11 @@
           "live drift: a docs/core file reintroduced stale :rf.world/inputs"))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0011 reply-envelope vocabulary-drift guard (rf2-uhew69).
+;; EP-0011 reply-envelope vocabulary-drift guard.
 ;;
-;; EP-0011 settled the namespaced `:work/id` as the one attempt identity and
-;; retired the near-duplicate `:stale-key` and bare hyphenated `:work-id`
-;; spellings ([EP-0007] one-name-per-fact). The guard flags a retired spelling
+;; The namespaced `:work/id` is the one attempt identity (EP-0011); the
+;; near-duplicate `:stale-key` and bare hyphenated `:work-id` spellings are
+;; retired ([EP-0007] one-name-per-fact). The guard flags a retired spelling
 ;; reintroduced WITHOUT a same-line retirement/correlation marker.
 ;; ---------------------------------------------------------------------------
 
@@ -154,10 +154,10 @@
                    [4 "The unqualified :work-id is retired in favour of :work/id."]])))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0015 egress-profile vocabulary-drift guard (rf2-1zjkn8).
+;; EP-0015 egress-profile vocabulary-drift guard.
 ;;
-;; EP-0015 renamed two early `:rf.egress/*` profile spellings; the retired
-;; keyword forms must not reappear as live vocabulary outside a rename mention.
+;; Two retired `:rf.egress/*` profile spellings (EP-0015 names their
+;; replacements) must not reappear as live vocabulary outside a rename mention.
 ;; ---------------------------------------------------------------------------
 
 (deftest ep0015-flags-retired-profile-form
