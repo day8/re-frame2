@@ -270,8 +270,8 @@ template — whose head is a view **descriptor** in the documented `{:fallback
 [broken-page {}]}` spelling — into a slot the schema says holds data. Nothing is lost:
 the option is required, so its presence proves nothing.
 
-`:v/render-fn` is the compiled render-slot member:
-a `v/render-fn` value carried as a component-call-site prop is recorded on that
+`:v/render-fn` is the render-slot member, produced only by an emitter that implements
+the `v/render-fn` form (§The opaque marker): a `v/render-fn` value carried as a component-call-site prop is recorded on that
 view-boundary's `:props` as `{:rf.ui/opaque :v/render-fn}`. The render-fn's *rendered
 output* is **not** a marker — a `v/slot` invocation produces the ordinary child
 subtree the render-fn built, spliced into the enclosing children like any other
