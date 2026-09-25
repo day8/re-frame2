@@ -11,20 +11,20 @@
 
   ## Built from the canonical builders, not typed here
 
-  Every event comes from `day8.re-frame2-xray.test-helpers.trace-event-builders`
-  (rf2-tyivx), the one namespace that mirrors the substrate's emit shapes,
+  Every event comes from `day8.re-frame2-xray.test-helpers.trace-event-builders`,
+  the one namespace that mirrors the substrate's emit shapes,
   and is then given the envelope `trace/emit!` stamps on every emit inside
   a dispatch run: a unique `:id`, a `:time`, and the run's
   `:rf.trace/dispatch-id` + `:frame` under `:tags`.
 
   That envelope is the whole point. `re-frame.trace.projection/group-by-event`
   groups the L2 event list by `[:tags :rf.trace/dispatch-id]`, and an event
-  without one lands in the `:ungrouped` bucket the L2 list hides. The
-  hand-typed template this replaced put `:dispatch-id` under `:tags`, so
-  every seeded cascade grouped to `:ungrouped` and all seventeen variants
-  that seed from here painted an EMPTY event list while their docs promised
-  rows (rf2-y8doi.28). `panel_gallery_trace_fixtures_cljs_test` now pins
-  that these seeds project to one visible L2 row per cascade.
+  without one lands in the `:ungrouped` bucket the L2 list hides. A seed
+  that put `:dispatch-id` under `:tags` would group every cascade to
+  `:ungrouped`, and every variant that seeds from here would paint an EMPTY
+  event list while its docs promise rows.
+  `panel_gallery_trace_fixtures_cljs_test` pins that these seeds project to
+  one visible L2 row per cascade.
 
   Builders return plain vectors; the variant `:setup` slot wraps each
   in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch."
