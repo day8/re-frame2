@@ -1,25 +1,23 @@
 (ns re-frame.story.ui.share
   "Share-URL hydration + the dropped-overrides hint banner + the human
-  share / export / copy egress UX (rf2-ba86n.16).
+  share / export / copy egress UX.
 
   Story's per-variant share URL is the same URL the browser's address
   bar carries (Cmd-L / Cmd-A / Cmd-C copies it); there is no separate
-  Share button (rf2-ymnfx — Issue B). What survives here is the read-
+  Share button. This ns holds the read-
   side of the share URL contract plus the human-facing egress dialog.
 
-  ## The reframe (Mike, 2026-05-30; authoritative over the pre-reframe
-  spec/022 framing)
+  ## Human egress is not privacy-gated
 
   Human-facing egress — the share URL, a static export, copied EDN, a
   screenshot OF THE DEV'S OWN APP — is NOT a privacy concern: a local
   developer already has programmatic access to their own secrets, so
   redacting human egress is futile and is NOT the goal. The two real
-  redaction points (the AI/MCP boundary and logs) are handled elsewhere
-  (rf2-m25hd verified the MCP gate; rf2-6773q scrubbed logs). So the
-  human share / copy / static / screenshot commands SHIP — enabled,
-  working, NOT disabled-pending-a-seam and NOT privacy-gated.
+  redaction points (the AI/MCP boundary and logs) are handled elsewhere.
+  So the human share / copy / static / screenshot commands SHIP —
+  enabled, working, NOT privacy-gated.
 
-  The genuinely valuable contract that DOES survive is REPRODUCIBILITY
+  The contract they DO carry is REPRODUCIBILITY
   honesty (spec/018 §4 T4, spec/022 §3): a shared / exported / copied
   artifact says whether the recipient can reproduce it — fully /
   partially / view-only — and says WHAT makes it less than fully
@@ -37,13 +35,13 @@
     VALIDATED by `re-frame.story.ui.url-state` — that ns is the single
     authoritative owner of those slots; this pass reads (never rewrites)
     the selection it set and owns only the focused-variant cell-overrides
-    slice + the accompanying drift hint (rf2-ovb1en — a prior version
-    reparsed `substrate=` here without validation and resurrected a stale
-    value `url-state` had already normalised to `:reagent`).
+    slice + the accompanying drift hint (reparsing `substrate=` here
+    without validation would resurrect a stale value `url-state` has
+    already normalised to `:reagent`).
 
   - `share-import-hint` / `dismiss-share-import-hint!` — non-blocking
     banner the canvas splices over a variant when a hydrated URL
-    dropped one or more `:cell-overrides` entries (rf2-9jthx).
+    dropped one or more `:cell-overrides` entries.
 
   - `current-share-report` / `egress-edn-snippet` — pure builders for
     the reproducibility report + the copyable `(reg-variant …)` EDN of
@@ -57,7 +55,7 @@
     the static-build (`story:build`) note, each carrying the badge. The
     screenshot row does a real capture-to-PNG + `navigator.clipboard.write`
     and surfaces an honest unavailable/error state when the host lacks a
-    capture seam or the async clipboard image-write API (rf2-ehc5bq) — it
+    capture seam or the async clipboard image-write API — it
     never flashes a false 'copied' on a no-op.
 
   ## Bundle isolation
@@ -89,7 +87,7 @@
   share-overrides hydration seam. Returns nil when window is unavailable
   or no search params are present. Public (like
   `url-state/parse-current-url`) so the shell-level hydration regression
-  test (rf2-ovb1en) can drive the real `hydrate-from-url!` under the node
+  test can drive the real `hydrate-from-url!` under the node
   runner, where `window.location` is read-only."
   []
   (when (exists? js/window)
@@ -101,8 +99,8 @@
 
 (defn declared-arg-keys
   "The set of TOP-LEVEL arg-keys `variant-id` currently declares — the
-  share-import contract a stale URL override is checked against
-  (rf2-76l69l). The same surface the controls panel exposes as editable
+  share-import contract a stale URL override is checked against.
+  The same surface the controls panel exposes as editable
   args: the union of
 
     - the resolved args' keys (`rf.story.args/resolve-args` WITHOUT cell-overrides
@@ -134,15 +132,15 @@
   contract + the share-import drift hint. Runs AFTER
   `re-frame.story.ui.url-state/hydrate-from-url!` at shell mount.
 
-  rf2-ovb1en — this pass is deliberately NARROW. `url-state` is the
+  This pass is deliberately NARROW. `url-state` is the
   single authoritative owner of every URL-owned slot it writes —
   selection (`variant` / `workspace`), substrate, viewport, background,
   tag-filter, modes — and it VALIDATES each against the live registry
   (an unregistered `substrate=ghost` degrades to `:reagent`; an
   unregistered variant degrades to no selection). This pass must NOT
   reparse and rewrite any of those slots from the raw URL: doing so
-  reverted `url-state`'s validation (a stale `substrate=ghost` was
-  normalised to `:reagent` by the first pass, then resurrected to
+  would revert `url-state`'s validation (a stale `substrate=ghost`,
+  normalised to `:reagent` by the first pass, would be resurrected to
   `:ghost` by an unvalidated reparse here). So substrate + selection are
   read ONLY — this pass reads the variant `url-state` already focused and
   speaks solely for that variant's cell-overrides slice and its hint.
@@ -159,12 +157,12 @@
   so an all-stale `overrides=` set (which `drop-stale-overrides` collapses
   to nil) does NOT leave the unfiltered slice `url-state` installed.
 
-  Surfaces the count of dropped overrides (rf2-9jthx) under
+  Surfaces the count of dropped overrides under
   `[:rf.story/share-import-hint variant-id]` so the shell can render a
   non-blocking hint when a recorded URL has drifted. Returns nothing —
   side-effect only.
 
-  rf2-76l69l — drift is detected at TWO stages: `parse-overrides-param*`
+  Drift is detected at TWO stages: `parse-overrides-param*`
   drops UNPARSEABLE entries, then `rf.story.share/drop-stale-overrides` drops every
   parsed override whose arg-key the focused variant no longer DECLARES.
   Both classes land in `:dropped` and feed the share-import hint, so a
@@ -172,7 +170,7 @@
   silently installed as an orphan live arg."
   []
   (when-let [params (current-url-params)]
-    ;; rf2-ovb1en: read the variant `url-state` already focused (its swap
+    ;; Read the variant `url-state` already focused (its swap
     ;; ran first) rather than re-deriving it from the raw URL — guarantees
     ;; this pass operates on `url-state`'s authoritative, validated
     ;; selection and can never diverge from it.
@@ -198,7 +196,7 @@
               ;; install the declared-filtered slice when non-empty, else CLEAR
               ;; it — so an all-stale `overrides=` (collapsed to nil by
               ;; `drop-stale-overrides`) drops the unfiltered slice `url-state`
-              ;; installed rather than leaving stale args live (rf2-ovb1en).
+              ;; installed rather than leaving stale args live.
               (seq overrides)
               (assoc-in [:cell-overrides variant-id] overrides)
 
@@ -211,7 +209,7 @@
                          :dropped       (vec dropped)}))))))))
 
 (defn dismiss-share-import-hint!
-  "Clear the share-import hint for `variant-id` (rf2-9jthx). Called
+  "Clear the share-import hint for `variant-id`. Called
   from the hint's close affordance."
   [variant-id]
   (rf.story.ui.state/swap-state!
@@ -219,7 +217,7 @@
 
 (defn share-import-hint
   "Render the share-import hint banner for `variant-id` when a hydrated
-  share URL dropped one or more overrides (rf2-9jthx). Non-blocking —
+  share URL dropped one or more overrides. Non-blocking —
   shows N + the dropped tokens, with a dismiss affordance.
 
   Returns nil when nothing dropped, so callers can splice
@@ -259,10 +257,10 @@
         "dismiss"]])))
 
 ;; ===========================================================================
-;; Human egress UX (rf2-ba86n.16) — share URL · copy EDN · screenshot ·
+;; Human egress UX — share URL · copy EDN · screenshot ·
 ;; static build, each labelled with the reproducibility status.
 ;;
-;; The reframe: human egress is NOT privacy-gated (local dev has the
+;; Human egress is NOT privacy-gated (local dev has the
 ;; secrets); the contract is reproducibility honesty. The pure
 ;; classification lives in `re-frame.story.egress`; this section is the
 ;; UI surface.
@@ -282,8 +280,7 @@
   shell's active modes and this variant's overrides — the inputs the Copy
   EDN snippet reads too), so a variant that leaves an arg to its story or
   the globals compiles here as it runs, and its plan-derived downgrade
-  reasons reach the report instead of a lost plan reading `:full`
-  (rf2-nlvgc).
+  reasons reach the report instead of a lost plan reading `:full`.
 
   Returns nil when no variant is focused (nothing to share an artifact of)
   — the egress dialog then reads the workspace/chrome-only share URL,
@@ -323,15 +320,15 @@
   the save-as / recorder snippet idiom (source is never written directly
   — the dev pastes).
 
-  THE REGISTRATION ID IS DERIVED, NOT THE SOURCE'S (rf2-fjax). This form
-  previously registered at the focused variant's OWN id while naming that
-  same id as its `:extends` parent. Pasting it did not recreate the
-  edited cell: `registrar/reg-variant` stores the new body at the SAME
-  id, REPLACING the original, and `plan/variant-plan` then seeds its
-  visited set with that id and throws `:rf.error/story-extends-cycle` on
-  the `:extends` — so the one act the dialog advertises (paste to
-  reproduce this cell) destroyed the source variant instead. The id now
-  comes from the save-as derivation
+  THE REGISTRATION ID IS DERIVED, NOT THE SOURCE'S. A form registering
+  at the focused variant's OWN id while naming that same id as its
+  `:extends` parent would not recreate the edited cell:
+  `registrar/reg-variant` stores the new body at the SAME id, REPLACING
+  the original, and `plan/variant-plan` then seeds its visited set with
+  that id and throws `:rf.error/story-extends-cycle` on the `:extends` —
+  so the one act the dialog advertises (paste to reproduce this cell)
+  would destroy the source variant instead. The id comes from the
+  save-as derivation
   (`review-dialog/default-variant-id-with-prefix`, `\"shared\"` prefix),
   so the pasted form is a sibling that extends a source which stays
   registered and renderable.
@@ -516,7 +513,7 @@
   ;; NOT complete (e.g. screenshot capture/clipboard unavailable) so the
   ;; row surfaces an honest unavailable/error state instead of a false
   ;; "copied ✓". A command writes EITHER `:copied` OR `:error`, never both
-  ;; for the same id (rf2-ehc5bq).
+  ;; for the same id.
   (r/atom {:open? false :copied nil :error nil}))
 
 (defn open-share-export-dialog!
@@ -533,7 +530,7 @@
   "Read-only view of the egress dialog ratom (`:open?` / `:copied` /
   `:error`). Public so tests can assert that a command flashed `:copied`
   on real success — or recorded an honest `:error` on a no-op / failure —
-  without poking the private ratom (rf2-ehc5bq)."
+  without poking the private ratom."
   []
   @dialog-state)
 
@@ -548,7 +545,7 @@
 (defn- mark-error!
   "Record that `cmd` could NOT complete, with a short human `reason`. Clears
   any stale `:copied` flash for the same command so the UI never shows a
-  false success alongside the failure (rf2-ehc5bq)."
+  false success alongside the failure."
   [cmd reason]
   (swap! dialog-state
          (fn [s]
@@ -557,7 +554,7 @@
 
 (defn- current-url
   "The live address-bar URL (`window.location.href`) — the share URL is
-  the browser's own URL (rf2-ymnfx); the dialog offers a one-click copy of
+  the browser's own URL; the dialog offers a one-click copy of
   it, not a second artifact. Returns nil when window is unavailable."
   []
   (when (exists? js/window)
@@ -567,14 +564,14 @@
   "Copy `text` to the clipboard via the shared review-dialog shim and flash
   the `cmd` confirmation ONLY once the write has actually fulfilled.
 
-  rf2-jgn8: the previous body called the shim and marked copied on the very
-  next line, so a missing `navigator.clipboard` (an insecure dev host, JSDOM),
-  a denied permission, or a still-pending write all displayed a false
-  'copied ✓'. The shim now resolves a boolean outcome, so the text commands
-  get the SAME honesty the screenshot path already had — `mark-error!` with a
-  human reason on a no-op or a rejection. The failed command's row renders
-  that reason, and the manual-copy fallback stays on screen: the URL field,
-  or for Copy EDN a read-only field holding the snippet (rf2-3x7nj.29.7).
+  Marking copied without waiting on the write would display a false
+  'copied ✓' for a missing `navigator.clipboard` (an insecure dev host,
+  JSDOM), a denied permission, or a still-pending write. The shim resolves
+  a boolean outcome, so the text commands get the SAME honesty the
+  screenshot path has — `mark-error!` with a human reason on a no-op or a
+  rejection. The failed command's row renders that reason, and the
+  manual-copy fallback stays on screen: the URL field, or for Copy EDN a
+  read-only field holding the snippet.
 
   Returns the `js/Promise` of the outcome (never rejects) so tests can await
   it; the `:on-click` callers are fire-and-forget."
@@ -591,8 +588,8 @@
 (defn- canvas-node
   "Find the live variant-render canvas DOM node so a screenshot captures
   the dev's app, not the whole chrome. Targets the canvas `<section>`
-  (`aria-label=\"Variant canvas\"`, stamped `data-test-variant` per
-  rf2-9la06). Returns the element or nil."
+  (`aria-label=\"Variant canvas\"`, stamped `data-test-variant`).
+  Returns the element or nil."
   []
   (when (exists? js/document)
     (or (.querySelector js/document "section[aria-label='Variant canvas']")
@@ -654,10 +651,10 @@
   resolves. When the canvas node is missing, no capture seam is installed,
   the seam fails, the async Clipboard image-write API is unavailable, or the
   write rejects, it records an HONEST unavailable/error state (`mark-error!`)
-  — it does NOT flash a false 'copied ✓' on a no-op (rf2-ehc5bq).
+  — it does NOT flash a false 'copied ✓' on a no-op.
 
   A screenshot is ALWAYS view-only egress (a static image — no replay); the
-  dialog row says so. Per the reframe this is NOT privacy-gated — it is the
+  dialog row says so. This is NOT privacy-gated — it is the
   dev's own rendered app. Returns the `js/Promise` of the write (or a
   rejected/immediate-resolve sentinel) so tests can await the outcome."
   []
@@ -706,7 +703,7 @@
   Surfaces EITHER a `copied ✓` flash (`copied?`) OR an honest
   unavailable/error note (`error` — a short reason string), never both: a
   command that could not complete (e.g. screenshot capture/clipboard
-  unavailable) MUST NOT show a false success (rf2-ehc5bq)."
+  unavailable) MUST NOT show a false success."
   [{:keys [test name desc badge action action-label body copied? error]}]
   [:div {:style (:command styles) :data-test (str "story-egress-command-" test)}
    [:div {:style (:command-h styles)}
@@ -732,7 +729,7 @@
      action-label]]])
 
 (defn share-export-dialog
-  "The human share / export / copy egress dialog (rf2-ba86n.16). Surfaces:
+  "The human share / export / copy egress dialog. Surfaces:
 
     - Share URL    — copy the live address-bar URL (the same URL the
                      browser carries; this is a convenience copy, no
@@ -746,12 +743,12 @@
     - Static build — the `story:build` note + reproducibility label.
 
   Returns nil when `:open?` is false so the shell can mount it
-  unconditionally next to the other modals. Per the reframe these
+  unconditionally next to the other modals. These
   commands SHIP enabled and are NOT privacy-gated — the only contract
   is the reproducibility honesty each row carries.
 
-  EP-0015 scope (rf2-nnc06c): these ARE feature-created artifacts, so the
-  EP scopes them in — but the recorded ruling is that human-local
+  EP-0015 scope: these ARE feature-created artifacts, so the
+  EP scopes them in — but human-local
   share/copy/export/screenshot is a trusted-local operator act
   (the `:rf.egress/local-raw` intent) and ships unredacted; the off-box
   boundaries (MCP / logs) are where redaction lives. See
@@ -811,7 +808,7 @@
                :error   (when (= :copy-edn (:cmd error)) (:reason error))
                ;; The row has no on-screen body of its own, so a failed copy
                ;; shows the EDN read-only: the manual fallback `copy-text!`
-               ;; promises (rf2-3x7nj.29.7).
+               ;; promises.
                :body    (when (= :copy-edn (:cmd error))
                           [:div {:style (:url-row styles)}
                            [:textarea {:read-only  true
