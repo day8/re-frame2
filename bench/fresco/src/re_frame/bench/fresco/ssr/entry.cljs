@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.ssr.entry
-  "THE FRESCO SSR RENDER ENTRY (rf2-2rtt6.86) — one renderer, run in two
+  "THE FRESCO SSR RENDER ENTRY — one renderer, run in two
   places.
 
   The server engine is **the existing Fresco runtime** under Node's
@@ -10,7 +10,7 @@
 
   ## Why running THIS runtime under renderToString is safe
 
-  Verified in the 2026-08-04 SSR design programme rather than assumed:
+  Verified rather than assumed:
 
   - Every shell passes `getServerSnapshot` (`arm1/runtime.cljs` — both
     [[re-frame.bench.fresco.arm1.runtime/shell]] and its frame-prop
@@ -25,7 +25,7 @@
     *abandoned render* by design, and the ledger discipline holds for the
     same reason it holds for a render React throws away in the browser.
 
-  ## `defhost`'s `:ssr` POLICY NEEDS NOTHING HERE (rf2-2rtt6.92)
+  ## `defhost`'s `:ssr` POLICY NEEDS NOTHING HERE
 
   A reader looking for where the server honours `:client-only` and
   `{:fallback …}` will not find it in this namespace, and that is the
@@ -36,12 +36,10 @@
   declaration's pre-walked fallback element — or nothing — **because it
   is the element's own type**. The policy is honoured by rendering.
 
-  This entry did carry a second mechanism for one clause of a fortnight:
-  a `ssr.host-policy/apply-policy` pre-walk over the hiccup handed in,
-  written by rf2-2rtt6.86 while rf2-2rtt6.85 was still an open PR and
-  clause 6 had to be real on main. It is retired, and the reason is
-  worth one sentence because it is the argument against ever writing it
-  again: **a pre-walk can only reach the tree it is handed**, and a host
+  A second mechanism — a pre-walk over the hiccup handed in — would be
+  wrong, and the reason is worth one sentence because it is the argument
+  against ever writing one: **a pre-walk can only reach the tree it is
+  handed**, and a host
   used inside a boundary BODY is not in that tree — that body runs
   inside `renderToString` and the codec's own crossing creates its
   element. The gate reaches both positions, costs no per-request tree
@@ -78,14 +76,14 @@
   `rf.ssr.payload-policy/build-payload`'s first argument is the WIRE
   `:rf/frame-id`, which its docstring is explicit must be a stable id both
   ends agreed on ahead of time and **never a per-request server gensym**
-  (rf2-lm2yzy: stamping the gensym guarantees
+  (stamping the gensym guarantees
   `:rf.error/hydration-frame-id-mismatch` on every real page). The
   per-request gensym is the PROJECTION frame — it drives
   `project-app-db-egress` — and the wire id comes from the caller's
   `:client-frame-id` or is omitted. An absent `:rf/frame-id` is no
   conflict, which is precisely the anonymous-server-frame shape.
 
-  ## THE RENDER HASH: THIS ROOT DOES NOT GET ONE (rf2-2rtt6.91)
+  ## THE RENDER HASH: THIS ROOT DOES NOT GET ONE
 
   The payload carries NO `:rf/render-hash` and the document stamps NO
   `data-rf-render-hash`, and that is Spec 011's own answer for this tier
@@ -96,10 +94,8 @@
   HICCUP tier — Reagent and Reagent-slim, whose views are pure fns
   returning a hashable data tree, so the server hashes its tree and the
   client re-hashes its first render and the two compare. Every root that
-  reaches React as an ELEMENT is in the other tier: a compiled root on the
-  donor substrate, a native UIx root, and a Freehand root
-  (§Hydration on the Freehand paved path). Those verify by **React-native
-  adoption** — React diffs the client's first render against the server
+  reaches React as an ELEMENT is in the other tier, a native UIx root
+  among them. Those verify by **React-native adoption** — React diffs the client's first render against the server
   DOM and reports what it recovers from through the root's
   `onRecoverableError`, which the framework surfaces as the same
   `:rf.ssr/hydration-mismatch` diagnostic. 011 says of that tier, in as
@@ -109,38 +105,38 @@
   and the tree is walked INSIDE `renderToString`, so at no point does a
   data tree describing the page exist for anything to hash.
 
-  **What it used to emit, and why a degenerate hash is worse than none.**
-  This entry did ship one: `render-tree-hash` over the root hiccup as
-  handed in. That form is `[<minted head> {props}]` — ONE vector whose
-  head is a function — and `canonical-edn` renders every function as the
-  identity-free token `#fn[]` (a RULED requirement, rf2-jsa2ml: no fn
-  `.toString` is stable across JVM and CLJS, so dropping the identity is
-  the only thing that keeps a hiccup-tier hash from firing a spurious
-  mismatch on every page). So the whole canonical form was `[#fn[] {}]`,
-  and MEASURED: the dogfood screen and the ~1,200-element Conduit feed
-  page both hashed `83b865f8`, while a root whose hiccup is ordinary
-  markup hashed differently. The value was a function of the root's
-  SHAPE and carried no information about the page.
+  **Why a degenerate hash is worse than none.** The only hash this entry
+  could ship is `render-tree-hash` over the root hiccup as handed in.
+  That form is `[<minted head> {props}]` — ONE vector whose head is a
+  function — and `canonical-edn` renders every function as the
+  identity-free token `#fn[]` (a required rule: no fn `.toString` is
+  stable across JVM and CLJS, so dropping the identity is the only thing
+  that keeps a hiccup-tier hash from firing a spurious mismatch on every
+  page). So the whole canonical form is `[#fn[] {}]`, and MEASURED: the
+  dogfood screen and the ~1,200-element Conduit feed page both hash
+  `83b865f8`, while a root whose hiccup is ordinary markup hashes
+  differently. The value is a function of the root's SHAPE and carries
+  no information about the page.
 
   Shipping that is strictly worse than shipping nothing. An absent key
   cannot be mistaken for evidence; a present one that always agrees is a
-  fail-open gate wearing the shape of a check — the client would have
-  compared two different pages and found them equal. Absence is also the
+  fail-open gate wearing the shape of a check — the client would compare
+  two different pages and find them equal. Absence is also the
   shape the wire contract already wants: `:rf/render-hash` is
   `{:optional true} :string` in Spec-Schemas, and
   `rf.ssr.payload-policy/build-payload` omits the key on a nil hash, so nothing
   Fresco-specific touches the payload path (R0 holds — this namespace
   supplies the app-db and gets out of the way).
 
-  **Why not a better hash.** The two candidates rf2-2rtt6.91 named both
-  fail on the same fact. Normalising the minted head to its displayName
-  reverses rf2-jsa2ml's ruling for one substrate and still only says WHICH
+  **Why not a better hash.** The two candidates both fail on the same
+  fact. Normalising the minted head to its displayName reverses the
+  identity-free-token rule for one substrate and still only says WHICH
   screen rendered — every divergence WITHIN a screen, which is the entire
   class hydration mismatch exists to catch, would still compare equal.
   Accumulating the walked tree server-side would need the client to
   reproduce the same accumulation byte-for-byte, which is re-deriving the
-  hiccup tier under a substrate built not to have one — and 011 already
-  routes this tier to the adoption channel that rf2-2rtt6.97 wired.
+  hiccup tier under a substrate built not to have one — and 011 routes
+  this tier to the adoption channel.
 
   The exclusion is pinned by `the-interpreted-root-ships-no-render-hash`
   in `ssr/entry_cljs_test`, and the measurement above is kept live (over
@@ -163,7 +159,7 @@
   **No streaming.** `renderToPipeableStream` is out of scope per the
   adversarial review, and out of scope here means absent, not deferred.
 
-  ## THE ADOPTION WINDOW IS OPEN AROUND `renderToString` (rf2-2rtt6.94)
+  ## THE ADOPTION WINDOW IS OPEN AROUND `renderToString`
 
   A server render is the FIRST HALF OF AN ADOPTION, so it runs in the
   same window the client's hydrating half does
@@ -179,11 +175,10 @@
   ships the ENTER appearance — the class (and, in the shapes that use
   one, the `opacity: 0` style) an animation is about to move off. The
   hydrating client's first pass renders those same children `:present`
-  (born-present, rf2-2rtt6.84), and React then reports a hydration
-  mismatch on every presence-managed node. Measured on the corpus's
-  `presence-mounting` row, which baked `toast--enter` twice before this
-  window existed and is now pinned the other way by
-  `the-server-render-ships-no-mounting-overrides`.
+  (born-present), and React then reports a hydration mismatch on every
+  presence-managed node. Measured on the corpus's `presence-mounting`
+  row, which bakes `toast--enter` twice without this window and is
+  pinned the other way by `the-server-render-ships-no-mounting-overrides`.
 
   The window is one flag and exactly one thing reads it — presence's
   born-present seeding. Opening it changes no transform, adds no fiber
@@ -201,10 +196,10 @@
 
   Not a production host. Spec 011's HTTP response contract — the response
   accumulator, cookies, redirects, CRLF fail-fast — stays `ssr-ring`'s,
-  and no file under `implementation/ssr` or `implementation/ssr-ring` is
-  touched by this bead. [[document]] mirrors `ssr-ring`'s own envelope
-  shape closely enough to be recognisable and is a BENCH-LANE page, priced
-  and ruled elsewhere."
+  and nothing here touches `implementation/ssr` or
+  `implementation/ssr-ring`. [[document]] mirrors `ssr-ring`'s own
+  envelope shape closely enough to be recognisable and is a BENCH-LANE
+  page."
   (:require [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
@@ -268,7 +263,7 @@
   shell writes, so a fixture baked here is recognisable to anyone who has
   read that one.
 
-  **No `data-rf-render-hash` on the app root** (rf2-2rtt6.91). That marker
+  **No `data-rf-render-hash` on the app root**. That marker
   is the hiccup tier's, and this is an adoption-tier root — see [[render]]'s
   §The render hash. `ssr-ring`'s shell stamps it because a Reagent root
   hands the server the same data tree the client will re-hash; a root React
@@ -277,8 +272,8 @@
   the shape of a real one.
 
   Deliberately minimal: no head model, no `:html-attrs`/`:body-attrs`
-  bags, no `:body-end` hook. Those are the production host's surface and
-  the production host is not this bead."
+  bags, no `:body-end` hook. Those are the production host's surface, and
+  this is not the production host."
   [{:keys  [html app-element-id script-src title]
     script :payload-script}]
   ;; `or`, not `:or` — a caller who threads `nil` through for an option it
@@ -338,8 +333,8 @@
 
   The adoption window is closed and the frame destroyed in a `finally`,
   in that order and for the same reason — see the namespace docstring's
-  §The adoption window. `destroy-frame!`'s lifecycle was
-  verified sound for this use in the design programme (`frame.cljc` —
+  §The adoption window. `destroy-frame!`'s lifecycle is sound for this
+  use (`frame.cljc` —
   destroy tears down the frame's containers and registrations), so a
   per-request frame is a per-request frame and not a per-request leak."
   [{:keys [hiccup snapshot initial-events payload frame-opts client-frame-id version
