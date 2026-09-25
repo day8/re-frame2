@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.settings.settings-fresco-boundary-dom-cljs-test
-  "Real-DOM witnesses for the Xray SETTINGS chrome as Fresco boundaries
-  (rf2-k97c.3).
+  "Real-DOM witnesses for the Xray SETTINGS chrome as Fresco boundaries.
 
   ## Why a browser row at all — the node lane cannot see this
 
@@ -18,17 +17,16 @@
   ## The mount is the PRODUCTION crossing, under a REAGENT parent
 
   `shell.cljs`'s `shell-view` is NOT an `rf/reg-view` — it is a plain
-  `defn` lowering `shell/ShellView`, a Fresco boundary — and the parent
-  epic's coupling (1) is SEVERED rather than a later slice: `mount.cljs`
+  `defn` lowering `shell/ShellView`, a Fresco boundary — and `mount.cljs`
   owns a Fresco client root and never calls the installed adapter's
   `:render`. Production mounts these two modals by CALLING
   `(settings-popup/Modal)` and `(editor-hint/Toast)` inside `ShellView`'s
   body, under its own `[rf.fresco/frame-provider …]`.
   [[mount-modal!]] reproduces that provider-over-modal form and nothing
-  else, and supplies the one thing production no longer does — a REAGENT
+  else, and supplies the one thing production does not — a REAGENT
   parent, which is the harder crossing and the one the `as-component`
-  bridge is kept for (`settings/popup.cljs`'s NOT SCAFFOLDING note,
-  rf2-lect). The shell's surrounding chrome is
+  bridge is kept for (`settings/popup.cljs`'s NOT SCAFFOLDING note).
+  The shell's surrounding chrome is
   `shell_fresco_boundary_dom_cljs_test`'s subject, not this file's; what
   is under test here is the crossing — Reagent parent → plain-fn bridge →
   `[:>]` → Fresco boundary → React context frame → `rf.fresco/sub`.
@@ -43,7 +41,7 @@
   its reads are LIVE AND FRAME-ROUTED, by pressing a real tab button and
   holding a second live frame as the deaf lever. W3 asks the same paint
   question of the second boundary, the editor-hint toast, whose gate is
-  the one read that did NOT move out of a helper.
+  a single read in the boundary body over the pure `toast-view`.
 
   ## THE WITNESS IS CHOSEN, NOT CONVENIENT — most of this surface cannot witness routing
 
@@ -183,7 +181,7 @@
   would not refuse without one; the BOUNDARY behind it takes its frame
   from React context, and at a bare root there is no context to take. The
   provider is what puts the instance frame there, exactly as
-  `shell-view`'s does in production (rf2-uu3lp).
+  `shell-view`'s does in production.
 
   Committed synchronously — React 19's `root.render` is otherwise async
   and the first assertion would read an empty container."
@@ -257,13 +255,12 @@
 ;; ===========================================================================
 
 (deftest w1-settings-popup-paints-through-the-bridge
-  (testing "rf2-k97c.3 — `settings.popup/Popup` is a Fresco boundary and
+  (testing "`settings.popup/Popup` is a Fresco boundary and
             commits its dialog through the private `as-component` bridge
-            `shell.cljs` still mounts by the name `Modal`. Epic
-            criterion 1.
+            `shell.cljs` mounts by the name `Modal`.
 
-            THIS ROW CARRIES WHAT THE NODE LANE GAVE UP. Every settings
-            row in `popup_cljs_test` now drives `view/popup-tree` through
+            THIS ROW CARRIES WHAT THE NODE LANE CANNOT. Every settings
+            row in `popup_cljs_test` drives `view/popup-tree` through
             `test-helpers.modal-trees`, because a boundary's body only
             runs inside a React render window. Those rows are evidence
             about COMPOSITION; this one is the only evidence that the
@@ -277,7 +274,7 @@
               (.then
                 (fn [_]
                   ;; CLOSED FIRST, and this half is not decoration: the
-                  ;; gate now lives INSIDE the boundary rather than in
+                  ;; gate lives INSIDE the boundary rather than in
                   ;; the Reagent bridge, so `nil`-when-closed is a claim
                   ;; about the boundary that only a DOM can check.
                   (is (nil? (testid container "rf-xray-settings-dialog"))
@@ -308,12 +305,11 @@
 ;; ===========================================================================
 
 (deftest w2-tab-click-rerenders-the-boundary-on-its-own-frame
-  (testing "rf2-k97c.3 — pressing a real tab button dispatches through
+  (testing "pressing a real tab button dispatches through
             the dispatcher the BOUNDARY captured
             (`(:dispatch (rf/capture-frame))`), the boundary re-runs on
             the resulting `:rf.xray/settings-active-tab` change, and the
-            committed DOM moves. Epic criterion 3 (observation) and the
-            frame half of criterion 2.
+            committed DOM moves.
 
             THE CLICK IS THE POINT. A `dispatch-sync` from the test would
             exercise the read path while BYPASSING the captured
@@ -390,10 +386,10 @@
 ;; ===========================================================================
 
 (deftest w3-editor-hint-toast-paints-through-the-bridge
-  (testing "rf2-k97c.3 — `settings.editor-hint/Hint` is the slice's second
-            boundary. Its gate is the ONE read on this surface that did
-            not move out of a helper, because `toast-view` was already
-            pure, so this row is the whole of that boundary's evidence.
+  (testing "`settings.editor-hint/Hint` is this surface's second
+            boundary. Its gate is a single read in the boundary body
+            over the pure `toast-view`, so this row is the whole of that
+            boundary's evidence.
 
             `:rf.xray/editor-hint-open?` is `(get db :editor-hint-open?
             false)` — a plain app-db read with a literal fallback — so
