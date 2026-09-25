@@ -36,9 +36,9 @@
   Same posture as the rest of Xray's view code: pure
   hiccup, no per-substrate switches. Every fn here is CALLED by its
   caller rather than headed — `shell.cljs`'s `ribbon-filter-pills`,
-  `ribbon` and `events-ribbon` reach them that way — and since
-  rf2-k97c.3 those callers are `rf.fresco/defview` BOUNDARIES, where a
-  plain function in head position is a loud `:invalid` refusal."
+  `ribbon` and `events-ribbon` reach them that way — and those
+  callers are `rf.fresco/defview` BOUNDARIES, where a plain function
+  in head position is a loud `:invalid` refusal."
   (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
@@ -94,7 +94,7 @@
   NOT editable in v1 (the popup is keyword-pattern-only); the body
   is non-clickable for typed pills and the user removes via the
   `×` button. The `:event-id-pattern` kind (the bare
-  `{:pattern …}` shape) keeps its click-to-edit body.
+  `{:pattern …}` shape) has a click-to-edit body.
 
   Props:
     `:mode`    `:in` | `:out`
@@ -326,30 +326,30 @@
                  :align-items "center"
                  :gap         "6px"
                  :flex-wrap   "wrap"}}
-   ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader meta. The
+   ;; KEYED FRAGMENT rather than `^{:key …}` reader meta. The
    ;; meta reaches React under Reagent and NOWHERE under Fresco, whose
    ;; codec reads a literal `:key` from an attribute map and Clojure
    ;; metadata not at all. `pill` takes `dispatch` positionally, so there
    ;; is no props map at index 1 to write the key into and inserting one
    ;; would shift its arguments — `[:<> {:key …} …]` carries the key on a
    ;; head BOTH substrates honour and leaves the call untouched (the same
-   ;; shape `views/edn_inspector` uses under rf2-k97c.3).
+   ;; shape `views/edn_inspector` uses).
    ;;
-   ;; rf2-k97c.3 — `pill` is CALLED, not headed. This cluster renders
+   ;; `pill` is CALLED, not headed. This cluster renders
    ;; inside the `shell/events-ribbon` Fresco BOUNDARY (reached through
    ;; `shell/ribbon-filter-pills`, which calls [[pills-view]]), and there
    ;; a plain function in head position grades `:invalid` — a loud
    ;; refusal, never a silent embedding. `pill` answers hiccup and its
    ;; subtree is head-free all the way down (`pill-tone` / `pill-kind` /
-   ;; `pill-display` all return values, not hiccup), so the ruled HD-016
+   ;; `pill-display` all return values, not hiccup), so the HD-016
    ;; repair applies: inline it. No boundary of its own, and no read to
    ;; donate upward — `pill` touches the substrate nowhere, which is also
    ;; what keeps it callable from OUTSIDE a render window, as
    ;; `filters/pills_cljs_test` does directly.
    ;;
    ;; The keyed fragment is what makes that inline free of structural
-   ;; cost: it still carries the list key without adding a DOM node, so
-   ;; `pill` stays the presentational helper it has always been.
+   ;; cost: it carries the list key without adding a DOM node, so
+   ;; `pill` stays a plain presentational helper.
    (for [[idx p] (map-indexed vector (:in filters))]
      [:<> {:key (str "in-" idx)}
       (pill dispatch {:mode :in :pill p :idx idx})])
