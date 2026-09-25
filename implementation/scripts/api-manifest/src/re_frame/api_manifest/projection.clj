@@ -36,7 +36,7 @@
   []
   (:vars (rf.api-manifest.gen/read-committed-manifest)))
 
-;; NB (rf2-6r9j.137): there is deliberately NO shared row index here. Each
+;; NB: there is deliberately NO shared row index here. Each
 ;; check builds the projection its own contract needs — a bare-name set
 ;; (`doc-api-check`), a per-namespace var set (`rows-in-ns` below), tier sets
 ;; (`api-md-check`), a strict `[namespace var]` set (`xray-spec-check`) — and
@@ -64,7 +64,7 @@
   "Every `*.md` file under `dir` (an `io/file`), recursively, sorted by
    path for deterministic reporting. Skips a missing dir (returns nil).
 
-   NB (rf2-utvst): a `nil` return is INDISTINGUISHABLE from a present-but-
+   NB: a `nil` return is INDISTINGUISHABLE from a present-but-
    empty dir, and silently produces zero work in the downstream check —
    a directory move / rename then turns the projection gate into a
    vacuous green. Callers that own an EXPECTED directory must use
@@ -87,7 +87,7 @@
 
 (defn require-markdown-files
   "Like `markdown-files`, but throws when `dir` does not exist or is not a
-   directory (rf2-utvst non-vacuous floor). A check that owns an EXPECTED
+   directory (the non-vacuous floor). A check that owns an EXPECTED
    surface directory (skills/, docs/core/) must fail loudly when that
    directory moves or is renamed rather than silently checking zero files
    and reporting a vacuous OK. `label` names the surface for the error."
@@ -241,9 +241,8 @@
    vocabulary). A `:rf.world/inputs` line carrying ANY of these is approved;
    one carrying NONE is flagged. The replacement keyword `:rf.cofx` is the
    strongest marker; the prose words cover narrative migration mentions.
-   (`:rf.world/inputs` was a draft-only name, so it earns no dedicated
-   retired-name error id — it rides the generic `:rf.warning/unknown-dispatch-opt`
-   surface.)"
+   (`:rf.world/inputs` has no dedicated retired-name error id — it rides the
+   generic `:rf.warning/unknown-dispatch-opt` surface.)"
   [":rf.cofx"
    "retired" "renamed" "removed" "superseded" "migrat"])
 
@@ -350,8 +349,9 @@
    "renamed" "rename" "retired" "removed" "superseded" "earlier" "migrat"])
 
 (def ^:private retired-egress-profiles
-  "The retired `:rf.egress/*` profile keyword FORMS EP-0015 renamed away for
-   axis consistency (each followed by its current replacement, for the report)."
+  "The retired `:rf.egress/*` profile keyword FORMS, each followed by its
+   current replacement for the report. The replacements keep the EP-0015
+   profile axis consistent."
   {":rf.egress/on-box-hidden-sensitive" ":rf.egress/local-redacted"
    ":rf.egress/trusted-local-raw"       ":rf.egress/local-raw"})
 
@@ -428,7 +428,7 @@
 (defn vacuity-floor-problem
   "Return a problem-map describing a non-vacuous-floor violation when
    `checked` (the number of public-var references the extractor actually
-   reconciled) is below `min-refs`, else nil (rf2-utvst).
+   reconciled) is below `min-refs`, else nil.
 
    A projection check reports OK whenever its problem list is empty — even
    if it extracted ZERO references. A docs/skills directory move, a markdown
@@ -454,7 +454,7 @@
   "Like `report-result!`, but first enforces a non-vacuous floor: if fewer
    than `min-refs` references were reconciled, prepend a floor-violation
    problem so the gate goes RED even when the (possibly empty) `problems`
-   seq would otherwise report a vacuous OK (rf2-utvst)."
+   seq would otherwise report a vacuous OK."
   [label checked min-refs problems]
   (let [floor (vacuity-floor-problem label checked min-refs)]
     (report-result! label checked (if floor (cons floor problems) problems))))
