@@ -138,7 +138,7 @@
         ;; The rejection arm IS this row's success path, so the two handlers are
         ;; SIBLINGS of one two-arg `.then` and the single `done` trails them. A
         ;; `.catch` after a `done` would claim a LATER namespace's throw as this
-        ;; row's failure and fire `done` a second time (rf2-53uz).
+        ;; row's failure and fire `done` a second time.
         (.then (fn [_]
                  (is false "an :ex response MUST reject, not resolve"))
                (fn [err]
@@ -209,7 +209,7 @@
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "re-frame.core/frame-db")))
         (.then (fn [v]
                  (is false (str "an unresolved symbol MUST reject, never resolve "
-                                "(got " (pr-str v) ", the silent-nil bug)")))
+                                "(got " (pr-str v) ", a silent nil)")))
                (fn [err]
                  (is (instance? js/Error err))
                  (is (re-find #"Use of undeclared Var re-frame.core/frame-db"
