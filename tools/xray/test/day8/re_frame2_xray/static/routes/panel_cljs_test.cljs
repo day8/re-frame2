@@ -1,10 +1,9 @@
 (ns day8.re-frame2-xray.static.routes.panel-cljs-test
-  "CLJS wiring + view tests for Xray's Static Routes panel
-  (rf2-o5f5f.3).
+  "CLJS wiring + view tests for Xray's Static Routes panel.
 
   ## Scope
 
-  Per Mike's two-verbs-two-homes decision: the BROWSE verb (flat
+  Two verbs, two homes: the BROWSE verb (flat
   list + Simulate-URL + per-row inline expand + hermetic Simulate-
   navigation preview + cross-link to Dynamic Routing) lives on the
   Static surface. This file covers:
@@ -47,10 +46,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
+  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers -----------------------------------------------------
@@ -68,7 +65,7 @@
     (let [result (apply (first node) (rest node))]
       ;; Form-2 Reagent components return an inner fn; re-call with
       ;; the same args (per Reagent's re-render contract) to obtain
-      ;; the rendered hiccup. rf2-oqa60 — the edn-inspector widget is
+      ;; the rendered hiccup. The edn-inspector widget is
       ;; form-2 so the mount-id stays stable across re-renders.
       (expand-children
         (if (fn? result)
@@ -105,13 +102,13 @@
 (defn- panel-tree
   "The hiccup the view rows below walk.
 
-  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a
-  real React function component whose body may only run inside a React
-  render window, so calling `panel/Panel` no longer answers hiccup.
+  `panel/Panel` is an `rf.fresco/defview` boundary, a real React
+  function component whose body may only run inside a React render
+  window, so calling `panel/Panel` does not answer hiccup.
   This helper REPRODUCES THE BOUNDARY'S READS EXACTLY — the same
   four queries in the same ORDER — and hands their values to
-  `panel/panel-tree`, so every row below asserts on the same hiccup it
-  asserted on before.
+  `panel/panel-tree`, so every row below asserts on the hiccup the
+  boundary renders.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))`, the SAME door the
   boundary uses, so a handler a row pulls off the tree and fires later
@@ -120,12 +117,11 @@
 
   `identity` is the `as-child` spelling for the node lane, so the browse
   list and the Simulate-URL header stay fn-headed hiccup the walker above
-  expands precisely as it always has. The boundary passes
-  `reagent.core/as-element` there; that crossing's evidence is the
+  expands. The boundary passes
+  `substrate/as-element` there; that crossing's evidence is the
   browser lane's, not this one's.
 
-  Call it inside `(rf/with-frame :rf/xray …)` — it subscribes ambiently,
-  the same requirement the `reg-view` body had."
+  Call it inside `(rf/with-frame :rf/xray …)` — it subscribes ambiently."
   []
   (let [data       @(rf/subscribe [:rf.xray.static.routes/tab-data])
         expanded   @(rf/subscribe [:rf.xray.static.routes/expanded])
@@ -376,15 +372,16 @@
 (deftest static-shell-routes-tab-is-in-inventory
   (testing ":routes is in the Static tab inventory + the shell mounts it.
 
-            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3, exactly as
-            `static/shell_cljs_test`'s `static-machines-mounts-live-panel`
-            already was and for the same reason. `static.routes.panel/
-            Panel` is now an `rf.fresco/defview` behind an `as-component`
-            bridge, so this hiccup walk reaches the bridge's `[:>]`
-            interop head and stops — `rf-xray-static-routes` is committed
-            by React, not present in the tree. Asserting that testid here
-            would from now on be asserting the WALKER'S REACH rather than
-            the mount, which is the hollow-gate shape. What the shell owes
+            The row asserts ONE LEVEL UP from the panel's own testid,
+            exactly as `static/shell_cljs_test`'s
+            `static-machines-mounts-live-panel` does and for the same
+            reason. `static.routes.panel/Panel` is an `rf.fresco/defview`
+            behind an `as-component` bridge, so this hiccup walk reaches
+            the bridge's `[:>]` interop head and stops —
+            `rf-xray-static-routes` is committed by React, not present in
+            the tree. Asserting that testid here would be asserting the
+            WALKER'S REACH rather than the mount, which is the hollow-gate
+            shape. What the shell owes
             is that the `:routes` slot mounts the REGISTRY's `:panel` and
             that no placeholder renders; the boundary's own first paint is
             the browser lane's subject, and its body is every row above."
@@ -403,9 +400,9 @@
             (str "the slot mounts exactly the registry's :panel value. "
                  "Got: " (pr-str (last slot))))
         (is (nil? (find-by-testid tree "rf-xray-static-placeholder-routes"))
-            "the :routes placeholder card is no longer rendered")))))
+            "the :routes placeholder card is not rendered")))))
 
-;; ---- (10) a11y list semantics + keyboard operability (rf2-mq8wk) -------
+;; ---- (10) a11y list semantics + keyboard operability -------------------
 
 (defn- find-by-role [tree role]
   (some (fn [node]
@@ -423,7 +420,7 @@
           (hiccup-seq tree)))
 
 (deftest routes-list-rows-keyboard-operable
-  (testing "rf2-mq8wk — the routes <ul> is role=list, rows are
+  (testing "the routes <ul> is role=list, rows are
             role=listitem, and the clickable body is a keyboard-operable
             role=button (tab-index 0 + aria-expanded + Enter/Space)"
     (setup-xray-frame!)
@@ -448,7 +445,7 @@
               "row buttons handle keyboard activation"))))))
 
 (deftest routes-row-enter-key-activates-toggle
-  (testing "rf2-mq8wk — Enter / Space on a row body consume the key and fire
+  (testing "Enter / Space on a row body consume the key and fire
             the row toggle; other keys are ignored (bubble through)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -483,14 +480,14 @@
             (on-key (mk-ev "a" prevented))
             (is (false? @prevented))))))))
 
-;; ---- (11) expand-surface EDN renders via the shared widget (rf2-2kwhw) ----
+;; ---- (11) expand-surface EDN renders via the shared widget --------------
 
 (deftest expand-meta-renders-through-edn-widget
-  (testing "rf2-2kwhw + rf2-oqa60 — the registrar-meta block routes
+  (testing "the registrar-meta block routes
             through the shared EDN widget, which delegates to the
             first-class edn-inspector widget. This test smokes that
-            wiring. The renderer carries no copy chrome (rf2-6r9j.24
-            retired the universal affordance; spec/021 §10.5, B.9)."
+            wiring. The renderer carries no copy chrome (spec/021 §10.5,
+            B.9)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
@@ -501,6 +498,6 @@
             widget (find-all-by-testid-prefix
                      tree "rf-xray-edn-inspector-")]
         (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))
-            "meta block wrapper preserved")
+            "meta block wrapper present")
         (is (seq widget)
             "registrar meta renders through the edn-inspector widget")))))
