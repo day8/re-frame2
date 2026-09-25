@@ -4,12 +4,12 @@
 
 /*
  * Policy + unit gate for the two Story CI-as-test orchestrators under
- * examples/scripts/ (rf2-wf5al). Lives in implementation/scripts/ (NOT
+ * examples/scripts/. Lives in implementation/scripts/ (NOT
  * under examples/) so it respects the "examples are test-free / no
  * *.spec.cjs under examples/" lock while still pinning the runner
  * behaviour. Discovered by `npm run test:scripts`.
  *
- * Covers all three rf2-wf5al findings:
+ * Covers:
  *
  *   1. The play-scripts runner must FAIL on an uncaught browser
  *      `pageerror` even when every play row matched its expected status
@@ -27,7 +27,7 @@
  *      per-row terminal timeout. Asserted via `isTerminalStatus`, kept
  *      symmetric with the CLJS `ci-runner/terminal?`.
  *
- * Plus the rf2-54xbp non-vacuous discovery guard (rf2-ljyp9 follow-up):
+ * Plus the non-vacuous discovery guard:
  *
  *   4. The play-scripts gate must FAIL CLOSED on an empty / under-floor /
  *      one-sided (no expected-fail) discovery rather than false-greening
@@ -39,7 +39,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 // Shared stripComments (EXECUTABLE-source-only matching) + framework-free
-// test harness (rf2-j552l2).
+// test harness.
 const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = path.resolve(__dirname, '..', '..', 'examples', 'scripts');
@@ -64,7 +64,7 @@ const {
 
 const { test, run } = createPolicyTestSuite('story-script-runners-policy');
 
-// ---- Finding 1: pageerror is fatal, even with all play rows matched ----
+// ---- (1) pageerror is fatal, even with all play rows matched ----
 
 test('computeExitCode: clean run (no failures, no pageerrors) → 0', () => {
   assert.equal(computeExitCode({ failures: [], pageErrors: [] }), 0);
@@ -120,19 +120,18 @@ test('play-scripts runner verdict is computed from BOTH failures and pageErrors 
   );
 });
 
-// ---- Finding 2: both Story launchers delegate server startup to the
-// shared startLocalHttpServer harness owner (rf2-wf5al.2 / rf2-slapfs) ----
+// ---- (2) both Story launchers delegate server startup to the
+// shared startLocalHttpServer harness owner ----
 //
 // The `-a 127.0.0.1` loopback bind (never http-server's 0.0.0.0 default) plus
-// the static/no-cache flags are now composed EXACTLY ONCE, in
+// the static/no-cache flags are composed EXACTLY ONCE, in
 // local-browser-harness.cjs's startLocalHttpServer, and verified functionally
 // (a fake bin binds per the composed argv and is reachable only on loopback)
 // in _local-browser-harness.test.cjs. Rather than re-scan each launcher's
 // inlined argv, pin that each Story launcher CONSUMES that owner: it must
 // import the shared harness and call startLocalHttpServer(...). A launcher
-// that re-inlines a bespoke http-server spawn — the exact composition drift
-// rf2-slapfs removed — no longer routes through the loopback-binding owner
-// and trips here. (Scanned over stripped source so a comment mentioning the
+// that re-inlines a bespoke http-server spawn does not route through the
+// loopback-binding owner and trips here. (Scanned over stripped source so a comment mentioning the
 // helper is not a false positive.)
 const SHARED_HARNESS_IMPORT_RE = /require\(\s*['"][^'"]*local-browser-harness\.cjs['"]\s*\)/;
 const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
@@ -156,7 +155,7 @@ for (const runner of [PLAY_SCRIPTS_RUNNER, FEATURE_LOAD_RUNNER]) {
   });
 }
 
-// ---- Finding 3: cannot-run is a terminal status ----
+// ---- (3) cannot-run is a terminal status ----
 
 test('isTerminalStatus: pass / fail / cannot-run are terminal (rf2-wf5al.3)', () => {
   assert.equal(isTerminalStatus('pass'), true);
@@ -174,8 +173,8 @@ test('isTerminalStatus: non-terminal / unknown statuses are not terminal', () =>
   assert.equal(isTerminalStatus(''), false);
 });
 
-// Pin both wait loops to the shared predicate so neither can regress to
-// an inline pass/fail-only check that re-strands cannot-run.
+// Pin both wait loops to the shared predicate so neither can fall to
+// an inline pass/fail-only check that strands cannot-run.
 test('both wait loops gate on isTerminalStatus (rf2-wf5al.3)', () => {
   const src = fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8');
   const matches = src.match(/isTerminalStatus\(last\.status\)/g) || [];
@@ -186,14 +185,14 @@ test('both wait loops gate on isTerminalStatus (rf2-wf5al.3)', () => {
   );
 });
 
-// ---- Finding 4 (rf2-54xbp / rf2-ljyp9): non-vacuous discovery guard ----
+// ---- (4) non-vacuous discovery guard ----
 //
-// rf2-54xbp added `checkRowsNonVacuous(rows)` + `MIN_PLAY_ROWS` to the
-// play-scripts runner: a pure (rows in → verdict out) guard that fails
+// `checkRowsNonVacuous(rows)` + `MIN_PLAY_ROWS` in the play-scripts
+// runner are a pure (rows in → verdict out) guard that fails
 // the gate closed on an empty / under-floor / one-sided discovery rather
 // than false-greening "nothing to assert". The runtime call-site is
-// pinned below; these cases lock the pure verdict (the canonical home the
-// rf2-54xbp examples/scripts lane could not reach). Rows are classified
+// pinned below; these cases lock the pure verdict here, because
+// examples/scripts carries no tests of its own. Rows are classified
 // expected-fail iff `variant-id` OR `play-key` carries `failing` /
 // `expected-fail` — symmetric with the runner's `expectedStatusFor` — so
 // the test rows here drive the same classification the runtime uses.
@@ -271,8 +270,8 @@ test('checkRowsNonVacuous: seeded inventory shape (8 rows, 5 pass / 3 fail) → 
 });
 
 // Pin the runtime call-site so a refactor can't drop the non-vacuous
-// guard back to the old "empty rows → 0 / nothing to assert" false-green.
-// The trailing `[,)]` admits rf2-kttom's per-testbed opts argument while
+// guard and fall to an "empty rows → 0 / nothing to assert" false-green.
+// The trailing `[,)]` admits the per-testbed opts argument while
 // still refusing a call over anything but the discovered `rows`.
 test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf2-ljyp9)', () => {
   const src = fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8');
@@ -288,10 +287,9 @@ test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf
   );
 });
 
-// ---- rf2-kttom: the roster, and the per-testbed floors ----
+// ---- the roster, and the per-testbed floors ----
 //
-// The runner drove ONE hardcoded testbed until the Fresco deck landed.
-// A deck silently dropped from the roster is a gate that stopped running
+// A deck silently dropped from the roster is a gate that stops running
 // without ever going red, so the roster's membership is pinned here — and
 // so is the property that makes the two floors safe to differ: the opt-out
 // waives the EXPECTED-FAIL requirement and nothing else.
@@ -306,7 +304,7 @@ test('the play-scripts roster names both Story testbeds (rf2-kttom)', () => {
   assert.ok(
     labels.includes('fresco-counter'),
     'the fresco testbed must be on the roster — it owns proof that a view ' +
-      'authored on the native substrate paints in Story (rf2-kttom).',
+      'authored on the native substrate paints in Story.',
   );
   for (const t of TESTBEDS) {
     assert.ok(t.build, `${t.label}: roster entry must carry a shadow-cljs build id`);
@@ -326,7 +324,7 @@ test("the counter entry's floor is UNCHANGED — four rows, both sides (rf2-ktto
   assert.notEqual(
     counter.vacuity.requireBothSides,
     false,
-    'the counter entry must keep the both-sides invariant rf2-54xbp wrote.',
+    'the counter entry must keep the both-sides invariant.',
   );
 });
 
@@ -373,7 +371,7 @@ test('checkRowsNonVacuous: the opt-out waives expected-fail ONLY — no successf
   assert.match(v.diagnostic, /no successful play/);
 });
 
-// Pin the per-testbed loop so a refactor cannot collapse the roster back
+// Pin the per-testbed loop so a refactor cannot collapse the roster
 // to a single hardcoded testbed while every assertion above still passes.
 test('play-scripts runner drives every roster entry (rf2-kttom)', () => {
   const src = stripComments(fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8'));
