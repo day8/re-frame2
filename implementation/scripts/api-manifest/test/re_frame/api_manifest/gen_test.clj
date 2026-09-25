@@ -1,23 +1,23 @@
 (ns re-frame.api-manifest.gen-test
   "Regression tests for the manifest generator's row-level invariants: the
-  one-row-per-public-var rule (rf2-nlnd9y.2), the facade-vs-disposition rule
-  (rf2-93sxp), and the two facade-audit axes (rf2-2hpxo, at the foot of this
-  file). Each is a shape the generator must REFUSE rather than emit.
+  one-row-per-public-var rule, the facade-vs-disposition rule, and the two
+  facade-audit axes (at the foot of this file). Each is a shape the
+  generator must REFUSE rather than emit.
 
-  THE BUG. The generated manifest is contractually one row per public var
+  THE HAZARD. The generated manifest is contractually one row per public var
   (gen ns docstring §THE ARTEFACT). JVM-derived rows are unique by
-  construction, but the curated `:cljs-only` sidecar rows were concatenated
-  with the JVM rows and emitted VERBATIM with no uniqueness check. A
+  construction, but the curated `:cljs-only` sidecar rows are concatenated
+  with the JVM rows and emitted VERBATIM. A
   duplicated `:cljs-only` entry — or a `:cljs-only` row colliding with a
-  JVM-derived row — produced two manifest rows for one var (possibly with
-  conflicting tier/kind/status/runtime metadata) and an inflated
-  row count. Drift checks could still pass (committed + regenerated agree
+  JVM-derived row — would produce two manifest rows for one var (possibly
+  with conflicting tier/kind/status/runtime metadata) and an inflated
+  row count. Drift checks would still pass (committed + regenerated agree
   on the duplicate), while downstream projections silently collapse the two
   rows to one (`xray-spec-check`'s strict `[namespace var]` SET, which cannot
   represent a duplicate at all) or tolerate multiple tiers — masking the
   spec/implementation contradiction through generation AND verification.
 
-  THE FIX. `duplicate-rows` detects any `[namespace var]` carried by more
+  THE GUARD. `duplicate-rows` detects any `[namespace var]` carried by more
   than one row, and `build-manifest` throws on it before writing output or
   reporting `--check` success. These tests pin that through `duplicate-rows`
   (pure, synthetic inputs) plus `build-manifest` (the throw), and assert the
@@ -117,13 +117,12 @@
           "the committed manifest must not carry duplicate [namespace var] rows"))))
 
 ;; ---------------------------------------------------------------------------
-;; implementation-facade-rows — the facade-vs-disposition invariant
-;; (rf2-93sxp). A `:facade? true` row at `:tier :implementation` records an
+;; implementation-facade-rows — the facade-vs-disposition invariant.
+;; A `:facade? true` row at `:tier :implementation` records an
 ;; internal disposition against a var that still exports from `re-frame.core`
 ;; — annotation, not removal (Conventions §Removing or demoting a facade
 ;; export). `build-manifest` refuses it, so the disposition must land on the
-;; surface; the planted-row shape here is exactly the one the three
-;; `make-capture-frame` / `->interceptor` / `->interceptor*` rows carried.
+;; surface.
 ;; ---------------------------------------------------------------------------
 
 (deftest implementation-facade-rows-flags-only-the-contradiction
@@ -153,8 +152,8 @@
   "The REAL committed sidecar with one live facade var's classification
    RETIERED to `:implementation` — the planted contradiction. The var itself
    still exports from `re-frame.core`, so the generated row is
-   `:facade? true` + `:tier :implementation`: the exact shape the removed
-   rows had. Using the real sidecar keeps the missing/stale/duplicate checks
+   `:facade? true` + `:tier :implementation`: the contradiction
+   `implementation-facade-rows` refuses. Using the real sidecar keeps the missing/stale/duplicate checks
    passing so the facade-vs-disposition check is what fires."
   []
   (let [sidecar (rf.api-manifest.gen/read-sidecar)
@@ -182,16 +181,14 @@
                (:implementation-facade (ex-data e))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The facade-audit axes — :justification / :action (rf2-2hpxo).
+;; The facade-audit axes — :justification / :action.
 ;;
 ;; spec/Conventions.md §Facade policy makes a diff that adds a public var to a
 ;; facade record FOUR fields in the same PR: tier, owner spec, facade-placement
-;; justification, recommended action. Fields 1 and 2 have been curated in the
-;; sidecar since rf2-3nbl5.2; fields 3 and 4 had NO home in the tree at all —
-;; they lived in PR bodies if anywhere — so the "manifest table" Conventions
-;; describes did not exist for any export. These two axes are that table, and
-;; the throws below are what make the diff-time obligation mechanical instead
-;; of a reviewer's memory.
+;; justification, recommended action. Fields 1 and 2 are the sidecar's `:tier`
+;; and `:owner`; fields 3 and 4 are these two axes, which complete the
+;; "manifest table" Conventions describes, and the throws below are what make
+;; the diff-time obligation mechanical instead of a reviewer's memory.
 ;;
 ;; Both are scoped to `:facade? true` rows on purpose: the Conventions
 ;; obligation is on FACADE exports, and requiring prose on all ~528 rows would
@@ -311,14 +308,13 @@
     ;; been dropped from the sidecar trips the precondition below rather than
     ;; the assertion under test. `settle!` is the sidecar's own named precedent
     ;; for the shape — an epoch seam that keeps an :implementation row rather
-    ;; than going `^:no-doc` — so it survives the demotions that retire its
-    ;; same-named-facade-twin siblings (rf2-kuky.82).
+    ;; than going `^:no-doc`.
     (let [sidecar (rf.api-manifest.gen/read-sidecar)
           k       ["re-frame.epoch" "settle!"]]
       (assert (get-in sidecar [:classification k])
               "precondition: the sidecar classifies re-frame.epoch/settle!")
       (assert (nil? (get-in sidecar [:classification k :justification]))
-              "precondition: a non-facade row carries no :justification today")
+              "precondition: a non-facade row carries no :justification")
       (is (map? (rf.api-manifest.gen/build-manifest
                   (update-in sidecar [:classification k]
                              dissoc :justification :action)))))))
@@ -360,7 +356,7 @@
           "the committed manifest must not carry an implementation-only facade row"))))
 
 ;; ---------------------------------------------------------------------------
-;; The facade roster (rf2-i6kh). `facade?` is a SET of façade namespaces, not
+;; The facade roster. `facade?` is a SET of façade namespaces, not
 ;; a `re-frame.core` equality test, so the three facade-audit invariants above
 ;; reach every façade rather than only the framework one.
 ;; ---------------------------------------------------------------------------
@@ -369,7 +365,7 @@
   (testing "the façade roster names exactly the three namespaces
             spec/Conventions.md §Facade policy names — re-frame.core (the
             framework), re-frame.story (the stories library) and
-            day8.re-frame2-xray.core (the Xray devtool, enrolled by rf2-ar67).
+            day8.re-frame2-xray.core (the Xray devtool).
             Asserted as SET EQUALITY, not three memberships: a fourth name
             added here would silently subject a namespace to the facade-audit
             invariants without a Conventions change, and three `contains?`
@@ -416,15 +412,13 @@
 (deftest every-jvm-namespace-contributes-rows
   (testing "each namespace in the generator's roster yields at least one
             committed manifest row — an enrolled namespace that silently
-            inventories NOTHING is the fail-open shape (rf2-phm7g)"
+            inventories NOTHING is the fail-open shape"
     ;; NON-VACUITY, and generic. `--check` compares a regenerated manifest
     ;; against the committed one, so it is green whenever the two AGREE —
     ;; including when they agree that a rostered namespace contributes no
     ;; rows at all. A namespace whose every public acquired `^:no-doc`, or
     ;; whose surface moved wholesale behind a reader conditional, would
     ;; drop out of the inventory with the drift check still reporting OK.
-    ;; That is how `re-frame.fresco` could have been ADDED to the roster
-    ;; and still inventoried nothing on this host.
     ;;
     ;; Asserted over the roster rather than over a named namespace, so it
     ;; needs no edit when an artefact joins or leaves. `extra-vars` is
