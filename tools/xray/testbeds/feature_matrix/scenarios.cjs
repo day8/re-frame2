@@ -2069,7 +2069,7 @@ async function runLargeDispatcher(page, state) {
   // browser-layer backstop on the live panel that the sentinel never
   // escapes into the DOM under any dispatch sequence.
   if (appDbText.includes('edn-inspector/missing')) {
-    failWithDetails('Internal ::missing sentinel leaked into App-DB Diff text (rf2-8pfkk)', {
+    failWithDetails('Internal ::missing sentinel leaked into App-DB Diff text', {
       traceCount: traceEvents.length,
       appDbText: appDbText.slice(0, 1200),
     });
@@ -2770,7 +2770,7 @@ async function runPanelGalleryThemeTokens(page, state) {
   if (!probe.themesStylePresent) {
     failWithDetails(
       'panel-gallery boot did not install the rf-xray-themes <style> block — ' +
-        'global-styles/install! never ran. This is the rf2-pqulr regression class.',
+        'global-styles/install! never ran.',
       probe,
     );
   }
@@ -2778,7 +2778,7 @@ async function runPanelGalleryThemeTokens(page, state) {
     failWithDetails(
       '--rf-xray-text-primary did not resolve to a token value on :root. ' +
         'Either global-styles/install! never ran or the light-palette block ' +
-        'no longer publishes :text-primary (theme/tokens.cljc).',
+        'does not publish :text-primary (theme/tokens.cljc).',
       probe,
     );
   }
@@ -3003,8 +3003,7 @@ async function runRoutesEpochs(page, state) {
   // EP-0001 the pending-nav slot is durable routing RUNTIME-DB state at
   // `[:rf.runtime/routing :pending-navigation]` — read via the public
   // `re-frame.core/frame-state-value` seam's `:rf.db/runtime` partition
-  // (rf2-t3lftq, API-shrink #3, retired the dedicated `runtime-db-value`
-  // reader), NOT app-db. The deck strip (`:rf/pending-navigation`
+  // (there is no dedicated `runtime-db-value` reader), NOT app-db. The deck strip (`:rf/pending-navigation`
   // runtime-sub) is the secondary cross-check.
   const pendingProbe = await waitForValue(
     () => page.evaluate(() => {
@@ -3079,8 +3078,8 @@ async function runRoutesEpochs(page, state) {
 // deep-compound LCA · history) is genuinely exercised and is observable in
 // THAT track's frame machine snapshot, read directly via the public
 // `re-frame.core/frame-state-value` accessor's `:rf.db/runtime` partition
-// (`readTrackSnapshots`, scoped to `:machine/<track>`; rf2-t3lftq,
-// API-shrink #3, retired the dedicated `runtime-db-value` reader). We
+// (`readTrackSnapshots`, scoped to `:machine/<track>`; there is no
+// dedicated `runtime-db-value` reader). We
 // assert those per-frame snapshot facts — they are
 // the robust, non-flaky proof each machine feature fired in its own frame.
 //
@@ -3088,11 +3087,7 @@ async function runRoutesEpochs(page, state) {
 // inspector` mounts on a focused machine event, plus that machine activity
 // reaches the trace bus (`:rf.machine/transition`). We deliberately do NOT
 // assert the machines-viz chart-render path (the synthetic-epoch injection
-// that `runDeepMachine` performs): per the documented framework gap
-// (see `runDeepMachine` above, lines re: machine-transition + `:frame`),
-// a real host-app `:rf.machine/transition` carries no `:frame` tag and so
-// is not captured into an epoch's `:trace-events`, leaving the focused-
-// event transitions sub empty. `deep_machine` owns the chart-render
+// that `runDeepMachine` performs): `deep_machine` owns the chart-render
 // shim-survival probe via test-only injection events; this deck's job is
 // the real-machine-feature step-up surface, asserted through the substrate
 // snapshot + the panel handoff.
@@ -3137,8 +3132,8 @@ async function restartMachineTrack(page) {
 // (re-frame.machines.paths/snapshot-path): they live at
 // `[:rf.runtime/machines :snapshots <machine-id>]` in the runtime-db
 // PARTITION, read via the public `re-frame.core/frame-state-value` seam's
-// `:rf.db/runtime` key (rf2-t3lftq, API-shrink #3, retired the dedicated
-// `runtime-db-value` reader) — NOT in app-db.
+// `:rf.db/runtime` key (there is no dedicated `runtime-db-value`
+// reader) — NOT in app-db.
 //
 // `trackId` is the track name (e.g. 'door', 'media'); the frame id is
 // `:machine/<trackId>`. `machineIds` is the set of machine-ids the track
@@ -3331,8 +3326,8 @@ async function runMachineEpochs(page, state) {
   // :initial state, where :data is {:opened-count 0 …}; a no-op reset would
   // leave :opened-count at its accumulated 2. We assert it is >0 here so the
   // post-restart `:opened-count 0` check is provably a STATE CHANGE the
-  // replay produced, not a value that was already 0 (the NO-SIGNAL trap the
-  // bare `:locked`-only assertion fell into — door is already :locked, so a
+  // replay produced, not a value that was already 0 (the NO-SIGNAL trap of a
+  // bare `:locked`-only assertion — door is already :locked, so a
   // no-op restart would pass a `:locked`-only check).
   await selectMachineTrack(page, 'door');
   const doorAfterReturn = await waitForTrackSnapshot(
@@ -3350,8 +3345,8 @@ async function runMachineEpochs(page, state) {
   );
 
   // RESTART door: resets its machine frame (destroy-frame! +
-  // re-make-frame with the SAME :initial-events — no dedicated reset verb,
-  // rf2-lxwpob — so the ring clears and the machine RE-ARCS FROM BOOT). The
+  // re-make-frame with the SAME :initial-events — there is no dedicated
+  // reset verb — so the ring clears and the machine RE-ARCS FROM BOOT). The
   // signal-bearing proof a REAL replay ran —
   // not a no-op — is the machine DATA being reset to its :initial value: the
   // accumulated `:opened-count` (>0 above, asserted as the baseline) must
@@ -3584,7 +3579,7 @@ async function runMachineEpochs(page, state) {
       /:rf\.error\/machine-action-exception/.test(e));
     if (bootThrow.length > 0) {
       failWithDetails(
-        'rf2-q3lfm — a non-fuse track threw a machine-action-exception on its '
+        'A non-fuse track threw a machine-action-exception on its '
         + 'boot-on-select; only SELECTING the fuse track may throw',
         { machineActionExceptions: bootThrow });
     }
@@ -3641,7 +3636,7 @@ async function runMachineEpochs(page, state) {
 }
 
 // ===========================================================================
-// TWO-FRAME ISOLATION (rf2-4279q4)
+// TWO-FRAME ISOLATION
 // ===========================================================================
 //
 // The two-frame deck mounts the standard-epochs button ladder TWICE — once
@@ -3657,10 +3652,10 @@ async function runMachineEpochs(page, state) {
 // and the APP-SCHEMA step (label "Bad app-db write", 1-based step 19 →
 // runner index 18, which writes an int into `[:auth :token]` and the
 // frame-local app-schema rolls the `:db` back) — IN BOTH FRAMES, and asserts
-// the per-frame ISOLATION the deck exists to prove. Before this scenario
-// existed these two rungs were INERT: nothing exercised them in the
-// `:above` / `:below` frames, so the deck's central isolation claim for
-// flows + app-schemas carried no automated signal.
+// the per-frame ISOLATION the deck exists to prove. Without it these two
+// rungs would be INERT: nothing would exercise them in the `:above` /
+// `:below` frames, so the deck's central isolation claim for flows +
+// app-schemas would carry no automated signal.
 
 // The 0-based runner indices for the two rungs under test. Named off the
 // standard-epochs step ladder (standard_epochs/core.cljs §steps): the FLOW
@@ -3762,8 +3757,7 @@ async function runTwoFrameIsolation(page, state) {
   // (still `:base 1`, `:derived 2`): a flow is frame-scoped state, so driving
   // `:above` cannot move `:below`'s derived slot. (If the flow leaked across
   // frames — or if `:derived` did not recompute — this assertion times out
-  // and the gate goes red. Pre-fix NOTHING drove this rung, so the leak/no-op
-  // class was unobserved.)
+  // and the gate goes red.)
   await runTwoFrameStep(page, 'above', TWO_FRAME_FLOW_STEP);
   const aAfterFlow = await waitForTwoFrameDb(
     page, 'above',
@@ -3800,7 +3794,7 @@ async function runTwoFrameIsolation(page, state) {
   // Drive the APP-SCHEMA step in `:above` ONLY. The handler writes an int
   // (42) into `[:auth :token]`; the frame-local app-schema (`[:auth] →
   // [:map [:token :string]]`, registered once globally, resolved per-frame)
-  // REJECTS the candidate BEFORE install (rf2-uhk9ko) — so `:above`'s
+  // REJECTS the candidate BEFORE install — so `:above`'s
   // `[:auth :token]` must still read the seed STRING "seed-token", NOT 42.
   // The still-a-string read is the observable proof the schema fired AND
   // the rejection engaged in `:above`'s frame. `:below` MUST be wholly
@@ -3857,14 +3851,14 @@ const SCENARIOS = [
     url: '/counter/',
     // PR-smoke tier. The tab handoff over the counter surface is the
     // highest-signal Xray scenario — it boots the shell, walks every L3
-    // tab, and proves the chrome wiring. Kept on the PR critical path;
+    // tab, and proves the chrome wiring. It runs on the PR critical path;
     // the rest of the matrix runs nightly.
     smoke: true,
     panels: PANEL_HANDOFFS.map(([id]) => id),
     // Coverage spans the L3 tabs that have a UI handoff. Issues surface
     // inline in the Epoch panel + the L2 event-row pink-wash + the
     // always-on issues ribbon signal. Surfaces without a tab (e.g. Time
-    // Travel, Hydration, Effects) are covered, where still functionally
+    // Travel, Hydration, Effects) are covered, where functionally
     // present, by their dedicated substrate scenarios.
     coveredRows: [
       'Epoch Panel',
@@ -3878,16 +3872,15 @@ const SCENARIOS = [
   {
     name: 'source coordinates and launch-mode availability',
     url: '/counter/',
-    // PR-smoke tier (rf2-61i5). This scenario carries the ONLY browser
+    // PR-smoke tier. This scenario carries the ONLY browser
     // proof that the pop-out document has its own keyboard listener —
     // DOM key events do not cross realms, so no unit test and no
     // opener-side scenario can stand in for it. Left nightly-only, the
-    // regression class it guards is absent from exactly the runs a merge
-    // decision reads, which is how the first version of the probe merged
-    // green without ever having been executed. It rides `/counter/`,
+    // regression class it guards would be absent from exactly the runs a
+    // merge decision reads. It rides `/counter/`,
     // already staged for the smoke tier by the shell-sweep and palette
-    // scenarios, so promotion costs one scenario's runtime and no extra
-    // compile.
+    // scenarios, so it costs the smoke tier one scenario's runtime and no
+    // extra compile.
     smoke: true,
     panels: ['trace'],
     coveredRows: [
@@ -4047,14 +4040,14 @@ const SCENARIOS = [
     run: runMachineEpochs,
   },
   {
-    // The two-frame isolation deck (rf2-4279q4): the standard-epochs ladder
+    // The two-frame isolation deck: the standard-epochs ladder
     // mounted twice (`:above` / `:below`). Drives the FLOW rung (step 5 —
     // `:standard-epochs/derived` reg-flow recompute) + the APP-SCHEMA rung
     // (step 19 — `[:auth :token]` schema rejection) in BOTH frames and
     // asserts per-frame ISOLATION off each frame's app-db (`app-db-value`):
     // a flow recompute / a schema violation+rejection in one frame never
-    // moves the other. These two cross-frame rungs were INERT before this
-    // scenario — nothing exercised them in the above/below frames.
+    // moves the other. Without this scenario these two cross-frame rungs
+    // would be INERT — nothing would exercise them in the above/below frames.
     name: 'two-frame isolation: flow + app-schema rungs exercise + isolate across :above / :below (rf2-4279q4)',
     url: '/testbeds/two-frame-isolation/',
     panels: [],
