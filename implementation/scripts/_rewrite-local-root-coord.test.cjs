@@ -1,26 +1,25 @@
 #!/usr/bin/env node
 /*
- * Unit test for `.github/scripts/rewrite-local-root-coord.sh` (rf2-ldkuk).
+ * Unit test for `.github/scripts/rewrite-local-root-coord.sh`.
  *
  * The script swaps a leaf's in-repo `:local/root "<path>"` coordinate for
  * the published `:mvn/version "<version>"` before clein packages the jar.
  * It is load-bearing for correctness, not convenience: `clein pom`
- * SILENTLY SKIPS :local/root coordinates (rf2-do3m2 / #6340), so a pom
+ * SILENTLY SKIPS :local/root coordinates, so a pom
  * built without this rewrite carries no day8/re-frame2 dependency at all.
  *
- * THE BUG THIS FIXES (rf2-ldkuk): the inline step this replaces asserted a
- * RAW substring count of 1. A `;;` comment quoting the same coordinate
- * therefore counted as a second "occurrence" — and reagent-slim's header
- * comment does exactly that, so `day8/reagent-slim` could not be released
- * at all. The fix is not to reword one comment (the next ordinary comment
- * reintroduces the abort — eight of the thirteen leaves already document
- * coordinates in prose comments) but to make the match comment-aware, so
- * the invariant is honest rather than luck.
+ * WHY THE MATCH IS COMMENT-AWARE: a RAW substring count of 1 would count a
+ * `;;` comment quoting the same coordinate as a second "occurrence" — and
+ * reagent-slim's header comment does exactly that, so `day8/reagent-slim`
+ * could not be released at all. Rewording one comment would not help (the
+ * next ordinary comment reintroduces the abort — leaves routinely document
+ * coordinates in prose comments); a comment-aware match keeps the invariant
+ * honest rather than lucky.
  *
  * Pattern mirrors `_transform-reagent-slim-ns.test.cjs`: spawn the real
  * shell script via `bash` with repo-relative paths and a cwd of REPO_ROOT
  * (the cross-platform form — see that file's `run()` comment for the Git
- * Bash / WSL rationale, rf2-6m7pn4). Discovered by `npm run test:scripts`.
+ * Bash / WSL rationale). Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -38,7 +37,7 @@ const RELEASE_YML = path.join(REPO_ROOT, '.github', 'workflows', 'release.yml');
 // Fixtures live INSIDE the repo (gitignored `.scratch/`) so a repo-relative
 // path reaches them under every supported Bash flavour. Lanes are
 // process-scoped and the shared root is never removed, so a concurrent
-// suite cannot delete this one's fixtures mid-run (rf2-2i1ay).
+// suite cannot delete this one's fixtures mid-run.
 const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const VERSION = '9.9.9-TEST';
@@ -109,10 +108,10 @@ test('success: sibling :local/root deps on other paths are untouched', () => {
   );
 });
 
-// ── The rf2-ldkuk regression ──────────────────────────────────────────
+// ── Comments quoting the coordinate ───────────────────────────────────
 // This is the reagent-slim shape: a prose comment quoting the very literal
-// the rewrite keys off. Under the old raw-substring assertion this aborted
-// the deploy; the leaf was unreleasable.
+// the rewrite keys off. A raw-substring count would abort the deploy on it,
+// leaving the leaf unreleasable.
 test('regression (rf2-ldkuk): a comment quoting the literal does not break the rewrite', () => {
   const fix = fixture(
     [
@@ -238,8 +237,8 @@ test('the script is committed executable (release.yml invokes it directly)', () 
   // release.yml runs "$GITHUB_WORKSPACE/.github/scripts/…" as a command,
   // so a non-executable mode is a "Permission denied" abort on the runner.
   // Asserted via the git index rather than fs.statSync because Windows
-  // checkouts do not carry the POSIX exec bit — which is exactly why this
-  // slipped through local testing once already.
+  // checkouts do not carry the POSIX exec bit, so local testing on Windows
+  // cannot see a missing one.
   const res = spawnSync('git', ['ls-files', '-s', SCRIPT_REL], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
@@ -255,12 +254,12 @@ test('the script is committed executable (release.yml invokes it directly)', () 
 // ── The fleet gate: every declared leaf must rewrite cleanly ────────────
 // Parsed out of release.yml so the test follows the workflow rather than a
 // hand-copied duplicate of it. Every `- leaf:` declaration counts, across
-// BOTH deploy jobs: the `deploy-leaf` matrix (the eleven independent leaves)
-// and `deploy-ssr-ring`, which rf2-p4a93 moved into its own job so it cannot
-// publish ahead of the sibling `ssr` leaf its pom depends on. That job keeps
-// its leaf declaration in the same matrix shape precisely so this gate keeps
-// covering it; the ordering property itself is asserted in
-// _release-dag-policy.test.cjs.
+// every deploy job: the `deploy-leaf` matrix (the eleven independent leaves)
+// and the post-matrix `deploy-ssr-ring` and `deploy-fresco` jobs, each its
+// own job so it cannot publish ahead of the sibling `ssr` leaf its pom
+// depends on. Those jobs keep their leaf declaration in the same matrix shape
+// precisely so this gate covers them; the ordering property itself is
+// asserted in _release-dag-policy.test.cjs.
 function parseDeployLeafMatrix() {
   const yml = fs.readFileSync(RELEASE_YML, 'utf8');
   const leaves = [];
@@ -286,15 +285,9 @@ function parseDeployLeafMatrix() {
 test('every deploy-leaf rewrites its real deps.edn to exactly one published coord', () => {
   const leaves = parseDeployLeafMatrix();
   // Guard against a silent parse failure reading as green (the false-green
-  // trap): if release.yml's matrix shape changes, fail loudly here. Bumped
-  // 13 -> 14 for the day8/re-frame2-ui deploy leaf (rf2-vxgfnd.99.2 — the
-  // compiled-view substrate joins the lockstep release train), then
-  // 14 -> 13 when the helix deploy leaf left the train (S7/W13, rf2-d6epb),
-  // then 13 -> 12 when the ui leaf left it again (rf2-a32r7 — re-frame.ui is
-  // donor-only and is never published). It stayed 12 when rf2-p4a93 moved
-  // ssr-ring out of the matrix into its own job: 11 + 1. Then 12 -> 13 when
-  // rf2-gra70 wired day8/re-frame2-fresco into the release train, as a
-  // second post-matrix stage for the same reason ssr-ring is one: 11 + 2.
+  // trap): if release.yml's matrix shape changes, fail loudly here. 13 =
+  // the eleven deploy-leaf values + the two post-matrix stages (ssr-ring,
+  // fresco).
   //
   // The count is over LEAF DECLARATIONS, not matrix values — a post-matrix
   // stage keeps its single-value `matrix:` precisely so its deps.edn is
