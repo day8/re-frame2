@@ -3,9 +3,8 @@
 
   THE PROBLEM. re-frame2 has one truth — the public API — with many
   projections (spec/API.md, the per-tool specs, the docs, the MCP tool
-  descriptors, the skills). Projections drift. A one-time reconciliation
-  fixes today's drift; a generated, CI-guarded MANIFEST prevents
-  tomorrow's.
+  descriptors, the skills). Projections drift, so a generated, CI-guarded
+  MANIFEST is the one truth every projection is checked against.
 
   THE ARTEFACT. `spec/api-manifest.edn` is the machine-readable public-API
   manifest — one row per public var:
@@ -31,9 +30,8 @@
       of the four the diff-time facade obligation names (spec/Conventions
       §Facade policy — tier, owner spec, facade-placement justification,
       recommended action); fields 1 and 2 are `:tier` and `:owner` above.
-      Before this pair existed the two remaining fields lived only in PR
-      bodies, so the manifest table Conventions describes could not be
-      read off the tree at all. `:action` is the closed placement verdict
+      Curating them here makes the manifest table Conventions describes
+      readable off the tree. `:action` is the closed placement verdict
       vocabulary `#{:keep :rename :move :internal-public}`;
       `:justification` is the prose reason — Conventions is explicit that
       *it was convenient* is not one and *every consumer calls it on
@@ -68,9 +66,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Locating the repo root + artefact paths.
 ;;
-;; The generator runs from implementation/scripts/api-manifest/; the repo
-;; root is four levels up. We resolve it relative to *this* file's
-;; classpath entry so the generator works from any CWD on any platform.
+;; The generator runs from implementation/scripts/api-manifest/, which the
+;; clojure CLI sets as `user.dir`; the repo root is three levels above it.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private here
@@ -112,15 +109,13 @@
     re-frame.resources
     re-frame.flows
     re-frame.ssr
-    ;; The head/meta contract's public door (rf2-kuky.87). It became a
-    ;; consumer-facing surface when the SSR query re-exports left
-    ;; `re-frame.core`: `reg-head` and `default-head` are reached ONLY
+    ;; The head/meta contract's public door. `default-head` is reached ONLY
     ;; here, so an app or host `(:require [re-frame.ssr.head :as head])`
     ;; directly. Its two producing sub-namespaces
     ;; (`re-frame.ssr.head.emit` / `.registry`) stay internal below.
     re-frame.ssr.head
     re-frame.ssr.ring
-    ;; The two JVM-loadable namespaces of the ssr-node crossing (rf2-8arzr.7).
+    ;; The two JVM-loadable namespaces of the ssr-node crossing.
     ;; Both are requires-directly host-adapter surfaces that nothing
     ;; re-exports: `re-frame.ssr.ring.node` provides `renderer`, the one
     ;; non-local `:renderer` the reference ships (the JVM→Node adapter over
@@ -128,9 +123,7 @@
     ;; `re-frame.ssr.render-state` is the render-visible projection that seam
     ;; runs. spec/API.md §Namespaces places them at the `:implementation`
     ;; tier "on the same footing as `re-frame.ssr.ring`'s own vars", so they
-    ;; are rowed here and NOT rowed as var-rows in spec/API.md. They shipped
-    ;; unenrolled — public vars, no `^:no-doc`, zero manifest rows — which is
-    ;; the hole the roster-completeness gate below now closes.
+    ;; are rowed here and NOT rowed as var-rows in spec/API.md.
     re-frame.ssr.render-state
     re-frame.ssr.ring.node
     re-frame.epoch
@@ -139,15 +132,12 @@
     ;; whose `:cljs` arm is the runtime aliases — a SPLIT-HOST public
     ;; namespace, so each host inventories the arm it can see: `ns-publics`
     ;; here returns the macros, and the CLJS probe reconciles the aliases
-    ;; against these same `:classification` rows (rf2-phm7g).
+    ;; against these same `:classification` rows.
     re-frame.fresco
-    ;; The event-bundle projection surface (rf2-kuky.72). Its two public fns
-    ;; — `group-by-event` and `domino-bucket` — used to be rowed at their
-    ;; `re-frame.core` facade twins on the justification that the producing
-    ;; home carried no manifest rows. That justification named the wrong home
-    ;; (`re-frame.trace.tooling`) and is what this enrolment retires: the
-    ;; twins are deleted and the projection namespace IS the door tools
-    ;; already require directly. `empty-event-bundle` and `absorb` carry
+    ;; The event-bundle projection surface. Its two public fns —
+    ;; `group-by-event` and `domino-bucket` — have no `re-frame.core` facade
+    ;; twins: this namespace IS the door tools require directly, so it is
+    ;; where they are rowed. `empty-event-bundle` and `absorb` carry
     ;; `^:no-doc` and stay out; everything else in the namespace is private.
     re-frame.trace.projection
     ;; Tool artefacts with JVM-loadable public surfaces.
@@ -202,7 +192,7 @@
           (file-seq root))))
 
 ;; ---------------------------------------------------------------------------
-;; Roster completeness (rf2-8arzr.7 — restoring the mechanism of rf2-o8xev).
+;; Roster completeness.
 ;;
 ;; THE HOLE. `jvm-namespaces` above is an EXPLICIT roster, and `doc_api_check`
 ;; derives ITS namespace roster from the rows that roster produces. So a
@@ -211,89 +201,49 @@
 ;; every public var in it is invisible to every manifest-derived gate at once.
 ;; A completeness check keyed on the roster cannot see what the roster omits.
 ;;
-;; WHY THIS IS BEING WRITTEN A SECOND TIME. It is not a new idea. rf2-o8xev
-;; built exactly this reconciliation for `implementation/freehand/src`, with
-;; a public roster, an internal roster and an assertion called FIRST in
-;; `build-manifest`. Freehand's retirement (rf2-0yp7w.6, commit c951808b47)
-;; deleted the tree and — correctly, since the gate refuses to build when a
-;; source namespace is named by neither roster — retired the rosters, the
-;; assertion and its call site with it. What it left behind was
-;; `namespaces-under` and `source-file->ns-sym`: the two pure helpers, with no
-;; caller. The gate was not forgotten, it was ORPHANED, and the orphan reads
-;; exactly like a live backstop to anyone grepping for one. Three namespaces
-;; then shipped unscanned through the gap (`re-frame.ssr.ring.node`,
-;; `re-frame.ssr.render-state`, `re-frame.fresco.server`).
-;;
 ;; THE GATE. It infers NOTHING about publicness: no namespace is
-;; auto-enrolled, no var is auto-published, and `^:no-doc` carve-outs behave
-;; exactly as before. It asserts only that every source namespace under a
+;; auto-enrolled, no var is auto-published, and `^:no-doc` carve-outs are
+;; untouched. It asserts only that every source namespace under a
 ;; covered root has been ACCOUNTED FOR — named either in `jvm-namespaces`
 ;; above (a supported surface, introspected and rowed), in the sidecar's
 ;; `:cljs-only` rows (a surface the JVM cannot require), or in
-;; `internal-namespaces` below (plumbing nobody authors against). A newly
-;; shipped namespace is in none of the three, so it fails BY NAME with the
+;; `internal-namespaces` below (plumbing nobody authors against). A new
+;; namespace is in none of the three, so it fails BY NAME with the
 ;; ways to answer for it. Classification stays a human decision; only the
 ;; OBLIGATION to make one is automated.
 ;;
-;; WHY THESE ROOTS AND NOT EVERY TREE. Deliberately narrow, and the narrowness
-;; is the honest part of this fix rather than a shortcut. The SSR trees are
-;; where the class just recurred, and enrolling a tree is not free: every
+;; WHY THESE ROOTS AND NOT EVERY TREE. Enrolling a tree is not free: every
 ;; namespace in it must be classified by a human, once, and recorded below.
-;; `implementation/fresco/src` joined them under rf2-3ne8, and what it cost is
-;; worth recording, because it is the argument for the gate rather than against
-;; it. Twenty-four of its twenty-six namespaces were unaccounted, and the
-;; assumption — this bead's own, and the dispatch's — was that they were mostly
-;; internal. FIVE WERE PUBLIC AUTHORING SURFACES: `.forms`, `.motion`,
-;; `.overlay`, `.native` and `.substrate`, each carrying a require-me-directly
-;; example in its own ns docstring, and `.substrate` supplying the very adapter
-;; `(rf/init! …)` takes. They had shipped with no manifest row and no
-;; documentation page, and nothing but this gate would have said so. They were
-;; tiered honestly and given pages rather than quieted with `^:no-doc`; the two
-;; tool-tier namespaces (`.tool`, `.evidence`) were rowed `:tooling`, which
-;; obliges no page; the eighteen `re-frame.fresco.impl.*` are below.
-;; Widening to the remaining artefacts is a per-tree decision with a per-tree
-;; cost; the point of the data-driven shape below is that each is a root plus
-;; its classifications, never another mechanism.
+;; Each covered tree is a root plus its classifications, never another
+;; mechanism.
 ;;
-;; ROUTING AND RESOURCES joined under rf2-hjj4, executing step 2 of the
-;; rf2-qvhx ruling, and their result is worth recording because it points the
-;; OTHER WAY from fresco's. They were chosen on blast radius — the two trees
-;; judged most likely to hide a public authoring surface an application
-;; requires directly. Fifty-one namespaces were unaccounted (routing 28,
-;; resources 23) and ALL FIFTY-ONE classified internal: no new manifest row, no
-;; new documentation page, the row count unchanged. The reason the two trees
-;; differ from fresco is structural rather than lucky. Both are FAÇADE
-;; artefacts — one enrolled door re-exporting what an app may call (27 rows for
-;; routing, 21 for resources), with the siblings holding handler bodies,
-;; `*-meta` registration maps, cofx constructors, `*-sub-fn` bodies and
-;; host-side caches. Fresco is the opposite shape: its optional modules are
-;; separately requirable BECAUSE they are opt-in, so its door could not
-;; re-export them. That distinction is the useful predictor for the remaining
-;; trees, and it is what rf2-hjj4's verdict rests on.
+;; THE RULE: enrol a tree WHEN IT ACQUIRES A SECOND REQUIRABLE DOOR — never
+;; off a queue of trees ordered by size or by guessed blast radius. Nothing
+;; can hide behind a single re-exporting door, because the door is already
+;; rowed. Routing and resources are FAÇADE artefacts — one enrolled door
+;; re-exporting what an app may call (27 rows for routing, 21 for resources),
+;; with the siblings holding handler bodies, `*-meta` registration maps, cofx
+;; constructors, `*-sub-fn` bodies and host-side caches — so all fifty-one of
+;; their sibling namespaces are internal. Fresco is the opposite shape: its
+;; optional modules (`.forms`, `.motion`, `.overlay`, `.native` and
+;; `.substrate`) are separately requirable BECAUSE they are opt-in, so its
+;; door cannot re-export them, and each is enrolled as the public authoring
+;; surface it is. `machines`, `http`, `schemas`, `flows`, `epoch` and `core`
+;; each publish ONE façade namespace already in `jvm-namespaces`, so the ~190
+;; namespaces beneath them stay unenrolled. Rubber-stamping them to reach a
+;; green is not coverage; it is effort spent producing the appearance of it,
+;; and a rubber-stamped classification is worse than none because it looks
+;; like a decision.
 ;;
-;; THAT PREDICTOR IS NOW THE RULE, and it REPLACED the schedule rather than
-;; pausing it (mayor ruling 2026-09-03, rf2-qvhx). Enrol a tree WHEN IT
-;; ACQUIRES A SECOND REQUIRABLE DOOR — never off a queue of trees ordered by
-;; size or by guessed blast radius, which is the axis routing and resources
-;; refuted. Nothing can hide behind a single re-exporting door, because the
-;; door is already rowed. `machines`, `http`, `schemas`, `flows`, `epoch` and
-;; `core` each publish ONE façade namespace already in `jvm-namespaces`, so
-;; the ~190 namespaces beneath them stay unenrolled on present evidence.
-;; Rubber-stamping them to reach a green is not coverage; it is effort spent
-;; producing the appearance of it, and a rubber-stamped classification is
-;; worse than none because it looks like a decision.
-;;
-;; THE ADAPTERS EXCEPTION WAS PRICED AND DECLINED. Adapters are requirable BY
-;; DEFINITION — an app requires the adapter it uses — so they wear the fresco
-;; shape rather than the façade one, and the ruling named them as the one tree
-;; worth enrolling next, at three namespaces. THE COUNT IS FIFTEEN: four
-;; adapter doors (reagent, uix, test-react, reagent-slim) plus a VENDORED
-;; REAGENT FORK of eleven `reagent2.*` files under reagent-slim. Enrolling a
-;; root obliges a classification for EVERY namespace beneath it, so the real
-;; bill is eleven rubber-stamp entries for somebody else's library internals —
-;; the exact editorial cost this section refuses. Before revisiting it, the
-;; question to answer is what to do about the vendored tree, not whether three
-;; doors are worth enrolling.
+;; THE ADAPTERS ARE NOT ENROLLED. Adapters are requirable BY DEFINITION — an
+;; app requires the adapter it uses — so they wear the fresco shape rather
+;; than the façade one. But enrolling a root obliges a classification for
+;; EVERY namespace beneath it: four adapter doors (reagent, uix, test-react,
+;; reagent-slim) plus a VENDORED REAGENT FORK of eleven `reagent2.*` files
+;; under reagent-slim, so the bill is eleven rubber-stamp entries for somebody
+;; else's library internals — the exact editorial cost this section refuses.
+;; The question to answer before enrolling them is what to do about the
+;; vendored tree.
 ;; ---------------------------------------------------------------------------
 
 (def roster-covered-roots
@@ -320,9 +270,8 @@
   classifier — which is precisely why the roster is written down instead of
   derived. The public doors of these five artefacts are `re-frame.ssr`,
   `re-frame.ssr.ring`, `re-frame.fresco`, `re-frame.routing` and
-  `re-frame.resources`, plus the two crossing surfaces rf2-8arzr.7 enrolled and
-  the Fresco modules rf2-3ne8 enrolled; everything below is reached only from
-  inside them.
+  `re-frame.resources`, plus the two ssr-node crossing surfaces and the
+  enrolled Fresco modules; everything below is reached only from inside them.
 
   READ THE GROUPING COMMENTS AS THE CLASSIFICATION. Each names what the group
   is and the checkable reason it is not a surface — most often the artefact's
@@ -345,9 +294,9 @@
      re-frame.ssr.response
      re-frame.ssr.ui-tree
      ;; `<head>` emission and the registry behind the façade. The façade
-     ;; itself (`re-frame.ssr.head`) is a SCANNED public door as of
-     ;; rf2-kuky.87 — see `jvm-namespaces` above; these two remain the
-     ;; producing internals it re-exports.
+     ;; itself (`re-frame.ssr.head`) is a SCANNED public door — see
+     ;; `jvm-namespaces` above; these two are the producing internals it
+     ;; re-exports.
      re-frame.ssr.head.emit
      re-frame.ssr.head.registry
      ;; Error capture and projection.
@@ -399,7 +348,7 @@
      re-frame.fresco.impl.mount
      re-frame.fresco.impl.roots
      ;; The two in-tree frame boundaries' shells, whose door re-exports them
-     ;; as `h/frame-root` / `h/frame-provider` (rf2-kuky.58).
+     ;; as `h/frame-root` / `h/frame-provider`.
      re-frame.fresco.impl.frame-boundary
      ;; Frame-locked ops and instance-key local state.
      re-frame.fresco.impl.frames
@@ -489,8 +438,8 @@
      re-frame.routing.sub-egress
      re-frame.routing.subs
      ;; Async lowering onto the shared reply envelope. Its own docstring is
-     ;; explicit that this is "internal lowering only" and that "the PUBLIC
-     ;; routing API … is unchanged".
+     ;; explicit that the PUBLIC routing API does not expose it and that
+     ;; "this is internal lowering only".
      re-frame.routing.reply
      ;; The bundle-isolated tooling sibling. Its ENTIRE public surface — both
      ;; algebra views — is already rowed at :tooling under `re-frame.routing`
@@ -576,8 +525,8 @@
      ;; window-focus / network-reconnect listeners. Both are installed and
      ;; torn down by the façade and by frame lifecycle; the app-facing controls
      ;; are the policy keys on a resource spec and the `:revalidate-on`
-     ;; frame-config key (rf2-kuky.33 — no façade fn, the frame lifecycle
-     ;; owns the listeners).
+     ;; frame-config key (no façade fn; the frame lifecycle owns the
+     ;; listeners).
      re-frame.resources.revalidate-listeners
      re-frame.resources.timers
      ;; The two LATE-BOUND cross-artefact integrations. Resources never
@@ -784,16 +733,15 @@
    (the framework), `re-frame.story` (the stories library) and
    `day8.re-frame2-xray.core` (the Xray devtool).
 
-   A SET rather than a predicate on purpose (rf2-i6kh): the facade-audit
+   A SET rather than a predicate on purpose: the facade-audit
    invariants below — `implementation-facade-rows`, `unjustified-facade-rows`,
    `bad-action-facade-rows` — are the mechanical home of the Conventions
    obligation, and that obligation is on FACADE exports generally, not on
    `re-frame.core` alone. Widening a set is the whole edit; a second
    predicate would let the two facades drift apart.
 
-   ALL THREE ARE NOW ENROLLED (rf2-ar67 added the Xray facade), so this set
-   is the generator's copy of the Conventions roster and the two are meant to
-   be read against each other.
+   ALL THREE ARE ENROLLED, so this set is the generator's copy of the
+   Conventions roster and the two are meant to be read against each other.
 
    BUT THE THIRD ARRIVES BY A DIFFERENT ROUTE, and the distinction matters
    before anyone edits this set. `facade?` below is consulted ONLY for
@@ -809,9 +757,7 @@
    THIS set and asserts each member contributes `:facade? true` rows to the
    COMMITTED MANIFEST — a check that reads the manifest, not `ns-publics`, so
    it reaches the CLJS arm exactly as well as the JVM one. Blank the sixteen
-   sidecar flags and that test goes red. Before rf2-ar67 the same reasoning
-   ran the other way: with no Xray rows to point at, naming it here would
-   have been a claim nothing could check."
+   sidecar flags and that test goes red."
   '#{re-frame.core re-frame.story day8.re-frame2-xray.core})
 
 (defn- facade?
@@ -903,12 +849,12 @@
             :owner             (:owner r)
             :status            (:status r)
             :facade?           (boolean (:facade? r))
-           ;; Per-row flag (rf2-2mtte): a `:cljs-only` row is
+           ;; Per-row flag: a `:cljs-only` row is
            ;; `:runtime-verified? true` once the CLJS-side enumeration
            ;; probe (implementation/scripts/api-manifest/probe/, run by
            ;; `npm run test:cljs`) covers its namespace — the probe is the
            ;; CLJS equivalent of the JVM `ns-publics` existence-check.
-           ;; Rows the probe does not (yet) cover stay `false`. The JVM
+           ;; Rows the probe does not cover stay `false`. The JVM
             ;; generator carries the curated flag through verbatim; it does
             ;; not itself run the CLJS probe.
             :runtime-verified? (boolean (:runtime-verified? r))}
@@ -932,7 +878,7 @@
 
 (defn duplicate-rows
   "Return a sorted vector of `[[namespace var] count]` for every
-   `[namespace var]` key carried by MORE THAN ONE manifest row (rf2-nlnd9y.2).
+   `[namespace var]` key carried by MORE THAN ONE manifest row.
 
    The manifest contract is one row per public var (this ns docstring's THE
    ARTEFACT note). JVM-derived rows are unique by construction (a namespace's
@@ -940,12 +886,12 @@
    pairs). But the curated `:cljs-only` sidecar rows are carried through
    VERBATIM and concatenated with the JVM rows, with no uniqueness check — so
    a duplicated `:cljs-only` entry, or a `:cljs-only` row colliding with a
-   JVM-derived row, produced a manifest with two rows for one var (possibly
-   with conflicting tier/kind/status/runtime metadata) and an inflated
-   row count. Downstream projections then either collapse the two rows to
-   one (`xray-spec-check`'s strict `[namespace var]` SET, which cannot
-   represent a duplicate at all) or tolerate multiple tiers — masking the
-   contradiction. Detecting duplicates HERE, before write / `--check`, keeps
+   JVM-derived row, would produce a manifest with two rows for one var
+   (possibly with conflicting tier/kind/status/runtime metadata) and an
+   inflated row count. Downstream projections would then either collapse the
+   two rows to one (`xray-spec-check`'s strict `[namespace var]` SET, which
+   cannot represent a duplicate at all) or tolerate multiple tiers — masking
+   the contradiction. Detecting duplicates HERE, before write / `--check`, keeps
    the one-row-per-var invariant where it is generated."
   [rows]
   (->> rows
@@ -957,7 +903,7 @@
 (defn implementation-facade-rows
   "Return a sorted vector of `[namespace var]` for every row that combines an
    implementation-only disposition (`:tier :implementation`) with
-   `:facade? true` (rf2-93sxp).
+   `:facade? true`.
 
    A facade export tiered `:implementation` is annotation, not removal: the
    var still resolves from its façade (`re-frame.core` / `re-frame.story`),
@@ -978,16 +924,16 @@
 
 (defn unjustified-facade-rows
   "Return a sorted vector of `[namespace var]` for every `:facade? true`
-   row whose `:justification` is missing or blank (rf2-2hpxo).
+   row whose `:justification` is missing or blank.
 
    Field 3 of the diff-time facade obligation (spec/Conventions.md §Facade
    policy) is the facade-placement justification — *why* a non-front-porch
    surface is nonetheless on the facade, or why a front-porch classification
    earns the export. Conventions calls a facade addition that lands without
-   the four fields \"a reviewable defect, not a style nit\"; until this axis
-   existed the obligation had no mechanical home, so a defect could only be
-   caught by a reviewer reading the PR body. Blank counts as missing: an
-   empty string records nothing.
+   the four fields \"a reviewable defect, not a style nit\"; this axis gives
+   the obligation a mechanical home, so the defect fails generation rather
+   than waiting for a reviewer to read the PR body. Blank counts as missing:
+   an empty string records nothing.
 
    Scoped to `:facade? true` deliberately. The obligation in Conventions is
    on FACADE exports; requiring prose on all ~528 rows would be a different,
@@ -1004,7 +950,7 @@
 (defn bad-action-facade-rows
   "Return a sorted vector of `[namespace var action]` for every
    `:facade? true` row whose `:action` is absent or outside
-   `facade-action-vocab` (rf2-2hpxo).
+   `facade-action-vocab`.
 
    Field 4 of the diff-time facade obligation is the recommended action —
    the placement verdict the audit inherits. It is a CLOSED vocabulary, so
@@ -1024,7 +970,7 @@
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
    an actionable message — that throw is what turns the drift-check red."
   [sidecar]
-  ;; ROSTER COMPLETENESS FIRST (rf2-8arzr.7). The reconciliations below all
+  ;; ROSTER COMPLETENESS FIRST. The reconciliations below all
   ;; read `jvm-namespaces`, so they can only report on namespaces the roster
   ;; already names — an unenrolled namespace is invisible to every one of
   ;; them. Asserting the rosters account for the source tree BEFORE any of
@@ -1052,7 +998,7 @@
                    "spec/api-manifest-metadata.edn):\n  "
                    (str/join "\n  " (map #(str/join "/" %) stale)))
               {:stale stale})))
-    ;; One-row-per-public-var invariant (rf2-nlnd9y.2). A duplicate
+    ;; One-row-per-public-var invariant. A duplicate
     ;; `[namespace var]` — within `:cljs-only`, or between a `:cljs-only`
     ;; row and a JVM-derived row — must FAIL generation / `--check`, never
     ;; ship two rows for one var (which inflates the row count and lets
@@ -1070,7 +1016,7 @@
                                     (str ns-str "/" var-str " (" n " rows)"))
                                   dups)))
               {:duplicates dups})))
-    ;; Facade-vs-disposition invariant (rf2-93sxp). A `:facade? true` row at
+    ;; Facade-vs-disposition invariant. A `:facade? true` row at
     ;; `:tier :implementation` says "internal" about a var that still exports
     ;; from its façade — annotation, not removal. Refuse it here so the
     ;; disposition has to land on the surface (Conventions §Removing or
@@ -1086,7 +1032,7 @@
                    "demote), or tier it as the surface it is:\n  "
                    (str/join "\n  " (map #(str/join "/" %) demoted)))
               {:implementation-facade demoted})))
-    ;; Facade-audit axes (rf2-2hpxo). Fields 3 and 4 of the diff-time facade
+    ;; Facade-audit axes. Fields 3 and 4 of the diff-time facade
     ;; obligation (Conventions §Facade policy) are curated on every
     ;; `:facade? true` row, so the manifest table Conventions describes is
     ;; readable off the tree instead of living in PR bodies.
