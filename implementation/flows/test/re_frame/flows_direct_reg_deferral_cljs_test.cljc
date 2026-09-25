@@ -2,12 +2,11 @@
   "Cross-host coverage for Spec 013 §Why a direct `reg-flow` does not settle.
 
   This file pins an ASYMMETRY, and it exists because that asymmetry looks like
-  an oversight and has already been mistaken for one (rf2-f3yl, filed against
-  the fixed rf2-g1zb). The plain function call `(rf/clear :flow id)` settles
+  an oversight. The plain function call `(rf/clear :flow id)` settles
   before it returns; the plain `reg-flow` deliberately does NOT. The tests
   below fix the deferral as intended behaviour and, more importantly, make its
   REASON executable — so an attempt to \"restore symmetry\" fails here, loudly,
-  with a name that says why, rather than being discovered by the 69 errors it
+  with a name that says why, rather than being discovered by the errors it
   causes elsewhere in this suite.
 
   ## The asymmetry, and why it is principled
@@ -28,25 +27,23 @@
   order-independent with respect to seeding.
 
   The replacement case is the same rule seen from the other side, and it is
-  the one most likely to be mistaken for the `clear-flow` defect: after a cold
+  the one most likely to be mistaken for an orphaned value: after a cold
   re-registration the slot still holds the PREVIOUS derive's value, which
   looks stale. It is not orphaned, though — a live, registered flow owns that
-  slot and the next drain refreshes it. `clear-flow`'s staleness had no owner
-  at all, which is precisely the difference that made it incoherent rather
-  than merely late (Spec 013 §Sequencing).
+  slot and the next drain refreshes it. An unsettled `clear-flow` would leave
+  staleness with no owner at all, which is precisely the difference that makes
+  it incoherent rather than merely late (Spec 013 §Sequencing).
 
   The `:rf.fx/reg-flow` route settles, and must — but NOT because a drain
   makes the hazard above impossible. It does not: a drain evaluates against
   the EVENT'S OWN pending `app-db`, which may be empty. The last two tests in
-  this file are that measurement, and they are why this paragraph no longer
-  reads the way it once did (rf2-f3yl post-merge audit of PR #9222). The real
-  difference is RESPONSIBILITY: an effect registration is issued from inside
+  this file are that measurement. The real difference is RESPONSIBILITY: an effect registration is issued from inside
   an event, so that event is the place to establish the inputs, and it
   REQUESTS evaluation now — a failure there is an ordinary event failure at
   the effect's explicit settle boundary. A direct registration has no such
   event to be responsible for, so it declares and lets the next drain
   evaluate. The boundary is a property of WHEN the call runs, not of the
-  operation — which is the same reasoning `clear-flow` used to reach the
+  operation — which is the same reasoning by which `clear-flow` reaches the
   opposite answer for itself.
 
   This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
@@ -236,16 +233,14 @@
             event, against whatever app-db that event leaves — so an effect
             registration whose declared inputs are not yet present evaluates
             the :derive on their absence and can fail normally"
-    ;; This is a CAVEAT on the section above, and it is here because the
-    ;; rationale it guards was once written the other way round. An earlier
-    ;; revision of Spec 013 §Why a direct `reg-flow` does not settle explained
-    ;; the effect route's safety by saying it runs inside a drain, "where
-    ;; app-db is by construction the application's live seeded state, so the
-    ;; hazard cannot arise". A drain guarantees no such thing: it is simply
-    ;; the event's own pending db, which may be empty, and this test is that
-    ;; sentence refuted (rf2-f3yl post-merge audit of PR #9222).
+    ;; This is a CAVEAT on the section above. It is tempting to explain the
+    ;; effect route's safety by saying it runs inside a drain, where app-db is
+    ;; by construction the application's live seeded state, so the hazard
+    ;; cannot arise. A drain guarantees no such thing: it is simply the
+    ;; event's own pending db, which may be empty, and this test is that
+    ;; claim refuted.
     ;;
-    ;; Nothing about the ASYMMETRY changes. The real distinction is one of
+    ;; The ASYMMETRY stands regardless. The real distinction is one of
     ;; timing that the caller controls: an effect registration REQUESTS
     ;; immediate evaluation, and its event is responsible for establishing or
     ;; preceding the inputs — a failure there is an ordinary event failure,
@@ -302,8 +297,8 @@
   (testing "the same effect registration on an event that establishes the
             inputs materialises the initial output on that event — which is
             what makes the caveat above a caveat rather than a defect"
-    ;; The other half of the caveat, and the reason it implies no lifecycle
-    ;; change: the effect route's immediacy is the feature. An event that
+    ;; The other half of the caveat, and the reason it is no lifecycle
+    ;; defect: the effect route's immediacy is the feature. An event that
     ;; seeds and registers in one go gets the initial output committed by the
     ;; time the dispatch returns, exactly as Spec 013 §Sequencing requires.
     (rf/reg-event :seed-and-register
