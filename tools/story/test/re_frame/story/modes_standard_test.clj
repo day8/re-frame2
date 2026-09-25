@@ -1,6 +1,6 @@
 (ns re-frame.story.modes-standard-test
   "Tests for `re-frame.story.modes.standard` — the canonical
-  viewport + background `reg-mode` bundle (rf2-wk41).
+  viewport + background `reg-mode` bundle.
 
   Pure-data registry — JVM-only is sufficient; the registrar runs on
   both runtimes and there is no view layer to exercise."
