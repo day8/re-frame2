@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.panels.reactivity.palette-invoke-reactivity-cljs-test
   "Sub-reactivity guard for the palette-invoke routing slot NOT
-  already pinned by the e2e harness (rf2-dhoc9 per-control-action
+  already pinned by the e2e harness (a per-control-action
   test).
 
-  De-dup note (rf2-dkmnm): the `:rf.xray/palette-open` /
+  De-dup note: the `:rf.xray/palette-open` /
   `:rf.xray/palette-close` / `:rf.xray/palette-toggle` open-slot
   round-trips (plus query-update, the `:toggle-theme` invoke path and
   the wrong-frame `*-survives-host-dispatch` assertion) are owned by
@@ -17,14 +17,14 @@
 (use-fixtures :each h/fixture)
 
 (deftest palette-invoke-select-tab-flips-selected-tab-sub
-  (testing "rf2-dhoc9 — `:rf.xray/palette-invoke` with action
+  (testing "`:rf.xray/palette-invoke` with action
             `:palette/select-panel <tab-id>` dispatches `:rf.xray/
             select-tab <tab-id>`. The `:rf.xray/selected-tab` sub
             re-fires with the new tab id. End-to-end the palette's
             tab-jump verb flips the chrome via the reactive path."
     (h/setup-xray-frame!)
     (is (= :epoch (h/read-sub :rf.xray/selected-tab))
-        "default selected-tab is :epoch (post rf2-5gl5r — supersedes :event)")
+        "default selected-tab is :epoch")
     (h/dispatch-xray!
       [:rf.xray/palette-invoke
        {:source :command
