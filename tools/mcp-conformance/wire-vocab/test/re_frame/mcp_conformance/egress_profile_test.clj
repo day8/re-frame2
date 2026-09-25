@@ -1,26 +1,21 @@
 (ns re-frame.mcp-conformance.egress-profile-test
-  "Cross-MCP `:rf.egress/*` profile NAME-SET conformance (EP-0015 §10,
-  rf2-qus09h; narrowed by rf2-kuky.88).
+  "Cross-MCP `:rf.egress/*` profile NAME-SET conformance (EP-0015 §10).
 
   EP-0015 graduates the named-egress model: an off-box MCP surface
   chooses *which boundary is this?* — a named `:rf.egress/*` profile —
   and the framework resolves the profile to its `:rf.egress/*` floor.
 
-  ## What this gate guards, and what it no longer needs to
+  ## What this gate guards
 
-  It used to guard TWO copies of one contract, because `mcp-base` carried
-  a pure-data MIRROR of the framework's profile→`:rf.egress/*` table so the
-  MCP servers could resolve a profile server-side without pulling the
-  framework runtime graph into their bundles. rf2-kuky.88 deleted that
-  mirror: every tool-side egress now NAMES a profile and
+  Every tool-side egress NAMES a profile and
   `re-frame.core/project-egress` resolves it APP-SIDE, where the framework
-  graph is already loaded. With one table there is nothing left to drift,
-  so the table-equality assertion and the per-profile floor pins are gone
-  — the floors are the framework's own to pin, and `implementation/core`
-  pins them.
+  graph is loaded. `mcp-base` carries no copy of the framework's
+  profile→`:rf.egress/*` table, so there is no table to drift and no
+  per-profile floor to pin here — the floors are the framework's own to
+  pin, and `implementation/core` pins them.
 
-  What survives is the half that is still two copies: the profile NAME
-  SET. `mcp-base` must enumerate exactly the framework's six names,
+  The half that IS two copies is the profile NAME SET. `mcp-base` must
+  enumerate exactly the framework's six names,
   because `mcp-tool-profile` returns one of those names and
   `project-egress` throws `:rf.error/unknown-egress-profile` on anything
   outside its own closed enum. A profile added or renamed in the framework
@@ -43,10 +38,10 @@
              "vocabulary. EP-0015 §10 closed enum."))))
 
 (deftest mcp-tool-profile-returns-a-name-the-framework-door-accepts
-  (testing (str "rf2-kuky.88 — the posture mapping the MCP servers share must "
+  (testing (str "the posture mapping the MCP servers share must "
                 "return a name `project-egress` will resolve, on BOTH postures. "
                 "This is the whole reason the name sets must agree: the servers "
-                "no longer resolve a floor, they ship a keyword the door reads.")
+                "do not resolve a floor, they ship a keyword the door reads.")
     (doseq [posture [false true]]
       (let [profile (rf.mcp-base.egress/mcp-tool-profile posture)]
         (is (contains? rf.projection/profiles profile)
