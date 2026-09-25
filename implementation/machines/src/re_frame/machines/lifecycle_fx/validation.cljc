@@ -650,8 +650,8 @@
 ;; reads only part of it there. It honours `:entry` / `:exit` / `:tags` (birth,
 ;; teardown, the tag union), `:spawn` (a child spawned at birth that ends with
 ;; the machine), `:on` (the ancestor fallback), `:initial` / `:states` /
-;; `:type` / `:regions`, and on a `:type :parallel` root `:after` (with the
-;; `:timeout` / `:on-timeout` that lowers onto it) and an action-only
+;; `:type`, and on a `:type :parallel` root its `:regions`, its `:after` (with
+;; the `:timeout` / `:on-timeout` that lowers onto it) and an action-only
 ;; `:on-done`. The keys below are read on a state node and never on the root —
 ;; the root is entered once at birth, never re-entered, and never a final
 ;; state — so each would register and do nothing. Reject them loudly, naming
@@ -666,8 +666,10 @@
   "State-node keys no runtime path reads on a flat / compound machine root, in
   addition to `root-unread-keys`. A parallel root's `:on-done` is its
   all-regions-final signal; a flat root finishes by entering a top-level
-  `:final?` state instead."
-  #{:on-done})
+  `:final?` state instead. The runtime runs `:regions` only under
+  `:type :parallel`, so on any other root they are the likeliest sign of a
+  missing `:type`."
+  #{:on-done :regions})
 
 (defn- root-slot-substitute
   "The substitute an author reaches for in place of root key `k`."
@@ -704,7 +706,12 @@
     :on-done
     (str "A flat or compound machine finishes by entering a top-level :final? "
          "state; to continue after a sub-flow completes, wrap it in a compound "
-         "state and declare :on-done there.")))
+         "state and declare :on-done there.")
+
+    :regions
+    (str ":regions run in parallel only on a :type :parallel root: declare "
+         ":type :parallel on the root, which then carries no :initial or "
+         ":states.")))
 
 (defn- validate-root-slots!
   "Reject every machine-root key no runtime path reads there with
@@ -2121,6 +2128,29 @@
                   :offending-keys [:on-done]
                   :valid-keys     (disj known :on-done)}))))))
 
+(defn- validate-state-regions!
+  "Refuse `:regions` on a state that is not `:type :parallel` with
+  `:rf.error/machine-unknown-node-key`, the id a leaf's `:on-done` is refused
+  under. The runtime runs `:regions` only on a `:type :parallel` machine root,
+  so on such a state they would be silently ignored. A parallel region body's
+  `:regions` is refused by `validate-region-slots!`, and a `:type :history`
+  node's by its own closed key set."
+  [state-key state-node]
+  (when (and (map? state-node)
+             (contains? state-node :regions)
+             (not= :parallel (:type state-node))
+             (not (history-node? state-node)))
+    (throw (validation-error
+             :rf.error/machine-unknown-node-key
+             (str "state " (key-label state-key) " declares :regions but is not "
+                  ":type :parallel — the runtime runs :regions only on a "
+                  ":type :parallel machine root, so here they would be silently "
+                  "ignored. Declare :type :parallel on the machine root and move "
+                  "the regions there.")
+             {:state          state-key
+              :offending-keys [:regions]
+              :valid-keys     (disj known-state-node-keys :regions)}))))
+
 (defn- validate-spawn-spec-keys!
   "Reject any unknown BARE key on a `:spawn` spec or a `:spawn-all` child spec at
   registration with `:rf.error/machine-unknown-spawn-key`. Namespaced keys pass
@@ -2389,17 +2419,24 @@
   Per Spec 005 §State nodes (the machine root): a machine root declaring a
   state-node key no runtime path reads on the root (`:spawn-all`,
   `:always`, `:choice`, `:final?`, `:output-key`, `:error?`, `:deep?`,
-  `:default-target`, and a flat root's `:on-done`) throws
-  `:rf.error/machine-root-slot-not-supported`. The root's own `:spawn` is held
+  `:default-target`, and a flat root's `:on-done` and `:regions`) throws
+  `:rf.error/machine-root-slot-not-supported`, before any other check reads
+  the root. The root's own `:spawn` is held
   to the same spawn grammar, target and ref checks a state's is. A parallel region body follows
   the same rule: one declaring `:spawn`, `:spawn-all`, `:always`, `:final?`,
   `:output-key`, `:error?`, `:deep?`, `:default-target` or `:regions` throws
-  it too, with `:path` naming the region."
+  it too, with `:path` naming the region. A state declaring `:regions` without
+  `:type :parallel` throws `:rf.error/machine-unknown-node-key`."
   [machine]
   ;; Every check below walks `:states` / `:regions` as maps and reads each
   ;; node's `:on` / `:after` as a map, the `:timeout` validator first among
   ;; them, so any other shape is refused before anything iterates it.
   (validate-definition-shape! machine)
+  ;; The root accepts the whole state-node vocabulary; refuse the part of it no
+  ;; runtime path reads on the root before any slot validator reads it. The
+  ;; `:timeout` validator walks a root's `:regions` bodies whatever the root's
+  ;; `:type`, so a flat root's `:regions` is refused here, ahead of it.
+  (validate-root-slots! machine)
   ;; Validate the `:timeout` / `:on-timeout` grammar on the raw spec, before
   ;; either desugar, so diagnostics name the `:timeout` / `:on-timeout` keys the
   ;; author wrote (timeout-requires-on-timeout pairing, the integer-ms /
@@ -2449,14 +2486,12 @@
   ;; `:states`, so validate the root explicitly (a typo'd top-level key —
   ;; `:innitial`, `:gaurds` — must not slip through).
   (validate-node-keys! :rf/root machine true)
-  ;; The root accepts the state-node vocabulary above; refuse the part of it
-  ;; no runtime path reads on the root, before any slot validator reads it.
-  (validate-root-slots! machine)
   (validate-spawn-spec-keys! :rf/root machine)
   (validate-node-transition-keys! :rf/root machine)
   (validate-tags! :rf/root machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-node-keys! s n false)
+    (validate-state-regions! s n)
     (validate-spawn-spec-keys! s n)
     (validate-node-transition-keys! s n)
     (validate-tags! s n))

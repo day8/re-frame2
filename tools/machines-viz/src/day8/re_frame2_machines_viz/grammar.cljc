@@ -630,8 +630,8 @@
   "State-node keys no runtime path reads on a flat / compound machine root, in
   addition to `root-unread-keys` — mirror of the engine's
   `validation/flat-root-unread-keys`. A parallel root's `:on-done` is its
-  all-regions-final signal."
-  #{:on-done})
+  all-regions-final signal, and `:regions` run only under `:type :parallel`."
+  #{:on-done :regions})
 
 (def ^:private region-unread-keys
   "State-node keys no runtime path reads on a parallel region body — mirror of
