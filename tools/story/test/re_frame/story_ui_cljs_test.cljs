@@ -1,5 +1,5 @@
 (ns re-frame.story-ui-cljs-test
-  "CLJS smoke tests for re-frame2-story Stage 4 (rf2-ekai).
+  "CLJS smoke tests for the re-frame2-story shell.
 
   The UI shell is Reagent-rendered, so the bulk of coverage is shape
   rather than visual — we exercise:
@@ -7,13 +7,13 @@
   - The pure shell-state helpers (selection, filters, fingerprints).
   - The pure layout resolver (`:grid`, `:prose`, `:variants-grid`).
   - The pure trace cascade grouper (six-domino projection — framework
-    code, consumed by Xray's Trace tab post-rf2-sgdd3).
+    code, consumed by Xray's Trace tab).
   - The pure argtype inference + sidebar tag collection.
   - The public mount/unmount surface on `re-frame.story`.
 
   The visual / interaction shape (clicking a variant row triggers a
-  re-render) lives in the browser-test target (Stage 4 ships the smoke
-  layer; Stage 8's examples integration covers end-to-end Playwright)."
+  re-render) lives in the browser-test target; this ns is the smoke
+  layer."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
@@ -68,16 +68,16 @@
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.foo/bar)
     (is (= :story.foo/bar (:selected-variant (rf.story.ui.state/get-state))))))
 
-;; rf2-hscut — variant-row click clears the workspace slot so workspace
-;; mode is no longer a one-way door. `main-pane` in `shell.cljs` short-
+;; A variant-row click clears the workspace slot so workspace
+;; mode is not a one-way door. `main-pane` in `shell.cljs` short-
 ;; circuits on `:selected-workspace`, so a variant click that does NOT
 ;; clear it is invisible from the canvas. This is the symmetric mirror
 ;; of the workspace-row handler which clears `:selected-variant`.
 ;;
 ;; The click handler lives inline in the private `variant-row` reagent
 ;; component (`sidebar.cljs`), so we exercise the same pure swap-state!
-;; composition the closure runs — that is the unit of behaviour the bug
-;; fix codifies.
+;; composition the closure runs — that is the unit of behaviour under
+;; test.
 (deftest variant-click-clears-workspace-rf2-hscut
   (testing "selecting a variant from the sidebar clears any selected workspace"
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-workspace :Workspace.nav/all)
@@ -270,15 +270,13 @@
       (is (= :variant (-> cells (nth 1) :type)))
       (is (= :prose   (-> cells (nth 2) :type))))))
 
-;; ---- workspace: variant cell renders the variant view (rf2-zme7) --------
+;; ---- workspace: variant cell renders the variant view -------------------
 ;;
-;; rf2-zme7 — Mike's screenshot of #/stories with
-;; `:Workspace.counter/auto-grid` selected showed every variant card
-;; rendering as an empty frame: title + "variant frame: <id>" stub, no
-;; counter UI inside. Root cause: workspace.cljc's `variant-cell` was a
-;; Stage-4-era stub that never called `rf/view` — it shipped a label
-;; and a placeholder div instead of invoking the registered view in the
-;; variant's allocated frame. This test pins the regression: the
+;; A workspace `variant-cell` must invoke the registered view in the
+;; variant's allocated frame. A cell that emitted only a label and a
+;; placeholder div would render every card of a workspace such as
+;; `:Workspace.counter/auto-grid` as an empty frame — title + stub, no
+;; counter UI inside. This test pins it: the
 ;; workspace renderer for a `:grid` layout with one variant must emit
 ;; hiccup that references the variant id and, when the variant has a
 ;; registered `:component`, includes a `frame-provider` wrap with that
@@ -287,7 +285,7 @@
 
 (deftest workspace-view-emits-variant-cells-with-frame-providers
   (testing "workspace-view renders each variant cell with a
-            frame-provider wrap scoped to the variant id (rf2-zme7)"
+            frame-provider wrap scoped to the variant id"
     ;; Register a tiny view + variant + workspace. The view returns a
     ;; sentinel hiccup tag so we can find it in the rendered tree.
     (rf/reg-event :rf2-zme7/init (fn [{:keys [db]} _] {:db (assoc db :marker 42)}))
@@ -317,7 +315,7 @@
       ;; component itself shows up as a vector beginning with the cell
       ;; component fn. We at least confirm the workspace produced
       ;; non-empty grid contents and the cell fn appears as a child.
-      ;; The wrap is a `<section>` landmark per rf2-xc65 (a11y).
+      ;; The wrap is a `<section>` landmark (a11y).
       (is (vector? tree))
       (is (= :section (first tree))))))
 
@@ -330,20 +328,18 @@
                                (re-find #"not registered" %))
                          (tree-seq coll? seq tree)))))))
 
-;; ---- workspace cell keys are variant-id-derived (rf2-kgn0c) -------------
+;; ---- workspace cell keys are variant-id-derived -------------------------
 ;;
-;; Position-only React keys (`(str "v-" i)`) let React reconcile the prior
-;; workspace's `variant-cell` components in place when the user switched
-;; to a different `:variants-grid` workspace — same layout / same cell
-;; positions / same component type. The cell's `r/with-let` initialiser
-;; only runs once per mount, so the NEW variant's frame was never
-;; allocated by `run-variant-with-shell-opts!`. Subscribes against the
-;; un-allocated frame returned nil and `@nil` threw
-;; `No protocol method IDeref.-deref defined for type null` —
-;; ~22 pageerrors on the second workspace's app-db-diff variants
-;; observed in PR #1254's Phase 1b smoke.
+;; Position-only React keys (`(str "v-" i)`) would let React reconcile the
+;; prior workspace's `variant-cell` components in place when the user
+;; switches to a different `:variants-grid` workspace — same layout / same
+;; cell positions / same component type. The cell's `r/with-let`
+;; initialiser only runs once per mount, so the NEW variant's frame would
+;; never be allocated by `run-variant-with-shell-opts!`; subscribes
+;; against the un-allocated frame would return nil and `@nil` would throw
+;; `No protocol method IDeref.-deref defined for type null`.
 ;;
-;; Fix: cell keys derive from variant-id, and the workspace root carries
+;; So cell keys derive from variant-id, and the workspace root carries
 ;; a workspace-id key. Two distinct workspaces with overlapping cell
 ;; positions therefore produce disjoint React keys and React unmounts
 ;; the old cells / mounts fresh ones — `r/with-let` re-fires against
@@ -369,7 +365,7 @@
        (remove nil?)
        set))
 
-;; rf2-ba86n.18 — `find-tabs-renderer-call` (defined with the tabs helpers
+;; `find-tabs-renderer-call` (defined with the tabs helpers
 ;; below) ALSO extracts the capped-grid renderer's `[fn cells]` call; the
 ;; grid-key tests just below it use it, so forward-declare to avoid an
 ;; undeclared-var warning (the helper body lives with its siblings).
@@ -378,7 +374,7 @@
 (deftest workspace-grid-cells-key-on-variant-id-rf2-kgn0c
   (testing ":grid layout cells use variant-id-derived React keys so
             React mounts fresh cells when a workspace swap changes the
-            variant set (per rf2-kgn0c)"
+            variant set"
     (rf.story/reg-variant :story.rf2-kgn0c.a/x {:setup []})
     (rf.story/reg-variant :story.rf2-kgn0c.a/y {:setup []})
     (rf.story/reg-variant :story.rf2-kgn0c.b/p {:setup []})
@@ -389,7 +385,7 @@
     (rf.story/reg-workspace :Workspace.rf2-kgn0c.b/grid
       {:layout   :grid
        :variants [:story.rf2-kgn0c.b/p :story.rf2-kgn0c.b/q]})
-    ;; rf2-ba86n.18 — the `:grid` branch now mounts the capped-grid
+    ;; The `:grid` branch mounts the capped-grid
     ;; renderer (`[capped-grid-renderer cells]`); extract + invoke its
     ;; inner fn (same `[fn cells]` shape as tabs) to get the rendered
     ;; cell tree, then walk for variant-id keys.
@@ -413,7 +409,7 @@
 
 (deftest workspace-variants-grid-cells-key-on-variant-id-rf2-kgn0c
   (testing ":variants-grid layout cells use variant-id-derived React
-            keys (the layout the Phase 1b smoke triggered the bug on)"
+            keys"
     (rf.story/reg-variant :story.rf2-kgn0c-vg.a/x {:setup []})
     (rf.story/reg-variant :story.rf2-kgn0c-vg.a/y {:setup []})
     (rf.story/reg-variant :story.rf2-kgn0c-vg.b/p {:setup []})
@@ -421,7 +417,7 @@
       {:layout :variants-grid})
     (rf.story/reg-workspace :Workspace.rf2-kgn0c-vg.b/all
       {:layout :variants-grid})
-    ;; rf2-ba86n.18 — isolated `:variants-grid` also mounts the capped-grid
+    ;; Isolated `:variants-grid` also mounts the capped-grid
     ;; renderer; extract + invoke its inner fn to reach the cell tree.
     (let [render  (fn [ws-id]
                     (let [{renderer :fn cells :cells args :args}
@@ -451,16 +447,14 @@
           (str "workspace-root key MUST embed the workspace id; got "
                (pr-str k))))))
 
-;; ---- :tabs serialises rendering (rf2-ktnl8) -----------------------------
+;; ---- :tabs serialises rendering -----------------------------------------
 ;;
-;; Pre-fix, `:tabs` fell through to the `:else` (grid) branch in
-;; `workspace-view` and rendered every variant cell simultaneously. For
-;; views that internally hardcode a frame-provider (rf2-sszlr's
-;; `gallery_chrome.cljs` is the canonical example) simultaneous cells
-;; collapsed their interior state — the last-seeded variant's app-db
-;; bled into every other cell.
+;; Rendering every `:tabs` variant cell simultaneously, as the grid does,
+;; would collapse the interior state of views that internally hardcode a
+;; frame-provider (a gallery-chrome view is the canonical example) — the
+;; last-seeded variant's app-db would bleed into every other cell.
 ;;
-;; Post-fix: a dedicated `tabs-renderer` mounts ONE cell at a time. A
+;; So a dedicated `tabs-renderer` mounts ONE cell at a time. A
 ;; tab strip switches the active tab; only the active variant's
 ;; `variant-cell` appears in the rendered tree. Per-variant state
 ;; isolation is therefore intrinsic — distinct mounts share nothing.
@@ -477,7 +471,7 @@
   `{:fn renderer :cells cells :args trailing-args}` or nil. The
   workspace-view mounts `:tabs` as `[tabs-renderer cells]` AND `:grid` /
   isolated `:variants-grid` as `[capped-grid-renderer cells columns]`
-  (rf2-ba86n.18; rf2-ugmrg added the trailing `:columns` arg) — both
+  (with a trailing `:columns` arg) — both
   share the `[fn cells …]` shape, so this helper extracts either
   renderer's inner call regardless of trailing args. Callers invoke
   `(apply renderer cells args)` (or `(renderer cells)` for the
@@ -524,9 +518,8 @@
 
 (deftest tabs-layout-delegates-to-tabs-renderer-rf2-ktnl8
   (testing ":tabs workspace dispatches to the tabs-renderer rather than
-            falling through to the grid pipeline (per rf2-ktnl8 — pre-
-            fix `:tabs` collapsed to grid and rendered every cell
-            simultaneously)"
+            falling through to the grid pipeline (collapsing `:tabs` to
+            grid would render every cell simultaneously)"
     (rf.story/reg-variant :story.rf2-ktnl8/a {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8/b {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8/c {:setup []})
@@ -546,7 +539,7 @@
 
 (deftest tabs-renderer-mounts-only-the-selected-cell-rf2-ktnl8
   (testing "tabs-renderer mounts ONLY the active tab's variant-cell —
-            simultaneous-render bleed (rf2-ktnl8) cannot occur because
+            simultaneous-render bleed cannot occur because
             non-active cells are not present in the rendered tree"
     (rf.story/reg-variant :story.rf2-ktnl8.only/a {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.only/b {:setup []})
@@ -564,8 +557,8 @@
       (is (= 1 n)
           (str "exactly ONE variant-cell MUST appear in the tabs-"
                "renderer's output (got " n "). Multiple cells means "
-               "the renderer is rendering all variants simultaneously "
-               "— the rf2-ktnl8 bleed bug is back.")))))
+               "the renderer is rendering all variants simultaneously, "
+               "so their state can bleed across cells.")))))
 
 (deftest tabs-renderer-emits-button-per-variant-rf2-ktnl8
   (testing "tabs-renderer renders a tab strip with one tab button per
@@ -598,10 +591,9 @@
   (testing "non-active variants MUST NOT appear in the rendered tree —
             bleed-free isolation requires that non-selected variants
             are absent, not merely hidden via CSS. (This is the load-
-            bearing assertion for rf2-ktnl8: the bleed in rf2-sszlr's
-            gallery_chrome.cljs happens because simultaneous cells
-            mount the SAME view in the SAME render tree; if only ONE
-            cell mounts at a time, the bleed cannot occur.)"
+            bearing assertion: the bleed happens when simultaneous
+            cells mount the SAME view in the SAME render tree; if only
+            ONE cell mounts at a time, the bleed cannot occur.)"
     (rf.story/reg-variant :story.rf2-ktnl8.iso/a {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.iso/b {:setup []})
     (rf.story/reg-workspace :Workspace.rf2-ktnl8.iso/t
@@ -682,8 +674,8 @@
   (testing "a workspace with 3 variants renders 3 variant-cells under
             `:grid` but exactly 1 under `:tabs` — pins the contract
             that the two layouts mount different numbers of cells.
-            Without this guard a future refactor could silently re-
-            collapse `:tabs` to `:grid` (the rf2-ktnl8 starting state)."
+            Without this guard a refactor could silently collapse
+            `:tabs` to `:grid`."
     (rf.story/reg-variant :story.rf2-ktnl8.gt/a {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.gt/b {:setup []})
     (rf.story/reg-variant :story.rf2-ktnl8.gt/c {:setup []})
@@ -697,7 +689,7 @@
        :variants [:story.rf2-ktnl8.gt/a
                   :story.rf2-ktnl8.gt/b
                   :story.rf2-ktnl8.gt/c]})
-    ;; rf2-ba86n.18 — `:grid` mounts the capped-grid renderer; invoke its
+    ;; `:grid` mounts the capped-grid renderer; invoke its
     ;; inner fn to reach the rendered cells (3 variants < the 100 visible
     ;; cap, so all three render and the layout-difference contract holds).
     (let [{grid-fn :fn grid-cells :cells grid-args :args}
@@ -717,20 +709,19 @@
           (str ":tabs layout MUST mount exactly one cell at a time "
                "(got " tabs-n ")")))))
 
-;; ---- workspace :columns grid template (rf2-ugmrg) -----------------------
+;; ---- workspace :columns grid template -----------------------------------
 ;;
-;; The workspace body's `:columns` slot pins the CSS grid's column count.
-;; Pre-fix it was declared + documented but the renderer ignored it — the
-;; grid CSS hardcoded `repeat(auto-fit, minmax(280px, 1fr))`. Post-fix the
-;; capped-grid renderer emits `repeat(N, minmax(280px, 1fr))` when
-;; `:columns` is present and keeps the `auto-fit` default when absent.
+;; The workspace body's `:columns` slot pins the CSS grid's column count:
+;; the capped-grid renderer emits `repeat(N, minmax(280px, 1fr))` when
+;; `:columns` is present and keeps the
+;; `repeat(auto-fit, minmax(280px, 1fr))` default when absent.
 ;;
 ;; These tests walk the rendered grid div's inline `grid-template-columns`
 ;; style — the load-bearing render output an author observes.
 
 (defn- grid-div-style
   "Find the workspace grid container div in `tree` and return its inline
-  style map. The grid div carries `:data-test-grid-columns` (rf2-ugmrg)."
+  style map. The grid div carries `:data-test-grid-columns`."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
@@ -751,8 +742,7 @@
     (apply renderer cells args)))
 
 (deftest workspace-grid-columns-pins-fixed-template-rf2-ugmrg
-  (testing ":grid with :columns N emits a fixed repeat(N, …) template —
-            pre-fix this slot was silently ignored (rf2-ugmrg)"
+  (testing ":grid with :columns N emits a fixed repeat(N, …) template"
     (rf.story/reg-variant :story.ugmrg-cols/a {:setup []})
     (rf.story/reg-variant :story.ugmrg-cols/b {:setup []})
     (rf.story/reg-variant :story.ugmrg-cols/c {:setup []})
@@ -771,8 +761,7 @@
 
 (deftest workspace-grid-without-columns-keeps-auto-fit-rf2-ugmrg
   (testing ":grid without :columns keeps the responsive auto-fit default
-            (rf2-ugmrg — :columns is opt-in; absent it must not change
-            existing behaviour)"
+            (:columns is opt-in)"
     (rf.story/reg-variant :story.ugmrg-auto/a {:setup []})
     (rf.story/reg-variant :story.ugmrg-auto/b {:setup []})
     (rf.story/reg-workspace :Workspace.ugmrg-auto/grid
@@ -788,7 +777,7 @@
 
 (deftest workspace-variants-grid-columns-pins-fixed-template-rf2-ugmrg
   (testing "isolated :variants-grid honours :columns too (same capped-grid
-            renderer; rf2-ugmrg)"
+            renderer)"
     (rf.story/reg-variant :story.ugmrg-vg/a {:setup []})
     (rf.story/reg-variant :story.ugmrg-vg/b {:setup []})
     (rf.story/reg-workspace :Workspace.ugmrg-vg/all
@@ -802,34 +791,29 @@
           ":columns 2 MUST pin a 2-column variants-grid template")
       ;; also pins that :for drove the enumeration (2 variants rendered)
       (is (= 2 (count-variant-cells-in tree))
-          ":for anchor MUST enumerate both variants (rf2-ugmrg)"))))
+          ":for anchor MUST enumerate both variants"))))
 
-;; ---- workspace cells re-run on full run-key (rf2-c56hr) -----------------
+;; ---- workspace cells re-run on full run-key -----------------------------
 ;;
-;; Sibling to rf2-kgn0c (variant-id-keyed React identity) and rf2-z4fza
-;; (Xray trace `t:<trace-id>` keying). The prior workspace `variant-cell`
-;; kept a `last-tick` atom and re-ran `run-variant-with-shell-opts!` ONLY
-;; when `:hot-reload-tick` advanced. Consequence in `:variants-grid` /
-;; `:grid` workspaces: editing a control through the controls panel
-;; wrote through to `:cell-overrides` but the cell's frame was never
-;; re-seeded → the cell kept rendering against its original `:setup`-
-;; seeded app-db. Same hazard for chrome-level `:active-modes` toggles
-;; and substrate flips.
-;;
-;; Fix: lift the canvas's `run-key` into a shared public helper and key
-;; the workspace cell's re-run trigger on the FULL tuple
+;; The workspace `variant-cell` keys its re-run trigger on the canvas's
+;; shared public `run-key` — the FULL tuple
 ;; `{:variant-id :hot-reload-tick :active-modes :cell-overrides
-;;   :substrate}` — same shape canvas's `run-if-needed!` uses. These
-;; tests pin both halves: the shared helper detects the three previously-
-;; missed transitions, AND ordinary intra-cell renders (app-db updates
-;; that DON'T touch the run-key slice) still skip the re-run so user
-;; interactions are not clobbered.
+;;   :substrate}`, the same shape canvas's `run-if-needed!` uses. A cell
+;; that re-ran `run-variant-with-shell-opts!` ONLY when `:hot-reload-tick`
+;; advanced would, in `:variants-grid` / `:grid` workspaces, let a control
+;; edit write through to `:cell-overrides` without re-seeding the cell's
+;; frame, so the cell would keep rendering against its original
+;; `:setup`-seeded app-db; chrome-level `:active-modes` toggles and
+;; substrate flips would hit the same hazard. These tests pin both
+;; halves: the shared helper detects those three transitions, AND
+;; ordinary intra-cell renders (app-db updates that DON'T touch the
+;; run-key slice) skip the re-run so user interactions are not clobbered.
 
 (deftest run-key-detects-cell-overrides-change-rf2-c56hr
   (testing "rf.story.ui.canvas/run-key flips when the shell's :cell-overrides for
             the variant changes — the workspace cell's trigger MUST see
-            this transition (per rf2-c56hr; the prior :hot-reload-tick-
-            only key missed it)"
+            this transition (a :hot-reload-tick-only key would miss
+            it)"
     (let [vid     :story.rf2-c56hr.co/v
           shell-0 {:hot-reload-tick 0
                    :active-modes    []
@@ -868,9 +852,8 @@
 (deftest run-key-stable-across-ordinary-app-db-renders-rf2-c56hr
   (testing "rf.story.ui.canvas/run-key stays equal when nothing in the watched slice
             changes — guarantees an inc-click re-render does NOT clobber
-            the variant's :events-seeded state. Pins the rf2-c56hr fix
-            against an over-eager future change that would re-seed on
-            every render."
+            the variant's :events-seeded state. Pins it against an
+            over-eager change that would re-seed on every render."
     (let [vid     :story.rf2-c56hr.stable/v
           shell-0 {:hot-reload-tick 0 :active-modes []
                    :cell-overrides {} :substrate :reagent
@@ -884,10 +867,9 @@
                " k1=" (pr-str k1))))))
 
 (deftest run-key-detects-hot-reload-tick-change-rf2-c56hr
-  (testing "rf.story.ui.canvas/run-key still flips on :hot-reload-tick — the new
-            workspace cell trigger MUST preserve the legacy tick-driven
-            re-run path on top of the three previously-missed
-            transitions"
+  (testing "rf.story.ui.canvas/run-key flips on :hot-reload-tick — the
+            workspace cell trigger MUST keep the tick-driven re-run path
+            alongside the other three transitions"
     (let [vid     :story.rf2-c56hr.tick/v
           shell-0 {:hot-reload-tick 0 :active-modes []
                    :cell-overrides {} :substrate :reagent}
@@ -895,17 +877,18 @@
           k0      (rf.story.ui.canvas/run-key shell-0 vid)
           k1      (rf.story.ui.canvas/run-key shell-1 vid)]
       (is (not= k0 k1)))))
-;; ---- controls repeater stable React keys (rf2-c8kfy) --------------------
+;; ---- controls repeater stable React keys --------------------------------
 ;;
-;; Pre-fix, `rf.story.ui.controls/repeater-widget` keyed each row positionally
-;; (`^{:key i}`). Deleting a middle entry shifted every surviving row's
-;; key up by one — React reused the original DOM node at each position
-;; with the next entry's value, so an input that had focus / cursor at
-;; index i+1 displayed index i's value with the SAME focus. For
-;; `:set`-kind repeaters `vector-coerce` re-sorts on every render so
-;; the bug fired on every keystroke.
+;; `rf.story.ui.controls/repeater-widget` keys each row on a stable id,
+;; not positionally. With positional keys (`^{:key i}`) deleting a
+;; middle entry would shift every surviving row's key up by one — React
+;; would reuse the original DOM node at each position with the next
+;; entry's value, so an input that had focus / cursor at index i+1 would
+;; display index i's value with the SAME focus. For `:set`-kind
+;; repeaters `vector-coerce` re-sorts on every render, so that would
+;; fire on every keystroke.
 ;;
-;; Fix (post-rf2-c8kfy): the shell-state carries a parallel
+;; The shell-state carries a parallel
 ;; `[id0 id1 ...]` vector at `[:rf.story/repeater-row-ids
 ;; [variant-id path]]` synced in lockstep with the entries vector.
 ;; `repeater-widget` keys each row on `(str "r:" id)`; add appends a
@@ -913,10 +896,9 @@
 ;; their original id → React reconciles them in place across a
 ;; mid-list delete → focus + cursor are preserved.
 ;;
-;; Same fix-class as rf2-kgn0c (workspace cells) / rf2-z4fza (xray
-;; trace ribbon) / rf2-c56hr (story workspace cell re-init). The
-;; namespacing-prefix discipline (`r:` for repeater, `t:` for tuple,
-;; `v:` for variant cells) is consistent across the family.
+;; The namespacing-prefix discipline (`r:` for repeater, `t:` for tuple,
+;; `v:` for variant cells) is consistent across the Story UI's React
+;; keys.
 
 (defn- expand-hiccup
   "Materialize a Reagent hiccup form by invoking any vector whose head
@@ -961,8 +943,8 @@
 (deftest controls-repeater-rows-key-on-stable-id-rf2-c8kfy
   (testing "repeater-widget keys each row on a stable monotonic id
             (`r:<id>`) — NOT on its positional index. The keys MUST be
-            namespaced with the `r:` prefix to consistently shape with
-            rf2-kgn0c / rf2-z4fza / rf2-c56hr."
+            namespaced with the `r:` prefix, consistent with the Story
+            UI's other React keys."
     (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy/v [:items] ["a" "b" "c"])
     (let [tree (rf.story.ui.controls/arg-widget
@@ -979,7 +961,7 @@
           "row keys MUST be distinct across the row set"))))
 
 (deftest controls-repeater-mid-list-delete-preserves-surviving-keys-rf2-c8kfy
-  (testing "the regression pinned by rf2-c8kfy: after deleting the
+  (testing "The regression pinned: after deleting the
             middle row of a 4-row repeater, the surviving rows MUST
             carry the SAME React keys they had pre-delete. Position
             shifts by one — identity does not. React then reconciles
@@ -1053,8 +1035,8 @@
 
 (deftest controls-repeater-set-edit-preserves-keys-rf2-c8kfy
   (testing ":set-kind repeaters re-sort entries on every render via
-            `vector-coerce`. Pre-fix every keystroke shuffled
-            positional keys against values. Post-fix the row keys are
+            `vector-coerce`, which would shuffle positional keys against
+            values on every keystroke. The row keys are
             tied to the stored id vector — NOT to the visible sort
             order — so the keys are stable across edits regardless of
             re-sort."
@@ -1080,7 +1062,8 @@
 (deftest controls-tuple-rows-key-on-positional-prefix-rf2-c8kfy
   (testing "tuple-widget rows key on `t:<i>` — tuple arity is fixed so
             position IS stable identity; the namespacing-prefix is for
-            discipline-consistency with the repeater + sibling fixes.
+            discipline-consistency with the repeater's and the other
+            Story UI React keys.
             (Tuple positions don't reshuffle — the focus-leak class
             doesn't fire — but uniform key shape across the file pins
             the convention.)"
@@ -1095,11 +1078,11 @@
           (str "tuple row keys MUST be `t:<i>`; got " (pr-str keys))))))
 
 (deftest controls-repeater-keys-not-bare-ints-rf2-c8kfy
-  (testing "regression-guard: row keys MUST NOT be bare integers. The
-            pre-fix shape used `^{:key i}` which serialises to a raw
-            int in React's reconciler; the rf2-c8kfy fix requires the
-            `r:` / `t:` namespacing prefix so distinct UI surfaces
-            with the same int positions never collide."
+  (testing "regression-guard: row keys MUST NOT be bare integers.
+            `^{:key i}` would serialise to a raw int in React's
+            reconciler; the `r:` / `t:` namespacing prefix ensures
+            distinct UI surfaces with the same int positions never
+            collide."
     (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
                        :story.c8kfy.guard/v [:items] ["a" "b" "c"])
     (let [tree (rf.story.ui.controls/arg-widget
@@ -1109,7 +1092,7 @@
                   :element {:widget :text}})
           keys (collect-repeater-row-keys tree)]
       (is (every? string? keys)
-          (str "post-rf2-c8kfy row keys MUST be strings, never bare "
+          (str "row keys MUST be strings, never bare "
                "ints; got " (pr-str (map type keys))))
       (is (every? #(.startsWith % "r:") keys)
           (str "row keys MUST carry the `r:` namespacing prefix; got "
@@ -1119,11 +1102,11 @@
 
 (deftest trace-group-cascades-classifies
   (testing "group-cascades splits trace events into six-domino slots.
-            Per rf2-wvzgd the projection lives in
+            The projection lives in
             `re-frame.trace.projection` — consumers (Xray, re-frame2-pair)
-            require that namespace directly. Per rf2-sgdd3 Story no
-            longer ships a built-in trace panel; Xray's Trace tab is
-            the RHS replacement. Event shapes here track the
+            require that namespace directly. Story ships no built-in
+            trace panel; Xray's Trace tab is the RHS trace view. Event
+            shapes here track the
             framework's actual emit pattern per Spec 009 §`:op-type`
             vocabulary."
     (let [evs       [{:op-type :rf.event :operation :rf.event/dispatched
@@ -1148,9 +1131,9 @@
         (is (= 1 (count (:subs c))))
         (is (= 1 (count (:renders c))))))))
 
-;; ---- privacy: retroactive scrub on egress-profile narrowing (rf2-lqmje)
+;; ---- privacy: retroactive scrub on egress-profile narrowing
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015 rf2-3t26eh): narrowing
+;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015): narrowing
 ;; the local-render egress profile from a sensitive-revealing boundary
 ;; (`:rf.egress/local-raw`) back to the redacting default MUST clear every
 ;; per-variant trace buffer. The Story trace listener only gates at
@@ -1238,13 +1221,13 @@
 ;; Instead we confirm the component fns are callable and return hiccup.
 
 (deftest shell-components-are-functions
-  (testing "sidebar / controls expose top-level component fns (per
-            rf2-sgdd3 the scrubber / trace / actions panels were
-            retired; Xray is the RHS primary inspector now)"
+  (testing "sidebar / controls expose top-level component fns (there
+            are no scrubber / trace / actions panels; Xray is the RHS
+            primary inspector)"
     (is (fn? rf.story.ui.sidebar/sidebar))
     ;; The rf.story.ui.controls/panel takes a variant-id arg.
     (is (fn? rf.story.ui.controls/panel))
-    ;; rf2-rodx — the :docs mode pane.
+    ;; The :docs mode pane.
     (is (fn? rf.story.ui.docs/docs-view))))
 
 (deftest docs-view-returns-hiccup-for-registered-variant
@@ -1263,9 +1246,9 @@
        :setup    []})
     (let [result (rf.story.ui.docs/docs-view :story.dv/x)]
       (is (vector? result))
-      ;; Per rf2-8c7tk the docs-view wraps the body section + TOC in a
+      ;; The docs-view wraps the body section + TOC in a
       ;; flex `<div>` so the sticky TOC anchors to the right edge. The
-      ;; inner body still renders as `<section data-test="story-docs-
+      ;; inner body renders as `<section data-test="story-docs-
       ;; view">`.
       (is (= :div (first result)))
       (let [children (drop 2 result)
@@ -1293,7 +1276,7 @@
              rows)))
     (is (= [:dev :docs] (rf.story.ui.docs/variant-tags :story.dvh/x)))))
 
-;; ---- :test mode (rf2-qmjo) ----------------------------------------------
+;; ---- :test mode ---------------------------------------------------------
 
 (deftest test-view-is-a-fn
   (testing "test-view is callable from the shell"
@@ -1332,12 +1315,12 @@
 
 ;; ---- canvas: decorator-wrap exception swallow ---------------------------
 ;;
-;; rf2-zme7 — a `:wrap` fn that throws used to propagate up the Reagent
-;; render machinery and React unmounted the whole Story shell, blanking
-;; the page. Repro: register a hiccup decorator whose `:wrap` fn throws
-;; on call; click into a variant that references it; the shell goes
-;; blank. The fix is `rf.story.ui.canvas/safe-decorated-view`: catch the exception,
-;; project an error block, and re-render the uncoated variant body so
+;; A `:wrap` fn that throws would otherwise propagate up the Reagent
+;; render machinery and React would unmount the whole Story shell,
+;; blanking the page (register a hiccup decorator whose `:wrap` fn throws
+;; on call, then click into a variant that references it).
+;; `rf.story.ui.canvas/safe-decorated-view` catches the exception,
+;; projects an error block, and re-renders the uncoated variant body so
 ;; the user still sees content.
 
 (deftest safe-decorated-view-handles-good-decorator
@@ -1358,13 +1341,13 @@
 (deftest safe-decorated-view-catches-wrap-throw
   (testing "safe-decorated-view catches an exception thrown by a :wrap fn
             and projects an error block instead of bubbling up — the
-            shell stays mounted on a decorator failure (rf2-zme7)."
+            shell stays mounted on a decorator failure."
     (let [stack [{:id   :test/boom
                   :args ["payload"]
                   :body {:kind :hiccup
                          :wrap (fn [_body _args]
-                                 ;; Mimic the rf2-zme7 repro: a bad
-                                 ;; destructure that throws inside :wrap.
+                                 ;; A bad destructure that throws
+                                 ;; inside :wrap.
                                  (let [[_ _label] {:not :sequential}]
                                    (throw (ex-info "boom" {}))))}}]
           result (rf.story.ui.canvas/safe-decorated-view
