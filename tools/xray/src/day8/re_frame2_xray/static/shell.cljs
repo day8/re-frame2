@@ -51,9 +51,7 @@
   L2 is also a functional signal: its absence is the chrome-silhouette
   mode signal. Together with the mode dropdown's own active option
   (`data-active-mode`) and Static's motion dampening, the user reads
-  Static at a glance. (rf2-y8doi.30 — this paragraph named a `cyan
-  left-edge stripe`; there has never been a cyan token, the 2-px stripe
-  itself is gone from both ribbons, and the `mode pill` is a `<select>`.)
+  Static at a glance.
 
   ## Tab inventory (5 sub-tabs)
 
@@ -63,9 +61,9 @@
       Machines (m, default) · Routes (r) · Schemas (c) · Flows (f) ·
       Interceptors (i)
 
-  Tab order + mnemonics per the findings doc §5.2 (mode-scoped: same
-  letter, different target per mode — `m` names the Machines instance
-  inspector in Dynamic and the Machines registry browse in Static).
+  Mnemonics are mode-scoped: same letter, different target per mode —
+  `m` names the Machines instance inspector in Dynamic and the Machines
+  registry browse in Static.
 
   Those letters are LABELS, not keys. They ride the registry entry's
   `:mnem` into each tab button's `title` and are read by nothing else;
@@ -88,7 +86,7 @@
   subscribe + dispatch inside the Static chrome therefore resolves to
   `:rf/xray`.
 
-  ## Substrate (rf2-k97c.3)
+  ## Substrate
 
   The four regions below — [[ribbon]], [[tab-bar]], [[detail-panel]]
   and [[surface]] — are `rf.fresco/defview` BOUNDARIES, not
@@ -96,7 +94,7 @@
   through `(:dispatch (rf/capture-frame))`, and they resolve their
   frame from REACT CONTEXT — the same context `rf/frame-provider` and
   `rf.fresco/frame-provider` both write — so the chrome renders
-  identically under the Fresco root Xray owns today and under an
+  identically under the Fresco root Xray owns and under an
   `rf/frame-provider` a Reagent parent writes. Nothing here consults
   `:adapter/current-component`, the hook a foreign root cannot answer.
 
@@ -107,30 +105,25 @@
   because a boundary is the only legal hiccup head for the three
   regions under it; [[ribbon]] because it carries a dispatcher.
 
-  ONE REAGENT ISLAND REMAINS, reached through an `as-child` seam —
+  ONE REAGENT ISLAND, reached through an `as-child` seam —
   `identity` for a hiccup caller and the node lane,
   `substrate/as-element` for a boundary: [[detail-panel]]'s
   `[(:panel tab)]`, because `panel-registry/reg-l4-tab!`'s `:pre`
   requires `:panel` to be CALLABLE. All five Static panels are
-  boundaries as of PR #9648, so every one of them registers an
+  boundaries, so every one of them registers an
   `as-component` BRIDGE — a plain fn answering `[:> Component {}]` —
   rather than the view itself. A bridge is a plain fn, which Fresco
   grades `:invalid` as a head down the same arm a `reg-view` goes, so
-  the island stands until the registry can take a boundary directly.
+  the island stands while the registry takes only a callable.
 
-  THE SEAM STAYS — IT IS NOT SCAFFOLDING AWAITING A DELETION (rf2-lect,
-  ruled option 2; rf2-4dwxg cleared the same promise from all five
-  Static panel files). The `:pre` named above is what holds it.
+  THE SEAM IS NOT SCAFFOLDING AWAITING A DELETION. The `:pre` named
+  above is what holds it.
 
-  THE L1 RIBBON'S TWO ISLANDS ARE GONE (rf2-k97c.3). The ribbon reached
-  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` across
-  an `as-child` seam while both were `rf/reg-view`s; both are Fresco
-  boundaries now and [[ribbon]] heads them directly. The Dynamic
-  `shell.cljs` ribbon islanded the same two widgets the same way, so
-  that one slice deleted FOUR islands — two here and two there — which
-  is exactly why they were deferred rather than migrated piecemeal.
+  THE L1 RIBBON HAS NO ISLAND. `frame-switcher/frame-switcher-view` and
+  `mode-pill/mode-pill` are Fresco boundaries, and [[ribbon]] heads
+  them directly, as the Dynamic `shell.cljs` ribbon does.
 
-  ## Mode-signal mechanism (2 signals — rf2-y8doi.30)
+  ## Mode-signal mechanism (2 signals)
 
   Two signals telegraph Static state, and they are the two that exist:
 
@@ -141,24 +134,16 @@
     2. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer
        (no L2 / no spine). The shape itself is a signal.
 
-  THE OTHER TWO THIS DOCSTRING USED TO LIST DO NOT EXIST, and each was
-  refused or removed rather than merely unbuilt:
+  There is no third signal, and each candidate is excluded by design:
 
-    - a **2-px left-edge ribbon stripe** \"owned by both shells via the
-      explicit `mode-stripe-colour` arg\" — there is no such arg
-      anywhere in the tree, and the stripe itself is gone: rf2-4yemd
-      removed it from the Dynamic ribbon on 2026-05-24 after Mike
-      reported the blue left edge live as absent from the Figma
-      authority (pinned by `chrome-ribbon-has-no-left-edge-stripe`), and
-      rf2-y8doi.30 removed the Static mirror of it from `ribbon-tree`
-      below (pinned by `static-ribbon-has-no-left-edge-stripe`);
-    - a **\"LIVE pulse + machine-active pulse\"** Dynamic ships. Neither
-      ships. No LIVE pulse was ever built — rf2-pjjwh removed the head
-      row's gutter glyph that would have carried one, and `pulse` occurs
-      in `shell.cljs` exactly once, in a comment — and Mike REFUSED the
-      continuous machine-active pulse (rf2-2sez0; see
+    - **no left-edge ribbon stripe** in either mode — the Figma
+      authority has none, and `chrome-ribbon-has-no-left-edge-stripe`
+      and `static-ribbon-has-no-left-edge-stripe` pin its absence from
+      the Dynamic and Static ribbons;
+    - **no LIVE pulse and no machine-active pulse** in Dynamic — a
+      continuous machine-active pulse is ruled out (see
       `tools/xray/spec/021-Dynamic-Panel-Designs.md`). What Static
-      genuinely dampens is the 180ms L4 tab fade, which collapses to 0ms
+      dampens is the 180ms L4 tab fade, which collapses to 0ms
       so cluster swaps land without motion.
 
   What tells the user the Dynamic spine is not following is the L2
@@ -202,11 +187,10 @@
 
 (defn tabs
   "Ordered Static-mode tab entries. Each entry carries `:id`,
-  `:label`, `:mnem`, `:modes`, `:order`, and `:panel`. Order matches
-  the parent-epic findings doc `2026-05-19-xray-explorer-mode.md` §2.4
-  — machines, routes, schemas, views, flows, events.
+  `:label`, `:mnem`, `:modes`, `:order`, and `:panel`. Order is each
+  entry's `:order` — machines, routes, schemas, flows, interceptors.
 
-  Default landing tab is `:machines` per Mike's call (the densest
+  Default landing tab is `:machines` (the densest
   Static surface; opening Static on a fresh slate should land on the
   highest-value tab) — see `default-tab` below.
 
@@ -217,7 +201,7 @@
 
 (def default-tab
   "Default landing tab when `:rf.xray.static/selected-tab` is unset.
-  Pinned to `:machines` per the parent-epic findings doc — the densest
+  Pinned to `:machines` — the densest
   Static surface is the highest-value landing."
   :machines)
 
@@ -229,19 +213,13 @@
   []
   (panel-registry/tab-ids-for-mode :static))
 
-;; ---- left-edge stripe — REMOVED (rf2-y8doi.30) --------------------------
+;; ---- no left-edge stripe -------------------------------------------------
 ;;
-;; `dynamic-stripe-token`, `static-stripe-token`, `stripe-token-for-mode`
-;; and `stripe-hex-for-mode` lived here, resolving the 2-px `:accent`
-;; `border-left` [[ribbon-tree]] painted on the Static ribbon root. Mike
-;; removed the IDENTICAL stripe from the Dynamic ribbon on sight
-;; (rf2-4yemd, 2026-05-24 — "not in the Figma authority"), and this
-;; ribbon mirrors that one, so the two surfaces disagreed about a signal
-;; that signalled nothing: both helpers already answered the same single
-;; `:accent` in both modes after rf2-ad7zx.13 collapsed the palette to
-;; one accent. `static-ribbon-has-no-left-edge-stripe` is the Static
-;; mirror of `chrome-ribbon-has-no-left-edge-stripe` and pins the
-;; absence. No caller outside this file read any of the four.
+;; The Static ribbon paints no left-edge stripe, matching the Dynamic
+;; ribbon and the Figma authority. The palette has one `:accent` in both
+;; modes, so a mode stripe would signal nothing.
+;; `static-ribbon-has-no-left-edge-stripe` is the Static mirror of
+;; `chrome-ribbon-has-no-left-edge-stripe` and pins the absence.
 
 ;; ---- L1 ribbon (Static) -------------------------------------------------
 
@@ -280,28 +258,24 @@
   "The Static L1 ribbon's WHOLE chrome, as a pure function of the
   frame-bound `dispatch` and its two already-composed selector nodes.
 
-  SPLIT OUT OF [[ribbon]] BY rf2-k97c.3, and the split is `defview`'s
-  own documented extract-a-helper spelling rather than an invention: a
-  boundary's body may only run inside a React render window, so
-  `(ribbon)` is no longer a callable that answers hiccup — while the
-  chrome itself is ordinary data → data and is worth walking in the fast
-  node lane.
+  A separate fn from [[ribbon]], in `defview`'s own documented
+  extract-a-helper spelling: a boundary's body may only run inside a
+  React render window, so `(ribbon)` is not a callable that answers
+  hiccup — while the chrome itself is ordinary data → data and is worth
+  walking in the fast node lane.
 
   `frame-switcher*` and `mode-pill*` ARRIVE ALREADY COMPOSED rather than
   as heads this fn writes, for the same reason [[surface-tree]]'s three
-  layers do: both are Fresco BOUNDARIES as of rf2-k97c.3, and a boundary
+  layers do: both are Fresco BOUNDARIES, and a boundary
   head cannot be walked by a hiccup walker because its body only runs
   inside a React render window. [[ribbon]] passes
   `[frame-switcher/frame-switcher-view {}]` and `[mode-pill/mode-pill
   {}]`; `test-helpers.static-shell-tree` passes each one's
   already-expanded plain hiccup.
 
-  THE `as-child` PARAMETER IS GONE, and its deletion is the deliverable
-  rather than a tidy-up. Those two widgets were the ribbon's two REAGENT
-  ISLANDS — `rf/reg-view`s a boundary could only reach across an
-  `as-child` seam — and they are boundaries now, so the seam has nothing
-  left to carry. The L4 seam in [[detail-panel-tree]] is untouched and
-  stands for its own recorded reason.
+  THERE IS NO `as-child` PARAMETER: both widgets are boundaries, so the
+  ribbon has no REAGENT ISLAND to carry across a seam. The L4 seam in
+  [[detail-panel-tree]] stands for its own recorded reason.
 
   PURE: `ribbon-right-icons` is CALLED rather than headed, and answers
   keyword hiccup all the way down."
@@ -314,10 +288,8 @@
                  :height           (:top-strip-height layout)
                  :padding          "0 12px"
                  :background       (:bg-1 tokens)
-                 ;; rf2-y8doi.30 — NO `:border-left`. The 2-px accent
-                 ;; stripe that rode here was the mirror of the Dynamic
-                 ;; ribbon's, which rf2-4yemd removed; see the
-                 ;; removed-stripe note above.
+                 ;; NO `:border-left` — the ribbon paints no left-edge
+                 ;; stripe; see the no-stripe note above.
                  :border-bottom    (str "1px solid " (:border-subtle tokens))
                  :font-family      sans-stack
                  :font-size        (:body type-scale)}}
@@ -335,11 +307,9 @@
    ;; with the picker; see this ns's docstring.
    [:div {:data-testid "rf-xray-static-ribbon-selectors"
           :style {:display "flex" :align-items "center" :gap "8px"}}
-    ;; rf2-k97c.3 — both are FRESCO BOUNDARIES now, so they arrive here
-    ;; ALREADY COMPOSED rather than as heads this fn writes. They were
-    ;; the ribbon's two Reagent islands until this slice; the Dynamic
-    ;; `shell.cljs` ribbon islanded the same two the same way and lost
-    ;; its seam in the same commit. See [[ribbon-tree]]'s docstring.
+    ;; Both are FRESCO BOUNDARIES, so they arrive here
+    ;; ALREADY COMPOSED rather than as heads this fn writes. See
+    ;; [[ribbon-tree]]'s docstring.
     frame-switcher*
     mode-pill*]
    [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
@@ -347,9 +317,9 @@
 
 (rf.fresco/defview ribbon
   "L1 ribbon — 56px chrome, Static-flavoured, and a FRESCO BOUNDARY
-  (rf2-k97c.3) rather than an `rf/reg-view`. It paints NO left-edge
-  stripe (rf2-y8doi.30, mirroring rf2-4yemd on the Dynamic ribbon — see
-  the removed-stripe note above). Mode selector sits at ribbon-left; the
+  rather than an `rf/reg-view`. It paints NO left-edge
+  stripe, like the Dynamic ribbon — see
+  the no-stripe note above. Mode selector sits at ribbon-left; the
   L1 frame-switcher sits between it and the right-icons cluster;
   right-icons (Settings · Close) sit at ribbon-right.
 
@@ -374,13 +344,10 @@
   IT READS NOTHING. It is a boundary because it carries the DISPATCHER
   the settings / close icons need — `(:dispatch (rf/capture-frame))`,
   core's own door, which answers the boundary's DECLARED frame inside a
-  body and replaces the `dispatch` the `reg-view` body used to inject
-  lexically. Same guarantee, one call, and it is the spelling every
-  migrated view now uses.
+  body.
 
-  ITS TWO SELECTORS ARE BOUNDARY HEADS, not islands (rf2-k97c.3). Both
-  were `rf/reg-view`s reached across an `as-child` seam until this
-  slice; heading them directly is what deleted it.
+  ITS TWO SELECTORS ARE BOUNDARY HEADS, not islands: it heads them
+  directly, with no `as-child` seam.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[surface]] mounts it with none, so it is destructured away."
@@ -410,13 +377,12 @@
   ;; the only one — an AMBIENT dispatch inside a boundary body is a loud
   ;; refusal too.
   ;;
-  ;; rf2-k97c.3 (RULING 2) — the React `:key` rides in this button's own
-  ;; ATTRIBUTE MAP. It used to be `^{:key id}` reader metadata on the
-  ;; call site's vector literal, which Reagent reads and Fresco's codec
-  ;; reads NOWHERE, so it would have reached React as no key at all once
-  ;; the tab bar rendered through a boundary. The key EXPRESSION is
-  ;; unchanged; the button is the seq element, so the key belongs on it
-  ;; and no extra node is needed to carry one.
+  ;; The React `:key` rides in this button's own ATTRIBUTE MAP, not as
+  ;; `^{:key id}` reader metadata on the call site's vector literal,
+  ;; which Reagent reads and Fresco's codec reads NOWHERE, so it would
+  ;; reach React as no key at all under a boundary. The button is the
+  ;; seq element, so the key belongs on it and no extra node is needed
+  ;; to carry one.
   (let [glyph    (if active? "◉" "○")
         color    (if active? (:text-primary tokens) (:text-secondary tokens))
         ;; Mirror the Dynamic tab-button pattern: stable
@@ -459,14 +425,13 @@
   "The Static L3 tab bar's WHOLE chrome, as a pure function of the
   frame-bound `dispatch` and the selected tab id.
 
-  SPLIT OUT OF [[tab-bar]] BY rf2-k97c.3, for the reason every migrated
-  view splits: a boundary's body may only run inside a React render
-  window, so `(tab-bar)` is no longer a callable that answers hiccup.
+  A separate fn from [[tab-bar]] because a boundary's body may only run
+  inside a React render window, so `(tab-bar)` is not a callable that
+  answers hiccup.
 
   PURE: `tab-button` is CALLED rather than headed, and answers keyword
-  hiccup. The tab INVENTORY still comes from `(tabs)` — the registry
-  read this bar has always made, and process-global rather than
-  frame-scoped."
+  hiccup. The tab INVENTORY comes from `(tabs)` — a registry read,
+  process-global rather than frame-scoped."
   [dispatch selected]
   [:div {:data-testid "rf-xray-static-tab-bar"
          :role        "tablist"
@@ -480,12 +445,12 @@
                  :border-top    (str "1px solid " (:border-subtle tokens))
                  :border-bottom (str "1px solid " (:border-subtle tokens))}}
    ;; iterate the registry's static-mode entries. The `:key` rides in
-   ;; each button's attribute map — see `tab-button` (rf2-k97c.3).
+   ;; each button's attribute map — see `tab-button`.
    (for [{:keys [id] :as tab} (tabs)]
      (tab-button dispatch (assoc tab :active? (= id selected))))])
 
 (rf.fresco/defview tab-bar
-  "L3 tab bar — five Static tabs, and a FRESCO BOUNDARY (rf2-k97c.3)
+  "L3 tab bar — five Static tabs, and a FRESCO BOUNDARY
   rather than an `rf/reg-view`. Same height (40px), same row anatomy,
   same ARIA pattern as the Dynamic tab-bar. The selected-tab slot is
   Static-scoped (`:rf.xray.static/selected-tab`) so flipping modes
@@ -494,8 +459,8 @@
   The READ is `rf.fresco/sub`, a plain call the shipped collector
   records an edge for — no deref, no reaction owned by the installed
   adapter, and a re-wire that NOTIFIES when the substrate disposes the
-  underlying derived value. That is the third of the epic's three
-  couplings, and the one a first-paint smoke test cannot see.
+  underlying derived value — the coupling a first-paint smoke test
+  cannot see.
 
   It is its OWN boundary rather than folded into [[surface]] because
   the two read different things at different rates: hoisting this read
@@ -519,27 +484,24 @@
   selected tab id, that tab's registry entry (or `nil`) and the
   `as-child` spelling for the L4 REAGENT ISLAND.
 
-  SPLIT OUT OF [[detail-panel]] BY rf2-k97c.3, for the reason every
-  migrated view splits: a boundary's body may only run inside a React
-  render window.
+  A separate fn from [[detail-panel]] because a boundary's body may only
+  run inside a React render window.
 
   THE MOUNT IS AN ISLAND, and deliberately. `reg-l4-tab!`'s `:pre`
   requires `:panel` to be CALLABLE, so ALL FIVE Static panels register
   an `as-component` BRIDGE — a plain fn answering `[:> Component {}]` —
-  rather than the boundary itself (`static.routes.panel/Panel`, the last
-  `rf/reg-view` of the five, became a boundary behind its own bridge in
-  PR #9648). A plain fn grades `:invalid` as a Fresco head, so the
-  island stands. `as-child` is `identity` for a hiccup caller and the
-  node lane, which leaves `[(:panel tab)]` exactly the vector it has
-  always been, and `substrate/as-element` for the boundary, which
+  rather than the boundary itself. A plain fn grades `:invalid` as a
+  Fresco head, so the island stands. `as-child` is `identity` for a
+  hiccup caller and the node lane, which leaves `[(:panel tab)]` a plain
+  hiccup vector, and `substrate/as-element` for the boundary, which
   answers a React element — a legal child anywhere per Fresco's
   component ABI, and the crossing every Static panel's own bridge
-  comment already describes.
+  comment describes.
 
-  THE SEAM STAYS — IT IS NOT SCAFFOLDING AWAITING A DELETION (rf2-lect,
-  ruled option 2): the `[:>]` bridges are ruled to stay, so this seam
-  stays with them. Widening that `:pre` is a registry change with both
-  shells' panels behind it, so it is not this slice's."
+  THE SEAM IS NOT SCAFFOLDING AWAITING A DELETION: the `[:>]` bridges
+  are permanent, so this seam is too. Taking a boundary directly would
+  mean widening that `:pre`, a registry change with both shells' panels
+  behind it."
   [selected tab as-child]
   [:div {:data-testid (str "rf-xray-static-detail-panel-" (name selected))
            ;; Static L4 closes the tab/tabpanel loop.
@@ -564,7 +526,7 @@
 
 (rf.fresco/defview detail-panel
   "L4 detail panel — registry-driven mount, and a FRESCO BOUNDARY
-  (rf2-k97c.3) rather than an `rf/reg-view`.
+  rather than an `rf/reg-view`.
 
   Each Static panel's `install!` registers its tab entry via
   `panel-registry/reg-l4-tab!` with `:modes #{:static}` + a `:panel`
@@ -600,7 +562,8 @@
   the three layers' already-expanded plain hiccup, so a node-lane row
   that walks this envelope walks the real thing.
 
-  SPLIT OUT OF [[surface]] BY rf2-k97c.3."
+  A separate fn from [[surface]] because a boundary's body may only run
+  inside a React render window."
   [ribbon* tab-bar* detail-panel*]
   [:div {:data-testid "rf-xray-static-surface"
          :data-rf-xray-mode "static"
@@ -618,14 +581,14 @@
 
 (rf.fresco/defview surface
   "The full Static surface — 3 stacked layers (ribbon · tab bar ·
-  detail panel), and a FRESCO BOUNDARY (rf2-k97c.3) rather than an
+  detail panel), and a FRESCO BOUNDARY rather than an
   `rf/reg-view`. The Static surface plugs into the Dynamic shell's
   outer envelope — `shell.cljs`'s `shell-view-tree`, which owns the
   frame-provider and the shell-root modal mounts, inside the
   `ShellView` that installs the global styles; this surface
   just renders the chrome that swaps in when Static mode is active.
 
-  IT READS NOTHING, and it is still a boundary for the two reasons the
+  IT READS NOTHING, and it is a boundary anyway for the two reasons the
   ns docstring gives: it is what the Dynamic composer mounts, so it is
   where the Reagent→Fresco crossing sits — one bridge for the whole
   surface — and a boundary is the only legal hiccup head for the three
@@ -637,26 +600,17 @@
   [_props]
   (surface-tree [ribbon {}] [tab-bar] [detail-panel]))
 
-;; ---- THE MIGRATION BRIDGE IS GONE (rf2-k97c.3) ---------------------------
+;; ---- no surface bridge ---------------------------------------------------
 ;;
-;; #9644 shipped `surface-component` + a PUBLIC `surface-bridge` here,
-;; because `shell.cljs`'s `surface-composer` was an `rf/reg-view` and a
-;; React component is not a legal hiccup head in a Reagent tree. That
-;; comment named its own end condition: "when `shell.cljs` is itself a
-;; Fresco tree, `surface-composer` heads `surface` directly, `[:>]` goes,
-;; and both defs below are deleted."
-;;
-;; `surface-composer` IS a `rf.fresco/defview` now, so it heads
-;; `[static-shell/surface {}]` directly and both defs are deleted. The
-;; crossing they carried is gone from the Dynamic side too: the epic's
-;; coupling (1) IS severed (rf2-k97c.3) — `mount.cljs` owns a
-;; `rf.fresco/client-root` and heads `shell.cljs`'s `ShellView` under
-;; its own frame-provider, never the installed adapter's `:render` — so
-;; `shell.cljs`'s own private `surface-bridge` went with it.
+;; [[surface]] needs no `as-component` bridge: `shell.cljs`'s
+;; `surface-composer` is a `rf.fresco/defview`, so it heads
+;; `[static-shell/surface {}]` directly. The Dynamic side has no
+;; crossing either — `mount.cljs` owns a `rf.fresco/client-root` and
+;; heads `shell.cljs`'s `ShellView` under its own frame-provider, never
+;; the installed adapter's `:render`.
 ;; `shell-view` is NOT a Reagent root and is not an `rf/reg-view`: it is
 ;; the public `defn` a Reagent caller heads, answering the element
 ;; `ShellView` lowers to.
 ;;
-;; NOTHING HERE IS OWED A FURTHER DELETION. The `*-bridge` /
-;; `*-component` pairs that remain elsewhere are ruled to STAY
-;; (rf2-lect, option 2), so do not read this block as promising one.
+;; The `*-bridge` / `*-component` pairs elsewhere are permanent, so do
+;; not read this block as promising their deletion.
