@@ -67,7 +67,7 @@
   ;; Oldest entries at the head; conj appends, eviction copies the kept
   ;; tail into a fresh vector. Never keep a `subvec` view here: it holds
   ;; its whole backing vector reachable and later `conj`s extend that
-  ;; backing, so every evicted payload would stay live (rf2-wotl9).
+  ;; backing, so every evicted payload would stay live.
   ;; Vector under an atom matches the same primitive the per-frame rings
   ;; use inside `re-frame.trace.tooling/trace-rings`.
   (atom []))
@@ -123,26 +123,24 @@
 
 (defn- frameless-event?
   "True when `event` carries neither a frame nor a `:rf.trace/dispatch-id`
-  under `:tags` — the framework's per-frame rings would have skipped it
-  (per the B3 ruling) and Xray's secondary ring is the only place it can
-  be retained. Reads the RAW trace-event frame via the canonical reader
-  `re-frame.trace/trace-event-frame` ([:tags :frame] — rf2-7737vq); the
-  prior divergent top-level `:frame` check is removed (raw events never
-  carry a top-level `:frame`)."
+  under `:tags` — the framework's per-frame rings skip it and Xray's
+  secondary ring is the only place it can be retained. Reads the RAW
+  trace-event frame via the canonical reader
+  `re-frame.trace/trace-event-frame` ([:tags :frame]); there is no
+  top-level `:frame` check (raw events never carry a top-level
+  `:frame`)."
   [event]
   (and (nil? (rf.trace/trace-event-frame event))
        (nil? (get-in event [:tags :rf.trace/dispatch-id]))))
 
-;; ---- task-coalesced mirror sync (D3=b ruling) --------------------------
+;; ---- task-coalesced mirror sync -----------------------------------------
 ;;
 ;; Production hosts drive the reactive surface by snapshotting the
 ;; framework's per-frame rings + the frameless secondary ring into
 ;; Xray's app-db's `:trace-buffer` slot once per JS tick. Same-tick
 ;; listener callbacks request a sync; one scheduled task drains the
 ;; queue with a single snapshot dispatch — capping the event-bundle depth
-;; at 1 regardless of host trace-event volume. The pre-rf2-43koh shape
-;; used the same coalescer; what changed is the SOURCE (per-frame rings
-;; instead of the retired Xray ring atom).
+;; at 1 regardless of host trace-event volume.
 ;;
 ;; The scheduling primitive is `re-frame.interop/next-tick`, which runs
 ;; the refresh ASYNCHRONOUSLY, AS A TASK — never a host microtask, never
@@ -156,7 +154,7 @@
 ;; later boundary merges MORE requests, never fewer.
 ;;
 ;; Tests bypass the scheduler by calling `refresh-trace-rings!`
-;; directly (the D3=b sync entrypoint), getting a deterministic snap
+;; directly (the sync entrypoint), getting a deterministic snap
 ;; without waiting for `goog.async.nextTick`.
 
 (defonce ^:private mirror-sync-scheduled?
@@ -181,9 +179,9 @@
   + emit-time boundaries. Reading from tool-frame rings here would
   surface Xray's own machinery in the user-facing event-bundle list. Pre-
   alpha posture: drop unconditionally; tool-frame introspection is a
-  separate feature surface if needed (rf2-43koh consumer substrate).
+  separate feature surface if needed.
 
-  ## Privacy gate (rf2-0ax6f)
+  ## Privacy gate
 
   The framework's per-frame rings RETAIN every emitted event with no
   `:sensitive?` check (`re-frame.trace.tooling/push-to-ring!`) — the
@@ -219,7 +217,7 @@
         frameless   (frameless-events)
         all         (into per-frame frameless)]
     (into []
-          ;; Privacy gate (rf2-0ax6f): scrub retained-but-sensitive
+          ;; Privacy gate: scrub retained-but-sensitive
           ;; events on the read side so the snapshot never leaks an
           ;; event the listener gate already suppressed. No-op when the
           ;; local-render egress profile reveals sensitive values
@@ -235,18 +233,18 @@
                    all))))
 
 (defn bundles-for-frame
-  "The gated per-frame EVENT-BUNDLE read (rf2-y8doi.13) — one bundle per
+  "The gated per-frame EVENT-BUNDLE read — one bundle per
   dequeued event, oldest-first, exactly the shape
   `rf/trace-buffer` answers, with the Spec 009 §Privacy gate applied.
 
   `snapshot-from-rings` above is the gated FLAT read; this is its
-  bundle-shaped sibling, and it exists because Xray had a second,
-  UNGATED reader of the framework rings — `panels.fresco-reads/trace-
-  windows` called `re-frame.trace.tooling/trace-buffer` straight, so a
-  sensitive cascade the spine and every trace panel hid still reached the
-  Fresco advisor and the causal slice. Spec 013 §Read-side gate says
+  bundle-shaped sibling, and it exists so a bundle-shaped reader
+  (`panels.fresco-reads/trace-windows`) goes through the gate: a direct
+  `re-frame.trace.tooling/trace-buffer` read would let a sensitive
+  cascade the spine and every trace panel hide reach the Fresco advisor
+  and the causal slice. Spec 013 §Read-side gate says
   \"Xray has no second, seam-side trace reader\"; this is what makes that
-  sentence true again.
+  sentence true.
 
   ## The grain is the BUNDLE, not the event
 
@@ -280,7 +278,7 @@
   ring into Xray's app-db's `:trace-buffer` slot.
 
   PRIMARY USES:
-    - Tests (per the rf2-3g9nw D3=b ruling): a sync entrypoint that
+    - Tests: a sync entrypoint that
       deterministically aligns Xray's reactive surface against the
       framework's rings after each host dispatch, bypassing the
       task coalescer.
@@ -328,15 +326,14 @@
        but the listener belt-and-braces against any that slipped past.
        Also drop Xray's own sub traces that arrive FRAMELESS (a
        render-time cold read runs outside any event run), keyed on the
-       sub-id's reserved `rf.xray` namespace (rf2-izhgo).
+       sub-id's reserved `rf.xray` namespace.
     2. Apply the privacy gate — `:sensitive?` events bump the
        suppressed counter and skip the frameless secondary ring + the
        mirror-sync request. The framework's per-frame ring does NOT
        honour the gate (it retains every emitted event); the matching
        read-side gate in `snapshot-from-rings` scrubs those retained
-       events so the two halves are genuinely symmetric (rf2-0ax6f).
-    3. Frameless events feed the Xray-side secondary ring (per the
-       rf2-3g9nw D2=a ruling).
+       events so the two halves are genuinely symmetric.
+    3. Frameless events feed the Xray-side secondary ring.
     4. Frame-bound events: no Xray-side push needed — the framework's
        per-frame ring (`re-frame.trace.tooling`) already captured them.
        We schedule a coalesced mirror sync so the next scheduled task
@@ -349,11 +346,11 @@
   [event]
   (when rf.interop/debug-enabled?
     (cond
-      ;; rf2-xs8vu — drop Xray's own machinery before anything else.
+      ;; Drop Xray's own machinery before anything else.
       ;; Self-emitted sub-reads / view-renders from Xray's own panels
       ;; would otherwise drown the host event in `:ungrouped` noise.
       ;;
-      ;; rf2-izhgo — and Xray's own sub reads that arrive FRAMELESS. A
+      ;; And Xray's own sub reads that arrive FRAMELESS. A
       ;; render-time cold read (the shell's first mount) runs outside any
       ;; event run, so core leaves its `:rf.sub/run` frameless (Spec 009
       ;; §Frame identity) and the frame check cannot see it; core's sub
@@ -377,7 +374,7 @@
       :else
       (do
         ;; Frameless events: the framework's per-frame rings skipped
-        ;; this one (B3 ruling) — push to our 100-event secondary ring
+        ;; this one — push to our 100-event secondary ring
         ;; so the `:show-ungrouped?` UX can surface it.
         (when (frameless-event? event)
           (push-frameless! event))
@@ -388,7 +385,7 @@
         (request-mirror-sync!))))
   nil)
 
-;; ---- retroactive scrub on toggle-off (rf2-lqmje, D5=a re-home) ---------
+;; ---- retroactive scrub on toggle-off -------------------------------------
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: narrowing the local-render
 ;; egress profile from a sensitive-revealing boundary
@@ -397,20 +394,20 @@
 ;; trapdoor — a sensitive event-bundle buffered while the raw profile was active
 ;; would otherwise remain visible after the user expected privacy restored.
 ;;
-;; Four places hold trace data post-rf2-43koh:
+;; Four places hold trace data:
 ;;   1. The framework's per-frame rings — clear via
 ;;      `(rf/clear-trace-buffer!)`.
 ;;   2. The Xray secondary frameless ring — clear via
 ;;      `(clear-frameless-ring!)`.
 ;;   3. Xray's app-db `:trace-buffer` slot — clear via
 ;;      `:rf.xray/clear-trace-buffer` (registered in `registry.cljs`).
-;;   4. Xray's app-db `:epoch-history` slot (rf2-y8doi.13) — each record
+;;   4. Xray's app-db `:epoch-history` slot — each record
 ;;      carries `:trace-events` VERBATIM, so records ingested while the
 ;;      raw profile was active hold sensitive events the narrowing must
 ;;      reach. Cleared via `:rf.xray/sync-epoch-history` with an empty
 ;;      history — the slot's own wholesale-overwrite event (registered in
 ;;      `epoch.cljs`), which also clears `[:focus :epoch-id]` so no panel
-;;      is left following a record that no longer exists. No new event id:
+;;      is left following a cleared record. No new event id:
 ;;      the clear IS a sync to nothing.
 ;;
 ;; All four are dropped together. The suppressed-counters reset moves
@@ -419,7 +416,7 @@
 ;; \"you missed N events\" overhang).
 ;;
 ;; The framework clear is the 0-arity DATA clear, not the fixture-grade
-;; `clear-trace-rings!` (rf2-kuky.54). The scrub's subject is retained
+;; `clear-trace-rings!`. The scrub's subject is retained
 ;; *events*; it deliberately does NOT reset the user's configured
 ;; `(rf/configure! {:trace-buffer {:events-retained N}})` retention, any
 ;; frame's explicit override, or the hot-reload registration dedup table —
@@ -434,7 +431,7 @@
 
   Retention policy survives: the framework clear is the 0-arity data
   clear, so the user's configured `:events-retained` and every per-frame
-  override stay in force (rf2-kuky.54).
+  override stay in force.
 
   Production no-op (`rf.interop/debug-enabled?` gates every mutation
   point inside the framework + Xray paths)."
@@ -481,13 +478,12 @@
   spinning a full host runtime.
 
   When `:rf/xray` is registered, also refreshes the app-db slot
-  synchronously (per the rf2-3g9nw D3=b ruling: tests get a sync
+  synchronously (tests get a sync
   entrypoint that bypasses the task coalescer). Pre-mount
   callers see the seed land in the ring; the first mount-time
   refresh lifts it into the slot.
 
-  Lifted from the retired `trace-bus/seed-buffer-for-test!` per
-  rf2-43koh. Pure mutation; no privacy / no self-noise / no debug
+  Pure mutation; no privacy / no self-noise / no debug
   gate — strictly for assembling buffer fixtures in tests."
   [event]
   (push-frameless! event)
@@ -500,8 +496,7 @@
   Test-only.
 
   Returns the merged oldest-first vector across every registered
-  frame's per-frame ring + the frameless secondary ring. Replaces
-  `trace-bus/buffer` for tests."
+  frame's per-frame ring + the frameless secondary ring."
   []
   (snapshot-from-rings))
 
