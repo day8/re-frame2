@@ -34,14 +34,16 @@
 
   Production builds with `re-frame.story.config/enabled?` false never
   reach this ns; Closure DCE drops the lot."
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as rf.story.theme.colors]
             [re-frame.story.theme.depth :as rf.story.theme.depth]
             [re-frame.story.theme.motion :as rf.story.theme.motion]
-            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]))
+            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]
+            [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -212,15 +214,23 @@
 
    [:div {:style (:section-h styles)} "Inspectors (right)"]
    [:ul {:style (:list styles)}
+    ;; The lens names are the chip row's own labels. A static export
+    ;; omits the Xray band, so its help does not offer one.
+    (when-not rf.story.config/static-mode?
+      [:li {:style (:list-item styles)}
+       [:b "Xray"] " — one diagnostic lens at a time: "
+       (str/join " · " (map :label rf.story.ui.xray-embed/panel-catalog))
+       "."])
     [:li {:style (:list-item styles)}
-     [:b "args"] " edit live arguments; "
-     [:b "modes"] " toggle registered modes; "
-     [:b "decorators"] " show the resolved wrap stack."]
+     [:b "Explain"] " — where the variant's plan came from and how it was lowered; "
+     [:b "Evidence"] " — the run's narrative, beat by beat."]
     [:li {:style (:list-item styles)}
-     [:b "time-travel"] " scrub past epochs; "
-     [:b "trace"] " tails the six-domino cascade per event."]
+     [:b "Controls"] " — edit args, pick a view state, see the resolved decorators; "
+     [:b "Dispatch"] " (opt-in) — send free-form events."]
     [:li {:style (:list-item styles)}
-     [:b "notes / a11y / layout-debug"] " — author notes, axe-core scan, visual guides."]]
+     [:b "a11y / Chrome a11y"] " — axe-core scans of the variant and of Story's chrome; "
+     [:b "Layout-debug"] " — visual guides; "
+     [:b "Schema validation"] " — schema violations."]]
 
    [:div {:style (:section-h styles)} "Keyboard shortcuts"]
    [:ul {:style (:list styles)
