@@ -1,28 +1,19 @@
 (ns re-frame.api-manifest.roster-completeness-test
-  "Regression tests for the roster-completeness gate (rf2-8arzr.7).
+  "Regression tests for the roster-completeness gate.
 
-  THE BUG. `jvm-namespaces` is an EXPLICIT roster, and every downstream
+  THE HAZARD. `jvm-namespaces` is an EXPLICIT roster, and every downstream
   projection (`doc_api_check` among them) derives its own namespace roster
   from the rows that roster produces. So a namespace absent from the roster
-  was not UNCLASSIFIED — it was UNSCANNED: `--check` stayed green, no
-  documentation-coverage check reached it, and every public var in it was
-  invisible to every manifest-derived gate at once. The drift-check reported
-  `in sync (494 public vars)` while three public namespaces
-  (`re-frame.ssr.ring.node`, `re-frame.ssr.render-state`,
-  `re-frame.fresco.server`) carried genuinely public vars, no `^:no-doc`
-  markers, and zero manifest rows. A completeness check keyed on the roster
-  cannot see what the roster omits.
+  is not UNCLASSIFIED — it is UNSCANNED: `--check` stays green, no
+  documentation-coverage check reaches it, and every public var in it is
+  invisible to every manifest-derived gate at once. A completeness check
+  keyed on the roster cannot see what the roster omits.
 
-  THE HISTORY, because this is the second time. rf2-o8xev built exactly this
-  reconciliation over `implementation/freehand/src`. Freehand's retirement
-  (rf2-0yp7w.6, commit c951808b47) removed the tree and — correctly, since
-  the gate refuses to build when a source namespace is named by neither
-  roster — retired the rosters, the assertion and its call site with it,
-  leaving `namespaces-under` and `source-file->ns-sym` behind with no caller.
-  The gate was ORPHANED rather than forgotten, which is worse: the orphan
-  reads like a live backstop to anyone grepping for one. These tests exist so
-  the restored gate cannot be orphaned silently a second time — the live-tree
-  test below fails if the call site stops accounting for the real trees.
+  AN ORPHANED GATE. Remove the assertion's call site and `namespaces-under`
+  and `source-file->ns-sym` survive with no caller, which is worse than no
+  gate: the orphan reads like a live backstop to anyone grepping for one.
+  These tests exist so the gate cannot be orphaned silently — the live-tree
+  and call-site tests below fail if it stops accounting for the real trees.
 
   THE GATE. It infers nothing about publicness. It asserts only that every
   source namespace under `roster-covered-roots` is ACCOUNTED FOR — by
@@ -71,7 +62,7 @@
 (deftest enrolment-accounts-for-a-namespace
   (testing "the same namespace, once enrolled in jvm-namespaces, is accounted
             for — enrolment is what clears the finding, not a marker"
-    ;; `re-frame.ssr.ring.node` is enrolled (rf2-8arzr.7), so it must NOT be
+    ;; `re-frame.ssr.ring.node` is enrolled, so it must NOT be
     ;; reported even though it is not on the internal roster.
     (let [drift (rf.api-manifest.gen/roster-drift #{'re-frame.ssr.ring.node} no-cljs-sidecar)]
       (is (empty? (:unaccounted drift))))))
@@ -136,8 +127,8 @@
 (deftest assert-message-names-both-remediation-paths
   (testing "the failure tells the reader how to answer for the namespace —
             enrol it, or record it internal. A gate that only says NO sends
-            people to the nearest silencer (a ^:no-doc marker), which is the
-            outcome this bead's fence forbids."
+            people to the nearest silencer (a ^:no-doc marker), which
+            classifies nothing."
     (let [msg (try (rf.api-manifest.gen/assert-roster-complete! '#{re-frame.ssr.brand-new}
                                                 no-cljs-sidecar)
                    (catch clojure.lang.ExceptionInfo e (ex-message e)))]
@@ -154,7 +145,7 @@
       (is (= present (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar))))))
 
 ;; ---------------------------------------------------------------------------
-;; The LIVE tree — the test that fails if the gate is orphaned again.
+;; The LIVE tree — the test that fails if the gate is orphaned.
 ;; ---------------------------------------------------------------------------
 
 (deftest covered-roots-are-non-empty
@@ -176,8 +167,8 @@
           (str "contradictory: " (:contradictory drift))))))
 
 (deftest the-crossing-namespaces-are-enrolled
-  (testing "the two JVM-loadable ssr-node crossing namespaces rf2-8arzr.7
-            found shipping unscanned are enrolled for introspection"
+  (testing "the two JVM-loadable ssr-node crossing namespaces are enrolled
+            for introspection"
     (is (contains? (set rf.api-manifest.gen/jvm-namespaces) 're-frame.ssr.ring.node))
     (is (contains? (set rf.api-manifest.gen/jvm-namespaces) 're-frame.ssr.render-state))))
 
@@ -194,16 +185,14 @@
 ;; ---------------------------------------------------------------------------
 ;; The CALL SITE — the test that fails if `build-manifest` stops asserting.
 ;;
-;; WHY THIS EXISTS SEPARATELY FROM EVERYTHING ABOVE (the #9040 audit). Every
+;; WHY THIS EXISTS SEPARATELY FROM EVERYTHING ABOVE. Every
 ;; test above exercises `roster-drift` / `assert-roster-complete!` DIRECTLY, so
 ;; all of them stay green if `build-manifest`'s single call to
 ;; `assert-roster-complete!` is deleted — which is precisely the orphaning this
-;; whole file was written about. The helpers surviving with no caller is the
-;; original defect (rf2-o8xev's gate, orphaned by the freehand retirement), and
-;; a suite that only tests the helpers cannot tell a live gate from an orphan.
-;; #9040 proved the restored call worked by PLANTING a namespace on disk and
-;; watching `--check` go red; that was a demonstration performed once by hand,
-;; not a regression test that runs every time.
+;; file guards against. A suite that only tests the helpers cannot tell a live
+;; gate from an orphan, and PLANTING a namespace on disk to watch `--check` go
+;; red is a demonstration performed by hand, not a regression test that runs
+;; every time.
 ;;
 ;; So this drives the PRODUCTION entry point. It redefines the live tree scan to
 ;; report one synthetic unaccounted namespace and requires `build-manifest` to
@@ -222,7 +211,7 @@
   (testing "`build-manifest` itself refuses an unaccounted namespace, naming
             it. This drives the production call site rather than the helper, so
             it is what goes red if that call is ever removed and the gate is
-            orphaned a second time."
+            orphaned."
     (let [live    (rf.api-manifest.gen/covered-source-namespaces)
           sidecar (rf.api-manifest.gen/read-sidecar)]
       ;; CONTROL FIRST: the live tree is fully accounted for, so `build-manifest`
