@@ -1,8 +1,8 @@
 (ns re-frame.story.plan-cljs-test
-  "Tests for the variant-plan compiler + explain base (rf2-5x1wt.10).
+  "Tests for the variant-plan compiler + explain base.
 
   Per `tools/story/spec/017-Testing-Story.md` §Four-bucket authoring
-  model + `ai/findings/NewTestStory` §B1. The compiler is a pure
+  model. The compiler is a pure
   data → data fn, so every test runs on both the JVM and CLJS without a
   host: variant bodies are supplied through an explicit `:lookup` map of
   RAW bodies (the parent-chain resolution is the compiler's job, so the
@@ -10,7 +10,7 @@
   registrar's eager merge).
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
+  selects it; a plain `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.story.assertions :as rf.story.assertions]
@@ -68,8 +68,7 @@
 (deftest inline-map-target-without-variant-id-compiles
   (testing "a map target with NO :variant/id is allowed (spec: :variant/id
             optional) and compiles to a plan whose :variant/id is nil
-            (rf2-8e2nd — variant-plan reads (:variant/id target), nil when
-            absent)"
+            (variant-plan reads (:variant/id target), nil when absent)"
     (let [p (rf.story.plan/variant-plan {:setup  [[:dispatch [:a]]]
                                 :script [[:dispatch [:b]]]})]
       (is (nil? (:variant/id p))
@@ -79,17 +78,16 @@
       (is (= [nil] (:source-chain p))
           "the single anonymous body is the whole source chain"))))
 
-;; ---- :story/id stamp — plan-hash's cross-story collision guard (rf2-xk8oz4)
+;; ---- :story/id stamp — plan-hash's cross-story collision guard
 
 (deftest compiled-plan-is-stamped-with-parent-story-id
   (testing "a registered variant's compiled plan carries :story/id (the
             variant's namespace) — fingerprint's plan-hash-input-keys
             includes :story/id SPECIFICALLY so two variants under
-            different stories with identical bodies do not collide, but
-            compile-body never stamped it (rf2-xk8oz4): select-keys
-            silently dropped the absent key, so plan-hash was actually
-            taken over [:world :script :expect :required-runner :tags]
-            alone"
+            different stories with identical bodies do not collide. Were
+            compile-body not to stamp it, select-keys would silently drop
+            the absent key and plan-hash would be taken over [:world
+            :script :expect :required-runner :tags] alone"
     (let [m {:story.counter/at-five
              {:setup  [[:dispatch [:counter/init 5]]]
               :script [[:dispatch [:counter/inc]]]}}
@@ -102,13 +100,12 @@
       (is (not (contains? p :story/id))))))
 
 (deftest identical-variant-bodies-under-different-stories-do-not-collide
-  (testing "rf2-xk8oz4 — two variants with STRUCTURALLY IDENTICAL bodies
+  (testing "two variants with STRUCTURALLY IDENTICAL bodies
             (same :world / :script / :expect / :required-runner / :tags)
             registered under DIFFERENT parent stories compile to DIFFERENT
             plan-hashes, driving the REAL compiler (not a hand-stamped
-            plan — the test gap the bead called out). Pre-fix, compile-body
-            never populated :story/id, so plan-hash's :story/id input was
-            always absent and these collided."
+            plan). Were compile-body not to populate :story/id, plan-hash's
+            :story/id input would always be absent and these would collide."
     (let [body {:setup      [[:dispatch [:counter/init 5]]]
                 :script     [[:dispatch [:counter/inc]]]
                 :assertions [[:rf.assert/path-equals [:count] 6]]}
@@ -124,7 +121,7 @@
       (is (= (:required-runner pa) (:required-runner pb)))
       (is (= (:tags pa) (:tags pb)))
       (is (not= (rf.story.fingerprint/plan-hash pa) (rf.story.fingerprint/plan-hash pb))
-          "the cross-story collision guard is now LIVE — identical bodies
+          "the cross-story collision guard is LIVE — identical bodies
            under different stories hash DIFFERENTLY"))))
 
 ;; ---- args + [:arg key] substitution -------------------------------------
@@ -163,9 +160,9 @@
 
 (deftest args-and-argtypes-resolve-through-extends
   (testing "args + argtypes deep-merge root→child via the dedicated merge-key
-            path (rf2-xutlo — they were dropped from context-keys; the
-            merge-key deep-merge is the single source of truth, so this must
-            still resolve correctly through :extends)"
+            path (they are absent from context-keys; the merge-key
+            deep-merge is the single source of truth, so this must resolve
+            correctly through :extends)"
     (let [m {:story.at/parent
              {:args     {:sku "A" :qty 1}
               :argtypes {:sku {:control :text} :qty {:control :number}}}
@@ -245,9 +242,9 @@
     ;; the cap fires before the chain runs out. No cycle here — the depth cap
     ;; is a SEPARATE bound with its own error id, and this is its only witness.
     ;;
-    ;; Moved off the retired standalone `re-frame.story.extends` resolver
-    ;; (rf2-6r9j.11) onto the compiled-plan merge authority, which is what the
-    ;; runtime actually walks.
+    ;; There is no standalone `re-frame.story.extends` resolver: the cap is
+    ;; enforced by the compiled-plan merge authority, which is what the
+    ;; runtime walks.
     (let [chain-len 50
           m         (into {}
                           (for [i (range chain-len)]
@@ -273,9 +270,8 @@
 
 (deftest events-normalizes-to-world-setup
   (testing ":setup lowers to [:world :setup], bare event vectors
-            lifting to tagged [:dispatch …] (rf2-5x1wt.17 migration
-            normalization — bare shorthand is the migration form, not the
-            P1 public grammar)"
+            lifting to tagged [:dispatch …] (migration normalization — bare
+            shorthand is the migration form, not the P1 public grammar)"
     (let [m {:story.legacy/e {:setup [[:counter/init 3]]}}
           p (plan-of :story.legacy/e m)]
       (is (= [[:dispatch [:counter/init 3]]] (get-in p [:world :setup])))))
@@ -326,7 +322,7 @@
     (let [m {:story.k/parent {:checks [:check/no-runtime-errors]}
              :story.k/child  {:extends :story.k/parent
                               :checks  [:check/extra]}}
-          ;; Every :checks id must resolve (rf2-jjhy), so thread the bodies.
+          ;; Every :checks id must resolve, so thread the bodies.
           checks {:check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]}
                   :check/extra             {:assertions [[:rf.assert/no-warnings]]}}
           p (rf.story.plan/variant-plan :story.k/child {:lookup m :check-lookup checks})]
@@ -353,7 +349,7 @@
 
 (deftest dom-setup-step-requires-dom-token
   (testing "a DOM SETUP step alone lifts the required-runner to include :dom
-            — isolating the setup contribution (rf2-8e2nd). The script is
+            — isolating the setup contribution. The script is
             DOM-free and there are NO DOM assertions, so :dom can ONLY have
             come from the [:click …] step in :setup (requirements walks
             `(map step-tokens setup)`)."
@@ -369,14 +365,13 @@
 (deftest required-runner-unions-across-every-auto-run-play
   (testing "a NON-first :auto-run? true play whose step lifts capability
             (a :click DOM step) is unioned into :required-runner — not
-            just the primary (first) play's tokens (rf2-m0cge5 finding 10).
-            Before the fix, `:required-runner` was computed over the
-            primary `:script` (the first play) alone even though
-            `[:world :scripts]` retains every play and the runtime
-            auto-runs each `:auto-run? true` one; `:auto` runner-selection
-            trusts `:required-runner` verbatim, so it could pick a
-            headless runner unable to execute the second play's DOM step
-            — a spurious mid-run failure instead of an honest
+            just the primary (first) play's tokens. Computing
+            `:required-runner` over the primary `:script` (the first play)
+            alone would ignore that `[:world :scripts]` retains every play
+            and the runtime auto-runs each `:auto-run? true` one; `:auto`
+            runner-selection trusts `:required-runner` verbatim, so it could
+            pick a headless runner unable to execute the second play's DOM
+            step — a spurious mid-run failure instead of an honest
             `:cannot-run` refusal at selection time."
     (let [m {:story.r/multi-autorun
              {:plays [{:name "first"  :auto-run? true
@@ -417,9 +412,9 @@
       (is (= [{:key :n :value 1}] (:substitutions ex)))
       (is (= [[:dispatch [:seed 1]]] (:setup-order ex)))
       (is (= [[:dispatch [:go]]] (:script-order ex)))
-      ;; rf2-5x1wt.15 — the merge vocabulary names the inherited / compose /
-      ;; own layering now that `:compose` lands between the parent merge and
-      ;; the variant-owned values. Setup appends inherited→compose→own;
+      ;; The merge vocabulary names the inherited / compose / own layering,
+      ;; because `:compose` lands between the parent merge and the
+      ;; variant-owned values. Setup appends inherited→compose→own;
       ;; script appends through `:compose` only, never `:extends`.
       (is (= :append-inherited-compose-own (get-in ex [:merge :setup])))
       (is (= :compose-then-child (get-in ex [:merge :script])))
@@ -428,7 +423,7 @@
         (is (= [] (:strict-conflicts ex)))))))
 
 ;; ===========================================================================
-;; View arg schemas (rf2-5x1wt.12 — spec §View arg schemas)
+;; View arg schemas (spec §View arg schemas)
 ;; ===========================================================================
 ;;
 ;; A registered view MAY expose an explicit-input (props) schema on its
@@ -550,19 +545,19 @@
       (is (= {:x 1} (get-in p [:world :effective-args]))))))
 
 (deftest schema-key-precedence
-  (testing ":rf/props wins over :schema; :spec is DEAD (dropped post-M-54)"
+  (testing ":rf/props wins over :schema; :spec is not a resolution key (migration §M-54)"
     (let [props  [:map [:a :string]]
           spec   [:map [:b :string]]
           schema [:map [:c :string]]]
       (testing ":rf/props chosen when present (canonical, wins over :schema)"
         (is (= props (rf.story.plan/view-args-schema {:rf/props props :schema schema}))))
-      (testing ":schema chosen when no :rf/props (the post-M-54 location)"
+      (testing ":schema chosen when no :rf/props (the location migration §M-54 names)"
         (is (= schema (rf.story.plan/view-args-schema {:schema schema}))))
       (testing ":spec is NOT a resolution key — a view carrying ONLY :spec
-                resolves no schema (the framework reads :schema only post-M-54;
-                see migration §M-54). rf2-ayu6n: the stale :spec key is gone."
+                resolves no schema (the framework reads :schema only; see
+                migration §M-54)."
         (is (nil? (rf.story.plan/view-args-schema {:spec spec}))))
-      (testing ":rf/props still wins even when a dead :spec is also present"
+      (testing ":rf/props wins even when an unread :spec is also present"
         (is (= props (rf.story.plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
       (testing "nil when no schema slot present"
         (is (nil? (rf.story.plan/view-args-schema {:title "x"})))))))
@@ -605,8 +600,7 @@
                (get-in p [:world :render :sub-overrides]))))
       (testing "the two contracts are not conflated — the view-args schema's
                 map-entry keys are the explicit-arg keys only, never a
-                sub-override query vector (rf2-p5ivc nit: the prior
-                set-membership assertion here was tautological)"
+                sub-override query vector"
         ;; A sub-override key is a QUERY VECTOR (`[:widget/state]`); the
         ;; view-args schema's entries are scalar arg keys (`:label`). Pull
         ;; the schema's entry keys and assert the sub-override query vector
@@ -618,7 +612,7 @@
           (is (not (contains? entry-keys :widget/state))))))))
 
 ;; ===========================================================================
-;; View-state subscription overrides (rf2-5x1wt.13)
+;; View-state subscription overrides
 ;; ===========================================================================
 ;;
 ;; `:sub-overrides` is the third, lower-fidelity rung of the fidelity
@@ -740,9 +734,9 @@
 
 (deftest sub-overrides-same-key-child-replaces-parent-through-extends
   (testing "a child overriding the SAME query key REPLACES the parent's pinned
-            value (rf2-pwwu): the variant chain wins per query key, exactly as
-            :compose resolves it. A deep merge pinned a value neither author
-            wrote — here {:items [1 2] :total 2 :status :empty}."
+            value: the variant chain wins per query key, exactly as
+            :compose resolves it. A deep merge would pin a value neither
+            author wrote — here {:items [1 2] :total 2 :status :empty}."
     (let [m {:story.cart/full  {:sub-overrides {[:cart/summary] {:items [1 2] :total 2}
                                                 [:cart/open?]   true}}
              :story.cart/empty {:extends       :story.cart/full
@@ -752,10 +746,10 @@
               [:cart/open?]   true}              ; untouched parent key inherited
              (get-in p [:world :render :sub-overrides]))))))
 
-;; ---- :db-seed — the MIDDLE fidelity rung (rf2-blw1q) ---------------------
+;; ---- :db-seed — the MIDDLE fidelity rung ---------------------------------
 ;;
 ;; `:db-seed` is the schema-checked direct app-db seed. The compiler accepts
-;; it (the schema no longer silently ignores it), lowers it to `[:world
+;; it (the Variant schema declares the slot), lowers it to `[:world
 ;; :db-seed]` (`[:arg]` placeholders substituted, fragments + the parent
 ;; chain composed), and marks `[:world :fidelity]` with `:db-seed`. The
 ;; seeded-app-db schema validation is a RUN-TIME check (runtime_test) — it
@@ -781,8 +775,8 @@
   (testing "an author's :db-seed is accepted by the schema (not dropped) and lowers"
     ;; The Variant schema validates the body at registration; reg-variant
     ;; would reject an unknown-shape :db-seed. Compiling the body proves the
-    ;; slot is accepted AND survives into the plan (the pre-rf2-blw1q bug was
-    ;; silent-accept-then-silent-ignore).
+    ;; slot is accepted AND survives into the plan (accepting it and then
+    ;; dropping it would be a silent no-op).
     (let [m {:story.x/seed {:db-seed {:k 1}}}
           p (rf.story.plan/variant-plan :story.x/seed {:lookup m})]
       (is (= {:k 1} (get-in p [:world :db-seed])))
@@ -869,8 +863,7 @@
                       #(rf.story.sub-overrides/read [:login/other] (fn [] :real))))))))
 
 ;; ===========================================================================
-;; Assertion-atom fold (rf2-5x1wt.18, spec/017 §Assertions — one atom,
-;; two positions)
+;; Assertion-atom fold (spec/017 §Assertions — one atom, two positions)
 ;; ===========================================================================
 ;;
 ;; The fold collapses terminal `:assertions` and EVERY in-script assertion
@@ -925,7 +918,7 @@
 
 (deftest assert-dom-folds-to-dom-family
   (testing ":assert-dom :visible / :hidden / :text fold onto the DOM
-           assertion family (rf2-5x1wt.18, NET-NEW ids)"
+           assertion family (ids beyond the seven shipping ones)"
     (let [p (plan-of :story.x/dom
                      {:story.x/dom
                       {:script [[:assert-dom "#a" :visible]
@@ -976,7 +969,7 @@
       (is (contains? (set (:offending-assertions (ex-data ex)))
                      [:rf.assert/whoops])))))
 
-;; ---- :require-cause? opt validation (rf2-x76af2.17) -----------------------
+;; ---- :require-cause? opt validation ---------------------------------------
 ;;
 ;; `:require-cause? false` is the ONE opt-out that lets
 ;; `:rf.assert/no-cascade-rerender` evaluate its `[0,0]` default vacuously
@@ -1046,7 +1039,7 @@
 
 (deftest causal-assertion-checkpoints-compile
   ;; Validates the honest-guard testbed scene's authored shape
-  ;; (testbeds/counter_with_stories/stories.cljs, rf2-x76af2.17) through the
+  ;; (testbeds/counter_with_stories/stories.cljs) through the
   ;; JVM plan compiler — the front half of `run-variant`.
   (testing "in-script causal [:assert …] checkpoints compile cleanly and
            survive folding in script order"
@@ -1097,7 +1090,7 @@
                      [:expect :assertions]))
           (str "expected " (pr-str atom-v) " to compile as a known assertion")))))
 
-;; ---- malformed-step rejection before the fold (rf2-zha5z) -----------------
+;; ---- malformed-step rejection before the fold -----------------------------
 ;;
 ;; The plan compiler folds shipping `:assert-db` / `:assert-dom` steps into
 ;; the canonical `[:assert …]` checkpoint. The fold helpers assume a
@@ -1138,7 +1131,7 @@
 
 (deftest well-formed-assert-steps-still-compile
   (testing "well-formed :assert-db / :assert-dom steps fold cleanly past the
-           new shape gate (the gate rejects only malformed steps)"
+           shape gate (the gate rejects only malformed steps)"
     (let [folded (plan-of :story.x/ok-mix
                           {:story.x/ok-mix
                            {:script [[:assert-db [:count] 6]
