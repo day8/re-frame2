@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.front.slot
-  "THE CANONICAL SLOT RULE — one implementation, two hosts (rf2-ani6y).
+  "THE CANONICAL SLOT RULE — one implementation, two hosts.
 
   A hiccup prop key is written in one of four spellings — a keyword, a
   string, a symbol or a namespaced keyword — in kebab or in camel, and
@@ -24,20 +24,22 @@
   the framework does not do. No comment, checklist or restating test
   inside the tool's own tree closes that; a convention is not a pin.
 
-  So the rule moved to the one file both hosts can load, and the codec
-  calls it like anybody else. There is no second copy to keep honest.
+  So the rule lives in a file both hosts can load, and the codec calls it
+  like anybody else. The codemod reads the package's copy of this rule,
+  `re-frame.fresco.impl.slot`, not this bench file, which is the frozen
+  donor the bench's readings were taken against (`bench/fresco/README.md`).
 
   ## What pins the two hosts equal
 
-  `re-frame.bench.fresco.front.slot-cljs-test` is a **`.cljc` suite**,
-  and this repo's lane bijection (`scripts/check_test_lane_bijection.py`
-  rule B2) requires such a file to be selected by a CLJS lane as well as
-  the JVM one. So the same corpus of authored keys, with the same
-  expected slots, is asserted by `npm run test:cljs` AND by
-  `clojure -M:test` in `implementation/freehand`. One table, one
-  implementation, two runtimes — and a divergence has nowhere left to
-  hide, because there is no second implementation to hold a second
-  answer.
+  The package's copy is pinned by `re-frame.fresco.slot-cljs-test`
+  (`implementation/fresco/test/re_frame/fresco/slot_cljs_test.cljc`), a
+  **`.cljc` suite**, and this repo's lane bijection
+  (`scripts/check_test_lane_bijection.py` rule B2) requires such a file
+  to be selected by a CLJS lane as well as the JVM one. So the same
+  corpus of authored keys, with the same expected slots, is asserted on
+  both runtimes. One table, one implementation, two runtimes — and a
+  divergence has nowhere left to hide, because there is no second
+  implementation to hold a second answer. Nothing pins this bench copy.
 
   That matters more than it looks, because the primitives below are not
   host-identical for free. `str/upper-case` is `.toUpperCase()` on both,
@@ -95,9 +97,9 @@
   that depended on what the build happened to have converted earlier
   would make the owned-literal law depend on render order.
 
-  It is also the function the `[:>]` migration codemod asks on the JVM,
-  which is why it lives here rather than in the codec — see this
-  namespace's docstring."
+  Its package copy is the function the `[:>]` migration codemod asks on
+  the JVM, which is why the rule lives in `.cljc` rather than in the
+  codec — see this namespace's docstring."
   [k]
   (let [n (name k)]
     (or (react-renames n)
