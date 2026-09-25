@@ -158,7 +158,7 @@ const { shadowBuild } = require('./lane_build.cjs');
 const guard = require('../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('./seam.cjs');
 const kbwitness = require('./clock_witness.cjs');
-// THE GATE ON A BULK ROW (rf2-8a746). One module, required by this driver and
+// THE GATE ON A BULK ROW. One module, required by this driver and
 // by `clock_readjudicate.cjs`, because two copies of an adjudicator's
 // arithmetic are two adjudicators.
 const checkstd = require('./clock_check_standard.cjs');
@@ -339,7 +339,7 @@ function summarise(xs) {
  * of 0.599 ms — 2.09 sigma from zero — so 2.5% of blocks land with
  * `|den| < 0.2 ms` and the ratio is heavy-tailed by construction. Over 18
  * blocks ONE such block moved a run's headline from ~1.6x to 86x, and that is
- * not a rounding complaint: rf2-8a746's ensembles were read as DISAGREEING
+ * not a rounding complaint: two ensembles of one experiment read as DISAGREEING
  * about the shape of the same experiment when at block level they agree to
  * within 2% on every structural quantity (statistic p50 1.52-1.62, in-band
  * 42-49%, den p50 1.19-1.29 ms). The medians were 1.569 and 1.575.
@@ -348,10 +348,10 @@ function summarise(xs) {
  * it is simply not a summary of this one, and a reader shown only the median
  * could not see the tail that the pair together makes obvious.
  *
- * NOTHING HERE IS A VERDICT. `p50` is an added field on a summary object; no
- * gate, band, slack, sign check or prediction reads it — `controlVerdict`'s
- * `ok` is `perRound.every(...)` over the RAW per-block ratios and is untouched
- * by how they are later described.
+ * NOTHING HERE IS A VERDICT. `p50` is a field on a summary object; no gate,
+ * band, slack, sign check or prediction reads it — `controlVerdict` counts
+ * `inBand` over the RAW per-block ratios, untouched by how they are later
+ * described.
  */
 function band(xs) {
   return {
@@ -363,17 +363,17 @@ function band(xs) {
 }
 
 /**
- * A STATED prediction against a measured range — AND NO LONGER A VERDICT
- * (rf2-8a746).
+ * A STATED prediction against a measured range — A DESCRIPTION, NOT A
+ * VERDICT.
  *
  * It carries no `ok`. The STRICT rule — every block inside the band, one bad
- * block refuses the run — is retired everywhere on this instrument, and it is
- * worth being precise about why, because the reasoning behind it is sound and
- * is not what fails.
+ * block refuses the run — gates nothing on this instrument, and it is worth
+ * being precise about why, because the reasoning behind it is sound and is
+ * not what fails.
  *
- * The strict rule stands against `lane/control-verdict`'s overlap rule —
- * settled as a SPLIT: heap arm strict, clock arm keeping overlap for
- * clamp-limited legs — because a control
+ * The case for the strict rule over `lane/control-verdict`'s overlap rule —
+ * which the heap arm applies strictly while the clock arm keeps overlap for
+ * clamp-limited legs — is that a control
  * whose worst block is wrong HAS caught something, and letting a good block
  * vouch for a bad one is how an instrument stops being one. True, and it says
  * nothing about how many blocks a run has. THE
@@ -405,34 +405,32 @@ function controlVerdict(predicted, perRound, slack) {
     perRound: perRound.map(r4),
     inBand,
     of: perRound.length,
-    // THE RETIRED RULE, kept as a DESCRIPTION and never read as a verdict
-    // (rf2-8a746). A reader comparing an old dataset with a new one needs the
-    // number the old rule turned on; a gate reading it would be that rule
-    // growing back.
+    // EVERY BLOCK INSIDE THE BAND, as a DESCRIPTION and never read as a
+    // verdict. A reader comparing datasets needs the number that rule turns
+    // on; a gate reading it would make that rule a gate again.
     allInBand: perRound.length > 0 && inBand === perRound.length,
     gating: false,
     rule:
-      'DESCRIPTION, NOT A VERDICT (rf2-8a746) — the band is reported per block and the run-rejection ' +
-      'rule is the check standard\'s; the retired "every block inside the band" is kept as `allInBand`',
+      'DESCRIPTION, NOT A VERDICT — the band is reported per block and the run-rejection ' +
+      'rule is the check standard\'s; "every block inside the band" is reported as `allInBand` and decides nothing',
   };
 }
 
 // ---------------------------------------------------------------------------
-// THE THREE-POINT CONTROL — RETIRED AS A GATE, KEPT AS A DIAGNOSTIC (rf2-8a746)
+// THE THREE-POINT STATISTIC — A DIAGNOSTIC, NOT A GATE
 // ---------------------------------------------------------------------------
 //
-// IT GATES NOTHING. rf2-8a746 retired this statistic as a gate on this
-// instrument — not re-sited, not re-tried — after it refused 42 of 42 bulk
-// row-runs across two independent quiet-box ensembles with every hard refusal
-// clean throughout. The diagnosis is arithmetic and both halves are
-// independently fatal:
+// IT GATES NOTHING. As a gate it would refuse 42 of 42 bulk row-runs across
+// two independent quiet-box ensembles with every hard refusal clean
+// throughout, and no siting of its points rescues it. The diagnosis is
+// arithmetic and both halves are independently fatal:
 //
 //   * THE PREDICTION IS MIS-DERIVED FOR THE POINTS CHOSEN. `(d2-d0)/(d1-d0)`
 //     is the expectation only if `T` is affine in `d`. On the published
 //     TaskDuration clock it is not — marginal cost 12.6 -> 6.8-7.2 µs per
 //     dirty cell across `[1,100]` / `[100,200]` — so the statistic's true
-//     centre is 1.546-1.578 and sits 2.6% ABOVE the 1.5076 edge at which it
-//     refuses. The knee is below `d = 100` and the eps arm straddles it.
+//     centre is 1.546-1.578 and sits only 2.6% ABOVE the band's 1.5076
+//     lower edge. The knee is below `d = 100` and the eps arm straddles it.
 //   * THE ESTIMATOR IS ILL-CONDITIONED, and this alone would refuse. `den =
 //     T(100) - T(1)` is 1.23-1.25 ms carrying 0.60-0.67 ms of dispersion,
 //     1.85-2.09 sigma from zero, with `corr(T(1), T(100)) ~ 0.4` — the classic
@@ -441,12 +439,12 @@ function controlVerdict(predicted, perRound, slack) {
 //     each arm's ESTIMATE of that level, which is independent between arms and
 //     therefore ADDS under differencing.
 //
-// Re-siting at 100/200/300 fixes the centre (1.9975/2.0777) and HALVES the
-// denominator — in-band blocks fall 47% -> 33%. Both available sitings fail
-// and the conditioning arithmetic says any siting must, so there is no third
-// siting to try and no re-siting code here.
+// Siting the points at 100/200/300 would fix the centre (1.9975/2.0777) and
+// HALVE the denominator — in-band blocks fall 47% -> 33%. Both available
+// sitings fail and the conditioning arithmetic says any siting must, so there
+// is no re-siting code here.
 //
-// WHAT IT STILL EARNS ITS PLACE FOR. Its internal control `ctl3Layout` — the
+// WHAT IT EARNS ITS PLACE FOR. Its internal control `ctl3Layout` — the
 // same statistic on `LayoutDuration` over the IDENTICAL blocks and samples —
 // is healthy: 1.9681/1.9801, marginals flat at 5.4 -> 5.1 µs per cell, all 756
 // numerators and denominators positive. That localises the failure to the
@@ -459,11 +457,11 @@ function controlVerdict(predicted, perRound, slack) {
 // non-layout half collapses 7.1 -> 1.8 µs per cell and saturates below
 // `d = 100`; that is measured on both ensembles. That PAINT specifically
 // causes it is NOT established — the datasets carry Task/Script/Layout/
-// DevTools and no paint counter — and rf2-8a746 carries that as residual
-// uncertainty. No published row may state paint causation.
+// DevTools and no paint counter — so that is residual uncertainty, and no
+// published row may state paint causation.
 //
-// The construction's own reasoning is kept below, because a control removed
-// with its argument deleted is indistinguishable from one nobody understood.
+// The construction's own reasoning follows, because a statistic stripped of
+// its argument is indistinguishable from one nobody understood.
 //
 // `ctl-2x` is the floor at twice the boundaries against the floor, predicted
 // 2.00x. Over seven runs it read 1.8173x on the MOUNT row and
@@ -502,11 +500,12 @@ function controlVerdict(predicted, perRound, slack) {
 // `ctl-2x` survives the second only. Both are computed and printed, on the
 // same samples, so the difference is visible rather than asserted.
 //
-// WHAT IT CANNOT DO, stated here rather than discovered later. It certifies
-// that the composite of INSTRUMENT and WORKLOAD is linear in the dirty set.
-// A refusal does not by itself say which of the two bent, and a pass does not
-// certify a MOUNT row — a mount has no standing page and no changed-set axis,
-// so `M1` keeps `ctl-2x` and keeps its known undershoot.
+// WHAT IT CANNOT DO, stated here rather than discovered later. It describes
+// whether the composite of INSTRUMENT and WORKLOAD is linear in the dirty set.
+// A reading out of premise does not by itself say which of the two bent, and
+// it says nothing about a MOUNT row — a mount has no standing page and no
+// changed-set axis, so `M1` is gated on `ctl-2x` / floor against the mount
+// class's own centre.
 
 // Every arm of the control goes through `page.evaluate` -> `HCLOCK.sample`,
 // the SAME door as the floor, `ctl-2x` and every substrate arm on a bulk row.
@@ -586,12 +585,11 @@ function ctl3Verdict(rounds, plan, slack) {
   // paint term.
   //
   // NO ARM DECLARES ITSELF ONE — `clock-app/ctl3-arms` emits the three
-  // control points and nothing else, and only the page's `:ctl3Witness`
-  // emission remains — so `wArm` is null on every run and the
-  // paint-saturation account is not re-measured on this one. It is read here
-  // rather than deleted because the page can declare a witness again without
-  // the driver changing; a reader of a null witness column is reading its
-  // absence.
+  // control points and nothing else, so every arm's `:ctl3Witness` reads
+  // false — and `wArm` is null on every run and the paint-saturation account
+  // is not re-measured. It is read here all the same because a page that
+  // declares a witness then needs no driver change; a reader of a null
+  // witness column is reading its absence.
   const wArm = witness.length ? witness[0].id : null;
   const wD = witness.length ? witness[0].dirty : null;
   const predicted = (d2 - d0) / (d1 - d0);
@@ -659,10 +657,10 @@ function ctl3Verdict(rounds, plan, slack) {
   const marg = (k) => band(blocks.map((b) => b.marginalUs[k]).filter(Number.isFinite));
   return {
     ...v,
-    // NOT `ok` (rf2-8a746). This statistic gates nothing, and a field called
-    // `ok` on a retired gate is exactly how one grows back — `ctlBad`, or a
-    // gate in `clock_readjudicate.cjs`, would only have to read it. With the
-    // name gone, neither can. `premiseMet` says
+    // NOT `ok`. This statistic gates nothing, and a field called `ok` on a
+    // diagnostic is exactly how it becomes a gate — `ctlBad`, or a gate in
+    // `clock_readjudicate.cjs`, would only have to read it. With no such
+    // name, neither can. `premiseMet` says
     // what the boolean actually means — the statistic sat where its own
     // premise says it should, on a run whose blocks all rose with `d` — which
     // is a true and useful DESCRIPTION of the page's dirty-set shape and is
@@ -709,8 +707,8 @@ function ctl3Verdict(rounds, plan, slack) {
  * fails — the pattern `order_guard.cjs` and `seam.cjs` already hold this driver
  * to.
  *
- * IT IS NO LONGER A GATE'S FIXTURE SET (rf2-8a746), and the fixtures are kept
- * anyway. Their subject is the statistic's DISCRIMINATING POWER — a
+ * IT IS NOT A GATE'S FIXTURE SET, and the fixtures earn their place all the
+ * same. Their subject is the statistic's DISCRIMINATING POWER — a
  * superlinear page, an arm that does not do what it declares, a denominator
  * that has gone to noise, one bad block among nine, a page on which more dirty
  * work reads FASTER at exactly the predicted ratio — and that is exactly what
@@ -806,8 +804,8 @@ function ctl3SelfTest() {
   //     spaced 1 : 2 : 3 design — whose reading never falls below
   //     `ln3/ln2 = 1.585` and so can NEVER refuse a sublinear workload —
   //     this placement refuses below about `k = 0.55` and above about
-  //     `k = 1.33`. That asymmetric span is the one real advantage the
-  //     ruled point placement has over the wider-spaced alternative, and it
+  //     `k = 1.33`. That asymmetric span is the one real advantage this
+  //     point placement has over the wider-spaced alternative, and it
   //     is why a sublinear refusal from this control is a finding rather
   //     than a shrug.
   const kOf = (k) => (Math.pow(200, k) - 1) / (Math.pow(100, k) - 1);
@@ -845,9 +843,9 @@ function ctl3SelfTest() {
     ok: !dead.premiseMet && !Number.isFinite(dead.measured.mean),
   });
   // 6b. THE STRICT RULE IS PER BLOCK. Eight clean blocks must not vouch for
-  //     a ninth that is wrong — that is the case at issue against
-  //     `lane/control-verdict`'s overlap rule (settled as a SPLIT:
-  //     heap arm strict, clock arm keeping overlap for clamp-limited legs),
+  //     a ninth that is wrong — that is the case for it over
+  //     `lane/control-verdict`'s overlap rule (which the heap arm applies
+  //     strictly while the clock arm keeps overlap for clamp-limited legs),
   //     and it is the reason this control is adjudicated block by block
   //     rather than on a pooled mean. Note that a
   //     block-wide SCALING would not do as a fixture here: it cancels in the
@@ -974,9 +972,9 @@ function ctl3SelfTest() {
   });
 
   // 10. THE SUMMARY MAY NOT LAUNDER A REFUSAL. The run figure is
-  //     now the block MEDIAN, because a mean over a quotient whose denominator
+  //     the block MEDIAN, because a mean over a quotient whose denominator
   //     sits ~2 sigma from zero is a summary of whichever block came nearest —
-  //     rf2-8a746's two ensembles were read as DISAGREEING at 1.6045x and
+  //     two ensembles of one experiment read as DISAGREEING at 1.6045x and
   //     86.05x when their block medians were 1.569 and 1.575.
   //
   //     A more robust HEADLINE is worth nothing if it is also a softer GATE,
@@ -1011,7 +1009,7 @@ function ctl3SelfTest() {
       heavy.measured.p50 >= heavy.band[0] && heavy.measured.p50 <= heavy.band[1] &&
       // while the mean is off by a factor of six, from one block
       heavy.measured.mean > 10 &&
-      // the denominator is what moved, and the summary now says so: its
+      // the denominator is what moved, and the summary says so: its
       // median is the healthy 0.594 ms, its minimum the collapsed one
       Math.abs(heavy.signal.denMs.p50 - r4(A * 99 * 1000) / 1000) < 5e-4 &&
       heavy.signal.denMs.min < 0.05 &&
@@ -1154,16 +1152,17 @@ async function runRow(browser, rowId, trace) {
   await page.waitForFunction('window.HCLOCK_READY === true', null, { timeout: 120000 });
 
   // THE FALSIFICATION KNOB, installed before the first sample and echoed
-  // back. It makes the three-point control's arms render a dirty set other
+  // back. It makes the three-point statistic's arms render a dirty set other
   // than the one they DECLARE, so the driver goes on predicting from the
-  // declaration while the page does something else. Every other gate still
-  // passes; the control is the only one that can see it. A run with this set
-  // is a demonstration and not a measurement, and the banner below says so.
+  // declaration while the page does something else. Every gate still passes;
+  // the statistic is the only reading that can see it, and the run refuses on
+  // the knob itself. A run with this set is a demonstration and not a
+  // measurement, and the banner below says so.
   let sabotage = null;
   if (CTL3_SABOTAGE) {
     sabotage = await page.evaluate((d) => window.HCLOCK.sabotage(d), CTL3_SABOTAGE);
     console.log(
-      `;; SABOTAGE the three-point control's arms render ${sabotage} cells while still declaring ` +
+      `;; SABOTAGE the three-point statistic's arms render ${sabotage} cells while still declaring ` +
         `1 / 100 / 200 — THIS RUN IS A FALSIFICATION, NOT A MEASUREMENT`
     );
   }
@@ -1759,22 +1758,22 @@ function report(out) {
       `;;   ctl-2x on this clock: ${ctlTask.measured.mean}x ` +
         `[${ctlTask.measured.min} – ${ctlTask.measured.max}] against the ARITHMETIC 2.00x, ` +
         `${ctlTask.inBand} of ${ctlTask.of} blocks inside +/-${CONTROL_SLACK * 100}% — ` +
-        `a DESCRIPTION and not the verdict (rf2-8a746): 2.00x is what doubling the page predicts and ` +
+        `a DESCRIPTION and not the verdict: 2.00x is what doubling the page predicts and ` +
         `not what this clock reads, and the gate is the check standard below`
     );
   }
 
-  // --- THE CHECK STANDARD, which is what a row is gated on (rf2-8a746) -------
+  // --- THE CHECK STANDARD, which is what a row is gated on -------------------
   //
   // Level over level, in the same block: the `ctl-2x` arm's tared reading over
   // the floor's. The centre it is judged against is EMPIRICAL and frozen in
   // `clock_check_standard.json` with its provenance, and the run-rejection
   // rule is the run's own location and dispersion — never "every block inside
-  // a band", which is the rule rf2-8a746 retired with the three-point control
-  // for a separate reason: `0.835^18 = 3.9%`.
+  // a band", which gates nothing here for the reason `controlVerdict` gives:
+  // `0.835^18 = 3.9%`.
   //
-  // AND THE HELPER CARRIES AN EXPECTED-N CONTRACT (rf2-8a746, merged-PR audit
-  // #7698): exactly `STANDARD.evidence.expectedBlocks` finite readings — 18,
+  // AND THE HELPER CARRIES AN EXPECTED-N CONTRACT: exactly
+  // `STANDARD.evidence.expectedBlocks` finite readings — 18,
   // from the declared 6-round x 3-segment design — or it refuses with observed
   // and expected counts. At the published depth this list is 3 segments x
   // `ROUNDS` rounds = 18 by construction; an `HCLOCK_ROUNDS` override
@@ -1783,7 +1782,7 @@ function report(out) {
   // about a shorter run.
   const checkStandard = ctl2xBlocks ? checkstd.checkStandard(ctl2xBlocks, rowId) : null;
   if (checkStandard) {
-    console.log(`;; ---- CHECK STANDARD: is this run IN CONTROL? (rf2-8a746) ----`);
+    console.log(`;; ---- CHECK STANDARD: is this run IN CONTROL? ----`);
     for (const line of checkstd.formatCheckStandard(checkStandard)) console.log(line);
   }
 
@@ -1840,15 +1839,15 @@ function report(out) {
   // --- the positive control -------------------------------------------------
   let ctlVerdict = null;
   if (rowId !== 'keystroke') {
-    // ON THE SUPERSEDED CLOCK, AND A DIAGNOSTIC ON BOTH COUNTS (rf2-8a746).
-    // `taskNet` is not what the rows are stated on, and 2.00x is not what
-    // this instrument reads on either clock. Kept and printed because a
-    // reader comparing an old dataset with a new one needs the number the
-    // old rule turned on; the check standard above is what decides.
+    // ON THE SUPERSEDED CLOCK, AND A DIAGNOSTIC ON BOTH COUNTS. `taskNet` is
+    // not what the rows are stated on, and 2.00x is not what this instrument
+    // reads on either clock. Printed because a reader comparing datasets
+    // stated on the two clocks needs this number; the check standard above is
+    // what decides.
     const per = SEGMENTS.flatMap((seg) => ratioToFloor(rounds, seg, 'ctl-2x'));
     ctlVerdict = controlVerdict(2.0, per, CONTROL_SLACK);
     console.log(
-      `;; ---- ctl-2x ON THE SUPERSEDED taskNet CLOCK — a diagnostic, never the verdict (rf2-8a746) ----`
+      `;; ---- ctl-2x ON THE SUPERSEDED taskNet CLOCK — a diagnostic, never the verdict ----`
     );
     console.log(
       `;;   measured ${ctlVerdict.measured.mean}x [${ctlVerdict.measured.min} – ${ctlVerdict.measured.max}] ` +
@@ -1861,14 +1860,14 @@ function report(out) {
     // rather than as a ratio.
     //
     // THIS ONE KEEPS ITS EVERY-BLOCK RULE, and the reason is worth stating
-    // where a `grep` for the retired rule will land (rf2-8a746). What is
-    // retired is a TOLERANCE BAND around a predicted centre applied to all 18
-    // blocks, whose arithmetic is `p^18` on a per-block pass rate below 1.
+    // where a `grep` for the every-block rule will land. What gates nothing
+    // elsewhere is a TOLERANCE BAND around a predicted centre applied to all
+    // 18 blocks, whose arithmetic is `p^18` on a per-block pass rate below 1.
     // This is not one: it is a one-sided sensitivity floor with a 10 ms margin
     // on a 50 ms burn, so its per-block pass rate is 1 and there is no `p^n`
-    // to compound. Retiring it would loosen a control rf2-8a746 leaves
-    // untouched — rf2-swwud's responsiveness regime is WITHHELD when its
-    // fixed-work control does not move, and this is that control.
+    // to compound. Dropping it would loosen a control the responsiveness
+    // regime depends on — that regime is WITHHELD when its fixed-work control
+    // does not move, and this is that control.
     const ctlTask = SEGMENTS.flatMap((seg) =>
       rounds.map((r) => p50(r[seg]['ctl-50ms']) - p50(r[seg][FLOOR]))
     );
@@ -1935,7 +1934,7 @@ function report(out) {
     );
   }
 
-  // --- THE THREE-POINT STATISTIC — DIAGNOSTIC, NON-GATING (rf2-8a746) --------
+  // --- THE THREE-POINT STATISTIC — DIAGNOSTIC, NON-GATING -------------------
   const ctl3 = ctl3Verdict(roundsTask, armPlan, CONTROL_SLACK);
   const ctl3Net = ctl3 ? ctl3Verdict(rounds, armPlan, CONTROL_SLACK) : null;
   const ctl3Layout = ctl3 ? ctl3Verdict(roundsLayout, armPlan, CONTROL_SLACK) : null;
@@ -1964,9 +1963,9 @@ function report(out) {
     );
     console.log(
       `;;   RETIRED  this statistic refuses nothing. It read 0 of 42 bulk row-runs in band across two ` +
-        `independent quiet-box ensembles, and rf2-8a746 retired it as a gate — not re-sited — because the ` +
+        `independent quiet-box ensembles, and it is no gate at any siting of its points, because the ` +
         `prediction is mis-derived on a clock that is not affine in the dirty set AND the denominator is ` +
-        `~2 sigma from zero. What it is now is a reading of the PAGE's dirty-set shape, published beside ` +
+        `~2 sigma from zero. It is a reading of the PAGE's dirty-set shape, published beside ` +
         `its own internal control on LayoutDuration. The gate is the check standard above.`
     );
     console.log(
@@ -2047,7 +2046,7 @@ function report(out) {
       constants.orderUsable = usable;
     }
     // THE SAME STATISTIC ON THE LAYOUT COUNTER ALONE — and it is why the
-    // three-point statistic is still printed at all (rf2-8a746). It says
+    // three-point statistic is printed at all. It says
     // whether the disagreement is about the INSTRUMENT or about the PAGE.
     // `LayoutDuration` is the part of a commit that must scale with the dirty
     // set — d dirty rows, d relayouts. Over both committed ensembles it reads
@@ -2068,7 +2067,7 @@ function report(out) {
         `;;            layout is the half of a commit that MUST scale with the dirty set, and it does. What ` +
           `does not is in the NON-LAYOUT half: 7.1 -> 1.8 µs per cell, saturating below d=100, reproduced on ` +
           `both ensembles. WHICH non-layout work is NOT established — these datasets carry Task, Script, ` +
-          `Layout and DevTools and no paint counter — so no row may state paint causation (rf2-8a746).`
+          `Layout and DevTools and no paint counter — so no row may state paint causation.`
       );
     }
     // THE SIGN, BEFORE THE NUMBER. The quotient is unchanged when both
@@ -2101,7 +2100,7 @@ function report(out) {
     // printed, one line down, where it can be read as the tail-detector it
     // actually is rather than as the headline.
     //
-    // AND NEITHER NUMBER DECIDES ANYTHING NOW (rf2-8a746): `premiseMet`
+    // AND NEITHER NUMBER DECIDES ANYTHING: `premiseMet`
     // describes where the blocks fell, the row is gated on the check
     // standard, and the label below says PREMISE rather than PASS so nobody
     // reads a certificate off a diagnostic.
@@ -2127,7 +2126,7 @@ function report(out) {
     }
     // SIDE BY SIDE with the standard that gates the row, on the SAME
     // samples and the same blocks. The two are printed together because the
-    // whole content of rf2-8a746 is which DENOMINATOR a control may have: a
+    // whole difference between them is which DENOMINATOR each carries: a
     // level carrying ~0.4 ms of estimator error on ~4.5 ms, against a
     // difference carrying the same ~0.4 ms on 1.2 ms.
     if (ctlTask && checkStandard) {
@@ -2204,12 +2203,10 @@ function reportability(rows, opts) {
   // refuse — see the regime block below — so no exit code moves; what moves is
   // which sentence the run prints about them.
   //
-  // `M1`'s half of that sentence used to read "known control failure", and it
-  // is corrected here rather than deleted: rf2-8a746 established that the
-  // control was never failing. The correction does not change the point the
-  // sentence is making — a disposition read as a fault is still the wrong
-  // sentence — and the supersession beside `REGIMES` below carries the whole
-  // of it.
+  // `M1`'s control is not a failing one — `ctl-2x` / floor is judged against
+  // the mount class's own calibrated centre — and the point stands for it all
+  // the same: a disposition read as a fault is the wrong sentence. The block
+  // beside `REGIMES` below sets out both rows.
   const regimeOf = (r) => REGIMES[r.regime] || REGIMES.magnitude;
   const magnitudeRows = list.filter((r) => regimeOf(r).publishesMagnitude);
   const regimeRows = list.filter((r) => !regimeOf(r).publishesMagnitude);
@@ -2217,19 +2214,19 @@ function reportability(rows, opts) {
   const unadjudicated = magnitudeRows.filter((r) => !r.adjudicable);
   const passed = sabotage ? [] : magnitudeRows.filter((r) => r.ctlOk && r.adjudicable).map((r) => r.rowId);
   const lines = [];
-  // THE FALSIFICATION KNOB REFUSES ON ITS OWN (rf2-8a746). Refusing through
-  // the three-point control — set the knob, the control's top arm renders
-  // fewer cells than it declares, the control fails, the run exits 1 — would
-  // couple it to a gate that does not gate, and a knob whose refusal depends
-  // on such a gate refuses nothing, silently. So the knob is its own refusal,
+  // THE FALSIFICATION KNOB REFUSES ON ITS OWN. Refusing through the
+  // three-point statistic — set the knob, the statistic's top arm renders
+  // fewer cells than it declares, the statistic reads out of premise, the run
+  // exits 1 — would couple it to something that does not gate, and a knob
+  // whose refusal depends on that refuses nothing, silently. So the knob is its own refusal,
   // ahead of every control, and no row of a falsification run may be
   // announced REPORTABLE.
   if (sabotage) {
     lines.push(
       `[clock] FAILED: HCLOCK_CTL3_SABOTAGE=${sabotage} WAS SET — the three-point statistic's arms rendered ` +
         `${sabotage} cells while declaring 200. This run is a FALSIFICATION and not a measurement of anything, ` +
-        `whatever every gate on it says. (rf2-8a746: the knob refuses on its own, because the control it used ` +
-        `to refuse through no longer gates.)`
+        `whatever every gate on it says. (The knob refuses on its own, because the statistic it perturbs ` +
+        `gates nothing.)`
     );
   }
   if (ctlFailed.length > 0) {
@@ -2282,7 +2279,7 @@ function reportability(rows, opts) {
   // withheld in silence is indistinguishable from a regime nobody took.
   if (regimeRows.length > 0) {
     lines.push(
-      `[clock] REGIME: these rows publish a regime and never a magnitude, by ruling — ` +
+      `[clock] REGIME: these rows publish a regime and never a magnitude — ` +
         `${regimeRows.map((r) => `${r.rowId} (${r.regime})`).join(', ')}. ` +
         `A regime is a statement about what the row's numbers MEAN, so no figure from it is ` +
         `reportable and this run cannot exit 0 on one:`
@@ -2297,14 +2294,14 @@ function reportability(rows, opts) {
         `[clock]     ${stated ? g.why : `its fixed-work controls did not pass${r.ctlNote || ''}, and they are what prove the instrument moves when the work moves — the regime is withheld rather than stated`}`
       );
       // The control status, printed on every regime row whichever way it fell,
-      // because the ruling that made these rows regimes is ABOUT their
-      // controls and a reader must not have to infer one from the other.
+      // because what makes these rows regimes is ABOUT their controls and a
+      // reader must not have to infer one from the other.
       //
-      // NO RULING PREDICTS a failure on this row.
-      // rf2-8a746 established `ctl-2x` was never failing
-      // — `controlVerdict` tests per-block band membership rather than the mean,
-      // and under the mount class rf2-x7x10 calibrated at v2 all fourteen
-      // committed mount row-runs come back IN CONTROL. What this condition
+      // NOTHING PREDICTS a failure on this row. `ctl-2x` is not failing —
+      // `controlVerdict` describes per-block band membership and decides
+      // nothing, and under the mount class `clock_check_standard.json`
+      // calibrates, all fourteen committed mount row-runs come back IN
+      // CONTROL. What this condition
       // selects is a row whose regime does not WAIT on its control and whose
       // control nonetheless did not pass, so the row states itself anyway. A
       // failure that DOES withhold the regime is already explained by the line
@@ -2316,7 +2313,7 @@ function reportability(rows, opts) {
         `[clock]     positive control: ${r.ctlOk ? 'PASS' : 'FAIL'}${r.ctlNote || ''}` +
           // The suffix is NOT ' — expected, and the reason no magnitude is
           // published': both of those claims are false.
-          // "expected" fell with rf2-8a746, above. And
+          // Nothing expects the failure, as above. And
           // M1 publishes a magnitude; where THIS DRIVER withholds one the reason
           // is that the published magnitude is an ensemble estimate whose
           // bootstrap's outer unit is the RUN — which is exactly what the `why`
@@ -2396,36 +2393,25 @@ function rowAdjudication(bars) {
 /**
  * WHAT A ROW PUBLISHES — its REGIME, declared rather than inferred.
  *
- * THE MOUNT HALF OF THIS ROSTER IS ANNOTATED, NOT REWRITTEN. Its entry below
- * is kept as it was written; the supersession that follows the table is what
- * a reader should carry away from it.
- *
  * A row that refuses for reasons no amount of measuring can move is better
  * served by NARROWING THE CLAIM than by a better instrument for a magnitude no
  * decision turns on — which is what a regime is.
  *
  *   `magnitude`               publishes an adjudicated figure. Needs its
  *                             positive control AND a band on every published
- *                             bar — `rowAdjudication`'s rule, which is not
- *                             re-opened here.
+ *                             bar — `rowAdjudication`'s rule, which the
+ *                             regimes leave exactly as it is.
  *
- *   `mount-regime`            `M1` (SUPERSEDED, and preserved
- *                             verbatim; read the block after this table
- *                             before quoting a word of this entry).
- *                             Publishes DIRECTION and no
- *                             magnitude. Its positive control `ctl-2x` fails —
- *                             1.8173x against a predicted 2.00x, reproduced at
- *                             1.8443x and 1.8567x on two verifiably idle boxes
- *                             — and the additive constant `c ~ 1.04 ms`
- *                             explains the undershoot arithmetically:
- *                             `(2W+c)/(W+c)` is below 2 for any positive `c`.
- *                             A mount's operation IS the mount, so there is no
- *                             standing page to write a changed set into and no
- *                             changed-set control can reach it. THE FAILING
- *                             CONTROL IS THE PUBLISHED REASON there is no
- *                             magnitude, not a defect of the run that meets it,
- *                             which is why this regime's statement does not
- *                             wait on that control.
+ *   `mount-regime`            `M1`. Publishes NO MAGNITUDE FROM ONE RUN. M1
+ *                             does publish a magnitude, but an ENSEMBLE one —
+ *                             a floor-normalised leg ratio through a
+ *                             run-preserving bootstrap whose OUTER unit is the
+ *                             run, over eight runs and six — so a single run
+ *                             of this driver cannot form the interval it would
+ *                             be adjudicated against. That is a statement
+ *                             about what ONE RUN can build, true whatever the
+ *                             control reads, which is why this regime's
+ *                             statement does not wait on that control.
  *
  *   `responsiveness-regime`   `keystroke`. Adjudicated by EVENT
  *                             TIMING rather than by the band of
@@ -2441,60 +2427,42 @@ function rowAdjudication(bars) {
  *                             moves; without them a frame reading is not
  *                             evidence of anything.
  *
- * THE `mount-regime` ENTRY ABOVE IS SUPERSEDED. It is annotated rather than
- * deleted because HOW it fell is the useful part: a rationale can be sound,
- * current on the day it was written, and still rest on a premise the next
- * ruling removes. Two rulings moved under it, and they moved different things.
- *
- * rf2-8a746 TOOK ITS GROUND. `ctl-2x` was never failing. The implemented rule
- * — `controlVerdict` — tests per-block band membership; it does not ask the
- * mean to equal 2.00x. The
- * ~1.80x centre is the additive undershoot the entry above explains correctly
- * and then misreads, and under the mount check standard rf2-x7x10 calibrated
- * at v2 all fourteen committed mount row-runs come back IN CONTROL. So "THE
- * FAILING CONTROL IS THE PUBLISHED REASON there is no magnitude" names a
- * failure that is not one. Every other sentence in the entry survives: the
- * arithmetic of `(2W+c)/(W+c)`, the constant, and the fact that a mount has no
- * standing page for a changed-set control to reach are all still true.
- *
- * The second took the position itself. M1 PUBLISHES A MAGNITUDE. Against
- * direct UIx-on-subs, floor-normalised on the clock of record, the verdict is
- * K1 MISSED, DECISIVELY — the whole interval sits above K1's `1.10x` mount
- * gate on both committed ensembles. The row is
+ * M1'S MAGNITUDE, AND WHERE IT LIVES. Against direct UIx-on-subs,
+ * floor-normalised on the clock of record, the verdict is K1 MISSED,
+ * DECISIVELY — the whole interval sits above K1's `1.10x` mount gate on both
+ * committed ensembles. The row is
  * `docs/design/fresco/studio/rows-re-adjudicated-on-the-corrected-clock.md`
  * sec 4.3, and the figures are printed by `clock_readjudicate.cjs` over the
  * committed corpus. QUOTE THEM FROM THERE. They are deliberately not copied
  * into this comment: a figure with two homes has two futures, and this file
  * is not the one that computes it.
  *
- * SO WHY DOES THIS DRIVER STILL REFUSE? `publishesMagnitude: false` is right,
- * for a reason the entry above does not give. The published figure is
- * an ENSEMBLE estimate — a floor-normalised leg ratio through a run-preserving
- * bootstrap whose OUTER unit is the run, over eight runs and six — so a single
- * run of this driver cannot form the interval it would be adjudicated against.
- * That is a statement about what ONE RUN can build, not about a control that
- * went wrong, which is how the entry above can be right about the exit code
- * while being wrong about the reason. A reader who takes the supersession as
- * licence to flip this flag would let a one-run capture announce a figure the
- * programme publishes only across an ensemble.
+ * M1'S CONTROL IS NOT FAILING, AND IT IS THE REASON FOR NOTHING THE ROW
+ * PUBLISHES. `ctl-2x` reads ~1.80x against the arithmetic 2.00x, and the
+ * additive constant `c ~ 1.04 ms` explains that: `(2W+c)/(W+c)` is below 2
+ * for any positive `c`. A mount's operation IS the mount, so there is no
+ * standing page to write a changed set into and no changed-set control can
+ * reach it. `controlVerdict` describes per-block band membership and decides
+ * nothing, and under the mount class `clock_check_standard.json` calibrates,
+ * all fourteen committed mount row-runs come back IN CONTROL. So the
+ * undershoot is a property of the page, never the reason there is no
+ * magnitude — and a reader who flips `publishesMagnitude` because the control
+ * passes would let a one-run capture announce a figure the programme
+ * publishes only across an ensemble.
  *
- * AND THE LOG SAYS IT TOO, because a comment nobody reads is not a
- * correction. The printed line reads
+ * AND THE LOG SAYS IT TOO, because a comment nobody reads informs nobody.
+ * The printed line reads
  *
- *   `M1 [mount-regime, rf2-diaud superseding rf2-jcm3p] STATED — NO MAGNITUDE
- *   FROM ONE RUN — ...`
+ *   `M1 [mount-regime] STATED — NO MAGNITUDE FROM ONE RUN — ...`
  *
- * with the superseded citation kept in the bracket rather than dropped.
  * NOTHING COMPUTED TURNS ON THOSE STRINGS: `publishesMagnitude`,
  * `statementNeedsControl` and `ROW_REGIME` decide, and no threshold, estimand
  * or verdict is this driver's to hold. The verdict in the string is QUOTED
  * from the row cited in it; the figures are not copied here, for the reason
- * two paragraphs up. (rf2-owiis's own sweep moved no printed string at all; the one thing it
- * did touch below is a `--self-test` CASE NAME that asserted the premise
- * rf2-8a746 retired, and the case it names is unchanged and still passes.)
+ * above.
  *
  * A REGIME ROW REFUSES THE RUN, and that is not a change of temperature. This
- * run publishes no magnitude from it — by ruling rather than by accident — so
+ * run publishes no magnitude from it, deliberately, so
  * `REPORTABLE` cannot name it and the exit code, which answers "is there a
  * publishable MAGNITUDE here", stays 1. `HCLOCK_ONLY=keystroke` exits 1, and
  * the refusal states the row's regime instead of reading as a defect.
@@ -2511,23 +2479,18 @@ const REGIMES = {
     // published M1 magnitude is an estimate from. See the block above before
     // changing this.
     publishesMagnitude: false,
-    // The statement does not turn on a control whose status is itself part of
-    // the finding. (rf2-8a746: that status is not a FAILURE — the rule tests
-    // per-block band membership — but the regime's independence from it is what
-    // let the row state itself at all, and it is unaffected by the correction.)
+    // The statement does not turn on the control: that one run cannot form an
+    // ensemble interval is true whatever `ctl-2x` reads.
     statementNeedsControl: false,
     // The verdict is quoted; the figures are not, and must not be — they live
     // in the cited row and are printed by `clock_readjudicate.cjs`.
     publishes:
       'NO MAGNITUDE FROM ONE RUN — M1 publishes a magnitude, but an ENSEMBLE one, and its verdict is ' +
       'K1 MISSED, DECISIVELY (docs/design/fresco/studio/rows-re-adjudicated-on-the-corrected-clock.md sec 4.3)',
-    // SUPERSEDED, was: 'ctl-2x undershoots 2.00x by the
-    // additive constant c ~ 1.04 ms and no changed-set control can reach a
-    // mount, so the control status is the published reason rather than a fault
-    // of this run'. Its first two clauses survive rf2-8a746 intact and are in
-    // the preserved roster entry above; its last clause is the one sentence
-    // that ruling killed — the control was never failing, so its status cannot
-    // be the published reason for anything.
+    // The reason is the ensemble and never the control: `ctl-2x`'s undershoot
+    // of 2.00x is the additive constant, the committed mount row-runs read IN
+    // CONTROL on the mount class, and its status is the published reason for
+    // nothing.
     why:
       'the published M1 magnitude is a floor-normalised leg ratio through a run-preserving bootstrap ' +
       'whose OUTER unit is the RUN, so one run cannot form the interval it is adjudicated against; ' +
@@ -2626,7 +2589,7 @@ function reportabilitySelfTest() {
     sab.code === 1 && sab.lines.some((l) => l.includes('HCLOCK_CTL3_SABOTAGE=140')),
     sab.lines.join(' | ')
   );
-  // AND IT REFUSES ON ITS OWN NOW (rf2-8a746). The knob perturbs the arms of a
+  // AND IT REFUSES ON ITS OWN. The knob perturbs the arms of a
   // statistic that gates nothing, so a run in which every gate PASSES is the
   // case that matters: without this refusal the falsification knob would be
   // disarmed and nothing would say so.
@@ -2743,16 +2706,15 @@ function reportabilitySelfTest() {
 
   // THE REGIMES. Every fixture above carries no `regime` and so is a magnitude
   // row, which is deliberate: the rule those cases pin is the magnitude rule
-  // and the regimes do not re-open it. A regime is a second disposition beside
+  // and the regimes do not alter it. A regime is a second disposition beside
   // it, and the cases that matter are the ones showing a regime row REFUSES —
   // the temperature of the exit is the same, only the sentence differs.
   //
   // THESE CASES PIN THE PRINTED BRACKET, here and in `clock_exit_path.test.cjs`
   // together: the print and its pins move in one change or the suite goes red
   // on a true string. What the cases are FOR is independent of the sentence —
-  // that the regimes do not soften the exit code, which holds whichever ruling
-  // the printed bracket names. The supersession itself is set out beside
-  // `REGIMES` above.
+  // that the regimes do not soften the exit code. What each regime means is
+  // set out beside `REGIMES` above.
   const mount = (over) => row({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
   const resp = (over) =>
     row({ rowId: 'keystroke', regime: 'responsiveness-regime', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY, ...over });
@@ -2770,14 +2732,14 @@ function reportabilitySelfTest() {
       !m.lines.some((l) => /the positive control did not see the change/.test(l)),
     m.lines.join(' | ')
   );
-  // The case name used to end "the failure is the ruling's own premise". That
-  // premise is the one rf2-8a746 retired — the control was not failing — so
-  // the name is corrected while the case itself is untouched: what it pins is
-  // that the mount regime does not WAIT on its control, which is independent
-  // of whether that control passes and is why the fixture sets `ctlOk: false`.
+  // What this case pins is that the mount regime does not WAIT on its
+  // control, which is independent of whether that control passes and is why
+  // the fixture sets `ctlOk: false`.
   //
-  // THE REGEX is two-sided, as the regime pins are: asserting only the current
-  // sentence would pass on a line that still carried the retired one beside it.
+  // THE REGEX is two-sided, as the regime pins are: asserting only the true
+  // sentence would pass on a line that also carried the false one — that the
+  // failure is expected and is the reason no magnitude is published — beside
+  // it.
   check(
     'the mount regime STATES itself although its control failed — the regime does not wait on that control',
     m.lines.some((l) => /positive control: FAIL.*the regime does not wait on this control/.test(l)) &&
@@ -2966,12 +2928,12 @@ function datasetFor(outcomes, meta) {
       seam: o.verdict.seam,
       seamTask: o.verdict.seamTask,
       tally: o.verdict.tally,
-      // `null` ON EVERY ROW BUT `keystroke` NOW (rf2-8a746). The taskNet
-      // ctl-2x all-blocks rule it would carry is retired: on a
-      // row with a proportional control `ctlVerdict` is a DESCRIPTION carrying
-      // no `ok`, and `null` here says the run took no such verdict rather than
-      // inventing one. `keystroke`'s fixed-work sensitivity floor keeps its
-      // boolean, because that control is untouched.
+      // `null` ON EVERY ROW BUT `keystroke`. On a row with a proportional
+      // control `ctlVerdict` is a DESCRIPTION carrying no `ok` — the taskNet
+      // ctl-2x all-blocks rule it would carry gates nothing — and `null` here
+      // says the run took no such verdict rather than inventing one.
+      // `keystroke`'s fixed-work sensitivity floor carries a boolean, because
+      // that control is what its regime waits on.
       ctlOk: o.verdict.ctlVerdict && typeof o.verdict.ctlVerdict.ok === 'boolean' ? o.verdict.ctlVerdict.ok : null,
       // THE THREE-POINT STATISTIC, whole — its per-block readings, the
       // absolutes each difference was taken from, the fitted line and
@@ -2982,7 +2944,7 @@ function datasetFor(outcomes, meta) {
       ctl3: o.verdict.ctl3,
       ctl3Net: o.verdict.ctl3Net,
       ctl3Layout: o.verdict.ctl3Layout,
-      // THE GATE THE ROW ACTUALLY TURNED ON (rf2-8a746), with the standard's
+      // THE GATE THE ROW ACTUALLY TURNED ON, with the standard's
       // own id and version in it, so a reader can tell a run adjudicated
       // against v1 from one adjudicated against a recalibrated v2. It is
       // RECORDED here and RECOMPUTED by `clock_readjudicate.cjs` — a check
@@ -3051,14 +3013,14 @@ async function main() {
   }
 
   // THE ADJUDICATORS' SELF-TESTS, and they run before anything is built or
-  // launched. `ctl3SelfTest`'s cases are the three-point statistic's
-  // REFUSALS — superlinear work, an arm that does
+  // launched. `ctl3SelfTest`'s cases are the worlds the three-point
+  // statistic must read OUT OF PREMISE — superlinear work, an arm that does
   // not do what it declares, a degenerate denominator, one bad block out of
   // nine, and a page on which more dirty work reads FASTER at exactly the
   // predicted ratio — stated as fixtures, plus the case that shows the
-  // doubling control failing on a world the three-point one passes.
-  // THE CHECK STANDARD FIRST, because it is the one that gates a row
-  // (rf2-8a746). Its fixtures are the refusals a standard is only worth its
+  // doubling control biased on a world the three-point one reads exactly.
+  // THE CHECK STANDARD FIRST, because it is the one that gates a row.
+  // Its fixtures are the refusals a standard is only worth its
   // certificate for having been seen to make — the sabotage above all, an arm
   // that does not build what it declares.
   const cst = checkstd.checkStandardSelfTest();
@@ -3080,10 +3042,10 @@ async function main() {
     console.error(`[clock] the three-point diagnostic's own self-test FAILED: ${badCtl3.map((c) => c.name).join(', ')}`);
     process.exit(1);
   }
-  console.error(`[clock] three-point DIAGNOSTIC self-test: ${c3st.checks.length} checks, all ok (gates nothing — rf2-8a746)`);
+  console.error(`[clock] three-point DIAGNOSTIC self-test: ${c3st.checks.length} checks, all ok (gates nothing)`);
 
   // The keystroke witness's fixtures run on EVERY invocation, not only under
-  // `--self-test`, for the three-point control's reason: they are cheap, they
+  // `--self-test`, for the three-point statistic's reason: they are cheap, they
   // are the only place this adjudicator is seen to refuse, and a run
   // whose adjudicator is broken should never reach a browser.
   const kbst = kbwitness.selfTest();
@@ -3357,14 +3319,13 @@ async function main() {
     process.exit(1);
   }
 
-  // THE ROW IS GATED ON THE CHECK STANDARD (rf2-8a746), and on nothing else
-  // that this file used to consult.
+  // THE ROW IS GATED ON THE CHECK STANDARD, and on nothing else.
   //
   // WHAT IT DOES NOT READ. Not `ctl3.ok` on a bulk row, and not
   // `ctlVerdict.ok || ctlTask.ok` — the ±25% band about a theoretical 2.00x,
-  // every block — anywhere else. Both are retired. The three-point statistic
-  // refuses 42 of 42 bulk row-runs on a mis-derived prediction and an
-  // ill-conditioned estimator, and the all-blocks rule is a separate defect
+  // every block — anywhere else. Neither gates anything. The three-point
+  // statistic would refuse 42 of 42 bulk row-runs on a mis-derived prediction
+  // and an ill-conditioned estimator, and the all-blocks rule is a separate defect
   // whose arithmetic is `p^18`: a control fully MEETING its premise passes 4 of
   // 42 runs at an 83.5% per-block rate. Neither name exists to be read —
   // `ctl3` carries `premiseMet` and `controlVerdict` carries `allInBand`.
@@ -3372,16 +3333,15 @@ async function main() {
   // WHAT IT READS. `checkStandard`, whose denominator is a LEVEL, whose
   // expected centre is EMPIRICAL and frozen with its provenance, and whose
   // run-rejection rule is the run's own location and dispersion at stated
-  // error rates (0.4% nominal per run, 0 of 42 empirical, against the retired
-  // rule's 90.5%). A row it cannot certify FAILS CLOSED and says which: that
-  // is `keystroke`, which has no proportional control arm at all.
+  // error rates (0.4% nominal per run, 0 of 42 empirical, against the
+  // all-blocks rule's 90.5%). A row it cannot certify FAILS CLOSED and says
+  // which: that is `keystroke`, which has no proportional control arm at all.
   //
-  // `M1` IS CERTIFIED ON ITS OWN CLASS. rf2-8a746 deliberately left the
-  // mount class uncalibrated, holding the seat for rf2-t2flm; rf2-x7x10
-  // calibrated it at v2 from the mount's own 14 committed row-runs — a
+  // `M1` IS CERTIFIED ON ITS OWN CLASS, calibrated in
+  // `clock_check_standard.json` from the mount's own 14 committed row-runs — a
   // different centre from bulk's, on its own between-run scatter, because the
   // classes read 4.4% apart on the identical statistic and borrowing bulk's
-  // limits would have re-committed the mis-specification this ruling retired.
+  // limits would assert against the mount a centre never measured on it.
   //
   // The Event-Timing witness refuses beside it: the two make different claims
   // and a row can fail both.
@@ -3398,15 +3358,13 @@ async function main() {
         rowId: o.out.rowId,
         // WHAT THIS ROW PUBLISHES, from the declared roster rather than from
         // anything this run measured (the block beside `REGIMES` sets out each
-        // ruling, and which half of the mount one is superseded). A regime is a
-        // ruling about the row, so a run may not talk itself into or out of
-        // one on the strength of its own numbers, and that is exactly as true
-        // of a ruling that has been amended.
+        // regime). A regime is a declaration about the row, so a run may not
+        // talk itself into or out of one on the strength of its own numbers.
         regime: rowRegime(o.out.rowId),
         ctlOk: !(ctlBad(o) || (o.verdict.etVerdict && !o.verdict.etVerdict.ok)),
         // THE PARENTHETICAL A REFUSAL CARRIES, and therefore the one sentence
         // most likely to be quoted out of the log — so it is the CHECK
-        // STANDARD's own refusal, in its own words (rf2-8a746). It describes
+        // STANDARD's own refusal, in its own words. It describes
         // the refusal; `ctlOk` above decides it, from `checkStandard.ok`.
         ctlNote: o.verdict.checkStandard
           ? ` (check standard ${o.verdict.checkStandard.standard.id} v${o.verdict.checkStandard.standard.version}: ` +
@@ -3437,7 +3395,7 @@ module.exports = {
   // The three-point DIAGNOSTIC's arithmetic and its fixture set, exported so
   // the witness can drive them directly rather than through a headless
   // Chromium — the same reason `reportability` is exported above.
-  // It decides nothing (rf2-8a746); `clock_check_standard.cjs` is the gate,
+  // It decides nothing; `clock_check_standard.cjs` is the gate,
   // and it is required by both this driver and the readjudicator rather than
   // re-exported here, so there is one module and not two ways to reach it.
   ctl3Verdict,
