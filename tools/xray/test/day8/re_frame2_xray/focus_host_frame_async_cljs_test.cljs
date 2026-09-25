@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.focus-host-frame-async-cljs-test
-  "rf2-2qtgt — `focus!` sent the way a HOST sends it: asynchronously, with
+  "`focus!` sent the way a HOST sends it: asynchronously, with
   the host frame named.
 
   Story's evidence-spine 'Xray: <panel>' link calls
@@ -15,11 +15,12 @@
   clears the pinned dispatch-id BEFORE the spine pin lands.
   `:rf.xray/select-frame` reaches `set-frame` through a `:dispatch` fx, and
   the router appends that to the BACK of the queue (Spec 002
-  §Run-to-completion). A pin queued beside the frame event therefore lands
-  before `set-frame`, which then clears it and returns the spine to LIVE
-  head — the focus never moves, and the Machines panel reads the head event.
+  §Run-to-completion). A pin queued beside the frame event would therefore
+  land before `set-frame`, which would then clear it and return the spine to
+  LIVE head — the focus would never move, and the Machines panel would read
+  the head event.
 
-  The fixture mirrors the Story walk that found it: a real machine
+  The fixture mirrors a Story walk: a real machine
   transition, then an unrelated host event so the head is NOT the machine
   epoch, and a host frame Xray already observes."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
@@ -94,7 +95,7 @@
         "the Machines cascade rows bind to the pinned epoch's machine")))
 
 (deftest host-frame-focus-sent-async-pins-the-epoch-and-machines-follow
-  (testing "rf2-2qtgt — `(focus! host-frame {:epoch-id … :dispatch-id …})`
+  (testing "`(focus! host-frame {:epoch-id … :dispatch-id …})`
             without `:sync?`, exactly as Story's evidence link sends it, moves
             the spine onto that epoch and the Machines panel follows"
     (let [coords (machine-epoch-then-unrelated-head!)]
@@ -107,7 +108,7 @@
                        (is (= host-frame (:frame (e2e/sub-xray [:rf.xray/focus])))
                            "the spine is bound to the host frame")
                        (is (= host-frame (e2e/sub-xray [:rf.xray/view-scope-frame]))
-                           "the frame step still re-binds the L2 view scope")))))))
+                           "the frame step re-binds the L2 view scope")))))))
 
 (deftest frameless-focus-sent-async-pins-the-epoch-and-machines-follow
   (testing "control — the same command WITHOUT `:frame` moves the spine too.
