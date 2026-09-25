@@ -1,25 +1,25 @@
-// Shared sentinel-scan helpers for the bundle check-* gates (rf2-j552l2).
+// Shared sentinel-scan helpers for the bundle check-* gates.
 //
-// The bundle-isolation / elision / perf / reagent-slim gates all share the
-// same two micro-shapes, which had drifted into four near-identical inline
-// copies (rf2-u4vtlh / rf2-b4d7o1 review):
+// The bundle check-* gates all share the
+// same two micro-shapes, held here once so near-identical inline
+// copies cannot drift apart:
 //
 //   1. A present/absent assertion over a SET of sentinels against an
 //      already-read bundle blob. The loop, the per-sentinel pass test, the
 //      `{ ok, passed, checked }` tally, and the choice between substring-
 //      count detection (countSubstring) and `blob.includes` boolean
-//      detection are identical across the four gates. ONLY the per-sentinel
+//      detection are identical across the gates. ONLY the per-sentinel
 //      diagnostic line differs (indent width, whether it says "sentinel",
 //      whether it names a blob label, whether it shows the raw hit-count or
 //      a PRESENT/ABSENT word). So `assertSentinelSet` owns the loop + tally
 //      and delegates the exact line text to a caller-supplied `formatLine`,
-//      keeping every gate's diagnostic output byte-identical while sharing
+//      so each gate owns its diagnostic output while sharing
 //      the load-bearing logic.
 //
 //   2. The classify-or-fail guard each gate runs before scanning: a
 //      `classifyReleaseBundle` whose status is anything but 'ok' must reject
 //      the run (a 'missing' dir AND a present-but-empty 'empty' dir both
-//      false-GREEN an absence-only check — the rf2-utvst non-vacuous floor).
+//      false-GREEN an absence-only check — the non-vacuous floor).
 //      `classifyOrFail` centralises that two-arm branch; the actionable
 //      stderr text stays caller-supplied (each gate names its own rebuild
 //      command).
@@ -34,7 +34,7 @@
 const { classifyReleaseBundle, countSubstring } = require('./read-release-bundle.cjs');
 
 // Assert a set of `{ source, sentinel }` entries against an already-read
-// bundle `blob`. Shared by the four bundle check-* gates (rf2-j552l2).
+// bundle `blob`. Shared by the bundle check-* gates.
 //
 //   opts.mustContain : true  ⇒ each sentinel must be PRESENT to pass;
 //                      false ⇒ each sentinel must be ABSENT to pass.
@@ -69,7 +69,7 @@ function assertSentinelSet(blob, sentinels, opts = {}) {
 }
 
 // Classify a release output dir and branch on the non-'ok' states
-// (rf2-utvst non-vacuous floor). On 'missing' calls `onMissing(dir)`; on
+// (the non-vacuous floor). On 'missing' calls `onMissing(dir)`; on
 // 'empty' calls `onEmpty(dir)` (falling back to onMissing if onEmpty is
 // omitted). Returns the classification `{ status, files, blob }` so an 'ok'
 // caller can use the already-read blob without re-reading. The reject-path
