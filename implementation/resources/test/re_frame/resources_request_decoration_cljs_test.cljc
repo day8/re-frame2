@@ -92,9 +92,10 @@
   fixture clears resource + interceptor state before this fixture runs."
   [f]
   (reset! last-decorated nil)
-  ;; the per-frame HTTP-interceptor chain is a `defonce` atom NOT cleared by
-  ;; the shared resource reset hook — drop it so each test starts with an
-  ;; empty chain (otherwise a prior test's interceptor leaks forward).
+  ;; the shared reset fixture has already cleared the per-frame
+  ;; HTTP-interceptor chain (its `:http/clear-all-http-interceptors!` row);
+  ;; clearing it again here keeps the empty-chain precondition this fixture's
+  ;; tests depend on local to the fixture.
   (rf.http.managed/clear-all-http-interceptors!)
   (rf.fx/reg-fx :rf.http/managed
              (fn [frame-ctx args]
