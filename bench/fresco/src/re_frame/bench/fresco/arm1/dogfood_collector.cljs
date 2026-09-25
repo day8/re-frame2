@@ -15,28 +15,26 @@
   set, one subscription set under every rendering. **The intents are
   not shared**: each rendering writes its own event positions in its own
   spelling, because that is precisely what the preference case asks the
-  authors to compare, and a hoisted helper both hid this file's authoring
-  from the count and could not catch a correct vector wired to the wrong
-  position. Agreement on the events is proved instead — DOM parity AND
+  authors to compare, and a hoisted helper would both hide this file's
+  authoring from the count and fail to catch a correct vector wired to the
+  wrong position. Agreement on the events is proved instead — DOM parity AND
   dispatched-intent parity, by `arm1_dogfood_dom_cljs_test`.
 
-  ## The landed-surface audit (rf2-2rtt6.67)
+  ## The authoring spellings this screen does not need
 
-  Checked against every authoring spelling that has landed since this
-  file was written: `h/event` (HD-024), `:&` (HD-023), the `::h/prevent`
+  Checked against every authoring spelling: `h/event` (HD-024), `:&` (HD-023), the `::h/prevent`
   head (HD-026), the `::h/navigate` head (HD-027), and presence as
   data (HD-025). **None is needed on this screen** — every event position
   takes a literal intent vector, nothing forwards a props remainder, no
   anchor acts as a button (the one submit position takes the
   census-weighted auto-prevent), nothing routes, and nothing animates an
   exit. That matches the tier-1 roster's finding on the spine shapes
-  (rf2-2rtt6.57) and is stated as an absence rather than a pass; the
+  and is stated as an absence rather than a pass; the
   preference case
   (`docs/design/fresco/studio/the-dogfood-preference-case.md`) carries
   it as evidence.
 
-  Mounted by `arm1_dogfood_dom_cljs_test` — and mounting it is what
-  started the six-week K7 clock (HD-014)."
+  Mounted by `arm1_dogfood_dom_cljs_test`."
   (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
             [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood])
   (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
