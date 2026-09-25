@@ -38,7 +38,8 @@
   (atom false))
 
 (defonce ^:private epoch-cb-registered?
-  ;; The Time Travel panel needs one per-settle pump into Xray's app-db.
+  ;; Idempotency sentinel for the epoch-collector registration: Xray
+  ;; needs exactly one per-settle pump into its app-db.
   (atom false))
 
 (defn register-trace-collector!
@@ -53,28 +54,26 @@
                            trace-collector/collect-trace!))
   nil)
 
-;; ---- task-coalesced epoch pump (rf2-chs7) --------------------------------
+;; ---- task-coalesced epoch pump -------------------------------------------
 ;;
 ;; The framework records an epoch per event run-to-completion, on EVERY
-;; frame. Pre-rf2-chs7 each one cost a full dispatch round-trip into
-;; `:rf/xray`, and the handler it reaches is a cheap conditional re-read
-;; — so for every frame that is not the current target the round-trip
-;; computed the same db value it already had.
+;; frame. A dispatch per epoch would cost a full round-trip into
+;; `:rf/xray` each, and the handler it reaches is a cheap conditional
+;; re-read — so for every frame that is not the current target the
+;; round-trip would compute the same db value it already had.
 ;;
 ;; Under load that is not merely wasteful, it is destructive. A host
 ;; burst produces epochs faster than `:rf/xray`'s own drain settles, so
-;; the queue passes the depth-100 cap and the router DROPS events with
-;; `:recovery :no-recovery`. The events it drops are whatever happens to
-;; be behind the flood: measured on the Story feature-load gate, an
-;; unrelated Xray chrome event (`:rf.xray.edn-inspector/clear-width`)
-;; was the casualty. The flood costs Xray its OWN UI events.
+;; the queue would pass the depth-100 cap and the router would DROP
+;; events with `:recovery :no-recovery` — whatever happens to be behind
+;; the flood, including Xray's OWN chrome events (on the Story
+;; feature-load gate, `:rf.xray.edn-inspector/clear-width`).
 ;;
-;; The remedy is the one already in the sibling stream:
-;; `trace-collector/request-mirror-sync!` (rf2-wq6gx) coalesces the
-;; trace mirror onto a single `next-tick` task "so the sub fires on
-;; every push without one dispatch per trace event". `epoch-recorded`
-;; never got the same treatment; it does now, with the same primitive
-;; and the same two-atom shape.
+;; So the pump coalesces the way the sibling stream does:
+;; `trace-collector/request-mirror-sync!` coalesces the trace mirror onto
+;; a single `next-tick` task "so the sub fires on every push without one
+;; dispatch per trace event", and this pump uses the same primitive and
+;; the same two-atom shape.
 ;;
 ;; What coalescing preserves: the pending set is keyed by FRAME-ID, and
 ;; the drain dispatches one `:rf.xray/epoch-recorded` per DISTINCT
@@ -159,9 +158,9 @@
   into Xray's app-db. The scrubber's `:rf.xray/epoch-history` sub then
   re-fires off the standard app-db-write reactive path.
 
-  ONE DISPATCH PER FRAME PER TASK, not one per epoch (rf2-chs7) — see
-  the §task-coalesced epoch pump block above for why the un-coalesced
-  form overflowed `:rf/xray`'s own queue.
+  ONE DISPATCH PER FRAME PER TASK, not one per epoch — see the
+  §task-coalesced epoch pump block above for why an un-coalesced form
+  would overflow `:rf/xray`'s own queue.
 
   Idempotent via the `epoch-cb-registered?` sentinel."
   []
