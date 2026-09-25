@@ -44,8 +44,7 @@
 (defn epoch-record
   "Minimal `:rf/epoch-record` for diff-render purposes. The diff
   algorithm reads `:db-before` and `:db-after`; the panel's epoch-
-  selector logic reads `:epoch-id` and (for the 'Show me when this
-  changed' walker) `:trigger-event`."
+  selector logic reads `:epoch-id`."
   [{:keys [epoch-id event db-before db-after]}]
   {:epoch-id      epoch-id
    :frame         :rf/default
@@ -311,10 +310,9 @@
                                  :truncated-preview "[[1620345600, 0.42], ..."}}}})])
 
 (defn watched-keys-buffer
-  "Three epochs in series — exercises the cross-epoch 'show me when
-  this changed' walker (per spec/004-AppDbDiff §Show me when this
-  changed). Each epoch mutates a slice the user would plausibly
-  watch (`:counter`, `:user/profile`, `:cart`)."
+  "Three epochs in series — exercises re-rooting the section model on
+  each epoch in turn. Each epoch mutates a slice the user would
+  plausibly watch (`:counter`, `:user/profile`, `:cart`)."
   []
   [(epoch-record
      {:epoch-id 30
