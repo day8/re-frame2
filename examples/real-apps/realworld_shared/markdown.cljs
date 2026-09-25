@@ -153,7 +153,7 @@
    A fragment carries exactly the same children in the same order, but
    positionally — React sees ordinary siblings, not a list, and no key is
    required. Keys would be the wrong remedy here anyway: these children are
-   prose runs with no stable identity to key on (rf2-sefb)."
+   prose runs with no stable identity to key on."
   [ctx {:keys [content]}]
   (into [:<>] (map (partial md.transform/->hiccup ctx)) content))
 
