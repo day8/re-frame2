@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.routes.simulate-nav-cljs-test
-  "View tests for the hermetic Simulate-navigation preview
-  (rf2-o5f5f.3).
+  "View tests for the hermetic Simulate-navigation preview.
 
   ## Hermetic posture
 
@@ -14,7 +13,7 @@
   Every route slice here is one a real `:rf.route/navigate` wrote
   ([[navigated-slice!]]), and the row-expand rows register through the
   real `reg-route` — the registrar and the router are the producers, so
-  no row can pin a shape neither of them emits (rf2-y8doi.22)."
+  no row can pin a shape neither of them emits."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -29,10 +28,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
+  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers -----------------------------------------------------
@@ -144,9 +141,9 @@
 (deftest row-expand-reads-what-reg-route-stores-rf2-y8doi-22
   (testing "a route registered through the real `reg-route` shows its capture
             names (the compiled form's `:names`) and an open-in-editor chip
-            off the standard `:file` / `:line` coords. The expand used to read
-            `:keys` and `:rf.route/registered-at`, neither of which the
-            registrar writes, so both sections were dead."
+            off the standard `:file` / `:line` coords. Reading `:keys` or
+            `:rf.route/registered-at`, neither of which the registrar
+            writes, would leave both sections dead."
     (setup-xray-frame!)
     (rf/reg-route ::chapter {} "/simulate-nav-test/books/:book/chapters/:chapter")
     (let [routes (real-routes ::chapter)
@@ -179,7 +176,7 @@
   (testing "opening + closing the Simulate-navigation preview leaves the
             current route slice untouched"
     (setup-xray-frame!)
-    ;; The live slice is one a real navigation wrote (rf2-y8doi.22), and the
+    ;; The live slice is one a real navigation wrote, and the
     ;; host frame's runtime-db is read directly below as well as through the
     ;; override seam — so an accidental real navigation would show up in the
     ;; place real navigation writes, not only in a slot the preview never
