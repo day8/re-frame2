@@ -238,15 +238,17 @@
                hook call
 
   `H-ROUTED` strictly contains `H-CACHE + H-SPEC + H-SAMEH + H-IMPL`, so the
-  residual is `(apply impl-fn args)` at `route-hook!`'s OWN site — ONE site
-  shared by every routed hook in the bundle, hence callee-POLYMORPHIC. That is
-  why no arm here measures `apply` at a private site: with a single callee V8
+  residual is the routed closure's own call. Its zero-argument body calls
+  `impl-fn` DIRECTLY — `route-hook!` spells out the 0/1/2 arities and reaches
+  `apply` only from 3 arguments — but that call site is ONE site shared by
+  every routed hook in the bundle, hence callee-POLYMORPHIC. That is why no
+  arm here measures the call at a private site: with a single callee V8
   inlines it and it reads zero, which is a fast path the shipped code never
   takes. `S0-SCOPE - H-ROUTED - H-FVID` must close to the floor, and does.
 
   These arms publish NO routed hooks — they only call existing ones. That is
   deliberate: publishing re-spellings of `route-hook!` itself changes how many
-  shapes pass through the shared `same-adapter?` and `apply` sites. Measured,
+  shapes pass through the shared `same-adapter?` and `impl-fn` call sites. Measured,
   four such arms move `S0-SCOPE` from 264.0 to 280.0 B/read and split eight
   arms 4x-7x by PHASE, and the guard rightly refuses. Do not add
   hook-PUBLISHING arms to this plan.
@@ -942,19 +944,21 @@
 ;;       (f)                                             <- H-ROUTED (the whole call)
 ;;       (current-frame)))
 ;;
-;; and `f` is `route-hook!`'s closure, which is itself three things:
+;; and `f` is `route-hook!`'s closure, whose zero-argument arity is itself
+;; three things:
 ;;
-;;   (fn routed-hook [& args]
-;;     (if (same-adapter? spec (current-adapter))   <- H-SAMEH + H-SPEC
-;;       (apply impl-fn args)                            <- the RESIDUAL
-;;       ...))
+;;   (fn routed-hook
+;;     ([]
+;;      (if (same-adapter? spec (current-adapter))  <- H-SAMEH + H-SPEC
+;;        (impl-fn)                                     <- the RESIDUAL: the call
+;;        ...)) ...)
 ;;
 ;; with `impl-fn` = `rf.adapter.context/function-component-current-frame`  <- H-IMPL.
 ;;
 ;; The arms below price each step against the SAME installed adapter in the
 ;; SAME process, and the budget must close:
 ;;
-;;   H-ROUTED  =  H-CACHE + H-SPEC + H-SAMEH + H-IMPL + the apply
+;;   H-ROUTED  =  H-CACHE + H-SPEC + H-SAMEH + H-IMPL + the routed call
 ;;
 ;; THE PARITY CONTROL. `same-adapter?` is a flat nest of `if`s in RETURN
 ;; position; its docstring says why, and carries the measured cost of the
@@ -1806,12 +1810,13 @@
           (row "H-ROUTED  the SHIPPED hook: lookup + routed call" (net* "H-ROUTED") "H-ROUTED")
           (println ";;")
           ;; BUDGET. H-ROUTED is a strict superset of the parts above it — the
-          ;; hook lookup, the adapter-state read, the predicate, the apply, the
-          ;; impl. The residual is therefore `(apply impl-fn args)` at
-          ;; `route-hook!`'s OWN site: ONE site shared by every routed hook in
-          ;; the bundle, so its callee is POLYMORPHIC and `cljs.core/apply`
-          ;; cannot be inlined there. Measured at a private site with a single
-          ;; callee it is free — which is exactly why it is not measured that way.
+          ;; hook lookup, the adapter-state read, the predicate, the routed
+          ;; call, the impl. The residual is therefore the routed closure's
+          ;; direct `(impl-fn)` call at `route-hook!`'s OWN site: ONE site
+          ;; shared by every routed hook in the bundle, so its callee is
+          ;; POLYMORPHIC and the call cannot be inlined there. Measured at a
+          ;; private site with a single callee it is free — which is exactly
+          ;; why it is not measured that way.
           (let [budget (+ (net* "H-CACHE") (net* "H-SPEC") (net* "H-SAMEH") (net* "H-IMPL"))
                 meas   (net* "H-ROUTED")
                 resid  (- meas budget)]
@@ -1819,7 +1824,7 @@
                        ";;   BUDGET — H-CACHE + H-SPEC + H-SAMEH + H-IMPL = %s vs H-ROUTED %s"
                        (fmt budget) (fmt meas)))
             (println (gstring/format
-                       ";;   residual %s B/read (%s of H-ROUTED) — `apply` at route-hook!'s own,"
+                       ";;   residual %s B/read (%s of H-ROUTED) — the routed call at route-hook!'s own,"
                        (fmt resid)
                        (if (zero? meas) "n/a"
                            (gstring/format "%.1f%%" (* 100.0 (/ resid meas))))))
@@ -1837,7 +1842,7 @@
                        ";;   VERDICT — of the %s B/read CLJS-only consult:" (fmt whole)))
             (println (gstring/format ";;     same-adapter?, SHIPPED                      %10s  %s"
                              (fmt (net* "H-SAMEH")) (pctof (net* "H-SAMEH"))))
-            (println (gstring/format ";;     apply at route-hook!'s polymorphic site     %10s  %s"
+            (println (gstring/format ";;     the call at route-hook!'s polymorphic site  %10s  %s"
                              (fmt appl) (pctof appl)))
             (println ";;   and, at or under the floor, contributing nothing:")
             (println (gstring/format ";;     the adapter-state read (current-adapter) %9s  %s"
@@ -1853,7 +1858,7 @@
             (println ";;   not per subscribe. Both terms are therefore paid by ambient dispatch")
             (println ";;   and rf/current-frame-id as well, and once per PUBLISHING adapter:")
             (println ";;   an inactive adapter loaded in the same bundle adds a chain link, and")
-            (println ";;   a link is another same-adapter? plus another apply."))
+            (println ";;   a link is another same-adapter? plus another routed call."))
           (println ";;"))
         ;; --- THE HEADLINE ---------------------------------------------------
         (println ";; ==== THE TERM THIS HARNESS IS ABOUT ====")
