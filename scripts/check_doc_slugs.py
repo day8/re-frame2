@@ -793,7 +793,7 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
       triples through mkdocs.config.load_config('mkdocs.yml') into a
       markdown.Markdown, that costs 180 shapes where the renderer emits a link
       this gate never reports — the opener past the allowance every time, and the
-      downstream inline-span masking (rf2-skpf) swallowing what survives — and
+      downstream inline-span masking swallowing what survives — and
       none in the other direction.  The corpus measurement above is what carries
       the bound; agreement never did.
     * List items and admonitions nested INSIDE a blockquote do not push a content
@@ -822,7 +822,7 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
         # (opening marker, its indentation, its superfences PREFIX).  The
         # prefix is "" for an unquoted fence and the literal `>`/space run for
         # a quoted one, which is the form `_fence_close` has to compare
-        # against (rf2-1cpt).
+        # against.
         opener: tuple[str, int, str] | None = None
         if indent <= content_column + 3:
             quote_depth, quoted_body = _quote_depth_and_body(raw[indent:])
@@ -870,8 +870,8 @@ def _fence_close(
 ) -> int | None:
     """Index of the line closing `opener`, or None if it never closes.
 
-    Split out of `_strip_fences` so that a fence is committed to only once its
-    closer is in hand (rf2-mmyc).  The closing test is superfences': the
+    Separate from `_strip_fences` so that a fence is committed to only once its
+    closer is in hand.  The closing test is superfences': the
     opener's EXACT marker run, at the opener's EXACT indentation, carrying no
     info string.
 
@@ -883,12 +883,12 @@ def _fence_close(
     reads on.  A non-blank line shallower than the fence's container means the
     container closed first, so the closer cannot be below it.
 
-    INSIDE A BLOCKQUOTE the test is the raw PREFIX WIDTH, not the quote depth
-    (rf2-1cpt, MERGED-PR AUDIT #7786).  `eval_quoted` abandons the fence when a
+    INSIDE A BLOCKQUOTE the test is the raw PREFIX WIDTH, not the quote depth.
+    `eval_quoted` abandons the fence when a
     line is quoted more deeply than the opener or carries a NARROWER prefix than
     it, and `parse_fence_line` reads each line's prefix only as far as the
-    opener's reached.  Comparing depth instead treats `>`, `> ` and `>  ` as the
-    same prefix, which closed fences the renderer never opens and hid the real
+    opener's reached.  Comparing depth instead would treat `>`, `> ` and `>  ` as
+    the same prefix, closing fences the renderer never opens and hiding the real
     links written inside them.
     """
     marker, fence_indent, fence_prefix = opener
@@ -918,7 +918,7 @@ def _quoted_fence_close(
     marker: str,
     prefix: str,
 ) -> int | None:
-    """`_fence_close` for a fence opened inside a blockquote (rf2-1cpt).
+    """`_fence_close` for a fence opened inside a blockquote.
 
     A direct port of superfences' `eval_quoted`, in its order, because the order
     is load-bearing: an EMPTY content line is accepted before the prefix-width
@@ -969,8 +969,7 @@ def _mask_html_comments(
     across a masked region. Operates on the fence-stripped (line_no, content)
     pairs; comment state carries across lines so a multi-line comment is fully
     masked. An MkDocs/CommonMark HTML comment produces no rendered fragment
-    target, so an `<a id="...">` written inside one must not mint a slug
-    (rf2-zq5i6).
+    target, so an `<a id="...">` written inside one must not mint a slug.
     """
     out: list[tuple[int, str]] = []
     in_comment = False
@@ -1005,11 +1004,11 @@ def _scan_rendered_id_lines(path: Path) -> dict[str, list[tuple[int, str]]]:
     The value is the list of `(1-based line number, mechanism)` pairs that mint
     the id, in document order.  `_scan_rendered_ids` derives the occurrence count
     from it, so there is one scan and one answer; the positions exist so a
-    duplicate can be REPORTED precisely (rf2-1cpt) rather than only counted.
+    duplicate can be REPORTED precisely rather than only counted.
 
     Two anchor mechanisms mint a fragment target, and both are recorded so a
-    duplicate/colliding id is visible (rf2-zq5i6 — the predecessor collapsed
-    everything into a set, hiding collisions):
+    duplicate/colliding id is visible (collapsing everything into a set would
+    hide collisions):
 
     1. ATX headings (`# Title`, `## Title`, ...) — slugified with the same
        pymdownx slugifier MkDocs uses, with duplicate-suffix disambiguation
@@ -1019,13 +1018,13 @@ def _scan_rendered_id_lines(path: Path) -> dict[str, list[tuple[int, str]]]:
        Both attribute names are recognised (`name` is the legacy HTML form;
        `id` is the modern form; browsers resolve both as fragment targets).
 
-    Recognition is render-faithful (rf2-zq5i6): fenced code is already blanked
+    Recognition is render-faithful: fenced code is already blanked
     by `_strip_fences`, HTML comments are masked by `_mask_html_comments`, and
     inline-code spans are masked by `_strip_inline_code` before the anchor regex
     runs — anchor-shaped text that the browser never turns into a fragment target
     therefore contributes nothing. Heading slugs are derived from the SAME
-    comment-masked line (rf2-ehxs8 — the predecessor matched headings on the raw
-    line, so a heading buried in a multiline HTML comment still minted a slug),
+    comment-masked line (matched on the raw line, a heading buried in a
+    multiline HTML comment would mint a slug),
     but inline code is deliberately NOT masked away there: inline code inside a
     heading title is part of the rendered slug.
     """
@@ -1042,7 +1041,7 @@ def _scan_rendered_id_lines(path: Path) -> dict[str, list[tuple[int, str]]]:
         for am in _HTML_ANCHOR_RE.finditer(anchor_line):
             places.setdefault(am.group(1), []).append((line_no, ANCHOR_MECHANISM))
 
-        # Headings are recognised on the comment-masked line (rf2-ehxs8): a
+        # Headings are recognised on the comment-masked line: a
         # heading that lives entirely inside a multiline HTML comment renders no
         # fragment target and must not be indexed. Inline code is NOT masked
         # here — a heading title's inline code IS part of the rendered slug.
@@ -1052,7 +1051,7 @@ def _scan_rendered_id_lines(path: Path) -> dict[str, list[tuple[int, str]]]:
         title = m.group(2).strip()
         # attr_list is NOT enabled in mkdocs.yml, so a trailing `{#id}` is not an
         # attribute list — it is literal heading text and the rendered fragment id
-        # is the slugified FULL visible title (rf2-ru0wg).  Slugify the title
+        # is the slugified FULL visible title.  Slugify the title
         # exactly as authored; no explicit-id special case.
         slug = SLUGIFY(title, SLUG_SEP)
         if not slug:
@@ -1092,12 +1091,12 @@ def _anchors_are_colocated(path: Path, where: list[tuple[int, str]]) -> bool:
     anchor elements, which render as empty and occupy no visible space.  A
     stack of alias anchors above (or below) the heading they name therefore
     counts as ONE landing, which is what the corpus's 118 colliding ids are
-    (rf2-1cpt) — including the two spec pages that stack three aliases.
+    — including the two spec pages that stack three aliases.
 
     This decides only what the DIAGNOSTIC says, never whether the gate fails.
-    rf2-zq5i6 ruled that a manifest anchor must resolve to exactly one rendered
-    target and pinned it with a fixture; co-location is the explanation for the
-    failure, not an exemption from it.
+    A manifest anchor must resolve to exactly one rendered target, and a
+    fixture pins that; co-location is the explanation for the failure, not an
+    exemption from it.
     """
     if len(where) < 2:
         return True
@@ -1138,7 +1137,7 @@ def _anchor_precedes_passage(
     fence-stripped, and (from `_check_compat_anchor_placement`) HTML-comment- and
     inline-code-masked, so only a real fragment target matches. Returns False if the anchor is
     absent, the passage is absent, or the anchor appears at/after the passage —
-    each is a placement defect the caller reports (rf2-zq5i6). Kept a pure
+    each is a placement defect the caller reports. Kept a pure
     function so the placement teeth can drive it with a correct and a mutated
     (drifted) line list directly.
     """
@@ -1162,20 +1161,20 @@ def _iter_source_files(
     exclude_dir_names: frozenset[str] = SOURCE_EXCLUDE_DIR_NAMES,
 ) -> Iterable[Path]:
     """Yield every GIT-TRACKED Clojure source file under repo_root, pruning
-    vendor/generated trees (rf2-zq5i6, rf2-k30r7).
+    vendor/generated trees.
 
     The roster is Git tracking, not a filesystem walk. An untracked or ignored
     scratch file in a programmer's worktree is not repository content, so it
-    MUST NOT be able to fail this scan — a walk-based roster let any stray
+    MUST NOT be able to fail this scan — a walk-based roster would let any stray
     `.clj` anywhere outside a fixed excluded directory raise a false BROKEN
-    SOURCE-COMMENT LINK. CI runs on clean clones with no such files, so the
-    breakage landed only on the authoring machine. `git ls-files` is the
+    SOURCE-COMMENT LINK, on the authoring machine only, since CI runs on clean
+    clones with no such files. `git ls-files` is the
     authoritative tracked set (the same corpus-scan discipline the residue
     checks follow: generated/untracked copies are not the corpus).
 
     Exclusions still apply ON TOP of tracking, because a path can be tracked
     AND excluded — the self-test's `node_modules/vendored.cljc` fixture is
-    exactly that. Pruning therefore stays a filter in its own right rather
+    exactly that. Pruning is therefore a filter in its own right rather
     than a side effect of the tracked roster.
 
     `git ls-files` is scoped to (and reports relative to) `repo_root`, so the
@@ -1212,7 +1211,7 @@ def _strip_inline_code(line: str) -> str:
     `` `[NNN-DocName](NNN-DocName.md)` `` are a documentation idiom in this
     corpus — they're literal markup the author wants to TALK about, not a
     real link to resolve.  Without this masking the validator flags every
-    such placeholder as BROKEN TARGET (rf2-mqv8s).
+    such placeholder as BROKEN TARGET.
     """
     return _INLINE_CODE_RE.sub(lambda m: " " * (m.end() - m.start()), line)
 
@@ -1221,7 +1220,7 @@ def _quote_depth_and_body(content: str, limit: int | None = None) -> tuple[int, 
     """Split a line into its blockquote depth and the quoted line's own content.
 
     `limit` caps how many markers are consumed, which is what a line INSIDE an
-    open blockquoted fence needs (rf2-1cpt).  superfences parses a content
+    open blockquoted fence needs.  superfences parses a content
     line's prefix only as far as the OPENING line's prefix reached
     (`parse_fence_line` stops at the opener's width), so a line quoted more
     deeply than the fence is ordinary content rather than a nested quote — the
@@ -1249,13 +1248,13 @@ def _fence_prefix(line: str, limit: int | None = None) -> tuple[str, str]:
     `>` any special meaning; the second stops once it has consumed as many
     columns as the OPENER's prefix occupied.
 
-    That cap is the whole mechanism (rf2-1cpt).  A line quoted more deeply than
+    That cap is the whole mechanism.  A line quoted more deeply than
     its fence is not a nested quote to superfences — the cap simply stops before
     the extra `>`, which is then the first character of a line of code.  And a
     line whose prefix is NARROWER than the opener's is "not indented enough", so
     the fence is abandoned rather than continued.
 
-    Tabs are counted as one column, matching this scanner's existing bound: the
+    Tabs are counted as one column, matching the bound `_strip_fences` declares: the
     corpus has no tab-indented fence, and superfences would expand them to the
     configured tab length.
     """
@@ -1277,9 +1276,9 @@ def _inline_blocks(
     A scan unit is a maximal run of lines the renderer parses as ONE run of
     inline content, so it is exactly the span over which a markdown inline
     construct may wrap.  Scanning per unit rather than per line is what lets
-    `_iter_inline_links` see a wrapped link (rf2-vpc4c); bounding the unit at
+    `_iter_inline_links` see a wrapped link; bounding the unit at
     every real block boundary is what stops it from stitching unrelated blocks
-    into a link no renderer would produce (rf2-skpf).
+    into a link no renderer would produce.
 
     Four kinds of boundary end a unit:
 
@@ -1299,9 +1298,9 @@ def _inline_blocks(
        unprefixed line after a quoted one is CommonMark lazy continuation of the
        SAME quoted paragraph, and a `>`-prefixed continuation line inside one
        quote keeps the depth unchanged — which is why the corpus's blockquoted
-       wrapped links still join.
+       wrapped links join.
 
-       Deeper than THE UNIT, not deeper than the line before it (rf2-skpf).
+       Deeper than THE UNIT, not deeper than the line before it.
        Lazy continuation makes the two differ: in
 
            > Per the note, see [§Compiled
@@ -1311,18 +1310,18 @@ def _inline_blocks(
        the middle line is lazy continuation, so the third line RESUMES a quote
        that never closed — `BlockQuoteProcessor` cleans all three lines into one
        paragraph and emits the link.  Comparing against the previous line's
-       depth read the resume as an entry, split the unit, and dropped a real
+       depth would read the resume as an entry, split the unit, and drop a real
        link on the floor unchecked; comparing against the depth the unit was
        opened at is what makes this docstring's rule and the code agree.
 
     A line whose content is nothing but blockquote markers — `>`, `>   `, `> >`
-    — is a BLANK LINE inside the quote, not a continuation line (rf2-skpf).
+    — is a BLANK LINE inside the quote, not a continuation line.
     `BlockQuoteProcessor.clean` maps it to the empty string, so it ends the
     quoted paragraph exactly as a blank line ends an unquoted one.  Testing
     blankness on the marker-stripped body rather than the raw line is the whole
-    of that: without it the join reached across a paragraph break and a code
-    span pairing two stray backtick runs either side of it swallowed a link the
-    renderer really does emit.  569 such lines are in the corpus.
+    of that: without it the join would reach across a paragraph break, and a
+    code span pairing two stray backtick runs either side of it would swallow a
+    link the renderer really does emit.  569 such lines are in the corpus.
 
     The block tests run against the line's content with any blockquote markers
     removed, so `> ## Heading` bounds a unit just as `## Heading` does.
@@ -1354,7 +1353,7 @@ def _inline_blocks(
 
 
 def _mask_code_spans(text: str) -> str:
-    """Mask inline-code spans across a joined scan unit (rf2-skpf).
+    """Mask inline-code spans across a joined scan unit.
 
     Length- and newline-preserving, so a match position in the masked text still
     maps back to its source line.  Unlike the per-line `_strip_inline_code`, this
@@ -1385,7 +1384,7 @@ def _blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
 
 
 def _reference_id(label: str) -> str:
-    """Normalise a reference label the way a USE site is normalised (rf2-2ryk).
+    """Normalise a reference label the way a USE site is normalised.
 
     `.lower()` then `\\s+` → one space, matching
     `ReferenceInlineProcessor.NEWLINE_CLEANUP_RE`.  Deliberately NOT stripped:
@@ -1400,7 +1399,7 @@ def _reference_id(label: str) -> str:
 def _reference_definitions(
     pairs: list[tuple[int, str]],
 ) -> tuple[dict[str, tuple[int, str]], set[int]]:
-    """Collect `[label]: destination` definitions (rf2-2ryk).
+    """Collect `[label]: destination` definitions.
 
     Returns ({id: (line-of-destination, destination)}, {lines the definitions
     occupy}).  The line set is what the caller blanks before scanning for
@@ -1455,28 +1454,27 @@ def _iter_inline_links(
 
     `pairs` are (line_no, content) pairs the CALLER has already reduced to
     scannable source — fence-stripped.  Inline code is masked HERE, over the
-    joined unit, not by the caller (rf2-skpf).
+    joined unit, not by the caller.
 
     Each inline block (`_inline_blocks`) is joined with `\\n` and scanned as ONE
-    string, so a link whose text wraps across a newline is seen.  The
-    predecessor scanned line by line, so `](target#anchor)` landing on the
-    following line never matched `_LINK_RE` and the link was therefore never
-    validated — silently unguarded, since `mkdocs build --strict` reports a
-    broken anchor as INFO and still exits 0 (rf2-vpc4c).
+    string, so a link whose text wraps across a newline is seen.  Scanned line
+    by line, `](target#anchor)` landing on the following line would never match
+    `_LINK_RE` and the link would never be validated — silently unguarded,
+    since `mkdocs build --strict` reports a broken anchor as INFO and exits 0.
 
     Masking runs over the same joined unit `_LINK_RE` scans, so the two agree on
     what the text is: a code span that crosses a line ending is masked whole and
-    yields no link, where per-line masking saw two unpaired backticks, masked
-    neither, and invented one (rf2-skpf).
+    yields no link, where per-line masking would see two unpaired backticks,
+    mask neither, and invent one.
 
     The reported line is the one carrying the DESTINATION (`m.start(1)`), not
     the one carrying the opening `[`.  For an unwrapped link the two are the
-    same line, so single-line diagnostics are unchanged; for a wrapped one the
+    same line; for a wrapped one the
     destination's line is the line an author edits to fix the anchor, and it is
     the more robust of the two — an unclosed stray `[` earlier in the block can
     drag the match start backwards, but never the destination.
 
-    REFERENCE-STYLE links are resolved here too (rf2-2ryk), against the
+    REFERENCE-STYLE links are resolved here too, against the
     definitions `_reference_definitions` collected from the same lines.  Three
     properties of that, each renderer-derived and each load-bearing:
 
@@ -1538,14 +1536,14 @@ def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
     """Yield (line-number, destination) for every inline markdown link.
 
     Links inside fenced code blocks AND inside inline-code spans are
-    skipped — both are "code", not real cross-references (rf2-mqv8s).
-    Links that wrap across a newline ARE seen (rf2-vpc4c) — see
+    skipped — both are "code", not real cross-references.
+    Links that wrap across a newline ARE seen — see
     `_iter_inline_links`, which is also where inline code is masked and where
-    the join is bounded to one rendered inline block (rf2-skpf).
+    the join is bounded to one rendered inline block.
 
     This function's only job is reducing the file to fence-stripped
     (line_no, content) pairs.  `check_readme_links.py` imports it so both gates
-    share one extractor and cannot drift apart (rf2-vpc4c).
+    share one extractor and cannot drift apart.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     yield from _iter_inline_links(_strip_fences(text.splitlines()))
@@ -1591,13 +1589,13 @@ def _resolve_target(
     return candidates[-1] if candidates else None
 
 
-# rf2-nvbz — this repo's OWN GitHub URLs.
+# This repo's OWN GitHub URLs.
 #
 # A shipped skill doc may not reach outside its package by a relative link
 # (`check_skill_package_refs.py` makes that a finding), so it cites cross-tree
 # material as an absolute repository URL instead. That trade buys the packaged
-# reader a link that resolves and costs the monorepo reader rename-safety — a
-# relative target is checked below, an `https://` one used to be skipped
+# reader a link that resolves and would cost the monorepo reader rename-safety —
+# a relative target is checked below, while an `https://` one would be skipped
 # outright at the external-link guard. This unwraps the subset that is THIS
 # repo at `main` and validates it as a repo path: existence, blob-vs-tree kind,
 # and (for a `.md` blob) the anchor. Everything else stays external and stays
@@ -1653,11 +1651,11 @@ def _in_repo_github_url_problems(
 ) -> list[str]:
     """Validate one unwrapped in-repo GitHub URL. Empty list when it is sound.
 
-    Existence is checked for EVERY kind, not only `.md`: 18 of the links this
-    was built for name source files (`tools/xray/src/**`,
+    Existence is checked for EVERY kind, not only `.md`: such links often name
+    source files (`tools/xray/src/**`,
     `examples/capabilities/ssr/ssr/core.cljc`), and a renamed source file is
     exactly the drift the unwrap exists to catch. The non-`.md` skip that
-    applies to RELATIVE links stays where it is — it is about the slug-index
+    applies to RELATIVE links does not apply here — it is about the slug-index
     contract, which only `.md` targets have.
     """
     if not rel:
@@ -1692,16 +1690,15 @@ def _in_repo_github_url_problems(
     return []
 
 
-# rf2-dnx3r — this project's OWN PUBLISHED SITE URLs.
+# This project's OWN PUBLISHED SITE URLs.
 #
 # The sibling of the arm above, for the other absolute spelling this repo
 # writes about itself. A skill installed outside the checkout has no relative
 # path to the docs, and the repo's own front page deliberately points readers
 # at the published site, so both cite documentation as
 # `https://day8.github.io/re-frame2/...` — and the external-link guard below
-# skipped every one of them. Seven died on the front page when `docs/guide/`
-# became `docs/core/` and sat there for 86 days, through a link gate that ran
-# green on every pull request in between.
+# would skip every one of them, so renaming a docs tree could break them all
+# while a link gate ran green on every pull request.
 #
 # This resolves such a URL OFFLINE to the source page MkDocs would build it
 # from. PATH ONLY: the fragment, the query and the trailing slash are stripped
@@ -1717,7 +1714,7 @@ def _in_repo_github_url_problems(
 # some candidate file existed would pass all of them. And the `name` in
 # `X/name.md` may itself carry dots — every page in `docs/api/` is named for
 # the namespace it documents — so a dot marks a static asset only once no page
-# has claimed the route (rf2-co91r).
+# has claimed the route.
 
 
 # A deliberate TWIN of `_STAGE` in mkdocs_hooks.py, which mirrors these two
@@ -1740,7 +1737,7 @@ def _mkdocs_site_config(repo_root: Path) -> tuple[str | None, str, tuple[str, ..
     go on passing as published. Reading `site_url` also means the host is
     never hardcoded here, and — the property the self-tests lean on — an
     absent `site_url:` switches the whole arm off, which is what keeps every
-    fixture that predates it inert.
+    fixture without one inert.
 
     `yaml.safe_load` REFUSES this file (an `!ENV` tag in the theme block) and
     importing mkdocs would pull the build machinery in, so three keys read
@@ -1857,14 +1854,14 @@ def _site_url_problems(repo_root: Path, site_path: str) -> list[str]:
         if (base / candidate).is_file():
             return []
 
-    # rf2-co91r — ONLY NOW may a dot be read as a static file's extension.
+    # ONLY NOW may a dot be read as a static file's extension.
     # A DOT IN A PAGE'S BASENAME IS NOT AN EXTENSION: every page in `docs/api/`
     # is named for the namespace it documents, so `re-frame.http.md` publishes
     # at `re-frame.http/` exactly as `introduction.md` publishes at
     # `introduction/`. Inferring "static asset" from the dot ALONE — before
-    # asking whether a Markdown page claims the route — reported all 23 of them
-    # as unpublished, which is the false rejection this ordering repairs.
-    # Existence is still the whole question for a real static file, because
+    # asking whether a Markdown page claims the route — would report every one
+    # of them as unpublished.
+    # Existence is the whole question for a real static file, because
     # MkDocs copies it into the site verbatim.
     if "." in last:
         if (base / site_path).is_file():
@@ -1882,8 +1879,8 @@ def _is_ai_findings_link(path_part: str) -> bool:
     The repo's `/ai/` directory is gitignored at the root, so committed markdown
     that links into `ai/findings/<file>.md` (or the bare directory) creates an
     invisible-on-CI broken target — mkdocs strict's link validator catches it,
-    blocking unrelated PRs in cascade.  rf2-l7yj8 promotes this from a
-    mkdocs-only failure to a fast pre-PR lint.
+    blocking unrelated PRs in cascade.  This check makes it a fast pre-PR
+    lint rather than a mkdocs-only failure.
 
     The check is path-component-sensitive: it matches `ai/findings/` only as a
     whole pair of path components, so casual prose links to (say)
@@ -1900,19 +1897,15 @@ def _is_ai_findings_link(path_part: str) -> bool:
     return False
 
 
-# rf2-mmyc — trees in which a markdown link inside a code fence is always a
-# defect.  This is the check that would have caught rf2-re0m at the gate: the
-# seven links that bulk pass added all RESOLVED, so link validation had nothing
-# to say about them, and the damage (samples that render a literal `](...)` and
-# no longer read as Clojure) was only visible to a reader.
+# Trees in which a markdown link inside a code fence is always a defect.  Link
+# validation has nothing to say about such a link when it RESOLVES, and the
+# damage (a sample that renders a literal `](...)` and no longer reads as
+# Clojure) is visible only to a reader.
 #
-# EVERY CENSUS BELOW IS A MAGNITUDE, NEVER AN EXACT COUNT, and that is a repair
-# rather than vagueness (rf2-sodfq).  This block once carried a run of exact
-# ones, and ordinary merges had falsified nearly all of them before anyone
-# re-read the block — including a pair that CONTRADICTED EACH OTHER between two
-# paragraphs of this same file on the day they landed, because a PR that moved
-# the corpus merged between writing them and integrating them.  A stale number
-# in the rationale for a gate reads as carelessness in the gate.  If you need a
+# EVERY CENSUS BELOW IS A MAGNITUDE, NEVER AN EXACT COUNT, and that is
+# deliberate rather than vague: ordinary merges falsify exact counts, and a
+# stale number in the rationale for a gate reads as carelessness in the gate.
+# If you need a
 # figure, MEASURE it: `_check_fenced_doc_links` is the production scanner and
 # takes the covered trees as an argument, so pass it the corpus roots.  Do not
 # write the answer back here.
@@ -1924,41 +1917,34 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # legislate away.  Making the assertion corpus-wide would need an allowlist for
 # those, and an allowlist is how a gate stops meaning anything.
 # `docs/design/fresco/` is a working design record whose fences are Clojure,
-# bash and captured output; it measures clean today, so the check lands green.
+# bash and captured output; it measures clean, so the check is green.
 #
 # `docs/design/freehand/` measures clean too and is the same class of artefact —
-# a defensible extension, deliberately not taken here: it had no incident, and
-# widening a new gate past its evidence is how gates acquire a reputation for
-# arbitrary friction.
+# a defensible extension, deliberately not taken here: widening a gate past its
+# evidence is how gates acquire a reputation for arbitrary friction.
 #
-# rf2-qdqf added `docs/the-mayor-method/` on exactly that evidence standard, and
-# the evidence was a measurement: `bootstrap.md` was then almost entirely fenced
-# by non-blank line, because the file IS a pasteable prompt and the fence is the
-# deliverable.  (It has since grown a long prose section around that prompt,
-# which is the rule at the head of this block earning its keep — the exact ratio
-# once quoted here was long false by the time anyone re-read it, while the
-# reason it was quoted for was not.)  A worker proving gate coverage planted two
-# bogus anchors in it, one outside the fence and one inside; the gate reported
-# exactly the first and was silent on the second.  A green on that file
-# therefore said nothing about the block holding the document, which is worse
-# than a skip because the file is demonstrably in the corpus.  Widening puts
-# the whole file back under an assertion that can fail.  The tree measures clean
-# today (no fenced doc links in any of its files) and its established idiom is
-# already the right one — bare paths in backticks, `README.md` and
+# `docs/the-mayor-method/` is covered on exactly that evidence standard: a
+# file like `bootstrap.md` IS a pasteable prompt, so the fence is the
+# deliverable.  Outside the roster, a bogus anchor planted inside that fence
+# goes unreported while one planted outside it is caught, so a green on the
+# file would say nothing about the block holding the document — worse than a
+# skip, because the file is demonstrably in the corpus.  Covering the tree puts
+# the whole file under an assertion that can fail.  The tree measures clean
+# (no fenced doc links in any of its files) and its idiom is the right one —
+# bare paths in backticks, `README.md` and
 # `dispatch-prompt-template.md`, never markdown links, which inside a `text`
 # fence would render literally and reach a reader as noise pasted into a prompt.
 #
-# Corpus-wide inversion stays rejected, on those same links; and ANNOUNCING the
-# skip instead was measured and rejected too — roughly three quarters of the
-# corpus files carry a fence, so the announcement fires on most of the corpus,
-# and its text is identical before and after a doc link is added inside a fence.
+# Corpus-wide inversion is rejected, on those same links; and ANNOUNCING the
+# skip instead is rejected too — roughly three quarters of the corpus files
+# carry a fence, so the announcement would fire on most of the corpus, and its
+# text would be identical before and after a doc link is added inside a fence.
 # A signal that cannot change when the defect appears is not a signal.
 #
-# rf2-sodfq separated a THIRD assertion on 2026-08-21 that neither rejection
-# above reaches.  Both of those are about a fenced link's PRESENCE — ban it, or
-# announce that it went unchecked.  The weaker one is to leave the links alone
-# and validate their TARGETS AND ANCHORS, and it had never been measured.  It
-# costs nothing today: routing `_fenced_lines` through the ordinary
+# A THIRD assertion is one neither rejection above reaches.  Both of those are
+# about a fenced link's PRESENCE — ban it, or announce that it went unchecked.
+# The weaker one is to leave the links alone and validate their TARGETS AND
+# ANCHORS.  Routing `_fenced_lines` through the ordinary
 # target/anchor check reds on ZERO of the fenced doc links in the corpus, with a
 # bogus in-fence anchor planted as the positive control taking that same run to
 # exit 1 — so the zero is a measurement and not an empty search.  That zero is
@@ -1982,7 +1968,7 @@ FENCED_DOC_LINK_TREES = ("docs/design/fresco", "docs/the-mayor-method")
 def _is_doc_destination(dest: str) -> bool:
     """True if a link destination names an in-repo markdown page or a fragment.
 
-    Deliberately narrower than "contains `](`" (rf2-mmyc).  A bare `](` is legal
+    Deliberately narrower than "contains `](`".  A bare `](` is legal
     Clojure — `(fn [x](inc x))` closes a vector and opens a list — and a gate
     that nags valid code for its spacing is worse than no gate.  A destination
     ending `.md`, or a pure `#fragment`, is the signature of a documentation
@@ -2002,7 +1988,7 @@ def _check_fenced_doc_links(
     files: Iterable[Path],
     trees: tuple[str, ...] = FENCED_DOC_LINK_TREES,
 ) -> list[tuple[Path, int, str]]:
-    """Find markdown doc links written INSIDE a code fence (rf2-mmyc).
+    """Find markdown doc links written INSIDE a code fence.
 
     Returns (source-file, line-no, destination) for each one, in the covered
     trees only.  Runs off `_fenced_lines`, so it inherits the one fence model
@@ -2032,7 +2018,7 @@ def _check_compat_anchors(
     list[str],
     list[tuple[str, str, list[tuple[int, str]], bool]],
 ]:
-    """Validate every manifest compat anchor resolves to exactly one target (rf2-57k74/zq5i6).
+    """Validate every manifest compat anchor resolves to exactly one target.
 
     Returns (missing_anchors, missing_pages, duplicate_anchors):
         * missing_anchors — (page-rel, anchor) for each manifest anchor absent
@@ -2040,17 +2026,16 @@ def _check_compat_anchors(
         * missing_pages — page-rel for each inventoried page NOT present in the
           working tree. A deleted or renamed page fails the gate, so the external
           bookmarks it carries cannot silently disappear behind an ordinary
-          link-rename (rf2-57k74 closed this hole — the Machines-only predecessor
-          silently `continue`d past an absent page).
+          link-rename.
         * duplicate_anchors — (page-rel, anchor, where, colocated) for each
           manifest anchor that resolves to MORE THAN ONE rendered target on its
-          page (rf2-zq5i6): a duplicate explicit id, or an explicit id colliding
+          page: a duplicate explicit id, or an explicit id colliding
           with a generated heading slug. A fragment id that appears twice is an
           invalid, ambiguous bookmark (the browser resolves only the first), so
           it fails the gate. `where` is the occurrence list from
           `_scan_rendered_id_lines` and `colocated` says whether those
           occurrences share one landing spot — both carried so the report can
-          say WHICH collision this is (rf2-1cpt), neither consulted in deciding
+          say WHICH collision this is, neither consulted in deciding
           that it fails.
 
     `places_for(page)` returns the page's {rendered-id: [(line, mechanism)]} map.
@@ -2082,7 +2067,7 @@ def _check_compat_anchor_placement(
     repo_root: Path,
     placement: dict[tuple[str, str], re.Pattern[str]] = COMPAT_ANCHOR_PLACEMENT,
 ) -> list[tuple[str, str, str]]:
-    """Validate render-faithful placement of passage-naming compat anchors (rf2-zq5i6).
+    """Validate render-faithful placement of passage-naming compat anchors.
 
     For each `(page, anchor) -> passage_re` rule, the anchor must appear before the
     passage it names so a deep-link lands ON that content, not past it. Returns
@@ -2094,11 +2079,11 @@ def _check_compat_anchor_placement(
         if not page.is_file():
             misplaced.append((page_rel, anchor, "page missing from working tree"))
             continue
-        # Placement must locate the RENDERED anchor (rf2-ehxs8): mask HTML
+        # Placement must locate the RENDERED anchor: mask HTML
         # comments and inline code as well as fenced code, so anchor-shaped text
         # the browser never turns into a fragment target cannot stand in for the
         # real anchor. Without this a commented/backticked fake anchor before the
-        # passage passes placement while the sole rendered anchor sits after it.
+        # passage would pass placement while the sole rendered anchor sat after it.
         fence_stripped = _strip_fences(
             page.read_text(encoding="utf-8", errors="replace").splitlines()
         )
