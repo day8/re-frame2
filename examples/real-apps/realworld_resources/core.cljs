@@ -327,12 +327,11 @@
 ;; re-seed (durable app-db survives). That same id is what every in-tree
 ;; `dispatch` / `subscribe` resolves against.
 ;;
-;; Notice there is no `:interceptors` chain here any more. Route auth used to ride
-;; a frame-wide `:realworld-resources.routing/auth-guard` interceptor over the
-;; navigation events; it is now `:can-enter` metadata on the protected routes
-;; themselves (routing.cljs), which the runtime consults on the ONE planning
-;; pipeline every door funnels through. See routing.cljs §AUTH GATE for why the
-;; interceptor spelling fails open (rf2-k85nd).
+;; Notice there is no `:interceptors` chain here. Route auth is `:can-enter`
+;; metadata on the protected routes themselves (routing.cljs), which the runtime
+;; consults on the ONE planning pipeline every door funnels through, rather than
+;; a frame-wide auth-guard interceptor over the navigation events. See
+;; routing.cljs §AUTH GATE for why the interceptor spelling fails open.
 ;;
 ;; The order of `:initial-events` matters, for two reasons:
 ;;   - `:auth/classify-token` goes first. The JWT at [:auth :token] is a durable
@@ -359,7 +358,7 @@
 ;;   - the settings MUTATION's own `:params`, via the `:realworld/update-settings`
 ;;     OWNER declaration (`:sensitive [[:params :password]]`, mutations.cljs),
 ;;     which the mutation runtime derives its execute/trace/instance/
-;;     continuation projections from (rf2-825mzj).
+;;     continuation projections from.
 ;; The one place a password never rides at all is the auth MACHINE: login and
 ;; register nudge it with a bare, credential-free signal rather than a
 ;; password-bearing dispatch — a positional machine sub-event arg isn't
