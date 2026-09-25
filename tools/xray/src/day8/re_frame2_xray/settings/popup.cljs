@@ -5,9 +5,9 @@
   modal is a transient overlay rather than a sidebar panel: open,
   tweak, close. The same facade pattern as `palette.cljs` — a
   short-circuit to nil when `:rf.xray/settings-open?` is false, with
-  a closed-state cost of one read + a `when`. Since rf2-k97c.3 that
-  gate lives in the [[Popup]] boundary rather than in the [[Modal]]
-  bridge, which is now unconditional; see the section below.
+  a closed-state cost of one read + a `when`. That gate lives in the
+  [[Popup]] boundary rather than in the [[Modal]] bridge, which is
+  unconditional; see the section below.
 
   ## Sections
 
@@ -48,14 +48,13 @@
   app-db rather than the host's. A `js/document.body` portal would
   lose the frame context and silently read/write `:rf/default`.
 
-  ## rf2-k97c.3 — the popup is a FRESCO BOUNDARY
+  ## The popup is a FRESCO BOUNDARY
 
   [[Popup]] is an `rf.fresco/defview`, not an `rf/reg-view`. It owns
-  every read the popup performs — its own gate plus the thirteen this
-  namespace hoisted out of `settings/view.cljs` — and hands their values
-  to the pure `view/popup-tree`. [[Modal]] survives as the one-line
-  bridge the Dynamic shell still needs; its docstring carries the
-  condition that deletes it."
+  every read the popup performs — its own gate plus the thirteen its
+  four tabs need — and hands their values to the pure
+  `view/popup-tree`. [[Modal]] is the one-line bridge the Dynamic
+  shell mounts; the bridge comment below says why the pair stays."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.settings.events :as events]
@@ -63,11 +62,11 @@
             [day8.re-frame2-xray.settings.view :as view]))
 
 (rf.fresco/defview Popup
-  "The settings popup modal — a FRESCO BOUNDARY (rf2-k97c.3), a real
-  React function component rather than an `rf/reg-view`.
+  "The settings popup modal — a FRESCO BOUNDARY, a real React function
+  component rather than an `rf/reg-view`.
 
   Renders only when `:rf.xray/settings-open?` is true. CLOSED-STATE COST
-  IS STILL ONE READ AND A `when`: `rf.fresco/sub` is legal inside a
+  IS ONE READ AND A `when`: `rf.fresco/sub` is legal inside a
   `when` and records its edge WHERE THE READ HAPPENS (HD-002), so a
   branch not taken contributes no edge and a closed popup holds one
   subscription, not fourteen.
@@ -77,17 +76,16 @@
   All fourteen are `rf.fresco/sub` — plain calls the shipped collector
   records an edge for. No deref, no reaction owned by the installed
   adapter, and a re-wire that NOTIFIES when the substrate disposes the
-  underlying derived value. That is the third of the epic's three
-  couplings, and the one a first-paint smoke test cannot see.
+  underlying derived value — the coupling a first-paint smoke test
+  cannot see.
 
-  THIRTEEN OF THEM WERE HOISTED OUT OF `settings/view.cljs`, where they
-  sat inside [[view/popup-tree]] and its four section helpers.
-  `rf.fresco/sub` refuses outside a boundary render, so leaving them to
-  donate upward would have narrowed those helpers to being callable only
-  inside a React commit — and seven node-lane rows call
-  [[view/popup-tree]] directly. The cost of hoisting is one lost
-  conditional, recorded on [[view/popup-tree]]: all four tabs' slots are
-  read while the popup is open, where before only the active tab's were.
+  THIRTEEN OF THEM ARE READ HERE rather than inside [[view/popup-tree]]
+  and its four section helpers. `rf.fresco/sub` refuses outside a
+  boundary render, so reading them there would narrow those helpers to
+  being callable only inside a React commit — and node-lane rows call
+  [[view/popup-tree]] directly. The cost is one lost conditional,
+  recorded on [[view/popup-tree]]: all four tabs' slots are read while
+  the popup is open, not only the active tab's.
 
   A NOTE FOR WHOEVER WRITES THE NEXT WITNESS FOR THIS SURFACE: eleven of
   these queries are BAD witnesses for frame routing. `:rf.xray/setting`
@@ -103,10 +101,10 @@
 
   `(:dispatch (rf/capture-frame))` — core's own door, which Fresco's
   authoring surface deliberately does not duplicate, and which answers
-  the boundary's DECLARED frame inside a body. It replaces the name
-  `reg-view` used to inject lexically: `defview` binds NO name inside
-  your body, so the bare `dispatch` the old body closed over would be a
-  LOUD compile error, which is the good failure.
+  the boundary's DECLARED frame inside a body. `defview` binds NO name
+  inside your body — unlike `reg-view`, which injects `dispatch`
+  lexically — so a bare `dispatch` would be a LOUD compile error, which
+  is the good failure.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[Modal]] mounts it with none, so it is destructured away."
@@ -128,19 +126,18 @@
        :events-retained (rf.fresco/sub [:rf.xray/setting :buffer :events-retained])
        :confirm-open?   (rf.fresco/sub [:rf.xray/settings-clear-confirm-open?])})))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge ---------------------------------------------------
 ;;
 ;; `shell.cljs`'s `shell-view` is NOT an `rf/reg-view` — it is a plain
-;; `defn` lowering `shell/ShellView`, a Fresco boundary — and the parent
-;; epic's coupling (1) is SEVERED rather than a later slice: `mount.cljs`
+;; `defn` lowering `shell/ShellView`, a Fresco boundary — and `mount.cljs`
 ;; owns a Fresco client root and never calls the installed adapter's
 ;; `:render` at all. Production therefore reaches this modal by CALLING
 ;; `(settings-popup/Modal)` inside `ShellView`'s body, under that view's
 ;; own `rf.fresco/frame-provider`.
 ;;
-;; THE NAME STILL HAS TO BE A REAGENT-SHAPED CALLABLE, because a React
-;; component is not a legal Reagent head and a caller that heads this
-;; name from a REAGENT tree still ships — see NOT SCAFFOLDING below.
+;; THE NAME HAS TO BE A REAGENT-SHAPED CALLABLE, because a React
+;; component is not a legal Reagent head and a caller heads this name
+;; from a REAGENT tree — see NOT SCAFFOLDING below.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
 ;; it answers a real React component for a boundary, which a React parent
@@ -154,14 +151,12 @@
 ;; `:rf.error/no-frame-context`. [[Modal]] performs no read and no dispatch
 ;; — it only mounts a React element. React context flows by the ELEMENT
 ;; tree, not by Reagent's `:contextType`, so the enclosing
-;; `rf/frame-provider` reaches [[Popup]] regardless. `shell.cljs`'s own
-;; `surface-bridge` is this identical shape, shipped and green.
+;; `rf/frame-provider` reaches [[Popup]] regardless.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
-;; this comment used to name has ARRIVED: `shell-view` lowers to a Fresco
-;; boundary. The pair stayed anyway, because a Reagent parent still heads
-;; it on purpose — the shipped boundary witness suite. The chain is
-;; `[:>]` -> `as-component` -> [[Popup]].
+;; NOT SCAFFOLDING — THE PAIR STAYS. `shell-view` lowers to a Fresco
+;; boundary, but a Reagent parent heads the pair on purpose — the
+;; boundary witness suite. The chain is `[:>]` -> `as-component` ->
+;; [[Popup]].
 
 (def ^:private Popup-component
   "The React component [[Popup]] presents as, for a non-Fresco parent.
@@ -171,15 +166,14 @@
   (rf.fresco/as-component Popup))
 
 (defn Modal
-  "The callable `shell.cljs` mounts, as `[settings-popup/Modal]`. Returns
+  "The callable `shell.cljs` mounts, as `(settings-popup/Modal)`. Returns
   Reagent-shaped hiccup interoping to the React component above; the
-  shell's enclosing `rf/frame-provider` is what puts the instance frame in
-  React context for it.
+  shell's enclosing `rf.fresco/frame-provider` is what puts the instance
+  frame in React context for it.
 
-  It KEEPS THE NAME because the mount site is in a file this slice does not
-  own. The gate moved INTO [[Popup]], so this bridge is unconditional and
-  the `nil`-when-closed answer now comes from the boundary rather than from
-  here — the committed DOM is identical either way."
+  The gate lives INSIDE [[Popup]], so this bridge is unconditional and
+  the `nil`-when-closed answer comes from the boundary rather than from
+  here."
   []
   [:> Popup-component {}])
 
