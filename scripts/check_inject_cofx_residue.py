@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 """EP-0017 §migration-residue — live `inject-cofx` / `:rf.world/inputs` doc gate.
 
-EP-0017 (recordable coeffects, slice A) RETIRED two authoring surfaces with no
-alias and no coexistence window (EP-0007 rule 2):
+Two authoring surfaces are RETIRED with no alias and no coexistence window
+(EP-0017, recordable coeffects; EP-0007 rule 2):
 
   * the `inject-cofx` / `inject-cofx*` coeffect-injection interceptors —
-    coeffect delivery is now the `:rf.cofx/requires` registration declaration,
+    coeffect delivery is the `:rf.cofx/requires` registration declaration,
     suppliers are value-returning `reg-cofx`; calling `inject-cofx` is the hard
     error `:rf.error/inject-cofx-removed`; and
-  * the `:rf.world/inputs` dispatch opt — renamed to the flat `:rf.cofx`
-    recordable-coeffect map; a draft-only name, so supplying `:rf.world/inputs`
-    earns no dedicated error id — it rides the generic
+  * the `:rf.world/inputs` dispatch opt — the flat `:rf.cofx`
+    recordable-coeffect map replaces it; a draft-only name, so supplying
+    `:rf.world/inputs` earns no dedicated error id — it rides the generic
     `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming
     `:rf.cofx`.
 
 The runtime hard-errors on `inject-cofx` and warns on the retired
 `:rf.world/inputs` opt (the generic `:rf.warning/unknown-dispatch-opt`
-surface), and `cofx_cljs_test.cljc` pins both. But the
-EP landing wave left STALE current-surface teaching examples behind — a
-copy-pasteable `[(rf/inject-cofx :rf.server/request)]` interceptor entry in
-spec/Pattern-SSR-Loaders.md / spec/Pattern-FormAction.md, prose in
-docs/core/api/03-effects.md (rf2-d8mvke.3 finding 2). No residue test scanned the
-human-facing surface for the retired API as *live recommended* code, so the
-migration-breaking examples survived. This gate is that scan.
+surface), and `cofx_cljs_test.cljc` pins both. The runtime cannot see the
+docs, though: a copy-pasteable `[(rf/inject-cofx :rf.server/request)]`
+interceptor entry in a pattern page teaches the retired API as *live
+recommended* code and breaks every reader who copies it. This gate scans the
+human-facing surface for that.
 
 THE POLICY (docs/AUTHORING.md §Delta teaching)
 
@@ -40,7 +38,7 @@ WHY THE SHAPE IS SCOPED TO FENCED CODE (the "where shapes allow" caveat)
 
 `inject-cofx` and `:rf.world/inputs` are named CONSTANTLY in legitimate prose:
 "`inject-cofx` is removed", "renamed from `:rf.world/inputs`", "v1's
-`inject-cofx` interceptor". A bare keyword grep fires on 50+ correct
+`inject-cofx` interceptor". A bare keyword grep fires on dozens of correct
 removed-context mentions. The load-bearing distinction is *position*:
 
   * Inside a fenced code block (```...```), the spelling reads as live
@@ -103,8 +101,8 @@ from typing import Iterable, NamedTuple
 # Scan surface
 # --------------------------------------------------------------------------
 
-# The human-facing + AI-facing doc surface EP-0017 finding 2 names: the API
-# reference, the guide, the spec, and the skills docs.
+# The human-facing + AI-facing doc surface: the API reference, the guide, the
+# spec, and the skills docs.
 DEFAULT_SCAN_DIRS = ("docs/core", "docs/api", "spec", "skills")
 
 _DOC_SUFFIXES = (".md",)
@@ -324,7 +322,7 @@ def scan(scan_root: Path, repo_root: Path | None = None) -> list[Finding]:
 
 _FIX_HINTS = {
     "inject-cofx": (
-        "`inject-cofx` / `inject-cofx*` were REMOVED in EP-0017 (no alias; "
+        "`inject-cofx` / `inject-cofx*` are REMOVED (EP-0017; no alias; "
         "hard error `:rf.error/inject-cofx-removed`). A handler declares the "
         "coeffects it consumes with the `:rf.cofx/requires` registration-"
         "metadata key, and suppliers are value-returning `reg-cofx` "
@@ -336,8 +334,8 @@ _FIX_HINTS = {
         "guide page / the re-frame-migration skill / the EP docs.)"
     ),
     ":rf.world/inputs": (
-        "`:rf.world/inputs` was RENAMED to the flat `:rf.cofx` recordable-"
-        "coeffect map in EP-0017 (no alias). It was a draft-only name, so "
+        "`:rf.world/inputs` is RETIRED in favour of the flat `:rf.cofx` "
+        "recordable-coeffect map (EP-0017; no alias). As a draft-only name, "
         "supplying it earns no dedicated error id — it rides the generic "
         "`:rf.warning/unknown-dispatch-opt` surface with a did-you-mean "
         "naming `:rf.cofx`. Use `:rf.cofx` as the dispatch opt "
@@ -454,10 +452,8 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     Positive fixtures plant a LIVE retired spelling inside a code fence on a
     non-allowlisted-shaped page, and the assertion is EXACT — the count must be
-    the one declared, not merely non-zero. (Third instance of the same stale
-    prose, found in the rf2-57vnc sweep: `>= 1` is the fail-open shape
-    rf2-e1xx0 removed, and a docstring still advertising it is an invitation to
-    re-implement it from the comment.) Negative fixtures exercise the
+    the one declared, not merely non-zero, because `>= 1` would be a fail-open
+    shape. Negative fixtures exercise the
     counterparts that MUST stay green: removed-context prose, an inline code
     span, a masked `;` comment in a fence, and the rewritten `:rf.cofx/requires`
     teaching. Allowlist behaviour is covered by a dedicated case that scans a
@@ -466,8 +462,8 @@ def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, int]] = [
         # (fixture relative to fixture-root, expected finding count)
         # --- positives: a LIVE retired spelling in a code fence must FIRE ---
-        # Replicates the rf2-d8mvke.3 stale Pattern-SSR / Pattern-FormAction
-        # example: a copy-pasteable `[(rf/inject-cofx :rf.server/request)]`.
+        # A stale pattern-page example: a copy-pasteable
+        # `[(rf/inject-cofx :rf.server/request)]`.
         ("positive/live_inject_cofx_interceptor.md",   1),
         ("positive/live_inject_cofx_star.md",          1),
         ("positive/live_world_inputs_dispatch.md",     1),
