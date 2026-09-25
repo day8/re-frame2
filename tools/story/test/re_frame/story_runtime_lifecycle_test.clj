@@ -1,12 +1,12 @@
 (ns re-frame.story-runtime-lifecycle-test
-  "JVM tests closing the docs-promised gap on `watch-variant` /
+  "JVM tests for `watch-variant` /
   `destroy-variant!` / lifecycle edges + teardown semantics.
 
-  Spec coverage (rf2-ub1n4): `tools/story/spec/002-Runtime.md` §
+  Spec coverage: `tools/story/spec/002-Runtime.md` §
   Programmatic API (watch-variant, unwatch, destroy-variant!), § Per-
   variant frame allocation (unmount path), § Lifecycle state machine.
 
-  The existing `re-frame.story-runtime-test` covers the happy-path
+  `re-frame.story-runtime-test` covers the happy-path
   state transitions + assertion accretion + decorator composition.
   This namespace targets the lifecycle EDGES and TEARDOWN guarantees
   that the browser smoke does not exercise:
@@ -26,7 +26,7 @@
   - **`destroy-variant!` clears the variant frame from the registry.**
     A subsequent `variant-frames` call must not list the destroyed id.
   - **Lifecycle reaches `:ready` after `destroy + run` cycle.** The
-    Stage 4 UI shell re-runs variants in place; teardown then
+    UI shell re-runs variants in place; teardown then
     re-allocation must leave the lifecycle in `:ready` without
     requiring an explicit `reset-watchers!`.
 
@@ -58,11 +58,10 @@
   (rf.story.config/set-global-args! {})
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
-  ;; rf2-043cm — every variant body in this corpus that registers
+  ;; Every variant body in this corpus that registers
   ;; `:loaders [[:test/noop]]` needs a no-op event handler. Register
   ;; once per test so the loader-cascade path takes the classical
-  ;; four-phase route rather than the events-only fast-path
-  ;; introduced by rf2-043cm.
+  ;; four-phase route rather than the events-only fast-path.
   (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
   (t))
 
@@ -75,9 +74,9 @@
 (deftest unsubscribe-drops-only-the-caller-callback
   (testing "the 0-arity unsubscribe returned by watch-variant drops only
             the caller's callback; peer watchers stay live"
-    ;; rf2-043cm — register a `:loaders` slot so allocate! takes the
+    ;; Register a `:loaders` slot so allocate! takes the
     ;; classical four-phase path (`:pre-mount → :mounting → :loading
-    ;; → :ready`). The body-shape gates the lifecycle route now; the
+    ;; → :ready`). The body shape gates the lifecycle route; the
     ;; events-only fast-path is exercised separately below.
     (rf.story/reg-variant :story.watch.solo/v {:loaders [[:test/noop]]})
     (let [seen-a      (atom [])
@@ -100,7 +99,7 @@
 
 (deftest multiple-watchers-each-see-every-transition
   (testing "two registered watchers each see the full transition sequence"
-    ;; rf2-043cm — `:loaders` keeps the classical four-phase route.
+    ;; `:loaders` keeps the classical four-phase route.
     (rf.story/reg-variant :story.watch.multi/v {:loaders [[:test/noop]]})
     (let [seen-a  (atom [])
           seen-b  (atom [])]
@@ -121,7 +120,7 @@
   (testing "a watcher callback that throws does NOT starve peer watchers —
             the per-callback try/catch in fire-watchers! keeps the loop alive
             so a misbehaving subscriber can't break the rest"
-    ;; rf2-043cm — `:loaders` keeps the classical four-phase route.
+    ;; `:loaders` keeps the classical four-phase route.
     (rf.story/reg-variant :story.watch.boom/v {:loaders [[:test/noop]]})
     (let [peer-seen (atom [])]
       (rf.story/watch-variant :story.watch.boom/v
@@ -144,7 +143,7 @@
   (testing "destroy-variant! releases every watcher registered against the
             variant's frame — a subsequent allocate! does not see stale
             watchers carry over from the previous run"
-    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; `:loaders` keeps the classical four-phase route so
     ;; the watcher captures the `:mounting → :loading → :ready` cascade.
     (rf.story/reg-variant :story.destroy.watchers/v {:loaders [[:test/noop]]})
     (let [seen (atom [])]
@@ -194,7 +193,7 @@
         "no frame, no watchers, no assertion accumulators — nothing to do")))
 
 (deftest run-then-destroy-then-run-cycles-cleanly
-  (testing "destroy + re-run leaves the lifecycle in :ready — the Stage 4
+  (testing "destroy + re-run leaves the lifecycle in :ready — the
             UI shell relies on this for the 'reset' button affordance"
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf.story/reg-variant :story.cycle/v
@@ -203,7 +202,7 @@
     (let [r1 (rf.story.async/deref-blocking (rf.story/run-variant :story.cycle/v) 5000)]
       (is (= :ready (:lifecycle r1)))
       (is (= 1 (:n (:app-db r1)))))
-    ;; Tear down + re-run via destroy + run-variant (cycle the Stage 4
+    ;; Tear down + re-run via destroy + run-variant (the cycle the
     ;; reset button takes when re-running fully from scratch).
     (rf.story/destroy-variant! :story.cycle/v)
     (let [r2 (rf.story.async/deref-blocking (rf.story/run-variant :story.cycle/v) 5000)]
@@ -217,7 +216,7 @@
   (testing "a watcher registered between phases sees the remaining transitions
             — the watcher table is consulted on every fire, not snapshotted
             at allocate-time"
-    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; `:loaders` keeps the classical four-phase route so
     ;; the late-registered watcher captures both remaining transitions.
     (rf.story/reg-variant :story.watch.late/v {:loaders [[:test/noop]]})
     (let [seen (atom [])
