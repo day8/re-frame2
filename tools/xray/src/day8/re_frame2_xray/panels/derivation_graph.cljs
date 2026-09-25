@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.derivation-graph
   "Derivation-Graph tab — Xray's unified view of the EP-0014
-  derivation/process algebra graph (prop-3, rf2-9ett2d; the NAMED FIRST
+  derivation/process algebra graph (prop-3; the NAMED FIRST
   CONSUMER of the structured graph accessor).
 
   ## The one graph
@@ -9,7 +9,7 @@
   resources, route facts, machine processes + selectors — is a node in ONE
   derivation/process graph over the frame fold ([Derivations.md] §Graph
   inspection; [EP-0014]). The five algebra-view tooling siblings each
-  project one family; `re-frame.derivation.graph` (the composer, slice-7)
+  project one family; `re-frame.derivation.graph` (the composer)
   stitches them into a single `{:mode :nodes :edges}` view. This panel
   renders that one graph, so a maintainer (or agent) answers \"where does
   this value come from, when is it evaluated, where does it live, who owns
@@ -46,14 +46,14 @@
   ## ON-BOX raw, OFF-BOX redacted
 
   On-box rendering shows raw value summaries (Security.md permits on-box;
-  the developer is entitled to their own app's values — the TAIL-2 ruling:
+  the developer is entitled to their own app's values —
   raw-on-box is the in-process truth). `derivation-graph-helpers/summarize`
   bounds value previews for display ergonomics only, NOT for privacy. The
   OFF-BOX egress boundary — where a tool ships the graph to a remote agent
   or a serialized capture — is `derivation-graph-helpers/redact-graph-for-
   egress`, which projects each node's value-bearing fields through the
   frame's `rf/project-egress` policy (per-frame, fail-closed), preserving
-  edge + node structure (rf2-yjarv6). This panel renders on-box, so it
+  edge + node structure. This panel renders on-box, so it
   reads the RAW graph.
 
   ## The contributor seam — all five families
@@ -63,20 +63,20 @@
   tooling siblings it statically `:require`s ([Derivations.md] §The
   graph-assembly composer — \"the optional siblings it has\"). As EP-0014's
   NAMED FIRST CONSUMER, Xray hard-deps ALL FIVE algebra-view families so
-  the single graph it renders is complete (rf2-1fc459): core
+  the single graph it renders is complete: core
   (→ `re-frame.subs.tooling`), routing (→ `re-frame.routing.tooling`),
   flows (→ `re-frame.flows.tooling`), resources
   (→ `re-frame.resources.tooling`), and machines
   (→ `re-frame.machines.tooling`). So `xray-contributors` carries all five;
   a family with no registrations in the host app simply contributes no
-  nodes — the no-machines / no-resources story now holds PER-APP (an app
+  nodes — the no-machines / no-resources story holds PER-APP (an app
   that registers no machines) rather than per-tool (Xray missing the
   artefact). The tooling siblings' bodies are dev-gated
   (`interop/debug-enabled?`) + bundle-isolated; Xray itself is dev-only by
   build placement (`:devtools/preloads` is dev build config), so a host
   that keeps Xray out of its release build carries none of these. Nothing
   in this ns gates on `goog.DEBUG`, and no CI gate proves the absence. The
-  Resources panel (024) + Machine Inspector (003) still read those
+  Resources panel (024) + Machine Inspector (003) read those
   families' runtime-db slices decoupled — those are SEPARATE surfaces; the
   Derivation-Graph tab needs the algebra-view projection, not the raw
   slice, so it `:require`s the tooling siblings.
@@ -105,18 +105,18 @@
 ;;
 ;; ALL FIVE algebra-view families Xray statically `:require`s (see ns
 ;; docstring). The composer composes every family into the single
-;; DerivationGraph this panel renders (rf2-1fc459 — the named first consumer
+;; DerivationGraph this panel renders (the named first consumer
 ;; shows every EP-0014 family). A family with no registrations in the host
-;; app contributes no nodes (the no-machines / no-resources story still
+;; app contributes no nodes (the no-machines / no-resources story
 ;; holds per-app, not per-tool).
 
 (def xray-contributors
   "The `{family contributor}` map for `re-frame.derivation.graph`, built
   from the five tooling siblings Xray statically `:require`s. `:subs` lives
   in core (always present); `:flows`, `:routes`, `:resources`, and
-  `:machines` are Xray hard deps (rf2-1fc459). The `:machines` contributor
+  `:machines` are Xray hard deps. The `:machines` contributor
   carries the `machine-selector-targets` extractor so the graph draws
-  precise machine→selector edges (rf2-4qmiij)."
+  precise machine→selector edges."
   {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
                :live-fn    rf.subs.tooling/sub-cache-algebra-view
                :live-shape :map}
@@ -188,20 +188,19 @@
 
 ;; ---- mode toggle ---------------------------------------------------------
 
-;; `dispatch` (rf2-1w07r) is the frame-bound dispatcher threaded down from
+;; `dispatch` is the frame-bound dispatcher threaded down from
 ;; the `Panel` body, so the deferred `:on-click` lands on the surrounding
 ;; `:rf/xray` instance frame (a bare global `rf/dispatch` would instead
 ;; raise `:rf.error/no-frame-context` once render unwinds and the ambient
 ;; frame is gone — EP-0002 leaves no `:rf/default` floor beneath it).
 ;; Read-only panel: the only dispatch is the maintainer's mode toggle.
-;; rf2-k97c.3 — since `Panel` became a Fresco boundary this is
-;; `(:dispatch (rf/capture-frame))` rather than a `reg-view`-injected name;
-;; the contract at this call site is unchanged.
+;; `Panel` is a Fresco boundary, so this is
+;; `(:dispatch (rf/capture-frame))` rather than an injected name.
 (defn- mode-toggle [dispatch mode]
   [:div {:data-testid "rf-xray-derivation-graph-mode-toggle"
          :style {:display "flex" :gap "8px" :align-items "center"}}
    (for [m [:static :live]]
-     ;; rf2-k97c.3 — the literal `:key` in the attribute map is the one
+     ;; The literal `:key` in the attribute map is the one
      ;; spelling Fresco's codec reads (its head table says so in terms);
      ;; reader metadata on the vector is not read at all.
      [:button {:key (name m)
@@ -242,17 +241,11 @@
     [:span {:data-testid "rf-xray-derivation-graph-superkind-process"
             :style {:color (:magenta-pink tokens)}}
      (str (get by-superkind :process 0) " process")]
-    ;; rf2-k97c.3 — this was `^{:key (name role)}` reader metadata on a
-    ;; `when-let` FORM. Metadata on a source list is discarded when the
-    ;; form returns a fresh vector, so NO key ever reached React — the
-    ;; same silently-inert defect #9578 found in `routing.cljs`'s route
-    ;; table. (Neighbouring comments in this tree cite `rf2-ppzid` for it;
-    ;; that id resolves to no issue in the live ledger — 0 records ARE it
-    ;; against 3 that merely mention it — so the checkable citation is
-    ;; #9578, and rf2-vw80 for the surviving `with-meta` instances.) The
-    ;; key now sits in the row's own
-    ;; attribute map, and the absent-role case is a `:when` on the
-    ;; comprehension rather than a nil the key was riding on anyway.
+    ;; The key sits in the row's own attribute map: `^{:key …}` reader
+    ;; metadata on a `when-let` FORM is discarded when the form returns a
+    ;; fresh vector, so NO key would reach React. The absent-role case is
+    ;; a `:when` on the comprehension rather than a nil the key would ride
+    ;; on.
     (for [role h/edge-roles
           :let  [n (get by-role role)]
           :when n]
@@ -265,10 +258,10 @@
 (defn- node-row [[node-id node] family]
   (let [skind  (h/superkind node)
         testid (str "rf-xray-derivation-graph-node-" (hash node-id))]
-    [:div {;; rf2-k97c.3 — the sequence key rides HERE, in the attribute
+    [:div {;; The sequence key rides HERE, in the attribute
            ;; map, because `family-section` CALLS this fn: metadata on a
-           ;; call form is discarded on return, so the caller's old
-           ;; `^{:key …}` never reached React at all.
+           ;; call form is discarded on return, so a `^{:key …}` at the
+           ;; caller would never reach React.
            :key (pr-str node-id)
            :data-testid testid
            :data-superkind (name skind)
@@ -322,17 +315,16 @@
                     (str "rf-xray-derivation-graph-family-" (name family) "-caption"))
    (into [:div {:data-testid (str "rf-xray-derivation-graph-family-" (name family) "-body")
                 :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-         ;; rf2-k97c.3 — `node-row` carries its own attribute-map `:key`.
-         ;; The `^{:key …}` that used to sit here was metadata on a CALL
-         ;; FORM and was discarded on return, so no key reached React.
+         ;; `node-row` carries its own attribute-map `:key`. A
+         ;; `^{:key …}` here would be metadata on a CALL FORM,
+         ;; discarded on return, so no key would reach React.
          (for [entry entries]
            (node-row entry family)))))
 
 ;; ---- edges section -------------------------------------------------------
 
 (defn- edge-row [{:keys [from to role]}]
-  [:div {;; rf2-k97c.3 — attribute-map key; see `node-row`. Same value the
-         ;; caller's discarded call-form metadata used to name.
+  [:div {;; Attribute-map key; see `node-row`.
          :key (pr-str [from to role])
          :data-testid (str "rf-xray-derivation-graph-edge-" (hash [from to role]))
          :data-role (name role)
@@ -352,8 +344,8 @@
    (if (seq edges)
      (into [:div {:data-testid "rf-xray-derivation-graph-edges-body"
                   :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-           ;; rf2-k97c.3 — `edge-row` carries its own attribute-map `:key`;
-           ;; the metadata that used to sit here was on a CALL FORM and was
+           ;; `edge-row` carries its own attribute-map `:key`;
+           ;; metadata here would be on a CALL FORM and
            ;; discarded on return.
            (for [e edges]
              (edge-row e)))
@@ -388,7 +380,7 @@
   is `helpers/redact-graph-for-egress`, exercised by tooling that ships the
   graph off the developer's box.
 
-  rf2-k97c.3 — split out of `Panel` when `Panel` became a Fresco boundary,
+  Split out of `Panel` because `Panel` is a Fresco boundary,
   whose body may only run inside a React render window. `defview`'s own
   documented extract-a-helper spelling."
   [dispatch {:keys [mode summary by-family edges silent?]}]
@@ -401,9 +393,9 @@
      (silent-state)
      (into [:<>]
            (concat
-            ;; rf2-k97c.3 — both keys below were reader metadata on CALL
-            ;; FORMS and so never reached React. They ride on keyed
-            ;; FRAGMENTS now: `family-section` and `edges-section` answer
+            ;; Both keys below ride on keyed FRAGMENTS, since reader
+            ;; metadata on CALL FORMS never reaches React:
+            ;; `family-section` and `edges-section` answer
             ;; hiccup of no fixed shape, so there is no one attribute map
             ;; to write into, and `[:<> …]` carries the key while adding
             ;; no DOM node.
@@ -419,25 +411,25 @@
   "The Derivation-Graph tab's root (EP-0014 prop-3). The markup is
   [[panel-tree]]; this is the READ and the dispatcher.
 
-  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. The read is
+  A FRESCO BOUNDARY, not an `rf/reg-view`. The read is
   `rf.fresco/sub`, a plain call the shipped collector records an edge for —
-  no deref and no reaction owned by the installed adapter, which is the
-  third of the epic's three couplings and the one a first-paint smoke test
-  cannot see. The FRAME it resolves against comes from React context,
+  no deref and no reaction owned by the installed adapter, a coupling a
+  first-paint smoke test cannot see. The FRAME it resolves against comes
+  from React context,
   which the enclosing frame boundary writes; `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context, so this resolves
-  `:rf/xray` identically under the Fresco root Xray owns today and under an
+  `:rf/xray` identically under the Fresco root Xray owns and under an
   `rf/frame-provider` a Reagent parent writes.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
-  which answers this boundary's declared frame inside a body. It replaces
-  the `reg-view`-injected bare `dispatch` (rf2-1w07r) that `defview` binds
-  no name for, and it keeps the mode toggle's deferred `:on-click` landing
+  which answers this boundary's declared frame inside a body. `defview`
+  binds no injected `dispatch` name, and this keeps the mode toggle's
+  deferred `:on-click` landing
   on the surrounding `:rf/xray` instance frame once render scope has
   unwound — where a bare global `rf/dispatch` would raise
-  `:rf.error/no-frame-context`, EP-0002 having removed the `:rf/default`
-  floor that would once have absorbed it.
+  `:rf.error/no-frame-context`, with no `:rf/default` floor (EP-0002) to
+  absorb it.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
   This panel reads nothing from props — it is an L4-registry surface with
@@ -446,9 +438,9 @@
   (panel-tree (:dispatch (rf/capture-frame))
               (rf.fresco/sub [:rf.xray/derivation-graph-tab-data])))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge ---------------------------------------------------
 ;;
-;; Xray's shell is a Fresco tree, but it still reaches this panel across
+;; Xray's shell is a Fresco tree, but it reaches this panel across
 ;; an `as-child` seam. `shell/detail-panel` mounts the active tab as a
 ;; hiccup head and `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel`
 ;; to be CALLABLE — neither of which a React component is.
@@ -459,11 +451,10 @@
 ;; Both defs are PRIVATE here, unlike the Views and app-db panels': this
 ;; tab is an L4-registry surface only, with no standalone `mount-*!` facade
 ;; and no name taken from outside this file — the same shape `module_view`
-;; has. THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option
-;; 2). The shell is a Fresco tree now and both defs stayed anyway: the
-;; shell still reaches the panel across an `as-child` seam, so
+;; has. THIS IS NOT SCAFFOLDING: the
+;; shell reaches the panel across an `as-child` seam, so
 ;; `[(:panel tab)]` is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre`
-;; still requires a callable `:panel`.
+;; requires a callable `:panel`.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
@@ -483,7 +474,7 @@
 ;;
 ;; The raw assembled graph the production data sub reads. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so the override
-;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+;; branch lives in ONE place (the seam), not duplicated.
 
 (defn- derivation-graph-value
   "The assembled `DerivationGraph` for `mode` over `target-frame`:
@@ -531,7 +522,7 @@
   ;; The test-only override seam (`:rf.xray/set-derivation-graph-
   ;; override-for-test` + the `*-override` sub) is NOT installed here —
   ;; production registration carries no `-for-test` ids. Tests opt into
-  ;; it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+  ;; it via `install-test-overrides!`.
 
   ;; ---- assembled graph --------------------------------------------------
   (rf/reg-sub :rf.xray/derivation-graph
@@ -559,19 +550,17 @@
      :mnem  "g"
      :modes #{:dynamic}
      :order 8
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
-     ;; component (a Fresco boundary) and the shell mounts `:panel` as a
-     ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
-     ;; and the bridge stayed anyway: the shell still reaches the panel
-     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
-     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
-     ;; callable `:panel`.
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React component (a
+     ;; Fresco boundary) and the shell mounts `:panel` as a Reagent
+     ;; hiccup head; the bridge is the one line between them. The shell
+     ;; is a Fresco tree, but it reaches the panel across an `as-child`
+     ;; seam, so `[(:panel tab)]` is a Reagent hiccup vector and
+     ;; `reg-l4-tab!`'s `:pre` requires a callable `:panel`.
      :panel Panel-bridge})
 
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam ---------------------------------------------
 
 (defn install-test-overrides!
   "Install the Derivation-Graph panel's test-only override seam — the
