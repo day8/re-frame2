@@ -23,8 +23,8 @@
   1. **`xray-internal-event?`** — any RAW trace event whose
      `[:tags :frame]` resolves to `:rf/xray`. Belt-and-braces against
      reactive sub-read / view-render emits that slipped past the frame
-     gate (e.g. an emit-site that hasn't been touched by the
-     `:rf.trace/frame-no-emit?` migration).
+     gate (e.g. an emit-site that does not consult
+     `:rf.trace/frame-no-emit?`).
 
   2. **`xray-internal-event-bundle?` / `xray-internal-event-id?`** —
      event bundles whose `:event` vector's head is a keyword in the
@@ -51,8 +51,7 @@
 
   ## Why a dedicated namespace
 
-  Extracted from `trace_bus.cljc` per rf2-43koh + the rf2-3g9nw ruling
-  (D4=a). The predicates are pure data with one job; sitting in a
+  The predicates are pure data with one job; sitting in a
   small, focused ns makes them discoverable + cheap to require from
   anywhere (the trace collector, the `:rf.xray/event-bundles` sub, the
   pre-mount seed in `mount.cljs`). The CLJC shape keeps them JVM-
@@ -70,9 +69,9 @@
 
   Reads the RAW trace-event frame via the canonical reader
   `re-frame.trace/trace-event-frame` (its `[:tags :frame]` slot — Spec
-  009 §Frame identity on the raw event, rf2-7737vq). The prior divergent
-  top-level `:frame` fallback is removed: per the ruling a raw trace
-  event carries frame identity ONLY under `[:tags :frame]`.
+  009 §Frame identity on the raw event). There is no top-level `:frame`
+  fallback: a raw trace event carries frame identity ONLY under
+  `[:tags :frame]`.
 
   Pure-data + JVM-runnable so the predicate is testable without a CLJS
   runtime."
@@ -127,7 +126,7 @@
     (and (vector? ev)
          (xray-internal-event-id? (first ev)))))
 
-;; ---- the canonical filtered event-bundle projection (rf2-y2h6y) ----------
+;; ---- the canonical filtered event-bundle projection ----------------------
 
 (defn filtered-event-bundles
   "Group `buffer` (a flat trace-event vector) into event bundles via
@@ -135,16 +134,13 @@
   bundle (`xray-internal-event-bundle?`). The ONE home for the 'group +
   drop self-noise' pairing.
 
-  rf2-qlvq8 closed a divergence bug by making the event-side spine walk
-  (`spine/db->event-bundles`) match the reactive `:rf.xray/event-bundles`
-  sub (registry.cljs) and the first-mount seed (mount.cljs) — all three
-  must produce the SAME user-facing event-bundle set. Previously the
-  `(into [] (remove xray-internal-event-bundle?) (group-by-event buffer))`
-  expression was copied verbatim at all three sites, so a future change
-  to the projection/filter pairing had to be applied in lockstep or the
-  divergence re-opened (exactly the bug class rf2-qlvq8 fixed). This
-  helper makes the agreement structural rather than maintained-by-
-  discipline: every site reads through one definition.
+  The event-side spine walk (`spine/db->event-bundles`), the reactive
+  `:rf.xray/event-bundles` sub (registry.cljs) and the first-mount seed
+  (mount.cljs) must all produce the SAME user-facing event-bundle set.
+  With the pairing copied at each site, a change to it would have to be
+  applied in lockstep or the three would diverge. This helper makes the
+  agreement structural rather than maintained-by-discipline: every site
+  reads through one definition.
 
   Pure-data + JVM-runnable; matches the other self-noise predicates'
   shape so the JVM test corpus can drive it directly."
