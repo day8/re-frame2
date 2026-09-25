@@ -4,17 +4,16 @@
 ;; runs eventless (`:always`) transitions IMMEDIATELY — BEFORE the next raised
 ;; internal event is dequeued. SCXML §3.13 `selectEventlessTransitions` runs
 ;; every macrostep iteration; only when NO eventless transition is enabled does
-;; it pop one internal event. XState v5 matches this. (rf2-uv8os — re-frame2
-;; previously drained the ENTIRE `:raise` queue before checking `:always`,
-;; which the spec FALSELY claimed was XState/SCXML parity; now aligned to v5.)
+;; it pop one internal event. XState v5 matches this. Draining the ENTIRE
+;; `:raise` queue before checking `:always` would diverge from both.
 ;;
-;; The runtime check that drove the bead (verified against xstate@5.32.0):
+;; The runtime check (verified against xstate@5.32.0):
 ;;   - state :a handles :go with target :b AND raises [:R]
 ;;   - state :b has an `:always` target :c, AND ALSO handles :R → :d
 ;;   - state :c handles :R → :e
 ;; XState v5 result: final state :e — :b's `:always` fires FIRST (:b→:c),
 ;; THEN the raised :R is dequeued and handled in :c (:c→:e). :R is NEVER
-;; handled by the transient :b (which would land :d under the old, wrong
+;; handled by the transient :b (which would land :d under a
 ;; raise-before-always order).
 ;;
 ;; The processing order is recorded in `:data :log` so the assertion proves
@@ -77,7 +76,7 @@
                        ;; :R handler on the TRANSIENT :b — under the correct
                        ;; (XState v5) order this NEVER fires (the `:always`
                        ;; settles past :b first). Present precisely to catch a
-                       ;; regression to raise-before-always (which would land
+                       ;; raise-before-always order (which would land
                        ;; :d and log :R-in-b-WRONG).
                        :on     {:R {:target :d :action :r-in-b}}}
                    :c {:entry :c-entry
