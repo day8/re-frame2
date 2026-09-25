@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Release-DAG ordering guard for `.github/workflows/release.yml` (rf2-p4a93).
+ * Release-DAG ordering guard for `.github/workflows/release.yml`.
  *
  * # The defect this exists to catch
  *
@@ -10,20 +10,18 @@
  * pom published for `day8/re-frame2-ssr-ring` carries a hard dependency on a
  * `day8/re-frame2-ssr` version that has to EXIST on Clojars.
  *
- * ssr-ring used to be a value of the `deploy-leaf` matrix, alongside `ssr`.
- * That matrix runs `fail-fast: false`, and GitHub Actions cannot express an
- * ordering edge between two values of one matrix — so a red `ssr` value did
- * not stop `ssr-ring` from deploying. Worse, ssr-ring installs ssr into the
+ * Were ssr-ring a value of the `deploy-leaf` matrix, alongside `ssr`, a red
+ * `ssr` value would not stop `ssr-ring` from deploying: that matrix runs
+ * `fail-fast: false`, and GitHub Actions cannot express an ordering edge
+ * between two values of one matrix. Worse, ssr-ring installs ssr into the
  * runner's `~/.m2` before packaging, so it never asks Clojars whether the
- * sibling is there and could not self-detect the miss. The failure was
- * therefore silent AND permanent: Clojars has no yank, so
- * `day8/re-frame2-ssr-ring <VERSION>` would have sat in the public record
+ * sibling is there and cannot self-detect the miss. The failure would be
+ * silent AND permanent: Clojars has no yank, so
+ * `day8/re-frame2-ssr-ring <VERSION>` would sit in the public record
  * forever declaring a dependency that resolves to nothing.
  *
- * Zero tags and zero release runs have ever existed, so no CI signal covered
- * this. The workflow's own comments contradicted each other about it (the
- * `fail-fast: false` rationale claimed "the published-pom DAG has no edges
- * between leaves"; sixty lines later another comment described the edge).
+ * The release workflow runs only on a version-tag push, so no PR CI signal
+ * exercises it; this suite is that signal.
  *
  * # The invariant asserted here
  *
@@ -34,15 +32,15 @@
  *   the DEPENDENCY must be a strict transitive `needs:` ancestor of the job
  *   that publishes the DEPENDENT.
  *
- * Two corollaries fall out, and both are the real defect:
+ * Two corollaries fall out, and both are the defect:
  *   - the two artefacts may not be values of the SAME job's matrix (a job
  *     cannot be its own ancestor — which is exactly why intra-matrix
  *     ordering is impossible); and
  *   - `if the ssr leaf does not publish successfully, ssr-ring must not
  *     publish at all` holds structurally, not by convention.
  *
- * The teeth are proved, not asserted: the suite reconstructs the pre-fix shape
- * from the CURRENT model (ssr-ring folded back into the deploy-leaf matrix)
+ * The teeth are proved, not asserted: the suite reconstructs the violating shape
+ * from the CURRENT model (ssr-ring folded into the deploy-leaf matrix)
  * and requires the same rule to report the violation.
  *
  * Ground truth for "what does this artefact publish a dependency on" is each
@@ -206,11 +204,8 @@ test('every workflow in .github/workflows/ parses into an object model', () => {
     .filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))
     .sort();
   // Guard the false-green trap: an empty listing would vacuously pass. The floor
-  // was 13 until rf2-0yp7w.6 deleted freehand-bench.yml with the tree it benched,
-  // then 12 until the same cut deleted freehand-conformance.yml with the corpus it
-  // proved (the R5 residual, transferred onto rf2-0yp7w.6 by the #8362 audit).
-  // COLLAPSE INSURANCE, not a roster: it moves only with a deletion in the same
-  // diff, and never upward by accident.
+  // is COLLAPSE INSURANCE, not a roster: it moves only with a deletion in the
+  // same diff, and never upward by accident.
   assert.ok(files.length >= 11, `expected >= 11 workflow files, found ${files.length}`);
   for (const file of files) {
     const model = parseWorkflowYaml(fs.readFileSync(path.join(WORKFLOW_DIR, file), 'utf8'));
@@ -284,7 +279,7 @@ test('release.yml publishes 14 artefacts and the model finds all of them', () =>
   // Fail loudly rather than pass vacuously if the deploy shape changes: the
   // whole rule below is a no-op over an empty publisher set. 14 = core
   // (deploy-core) + 11 deploy-leaf matrix values + the two post-matrix stages,
-  // ssr-ring (deploy-ssr-ring) and fresco (deploy-fresco, rf2-gra70).
+  // ssr-ring (deploy-ssr-ring) and fresco (deploy-fresco).
   assert.equal(
     publishers.size,
     14,
@@ -333,7 +328,7 @@ test('ACCEPTANCE: if the ssr leaf does not publish, ssr-ring cannot publish', ()
 });
 
 test('ACCEPTANCE: if the ssr leaf does not publish, fresco cannot publish', () => {
-  // rf2-gra70 — fresco is the SECOND artefact carrying a published-pom edge
+  // Fresco is the SECOND artefact carrying a published-pom edge
   // to a sibling leaf (day8/re-frame2-ssr, for re-frame.fresco.server), so it
   // owes the identical property. Asserted separately rather than folded into
   // the ssr-ring case: a single loop over "the dependent leaves" would pass
@@ -390,7 +385,7 @@ test('TEETH: dropping deploy-fresco\'s needs: edge is rejected', () => {
 test('TEETH: the pre-fix shape (ssr-ring inside the deploy-leaf matrix) is rejected', () => {
   // Reconstruct the defect from the CURRENT model rather than a text fixture,
   // so the negative control cannot rot away from the file under test: fold
-  // deploy-ssr-ring's matrix value back into deploy-leaf and drop the job.
+  // deploy-ssr-ring's matrix value into deploy-leaf and drop the job.
   const regressed = JSON.parse(JSON.stringify(releaseModel));
   const hoisted = matrixInclude(regressed.jobs['deploy-ssr-ring']);
   assert.equal(hoisted.length, 1, 'deploy-ssr-ring should carry exactly one matrix value');
@@ -404,7 +399,7 @@ test('TEETH: the pre-fix shape (ssr-ring inside the deploy-leaf matrix) is rejec
   assert.equal(
     violations.length,
     1,
-    `expected exactly one violation for the pre-fix shape, got ${violations.length}:\n  `
+    `expected exactly one violation for the folded shape, got ${violations.length}:\n  `
       + violations.join('\n  '),
   );
   assert.match(violations[0], /ssr-ring publishes a dependency on day8\/re-frame2-ssr/);
@@ -459,15 +454,15 @@ test('each leaf rewrites exactly the :local/root coords its deps.edn publishes',
 });
 
 test('the retracted fail-fast justification does not come back (rf2-p4a93)', () => {
-  // Text-level, deliberately: the claim lived in a COMMENT beside
+  // Text-level, deliberately: the claim would sit in a COMMENT beside
   // `fail-fast: false`, and a wrong comment next to a safety-critical setting
-  // is how this defect survived review. The claim was false for exactly one
-  // leaf while another comment in the same file described that leaf's edge.
+  // is how a defect like this survives review. The claim is false: ssr-ring
+  // and fresco each carry a published-pom edge onto the ssr leaf.
   assert.doesNotMatch(
     releaseText,
     /no edges between leaves/,
     'release.yml must not re-assert that the published-pom DAG has no edges between '
-      + 'leaves — ssr-ring -> ssr is such an edge (rf2-p4a93)',
+      + 'leaves — ssr-ring -> ssr is such an edge',
   );
 });
 
