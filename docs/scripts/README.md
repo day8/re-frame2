@@ -68,28 +68,29 @@ captures the annotated screenshots embedded in the
 [Xray](../xray/index.md) tutorial.
 
 Unlike the Story generator, this one does not serve the bundles itself.
-It expects a static server already running (the example orchestrator)
-and navigates the Xray testbed URLs against it.
+It expects the counter example (`:examples/counter`, which carries the
+Xray preload) to be served already, and drives Xray on that page.
 
 ### How to run
 
-The pipeline needs the example bundles compiled and served. The
-canonical examples test orchestrator is
-`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`,
-invoked via `npm run test:adapter-smokes` from `implementation/`. It
-builds and serves every example bundle on `http://127.0.0.1:8040`, its
-default port. Override the port with `EXAMPLES_PORT`, and point this
-script at the same port via `SCREENSHOT_BASE_URL`.
+The standalone-example runner `examples/scripts/serve-example.cjs`
+(`npm run dev:example` from `implementation/`) compiles the counter
+example, stages its page, and serves it at the root of
+`http://127.0.0.1:8050` until you stop it. That is the default port of
+the examples port resolver, and the generator probes the same port.
+When 8050 is busy, or `EXAMPLES_PORT` picks another port, the runner
+prints the URL it serves on; point the generator at it via
+`SCREENSHOT_BASE_URL`.
 
 ```bash
-# Terminal A — build + serve the example bundles on :8040
+# Terminal A — compile the counter example once, then serve it on :8050
 cd implementation
 npm install                                  # one-time
-npm run test:adapter-smokes
+npm run dev:example -- examples/counter --no-watch
 ```
 
 ```bash
-# Terminal B — capture
+# Terminal B — capture, once terminal A prints "is live at"
 cd /path/to/re-frame2
 node docs/scripts/generate-tutorial-screenshots.cjs
 ```
@@ -151,7 +152,7 @@ arrowhead marker.
    SCENES.push({
      id: 'xray-my-new-panel',
      out: path.join(OUT_XRAY, '12-my-new-panel.png'),
-     url: '/counter/',
+     url: '/',
      before: async (page) => {
        await page.locator('span').first().waitFor({ state: 'visible' });
        await openXray(page);
