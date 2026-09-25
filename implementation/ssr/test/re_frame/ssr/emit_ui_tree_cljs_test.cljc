@@ -22,6 +22,7 @@
   does not throw on `(inc nil)`, so the serialiser throws EXPLICITLY via the
   canonical builder — the ids and ex-data are identical on both hosts."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
             [re-frame.ssr :as rf.ssr]))
@@ -277,6 +278,53 @@
            (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :div :attrs {:data-ok "v" :title "t"}}))))))
 
+(deftest tag-names-are-gated-like-the-hiccup-tier
+  ;; A tag name is written into the markup unescaped, once in the opening
+  ;; tag and again in the closing one. Each `:tag` below breaks out of the
+  ;; tag when written unchecked: the first closes the element and opens a
+  ;; `<b>` on both sides of the content, the second carries a live handler,
+  ;; and the third a quote.
+  (doseq [tag [(keyword "div><b")
+               (keyword "div onclick=alert(1)")
+               (keyword "a\"b")]]
+    (let [tree-error   (caught-ex-data
+                         #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children ["marker"]})))
+          hiccup-error (caught-ex-data
+                         #(rf.ssr.emit/render-to-string [tag "marker"] {}))]
+      (testing (str "the hiccup tier refuses " (pr-str (name tag)))
+        (is (= :rf.error/invalid-tag-name (:rf.error/id hiccup-error))
+            "parity control: the hiccup tier's own gate fires on this name"))
+      (testing (str "emit-ui-tree refuses " (pr-str (name tag)))
+        (is (= :rf.error/invalid-tag-name (:rf.error/id tree-error))
+            (str "the name must be refused, not written into the markup; got "
+                 (pr-str tree-error)))
+        (is (= (:tag-name hiccup-error) (:tag-name tree-error))
+            "the same name judged by the same grammar as the hiccup tier")
+        (is (= tag (:source tree-error)) "carries the :tag as written"))))
+  (testing "a malformed :tag on a nested node is refused"
+    (let [d (caught-ex-data
+              #(rf.ssr.ui-tree/emit-ui-tree
+                 (v1 {:tag :div
+                      :children [{:tag (keyword "span><i") :children ["m"]}]})))]
+      (is (= :rf.error/invalid-tag-name (:rf.error/id d))
+          (str "a nested element's tag is gated too; got " (pr-str d)))
+      (is (= "span><i" (:tag-name d)))))
+  (testing "a tree :tag is an element name, never hiccup `.class#id` shorthand"
+    (doseq [tag [:div.box :div#main]]
+      (is (= :rf.error/invalid-tag-name
+             (:rf.error/id (caught-ex-data
+                             #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag})))))
+          (str (pr-str tag) " must be refused, not split into a tag and attributes"))))
+  (testing "controls: ordinary, custom-element, SVG and MathML names still emit"
+    (doseq [[tag expected] [[:div           "<div>m</div>"]
+                            [:my-widget     "<my-widget>m</my-widget>"]
+                            [:svg           "<svg>m</svg>"]
+                            [:foreignObject "<foreignObject>m</foreignObject>"]
+                            [:math          "<math>m</math>"]
+                            [:mi            "<mi>m</mi>"]]]
+      (is (= expected (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag tag :children ["m"]})))
+          (str (pr-str tag) " is a grammar-legal element name")))))
+
 (deftest reserved-attr-keys-are-refused-where-the-hiccup-tier-drops-them
   ;; React takes `key`, `ref`, `children` and `dangerouslySetInnerHTML` off
   ;; the props object and writes none of them as an attribute, and the tree
@@ -310,9 +358,14 @@
   ;; key as written. The kebab and hyphen-collapsed spellings of
   ;; `dangerouslySetInnerHTML` reach that slot through the conversion table
   ;; exactly as `:tab-index` reaches `tabIndex`, so each is refused with it.
+  ;; The upper-case acronym spelling `dangerously-set-inner-HTML` is the one
+  ;; Fresco resolves to React's slot, and its collapsed name keeps the
+  ;; acronym's case, so the vocabulary is read case-insensitively here.
   (doseq [attribute-key [:dangerously-set-inner-html :x/dangerously-set-inner-html
                          "dangerously-set-inner-html" 'dangerously-set-inner-html
-                         :dangerouslysetinnerhtml]]
+                         :dangerouslysetinnerhtml
+                         :dangerously-set-inner-HTML :x/dangerously-set-inner-HTML
+                         "dangerously-set-inner-HTML" 'dangerously-set-inner-HTML]]
     (testing (str "emit-ui-tree refuses " (pr-str attribute-key) " in :attrs")
       (let [d (caught-ex-data
                 #(rf.ssr.ui-tree/emit-ui-tree
@@ -325,7 +378,12 @@
   (testing "control: the same spelling under `data-` is an ordinary attribute"
     (is (= "<div data-dangerously-set-inner-html=\"v\"></div>"
            (rf.ssr.ui-tree/emit-ui-tree
-             (v1 {:tag :div :attrs {:data-dangerously-set-inner-html "v"}}))))))
+             (v1 {:tag :div :attrs {:data-dangerously-set-inner-html "v"}})))))
+  (testing "control: case decides no refusal of an ordinary slot, and no emitted name"
+    (is (= "<div data-dangerously-set-inner-HTML=\"v\" tab-Index=\"1\"></div>"
+           (rf.ssr.ui-tree/emit-ui-tree
+             (v1 {:tag :div :attrs {:data-dangerously-set-inner-HTML "v"
+                                    :tab-Index                       1}}))))))
 
 (deftest emits-boolean-classes
   (testing "boolean attr: true -> presence, false -> omitted"

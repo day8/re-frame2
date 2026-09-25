@@ -728,6 +728,65 @@
     (str/join rendered)))
 
 ;; ---------------------------------------------------------------------------
+;; Tag names — the element-name gate both SSR serialisers apply.
+;; ---------------------------------------------------------------------------
+
+;; Tag-name injection gate. Gate the tag name itself: HTML5 / SVG / MathML
+;; element names require an ASCII letter start, then letters / digits /
+;; hyphens. Reject anything else.
+;;
+;; Fail fast (throw) rather than escape-and-emit. A tag-name
+;; outside the grammar has no safe wire interpretation — escaping would
+;; produce `<img&#x20;src=...>` which no browser parses as a tag, just a
+;; visible glyph.
+;;
+;; The hiccup emitter (`re-frame.ssr.emit`) gates its heads through this
+;; same validator, so one tag name gets one verdict from both serialisers.
+;; It lives here because `emit` requires this namespace and this namespace
+;; requires nothing from `emit`.
+(def ^:private tag-name-re
+  ;; HTML5 §element-name + SVG element-name + MathML element-name all
+  ;; share the same conservative ASCII grammar: leading letter, then
+  ;; letters / digits / hyphens. Custom elements (per HTML5 §custom-
+  ;; element-name) require an ASCII-lower first letter + a `-`; the
+  ;; conservative grammar admits both standard elements and well-formed
+  ;; custom-element names.
+  ;;
+  ;; XML-namespaced SVG/MathML tags carry a single colon-
+  ;; separated prefix (e.g. `:svg:rect`, `:xlink:href`-style elements).
+  ;; Admit one optional `prefix:` segment where the prefix follows the
+  ;; same element-name grammar. A single colon only — embedded `<`, `>`,
+  ;; whitespace, `=` (the tag-injection vectors) remain rejected, and a
+  ;; bare/leading/trailing/double colon (`:rect`, `svg:`, `a::b`) still
+  ;; throws because each segment must be a well-formed element name.
+  #"(?:[A-Za-z][A-Za-z0-9-]*:)?[A-Za-z][A-Za-z0-9-]*")
+
+(defn validate-tag-name!
+  "Throw `:rf.error/invalid-tag-name` if `tag-name` does not match the
+  HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`,
+  optionally prefixed by a single XML namespace segment `prefix:`);
+  otherwise return it. `source` is the value the name was read from,
+  `origin` names what that value is (`\"hiccup head\"`, `\"tree :tag\"`),
+  and `where` names the emitter refusing it."
+  [tag-name source origin where]
+  (when-not (and (string? tag-name)
+                 (re-matches tag-name-re tag-name))
+    (rf.error/throw-error!
+      :rf.error/invalid-tag-name
+      where
+      (str "tag-name " (pr-str tag-name)
+           " (from " origin " " (pr-str source) ")"
+           " does not match the HTML5/SVG/MathML"
+           " element-name grammar"
+           " ([A-Za-z][A-Za-z0-9-]*, optionally"
+           " namespaced prefix:local) — DOM tag-name"
+           " injection forbidden. Use a grammar-valid element name.")
+      {:recovery :use-a-valid-element-name
+       :extra    {:tag-name tag-name
+                  :source   source}}))
+  tag-name)
+
+;; ---------------------------------------------------------------------------
 ;; Node discrimination + the walk.
 ;; ---------------------------------------------------------------------------
 
@@ -778,10 +837,10 @@
   in `:attrs` is a malformed tree, and emitting it would put markup on the
   wire that the client never paints.
 
-  Read off the React prop name the key canonicalises to (`react-prop-name`)
-  and matched case-sensitively: `:x/ref`, `\"ref\"` and `'ref` are refused
-  exactly as `:ref` is, and so are `:dangerously-set-inner-html` and
-  `:dangerouslysetinnerhtml`, which `standard-names` folds onto
+  Read off the slot the key canonicalises to (`reserved-slot`): `:x/ref`,
+  `\"ref\"` and `'ref` are refused exactly as `:ref` is, and so are
+  `:dangerously-set-inner-html`, `:dangerouslysetinnerhtml` and
+  `:dangerously-set-inner-HTML`, which `standard-names` folds onto
   `dangerouslySetInnerHTML`, while `:Key` is a different name and an
   ordinary attribute.
 
@@ -793,15 +852,35 @@
    "children"                "put the content in the element's :children"
    "dangerouslySetInnerHTML" "put the trusted markup in a {:html s} child node"})
 
+(defn- reserved-slot
+  "The `reserved-attr-names` slot an attribute NAME lands in, or nil.
+
+  The React prop name (`react-prop-name`) is matched as it stands, so `Key`
+  is an ordinary attribute. The vocabulary is asked a second time for the
+  lower-cased collapsed name, the form `standard-names` is keyed by,
+  because `react-prop-name` keeps an upper-case acronym's case:
+  `dangerously-set-inner-HTML` collapses to `dangerouslysetinnerHTML`,
+  which misses the table, while Fresco resolves that spelling to React's
+  `dangerouslySetInnerHTML`. Only the refusal reads this second lookup; the
+  emitted name is `dom-attr-name`'s."
+  [attribute-name]
+  (let [react-name  (react-prop-name attribute-name)
+        folded-name (get standard-names
+                         (str/lower-case (remove-hyphens attribute-name)))]
+    (cond
+      (contains? reserved-attr-names react-name)  react-name
+      (contains? reserved-attr-names folded-name) folded-name)))
+
 (defn- reject-reserved-attrs!
-  "Refuse an element whose `:attrs` carries a key whose React prop name is
-  a `reserved-attr-names` slot, through the shared malformed-tree path at
-  the element's own path. `:value` is the offending key as written."
+  "Refuse an element whose `:attrs` carries a key whose name lands in a
+  `reserved-attr-names` slot (`reserved-slot`), through the shared
+  malformed-tree path at the element's own path. `:value` is the offending
+  key as written."
   [attrs path]
   (doseq [attribute-key (keys attrs)
           :when (or (ident? attribute-key) (string? attribute-key))
-          :let  [react-name (react-prop-name (name attribute-key))]
-          :when (contains? reserved-attr-names react-name)]
+          :let  [react-name (reserved-slot (name attribute-key))]
+          :when react-name]
     (malformed-node!
       (str "an element's :attrs carries " (rf.error/pr-form attribute-key)
            ", which React reads as its `" react-name "` slot and never writes "
@@ -952,12 +1031,15 @@
   `:textarea` -> the text child; `:value` on `:select` -> `selected` on the
   matching option), then the attribute conversion, then children. `:events`
   and `:key` have no HTML presence and are never read here; a key inside
-  `:attrs` whose React prop name is a `reserved-attr-names` slot is
-  refused before any of it."
+  `:attrs` that lands in a `reserved-attr-names` slot is refused before any
+  of it, and so is a `:tag` outside the element-name grammar
+  (`validate-tag-name!`), before either tag is composed. The `:tag` is an
+  element name as it stands, never hiccup `.class#id` shorthand."
   [element path]
   (reject-reserved-attrs! (:attrs element) path)
   (let [tag                 (:tag element)
-        tag-name            (name tag)
+        tag-name            (validate-tag-name! (name tag) tag "tree :tag"
+                                                'rf.ssr/emit-ui-tree)
         normalised-tag-name (str/lower-case tag-name)
         void?               (contains? void-tags (keyword normalised-tag-name))
         raw-text?           (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)
@@ -1140,8 +1222,10 @@
   `:rf.ui/tree-version` FIRST — a missing / non-integer / unsupported
   version throws `:rf.error/ssr-ui-tree-version-unsupported` with `{:got …
   :supported #{1}}` BEFORE any emission; a malformed node past the gate
-  throws the shared `:rf.error/ui-tree-malformed`, and an attribute name
-  outside the HTML5 grammar throws `:rf.error/ssr-invalid-attribute-name`.
+  throws the shared `:rf.error/ui-tree-malformed`, an attribute name
+  outside the HTML5 grammar throws `:rf.error/ssr-invalid-attribute-name`,
+  and a `:tag` outside the element-name grammar throws
+  `:rf.error/invalid-tag-name`.
 
   Calls NOTHING — no view, no subscription, no frame. Pure, deterministic
   to the byte, JVM-runnable. `opts` carries a single option,
