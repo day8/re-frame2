@@ -167,8 +167,8 @@
 ;; ---- pure: Malli walk over `:map` schemas ------------------------------
 ;;
 ;; Canonical helpers live in `re-frame.story.malli-schema` (a pure
-;; leaf ns shared with `controls`). Aliased privately here so in-file
-;; call sites stay textually identical.
+;; leaf ns shared with `controls`), aliased privately here for the
+;; in-file call sites.
 
 (def ^:private properties?      rf.story.malli-schema/properties?)
 (def ^:private schema-op        rf.story.malli-schema/schema-op)
@@ -290,8 +290,8 @@
   detail; we pr-str the whole shape when we can't introspect.
 
   `malli.core/explain` returns `:errors` as a SEQ over its accumulator,
-  not a vector, so the check is `sequential?` — a `vector?` check sent
-  every real explanation to the `pr-str` fallback (rf2-fhjke).
+  not a vector, so the check is `sequential?` — a `vector?` check would
+  send every real explanation to the `pr-str` fallback.
 
   Pure; JVM-testable.
 
@@ -331,8 +331,8 @@
      (`re-frame.story.ui.controls/resolve-argtypes`), so validation and
      controls share one source. Routing through the
      compiled plan also resolves an `:extends`-inherited / `:compose`-d
-     `:component` that the previous bare-body read (`(:component vb)` /
-     `(:component sb)`) missed.
+     `:component` that a bare-body read (`(:component vb)` /
+     `(:component sb)`) would miss.
 
      The panel's CLJS-only render path calls this; the pure helpers
      (`args-violations`) take a pre-resolved schema and are JVM-friendly."
@@ -480,7 +480,7 @@
           the registered validator. The args are resolved with the
           SAME opts the Controls panel validates (the active modes and
           this variant's cell overrides), so the two panels agree about
-          the live value (rf2-lzzrw). Cheap to recompute (one Malli
+          the live value. Cheap to recompute (one Malli
           validate per top-level entry); no caching needed at v1.
        2. **Trace failures** — filtered + projected from the variant's
           per-variant trace buffer (the same buffer the trace + actions
