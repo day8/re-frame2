@@ -1,23 +1,20 @@
 (ns day8.re-frame2-xray.filters.edit-popup-fresco-boundary-dom-cljs-test
-  "Real-DOM witnesses for the filter edit-popup bridge — `filters/Modal`
-  (rf2-d9ln), the last shell-root modal to become a Fresco boundary.
+  "Real-DOM witnesses for the filter edit-popup bridge — `filters/Modal`,
+  a shell-root modal that is a Fresco boundary.
 
   ## The gap this file closes
 
-  rf2-d9ln turned `filters/Modal` into a BOUNDARY behind its existing
-  public bridge name. Its production observation changed — three ambient
-  `@(rf/subscribe …)` reads inside `popup-view` became `rf.fresco/sub`
-  calls in the boundary — and so did its dispatch, which is now captured
-  with `(:dispatch (rf/capture-frame))` rather than injected lexically by
-  `reg-view`. But every node-lane row that moved with it drives a
-  test-owned copy of the gate and the reads through
+  `filters/Modal` is a BOUNDARY behind its public bridge name. Its three
+  reads are `rf.fresco/sub` calls in the boundary, and its dispatch is
+  captured with `(:dispatch (rf/capture-frame))`. But every node-lane row
+  for it drives a test-owned copy of the gate and the reads through
   `test-helpers.modal-trees/edit-popup-tree`, calling the pure
-  `popup-view` directly. Nothing mounts the bridge and nothing executes
-  the boundary, so a broken real gate or a nil boundary body would leave
-  the whole node lane green.
+  `popup-view` directly. Nothing there mounts the bridge and nothing
+  executes the boundary, so a broken real gate or a nil boundary body
+  would leave the whole node lane green.
 
   This file is the missing half, and it is the edit-popup sibling of
-  `spine_filters_fresco_boundary_dom_cljs_test` (rf2-3du3), which closed
+  `spine_filters_fresco_boundary_dom_cljs_test`, which closes
   exactly this gap for the two spine-filter bridges:
 
     W1  Modal mounts as the shell's own hiccup head, its gate reads
@@ -36,7 +33,7 @@
   the same value and the node lane is structurally blind to head
   legality. It is blind twice over here: the door it drives passes the
   boundary's reads in as ARGUMENTS, so the gate and the `rf.fresco/sub`
-  calls that are the actual subject of rf2-d9ln never run at all. Only a
+  calls that are the actual subject here never run at all. Only a
   committed DOM can answer, which is why these rows are `-dom-cljs-test`.
 
   ## The mount is the SHELL's mount
@@ -52,13 +49,13 @@
   `:rf/xray` is the production singleton, shared with every other suite
   on the page, so a control frame named `:rf/xray` could be moved by a
   neighbour between the mount and the assertion. Both frames here are
-  private to this ns. That also makes W2 a direct witness for rf2-nesy9's
+  private to this ns. That also makes W2 a direct witness for the
   frame-CARRYING dispatch: under a `{:frame :rf/xray}` literal the
   mounted frame below would never close and W2 would redden.
 
   ## Substrate: the Reagent adapter, deliberately
 
-  The family Xray already supports, because the claim is that the
+  A family Xray supports, because the claim is that the
   boundary is INDIFFERENT to it. `:ambient-frame nil` is load-bearing:
   tier 1 of the frame resolver is the dynamic var, so an ambient frame
   would SHADOW the React-context tier W2 is about, and that row would
@@ -182,7 +179,7 @@
 ;; summary, inside ONE `cljs.test/run-block` with no try/catch. A bare
 ;; `(.click nil)` therefore does not fail a row: it throws uncaught,
 ;; aborts the run, and every namespace scheduled after this one never
-;; executes, with no cljs.test summary at all (rf2-u0j8).
+;; executes, with no cljs.test summary at all.
 
 (defn- q [container sel] (some-> container (.querySelector sel)))
 
@@ -217,7 +214,7 @@
 ;; ===========================================================================
 
 (deftest w1-edit-popup-bridge-mounts-and-paints-behind-a-real-gate
-  (testing "rf2-d9ln — `filters/Modal` mounted as the shell's hiccup head
+  (testing "`filters/Modal` mounted as the shell's hiccup head
             commits the real edit-popup DOM, which is the claim no
             node-lane row can make: the door it drives is handed the
             boundary's reads as arguments, so neither the gate nor the
@@ -234,8 +231,7 @@
           (is (nil? (dialog-node container))
               "a mounted bridge over a CLOSED popup commits NO dialog —
                the boundary's `when` short-circuited on a false
-               `:rf.xray/edit-popup-open?`, exactly as the mounted
-               `reg-view` returning nil did")
+               `:rf.xray/edit-popup-open?`")
           (is (nil? (backdrop-node container))
               "and no backdrop either, so nothing of the body painted")
           (teardown! root container))
@@ -255,7 +251,7 @@
               "the pattern input is real DOM — the subtree BELOW the
                boundary rendered too, which is what says every plain-fn
                head inside `popup-view` is a CALL and not an `:invalid`
-               head (the inlining rf2-k97c.3 did, now load-bearing)")
+               head")
           (is (some? (mode-in-node container))
               "and so are the mode radios, reached through `mode-radio`,
                the called helper that comment is about")
@@ -267,12 +263,11 @@
 ;; ===========================================================================
 
 (deftest w2-edit-popup-close-lands-on-the-named-frame-and-repaints
-  (testing "rf2-d9ln — the header ✕ inside the mounted boundary, clicked
+  (testing "the header ✕ inside the mounted boundary, clicked
             from OUTSIDE any render scope, closes the popup on the frame
             the enclosing `frame-provider` named while a second live
-            instance stays open. Under the `{:frame :rf/xray}` literal
-            the `reg-view` era's lexical `dispatch` would have produced,
-            the mounted frame would never close. The surface then
+            instance stays open. Under a `{:frame :rf/xray}` literal
+            dispatch the mounted frame would never close. The surface then
             repaints from the boundary's OWN subscription, which is the
             liveness half."
     (if-not (browser?)
