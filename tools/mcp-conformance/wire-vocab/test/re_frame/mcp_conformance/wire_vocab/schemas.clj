@@ -62,7 +62,7 @@
   :bytes 1}` (a scalar with no `:value`) would both validate: unusable
   markers a future server could ship while this gate stayed green. Each
   arm is CLOSED to the documented slot set, so a scalar
-  carrying `:keys`, or a vector carrying `:value`, is now rejected too
+  carrying `:keys`, or a vector carrying `:value`, is rejected too
   (a cross-type slot leak is a contract break, not a tolerated extra).
 
   - `:map`              — `:type` + `:bytes` + `:keys` + (`:count` OR
@@ -194,7 +194,7 @@
 
   The `:rf.mcp/diff-from` value is a keyword naming the
   diff-against slot — `:db-before` is the only conformant value
-  today (an epoch's `:db-after` diff-encodes against the SAME
+  (an epoch's `:db-after` diff-encodes against the SAME
   record's `:db-before`).
 
   Each section heads N patches with a breadcrumb path + a kind
@@ -264,7 +264,7 @@
   `:precheck` short-circuited the eval entirely. Same
   vocabulary, different cost saved.
 
-  Single-server today (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
+  Single-server (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
   it cross-MCP per Conventions §Reserved namespaces — a future MCP
   server adopting a session cache ships the same shape."
   [:map
@@ -374,7 +374,7 @@
   - `:key`       — the reserved top-level keyword
   - `:schema`    — the canonical Malli schema (wrapper shape)
   - `:fixtures`  — per-server example values (must all validate)
-  - `:servers`   — set of servers that emit/spec the marker today
+  - `:servers`   — set of servers that emit/spec the marker
 
   The conformance assertion: every fixture in `:fixtures` validates
   against `:schema`; the source/spec text of every server in
@@ -518,7 +518,7 @@
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
-    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits today. The
+    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits it. The
     ;; `:reason` slot carries the declaration provenance (the `:source` that
     ;; classified the path). EP-0025: the durable `:sensitive`/`:large {:app-db
     ;; …}` frame annotation (`:frame`) and the imperative `add-marks`/`set-marks`
