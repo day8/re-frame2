@@ -539,9 +539,14 @@
 ;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
 ;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
 ;;   - `:tags` set-of-keywords (`machine-bad-tags`);
+;;   - no machine-root key the runtime never reads on the root
+;;     (`machine-root-slot-not-supported`);
 ;;   - a single `:spawn` is ONE map declaring `:machine-id` XOR `:definition`,
 ;;     and an inline `:definition`'s address — `:id-prefix` or
 ;;     `:fixed-actor-id` (`machine-spawn-bad-shape`);
+;;   - a single `:spawn`'s `:on-error` is a transition and its `:on-done` a
+;;     transition or a fn (`machine-bad-on-error-clause` /
+;;     `machine-bad-on-done-clause`);
 ;;   - `:after` delay-key shape (`machine-bad-after-delay`);
 ;;   - no `:timeout-ms` on `:spawn` / `:spawn-all` (`spawn-timeout-ms-removed`);
 ;;   - `:timeout` / `:on-timeout` pairing, duration and `:after` collision
@@ -593,6 +598,19 @@
   declares one is refused."
   #{:data :schemas :internal-events :guards :actions :region-order
     :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
+
+(def ^:private root-unread-keys
+  "State-node keys no runtime path reads on ANY machine root — mirror of the
+  engine's `validation/root-unread-keys`. The root is entered once at birth,
+  never re-entered, and never a final state."
+  #{:spawn :spawn-all :always :choice :final? :output-key :error? :deep? :default-target})
+
+(def ^:private flat-root-unread-keys
+  "State-node keys no runtime path reads on a flat / compound machine root, in
+  addition to `root-unread-keys` — mirror of the engine's
+  `validation/flat-root-unread-keys`. A parallel root's `:on-done` is its
+  all-regions-final signal."
+  #{:on-done})
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
@@ -755,6 +773,23 @@
     (contains? node :error?)
     {:category :rf.error/machine-error-flag-without-final :path (vec path)}))
 
+(defn- spawn-completion-defect
+  "A single `:spawn`'s `:on-error` is a transition — a keyword, a map, or a
+  non-empty vector — and its `:on-done` is that or a fn, the `:data` fold. A
+  present key holding any other value, `nil` included, is refused. Mirror of
+  the engine's `validation/validate-spawn-on-error!` and
+  `validation/validate-spawn-on-done!`."
+  [path node]
+  (let [spec        (:spawn node)
+        transition? (fn [v] (or (keyword? v) (map? v) (and (vector? v) (seq v))))]
+    (when (map? spec)
+      (cond
+        (and (contains? spec :on-error) (not (transition? (:on-error spec))))
+        {:category :rf.error/machine-bad-on-error-clause :path (vec path)}
+        (and (contains? spec :on-done)
+             (not (or (fn? (:on-done spec)) (transition? (:on-done spec)))))
+        {:category :rf.error/machine-bad-on-done-clause :path (vec path)}))))
+
 (defn- spawn-defect [path node]
   (when-let [spec (:spawn node)]
     (if-not (map? spec)
@@ -911,6 +946,7 @@
       (transition-keys-defect path node)
       (spawn-timeout-ms-defect path node)
       (final-state-defect path node)
+      (spawn-completion-defect path node)
       (compound-initial-defect path node)
       (transition-target-defect scope path node)
       (after-delay-defect path node)))
@@ -1025,6 +1061,18 @@
 
 ;; ---- root / region / parallel shape ----------------------------------------
 
+(defn- root-slot-defect
+  "The machine-root keys no runtime path reads there, sorted — mirror of the
+  engine's `validation/validate-root-slots!`. A present key is refused whatever
+  its value. The root's `:entry` / `:exit` / `:tags` are read, and so are a
+  parallel root's `:after` and `:on-done`."
+  [d]
+  (let [unread    (cond-> root-unread-keys
+                    (not (parallel-definition? d)) (into flat-root-unread-keys))
+        offending (vec (sort (filter #(contains? d %) unread)))]
+    (when (seq offending)
+      {:category :rf.error/machine-root-slot-not-supported :path [] :keys offending})))
+
 (defn- root-on-target-defect
   "The non-parallel root's OWN `:on` (the ancestor-fallback slot, decl-path
   `[]`) target resolution — mirror of the engine's root `:on` branch in
@@ -1047,6 +1095,7 @@
     :else
     (let [scope (:states d)]
       (or (node-keys-defect [] d true)
+          (root-slot-defect d)
           (tags-defect [] d)
           ;; The flat ROOT's own `:on` / `:after` fallback slot
           ;; is validated for shape with the SAME rule as a state node's,
@@ -1096,6 +1145,8 @@
       {:category :rf.error/machine-parallel-bad-shape :path []}
       :else
       (or (node-keys-defect [] d true)
+          (root-slot-defect d)
+          (tags-defect [] d)
           ;; The parallel ROOT's own `:on` / `:after` ancestor
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [] d)
