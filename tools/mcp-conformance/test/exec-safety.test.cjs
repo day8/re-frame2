@@ -128,7 +128,7 @@ test('resolveTrustedExe: throws when every candidate resolves inside workspace',
         }),
       (err) => {
         assert.match(err.message, /workspace/);
-        assert.match(err.message, /rf2-33vvc/);
+        assert.match(err.message, /command-hijack accident-gating/);
         return true;
       },
     );
