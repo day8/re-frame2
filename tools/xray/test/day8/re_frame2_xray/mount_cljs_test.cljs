@@ -1,15 +1,13 @@
 (ns day8.re-frame2-xray.mount-cljs-test
-  "Tests for Xray's DOM-side mount state machine (rf2-5x20s; source
-  rf2-otcbz audit recommendation #6).
+  "Tests for Xray's DOM-side mount state machine.
 
   `mount.cljs` carries six public fns — `mounted?`, `visible?`,
   `open!`, `close!`, `toggle!`, `teardown!` — whose combined contract
   is a small state machine over a single `defonce` singleton atom.
-  Until this file the surface was untouched: the keybinding tests
-  (rf2-jbhm5) cover the *attach/detach* listener-management lane and
-  the shell tests (rf2-3lh6h) cover the *rendered hiccup* — neither
-  exercises the *open → close → toggle → teardown* transitions nor
-  the silent-no-op posture when no substrate adapter is installed.
+  The keybinding tests cover the *attach/detach* listener-management
+  lane and the shell tests cover the *rendered hiccup*; this file
+  covers the *open → close → toggle → teardown* transitions and the
+  silent-no-op posture when no substrate adapter is installed.
 
   ## Three contract surfaces under test
 
@@ -45,7 +43,7 @@
   on a real React tree (the shell tests live in shell_cljs_test.cljs
   on the hiccup-walk lane). The browser-level integration story —
   shadow-cljs preload + real Reagent render + real Ctrl+Shift+C —
-  lives in the Playwright lane (rf2-s2bhn)."
+  lives in the Playwright lane."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -74,9 +72,8 @@
 (defn- reset-mount-state! []
   (reset! @#'mount/mount-state nil)
   (reset! @#'mount/popout-state nil)
-  ;; Per rf2-4itwg the layout host's `display` is snapshotted on mount
-  ;; so toggle-off can collapse the host slot and restore it on toggle-
-  ;; on. Tests cycling open!/close! across distinct stub documents must
+  ;; The layout host's `display` is snapshotted on mount so toggle-off
+  ;; can collapse the host slot and restore it on toggle-on. Tests cycling open!/close! across distinct stub documents must
   ;; clear the snapshot too or the next test's host comparison will
   ;; spuriously match the previous test's stale element reference.
   (reset! @#'mount/host-display-snapshot nil))
@@ -164,7 +161,7 @@
   installs a stub via `set! js/document` and asserts against that
   stub silently fails in that case.
 
-  Per rf2-higwg: detect the host by writing-and-checking; if the
+  Detect the host by writing-and-checking; if the
   write didn't take effect we're inside a real browser
   (`:browser-test` build under Playwright) and the mount tests'
   stub-driven contracts can't be exercised. The predicate gates
@@ -183,7 +180,7 @@
       installed?)))
 
 (defn- with-stub-document* [f]
-  ;; Per rf2-higwg: in `:browser-test` the host's `window.document` is
+  ;; In `:browser-test` the host's `window.document` is
   ;; non-configurable and `set!` silently no-ops — the stub never
   ;; takes effect and `mount/open!`'s `(.appendChild (.-body
   ;; js/document) node)` lands on the real document. Skip the body
@@ -217,27 +214,26 @@
 
 (defn- mk-render-stub
   "Build a stub for `rf.fresco/render!` — the seam `mount.cljs` paints the
-  shell through since rf2-k97c.3 severed the epic's coupling (1). Returns
+  shell through. Returns
   `{:render-fn ..., :calls (atom []), :unmount-calls (atom 0)}` so tests
   can assert call counts.
 
-  IT STUBS ONE DOOR AND LETS THE OTHER RUN, which is the whole reason the
-  rows below needed no second binding. Fresco's root API is a PAIR —
-  `render!` then `unmount!` on the SAME handle — where the adapter's
-  `render` answered its own unmount fn. So rather than redefine both, this
+  IT STUBS ONE DOOR AND LETS THE OTHER RUN, so the rows below need no
+  second binding. Fresco's root API is a PAIR — `render!` then `unmount!`
+  on the SAME handle. So rather than redefine both, this
   writes into the handle the live-root map `render!` itself writes
   (`impl/mount.cljs`'s `mount-client-root!`), and the REAL
   `rf.fresco/unmount!` then finds a `:unmount!` to call. Every unmount
-  count below is therefore still a claim about `unmount!` having been
+  count below is therefore a claim about `unmount!` having been
   REACHED, through shipped code, rather than about a second stub.
 
   The signature is `render!`'s: `[handle tree mount-point]`, answering
   nil. `:opts` is recorded as nil because `mount.cljs` passes no root
-  options at all — the rows that assert it keep meaning what they meant.
+  options at all.
 
-  `:handle` IS RECORDED TOO (rf2-k97c.6), because WHICH handle a paint went
-  through is a contract rather than an implementation detail once there are
-  two of them. `render!` binds a handle to its mount-point on the first call
+  `:handle` IS RECORDED TOO, because WHICH handle a paint goes through is
+  a contract rather than an implementation detail when there are two of
+  them. `render!` binds a handle to its mount-point on the first call
   and updates that same React root on every later one, so the pop-out's root
   — living in another document — must have its own; sharing `xray-root`
   would silently re-render the INLINE shell when the pop-out opened, with no
@@ -267,12 +263,11 @@
 ;; transition test doesn't poison neighbours via stale singleton state.
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already covers the trace-collector rings the old init
-  ;; reset a SECOND time) into one owner; `:post-reset` registers Xray's
-  ;; handlers (per rf2-in6l2 the registry installs the trace-buffer mirror
-  ;; events `open!` → `ensure-xray-frame!` dispatches to seed the slot),
-  ;; arms auto-open, and clears the mount-state defonce.
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + `:all` tier,
+  ;; which covers the trace-collector rings); `:post-reset` registers Xray's
+  ;; handlers (the registry installs the trace-buffer mirror events
+  ;; `open!` → `ensure-xray-frame!` dispatches to seed the slot), arms
+  ;; auto-open, and clears the mount-state defonce.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (registry/register-xray-handlers!)
@@ -364,28 +359,19 @@
                   (set! js/console prior-console))))))))))
 
 ;; -------------------------------------------------------------------------
-;; (2b) Substrate INDIFFERENCE (rf2-qgfo4 → rf2-k97c.4)
+;; (2b) Substrate INDIFFERENCE
 ;; -------------------------------------------------------------------------
 ;;
-;; THESE ROWS REPLACE FIVE REFUSAL ROWS, AND THE REPLACEMENT IS THE POINT.
-;; While Xray painted through the INSTALLED adapter's `:render`, an
-;; element-shaped `:render` could not take the hiccup shell, so a
-;; `react-element-render-kinds` denylist refused those kinds with the
-;; `:unsupported-substrate` diagnostic. Five rows pinned that refusal.
-;; rf2-k97c.3 gave Xray its own Fresco root and rf2-k97c.4 retired the
-;; denylist, so what those rows asserted is now FALSE BY DESIGN — and
-;; deleting them without replacement would have left the opposite claim
-;; unpinned, which is how a retirement quietly becomes a coverage hole.
-;;
-;; THE CLAIM NOW: the mount verbs are INDIFFERENT to the installed adapter.
-;; The adapter `:kind` is the ONLY variable across the rows below — same
-;; verb, same stub document, same render stub — and the element-shaped
-;; kinds (`:rf.adapter/uix`, `:rf.adapter/fresco`) mount exactly as the
-;; ratom-family one does. Each row asserts the mount POSITIVELY (a real
-;; `rf.fresco/render!` call) and asserts the refusal is GONE (no
-;; `:unsupported-substrate`, zero `console.warn`), because a row that only
-;; checked the diagnostic's absence would also pass if `open!` had stopped
-;; doing anything at all.
+;; THE CLAIM: the mount verbs are INDIFFERENT to the installed adapter.
+;; Xray paints through its own Fresco root, so the host's `:render` shape
+;; is never consulted. The adapter `:kind` is the ONLY variable across the
+;; rows below — same verb, same stub document, same render stub — and the
+;; element-shaped kinds (`:rf.adapter/uix`, `:rf.adapter/fresco`) mount
+;; exactly as the ratom-family one does. Each row asserts the mount
+;; POSITIVELY (a real `rf.fresco/render!` call) and asserts there is no
+;; refusal (no `:unsupported-substrate`, zero `console.warn`), because a
+;; row that only checked the diagnostic's absence would also pass if
+;; `open!` had stopped doing anything at all.
 
 (defn- with-warn-counter*
   "Run `f` with js/console replaced by a warn-counting stub; restores the
@@ -401,12 +387,9 @@
         (set! js/console prior-console)))))
 
 (deftest open!-mounts-on-an-element-shaped-substrate
-  (testing "rf2-k97c.4 — open! on a UIx host (element-shaped :render)
-            MOUNTS. This row replaces
-            `open!-on-react-element-substrate-refuses-cleanly`, which
-            asserted the exact opposite while the denylist stood: the shell
-            paints through Xray's own Fresco root, so the host's render
-            shape is not consulted and the refusal has no precondition left"
+  (testing "open! on a UIx host (element-shaped :render) MOUNTS: the
+            shell paints through Xray's own Fresco root, so the host's
+            render shape is not consulted"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -425,7 +408,7 @@
                   (is (true? (:visible? result)) "and reports it visible")
                   ;; ---- and the refusal is gone ------------------------
                   (is (not= :unsupported-substrate (:reason result))
-                      (str "open! no longer refuses on the adapter kind. "
+                      (str "open! does not refuse on the adapter kind. "
                            "Got: " (pr-str (:reason result))))
                   (is (true? (:ok? diagnostic))
                       (str "the status diagnostic reports health rather than "
@@ -434,15 +417,12 @@
                       (str "naming no reason at all. Got: "
                            (pr-str (:reason diagnostic))))
                   (is (zero? @warns)
-                      (str "and warns about nothing — the one console.warn "
-                           "was the refusal's. Got: " @warns)))))))))))
+                      (str "and warns about nothing. "
+                           "Got: " @warns)))))))))))
 
 (deftest open!-mounts-on-a-fresco-substrate
-  (testing "rf2-k97c.4 — the same for a Fresco host. `:rf.adapter/fresco`
-            was the LAST kind added to the denylist (rf2-zkjd5, because a
-            page following the Fresco install chapter reports it and was
-            taking the permissive path into an uncaught React child error),
-            so it is the kind whose behaviour reverses most recently"
+  (testing "the same for a Fresco host (`:rf.adapter/fresco`, the kind a
+            page following the Fresco install chapter reports)"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -463,10 +443,9 @@
                   (is (zero? @warns) (str "no console.warn. Got: " @warns)))))))))))
 
 (deftest open-overlay!-mounts-on-an-element-shaped-substrate
-  (testing "rf2-k97c.4 — open-overlay! is indifferent to the installed
-            adapter the same way open! is. It took the refusal through the
-            same guard, so it has to be witnessed losing it separately:
-            the two verbs mount through different node-creation paths"
+  (testing "open-overlay! is indifferent to the installed adapter the
+            same way open! is. It is witnessed separately because the two
+            verbs mount through different node-creation paths"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -487,13 +466,12 @@
                       (str "no console.warn. Got: " @warns)))))))))))
 
 (deftest popout!-no-longer-refuses-an-element-shaped-substrate
-  (testing "rf2-k97c.4 — popout! used to refuse on the adapter kind BEFORE
-            reaching `window.open`. It now walks past that point: with no
-            `js/window` in the node lane the very next step answers
-            `:popup-blocked`, which is this row's literal — it pins that the
-            gate is gone AND that execution reached the step behind it,
-            where an assertion on the refusal's absence alone would also
-            pass if popout! had stopped running at all"
+  (testing "popout! does not refuse on the adapter kind before reaching
+            `window.open`: with no `js/window` in the node lane the window
+            step answers `:popup-blocked`, which is this row's literal — it
+            pins that there is no adapter gate AND that execution reached
+            the window step, where an assertion on the refusal's absence
+            alone would also pass if popout! had stopped running at all"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -514,7 +492,7 @@
                        opened"))))))))))
 
 (deftest open!-mounts-on-a-ratom-family-substrate
-  (testing "rf2-k97c.4 — the OTHER half of the pair, and the reason the
+  (testing "the OTHER half of the pair, and the reason the
             rows above are a claim about INDIFFERENCE rather than about
             `open!` having simply stopped consulting anything: the
             ratom-family host mounts identically, through the same verb and
@@ -595,7 +573,7 @@
                     "the node stays attached to document.body")))))))))
 
 (deftest close!-collapses-layout-host-slot-and-open!-restores-it
-  (testing "rf2-4itwg — toggle-off must collapse the layout host's
+  (testing "toggle-off must collapse the layout host's
             flex/grid slot (display:none on the host), not just the
             mount root. Otherwise the host's reserved width + its own
             chrome (border-left, padding) remains as visible residue.
@@ -733,20 +711,20 @@
                  toggle-after-mount transitions")))))))
 
 ;; -------------------------------------------------------------------------
-;; (5b) close-shell event — the `✕` button round-trip (rf2-fq491)
+;; (5b) close-shell event — the `✕` button round-trip
 ;; -------------------------------------------------------------------------
 ;;
 ;; The shell `✕` button dispatches `:rf.xray/close-shell` rather than
-;; calling `mount/close!` directly. Before rf2-fq491 the event only set
-;; the reactive `:close-requested?` flag and nothing consumed it, so the
-;; button was a no-op. The event is now a `reg-event` handler that returns
-;; `:fx` to set the flag AND fire `:rf.xray.fx/hide-shell` (registered by
-;; `mount/install-fx!`, called from the registry orchestrator) which
-;; performs the actual DOM hide via `close!`. These tests prove the
-;; flag + the visible hide land together.
+;; calling `mount/close!` directly. The event is a `reg-event` handler that
+;; returns `:fx` to set the reactive `:close-requested?` flag AND fire
+;; `:rf.xray.fx/hide-shell` (registered by `mount/install-fx!`, called from
+;; the registry orchestrator) which performs the actual DOM hide via
+;; `close!` — nothing consumes the flag, so setting it alone would leave
+;; the button a no-op. These tests prove the flag + the visible hide land
+;; together.
 
 (deftest close-shell-event-hides-the-shell
-  (testing "rf2-fq491 — dispatching :rf.xray/close-shell on a visible
+  (testing "dispatching :rf.xray/close-shell on a visible
             shell flips it hidden: visible? false, container display=none,
             and the reactive :close-requested? flag set — all in one
             round-trip, the same hide path the keybinding drives"
@@ -771,7 +749,7 @@
                 "reactive :close-requested? flag set in lock-step")))))))
 
 (deftest close-shell-then-open!-reopens-the-shell
-  (testing "rf2-fq491 — a shell hidden via the close-shell event re-opens
+  (testing "a shell hidden via the close-shell event re-opens
             on the existing open mechanism (CSS-only show, no re-render),
             so the `✕` close is reversible"
     (with-stub-document
@@ -789,7 +767,7 @@
                 "re-show is CSS-only — no second substrate render")))))))
 
 ;; -------------------------------------------------------------------------
-;; (5c) popout-shell event — the chrome `⛶` button round-trip (rf2-czcg5)
+;; (5c) popout-shell event — the chrome `⛶` button round-trip
 ;; -------------------------------------------------------------------------
 ;;
 ;; The chrome `⛶` pop-out button dispatches `:rf.xray/popout-shell`
@@ -800,7 +778,7 @@
 ;; standing up a real second window.
 
 (deftest popout-shell-event-fires-popout!
-  (testing "rf2-czcg5 — dispatching :rf.xray/popout-shell lowers through
+  (testing "dispatching :rf.xray/popout-shell lowers through
             the :rf.xray.fx/popout-shell effect to mount/popout!, the
             same bridge shape as :rf.xray/close-shell → close!"
     (with-stub-document
@@ -1059,15 +1037,14 @@
                 "mounted? flips back to false after teardown!")))))))
 
 ;; -------------------------------------------------------------------------
-;; (8) `:rf/xray` frame seating (rf2-in6l2, rf2-avi7)
+;; (8) `:rf/xray` frame seating
 ;; -------------------------------------------------------------------------
 ;;
 ;; The `:rf/xray` frame cannot be seated at preload LOAD time: the preload
 ;; runs before `rf/init!` has installed a substrate adapter, so `make-frame`
-;; raises there (per rf2-e9s81). Per rf2-avi7 the seat rides adapter
-;; READINESS instead of `open!` — `boot-on-runtime-ready!` seats as soon as
-;; `rf/init!` lands, opened or not — and `open!` still seats unconditionally
-;; for callers that bypass that loop. Subsequent toggles surgical-update
+;; raises there. The seat rides adapter READINESS — `boot-on-runtime-ready!`
+;; seats as soon as `rf/init!` lands, opened or not — and `open!` also
+;; seats unconditionally for callers that bypass that loop. Subsequent toggles surgical-update
 ;; (make-frame's re-register semantics) — the frame's app-db and sub-
 ;; cache are preserved across keypresses.
 
@@ -1113,25 +1090,22 @@
                     "seed preserves oldest-first ordering")))))))))
 
 ;; -------------------------------------------------------------------------
-;; rf2-boyc2 — first-mount `:epoch-history` + `:target-frame` align with the
-;; observed frame (the head focusable cascade's frame).
+;; First-mount `:epoch-history` + `:target-frame` align with the observed
+;; frame (the head focusable cascade's frame).
 ;; -------------------------------------------------------------------------
 ;;
-;; Pre-fix the mount path hardcoded the seed frame to `:rf/default` via
-;; `(rf/epoch-history defaults/default-target-frame)` then dispatched
-;; `:rf.xray/sync-epoch-history`. But `compose-focus` derives the
-;; panel-observed frame from the head cascade in the trace buffer — so an
-;; app whose pre-mount events ran on `:cart-frame` rendered the App-DB
-;; panel against `:cart-frame` (observed) while `:epoch-history` was
-;; keyed on the empty `:rf/default` ring. `:history-empty?` resolved
-;; true; the panel rendered the boot empty-state for `:cart-frame` even
-;; with cascades from that frame in the buffer. Frame-switch round-trip
-;; resolved it (`set-frame-reducer` aligns the two axes); the first-
-;; mount path had to do the same. Fix: `ensure-xray-frame!` computes
+;; `compose-focus` derives the panel-observed frame from the head cascade
+;; in the trace buffer. Seeding from a hardcoded `:rf/default` would render
+;; the App-DB panel of an app whose pre-mount events ran on `:cart-frame`
+;; against `:cart-frame` (observed) while `:epoch-history` stayed keyed on
+;; the empty `:rf/default` ring: `:history-empty?` would resolve true and
+;; the panel would render the boot empty-state for `:cart-frame` even with
+;; cascades from that frame in the buffer. So `ensure-xray-frame!` computes
 ;; the seed frame via `spine/focusable-head-frame-id` over the same
 ;; cascade projection panels read off and dispatches
-;; `:rf.xray/set-target-frame seed-frame` so `:target-frame` +
-;; `:epoch-history` move in lockstep.
+;; `:rf.xray/set-target-frame seed-frame`, so `:target-frame` +
+;; `:epoch-history` move in lockstep — the same alignment
+;; `set-frame-reducer` gives a frame switch.
 
 (defn- pre-mount-dispatch-event
   "Build a trace event the projection groups into a cascade for the
@@ -1147,13 +1121,13 @@
                :rf.event/v       [event-id]}})
 
 (deftest first-open!-seeds-target-frame-from-head-focusable-event-bundle-frame
-  (testing "rf2-boyc2 — first open! reads the trace-bus buffer, projects
+  (testing "first open! reads the trace-bus buffer, projects
             it through the same `group-by-event` + Xray-internal filter
             the `:rf.xray/event-bundles` sub uses, and seeds `:target-frame`
             from the head focusable cascade's `:frame`. This closes the
-            initial-mount race where the App-DB panel rendered the boot
+            initial-mount race where the App-DB panel would render the boot
             empty-state for an observed frame whose `:epoch-history`
-            slot was still keyed on `:rf/default`."
+            slot is keyed on `:rf/default`."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)
@@ -1187,9 +1161,7 @@
             (rf/with-frame :rf/xray
               (is (= :cart-frame @(rf/subscribe [:rf.xray/target-frame]))
                   "`:target-frame` seeds from the head focusable cascade's
-                   `:frame` — NOT the hardcoded `:rf/default`. Pre-fix
-                   the slot was `:rf/default` regardless of pre-mount
-                   cascades.")
+                   `:frame` — NOT a hardcoded `:rf/default`.")
               (is (= cart-records @(rf/subscribe [:rf.xray/epoch-history]))
                   "`:epoch-history` re-seeds from `(rf/epoch-history
                    :cart-frame)` so the App-DB panel's
@@ -1197,12 +1169,11 @@
                    frame's focused epoch rather than the empty-state."))))))))
 
 (deftest first-open!-leaves-target-unselected-when-no-pre-mount-cascades
-  (testing "EP-0002 (rf2-bd4div) — cold start: no pre-mount cascades in the
+  (testing "cold start: no pre-mount cascades in the
             trace buffer → `spine/focusable-head-frame-id` returns nil →
             seed-frame is `defaults/default-target-frame` = nil = UNSELECTED.
-            The target is NOT defaulted to `:rf/default` (the carried
-            invariant: `:rf/default` is an ordinary id, never an
-            absence-repair fallback). The frame picker prompts a choice; the
+            The target is NOT defaulted to `:rf/default` (`:rf/default` is
+            an ordinary id, never an absence-repair fallback). The frame picker prompts a choice; the
             panels render their unselected-target state."
     (with-stub-document
       (fn [_doc]
@@ -1216,9 +1187,9 @@
                    (nil), not a synthesised `:rf/default`."))))))))
 
 (deftest first-open!-ignores-xray-internal-cascades-when-picking-seed-frame
-  (testing "rf2-boyc2 — the seed-frame projection applies the same
+  (testing "the seed-frame projection applies the same
             Xray-internal hard-filter the `:rf.xray/event-bundles` sub
-            uses (per rf2-g1pt8). Without the filter a Xray-internal
+            uses. Without the filter a Xray-internal
             tool-frame cascade could be chosen as the head, but those
             are invisible in the L2 list — picking that frame as the
             seed would be inconsistent with what the panel will
@@ -1275,23 +1246,22 @@
                     "app-db container preserved across re-register")))))))))
 
 ;; -------------------------------------------------------------------------
-;; (8c) rf2-n4p5it — ensure-xray-frame! run-once guard
+;; (8c) ensure-xray-frame! run-once guard
 ;; -------------------------------------------------------------------------
 ;;
 ;; `popout!` calls `(ensure-xray-frame!)` with no arg — the SAME default
-;; `frame-id` the inline shell already seeded via `open!`. Pre-fix the
-;; hook fan-out was unguarded, so this second call re-ran
-;; `::seed-trace-and-target-frame`, which re-derives the seed frame from
-;; the CURRENT head focusable event-bundle and re-dispatches
-;; `:rf.xray/set-target-frame` — reverting `:target-frame` back to the
-;; head frame even after the user had already picked a different frame
-;; via the L1 switcher. This test drives `ensure-xray-frame!` directly a
+;; `frame-id` the inline shell already seeded via `open!`. Unguarded, this
+;; second call would re-run `::seed-trace-and-target-frame`, which
+;; re-derives the seed frame from the CURRENT head focusable event-bundle
+;; and re-dispatches `:rf.xray/set-target-frame` — reverting
+;; `:target-frame` back to the head frame even after the user has picked
+;; a different frame via the L1 switcher. This test drives `ensure-xray-frame!` directly a
 ;; second time (exactly what `popout!` does under the hood) rather than
 ;; standing up a real second `window.open` — mirrors the direct-call
 ;; pattern `init_filter_reset_cljs_test.cljs` uses for the same fn.
 
 (deftest ensure-xray-frame-does-not-reseed-target-frame-on-second-call-rf2-n4p5it
-  (testing "rf2-n4p5it — a second `ensure-xray-frame!` call for the SAME
+  (testing "a second `ensure-xray-frame!` call for the SAME
             frame-id must NOT re-run the first-mount hook fan-out, so a
             user-picked `:target-frame` survives a pop-out remount"
     (with-stub-document
@@ -1329,12 +1299,12 @@
             (mount/ensure-xray-frame!)
             (rf/with-frame :rf/xray
               (is (= :other-frame @(rf/subscribe [:rf.xray/target-frame]))
-                  "rf2-n4p5it — the second ensure-xray-frame! call must NOT
+                  "the second ensure-xray-frame! call must NOT
                    revert :target-frame back to the head frame; the
                    user's picker choice survives the remount"))))))))
 
 (deftest ensure-xray-frame-reset-for-test-restores-fresh-first-mount-pass
-  (testing "rf2-n4p5it — `mount/reset-for-test!` clears the run-once
+  (testing "`mount/reset-for-test!` clears the run-once
             guard so a subsequent `ensure-xray-frame!` call performs a
             fresh first-mount seed again (the fixture-reset contract
             every Xray test fixture relies on via
@@ -1342,11 +1312,9 @@
 
             The witness is POSITIVE — a target that only the seed hook could
             have written — rather than the target going back to nil.
-            rf2-88f1 makes discovery defer to an explicit target, so a
-            re-fired hook no longer clears one and the old
-            disappearing-value witness would report a guarded no-op and a
-            re-fire identically. The subject of this deftest is unchanged;
-            only the evidence for it had to stop being an absence."
+            Discovery defers to an explicit target, so a re-fired hook does
+            not clear one, and a disappearing-value witness would report a
+            guarded no-op and a re-fire identically."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
@@ -1377,18 +1345,14 @@
                    UNSELECTED"))))))))
 
 ;; -------------------------------------------------------------------------
-;; (9) Teardown covers both mount singletons (rf2-yudol, rf2-sbfb7)
+;; (9) Teardown covers both mount singletons
 ;; -------------------------------------------------------------------------
 ;;
-;; Per the rf2-yudol fix (sourced from audit rf2-a6tvr Q1-1+Q1-2),
 ;; `teardown!` must clear both mount singletons — `mount-state` and
-;; `popout-state` — not just the in-app shell. Before the fix
-;; `teardown!` touched only the first; popout leaked across test runs
-;; and caused subsequent `(popout!)` calls to short-circuit on stale
-;; state. (The third pre-existing singleton — `inline-mounts` — went
-;; away under rf2-sbfb7 with the `mount-inline-panel!` debug API.)
-;; These tests pin the broadened contract documented in
-;; tools/xray/spec/011-Launch-Modes.md §Mount lifecycle.
+;; `popout-state` — not just the in-app shell: a leaked popout-state
+;; carries across test runs and makes a subsequent `(popout!)`
+;; short-circuit on stale state. These tests pin the contract documented
+;; in tools/xray/spec/011-Launch-Modes.md §Mount lifecycle.
 
 (defn- mk-stub-popout-window
   "Build a fake popout window with enough surface for the popout!
@@ -1403,7 +1367,7 @@
         doc       (js-obj "body"          body
                           "title"         ""
                           "createElement" (fn [_tag] (mk-stub-node))
-                          ;; rf2-3x7nj.27.3 — `popout!` evicts a stale root
+                          ;; `popout!` evicts a stale root
                           ;; and overlay by id. Looks among the body's
                           ;; direct children, which is where both live.
                           "getElementById"
@@ -1442,17 +1406,17 @@
                          :node    node
                          :unmount unmount
                          :mode    :popout}
-                  ;; rf2-61i5 — only seeded when a test asks for it, so the
-                  ;; existing tests keep exercising the nil-disposer path.
+                  ;; Only seeded when a test asks for it, so the other
+                  ;; tests exercise the nil-disposer path.
                   keydown-dispose (assoc :keydown-dispose keydown-dispose))]
     (reset! @#'mount/popout-state state)
     state))
 
 (deftest teardown!-clears-popout-state-and-closes-window
-  (testing "rf2-yudol Q1-1: teardown! must invoke the popout's substrate
+  (testing "teardown! must invoke the popout's substrate
             unmount, close the popout window, and reset popout-state to
-            nil. Before the fix popout-state leaked — a subsequent
-            (popout!) returned the stale state whose :window was orphaned."
+            nil. A leaked popout-state would make a subsequent (popout!)
+            return the stale state whose :window is orphaned."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [window closed?]} (mk-stub-popout-window)
@@ -1472,7 +1436,7 @@
               "popout window's .close() invoked"))))))
 
 (deftest teardown!-tolerates-already-closed-popout-window
-  (testing "rf2-yudol: if the popout window is already closed (user
+  (testing "if the popout window is already closed (user
             closed it before teardown! runs), teardown! must not throw
             and must still clear the singleton and invoke the substrate
             unmount."
@@ -1492,7 +1456,7 @@
               "substrate unmount still invoked"))))))
 
 (deftest teardown!-swallows-popout-unmount-errors
-  (testing "rf2-yudol: a throwing popout unmount must not strand the
+  (testing "a throwing popout unmount must not strand the
             singleton or the window-close attempt"
     (with-stub-document
       (fn [_doc]
@@ -1508,7 +1472,7 @@
           (is (true? @closed?)
               "popout window still closed despite the throw"))))))
 
-;; ---- pop-out keydown listener lifecycle (rf2-61i5) -----------------------
+;; ---- pop-out keydown listener lifecycle ----------------------------------
 ;;
 ;; `popout!` renders a shell into a second document, and DOM key events do
 ;; not cross realms — so the pop-out gets its OWN listener, installed
@@ -1519,7 +1483,7 @@
 ;; keybinding_cljs_test.cljs.
 
 (deftest teardown!-disposes-the-popout-keydown-listener
-  (testing "rf2-61i5 — teardown! must run the pop-out document's keydown
+  (testing "teardown! must run the pop-out document's keydown
             disposer, so a torn-down pop-out leaves no live handler."
     (with-stub-document
       (fn [_doc]
@@ -1540,7 +1504,7 @@
 ;; pagehide/unload tests, so it lives beside them rather than here.)
 
 (deftest teardown!-swallows-a-throwing-keydown-disposer
-  (testing "rf2-61i5 — teardown is last-chance cleanup: a throwing disposer
+  (testing "teardown is last-chance cleanup: a throwing disposer
             must not strand the substrate unmount, the window close, or the
             singleton. Same posture as the unmount guard above."
     (with-stub-document
@@ -1559,7 +1523,7 @@
           (is (true? @closed?) "window still closed"))))))
 
 (deftest teardown!-tolerates-a-popout-with-no-keydown-disposer
-  (testing "rf2-61i5 — `install-popout-keydown!` returns nil when the host
+  (testing "`install-popout-keydown!` returns nil when the host
             disabled Xray's keyboard, so `:keydown-dispose` is legitimately
             absent. Teardown must skip it rather than calling nil."
     (with-stub-document
@@ -1573,7 +1537,7 @@
           (is (true? @closed?)))))))
 
 (deftest popout-keydown-installer-slot-is-registered
-  (testing "rf2-61i5 — mount reaches the keyboard map only through this
+  (testing "mount reaches the keyboard map only through this
             injected slot (requiring keybinding from here would be a
             cycle). An empty slot means a keyboard-less pop-out with
             nothing else failing, so pin that it is populated."
@@ -1583,7 +1547,7 @@
         "and it is callable")))
 
 (deftest teardown!-clears-both-singletons-in-one-call
-  (testing "rf2-yudol + rf2-sbfb7: a single teardown! call clears
+  (testing "a single teardown! call clears
             mount-state + popout-state together. The fixture between
             tests pokes these atoms back to baseline; teardown! itself
             must achieve the same baseline so a test that omits the
@@ -1612,10 +1576,9 @@
                 "popout window closed by teardown!")))))))
 
 (deftest teardown!-isolation-across-multi-run
-  (testing "rf2-yudol regression guard: two consecutive open!/seed-popout
-            → teardown! cycles must not leak state. Before the fix the
-            second cycle would observe stale popout-state left over from
-            the first run."
+  (testing "two consecutive open!/seed-popout → teardown! cycles must
+            not leak state: a leak would let the second cycle observe
+            stale popout-state left over from the first run."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)
@@ -1635,7 +1598,7 @@
                 "second cycle's teardown still clears popout-state"))))))
 
 ;; -------------------------------------------------------------------------
-;; (10) Popout external-close → opener-side cleanup (rf2-yudol)
+;; (10) Popout external-close → opener-side cleanup
 ;; -------------------------------------------------------------------------
 ;;
 ;; When the user closes the popout window externally, the opener-side
@@ -1646,14 +1609,13 @@
 
 (defn- register-popout-cleanup!
   "Test-side accessor for the private fn `register-popout-unload-cleanup!`
-  that `popout!` calls. Per the rf2-yudol fix, this is the listener-
-  registration step we want to exercise directly without standing up a
-  real browser window."
+  that `popout!` calls — the listener-registration step we want to
+  exercise directly without standing up a real browser window."
   [win]
   ((deref #'mount/register-popout-unload-cleanup!) win))
 
 (deftest popout-registers-unload-listeners-on-popout-window
-  (testing "rf2-yudol: register-popout-unload-cleanup! must register
+  (testing "register-popout-unload-cleanup! must register
             pagehide + unload listeners on the popout window so the
             opener-side singleton clears when the popout closes
             externally"
@@ -1668,7 +1630,7 @@
               "unload listener registered on the popout window"))))))
 
 (deftest popout-pagehide-clears-popout-state-and-invokes-unmount
-  (testing "rf2-yudol: firing the popout window's pagehide event must
+  (testing "firing the popout window's pagehide event must
             clear popout-state and invoke the substrate unmount fn.
             Simulates the user closing the popout via the browser's
             window-close affordance"
@@ -1693,7 +1655,7 @@
               "substrate unmount fn invoked by the pagehide handler"))))))
 
 (deftest popout-external-close-disposes-the-keydown-listener
-  (testing "rf2-61i5 — the user closing the pop-out window is the common
+  (testing "the user closing the pop-out window is the common
             exit, and it routes through the same disposal path as
             teardown!. Without this the keydown handler outlives its own
             document."
@@ -1711,10 +1673,10 @@
           (is (= 1 @disposals)
               "pagehide disposed the pop-out keydown listener")
           (is (nil? @@#'mount/popout-state)
-              "and cleared the singleton, as before"))))))
+              "and cleared the singleton"))))))
 
 (deftest popout-unload-handler-also-clears-popout-state
-  (testing "rf2-yudol: the unload event is the older companion to
+  (testing "the unload event is the older companion to
             pagehide — both must clear popout-state for cross-browser
             coverage"
     (with-stub-document
@@ -1734,7 +1696,7 @@
               "substrate unmount fn invoked by the unload handler"))))))
 
 (deftest popout-stale-unload-handler-does-not-nuke-fresh-state
-  (testing "rf2-yudol: a stale unload handler that fires AFTER a fresh
+  (testing "a stale unload handler that fires AFTER a fresh
             popout has replaced the singleton must not nuke the new
             state. The handler identifies its window via identical?
             on the :window slot and ignores events that don't match."
@@ -1761,7 +1723,7 @@
               "stale handler did not nuke the fresh popout state"))))))
 
 ;; -------------------------------------------------------------------------
-;; (11) Popout opener-gone overlay (rf2-h3ekl)
+;; (11) Popout opener-gone overlay
 ;; -------------------------------------------------------------------------
 ;;
 ;; Per tools/xray/spec/011-Launch-Modes.md §Pop-out §Constraints: when
@@ -1805,7 +1767,7 @@
 
 (defn- mk-stub-opener-window-with-listeners
   "An opener stub that records `addEventListener` / `removeEventListener`
-  calls, so a test can fire the rf2-uong `pagehide` announcer directly and
+  calls, so a test can fire the opener-reload `pagehide` announcer directly and
   assert the teardown detach."
   []
   (let [listeners (atom {})
@@ -1829,7 +1791,7 @@
   ((deref #'mount/register-opener-reload-announcer!) opener-win win overlay-node))
 
 (deftest opener-gone?-true-when-opener-closed
-  (testing "rf2-h3ekl: opener-gone? reads window.opener.closed and
+  (testing "opener-gone? reads window.opener.closed and
             returns true when the opener has been closed"
     (let [{opener :window opener-closed? :closed?} (mk-stub-opener-window)
           {popout :window} (mk-stub-popout-window-with-opener opener)]
@@ -1840,14 +1802,14 @@
           "closed opener: gone"))))
 
 (deftest opener-gone?-true-when-opener-nil
-  (testing "rf2-h3ekl: opener-gone? returns true when the opener slot
+  (testing "opener-gone? returns true when the opener slot
             is nil (cross-document navigation that blew the reference)"
     (let [{popout :window} (mk-stub-popout-window-with-opener nil)]
       (is (true? (opener-gone?* popout))
           "nil opener: gone"))))
 
 (deftest opener-gone?-true-when-opener-read-throws
-  (testing "rf2-h3ekl: opener-gone? classifies an unexpected throw on
+  (testing "opener-gone? classifies an unexpected throw on
             the opener read (pathological cross-origin walk) as 'gone'
             — defensive posture, no spurious overlays on regular use"
     (let [popout (js-obj)]
@@ -1860,7 +1822,7 @@
           "throwing opener-getter classified as gone"))))
 
 (deftest install-opener-gone-overlay!-creates-hidden-themed-node
-  (testing "rf2-h3ekl: install-opener-gone-overlay! creates a node
+  (testing "install-opener-gone-overlay! creates a node
             with the spec'd id + testid, hidden by default, with the
             Xray theme palette so the visual language matches the
             rest of the shell"
@@ -1880,7 +1842,7 @@
           "overlay starts hidden — only the watchdog reveals it"))))
 
 (deftest start-opener-gone-watchdog!-reveals-overlay-when-opener-closes
-  (testing "rf2-h3ekl: the watchdog observes window.opener.closed via
+  (testing "the watchdog observes window.opener.closed via
             setInterval, reveals the overlay (display:flex) on first
             true observation, and clears itself"
     (let [{opener :window opener-closed? :closed?} (mk-stub-opener-window)
@@ -1932,7 +1894,7 @@
           (reset! @#'mount/popout-state nil))))))
 
 (deftest start-opener-gone-watchdog!-self-clears-when-popout-state-replaced
-  (testing "rf2-h3ekl: a watchdog whose popout window is no longer the
+  (testing "a watchdog whose popout window is no longer the
             registered :window slot (test teardown / fresh popout!)
             clears itself on the next tick rather than orphan-resurrecting
             the overlay against a stale window"
@@ -1971,7 +1933,7 @@
           (set! (.-clearInterval js/globalThis) prior-clear))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-uong — the OPENER-RELOAD case the watchdog structurally cannot observe.
+;; The OPENER-RELOAD case the watchdog structurally cannot observe.
 ;;
 ;; `opener-gone?` is `(or (nil? opener) (.-closed opener))`, and a same-origin
 ;; hard reload leaves `window.opener` live (a WindowProxy survives navigation)
@@ -1986,7 +1948,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest opener-gone?-is-false-across-a-reload--why-the-announcer-exists
-  (testing "rf2-uong: the PREMISE. A reloaded opener is neither nil nor
+  (testing "the PREMISE. A reloaded opener is neither nil nor
             .closed, so opener-gone? reads false and the watchdog would
             never reveal the overlay — this is the gap the announcer fills,
             not a bug in the predicate"
@@ -1997,7 +1959,7 @@
            and the reference is non-nil, exactly as after a hard reload"))))
 
 (deftest opener-reload-announcer-reveals-overlay-on-pagehide
-  (testing "rf2-uong: the opener's own pagehide reveals the popout overlay,
+  (testing "the opener's own pagehide reveals the popout overlay,
             so a hard reload of the host app stops presenting stale panels
             as live data"
     (let [{opener :window listeners :listeners} (mk-stub-opener-window-with-listeners)
@@ -2024,7 +1986,7 @@
           (reset! @#'mount/popout-state nil))))))
 
 (deftest opener-reload-announcer-ignores-a-persisted-pagehide
-  (testing "rf2-uong: a persisted pagehide is a bfcache FREEZE a
+  (testing "a persisted pagehide is a bfcache FREEZE a
             back-navigation can resume — the opener realm, and the popout
             render tree with it, come back alive. Announcing there would cry
             wolf over a popout that is about to work again"
@@ -2042,7 +2004,7 @@
           (reset! @#'mount/popout-state nil))))))
 
 (deftest opener-reload-announcer-guards-on-popout-window-identity
-  (testing "rf2-uong: a stale announcer whose popout window is no longer the
+  (testing "a stale announcer whose popout window is no longer the
             registered :window slot must not paint over the popout a fresh
             popout! has since installed — mirrors the watchdog's guard"
     (let [{opener :window} (mk-stub-opener-window-with-listeners)
@@ -2060,7 +2022,7 @@
           (reset! @#'mount/popout-state nil))))))
 
 (deftest teardown-popout-state!-detaches-the-opener-announcer
-  (testing "rf2-uong: teardown removes the opener-side pagehide listener, so
+  (testing "teardown removes the opener-side pagehide listener, so
             repeated popout open/close cycles in ONE opener realm do not
             accumulate handlers closing over detached overlay nodes"
     (let [{opener :window listeners :listeners} (mk-stub-opener-window-with-listeners)
@@ -2079,7 +2041,7 @@
         (is (nil? @@#'mount/popout-state) "singleton cleared")))))
 
 (deftest teardown-popout-state!-clears-watchdog-interval
-  (testing "rf2-h3ekl: when popout-state carries a :watchdog-id slot,
+  (testing "when popout-state carries a :watchdog-id slot,
             teardown-popout-state! must call clearInterval so a long-
             running test corpus does not leak a setInterval handle per
             popout cycle"
@@ -2110,14 +2072,13 @@
               (set! (.-clearInterval js/globalThis) prior-clear))))))))
 
 ;; -------------------------------------------------------------------------
-;; (12) Popout stylesheet hand-off (rf2-czcg5)
+;; (12) Popout stylesheet hand-off
 ;; -------------------------------------------------------------------------
 ;;
 ;; Per tools/xray/spec/011-Launch-Modes.md §Pop-out §Styling: the
 ;; pop-out document MUST carry Xray's stylesheet + the `:root`
 ;; `--rf-xray-*` custom properties so the shell renders identically to
-;; the inline panel (the blocker before rf2-czcg5 — the detached window
-;; rendered unstyled). `style-popout-document!` injects the full
+;; the inline panel rather than unstyled. `style-popout-document!` injects the full
 ;; stylesheet set into the pop-out's own document and stamps the
 ;; persisted theme class on its `<html>`.
 
@@ -2157,7 +2118,7 @@
   ((deref #'mount/style-popout-document!) doc))
 
 (deftest style-popout-document!-injects-stylesheet-and-theme-class
-  (testing "rf2-czcg5: style-popout-document! injects the Xray style
+  (testing "style-popout-document! injects the Xray style
             blocks into the pop-out document's <head> AND stamps the
             persisted theme class on its <html> so the matching
             .rf-xray-theme-* palette resolves."
@@ -2177,7 +2138,7 @@
           (config/update-setting! :theme nil :light))))))
 
 (deftest style-popout-document!-defaults-to-light-theme
-  (testing "rf2-czcg5: with no persisted theme override the pop-out
+  (testing "with no persisted theme override the pop-out
             <html> carries the :light class (matching the config
             default + the injected :root light palette)."
     (let [{:keys [doc classlist]} (mk-stub-popout-doc-with-head)]
@@ -2188,13 +2149,12 @@
           "default :light theme class stamped on the pop-out <html>"))))
 
 (deftest style-popout-document!-is-safe-without-document
-  (testing "rf2-czcg5: a nil document (popup-blocked / no-DOM) no-ops
+  (testing "a nil document (popup-blocked / no-DOM) no-ops
             rather than throwing."
     (is (nil? (style-popout-document!* nil)))))
 
 ;; -------------------------------------------------------------------------
 ;; (10) Surface transitions — inline ⇄ overlay re-parent + re-render
-;;      (rf2-j538f7.23)
 ;; -------------------------------------------------------------------------
 ;;
 ;; `open!` and `open-overlay!` name two DISTINCT PHYSICAL surfaces
@@ -2205,13 +2165,12 @@
 ;; render-time `:mode` prop, and the node's OWNER (host vs body) is
 ;; fixed at create-time.
 ;;
-;; Pre-fix, the update-only branches only toggled visibility +
-;; `data-rf-xray-mode` + `mount-state :mode` — the actual React tree,
-;; parent, and layout stayed on the previous surface, so the stored
-;; mode/attrs reported the requested surface while nothing physically
-;; moved (a Settings control that reported success without realizing
-;; it). `switch-surface!` re-parents + re-renders so a mode change
-;; realizes the requested surface both directions.
+;; Toggling only visibility + `data-rf-xray-mode` + `mount-state :mode`
+;; would leave the actual React tree, parent, and layout on the previous
+;; surface, so the stored mode/attrs would report the requested surface
+;; while nothing physically moved (a Settings control reporting success
+;; without realizing it). `switch-surface!` re-parents + re-renders so a
+;; mode change realizes the requested surface both directions.
 ;;
 ;; The shared `mk-stub-document` returns `body` for the host selector,
 ;; so inline-vs-overlay ownership is not observable there. These tests
@@ -2266,7 +2225,7 @@
      :host host}))
 
 (defn- with-two-owner-document [f]
-  ;; Same host-detection gate as `with-stub-document*` (rf2-higwg): only
+  ;; Same host-detection gate as `with-stub-document*`: only
   ;; run under a runtime where `set! js/document` takes effect (node-
   ;; test). In `:browser-test` the real `window.document` is non-
   ;; configurable, so the body no-ops and the contract is proven on the
@@ -2299,24 +2258,22 @@
   "Pull the `:mode` prop the shell boundary was rendered with from a
   recorded render call.
 
-  FINDS THE HEAD RATHER THAN INDEXING TO IT (rf2-k97c.3, C4). This read
-  `(get-in (:tree call) [2 1])` until the root swap — a positional index
-  into a tree whose shape the swap changes, which silently depended on the
-  provider wrap while asserting nothing about it. It now walks for
-  `shell/ShellView` and takes the props map beside it, so it answers nil
-  rather than a plausible wrong value if the tree is ever re-shaped again,
-  and `ei-shell-scope` below is what asserts the wrap."
+  FINDS THE HEAD RATHER THAN INDEXING TO IT. A positional index
+  (`(get-in (:tree call) [2 1])`) would silently depend on the provider
+  wrap while asserting nothing about it. Walking for `shell/ShellView` and
+  taking the props map beside it answers nil rather than a plausible
+  wrong value if the tree is re-shaped, and `ei-shell-scope` below is
+  what asserts the wrap."
   [call]
   (:mode (shell-props-in (:tree call))))
 
 ;; ---- (1) inline → overlay realizes the overlay surface ------------------
 
 (deftest open-overlay!-from-inline-reparents-to-body-and-rerenders-fixed
-  (testing "rf2-j538f7.23 — starting inline (open!) then invoking
+  (testing "starting inline (open!) then invoking
             open-overlay! must RE-RENDER the shell with {:mode :overlay}
             and PHYSICALLY re-parent the mount root from the layout host
-            to document.body. Pre-fix this only flipped attributes while
-            the React tree/parent/layout stayed inline."
+            to document.body, not just flip attributes."
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -2358,7 +2315,7 @@
 ;; ---- (2) overlay → inline realizes the inline surface -------------------
 
 (deftest open!-from-overlay-reparents-to-host-and-rerenders-inline
-  (testing "rf2-j538f7.23 — the reverse: starting as the overlay
+  (testing "the reverse: starting as the overlay
             (open-overlay!) then invoking open! must RE-RENDER with
             {:mode :inline} and move the single root back into the
             app-provided [data-rf-xray-host], reporting :inline."
@@ -2396,7 +2353,7 @@
 ;; ---- (3) same-mode repeat is idempotent (no duplicate roots) ------------
 
 (deftest repeated-open-overlay!-same-mode-is-idempotent
-  (testing "rf2-j538f7.23 acceptance 3 — repeated open-overlay! on an
+  (testing "repeated open-overlay! on an
             already-overlay shell is a CSS-only show: no second render,
             same DOM node, exactly one root."
     (with-two-owner-document
@@ -2416,7 +2373,7 @@
               (is (= :overlay (:mode (mount/status)))))))))))
 
 (deftest repeated-open!-same-mode-is-idempotent-under-distinct-host
-  (testing "rf2-j538f7.23 acceptance 3 — repeated open! on an already-
+  (testing "repeated open! on an already-
             inline shell is a CSS-only show (mirrors the shared-stub
             second-open! test, but proves it under the distinct-host
             document so ownership stays fixed to the host)."
@@ -2439,7 +2396,7 @@
 ;; ---- (4) Settings integration through the exported mount bridge ---------
 
 (deftest settings-panel-position-realizes-surface-through-the-bridge
-  (testing "rf2-j538f7.23 acceptance 4 — driving Right rail → Fullscreen
+  (testing "driving Right rail → Fullscreen
             → Right rail through the ACTUAL exported mount bridge
             (settings/effects apply-panel-position! → window.day8.
             re_frame2_xray.open_BANG_ / open_overlay_BANG_) re-parents
@@ -2488,7 +2445,7 @@
 ;; ---- (5) close / reopen after a transition stays coherent ---------------
 
 (deftest close-then-reopen-after-switch-to-overlay-is-coherent
-  (testing "rf2-j538f7.23 acceptance 5 — after inline→overlay, close!
+  (testing "after inline→overlay, close!
             retains the realized overlay mode and a matching
             open-overlay! is a CSS-only show of the SAME body-owned node
             (mode + DOM surface agree)."
@@ -2516,7 +2473,7 @@
                   "mode + realized surface still agree after close/reopen"))))))))
 
 (deftest close-then-reopen-after-switch-to-inline-is-coherent
-  (testing "rf2-j538f7.23 acceptance 5 — after overlay→inline, close!
+  (testing "after overlay→inline, close!
             retains the realized inline mode and a matching open! is a
             CSS-only show of the SAME host-owned node."
     (with-two-owner-document
@@ -2542,7 +2499,7 @@
               (is (= :inline (:mode (mount/status)))))))))))
 
 ;; -------------------------------------------------------------------------
-;; (11) Global reopen preserves the realized surface (rf2-j538f7.41)
+;; (11) Global reopen keeps the realized surface
 ;; -------------------------------------------------------------------------
 ;;
 ;; `open!` / `open-overlay!` are the explicit surface-CHANGE verbs (each
@@ -2551,21 +2508,19 @@
 ;; show (`Cmd/Ctrl+K`) are the GLOBAL show/hide route — they must reopen
 ;; whatever surface the shell was last realized on, NOT force inline.
 ;;
-;; Pre-rf2-j538f7.41 both routes hard-coded `open!` on the hidden branch,
-;; so a hidden OVERLAY mount reopened via either route was treated as an
-;; explicit inline-surface request: with a layout host it silently
-;; re-parented the overlay back inline (discarding the fullscreen choice
-;; + component state, breaking the CSS-only reopen contract); with NO
-;; host `switch-surface! :inline` returned the missing-host diagnostic
-;; and left the overlay stranded hidden — repeated toggles could never
-;; recover it. §(10)'s regressions matched `close!` with the SAME
-;; explicit verb (`open-overlay!` after overlay-close, `open!` after
-;; inline-close); they never exercised the generic `toggle!` / palette
-;; route, so they false-green this composed transition.
-;;
-;; The fix: hidden `toggle!` routes by the retained `mount-state :mode`
+;; Hidden `toggle!` routes by the retained `mount-state :mode`
 ;; (`:overlay` → `open-overlay!`, else → `open!`); the palette handler
-;; calls the corrected `toggle!` on its already-proven-hidden branch.
+;; calls `toggle!` on its already-proven-hidden branch. Routing a hidden
+;; OVERLAY mount through `open!` would treat it as an explicit
+;; inline-surface request: with a layout host it would silently re-parent
+;; the overlay back inline (discarding the fullscreen choice + component
+;; state, breaking the CSS-only reopen contract); with NO host
+;; `switch-surface! :inline` would return the missing-host diagnostic and
+;; leave the overlay stranded hidden, where repeated toggles could never
+;; recover it. §(10)'s rows match `close!` with the SAME explicit verb
+;; (`open-overlay!` after overlay-close, `open!` after inline-close), so
+;; they cannot see this composed transition.
+;;
 ;; These tests drive both the direct `toggle!` and the ACTUAL keybinding
 ;; handlers (`keybinding/handle-keydown`) so the consumed shortcut, not a
 ;; mock, realizes the surface.
@@ -2588,17 +2543,17 @@
             "preventDefault"  (fn [] nil)
             "stopPropagation" (fn [] nil))))
 
-;; ---- (1) AC1 — no layout host: overlay survives hide/show via toggle! ----
+;; ---- (1) no layout host: overlay survives hide/show via toggle! ----
 
 (deftest global-toggle-reopens-hidden-overlay-as-overlay-no-host-rf2-j538f7-41
-  (testing "rf2-j538f7.41 AC1 — with NO `[data-rf-xray-host]` (the
+  (testing "with NO `[data-rf-xray-host]` (the
             overlay's primary fallback use case): open-overlay! →
             toggle!(hide) → toggle!(show) keeps the shell on the OVERLAY
             surface. The reopen reuses the SAME body-owned root, flips
             display:none back to block (CSS-only), attempts NO inline-host
             lookup (no missing-host diagnostic), and adds NO render.
-            Pre-fix toggle! → open! → switch-surface! :inline stranded
-            the overlay hidden; repeated toggles could never recover it."
+            Routing toggle! → open! → switch-surface! :inline would strand
+            the overlay hidden, where repeated toggles could never recover it."
     (with-stub-document
       (fn [doc]
         ;; No app-provided layout host — querySelector returns nil so an
@@ -2625,7 +2580,7 @@
                 (is (true? (mount/visible?)) "toggle! re-shows the shell")
                 (is (= :overlay (:mode (mount/status)))
                     "the reopened surface is the OVERLAY — NOT reverted to
-                     inline (the rf2-j538f7.41 fix)")
+                     inline")
                 (is (identical? overlay-node (:node @@#'mount/mount-state))
                     "the SAME body-owned overlay root is reused")
                 (is (= "block" (.-display (.-style overlay-node)))
@@ -2635,21 +2590,21 @@
                      surface switch")
                 (is (not= :missing-layout-host
                           (get-in (mount/status) [:diagnostic :reason]))
-                    "no inline-host lookup was attempted — the pre-fix
+                    "no inline-host lookup was attempted — the
                      open! → switch-surface! :inline diagnostic never fires"))
               (finally
                 (set! js/console prior-console)))))))))
 
-;; ---- (2) AC2 — host present: overlay survives close/toggle reopen --------
+;; ---- (2) host present: overlay survives close/toggle reopen --------
 
 (deftest global-toggle-reopens-hidden-overlay-as-overlay-host-present-rf2-j538f7-41
-  (testing "rf2-j538f7.41 AC2 — host present: open! (inline) →
+  (testing "host present: open! (inline) →
             open-overlay! (realize overlay) → close! → toggle!(show)
             reopens the OVERLAY, not the inline surface. Status, DOM
             owner, and data-rf-xray-mode stay coherent; the reopen is a
             CSS-only show of the retained body-owned root (no re-render).
-            Pre-fix toggle! → open! silently re-parented the shell back
-            into the right rail."
+            Routing toggle! → open! would silently re-parent the shell
+            back into the right rail."
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -2668,8 +2623,8 @@
               (mount/toggle!)                       ; reopen via the global route
               (is (true? (mount/visible?)) "toggle! re-shows the shell")
               (is (= :overlay (:mode (mount/status)))
-                  "the reopened surface is the OVERLAY — pre-fix the global
-                   toggle hard-coded open!, re-parenting back to inline")
+                  "the reopened surface is the OVERLAY — not re-parented
+                   back to inline")
               (is (= 2 (count @calls))
                   "reopen is a CSS-only show of the retained overlay — no
                    third render")
@@ -2685,15 +2640,15 @@
               (is (= 1 (deep-count-by-id body "rf-xray-root"))
                   "exactly one #rf-xray-root — no duplicate/parallel mount"))))))))
 
-;; ---- (3) AC3 — the ACTUAL Ctrl+Shift+C handler re-shows a hidden overlay -
+;; ---- (3) the ACTUAL Ctrl+Shift+C handler re-shows a hidden overlay -
 
 (deftest ctrl-shift-c-handler-reshows-hidden-overlay-rf2-j538f7-41
-  (testing "rf2-j538f7.41 AC3 — driving the ACTUAL Ctrl+Shift+C handler
+  (testing "driving the ACTUAL Ctrl+Shift+C handler
             (`keybinding/handle-keydown`) against a hidden overlay (no
-            layout host) makes THAT SAME overlay visible again. Pre-fix
-            the consumed shortcut routed toggle! → open! → inline switch,
-            which with no host stranded the overlay hidden (repeated
-            presses could not recover it)."
+            layout host) makes THAT SAME overlay visible again, rather
+            than routing toggle! → open! → an inline switch, which with
+            no host would strand the overlay hidden (repeated presses
+            could not recover it)."
     (with-stub-document
       (fn [doc]
         (set! (.-querySelector doc) (fn [_selector] nil))   ; no host
@@ -2724,18 +2679,18 @@
               (finally
                 (set! js/console prior-console)))))))))
 
-;; ---- (4) AC4 — the ACTUAL Cmd/Ctrl+K handler shows overlay first --------
+;; ---- (4) the ACTUAL Cmd/Ctrl+K handler shows overlay first --------
 
 (deftest cmd-k-handler-shows-hidden-overlay-before-palette-rf2-j538f7-41
-  (testing "rf2-j538f7.41 AC4 — driving the ACTUAL Cmd/Ctrl+K handler
+  (testing "driving the ACTUAL Cmd/Ctrl+K handler
             against a hidden overlay (no layout host) shows THAT overlay
             BEFORE the palette opens. The handler's `(when-not visible?
             (toggle!))` runs synchronously and returns with the shell
             already visible; only THEN does it enqueue
             `:rf.xray/palette-toggle`. So the shell is provably visible
             before the palette can open — no invisible palette state.
-            Pre-fix the handler called open! → inline switch → the shell
-            stayed hidden while palette state flipped (an invisible
+            Routing through open! → an inline switch would leave the
+            shell hidden while palette state flipped (an invisible
             palette). `rf/dispatch` is a MACRO, so the enqueued
             palette-toggle is left to the router; we assert the
             load-bearing synchronous fact — the overlay is visible when
@@ -2764,15 +2719,15 @@
                 (is (= 1 (count @calls)) "CSS-only show — no re-render")
                 (is (not= :missing-layout-host
                           (get-in (mount/status) [:diagnostic :reason]))
-                    "the palette route no longer attempts an inline switch
+                    "the palette route does not attempt an inline switch
                      on a hidden overlay"))
               (finally
                 (set! js/console prior-console)))))))))
 
-;; ---- (5) AC5 — canonical defaults preserved -----------------------------
+;; ---- (5) canonical defaults ---------------------------------------------
 
 (deftest first-ever-toggle-defaults-to-inline-rf2-j538f7-41
-  (testing "rf2-j538f7.41 AC5 — the first-ever toggle! (nothing mounted,
+  (testing "the first-ever toggle! (nothing mounted,
             @mount-state nil ⇒ :mode nil) mounts the canonical INLINE
             surface, NOT the overlay. The retained-mode reopen rule must
             leave the cold-start default untouched."
@@ -2789,7 +2744,7 @@
                 "inline root owned by the layout host")))))))
 
 (deftest global-toggle-reopens-hidden-inline-as-inline-rf2-j538f7-41
-  (testing "rf2-j538f7.41 AC5 (symmetric inline case) — a hidden INLINE
+  (testing "the symmetric inline case — a hidden INLINE
             mount reopened via toggle! stays inline: same host-owned node,
             CSS-only show, no re-render. The surface-preserving rule must
             not disturb the canonical inline hide/show."
@@ -2815,53 +2770,35 @@
 
 ;; =========================================================================
 ;; EVIDENCE INTEGRITY — Xray's OWN activity must never appear in the
-;; INSPECTED application frame's epoch record (rf2-k97c.5; the
-;; already-realised defect is rf2-tqlmq)
+;; INSPECTED application frame's epoch record
 ;; =========================================================================
 ;;
-;; THE ORIGINAL DEFECT. `shell-view` was a `reg-view`, so its
-;; `:rf.view/rendered` trace carried the resolved current-frame.
-;; `mount-shell-into!` once rendered it BARE — the shell's own
-;; `[frame-provider {:frame :rf/xray}]` sat INSIDE its body, around the
-;; panels — so `shell-view`'s OWN render resolved by fall-through to the
-;; host page's frame and back-filled into the INSPECTED app's epoch
-;; `:renders` (observed live: `["shell-view" 27]` in a `:rf/default` boot
-;; epoch). A debugger reporting its own activity as the application's is
-;; the worst failure this tool has.
-;;
-;; THE FIX moved the provider OUT one level, and rf2-k97c.3's root swap
-;; keeps it there while changing what it is FOR. The mount-site tree is now
+;; THE HAZARD. A shell rendered BARE — the shell's own frame-provider
+;; INSIDE its body, around the panels — would resolve its OWN render by
+;; fall-through to the host page's frame and report it as the INSPECTED
+;; app's. A debugger reporting its own activity as the application's is
+;; the worst failure this tool has. So the provider sits OUTSIDE the
+;; shell boundary, and the mount-site tree is
 ;;   [rf.fresco/frame-provider {:frame shell/default-frame-id}
 ;;    [shell/ShellView …]]
 ;;
-;; ## THIS PIN WAS RE-AIMED BY rf2-k97c.3, AND BOTH HALVES MOVED
+;; ## TWO HALVES
 ;;
-;; HALF ONE, THE STRUCTURAL HALF, SURVIVES WITH A NEW KEY. `ei-shell-scope`
-;; walked for `rf/frame-provider` and `shell/shell-view`; both names are
-;; gone from the mount tree, so the walker had to be re-keyed on
+;; HALF ONE, THE STRUCTURAL HALF. `ei-shell-scope` walks for
 ;; `rf.fresco/frame-provider` and the `shell/ShellView` boundary. Its
-;; `:found?` instrument control is what makes that safe to change — a
-;; walker re-keyed onto a name the tree does not carry reports a clean nil
+;; `:found?` instrument control is what makes the walk trustworthy — a
+;; walker keyed onto a name the tree does not carry reports a clean nil
 ;; scope, which reads as a PASSING test, and `:found?` is the only thing
 ;; that separates those two.
 ;;
-;; HALF TWO, THE RENDER-EMIT HALF, WAS REPLACED OUTRIGHT, because its
-;; SUBJECT CEASED TO EXIST. It used to synthesise a `:rf.view/rendered`
-;; through `rf.trace/emit!` and assert the gate suppressed it. A Fresco
-;; boundary emits NO view-render trace at all — measured with a live
-;; control, `rf.view/rendered` reads 108 hits across `implementation/` and
-;; ZERO in `implementation/fresco/src` — so after the swap that half
-;; asserted about an emit NOBODY MAKES. It would have stayed green for ever
-;; and said nothing, which is exactly the hollow-assertion shape this epic
-;; keeps meeting. Note this is the hazard class getting STRICTLY BETTER
-;; rather than merely moving: Xray's renders can no longer reach any
-;; frame's epoch `:renders` structurally, instead of being suppressed by a
-;; gate that could regress.
-;;
-;; What replaces it is a REAL INTERACTION on the EVENT axis, which is where
-;; the guarantee still needs pinning: drive one Xray chrome event and
-;; assert the inspected app frame's epoch history is unchanged in COUNT AND
-;; CONTENTS. An Xray dispatch that leaked into the app's ring would add a
+;; HALF TWO, THE EVENT AXIS. A Fresco boundary emits NO view-render trace
+;; at all — `rf.view/rendered` does not occur in
+;; `implementation/fresco/src` — so Xray's renders cannot reach any
+;; frame's epoch `:renders` structurally, and a render-emit assertion
+;; would be about an emit NOBODY MAKES. The guarantee that needs pinning
+;; is on the EVENT axis, by REAL INTERACTION: drive one Xray chrome event
+;; and assert the inspected app frame's epoch history is unchanged in
+;; COUNT AND CONTENTS. An Xray dispatch that leaked into the app's ring would add a
 ;; record; one that mutated an existing record would change the contents
 ;; while leaving the count alone, so both are asserted.
 ;;
@@ -2879,11 +2816,11 @@
 
   Descends the tree tracking the scope each `rf.fresco/frame-provider`
   establishes, and reports the scope in force at the `shell/ShellView`
-  head. A nil scope is the rf2-tqlmq fall-through — no enclosing provider.
-  Since the root swap that case is no longer a silent contamination but a
-  LOUD refusal (`ShellView`'s two ambient `rf.fresco/sub` reads have no
-  frame to resolve against), which is strictly better; the pin stays
-  because a loud failure at every user's first paint is still a failure.
+  head. A nil scope is the fall-through — no enclosing provider. That
+  case is a LOUD refusal rather than a silent contamination (`ShellView`'s
+  two ambient `rf.fresco/sub` reads have no frame to resolve against); the
+  pin stands because a loud failure at every user's first paint is still
+  a failure.
 
   Returns `{:found? bool :scope frame-or-nil}`. `:found?` is the instrument
   control: a walker that matched nothing would otherwise report a clean nil
@@ -2905,7 +2842,7 @@
     (or (walk tree nil) {:found? false :scope nil})))
 
 (deftest xray-shell-render-never-lands-in-inspected-app-epoch
-  (testing "rf2-k97c.5, re-aimed by rf2-k97c.3 — mount Xray against an
+  (testing "mount Xray against an
             application frame and the shell must be scoped to its OWN
             frame in the mount tree; then drive a real Xray chrome event
             and the application frame's epoch history must be byte-identical
@@ -2944,11 +2881,10 @@
             (is (= shell/default-frame-id scope)
                 "the mount site wraps the shell boundary in the shell's own
                  frame-provider, so its reads resolve to the Xray frame —
-                 NOT by fall-through to the inspected app (rf2-tqlmq)"))
+                 NOT by fall-through to the inspected app"))
 
-          ;; rf2-k97c.3 — and the tree is ROOTED at that provider rather
-          ;; than merely carrying one somewhere inside it. This is the row
-          ;; the root-swap plan named as missing: the provider is what gives
+          ;; And the tree is ROOTED at that provider rather than merely
+          ;; carrying one somewhere inside it: the provider is what gives
           ;; `ShellView`'s two ambient reads their frame, so a tree that
           ;; carried it one level too deep would leave the boundary itself
           ;; outside its own scope.
@@ -3007,7 +2943,7 @@
                    the instrument being deaf"))))))))
 
 ;; =========================================================================
-;; THE POP-OUT, DRIVEN THROUGH `popout!` ITSELF (rf2-k97c.6)
+;; THE POP-OUT, DRIVEN THROUGH `popout!` ITSELF
 ;; =========================================================================
 ;;
 ;; ## WHY THIS SECTION EXISTS
@@ -3015,33 +2951,31 @@
 ;; Every pop-out row above starts from `seed-popout-state!` — a hand-built
 ;; state map standing in for the one `popout!` would have produced — or
 ;; reaches a private fn directly with stubs it assembled itself. That is the
-;; right shape for the teardown and overlay contracts those rows pin, and it
-;; is why they came through rf2-k97c.3's root swap untouched. It is also why
-;; NOTHING has ever executed `popout!`'s own body: not the window it opens,
-;; not the document it paints into, not WHICH React root it paints through,
-;; and not the frame it wraps the shell in.
+;; right shape for the teardown and overlay contracts those rows pin, but
+;; none of them executes `popout!`'s own body: not the window it opens, not
+;; the document it paints into, not WHICH React root it paints through, and
+;; not the frame it wraps the shell in.
 ;; `popout!-no-longer-refuses-an-element-shaped-substrate` gets one step
 ;; further and stops, deliberately, at `:popup-blocked` — node-test has no
 ;; `js/window` to open a second one with, and that row's literal IS the
 ;; absence of a window.
 ;;
-;; rf2-k97c.3 moved this path onto Xray's own root. rf2-k97c.6 owns what
-;; that leaves, and these rows are that list:
+;; These rows pin:
 ;;
 ;;   * a separate WINDOW and a separate DOM ROOT, as distinct from the
-;;     render call that moved in the swap;
-;;   * the opener-reload watchdog still working;
+;;     render call;
+;;   * the opener-gone watchdog and the opener-reload announcer, as
+;;     `popout!` wires them;
 ;;   * the frame-provider wrap `popout!` carries its OWN COPY of. The wrap
 ;;     is pinned at the MOUNT site by
-;;     `xray-shell-render-never-lands-in-inspected-app-epoch`, whose author
-;;     stated it covers the inline / overlay path only. This is its pop-out
-;;     sibling, and it is a sibling rather than a parameter because the two
-;;     paths reach `render-shell!` through different code with different
-;;     arguments — one shared row would pass on either one alone.
+;;     `xray-shell-render-never-lands-in-inspected-app-epoch`, which covers
+;;     the inline / overlay path only. This is its pop-out sibling, and it
+;;     is a sibling rather than a parameter because the two paths reach
+;;     `render-shell!` through different code with different arguments —
+;;     one shared row would pass on either one alone.
 ;;
-;; A separately booted JS runtime with a transport is the THIRD thing in the
-;; bead's three-way distinction and is explicitly out of scope; nothing here
-;; asserts anything about it, and the pop-out deliberately still shares the
+;; A separately booted JS runtime with a transport is out of scope; nothing
+;; here asserts anything about it, and the pop-out deliberately shares the
 ;; opener's realm (`tools/xray/spec/011-Launch-Modes.md` §Pop-out).
 ;;
 ;; ## HOW THESE ROWS DRIVE THE REAL THING
@@ -3065,7 +2999,7 @@
   painted somewhere ELSE), `:opener-listeners`, `:opener-closed?`, `:opens`
   (one entry per `window.open`), `:intervals` (id → tick fn) and `:cleared`.
 
-  Gated on `can-stub-js-document?` for the rf2-higwg reason every other
+  Gated on `can-stub-js-document?` for the reason every other
   stub-driven row here is: in `:browser-test` the real `window.document` is
   non-configurable and `set!` silently no-ops. This namespace ends
   `-cljs-test`, so it is selected by the `:node-test` build's `cljs-test$`
@@ -3130,17 +3064,16 @@
 ;; Every row below redefs the same two seams: the Fresco root door
 ;; (`rf.fresco/render!`, so the hiccup is captured rather than committed —
 ;; node-test has no React DOM), and `current-adapter`, named as an
-;; ELEMENT-SHAPED host on purpose. `popout!`'s indifference to the installed
-;; adapter is what rf2-k97c.4 bought and rf2-k97c.3 made possible; a row that
-;; ran only on the fixture's ratom-family plain-atom adapter would never
-;; exercise the shape the pop-out used to refuse outright.
+;; ELEMENT-SHAPED host on purpose: a row that ran only on the fixture's
+;; ratom-family plain-atom adapter would never exercise the element-shaped
+;; host `popout!` is indifferent to.
 ;;
 ;; They are wrapped in a thunk-taking helper rather than repeated as a
 ;; `with-redefs` binding vector at each row, so the pair is written once.
 ;; A helper and not a `with-redefs-fn` map: `with-redefs-fn` is Clojure-only
-;; — `cljs.core` has the macro and not the fn, and reaching for it here cost
-;; a compile (`Use of undeclared Var … /with-redefs-fn`, five warnings, which
-;; the node-test lane grades as a regression rather than a backlog).
+;; — `cljs.core` has the macro and not the fn, so reaching for it here
+;; fails the compile with `Use of undeclared Var … /with-redefs-fn`
+;; warnings, which the node-test lane grades as a regression.
 
 (defn- with-popout-seams
   "Run `thunk` with the Fresco root door and the host adapter redefined."
@@ -3152,7 +3085,7 @@
 ;; ---- (a) a separate WINDOW -----------------------------------------------
 
 (deftest popout!-paints-into-the-second-window-not-the-opener
-  (testing "rf2-k97c.6 — the SEPARATE WINDOW half. `popout!` opens one
+  (testing "the SEPARATE WINDOW half. `popout!` opens one
             same-origin named window, titles it, creates its mount node in
             THAT window's document and appends it there. The opener's own
             body receives nothing, which is the claim that separates a
@@ -3208,7 +3141,7 @@
 ;; ---- (b) a separate DOM ROOT ---------------------------------------------
 
 (deftest popout!-paints-through-its-own-root-handle-leaving-the-inline-shell-alone
-  (testing "rf2-k97c.6 — the SEPARATE DOM ROOT half, and the one no other
+  (testing "the SEPARATE DOM ROOT half, and the one no other
             instrument can see. `render!` binds a handle to its mount-point
             on the FIRST call through it and updates that same React root on
             every later one, so a pop-out sharing `xray-root` would re-render
@@ -3250,12 +3183,12 @@
                   (is (true? (mount/visible?))
                       "the inline shell is still mounted and visible"))))))))))
 
-;; ---- (c) evidence integrity on the pop-out path (the routed debt) --------
+;; ---- (c) evidence integrity on the pop-out path --------------------------
 
 (deftest popout-shell-render-never-lands-in-inspected-app-epoch
-  (testing "rf2-k97c.6 — the pop-out sibling of rf2-k97c.5's mount-site pin.
-            `popout!` carries its OWN copy of the frame-provider wrap and
-            nothing asserted it. Same two halves as the mount-site row: the
+  (testing "the pop-out sibling of the mount-site pin.
+            `popout!` carries its OWN copy of the frame-provider wrap, so
+            it needs its own row. Same two halves as the mount-site row: the
             structural claim that the tree `popout!` hands `render!` is
             ROOTED at the shell's own frame-provider, and the event-axis
             claim that a real Xray interaction leaves the inspected
@@ -3294,8 +3227,7 @@
             (is (= shell/default-frame-id scope)
                 "the pop-out site wraps the shell boundary in the shell's own
                  frame-provider, so its ambient reads resolve to the Xray
-                 frame and not by fall-through to the inspected app
-                 (rf2-tqlmq)")
+                 frame and not by fall-through to the inspected app")
             (is (identical? rf.fresco/frame-provider (first tree))
                 "the tree handed to `render!` is ROOTED at
                  `rf.fresco/frame-provider` — one level too deep would leave
@@ -3310,8 +3242,8 @@
                 "and the boundary carries {:mode :popout} — this IS the
                  pop-out's tree and not the inline one recorded twice")
 
-            ;; THE OTHER DIRECTION. rf2-k97c.5's instruction was that a test
-            ;; which cannot fail is not a pin, so the walker is run once
+            ;; THE OTHER DIRECTION. A test which cannot fail is not a pin,
+            ;; so the walker is run once
             ;; against the tree the regression would produce: the same
             ;; boundary with `popout!`'s own copy of the wrap stripped off.
             ;; It must find the boundary and report NO scope — which is what
@@ -3327,7 +3259,8 @@
               (is (nil? unwrapped-scope)
                   "and reports no scope for it. Drop `popout!`'s copy of the
                    provider and this row goes red rather than quietly
-                   re-opening rf2-tqlmq on the second window")))
+                   letting the second window's shell fall through to the
+                   inspected app's frame")))
 
           ;; ---- HALF TWO: the EVENT axis, by real interaction ----------
           ;; One application event first, so the ring under inspection is a
@@ -3374,13 +3307,13 @@
 ;;
 ;; Section (11) above pins what the watchdog and the announcer DO once handed
 ;; their arguments, from hand-built stubs. These two rows pin the edge those
-;; cannot reach: that `popout!` still HANDS them those arguments after the
-;; root swap, and that both reach the overlay node `popout!` itself created.
+;; cannot reach: that `popout!` HANDS them those arguments, and that both
+;; reach the overlay node `popout!` itself created.
 ;; Each is driven to its EFFECT — a wiring row that stopped at "a listener is
 ;; registered" would stay green against an overlay nothing can reveal.
 
 (deftest popout!-wires-the-opener-gone-watchdog-to-its-own-overlay
-  (testing "rf2-k97c.6 — `popout!` creates the opener-gone overlay in the
+  (testing "`popout!` creates the opener-gone overlay in the
             pop-out's document and starts the watchdog against the window it
             opened. Both directions: a tick with a live opener reveals
             nothing, a tick with a closed one reveals the overlay."
@@ -3421,10 +3354,10 @@
                       "and the watchdog self-cleared after firing"))))))))))
 
 (deftest popout!-wires-the-opener-reload-announcer-to-its-own-overlay
-  (testing "rf2-k97c.6 — the reload edge the watchdog structurally cannot
-            observe (rf2-uong), asserted through `popout!` rather than
+  (testing "the reload edge the watchdog structurally cannot
+            observe, asserted through `popout!` rather than
             through a hand-assembled announcer: the opener-side `pagehide`
-            listener must still be registered by `popout!`, and must still
+            listener must be registered by `popout!`, and must
             reach the overlay `popout!` created."
     (with-driven-popout
       (fn [{:keys [opener opener-listeners]}]
@@ -3469,7 +3402,7 @@
 ;; `popout-state` is nil, so it does not recognise the window as its own.
 
 (deftest popout!-evicts-a-dead-realms-shell-and-overlay-from-a-reused-window
-  (testing "rf2-3x7nj.27.3 — re-popping after an opener reload clears the
+  (testing "re-popping after an opener reload clears the
             stale root and the revealed overlay out of the POP-OUT's
             document before appending the live ones, so the user gets one
             live shell and one hidden overlay rather than a fresh shell
