@@ -184,9 +184,9 @@
   (`node.ownerDocument`), never `js/document`. In pop-out mode `popout!`
   paints the shell into the pop-out's document from code running in the
   OPENER's realm, where `js/document` is the opener's document — whose
-  `activeElement` is never one of the pop-out dialog's controls, so the
-  trap read every Tab as focus-outside-the-cycle and pinned it to the
-  first control (rf2-3x7nj.25.5). The document is captured at mount,
+  `activeElement` is never one of the pop-out dialog's controls, so
+  reading it would treat every Tab as focus-outside-the-cycle and pin it
+  to the first control. The document is captured at mount,
   since React calls the ref with `nil` on unmount.
 
   Tolerant of a DOM-less runtime (Node test target): with no document
