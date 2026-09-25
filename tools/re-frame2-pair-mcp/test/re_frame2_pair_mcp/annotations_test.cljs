@@ -55,7 +55,7 @@
         (is (true? (:readOnlyHint (by-name n)))
             (str n " should have readOnlyHint true")))
       ;; Destructive tools. `tail-build` evaluates its caller-supplied
-      ;; `:probe` CLJS in the runtime (rf2-3x7nj.32.1), so it is in the
+      ;; `:probe` CLJS in the runtime, so it is in the
       ;; eval-cljs authority class — never the auto-approvable read-only
       ;; set.
       (doseq [n ["dispatch" "eval-cljs" "tail-build"]]
