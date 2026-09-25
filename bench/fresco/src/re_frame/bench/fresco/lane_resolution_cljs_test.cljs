@@ -1,11 +1,11 @@
 (ns re-frame.bench.fresco.lane-resolution-cljs-test
-  "THE LANE'S RESOLUTION FIGURE, WITNESSED (rf2-42w6).
+  "THE LANE'S RESOLUTION FIGURE, WITNESSED.
 
   [[re-frame.bench.fresco.lane/across-rounds]]'s `:straddles-1?` is the
   gate a reader applies before quoting any comparative range, and it is a
   SOUND NECESSARY CONDITION: an arm that never separated from an empty
-  frame carries no ratio about a substrate, and under `rf2-9wmqd` that
-  test refused a pair outright. What it cannot do is decide whether a
+  frame carries no ratio about a substrate, and that test can refuse a
+  pair outright. What it cannot do is decide whether a
   comparison had the POWER to see the line it is read against — one arm
   against the floor and two arms against each other are different
   questions. [[re-frame.bench.fresco.lane/resolution]] answers the
@@ -24,7 +24,7 @@
 
   ## The fixture is the measured case, not an invented one
 
-  [[locale-like]] carries `rf2-9wmqd`'s own published figures for the
+  [[locale-like]] carries the published figures for the
   `:locale` pair's first evidence run — a floor `p50` of `16.30 ms`, a
   denominator arm at `17.05 ms`, and a per-round spread of `3.75`
   percentage points. `the-fixture-reproduces-the-published-displacements`
@@ -49,7 +49,7 @@
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
 ;; ---------------------------------------------------------------------------
-;; The fixture — rf2-9wmqd's `:locale` pair, evidence run 1
+;; The fixture — the published `:locale` pair, evidence run 1
 ;; ---------------------------------------------------------------------------
 
 (def summary
@@ -82,9 +82,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-fixture-reproduces-the-published-displacements
-  (testing "`rf2-9wmqd` published that a `1.25x` difference in the arms'
-           own work would move this pair's ratio to `1.011` and a `1.5x`
-           difference to `1.022`. Both fall straight out of
+  (testing "The published `:locale` run puts a `1.25x` difference in the
+           arms' own work at a pair ratio of `1.011` and a `1.5x`
+           difference at `1.022`. Both fall straight out of
            `:own-work-share`, so if the fixture ever stops standing for
            that run this fails rather than the cases below quietly
            testing something else."
