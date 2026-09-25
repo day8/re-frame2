@@ -4630,17 +4630,16 @@ test('all-required-passed aggregator needs the four new implementation_jvm jobs 
   }
 });
 
-// rf2-am7grp — quiet-reporter routing false-green fix (review wave
-// rf2-ks67un). implementation/test-quiet is the test-runtime
+// Quiet-reporter routing. implementation/test-quiet is the test-runtime
 // quiet-reporter artefact: the JVM runner (runner.clj, the :main-opts of
 // every per-artefact :test alias) AND the CLJS shadow-node runner (the
-// :node-test build's :main). The classifier had NO test-quiet/** case,
-// so a PR changing the reporter implementation, its runners, its
-// deps.edn, or its contract tests left every output false — both the JVM
-// quiet-runner contract and the CLJS node-test quiet reporter contract
-// skipped, with js-harness-self-tests (JS script policy/helper tests
-// only) the sole insufficient verifier. These assertions lock the new
-// routing onto implementation_jvm + cljs_node_test.
+// :node-test build's :main). Without a test-quiet/** case, a PR changing
+// the reporter implementation, its runners, its deps.edn, or its contract
+// tests would leave every output false — both the JVM quiet-runner contract
+// and the CLJS node-test quiet reporter contract skipped, with
+// js-harness-self-tests (JS script policy/helper tests only) the sole
+// insufficient verifier. These assertions lock the routing onto
+// implementation_jvm + cljs_node_test.
 
 const TEST_QUIET_FILES = pinnedRoster('TEST_QUIET_FILES', [
   'implementation/test-quiet/src/re_frame/test_quiet/runner.clj',
@@ -4668,23 +4667,20 @@ for (const file of TEST_QUIET_FILES) {
 // implementation/spec-resource is the ONE build-time reader for committed
 // spec/ data, and the api-manifest CLJS probe is the ONE consumer that
 // expands through it. Its own suite is the deterministic control for a
-// cold-load race that has shipped twice behind fully green lanes — which
+// cold-load race that can ship behind fully green lanes — which
 // is exactly why the routing has to be pinned. If the classifier leaves
 // every output false, the one job in CI that goes red when the racy shape
 // returns simply SKIPS, and the aggregator passes.
 //
-// The cljs_browser assertion pins the arm in the OTHER direction, and it
-// is here because its absence is what let a stale lane survive (rf2-7b1ti).
-// The arm carried cljs_browser=true for the Freehand -dom-cljs-test
-// fixture suites; those retired with rf2-0yp7w and nothing browser-side
-// replaced them, but because this block asserted only the two outputs
-// above, the dead lane was invisible to the suite that supposedly pinned
-// the arm. re-frame.build.spec-resource is macro-side .clj, so a CLJS
+// The cljs_browser assertion pins the arm in the OTHER direction: asserting
+// only the two outputs above would leave a dead browser lane invisible to
+// the suite that pins the arm. re-frame.build.spec-resource is macro-side
+// .clj, so a CLJS
 // build reaches it only via a macro require, and the one such path is
 // re-frame.api-manifest.cljs-publics — whose only two consumers are plain
 // -cljs-test namespaces that nothing else requires, while :browser-test
-// selects .*-dom-cljs-test$. Asserting 'false' costs nothing today and
-// means a future re-add has to argue for itself here first.
+// selects .*-dom-cljs-test$. Asserting 'false' costs nothing and means a
+// future re-add has to argue for itself here first.
 
 for (const file of [
   'implementation/spec-resource/src/re_frame/build/spec_resource.clj',
@@ -4736,29 +4732,24 @@ test('test-quiet routing does NOT broaden docs/spec-only or unrelated surfaces (
   // Scoped to src/test/deps.edn under test-quiet; a generic docs change stays
   // off the implementation gates entirely.
   //
-  // rf2-61ar — the control moved off `spec/006-ReactiveSubstrate.md`. Not
-  // because this case's claim changed, but because that file stopped being an
-  // inert control: jvm-ui slurps it (slice_memo_lifetime_census_jvm_test.clj),
-  // so spec prose now arms implementation_jvm by design and could no longer
-  // distinguish a test-quiet over-broadening from the spec arm doing its job.
-  // `docs/guide/getting-started.md` is prose no suite reads, which is what this
-  // case always needed.
+  // The control is prose no suite reads (`docs/guide/getting-started.md`),
+  // not a spec page: spec prose arms implementation_jvm by design, so it
+  // could not distinguish a test-quiet over-broadening from the spec arm
+  // doing its job.
   const result = classify('docs/guide/getting-started.md');
   assert.equal(result.implementation_jvm, 'false');
   assert.equal(result.cljs_node_test, 'false');
 });
 
-// rf2-h5e3v7 — tenant-switcher testbed smoke routing. The runner
+// Tenant-switcher testbed smoke routing. The runner
 // serve-and-run-tenant-switcher-testbed.cjs IS the executable
 // orchestration for `npm run test:testbed-tenant-switcher`, the command
-// the new tenant-switcher-testbed-smoke PR job runs (test.yml). It is the
+// the tenant-switcher-testbed-smoke PR job runs (test.yml). It is the
 // ONLY Playwright smoke that exercises the tenant-switcher browser
-// scenario. Before this bead the npm script was defined in package.json
-// but invoked by NO workflow, and the classifier routed both the runner
-// (generic implementation/scripts/*) and the testbed (generic testbeds/*)
-// only to always-on CLJS surfaces — so a regression in the runner, its
+// scenario. Routed only to the always-on CLJS surfaces (generic
+// implementation/scripts/* and testbeds/*), a regression in the runner, its
 // colocated spec, or the testbed could ship green. These assertions lock
-// the new tenant_switcher_smoke routing onto the runner + the testbed,
+// the tenant_switcher_smoke routing onto the runner + the testbed,
 // while keeping unrelated implementation/scripts/* + testbeds/* off it.
 
 test('serve-and-run-tenant-switcher-testbed.cjs fires tenant_switcher_smoke (rf2-h5e3v7)', () => {
@@ -4815,7 +4806,7 @@ test('an UNRELATED top-level testbed does NOT fire tenant_switcher_smoke (scope 
     'false',
     'only the tenant-switcher testbed carries a colocated Playwright smoke',
   );
-  // It still gets the always-on transitive CLJS coverage.
+  // It gets the always-on transitive CLJS coverage.
   assert.equal(result.cljs_browser, 'true');
 });
 
@@ -4830,7 +4821,7 @@ test('tenant-switcher-testbed-smoke job is job-level gated on tenant_switcher_sm
     /if: needs\.detect_changed_surfaces\.outputs\.tenant_switcher_smoke == 'true'/,
   );
   // The job must actually RUN the npm script the gate exists to drive —
-  // pinning the wiring so the script cannot drift out of CI again.
+  // pinning the wiring so the script cannot drift out of CI.
   assert.match(block, /npm run test:testbed-tenant-switcher/);
 });
 
@@ -4843,16 +4834,8 @@ test('all-required-passed aggregator needs tenant-switcher-testbed-smoke (rf2-h5
   );
 });
 
-// rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate's surfaces.
-// Before this case a ui-only PR left every output false (the whole
-// artefact's suites + the S1f parity corpus + the G-1/G-14 gates all
-// skipped — a false-green hole).
-
-// rf2-ga8m — the Fresco three-engine controlled-input gate (rf2-hic-016),
-// scheduled at last. It landed green and ran NOWHERE: the PR that built it was
-// fenced out of .github/workflows/** while rf2-8a6s held that surface, so it
-// declared itself a known hole in scripts/check_gate_scheduling.py instead of
-// going quietly unrun. These rows are the other half of closing that hole.
+// The Fresco three-engine controlled-input gate. A gate no workflow schedules
+// runs NOWHERE while every lane stays green; these rows pin its scheduling.
 
 const FRESCO_CONTROLLED = {
   job: 'cljs-fresco-controlled',
@@ -4910,9 +4893,9 @@ test('the fresco controlled-input job installs the PINNED three engines (rf2-ga8
   // root or ahead of `npm ci` and npx resolves a NEWER Playwright from its own
   // cache, fetches that release's browser revisions, and prunes the pinned
   // WebKit out of the shared browser cache: a green job that never launched
-  // the engine it claims to. Measured while wiring this lane — 1.59.1 inside
-  // implementation/, 1.62.1 one directory up — so `--no-install` is no
-  // defence; only the working directory is.
+  // the engine it claims to. The two resolve differently — 1.59.1 inside
+  // implementation/ against 1.62.1 one directory up, when measured — so
+  // `--no-install` is no defence; only the working directory is.
   assert.match(
     block,
     /working-directory: implementation/,
@@ -4946,7 +4929,7 @@ test('the fresco controlled-input lane arms on its tree, its launcher and the bu
     );
   }
   // The launcher case is placed before the generic implementation/scripts/*
-  // case, so it must not narrow what that case already gave the file.
+  // case, so it must not narrow what that case gives the file.
   const launcher = classify(FRESCO_CONTROLLED.launcher);
   for (const output of [
     'cljs_node_test',
@@ -4985,8 +4968,8 @@ test('the fresco controlled-input lane stays dark for unrelated surfaces (rf2-ga
 
 test('a fresco package change does NOT fire the JVM or prod tiers (rf2-ga8m)', () => {
   // The fresco arm stays narrow everywhere it has no suite: the runtime
-  // requires React so every suite it owns is CLJS, no `-elision-prod-test$`
-  // namespace exists, and it mounts no testbed the ui gates drive.
+  // requires React so every suite it owns is CLJS, and no
+  // `-elision-prod-test$` namespace exists.
   const result = classify(FRESCO_CONTROLLED.spec);
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result[FRESCO_CONTROLLED.output], 'true');
@@ -4995,12 +4978,9 @@ test('a fresco package change does NOT fire the JVM or prod tiers (rf2-ga8m)', (
   }
 });
 
-// rf2-hic-015 — the Fresco HMR gate, the repo's LAST declared scheduling
-// hole, closed. It landed under rf2-vsgq green on three engines and ran
-// nowhere: no workflow invoked `npm run test:fresco-hmr`, so it declared
-// itself `unscheduled` in scripts/check_gate_scheduling.py rather than let the
-// absence go unrecorded. These rows are the half that makes the schedule real
-// — an arm with no regression is the same fail-open, one level down.
+// The Fresco HMR gate. A gate no workflow invokes runs nowhere; these rows are
+// the half that makes the schedule real — an arm with no regression is the
+// same fail-open, one level down.
 
 const FRESCO_HMR = {
   job: 'cljs-fresco-hmr',
@@ -5025,7 +5005,7 @@ test('the fresco HMR job is gated on its own output and runs the gate (rf2-hic-0
     `${FRESCO_HMR.job} must be gated on ${FRESCO_HMR.output}`,
   );
   // It must EXECUTE the gate, not merely mention it. A job that references a
-  // command it never runs is the fail-open this bead exists to close.
+  // command it never runs is a fail-open.
   assert.ok(
     stepRunning(block, 'npm run test:fresco-hmr'),
     'the job must run `npm run test:fresco-hmr` as a step',
@@ -5061,20 +5041,20 @@ test('the fresco HMR job installs the PINNED three engines and narrows none (rf2
   // would still print a PASS having checked nothing about divergence. The job
   // must pass no engine narrowing at all.
   //
-  // The runner now refuses the full verdict to ANY narrowing, not just one
-  // below the comparator's floor (rf2-l92i), so a job that set this would be
-  // caught in its own log too. That is a second line of defence and not a
-  // reason to relax this one: the runner's honesty is about the reader of a
-  // log, and this row is about the job never getting into that state. Note in
-  // particular that a TWO-engine narrowing does get compared — so "the
-  // comparator is inert" is no longer the whole reason to forbid the knob
-  // here; the whole reason is that this job's name promises three engines.
+  // The runner refuses the full verdict to ANY narrowing, not just one below
+  // the comparator's floor, so a job that set this would be caught in its own
+  // log too. That is a second line of defence and not a reason to relax this
+  // one: the runner's honesty is about the reader of a log, and this row is
+  // about the job never getting into that state. Note in particular that a
+  // TWO-engine narrowing does get compared — so "the comparator is inert" is
+  // not the whole reason to forbid the knob here; the whole reason is that
+  // this job's name promises three engines.
   //
-  // Read the job's EXECUTABLE text, not its prose. The first cut of this row
-  // grepped the whole block and reddened on the YAML COMMENT that explains the
-  // knob — an assertion that forbids naming the hazard is an assertion that
-  // punishes documenting it, and it would have been "fixed" by deleting the
-  // explanation. Comments out, then look for an assignment.
+  // Read the job's EXECUTABLE text, not its prose. Grepping the whole block
+  // would red on the YAML COMMENT that explains the knob — an assertion that
+  // forbids naming the hazard is an assertion that punishes documenting it,
+  // and it would get "fixed" by deleting the explanation. Comments out, then
+  // look for an assignment.
   const executable = block
     .split(/\r?\n/)
     .filter((line) => !/^\s*#/.test(line))
@@ -5140,7 +5120,7 @@ test('the fresco HMR lane arms on its tree, its launcher and the build config (r
     );
   }
   // The launcher case sits above the generic implementation/scripts/* case, so
-  // it must not narrow what that case already gave the file.
+  // it must not narrow what that case gives the file.
   const launcher = classify(FRESCO_HMR.launcher);
   for (const output of [
     'cljs_node_test',
@@ -5210,22 +5190,18 @@ test('the fresco HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () =
   );
 });
 
-// rf2-8a6s — the regression that would have caught this arm going stale.
+// The regression that keeps this arm from going stale.
+// `implementation/fresco/*` arms `cljs_browser` because the package owns
+// `-dom-cljs-test$` suites; a narrowing that dropped it would be true only
+// while the package owned none, and a rule with no regression is exactly how
+// a narrowing goes stale in silence.
 //
-// rf2-8a6s originally set `cljs_node_test` for `implementation/fresco/*` and
-// deliberately NOT `cljs_browser`, on a premise that was true when written:
-// the package owned no `-dom-cljs-test$` namespace, so the browser lane would
-// have run not one line of it. That premise EXPIRED when rf2-hic-010 and
-// rf2-hic-012 landed DOM suites, and nothing noticed — a rule with no
-// regression is exactly how a narrowing goes stale in silence.
-//
-// The failure mode was worse than a skipped job. `:browser-test` selected
-// `^(?!re-frame\.freehand\.bench\.).*-dom-cljs-test$` at the time — it is
-// plain `.*-dom-cljs-test$` now that tree has gone (rf2-0yp7w) — so these
-// namespaces were already in the browser lane; the lane simply never ran on
-// a diff that touched them, while the consolidated node build compiled the
-// same namespaces and reported each DOM row as a STATED GREEN SKIP. The
-// surface passed having executed none of its DOM assertions.
+// The failure mode is worse than a skipped job. `:browser-test` selects
+// `.*-dom-cljs-test$`, so these namespaces are in the browser lane
+// regardless; without the arm the lane would never run on a diff that touched
+// them, while the consolidated node build compiles the same namespaces and
+// reports each DOM row as a STATED GREEN SKIP. The surface would pass having
+// executed none of its DOM assertions.
 
 const FRESCO_DOM_TESTS = pinnedRoster('FRESCO_DOM_TESTS', [
   'implementation/fresco/test/re_frame/fresco/kernel_commit_owns_dom_cljs_test.cljs',
@@ -5244,7 +5220,7 @@ test('a fresco DOM-test diff lights the browser job (rf2-8a6s)', () => {
 });
 
 test('widening fresco to cljs_browser did not cost it the node lane (rf2-8a6s)', () => {
-  // The reviewer's constraint, pinned: cljs_browser is IN ADDITION TO
+  // The constraint, pinned: cljs_browser is IN ADDITION TO
   // cljs_node_test, not instead of it. `cljs_node_test` is the only output
   // that schedules the package smoke and the freeze gate, and the browser
   // lane runs neither, so trading one for the other would close this hole by
@@ -5289,44 +5265,24 @@ test('the fresco DOM suites really are in the browser lane (rf2-8a6s)', () => {
   }
 });
 
-// rf2-kxork — G-18 library facade isolation promoted into the required matrix.
-// The checker was donated RED (#6182) and parked outside CI; #6195 repaired the
-// DCE mechanism and it now passes, so it becomes a standing regression net.
-// These three tests are the wiring's own proof: the classifier must arm the
-// gate, the job must be surface-gated and actually run it, and the required
-// aggregator must depend on it. Remove any one of those and a test reds.
-
-// rf2-vxgfnd.90 — re-frame.ui now ships REAL DOM tests
-// (`*-dom-cljs-test.{cljs,cljc}`) in the `:browser-test` build (the S1c/S2
-// mount + reactivity + frame-scope keystone fixtures — the ONLY place
-// React act discipline / real react-dom/client roots / live ViewCell
-// teardown are exercised). The `implementation/ui/*` case previously left
-// cljs_browser=false on a stale "no production build :requires
-// re-frame.ui.* yet" comment, so a test-only UI PR (e.g. #5767, which
-// changed exactly one `*-dom-cljs-test`) merged GREEN while its only
-// relevant browser test reported SKIPPED — a false-green hole. The gate
-// now fires cljs_browser for EVERY implementation/ui/** source or test
-// change (conservative: trigger the browser gate MORE, never less).
-// rf2-vxgfnd.12.2 adds a mounted generated-view :advanced production control
-// for the override/provider carriage, so cljs_prod and bundle_isolation are now
-// part of every UI change's proof surface too.
+// Scope discipline for cljs_browser: prose compiles into nothing, so a
+// docs/spec-only change must not schedule the browser gate.
 
 test('a docs/spec-only change does NOT arm cljs_browser (negative — scope discipline) (rf2-vxgfnd.90)', () => {
   assert.equal(classify('spec/006-ReactiveSubstrate.md').cljs_browser, 'false');
   assert.equal(classify('docs/core/intro.md').cljs_browser, 'false');
 });
 
-// rf2-vxgfnd.137 — Git-DERIVED discovery mode (the real CI path), not the
+// Git-DERIVED discovery mode (the real CI path), not the
 // explicit-path classifier the matrix above exercises. The classify() helper
 // passes paths straight to the script, bypassing the `git diff` that PR/local
 // CI actually runs. Git rename detection collapses a pure rename to its
 // DESTINATION path only, so a rename OUT of a classified surface (e.g.
-// implementation/ui/** -> docs/**) reported just the unclassified destination
-// and left every gate for the DELETED production endpoint false — a CI
-// false-green (rf2-vxgfnd.90's guarantee that every first-party UI change runs
-// the browser/UI/JVM/node gates, silently violated). The fix runs
-// `git diff --no-renames` so BOTH endpoints (old = deletion, new = addition)
-// reach the classifier. These tests build REAL two-commit temporary repos and
+// implementation/adapters/** -> docs/**) would report just the unclassified
+// destination and leave every gate for the DELETED production endpoint false
+// — a CI false-green. The script runs `git diff --no-renames` so BOTH
+// endpoints (old = deletion, new = addition) reach the classifier. These
+// tests build REAL two-commit temporary repos and
 // invoke the script's local discovery branch (HEAD^ HEAD) with no explicit
 // paths, so they exercise the exact Git-derived path the matrix cannot.
 
@@ -5351,7 +5307,7 @@ function writeFileP(root, relPath, contents) {
   fs.writeFileSync(abs, contents);
 }
 
-// ─── rf2-34yg — THE LAUNCHER'S ENV TRANSPORT ────────────────────────────────
+// ─── THE LAUNCHER'S ENV TRANSPORT ────────────────────────────────
 //
 // The three environment values the git-discovery tests below CONTROL. Every one
 // of them is read by report-changed-surfaces.sh's base-resolution block, and a
@@ -5371,25 +5327,22 @@ const LAUNCHER_TRANSPORTED_ENV = Object.freeze([
  * WHY THIS EXISTS. On Windows, `bash` is resolved by the OS from PATH, and
  * which bash.exe answers is not this suite's choice: `C:\Windows\System32\
  * bash.exe` (the WSL launcher) ships with Windows and sits in System32, ahead
- * of `C:\Program Files\Git\bin\bash.exe` on a default PowerShell PATH — on the
- * host this was found, Git Bash is not on that PATH at all. WSL does NOT
- * inherit the Windows environment: it imports only the variables NAMED in
- * WSLENV. So `env:` values handed to the child crossed into Git Bash and into
- * Linux CI, and vanished into WSL. Measured directly, before this fix: all
- * three read empty in the child, the classifier fell back to HEAD^ exactly as
- * it is designed to when handed no base, and two of the rf2-34yg push cases
- * went red while the other three went green FOR THE WRONG REASON — they assert
- * `false`, which is also what a dropped base produces. The identical suite
- * passed all 354 cases under Git Bash. A gate whose verdict depends on which
- * bash.exe the OS finds first is not a gate, and the failing direction is the
- * quiet one.
+ * of `C:\Program Files\Git\bin\bash.exe` on a default PowerShell PATH — and
+ * Git Bash may not be on that PATH at all. WSL does NOT inherit the Windows
+ * environment: it imports only the variables NAMED in WSLENV. So `env:` values
+ * handed to the child cross into Git Bash and into Linux CI, and vanish into
+ * WSL: all three read empty in the child, the classifier falls back to HEAD^
+ * exactly as it is designed to when handed no base, and some of the push
+ * cases go red while others go green FOR THE WRONG REASON — they assert
+ * `false`, which is also what a dropped base produces. A gate whose verdict
+ * depends on which bash.exe the OS finds first is not a gate, and the failing
+ * direction is the quiet one.
  *
- * WHY WSLENV AND NOT A WRAPPER. The audit offered two shapes — extend WSLENV,
- * or wrap the script in an argv/stdin `export` preamble. WSLENV was measured
- * sufficient (all three arrive with their exact supplied values), so the
- * wrapper is not built: it would need shell quoting for values that reach the
- * child today without any, which is the hand-rolled quoting `classify()` above
- * was deliberately retired to avoid.
+ * WHY WSLENV AND NOT A WRAPPER. The alternative is to wrap the script in an
+ * argv/stdin `export` preamble. WSLENV is sufficient (all three arrive with
+ * their exact supplied values), and a wrapper would need shell quoting for
+ * values that reach the child without any — the hand-rolled quoting
+ * `classify()` above deliberately avoids.
  *
  * PRESERVES GIT BASH AND LINUX. The WSLENV entry is added only on win32, and
  * even there it is inert for a Git Bash child (verified: the values cross with
@@ -5430,7 +5383,7 @@ function launcherEnv(env, platform = process.platform) {
 // its Git-derived (local, HEAD^ HEAD) discovery mode with NO explicit paths and
 // return the parsed classifier outputs. GITHUB_* is cleared so the script takes
 // the local branch and prints to stdout.
-// `envFor` (rf2-34yg) is an OPTIONAL callback run after the history is built
+// `envFor` is an OPTIONAL callback run after the history is built
 // and before the script is invoked; it returns extra environment for the run.
 // It is a callback rather than a plain object because the interesting variable
 // — the push's accepted base — is a SHA that does not exist until
@@ -5462,7 +5415,7 @@ function classifyViaGitDiscovery(buildHistory, envFor) {
       if (key.startsWith('GIT_')) delete env[key];
     }
     // Applied LAST, so a test can set what the deletions above cleared —
-    // notably GITHUB_EVENT_NAME=push plus the accepted base (rf2-34yg).
+    // notably GITHUB_EVENT_NAME=push plus the accepted base.
     if (envFor) {
       Object.assign(
         env,
@@ -5471,7 +5424,7 @@ function classifyViaGitDiscovery(buildHistory, envFor) {
     }
     const out = execFileSync('bash', ['-s'], {
       cwd: tmp,
-      // rf2-34yg — `launcherEnv`, not `env`. On a WSL launcher the three values
+      // `launcherEnv`, not `env`. On a WSL launcher the three values
       // above do not cross into the child unless WSLENV names them, and a base
       // that arrives empty silently demotes this to the HEAD^ fallback.
       env: launcherEnv(env),
@@ -5514,14 +5467,12 @@ function renameViaGitDiscovery(fromPath, toPath) {
 // A CLASSIFIED first-party source, used purely as the subject of the
 // git-DISCOVERY tests below (rename splitting, push-base resolution). What
 // matters is only that the path is classified and its gate keys fire — the
-// artefact behind it is incidental, so it was repointed from the retired
-// re-frame.ui tree to the Reagent adapter (rf2-0yp7w.4) without changing what
-// either test proves.
+// artefact behind it is incidental.
 const CLASSIFIED_SOURCE = 'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs';
 const DISCOVERY_GATE_KEYS = ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod'];
 
 test('DISCOVERY: docs->docs rename does NOT arm UI gates (no spurious firing) (rf2-vxgfnd.137)', () => {
-  // Both endpoints are unclassified — --no-renames must not manufacture a UI
+  // Both endpoints are unclassified — --no-renames must not manufacture a
   // classification (guards against over-firing / mis-splitting a rename).
   const result = renameViaGitDiscovery('docs/a.md', 'docs/b.md');
   for (const key of DISCOVERY_GATE_KEYS) {
@@ -5529,12 +5480,13 @@ test('DISCOVERY: docs->docs rename does NOT arm UI gates (no spurious firing) (r
   }
 });
 
-// Ordinary add / modify / delete via the SAME Git-derived discovery mode stay
-// classified exactly as before — --no-renames only changes how renames surface.
+// Ordinary add / modify / delete via the SAME Git-derived discovery mode
+// classify as they do explicitly — --no-renames only changes how renames
+// surface.
 
 // A three-commit "push": a classified file lands in commit 1 and is untouched
 // by commits 2 and 3, so it is present on both sides of a HEAD^ diff and
-// escapes — exactly the shape the two measured merges had.
+// escapes it.
 function pushHistory({ write, commit }) {
   write('README.md', '# scratch\n');
   commit('base — the tip main pointed at BEFORE the push');
@@ -5557,7 +5509,7 @@ test('PUSH: a multi-commit push classifies over the WHOLE push, not the tip (rf2
     assert.equal(
       result[key],
       'true',
-      `a UI change in commit 1 of a 3-commit push must arm ${key} on the ` +
+      `a classified change in commit 1 of a 3-commit push must arm ${key} on the ` +
         'push run — reverting the base to HEAD^ makes this fail',
     );
   }
