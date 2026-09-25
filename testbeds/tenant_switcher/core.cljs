@@ -1,16 +1,16 @@
 (ns tenant-switcher.core
   "Shared framework-behavior testbed — the scoped-cache TENANT SWITCHER.
 
-  EP-0013/resources Part-2 leak-boundary scenario 5 (rf2-5e22yc, spun from
-  rf2-wwhedk): the multi-SCOPE consumer the rest of the testbed tree lacks.
+  EP-0013/resources Part-2 leak-boundary scenario 5: the multi-SCOPE
+  consumer the rest of the testbed tree lacks.
   Every other multi-tenant-shaped surface in the repo is multi-FRAME (one
   frame per tenant, each isolated). THIS one is multi-SCOPE: a SINGLE frame
   switching the active principal — an admin impersonating
   tenant `acme`, then `globex`, then back — while the scoped-cache keeps each
   tenant's loaded dashboard structurally isolated and SIMULTANEOUSLY live.
 
-  The live demonstration of the guide's claim (docs/core/concepts/server-state.md
-  §\"The scoped key: a leak boundary that fails closed\"): the resolved
+  The live demonstration of the guide's claim (docs/resources/concepts.md
+  §\"Scope: whose cache?\"): the resolved
   scope is IN the cache key, so two tenants' reads of the SAME params land on
   two structurally distinct entries. After switching from `acme` to `globex`,
   the active-scope view reads GLOBEX's dashboard — never `acme`'s cached data
@@ -28,7 +28,7 @@
   active-scope sub) re-resolves through the named resolver.
 
   This is NOT a tutorial — the bodies are minimal and there are no deliberate
-  bugs or anti-pattern demos (feedback_testbeds_are_test_surfaces). The
+  bugs or anti-pattern demos. The
   EXECUTABLE leak-boundary guarantees (cross-user logout leak, wrong-scope
   fail-closed read, scoped-invalidation isolation, owner-lifecycle
   non-interference) are pinned by the CLJS unit suites
@@ -138,7 +138,7 @@
     (when (and (vector? scope) (= :rf.scope/tenant (first scope)))
       (:tenant-id (second scope)))))
 
-;; rf2-h1vqa4: the stub is a TESTBED-OWNED fx id routed through the frame's
+;; The stub is a TESTBED-OWNED fx id routed through the frame's
 ;; `:fx-overrides` (see `run` below) — the designed per-frame replacement
 ;; seam — rather than a re-registration of the framework's `:rf.http/managed`
 ;; id, which would sit beside the framework row as a cross-namespace
@@ -148,12 +148,12 @@
     ;; HOT PATH — synthesise the success reply the live transport would have
     ;; dispatched. `on-success` is `[reply-id verification-payload]`; the
     ;; runtime verifies frame + work-id + generation on the payload before it
-    ;; writes, so stale/superseded replies are still suppressed correctly.
+    ;; writes, so stale/superseded replies are suppressed correctly.
     (let [[reply-id payload] on-success
           tenant (tenant-id-of (:resource/key payload))
           motto  (get-in tenant-index [tenant :motto])]
       ;; Synthesise the canonical success reply the live transport would have
-      ;; appended (rf2-ibksxg — the reply is the uniform envelope; the resources
+      ;; appended (the reply is the uniform envelope; the resources
       ;; runtime reads `:value` off it).
       (rf/dispatch [reply-id payload {:status :ok
                                       :value  {:tenant tenant
@@ -303,7 +303,7 @@
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence.
+  ;; Per EP-0002, the runtime never synthesises a frame from absence.
   ;; `:rf/default` is this testbed's frame, registered explicitly; the
   ;; boot dispatch runs under it and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
