@@ -1,18 +1,16 @@
 (ns re-frame.story.ui.url-state
   "URL state engine — encode the shell's user-visible selection into the
-  browser URL, and hydrate the shell from the URL on mount / popstate
-  (rf2-o4u18).
+  browser URL, and hydrate the shell from the URL on mount / popstate.
 
   ## Why
 
-  Per the workspace/variant audit (`ai/findings/2026-05-18-story-
-  workspace-variant-navigation.md` §D), the testbed scored 4/10 on URL
-  sharability: variant + modes + overrides + substrate were encoded,
-  but workspace / mode-tab / viewport / background / tag-filter were
-  NOT, and no `pushState` / `popstate` was wired so back-button and
-  bookmarks didn't reflect navigation. For a devtool testbed
+  For a devtool testbed
   sharability IS the value proposition — a teammate should be able to
-  paste a URL and land on the exact same view.
+  paste a URL and land on the exact same view, and the back-button and
+  bookmarks should reflect navigation. So the URL encodes variant,
+  workspace, mode-tab, modes, viewport, background, tag-filter,
+  overrides and substrate, and `pushState` / `popstate` keep it in step
+  with the shell.
 
   ## What
 
@@ -38,10 +36,9 @@
   toggle) → `pushState` so the browser back-button restores the prior
   view.
 
-  Cell-override edits on the focused variant ARE pushed (rf2-5fyo3):
-  the share popover that once owned override serialisation was retired
-  (rf2-ymnfx), so the live address bar is the only surface that shares
-  overrides. `url-relevant-slots-changed?` compares the focused
+  Cell-override edits on the focused variant ARE pushed: no share
+  popover serialises overrides, so the live address bar is the surface
+  that shares them. `url-relevant-slots-changed?` compares the focused
   variant's overrides slice, and `params-from-state` serialises it into
   the `overrides=` param — a teammate pasting the URL lands on the same
   override set. Overrides on non-focused variants stay off the URL.
@@ -58,7 +55,7 @@
   state it just absorbed."
   ;; `clojure.string` is CLJS-only here: the pure half composes through
   ;; `rf.story.share/apply-story-params` and does no string work of its own, so
-  ;; the alias survives solely for `embed-flag-from-current-url`'s
+  ;; the alias serves only `embed-flag-from-current-url`'s
   ;; truthiness parse down in the `#?(:cljs ...)` block.
   (:require #?(:cljs [clojure.string :as str])
             [re-frame.story.share :as rf.story.share]))
@@ -104,7 +101,7 @@
   Story owns exactly `rf.story.share/story-query-keys` in that query and nothing
   else. This call writes the keys `shell` populates, CLEARS the ones it
   does not, and PRESERVES every unrelated param already on `:search` —
-  `embed=1` (rf2-pucku chrome state, read at mount and deliberately
+  `embed=1` (chrome state, read at mount and deliberately
   never round-tripped through `rf.story.share/parse-params`), a referrer `from=`,
   whatever a host page appended — verbatim and in order, ahead of the
   generated params.
@@ -112,12 +109,11 @@
   That boundary is not restated here: the merge IS
   `rf.story.share/apply-story-params`, the same function `rf.story.share/variant-share-url`
   builds on. The two writers of this URL therefore cannot disagree about
-  who owns an unrelated param, which is the defect rf2-gee8n recorded —
-  this fn used to compose from `{:pathname :hash}` alone and rebuild the
-  query from shell state, discarding `location.search` wholesale, so the
-  first state change after mount dropped exactly the params rf2-b7je1
-  had just taught the share builder to keep. The loss showed on
-  copy/paste and reload, not in the live session.
+  who owns an unrelated param. Composing from `{:pathname :hash}` alone
+  and rebuilding the query from shell state would discard
+  `location.search` wholesale, so the first state change after mount
+  would drop exactly the params the share builder keeps — a loss that
+  shows on copy/paste and reload, not in the live session.
 
   The encoder writes the query BEFORE the hash route (Story uses
   hash-based routing under `#/stories`), which `apply-story-params`
@@ -150,9 +146,8 @@
   cell-overrides slice. The overrides slice is variant-scoped (the URL
   carries the focused variant's overrides, per `params-from-state`); a
   controls edit on the focused variant must push so the live address
-  bar round-trips the override (rf2-5fyo3 — the share popover that used
-  to own override serialisation was retired by rf2-ymnfx, so the live
-  URL is now the only override-sharing surface)."
+  bar round-trips the override (no share popover serialises overrides,
+  so the live URL is the override-sharing surface)."
   [old new]
   (or (not= (:selected-variant   old) (:selected-variant   new))
       (not= (:selected-workspace old) (:selected-workspace new))
@@ -183,12 +178,12 @@
     :background? fn   — recognised? for preset kw / colour string
     :substrate?  fn   — registered? predicate for substrate ids
 
-  Per rf2-hscut: workspace + variant are mutually exclusive in the
+  Workspace + variant are mutually exclusive in the
   sidebar (selecting one clears the other). If the URL carries both
   the variant wins (variant is the canonical sharable unit; workspace
   groupings are derived).
 
-  Per rf2-j0hwf: parsed `:cell-overrides` are installed under
+  Parsed `:cell-overrides` are installed under
   `[:cell-overrides variant-id]` when a variant is kept, so a shared
   URL / popstate restores the same effective args — not just the
   selection. Overrides are variant-scoped (the URL carries only the
@@ -196,7 +191,7 @@
   variant. The state-watcher pushes that same slice, so this closes the
   encode/decode round-trip on back/forward navigation.
 
-  Per rf2-2cpoo: the URL is authoritative for the FOCUSED variant's
+  The URL is authoritative for the FOCUSED variant's
   overrides. When the URL keeps a variant but carries NO overrides, this
   fn CLEARS any stale `[:cell-overrides variant-id]` slice (not just
   skipping the write) — so back/forward, a bookmark, or a share link that
@@ -205,7 +200,7 @@
   slice is touched; other variants' overrides are left intact (the URL
   speaks for the focused variant alone).
 
-  Per rf2-fkmnh: the SAME authoritative-clear discipline applies to every
+  The SAME authoritative-clear discipline applies to every
   URL-owned chrome slot, not just overrides. `apply-parsed-to-state` only
   runs when URL hydration is in play (mount-with-params or a popstate),
   and at that point the applied URL is the source of truth for the full
@@ -215,7 +210,7 @@
     - omitted (or invalid) `viewport=`/`background=` clear the slot to nil
       so the chrome falls back to its neutral default (`:full` / no bg).
     - omitted (or invalid) `substrate=` clears `:substrate` to the default
-      `:reagent` (rf2-dxz4sg). The build side omits `substrate=` precisely
+      `:reagent`. The build side omits `substrate=` precisely
       to encode the `:reagent` default (`rf.story.share/build-params` only emits it
       for a non-default substrate), so an omitted param MUST hydrate as
       `:reagent` rather than preserving the recipient's stale in-memory
@@ -223,7 +218,7 @@
       `:substrate?` validator) likewise degrades to `:reagent` so a stale URL
       can't pin a substrate the host app never registered.
     - omitted `mode-tab=` (alongside a KEPT variant) clears that variant's
-      `[:active-mode-tab variant-id]` entry (rf2-gchydo) so the reader's
+      `[:active-mode-tab variant-id]` entry so the reader's
       `:dev` default applies — mode-tab is per-variant (unlike the slots
       above), so the clear is `dissoc`, scoped to the focused variant only,
       not an unconditional `:always` write (mirrors the `:cell-overrides`
@@ -248,7 +243,7 @@
                         ((:viewport? validators) viewport))
         bg-ok?      (or (nil? (:background? validators))
                         ((:background? validators) background))
-        ;; rf2-dxz4sg: an omitted `substrate=` (nil) encodes the `:reagent`
+        ;; An omitted `substrate=` (nil) encodes the `:reagent`
         ;; default on the build side, so it MUST hydrate as `:reagent`, not
         ;; preserve the recipient's stale in-memory substrate. A
         ;; present-but-unregistered substrate (rejected by the validator)
@@ -258,7 +253,7 @@
         sub-ok?     (or (nil? (:substrate? validators))
                         ((:substrate? validators) substrate))
         substrate*  (if (and substrate sub-ok?) substrate :reagent)
-        ;; Variant wins over workspace when both are present (rf2-hscut).
+        ;; Variant wins over workspace when both are present.
         keep-variant?   (and variant-id variant-ok?)
         keep-workspace? (and (not keep-variant?) workspace-id ws-ok?)]
     (cond-> state
@@ -277,7 +272,7 @@
       (and keep-variant? mode-tab)
       (assoc-in [:active-mode-tab variant-id] mode-tab)
 
-      ;; rf2-gchydo: the URL is authoritative for the focused variant's
+      ;; The URL is authoritative for the focused variant's
       ;; mode-tab too — mirrors the cell-overrides clear immediately
       ;; below. Mode-tab changes ARE pushState'd
       ;; (`install-state-watcher!` treats `:active-mode-tab` as URL-
@@ -290,25 +285,25 @@
       ;; not a value duplicated here. Without this, select a variant
       ;; (push, no mode-tab=) → Test tab (push mode-tab=test) → Docs
       ;; (push mode-tab=docs) → Back twice to the first entry (no
-      ;; mode-tab=) left `[:active-mode-tab variant-id]` at `:docs`
-      ;; instead of reverting to `:dev` — the canvas rendered the wrong
+      ;; mode-tab=) would leave `[:active-mode-tab variant-id]` at `:docs`
+      ;; instead of reverting to `:dev` — the canvas would render the wrong
       ;; tab while the address bar had already reverted.
       (and keep-variant? (not mode-tab))
       (update :active-mode-tab dissoc variant-id)
 
-      ;; rf2-j0hwf: install the focused variant's parsed cell-overrides
+      ;; Install the focused variant's parsed cell-overrides
       ;; under [:cell-overrides variant-id] so a popstate / shared-URL
       ;; hydration restores the same effective args (not just the
       ;; selection). Overrides are variant-scoped — the URL carries only
       ;; the focused variant's slice (params-from-state), so they apply
       ;; solely when the variant is kept. The state-watcher pushes this
       ;; same slice (url-relevant-slots-changed? + params-from-state), so
-      ;; without this branch the encode/decode round-trip was asymmetric:
-      ;; an override edit pushed to the URL was dropped on back/forward.
+      ;; without this branch the encode/decode round-trip would be asymmetric:
+      ;; an override edit pushed to the URL would be dropped on back/forward.
       (and keep-variant? (seq cell-overrides))
       (assoc-in [:cell-overrides variant-id] cell-overrides)
 
-      ;; rf2-2cpoo: the URL is the source of truth for the FOCUSED variant's
+      ;; The URL is the source of truth for the FOCUSED variant's
       ;; overrides. When the URL keeps this variant but carries NO `overrides=`
       ;; slice, any stale in-memory overrides for it MUST be cleared — otherwise
       ;; back/forward, a bookmark, or a share link that no longer encodes
@@ -319,7 +314,7 @@
       (and keep-variant? (not (seq cell-overrides)))
       (update :cell-overrides dissoc variant-id)
 
-      ;; rf2-fkmnh: the URL is authoritative for every URL-owned chrome
+      ;; The URL is authoritative for every URL-owned chrome
       ;; slot once hydration is in play, so each of these writes
       ;; UNCONDITIONALLY — present ⇒ the parsed value, omitted ⇒ the
       ;; neutral default. An absent `modes=` clears to `[]`, an absent
@@ -328,7 +323,7 @@
       ;; the chrome falls back to its default rather than keeping a stale
       ;; localStorage / prior-session value — the address bar stays the
       ;; source of truth for the full share surface.
-      ;; rf2-dxz4sg: `:substrate` joins the unconditional authoritative-clear
+      ;; `:substrate` joins the unconditional authoritative-clear
       ;; — omitted/invalid ⇒ `:reagent` (computed as `substrate*` above), a
       ;; registered non-default id ⇒ that id. This mirrors the build-side
       ;; default-omission (`rf.story.share/build-params`) so the address bar stays the
@@ -353,7 +348,7 @@
        `{:pathname :search :hash}` shape `url-from-state` consumes.
 
        `:search` is what makes the composed URL preserve the params
-       Story does not own (rf2-gee8n); without it `url-from-state` has
+       Story does not own; without it `url-from-state` has
        nothing to preserve FROM and the next push silently canonicalises
        the address bar down to the shell's own vocabulary."
        []
@@ -405,7 +400,7 @@
        (`rf.story.share/parse-params {}`) instead of nil when the window is present
        and the search is empty.
 
-       Used by the popstate handler (rf2-fkmnh): navigating back/forward to
+       Used by the popstate handler: navigating back/forward to
        a URL with NO query params must CLEAR the URL-owned slots (selection,
        modes, viewport, background, tag-filter) — `apply-parsed-to-state` is
        authoritative for those slots, and an all-nil parsed map drives them
@@ -420,7 +415,7 @@
              (rf.story.share/parse-params {}))))
 
      (defn embed-flag-from-current-url
-       "Read the `?embed=1` flag (rf2-pucku) from
+       "Read the `?embed=1` flag from
        `window.location.search`. Returns true when the param is present
        and recognised as truthy (`1`/`true`/`yes`/`on`,
        case-insensitive); false otherwise.
@@ -503,21 +498,21 @@
 
        `post-apply-fn` (optional, 3-arity) is a 0-arg side-effecting fn
        run AFTER the `apply-fn` swap, inside the SAME hydration-guard
-       window (rf2-cmjly3 finding 8). `apply-parsed-to-state` is pure —
+       window. `apply-parsed-to-state` is pure —
        it installs the RAW parsed `:cell-overrides` and has no registrar
        access, so it cannot run the declared-key stale-override
        drop-and-report filter `re-frame.story.ui.share/hydrate-from-url!`
-       applies at mount (rf2-9jthx / rf2-76l69l). Without a
+       applies at mount. Without a
        `post-apply-fn`, a Back/Forward pop to a URL whose override arg-key
-       was since renamed/removed installed it as a live orphan override
-       with no drop/report, unlike the mount path. Production wires this
+       has since been renamed/removed would install it as a live orphan
+       override with no drop/report, unlike the mount path. Production wires this
        to `rf.story.share/hydrate-from-url!` so both hydration paths run the
        identical filter; running it inside the guard (rather than as a
        bare after-the-fact call) keeps it consistent with every other
        hydration step in this ns — none of them provoke a reactive
        pushState back onto history.
 
-       rf2-fkmnh: the handler parses via `parse-current-url-or-empty`, so
+       The handler parses via `parse-current-url-or-empty`, so
        a back/forward to a URL with NO query params applies the all-nil
        parsed shape rather than no-op'ing. Because `apply-parsed-to-state`
        is authoritative for the URL-owned slots, that clears the prior
@@ -586,7 +581,7 @@
 
      (defn hydrate-embed-flag!
        "Seed `[:chrome-visibility :embed?]` from the `?embed=1` URL
-       flag (rf2-pucku). One-shot at shell mount; embed-mode is URL-
+       flag. One-shot at shell mount; embed-mode is URL-
        driven and not persisted, so this runs every mount without
        storage involvement.
 
