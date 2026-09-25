@@ -3,19 +3,17 @@
 'use strict';
 
 /*
- * Shared utilities for the source-policy gate suites (rf2-j552l2).
+ * Shared utilities for the source-policy gate suites.
  *
  * The `_*-policy.test.cjs` gates are static source scanners: they read a
- * first-party script's text and assert on it. Three pieces had drifted into
- * verbatim copies across them (rf2-u4vtlh / rf2-b4d7o1 review):
+ * first-party script's text and assert on it. Three pieces they share live
+ * here once, rather than as verbatim copies across them:
  *
  *   - `stripComments` — a deliberately simple (NOT a JS parser) stripper of
  *     line- and block-comments that LEAVES string literals intact, so a
  *     policy assertion matches EXECUTABLE source only and a doc-comment that
  *     necessarily quotes the very token the gate forbids/requires is not a
- *     false positive (or, for a forbidden token, a false negative). Three
- *     byte-identical copies lived in _mcp-conformance-install-policy /
- *     _orchestrator-teardown-policy / _script-spawn-policy.
+ *     false positive (or, for a forbidden token, a false negative).
  *
  *   - the standalone test harness (`const tests=[]; function test(){...}` +
  *     the run loop + the `<label> tests: N passed/failed.` footer) the
@@ -23,10 +21,10 @@
  *
  *   - `loopbackBindRe` — the http-server `-a 127.0.0.1` loopback-bind
  *     matcher. Two callers ( _script-spawn-policy + _story-script-runners-
- *     policy) shared the identical tail `,[\s\S]{0,80}?'-a','127.0.0.1'`
+ *     policy) share the identical tail `,[\s\S]{0,80}?'-a','127.0.0.1'`
  *     but differ in the bin-token alternation they anchor it to; the factory
- *     keeps each caller's exact token set so neither gate's strictness
- *     changes.
+ *     takes each caller's exact token set, so each gate keeps its own
+ *     strictness.
  *
  * This is a plain helper module (NOT a `.test.cjs`), so the `test:script-*`
  * runners don't execute it as a suite; the policy suites `require` it.
