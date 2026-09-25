@@ -1,27 +1,25 @@
 (ns re-frame.story.network-runtime-test
-  "rf2-shx4 — a variant's authored `:network` fixture is REALIZED on the
+  "A variant's authored `:network` fixture is REALIZED on the
   normal run paths (spec/017 §The network surface: \"the runner installs the
   route map and points `:fx-overrides` at the stub fx\").
 
-  `rf.story.plan/lower-network` was already correct and pure: it keeps the
-  authored routes at `[:world :network]` and emits the `{:rf.http/managed
-  :rf.http/managed-test-stub}` redirect at `[:world :frame :fx-overrides]`.
-  Nothing on the live run paths consumed either. The registered path did not
-  even TRANSFER the redirect to the frame (`run-phase-0!` passed only the
-  decorator stack + classification to `frames/allocate!`, which derived
-  `:fx-overrides` from decorators alone), so a `:network` variant executed
-  the REAL `:rf.http/managed` effect; the inline path transferred the
-  redirect but installed no route map, so it pointed at an unregistered fx.
-  The only executable `install-managed-request-stubs!` call in Story was
-  `artifact/with-network-stubs!` — artifact REPLAY only.
+  `rf.story.plan/lower-network` is pure: it keeps the authored routes at
+  `[:world :network]` and emits the `{:rf.http/managed
+  :rf.http/managed-test-stub}` redirect at `[:world :frame :fx-overrides]`,
+  and registers nothing. Both live run paths consume both halves: each
+  installs the route map before allocating the frame, and each hands the
+  frame the plan's lowered `:fx-overrides`. A path that did not transfer the
+  redirect would execute the REAL `:rf.http/managed` effect; one that
+  transferred it but installed no route map would point it at an
+  unregistered fx.
 
   THE LIVE-HTTP SENTINEL. Every test here registers `:rf.http/managed` as a
   CAPTURE-ONLY fx that records its payload and returns nil. No request is
   ever issued: the sentinel IS the real handler's slot for the duration of
   the test, so `live-requests` staying empty is positive proof the redirect
-  fired, and a non-empty `live-requests` is exactly the pre-fix failure
-  (the registered path reaching the production transport slot, or the
-  inline path's redirect falling through an unregistered target onto it).
+  fired, and a non-empty `live-requests` is exactly the failure this suite
+  guards against (a run path reaching the production transport slot, or a
+  redirect falling through an unregistered target onto it).
 
   JVM-only (`.clj`): `rf.story/run` returns a `CompletableFuture` that
   resolves synchronously, and the canned reply is dispatched inside the
@@ -90,9 +88,8 @@
 
 (deftest registered-variant-realizes-its-network-fixture
   (testing "a REGISTERED variant's authored :network delivers the canned reply
-            with ZERO live requests (rf2-shx4 — run-phase-0! now installs the
-            route map AND threads the plan's lowered frame :fx-overrides,
-            which it previously dropped entirely)"
+            with ZERO live requests (run-phase-0! installs the route map AND
+            threads the plan's lowered frame :fx-overrides)"
     (rf.story/reg-variant :story.net/cart
                           {:network cart-fixture
                            :setup   [[:dispatch [:net/load]]]})
@@ -103,7 +100,7 @@
           "SENTINEL: no managed request reached the production fx slot"))))
 
 (deftest registered-variant-unmatched-route-fails-with-no-stub-matched
-  (testing "an unmatched URL follows the helper's existing canned no-match
+  (testing "an unmatched URL follows the helper's canned no-match
             transport failure (spec/017 §Network stubs) rather than escaping
             to the real handler"
     (rf.story/reg-variant :story.net/missing
@@ -119,9 +116,9 @@
 
 (deftest extends-child-flipping-a-route-to-failure-fires-the-failure
   (testing "a child that :extends an :ok variant and flips the SAME route to
-            :failure gets its failure on a live run (rf2-pwwu). Before the fix
-            the route deep-merged to {:reply {:ok .. :failure ..}}, the stub
-            tested :ok first, and the child silently answered the parent's :ok"
+            :failure gets its failure on a live run. Were the route
+            deep-merged to {:reply {:ok .. :failure ..}}, the stub would test
+            :ok first and the child would silently answer the parent's :ok"
     (rf.story/reg-variant :story.netext/ok
                           {:network cart-fixture
                            :setup   [[:dispatch [:net/load]]]})
@@ -143,9 +140,9 @@
 
 (deftest inline-plan-realizes-its-network-fixture
   (testing "an INLINE plan map's authored :network delivers the same canned
-            reply. The inline path already transferred the lowered redirect,
-            so before rf2-shx4 it pointed `:rf.http/managed` at an
-            UNREGISTERED `:rf.http/managed-test-stub`"
+            reply. The inline path transfers the lowered redirect, so
+            without its route-map install it would point `:rf.http/managed`
+            at an UNREGISTERED `:rf.http/managed-test-stub`"
     (let [result (run-target {:network cart-fixture
                               :setup   [[:dispatch [:net/load]]]})]
       (is (= {:items [1]} (:cart (:app-db result)))
@@ -154,31 +151,32 @@
           "SENTINEL: no managed request reached the production fx slot"))))
 
 ;; ===========================================================================
-;; The EXPLICIT-APPLICATION-IMAGE path (rf2-shx4, merged-PR audit of #9398)
+;; The EXPLICIT-APPLICATION-IMAGE path
 ;;
 ;; The two registered tests above run on the DEFAULT image — `:images` absent,
 ;; so the frame projects the WHOLE source store and the helper-installed
-;; `:rf.http/managed-test-stub` is visible through it. That is why they passed
-;; while the audit's case did not: a variant that declares (or inherits) an app
-;; image resolves through a SELECTED, sealed generation, and the stub the HTTP
-;; helper registers carries no selectable provenance at all, so the
-;; `:fx-overrides` redirect the frame DOES receive names a target its image
-;; cannot resolve — and the request falls through to the real
+;; `:rf.http/managed-test-stub` is visible through it. A variant that declares
+;; (or inherits) an app image resolves through a SELECTED, sealed generation
+;; instead, and the stub the HTTP helper registers carries no source
+;; namespace, so no namespace glob selects it. A frame that could not resolve
+;; the `:fx-overrides` redirect's target would fall through to the real
 ;; `:rf.http/managed` slot (here, the capture sentinel).
 ;;
-;; The fix makes the fixture reachable through the selected generation as well,
-;; WITHOUT widening the app image: `frames/compose-variant-images` layers the
-;; library-owned `:rf.story/network-fixture` image, which carries exactly ONE
-;; inline `:reg-fx` — the very handler `install-managed-request-stubs!`
-;; registered over the frame-scoped route map. One implementation, one route
-;; map, two projections.
+;; The fixture stays reachable through the selected generation WITHOUT
+;; widening the app image: the framework base every explicit composition is
+;; layered over carries the unstamped `:rf`-rooted stub, and
+;; `frames/compose-variant-images` also layers the library-owned
+;; `:rf.story/network-fixture` image, which carries exactly ONE inline
+;; `:reg-fx` — the very handler `install-managed-request-stubs!` registered
+;; over the frame-scoped route map (spec/017 §Reaching the fixture through a
+;; selected app image). One implementation, one route map, two projections.
 ;; ===========================================================================
 
 (deftest registered-variant-with-inherited-app-image-realizes-its-fixture
   (testing "a variant whose app image is INHERITED from its parent story still
             gets its authored :network fixture — the selected generation
             resolves the stub target rather than falling through to the
-            production :rf.http/managed slot (rf2-shx4 audit of PR #9398)"
+            production :rf.http/managed slot"
     (rf.story/reg-story :story.netimg
                         {:doc    "Parent story declaring the app image once."
                          :images [(rf/image {:id        :net/app-image
@@ -229,7 +227,7 @@
           "the fixture answered")
       (is (contains? resolver [:fx :rf.http/managed-test-stub])
           "the stub fx the :fx-overrides redirect names IS in the frame's
-           generation — that is the whole repair")
+           generation, so the redirect resolves")
       (is (not (contains? resolver [:event :img.counter/step]))
           "and nothing else came with it: a registration authored outside the
            app image's selected namespace is still invisible to the frame")
