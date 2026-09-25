@@ -51,8 +51,8 @@
      place among its siblings. Resolved over the whole page, such a
      selector matches the first element of that type in document order —
      Story's own toolbar and sidebar, which precede the canvas — so a
-     recorded type into the canvas's first input replayed into the
-     sidebar's search box (rf2-3x7nj.30.5). Resolving under the canvas root
+     recorded type into the canvas's first input would replay into the
+     sidebar's search box. Resolving under the canvas root
      replays a step where it was captured.
 
      The canvas is only the FIRST scope. A view can render outside it — a
@@ -60,9 +60,8 @@
      that matches nothing under the canvas is retried against the document
      (`document-fallback?`), unless it is positional: that kind is the
      ambiguous one above, so it never leaves the canvas and cannot reach
-     Story's chrome (rf2-ice81). Outside the shell (a bare test harness, a
-     host page) there is no canvas root and the document is the scope, as
-     before."
+     Story's chrome. Outside the shell (a bare test harness, a
+     host page) there is no canvas root and the document is the scope."
      []
      (or (try (.querySelector js/document canvas-selector)
               (catch :default _ nil))
@@ -75,7 +74,7 @@
      the document already, and `selector` is not the recorder's positional
      `tag:nth-of-type(N)` fallback (`rf.story.recorder.selector/positional?`).
      A stable hook — `data-test`, `id`, `aria-label` — names one element
-     wherever it renders, so it may follow the view into a portal (rf2-ice81)."
+     wherever it renders, so it may follow the view into a portal."
      [root selector]
      (and (not (identical? root js/document))
           (not (rf.story.recorder.selector/positional? selector)))))
@@ -117,10 +116,10 @@
 
 (defn visible?
   "True iff `node` exists AND is currently visible (non-zero layout
-  box + not display:none / visibility:hidden). The bead asks for a
-  visible/hidden distinction — we use the classical `offsetWidth +
-  offsetHeight > 0` heuristic which works for most stories without
-  bringing in a full styling pass."
+  box + not display:none / visibility:hidden). The visible/hidden
+  distinction uses the classical `offsetWidth + offsetHeight > 0`
+  heuristic, which works for most stories without bringing in a full
+  styling pass."
   [node]
   #?(:clj  false
      :cljs (boolean
@@ -194,7 +193,7 @@
      skipping any own-property setter a framework installed on the node
      ITSELF. Returns nil when the chain declares no `value` setter.
 
-     WHY THIS EXISTS (rf2-7aqo). React tracks a controlled input's last
+     WHY THIS EXISTS. React tracks a controlled input's last
      value by redefining `value` as an OWN accessor on the node
      (`trackValueOnNode`): its setter records the incoming value in the
      tracker and THEN forwards to the native setter. A plain
