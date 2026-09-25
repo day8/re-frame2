@@ -86,7 +86,7 @@
 //     this control certifies page-proportional SIGNAL and bounds the
 //     additive residual (printed as c); it cannot certify exactness.
 //   * THE CHECK STANDARD, on the `ordinary` row only — `census_check_
-//     standard.json`, v1, rf2-pzqy8. That row's element arithmetic is the
+//     standard.json`, v1. That row's element arithmetic is the
 //     one prediction this instrument does NOT meet: it reads 1.2308x
 //     against a predicted 1.7255x, because at 51 elements the per-sample
 //     work that does not scale with the page is 68% of the reading, so
@@ -404,7 +404,7 @@ function controlVerdict(predicted, per, slack) {
  * element arithmetic as the prediction. On `large-template` and `feed` the
  * instrument MEETS it — run-median centres 1.8433 and 2.0146 against 1.9759
  * and 1.9943 — and the strict rule measures 18.2% and 39.8% per-run false
- * refusal on those two rows (rf2-y0pkh). Nothing there needs a standard, and
+ * refusal on those two rows. Nothing there needs a standard, and
  * seeding one for a row whose prediction holds would replace a working
  * control with a copied one.
  *
@@ -417,8 +417,8 @@ function controlVerdict(predicted, per, slack) {
  * wrong anywhere; the row is small. `R = (P*W + c)/(W + c)`, and at 51
  * elements the tared floor is 1.41 ms of which `c = 0.96 ms` — 68% — does
  * not scale with the page, so the reading sits far below `P` by
- * construction. That is a mis-specified CENTRE, the class rf2-8a746
- * names on the fresco clock's ctl3 (whose true centre sits 2.6% ABOVE its
+ * construction. That is a mis-specified CENTRE, the class of the fresco
+ * clock's ctl3 (whose true centre sits 2.6% ABOVE its
  * refusal edge where this row's sits below its own), and the answer is a
  * level-denominated, EMPIRICALLY
  * CALIBRATED, versioned standard rather than a theoretical value asserted
