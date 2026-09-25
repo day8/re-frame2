@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.interceptors.panel-cljs-test
-  "CLJS wiring + view tests for the Static Interceptors sub-tab
-  (rf2-o5f5f.6)."
+  "CLJS wiring + view tests for the Static Interceptors sub-tab."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -13,17 +12,15 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `reset-all!` folds the trace-collector ring reset in, so the old
-  ;; bespoke `xray-init!` (reset-all! + a REDUNDANT direct trace reset) is
-  ;; gone (rf2-vj80u8). Default `:all` tier + plain-atom adapter.
+  ;; `reset-all!` folds the trace-collector ring reset in, so no direct
+  ;; trace reset is needed. Default `:all` tier + plain-atom adapter.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers ------------------------------------------------------
 ;;
-;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
-;; carried are semantically identical to `re-frame.test-helpers`; the tests
-;; below call `rf.test-helpers/find-by-testid` / `rf.test-helpers/find-by-testid-prefix` directly
-;; (rf2-vj80u8 — no Xray walker facade).
+;; The tests below call `rf.test-helpers/find-by-testid` /
+;; `rf.test-helpers/find-by-testid-prefix` directly; there is no Xray walker
+;; facade.
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
@@ -33,13 +30,13 @@
 (defn- panel-tree
   "The hiccup the view rows below walk, driven through the pure projection.
 
-  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a real
-  React function component whose body may only run inside a React render
-  window, so `(panel/Panel)` is no longer a callable that answers hiccup.
-  This helper REPRODUCES THE BOUNDARY'S READ EXACTLY — the one
+  `panel/Panel` is an `rf.fresco/defview` boundary, a real React function
+  component whose body may only run inside a React render window, so
+  `(panel/Panel)` is not a callable that answers hiccup. This helper
+  REPRODUCES THE BOUNDARY'S READ EXACTLY — the one
   `:rf.xray.static.interceptors/tab-data` query the boundary issues — and
   hands the value to `panel/panel-tree`, so every row below asserts on the
-  same hiccup it asserted on before.
+  hiccup the boundary renders.
 
   The dispatcher is nil: no row here types into the search box, and the
   search box only calls it from `:on-change`. The boundary's OWN behaviour
@@ -52,9 +49,9 @@
 ;; ---- fixture data -------------------------------------------------------
 
 ;; EP-0018: every event registers under the ONE form — the framework
-;; handler-wrapping interceptor is the single `:rf/event-handler` (the former
-;; per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler` ids + the
-;; `:event/kind` sub-tag are gone). The fixture models that registrar shape.
+;; handler-wrapping interceptor is the single `:rf/event-handler` (there are
+;; no per-kind handler ids and no `:event/kind` sub-tag). The fixture models
+;; that registrar shape.
 (def sample-events-with-chains
   {:counter/inc
    {:interceptors [{:id :my/logging :before identity}
@@ -68,7 +65,7 @@
    :anon/no-chain
    {:interceptors []}})
 
-;; EP-0022 (rf2-0adhqs.7) — a chain may carry REFERENCES (bare keyword /
+;; EP-0022 — a chain may carry REFERENCES (bare keyword /
 ;; `[id arg]`) into the `:interceptor` registrar alongside inline values.
 ;; The catalogue must surface refs by their authored form + enrich them
 ;; from the registered descriptor.
@@ -138,7 +135,7 @@
         "no events → silent")))
 
 ;; -------------------------------------------------------------------------
-;; (1b) EP-0022 ref-aware collection (rf2-0adhqs.7)
+;; (1b) EP-0022 ref-aware collection
 ;; -------------------------------------------------------------------------
 
 (deftest collect-interceptors-surfaces-keyword-refs
@@ -225,16 +222,16 @@
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
 
 (deftest panel-is-cold-empty-for-a-host-with-no-events-rf2-y8doi-22
-  (testing "rf2-y8doi.22 — Xray's OWN event registrations are not host chains.
+  (testing "Xray's OWN event registrations are not host chains.
             They sit in the same process source store as the host's, each
-            carrying the framework-appended `:rf/event-handler`, so a host
-            with ZERO events used to read `:rf/event-handler default x<~160>`
-            and never reach the cold-empty state.
+            carrying the framework-appended `:rf/event-handler`, so counting
+            them would make a host with ZERO events read `:rf/event-handler
+            default x<~160>` and never reach the cold-empty state.
 
             The registrations fed in are the store's own rows for every
             event whose recorded source file lies in Xray's `src` tree —
             taken from the producer, not typed by hand, and not selected by
-            the id predicate the fix uses."
+            the id predicate the panel uses."
     (setup-xray!)
     (let [xray-own (into {}
                          (filter (fn [[_id meta]]
@@ -291,11 +288,11 @@
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
 
 ;; -------------------------------------------------------------------------
-;; (4) a11y list semantics (rf2-mq8wk)
+;; (4) a11y list semantics
 ;; -------------------------------------------------------------------------
 
 (deftest panel-list-carries-list-semantics
-  (testing "rf2-mq8wk — the interceptors <ul> is role=list, rows role=listitem"
+  (testing "the interceptors <ul> is role=list, rows role=listitem"
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
@@ -312,16 +309,15 @@
 
 ;; -------------------------------------------------------------------------
 ;; (5) row identity reaches the RENDERER, not just Clojure metadata
-;;     (rf2-k97c.3)
 ;; -------------------------------------------------------------------------
 
 (deftest panel-rows-carry-their-key-in-an-attribute-map
-  (testing "rf2-k97c.3 — every catalogue row carries its React key in an
+  (testing "every catalogue row carries its React key in an
             ATTRIBUTE MAP, which is the ONE spelling Fresco's codec reads
             (its head table: a literal `:key` in the attr map, on the
             fragment for `[:<> …]`). It reads Clojure metadata NOWHERE, so
-            the `^{:key …}` this panel used to carry survives Reagent and
-            reaches React as nothing under a boundary.
+            a `^{:key …}` on the row would survive Reagent and reach React
+            as nothing under a boundary.
 
             A row asserting on that metadata is a HOLLOW GATE: it passes
             while React receives no key at all. And a lost key does not
@@ -351,8 +347,8 @@
                (sort (mapv #(pr-str (:id %))
                            (panel/collect-interceptors
                              sample-events-with-chains))))
-            "the key EXPRESSION is unchanged by the move — still the row's
-             own interceptor id, so identity means what it always meant")
+            "the key EXPRESSION is the row's own interceptor id, so
+             identity follows the interceptor")
         (is (every? #(nil? (meta %)) row-forms)
-            "and nothing is left riding on Clojure metadata, which would be
+            "and nothing rides on Clojure metadata, which would be
              a second spelling the codec cannot see")))))
