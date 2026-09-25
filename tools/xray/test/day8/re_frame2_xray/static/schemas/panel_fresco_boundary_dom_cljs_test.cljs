@@ -1,17 +1,17 @@
 (ns day8.re-frame2-xray.static.schemas.panel-fresco-boundary-dom-cljs-test
-  "The Static Schemas tab re-authored in the re-frame-native view layer,
-  read off a real React commit (rf2-k97c.3).
+  "The Static Schemas tab in the re-frame-native view layer, read off a
+  real React commit.
 
-  `static.schemas.panel/Panel` is now an `rf.fresco/defview` reading through
+  `static.schemas.panel/Panel` is an `rf.fresco/defview` reading through
   Fresco's shipped collector rather than an `rf/reg-view` reading through
   whatever view build the installed substrate adapter supplies. This file is
-  the behavioural evidence for that swap.
+  the behavioural evidence for that boundary.
 
-  The five rows are the template `static/interceptors/panel_fresco_boundary
-  _dom_cljs_test` established, adapted to this panel's own read and its own
+  The five rows follow the template of `static/interceptors/panel_fresco_
+  boundary_dom_cljs_test`, adapted to this panel's own read and its own
   dependency lever.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes
@@ -32,11 +32,11 @@
   and navigates the host editor rather than mutating anything this panel
   reads. Neither is a state round-trip a row could assert on.
 
-  ## W5 IS NOT ONE OF THE SIX, AND IT IS THE ROW THIS PANEL NEEDED MOST
+  ## W5 IS NOT ONE OF THE SIX, AND IT IS THE ROW THIS PANEL NEEDS MOST
 
-  The migration moved every row's React key out of Clojure metadata, which
-  Fresco's codec reads NOWHERE, and onto a keyed fragment's attribute map,
-  which it does. A LOST KEY DOES NOT FAIL — it degrades into index-based
+  Every row carries its React key on a keyed fragment's attribute map,
+  which Fresco's codec reads, not in Clojure metadata, which it reads
+  NOWHERE. A LOST KEY DOES NOT FAIL — it degrades into index-based
   reconciliation, which paints identically and corrupts identity only once
   the list changes SHAPE. So no amount of \"the rows are on screen\" can see
   it, and an assertion on the metadata is a hollow gate that passes while
@@ -59,7 +59,7 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is the family Xray supports —
   because the claim being made is that the boundary is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing exactly as it is in the template:
   the fixture's default ambient scope is still in effect during a
@@ -128,16 +128,12 @@
 ;; make the row vacuous — which is why W5 asserts the head position before
 ;; it removes anything.
 ;;
-;; APP-DB rather than event/sub rows, and the reason is now only the sort
-;; key above: both kinds sort into one flat vector, and an app-db pair is the
-;; shortest fixture that pins a HEAD row.
-;;
-;; The reason it USED to give is spent. rf2-t8a8 repaired the event/sub side,
-;; which read the M-54-RETIRED `:spec` key and so could never be reached by a
-;; real registration; it reads `:schema` now, and
+;; APP-DB rather than event/sub rows only because of the sort key above:
+;; both kinds sort into one flat vector, and an app-db pair is the shortest
+;; fixture that pins a HEAD row. Either kind would do here — the event/sub
+;; side reads `:schema`, and
 ;; `panel_cljs_test/live-registrations-surface-through-the-production-read`
-;; drives it from a live `rf/reg-event` / `rf/reg-sub`. Either kind would do
-;; here.
+;; drives it from a live `rf/reg-event` / `rf/reg-sub`.
 
 (def ^:private two-rows
   {:schemas-by-frame {:rf/default {[:aaa] {:schema [:map [:a :int]] :doc "head"}
@@ -274,10 +270,10 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-read-lands-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Static Schemas panel commits real DOM
+  (testing "the Static Schemas panel commits real DOM
             through the registry entry the Static shell mounts, and its
             `rf.fresco/sub` read resolves against the frame the enclosing
-            `frame-provider` named rather than the ambient one. Epic criteria
+            `frame-provider` named rather than the ambient one. Criteria
             1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -318,9 +314,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panel re-renders itself and commits new
+  (testing "the mounted panel re-renders itself and commits new
             DOM when its read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control that
+            nothing it watches moved. Criterion 2, with the control that
             makes the update mean liveness rather than a commit that simply
             had not happened yet."
     (if-not (browser?)
@@ -343,11 +339,9 @@
           ;; invalidating nothing it watches.
           ;;
           ;; The APP-DB registry is the lever because it is per-frame, which
-          ;; is what this liveness row needs; the event registrar is now an
-          ;; equally good lever since rf2-t8a8 repaired the event/sub side to
-          ;; read `:schema` rather than the M-54-retired `:spec`. (Before that
-          ;; repair no real registration could surface an event or sub row at
-          ;; all — the standing finding this comment used to carry.)
+          ;; is what this liveness row needs; the event registrar, which the
+          ;; event/sub side reads through `:schema`, would be an equally good
+          ;; lever.
           (rf/reg-app-schema [:probe] {:frame app-frame} [:map [:p :int]])
           (is (some? (get (rf.schemas/app-schemas {:frame app-frame}) [:probe]))
               "PRECONDITION: the read's UNDERLYING data now carries the new
@@ -390,9 +384,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated panel contributes
+  (testing "rendering the panel contributes
             NOTHING to the substrate's view-trace stream, even when it is
-            mounted INSIDE an application frame. Epic criterion 5, proven
+            mounted INSIDE an application frame. Criterion 5, proven
             structurally rather than by the `:rf/xray` frame gate: a Fresco
             boundary is not a substrate view render, so there is no event to
             gate. The control is an ordinary `reg-view` in the same root, the
@@ -449,12 +443,12 @@
   (zero? (ref-count-of :rf/xray tab-data-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the panel releases its subscription
+  (testing "unmounting the panel releases its subscription
             reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+            count rather than a higher one. Criterion 6, and the number
+            that separates a correct binding from a four-call interop
+            binding, under which the `:rf/xray` ref-count would climb across
+            renders and never fall on unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once: the collector gives a cell whose last reader
@@ -510,9 +504,9 @@
 ;; ===========================================================================
 
 (deftest w5-row-identity-survives-a-head-removal
-  (testing "rf2-k97c.3 — the row React key the migration moved out of Clojure
-            metadata and into a keyed fragment's ATTRIBUTE MAP is the key
-            React actually reconciles on. Removing the HEAD of a two-row list
+  (testing "the row React key, carried on a keyed fragment's ATTRIBUTE MAP
+            rather than in Clojure metadata, is the key React actually
+            reconciles on. Removing the HEAD of a two-row list
             leaves the survivor as the SAME DOM node; under index-based
             reconciliation — which is what a lost key silently degrades to —
             React would reuse the head's node for the survivor and destroy the
@@ -567,15 +561,15 @@
 ;; ===========================================================================
 
 (deftest w7-the-open-chip-renders-through-a-call-not-a-head
-  (testing "rf2-k97c.3 / HD-016 — `open-in-editor/open-chip` was used as a
-            hiccup HEAD in this panel, which is a loud error inside a Fresco
+  (testing "HD-016 — `open-in-editor/open-chip` is CALLED, not used as a
+            hiccup HEAD, which would be a loud error inside a Fresco
             body: a plain function in head position throws, the throw escapes
             the boundary with no error boundary above it, and React unmounts
-            the whole Xray root — so it presents as a panel that never
+            the whole Xray root — so it would present as a panel that never
             appears rather than as an error.
 
-            The repair is to CALL it. This row is the evidence that the call
-            renders the identical affordance through a real React commit, and
+            This row is the evidence that the call
+            renders the affordance through a real React commit, and
             it is not redundant with the node lane: the node lane walks
             hiccup and would be equally happy either way, because the head
             form only fails once a codec meets it."
@@ -617,5 +611,5 @@
 ;; path every row above actually uses.
 (deftest panel-ns-is-the-one-under-test
   (is (some? panel/panel-tree)
-      "the migrated body helper this file's node-lane sibling drives is
+      "the body helper this file's node-lane sibling drives is
        present in the namespace these rows mount"))
