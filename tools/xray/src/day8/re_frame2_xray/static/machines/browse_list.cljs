@@ -19,25 +19,24 @@
 
   ## Empty state
 
-  When no `:rf/machine?` registration is found: 'No machines registered. reg-
-  machine to add the first.'
+  When no `:rf/machine?` registration is found: 'No machines registered.
+  Register a machine with rf/reg-machine to populate this list.'
 
-  ## Substrate (rf2-k97c.3)
+  ## Substrate
 
   [[browse-list]] is an `rf.fresco/defview` — a real React function
   component whose three reads are `rf.fresco/sub`, recorded by Fresco's
   own collector rather than by the installed adapter's observer. Frame
-  isolation still comes from the enclosing
+  isolation comes from the enclosing
   `[rf.fresco/frame-provider {:frame frame-id}]` that `shell.cljs`'s
   `shell-view-tree` opens — `static/shell.cljs` owns none — with the
   frame the parameterized instance frame-id, default `:rf/xray`, which
-  the boundary reads out of React context exactly as the `reg-view` did.
+  the boundary reads out of React context.
 
   Every helper below is CALLED rather than used as a hiccup head. A plain
   function in head position is a loud error under Fresco (HD-016) and the
   throw escapes with no error boundary above it, so it presents as a pane
-  that never appears; calling a helper that answers hiccup is the repair,
-  and every helper here answers hiccup."
+  that never appears; every helper here answers hiccup when called."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
@@ -153,12 +152,12 @@
                             :align-items  "center"
                             :gap          "2px"
                             :margin-left  "6px"}}]
-            ;; THE KEY RIDES IN THE ATTRIBUTE MAP, not on reader metadata
-            ;; (rf2-k97c.3). `^{:key …}` on this vector literal is read by
+            ;; THE KEY RIDES IN THE ATTRIBUTE MAP, not on reader metadata.
+            ;; `^{:key …}` on this vector literal is read by
             ;; Reagent and by Fresco's codec NOWHERE — the codec reads
             ;; `:key` from the attribute map and reads Clojure metadata
             ;; nowhere — so it would reach React as nothing once this pane
-            ;; renders through a boundary. The key EXPRESSION is unchanged.
+            ;; renders through a boundary.
             (for [i (range count)]
               [:span {:key   i
                       :style {:display       "inline-block"
@@ -291,10 +290,10 @@
   [[browse-list]] reads plus the frame-bound `dispatch` the search box,
   the sort button and every row need.
 
-  SPLIT OUT OF [[browse-list]] BY rf2-k97c.3, and the split is
+  SPLIT OUT OF [[browse-list]], and the split is
   `defview`'s own documented extract-a-helper spelling rather than an
   invention. A boundary's body may only run inside a React render
-  window, so `(browse-list)` is no longer a callable that answers
+  window, so `(browse-list)` is not a callable that answers
   hiccup — while the projection from row values to markup is ordinary
   data → data and is worth testing in the fast node lane.
   `test-helpers.static-machines-tree` drives THIS fn with the values it
@@ -341,47 +340,46 @@
 
       :else
       (into [:div]
-            ;; THE KEY RIDES ON A KEYED FRAGMENT (rf2-k97c.3) — the same
+            ;; THE KEY RIDES ON A KEYED FRAGMENT — the same
             ;; move the pip seq above makes in its attribute map, for the
             ;; same reason: Fresco's codec reads `:key` from the
-            ;; attribute map and reads Clojure metadata nowhere, so the
-            ;; old `^{:key …}` on this vector literal would reach React
+            ;; attribute map and reads Clojure metadata nowhere, so a
+            ;; `^{:key …}` on this vector literal would reach React
             ;; as nothing. The fragment carries the key without adding a
             ;; DOM node, which keeps `row` the presentational helper it
-            ;; is; the key expression is unchanged and identity stays
-            ;; domain-shaped (the machine-id).
+            ;; is; identity stays domain-shaped (the machine-id).
             (for [{:keys [machine-id] :as r} rows]
               [:<> {:key (str machine-id)}
                (row dispatch r (= machine-id selected-id))])))]])
 
 (rf.fresco/defview browse-list
-  "The L4-left pane of the Static Machines sub-tab — a FRESCO BOUNDARY
-  (rf2-k97c.3), not an `rf/reg-view`. Reads the browse composite, the
+  "The L4-left pane of the Static Machines sub-tab — a FRESCO BOUNDARY,
+  not an `rf/reg-view`. Reads the browse composite, the
   search text and the sort axis, and hands their values plus a
   frame-bound dispatcher to [[browse-list-tree]].
 
   The READS are `rf.fresco/sub`, plain calls the shipped collector
   records an edge for — no deref, no reaction owned by the installed
   adapter, and a re-wire that NOTIFIES when the substrate disposes the
-  underlying derived value. That is the third of the epic's three
-  couplings, and the one a first-paint smoke test cannot see.
+  underlying derived value. That re-wire is the coupling a first-paint
+  smoke test cannot see.
 
   The FRAME the reads resolve against comes from React context, which
   the enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this resolves
-  `:rf/xray` identically under the Fresco tree the Static shell is today
+  `:rf/xray` identically under the Fresco tree the Static shell is
   and under an `rf/frame-provider` a Reagent parent writes. It never
   consults `:adapter/current-component`, the hook a foreign root cannot
   answer.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
-  which answers the boundary's DECLARED frame inside a body. It replaces
-  the `dispatch` name `reg-view` used to inject lexically (`defview`
-  binds no name inside the body, so that injected name is simply
-  unresolved — a loud compile error rather than a silent frame leak).
-  Every keystroke, sort click, row select and per-row JUMP therefore
-  still lands on THIS Xray instance's frame after render scope unwinds.
+  which answers the boundary's DECLARED frame inside a body. `defview`
+  binds no `dispatch` name inside the body, so a bare `dispatch` is
+  simply unresolved — a loud compile error rather than a silent frame
+  leak — and this door supplies it. Every keystroke, sort click, row
+  select and per-row JUMP therefore lands on THIS Xray instance's frame
+  after render scope unwinds.
 
   ONE BOUNDARY for this pane, and it is where the reads are. Boundary
   count tracks reads and head-position use, not file size: `search-box`,
