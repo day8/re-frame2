@@ -6,8 +6,8 @@
 //
 // NAMING.md pins a cross-server flag contract: same operator semantic ⇒
 // same flag spelling, every authority-gate flag DEFAULT-OFF, and a
-// "hard rename, no aliases" rule (a legacy / unrecognised spelling stops
-// being recognised at the parser; it must NOT open the gate). This
+// "hard rename, no aliases" rule (the parser does not recognise a legacy /
+// unrecognised spelling; it must NOT open the gate). This
 // harness enforces the cross-server, observable-over-the-wire contract
 // that each server's OWN unit fixtures cannot reach. A regression that
 // renamed story-mcp's write gate to `--enable-writes`, or that flipped a
@@ -31,9 +31,8 @@
 //      posture per spec/003-Write-Surface-Gating.md §"What's gated"). This
 //      is the security-critical claim: a fresh / CI boot cannot mutate the
 //      registry by ANY gated path. Probing both default-off means a
-//      dropped gate-check on either turns RED. (The third gated writer,
-//      `record-as-variant`'s write-back arm, was RETIRED with the
-//      transport-unreachable blocking recorder — rf2-5saz7.)
+//      dropped gate-check on either turns RED. (The spec gates exactly
+//      these two tools.)
 //   2. Boot WITH `--allow-writes` ⇒ `register-variant` succeeds
 //      (`isError: false`, registered) — the positive control proving the
 //      flag spelling NAMING.md pins is the one the parser actually wires.
@@ -153,8 +152,8 @@ async function bootStoryServer(clojureArgs, body) {
     },
     // Capture the teardown handle BEFORE connect awaits, so a connect that
     // hangs mid-handshake is still reachable by the module-scope watchdog.
-    // The post-resolve assignment below is redundant on the happy path but
-    // kept belt-and-braces.
+    // The post-resolve assignment below is redundant on the happy path; it
+    // is belt-and-braces.
     onClient: (c) => { activeFlagGateClient = c; },
   });
   activeFlagGateClient = client;
