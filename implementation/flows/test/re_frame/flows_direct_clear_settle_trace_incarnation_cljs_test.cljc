@@ -1,15 +1,15 @@
 (ns re-frame.flows-direct-clear-settle-trace-incarnation-cljs-test
-  "rf2-gwye.63 — exact-incarnation fence for the traces the DIRECT-CLEAR SETTLE
+  "Exact-incarnation fence for the traces the DIRECT-CLEAR SETTLE
   emits, THROUGH the synchronous trace-emit callback pipeline (classification
   projection → epoch capture → ordered tooling listeners).
 
-  The sibling of `re-frame.flows-replace-clear-trace-incarnation-cljs-test`
-  (rf2-rxsldx), which fences the direct lifecycle emits themselves. That fence
+  The sibling of `re-frame.flows-replace-clear-trace-incarnation-cljs-test`,
+  which fences the direct lifecycle emits themselves. That fence
   wraps `:rf.flow/cleared` and stops at the end of `clear-flow`'s exact-owner
   postcheck. The SETTLE that runs one line later — `settle-frame-flows!`,
   recomputing the cleared producer's dependents against its absence — is a
-  second, longer callback-bearing region, and before rf2-gwye.63 it supplied no
-  continuation predicate at all.
+  second, longer callback-bearing region, and it needs a continuation predicate
+  of its own.
 
   `run-flows-on-db` is called with `:exact-owner-token`, so the pass's own
   WRITES (dirty cache, output install, schema validation, the final
@@ -18,18 +18,20 @@
   continuation predicate is installed — `trace/continuation-live?` reads the
   always-true default otherwise — and the settle runs INSIDE the cold serialized
   region, which DEFERS listener delivery until after the release.
-  `deferred-continue` captures whatever predicate stood at emit time, so the
-  ordinary always-continue default was what the whole deferred fan-out carried.
+  `deferred-continue` captures whatever predicate stood at emit time, so without
+  one of its own the whole deferred fan-out would carry the ordinary
+  always-continue default.
 
-  Consequence, reproduced below: an ordered trace LISTENER destroys incarnation
-  A and publishes a same-id B while the dependent's `:rf.flow/computed` is
-  fanning out, and every SUBSEQUENT listener still receives A's
-  incarnation-less computed event after A's destruction has been claimed. The
-  event route does not behave that way (it inherits the router's exact-owner
-  scope), nor do the neighbouring direct lifecycle emits, so the direct-clear
-  COMPUTE stream disagreed with both at the same supported callback boundary.
+  The witness below pins the consequence: an ordered trace LISTENER destroys
+  incarnation A and publishes a same-id B while the dependent's
+  `:rf.flow/computed` is fanning out, and every SUBSEQUENT listener would
+  receive A's incarnation-less computed event after A's destruction has been
+  claimed. The event route does not behave that way (it inherits the router's
+  exact-owner scope), nor do the neighbouring direct lifecycle emits, so an
+  unfenced direct-clear COMPUTE stream would disagree with both at the same
+  supported callback boundary.
 
-  The fix wraps the whole settle pass in
+  The whole settle pass therefore runs inside
   `trace/call-with-continuation-predicate` bound to A's pinned incarnation. The
   already-entered delivery (the listener that destroys A) stands once; every
   LATER listener is suppressed the instant A's exact ownership is lost. The
@@ -93,14 +95,13 @@
 ;; ===========================================================================
 
 (deftest direct-clear-settle-trace-listener-loss-fences-subsequent-listeners
-  ;; rf2-gwye.63 (red before the fix). Clearing the producer settles the
+  ;; Clearing the producer settles the
   ;; dependent, which emits `:rf.flow/computed` with A live. The destroyer
   ;; listener — the already-entered delivery — destroys A and publishes same-id
-  ;; B exactly once. Before the fix the settle pass installed no continuation
-  ;; predicate, so the deferred fan-out carried the always-true default and the
-  ;; observer still received A's computed event after A's destruction was
-  ;; claimed. After the fix the pinned-A predicate suppresses every listener
-  ;; past the loss.
+  ;; B exactly once. Were the settle pass to install no continuation
+  ;; predicate, the deferred fan-out would carry the always-true default and the
+  ;; observer would receive A's computed event after A's destruction was
+  ;; claimed; the pinned-A predicate suppresses every listener past the loss.
   (let [frame-id        :flow.settle.fence/subject
         destroyer-hits  (atom 0)
         observer-dep    (atom [])       ;; the dependent's computed events seen
@@ -152,12 +153,12 @@
 
 ;; ===========================================================================
 ;; GREEN CONTROL / over-fence tooth — with A live through the fan-out the
-;; ordinary settle trace still reaches the subsequent listener exactly once,
-;; and the synchronous clear behaves exactly as before.
+;; ordinary settle trace reaches the subsequent listener exactly once,
+;; and the synchronous clear vacates and settles as it would unfenced.
 ;; ===========================================================================
 
 (deftest direct-clear-settle-trace-with-live-owner-emits-once
-  ;; rf2-gwye.63 mutation tooth. The exact-incarnation fence must NOT suppress
+  ;; Mutation tooth. The exact-incarnation fence must NOT suppress
   ;; the ordinary settle trace when A stays live through the fan-out, and must
   ;; not change what the settle computes or installs.
   (let [frame-id :flow.settle.fence/live
@@ -185,7 +186,7 @@
           "the observed computed event carries the dependent's recomputation
            against the producer's absence")
       (is (= {:input 5 :derived :absent} (rf/app-db-value frame-id))
-          "ordinary synchronous direct-clear behaviour is preserved — the
+          "ordinary synchronous direct-clear behaviour holds — the
            producer's leaf is vacated and the dependent settled before return")
       (finally
         (rf.trace.tooling/unregister-listener! ::live-touch)
