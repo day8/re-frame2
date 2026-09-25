@@ -790,7 +790,8 @@ function verdict(summary) {
   }
   if (overCeiling.length) {
     lines.push(
-      `[hd8clock] REFUSED — the run's own reproducibility band exceeds seam.cjs's ceiling on: ` +
+      `[hd8clock] REFUSED — the run's own reproducibility band exceeds seam.cjs's ceiling ` +
+        `on: ` +
         overCeiling.map((r) => `${r.id} (${pct(r.band)})`).join(', ') +
         '. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ' +
         'page, so a band that wide means the box could not reproduce identical work — no magnitude ' +
