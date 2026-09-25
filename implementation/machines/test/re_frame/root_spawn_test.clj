@@ -11,6 +11,8 @@
     takes a transition-shaped `:on-done`; its failure carrier takes the root
     `:spawn :on-error`. A keyword target at `[]` names a top-level state; a
     `:type :parallel` root's target is region-qualified, as its `:on` is.
+  - Its `:timeout` / `:on-timeout` lower onto the root `:after`, which only a
+    `:type :parallel` root may carry.
   - It is destroyed with its owner — at whole-machine finality and on destroy —
     after the root's `:exit` has run.
 
@@ -21,6 +23,7 @@
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timeout :as rf.machines.timeout]
             [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -344,3 +347,14 @@
            (refusal-id (assoc flat :spawn {:machine-id :k :on-error {:target :b :guard :nope?}}))))
     (is (= :rf.error/machine-unresolved-action
            (refusal-id (assoc par :spawn {:machine-id :k :on-done {:action :nope}}))))))
+
+(deftest root-spawn-timeout-lowers-onto-the-root-after
+  (testing "a parallel root :spawn's :timeout / :on-timeout lowers onto the root :after"
+    (let [m   (assoc par :spawn {:machine-id :k :timeout 1000 :on-timeout {:target [:x :x2]}})
+          out (rf.machines.timeout/desugar-timeouts m)]
+      (is (= {:machine-id :k} (:spawn out)) "the pair leaves the spawn spec")
+      (is (= {1000 {:target [:x :x2]}} (:after out)))
+      (is (nil? (refusal-id m)))))
+  (testing "a flat root's :after is refused, and so is one lowered from its :spawn"
+    (is (= :rf.error/machine-non-parallel-root-after-not-supported
+           (refusal-id (assoc flat :spawn {:machine-id :k :timeout 1000 :on-timeout :b}))))))
