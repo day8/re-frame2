@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.views.resizable-table-persistence-cljs-test
   "localStorage round-trip tests for the shared resizable-table
-  column-widths persistence layer (rf2-xzg1y).
-
-  Mirrors the shape of `filters/persistence_cljs_test.cljs`:
+  column-widths persistence layer. The properties, split between this
+  namespace and `resizable-table-persistence-dom-cljs-test` (the rows
+  that need a real localStorage):
 
     1. ->edn / <-edn round-trip preserves the {table-id {col-id px}}
        shape.
@@ -12,8 +12,8 @@
     4. Empty / cleared slot loads as {}.
     5. resize-pair-tick event-db writes the slot (no persist);
        resize-pair-commit event-fx writes the persist fx exactly once
-       on pointerup (rf2-xm1jy split — one localStorage write per
-       drag, not one per pixel).
+       on pointerup (one localStorage write per drag, not one per
+       pixel).
     6. reset event-fx clears one table's overrides AND fires persist.
     7. hydrate! lifts the persisted slot back into :rf/xray's app-db
        so the for-table sub re-reads the restored value."
@@ -27,7 +27,7 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `make-xray-runtime-fixture` folds the reset (plain-atom +
   ;; `:all` tier) into one owner; `:post-reset` carries the column-widths
   ;; persistence slate.
   (xray-test-support/make-xray-runtime-fixture
@@ -38,7 +38,7 @@
 (defn- xray-setup!
   "Register Xray handlers + the :rf/xray frame, then re-run the
   column-widths hydration so any localStorage value lifts into the
-  slot. Mirrors `filters/persistence_cljs_test`'s `xray-setup!`."
+  slot."
   []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
@@ -72,7 +72,7 @@
       "empty string collapses to default"))
 
 (deftest from-edn-clamps-degenerate-widths
-  (testing "rf2-xzg1y — a corrupted entry below the min-col floor
+  (testing "a corrupted entry below the min-col floor
             (24px) is clamped on read so a stale persisted value
             can't sneak past the resolver"
     (let [parsed (rt/<-edn (pr-str {:t1 {:a 5}}))]
@@ -80,7 +80,7 @@
           "5px clamps to the 24px floor"))))
 
 (deftest from-edn-drops-non-numeric-widths
-  (testing "rf2-xzg1y — defence-in-depth: a non-number value in the
+  (testing "defence-in-depth: a non-number value in the
             stored map drops out rather than poisoning the slot"
     (is (= {:t1 {:a 100}}
            (rt/<-edn (pr-str {:t1 {:a 100 :b "oops"}})))
@@ -88,24 +88,24 @@
 
 ;; ---- (2) save! / load round-trip (depends on localStorage) --------------
 
-;; The real-storage rows that lived here — `save-and-load-round-trip`,
+;; The real-storage rows — `save-and-load-round-trip`,
 ;; `custom-storage-key-isolates-per-instance`,
 ;; `resize-pair-tick-writes-slot-without-persisting`,
 ;; `resize-pair-commit-persists-current-slot`,
 ;; `reset-clears-table-and-persists` and `hydrate-lifts-persisted-widths`
-;; — moved to
-;; `day8.re-frame2-xray.views.resizable-table-persistence-dom-cljs-test`
-;; under rf2-r51p. Each was wrapped in `(when (and (exists? js/window)
+;; — live in
+;; `day8.re-frame2-xray.views.resizable-table-persistence-dom-cljs-test`.
+;; Here, wrapped in `(when (and (exists? js/window)
 ;; (.-localStorage js/window)) ...)`, which is FALSE under `:node-test`,
-;; while `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` never loaded
-;; this file at all — so they executed in NEITHER lane. Their new home
-;; ends `-dom-cljs-test`, which BOTH builds select, so the rows now run
+;; while `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` never loads
+;; this file at all, they would execute in NEITHER lane. That namespace
+;; ends `-dom-cljs-test`, which BOTH builds select, so the rows run
 ;; for real in the browser and stay inert on node behind `ls/available?`.
 ;;
-;; `resize-pair-tick-clamps-sub-floor-width` stayed BELOW rather than
-;; moving, because the choice is per PROPERTY and not per file: it
-;; asserts only over app-db and never reads storage, so its guard was
-;; incidental. The guard came off instead, which makes it run on node.
+;; `resize-pair-tick-clamps-sub-floor-width` sits BELOW rather than
+;; there, because the choice is per PROPERTY and not per file: it
+;; asserts only over app-db and never reads storage, so it needs no
+;; storage guard, and unguarded it runs on node.
 
 (deftest load-when-slot-is-empty-returns-empty-map
   (rt/clear!)
@@ -113,14 +113,13 @@
 
 ;; ---- (3) Storage-key override (per-instance isolation) ------------------
 
-;; ---- (4) resize-pair tick + commit (rf2-xm1jy split) --------------------
+;; ---- (4) resize-pair tick + commit --------------------------------------
 
 (deftest resize-pair-tick-clamps-sub-floor-width
-  ;; rf2-r51p — the `(when (and (exists? js/window) (.-localStorage
-  ;; js/window)) ...)` guard that used to wrap this body was INCIDENTAL:
-  ;; the assertion reads app-db through the `for-table` sub and never
-  ;; touches storage, so the guard bought nothing and cost the row both
-  ;; lanes. Unguarded, it runs on node — for the first time.
+  ;; No `(when (and (exists? js/window) (.-localStorage js/window)) ...)`
+  ;; guard: the assertion reads app-db through the `for-table` sub and
+  ;; never touches storage, so a guard would buy nothing and cost the
+  ;; row both lanes. Unguarded, it runs on node.
   (xray-setup!)
   (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
                    :rf.xray.epoch/subscriptions
@@ -144,7 +143,7 @@
       "no localStorage value → no slot in app-db"))
 
 (deftest hydrate-is-no-op-pre-frame-registration
-  (testing "rf2-xzg1y — hydrate! short-circuits when :rf/xray is not
+  (testing "hydrate! short-circuits when :rf/xray is not
             yet registered (the preload-time call from registry's
             install! fan-out lands here and must not throw)"
     (rt/save! {:t1 {:a 100}})
