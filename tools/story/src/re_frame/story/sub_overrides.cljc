@@ -51,14 +51,14 @@
 
   ## Live subscribe seam
 
-  An exact-query-vector `:sub-overrides` value now SURFACES at render. A
+  An exact-query-vector `:sub-overrides` value SURFACES at render. A
   normally-authored view's `@(rf/subscribe [:q])` is intercepted in
   `re-frame.subs/subscribe` (CLJS, dev-only) via the
   `:subs/resolve-sub-override` late-bind hook this namespace publishes;
   on a HIT `subscribe` returns a constant reaction holding the pinned
   value, so the view paints the overridden state.
 
-  Two design facts shaped the seam:
+  Two design facts define the seam:
 
     1. The carriage is a React CONTEXT, not the dynamic var. A
        `binding`-bound dynamic var does NOT survive into a view's
@@ -73,14 +73,14 @@
        Provider's value — exactly how `re-frame.adapter.context`
        propagates the frame-id. The render path wraps the variant view
        in `re-frame.adapter.sub-override-context`'s Provider; the
-       `*overrides*` dynamic var is retained ONLY as a JVM / pure-test
+       `*overrides*` dynamic var serves ONLY as a JVM / pure-test
        convenience (the resolver tests bind it directly).
     2. The consult is SUBSTITUTIVE but dev-only + honesty-bounded. It
        sits inside `subscribe`'s `rf.interop/debug-enabled?` gate (DCEs
        under `:advanced` + `goog.DEBUG=false`), and the override feeds
        ONLY the constant reaction the view derefs — never app-db, never
        `compute-sub`. So `:rf.assert/sub-equals` (which evaluates a sub
-       through `compute-sub`) STILL cannot be satisfied by an override.
+       through `compute-sub`) cannot be satisfied by an override.
 
   Core schema-validates a hit against the subscription's declared
   `:schema`, matching Spec 010 §`:sub-return`."
@@ -108,7 +108,7 @@
 (def ^:private miss
   "Sentinel returned by `resolve` when a query vector has no override. A
   distinct sentinel (not `nil`) so an override whose VALUE is `nil` is
-  still honoured as a hit."
+  honoured as a hit."
   ::miss)
 
 (defn miss?
