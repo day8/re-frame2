@@ -1,13 +1,12 @@
 (ns re-frame.bench.fresco.direct-return-clock-app
-  "THE CLOCK HALF OF THE DIRECT-RETURN DELTA (rf2-5yn9).
+  "THE CLOCK HALF OF THE DIRECT-RETURN DELTA.
 
-  `rf2-hic-033` took the DETERMINISTIC half — budgets.md D10–D13, entries
-  into `codec/vec->element`, `codec/convert-props`, `intent/lower-prop`
-  and `controlled/install!`, each read against the crossing's own floor.
-  It did not take the clock: the machine available to it was carrying
-  three concurrent compiles, and a duration measured beside three
-  compiles is a number nobody can attribute. This entry is the clock, on
-  the P0 lane, in a pinned quiet window.
+  budgets.md D10–D13 carry the DETERMINISTIC half — entries into
+  `codec/vec->element`, `codec/convert-props`, `intent/lower-prop` and
+  `controlled/install!`, each read against the crossing's own floor. The
+  clock needs a quiet machine — a duration measured beside concurrent
+  compiles is a number nobody can attribute — so this entry is the clock,
+  on the P0 lane, in a pinned quiet window.
 
   D10–D13 are CITED, never re-derived here. A second source for one
   number is a second thing to drift, and the counts are the half that
@@ -33,7 +32,7 @@
   answer false is not a gate.
 
   It is MOUNTED-DOM equality here, through `rf.bench.fresco.lane/canonical`, and that is
-  a STRONGER claim than the deterministic half made. That file states its
+  a STRONGER claim than the deterministic half makes. That file states its
   own limit explicitly: it settles markup under `renderToStaticMarkup`
   and says nothing about a mounted node's properties or what a commit
   does — the axes a controlled field and a native input genuinely differ
@@ -60,37 +59,37 @@
               TWICE inside one window. Not a doubled page: literally the
               same operation performed twice, so the per-sample additive
               constants double with it and the prediction is a clean
-              2.00x rather than a modelled one. `rf2-jcm3p` records the
-              other shape UNDERSHOOTING (1.8173x over seven runs) for
+              2.00x rather than a modelled one. The other shape, a
+              doubled page, UNDERSHOOTS (1.8173x over seven runs) for
               exactly the constant this one doubles.
 
   `:floor` and `:ctl-2x` are `:parity-exempt?`: one builds an empty page
   and one builds two pages, both on purpose, and folding either into the
   equality would make the fairness gate a permanent failure.
 
-  ## The control is adjudicated STRICTLY, and per round (rf2-gsn62)
+  ## The control is adjudicated STRICTLY, and per round
 
   `rf.bench.fresco.lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
   `:hiccup` ratio must sit inside ±25% of 2.00x, and one bad round
   refuses the run however good the others were. This instrument is
-  entitled to that rule and the coarse-leg rows are not — the 2026-07-31
-  ruling keeps the weaker OVERLAP rule for legs sitting on Chrome's
-  100 µs clamp and names a batched window clear of the quantum as its own
-  revisit trigger. This one reads ~2.25 ms judged and ~4.3 ms control (the
-  figures S8 publishes), twenty to forty-three quanta clear, so a round
+  entitled to that rule and the coarse-leg rows are not — the weaker
+  OVERLAP rule is for legs sitting on Chrome's 100 µs clamp, and the
+  strict rule for a batched window clear of the quantum. This one reads
+  ~2.25 ms judged and ~4.3 ms control (the figures S8 publishes), twenty
+  to forty-three quanta clear, so a round
   outside the band here is not the clock. The floor's own leg is coarse
   and does not enter: the control divides one floor-normalised ratio by
   another taken in the SAME round, so the floor cancels exactly.
 
-  The adjudication is also PER ROUND rather than aggregate. The two runs
-  taken for S8 compared `2.0 x` the ACROSS-ROUND median of `:hiccup`
-  against the ACROSS-ROUND range of `:ctl-2x`, which never puts a round
-  beside its own denominator — a round whose judged leg ran fast was
-  measured against everybody else's. That shape also recorded only the
-  aggregate, so neither run's strict verdict is recoverable and none is
-  claimed; this file now records `:per-round` for the control as well as
-  for the escape, so the next run can be re-adjudicated under either rule
-  WITHOUT re-running the window.
+  The adjudication is also PER ROUND rather than aggregate. Comparing
+  `2.0 x` the ACROSS-ROUND median of `:hiccup` against the ACROSS-ROUND
+  range of `:ctl-2x` never puts a round beside its own denominator — a
+  round whose judged leg ran fast is measured against everybody else's —
+  and a run that records only that aggregate leaves its strict verdict
+  unrecoverable. S8's two published runs are of that shape, so neither
+  claims a strict verdict. This file records `:per-round` for the control
+  as well as for the escape, so a run can be re-adjudicated under either
+  rule WITHOUT re-running the window.
 
   ## The published figure
 
@@ -102,10 +101,11 @@
   threshold (>= 20% recovered, or >= 2 ms p95, or a failed user-visible
   budget converted) is adjudicated against it.
 
-  Owner: rf2-5yn9. Instrument: `lane.cljs`, ridden through `run.cjs` on the
-  existing `:fresco-bench` build id via `FRESCO_INIT_FN` — no
-  `shadow-cljs.edn` edit, which is what the driver's `--config-merge`
-  exists for."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`. Instrument: `lane.cljs`, ridden
+  through `run.cjs` on the `:fresco-bench` build id via `FRESCO_INIT_FN`
+  — the driver's `--config-merge` supplies the entry, so no build id is
+  added."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
@@ -126,7 +126,7 @@
 ;; Subscriptions and data — `direct_return_cljs_test`'s, scaled to N ids
 ;; ---------------------------------------------------------------------------
 ;;
-;; The pair reads `[:dr/label id]` and `[:dr/tags id]`. Both survive
+;; The pair reads `[:dr/label id]` and `[:dr/tags id]`. Both are
 ;; verbatim; only the SEED grows, because a page of one boundary cannot
 ;; be timed. Labels are per-row so the far-end read-back distinguishes a
 ;; page that rendered from a page that rendered its prefix.
@@ -166,8 +166,8 @@
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
-  unchanged. A raw React element passes through the codec untouched, so
-  there is no intent lowering — the callback slot holds an ordinary
+  as in [[hiccup-body]]. A raw React element passes through the codec
+  untouched, so there is no intent lowering — the callback slot holds an ordinary
   function — and no controlled repair, so the field's echo is the
   author's to write."
   [{:keys [id]}]
@@ -221,8 +221,8 @@
   ;; every arm root SCOPEs it (`frame-provider`) rather than ENSUREing it —
   ;; the k roots of one batch are k roots sharing the one frame. The handle
   ;; is allocated here rather than answered by the door, because `render!`
-  ;; answers nil; `client-root` is an inert atom, so what sits inside the
-  ;; timed window is what `mount!` used to allocate inside it too.
+  ;; answers nil; `client-root` is an inert atom, so allocating it inside
+  ;; the timed window costs the window next to nothing.
   (fn [container _props _n]
     (let [handle (rf.fresco/client-root)]
       (rf.fresco/render! handle
@@ -243,46 +243,40 @@
     :mount (mount-page hiccup-arm) :unmount unmount-page}])
 
 (def ^:private sampling
-  "THE LANE'S PAGE-MOUNT SAMPLING, which this arm now runs (rf2-h904p).
+  "THE LANE'S PAGE-MOUNT SAMPLING.
 
-  It ran `{:warmup 3 :samples 6}`, and the arm-order guard refused the S8
-  window at exit 2 on a PHASE contrast: `:hiccup`'s first third read
-  `2.3000 ms [2.1000-4.9000]` against a last third of
-  `1.9000 ms [1.7000-2.0000]`, `1.2105x` apart with disjoint ranges, while
-  the other two page-mounting arms drifted `1.2338x` (`:ctl-2x`) and
-  `1.2000x` (`:direct`) and passed only because their ranges overlapped.
-  Every by-predecessor contrast passed on every arm. A decay common to all
-  three mounting arms and absent from the by-predecessor axis is a
-  POSITION effect, and three warm-up mounts is what this file was giving
-  it.
+  THREE WARM-UP MOUNTS SIT BELOW THE STEP THE LANE ITSELF RECORDS.
+  `lane.cljs`'s live reproduction read one control
+  `10.32 10.26 10.26 10.26 10.33 10.28` and then `8.12` for ever — a +27%
+  step falling after the SIXTH execution of the site, with nothing varying
+  but how many times it had run. At `:warmup 3` a step of that shape
+  lands INSIDE the measured samples and splits round one, and the
+  arm-order guard refuses the window at exit 2 on a PHASE contrast —
+  measured there, `:hiccup`'s first third read `2.3000 ms [2.1000-4.9000]`
+  against a last third of `1.9000 ms [1.7000-2.0000]`, `1.2105x` apart
+  with disjoint ranges, while the other two page-mounting arms drifted
+  `1.2338x` (`:ctl-2x`) and `1.2000x` (`:direct`) and passed only because
+  their ranges overlapped, and every by-predecessor contrast passed on
+  every arm. A decay common to all three mounting arms and absent from
+  the by-predecessor axis is a POSITION effect. At `:warmup 8` it lands
+  inside the warm-up and no measured sample straddles it.
 
-  THREE SITS BELOW THE STEP THE LANE ITSELF RECORDS. `lane.cljs`'s live
-  reproduction read one control `10.32 10.26 10.26 10.26 10.33 10.28` and
-  then `8.12` for ever — a +27% step falling after the SIXTH execution of
-  the site, with nothing varying but how many times it had run. At
-  `:warmup 3` a step of that shape lands INSIDE the measured samples and
-  splits round one, which is the contrast the guard reported; at
-  `:warmup 8` it lands inside the warm-up and no measured sample straddles
-  it. `{:warmup 8 :samples 12}` is also what every other harness riding
-  [[rf.bench.fresco.lane/mount-batch!]] already runs. That set is checkable and small —
+  `{:warmup 8 :samples 12}` is what every harness riding
+  [[rf.bench.fresco.lane/mount-batch!]] runs. That set is checkable and small —
   `(rf.bench.fresco.lane/mount-batch!` has five call sites on this lane, this file,
   `amp_merge_clock_app`, `coldmount_app`, `p0_converge_app` and
-  `p0_reagent_app` — and the last three all sample at 8/12, so the two
-  clocks were the lane's only batched-mount outliers. This arm stops
-  being one rather than acquiring a figure of its own.
+  `p0_reagent_app` — and all five sample at 8/12.
 
-  WHAT WAS DELIBERATELY NOT MOVED. Not the guard's tolerance, which is not
+  WHAT IS DELIBERATELY NOT MOVED. Not the guard's tolerance, which is not
   the arm's to move. Not [[boundaries]]: lengthening the flushSync window
   is the third move `run.cjs` names, but it would change the SUBJECT
-  budgets.md S8 already publishes — `on a 200-boundary mount` — and make
-  the next window incomparable to run 1 for a reason that has nothing to
-  do with the refusal. And not the arm count, which the same repair on
-  `amp_merge_clock_app` settles with the schedule arithmetic.
+  budgets.md S8 publishes — `on a 200-boundary mount` — and make the
+  next window incomparable for a reason that has nothing to do with the
+  refusal. And not the arm count, which the schedule arithmetic settles,
+  as it does for `amp_merge_clock_app`.
 
-  This re-tunes the conditions under which S8 is measured, so run 1's
-  published figure is NOT comparable to what this file will read next.
-  That was already the position: the refusal left S8 waiting on a fresh
-  window, and this is the rig change it was waiting for."
+  S8's published figure was taken at `:warmup 3`, so it is NOT comparable
+  to what this file reads."
   {:warmup 8 :samples 12})
 
 (def ^:private rounds 5)
@@ -437,7 +431,7 @@
                                arms)
                 escape   (rf.bench.fresco.lane/ratio-between ratios :direct :hiccup)
                 gv       (rf.bench.fresco.lane/guard! samples "direct-return clock arms (in-page ms)")
-                ;; THE POSITIVE CONTROL, per round and strictly (rf2-gsn62).
+                ;; THE POSITIVE CONTROL, per round and strictly.
                 ;; `:ctl-2x` is `:hiccup`'s own operation performed twice in
                 ;; one window, so 2.00x is arithmetic rather than a model,
                 ;; and dividing each round by ITS OWN `:hiccup` leaves the
@@ -450,7 +444,7 @@
             (rf.bench.fresco.lane/record! :direct-return-clock
                           {:benchmark   :fresco.P0/direct-return-clock
                            :bead        "rf2-5yn9"
-                           :cites       "budgets.md D10-D13 (rf2-hic-033) — the deterministic half, NOT re-derived here"
+                           :cites       "budgets.md D10-D13 — the deterministic half, NOT re-derived here"
                            :grade       :distributional
                            :runtime     (rf.bench.fresco.lane/runtime-label)
                            :boundaries  boundaries
@@ -462,7 +456,7 @@
                            :escape      escape
                            :control     ctl
                            :writes      tv})
-            (js/console.log ";; ==== DIRECT-RETURN CLOCK (rf2-5yn9) ====")
+            (js/console.log ";; ==== DIRECT-RETURN CLOCK ====")
             (js/console.log (str ";;   " boundaries " boundaries/page, " page-elements
                                  " elements; " rounds " rounds x ("
                                  (:warmup sampling) "+" (:samples sampling) ")"))
