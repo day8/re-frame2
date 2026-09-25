@@ -16,22 +16,22 @@
   `IXrayEdnInspector`; the widget checks `satisfies?` at the top of
   every `render-node` call and, if true, defers to the consumer's
   two methods. Otherwise the closed renderer's built-in dispatch
-  runs unchanged.
+  runs.
 
   ## Contract
 
-      (render-header v opts)  ;; hiccup for the header row (inline,
-                              ;; collapsed-summary, or the open
-                              ;; bracket — whatever the consumer
-                              ;; wants visually at the node's head).
-                              ;; Returning nil falls back to the
-                              ;; built-in renderer for that node.
+      (-xray-render-header v opts)  ;; hiccup for the header row (inline,
+                                    ;; collapsed-summary, or the open
+                                    ;; bracket — whatever the consumer
+                                    ;; wants visually at the node's head).
+                                    ;; Returning nil falls back to the
+                                    ;; built-in renderer for that node.
 
-      (render-body v opts)    ;; hiccup for the expanded body, or
-                              ;; nil for a header-only render.
-                              ;; The widget wraps the body in the
-                              ;; standard indented container
-                              ;; (left-rule + 14px padding).
+      (-xray-render-body v opts)    ;; hiccup for the expanded body, or
+                                    ;; nil for a header-only render.
+                                    ;; The widget wraps the body in the
+                                    ;; standard indented container
+                                    ;; (left-rule + 14px padding).
 
   Both methods receive the same `opts` map the widget itself
   threads through `render-node` — `:panel-id`, `:mount-id`, `:path`,
@@ -45,16 +45,15 @@
   ## Fall-through
 
   - `(satisfies? IXrayEdnInspector v)` false → built-in renderer.
-  - `render-header` returns `nil` → built-in renderer for this
+  - `-xray-render-header` returns `nil` → built-in renderer for this
     node (skips the protocol entirely for the node, including
     the body).
-  - `render-body` returns `nil` + header non-nil → header-only
+  - `-xray-render-body` returns `nil` + header non-nil → header-only
     render (no expanded body, no toggle).
 
-  This three-state fall-through lets a consumer override just the
-  header (e.g. add a custom tag) while still using the built-in
-  body, or vice versa, without splitting the protocol into four
-  methods.
+  This three-state fall-through lets a consumer decline a node (nil
+  header) or render a header with no body (nil body) without
+  splitting the protocol into four methods.
 
   ## Boundary
 
