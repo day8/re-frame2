@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.viewport-switcher
-  "Toolbar chip + dropdown for the chrome-wide viewport switcher
-  (rf2-zll4h).
+  "Toolbar chip + dropdown for the chrome-wide viewport switcher.
 
   Mirrors Storybook's `addon-viewport` toolbar surface. The chip shows
   the currently-selected preset label; clicking opens a dropdown
@@ -92,10 +91,10 @@
   `:extends` chain that declares one (the variant, then its ancestors), else
   its parent story's. That is the plan compiler's `[:world :viewport]` —
   inherited through `:extends` as world context (spec/017 §`:extends`) —
-  with the story fallback this lookup always had. The chain is walked
+  plus the parent-story fallback. The chain is walked
   rather than compiled, to keep plan compiles out of every toolbar render;
-  reading the variant's own body alone framed an `:extends` child at the
-  toolbar selection (rf2-3x7nj.28.2). An unregistered parent or a cycle
+  reading the variant's own body alone would frame an `:extends` child at
+  the toolbar selection. An unregistered parent or a cycle
   ends the walk; plan construction refuses both with its own error."
   [variant-id]
   (when variant-id
