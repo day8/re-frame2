@@ -541,6 +541,21 @@
    ;; A single spawn's `:on-error` is a transition.
    :valid-spawn-on-error-keyword {:initial :a :states {:a {:spawn {:machine-id :m :on-error :b}} :b {}}}
    :valid-spawn-on-error-map     {:initial :a :states {:a {:spawn {:machine-id :m :on-error {:target :b}}} :b {}}}
+   ;; A choice state routes to its first passing guard, ending in a default,
+   ;; at any depth.
+   :valid-choice-guarded         {:initial :g :guards {:ok? (fn [_ctx] true)}
+                                  :states  {:g {:type :choice :choice [{:guard :ok? :target :a} {:target :b}]}
+                                            :a {} :b {}}}
+   :valid-compound-nested-choice {:initial :o :states {:o {:initial :g :states {:g {:type :choice :choice [{:target :a}]}
+                                                                               :a {}}}}}
+   ;; An `:after` holding nil declares no delay, at every position it can take.
+   :valid-state-after-nil          {:initial :a :states {:a {:after nil :on {:go :b}} :b {}}}
+   :valid-compound-after-nil       {:initial :o :states {:o {:initial :a :after nil :states {:a {:after nil}}}}}
+   :valid-region-state-after-nil   {:type :parallel :regions {:r {:initial :a :states {:a {:after nil}}}}}
+   :valid-region-body-after-nil    {:type :parallel :regions {:r {:initial :a :after nil :states {:a {}}}}}
+   :valid-flat-root-after-nil      {:initial :a :after nil :states {:a {}}}
+   :valid-parallel-root-after-nil  {:type :parallel :after nil :regions {:r {:initial :a :states {:a {}}}}}
+   :valid-after-nil-beside-timeout {:initial :a :states {:a {:after nil :timeout 1000 :on-timeout :b} :b {}}}
    ;; ---- invalid (both reject) ----
    :nested-no-init   {:initial :outer :states {:outer {:states {:inner {}}}}}
    :unresolved-kw    {:initial :idle :states {:idle {:on {:go :missing}}}}
@@ -681,6 +696,29 @@
                                                                   :states  {:a {}}}}}
    :region-body-choice-no-default  {:type :parallel :regions {:r {:type :choice :choice [{:guard :g :target :a}]}}}
    :region-body-choice-self-loop   {:type :parallel :regions {:r {:type :choice :choice [{:target :r}]}}}
+   ;; ---- an ordinary state's `:type :choice` / `:choice`, at any depth ----
+   :choice-without-type              {:initial :a :states {:a {:choice [{:target :b}]} :b {}}}
+   :choice-missing-choice            {:initial :g :states {:g {:type :choice} :a {}}}
+   :choice-malformed                 {:initial :g :states {:g {:type :choice :choice :a} :a {}}}
+   :choice-empty                     {:initial :g :states {:g {:type :choice :choice []} :a {}}}
+   :choice-extra-keys                {:initial :g :states {:g {:type :choice :choice [{:target :a}] :entry :announce} :a {}}}
+   :choice-no-default                {:initial :g :guards {:ok? (fn [_ctx] true)}
+                                      :states  {:g {:type :choice :choice [{:guard :ok? :target :a}]} :a {}}}
+   :choice-self-loop                 {:initial :g :states {:g {:type :choice :choice [{:target :g}]} :a {}}}
+   :choice-self-loop-path            {:initial :o :states {:o {:initial :g :states {:g {:type :choice :choice [{:target [:o :g]}]}
+                                                                                  :a {}}}}}
+   :compound-choice-without-type     {:initial :o :states {:o {:initial :a :states {:a {:choice [{:target :b}]} :b {}}}}}
+   :compound-choice-no-default       {:initial :o :guards {:ok? (fn [_ctx] true)}
+                                      :states  {:o {:initial :g :states {:g {:type :choice :choice [{:guard :ok? :target :a}]}
+                                                                         :a {}}}}}
+   :compound-as-choice               {:initial :o :states {:o {:type :choice :choice [{:target :b}] :initial :a :states {:a {}}}
+                                                           :b {}}}
+   :region-state-choice-without-type {:type :parallel :regions {:r {:initial :a :states {:a {:choice [{:target :b}]} :b {}}}}}
+   :region-state-choice-self-loop    {:type :parallel :regions {:r {:initial :g :states {:g {:type :choice :choice [{:target [:g]}]}
+                                                                                         :a {}}}}}
+   ;; ---- an `:after` holding nil is still a declared `:after` key ----
+   :final-after-nil  {:initial :a :states {:a {:final? true :after nil}}}
+   :choice-after-nil {:initial :g :states {:g {:type :choice :choice [{:target :a}] :after nil} :a {}}}
    ;; ---- non-Named KEYS ----
    ;;
    ;; Every entry above spells its keys as keywords, so without these rows the
@@ -1029,6 +1067,84 @@
           (str label ": the viz category after the boundary desugar"))
       (is (= [:regions (or (:region refusal) (:state refusal))] (:path (g/definition-defect m)))
           (str label ": the viz names the engine's region")))))
+
+;; Every state node is held to the choice grammar a region body is, at any
+;; depth, before anything is lowered. The engine names the declaring state under
+;; `:state`; the viz names its path, whose last key is that state.
+
+(def ^:private state-choice-refusal-rows
+  "Corpus labels → the category the engine refuses each state's choice with."
+  {:choice-without-type              :rf.error/machine-choice-without-type
+   :choice-missing-choice            :rf.error/machine-choice-missing-choice
+   :choice-malformed                 :rf.error/machine-bad-choice
+   :choice-empty                     :rf.error/machine-bad-choice
+   :choice-extra-keys                :rf.error/machine-choice-extra-keys
+   :choice-no-default                :rf.error/machine-choice-no-default
+   :choice-self-loop                 :rf.error/machine-choice-self-loop
+   :choice-self-loop-path            :rf.error/machine-choice-self-loop
+   :compound-choice-without-type     :rf.error/machine-choice-without-type
+   :compound-choice-no-default       :rf.error/machine-choice-no-default
+   :compound-as-choice               :rf.error/machine-choice-extra-keys
+   :region-state-choice-without-type :rf.error/machine-choice-without-type
+   :region-state-choice-self-loop    :rf.error/machine-choice-self-loop})
+
+(deftest state-choice-refusal-parity
+  (testing "an ordinary state, and a choice state flat, inside a compound and
+            inside a region, register on both sides"
+    (doseq [label [:valid-flat :valid-choice :valid-choice-guarded
+                   :valid-compound-nested-choice :valid-region-nested-choice]
+            :let [m (get validation-parity-corpus label)]]
+      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
+      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))
+      (is (= :accept (viz-answer (g/desugar-grammar m)))
+          (str label ": the viz accepts after the boundary desugar"))))
+  (testing "the viz refuses a state's :choice with the engine's own category,
+            naming the state the engine names"
+    (doseq [[label category] state-choice-refusal-rows
+            :let [m       (get validation-parity-corpus label)
+                  refusal (engine-refusal m)]]
+      (is (= category (:rf.error/id refusal))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar"))
+      (is (= (:state refusal) (peek (:path (g/definition-defect m))))
+          (str label ": the viz names the engine's state")))))
+
+;; An `:after` holding nil declares no delay, so the engine reads it as absent at
+;; every position an `:after` can take, and the viz projects it as absent. The
+;; key is still declared, so a final state or a choice state carrying it is
+;; refused on both sides as one carrying any `:after` is.
+
+(def ^:private after-nil-accept-rows
+  [:valid-state-after-nil :valid-compound-after-nil :valid-region-state-after-nil
+   :valid-region-body-after-nil :valid-flat-root-after-nil :valid-parallel-root-after-nil
+   :valid-after-nil-beside-timeout])
+
+(def ^:private after-nil-refusal-rows
+  "Corpus labels → the category the engine refuses each with."
+  {:final-after-nil  :rf.error/machine-final-state-has-transitions
+   :choice-after-nil :rf.error/machine-choice-extra-keys})
+
+(deftest after-nil-parity
+  (testing "an :after holding nil registers on both sides at every position"
+    (doseq [label after-nil-accept-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
+      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))
+      (is (= :accept (viz-answer (g/desugar-grammar m)))
+          (str label ": the viz accepts after the boundary desugar"))))
+  (testing "a final or choice state declaring :after nil is refused with the
+            engine's own category"
+    (doseq [[label category] after-nil-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
