@@ -173,7 +173,7 @@
   the LIVE control rather than the plan-time arg. Pure data → data; nil
   when the plan carries no overrides.
 
-  Re-substitutes the RAW (pre-`[:arg]`) overrides the plan kept at
+  Re-substitutes the RAW (pre-`[:arg]`) overrides the plan carries at
   `[:render-raw :sub-overrides]` against `eff-args` — the SAME one-level
   `rf.story.plan/substitute-args` the plan compiler + the canvas render path use.
   Falls back to the already-resolved `[:world :render :sub-overrides]` slot
@@ -233,8 +233,8 @@
          ;; layers (global-args + the parent story's `:args`), as the run
          ;; does (`runtime/prepare-context`), so a story-level `[:arg key]`
          ;; resolves and `:plan-hash` agrees with the run's. The control
-         ;; overrides still layer on top, below. An inline map target runs
-         ;; with no ambient layers, so it compiles bare (rf2-851t0).
+         ;; overrides layer on top, below. An inline map target runs
+         ;; with no ambient layers, so it compiles bare.
          compile-opts (cond-> (select-keys opts [:lookup :view-lookup :validator-fns
                                                  :sub-lookup :fragment-lookup :check-lookup])
                         (keyword? target)
