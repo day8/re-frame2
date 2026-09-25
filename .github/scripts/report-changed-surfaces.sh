@@ -2341,14 +2341,13 @@ else
         esac
         ;;
       tools/testbed-support/*)
-        # rf2-as6bg — this tree had NO arm at all, so a testbed-support-only
-        # PR classified as zero changed surfaces and ran zero gates. Not just
-        # the JVM suite the bijection gate found (rf2-4hc9p): its three CLJS
-        # suites were skipped too. `implementation/shadow-cljs.edn` says the
+        # Without this arm a testbed-support-only PR would classify as zero
+        # changed surfaces and run zero gates — its JVM suite and its three
+        # CLJS suites alike. `implementation/shadow-cljs.edn` says the
         # slice "additionally rides the always-on `:node-test` gate, so the
-        # slice is covered on every PR" — that was true of the BUILD's
-        # source-paths and false of CI, because the `cljs` job is gated on
-        # cljs_node_test, which nothing here set.
+        # slice is covered on every PR": true of the BUILD's source-paths,
+        # and true of CI only because this arm sets cljs_node_test, which
+        # the `cljs` job is gated on.
         #
         # src+test are :source-paths of the consolidated :node-test AND
         # :browser-test builds, exactly like machines-viz above, so the same
@@ -2356,13 +2355,12 @@ else
         # `story_host_cljs_test.cljs` under node, and
         # `story_host_dom_cljs_test.cljs` (matching `-dom-cljs-test$`) under
         # headless Chromium for its real React-root handoff assertions.
-        # (`config_cljs_test.cljs` and the `re-frame.testbed.config` ns it
-        # exercised went with the browser-side project-root setup in
-        # 2eb0df5bdd — the endpoint resolves source coordinates JVM-side now.)
+        # (The open-in-editor endpoint resolves source coordinates JVM-side,
+        # so there is no browser-side project-root setup to test.)
         #
         # The `.clj` half — `open_in_editor_server_test.clj`, which no CLJS
-        # build can load — now has a lane too
-        # (rf2-wq17m): `jvm-tools-testbed-support`, gated on the dedicated
+        # build can load — has a lane too:
+        # `jvm-tools-testbed-support`, gated on the dedicated
         # output below. `tools_jvm` stays deliberately unset for the same reason
         # as machines-viz above: none of the four jobs `tools_jvm` gates (xray /
         # story / story-mcp / mcp-base) runs this artefact, so it would fire four
@@ -2372,7 +2370,7 @@ else
         tools_jvm_testbed_support=true
         ;;
       tools/story-mcp/*)
-        # rf2-os0c1 — MCP wrappers don't run in a browser; story-xray-browser
+        # MCP wrappers don't run in a browser; story-xray-browser
         # exercises the Story/Xray CLJS runtimes via Playwright and is
         # noise for an MCP-wrapper-only diff. tools_jvm + mcp_conformance
         # cover the actual JVM probes (jvm-tools-story-mcp / wire-vocab) and
@@ -2381,7 +2379,7 @@ else
         mcp_conformance=true
         ;;
       tools/re-frame2-pair-mcp/*|tools/mcp-base/*)
-        # rf2-os0c1 — mcp-base is .cljc shared by every MCP server (rf2-vw4sq),
+        # mcp-base is .cljc shared by every MCP server,
         # and re-frame2-pair-mcp ships as a Node binary plus a JVM mcp-base consumer.
         # tools_jvm picks up jvm-tools-mcp-base; mcp_conformance fires the
         # node + wire-vocab gates; mcp_live fires the re-frame2-pair live conformance.
@@ -2390,8 +2388,8 @@ else
         mcp_live=true
         ;;
       tools/mcp-conformance/*)
-        # rf2-os0c1 — mcp-conformance is JS test scripts plus the JVM
-        # wire-vocab subdir. The wire-vocab JVM tests already run under
+        # mcp-conformance is JS test scripts plus the JVM
+        # wire-vocab subdir. The wire-vocab JVM tests run under
         # mcp-conformance-wire-vocab, which is gated by mcp_conformance.
         # Setting tools_jvm here would needlessly fire four unrelated
         # jvm-tools-* probes (xray/story/story-mcp/mcp-base).
@@ -2399,15 +2397,15 @@ else
         mcp_live=true
         ;;
       skills/re-frame2/references/tooling/story-mcp-loop.md)
-        # rf2-jbwraa — code↔skill drift ratchet routing. The
+        # Code↔skill drift ratchet routing. The
         # tools/story-mcp JVM test `skill-leaf-tool-names-match-registry`
         # (tools_test.clj) PINS this leaf's prose catalogue against the
         # live story-mcp tool registry (slurps ../../skills/re-frame2/
         # references/tooling/story-mcp-loop.md). That gate fires only under
-        # `jvm-tools-story-mcp` (gated by tools_jvm) — which previously ran
-        # ONLY when tools/story-mcp/** changed, NOT when this cross-checked
-        # leaf changed. So a leaf edit that desynced the ratchet merged
-        # green and left main latently RED (rf2-r2xswa/#3637). Route a
+        # `jvm-tools-story-mcp` (gated by tools_jvm), which tools/story-mcp/**
+        # arms and this cross-checked leaf would not — so a leaf edit that
+        # desynced the ratchet would merge green and leave main latently
+        # RED. Route a
         # change to this specific leaf to tools_jvm + mcp_conformance,
         # mirroring the tools/story-mcp/* case, so the ratchet runs at PR
         # time. Scoped to the single pinned path — no broader skills/
@@ -2416,7 +2414,7 @@ else
         mcp_conformance=true
         ;;
       skills/re-frame2/patterns/form-action.md)
-        # rf2-8btol — the same code↔skill drift routing as the story-mcp-loop
+        # The same code↔skill drift routing as the story-mcp-loop
         # leaf directly above, one lane over, and a STRONGER edge than a prose
         # pin: `implementation/ssr/test/re_frame/ssr_skill_form_action_test
         # .clj` slurps this page, pulls the handler and view forms out of its
@@ -2424,23 +2422,22 @@ else
         # request pipeline. The recipe IS that suite's input, so a
         # recipe-only edit changes what the suite executes.
         #
-        # It armed NOTHING AT ALL before this arm — not `skills_structural`,
-        # not one of the 29 outputs (measured: all false). `skills/re-frame2/`
-        # has no generic arm and the main case has no default, which is the
-        # same zero-output shape rf2-g1m2q found in two other skill trees. So
-        # the PR that ADDED the test scheduled `jvm-ssr` (a test file arms
-        # `implementation_jvm`) and every later edit to the recipe alone would
-        # not have — the gap is invisible on the PR that opens it.
+        # Without this arm it arms NOTHING AT ALL — not `skills_structural`,
+        # not one output. `skills/re-frame2/` has no generic arm and the main
+        # case has no default, the same zero-output shape as the skill trees
+        # below. The PR that adds such a test schedules `jvm-ssr` (a test file
+        # arms `implementation_jvm`) while every later edit to the recipe
+        # alone would not — the gap is invisible on the PR that opens it.
         #
         # `implementation_jvm` because there is nothing narrower: it is the
-        # single output all 22 per-artefact JVM jobs gate on, and `jvm-ssr` is
+        # single output every per-artefact JVM job gates on, and `jvm-ssr` is
         # one of them. The "PROSE THAT A test.yml SUITE PINS" block above
         # argues that at length; this is that reasoning reaching a skill page.
-        # The narrowing is bought on the PATH axis instead — ONE named leaf,
+        # The narrowing is on the PATH axis instead — ONE named leaf,
         # not `skills/re-frame2/patterns/*` and emphatically not `skills/**`.
-        # The thirteen sibling recipes here have no JVM reader, and arming an
-        # expensive tier for all skill prose is the cost this bead exists to
-        # avoid. Add a leaf when a new JVM suite extracts one.
+        # The sibling recipes here have no JVM reader, and arming an
+        # expensive tier for all skill prose is the cost this narrowing
+        # avoids. Add a leaf when a new JVM suite extracts one.
         #
         # No CLJS output: markdown cannot change what React puts on a page,
         # and the extracted view is rendered by the JVM SSR projector.
@@ -2452,7 +2449,7 @@ else
         mcp_live=true
         ;;
       skills/re-frame2-pair/preload/*)
-        # rf2-11yjq — the shipped re-frame2-pair preload
+        # The shipped re-frame2-pair preload
         # (skills/re-frame2-pair/preload/re_frame2_pair/{runtime.cljs,pure.cljc},
         # and any nested source) is dev-only RUNTIME whose stateful wrapper has
         # TWO owning behavioral gates:
@@ -2463,18 +2460,19 @@ else
         #   - mcp-conformance-re-frame2-pair (gated on mcp_live) boots the
         #     hermetic fixture with THIS exact preload and exercises live Pair
         #     operations across the MCP bridge.
-        # rf2-k8yl5f armed examples_compile (the earlier case block) so the
+        # The earlier case block arms examples_compile so the
         # preload COMPILES into the ~28 example dev builds that inject it, and
-        # the generic skills/re-frame2-pair/* case below armed skills_structural
+        # the generic skills/re-frame2-pair/* case below arms skills_structural
         # (source-shape + pure-core node fixture). But NEITHER of those executes
-        # the stateful runtime wrapper or its live wire behavior — so a
-        # preload-only regression (runtime.cljs / pure.cljc / a nested preload
-        # path) merged with BOTH owning behavioral gates SKIPPED, caught only by
-        # the nightly net (a PR-time false-green). Arm cljs_browser + mcp_live so
-        # the two runtime consumers run at PR time. skills_structural is set here
-        # too because this more-specific case shadows the generic
-        # skills/re-frame2-pair/* case below (widening coverage, not narrowing
-        # it); examples_compile still fires via the earlier case block. Scoped to
+        # the stateful runtime wrapper or its live wire behavior — so on those
+        # alone a preload-only regression (runtime.cljs / pure.cljc / a nested
+        # preload path) would merge with BOTH owning behavioral gates SKIPPED,
+        # caught only by the nightly net (a PR-time false-green). Arm
+        # cljs_browser + mcp_live so the two runtime consumers run at PR time.
+        # skills_structural is set here too because this more-specific case
+        # shadows the generic skills/re-frame2-pair/* case below (widening
+        # coverage, not narrowing it); examples_compile fires via the earlier
+        # case block. Scoped to
         # the preload subtree only — non-preload skill docs/references keep their
         # structural-only classification and never arm these expensive gates.
         skills_structural=true
@@ -2485,12 +2483,10 @@ else
         skills_structural=true
         ;;
       skills/re-frame2-improver/*)
-        # rf2-z65e — the same silent hole rf2-g1m2q found in two other trees:
-        # this one armed NOTHING AT ALL. The main case has no default arm, so a
-        # diff confined to the improver tree classified to zero outputs, and
-        # `skills/re-frame2-improver/tests/storage_materializer_test.clj` (added
-        # by PR #9232 with `.github/workflows/**` fenced out, so local-only) had
-        # nothing scheduling it. The step that loops it lives in the
+        # The main case has no default arm, so without this arm a
+        # diff confined to the improver tree would classify to zero outputs, and
+        # `skills/re-frame2-improver/tests/storage_materializer_test.clj` would
+        # have nothing scheduling it. The step that loops it lives in the
         # `skills-structural` job, gated on this output.
         #
         # THE NEAR-MISS PREFIX HERE IS `implementor`, NOT `pair-retro`. Both
@@ -2505,28 +2501,28 @@ else
         # compiles into no example build, so the expensive lanes the
         # `skills/re-frame2-pair/*` neighbour arms have nothing to do here.
         skills_structural=true
-        # rf2-g9at9 — ONE leaf in this tree now has a JVM reader, and
+        # ONE leaf in this tree has a JVM reader, and
         # `skills_structural` does not reach it.
         # `implementation/schemas/test/re_frame/improver_article_schema_test
         # .clj` slurps `references/schemaless-events.md`, extracts the
         # canonical HTTP block from its fences and drives it through the real
         # router and Malli — so the page IS that suite's input. That suite
-        # runs in `jvm-schemas`, gated on `implementation_jvm`, and this tree
-        # armed `skills_structural` alone: the PR that added the test
-        # scheduled the lane because the diff carried the test file; an edit
-        # to the reference alone would not have. (The Babashka
+        # runs in `jvm-schemas`, gated on `implementation_jvm`, which
+        # `skills_structural` alone does not reach: the PR that adds such a
+        # test schedules the lane because the diff carries the test file; an
+        # edit to the reference alone would not. (The Babashka
         # `article_lifecycle_test` the structural job DOES run deliberately
         # stubs `reg-app-schema`, so it cannot stand in — it never reaches the
         # cold-start rejection this suite detects.)
         #
         # NESTED, and the nesting is the whole scope limit — the shape the
         # `skills/re-frame2-setup/references/*` arm immediately below uses,
-        # for the reason rf2-xurxw gives for its own nested case. Setting
-        # `implementation_jvm` at this arm's TOP LEVEL would queue the 22-job
-        # JVM tier for every prose file in the improver tree — SKILL.md, the
-        # three spec pages, the five other references, the evals — which is
-        # precisely the "arm every expensive lane for all skill prose" this
-        # bead forbids, and it reds the sibling controls in the mirror.
+        # for the reason the story-static nested case in the shadow-cljs.edn
+        # arm gives for its own. Setting `implementation_jvm` at this arm's
+        # TOP LEVEL would queue the whole JVM tier for every prose file in the
+        # improver tree — SKILL.md, the spec pages, the other references, the
+        # evals — which is precisely arming an expensive lane for all skill
+        # prose, and it reds the sibling controls in the mirror.
         #
         # And it must be nested rather than hoisted OUT to a top-level case:
         # a POSIX `case` takes the FIRST match, so a top-level arm for this
@@ -2541,10 +2537,10 @@ else
         esac
         ;;
       skills/re-frame2-setup/*)
-        # rf2-agi57x — the re-frame2-setup skill carries a structural drift
+        # The re-frame2-setup skill carries a structural drift
         # guard (tests/setup_drift_test.clj) gated under skills-structural.
         skills_structural=true
-        # rf2-6ng7 — the skill's REFERENCE snippets are compiled, not merely
+        # The skill's REFERENCE snippets are compiled, not merely
         # linted. `setup-skill-scaffold-compiles-test` in
         # tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj
         # materialises a scaffold for each documented substrate SOLELY from
@@ -2552,9 +2548,9 @@ else
         # shared-dataflow.md + entry-namespace.md + shadow-cljs.md), then runs
         # `clojure -M:shadow compile app` over it against the in-repo source.
         # That suite runs in `jvm-tools-template`, which `template_expensive`
-        # gates — and this tree armed only `skills_structural`, so the one
-        # gate that compiles the skill's hand-written greenfield counter never
-        # fired on an edit to it. The structural guard cannot stand in: it
+        # gates — and `skills_structural` alone would leave the one gate that
+        # compiles the skill's hand-written greenfield counter unfired on an
+        # edit to it. The structural guard cannot stand in: it
         # checks shape, not that the snippets still compile.
         #
         # `references/` only. The skill's SKILL.md, its tests/ and its other
@@ -2567,21 +2563,19 @@ else
         esac
         ;;
       skills/re-frame2-pair-retro/*)
-        # rf2-g1m2q — this tree armed NOTHING AT ALL, not merely
-        # skills_structural=false: the four arms above were the whole of the
-        # `skills_structural` surface and the main case has no default arm, so
-        # a diff confined here classified to zero of 28 outputs.
+        # The main case has no default arm, so without this arm a diff
+        # confined here would classify to zero outputs.
         #
         # IT CANNOT INHERIT THE PAIR ARM, and that is the whole reason it needs
         # its own. `skills/re-frame2-pair/*` requires a `/` immediately after
         # `pair`; this tree has `-retro` there, so the pattern never matches and
         # the near-identical prefix reads as though it were already covered.
         #
-        # rf2-qad4l wired `skills/re-frame2-pair-retro/tests/*_test.clj` into the
-        # `skills-structural` job as its own step (a bb loop mirroring the
-        # setup-skill one), gated on this output — so until this arm existed the
-        # step fired only on a change to one of the OTHER armed trees or on an
-        # --all run, never on a change to the tests it gates. That is the
+        # `skills/re-frame2-pair-retro/tests/*_test.clj` run in the
+        # `skills-structural` job as their own step (a bb loop mirroring the
+        # setup-skill one), gated on this output — so without this arm the
+        # step would fire only on a change to one of the OTHER armed trees or
+        # on an --all run, never on a change to the tests it gates: the
         # surface-armed gate skipped on the very push that breaks it.
         #
         # ONE output, structural only. The tree is prose plus a Babashka
@@ -2591,15 +2585,15 @@ else
         skills_structural=true
         ;;
       skills/reagent-migration/*)
-        # rf2-g1m2q — the same silent hole in the second of the two trees the
-        # measurement covered, and the same zero-output classification.
+        # The same silent hole as the pair-retro tree above: without this
+        # arm, zero outputs.
         #
-        # rf2-vpdrf / rf2-bbe91 wired `skills/reagent-migration/tests/fixture/`
-        # into `reagent-migration-fixture-cold-start` — a MIG-23 SSR cold-start
+        # `skills/reagent-migration/tests/fixture/` is what
+        # `reagent-migration-fixture-cold-start` runs — a MIG-23 SSR cold-start
         # :node-test build — gated on this output. The
         # fixture is the skill's executable half: it pins the migrated output
-        # against the real substrate, so an unclassified edit to it merged with
-        # its own suite unrun.
+        # against the real substrate, so an unclassified edit to it would merge
+        # with its own suite unrun.
         #
         # ONE output, structural only, and the fixture is why that is not an
         # oversight: it resolves its own deps and builds its own :node-test, so
@@ -2610,33 +2604,30 @@ else
         skills_structural=true
         ;;
       docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|scripts/playground-sci-input-digest.mjs)
-        # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
+        # The docs/cljs live-cell playground (CM6 + Scittle
         # bootstrap + the re-frame2 SCI bundle). The tools-playground job
         # rebuilds both bundles, runs the headless-Chromium smoke against
         # them, and `git diff --exit-code`s the committed
         # docs/cljs/playground.{js,css} so a stale vendored bootstrap bundle
         # fails the PR.
         #
-        # rf2-tzy13 — docs/cljs/playground-rf2.js is GONE from this arm: the
-        # SCI bundle is no longer tracked (it is generated in CI and on docs
-        # deploy, and is .gitignored), so the path can never appear in a diff.
-        # scripts/playground-sci-input-digest.mjs joins the arm instead — it
+        # The SCI bundle, docs/cljs/playground-rf2.js, is not on this arm: it
+        # is not tracked (it is generated in CI and on docs deploy, and is
+        # .gitignored), so the path can never appear in a diff.
+        # scripts/playground-sci-input-digest.mjs is on it instead — it
         # computes the provenance digest copy-bundle.mjs stamps into the
-        # generated bundle, so an edit to it must exercise the build (rf2-nyjml
-        # finding: the digest + copy-bundle scripts were not themselves
-        # classifier inputs; copy-bundle.mjs is already covered under
-        # docs/tools/playground/*).
+        # generated bundle, so an edit to it must exercise the build
+        # (copy-bundle.mjs is covered under docs/tools/playground/*).
         playground=true
         ;;
       migration/reagent-to-fresco/codemod/*)
-        # rf2-2rtt6.143 — the Reagent `[:>]` → Fresco codemod (the FIXER).
-        # It shipped with no case here at all, so a codemod-only diff
-        # classified to NOTHING: 22 tests / 158 assertions, including the
-        # golden corpus that IS this tool's spec, running in no lane anywhere.
-        # `migration/**` reaches docs.yml, which stages the tree into the site
-        # and executes not one line of it. Same silent hole rf2-8a6s closed for
-        # `implementation/fresco/*` and rf2-4hc9p / rf2-as6bg closed on the
-        # tools side; TESTING.md's Changed-surface classifier section names the
+        # The Reagent `[:>]` → Fresco codemod (the FIXER).
+        # Without this case a codemod-only diff would classify to NOTHING,
+        # its suite — including the golden corpus that IS this tool's spec —
+        # running in no lane anywhere. `migration/**` reaches docs.yml, which
+        # stages the tree into the site and executes not one line of it. Same
+        # silent hole as the `implementation/fresco/*` and tools-side arms
+        # above; TESTING.md's Changed-surface classifier section names the
         # shape and the two-sided fix.
         #
         # ONE output, and its own rather than an existing one: the artefact is
@@ -2648,14 +2639,12 @@ else
         migration_fresco_codemod=true
         ;;
       migration/from-re-frame-v1/codemod/*)
-        # rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod
+        # The v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod
         # (EP-0018 Slice E), and the identical hole one tree over from the
-        # case above. Measured on main: this artefact's deps.edn carried a
-        # working `:test` alias — 45 tests, 158 assertions — and the string
-        # `from-re-frame-v1` appeared ZERO times in this file, in
-        # .github/workflows/test.yml and in scripts/test-jvm-tools.sh. So a
-        # codemod-only diff classified to nothing and went green having run
-        # none of its own tests. `migration/**` does reach docs.yml, but that
+        # case above: the artefact's deps.edn carries a working `:test`
+        # alias, and without this arm a codemod-only diff would classify to
+        # nothing and go green having run none of its own tests.
+        # `migration/**` does reach docs.yml, but that
         # workflow stages the tree into the site and executes not one line of
         # it. TESTING.md calls an unclassified surface a silent hole.
         #
@@ -2678,8 +2667,8 @@ else
         migration_v1_codemod=true
         ;;
       bench/*)
-        # rf2-6c12m.1 — the Fresco bench lane, a hand-run shadow-cljs project
-        # OFF every per-PR lane by ruling: its suites exercise LOCAL COPIES of
+        # The Fresco bench lane, a hand-run shadow-cljs project
+        # deliberately OFF every per-PR lane: its suites exercise LOCAL COPIES of
         # the runtime, so running them per PR could not catch a regression in
         # the shipped one, and its committed run records are
         # evidence, not inputs. A bench-only diff is therefore CLASSIFIED to
@@ -2688,7 +2677,7 @@ else
         # unclassified surface a silent hole; this is the other thing, a
         # surface whose gate is `npm run check` from bench/fresco/, which
         # the bench README requires before publishing a change there. Two
-        # unconditional per-PR readers still reach the tree with no gate of
+        # unconditional per-PR readers do reach the tree with no gate of
         # their own: `scripts/check_readme_links.py --ci` validates
         # bench/fresco/README.md, and `core/test/re_frame/bench/
         # lane_cache_wiring.test.cjs` scans the drivers as TEXT for the
