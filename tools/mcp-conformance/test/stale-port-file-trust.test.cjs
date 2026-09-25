@@ -98,7 +98,7 @@ test('wipeStalePortFileCandidate: benign failure + file STILL present fails loud
       }),
     (err) => {
       assert.match(err.message, /STILL on disk/);
-      assert.match(err.message, /rf2-6i2yi4/);
+      assert.match(err.message, /stale port-file trust/);
       assert.ok(err.message.includes(CANDIDATE), 'names the stale candidate');
       return true;
     },
@@ -150,7 +150,7 @@ test('wipeStalePortFileCandidate: containment-escape is fatal even if statExists
         logFn: () => {},
       }),
     (err) => {
-      assert.match(err.message, /khav7l/);
+      assert.match(err.message, /refused to clean/);
       return true;
     },
   );

@@ -105,7 +105,7 @@ test('readPortFile: refuses an external port file behind a symlinked .shadow-clj
       (err) => {
         thrown = err;
         // Must name the candidate and the containment-escape rationale.
-        assert.match(err.message, /khav7l/);
+        assert.match(err.message, /must not be trusted as the live nREPL source/);
         return true;
       },
     );
