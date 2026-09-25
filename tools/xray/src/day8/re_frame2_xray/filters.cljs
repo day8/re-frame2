@@ -10,7 +10,7 @@
 
   - `ModalView` — the `rf.fresco/defview` BOUNDARY for the edit popup.
     Short-circuits to nil when `:rf.xray/edit-popup-open?` is false.
-  - `Modal` — the public callable the shell mounts as a hiccup head,
+  - `Modal` — the public callable the shell CALLS,
     an `as-component` bridge over [[ModalView]]. Mounted at the
     shell-view root so the popup overlays the chrome and panels;
     mounting there also keeps the popup's reads inside the `:rf/xray`
@@ -142,8 +142,10 @@
   (rf.fresco/as-component ModalView))
 
 (defn Modal
-  "The edit popup's public callable — what `shell.cljs` mounts as a
-  hiccup head at the shell-view root.
+  "The edit popup's public callable — what `shell.cljs` CALLS at the
+  shell-view root. It is called rather than headed because the shell is
+  a Fresco tree, where a plain fn in head position is a loud error; the
+  `[:> …]` it answers is a legal head.
 
   It is the `as-component` bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component [[ModalView]]
