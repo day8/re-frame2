@@ -128,7 +128,7 @@
 
 (deftest apply-cap-over-budget-emits-overflow-marker
   (let [;; A pr-str'd 4000-char string serialises to ~4002 chars ⇒
-        ;; ~1000 tokens. Two of them ⇒ 2000+ tokens, over a 500 cap.
+        ;; ~1000 tokens, over a 500 cap.
         big (apply str (repeat 4000 "x"))
         r   (ok-text-result {:huge big})
         out (cap/apply-cap r {:tool "snapshot" :cap 500})
@@ -157,10 +157,10 @@
     (is (some? (j/get sc "rf.mcp/overflow"))
         "the marker serialises to the fully-qualified \"rf.mcp/overflow\" key")
     (is (nil? (j/get sc "overflow"))
-        "the namespace-truncated \"overflow\" key must NOT appear (the lossy old shape)")))
+        "the namespace-truncated \"overflow\" key must NOT appear (the namespace-lossy shape)")))
 
 (deftest apply-cap-over-budget-error-keeps-is-error
-  ;; rf2-3x7nj.35.3 — `apply-cap` wraps an over-budget `:isError` result
+  ;; `apply-cap` wraps an over-budget `:isError` result
   ;; like any other payload, and the replacement must keep `isError: true`.
   ;; Without it the marker is byte-for-byte what an over-cap success
   ;; returns, so the agent cannot tell the call failed.
@@ -244,7 +244,7 @@
         "structuredContent JSON bytes MUST be summed alongside the text slot")))
 
 (deftest apply-cap-trips-on-huge-structured-content-under-small-text
-  ;; THE acceptance test: a response whose `:content` text is tiny but
+  ;; THE load-bearing case: a response whose `:content` text is tiny but
   ;; whose `:structuredContent` is huge MUST trip the overflow marker.
   ;; Without counting the structured slot the text-only sum stays under
   ;; cap and the raw oversize body would ship; counting it trips the cap.
@@ -317,8 +317,8 @@
 ;; Cache-hit and overflow envelopes are emitted by the cache + cap
 ;; steps themselves; they are sub-cap by construction. Re-applying
 ;; the token walk to a marker is wasted work — and worse, if the
-;; cap somehow tripped on a marker (it can't today, but a regression
-;; could lower the cap below the marker's size), the result would
+;; cap tripped on a marker (it cannot while the cap exceeds the
+;; marker's size, but a lower cap would allow it), the result would
 ;; be an overflow OF an overflow.
 ;; ---------------------------------------------------------------------------
 
