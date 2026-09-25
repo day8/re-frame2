@@ -1,17 +1,16 @@
 (ns day8.re-frame2-xray.panels.epoch.hard-machine-fidelity-cljs-test
   "Rendering-FIDELITY assertions for the canonical HARD machine
-  (`:hvac/controller`, the `machine_epochs` testbed's MACHINE 4 — rf2-k08ay).
+  (`:hvac/controller`, the `machine_epochs` testbed's MACHINE 4).
 
-  ## Why this test exists — the gap it closes
+  ## Why this test exists
 
-  The no-op render bug (rf2-e6q97 · #2841) was a devtools-NARRATION miss: the
-  engine semantics were correct and unit-tested, but Xray rendered them
-  misleadingly (a spurious `{X}→{X}` 0-microstep transition row beside the
-  benign no-op). Our machine tests assert what the ENGINE PRODUCES; nothing
-  asserted what the TOOL DISPLAYS. This test closes that thin spot.
+  Engine semantics can be correct and unit-tested while Xray renders them
+  misleadingly — a spurious `{X}→{X}` 0-microstep transition row beside a
+  benign no-op is a devtools-NARRATION miss. The machine tests assert what
+  the ENGINE PRODUCES; this test asserts what the TOOL DISPLAYS.
 
-  It is the COMPLEMENT to the SCXML semantic corpus (rf2-rkkag · #2842 —
-  `re_frame.scxml_conformance_cljs_test`): that proves the engine's
+  It is the COMPLEMENT to the SCXML semantic corpus
+  (`re_frame.scxml_conformance_cljs_test`): that proves the engine's
   SEMANTICS (external self-transition fires exit+entry, internal fires
   action-only, the LCA cascade orders deepest-exit-first / shallowest-entry-
   first); THIS proves the DEVTOOLS RENDER those semantics legibly. Different
@@ -31,15 +30,14 @@
     - `mih/project-focused-event-transitions` — the Machine Inspector's
       focused-event view-model (one record per transition; parallel → ≥2).
     - `chart-layout/project-definition` — the SOLE topology projector
-      (machines-viz — the layer that actually feeds the chart; rf2-5fm165)
+      (machines-viz — the layer that actually feeds the chart)
       (compound nesting + parallel regions rendered legibly).
-    - `diff/project` — the snapshot diff (member-level set diff for `:tags`,
-      rf2-l0us2).
+    - `diff/project` — the snapshot diff (member-level set diff for `:tags`).
 
   Asserting the projected ROWS / LABELS / records are unambiguous is the
   testable proxy for 'the devtools render legibly' — this is a Xray/Story-
-  style CLJS unit test (per the Xray/Story-as-CLJS-unit-test ruling),
-  NOT a Playwright spec. The render facts are pinned against REALITY: drive
+  style CLJS unit test, NOT a Playwright spec. The render facts are
+  pinned against REALITY: drive
   the substrate, read what the projection produces.
 
   ## The four hard cases (one coherent machine)
@@ -52,9 +50,9 @@
        appends a `<phase>:<state>` tag to a shared `:trail`; the cascade
        order is the trail order.
     4. INTERNAL vs EXTERNAL SELF-TRANSITIONS — external (`:target :same-state`
-       + `:reenter? true`, rf2-eicq0) fires exit+entry; internal (omit
+       + `:reenter? true`) fires exit+entry; internal (omit
        `:target`, or a self-target without `:reenter?`) fires action-only;
-       neither emits a spurious no-op transition row (#2841)."
+       neither emits a spurious no-op transition row."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
@@ -72,12 +70,13 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
-;; ---- hiccup walker (rf2-k97c.3) -----------------------------------------
+;; ---- hiccup walker ------------------------------------------------------
 ;;
-;; PLAIN DESCENT — nothing is CALLED. This row used the walker in
-;; `re-frame.test-helpers`, which EXPANDS function components as it walks. The Epoch view's EDN-widget heads are now `[ei/edn-inspector-view …]`
-;; — Fresco boundaries whose bodies may only run inside a React render window
-;; — so applying one runs `rf.fresco/sub` outside the collector and raises.
+;; PLAIN DESCENT — nothing is CALLED. The walker in `re-frame.test-helpers`
+;; EXPANDS function components as it walks, and the Epoch view's EDN-widget
+;; heads are `[ei/edn-inspector-view …]` — Fresco boundaries whose bodies
+;; may only run inside a React render window — so applying one would run
+;; `rf.fresco/sub` outside the collector and raise.
 
 (defn- hiccup-nodes [tree]
   (tree-seq (some-fn vector? seq?) seq tree))
@@ -154,7 +153,7 @@
        :entry :enter-fan-on
        :exit  :exit-fan-on
        :on    {:hvac/power-cycle {:target :off :action :fan-off}
-               ;; :reenter? true — external self-transition (rf2-eicq0 v5 flip)
+               ;; :reenter? true — external self-transition
                :hvac/nudge {:target :same-state :reenter? true :action :nudge-fan}
                :hvac/tweak {:action :tweak-fan}}}}}}
    :actions
@@ -181,8 +180,7 @@
 ;; ============================================================================
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; `make-xray-runtime-fixture`: the `:all` reset
   ;; tier — install (== preload's alias) + registry + mount idempotency
   ;; sentinels plus the trace-collector rings — over the Reagent adapter
   ;; this suite renders through.
@@ -200,7 +198,7 @@
 
 (defn- snapshot
   "Read the live snapshot for `:hvac/controller` off the default frame.
-  EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state."
+  Machine snapshots are durable runtime-db state (EP-0001)."
   []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :snapshots :hvac/controller]))
@@ -217,7 +215,7 @@
    :trace-events (vec (trace-collector/buffer-for-test))})
 
 (defn- drive-other!
-  "Like `drive!` but for an arbitrary machine event-id (rf2-iu3no — the
+  "Like `drive!` but for an arbitrary machine event-id (the
   bootstrap-scope guard drives a SECOND machine so the captured macrostep
   is exactly its birth)."
   [machine-id event-v]
@@ -233,8 +231,8 @@
 (defn- rows-of-kind [rows kind]
   (filterv #(= kind (:kind %)) rows))
 
-;; rf2-52u5n — the STRUCTURED transition cascade now rides the LIVE
-;; `:rf.machine/transition` trace (rf2-n9f4z); the transition cascade row
+;; The STRUCTURED transition cascade rides the LIVE
+;; `:rf.machine/transition` trace; the transition cascade row
 ;; threads it through. These read it back off the projected row so the
 ;; fidelity test pins what the EVENT HANDLER render shows.
 (defn- structured-cascade-of [record]
@@ -245,7 +243,7 @@
 ;; ============================================================================
 
 (deftest power-cycle-renders-parallel-broadcast-legibly
-  (testing "rf2-k08ay case 2 — `:hvac/power-cycle` is handled by BOTH the
+  (testing "case 2 — `:hvac/power-cycle` is handled by BOTH the
             `:climate` and `:fan` regions in ONE macrostep. A parallel machine
             commits ONE snapshot per macrostep, so the Epoch cascade renders a
             SINGLE aggregate transition row — but its before/after `:state` is
@@ -303,24 +301,23 @@
           "the committed snapshot moved both regions in one macrostep"))))
 
 ;; ============================================================================
-;; rf2-52u5n — the STRUCTURED entry/exit cascade renders legibly under
-;; EVENT HANDLER (the headline render this bead adds)
+;; The STRUCTURED entry/exit cascade renders legibly under EVENT HANDLER
 ;; ============================================================================
 
 (deftest power-cycle-renders-structured-cascade-not-just-summary
-  (testing "rf2-52u5n — the `[:hvac/power-cycle]` macrostep projects the
+  (testing "the `[:hvac/power-cycle]` macrostep projects the
             ORDERED structured cascade (exit/action/entry steps + per-region)
             matching the engine's actual cascade — NOT just `{from}→{to} +
-            count`. This is the gap rf2-52u5n closes: pre-bead, the operator
-            saw one opaque row + '0 microsteps' with no sign of the 8-step
-            entry cascade. Pinned against the LIVE substrate (rf2-n9f4z emits
-            the `:cascade` tag; the projection threads it through)."
+            count`, which would show one opaque row + '0 microsteps' with
+            no sign of the 8-step entry cascade. Pinned against the LIVE
+            substrate (it emits the `:cascade` tag; the projection threads
+            it through)."
     (setup!)
     (let [record    (drive! [:hvac/power-cycle])
           structured (structured-cascade-of record)
           regions    (proj/cascade-regions structured)]
-      ;; The structured cascade is present + non-empty (RED before n9f4z +
-      ;; this bead: the transition row had only :before/:after/:microsteps).
+      ;; The structured cascade is present + non-empty (the transition row
+      ;; carries more than :before/:after/:microsteps).
       (is (vector? structured) "the structured :cascade rides the transition row")
       (is (seq structured) "the cascade is non-empty (not just a count)")
       ;; It is a COMPLETE configuration walk — the action-free :idle / :off
@@ -352,11 +349,11 @@
                                first)]
         (is (contains? (:data-delta enter-heating) :trail)
             "the entry step carries its :data delta (the trail key)"))
-      ;; rf2-akvfe — the VIEW no longer renders the up/down structured-cascade
-      ;; BLOCK inside the transition row (it duplicated the EVENT HANDLER
-      ;; pipeline). The structured `:cascade` stays the ORDER ORACLE for the
-      ;; projection assertions above; the per-EMIT exit/entry ACTION rows ARE
-      ;; the canonical pipeline render, and the up/down block testid is GONE.
+      ;; The VIEW renders no up/down structured-cascade BLOCK inside the
+      ;; transition row (it would duplicate the EVENT HANDLER pipeline). The
+      ;; structured `:cascade` is the ORDER ORACLE for the projection
+      ;; assertions above; the per-EMIT exit/entry ACTION rows ARE the
+      ;; canonical pipeline render, and the up/down block testid is absent.
       ;; The transition body embeds edn-inspectors that subscribe against the
       ;; surrounding frame — render under `:rf/xray`.
       (rf/make-frame {:id :rf/xray})
@@ -371,32 +368,32 @@
                                          :transition nil :guards []
                                          :lifecycle [] :timers []}}))]
         (is (nil? (find-by-testid tree sp))
-            "rf2-akvfe — the up/down structured-cascade block no longer renders")
-        ;; rf2-2hj0h item 2 — the akvfe nested-pipeline RAIL is REMOVED; the
-        ;; rows render as a flat numbered stack (the ordinal chips carry the
-        ;; pipeline reading). The rows host + the orientation line remain.
+            "the up/down structured-cascade block does not render")
+        ;; There is no nested-pipeline RAIL: the rows render as a flat
+        ;; numbered stack (the ordinal chips carry the pipeline reading),
+        ;; under the rows host + the orientation line.
         (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
-            "the nested-pipeline rail is removed (rf2-2hj0h)")
+            "there is no nested-pipeline rail")
         (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
-            "the flat rows host still renders")
+            "the flat rows host renders")
         (is (some? (find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
             "the EVENT HANDLER orientation line renders")
-        ;; No-info-loss: the per-EMIT exit/entry action rows survive and carry
-        ;; their action verbs (the cascade the removed block restated).
+        ;; No info loss: the per-EMIT exit/entry action rows carry their
+        ;; action verbs (the cascade an up/down block would restate).
         (is (some? (find-by-testid tree (str "rf-xray-epoch-machine-cascade-row-"
                                                  (:step tx-row))))
-            "the transition row survives in the pipeline")))))
+            "the transition row renders in the pipeline")))))
 
 ;; ============================================================================
 ;; CASE 1 + 3 — DEEP COMPOUND nesting + the multi-level LCA cascade ORDER
 ;; ============================================================================
 
 (deftest mode-toggle-renders-lca-cascade-in-canonical-order
-  (testing "rf2-k08ay cases 1+3 — `:hvac/mode-toggle` (`:heating` → `:cooling`)
+  (testing "cases 1+3 — `:hvac/mode-toggle` (`:heating` → `:cooling`)
             crosses the LCA `:conditioning`. Per Spec 005 §Level 2 the action
             group fires exit (deepest-first) → transition `:action` @ LCA →
             entry (shallowest-first). The Epoch cascade RE-SORTS rows into the
-            canonical `guard → exit → TRANSITION → entry` rank (rf2-tjqd8); the
+            canonical `guard → exit → TRANSITION → entry` rank; the
             rendered order must read as the statechart does. The shared
             `:trail` is that order made visible — the snapshot `:data` Δ the
             panel renders shows it directly."
@@ -441,7 +438,7 @@
         "the deep compound leaf moved heating → cooling, parent path intact")))
 
 (deftest topology-projection-renders-compound-and-parallel-legibly
-  (testing "rf2-k08ay case 1 / rf2-5fm165 — the SOLE topology projector
+  (testing "case 1 — the SOLE topology projector
             (`chart-layout/project-definition`, machines-viz — the layer that
             actually feeds the chart) must render the deep compound nesting AND
             the parallel regions without contradiction: each region surfaces
@@ -454,7 +451,7 @@
           ;; layout chrome the projector adds (`synthetic-node?`).
           states       (remove chart-layout/synthetic-node? nodes)
           ;; machines-viz keeps the IN-REGION `:path` verbatim + a `:region`
-          ;; tag (rf2-wnzha), so a state's identity is the [region path] pair.
+          ;; tag, so a state's identity is the [region path] pair.
           region+path  (set (map (juxt :region :path) states))
           region-ids   (set (map :region (filter :region? nodes)))]
       ;; Parallel root → no single initial path (each region owns its own).
@@ -465,7 +462,7 @@
       ;; Both regions surface a synthetic container node (the orthogonal zones).
       (is (= #{:climate :fan} region-ids)
           "each region surfaces its own container node")
-      ;; Both regions' leaves are present, REGION-SCOPED (rf2-wnzha): the
+      ;; Both regions' leaves are present, REGION-SCOPED: the
       ;; in-region `:path` is preserved verbatim and carries its `:region` tag,
       ;; so same-named cross-region states stay collision-free.
       (is (contains? region+path [:climate [:idle]])    "climate :idle leaf rendered")
@@ -493,25 +490,25 @@
                 edges)
           "the heating→cooling toggle edge renders with its event")
       ;; The semantic summary the chart root + Xray topology summaries surface
-      ;; through the single `semantic-counts` helper (rf2-5fm165): 7 occupiable
+      ;; through the single `semantic-counts` helper: 7 occupiable
       ;; states across 2 parallel regions, 8 transitions.
       (is (= {:state-count 7 :region-count 2 :transition-count 8}
              (chart-layout/semantic-counts graph))
           "7 occupiable states / 2 regions / 8 transitions — chrome excluded"))))
 
 ;; ============================================================================
-;; CASE 4 — INTERNAL vs EXTERNAL self-transitions (the case #2843 fixed)
+;; CASE 4 — INTERNAL vs EXTERNAL self-transitions
 ;; ============================================================================
 
 (deftest external-self-transition-renders-exit-and-entry
-  (testing "rf2-k08ay case 4 (external) — `:hvac/nudge` is an external
+  (testing "case 4 (external) — `:hvac/nudge` is an external
             self-transition (`:target :same-state` + `:reenter? true`). Per
-            Spec 005 §Self-transitions (rf2-46ban + rf2-eicq0: external is now
-            the `:reenter?` opt-in) it re-enters the state: `:exit`
+            Spec 005 §Self-transitions (external is the `:reenter?` opt-in)
+            it re-enters the state: `:exit`
             THEN action THEN `:entry` fire, configuration unchanged. The Epoch
             cascade must render BOTH an exit row and an entry row (so the
-            operator sees the re-entry), and — critically per rf2-e6q97
-            (#2841) — must NOT render a spurious `{:on}→{:on}` no-op transition
+            operator sees the re-entry), and — critically — must NOT render
+            a spurious `{:on}→{:on}` no-op transition
             row (a genuine self-transition is a REAL transition, not an
             unhandled no-op)."
     (setup!)
@@ -540,12 +537,12 @@
           "external self-transition leaves the configuration at :on"))))
 
 (deftest internal-self-transition-renders-action-only
-  (testing "rf2-k08ay case 4 (internal) — `:hvac/tweak` omits `:target`: an
+  (testing "case 4 (internal) — `:hvac/tweak` omits `:target`: an
             internal self-transition. Per Spec 005 the action runs but `:exit`
             / `:entry` do NOT. The Epoch cascade must render the action row and
-            NO exit/entry rows (the foil to `:hvac/nudge`), and — per rf2-e6q97
-            (#2841) — NO spurious no-op transition row. The two self-transition
-            renders together pin the distinction the wave debated."
+            NO exit/entry rows (the foil to `:hvac/nudge`), and NO spurious
+            no-op transition row. The two self-transition renders together
+            pin the distinction."
     (setup!)
     (drive! [:hvac/power-cycle]) ; fan → :on
     (let [record (drive! [:hvac/tweak])
@@ -573,8 +570,7 @@
           "internal self-transition leaves the configuration at :on"))))
 
 (deftest neither-self-transition-emits-spurious-no-op-transition-row
-  (testing "rf2-k08ay / rf2-e6q97 (#2841) regression guard — the no-op
-            transition-row suppression must NOT over-fire: a GENUINE self-
+  (testing "regression guard — the no-op transition-row suppression must NOT over-fire: a GENUINE self-
             transition (external or internal) carries a real transition row,
             so the suppression (which drops the substrate's unconditional
             `{X}→{X}` emit ONLY when a `:no-op` row is present) must leave the
@@ -592,11 +588,11 @@
             (str ev " renders no benign-no-op notice"))))))
 
 ;; ============================================================================
-;; SNAPSHOT DIFF — member-level set diff (rf2-l0us2) on the machine's `:tags`
+;; SNAPSHOT DIFF — member-level set diff on the machine's `:tags`
 ;; ============================================================================
 
 (deftest snapshot-tags-diff-renders-member-level-set-changes
-  (testing "rf2-k08ay / rf2-l0us2 — the snapshot diff the Xray panel renders
+  (testing "the snapshot diff the Xray panel renders
             must show machine state changes at MEMBER level for sets. The
             machine's `:tags` snapshot slot is a set; a transition swaps its
             members. Diffing the before/after snapshot via the panel's diff
@@ -610,14 +606,14 @@
           after  (proj/machine-logical-state (snapshot))
           {:keys [path-ops]} (diff/project before after)
           ;; member-level set ops live at paths whose final segment is the
-          ;; set MEMBER (rf2-l0us2 member-keyed scheme).
+          ;; set MEMBER (the member-keyed scheme).
           added   (->> path-ops (filter (fn [[_ v]] (= :added (:op v)))) (map first))
           removed (->> path-ops (filter (fn [[_ v]] (= :removed (:op v)))) (map first))
           member-of (fn [tag paths] (some (fn [p] (= tag (last p))) paths))]
       ;; mode-toggle: :climate/heating tag leaves, :climate/cooling joins.
       (is (member-of :climate/cooling added)
           "the joining tag (:climate/cooling) renders as a member-level :added —
-           NOT a wholly-replaced set blob (rf2-l0us2)")
+           NOT a wholly-replaced set blob")
       (is (member-of :climate/heating removed)
           "the leaving tag (:climate/heating) renders as a member-level :removed")
       ;; The unchanged tags (fan/on, climate/running, climate/conditioning) do
@@ -628,7 +624,7 @@
           "an unchanged member does NOT render as removed"))))
 
 ;; ============================================================================
-;; rf2-iu3no — the benign no-op cell: scope guard + the live no-op render
+;; The benign no-op cell: scope guard + the live no-op render
 ;; ============================================================================
 
 ;; A minimal machine whose INITIAL state carries an entry action, so its
@@ -642,18 +638,17 @@
    :actions {:on-boot (fn [{data :data}] {:data (assoc data :booted? true)})}})
 
 (deftest bootstrap-renders-initial-entry-not-no-op
-  (testing "rf2-iu3no / rf2-t4582 (#2846) / rf2-gl588 regression guard — a
-            machine's BIRTH (`[:rf.machine/start]`) runs its `:initial-entry`
+  (testing "regression guard — a machine's BIRTH (`[:rf.machine/start]`) runs its `:initial-entry`
             cascade and is NOT classified as an unhandled-user-event no-op.
             The collapsed `[NO OP] staying in {state}` cell renders the
             CONSEQUENCE of NO state change — it would read FALSE for the
             machine's birth (which ENTERED its initial config, it did not
             'stay'). So the no-op cell must NEVER be reached for the start:
             the boot cascade carries the `:initial-entry` phase and ZERO
-            `:no-op` rows. (Per F‴ the eager start is a PURE init-kick — it
+            `:no-op` rows. (The eager start is a PURE init-kick — it
             runs the `:initial-entry` actions then STOPS, so there is no
             `before == after` transition row at all; the `:initial-entry`
-            action rows still render.) A regression on t4582 surfaces RED."
+            action rows still render.)"
     (registry/register-xray-handlers!)
     (preload/register-trace-collector!)
     (rf/reg-machine :iu3no/boot initial-entry-machine)
@@ -663,7 +658,7 @@
           phases  (set (map :phase (rows-of-kind rows :action)))]
       (is (empty? (rows-of-kind rows :no-op))
           "the start renders NO benign-no-op cell — it is the machine's
-           birth, not an ignored event (rf2-t4582)")
+           birth, not an ignored event")
       (is (contains? phases :initial-entry)
           "the start runs its :initial-entry cascade — the boot action
            row carries the :initial-entry phase, NOT a 'staying in {state}'
@@ -674,7 +669,7 @@
            'stay' (the no-op cell's premise would read FALSE for a birth)"))))
 
 (deftest genuine-unknown-user-event-renders-no-op-staying-in-state
-  (testing "rf2-iu3no — a GENUINE unknown user event (one this machine's
+  (testing "a GENUINE unknown user event (one this machine's
             current configuration matches no transition for) renders the
             collapsed `[NO OP] staying in {state}` cell against the LIVE
             substrate. In the initial config (climate :idle / fan :off),
@@ -706,4 +701,4 @@
             "single-machine case drops the machine name"))
       ;; Benign — no transition row beside it, no state change committed.
       (is (empty? (rows-of-kind rows :transition))
-          "a no-op carries no transition row (rf2-e6q97 suppression)"))))
+          "a no-op carries no transition row (the no-op transition-row suppression)"))))
