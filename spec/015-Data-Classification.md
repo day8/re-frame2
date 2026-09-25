@@ -180,7 +180,7 @@ Each subsystem **owns the arrangement that fits it** — the projection root and
 
 | Subsystem | Projection root | Lowered at | Dropped at | Generated key |
 |---|---|---|---|---|
-| `reg-machine` | one actor snapshot's `:data` | actor spawn / first-boot | actor destroy (any cause) | per spawned actor id |
+| `reg-machine` | one actor snapshot's `:data` | actor spawn / first-boot, and each installed actor when `:rf/install-frame-state` or `:rf/hydrate` brings its snapshot back | actor destroy (any cause) | per spawned actor id |
 | `reg-resource` | entry's `:params` / `:data` | params/scope at scoped-key mint; data when fetch lands | entry eviction | opaque cache key |
 | `reg-mutation` | one work row's `:params` | work creation | work completion | per work id |
 | `reg-route` | the current route's `:query` / `:params` | route activation | route change / deactivation | current route (effectively singleton) |
