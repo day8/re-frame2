@@ -1282,7 +1282,10 @@
       and resolved RELATIVE TO THE DONE NODE'S OWN LEVEL — its `:decl-path` is
       the done node's path, so a keyword target is a SIBLING of the compound /
       parallel node (the natural \"sub-flow done → advance the outer flow\"
-      placement). This is the headline spelling.
+      placement). This is the headline spelling. A region body's own done
+      names the body by the empty path, so its `:on-done` resolves like the
+      region root's `:on`: a keyword target is a top-level state of that
+      region, never a sibling region.
    2. **An enclosing explicit `:on {:rf.machine/done …}`** (the lower-level
       escape hatch). When the done node declares no `:on-done` (or its
       candidates all guard-fail), fall through to the standard leaf→root `:on`
@@ -1345,7 +1348,13 @@
         event         (if (and region (vector? raw-done-path))
                         (assoc (vec event) 1 done-path)
                         event)
-        done-node     (when (vector? done-path) (node-at machine done-path))
+        ;; A region's own done names the region body by the empty in-region
+        ;; path; the body is `machine` itself, which `node-at` (a walk of
+        ;; `:states`) cannot return.
+        done-node     (when (vector? done-path)
+                        (if (and region (empty? done-path))
+                          machine
+                          (node-at machine done-path)))
         ;; Gate on PRESENCE of `:on-done`. The forbidden-transition
         ;; nil→`[{}]` rule in `normalise-candidates` is for a PRESENT value;
         ;; an ABSENT `:on-done` must yield no candidates so resolution falls
@@ -2833,20 +2842,30 @@
   as a vector for symmetry with the parallel done-paths and to stay robust if
   the grammar ever admits compound `:final?` (registration rejects it).
 
-  Returns `[]` when the leaf is not final, or is final at the root (top-level
-  finality). For a region of a parallel machine `machine` is the region body
-  (the region's root), so a region-local compound's done is detected here and
-  the parallel parent's all-regions done is handled separately."
+  Returns `[]` when the leaf is not final, or is final at the machine root
+  (top-level finality).
+
+  For a region of a parallel machine `machine` is the region body, the root
+  of its region's tree, and a region body is a compound in its own right: a
+  region whose active leaf is a `:final?` direct child of the body returns
+  `[[]]` — the region body is newly done, and the done signal names it by the
+  empty in-region path. That is the region-local `done.state.<region>` the
+  region body's `:on-done` takes. It is not whole-machine finality, which for
+  a parallel machine is every region final (`all-regions-final?`), handled
+  separately at the end of the macrostep."
   [machine leaf-path]
   (let [leaf-path (vec leaf-path)
-        n         (count leaf-path)]
-    (if (or (< n 2)
+        n         (count leaf-path)
+        ;; The shortest leaf path whose parent can be done: a region body
+        ;; (path `[]`) can be, the machine root never is.
+        min-n     (if (:rf/region machine) 1 2)]
+    (if (or (< n min-n)
             (not (final-state-node? (node-at machine leaf-path))))
-      ;; Not final, or final at the root (length-1) — no compound-done signal.
+      ;; Not final, or final at the machine root — no compound-done signal.
       []
       ;; The final leaf is at depth n-1; its parent compound is at depth n-1,
-      ;; path `leaf-path[0..n-2]`. That parent is NOT the root (n >= 2). It is
-      ;; the single newly-done compound.
+      ;; path `leaf-path[0..n-2]` — `[]` for a region body. It is the single
+      ;; newly-done compound.
       (let [parent-path (subvec leaf-path 0 (dec n))]
         (if (compound-done? machine leaf-path parent-path)
           [parent-path]
@@ -3771,10 +3790,12 @@
                     ;; compound's done condition — an internal transition keeps
                     ;; the same `:state`, so the signal (if any) already fired
                     ;; on the entry that reached the final leaf. A TOP-LEVEL
-                    ;; `:final?` leaf (direct child of the root) raises NO
-                    ;; compound-done — it is whole-machine finality handled at
-                    ;; the lifecycle boundary (auto-destroy / spawning parent's
-                    ;; `:on-done`), the D7 reconciliation.
+                    ;; `:final?` leaf (direct child of the machine root) raises
+                    ;; NO compound-done — it is whole-machine finality handled
+                    ;; at the lifecycle boundary (auto-destroy / spawning
+                    ;; parent's `:on-done`), the D7 reconciliation. A region
+                    ;; body's direct `:final?` child DOES raise one: the region
+                    ;; body is done (`compound-done-paths`).
                     done-fx (when-not (:internal? geometry)
                               (done-raise-fx machine (state-path (:state snap-after-spawns))))
                     all-fx (vec (concat fx

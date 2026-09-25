@@ -1408,23 +1408,31 @@
   state they can see in the machine map. Name the mistake instead, and name the
   two spellings that DO express cross-region movement.
 
+  A keyword target is read as a one-segment path, so a region's `:on-done :b`
+  naming sibling region `:b` gets the same note.
+
   Returns nil when `region-ctx` is absent (flat / compound machine) or when the
   target's head is not a declared sibling region — a nested in-region path
   whose head merely SHADOWS a sibling region's name resolves normally and never
   reaches here."
   [region-ctx target]
   (let [{:keys [region regions]} region-ctx
-        head (when (and (vector? target) (seq target)) (first target))]
+        path (cond (keyword? target)                   [target]
+                   (and (vector? target) (seq target)) (vec target))
+        head (first path)]
     (when (and region (contains? (disj (set regions) region) head))
       (str " NOTE: " head " names a SIBLING REGION of this parallel machine, "
            "not a state inside region " region ". A region-local :target "
            "always resolves WITHIN the declaring region (a region name is not "
            "addressable from inside a region), so " (pr-str target)
-           " cannot mean \"move region " head " to "
-           (pr-str (vec (rest target))) "\". Express cross-region movement on "
+           " cannot mean \"move region " head
+           (if (next path) (str " to " (pr-str (vec (rest path)))) "")
+           "\". Express cross-region movement on "
            "the parallel ROOT's own :on / :after — the ancestor fallback, "
            "whose targets ARE region-qualified: "
-           "{:on {<event> {:target " (pr-str [(vec target)]) "}}} — or "
+           "{:on {<event> {:target "
+           (if (next path) (pr-str [path]) (str "[[" head " <state>]]"))
+           "}}} — or "
            "coordinate through a sibling-state guard (the :tags / :all-state "
            "ctx keys). Per Spec 005 §Cross-region coordination — tags as "
            "stateIn."))))
@@ -1621,7 +1629,10 @@
   and the runtime would commit the unresolved vector verbatim into the
   region's state slot — `{:a [:b :two], :b :one}`, a nonsense configuration
   with no error. It is checked here, region-scoped exactly as a region
-  state-node's target is. A region-root `:after` cannot reach this point
+  state-node's target is. The region body's own `:on-done` takes the region's
+  done and resolves the same way (decl-path `[]`), so it is checked alongside,
+  and a sibling region's name as its target is refused rather than read as a
+  cross-region move. A region-root `:after` cannot reach this point
   either — `validate-non-parallel-root-after!` rejects it — so, as at the flat
   root, only `:on` needs checking."
   [machine]
@@ -1650,14 +1661,19 @@
         (let [od (get-in node [:spawn :on-done])]
           (when (and (some? od) (not (fn? od)))
             (check! :spawn/on-done od)))))
-    ;; Each REGION BODY's own root `:on` — the region ancestor fallback.
-    ;; Resolved with decl-path `[]` against that region's `:states`, exactly as
-    ;; the flat-root branch below resolves the machine root's own `:on`.
+    ;; Each REGION BODY's own root `:on` — the region ancestor fallback — and
+    ;; its own `:on-done`, which takes the region's done. Both are resolved
+    ;; with decl-path `[]` against that region's `:states`, exactly as the
+    ;; flat-root branch below resolves the machine root's own `:on`, so a
+    ;; region's `:on-done` never lands outside its region.
     (doseq [[region region-body]        (:regions machine)
-            [_event v]                  (:on region-body)
+            [slot v]                    (concat (map (fn [[_event v]] [:on v])
+                                                     (:on region-body))
+                                                (when (contains? region-body :on-done)
+                                                  [[:on-done (:on-done region-body)]]))
             {:keys [present? target]}   (candidate-targets v)
             :when                       present?]
-      (validate-target! (:states region-body) [] :on :rf/region-root target
+      (validate-target! (:states region-body) [] slot :rf/region-root target
                         (region-ctx region))))
   (when-not (rf.machines.parallel/parallel? machine)
     (let [scope  (:states machine)
