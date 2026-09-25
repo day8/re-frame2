@@ -22,8 +22,8 @@
   3. Provides a pure `gen-play-snippet` fn that emits the
      `(reg-variant ...)` EDN form for the captured sequence — this is
      what the user copies into source AND what a pair session emits by
-     driving these primitives in the attached CLJS runtime (the
-     headless story-mcp bridge was retired, rf2-5saz7).
+     driving these primitives in the attached CLJS runtime (there is
+     no headless story-mcp bridge).
 
   ## Recording boundary
 
@@ -36,7 +36,7 @@
   - An event dispatched from inside another event's handler (its trace
     carries `:rf.trace/parent-dispatch-id`, e.g. an `:fx [[:dispatch …]]`
     child) is skipped: replaying its root re-dispatches it, so recording
-    it too would run it twice on every replay (rf2-3x7nj.30.2).
+    it too would run it twice on every replay.
   - A `:dispatch-later` child is not a step either: replaying its root
     re-arms the timer. In the browser its timer fires outside any handler
     scope, so it carries no parent id, and the listener recognises it by
@@ -44,7 +44,7 @@
     `:dispatch-later` seam writes. It lands on `:entries` as a payload-free
     `:event/timer-child` marker carrying that `:ms`, so the export still
     waits for the re-armed timer before the next step, never for less than
-    its delay (rf2-tbik1). On the JVM the timer callback is
+    its delay. On the JVM the timer callback is
     `bound-fn`-wrapped, so the child carries a parent id and the rule
     above already skips it.
   - The listener consults `recording?` per emit — toggling off STOPS
@@ -233,7 +233,7 @@
   map — `[:dispatch-sync evec {:rf.cofx <map>}]` — so a pasted /
   written-back snippet replays the recorded recordable coeffects
   (provided facts + the framework `:rf/time-ms`) rather than restamping.
-  A nil / empty cofx emits the byte-identical 2-element step."
+  A nil / empty cofx emits the plain 2-element step."
   ([event-vec] (event->step event-vec nil))
   ([event-vec cofx]
    (if (and (map? cofx) (seq cofx))
@@ -256,7 +256,7 @@
       :variant-id  required — keyword id of the new variant
                               (e.g. `:story.counter/recorded-flow`)
       :doc         optional — short docstring
-      :extends     optional — keyword id to `:extends` from (preserves
+      :extends     optional — keyword id to `:extends` from (inherits
                               `:component`, `:args`, `:decorators`)
       :alias       optional — short alias to use in the form
                               (default `\"rf.story\"`, the canonical
@@ -270,8 +270,8 @@
                               {:rf.cofx …}]` so a pasted snippet replays
                               the recorded recordable coeffects (provided
                               facts + the framework `:rf/time-ms`) instead
-                              of restamping. Empty / absent renders the
-                              byte-identical 2-element steps.
+                              of restamping. Empty / absent renders
+                              plain 2-element steps.
 
   When `events` is empty the snippet still renders (with an empty
   `:script` vector) so the user sees the shape they're about to fill.
@@ -567,7 +567,7 @@
   The 4-arity also keeps `seed-db`, the frame's app-db when the recording
   started, as `:seed-db` (when non-nil), so the export dialog's auto-assert
   diffs the end state against it and asserts only what the recording
-  changed (rf2-3x7nj.29.2)."
+  changed."
   ([state variant-id now-ms] (start state variant-id now-ms nil))
   ([_state variant-id now-ms seed-db]
    (cond-> {:recording? true
@@ -598,7 +598,7 @@
 ;;   {:kind :dom/submit     :selector <str> :t <ms>}
 ;;   {:kind :event/timer-child :t <ms> :ms <delay>}
 ;;                                        ; a fired :dispatch-later child
-;;                                        ; (`append-timer-child`, rf2-tbik1)
+;;                                        ; (`append-timer-child`)
 ;;
 ;; `:entries` is a SUPERSET of `:events`: every recordable dispatch
 ;; and assertion lands in BOTH streams (via `append` / `append-
@@ -660,7 +660,7 @@
   "Pure: append a payload-free `{:kind :event/timer-child :t <ms> :ms <delay>}`
   marker onto `:entries` iff the state is recording — the time a
   `:dispatch-later` child fired, and `delay-ms`, the delay its timer was
-  scheduled with (rf2-tbik1). It is NOT an event: `:events` never sees it and
+  scheduled with. It is NOT an event: `:events` never sees it and
   the export emits no dispatch for it, because replaying the child's root
   re-arms its timer. The export turns the marker into a `[:wait …]` no
   shorter than `:ms`, so the step after it (an auto-assert, typically) runs
@@ -794,8 +794,8 @@
   "recorded")
 
 (def initial-dialog-state
-  "Alias for `rf.story.review-dialog/initial-state` — kept for call-site
-  ergonomics so the dialog ratom seeding form reads as
+  "Alias for `rf.story.review-dialog/initial-state`, for call-site
+  ergonomics, so the dialog ratom seeding form reads as
   `recorder/initial-dialog-state`."
   rf.story.review-dialog/initial-state)
 
@@ -840,7 +840,7 @@
   `:recorder/reset-dom-buffer` seam the CLJS `dom-capture` layer registers.
   No-op on hosts where DOM capture isn't loaded (bare JVM — no buffer
   exists). Called at recording start/clear so a keystroke buffered under a
-  PRIOR recording cannot bleed into the next one (rf2-x76af2.18)."
+  PRIOR recording cannot bleed into the next one."
   []
   (when-let [f (rf.story.late-bind/get-fn :recorder/reset-dom-buffer)]
     (f)))
@@ -856,8 +856,7 @@
   environment by construction — the recorder stamps no separate realm key.
 
   Drains the DOM type-debounce buffer (cancels pending flush timers) so a
-  keystroke still buffered from a prior recording cannot bleed into this one
-  (rf2-x76af2.18).
+  keystroke still buffered from a prior recording cannot bleed into this one.
 
   Snapshots the frame's app-db as the recording's `:seed-db` (see `start`),
   nil when the frame is not running.
@@ -890,7 +889,7 @@
 
   Also drains the DOM type-debounce buffer (cancels pending flush timers) so
   a discarded recording leaves no phantom keystroke to land in a subsequent
-  recording (rf2-x76af2.18)."
+  recording."
   []
   (if rf.story.config/enabled?
     (do (reset-dom-buffer!)
@@ -927,7 +926,7 @@
 (defn record-timer-child!
   "Note that a `:dispatch-later` child scheduled with `delay-ms` fired, iff a
   recording is in flight — the impure writer over `append-timer-child`.
-  Called by the trace listener (rf2-tbik1)."
+  Called by the trace listener."
   [delay-ms]
   (when rf.story.config/enabled?
     (swap! state append-timer-child delay-ms (now-ms*)))
@@ -1000,7 +999,7 @@
 (defn- timer-child?
   "True iff dispatched-trace `tags` belong to a `:dispatch-later` child
   (fx- or machine-emitted): the `:dispatch-later` seam is the one dispatch
-  site that stamps `:rf.event/source-detail {:ms …}` (rf2-tbik1)."
+  site that stamps `:rf.event/source-detail {:ms …}`."
   [tags]
   (number? (get-in tags [:rf.event/source-detail :ms])))
 
@@ -1014,10 +1013,9 @@
     3. Must carry an event vector on `:tags :rf.event/v`.
     4. Must be a ROOT dispatch — no `:rf.trace/parent-dispatch-id` tag.
        A child its root's handler dispatched is reproduced by replaying
-       the root (rf2-3x7nj.30.2).
+       the root.
     5. A `:dispatch-later` child (`timer-child?`) records only a timing
-       marker, never a step: replaying its root re-arms the timer
-       (rf2-tbik1).
+       marker, never a step: replaying its root re-arms the timer.
 
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED: the
   placeholder `redacted-event` vector replaces the event payload so the
@@ -1039,21 +1037,19 @@
   `:rf.assert/*` event still gets dropped, not redacted-and-recorded,
   because assertions are an authored not observed surface).
 
-  rf2-cmjly3 finding 13: that last guarantee held only in WORDS — the
-  redact branch called `record-event!` with the FIXED `redacted-event`
-  placeholder (`[:rf/redacted]`), so `append`'s internal
-  `recordable-event?` check ran against `[:rf/redacted]` (always
-  recordable — its ns `\"rf\"` matches none of `recordable-event?`'s
-  internal-namespace exclusions), never against the ORIGINAL id. A
-  sensitive `:rf.assert/*` / `:rf.story/*` event therefore recorded a
-  `[:rf/redacted]` row instead of being dropped, contradicting this very
-  docstring. `recordable-event?` is now tested on the ORIGINAL
-  `(:rf.event/v tags)` BEFORE the redact/pass fork, so a
-  sensitive-and-non-recordable event is dropped — same as the always-been-
-  correct non-sensitive path — on both the redact and pass branches alike,
-  and the suppressed-events counter (which the UI reads as 'count of
-  redacted rows actually recorded') no longer over-counts a row that was
-  never appended.
+  That last guarantee needs `recordable-event?` tested on the ORIGINAL
+  `(:rf.event/v tags)` BEFORE the redact/pass fork. The redact branch
+  calls `record-event!` with the FIXED `redacted-event` placeholder
+  (`[:rf/redacted]`), so `append`'s internal `recordable-event?` check
+  runs against `[:rf/redacted]` (always recordable — its ns `\"rf\"`
+  matches none of `recordable-event?`'s internal-namespace exclusions),
+  never against the ORIGINAL id. Without the early test a sensitive
+  `:rf.assert/*` / `:rf.story/*` event would record a `[:rf/redacted]`
+  row instead of being dropped, and the suppressed-events counter (which
+  the UI reads as 'count of redacted rows actually recorded') would
+  over-count a row that was never appended. With it, a
+  sensitive-and-non-recordable event is dropped on both the redact and
+  pass branches alike, exactly as on the non-sensitive path.
 
   This mirrors the always-on error path's enforcement — sensitive events
   are not warning-only at this consumer."
