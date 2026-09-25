@@ -8,34 +8,32 @@
   The browse-list rows AND the right-pane sub-strip both dispatch the
   same JUMP; centralising the dispatcher means the two surfaces never
   drift. The JUMP is a Static-side affordance that hands off to the
-  Dynamic-side Machines tab via the existing events:
+  Dynamic-side Machines tab via three events:
 
     `:rf.xray/set-mode :dynamic`        — flip mode pill back
     `:rf.xray/select-tab :machines`     — surface the Dynamic Machines tab
     `:rf.xray/select-machine-id <mid>`  — focus the panel on this machine
 
-  Three dispatches; one click. There is no Mode A/B/C auto-detection
-  on the Dynamic side to defer to: rf2-y9xmf collapsed the Dynamic
-  Machines panel to a single event-driven lens, so no live-instance-count
-  thresholds exist, and the third dispatch is what lands the selection
-  (next section).
+  Three dispatches; one click. The Dynamic Machines panel is a single
+  event-driven lens with no live-instance-count thresholds to defer to,
+  so the third dispatch is what lands the selection (next section).
 
-  ## The third dispatch LANDS the selection (rf2-y8doi.23)
+  ## The third dispatch LANDS the selection
 
-  It used only to RECORD it. The post-collapse Dynamic Machines panel
-  (rf2-y9xmf) is an event-driven lens bound to the FOCUSED EPOCH's first
-  transition record and reads no picker, so writing the
-  `:selected-machine-id` slot changed nothing on screen and the operator
-  landed on whichever machine the spine happened to be pointing at —
-  while spec/003 §Instances promises they land \"with this machine
-  pre-selected\".
+  The Dynamic Machines panel is an event-driven lens bound to the
+  FOCUSED EPOCH's transition record, so writing the
+  `:selected-machine-id` slot alone would change nothing on screen and
+  the operator would land on whichever machine the spine happened to be
+  pointing at — while spec/003 §Instances promises they land \"with
+  this machine pre-selected\".
 
-  `:rf.xray/select-machine-id` now also moves the spine focus to the
-  newest epoch touching the machine, through the same walk Prev/Next
-  uses. Nothing changes on this side: the JUMP's shape, its three
-  dispatches and its frame-aware `dispatch-fn` are what they were, and
-  the slot is still written (the Sim engine and the cancellation-cascade
-  composite read it)."
+  `:rf.xray/select-machine-id` therefore also moves the spine focus to
+  the newest epoch touching the machine, through the same walk
+  Prev/Next uses. It writes the slot too: the cancellation-cascade
+  composite and the after-rings timers read it, and the Dynamic
+  panel's selection rule gives it precedence over trace order. The
+  Static Sim engine does not read it; Sim reads the Static side's own
+  `:rf.xray.static.machines/selected-id`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
