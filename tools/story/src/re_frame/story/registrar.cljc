@@ -43,8 +43,8 @@
 
   `:extends` is NOT resolved here: the raw variant body is stored with
   `:extends` intact and the plan compiler (`re-frame.story.plan`) is the
-  SINGLE merge authority, walking the parent chain per spec/017 §8.4
-  (setup APPENDS, checks INHERIT). See `reg-variant*` below.
+  SINGLE merge authority, walking the parent chain per spec/017 §Merge
+  rules (setup APPENDS, checks INHERIT). See `reg-variant*` below.
 
   Hot-reload semantics mirror `re-frame.registrar`: re-registering the
   same id replaces the slot atomically; nothing in the runtime is
@@ -495,7 +495,7 @@
 
 (defn reg-variant*
   "Runtime helper for `reg-variant` macro. Per `001-Authoring.md` §Registration macros + spec/017
-  §8.4 (the plan compiler is the SINGLE `:extends` merge authority):
+  §Merge rules (the plan compiler is the SINGLE `:extends` merge authority):
 
   1. Stamp source coords.
   2. Validate the body shape (`:setup` / `:script` / `:plays` are the
@@ -509,7 +509,7 @@
   `:extends` is NOT resolved here. Storing the raw body lets the
   compiler's `resolve-source-chain` walk the parent chain on the default
   side-table lookup, so the plan compiler's per-field merge logic (setup
-  APPENDS, checks INHERIT — spec/017 §8.4) applies to every registered
+  APPENDS, checks INHERIT — spec/017 §Merge rules) applies to every registered
   variant. Registered variants and explicit-`:lookup` tests share ONE
   merge engine (`re-frame.story.plan/compile-body`); there is no second
   merge here to diverge."

@@ -159,9 +159,9 @@ projection for a slice whose substrate is not wired:
 |---|---|---|
 | Args | projectable | Live effective args (five-layer precedence chain, [`002-Runtime.md`](002-Runtime.md)) → the snippet's `:args` slot. |
 | Transient controls | projectable | In-flight `:cell-overrides` — folded into `:args` by `resolve-args`, not a separate slot. |
-| Sub-overrides | captured-as-declared / not-wired | No live View-State controls (TARGET); the source body's declared `:sub-overrides` carry forward via `:extends` (warned), else not-wired (rf2-7pgiz). |
-| DB seed | captured-as-declared / not-wired | The schema-checked app-db-seed fidelity rung is not wired (rf2-blw1q); the source's declared `:setup` events carry forward via `:extends` (warned), else not-wired. |
-| Route | not-wired | Route sub-override is not consumed yet (rf2-7pgiz) — route state is not captured. |
+| Sub-overrides | captured-as-declared / not-wired | The runtime applies sub-overrides at render ([`017` §View-state subscription overrides](017-Testing-Story.md#view-state-subscription-overrides)), but no View-State control pins a live value, so there is nothing live to capture; the source body's declared `:sub-overrides` carry forward via `:extends` (warned), else not-wired. |
+| DB seed | captured-as-declared / not-wired | The runtime wires the schema-checked app-db-seed fidelity rung, but the save flow has no live app-db capture; the source's declared `:setup` events carry forward via `:extends` (warned), else not-wired. |
+| Route | not-wired | No live route capture, and a variant body has no route slot — route state is not captured. |
 | Network | captured-as-declared / not-wired | No live Network controls; the source's declared `:network` carries forward via `:extends` (warned), else not-wired. |
 | FX-overrides | captured-as-declared / not-wired | No live Effects controls; the source's declared `:fx-overrides` carries forward via `:extends` (warned), else not-wired. |
 | Viewport | captured-as-declared / not-wired (FORK) | Viewport is **chrome-wide** state, not a per-variant body slot. The source body's declared `:viewport` carries forward via `:extends` (warned); the live chrome-wide selection is NOT projected into the saved variant. |
