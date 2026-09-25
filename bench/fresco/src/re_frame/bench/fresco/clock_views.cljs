@@ -1,16 +1,14 @@
 (ns re-frame.bench.fresco.clock-views
-  "THE CANDIDATE'S CLOCK WITNESSES — Fresco Arm 1 on rf2-2rtt6.2's
-  witness shapes, plus the per-keystroke witness for every arm (rf2-0qj9w).
+  "THE CANDIDATE'S CLOCK WITNESSES — Fresco Arm 1 on P0's witness shapes,
+  plus the per-keystroke witness for every arm.
 
   ## Why this namespace exists
 
-  Every clock figure the programme has published is about the DONORS.
   `p0_converge_app` builds `:reagent-subs` and `:uix-subs` segments and a
   floor; `p0_arms` builds the same three; the Fresco candidate appears in
-  neither. The candidate's only measured axes are hook count (2, at
-  React's own dispatcher) and per-read retained heap. This namespace is the
-  view half of closing that: the candidate rendering the SAME page the
-  donors render, so a ratio between them is a substrate ratio.
+  neither. This namespace is the view half of putting the candidate on
+  the clock: the candidate rendering the SAME page the donors render, so
+  a ratio between them is a substrate ratio.
 
   ## The M1 page is `p0-reagent-views`', element for element
 
@@ -53,8 +51,8 @@
   any at all, refuses the row.
 
   **The handler is a plain callback on every arm, and that is deliberate.**
-  HD-012 states the bar over VIEW WORK; rf2-2rtt6.3 measured the event
-  drain at 11–16% of a write on this substrate. Routing the candidate
+  HD-012 states the bar over VIEW WORK, and the event drain measures
+  11–16% of a write on this substrate. Routing the candidate
   through `runtime/dispatch!` while the donors write `replace-app-db!`
   directly would price Fresco's event pipeline against the donors' bare
   write and then call the difference view work. So all three substrate
@@ -74,7 +72,7 @@
   floor, so it has no substrate to write to, and its drafts live in a
   `useState`. Everywhere else in this lane the floor is the cheapest arm
   on the page, and the first instinct is to label this one a lower bound
-  too. **Run 1 of `clock_run.cjs` measured the opposite**: all three
+  too. **`clock_run.cjs` measures the opposite**: all three
   substrate arms read BELOW it (0.87–0.92× floor), because a `useState`
   write re-renders the whole tree top-down while a subscription write
   re-renders only the boundary whose value moved.
@@ -84,7 +82,8 @@
   under 1.0× here is localisation showing up on the clock rather than an
   anomaly.
 
-  Owner: rf2-2rtt6.1 (standard); these witnesses rf2-0qj9w."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react" :as react]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :refer [sub]]
@@ -107,9 +106,9 @@
   100)
 
 (def kb-fields-n
-  "4 fields — the FORM half of the same budget line. It was one field
-  until rf2-0qj9w; a single field cannot exercise the property the row is
-  about, which is that a keystroke into one field moves exactly one
+  "4 fields — the FORM half of the same budget line. A single field
+  cannot exercise the property the row is about, which is that a
+  keystroke into one field moves exactly one
   field's value while every layer-1 subscription on the page recomputes."
   4)
 
@@ -158,7 +157,7 @@
   is 100 of the 104 subscriptions a keystroke recomputes, and a census
   that could only see the fields would answer the easy quarter of
   validation.md's question. It delegates to `rf.bench.fresco.p0-reagent-views/cell-value`, so there is
-  still exactly one body for that computation.
+  exactly one body for that computation.
 
   `:p0/draft` is INDEXED and keeps a query id of its own rather than
   taking a reserved cell index: an index would make a field's read
@@ -314,10 +313,10 @@
   irreducible cost of asking React to keep these fields controlled and
   this list on screen.
 
-  **A CALIBRATOR and never a bound in either direction** (rf2-0qj9w). It
+  **A CALIBRATOR and never a bound in either direction.** It
   does not write app-db, so it recomputes no subscriptions at all — and
-  the instinct that therefore makes it a lower bound is the one run 1
-  refuted: a `useState` write re-renders the whole tree top-down while a
+  the instinct that therefore makes it a lower bound is the one the clock
+  refutes: a `useState` write re-renders the whole tree top-down while a
   subscription write re-renders one boundary, and all three substrate
   arms read BELOW it. An arm under 1.0x here is localisation showing up
   on the clock, not an anomaly.
@@ -327,8 +326,8 @@
   the instrument has a change its own arithmetic predicts.
 
   ONE `useState` over a four-slot array rather than four hooks, so the
-  floor's hook count does not move with the field count and the arm stays
-  the same shape it was at one field."
+  floor's hook count does not move with the field count and the arm keeps
+  one shape at any field count."
   (fn kb-floor-fn [^js props]
     (let [n      (unchecked-get props "n")
           busy   (unchecked-get props "busy")
@@ -337,7 +336,7 @@
           put!   (aget state 1)]
       ;; Children as VARARGS rather than as an array: an array child needs
       ;; a `key` per entry and `rf.bench.fresco.p0-reagent-views/m1-floor` — which is the M1 floor
-      ;; unchanged, so that the two floors are one page — does not carry
+      ;; itself, so that the two floors are one page — does not carry
       ;; one. Varargs is React's own escape from that and costs the page
       ;; nothing.
       (apply react/createElement
