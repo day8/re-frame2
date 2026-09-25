@@ -4244,7 +4244,7 @@
                               (:instance ctx)
                               result-discarded?))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
-     ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
+     ;; The sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
      ;; doesn't surface at the same at-a-glance density.
      (when (seq fx-vec)
@@ -4260,36 +4260,32 @@
                        :card?                  false
                        :zoomable?              true
                        :default-expanded-depth 16}}]]))
-     ;; rf2-qlvui — there is NO `other` sub-section after the `:fx` one,
-     ;; and re-adding it is the wrong repair. The projection's
-     ;; `:other-effects` slot went with its producer (rf2-m2ye2,
-     ;; ed3755729c): a top-level effect key OUTSIDE the framework's
-     ;; closed set is REFUSED pre-commit (rf2-04tx) and never reaches a
-     ;; do-fx reader, while every key INSIDE that set is legal and
-     ;; applied. So the slot had no truthful population, this branch
-     ;; could never fire, and re-deriving the value from somewhere else
-     ;; would only restore the false "the runtime ignored this effect"
-     ;; accusation the deletion removed.
+     ;; There is NO `other` sub-section after the `:fx` one: a top-level
+     ;; effect key OUTSIDE the framework's closed set is REFUSED
+     ;; pre-commit and never reaches a do-fx reader, while every key
+     ;; INSIDE that set is legal and applied. So an `other` slot has no
+     ;; truthful population, and deriving one from somewhere else would
+     ;; make the false accusation "the runtime ignored this effect".
      ])))
 
 (defn render-handler-step
-  "Render the HANDLER step (always present). Per Mike pair-debug
-  2026-05-26: the verb (reg-event / reg-machine flavour label) is
+  "Render the HANDLER step (always present). The verb (reg-event /
+  reg-machine flavour label) is
   the click-to-source hyperlink;
   the event-id is NOT repeated in the HANDLER line because the
   DISPATCH step's header already names it.
 
-  Per rf2-8resu (supersedes rf2-xgeag's :app-db attachment): the
+  The
   HANDLER step describes what the handler RETURNED (its effects
-  map). The :where :app-db violation + rollback story moves to the
-  FX step's :db row (the implicit commit fx). HANDLER step's
-  `:violations` slot still renders generically — currently empty
-  for HANDLER in practice — but the call site stays in case future
-  violation kinds attach here.
+  map). The :where :app-db violation + rollback story renders on the
+  FX step's :db row (the implicit commit fx). The HANDLER step's
+  `:violations` slot renders generically, although no violation kind
+  attaches to HANDLER in practice.
 
-  rf2-k97c.3 — the optional `ctx` is threaded straight to
+  The optional `ctx` is threaded straight to
   [[handler-body]], which uses its `:selected-epoch-record` for the `:db`
-  diff's pre-image. The 1-arity keeps every direct caller working."
+  diff's pre-image. The 1-arity serves direct callers with no cascade
+  context."
   ([step] (render-handler-step step {}))
   ([{:keys [flavour event-id duration-ms step-number violations errors]
      :as step}
@@ -4306,23 +4302,23 @@
         :verb (handler-verb-link flavour event-id)
         :expandable? false
         :testid "rf-xray-epoch-handler"
-        ;; rf2-yz57h — a skipped handler has no real duration (it never
+        ;; A skipped handler has no real duration (it never
         ;; ran); elide the chip.
         :duration-ms (when-not skipped? duration-ms)}
        nil)
      (if skipped?
-       ;; rf2-yz57h — the handler was skipped (a `:before` interceptor /
+       ;; The handler was skipped (a `:before` interceptor /
        ;; coeffect threw upstream). Render the SKIPPED placeholder instead
-       ;; of the normal body — the prior body's `:db` sub-section read
-       ;; "— no :db (handler returned no :db)" which was WRONG: the handler
-       ;; body returns a :db (via `bump`), it just never executed.
+       ;; of the normal body, whose `:db` sub-section would read
+       ;; "— no :db (handler returned no :db)" — WRONG for a handler
+       ;; that returns a :db but never executed.
        (skipped-body "rf-xray-epoch-handler" "The handler" (:skip-reason step))
        (handler-body step ctx))
-     ;; rf2-ahhgn — a handler EXCEPTION attaches here as an inline error
+     ;; A handler EXCEPTION attaches here as an inline error
      ;; card (button-16). Rendered BELOW the handler body so the operator
      ;; reads what the handler tried to do, then the failure that aborted
-     ;; it. (Coeffect / interceptor exceptions now land under their OWN
-     ;; steps per rf2-yz57h, so this slot carries only genuine handler
+     ;; it. (Coeffect / interceptor exceptions land under their OWN
+     ;; steps, so this slot carries only genuine handler
      ;; throws.)
      (error-blocks :handler errors (:instance ctx))
      (violation-blocks :handler violations (:instance ctx))])))
@@ -4330,8 +4326,8 @@
 ;; ---- FLOW step -----------------------------------------------------------
 
 (defn render-flow-step
-  "Render one FLOW step — one PER flow that fired (rf2-xnb1x — mirror
-  of the COEFFECT per-cofx restructure from pair-debug 2026-05-26).
+  "Render one FLOW step — one PER flow that fired (mirroring the
+  COEFFECT step's one-per-cofx shape).
   Each flow recompute gets its own numbered pipeline entry with the
   flow-id rendered as the verb (clickable to source when the
   registered flow carries `:file`/`:line` meta from `reg-flow`).
@@ -4339,8 +4335,8 @@
   The projection emits N flow step maps for a cascade with N flow
   recomputes.
 
-  rf2-4wywy / rf2-48oc4 — the body renders the flow's OWN contribution
-  as a `:db` DIFF rather than the prior `[path] before → after` scalar
+  The body renders the flow's OWN contribution
+  as a `:db` DIFF rather than a `[path] before → after` scalar
   line. A flow's contribution IS an app-db mutation (it writes
   `:output` into `:path` AFTER the handler returned); rendering it as a
   `:db` diff via the shared edn-inspector diff renderer (parity with the
@@ -4353,24 +4349,24 @@
   reshape. The projection threads the shared snapshots onto every flow
   step, and `:db-post-flow` (t2) is taken after ALL flows ran — it gates
   diff mode but is never an endpoint, or every other flow's write would
-  paint on this step too (rf2-3x7nj.22.4).
+  paint on this step too.
 
-  rf2-48oc4 — `:db-pre-flow` is the effective post-handler db, so the
+  `:db-pre-flow` is the effective post-handler db, so the
   diff renders correctly EVEN WHEN the handler returned no `:db`: in
   that case the projection threads `db-before` (the actual post-handler
   db) as `:db-pre-flow`, NOT nil, so this branch renders a real diff
   rather than the scalar fallback.
 
   Graceful fallback: when the projection carried no pre/post snapshots
-  (a pre-rf2-ta0y7 runtime, or neither t1 nor t2 on the stream) the
+  (neither t1 nor t2 on the stream) the
   body falls back to the per-path `[path] before → after` scalar line."
   ([step] (render-flow-step step nil))
   ([{:keys [flow-id frame path before after duration-ms step-number
             db-pre-flow db-post-flow errors]} instance]
-  (let [;; rf2-20359j — flows are FRAME-DIVERGENT-per-id (Spec 013), so the
+  (let [;; Flows are FRAME-DIVERGENT-per-id (Spec 013), so the
         ;; source-coord lookup reads the per-frame `rf.flows/flow-meta`
-        ;; (the `(handler-meta :flow id)` replacement after rf2-en00bk
-        ;; emptied the registrar `:flow` slot). The flow's OWN frame rides
+        ;; (the registrar's `:flow` slot is empty, so
+        ;; `(handler-meta :flow id)` finds nothing). The flow's OWN frame rides
         ;; the `:rf.flow/computed` event's `:frame` tag (threaded through
         ;; the projection's flow-step map), so we pass it as the EXPLICIT
         ;; `:frame` override rather than resolving the carried scope — the
@@ -4382,14 +4378,14 @@
         coord      (when (and flow-meta (string? (:file flow-meta)))
                      {:file (:file flow-meta) :line (:line flow-meta)})
         label      (fmt/ns-keyword flow-id)
-        ;; rf2-4wywy / rf2-48oc4 — render a `:db` diff scoped to this
+        ;; Render a `:db` diff scoped to this
         ;; flow's path. db-pre-flow (effective post-handler db) lacks this
-        ;; flow's write. When either endpoint is absent (pre-rf2-ta0y7 / no
+        ;; flow's write. When either endpoint is absent (no
         ;; snapshots) we render the scalar fallback.
         ;;
-        ;; rf2-3x7nj.22.4 — BOTH endpoints are built on the ONE pre-flow
+        ;; BOTH endpoints are built on the ONE pre-flow
         ;; baseline, so only this flow's slot differs. db-post-flow (t2) is
-        ;; taken after ALL flows ran, so diffing against it painted every
+        ;; taken after ALL flows ran, so diffing against it would paint every
         ;; other flow's write on this step too.
         db-diff?   (boolean
                      (and (some? db-pre-flow) (some? db-post-flow)
@@ -4406,7 +4402,7 @@
         :badge :FLOW
         ;; Verb = flow-id (clickable when coord captured). Same
         ;; affordance shape as the COEFFECT step's cofx-id hyperlink.
-        ;; rf2-vw5pi — via shared `coord-link`; per-site styles kept.
+        ;; Via the shared `coord-link`, with the per-site styles.
         :verb (coord-link/coord-link coord label
                                      (str "rf-xray-epoch-flow-id-" (name flow-id))
                                      {:style       coeffect-verb-link-button-style
@@ -4416,7 +4412,7 @@
         :duration-ms duration-ms}
        nil)
      (if db-diff?
-       ;; rf2-4wywy — the flow's own `:db` diff via the shared
+       ;; The flow's own `:db` diff via the shared
        ;; edn-inspector diff renderer (FULL+DIFF, parity with HANDLER
        ;; `:db`). `:before` = the pre-flow db, value = that db with this
        ;; flow's output at its path → the inspector paints only this
@@ -4434,7 +4430,7 @@
                      :default-expanded-depth 3}}]]
        ;; Fallback — `[path] before → after` scalar line, left-aligned
        ;; with the badge (no extra indent). Mirrors the COEFFECT step's
-       ;; body layout (pair-debug 2026-05-26).
+       ;; body layout.
        (when (sequential? path)
          [:div {:data-testid (str "rf-xray-epoch-flow-value-" (name flow-id))
                 :style coeffect-body-style}
@@ -4448,27 +4444,26 @@
             [:span {:style coeffect-body-path-style} "→"])
           (when (some? after)
             [:span {:style coeffect-body-value-style} (ei/mini after 30)])]))
-     ;; rf2-ahhgn — a flow-eval exception (the flow's compute fn threw,
+     ;; A flow-eval exception (the flow's compute fn threw,
      ;; aborting the cascade pre-commit) attaches here as an inline card.
      (error-blocks :flow errors instance)])))
 
-;; ---- SIDE EFFECTS step (rf2-kt6js — the pre-rf2-kt6js FX step) ----------
+;; ---- SIDE EFFECTS step ---------------------------------------------------
 
 (defn- fx-coord
   "Pull the registered fx-handler's source coord off
   `(rf/handler-meta {:source :store :kind :fx :id fx-id})`. Returns nil when no meta is captured.
-  Mirrors the sibling `sub-coord` shape (rf2-g1mfc — bring the
-  click-to-source affordance to the SIDE EFFECTS step's :fx rows on
-  parity with the HANDLER verb, the SUBSCRIPTIONS rows, and the VIEWS
-  rows).
+  Mirrors the sibling `sub-coord` shape, giving the SIDE EFFECTS
+  step's :fx rows the click-to-source affordance on parity with the
+  HANDLER verb, the SUBSCRIPTIONS rows, and the VIEWS rows.
 
   The `:file` here is ABSOLUTE: `reg-fx` registers through the same
   `core-reg-macros/defreg-macro` → `with-coords-form` → `coords-form`
   path that `reg-sub` / `reg-event` use, and that path runs the
   picked `:file` through `source-coords/absolutise-file` at macro-
-  expansion time (rf2-wvsxg). So the chip's coord ships the right
-  on-disk path with no error-coords fallback — unlike the VIEW case
-  (rf2-quir9), where `reg-view` skips the absolutisation."
+  expansion time. So the chip's coord ships the right
+  on-disk path with no error-coords fallback — unlike the VIEW case,
+  where `reg-view` skips the absolutisation."
   [fx-id]
   (when (some? fx-id)
     (let [m (try (rf/handler-meta {:source :store :kind :fx :id fx-id}) (catch :default _ nil))]
@@ -4477,7 +4472,7 @@
 
 (defn- db-destination-marker
   "Render the `:db` ledger row's args slot — the clickable '→ app-db'
-  DESTINATION marker (rf2-j630b). NOT the db diff: the actual change
+  DESTINATION marker. NOT the db diff: the actual change
   lives in the App-db panel; this marker jumps there for the focused
   epoch (the panel reads the same shared focus, so flipping the L3 tab
   to `:app-db` is the whole navigation). Render-time frame capture
@@ -4495,16 +4490,15 @@
      "→ app-db"]))
 
 (defn- fx-row-view
-  "Render one row of the flat SIDE EFFECTS ledger (rf2-j630b) — a leading
+  "Render one row of the flat SIDE EFFECTS ledger — a leading
   per-effect status glyph + the effect-id + the effect args. One row per
   effect, in execution order; the `:db` row leads (when present), then
   the `:fx` entries, then `other` rows.
 
-  Argument order matches `map-indexed`'s `(f idx item)` convention
-  (rf2-cq0ch).
+  Argument order matches `map-indexed`'s `(f idx item)` convention.
 
   The leading glyph + colour resolve off the shared
-  `badge/fx-row-status-*` primitive (rf2-j630b): ✓ :ok / ✗ :error /
+  `badge/fx-row-status-*` primitive: ✓ :ok / ✗ :error /
   ✗ :rollback / ↺ :overridden / – :skipped (the muted en-dash 'n/a',
   NEUTRAL — `:skipped-on-platform` carries the hover explainer).
 
@@ -4513,11 +4507,11 @@
   duplication). Every other row renders its args through the
   edn-inspector.
 
-  Per rf2-uffov: when the row carries `:attributed-to`, a muted
+  When the row carries `:attributed-to`, a muted
   `← <action-id>` attribution chip rides alongside so the operator
   reads `fx X emitted by action Y` in one line.
 
-  Per rf2-g1mfc: each fx-id carries the shared `coord-chip` open-in-
+  Each fx-id carries the shared `coord-chip` open-in-
   editor affordance (exact parity with the SUBSCRIPTIONS / VIEWS rows
   + the HANDLER verb), sourcing the fx registration coord off
   `(rf/handler-meta {:source :store :kind :fx :id fx-id})` via `fx-coord`. The chip drops out
@@ -4545,15 +4539,15 @@
       (badge/fx-row-status-glyph status)]
      [:span {:style fx-row-id-style}
       (fmt/ns-keyword fx-id)
-      ;; rf2-g1mfc — click-to-source via the shared `coord-chip`, exact
-      ;; parity with the SUBSCRIPTIONS (~3000) + VIEWS rows + the HANDLER
+      ;; Click-to-source via the shared `coord-chip`, exact
+      ;; parity with the SUBSCRIPTIONS + VIEWS rows + the HANDLER
       ;; verb. The coord lookup keys off `fx-id` and resolves the
-      ;; `reg-fx` REGISTRATION site (absolute `:file`, rf2-wvsxg). Chip
+      ;; `reg-fx` REGISTRATION site (absolute `:file`). Chip
       ;; drops out cleanly when no coord was captured (incl. the
       ;; synthesised :db row, which has no reg-site).
       (coord-chip/coord-chip (fx-coord fx-id)
                              (str "rf-xray-epoch-fx-row-coord-" idx))]
-     ;; rf2-3x7nj.22.3 — a keyword-redirected row is keyed on the id the
+     ;; A keyword-redirected row is keyed on the id the
      ;; handler EMITTED; the redirect target rides here as detail.
      (when (and (some? override-to) (not= :re-frame.fx/fn-value override-to))
        [:span {:data-testid (str "rf-xray-epoch-fx-row-override-" idx)
@@ -4561,13 +4555,13 @@
         [:span {:aria-hidden true} "→"]
         (fmt/ns-keyword override-to)])
      ;; The :db row's args slot is the '→ app-db' DESTINATION marker, NOT
-     ;; the db diff (rf2-j630b). Every other row renders its args through
-     ;; the edn-inspector with `:default-expanded-depth 1` (rf2-ef2hy) so
+     ;; the db diff. Every other row renders its args through
+     ;; the edn-inspector with `:default-expanded-depth 1` so
      ;; the top-level fx-call surface is visible inline and nested maps
      ;; collapse to clickable chevrons. The operator scans the dense
      ;; ledger, then drills into a row's args via the chevron or the
      ;; popup-overlay (`:zoomable?`). Sibling rendering for the HANDLER
-     ;; step's `:fx` section (rf2-p2zy0) uses `:default-expanded-depth 16`
+     ;; step's `:fx` section uses `:default-expanded-depth 16`
      ;; (full-expand) — HANDLER reads INTENT, the ledger reads EXECUTION.
      (cond
        db-row?         (db-destination-marker idx)
@@ -4584,7 +4578,7 @@
      (when (number? duration-ms)
        [:span {:style fx-row-duration-style}
         (fmt/format-duration-ms duration-ms)])
-     ;; rf2-uffov — per-action attribution chip (for machine cascades)
+     ;; Per-action attribution chip (for machine cascades)
      (when-let [{:keys [action-id phase]} attributed-to]
        [:span {:data-testid (str "rf-xray-epoch-fx-row-attribution-" idx)
                :title (str "emitted by " (fmt/ns-keyword action-id)
@@ -4597,8 +4591,8 @@
            (str "(" (name phase) ")")])])]))
 
 (defn- fx-row-with-violations
-  "Render one fx row + any violations / exceptions attached to that row
-  (rf2-xgeag / rf2-ahhgn). Per-row attachment matches when the
+  "Render one fx row + any violations / exceptions attached to that row.
+  Per-row attachment matches when the
   projection's `attach-to-fx-row` (schema) / `attach-to-fx-error-row`
   (exception) resolved the `:failing-id` against an `fx-id` in the FX
   step's `:rows`. A throwing fx (button-18) surfaces its message + coord
@@ -4610,21 +4604,21 @@
    (error-blocks (keyword (str "fx-row-" idx)) (:errors row) instance)
    (violation-blocks (keyword (str "fx-row-" idx)) (:violations row) instance)])
 
-;; ---- SIDE EFFECTS flat ledger (rf2-j630b — supersedes kt6js 3-tier) -----
+;; ---- SIDE EFFECTS flat ledger -------------------------------------------
 
 (defn render-side-effects-step
-  "Render the SIDE EFFECTS step as a FLAT per-effect ledger (rf2-j630b —
-  supersedes the rf2-kt6js 3-tier `:db` / `:fx` / other sub-step
+  "Render the SIDE EFFECTS step as a FLAT per-effect ledger (rather than
+  a 3-tier `:db` / `:fx` / other sub-step
   presentation). ALWAYS present when ANY side effect occurred — including
   a bare reg-event that returns only `:db` (`db-commit?` keys off
   `:rf.event/db-changed`).
 
-  The SIDE EFFECTS badge carries NO overall stage glyph (the per-stage
-  ✓/✗ retired in rf2-9wq0v — a clean run was an all-tick row of no
-  information, and a failure already shows on its own row + exception
+  The SIDE EFFECTS badge carries NO overall stage glyph (a per-stage
+  ✓/✗ would be an all-tick row of no information on a clean run, and a
+  failure shows on its own row + exception
   card). The per-EFFECT row glyphs are the whole signal. `:rows`-level
-  outcome is still queryable via `proj/side-effects-badge-status` for the
-  cascade-outcome banner + tests.
+  outcome is queryable via `proj/side-effects-badge-status`, which the
+  tests read.
   There are NO post-commit / best-effort labels and NO group headers: the
   body is one row per effect, in EXECUTION order, each via
   `fx-row-with-violations`:
@@ -4633,18 +4627,18 @@
        ✓ committed / ✗ schema-fail rollback (the `:where :app-db`
        violation reason box rides the row via `attach-to-fx-db-row`), its
        args slot the clickable '→ app-db' DESTINATION marker;
-    2. the `:fx`-vector entries in order — each with the rf2-g1mfc
+    2. the `:fx`-vector entries in order — each with the
        open-code chip + a per-effect glyph (✓ ran / ✗ threw / ↺ overridden
        / – skipped-on-platform). For async / deferred fx the ✓ means
        ACTIONED (handler invoked ok), not awaited;
     3. any top-level non-`:db`/`:fx` effects the runtime DROPPED — the
        muted – not-run diagnostic.
 
-  A throwing row's expand is wnvid's shared 'Exception Thrown' card
-  (`fx-row-with-violations` → `error-blocks`), compatible with yz57h's
+  A throwing row's expand is the shared 'Exception Thrown' card
+  (`fx-row-with-violations` → `error-blocks`), consistent with the
   exception-under-step rendering. `:fx-args` / fx exception attachments
-  that didn't match a row attach to the step level (rf2-xgeag /
-  rf2-ahhgn) and render at the foot. `:db` schema-fail (pre-commit) →
+  that didn't match a row attach to the step level and render at the
+  foot. `:db` schema-fail (pre-commit) →
   just the `:db` CROSS row, no fx rows (atomicity)."
   ([step] (render-side-effects-step step nil))
   ([{:keys [rows step-number threw violations errors] :as step} instance]
@@ -4660,11 +4654,11 @@
         :testid "rf-xray-epoch-side-effects"}
        nil)
      (if skipped?
-       ;; rf2-yz57h — side effects never ran (upstream `:before`-chain throw).
+       ;; Side effects never ran (upstream `:before`-chain throw).
        (skipped-body "rf-xray-epoch-side-effects" "Side effects" (:skip-reason step))
        [:div {:style margin-top-5-style}
         (map-indexed (fn [i row] (fx-row-with-violations i row instance)) rows)])
-     ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,
+     ;; Fx exceptions that didn't match a row (no-such-fx,
      ;; or an fx-id absent from `:rows`) attach to the step level.
      (error-blocks :side-effects errors instance)
      (violation-blocks :side-effects violations instance)])))
@@ -4673,25 +4667,21 @@
 
 (defn- subs-filter-button-bar
   "Three-button filter bar `[all][changed][unchanged]` for the
-  SUBSCRIPTIONS step (rf2-tzmmf). Mirrors the HANDLER step's
-  `[diff][all]` toggle shape — same chrome vocabulary.
+  SUBSCRIPTIONS step.
 
-  Active button paints in `:accent`; inactive buttons are
-  transparent with muted text. Click dispatches
+  The active button paints a raised neutral grey (`:bg-3`); inactive
+  buttons are transparent with muted text. Click dispatches
   `:rf.xray.epoch/set-subs-filter-mode` with the chosen keyword.
 
-  SUPERSEDES the prior rf2-kfh1v `Show unchanged` boolean toggle
-  AND the badge-adjacent `N recomputed (M changed, K unchanged)`
-  text — Mike pair-debug 2026-05-26: the button-bar IS the new
-  right-of-badge chrome. Pre-alpha masterpiece posture; no
-  back-compat shim retained."
+  The button-bar IS the right-of-badge chrome: there is no separate
+  `Show unchanged` toggle and no badge-adjacent `N recomputed (M
+  changed, K unchanged)` text."
   [mode]
-  ;; rf2-nesy9 — capture the surrounding instance frame at render time
-  ;; (the bar renders inside the Epoch Panel reg-view) so the deferred
+  ;; Capture the surrounding instance frame at render time
+  ;; (the bar renders inside the Epoch Panel) so the deferred
   ;; filter-mode click writes to THIS instance's Xray app-db, not the
-  ;; `:rf/xray` singleton. Supersedes the prior `with-frame :rf/xray`
-  ;; pin (the rf2-p56sk frame-anchor reasoning held only while Xray was
-  ;; a single global frame).
+  ;; `:rf/xray` singleton — a `with-frame :rf/xray` pin would be right
+  ;; only if Xray were a single global frame.
   (let [frame (rf/current-frame-id)]
    [:span {:data-testid "rf-xray-epoch-subscriptions-filter-mode"
           :data-mode (when (keyword? mode) (name mode))
@@ -4717,10 +4707,10 @@
   paint R1-R8 diff chrome on. Mirrors the same predicate the
   edn-inspector uses internally to decide between container-recurse
   and `render-leaf-with-diff`. nil counts as a leaf (the
-  `nil → <new-value>` transition is a leaf-scalar value change, per
-  the bead body's `:counter/last-clicked` example).
+  `nil → <new-value>` transition is a leaf-scalar value change, e.g.
+  `:counter/last-clicked`).
 
-  Per rf2-fyd8u — this is the discriminator the SUBSCRIPTIONS
+  This is the discriminator the SUBSCRIPTIONS
   FULL+DIFF cell uses to route between the inspector mount (containers
   paint their own chrome) and the leaf-scalar branch (the row-level
   `← was X` annotation / `:added` chrome lives here, NOT inside the
@@ -4733,14 +4723,13 @@
            (sequential? value))))
 
 (defn- subs-value-cell
-  "Render the `changed` cell for one sub recomputation row under the
+  "Render the `value` cell for one sub recomputation row under the
   single FULL+DIFF rendering.
 
-  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
-  toggle (rf2-yqjrd) is retired. The 3-arity is collapsed: only the
-  FULL+DIFF branch survives.
+  There is no `[diff][full][full+diff]` mode toggle, so there is one
+  branch: FULL+DIFF.
 
-  rf2-fyd8u — for FULL+DIFF the leaf-scalar branch (a sub that returns
+  For FULL+DIFF the leaf-scalar branch (a sub that returns
   a scalar — number, string, keyword, nil) has its OWN rendering path:
   the edn-inspector's R1-R8 grammar paints diff chrome on container
   CHILDREN, but a scalar root has no children, so a value-change of
@@ -4755,34 +4744,33 @@
     `:first-run?` false → `:modified` chrome (yellow stripe / leading
                           `~` glyph / low-alpha wash, parity with the
                           inspector's R1 `:modified` leaf shape) + value
-                          + inline `← was <prev>` annotation (rf2-o77z4).
+                          + inline `← was <prev>` annotation.
                           The prose stays muted (text-tertiary); the
                           prev value routes through `ei/mini` for the
                           syntax-token chrome (keyword magenta, number
                           orange, etc.).
 
-  Containers (map / vector / set return values) keep the existing
+  Containers (map / vector / set return values) use the inspector
   mount: the inspector paints child-level annotations via the R1-R8
-  grammar — no per-row chrome change.
+  grammar — no per-row chrome.
 
-  Unchanged rows (`:changed? false`) now render the CURRENT value with
-  NO diff chrome (rf2-o77z4, Mike pair 2026-06-01 — REVERSES the prior
-  2026-05-27 rf2-fqcdd 'empty cell = unchanged indicator' design). Row
+  Unchanged rows (`:changed? false`) render the CURRENT value with
+  NO diff chrome. Row
   density is controlled by the all/changed/unchanged filter, so showing
   the value on unchanged rows is fine. Leaf-scalar → `ei/mini`;
   container → a plain `ei/edn-inspector` mount (no `:before`, no
   `:added?` — no diff signal)."
   [{:keys [sub-id changed? first-run? before after]} idx instance]
-  ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at this
+  ;; Leaf-scalar branch: paint the change signal at this
   ;; row level (the inspector has no leaf-scalar annotation surface).
   ;; Containers fall through to the inspector mount. Testid naming
   ;; note: the leaf-* testids deliberately use a prefix DISTINCT from
   ;; `rf-xray-epoch-sub-row-` (the parent row's testid) so prefix
-  ;; counters like the sibling rf2-tzmmf filter tests don't pick the
+  ;; counters like the sibling filter tests don't pick the
   ;; leaf wrapper up as an additional "row".
   (if (subs-leaf-scalar? after)
     (cond
-      ;; unchanged → current value, no diff chrome (rf2-o77z4).
+      ;; unchanged → current value, no diff chrome.
       (not changed?)
       [:div {:data-rf-xray-subs-leaf "unchanged"
              :data-testid            (str "rf-xray-epoch-subs-leaf-unchanged-" idx)
@@ -4809,19 +4797,18 @@
         "← was "
         [:span {:data-rf-xray-subs-leaf-was "1"}
          (ei/mini before 40)]]])
-    ;; rf2-kp7bw — a CONTAINER-valued sub return. On a first run
+    ;; A CONTAINER-valued sub return. On a first run
     ;; (`first-run?`, no prior cache entry) the inspector renders the
     ;; whole subtree as `:added` via the `:added?` opt (edn-inspector
     ;; §10.0.13) — parity with the scalar branch's row-level `:added`
-    ;; chrome above. Pre-fix the container branch consulted ONLY
-    ;; `:before`, which is nil on a first run, so the inspector
-    ;; mounted plain (no diff mode, no added signal) while every
-    ;; scalar sibling painted `:added`. Canonical case: the
-    ;; `[:rf/route]` map sub on a /counter view-mount epoch. An
+    ;; chrome above. Consulting ONLY `:before`, which is nil on a first
+    ;; run, would mount the inspector plain (no diff mode, no added
+    ;; signal) while every scalar sibling paints `:added`. Canonical
+    ;; case: the `[:rf/route]` map sub on a /counter view-mount epoch. An
     ;; explicit prior value (`some? before`) is a genuine diff and
     ;; takes precedence over the first-run signal. An UNCHANGED
     ;; container (`changed? false`) mounts plain — current value, no
-    ;; diff opts (rf2-o77z4).
+    ;; diff opts.
     [:div {:style subs-value-cell-fill-style}
      [ei/edn-inspector-view
       {:mount-id (inspector-mount-id
@@ -4837,9 +4824,9 @@
 (defn- sub-coord
   "Pull the registered sub's source coord off
   `(rf/handler-meta {:source :store :kind :sub :id sub-id})`. Returns nil when no meta is
-  captured. Matches the sibling `view-coord` shape (rf2-d2akf —
-  bring click-to-source affordance to disposed-sub rows on parity
-  with the unmounted-views rows)."
+  captured. Matches the sibling `view-coord` shape, giving disposed-sub
+  rows the click-to-source affordance on parity with the
+  unmounted-views rows."
   [sub-id]
   (when (some? sub-id)
     (let [m (try (rf/handler-meta {:source :store :kind :sub :id sub-id}) (catch :default _ nil))]
@@ -4849,7 +4836,7 @@
 (defn- sub-input-signals
   "The sub's STATIC input topology — the sub-ids of its registered
   `:input-signals`, resolved by the SUB-ID (first element of the
-  query-v) off `(rf/handler-meta {:source :store :kind :sub :id sub-id})` (rf2-87c8a).
+  query-v) off `(rf/handler-meta {:source :store :kind :sub :id sub-id})`.
 
   `:input-signals` is registered on the SUB-ID, not the full instance
   query-v: the `:inputs` a `reg-sub` declares are the same for every
@@ -4864,7 +4851,7 @@
     - the sub-id can't be resolved (anonymous sub / no meta captured), or
     - `:input-signals` is empty — a genuine Level-1 app-db reader, where
       the cell falls back to the `app-db` source label, or
-    - the sub is PARAMETRIC (rf2-e3acps) — its `:input-kind` is
+    - the sub is PARAMETRIC — its `:input-kind` is
       `:parametric`, so the STATIC topology has no enumerable edge set
       (the realized edges depend on the concrete outer query vector).
       Returning nil here routes the inputs cell to the row's REALIZED
@@ -4875,12 +4862,11 @@
       contract: static topology reports `:parametric`; the live view
       shows the concrete realized edges.
 
-  Pre-rf2-87c8a the inputs cell read the row's `:inputs` slot, which the
-  projection sources from `:rf.sub/cause-sub` (the single upstream sub
-  whose value-change drove THIS re-run) or, when absent, the full
-  realized `:rf.sub/inputs` edge set (rf2-e3acps). The cascade
-  attribution also surfaces via the `caused by <event-id>` chrome
-  (rf2-1cc03)."
+  The row's `:inputs` slot is the fallback: the projection sources it
+  from `:rf.sub/cause-sub` (the single upstream sub whose value-change
+  drove THIS re-run) or, when absent, the full realized
+  `:rf.sub/inputs` edge set. The cascade attribution also surfaces via
+  the `caused by <event-id>` chrome."
   [sub-id]
   (when (some? sub-id)
     (let [m (try (rf/handler-meta {:source :store :kind :sub :id sub-id}) (catch :default _ nil))
@@ -4889,25 +4875,23 @@
       ;; edges are runtime cache state) — nil here defers to the row's
       ;; realized `:inputs` slot. The `(seq signals)` guard already
       ;; covers them (empty → nil); the `:input-kind` check is belt-and-
-      ;; braces so a future non-empty parametric registration shape still
-      ;; defers to the realized live view rather than claiming a static set.
+      ;; braces so a non-empty parametric registration shape would also
+      ;; defer to the realized live view rather than claiming a static set.
       (when (and (seq signals)
                  (not= :parametric (:input-kind m)))
         (mapv (fn [sig] (if (vector? sig) (first sig) sig)) signals)))))
 
 (defn- subscriptions-table
-  "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / changed).
-  Per the bead body's §SUBSCRIPTIONS (Step 7) shape (rf2-kfh1v).
+  "Render the SUBSCRIPTIONS table — 3 columns (sub / inputs / value).
 
-  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
-  toggle (rf2-yqjrd) is retired. The `changed` cell always renders
+  The `value` cell renders
   under the single FULL+DIFF posture via `subs-value-cell`.
 
-  rf2-uji72 — table mounts through the shared `rt/resizable-table`
+  The table mounts through the shared `rt/resizable-table`
   view; columns are user-draggable via the gutters between adjacent
   headers.
 
-  rf2-zuh3p — when a row carries `:violations` (a `:sub-return`
+  When a row carries `:violations` (a `:sub-return`
   boundary failure attributed to that sub-id by the projection), the
   per-row violation sub-block renders INLINE via the resizable-table's
   `:row-extras` slot — directly below the row, before the next row
@@ -4935,19 +4919,16 @@
         [;; sub cell
          [:div {:data-rf-xray-resizable-col "sub"
                 :style subs-cell-id-style}
-          ;; rf2-8w8er — sub-vec renders through `mini` so the vector's
+          ;; The sub-vec renders through `mini` so the vector's
           ;; keywords paint magenta, scalars orange, etc. Sub-id-only
           ;; fallback keeps the keyword-token chrome via `mini` too.
           [:span {:style subs-cell-id-span-style}
            (if (vector? sub-vec)
              (ei/mini sub-vec 40)
              (ei/mini sub-id 40))
-           ;; rf2-aesni — functional click-to-source via the shared
-           ;; `coord-chip`, exact parity with the disposed-subs (~3167)
-           ;; + views (~3311 / ~3380) rows. Pre-fix this was a bare
-           ;; decorative `(icons/external-link)` glyph with no coord
-           ;; resolution + no click handler — it never dispatched
-           ;; `:rf.xray/open-in-editor`. The coord lookup keys off
+           ;; Functional click-to-source via the shared
+           ;; `coord-chip`, exact parity with the disposed-subs
+           ;; + views rows. The coord lookup keys off
            ;; `sub-id` (the keyword) even when `sub-vec` drives the
            ;; label, so a parameterized sub (`[:counter/greater-than? 5]`)
            ;; resolves its REGISTRATION coord. Chip drops out cleanly
@@ -4955,7 +4936,7 @@
            ;; build without coords).
            (coord-chip/coord-chip (sub-coord sub-id)
                                   (str "rf-xray-epoch-sub-row-coord-" i))]
-          ;; rf2-1cc03 — `caused by <event-id>` chrome surfaces the
+          ;; `caused by <event-id>` chrome surfaces the
           ;; dispatching cascade's event-id (the cascade whose handler-
           ;; body invalidated this sub's reactive input). OMITTED when
           ;; `:cause-event-id` is absent — a sub that ran outside any
@@ -4971,14 +4952,14 @@
          ;; inputs cell
          [:div {:data-rf-xray-resizable-col "inputs"
                 :style subs-cell-inputs-style}
-          ;; rf2-87c8a — the inputs column shows the sub's STATIC input
+          ;; The inputs column shows the sub's STATIC input
           ;; topology, resolved by the SUB-ID off `:input-signals`
           ;; (`sub-input-signals`), NOT the cascade attribution the row's
-          ;; `:inputs` slot carries (that was nil outside a cascade →
-          ;; "app-db" fallback, which mislabeled fresh-run derived /
+          ;; `:inputs` slot carries (that is nil outside a cascade, so an
+          ;; "app-db" fallback would mislabel fresh-run derived /
           ;; parameterized subs as Level-1 readers).
           ;;
-          ;; rf2-8w8er — each input keyword routes through `mini` so
+          ;; Each input keyword routes through `mini` so
           ;; the input column lights up as keywords, not plain text.
           ;; "app-db" stays as a label (it's a source descriptor, not
           ;; a CLJS value) — rendered only for a genuine Level-1 reader
@@ -4988,11 +4969,11 @@
               (seq input-ids)
               (into [:div {:style subs-inputs-list-style}]
                     (map (fn [i] [:div (ei/mini i 40)]) input-ids))
-              ;; rf2-87c8a fallback: a runtime with no captured meta but
-              ;; a cascade-attributed `:inputs` slot still paints that
-              ;; upstream sub (preserves the pre-fix shape for traces
-              ;; replayed against a frame where the sub isn't registered).
-              ;; rf2-nlraqq — the row's `:inputs` slot carries a uniform
+              ;; Fallback: a runtime with no captured meta but
+              ;; a cascade-attributed `:inputs` slot paints that
+              ;; upstream sub (e.g. traces replayed against a frame where
+              ;; the sub isn't registered).
+              ;; The row's `:inputs` slot carries a uniform
               ;; VECTOR OF QUERY-VECTORS (the projection wraps a single
               ;; `:rf.sub/cause-sub` as `[cause]`; `:rf.sub/inputs` is
               ;; already a vector of query-vectors). Each ELEMENT is one
@@ -5009,7 +4990,7 @@
          [:div {:data-rf-xray-resizable-col "value"
                 :style subs-cell-changed-style}
           (subs-value-cell row i instance)]])
-      ;; rf2-zuh3p — per-row violations attach inline as `:row-extras`
+      ;; Per-row violations attach inline as `:row-extras`
       ;; so the schema-violation sub-block renders directly below its
       ;; owning row (mirrors the FX step's `fx-row-with-violations`
       ;; shape). The step-level violations (non-row attributed) still
