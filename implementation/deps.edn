@@ -1,37 +1,31 @@
-;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit,
-;; rf2-ny6v7).
+;; Top-level coordinator.
 ;;
 ;; The published artefacts are
 ;;   - core/          (day8/re-frame2)
 ;;   - reagent/       (day8/re-frame2-reagent)
-;;   - reagent-slim/  (day8/reagent-slim,        rf2-5djt Stage 4)
-;;   - uix/           (day8/re-frame2-uix,      rf2-3yij)
-;;   - schemas/       (day8/re-frame2-schemas,  rf2-p7va)
-;;   - machines/ (day8/re-frame2-machines, rf2-xbtj)
-;;   - routing/  (day8/re-frame2-routing,  rf2-k682)
-;;   - flows/    (day8/re-frame2-flows,    rf2-tfw3)
-;;   - http/     (day8/re-frame2-http,     rf2-5kpd)
-;;   - ssr/      (day8/re-frame2-ssr,      rf2-uo7v)
-;;   - ssr-ring/ (day8/re-frame2-ssr-ring, rf2-ny6v7)
-;;   - epoch/    (day8/re-frame2-epoch,    rf2-lt4e)
-;;   - fresco/  (day8/re-frame2-fresco,  rf2-gra70)
-;; see implementation/core/deps.edn,
-;; implementation/adapters/reagent/deps.edn,
-;; implementation/adapters/uix/deps.edn,
-;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
-;; implementation/routing/deps.edn, implementation/flows/deps.edn,
-;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
-;; implementation/epoch/deps.edn. Per rf2-zha9 the substrate adapters
-;; live under implementation/adapters/ (renamed from substrates/ per
-;; rf2-0imy); per-feature artefacts stay flat under implementation/.
+;;   - reagent-slim/  (day8/reagent-slim)
+;;   - uix/           (day8/re-frame2-uix)
+;;   - schemas/       (day8/re-frame2-schemas)
+;;   - machines/ (day8/re-frame2-machines)
+;;   - routing/  (day8/re-frame2-routing)
+;;   - flows/    (day8/re-frame2-flows)
+;;   - http/     (day8/re-frame2-http)
+;;   - ssr/      (day8/re-frame2-ssr)
+;;   - ssr-ring/ (day8/re-frame2-ssr-ring)
+;;   - resources/ (day8/re-frame2-resources)
+;;   - epoch/    (day8/re-frame2-epoch)
+;;   - fresco/  (day8/re-frame2-fresco)
+;; each with its own deps.edn in that directory. The substrate adapters
+;; live under implementation/adapters/; per-feature artefacts sit flat
+;; under implementation/.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
-;; the build coordinator that pulls every artefact onto a single
-;; classpath for the shadow-cljs builds (browser-test, elision-probe,
-;; examples) that exercise core + Reagent + Schemas + Machines + Routing
-;; + Flows + HTTP + SSR + Epoch together. Per-artefact JVM tests run
-;; via the per-artefact deps.edn directly.
+;; the coordinator that pulls every artefact onto a single classpath via
+;; :local/root for the clojure-tools-driven steps: the REPL :test alias
+;; and the :splint alias below. The shadow-cljs builds do not read it;
+;; implementation/shadow-cljs.edn enumerates its own :source-paths and
+;; :dependencies. Per-artefact JVM tests run via the per-artefact
+;; deps.edn directly.
 {:paths []
  :deps  {day8/re-frame2          {:local/root "core"}
          day8/re-frame2-reagent  {:local/root "adapters/reagent"}
@@ -45,20 +39,17 @@
          day8/re-frame2-ssr      {:local/root "ssr"}
          day8/re-frame2-ssr-ring {:local/root "ssr-ring"}
          day8/re-frame2-epoch    {:local/root "epoch"}
-         ;; rf2-p10npe — the optional Resources artefact (Spec 016,
-         ;; EP-0003). Managed resource queries: reg-resource, the
-         ;; :rf.resource/* events + passive subs, work ledger,
-         ;; invalidation/GC, and hydration — runtime landed and tested.
+         ;; The optional Resources artefact (Spec 016, EP-0003).
+         ;; Managed resource queries: reg-resource, the :rf.resource/*
+         ;; events + passive subs, work ledger, invalidation/GC, and
+         ;; hydration.
          day8/re-frame2-resources {:local/root "resources"}
-         ;; rf2-6r9j.133 — Fresco, re-frame2's own native view
-         ;; substrate. It became a PUBLISHED artefact under rf2-gra70 — its
-         ;; `:clein/build` alias carries the coordinate and it is enrolled in
+         ;; Fresco, re-frame2's own native view substrate. It is a
+         ;; published artefact — its `:clein/build` alias carries the
+         ;; coordinate and it is enrolled in
          ;; .github/scripts/verify-version-lockstep.sh and release.yml's
-         ;; deploy DAG — but this coordinator did not follow, so `fresco/src`
-         ;; was off the aggregate classpath while the `:test` alias below
-         ;; already carried `fresco/test`. The shadow coordinator is
-         ;; unaffected either way: implementation/shadow-cljs.edn enumerates
-         ;; its own `:source-paths` and does not read this map.
+         ;; deploy DAG — so `fresco/src` belongs on this aggregate
+         ;; classpath beside the `fresco/test` the `:test` alias carries.
          day8/re-frame2-fresco  {:local/root "fresco"}}
 
  :aliases
@@ -70,10 +61,9 @@
                  "adapters/reagent/test"
                  "adapters/reagent-slim/test"
                  "adapters/uix/test"
-                 ;; rf2-ee38b.16 — test-react adapter test tree (REPL
-                 ;; parity; the canonical JVM gate is the artefact's own
-                 ;; :test alias, run per-artefact by
-                 ;; scripts/test-jvm-implementation.sh).
+                 ;; The test-react adapter test tree (REPL parity; the
+                 ;; canonical JVM gate is the artefact's own :test alias,
+                 ;; run per-artefact by scripts/test-jvm-implementation.sh).
                  "adapters/test-react/src"
                  "adapters/test-react/test"
                  "schemas/test"
@@ -84,33 +74,31 @@
                  "ssr/test"
                  "ssr-ring/test"
                  "epoch/test"
-                 ;; rf2-p10npe — Resources artefact test tree.
+                 ;; Resources artefact test tree.
                  "resources/test"
-                 ;; The Fresco artefact test tree — package tests only since
-                 ;; rf2-6c12m.1 moved the benchmark harness out to
-                 ;; bench/fresco/, its own project off this classpath.
-                 ;; This alias is REPL convenience; production CI still runs
-                 ;; each artefact's own :test alias separately.
+                 ;; The Fresco artefact test tree — package tests only; the
+                 ;; benchmark harness is its own project under bench/fresco/,
+                 ;; off this classpath. This alias is REPL convenience;
+                 ;; production CI runs each artefact's own :test alias
+                 ;; separately.
                  ;;
-                 ;; `test_kit/src` is the supported L0–L2 testing surface
-                 ;; (rf2-hic-020). It sits deliberately OUTSIDE the artefact's
-                 ;; `:paths`, so the `:local/root` dep above does not carry it;
-                 ;; Fresco's own `:test` alias names it as an `:extra-path`
-                 ;; and this aggregate has to do the same to match it
-                 ;; (rf2-6r9j.133).
+                 ;; `test_kit/src` is the supported L0–L2 testing surface.
+                 ;; It sits deliberately OUTSIDE the artefact's `:paths`, so
+                 ;; the `:local/root` dep above does not carry it; Fresco's
+                 ;; own `:test` alias names it as an `:extra-path` and this
+                 ;; aggregate does the same to match it.
                  "fresco/test"
                  "fresco/test_kit/src"
                  ;; examples are organised by concept; each bucket is a
                  ;; classpath root so JVM tests can `require` the example
                  ;; source namespaces like `ssr.core` (under
                  ;; examples/capabilities/ssr/ssr/) and `realworld-http.*`
-                 ;; (under examples/real-apps/realworld_http/). rf2-cd2zo
-                 ;; folded every example's headless test fixtures into the
-                 ;; framework test tree (re-frame.examples-test for the
-                 ;; JVM-driven ssr / ssr_streaming / state_machine_walkthrough;
-                 ;; the reagent adapter-test bridges for the CLJS ones), so
-                 ;; the examples/.../test/ source dirs are gone and the
-                 ;; example tree is test-free (rf2-8cevm).
+                 ;; (under examples/real-apps/realworld_http/). The example
+                 ;; tree is test-free: every example's headless test
+                 ;; fixtures live in the framework test tree
+                 ;; (re-frame.examples-test for the JVM-driven ssr /
+                 ;; ssr_streaming / state_machine_walkthrough; the reagent
+                 ;; adapter-test bridges for the CLJS ones).
                  "../examples/core"
                  "../examples/capabilities/machines"
                  "../examples/capabilities/routing"
@@ -119,21 +107,19 @@
                  "../examples/patterns"
                  "../examples/real-apps"
                  "../examples/substrates"]
-   ;; rf2-0sjm76 — the Cognitect test-runner coordinate is no longer
-   ;; pinned here directly. The test-quiet artefact owns the single
-   ;; runner coordinate (implementation/test-quiet/deps.edn :deps); this
-   ;; alias resolves it TRANSITIVELY via the test-quiet local-root dep,
-   ;; and its `re-frame.test-quiet.runner` entry-point wraps the runner.
-   :extra-deps  {;; rf2-try1x — silent-on-success reporter. Also the sole
-                 ;; source of the cognitect test-runner coordinate on this
-                 ;; alias's classpath (transitive; rf2-0sjm76).
+   ;; The test-quiet artefact owns the single Cognitect test-runner
+   ;; coordinate (implementation/test-quiet/deps.edn :deps); this alias
+   ;; resolves it TRANSITIVELY via the test-quiet local-root dep, and its
+   ;; `re-frame.test-quiet.runner` entry-point wraps the runner.
+   :extra-deps  {;; Silent-on-success reporter. Also the sole source of the
+                 ;; cognitect test-runner coordinate on this alias's
+                 ;; classpath (transitive).
                  day8/re-frame2-test-quiet {:local/root "test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Splint (rf2-4v147) — Mike-confirmed dual-linter posture
-  ;; (2026-05-21): clj-kondo catches bugs (unresolved symbols, arity
-  ;; mismatch); Splint catches style smells inspired by the Clojure
-  ;; Style Guide. CI invokes the alias from `.github/workflows/lint.yml`;
+  ;; Splint — the dual-linter posture: clj-kondo catches bugs
+  ;; (unresolved symbols, arity mismatch); Splint catches style smells
+  ;; inspired by the Clojure Style Guide. CI invokes the alias from `.github/workflows/lint.yml`;
   ;; locally run `clojure -M:splint <paths>` from this directory.
   ;;
   ;; Splint is JVM-only and operates on text, so it does not need any
