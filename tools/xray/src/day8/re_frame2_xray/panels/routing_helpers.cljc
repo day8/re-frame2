@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.routing-helpers
-  "Pure projection helpers for the Xray Routing tab (rf2-nrbs9, rf2-lq0ef).
+  "Pure projection helpers for the Xray Routing tab.
 
   ## Why a separate `.cljc` ns
 
@@ -7,29 +7,26 @@
   *logic* — project the registered-routes registrar into a flat
   catalogue, derive the current-vs-from-vs-to highlight from the
   focused event-bundle, filter by a substring query, and simulate a URL
-  against the registered patterns — is pure data → data. Splitting
-  the algebra into `.cljc` so it runs under the JVM unit-test target
-  (`clojure -M:test`) is required by the standing rule
-  `feedback_jvm_interop_must_work.md`.
+  against the registered patterns — is pure data → data. The algebra
+  lives in `.cljc` so it runs under the JVM unit-test target
+  (`clojure -M:test`).
 
-  ## Lens model (post-rf2-lq0ef reshape)
+  ## Lens model
 
   The Static catalogue is a **flat list sorted by `:path`** — never a
-  URL-prefix tree. The audit (`ai/findings/2026-05-19-routing-inheritance-audit.md`
-  verdict B) found that the previous URL-path-segmentation indentation
-  was decorative: routes are flat in the spec + impl, `:parent` plays
+  URL-prefix tree. Routes are flat in the spec + impl, `:parent` plays
   no role in matching, and the match-resolver is structural
-  (6-rule rank on URL pattern). The previous tree conflated URL-prefix
-  similarity with semantic hierarchy. (The Dynamic lens's route table,
-  `project-topology`, nests by the explicit `:parent` metadata instead —
-  rf2-3kjlo.)
+  (6-rule rank on URL pattern), so URL-path-segmentation indentation
+  would be decorative and would conflate URL-prefix similarity with
+  semantic hierarchy. (The Dynamic lens's route table,
+  `project-topology`, nests by the explicit `:parent` metadata instead.)
 
   The flat-list shape mirrors the contract. The load-bearing
   interactive surface is **Simulate-URL** — paste a URL and see the
   6-rule rank tuple per candidate plus the winner; that exposes the
   match contract Xray users actually need to reason about.
 
-  Per-focused-event highlighting (unchanged from rf2-nrbs9):
+  Per-focused-event highlighting:
 
   - `◆ HERE` on the current matched route (always — orientation;
     read off the LIVE slice).
@@ -39,15 +36,14 @@
     newly matched route) and the `:rf.route/deactivated` emit gives
     FROM (the prior route). Reading FROM from the event-bundle — not the
     live slice — keeps the marker honest about the SELECTED epoch's
-    transition regardless of where the app has navigated since
-    (rf2-m9rx6).
+    transition regardless of where the app has navigated since.
   - Show params + query + fragment + readiness for the active route —
     the slice's own keys (`{:route-id :params :query :fragment
     :transition :error :nav-token}`, written by
     `re-frame.routing.events/merge-route-slice`).
   - When the app has no routes registered: every projection helper
     returns the silent shape (`{:routes [] :silent? true}`) and the
-    view honours silent-by-default per rf2-g3ghh.
+    view honours silent-by-default.
 
   ## Data shape contract
 
@@ -80,11 +76,11 @@
   the full meta map (so the view's click-to-expand surface can render
   the registrar entry verbatim).
 
-  Per the audit (verdict B): no `:depth` field, no indentation hint.
-  Routes are flat in the spec + impl; the catalogue mirrors that.
+  No `:depth` field, no indentation hint: routes are flat in the
+  spec + impl, and the catalogue mirrors that.
 
   Returns `[]` when the registrar is empty — the silent-by-default
-  branch the view honours per rf2-g3ghh."
+  branch the view honours."
   [routes-map]
   (->> routes-map
        (map (fn [[id meta]]
@@ -133,7 +129,7 @@
 ;; the first pattern that matches the path is the winner. For the
 ;; simulator we want to surface ALL matching candidates with their
 ;; rank tuples, not just the winner — that's the load-bearing
-;; interactive surface that exposes the 6-rule event-bundle.
+;; interactive surface that exposes the 6-rule rank.
 
 (def ^:private scheme-marker
   "A `scheme://` at the very START of the input (RFC 3986 scheme syntax).
@@ -159,10 +155,10 @@
   Pure string parsing — JVM + CLJS portable; no `js/URL` (the helper ns
   is `.cljc` and runs under `clojure -M:test`).
 
-  rf2-6nx8y added the origin strip, because a URL pasted from the address
-  bar never matched. rf2-y8doi.22 anchored it: it used to read the FIRST
-  `://` anywhere as the scheme marker, so `/login?next=https://app.example/cart`
-  simulated as `/cart`."
+  Without the origin strip a URL pasted from the address bar would never
+  match. Without the anchor, reading the FIRST `://` anywhere as the
+  scheme marker would simulate `/login?next=https://app.example/cart` as
+  `/cart`."
   [path]
   (let [after-origin (if (str/starts-with? path "//")
                        (subs path 2)
@@ -223,7 +219,7 @@
 
   This is purely structural — query coercion and `:params` / `:query`
   schema validation are out of scope for the simulator. The lens is
-  about the rank event-bundle, not full match semantics."
+  about the rank ordering, not full match semantics."
   [routes-map url]
   (let [trimmed (some-> url str/trim)]
     (cond
@@ -263,10 +259,10 @@
 ;; That preview is structural: the matched params (derived from the
 ;; row's pattern + the chosen URL), the registered `:on-match` event
 ;; vector, and the expected runtime-db slot
-;; (`[:rf.runtime/routing :current ...]`). EP-0001 (rf2-vzld77) moved
-;; the framework-owned route slice OUT of app-db and into the target
-;; frame's runtime-db; the preview must name that path so a developer
-;; following it inspects the place real navigation actually writes.
+;; (`[:rf.runtime/routing :current ...]`). The framework-owned route
+;; slice lives in the target frame's runtime-db, not app-db (EP-0001);
+;; the preview names that path so a developer following it inspects
+;; the place real navigation actually writes.
 
 (defn simulate-navigation-preview
   "Pure data → data. Given a registered-routes map + a `route-id`, plus
@@ -288,13 +284,12 @@
   Hermetic — no dispatch, no fx, no runtime-db / app-db mutation. The
   slot shape is the slice the framework's `:rf.route/navigate` writes
   into the target frame's runtime-db at `[:rf.runtime/routing :current]`
-  (EP-0001 rf2-vzld77 — the route slice is framework-owned runtime-db
+  (EP-0001 — the route slice is framework-owned runtime-db
   state, NOT app data): exactly the keys
   `re-frame.routing.events/merge-route-slice` writes, `{:route-id
   :params :query :fragment :transition :error :nav-token}`, so a
   developer following it finds
-  those keys where real navigation puts them (rf2-y8doi.22 — it used to
-  carry an `:id` and a `:path` the slice never holds). The preview fills
+  those keys where real navigation puts them. The preview fills
   the two it can derive, `:route-id` and the matched `:params`; the rest
   stay nil because only a real navigation supplies them — query coercion
   and the fragment are outside the simulator's scope, and readiness and
@@ -309,7 +304,7 @@
    (if-let [meta (get routes-map route-id)]
      (let [path     (:path meta)
            on-match (:on-match meta)
-           ;; Row-local match (rf2-m9rx6): the preview answers "what would
+           ;; Row-local match: the preview answers "what would
            ;; land when the URL matches THIS row's pattern", so match the
            ;; SELECTED route's own compiled pattern against the URL — never
            ;; the global rank winner. For overlapping routes (an exact
@@ -348,8 +343,8 @@
 (def ^:private nav-allocated-op
   "Trace operation emitted by `:rf.route/navigate` and
   `:rf.route/handle-url-change` when a navigation event-bundle allocates a
-  nav-token (per `implementation/routing/src/re_frame/routing.cljc`
-  §`trace/emit! :event :rf.route.nav-token/allocated`)."
+  nav-token (per `implementation/routing/src/re_frame/routing/events.cljc`
+  §`commit-navigation`)."
   :rf.route.nav-token/allocated)
 
 (def ^:private route-deactivated-op
@@ -370,8 +365,8 @@
   carries a `:frame` — when no event-bundle in that frame carries the
   focused dispatch-id.
 
-  rf2-bz7flo — keyed FRAME-STRICTLY. Dispatch ids are unique only
-  within a frame (Spec 002 §Frame isolation + rf2-g6ih4); the trace
+  Keyed FRAME-STRICTLY. Dispatch ids are unique only
+  within a frame (Spec 002 §Frame isolation); the trace
   projection groups event-bundles by `[frame dispatch-id]` and emits two
   records for a cross-frame id collision. Matching by dispatch-id
   alone could surface route overlays from a foreign frame's same-id
@@ -379,7 +374,7 @@
   (single-frame / pre-frame-set focus) the lookup degrades to a plain
   dispatch-id match.
 
-  This helper stays a pure CLJC data fn (no `spine` dep) so it runs
+  This helper is a pure CLJC data fn (no `spine` dep) so it runs
   under the JVM test target; it mirrors `spine/event-bundle-by-focus`."
   [event-bundles focus]
   (let [focused-id (:dispatch-id focus)
@@ -465,17 +460,17 @@
         because the route stays active; surfacing a FROM equal to TO is
         noise anyway).
 
-  Reading FROM from the event-bundle — not the live slice — fixes the
-  time-dependence bug (rf2-m9rx6): the live slice is the *current*
-  route, so a normal navigation to B collapsed FROM (current was
-  already B), and focusing an older A→B event-bundle after the app moved to
-  C falsely reported C as FROM. The event-bundle carries `deactivated A` /
+  FROM is read from the event-bundle — not the live slice — because the
+  live slice is the *current* route: reading it would collapse FROM on
+  a normal navigation to B (current is already B), and focusing an older
+  A→B event-bundle after the app moved to C would falsely report C as
+  FROM. The event-bundle carries `deactivated A` /
   `activated B` for that epoch unconditionally, so FROM A / TO B render
   correctly no matter the live route.
 
   Pre-navigation contract: when the event-bundle carries no nav-token emit,
-  returns `{:navigated? false :from-id nil :to-id nil}`. (The
-  `current-slice` is no longer read here; callers derive the HERE /
+  returns `{:navigated? false :from-id nil :to-id nil}`. (This fn reads
+  no `current-slice`; callers derive the HERE /
   current-orientation marker from the live slice separately.)"
   [event-bundle]
   (let [nav-ev    (nav-token-allocated-in-event-bundle event-bundle)
@@ -559,7 +554,7 @@
      :sim-url       sim-url
      :sim-result    sim-result}))
 
-;; ---- topology projection (rf2-3kjlo) -----------------------------------
+;; ---- topology projection -----------------------------------
 ;;
 ;; The Routing panel renders a topology-plus-overlay shape per spec/021 §7:
 ;; the FULL routing tree is always visible (registered routes nested by
@@ -624,7 +619,7 @@
   A FULLY cyclic component (a self-cycle `A → A`, or a closed
   `A ↔ B` where every member's `:parent` is itself registered) has NO
   root, so the walk-from-roots never reaches it. Such rows are NOT
-  dropped (rf2-m9rx6): after the root walks, any registered row still
+  dropped: after the root walks, any registered row still
   unvisited is appended as a depth-0 cycle root (sorted by `:path`),
   carrying `:cycle-root? true` so the view can flag the malformed
   parent metadata the topology view is meant to help diagnose. A
@@ -691,7 +686,7 @@
                 (map-indexed vector cycle-rows))]
     (into root-entries cycle-entries)))
 
-;; ---- per-epoch routing-activity projection (rf2-3kjlo) ------------------
+;; ---- per-epoch routing-activity projection ------------------
 ;;
 ;; The "This epoch" block (per spec/021 §7.2) reads four short lines:
 ;;
@@ -752,7 +747,7 @@
 
 (defn- navigation-params
   "The params the focused navigation committed, from whichever slice IS that
-  navigation — or nil (rf2-3x7nj.23.1). The route trace names no params
+  navigation — or nil. The route trace names no params
   (`:rf.route.nav-token/allocated` carries `{:route-id :nav-token :frame}`),
   but every committed slice carries its `:nav-token`, so whether a slice is
   the focused navigation's is decidable:
@@ -790,7 +785,7 @@
   `:on-match`, read off the slice that IS that navigation — the live
   `current-slice`, or the focused epoch's post-state `focused-slice` — and
   nil when neither is (see `navigation-params`). Never the params of a
-  LATER navigation (rf2-3x7nj.23.1).
+  LATER navigation.
 
   The view layer renders this alongside the topology overlay; both
   read off the same focused-event-bundle so they stay in sync."
@@ -815,7 +810,7 @@
                       current-slice
                       focused-slice))})))))
 
-;; ---- topology-plus-overlay composite (rf2-3kjlo) -----------------------
+;; ---- topology-plus-overlay composite -----------------------
 
 (defn project-topology-data
   "The view-facing composite for the Routing panel's topology-plus-overlay
