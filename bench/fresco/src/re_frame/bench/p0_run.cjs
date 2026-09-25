@@ -2,27 +2,27 @@
 // EP-0038 P0 — the driver. Build the `:advanced` bundle once, run both
 // rows, print the table, exit on a refusal.
 //
-//   node implementation/core/test/re_frame/bench/p0_run.cjs
-//   node implementation/core/test/re_frame/bench/p0_run.cjs --only clock
-//   node implementation/core/test/re_frame/bench/p0_run.cjs --only heap
-//   node implementation/core/test/re_frame/bench/p0_run.cjs --only fanout
-//   node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+//   node src/re_frame/bench/p0_run.cjs                 (from bench/fresco/)
+//   node src/re_frame/bench/p0_run.cjs --only clock
+//   node src/re_frame/bench/p0_run.cjs --only heap
+//   node src/re_frame/bench/p0_run.cjs --only fanout
+//   node src/re_frame/bench/p0_run.cjs --only ladder
 //   P0_ROUNDS=6 P0_SAMPLES=12 node .../p0_run.cjs
 //   P0_RAW_OUT=.../data/alloc-<bead>/run1.json node .../p0_run.cjs
 //
 // `P0_RAW_OUT` writes the whole collected record as JSON, and an allocation
-// window COMMITS that file beside its studio page. See the write site at the
-// foot of this file for why, and `samples` on each window for what the record
-// now retains so a later estimator can be driven over it.
+// window KEEPS that file and its studio page cites it. See the write site at
+// the foot of this file for why, and `samples` on each window for what the
+// record retains so a later estimator can be driven over it.
 //
-// `--only ladder` is the PER-READ row (rf2-2rtt6.34): B and the witness
+// `--only ladder` is the PER-READ row: B and the witness
 // held fixed while READS walk HD-002's 1/3/7/20 at Q = E, on three
 // substrates — the two donors and the Fresco candidate — so the
 // candidate is judged against donor rows taken on its own instrument
 // (validation.md:180-189). Opt-in, runs nothing else, and takes
 // `P0_LADDER_RUNGS` and `P0_LADDER_ROUNDS`.
 //
-// `--only fanout` is the CACHE-CARDINALITY row (rf2-5prok): the same page,
+// `--only fanout` is the CACHE-CARDINALITY row: the same page,
 // readers, collector and guard as the heap row, with B and reads/boundary
 // held fixed while the number of UNIQUE live query keys moves. It is
 // opt-in, runs nothing else, and takes `P0_ROOTS` and `P0_FAN_ROUNDS`.
@@ -39,23 +39,19 @@
 // (`cljs-test-display`'s `goog.define`s collide under Closure), so the
 // reading rides a plain `:browser` module.
 //
-// ## No shadow-cljs.edn change, deliberately
+// ## One build id, many programs
 //
-// The epic's SEQUENCING LAW makes `implementation/shadow-cljs.edn`
-// build-id touches hot-zone sequenced. So this driver does what
-// `b6_prod_run.cjs` and `b7_run.cjs` already do: it merges an output
-// directory and an `:init-fn` into an EXISTING `:advanced` `:browser`
-// build id, which contributes nothing but its compiler settings —
-// `:target :browser`, `:optimizations :advanced`, `:infer-externs :auto`,
-// `goog.DEBUG false`. The module's entry, and therefore everything that
-// ends up in the bundle, is this arm's. The default id is rf2-2rtt6.2's
-// measurement lane, `:fresco-bench` — the id the lane landed for exactly
-// this ride — and `P0_BUILD` overrides it. One id serves N programs, so
-// the driven id's cache entry is cleared before every build
-// (`lane_cache.cjs`, rf2-2rtt6.20): a sibling arm's stale `shadow-js/`
-// index compiles clean and dies at runtime under `:advanced`, and the
-// trap is the ride itself — a foreign `:init-fn` merged onto an existing
-// id — not any one donor.
+// This driver merges an output directory and an `:init-fn` into the lane's
+// EXISTING `:advanced` `:browser` build id, which contributes nothing but
+// its compiler settings — `:target :browser`, `:optimizations :advanced`,
+// `:infer-externs :auto`, `goog.DEBUG false`. The module's entry, and
+// therefore everything that ends up in the bundle, is this arm's. The
+// default id is the lane's `:fresco-bench` (`bench/fresco/shadow-cljs.edn`),
+// and `P0_BUILD` overrides it. One id serves N programs, so the driven id's
+// cache entry is cleared before every build (`lane_cache.cjs`): a sibling
+// arm's stale `shadow-js/` index compiles clean and dies at runtime under
+// `:advanced`, and the trap is the ride itself — a foreign `:init-fn`
+// merged onto an existing id — not any one donor.
 //
 // ## The heap row runs HERE and the clock row runs in the page
 //
@@ -70,20 +66,18 @@
 //
 // `re-frame.bench.order-guard` is the rule, and this driver reaches it
 // through `window.P0H.verdict` rather than carrying a JavaScript copy —
-// there is already a `.cjs` copy of the same rule serving the freehand
-// bench, and a third would be a third place for it to drift. Its
+// there is already a `.cjs` copy of the same rule (`order_guard.cjs`), and
+// a third would be a third place for it to drift. Its
 // self-test runs before anything is measured, in both modes. **A refusal
 // exits 2, and the repair is to the ARM, never to the guard.**
 //
-// ## Every figure this driver prints as a check, it EXITS on (rf2-95s5b)
+// ## Every figure this driver prints as a check, it EXITS on
 //
-// It did not. The clock row's `N unverified of M` and BOTH positive
-// controls were printed and only the heap row's read-back count was
-// adjudicated, so a run in which no write reached the page, or in which
-// the instrument could not see a change its own arithmetic predicted,
-// printed the count beside `VERDICT: reportable` and exited 0. A count
-// that is displayed and not gated is decoration. The four exit-bearing
-// checks are now, in the order they are taken:
+// A count that is displayed and not gated is decoration: a run in which no
+// write reached the page, or in which the instrument could not see a change
+// its own arithmetic predicted, would print the count beside
+// `VERDICT: reportable` and exit 0. The four exit-bearing checks are, in
+// the order they are taken:
 //
 //   1. the arm-order guard's self-test, in the page, before anything is
 //      measured — exit 1 (clock) / the page refuses to install (heap);
@@ -102,7 +96,7 @@
 // (2)'s denominator rather than counted as verified, and (3) is the gate
 // they answer to instead. See `p0-harness/mount-sample!`.
 //
-// TWO CONTROL RULES, ONE PER ROW, AND THE INSTRUMENT PICKS (rf2-egdaq).
+// TWO CONTROL RULES, ONE PER ROW, AND THE INSTRUMENT PICKS.
 // The lane spells both and neither is this driver's to invent. What this
 // driver decides is only which of them each row is entitled to, and it
 // decides that on what the row's control leg is MADE OF:
@@ -110,8 +104,7 @@
 //   - the CLOCK row (`re-frame.bench.p0-app`) keeps `lane/control-verdict`,
 //     the overlap rule. Its control is a ratio of two mount times, and on
 //     the M2 and bulk-broad rows those times are one to three of Chrome's
-//     100 µs `performance.now()` quanta. The 2026-07-31 ruling measured
-//     what strict would cost there over rf2-6i0i2's eighty controls: 80 of
+//     100 µs `performance.now()` quanta. Measured over eighty controls, 80 of
 //     80 pass under overlap and 64 of 80 under strict, every miss LOW and
 //     every miss on a coarse-leg row, while the two rows measured on 20-plus
 //     quanta legs pass strict 40 times out of 40. A rule that refuses a
@@ -122,9 +115,8 @@
 //     control is a dense array of 587,500 unboxed doubles read in BYTES off
 //     CDP's heap counter — 4,700,000 B predicted, and a typical published
 //     range is [4,699,074 – 4,700,974], ±0.02%. There is no quantum for a
-//     low round to sit on, so the carve-out above has nothing to exempt,
-//     and the ruling's own revisit trigger — a window whose legs clear the
-//     quantum — is met by a leg that was never on one.
+//     low round to sit on, so the carve-out above has nothing to exempt: a
+//     window whose legs clear the quantum is exactly the case strict is for.
 //
 // AND ON THIS ROW OVERLAP IS NOT A WEAKER GATE, IT IS AN ABSENT ONE. The
 // failure the heap control exists to catch is a collector that has stopped
@@ -133,27 +125,19 @@
 // the roof, `max` 4,700,000 over the floor, so the range meets the band.
 // Under strict that round is NAMED and the run is refused.
 //
-// THE TEN PUBLISHED HEAP-CONTROL FIGURES ARE RE-ADJUDICATED UNDER STRICT,
-// AND ALL TEN PASS. That is the operator's 2026-08-21 call, taken so that
-// the published evidence and the current rule agree with no two-rules
-// asterisk, and it is a SEPARATE call from the strict adoption above, which
-// landed earlier in PR #8574. NO WINDOW WAS RE-RUN, and none needed to be:
-// a published `[min–max]` whose two ends both sit inside the band bounds
-// EVERY round inside it, so the committed records settle it as they stand.
-// The widest excursion either way across this row's published series is
-// 4,690,838 B against a prediction of 4,700,000 B — 0.195% low, against a
-// band of ±25% and better than two orders of magnitude inside it. Nothing
-// flips: the strict verdict of every heap row ever published is `ok`, so the
-// re-adjudication buys agreement rather than a revision, and the tightening
-// still buys teeth for the next run.
+// EVERY PUBLISHED HEAP-CONTROL FIGURE PASSES STRICT — all ten — so the
+// published evidence and the rule agree with no two-rules asterisk. No
+// window needs re-running to say so: a published `[min–max]` whose two ends
+// both sit inside the band bounds EVERY round inside it, so the committed
+// records settle it as they stand. The widest excursion either way across
+// this row's published series is 4,690,838 B against a prediction of
+// 4,700,000 B — 0.195% low, against a band of ±25% and better than two
+// orders of magnitude inside it.
 //
-// THAT CALL REACHES THE HEAP ROW ONLY. rf2-egdaq settled as a SPLIT — one
-// rule per instrument, not one rule for both arms — and the CLOCK row's half
-// REFUSED strict under the 2026-07-31 quantum ruling. THAT REFUSAL STANDS,
-// and nothing here reopens it. The heap half was settleable from committed
-// records, which is why a worker could take it; the clock half turned on what
-// strict would cost at the instrument's own resolution, which is why it went
-// to the operator.
+// THE SPLIT IS ONE RULE PER INSTRUMENT, not one rule for both arms. The heap
+// row's rule is settled by its committed records; the clock row's turns on
+// what strict would cost at the instrument's own resolution, which is the
+// quantum argument above, and strict does not apply there.
 //
 // Read the two docstrings before quoting `:ok?` — each answer carries the
 // `:rule` that decided it precisely so a record cannot be read under the
@@ -167,10 +151,10 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // The bench lane's one page-failure collector, a sibling in this same
-// shared bench-helper directory (rf2-sib23).
+// shared bench-helper directory.
 const { watchPage } = require('../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../..');
@@ -206,12 +190,12 @@ const ONLY = (() => {
 })();
 
 // ---------------------------------------------------------------------------
-// WHAT THE BOX WAS DOING, WHICH NO DATASET HAS EVER SAID (rf2-24o2z)
+// WHAT THE BOX WAS DOING
 // ---------------------------------------------------------------------------
 //
-// rf2-6kxub measured the floor arm's high-mode RATE tracking ELAPSED TIME
-// WITHIN A SESSION — 0/6 at 8.2 min, 1/7 at 14.9, 2/19 at 19.7, 37/69 at 88.3,
-// with a within-session gradient at one-tail p = 0.0198 on a boundary-free
+// The floor arm's high-mode RATE tracks ELAPSED TIME WITHIN A SESSION — 0/6
+// at 8.2 min, 1/7 at 14.9, 2/19 at 19.7, 37/69 at 88.3, with a
+// within-session gradient at one-tail p = 0.0198 on a boundary-free
 // Mann-Whitney.
 //
 // THOSE ARE THE ADMISSIBLE DENOMINATORS, and the refusal basis is named here
@@ -220,18 +204,17 @@ const ONLY = (() => {
 // `alloc.controlVerdict.ok` is not exactly true, which drops
 // `alloc-9jrhi/bisect-5` and `alloc-77gz8/run12`. A REFUSED CONTROL IS NO
 // READING AT ALL, never a low one: it leaves the denominator and never the
-// numerator, which is why the two short sessions move 1/8 -> 1/7 and
-// 2/20 -> 2/19 while 0/6 and 37/69 do not move at all.
+// numerator, which is why the two short sessions read 1/7 and 2/19 rather
+// than 1/8 and 2/20, while 0/6 and 37/69 read the same either way.
 //
 // That locates the rate on elapsed-time-within-session and NAMES
 // NO MECHANISM: thermal state, V8 tier accumulation and heap fragmentation
 // over a long session all survive it equally, and across sessions the duration
 // is confounded with the date and the clock time.
 //
-// IT WAS ANSWERABLE AT ALL ONLY BECAUSE `generatedAt` HAPPENED TO BE IN THE
-// RECORD. Nothing else about the machine is. Three more riders of exactly that
-// kind cost the runner nothing and convert the NEXT window into evidence about
-// the rate rather than another instance of it:
+// `generatedAt` in the record is what makes that answerable at all. Three
+// more riders of exactly that kind cost the runner nothing and make every
+// window evidence about the rate rather than another instance of it:
 //
 //   - the CHROMIUM BUILD STRING, which playwright pins and no dataset states.
 //     Two windows taken weeks apart may be two different V8s, and the tier-up
@@ -239,13 +222,11 @@ const ONLY = (() => {
 //   - the BOX'S LOAD at window open, and again at close, which is the only one
 //     of the three that can be read against thermal or contention accounts;
 //   - the ELAPSED TIME SINCE THE PREVIOUS RUN in the same session, which is
-//     the axis the gradient was measured on and which a single record cannot
-//     currently place itself on at all.
+//     the axis the gradient is measured on and which a single record cannot
+//     otherwise place itself on at all.
 //
-// THIS IS THE CHEAP MOVE AND DELIBERATELY NOT THE OTHER ONE. rf2-6kxub's own
-// note holds that the same-plan cold / hot / after-an-idle-gap variation is
-// the CONFIRMING second move and must not be taken first. Nothing here varies
-// anything: it records.
+// THIS RECORDS, AND VARIES NOTHING. Varying the same plan cold / hot / after
+// an idle gap is the CONFIRMING move, and it comes second.
 //
 // AND IT MEASURES NOTHING INSIDE A WINDOW. Every reading below is taken from
 // `node:os` outside any measured window — at the first browser launch and once
@@ -422,11 +403,11 @@ const HEAP_SEGMENTS = [
 ];
 
 // ---------------------------------------------------------------------------
-// The fan-out sweep (rf2-5prok)
+// The fan-out sweep
 // ---------------------------------------------------------------------------
 //
-// The heap-regime ruling (rf2-2rtt6.16) made cache cardinality part of the
-// witness: a retained-bytes-per-boundary figure is defined only relative to
+// Cache cardinality is part of the witness: a retained-bytes-per-boundary
+// figure is defined only relative to
 // how many boundaries share a subscription. `--only fanout` is the row that
 // walks that axis and nothing else — the same page, the same readers, the
 // same collector, the same guard, and B and E/B held fixed while Q moves.
@@ -437,7 +418,7 @@ const HEAP_SEGMENTS = [
 //   R1Q1    1 read,  Q = B   — fan-out 1, the distinct-query worst case
 //   R1Q2    1 read,  Q = B/2 — fan-out 2
 //   R1Q4    1 read,  Q = B/4 — fan-out 4, which at ROOTS=4 is exactly the
-//                              regime rf2-2rtt6.4's published grid rows were
+//                              regime the published grid rows are
 //                              measured in
 //   R1Q8    1 read,  Q = B/8 — fan-out 8
 //   R2Q2B   2 reads, Q = 2B  — held out of the fit
@@ -502,7 +483,7 @@ function fanPlan(perRoot, roots) {
 }
 
 // ---------------------------------------------------------------------------
-// The reads ladder (rf2-2rtt6.34)
+// The reads ladder
 // ---------------------------------------------------------------------------
 //
 // `--only ladder` is the PER-READ row: B held fixed, reads walked over
@@ -514,7 +495,7 @@ function fanPlan(perRoot, roots) {
 // validation.md:180-189 judges a candidate against the donor row taken
 // on its OWN instrument, and calls a margin under 5% instrument-limited
 // rather than cleared; this instrument has no 3/7/20 rung on any
-// substrate, so a candidate measured here against the freehand ladder's
+// substrate, so a candidate measured here against another instrument's
 // donors would be quoting a ~5% cross-instrument offset as a result. The
 // donors are therefore re-taken here, in the same rounds, under the same
 // collector and the same guard.
@@ -539,10 +520,10 @@ const LADDER_SUBSTRATES = {
 
 // `perRoot.grid` is the PAGE, and the plan states it on every arm rather
 // than letting the page's own compile-time default stand in for it. The
-// retention row passes what `window.P0H.boundariesPerRoot` answers and the
-// plan is the one it has always been; the allocation row passes the small
-// witness its masking bound admits (rf2-2rtt6.138), and the floor moves with
-// the arms because a calibrator read on a different page is not one.
+// retention row passes what `window.P0H.boundariesPerRoot` answers; the
+// allocation row passes the page its operator states (`P0_ALLOC_CELLS`), and
+// the floor moves with the arms because a calibrator read on a different
+// page is not one.
 function ladderPlan(perRoot, roots) {
   const cells = perRoot.grid;
   const B = roots * cells;
@@ -591,18 +572,18 @@ function legacyPlan(perRoot, roots) {
 // Build and serve
 // ---------------------------------------------------------------------------
 
-// THE WORK CENSUS (rf2-n1b9h). `P0_WORK_COUNT=1` compiles the three monotone
-// work counters INTO the bundle by flipping `re-frame.bench.p0-workcount`'s
+// THE WORK CENSUS. `P0_WORK_COUNT=1` compiles the three monotone work
+// counters INTO the bundle by flipping `re-frame.bench.p0-workcount`'s
 // `goog-define`; unset, Closure constant-folds every call site away and the
-// bundle is the one this rig compiled before the counters existed. That is why
+// bundle carries no counter at all. That is why
 // the switch is a closure-define and not a runtime flag: the constancy claim
 // the whole `alloc-9jrhi` series rests on is a claim about the COMPILED write
 // path, and a runtime branch inside it would not have kept it.
 //
 // A run with the census ON is NOT comparable byte-for-byte with a published
 // row — one array store per handler invocation allocates nothing, but the
-// compiled shape of the write path has moved and that is exactly the axis
-// `rf2-77gz8`'s surviving runtime candidate lives on. The census is read
+// compiled shape of the write path moves, and that is exactly the axis the
+// surviving runtime candidate for the high mode lives on. The census is read
 // HIGH-MODE AGAINST LOW-MODE UNDER ONE BUILD, where the counter is a constant
 // present in both arms of the comparison.
 const WORK_COUNT = process.env.P0_WORK_COUNT === '1';
@@ -622,9 +603,9 @@ function build() {
   // The lane's cache rule, before anything reads the cache: this driver
   // merges its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry was
   // written by a different program. `lane_cache.cjs` carries the measured
-  // fault and the rejected alternatives (rf2-2rtt6.20).
+  // fault and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD)) {
-    console.error(`[p0] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[p0] cleared .shadow-cljs/builds/${BUILD} — one build id, N arms`);
   }
   console.error(`[p0] building :advanced bundle (donor build id: ${BUILD}) ...`);
   // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
@@ -677,8 +658,8 @@ const pageFailures = () =>
   PAGE_WATCHES.flatMap((w) => w.failures).map((f) => `${f.kind}: ${f.detail}`);
 
 // `jsFlags` is parameterised but every row passes the default, and the
-// allocation row's investigation (rf2-2rtt6.76) is why the obvious
-// override is NOT among them.
+// allocation row's measurements below are why the obvious override is NOT
+// among them.
 //
 // The allocation instrument's method is that no collection runs between
 // two readings of the used-heap counter. Where one does, the allocation
@@ -710,7 +691,7 @@ async function newPage(chromium, query, jsFlags = '--expose-gc') {
   const browser = await chromium.launch({
     args: ['--enable-precise-memory-info', `--js-flags=${jsFlags}`],
   });
-  // THE TWO RIDERS THAT ONLY A LAUNCH CAN SUPPLY (rf2-24o2z). The build string
+  // THE TWO RIDERS THAT ONLY A LAUNCH CAN SUPPLY. The build string
   // is a property of a launched browser and there is nowhere earlier to read
   // it from; the load snapshot is taken here rather than at require because
   // "at window open" is what the mechanism question asks for, and the first
@@ -740,18 +721,18 @@ async function newPage(chromium, query, jsFlags = '--expose-gc') {
       console.error(`[p0] page ${m.type()}: ${t.slice(0, 400)}`);
     }
   });
-  // AND THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED (rf2-sib23).
-  // The console handler above already refuses to filter a React warning out
-  // of the operator's view, for exactly the reason stated there — and one
-  // line below it, an UNCAUGHT THROW was printed and recorded nowhere, so the
-  // run exited 0 on top of it. `sentinel.cjs`'s header carries the finding,
-  // including why no page-side `try`/`catch` can close it under React 19.2.
+  // AND THE PAGE'S OWN FAILURES, COLLECTED RATHER THAN PRINTED. The console
+  // handler above refuses to filter a React warning out of the operator's
+  // view, for exactly the reason stated there — and an UNCAUGHT THROW that
+  // was only printed would be recorded nowhere, so the run would exit 0 on
+  // top of it. `sentinel.cjs`'s header carries the finding, including why no
+  // page-side `try`/`catch` can close it under React 19.2.
   // ONE PAGE PER CLOCK ROUND is the reason these are collected rather than
   // held in a local: a throw in any round has to reach the one exit. The
   // watch is also RETURNED, because every caller races its own sentinel
-  // against it (rf2-qv761) — this driver's clock wait is the largest budget
-  // in the fleet at thirty minutes, and a page that dies at load used to
-  // spend all of it before saying so.
+  // against it — this driver's clock wait is the largest budget in the fleet
+  // at thirty minutes, and a page that dies at load would otherwise spend all
+  // of it before saying so.
   const watch = watchPage(page, 'p0');
   PAGE_WATCHES.push(watch);
   await page.goto(`http://127.0.0.1:${PORT}/${query}`, {
@@ -766,13 +747,13 @@ async function newPage(chromium, query, jsFlags = '--expose-gc') {
 // ---------------------------------------------------------------------------
 
 // ONE ROUND PER PAGE. Run as a single page, this instrument's own probe
-// measured `usedJSHeapSize` climbing 34 -> 87 MB across six segment
+// measures `usedJSHeapSize` climbing 34 -> 87 MB across six segment
 // entries with `body-children` pinned at 2, and the FLOOR arm — which
 // cannot change — drifting 3.4 -> 7.0 ms on that heap; the arm-order
-// guard refused on phase, correctly. A fresh document cannot inherit the
+// guard refuses on phase, correctly. A fresh document cannot inherit the
 // previous round's heap, so a browser restart per round removes the
 // factor by construction rather than by argument. The accumulation is
-// itself a finding and is filed separately, not swept up here.
+// itself a finding, and not this driver's to fix.
 async function clockRow(chromium) {
   const roundEdns = [];
   let err = null;
@@ -780,7 +761,7 @@ async function clockRow(chromium) {
     console.error(`[p0] clock round ${r + 1}/${ROUNDS} (fresh page) ...`);
     const q = `?round=${r}&samples=${SAMPLES}&warmup=${WARMUPS}`;
     const { browser, page, watch } = await newPage(chromium, q);
-    // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`. `race`
+    // RACED AGAINST THE PAGE DYING — see `sentinel.cjs`. `race`
     // rejects only on a failure `watch` recorded, and the exit block already
     // folds exactly those failures into `failures`, so no run that would have
     // passed is shortened. The rejection lands in the driver's existing
@@ -808,10 +789,10 @@ async function clockRow(chromium) {
   // `p0-harness` and `fresco.lane` — the same code the rounds ran under —
   // rather than by a second, drifting expression of the same arithmetic in
   // JavaScript. `adjudicate` is the ONLY door onto the fold: a driver that
-  // could take the record without the verdicts is the hole this closed.
+  // could take the record without the verdicts is the hole this closes.
   console.error('[p0] aggregating ...');
   const { browser, page, watch } = await newPage(chromium, '?mode=aggregate');
-  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`.
+  // RACED AGAINST THE PAGE DYING — see `sentinel.cjs`.
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
     budget: 'the 180s wait for window.P0_READY (the aggregate page)',
@@ -872,7 +853,7 @@ async function heapPass(
   { benchmark, bead, plan: planOf, roots, rounds: nRounds, preflight, analyse }
 ) {
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
-  // RACED AGAINST THE PAGE DYING (rf2-qv761) — see `sentinel.cjs`.
+  // RACED AGAINST THE PAGE DYING — see `sentinel.cjs`.
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
     budget: 'the 180s wait for window.P0_READY (the heap page)',
@@ -977,7 +958,7 @@ async function heapPass(
         await page.evaluate(() => window.P0H.release());
         await gc();
         const post = await read();
-        // THE SURVIVAL METRIC'S STRUCTURAL HALF (rf2-2rtt6.34), read
+        // THE SURVIVAL METRIC'S STRUCTURAL HALF, read
         // here and not one line earlier: the Fresco runtime reaps a
         // cell and a read-set entry whose last holder left on the NEXT
         // MACROTASK, so a residue read immediately after `release()`
@@ -1023,17 +1004,17 @@ async function heapPass(
   // THE CONTROL IS ADJUDICATED, not printed. `predicted` is 8 bytes a
   // double, fixed before the run; the readings are this row's own, ONE PER
   // ROUND. The rule is `lane/control-verdict-strict`'s — every round inside
-  // the band, not merely the range meeting it (rf2-egdaq) — and this driver
-  // states the pair and reads the answer HERE because the page has to still
-  // be open for the rule to be the lane's rather than a JavaScript copy.
+  // the band, not merely the range meeting it — and this driver states the
+  // pair and reads the answer HERE because the page has to still be open
+  // for the rule to be the lane's rather than a JavaScript copy.
   //
   // THE PER-ROUND ARRAY IS WHAT CROSSES, and an aggregate cannot stand in
   // for it. A `{min, max, mean}` summary has already thrown away which
   // round was which, so the rule it is handed to can only ask about the
   // range; handing over the rounds is what lets the answer name the one
   // that missed. It is also what makes the answer re-adjudicable later
-  // without re-running the window — the hole rf2-egdaq's audit of PR #8326
-  // found on three runs that had recorded only the summary.
+  // without re-running the window, which a run that recorded only the
+  // summary cannot be.
   const ctlPerRound = rounds.map((r) => r.control.measuredCdp);
   const ctlStat = stat(ctlPerRound);
   const controlVerdict = await page.evaluate(
@@ -1067,8 +1048,8 @@ async function heapPass(
         A: 'CDP Runtime.getHeapUsage().usedSize after 3x HeapProfiler.collectGarbage',
         B: 'in-page performance.memory.usedJSHeapSize, same moment, --enable-precise-memory-info',
         note:
-          'A and B are two doors onto one V8 counter and are NOT independent — on the ' +
-          'predecessor instrument, pointed at 80,000 held objects, they returned 3868954 both.',
+          'A and B are two doors onto one V8 counter and are NOT independent — pointed at ' +
+          '80,000 held objects, they return 3868954 both.',
       },
       control: {
         shape: 'dense JS array of doubles',
@@ -1077,7 +1058,7 @@ async function heapPass(
         measured: ctlStat,
         // The rounds themselves, beside the summary of them. A record that
         // keeps only the summary cannot be re-adjudicated under the other
-        // rule, which is the durability half of rf2-egdaq.
+        // rule.
         perRound: ctlPerRound,
         slack: CONTROL_SLACK,
         verdict: controlVerdict,
@@ -1180,7 +1161,7 @@ async function fanoutRow(chromium) {
 }
 
 // ---------------------------------------------------------------------------
-// The ladder row (rf2-2rtt6.34)
+// The ladder row
 // ---------------------------------------------------------------------------
 
 async function ladderRow(chromium) {
@@ -1194,10 +1175,10 @@ async function ladderRow(chromium) {
     // same footing as the arm-order guard's and the additive model's:
     // an exact line has to be recovered to the byte, a QUADRATIC page
     // has to be refused by the r² floor at a value predicted in
-    // advance, and a fit that used the forbidden R=0 rung has to be
-    // caught. The third is the defect the audit of PR #7260 found in
-    // the predecessor ladder, and it is a check of this instrument's
-    // arithmetic — not corroboration of any measurement.
+    // advance, and a fit that used the R=0 rung — the anchor, which is
+    // measured and regressed nowhere — has to be caught. All three are
+    // checks of this instrument's arithmetic, not corroboration of any
+    // measurement.
     preflight: async (page) => {
       const st = await page.evaluate(() => window.P0H.ladderSelfTest());
       for (const c of st.checks) {
@@ -1245,7 +1226,7 @@ async function ladderRow(chromium) {
 }
 
 // ---------------------------------------------------------------------------
-// The allocation row (rf2-2rtt6.76) — the survival metric's OTHER half
+// The allocation row — the survival metric's OTHER half
 // ---------------------------------------------------------------------------
 //
 // `--only alloc` is the STEADY-STATE ALLOCATION SLOPE across warm 1/3/7/20
@@ -1256,10 +1237,9 @@ async function ladderRow(chromium) {
 // ladder prices what a boundary KEEPS per read; this prices what a warm
 // re-render THROWS AWAY per read. `p0_heap.cljs`'s own header says
 // "Nothing here counts allocations", and that is exactly why HD-002's
-// survival metric has been half-witnessed: the zero-retained-per-
-// occurrence clause is answered by the ladder's residue column and its
-// structural stamp (rf2-2rtt6.9), and the allocation clause has never had
-// an instrument on this rig at all.
+// survival metric needs this row: the zero-retained-per-occurrence clause
+// is answered by the ladder's residue column and its structural stamp, and
+// the allocation clause has no other instrument on this rig.
 //
 // THE SHAPE OF A READING. Collect; then run N warm bulk writes with the
 // used-heap counter sampled on both sides of every one of them; accumulate
@@ -1272,12 +1252,12 @@ async function ladderRow(chromium) {
 // WHAT IS BEING WRITTEN. One `dispatch-sync` of `:p0/write-page` — through
 // the same event pipeline and signal graph as the bulk clock arms'
 // `:p0/write-all`, differing only in rebuilding the grid at the mounted
-// page's own width (rf2-2rtt6.140) — followed by the substrate's own drain.
+// page's own width — followed by the substrate's own drain.
 // Every boundary re-renders and every boundary's READ SET IS UNCHANGED,
 // which is the steady state HD-002's cost law is stated over.
 //
 // `P0_ALLOC_WRITE=all` drives `:p0/write-all` in the same window instead,
-// for V1's `F_old` control (rf2-gxrr). It is not a default and no published
+// for V1's `F_old` control. It is not a default and no published
 // row is taken under it; see THE MEASUREMENT SURFACE below.
 //
 // WHY THE DONORS RIDE ALONG. A warm re-render at R reads allocates R query
@@ -1302,11 +1282,11 @@ async function ladderRow(chromium) {
 //
 // A retention instrument reads both control figures as ZERO. That is the
 // entire claim this row has to establish before any arm is quoted, and it
-// is the check `b8-alloc` was built around after the sampling profiler
-// produced a wrong table on this surface.
+// is the check a sampling profiler fails on this surface, producing a
+// wrong table.
 // `ALLOC_WRITES` — how many warm writes one measured window holds — is
 // NOT here. It is the averaging floor, and it is stated below beside the
-// floor it follows (rf2-2rtt6.140).
+// floor it follows.
 const ALLOC_ROUNDS = Number(process.env.P0_ALLOC_ROUNDS || 6);
 const ALLOC_WARMUPS = Number(process.env.P0_ALLOC_WARMUPS || 3);
 // 8 B a double, so 1,000 doubles is a predicted 8,000 B of garbage per
@@ -1321,26 +1301,27 @@ const ALLOC_D2 = Number(process.env.P0_ALLOC_D2 || 400);
 // How far the two control readings may sit from 8 B/double and still count
 // as THE INSTRUMENT CAN SEE GARBAGE. Generous on purpose: the claim being
 // gated is that transient bytes are visible AT ALL, not that V8's
-// bookkeeping is exactly 8 B wide. `b8-alloc` measured a stable 12.06
-// B/double against the same 8 B arithmetic and could not close the gap, so
-// a band that demanded 8 exactly would refuse a working instrument.
+// bookkeeping is exactly 8 B wide. An allocation instrument on this rig
+// reads a stable 12.06 B/double against the same 8 B arithmetic, with no
+// known way to close the gap, so a band that demanded 8 exactly would
+// refuse a working instrument.
 const ALLOC_CONTROL_SLACK = Number(process.env.P0_ALLOC_CONTROL_SLACK || 0.75);
 // The threshold, MEASURED rather than assumed: the standalone probes put
 // the first falling step at roughly 600 KB of cumulative garbage in a
 // window, on both kinds of garbage and at every semi-space size tried.
 //
-// IT GATES NOTHING (rf2-2rtt6.140). It is a RECORDED FACT ABOUT THIS RIG,
-// quoted in the summary because a window's `rise` as a fraction of it is a
-// useful thing for a reader to see, and it is NOT loosened — it stays at
-// the figure the probes read. What it may not do is certify a window: it is
-// an UPPER bound on where the first collection runs, and the safety
-// argument the retired masking budget built on it needed a LOWER one.
+// IT GATES NOTHING. It is a RECORDED FACT ABOUT THIS RIG, quoted in the
+// summary because a window's `rise` as a fraction of it is a useful thing
+// for a reader to see, and it is NOT loosened — it stays at the figure the
+// probes read. What it may not do is certify a window: it is an UPPER bound
+// on where the first collection runs, and certifying a window needs a
+// LOWER one.
 const ALLOC_FALL_THRESHOLD_B = 600000;
 
 // THE OBSERVED-COLLECTION WITNESS — a certificate read off the window's own
-// samples (rf2-2rtt6.140, replacing rf2-n6w7o's masking budget).
+// samples.
 //
-// THE FAULT IT ADDRESSES IS UNCHANGED. `allocSteps` below detects a
+// THE FAULT IT ADDRESSES. `allocSteps` below detects a
 // collection by the SIGN of an adjacent step, and a sign test is blind in
 // exactly one direction. Where V8 collects inside a leg that ALSO allocates
 // at least as much as the collection reclaimed, the observed step is >= 0:
@@ -1350,23 +1331,20 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 // flat-at-zero, so it is the one direction this row may not be able to fail
 // in.
 //
-// WHY THE ARITHMETIC THAT USED TO GUARD IT IS RETIRED. The old bound charged
-// `rise + maxStep <= ALLOC_FALL_THRESHOLD_B / 2` and rested on two premises
-// the merged-PR audit of #7682 refuted and rf2-2rtt6.141 accepted:
+// WHY NO ARITHMETIC BOUND GUARDS IT. A bound of the form
+// `rise + maxStep <= ALLOC_FALL_THRESHOLD_B / 2` rests on two false premises:
 //
-//   - `ALLOC_FALL_THRESHOLD_B` is where the first VISIBLE fall appeared. A
-//     masked one would not have shown, so it is an UPPER bound on where the
-//     first collection runs — and the safety argument needs a LOWER one.
-//     Halving an upper bound does not produce a lower one.
-//   - `maxStep` was taken as a bound on a masked leg's true allocation, but
-//     `maxStep` sees only NET positive deltas, which is precisely what a
-//     masked leg does not produce.
+//   - `ALLOC_FALL_THRESHOLD_B` is where the first VISIBLE fall appears. A
+//     masked one would not show, so it is an UPPER bound on where the first
+//     collection runs — and the safety argument needs a LOWER one. Halving
+//     an upper bound does not produce a lower one.
+//   - `maxStep` would be taken as a bound on a masked leg's true
+//     allocation, but `maxStep` sees only NET positive deltas, which is
+//     precisely what a masked leg does not produce.
 //
-// The audit wrote two executable probes and the bound ADMITTED both, at
-// `headroom = 0`, with true allocations of 300 KB and 600 KB. Retiring is
-// therefore not widening: the mechanism did not do the job it named. It is
-// route (b) of rf2-2rtt6.140's ruling, which sanctions exactly this
-// replacement. Both probes are pinned in `p0_ladder_structural.test.cjs`.
+// Two executable probes, both pinned in `p0_ladder_structural.test.cjs`,
+// carry true allocations of 300 KB and 600 KB and are ADMITTED by that bound
+// at `headroom = 0`: the mechanism does not do the job it would name.
 //
 // THE REPLACEMENT ASKS THE DATA A QUESTION INSTEAD OF ASSERTING A MODEL.
 // The legs of one window are W repetitions of ONE work unit — the same
@@ -1397,15 +1375,15 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 //     and here is the worst leg deviation actually observed.
 //
 // That is a weaker claim than "no collection ran" and a far stronger one
-// than the old bound could support, because it is CHECKABLE FROM THE WINDOW
+// than an arithmetic bound could support, because it is CHECKABLE FROM THE WINDOW
 // ITSELF rather than from a premise about where V8 first collects. And it is
 // the right shape for this row: a bounded under-read with the bound printed
 // beside the figure is the guarantee the row needs.
 //
 // WHAT IT DOES NOT CLOSE. A window in which EVERY leg is masked by a similar
-// amount is homogeneous and passes. rf2-n6w7o already named that hole as
-// unreachable in-page — closing it needs a per-leg allocation counter V8
-// does not expose. Three things stand against it, none of them a proof: the
+// amount is homogeneous and passes. That hole is unreachable in-page —
+// closing it needs a per-leg allocation counter V8 does not expose. Three
+// things stand against it, none of them a proof: the
 // falls gate takes it the moment one collection overshoots; this gate takes
 // it the moment one leg runs unmasked; and the controls in the same round
 // would read low against their own 8 B/double prediction if the collector
@@ -1417,49 +1395,45 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 // masked at all: it lands as a negative step and the untouched falls gate
 // takes it. `gaps` is recorded as a diagnostic and stays inside `rise`.
 //
-// τ IS NOT AN ENV KNOB, for `ALLOC_MASK_BUDGET_B`'s reason unchanged: every
-// other `P0_ALLOC_*` constant sizes the measurement, and this one decides
+// τ IS NOT AN ENV KNOB. Every other `P0_ALLOC_*` constant sizes the
+// measurement, and this one decides
 // whether a measurement may be PUBLISHED. A gate with a dial on it is a gate
 // that gets dialled.
 //
 // >>> THIS VALUE IS AN UNCALIBRATED PLACEHOLDER. <<<
 //
-// rf2-2rtt6.141 carried an acceptance criterion into this package from the
-// audit's closing line — *a witness whose own reliability is unmeasured is a
-// second thing to distrust* — so τ is not chosen by taste. It is to be
-// calibrated by VALIDITY WITNESS V3 on windows that are INDEPENDENTLY
-// CORROBORATED CLEAN: a dropped `.slice` of D doubles costs a PREDICTED 8D
-// bytes, and a control that hit its prediction is positive evidence of no
-// collection in a way a zero fall count is not. The two control sizes
-// bracket the arms' own magnitude (D=1,000 is 8 KB a leg, D=400 is 3.2 KB),
-// so the natural spread is measured at the scale it is applied at. V3 sets τ
-// to a stated multiple of the observed worst deviation, records the observed
-// figure and the margin here, and this line stops saying PLACEHOLDER.
+// A witness whose own reliability is unmeasured is a second thing to
+// distrust, so τ is not chosen by taste. It is calibrated by
+// VALIDITY WITNESS V3 on windows that are INDEPENDENTLY CORROBORATED CLEAN: a
+// dropped `.slice` of D doubles costs a PREDICTED 8D bytes, and a control
+// that hit its prediction is positive evidence of no collection in a way a
+// zero fall count is not. The two control sizes bracket the arms' own
+// magnitude (D=1,000 is 8 KB a leg, D=400 is 3.2 KB), so the natural spread
+// is measured at the scale it is applied at. When V3 sets τ to a stated
+// multiple of the observed worst deviation, the observed figure and the
+// margin are recorded here and this line stops saying PLACEHOLDER.
 //
-// V3 HAS NOW RUN TWICE AND τ IS STILL NOT PINNED (rf2-e9wr). The placeholder
-// line above stands, and what keeps it standing is a measured result rather
-// than a pending one.
+// V3'S READINGS DO NOT PIN τ. The placeholder line above stands on a
+// measured result rather than a pending one.
 //
-//   PRE-PRIME, 2026-08-14 (PR #8152). The controls' worst relative leg
-//   deviation is 0.99%, 11 of 12 windows exactly 0.00%. V3's rule applied to
-//   that lands τ near 0.02 - 0.05, and no arm certified there: the arms then
-//   carried a fixed ~7 KB FIRST-LEG excess in 336 of 336 windows, which the
-//   controls' work unit — a dropped `.slice` — structurally cannot have.
+//   THE CONTROLS. The worst relative leg deviation is 0.99%, 17 of 18
+//   windows exactly 0.00%. V3's rule applied to that lands τ near
+//   0.02 - 0.05.
 //
-//   POST-PRIME, 2026-08-16, on the instrument rf2-oiy1 repaired. The repair
-//   holds: the first-leg term reproduces at a median 6,864 B over 72 windows
-//   and now sits outside every cohort, and the floor arm — which refused 6 of
-//   6 at every page under both writes — certifies in 41 of 72 windows at this
-//   placeholder. BUT THE ARMS' SPREAD DID NOT COLLAPSE toward the controls',
-//   and that collapse was the whole of the prediction. Across the 47 floor-arm
-//   windows with no observed collection the worst relative leg deviation runs
+//   THE ARMS. Without the prime below, every arm window carries a fixed
+//   ~7 KB FIRST-LEG excess — 336 of 336 — which the controls' work unit, a
+//   dropped `.slice`, structurally cannot have, and no arm certifies at the
+//   controls' τ. With the prime, that term reproduces at a median 6,864 B
+//   over 72 windows and sits outside every cohort, and the floor arm
+//   certifies in 41 of 72 windows at this placeholder. BUT THE ARMS' SPREAD
+//   DOES NOT COLLAPSE toward the controls'. Across the 47 floor-arm windows
+//   with no observed collection the worst relative leg deviation runs
 //   0.00% - 1,835.79%; discarding the five six-figure excursions leaves 42
-//   windows at 0.00% - 38.91%, median 2.69%. Controls taken on the same
-//   instrument in the same session read 0.99% worst, 17 of 18 exactly 0.00%.
-//   And the arms' clean windows are not ONE population: in all six runs, all
-//   11 round-3 windows with no collection read <= 0.19% while all 11 round-2
-//   windows read 2.66% - 20.37%, so τ calibrated on the arms' own data moves
-//   by two orders of magnitude with the round it is read at.
+//   windows at 0.00% - 38.91%, median 2.69%. And the arms' clean windows are
+//   not ONE population: in all six runs, all 11 round-3 windows with no
+//   collection read <= 0.19% while all 11 round-2 windows read
+//   2.66% - 20.37%, so τ calibrated on the arms' own data moves by two
+//   orders of magnitude with the round it is read at.
 //
 // SO THE WITNESS IS REPORTED UNUSABLE AS SPECIFIED, which is what V3 itself
 // instructs for exactly this case: report the spread rather than picking a τ
@@ -1468,30 +1442,26 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 // prediction to supply, and the τ ≈ 0.8 that would follow makes the 2τ
 // certificate below vacuous.
 //
-// 0.25 IS THEREFORE NOT THE CONSERVATIVE STAND-IN THIS COMMENT USED TO CLAIM.
-// That claim assumed V3 would land ABOVE 0.25; it landed below, so 0.25 is 5x
-// to 12x MORE permissive than the controls license and tighter than anything
-// the arms' own spread would. It is a DECLARED PLACEHOLDER, unchanged, and no
+// 0.25 IS THEREFORE NOT A CONSERVATIVE STAND-IN. V3 lands below it, so 0.25
+// is 5x to 12x MORE permissive than the controls license and tighter than
+// anything the arms' own spread would. It is a DECLARED PLACEHOLDER, and no
 // window is published on it. Nothing in the pinned probes depends on it: their
 // offending legs read exactly zero against a strictly positive median, so they
 // refuse for every τ < 1, and that property is itself a test.
 const ALLOC_LEG_TOLERANCE = 0.25;
 
 // ---------------------------------------------------------------------------
-// THE PAGE — MANDATORY, because no honest default survives (rf2-2rtt6.139)
+// THE PAGE — MANDATORY, because no honest default exists
 // ---------------------------------------------------------------------------
 //
-// `ALLOC_B_PER_BOUNDARY_WRITE = 1655` sized the whole allocation arm and is
-// RETIRED, effective rf2-2rtt6.139's ruling. Its stated provenance was the
-// 2026-08-07 quiet-box run — and that run REFUSED, at 36 falling steps
-// across 44 windows, whose own refusal text declares every figure from such
-// a window an under-estimate. Sizing off a lower bound licenses a page too
-// LARGE, and the 2026-08-08 window found exactly that: 3,731-23,192 B per
-// boundary per write measured at B=24 against the 1,655 the arm was sized
-// with, 2.3x to 14x.
+// NO PER-BOUNDARY SIZING CONSTANT SIZES THIS ARM. A figure such as 1,655 B
+// per boundary per write, read off a window that REFUSED on its falling
+// steps, is an under-estimate by that refusal's own terms, and sizing off a
+// lower bound licenses a page too LARGE: measured at B=24, the arms read
+// 3,731-23,192 B per boundary per write, 2.3x to 14x that figure.
 //
-// AND NO REPLACEMENT CONSTANT MAY BE SUBSTITUTED, because the old one
-// silently mixed two terms that run then separated: a FIXED per-write cost
+// AND NO SCALE-FREE CONSTANT CAN STAND IN FOR IT, because one silently
+// mixes two terms the measurements separate: a FIXED per-write cost
 // F ~ 24.4 KB that does not scale with B (the floor arm reads it directly:
 // 24,108 B/write on reagent-subs, 24,730 on uix-subs) and a genuine
 // per-boundary term s(R) that does, and that swings 5x across the HD-002
@@ -1500,16 +1470,16 @@ const ALLOC_LEG_TOLERANCE = 0.25;
 // measured on.
 //
 // SO THE PAGE IS STATED, NEVER DERIVED. With no sizing model there is no
-// honest default, and inventing a literal would be substituting the number
-// rf2-2rtt6.139 forbids. An unstated `P0_ALLOC_CELLS` is refused BY NAME in
-// `allocArmSizing` below — which has the additional virtue of making an
-// accidental publication run impossible while rf2-2rtt6.140 criterion 5's
-// measurement freeze is in force. `rf2-2rtt6.139` re-derives sizing PER RUNG
-// from V1's floor data and V2's per-rung signal, and may restore a derived
-// default on those grounds; this package derives none.
+// honest default, and inventing a literal would be substituting exactly the
+// scale-free number the paragraph above rules out. An unstated
+// `P0_ALLOC_CELLS` is refused BY NAME in `allocArmSizing` below, which also
+// makes an accidental publication run impossible. A default would be honest
+// only if sizing were derived PER RUNG from V1's floor data and V2's
+// per-rung signal; this package derives none.
 //
 // Boundaries per root, and the reason it is a parameter at all: `fx/cells-n`
-// is compile-time, so `P0_ROOTS=1` floored B at 300 through the env surface.
+// is compile-time, so through the env surface alone `P0_ROOTS=1` would floor
+// B at 300.
 // `p0-heap/arm-for` takes it as `:cells`, so the driver states the page.
 // `null` — the env var unset or empty — is the unstated case, and it is a
 // refusal rather than a default.
@@ -1518,61 +1488,51 @@ const ALLOC_CELLS =
     ? null
     : Number(process.env.P0_ALLOC_CELLS);
 
-// The averaging floor. Six is the config the quiet-box run took the
-// published witness in, and the smallest window the bead's own re-costing
-// table carries; below two there is no averaging in a window at all.
+// The averaging floor. Six is the window the published witness is taken
+// in; below two there is no averaging in a window at all.
 //
-// It moves the CONTROLS too, and that is checked rather than assumed: the
-// same quiet-box run read 8.13 and 8.20 B/double direct and 8.08
-// differential against a predicted 8 at exactly this window, so the claim
-// the controls exist to establish — that transient garbage is visible to
-// this counter at all — has been corroborated here as well as at the 30
-// writes the retired masking budget cited.
+// It moves the CONTROLS too, and that is checked rather than assumed: at
+// exactly this window the controls read 8.13 and 8.20 B/double direct and
+// 8.08 differential against a predicted 8, so the claim the controls exist
+// to establish — that transient garbage is visible to this counter at all —
+// holds here as well as at 30 writes.
 //
-// IT IS A FLOOR AND NOT ONLY A DEFAULT (rf2-2rtt6.142). It sized the page
-// and adjudicated nothing, so the preflight admitted any window from one
-// write up: `P0_ROOTS=50` derived a 50-boundary page whose largest legal
-// window was two writes, and `P0_ALLOC_WRITES=1` set a one-write window on
-// the shipped page. Both sat far under the masking budget — that budget was
-// a ceiling on a window's SIZE and had nothing to say about how few writes
-// are averaged inside it — so both reached every publication path. The same
-// is true of the leg witness that replaced it, and for the same reason: it
-// asks whether the legs are alike, not how many there are. One write is
-// exactly the configuration whose four fits came back at r² 0.75 / 0.28 /
-// 0.94 / 0.31, against the 0.98 floor this row publishes under.
+// IT IS A FLOOR AND NOT ONLY A DEFAULT. A number that only sized the page
+// would adjudicate nothing, and the preflight would admit any window from
+// one write up: `P0_ALLOC_WRITES=1` would set a one-write window, and a
+// small page would cap the largest legal window at two writes. The leg
+// witness cannot catch either, because it asks whether the legs are alike,
+// not how many there are — so both would reach every publication path. One
+// write is exactly the configuration whose four fits come back at r² 0.75 /
+// 0.28 / 0.94 / 0.31, against the 0.98 floor this row publishes under.
 // `allocArmSizing` refuses below this number rather than only deriving from
-// it, and rf2-2rtt6.140 leaves that untouched: the averaging floor is not a
-// budget question. A one-write window has no averaging in it whatever
-// certifies the window.
+// it: the averaging floor is not a certification question. A one-write
+// window has no averaging in it whatever certifies the window.
 const ALLOC_MIN_WRITES = 6;
 
-// The window, which is now the averaging floor and nothing else. It used to
-// be inverted out of the masking budget — `budget / (B.c) - 1` — and with
-// the budget retired there is no bound left to invert. Taking MORE writes
-// than the floor is a measurement configuration's business, not a default's.
+// The window, which is the averaging floor and nothing else: with no
+// sizing model there is no bound to derive it from. Taking MORE writes than
+// the floor is a measurement configuration's business, not a default's.
 const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || ALLOC_MIN_WRITES);
 
 // ---------------------------------------------------------------------------
 // THE PRIME WORK UNIT — what the driver's own collector costs the first leg
-// (rf2-oiy1)
 // ---------------------------------------------------------------------------
 //
-// THE TERM. rf2-2rtt6.140's V1/V2/V3 window measured 336 arm windows across
-// eight browser runs and EVERY ONE of them carried a positive first-leg excess
-// over its own cohort median — median 6,966 B, p25 6,856, p75 8,056. Constant
-// in ABSOLUTE bytes across B in {4, 24, 96}, identical under `:p0/write-all`
-// and `:p0/write-page` alike, and fatal: at τ = 0.25 a fixed ~7 KB excess
-// refuses every window whose leg median is under ~27,900 B, which is every
-// floor window at every page size. `arm − floor` is the quantity every witness
-// here is stated over, so a floor that never certifies takes the ladder with
-// it.
+// THE TERM. Without a prime, EVERY arm window carries a positive first-leg
+// excess over its own cohort median — 336 of 336 across eight browser runs,
+// median 6,966 B, p25 6,856, p75 8,056. Constant in ABSOLUTE bytes across B
+// in {4, 24, 96}, identical under `:p0/write-all` and `:p0/write-page`
+// alike, and fatal: at τ = 0.25 a fixed ~7 KB excess refuses every window
+// whose leg median is under ~27,900 B, which is every floor window at every
+// page size. `arm − floor` is the quantity every witness here is stated
+// over, so a floor that never certifies takes the ladder with it.
 //
-// WHICH OF THE TWO CAUSES IT IS, SETTLED FROM THAT WINDOW'S OWN NUMBERS rather
-// than from a new one. The bead left the fork open — warm-up, or re-allocation
-// of something the forced collection reclaimed — and three facts already in
-// the record close it:
+// WHICH OF THE TWO CAUSES IT IS — warm-up, or re-allocation of something the
+// forced collection reclaimed — is settled by three facts in those windows'
+// own numbers:
 //
-//   1. THE TAIL LEGS ARE BYTE-IDENTICAL. One B = 4 floor window read
+//   1. THE TAIL LEGS ARE BYTE-IDENTICAL. One B = 4 floor window reads
 //      [26044, 19256, 19256, 19256, 19256, 19256]. Steady state is therefore
 //      reached after exactly ONE work unit inside the window.
 //   2. EIGHTEEN WORK UNITS ALREADY RUN IMMEDIATELY BEFORE IT — three
@@ -1585,24 +1545,23 @@ const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || ALLOC_MIN_WRITES);
 //
 // One work unit AFTER the collection clears it; eighteen BEFORE it do not. So
 // the excess is created at the collection and re-cleared by the first work
-// unit that follows — the bead's branch (b). Branch (a), a fourth full-size
-// warm-up, is REFUTED rather than merely doubted: another warm-up lands on the
-// wrong side of the collection, where three have already failed.
+// unit that follows — the second cause. The first, and its repair of a fourth
+// full-size warm-up, is REFUTED rather than merely doubted: another warm-up
+// lands on the wrong side of the collection, where three already fail.
 //
-// WHAT THE COLLECTION DISCARDS IS NOT IDENTIFIED HERE, and identifying it
-// would take a browser window this package may not spend. It does not have to
-// be: fact 1 says one work unit restores whatever it is.
+// WHAT THE COLLECTION DISCARDS IS NOT IDENTIFIED HERE, and it does not have
+// to be: fact 1 says one work unit restores whatever it is.
 //
 // SO THE WINDOW DRIVES ONE EXTRA WORK UNIT AND THE FIRST IS A PRIME. It is
 // SAMPLED, REPORTED and EXCLUDED — from the leg cohort, from `rise`, from
 // `falls`, from `perWrite` and from the certificate. The instrument does not
 // go blind to the term: it publishes it beside the figures as a diagnostic,
-// which is also what puts the number in front of rf2-e9wr's τ calibration.
+// which is also what puts the number in front of V3's τ calibration.
 //
 // WHY THIS IS NOT A WIDENING, AND WHY IT IS NEITHER OF THE OTHER TWO REPAIRS:
 //
-//   - τ IS UNTOUCHED at its uncalibrated placeholder, and no window refused
-//     today for any other reason is admitted tomorrow. A widening ADMITS the
+//   - τ IS UNTOUCHED at its uncalibrated placeholder, and the prime admits no
+//     window that refuses for any other reason. A widening ADMITS the
 //     observation; this removes it from the measured region.
 //   - "DISCARD LEG 1, CERTIFY OVER W − 1" would leave five averaged writes,
 //     under `ALLOC_MIN_WRITES`. Averaging six means driving seven.
@@ -1613,15 +1572,14 @@ const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || ALLOC_MIN_WRITES);
 // WHAT IT COSTS, STATED: one more write's garbage per window, so the heap has
 // ~1/6 more in it before the measured region opens. That is real against the
 // 600,000 B measured collection onset and it is not hidden — a window that
-// then collects is refused by the falls gate exactly as one is today.
+// then collects is refused by the falls gate exactly as an unprimed one is.
 //
-// THE 2τ CERTIFICATE IS RE-DERIVED AND COMES OUT IDENTICAL. Its derivation is
-// per-leg over a cohort of repetitions of one work unit and never referenced
-// how many legs there are or what preceded them. What changes in the
-// antecedent is which region is submitted to the rule — and the prime is what
-// makes "repetitions of ONE work unit" true of that region for the first time.
-// `allocSteps` is not touched: the split hands it a shorter, well-formed
-// sample stream, and every one of its pins stands unedited.
+// THE 2τ CERTIFICATE HOLDS OVER THE MEASURED REGION UNCHANGED. Its
+// derivation is per-leg over a cohort of repetitions of one work unit and
+// never references how many legs there are or what preceded them. The prime
+// decides which region is submitted to the rule, and it is what makes
+// "repetitions of ONE work unit" true of that region. `allocSteps` is
+// prime-agnostic: the split hands it a shorter, well-formed sample stream.
 const ALLOC_PRIME_WRITES = 1;
 
 // What the window actually drives. The DIVISORS stay `ALLOC_WRITES`: the
@@ -1630,13 +1588,12 @@ const ALLOC_WINDOW_WRITES = ALLOC_WRITES + ALLOC_PRIME_WRITES;
 
 // ---------------------------------------------------------------------------
 // THE BY-SITE MODE — attributing a leg's bytes to a site in the work unit
-// (rf2-rs8q6)
 // ---------------------------------------------------------------------------
 //
-// THE OBSERVATION IT EXISTS FOR. rf2-e9wr's window measured 72 floor-arm
-// windows and found the relative dispersion of a window's MEASURED work legs
-// to be a function of the ROUND INDEX — not of the page, the write or the
-// substrate. Restricting to windows with no observed collection: round 2
+// THE OBSERVATION IT EXISTS FOR. Across 72 floor-arm windows the relative
+// dispersion of a window's MEASURED work legs is a function of the ROUND
+// INDEX — not of the page, the write or the substrate. Restricting to
+// windows with no observed collection: round 2
 // (n=11) reads 2.66%–20.37% with none below 2.66%, and round 3 (n=11) reads
 // 0.00%–0.19% with all at or below 0.19%. That holds in each of six
 // independent browser launches separately, so machine load cannot be it, and
@@ -1648,9 +1605,8 @@ const ALLOC_WINDOW_WRITES = ALLOC_WRITES + ALLOC_PRIME_WRITES;
 // than of effort. At the shipped stride a leg is ONE step: the counter is read
 // before the work unit and after it, and everything between is one number. A
 // mechanism is a claim about WHICH PART of the work unit allocates, and no
-// analysis of a scalar per leg can answer it. The bead says so — "identifying
-// the mechanism needs an instrument a measurement window may not build
-// mid-window" — and this is that instrument.
+// analysis of a scalar per leg can answer it. Identifying the mechanism needs
+// an instrument that splits the leg, and this is that instrument.
 //
 // WHAT IT DOES. `P0_ALLOC_BY_SITE=1` drives the window at a stride of 3: one
 // extra counter reading at the work unit's ONE seam, between the
@@ -1661,13 +1617,12 @@ const ALLOC_WINDOW_WRITES = ALLOC_WRITES + ALLOC_PRIME_WRITES;
 // WHAT IT DELIBERATELY DOES NOT DO, and each is a rule this row already holds:
 //
 //   - IT IS OFF BY DEFAULT AND PUBLISHES NOTHING. Every row taken without the
-//     switch is byte-identical to today, and `allocSiteSplit` below is the
-//     identity on a stride-2 stream — which is what lets every `allocSteps`
-//     and `allocPrimeSplit` pin stand unedited, exactly as rf2-oiy1's split
-//     did.
+//     switch is byte-identical to one taken with no by-site mode at all, and
+//     `allocSiteSplit` below is the identity on a stride-2 stream — which is
+//     what keeps `allocSteps` and `allocPrimeSplit` stride-agnostic.
 //   - IT DOES NOT TOUCH τ. `ALLOC_LEG_TOLERANCE` is unmoved, in either
-//     direction. rf2-e9wr established that no honest calibration exists on
-//     the arms' data, and an instrument that answered the question by
+//     direction. No honest calibration exists on the arms' data (V3's
+//     readings above), and an instrument that answered the question by
 //     widening the gate would be answering a different one.
 //   - IT DOES NOT ADJUDICATE. The certificate is read off the COLLAPSED
 //     stride-2 stream, so `allocSteps` never sees a by-site stream and the
@@ -1683,7 +1638,7 @@ const ALLOC_WINDOW_WRITES = ALLOC_WRITES + ALLOC_PRIME_WRITES;
 // absolute leg magnitudes at stride 3 are not comparable byte for byte with
 // those at stride 2, and the falsifiable form of that claim is that the
 // idle control's leg difference between the two strides accounts for the
-// whole of the arms'. A window can check it; this bead builds it.
+// whole of the arms'. A window can check it.
 const ALLOC_BY_SITE = process.env.P0_ALLOC_BY_SITE === '1';
 
 // Samples per iteration. 2 is the shipped window and the page defaults to it;
@@ -1702,22 +1657,21 @@ const ALLOC_SITE_NAMES = ['dispatch', 'drain'];
 
 // The sizing, as a PURE FUNCTION of the config — the same shape and for the
 // same reason as `allocSteps` and `allocRefusedWindows`: it needs neither a
-// release build nor a Chromium, so it is pinned on every PR by
+// release build nor a Chromium, so it is pinned by
 // `p0_ladder_structural.test.cjs` instead of waiting for the next opt-in run
 // of this driver to notice that an arm drifted.
 //
-// NOTHING HERE PREDICTS A WINDOW'S SIZE ANY MORE. `predictedWindowB`,
-// `headroom`, `maxBoundaries` and `floorBoundaries` went with the budget and
-// with `ALLOC_B_PER_BOUNDARY_WRITE`, because every one of them was that
-// constant's arithmetic wearing a different name. What is left refuses only
-// on grounds it can defend WITHOUT a sizing model — rf2-2rtt6.139's interim
-// posture, stated on that bead: a window spent on a page that then refuses
-// is acceptable; a gatekeeper enforcing a model the data contradicts is not.
+// NOTHING HERE PREDICTS A WINDOW'S SIZE. A predicted window size, a
+// headroom or a largest admissible page would each be a per-boundary sizing
+// constant's arithmetic wearing a different name, and there is no such
+// constant. What is here refuses only on grounds it can defend WITHOUT a
+// sizing model: a window spent on a page that then refuses is acceptable; a
+// gatekeeper enforcing a model the data contradicts is not.
 //
 // `refusals` IS THE VERDICT, one entry per thing wrong with the arm, and
-// `admissible` is just "none of them" (rf2-2rtt6.142). One boolean was not
-// enough because the ways an arm can be wrong want different repairs, and an
-// arm can be wrong in more than one at once.
+// `admissible` is just "none of them". One boolean is not enough because
+// the ways an arm can be wrong want different repairs, and an arm can be
+// wrong in more than one at once.
 function allocArmSizing({ writes, roots, cells }) {
   // `null`/`undefined` is the page NOT STATED, which is distinct from a page
   // stated as zero: one is a missing configuration and the other is a page
@@ -1728,10 +1682,10 @@ function allocArmSizing({ writes, roots, cells }) {
   const refusals = [];
   if (!stated) {
     refusals.push(
-      `the allocation row's page is not derivable until rf2-2rtt6.139 re-derives sizing from ` +
-        `the new instrument's own floor data: STATE P0_ALLOC_CELLS (boundaries per root; the ` +
-        `page is P0_ROOTS x P0_ALLOC_CELLS). ALLOC_B_PER_BOUNDARY_WRITE was retired because it ` +
-        `was read off a run that itself refused, and no replacement constant may be substituted`
+      `the allocation row's page has no honest default: STATE P0_ALLOC_CELLS (boundaries per ` +
+        `root; the page is P0_ROOTS x P0_ALLOC_CELLS). A default is honest only once sizing is ` +
+        `derived per rung from the instrument's own floor data, and no per-boundary constant may ` +
+        `be substituted: one read off a window that refused is an under-estimate`
     );
   } else if (boundaries < 1) {
     // No per-boundary quantity to publish. It would otherwise sail through on
@@ -1743,9 +1697,8 @@ function allocArmSizing({ writes, roots, cells }) {
   }
   // Independent of the page, and deliberately so: with no page-size model
   // there is nothing to say about what a given page admits, so this refusal
-  // no longer branches on one. rf2-2rtt6.142's endorsed property — never
-  // advise the operator to configure the very shape being refused — survives
-  // the collapse intact, because the collapsed message names no shape at all.
+  // does not branch on one. It never advises the operator to configure the
+  // very shape being refused, because it names no shape at all.
   if (writes < ALLOC_MIN_WRITES) {
     refusals.push(
       `a window of ${writes} write(s) is under the ${ALLOC_MIN_WRITES}-write averaging floor ` +
@@ -1768,32 +1721,30 @@ function allocArmSizing({ writes, roots, cells }) {
 const ALLOC_ARM = allocArmSizing({ writes: ALLOC_WRITES, roots: ROOTS, cells: ALLOC_CELLS });
 
 // ---------------------------------------------------------------------------
-// THE MEASUREMENT SURFACE (rf2-gxrr) — the two switches the validity
-// witnesses are configured through, and nothing else
+// THE MEASUREMENT SURFACE — the two switches the validity witnesses are
+// configured through, and nothing else
 // ---------------------------------------------------------------------------
 //
-// PR #7702 landed the artefacts V1-V4 judge and said honestly that neither had
-// been executed against a real page. What it did not land, and did not claim
-// to, is the surface that lets V1 and V3 be RUN: the granted measurement
-// window for rf2-2rtt6.140 refused before a browser was launched because
-// neither shape could be configured on the shipped instrument.
+// V1 and V3 each need a shape the default run does not take, and without a
+// switch to configure it a measurement window for either would refuse before
+// a browser was launched. These switches are that surface.
 //
 // NOTHING HERE IS A GATE, A BAND OR A THRESHOLD. `ALLOC_MIN_WRITES` stays 6,
 // `ALLOC_FALL_THRESHOLD_B` stays 600,000, `ALLOC_LEG_TOLERANCE` stays the
 // uncalibrated placeholder V3 exists to replace, and the preflight refusals
-// above bite on every mode below exactly as they bite today. What changes is
-// that the instrument can be configured into the shapes its own design brief
-// specifies — and only those shapes.
+// above bite on every mode below exactly as on the default. What the
+// switches add is that the instrument can be configured into the shapes its
+// own design brief specifies — and only those shapes.
 //
 // --- THE WRITE (V1's control, and V2's comparison) -------------------------
 //
 // V1 measures each page "under `:p0/write-all` and under `:p0/write-page`"
-// (allocation-instrument-rework.md:256). `F_old` is not decoration: it is
-// V1's CONTROL — "it says the rig has not moved under the instrument, and it
-// is the only way the two writes can be compared like for like" (:260-263) —
-// and criterion 6 turns on it (:631). `arms/write-all!` has been a public
-// door since rf2-2rtt6.76 and the clock, bulk, fan-out and retention rows all
-// drive it; what was missing was any route to it FROM THE ALLOCATION WINDOW.
+// (`docs/design/fresco/allocation-instrument-rework.md`:256). `F_old` is not
+// decoration: it is V1's CONTROL — "it says the rig has not moved under the
+// instrument, and it is the only way the two writes can be compared like for
+// like" (:260-263) — and criterion 6 turns on it (:631). `arms/write-all!` is
+// a public door the clock, bulk, fan-out and retention rows all drive; this
+// switch is its route FROM THE ALLOCATION WINDOW.
 //
 // `page` IS THE DEFAULT AND EVERY PUBLISHED ROW IS TAKEN UNDER IT. `all` is
 // reachable only by naming it here, the record carries which one was driven,
@@ -1815,24 +1766,23 @@ const ALLOC_WRITE_SPECS = {
       'control, flat in B by construction',
   },
 };
-// --- AND `paired`, WHICH DRIVES BOTH IN ONE PROCESS (rf2-irxrw) ------------
+// --- AND `paired`, WHICH DRIVES BOTH IN ONE PROCESS -------------------------
 //
 // V1/V2 require the two writes to be compared as a SAME-PAGE, SAME-RUN pair
-// (allocation-instrument-rework.md:231-232), and until this switch the
-// instrument could not do it: the resolved kind was ONE spec, passed into
-// every arm window of the run, so a `write-all` versus `write-page`
-// comparison was necessarily a difference of two sequential PROCESS runs in
-// a fixed order. rf2-0gjqi's re-analysis is what that cost — eight mid-rung
-// sign comparisons that share one run order, one floor per segment per
-// write, and a page-global floor level (rf2-77gz8) that moves both segments
-// by the same amount, so eight cells are one draw rather than eight.
+// (allocation-instrument-rework.md:231-232). With the resolved kind ONE spec
+// passed into every arm window of the run, a `write-all` versus `write-page`
+// comparison would necessarily be a difference of two sequential PROCESS
+// runs in a fixed order — and that costs the comparison its sample: eight
+// mid-rung sign comparisons that share one run order, one floor per segment
+// per write, and a page-global floor level that moves both segments by the
+// same amount are one draw rather than eight.
 //
-// THE SELECTION IS THEREFORE A LIST, NOT A SPEC. There are still exactly TWO
-// writes — `ALLOC_WRITE_SPECS` above is unchanged and `paired` is not a third
-// one — and what `P0_ALLOC_WRITE` names is which of them this run drives, in
-// what order. `page` and `all` name one each and behave exactly as they did;
-// `paired` names both, and the arm pass below runs once per leg inside every
-// round, on the same page, in the same process.
+// THE SELECTION IS THEREFORE A LIST, NOT A SPEC. There are exactly TWO
+// writes — `ALLOC_WRITE_SPECS` above, and `paired` is not a third one — and
+// what `P0_ALLOC_WRITE` names is which of them this run drives, in what
+// order. `page` and `all` name one each; `paired` names both, and the arm
+// pass below runs once per leg inside every round, on the same page, in the
+// same process.
 const ALLOC_WRITE_SELECTIONS = {
   page: ['page'],
   all: ['all'],
@@ -1841,16 +1791,16 @@ const ALLOC_WRITE_SELECTIONS = {
 const ALLOC_WRITE = process.env.P0_ALLOC_WRITE || 'page';
 // `undefined` for an unknown switch, and the preflight refuses on it BY NAME
 // rather than this line throwing: requiring this module must never drive it
-// (`p0_ladder_structural.test.cjs` requires it on every PR), so the refusal
-// belongs where every other one already is — before a browser is launched.
+// (`p0_ladder_structural.test.cjs` requires it), so the refusal belongs
+// where every other one already is — before a browser is launched.
 const ALLOC_WRITE_KEYS = ALLOC_WRITE_SELECTIONS[ALLOC_WRITE];
 const ALLOC_WRITE_LEGS =
   ALLOC_WRITE_KEYS &&
   ALLOC_WRITE_KEYS.map((selector) => ({ selector, spec: ALLOC_WRITE_SPECS[selector] }));
 const ALLOC_WRITE_PAIRED = ALLOC_WRITE_LEGS !== undefined && ALLOC_WRITE_LEGS.length > 1;
-// THE SINGLE SPEC, WHERE THERE IS ONE. `page` and `all` resolve to the same
-// object they always did — every consumer below reads the LEGS, and this is
-// kept because the surface's own pins read it, and because "this run drives
+// THE SINGLE SPEC, WHERE THERE IS ONE. `page` and `all` resolve to their one
+// spec — every consumer below reads the LEGS, and this exists because the
+// surface's own pins read it, and because "this run drives
 // exactly one write, and it is this one" is a real question with a real
 // answer under two of the three selections. It is `undefined` under `paired`
 // for the same reason it is `undefined` under a typo: there is no ONE write.
@@ -1859,8 +1809,8 @@ const ALLOC_WRITE_PAIRED = ALLOC_WRITE_LEGS !== undefined && ALLOC_WRITE_LEGS.le
 const ALLOC_WRITE_SPEC =
   ALLOC_WRITE_LEGS && ALLOC_WRITE_LEGS.length === 1 ? ALLOC_WRITE_LEGS[0].spec : undefined;
 
-// WHERE A WINDOW IS RECORDED (rf2-irxrw). Off `paired` this is the identity,
-// so a published run's record is keyed exactly as it always was; on it, the
+// WHERE A WINDOW IS RECORDED. Off `paired` this is the identity, so a
+// published run's record is keyed by arm alone; on it, the
 // two legs of a pair are two windows and each is keyed by the write it drove.
 // The pair itself is not left to be reconstructed from the string: every
 // recorded window carries `pairKey` — the arm key its legs share — beside the
@@ -1874,19 +1824,18 @@ function allocWindowKey(armKey, selector, paired = ALLOC_WRITE_PAIRED) {
 //
 // V3 is "the controls only, at both D values, six rounds, six writes a
 // window — the row's existing control path ... No arms, no browser page
-// beyond the one the controls already need" (:443-445). `--only alloc` had
-// exactly one shape: preflight, then the controls AND the full ladder plan
-// (floor + 4 rungs x 2 substrates x 2 segments) every round. Harvesting V3's
-// 18 control windows meant riding ~108 ladder-arm windows, and criterion 5
-// freezes every allocation window that is not V1-V4 — which is why this is a
-// mode and not a workaround.
+// beyond the one the controls already need" (:443-445). Under the full plan
+// — preflight, then the controls AND the whole ladder (floor + 4 rungs x 2
+// substrates x 2 segments) every round — harvesting V3's 18 control windows
+// means riding ~108 ladder-arm windows, and criterion 5 freezes every
+// allocation window that is not V1-V4 — which is why this is a mode and not a
+// workaround.
 //
 // V1's "floor arm only — no ladder rungs, no fits, no candidate" (:253) is
-// the same switch's middle setting rather than a second mechanism, exactly as
-// rf2-gxrr directs: it is survivable without new code, but only by paying the
-// whole ladder at each of three pages to obtain one arm.
+// the same switch's middle setting rather than a second mechanism: without
+// it V1 would pay the whole ladder at each of three pages to obtain one arm.
 //
-// `full` IS THE DEFAULT AND IS TODAY'S RUN, unchanged in every particular.
+// `full` IS THE DEFAULT, and the published run.
 // The narrower plans SUBTRACT arms; they add none, move none and reorder
 // none, so a floor read under `floor` is the same floor, mounted on the same
 // page, in the same round parity, as a floor read under `full`.
@@ -1898,7 +1847,7 @@ const ALLOC_PLAN_SHAPES = {
 const ALLOC_PLAN = process.env.P0_ALLOC_PLAN || 'full';
 const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 
-// THE SEGMENT ORDER — AND THE CONFOUND IT EXISTS TO BREAK (rf2-rs8q6).
+// THE SEGMENT ORDER — AND THE CONFOUND IT EXISTS TO BREAK.
 //
 // The arms of a round are driven segment by segment, and under `parity` the
 // segment order REVERSES on odd rounds. That flip is deliberate and it is
@@ -1909,15 +1858,14 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 // But it builds in a second relation nobody chose. Under `parity` the window
 // sequence is `A B | B A | A B | B A | ...`, so the FIRST arm window of every
 // round repeats the substrate of the LAST arm window of the round before it,
-// and the second always switches. `rf2-rs8q6`'s record checked this rather
-// than assuming it: over the 466 adjacent window pairs in the 14 committed
-// floor runs, "position in round is 0" and "substrate repeated from the
-// previous window" agree 466 times out of 466. The ~748 B rider that record
-// isolated sits on position 0, and no committed dataset can say which of the
-// two it follows.
+// and the second always switches. Measured rather than assumed: over the 466
+// adjacent window pairs in the 14 committed floor runs, "position in round is
+// 0" and "substrate repeated from the previous window" agree 466 times out of
+// 466. The ~748 B rider those runs isolate sits on position 0, and no
+// `parity` dataset can say which of the two it follows.
 //
 // `fixed` drives the configured order EVERY round. The sequence becomes
-// `A B | A B | A B | ...`, so BOTH positions now follow a substrate switch —
+// `A B | A B | A B | ...`, so BOTH positions follow a substrate switch —
 // position 0 across the round boundary, position 1 within the round — while
 // position 0 alone still follows the round's three control windows. The two
 // relations stop coinciding, which is the whole of what this switch is for.
@@ -1933,13 +1881,13 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 //   - the rider VANISHES                    -> the carrier is the substrate
 //     REPEAT, which `fixed` removes from the schedule altogether.
 //
-// IT IS OFF BY DEFAULT AND `parity` IS THE IDENTITY. `allocSegmentOrder` is
-// the pre-bead expression verbatim under `parity`, so every published row is
-// taken on the schedule it always was, and no gate, band, threshold or budget
+// IT IS OFF BY DEFAULT AND `parity` IS THE IDENTITY. Under `parity`,
+// `allocSegmentOrder` is the flip above and nothing else, so every published
+// row is taken on the parity schedule, and no gate, band, threshold or budget
 // constant is touched in either mode. τ is untouched, in either direction.
 //
 // AND A `fixed` ROW IS A DIAGNOSTIC ROW, NOT A PUBLISHABLE ONE. It gives up
-// exactly the property the flip was landed for: with one order the substrate
+// exactly the property the flip exists for: with one order the substrate
 // is confounded with the slot, so a `fixed` run may not be quoted for a
 // between-substrate comparison. The row states which order it was taken under
 // (`segOrder`) and each round states the order it actually drove
@@ -1947,29 +1895,28 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 // THE ROW how it was taken.
 //
 // THE WRITE-LEG ORDER IS NOT TOUCHED HERE. It has its own mode below
-// (`ALLOC_PASS_ORDERS`, rf2-fk6pj) because it carries its own within-round
+// (`ALLOC_PASS_ORDERS`) because it carries its own within-round
 // position confound, which is a different question with a different
 // discriminator; under `P0_ALLOC_WRITE=all` — the selection every floor
 // corpus is taken under — there is ONE leg and any flip is inert.
 //
-// AND `fixed-reversed`, THE ARM `fixed` ALONE CANNOT SUPPLY (rf2-csca8).
+// AND `fixed-reversed`, THE ARM `fixed` ALONE CANNOT SUPPLY.
 // `fixed` drives ONE orientation, so inside a `fixed` run the substrate and
-// the within-round position are perfectly confounded again — with the plan as
-// shipped, `uix-subs` is position 1 in every `fixed` window there has ever
-// been. The 1,050-1,224 B cluster that bead names sits at 8 of 38 such
-// windows, and 8 of 38 is equally consistent with "uix under `fixed`" and
-// with "the SECOND-driven arm under `fixed`". No committed run separates
-// them. On the ADMISSIBLE corpus PR #8593's analysis read — 116 runs, 3,090
-// positional windows, two control-refused runs excluded — POSITION came out
-// UNRESOLVED (parity uix 8/733 at position 0 against 3/712 at position 1,
-// Fisher two-sided p = 0.2253) and SUBSTRATE ASSOCIATED BUT NOT NECESSARY
-// (reagent carries the term twice in 1,564). p = 0.2253 IS A FAILURE TO
-// REJECT AND NOT A REFUTATION: on eleven in-band windows nothing there bounds
-// a position effect at any useful width, so POSITION was left standing rather
-// than knocked out, and NONE of the three candidates was eliminated. What
-// that analysis could not supply was a CONTRAST — uix at position 0 with the
-// mode held still — and the mode cannot be read against itself from one
-// orientation.
+// the within-round position are perfectly confounded again — with the plan's
+// configured order, `uix-subs` is position 1 in every `fixed` window. A
+// 1,050-1,224 B cluster sits at 8 of 38 such windows, and 8 of 38 is equally
+// consistent with "uix under `fixed`" and with "the SECOND-driven arm under
+// `fixed`". No `fixed` run separates them. On the ADMISSIBLE corpus — 116
+// runs, 3,090 positional windows, two control-refused runs excluded —
+// POSITION is UNRESOLVED (parity uix 8/733 at position 0 against 3/712 at
+// position 1, Fisher two-sided p = 0.2253) and SUBSTRATE ASSOCIATED BUT NOT
+// NECESSARY (reagent carries the term twice in 1,564). p = 0.2253 IS A
+// FAILURE TO REJECT AND NOT A REFUTATION: on eleven in-band windows nothing
+// there bounds a position effect at any useful width, so POSITION stands
+// rather than being knocked out, and NONE of the three candidates is
+// eliminated. What that corpus cannot supply is a CONTRAST — uix at position
+// 0 with the mode held still — and the mode cannot be read against itself
+// from one orientation.
 //
 // `fixed-reversed` drives the plan REVERSED every round, so it puts the
 // second substrate at position 0 while HOLDING THE MODE CONSTANT. That is
@@ -1982,7 +1929,7 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 //
 //   - the cluster FOLLOWS uix to position 0  -> the carrier is the SUBSTRATE
 //     under `fixed`, and the position reading of 8/38 is a coincidence of
-//     the shipped plan's order;
+//     the plan's configured order;
 //   - the cluster STAYS at position 1        -> the carrier is the
 //     SECOND-DRIVEN slot under `fixed`, whichever substrate occupies it;
 //   - the cluster appears at BOTH or NEITHER -> neither property is the
@@ -1997,12 +1944,12 @@ const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
 const ALLOC_SEG_ORDERS = ['parity', 'fixed', 'fixed-reversed'];
 const ALLOC_SEG_ORDER = process.env.P0_ALLOC_SEG_ORDER || 'parity';
 
-// THE CONTROL SLOT — THE LAST CONFOUND THE SCHEDULE BUILDS IN (rf2-rs8q6).
+// THE CONTROL SLOT — THE LAST CONFOUND THE SCHEDULE BUILDS IN.
 //
-// `P0_ALLOC_SEG_ORDER=fixed` established that the ~748 B rider follows the arm
-// window's POSITION IN ITS ROUND and not any relation to the substrate driven
-// before it. That left exactly one pair of properties still coinciding, and
-// the record said so rather than glossing it: position 0 is BOTH
+// Under `P0_ALLOC_SEG_ORDER=fixed` the ~748 B rider follows the arm window's
+// POSITION IN ITS ROUND and not any relation to the substrate driven before
+// it. That leaves exactly one pair of properties still coinciding: position
+// 0 is BOTH
 //
 //   (A) the first arm window after the round's THREE CONTROL WINDOWS, and
 //   (B) the first arm window after the ROUND-LOOP BOUNDARY,
@@ -2024,7 +1971,7 @@ const ALLOC_SEG_ORDER = process.env.P0_ALLOC_SEG_ORDER || 'parity';
 // SO THE MODE CARRIES THREE SLOTS AND NOT TWO, and which is the discriminator
 // is stated here rather than chosen after the run:
 //
-//   - `first` — the pre-bead schedule verbatim. (A) and (B) coincide at
+//   - `first` — the default schedule. (A) and (B) coincide at
 //     position 0. Every published row is taken under it.
 //   - `last`  — the phase shift. It is the CONSISTENCY CONTROL on the mode
 //     itself: it must reproduce `first`, because it drives the same cyclic
@@ -2046,10 +1993,9 @@ const ALLOC_SEG_ORDER = process.env.P0_ALLOC_SEG_ORDER || 'parity';
 //     carrier as stated, and the schedule has said all it can say.
 //
 // IT IS OFF BY DEFAULT AND `first` IS THE IDENTITY. Under `first` the driver
-// makes exactly the calls it made before, in the same order — the three
-// controls, then the passes — so every published row is taken on the schedule
-// it always was. No gate, band, threshold or budget constant is touched in any
-// slot. τ is untouched, in either direction.
+// drives the three controls, then the passes, so every published row is
+// taken on the default schedule. No gate, band, threshold or budget constant
+// is touched in any slot. τ is untouched, in either direction.
 //
 // AND A MOVED-CONTROL ROW IS A DIAGNOSTIC ROW, NOT A PUBLISHABLE ONE. The
 // controls are the row's null arm and the studio pages read them against the
@@ -2100,54 +2046,51 @@ function allocRoundWindowKinds(passCount, slot) {
 // sequence out, rather than read the source and hope.
 function allocSegmentOrder(plan, round, order) {
   if (order === 'fixed') return plan;
-  // AND ITS REVERSED COUNTERPART (rf2-csca8), which is `fixed` in the other
-  // orientation and nothing else: the same plan every round, so the mode is
-  // held constant, with the substrate that `fixed` pins to position 1 now at
-  // position 0. A fresh array per round rather than a cached one, for the
-  // reason `parity`'s odd branch takes one — the plan the caller handed in is
-  // the shipped ladder plan and this function may not reorder it in place.
+  // AND ITS REVERSED COUNTERPART, which is `fixed` in the other orientation
+  // and nothing else: the same plan every round, so the mode is held
+  // constant, with the substrate that `fixed` pins to position 1 at position
+  // 0. A fresh array per round rather than a cached one, for the reason
+  // `parity`'s odd branch takes one — the plan the caller handed in is the
+  // ladder plan and this function may not reorder it in place.
   if (order === 'fixed-reversed') return [...plan].reverse();
   return round % 2 === 0 ? plan : [...plan].slice().reverse();
 }
 
 // ---------------------------------------------------------------------------
-// THE WRITE-LEG ORDER, AND WHY IT MAY NOT KEEP RIDING ON ROUND PARITY
-// (rf2-fk6pj)
+// THE WRITE-LEG ORDER, AND WHY IT MAY NOT RIDE ON ROUND PARITY
 // ---------------------------------------------------------------------------
 //
 // Under `P0_ALLOC_WRITE=paired` the two write legs of every arm run as two
 // passes inside ONE round, and the round loop below alternates which leads.
-// rf2-0gjqi's paired window measured that THE PASS THAT RAN SECOND READS
-// LOWER — 10 of 12 round blocks, 6 of 6 in run 1 and 4 of 6 in run 2, median
-// second-minus-first −0.59%, WHICHEVER WRITE OCCUPIED IT. Decomposed under an
-// additive position model the pass-order half-difference reads +0.68% and
-// +0.21%, the same sign on both runs, while the order-free write half-sum
-// reads −0.33% and +0.24%, opposite signs. It is the class of term that
-// manufactured this instrument's last inferential finding, and it is still in
-// the instrument.
+// A paired window measures that THE PASS THAT RUNS SECOND READS LOWER — 10
+// of 12 round blocks, 6 of 6 in run 1 and 4 of 6 in run 2, median
+// second-minus-first −0.59%, WHICHEVER WRITE OCCUPIES IT. Decomposed under
+// an additive position model the pass-order half-difference reads +0.68%
+// and +0.21%, the same sign on both runs, while the order-free write
+// half-sum reads −0.33% and +0.24%, opposite signs. It is exactly the class
+// of term that manufactures an inferential finding, and under `parity` it
+// stays in the instrument.
 //
-// AND THE INSTRUMENT CANNOT CURRENTLY ANSWER WHY, because the alternation is
-// `round % 2`: EVERY page-first round is an even round. Any other even/odd
-// property of a round that acts differently on a first and a second pass —
-// and a round is a long-lived, stateful thing — reads EXACTLY the same way.
-// The pass-position term and every other parity-indexed term are one column
-// in the design matrix, and no estimator over a parity-driven corpus can
-// split them. The other committed corpora do not break the tie either:
-// `segorder-rs8q6` varies the SEGMENT order and `ctrlslot-rs8q6` varies the
-// control SLOT, and neither reaches the write-leg order.
+// AND UNDER `parity` THE INSTRUMENT CANNOT ANSWER WHY, because the
+// alternation is `round % 2`: EVERY page-first round is an even round. Any
+// other even/odd property of a round that acts differently on a first and a
+// second pass — and a round is a long-lived, stateful thing — reads EXACTLY
+// the same way. The pass-position term and every other parity-indexed term
+// are one column in the design matrix, and no estimator over a parity-driven
+// corpus can split them. Varying the SEGMENT order or the control SLOT does
+// not break the tie either: neither reaches the write-leg order.
 //
 // `seeded` DRAWS THE LEG ORDER FROM A SEED AND THE ROUND INDEX INSTEAD, which
 // separates the two in one window: the leg order still varies round to round,
-// but it is no longer a function of round parity, so a term that tracks the
-// pass position and a term that tracks the parity now load on different
-// columns. `parity` is the pre-bead expression verbatim and stays the
-// default, so every committed corpus is read under the rule it was taken
-// under and no published row is reinterpreted.
+// but it is not a function of round parity, so a term that tracks the
+// pass position and a term that tracks the parity load on different columns.
+// `parity` stays the default, so every committed corpus is read under the
+// rule it was taken under and no published row is reinterpreted.
 //
 // THE DRAW IS BALANCED, AND THAT IS NOT A REFINEMENT. `parity` guarantees
 // each leg leads exactly half the rounds, and that balance is what keeps the
 // WRITE from being confounded with the pass position — the defect the
-// alternation was landed for. An unbalanced Bernoulli draw would break the
+// alternation exists to prevent. An unbalanced Bernoulli draw would break the
 // parity tie by reintroducing the write/position confound, which is trading
 // one column for a worse one. So the schedule is a seeded permutation of a
 // BALANCED multiset: `floor(rounds / 2)` flipped rounds, exactly as parity
@@ -2169,8 +2112,8 @@ function allocSegmentOrder(plan, round, order) {
 // re-readable at all: the schedule is not recoverable from the mode name, so
 // a record that stated only `seeded` would be a record whose own schedule was
 // unknown. Re-passing the recorded seed reproduces the schedule exactly. The
-// round record also states the order it ACTUALLY drove, in `writeLegs`, for
-// the reason it always did — an estimator must never recompute the rule.
+// round record also states the order it ACTUALLY drove, in `writeLegs`,
+// because an estimator must never recompute the rule.
 //
 // IT IS `PASS` AND NOT `LEG`, AND THAT IS DELIBERATE. The obvious env name
 // for a mode over the write legs would put it under the same `P0_ALLOC_`
@@ -2183,7 +2126,7 @@ function allocSegmentOrder(plan, round, order) {
 // more accurate word for what is ordered: the round loop drives `passes`, and
 // the measured term is a PASS-POSITION term. (The ban is the reason this
 // paragraph names no token — writing the forbidden one to explain the ban
-// trips it, which is how it was found.)
+// would trip it.)
 const ALLOC_PASS_ORDERS = ['parity', 'seeded'];
 const ALLOC_PASS_ORDER = process.env.P0_ALLOC_PASS_ORDER || 'parity';
 // Drawn when it is not given, and recorded either way. It is INERT under
@@ -2248,8 +2191,8 @@ function allocPassFlips(rounds, seed) {
   return { flips: base.slice(), attempts: 64, parityTied: true };
 }
 
-// The legs ONE ROUND drives, in drive order. `parity` is the pre-bead
-// expression verbatim, to the character; `seeded` indexes the drawn schedule.
+// The legs ONE ROUND drives, in drive order. `parity` reverses the odd
+// rounds; `seeded` indexes the drawn schedule.
 // Pure for the reason above, and total on a schedule shorter than the round
 // index — a run that drove more rounds than it drew for falls back to parity
 // for that round rather than driving `undefined`.
@@ -2266,7 +2209,7 @@ const ALLOC_PASS_SCHEDULE = allocPassFlips(ALLOC_ROUNDS, ALLOC_PASS_SEED);
 // neither a release build nor a Chromium, so the pin can DRIVE it rather than
 // read the source and hope.
 //
-// `ladderPlan` itself is untouched. It is what the same-arms-on-both-pages
+// `ladderPlan` itself stays whole. It is what the same-arms-on-both-pages
 // pin adjudicates, and a mode that reached inside it would be a second
 // instrument rather than a narrower run of the one instrument.
 function allocPlanArms(plan, shape) {
@@ -2288,16 +2231,16 @@ function median(xs) {
   return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-// WHAT THE CENSUS PROVED ABOUT ITSELF (rf2-n1b9h). Pure, driven over a
-// record's own rounds, and it adjudicates two claims that are not the same:
+// WHAT THE CENSUS PROVES ABOUT ITSELF. Pure, driven over a record's own
+// rounds, and it adjudicates two claims that are not the same:
 //
 //   - EVERY CONTROL WINDOW READ ZERO. A control dispatches nothing and renders
 //     nothing, so its census is the instrument's null arm, in situ and
 //     interleaved with the arms in the same round on the same page.
 //   - EVERY ARM WINDOW READ EXACTLY `windowWrites` HANDLER INVOCATIONS. The
 //     window drives that many `dispatch-sync` calls, so anything else is
-//     either a handler that ran more than once per dispatch — which is
-//     candidate (a) itself, and would be the finding — or a counter that is
+//     either a handler that ran more than once per dispatch — which is more
+//     work per dispatch, and would be the finding — or a counter that is
 //     not wired to the write path.
 //
 // The second is stated as an EXPECTATION AND NOT A GATE, and the difference
@@ -2346,14 +2289,14 @@ function allocWorkVerification(rounds, counted, windowWrites) {
   };
 }
 
-// THE WORK A WINDOW DID (rf2-n1b9h) — the difference of two readings of three
-// monotone counters, taken at the window's open and at its close.
+// THE WORK A WINDOW DOES — the difference of two readings of three monotone
+// counters, taken at the window's open and at its close.
 //
 // Pure, and `undefined` when the page carried no census, for `allocSteps`'s
 // reason: the pin can drive it rather than read the source and hope, and a
-// record from before this bead answers `undefined` rather than a fabricated
-// zero. **Zero and "not counted" must not be the same value here** — the whole
-// conclusion this bead reaches turns on a delta that reads zero, so a missing
+// record taken without the census answers `undefined` rather than a
+// fabricated zero. **Zero and "not counted" must not be the same value
+// here** — a conclusion can turn on a delta that reads zero, so a missing
 // census rendering as zero would read as the finding itself.
 //
 // Every counter is monotone for the life of the page, so a NEGATIVE delta is
@@ -2369,15 +2312,15 @@ function allocWorkDelta(win) {
 }
 
 // Split a window's raw samples into the PRIME legs and the MEASURED sample
-// stream (rf2-oiy1). Pure, for `allocSteps`'s reason: the pin can DRIVE it
-// rather than read the source and hope.
+// stream. Pure, for `allocSteps`'s reason: the pin can DRIVE it rather than
+// read the source and hope.
 //
 // The stream is `[s0, pre0, post0, pre1, post1, ...]`, so dropping the leading
 // `2·prime` samples leaves `[post_{p−1}, pre_p, post_p, ...]` — WHICH IS THE
 // SAME SHAPE. The last prime leg's `post` becomes the measured region's `s0`,
 // and the measured region's first gap is the true `pre_p − post_{p−1}`.
 // Nothing is fabricated and nothing is re-based, which is exactly why
-// `allocSteps` needs to know none of this and is unchanged by this bead.
+// `allocSteps` needs to know none of this.
 //
 // `prime` is clamped to the legs actually present, so a stream shorter than
 // the prime yields no measured legs rather than reaching off the end. It is a
@@ -2389,15 +2332,15 @@ function allocPrimeSplit(samples, prime = ALLOC_PRIME_WRITES) {
   return { primeLegs, measured: samples.slice(2 * p) };
 }
 
-// The BY-SITE decomposition of one window's raw samples (rf2-rs8q6). Pure, for
+// The BY-SITE decomposition of one window's raw samples. Pure, for
 // `allocPrimeSplit`'s reason: the pin can DRIVE it rather than read the source
 // and hope.
 //
-// TWO ANSWERS OUT OF ONE STREAM, and the first is why every gate below stands
-// unedited:
+// TWO ANSWERS OUT OF ONE STREAM, and the first is why every gate below is
+// stride-agnostic:
 //
 //   `collapsed` — `[s0, pre0, post0, pre1, post1, ...]`, WHICH IS THE STREAM
-//     THE SHIPPED WINDOW WOULD HAVE FILLED from the same work. Every reading
+//     A STRIDE-2 WINDOW WOULD HAVE FILLED from the same work. Every reading
 //     in it is a reading actually taken; the mid samples are dropped, not
 //     averaged, folded or synthesised. This is what `allocPrimeSplit` and
 //     `allocSteps` are handed, so the certificate, the falls gate and every
@@ -2409,7 +2352,7 @@ function allocPrimeSplit(samples, prime = ALLOC_PRIME_WRITES) {
 //
 // AT STRIDE 2 IT IS THE IDENTITY: `collapsed` is the argument itself and
 // `siteLegs` is empty. A driver that never arms the mode is running the
-// pre-bead path through one function that returns what it was given, and the
+// stride-2 path through one function that returns what it was given, and the
 // pins drive that rather than asserting it.
 //
 // `sites` is a parameter and the driver passes the constant, exactly as
@@ -2448,13 +2391,13 @@ function allocDominantSite(bySite) {
   return owner;
 }
 
-// THE WITNESS THE BEAD ASKS FOR (rf2-rs8q6): the arm work unit's allocation by
-// site, and where the excess sits.
+// THE BY-SITE WITNESS: the arm work unit's allocation by site, and where the
+// excess sits.
 //
 // It is handed the whole window's site legs and splits the prime off itself,
 // on `allocPrimeSplit`'s rule and clamped the same way — the prime is one work
 // unit and the cohort is the rest, and a by-site cohort that included the
-// prime would have the term rf2-oiy1 removed sitting back inside its medians.
+// prime would have the prime's own term sitting back inside its medians.
 //
 // WHAT IT ANSWERS, and this is the whole point of the mode:
 //
@@ -2463,8 +2406,8 @@ function allocDominantSite(bySite) {
 //     and the signal graph; `drain` says it is in React's commit.
 //   `primeSite` and `primeExcessBySite` — the same decomposition of the PRIME
 //     leg's excess over the measured cohort.
-//   `sameSite` — whether those two agree. THIS IS THE HYPOTHESIS THE BEAD
-//     NAMES AS THE ONE TO EXCLUDE FIRST: the recurring excesses (+476 to
+//   `sameSite` — whether those two agree. THIS IS THE HYPOTHESIS TO EXCLUDE
+//     FIRST: the recurring excesses (+476 to
 //     +7,456 B, median 2,640 B) overlap the prime excess's own scale (median
 //     6,864 B), which would suggest THE SAME TERM RECURRING rather than a
 //     distinct one.
@@ -2528,13 +2471,13 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
 }
 
 // ---------------------------------------------------------------------------
-// THE INTRA-LEG RECLAMATION GATE (rf2-4ctls) — the falls gate's own rule, at
-// the stride the by-site mode already opens
+// THE INTRA-LEG RECLAMATION GATE — the falls gate's own rule, at the stride
+// the by-site mode already opens
 // ---------------------------------------------------------------------------
 //
-// THE GAP, MEASURED RATHER THAN REASONED ABOUT. rf2-ojehu's by-site window took
-// 72 floor-arm windows on a quiet box across six runs. TWENTY-FOUR of them carry
-// at least one NEGATIVE site step — a reclamation inside a single leg.
+// THE GAP, MEASURED RATHER THAN REASONED ABOUT. Across 72 by-site floor-arm
+// windows on a quiet box, six runs, TWENTY-FOUR carry at least one NEGATIVE
+// site step — a reclamation inside a single leg.
 // Twenty-one are already refused by the falls gate. THREE have `falls` = 0, so
 // the falls gate saw nothing at all, and TWO of those three ALSO CERTIFIED at τ:
 //
@@ -2568,10 +2511,8 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
 // looks clean by every published figure.
 //
 // SO THIS IS A THIRD GATE, READING WHAT IS ALREADY MEASURED. The by-site stream
-// SEES the reclamation — that is the whole of rf2-ojehu's finding — and
-// `siteLegs` has been on the window record since rf2-rs8q6 without adjudicating
-// anything. The rule is the falls gate's own, unaltered, applied one stride
-// finer:
+// SEES the reclamation, and `siteLegs` is already on the window record. The
+// rule is the falls gate's own, unaltered, applied one stride finer:
 //
 //     REFUSE the window if any MEASURED site step is negative.
 //
@@ -2583,34 +2524,32 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
 //
 // WHY THIS IS NOT A WIDENING, which is the fence this row holds every gate to.
 // It can only ever ADD refusals: `allocIntraLegRefusals` returns a list and
-// `allocWindowVerdict` unions it into the window's own. No window refused today
-// is admitted tomorrow, at any τ, on any page.
+// `allocWindowVerdict` unions it into the window's own. It admits no window
+// the other two refuse, at any τ, on any page.
 //
-// AND τ IS UNTOUCHED, in either direction. rf2-e9wr established that no honest
-// calibration exists on the arms' data and rf2-rs8q6 repeats the fence. Nothing
-// here is a reason to move it, and this gate does not read it.
+// AND τ IS UNTOUCHED, in either direction. No honest calibration exists on
+// the arms' data (V3's readings above). Nothing here is a reason to move it,
+// and this gate does not read it.
 //
-// WHY THE CERTIFICATE STILL NEVER SEES A BY-SITE STREAM. rf2-rs8q6's fence is
-// load-bearing and it STANDS: `allocSteps` is handed the COLLAPSED stride-2
-// stream and is not touched by this bead, so `rise`, `falls`, `maxStep`, `legs`,
+// WHY THE CERTIFICATE NEVER SEES A BY-SITE STREAM. `allocSteps` is handed the
+// COLLAPSED stride-2 stream, so `rise`, `falls`, `maxStep`, `legs`,
 // `legMedian` and `legWorstDeviation` are byte-identical on every window at
-// every stride, and every one of that bead's pins stands unedited. Handing the
-// mid samples to `allocSteps` was the other available repair and it is REFUSED
-// for exactly that reason: it would split one step into two and move three
-// PUBLISHED quantities to catch a fault a separate list catches while moving
-// none.
+// every stride. Handing the mid samples to `allocSteps` would be the other
+// repair, and it is REFUSED for exactly that reason: it would split one step
+// into two and move three PUBLISHED quantities to catch a fault a separate
+// list catches while moving none.
 //
-// INERT AT THE SHIPPED STRIDE, BY CONSTRUCTION rather than by a switch.
+// INERT AT STRIDE 2, BY CONSTRUCTION rather than by a switch.
 // `allocSiteSplit` returns an EMPTY `siteLegs` at stride 2, so there is no site
-// step to be negative and this returns `[]`. Every row ever published was taken
-// at stride 2, so no published figure and no published verdict moves.
+// step to be negative and this returns `[]`. Every published row is taken at
+// stride 2, so this gate moves no published figure and no published verdict.
 //
-// AND THE CONVERSE, WHICH IS THE HALF A READER NEEDS AND THE PARAGRAPH ABOVE
-// DOES NOT STATE (rf2-fir5n). "No published verdict moves" is the reassurance;
+// AND THE CONVERSE, WHICH IS THE HALF A READER NEEDS. "No published verdict
+// moves" is the reassurance;
 // the cost is that `certified` on a stride-2 window means certified by the falls
 // gate and the leg tolerance and NO MORE. That is not a defect in this gate and
 // widening it would be the wrong repair — there is no site step at stride 2 to
-// widen a test on, only a reading that was never taken — but it does close a
+// widen a test on, only a reading that is never taken — but it does close a
 // class of question off. The note at `ALLOC_BY_SITE` records that a stride-3 leg
 // magnitude is not comparable byte for byte with a stride-2 one, because each
 // leg there carries one extra sampler read. So a witness whose criterion IS a
@@ -2618,12 +2557,12 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
 // stride 2, where this gate adjudicates nothing: the class of comparison that
 // most wants a third gate is precisely the class that cannot use one. The
 // record says so per row — see `allocInstrumentNote` — rather than leaving a
-// reader to derive it. The only other way out is rf2-e3p0r, HELD FOR A RULING:
-// price the extra read off the idle control (rf2-ojehu read it at 16 B per leg
-// and its stride pair met its own falsifiable claim) and correct stride-3 bytes
-// back to stride-2 ones, which would make a byte-for-byte witness screenable by
-// all three. That is an instrument change wanting a hermetic build, and it may
-// equally be judged not worth building; it is not taken here.
+// reader to derive it. The only other way out would be to price the extra
+// read off the idle control (which reads it at 16 B per leg, and whose stride
+// pair meets its own falsifiable claim) and correct stride-3 bytes back to
+// stride-2 ones, which would make a byte-for-byte witness screenable by all
+// three. That is an instrument change wanting a hermetic build, and this
+// driver does not make it.
 //
 // WHAT IT DOES NOT CLOSE, stated because a gate that oversells itself is worse
 // than none. A reclamation bracketed inside ONE SITE — collected and
@@ -2665,22 +2604,22 @@ function allocIntraLegRefusals(siteLegs, prime = ALLOC_PRIME_WRITES) {
 // Rising and falling steps, accumulated separately, from one window's raw
 // samples — AND the leg cohort the certificate is read off.
 //
-// IT IS HANDED THE MEASURED REGION, NOT THE WHOLE WINDOW (rf2-oiy1). The
-// window's first work unit is a prime and `allocPrimeSplit` above takes it off
-// before anything here sees it. Everything below is unchanged by that bead.
+// IT IS HANDED THE MEASURED REGION, NOT THE WHOLE WINDOW. The window's first
+// work unit is a prime and `allocPrimeSplit` above takes it off before
+// anything here sees it.
 //
 // The samples are `[s0, pre0, post0, pre1, post1, ...]`, so leg `k` is
 // `post_k - pre_k` (one per write, the work) and gap `k` is
 // `pre_k - post_{k-1}` (`pre0 - s0` for the first), where nothing happens
 // but a loop increment and two array stores. `rise` / `fall` / `falls` /
-// `maxStep` walk EVERY step exactly as they always did, because a collection
-// can fall in either kind — and note the property a gap has for free:
+// `maxStep` walk EVERY step, because a collection can fall in either kind —
+// and note the property a gap has for free:
 // nothing allocates in a gap, so a collection there cannot be masked. It
 // lands as a negative step and the untouched falls gate takes it.
 //
-// `certified` is `refusals.length === 0`, mirroring `allocArmSizing` since
-// rf2-2rtt6.142 — one verdict shape across the preflight and the window
-// gate. `tolerance` is a parameter so the pinned probes can be swept across
+// `certified` is `refusals.length === 0`, mirroring `allocArmSizing` — one
+// verdict shape across the preflight and the window gate. `tolerance` is a
+// parameter so the pinned probes can be swept across
 // τ; the driver never passes it, so the shipped gate is the module constant
 // and there is no dial anywhere on the measurement path.
 function allocSteps(samples, tolerance = ALLOC_LEG_TOLERANCE) {
@@ -2754,13 +2693,12 @@ function allocSteps(samples, tolerance = ALLOC_LEG_TOLERANCE) {
 }
 
 // THE WINDOW'S VERDICT — the two window gates' refusals, named apart and
-// unioned (rf2-4ctls). Pure, for `allocSteps`'s reason: the pin can DRIVE it
-// rather than read the source and hope.
+// unioned. Pure, for `allocSteps`'s reason: the pin can DRIVE it rather than
+// read the source and hope.
 //
-// `refusals` and `certified` keep their meanings exactly — the union, and "none
-// of them", which is the one verdict shape this row has carried across the
-// preflight and the window gate since rf2-2rtt6.142, so `allocRefusedWindows`
-// and the summary read what they always read. `legRefusals` and
+// `refusals` and `certified` are the union, and "none of them" — the one
+// verdict shape this row carries across the preflight and the window gate,
+// so `allocRefusedWindows` and the summary read the union. `legRefusals` and
 // `intraLegRefusals` are the two gates' own lists, kept apart so the EXIT can
 // name WHICH gate fired: a failure claiming a leg strayed past the tolerance
 // when what happened was an intra-leg collection would send an operator to the
@@ -2779,20 +2717,19 @@ function allocWindowVerdict(steps, siteLegs = [], prime = ALLOC_PRIME_WRITES) {
   };
 }
 
-// WHICH GATES ACTUALLY SCREENED THIS ROW (rf2-fir5n) — the record's `instrument`
-// string, as a pure function of the stride so a pin can DRIVE it rather than
-// read the source and hope.
+// WHICH GATES ACTUALLY SCREEN THIS ROW — the record's `instrument` string, as
+// a pure function of the stride so a pin can DRIVE it rather than read the
+// source and hope.
 //
-// THE DEFECT IT REPAIRS. The string was one constant, emitted on every row, and
-// it closed with "All three refuse". On a stride-2 row that is at best ambiguous
-// between a claim about the INSTRUMENT's design — all three gates refuse, none
-// widens — and a claim about THIS ROW, and on a field whose whole stated purpose
-// is criterion 6's "a reader of any row can tell FROM THE ROW how it was taken"
-// the row reading is the one that governs. Two gates screened every published
-// row. rf2-4ctls already made the COUNT honest by omission — off the mode the
-// summary prints no intra-leg line and the record gains no
-// `intraLegRefusalReasons` field, because a 0 would claim the instrument looked
-// when it could not — and this closes the same hole in the prose beside it.
+// WHY IT DEPENDS ON THE STRIDE. One constant closing "All three refuse" on
+// every row would, on a stride-2 row, be at best ambiguous between a claim
+// about the INSTRUMENT's design — all three gates refuse, none widens — and a
+// claim about THIS ROW, and on a field whose whole stated purpose is
+// criterion 6's "a reader of any row can tell FROM THE ROW how it was taken"
+// the row reading is the one that governs. Two gates screen every published
+// row. Off the mode the summary prints no intra-leg line and the record gains
+// no `intraLegRefusalReasons` field, because a 0 would claim the instrument
+// looked when it could not; this keeps the prose beside it equally honest.
 //
 // AND IT IS NOT A SWITCH THAT COULD BE FLIPPED HERE, which is why the stride-2
 // branch states a constraint rather than a TODO. `allocSiteSplit` yields no site
@@ -2805,11 +2742,10 @@ function allocWindowVerdict(steps, siteLegs = [], prime = ALLOC_PRIME_WRITES) {
 // can never be screened by all three. Saying so on the row is the honest half of
 // that; correcting stride-3 bytes back to stride-2 ones off the idle control's
 // per-leg price is the other half, and it is an instrument change wanting a
-// hermetic build and a ruling, not a quiet box (rf2-e3p0r).
+// hermetic build, not a quiet box.
 //
-// THE BY-SITE BRANCH IS UNCHANGED TO THE BYTE, on `summariseAllocFits`'s rule:
-// the stride-3 text is the string this file has always emitted, lifted out whole
-// rather than guarded in place.
+// THE BY-SITE BRANCH closes "All three refuse", which on a stride-3 row is a
+// claim about the row as well as about the design.
 function allocInstrumentNote(bySite = ALLOC_BY_SITE) {
   const shared =
     'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
@@ -2821,7 +2757,7 @@ function allocInstrumentNote(bySite = ALLOC_BY_SITE) {
   if (bySite) return shared + 'All three refuse';
   return (
     shared +
-    'TWO OF THE THREE RAN ON THIS ROW (rf2-fir5n): it was taken at a stride of 2, where a leg ' +
+    'TWO OF THE THREE RAN ON THIS ROW: it was taken at a stride of 2, where a leg ' +
     'has no interior reading and so no site step to be negative, and the intra-leg gate ' +
     'returned an empty list BY CONSTRUCTION rather than by a switch. `certified` here means ' +
     'certified by the falling-step gate and by the leg tolerance and NO MORE. Arming the third ' +
@@ -2834,8 +2770,8 @@ function allocInstrumentNote(bySite = ALLOC_BY_SITE) {
 // The witness over a whole collected row, as a PURE FUNCTION of it — the
 // same shape and for the same reason as `ladderStructuralFailures` below: it
 // needs neither a release build nor a Chromium to adjudicate, so it can be
-// pinned on every PR by `p0_ladder_structural.test.cjs` instead of waiting
-// for the next opt-in run of this driver to notice.
+// pinned by `p0_ladder_structural.test.cjs` instead of waiting for the next
+// opt-in run of this driver to notice.
 //
 // ARM WINDOWS ONLY, exactly as the falling-step gate counts only those. The
 // arms are what gets published; the controls adjudicate the arithmetic, and
@@ -2845,7 +2781,7 @@ function allocInstrumentNote(bySite = ALLOC_BY_SITE) {
 // EVERY REFUSED WINDOW IS NAMED WITH ITS REASON, on every round, because a
 // count of refusals tells an operator nothing about which leg misbehaved.
 //
-// `field` READS ONE GATE'S OWN LIST (rf2-4ctls), and the default is the union a
+// `field` READS ONE GATE'S OWN LIST, and the default is the union a
 // window was refused on. It exists so the EXIT can attribute a refusal to the
 // gate that made it — `legRefusals` for the leg tolerance, `intraLegRefusals`
 // for the intra-leg reclamation gate — while the SUMMARY goes on printing every
@@ -2864,22 +2800,22 @@ function allocRefusedWindows(row, field = 'refusals') {
 }
 
 // How many DISTINCT arm windows carry at least one refusal — the numerator
-// `windows refused: N of M` needs (rf2-xxeq).
+// `windows refused: N of M` needs.
 //
-// THE DEFECT. `allocRefusedWindows` above returns one entry per refusal REASON,
-// and a window with two deviant legs contributes two of them, while the
-// denominator counts WINDOWS. Every V1 run therefore printed a line of the
-// shape `windows refused: 17 of 12` — 17, 14, 13, 14, 16, 13 against a
-// twelve-window floor-only plan — which is not a possible ratio.
+// WHY IT IS NOT THE REASON LIST'S LENGTH. `allocRefusedWindows` above returns
+// one entry per refusal REASON, and a window with two deviant legs contributes
+// two of them, while the denominator counts WINDOWS. Counting reasons prints
+// lines of the shape `windows refused: 17 of 12` against a twelve-window
+// floor-only plan, which is not a possible ratio.
 //
-// Nothing was mis-gated: the exit keys off the reason list being non-empty,
-// which is correct under either count, and no published figure moved. But a
-// row whose entire purpose is to be believed may not print an impossible
-// ratio beside its figures, and a reader who took "17 windows were refused"
-// at face value would conclude the run measured more windows than it did.
+// The exit keys off the reason list being non-empty, which is correct under
+// either count. But a row whose entire purpose is to be believed may not
+// print an impossible ratio beside its figures, and a reader who took "17
+// windows were refused" at face value would conclude the run measured more
+// windows than it did.
 //
-// The reason list is unchanged and is still printed underneath, in full: this
-// names the two quantities apart rather than dropping either.
+// The reason list is still printed underneath, in full: this names the two
+// quantities apart rather than dropping either.
 function allocRefusedWindowCount(row) {
   let n = 0;
   for (const r of row.perRound || []) {
@@ -2888,16 +2824,16 @@ function allocRefusedWindowCount(row) {
   return n;
 }
 
-// EVERY RECORDED WINDOW NAMES ITS OWN WRITE, AND EVERY PAIR IS WHOLE
-// (rf2-irxrw). This is criterion 6's separation read at WINDOW granularity.
+// EVERY RECORDED WINDOW NAMES ITS OWN WRITE, AND EVERY PAIR IS WHOLE. This is
+// criterion 6's separation read at WINDOW granularity.
 //
-// WHY IT MOVED THERE. While one process drove one write, "a reader of any row
-// can tell FROM THE ROW which write produced it" was satisfied by the row's
-// own `writeSelector`: every window under that row had the same answer. A
-// `paired` row has both, so a row-level field answers nothing about a given
+// WHY AT WINDOW GRANULARITY. Where one process drives one write, "a reader of
+// any row can tell FROM THE ROW which write produced it" is satisfied by the
+// row's own `writeSelector`: every window under that row has the same answer.
+// A `paired` row has both, so a row-level field answers nothing about a given
 // window and the claim has to be carried by the window. The pin over this
-// asserts exactly that, which is strictly more than the row-level one asked
-// and is why the row-level fields stay rather than being replaced.
+// asserts exactly that, which is strictly more than the row-level one asks,
+// and the row-level fields stay beside it.
 //
 // AND THE SECOND HALF IS WHAT MAKES THE PAIR USABLE. A record in which one
 // leg of a pair refused to record, or recorded under the wrong key, still
@@ -2909,7 +2845,7 @@ function allocRefusedWindowCount(row) {
 // check is the same code saying so.
 //
 // IT IS A RECORDED FACT AND GATES NOTHING. No figure is computed from it and
-// no run exits on it; the pins are what adjudicate it, on every PR.
+// no run exits on it; the pins are what adjudicate it.
 function allocWriteProvenance(row) {
   const legs = row.writeLegs || [];
   const known = new Set(legs);
@@ -2966,12 +2902,11 @@ function allocWriteProvenance(row) {
 
 async function allocRow(chromium) {
   // THE PREFLIGHT REFUSAL, before a browser is launched and a byte is
-  // measured. It refuses only on grounds it can defend WITHOUT a sizing model
-  // — rf2-2rtt6.139's interim posture — which is now two: an unstated page,
-  // and a window under the averaging floor.
+  // measured. It refuses only on grounds it can defend WITHOUT a sizing model,
+  // which are two: an unstated page, and a window under the averaging floor.
   //
-  // The averaging floor is the half `allocSteps` can NEVER catch up on
-  // (rf2-2rtt6.142). A window under `ALLOC_MIN_WRITES` is not heterogeneous,
+  // The averaging floor is the half `allocSteps` can NEVER catch up on. A
+  // window under `ALLOC_MIN_WRITES` is not heterogeneous,
   // so nothing downstream refuses it, and the r² floor sees only a fit it has
   // no averaging to make. This is the one gate that can say so.
   if (!ALLOC_ARM.admissible) {
@@ -2982,8 +2917,8 @@ async function allocRow(chromium) {
         ALLOC_ARM.refusals.map((r) => `  - ${r}`).join('\n')
     );
   }
-  // THE TWO SWITCHES, REFUSED HERE FOR THE SAME REASON AND IN THE SAME PLACE
-  // (rf2-gxrr). A mistyped switch would otherwise fall back to its default
+  // THE TWO SWITCHES, REFUSED HERE FOR THE SAME REASON AND IN THE SAME PLACE.
+  // A mistyped switch would otherwise fall back to its default
   // silently, and the run would publish a row under a configuration nobody
   // asked for — the one failure a measurement instrument may not have, since
   // the record would name the write it drove and the operator would read the
@@ -2994,7 +2929,7 @@ async function allocRow(chromium) {
   // that is deliberate: the no-arms route out of a refused page is a mode
   // with a name on it, not a page of zero boundaries. V3 states its page like
   // any other run, and the averaging floor still holds its six writes.
-  // REFUSED ON THE LEGS, NOT ON THE SPEC (rf2-irxrw). `ALLOC_WRITE_SPEC` is
+  // REFUSED ON THE LEGS, NOT ON THE SPEC. `ALLOC_WRITE_SPEC` is
   // `undefined` under `paired` as well as under a typo — there is no ONE
   // write in either case — so the test that separates a valid selection from
   // a mistyped one is whether the SELECTION resolved, and that is the legs.
@@ -3011,7 +2946,7 @@ async function allocRow(chromium) {
         `${Object.keys(ALLOC_PLAN_SHAPES).join(' | ')}, and \`full\` is the default`
     );
   }
-  // AND THE THIRD SWITCH, ON THE SAME RULE (rf2-rs8q6). A mistyped segment
+  // AND THE THIRD SWITCH, ON THE SAME RULE. A mistyped segment
   // order would otherwise fall back to `parity` silently, and this is the one
   // switch where that failure is undetectable after the fact: a `fixed` run
   // that quietly ran on `parity` produces a record whose rounds are in the
@@ -3024,7 +2959,7 @@ async function allocRow(chromium) {
         'is the default every published row is taken under'
     );
   }
-  // AND THE FOURTH, ON THE SAME RULE (rf2-rs8q6). A mistyped control slot is
+  // AND THE FOURTH, ON THE SAME RULE. A mistyped control slot is
   // undetectable after the fact for exactly the segment order's reason and one
   // more on top of it: a `mid` run that quietly ran on `first` produces a
   // record in which "the first arm after the controls" is position 0 under a
@@ -3037,7 +2972,7 @@ async function allocRow(chromium) {
         '`first` is the default every published row is taken under'
     );
   }
-  // AND THE FIFTH, ON THE SAME RULE (rf2-fk6pj). A mistyped leg order is
+  // AND THE FIFTH, ON THE SAME RULE. A mistyped leg order is
   // undetectable after the fact for the segment order's reason exactly: a
   // `seeded` run that quietly ran on `parity` produces a record carrying a
   // seed, a mode name and a set of rounds whose leg order IS parity-derived —
@@ -3052,7 +2987,7 @@ async function allocRow(chromium) {
     );
   }
   // AND A `seeded` RUN THAT CANNOT ESCAPE PARITY IS REFUSED RATHER THAN
-  // TAKEN (rf2-fk6pj). At two rounds or fewer every balanced schedule IS a
+  // TAKEN. At two rounds or fewer every balanced schedule IS a
   // parity schedule, so the draw has nothing to return and `allocPassFlips`
   // says so. The window would cost the same and separate nothing, and a record
   // stating `seeded` over a parity-derived schedule is the one artefact this
@@ -3097,8 +3032,8 @@ async function allocRow(chromium) {
   const published = await page.evaluate(() => window.P0H.boundariesPerRoot);
   const perRoot = { ...published, grid: ALLOC_CELLS };
   const B = ALLOC_ARM.boundaries;
-  // The full plan, then whatever this run's plan shape admits of it
-  // (rf2-gxrr). `full` returns it untouched.
+  // The full plan, then whatever this run's plan shape admits of it. `full`
+  // returns it whole.
   const plan = allocPlanArms(ladderPlan(perRoot, ROOTS), ALLOC_PLAN_SHAPE);
   const { gc, read } = await makeReaders(page);
 
@@ -3115,7 +3050,7 @@ async function allocRow(chromium) {
     ALLOC_WINDOW_WRITES
   );
   // THE STRIDE, PROVED RATHER THAN TRUSTED, on the same probe and for the same
-  // reason as the flag above (rf2-rs8q6). A page that ignored the third
+  // reason as the flag above. A page that ignored the third
   // argument — an older build served out of a stale cache is the way that
   // happens — would fill a stride-2 buffer and hand back a well-formed stream
   // the driver would then decode against a stride of 3, reading site figures
@@ -3140,7 +3075,7 @@ async function allocRow(chromium) {
     );
   }
 
-  // --- THE WORK CENSUS, PROVED RATHER THAN TRUSTED (rf2-n1b9h) ----------
+  // --- THE WORK CENSUS, PROVED RATHER THAN TRUSTED -----------------------
   //
   // The closure-define rides on a `--config-merge`, and the page is the only
   // thing that knows whether it arrived. Both directions are gated, because
@@ -3148,13 +3083,12 @@ async function allocRow(chromium) {
   //
   //   - asked for and ABSENT — every counter reads 0 for the whole run, which
   //     is indistinguishable from a page that did no work, and "counts
-  //     identical" is exactly the reading this bead would draw a conclusion
-  //     from. A census that cannot move must never be quoted as one that did
-  //     not.
+  //     identical" is exactly the reading a conclusion would be drawn from. A
+  //     census that cannot move must never be quoted as one that did not.
   //   - NOT asked for and present — a stale build directory serving a counted
   //     bundle into a run whose figures are meant to be comparable with the
   //     published series. The whole point of the compile-time gate is that
-  //     THIS run's bundle is the pre-census one, so it is checked, not assumed.
+  //     THIS run's bundle is the uncounted one, so it is checked, not assumed.
   const armed = await page.evaluate(() => window.P0H.workArmed());
   if (armed !== WORK_COUNT) {
     await browser.close();
@@ -3189,11 +3123,11 @@ async function allocRow(chromium) {
     const armsOut = {};
 
     // --- the three controls, in situ, AT THIS RUN'S CONTROL SLOT --------
-    // `first` is the pre-bead position — before the round's arms — and every
+    // `first` is the default position — before the round's arms — and every
     // published row is taken under it. `mid` and `last` move them, which is
     // what separates "the first arm after the controls" from "the first arm
-    // after the round-loop boundary" (rf2-rs8q6); see `allocControlIndex` for
-    // why only `mid` separates them at full n.
+    // after the round-loop boundary"; see `allocControlIndex` for why only
+    // `mid` separates them at full n.
     const controlOf = async (kind, d) => {
       await page.evaluate(
         ([dd, n, s]) => window.P0H.allocPrepare(dd, n, s),
@@ -3207,19 +3141,19 @@ async function allocRow(chromium) {
       );
       const post = await read();
       // The controls take the prime too, and that is the point: one window
-      // shape, not two (rf2-oiy1). Their own first leg carries no measurable
-      // excess — the studio page records the control windows' worst leg
-      // deviation at <= 1% against the arms' 26-46% — so priming them changes
-      // no control figure, and a control taken under a different window shape
-      // from the arms would not be one.
-      // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S (rf2-rs8q6).
-      // Off the mode this is the identity and the two lines below are the
-      // pre-bead ones; on it, the certificate is still read off the stride-2
-      // stream, and the site figures ride alongside as a diagnostic.
+      // shape, not two. Their own first leg carries no measurable excess —
+      // the studio page records the control windows' worst leg deviation at
+      // <= 1% against the arms' 26-46% — so priming them changes no control
+      // figure, and a control taken under a different window shape from the
+      // arms would not be one.
+      // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S. Off the mode
+      // the collapse is the identity; on it, the certificate is still read
+      // off the stride-2 stream, and the site figures ride alongside as a
+      // diagnostic.
       const site = allocSiteSplit(w.samples, w.sites);
       const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
       const s = allocSteps(measured);
-      // AND THE THIRD GATE (rf2-4ctls), which reads the site legs the mode has
+      // AND THE THIRD GATE, which reads the site legs the mode has
       // already measured and adjudicates nothing `allocSteps` adjudicates. The
       // identity off the mode, where there are no site legs to be negative.
       // ONE WINDOW SHAPE, NOT TWO: the controls take this exactly as they take
@@ -3239,11 +3173,11 @@ async function allocRow(chromium) {
         sites: site.sites,
         siteLegs: site.siteLegs,
         siteWitness: site.siteLegs.length ? allocSiteWitness(site.siteLegs) : null,
-        // THE RAW STREAM THIS WINDOW WAS READ OFF (rf2-erre5). See the arm
+        // THE RAW STREAM THIS WINDOW WAS READ OFF. See the arm
         // window below for why; the controls carry it for the same reason
         // they carry the prime — one window shape, not two.
         samples: w.samples,
-        // AND THE WORK CENSUS (rf2-n1b9h), for that same reason. A control
+        // AND THE WORK CENSUS, for that same reason. A control
         // dispatches nothing and renders nothing, so its three deltas are
         // the census's in-situ null arm: they are recorded every round of
         // every run, and `allocWorkVerification` below refuses any run in
@@ -3254,16 +3188,16 @@ async function allocRow(chromium) {
       };
     };
     // --- the arms, in the order this run's segment order dictates -------
-    // `parity` is the pre-bead expression verbatim; `fixed` drives the
-    // configured order every round and is what breaks the position/substrate
-    // confound (rf2-rs8q6). See `allocSegmentOrder` for the three outcomes.
+    // `parity` flips the order on odd rounds; `fixed` drives the configured
+    // order every round and is what breaks the position/substrate confound.
+    // See `allocSegmentOrder` for the three outcomes.
     const segs = allocSegmentOrder(plan, round, ALLOC_SEG_ORDER);
-    // AND THE WRITE LEGS, ON THE SAME PARITY (rf2-irxrw). One pass over the
-    // segment's arms per write this run drives, so a `paired` round measures
-    // EVERY arm — the floor included, and the floor is the dominant shared
-    // term — under both writes on the same page in the same process. Off
-    // `paired` there is one leg, `passes` is `segs` with it attached, and the
-    // body below runs exactly the calls it ran before, in the same order.
+    // AND THE WRITE LEGS, ON THE SAME PARITY. One pass over the segment's
+    // arms per write this run drives, so a `paired` round measures EVERY arm
+    // — the floor included, and the floor is the dominant shared term —
+    // under both writes on the same page in the same process. Off `paired`
+    // there is one leg, `passes` is `segs` with it attached, and the body
+    // below runs once per segment.
     //
     // THE PASS RE-SEEDS, AND IT HAS TO. `:p0/write-all` replaces `:cells`
     // with a `cells-n`-wide vector whatever is mounted, and `:p0/write-page`
@@ -3279,10 +3213,9 @@ async function allocRow(chromium) {
     // read as a difference between the writes. Over the six default rounds
     // each leg leads three times.
     //
-    // AND UNDER WHICH RULE IT ALTERNATES IS ITSELF A MODE NOW (rf2-fk6pj).
-    // `parity` is the expression that stood here — `round % 2 === 0`, and
-    // `allocPassOrder` is that expression verbatim under it, so every
-    // committed corpus is read under the rule it was taken under. `seeded`
+    // AND UNDER WHICH RULE IT ALTERNATES IS ITSELF A MODE. Under `parity`,
+    // `allocPassOrder` reverses the odd rounds — the rule every committed
+    // corpus was taken under, so each is read under its own rule. `seeded`
     // draws a balanced schedule from `passSeed` instead, which is the only way
     // to separate the measured pass-position term from every other even/odd
     // property of a round. See `allocPassFlips` for what the draw guarantees.
@@ -3290,12 +3223,12 @@ async function allocRow(chromium) {
     const passes = segs.flatMap(({ segment, arms }) =>
       legs.map((leg) => ({ segment, arms, leg }))
     );
-    // WHERE THE THREE CONTROLS GO, AND THE RECORD OF WHAT WAS DRIVEN
-    // (rf2-rs8q6). `controlAt` names the pass they are driven BEFORE;
-    // `windowOrder` accumulates the round's window sequence in DRIVE ORDER,
-    // which is what the confound reader indexes on — a reader that recomputed
-    // the slot rule would mis-place every window of a moved-control run, the
-    // same defect `segments` was landed to close for the segment order.
+    // WHERE THE THREE CONTROLS GO, AND THE RECORD OF WHAT WAS DRIVEN.
+    // `controlAt` names the pass they are driven BEFORE; `windowOrder`
+    // accumulates the round's window sequence in DRIVE ORDER, which is what
+    // the confound reader indexes on — a reader that recomputed the slot rule
+    // would mis-place every window of a moved-control run, the defect
+    // `segments` closes for the segment order.
     let idle = null;
     let ctl1 = null;
     let ctl2 = null;
@@ -3313,13 +3246,13 @@ async function allocRow(chromium) {
     for (const { segment, arms, leg } of passes) {
       passIndex++;
       if (passIndex === controlAt) await driveControls();
-      // THE GRID WIDTH IS B, AND IT IS SEEDED WITH THE FRAME (rf2-2rtt6.140).
+      // THE GRID WIDTH IS B, AND IT IS SEEDED WITH THE FRAME.
       // `:p0/write-page` rebuilds `:cells` at the width the mounted page
       // actually reads — one cell per boundary — so the write's own machinery
       // is O(mounted page) instead of the flat 300-element rebuild
       // `:p0/write-all` performs whether one boundary is mounted or 1,200. On
-      // the 24-boundary page this row last ran, 276 of those 300 rebuilt cells
-      // were read by nothing at all.
+      // a 24-boundary page, 276 of those 300 rebuilt cells would be read by
+      // nothing at all.
       //
       // Passed here rather than set ambiently: the width has to be seeded
       // BEFORE `make-frame`, and a parameter that is never ambient cannot be
@@ -3327,7 +3260,7 @@ async function allocRow(chromium) {
       // nothing and seeds at `fx/cells-n`, so no published figure moves.
       //
       // UNDER `P0_ALLOC_WRITE=all` THE SEEDED WIDTH IS STILL B and only the
-      // write differs (rf2-gxrr): `:p0/write-all` rebuilds `cells-n` of them
+      // write differs: `:p0/write-all` rebuilds `cells-n` of them
       // whatever is mounted, which is precisely why V1 expects `F_old` flat
       // in B. The mounted boundaries read cells 0..(B/roots − 1), so a page
       // wider than `cells-n` would have its tail read `nil` — the warm-write
@@ -3358,25 +3291,23 @@ async function allocRow(chromium) {
         }
         // A WARM-UP PASS at the REAL window size, and not a token one. A
         // measurement site reads well above its settled value until it has
-        // run several full-size windows: `b8-alloc`'s driver watched a
-        // first window read 5.3x its settled value with nothing else
-        // varying, and its own instrument pseudo-arm read 9.9x. Warming
-        // with anything smaller than the window would leave that inside
-        // the first round of every arm.
+        // run several full-size windows: a first window can read 5.3x its
+        // settled value with nothing else varying, and an instrument
+        // pseudo-arm 9.9x. Warming with anything smaller than the window
+        // would leave that inside the first round of every arm.
         //
-        // THE WARM-UPS STILL RUN, AND THEY STILL DO NOT REACH THE FIRST LEG
-        // (rf2-oiy1). They land BEFORE the `gc()` below, and the excess this
-        // row carried in 336 of 336 windows survived all three of them. What
-        // clears it is one work unit AFTER the collection, which is what the
-        // window's prime leg is. The warm-ups are what stop the arm's own
-        // cold-start from reaching the window at all, and that job is theirs
-        // still.
+        // THE WARM-UPS DO NOT REACH THE FIRST LEG. They land BEFORE the
+        // `gc()` below, and the first-leg excess an unprimed window carries
+        // in 336 of 336 windows survives all three of them. What clears it is
+        // one work unit AFTER the collection, which is what the window's
+        // prime leg is. The warm-ups are what stop the arm's own cold-start
+        // from reaching the window at all.
         await page.evaluate(
           ([dd, n, s]) => window.P0H.allocPrepare(dd, n, s),
           [0, ALLOC_WINDOW_WRITES, ALLOC_SITES]
         );
         //
-        // AND THEY WARM THIS PASS'S OWN WRITE (rf2-irxrw). A site warmed
+        // AND THEY WARM THIS PASS'S OWN WRITE. A site warmed
         // under one write and measured under the other reads its settled
         // value for neither, and under `paired` the other write is one pass
         // away rather than one process away — so `leg` is what both the
@@ -3396,16 +3327,16 @@ async function allocRow(chromium) {
         );
         const post = await read();
         await page.evaluate(() => window.P0H.release());
-        // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S (rf2-rs8q6),
-        // exactly as at the control site above. Off the mode `collapsed` IS
-        // `win.samples` and the line below it is the pre-bead one.
+        // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S, exactly as
+        // at the control site above. Off the mode `collapsed` IS
+        // `win.samples`.
         const site = allocSiteSplit(win.samples, win.sites);
         const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
         const s = allocSteps(measured);
-        // AND THE THIRD GATE (rf2-4ctls), at the arm window exactly as at the
-        // control window above. It reads `site.siteLegs` — already measured,
-        // never adjudicated until now — and unions its refusals into the
-        // window's. `allocSteps` is handed the collapsed stream still, so
+        // AND THE THIRD GATE, at the arm window exactly as at the control
+        // window above. It reads `site.siteLegs`, which the mode already
+        // measures, and unions its refusals into the window's. `allocSteps`
+        // is handed the collapsed stream still, so
         // `rise`, `falls` and `maxStep` are the same numbers on the same code.
         const verdict = allocWindowVerdict(s, site.siteLegs);
         // THE WRITE READ-BACK, and the row exits on it. At R reads of a
@@ -3431,11 +3362,11 @@ async function allocRow(chromium) {
           reads: R,
           boundaries: B,
           text: win.text,
-          // WHICH WRITE THIS WINDOW DROVE, AND WHICH PAIR IT BELONGS TO
-          // (rf2-irxrw). Criterion 6's separation — "a reader of any row can
-          // tell FROM THE ROW which write produced it" — held at ROW
-          // granularity while a process drove one write; under `paired` a row
-          // carries both, so it has to hold at WINDOW granularity instead.
+          // WHICH WRITE THIS WINDOW DROVE, AND WHICH PAIR IT BELONGS TO.
+          // Criterion 6's separation — "a reader of any row can tell FROM THE
+          // ROW which write produced it" — holds at ROW granularity while a
+          // process drives one write; under `paired` a row carries both, so
+          // it has to hold at WINDOW granularity instead.
           // Every window names its own kind under every selection, so the
           // property is one claim rather than a mode-dependent one.
           //
@@ -3448,24 +3379,24 @@ async function allocRow(chromium) {
           write: `${leg.spec.event} — ${leg.spec.note}`,
           pairKey: entry.key,
           ...verdict,
-          // THE PRIME LEG, RECORDED RATHER THAN DISCARDED (rf2-oiy1). It is
-          // in no published quantity and in no certificate, and it is the
-          // term that made every floor window uncertifiable, so the record
+          // THE PRIME LEG, RECORDED RATHER THAN DISCARDED. It is in no
+          // published quantity and in no certificate, and it is the term that
+          // would make every floor window uncertifiable, so the record
           // carries it and the summary prints it.
           primeLegs,
           primeExcess: primeLegs.length ? primeLegs[0] - s.legMedian : null,
           perWrite: s.rise / ALLOC_WRITES,
           perBoundaryPerWrite: s.rise / ALLOC_WRITES / B,
           cdpBracket: post.cdp - pre.cdp,
-          // BY SITE, AND ACROSS THE ROUND SEQUENCE (rf2-rs8q6). `siteLegs` is
-          // the raw decomposition and `siteWitness` is where the excess sits;
-          // both are `null`/empty off the mode, so the record's shape is
-          // unchanged for every published run.
+          // BY SITE, AND ACROSS THE ROUND SEQUENCE. `siteLegs` is the raw
+          // decomposition and `siteWitness` is where the excess sits; both
+          // are `null`/empty off the mode, so no published run's record
+          // carries site figures.
           sites: site.sites,
           siteLegs: site.siteLegs,
           siteWitness: site.siteLegs.length ? allocSiteWitness(site.siteLegs) : null,
-          // THE RAW STREAM, SO A FUTURE ESTIMATOR CAN BE APPLIED TO A PAST RUN
-          // (rf2-erre5). Everything else in this object is DERIVED — `collapsed`
+          // THE RAW STREAM, SO A FUTURE ESTIMATOR CAN BE APPLIED TO A PAST RUN.
+          // Everything else in this object is DERIVED — `collapsed`
           // from `allocSiteSplit(samples, sites)`, `measured` and `primeLegs`
           // from `allocPrimeSplit` on that, and `rise`, `fall`, `falls`,
           // `maxStep`, `endpoints`, `legs`, `gaps` and the certificate from
@@ -3474,15 +3405,16 @@ async function allocRow(chromium) {
           // written after the run can be driven over it and get the number this
           // run would have published, instead of over a reconstruction.
           //
-          // WHAT IT ADDS OVER `legs` AND `gaps`, which have been recorded since
-          // rf2-2rtt6.140 and already re-derive every published figure exactly.
-          // Two things, and they are the two a scalar record cannot hold:
+          // WHAT IT ADDS OVER `legs` AND `gaps`, which are recorded too and
+          // already re-derive every published figure exactly. Two things, and
+          // they are the two a scalar record cannot hold:
           //
           //   - THE PRIME REGION'S GAPS. `primeLegs` keeps the prime's LEGS and
-          //     nothing keeps the steps between them, so "did a collection land
-          //     in the prime?" is not askable of a record. The prime is exactly
-          //     the term rf2-oiy1 took out of every published quantity, which
-          //     makes it the term a later bead is most likely to come back to.
+          //     nothing else keeps the steps between them, so without the raw
+          //     stream "did a collection land in the prime?" is not askable of
+          //     a record. The prime is exactly the term taken out of every
+          //     published quantity, which makes it the term a later analysis
+          //     is most likely to come back to.
           //   - THE ABSOLUTE HEAP LEVEL. Every recorded quantity is a
           //     difference, so a record of them fixes the stream only up to a
           //     translation. Drift across a page's rounds is a question about
@@ -3494,48 +3426,45 @@ async function allocRow(chromium) {
           // mid samples as well. The collapsed stream determines neither.
           //
           // IT MOVES NOTHING. No gate reads this field, no figure is computed
-          // from it, and `allocSteps` is handed exactly what it was handed
-          // before — rf2-rs8q6's fence stands untouched. This is retention.
+          // from it, and `allocSteps` is handed the collapsed measured region,
+          // not this. This is retention.
           samples: win.samples,
           // WHERE THIS WINDOW SITS IN THE PAGE'S OWN WORK-UNIT SEQUENCE.
           // `alloc-tick` is monotone for the life of the page — the warm-ups
           // advance it too — so this pair is what a round index actually IS,
           // stated in the quantity the arm's own write is parameterised by.
           // A round-indexed effect is an effect indexed by these numbers, and
-          // no analysis could reach for them while they were not recorded.
+          // an analysis can reach for them only because they are recorded.
           tick0: win.tick0,
           tick: win.tick,
-          // THE WORK INSIDE THOSE WRITES (rf2-n1b9h). `tick0`/`tick` place
-          // the window in the page's sequence of writes; this pair says
-          // what ran inside them. `rf2-77gz8` left two candidates for its
-          // 3,792 B second mode that the byte counters cannot separate —
-          // more work per write, against the same work allocating more per
-          // invocation — and they differ here and nowhere else a page-side
-          // instrument can reach.
+          // THE WORK INSIDE THOSE WRITES. `tick0`/`tick` place the window in
+          // the page's sequence of writes; this pair says what ran inside
+          // them. The floor's 3,792 B second mode has two candidates the
+          // byte counters cannot separate — more work per write, against the
+          // same work allocating more per invocation — and they differ here
+          // and nowhere else a page-side instrument can reach.
           work0: win.work0,
           work: win.work,
           workDelta: allocWorkDelta(win),
         };
       }
     }
-    // `writeLegs` IS THE ORDER THIS ROUND ACTUALLY DROVE THEM IN (rf2-irxrw),
-    // not the configured order. The parity flip above is the whole reason the
-    // pair is not order-confounded, and an estimator that wants to know which
-    // leg led in a given round has to be able to read it off the round rather
-    // than recompute the parity rule.
-    // AND `segments` IS THE ORDER THIS ROUND ACTUALLY DROVE THEM IN
-    // (rf2-rs8q6), recorded for exactly `writeLegs`'s reason and now with a
-    // second one on top of it. The order was recoverable before only by
-    // recomputing the parity rule — and that rule is no longer the only one a
-    // record can have been taken under, so an estimator that recomputed it
-    // would silently mis-position every window of a `fixed` run.
-    // AND THE CONTROLS THEMSELVES, WHERE THE SLOT PUTS THEM LAST (rf2-rs8q6).
+    // `writeLegs` IS THE ORDER THIS ROUND ACTUALLY DROVE THEM IN, not the
+    // configured order. The parity flip above is the whole reason the pair is
+    // not order-confounded, and an estimator that wants to know which leg led
+    // in a given round has to be able to read it off the round rather than
+    // recompute the parity rule.
+    // AND `segments` IS THE ORDER THIS ROUND ACTUALLY DROVE THEM IN, recorded
+    // for exactly `writeLegs`'s reason and one more: the parity rule is not
+    // the only one a record can have been taken under, so an estimator that
+    // recomputed it would silently mis-position every window of a `fixed` run.
+    // AND THE CONTROLS THEMSELVES, WHERE THE SLOT PUTS THEM LAST.
     // `controlAt === passes.length` is `last`, which is "before no pass at
     // all"; the loop above cannot fire on an index it never reaches, so the
     // tail case is driven here. Under `first` and `mid` this is inert.
     if (controlAt >= passes.length) await driveControls();
-    // AND `windowOrder` IS THE WHOLE ROUND IN DRIVE ORDER (rf2-rs8q6),
-    // controls included, for that same reason carried one level up. `segments`
+    // AND `windowOrder` IS THE WHOLE ROUND IN DRIVE ORDER, controls
+    // included, for that same reason carried one level up. `segments`
     // says which substrate led; `windowOrder` says what ran between the arm
     // windows, which is the index the control-slot modes exist to move. A
     // reader that recomputed it from `controlSlot` would be recomputing the
@@ -3554,17 +3483,17 @@ async function allocRow(chromium) {
   // --- the fits, through the LADDER's rule, with the page still open ----
   //
   // A fit is over the RUNGS, so a plan that carries none has nothing to fit
-  // and says so by carrying an empty `allocFits` (rf2-gxrr). It does not
-  // fabricate a fit from the floor alone, and the summary prints no fitted
-  // line — V1 and V3 both state "no fits" in their configurations, and a
-  // line fitted through one point would be the instrument answering a
-  // question it was not asked.
+  // and says so by carrying an empty `allocFits`. It does not fabricate a
+  // fit from the floor alone, and the summary prints no fitted line — V1 and
+  // V3 both state "no fits" in their configurations, and a line fitted
+  // through one point would be the instrument answering a question it was
+  // not asked.
   //
-  // AND ONE FIT PER WRITE (rf2-irxrw). A `paired` run has two rungs at every
-  // R, taken under two different writes, and a single line through both would
-  // be a slope over a mixture. So the fit id carries the write exactly as the
+  // AND ONE FIT PER WRITE. A `paired` run has two rungs at every R, taken
+  // under two different writes, and a single line through both would be a
+  // slope over a mixture. So the fit id carries the write exactly as the
   // window key does — `allocWindowKey`, on the same identity off `paired`, so
-  // every published run's `allocFits` is keyed as it always was.
+  // a run off `paired` keys `allocFits` by segment and substrate alone.
   const fits = { perRound: {}, mean: {} };
   for (const { segment } of ALLOC_PLAN_SHAPE.fits ? plan : []) {
     for (const sub of LADDER_SUBSTRATES[segment]) {
@@ -3602,13 +3531,13 @@ async function allocRow(chromium) {
     arm: ALLOC_ARM,
     boundaries: B,
     writes: ALLOC_WRITES,
-    // The window drives `writes + primeWrites` and publishes over `writes`
-    // (rf2-oiy1). Both are in the record because a reader of any figure here
+    // The window drives `writes + primeWrites` and publishes over `writes`.
+    // Both are in the record because a reader of any figure here
     // has to be able to tell how many work units it was divided by and how
     // many actually ran.
     primeWrites: ALLOC_PRIME_WRITES,
     windowWrites: ALLOC_WINDOW_WRITES,
-    // WHETHER THIS ROW WAS TAKEN BY SITE (rf2-rs8q6), on criterion 6's rule
+    // WHETHER THIS ROW WAS TAKEN BY SITE, on criterion 6's rule
     // that a reader of any row can tell FROM THE ROW how it was taken. Site
     // figures carry one extra sampler read per leg, so a leg magnitude here is
     // not comparable byte for byte with one from a row where this reads 2.
@@ -3620,10 +3549,10 @@ async function allocRow(chromium) {
     preciseMemory: precise,
     controlDoubles: { d1: ALLOC_D, d2: ALLOC_D2 },
     controlSlack: ALLOC_CONTROL_SLACK,
-    // WHICH WRITE, AND WHICH PLAN, THIS ROW WAS TAKEN UNDER (rf2-gxrr).
+    // WHICH WRITE, AND WHICH PLAN, THIS ROW WAS TAKEN UNDER.
     // Criterion 6's separation is that a reader of any row can tell FROM THE
-    // ROW which write produced it; a hard-coded string could only ever have
-    // named one, and would have gone on naming it after the selector landed.
+    // ROW which write produced it; a hard-coded string could only ever name
+    // one, and would go on naming it whichever write the selector chose.
     //
     // BOTH ARE THE SELECTION, NOT THE EVENT. The selected write is driven only
     // inside the arm loop, so a plan that mounts no arm resolves these two and
@@ -3632,26 +3561,26 @@ async function allocRow(chromium) {
     // configured — beside `controlVerdict` and the other verdicts this row
     // learns about itself only once its rounds are in.
     //
-    // AND UNDER `paired` IT IS BOTH (rf2-irxrw), so the row states the legs
-    // it drove as a list rather than a scalar. Off `paired` the list has one
-    // member and `write` is the same string it always was, to the byte.
+    // AND UNDER `paired` IT IS BOTH, so the row states the legs it drove as a
+    // list rather than a scalar. Off `paired` the list has one member and
+    // `write` names that one write.
     writeSelector: ALLOC_WRITE,
     writeLegs: ALLOC_WRITE_LEGS.map((l) => l.selector),
     writePaired: ALLOC_WRITE_PAIRED,
     write: ALLOC_WRITE_LEGS.map((l) => `${l.spec.event} — ${l.spec.note}`).join('  AND  '),
     plan: { name: ALLOC_PLAN, ...ALLOC_PLAN_SHAPE },
-    // AND WHICH SEGMENT ORDER (rf2-rs8q6), on the same criterion-6 rule as the
-    // two above: `fixed` gives up the between-substrate comparison the parity
-    // flip was landed for, so a reader has to be able to tell from the row
-    // whether the row is entitled to make one. `parity` on every published row.
+    // AND WHICH SEGMENT ORDER, on the same criterion-6 rule as the two above:
+    // `fixed` gives up the between-substrate comparison the parity flip exists
+    // for, so a reader has to be able to tell from the row whether the row is
+    // entitled to make one. `parity` on every published row.
     segOrder: ALLOC_SEG_ORDER,
-    // AND UNDER WHICH PASS-ORDER RULE ITS WRITE LEGS ALTERNATED (rf2-fk6pj),
-    // on that same criterion-6 rule and with one thing on top of it that the
-    // three modes above do not need. `parity` names a schedule a reader can reconstruct from the round
-    // index; `seeded` names one that NOTHING recovers except the seed, so the
-    // seed travels in the row. Re-passing it as `P0_ALLOC_PASS_SEED` reproduces
-    // the schedule exactly, which is what makes a `seeded` window re-readable
-    // rather than a one-shot.
+    // AND UNDER WHICH PASS-ORDER RULE ITS WRITE LEGS ALTERNATED, on that same
+    // criterion-6 rule and with one thing on top of it that the three modes
+    // above do not need. `parity` names a schedule a reader can reconstruct
+    // from the round index; `seeded` names one that NOTHING recovers except
+    // the seed, so the seed travels in the row. Re-passing it as
+    // `P0_ALLOC_PASS_SEED` reproduces the schedule exactly, which is what
+    // makes a `seeded` window re-readable rather than a one-shot.
     //
     // THE SEED IS RECORDED UNDER `parity` TOO, AND IS INERT THERE. It is
     // resolved once at require whichever mode runs, so a row states the seed
@@ -3666,22 +3595,22 @@ async function allocRow(chromium) {
     // schedule that was drawn and NOT driven — `writeLegs` on each round is
     // always the order that ran.
     passSchedule: ALLOC_PASS_SCHEDULE,
-    // AND WHICH CONTROL SLOT (rf2-rs8q6), on that same criterion-6 rule. The
+    // AND WHICH CONTROL SLOT, on that same criterion-6 rule. The
     // controls are this row's null arm and every studio page reads them against
     // the arms window for window; a row whose controls were taken at another
     // point in the round is not the row those comparisons were made on. `first`
     // on every published row.
     controlSlot: ALLOC_CONTROL_SLOT,
-    // WHICH OF THE THREE GATES SCREENED THIS ROW (rf2-fir5n), and not merely
-    // which three exist. It reads `ALLOC_BY_SITE` for the same reason `bySite`
-    // above does: at a stride of 2 the intra-leg gate returns `[]` by
-    // construction, so a row that closed with "All three refuse" named a gate
-    // that adjudicated nothing on it. See `allocInstrumentNote`.
+    // WHICH OF THE THREE GATES SCREENED THIS ROW, and not merely which three
+    // exist. It reads `ALLOC_BY_SITE` for the same reason `bySite` above
+    // does: at a stride of 2 the intra-leg gate returns `[]` by construction,
+    // so a row closing "All three refuse" would name a gate that adjudicated
+    // nothing on it. See `allocInstrumentNote`.
     instrument: allocInstrumentNote(ALLOC_BY_SITE),
     fallThresholdB: ALLOC_FALL_THRESHOLD_B,
     legTolerance: ALLOC_LEG_TOLERANCE,
     verification: { unverified, detail: unverifiedDetail },
-    // WHETHER THIS ROW CARRIES A WORK CENSUS, AND WHAT IT PROVED (rf2-n1b9h).
+    // WHETHER THIS ROW CARRIES A WORK CENSUS, AND WHAT IT PROVES.
     // `workCount` is the switch; `workVerification` is what the run measured
     // about its own counters and is derived off `perRound` rather than
     // configured, beside `writeDriven` and `controlVerdict` for the same
@@ -3693,14 +3622,14 @@ async function allocRow(chromium) {
   };
 }
 
-// THE BY-SITE REPORT (rf2-rs8q6), as LINES rather than as `console.log` calls,
+// THE BY-SITE REPORT, as LINES rather than as `console.log` calls,
 // for the reason this file already gives about `summariseAlloc`: "the mode is
 // defined" and "the mode runs" are different claims, and a pin that can only
 // read the source can only check the first. Returning the lines lets the pin
 // DRIVE a collected row through the reporter and read what an operator would
 // have seen.
 //
-// EMPTY OFF THE MODE, so a published run's summary is unchanged to the byte.
+// EMPTY OFF THE MODE, so a published run's summary carries no by-site lines.
 function allocSiteReport(row) {
   const out = [];
   if (!row.bySite) return out;
@@ -3714,18 +3643,18 @@ function allocSiteReport(row) {
 
   out.push(';;');
   out.push(
-    ';;   BY SITE (rf2-rs8q6) — the arm work unit opened at its ONE seam, across the round sequence.'
+    ';;   BY SITE — the arm work unit opened at its ONE seam, across the round sequence.'
   );
   out.push(';;     dispatch = the dispatch-sync through the event pipeline and the signal graph');
   out.push(';;     drain    = the flushSync commit that follows it');
   out.push(
-    ';;   A leg is exactly `dispatch + drain`, over the same outer pair of readings the shipped'
+    ';;   A leg is exactly `dispatch + drain`, over the same outer pair of readings the stride-2'
   );
   out.push(
-    ';;   stride takes — so `rise`, `falls` and `maxStep` above are unchanged, and no median or'
+    ';;   window takes — so `rise`, `falls` and `maxStep` above are unchanged, and no median or'
   );
   out.push(
-    ';;   attribution below adjudicates anything. ONE THING HERE DOES (rf2-4ctls): a NEGATIVE site'
+    ';;   attribution below adjudicates anything. ONE THING HERE DOES: a NEGATIVE site'
   );
   out.push(
     ';;   step is a collection inside a leg, and it refuses the window through the intra-leg gate.'
@@ -3757,14 +3686,14 @@ function allocSiteReport(row) {
 
   // --- where each window's dispersion sits ---------------------------------
   //
-  // THE LAST COLUMN IS `dominant`, AND ITS HEADING SAYS SO (rf2-stals). It is
+  // THE LAST COLUMN IS `dominant`, AND ITS HEADING SAYS SO. It is
   // `allocSiteWitness`'s TOTALS estimator — the site holding the largest sum of
   // per-leg |deviation from that site's own median|, across every measured leg.
   // The WORST LEG's own site is a different quantity (`legs[k].site`), and its
   // decomposition prints on the line immediately below this table's row, so both
-  // are on screen at once. The heading previously read `worst-dev site`, which
-  // named the one the column does not carry; readers quote the heading, not the
-  // estimator, so the heading is the thing that has to be true.
+  // are on screen at once. Readers quote the heading, not the estimator, so the
+  // heading is the thing that has to be true — `worst-dev site` would name the
+  // one the column does not carry.
   out.push(';;');
   out.push(
     ';;   round  window                                  ticks        legMed  dispMed  drainMed  dominant site (total |dev|)'
@@ -3787,10 +3716,10 @@ function allocSiteReport(row) {
     }
   }
 
-  // --- the hypothesis the bead names as the one to exclude first -----------
+  // --- the hypothesis to exclude first ---------------------------------------
   out.push(';;');
   out.push(
-    ';;   THE SAME-TERM HYPOTHESIS (the bead\'s "exclude this first"): the recurring excesses overlap'
+    ';;   THE SAME-TERM HYPOTHESIS (the one to exclude first): the recurring excesses overlap'
   );
   out.push(
     ';;   the PRIME excess\'s own scale, which would suggest the same term recurring rather than a'
@@ -3826,7 +3755,7 @@ function allocSiteReport(row) {
     ';;   sufficient: read the magnitudes beside it. The prime excess is TIGHT across windows (p25'
   );
   out.push(
-    ';;   6,800, p75 6,888 B on rf2-e9wr\'s 72 windows), so a recurring term of the same identity has'
+    ';;   6,800, p75 6,888 B over 72 windows), so a recurring term of the same identity has'
   );
   out.push(';;   a magnitude to hit and not merely a site to share.');
   return out;
@@ -3834,7 +3763,7 @@ function allocSiteReport(row) {
 
 function summariseAlloc(row, refused) {
   const B = row.boundaries;
-  // WHAT THIS RUN ACTUALLY MOUNTED, AND WHAT IT ACTUALLY DROVE (rf2-gxrr).
+  // WHAT THIS RUN ACTUALLY MOUNTED, AND WHAT IT ACTUALLY DROVE.
   //
   // The header states the SHAPE of the measurement, and under a narrowed plan
   // the full plan's sentences are not merely uninteresting — they are FALSE of
@@ -3853,14 +3782,14 @@ function summariseAlloc(row, refused) {
   // its own configuration against itself and agreeing.
   //
   // The `full` branches are lifted out WHOLE rather than guarded in place, on
-  // `summariseAllocFits`'s rule: today's published run is unchanged to the
-  // byte, and the narrow plans simply do not reach those lines.
+  // `summariseAllocFits`'s rule: the narrow plans simply do not reach those
+  // lines.
   const armed = row.plan.arms;
   const runged = row.plan.rungs;
   const writeDriven = row.perRound.some((r) => Object.keys(r.arms || {}).length > 0);
   row.writeDriven = writeDriven;
   if (runged) {
-    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS (rf2-2rtt6.76) ====');
+    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS ====');
     console.log(
       `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
         'held FIXED across every rung'
@@ -3870,7 +3799,7 @@ function summariseAlloc(row, refused) {
         'warm-up windows. Q = E on every rung.'
     );
   } else if (armed) {
-    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — FLOOR ARM ONLY, NO RUNG (rf2-gxrr) ====');
+    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — FLOOR ARM ONLY, NO RUNG ====');
     console.log(
       `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries. ` +
         'NO RUNG WAS MOUNTED:'
@@ -3886,7 +3815,7 @@ function summariseAlloc(row, refused) {
         'warm-up windows.'
     );
   } else {
-    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — CONTROLS ONLY, NO ARM (rf2-gxrr) ====');
+    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — CONTROLS ONLY, NO ARM ====');
     console.log(';; NO ARM WAS MOUNTED AND NO WRITE EVENT WAS DRIVEN. The three control windows');
     console.log(';; below are the whole measurement: no rung, no fit, no Q = E, and no statement');
     console.log(
@@ -3899,34 +3828,33 @@ function summariseAlloc(row, refused) {
   }
   console.log(
     `;; The window drives ${row.windowWrites} — the first ${row.primeWrites} is a PRIME and is in ` +
-      'no figure below (rf2-oiy1).'
+      'no figure below.'
   );
   if (armed) {
     console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
     console.log(';; allocates when it is written to, not what a mount costs.');
   }
 
-  // THE ARM'S SIZE, AND WHERE IT CAME FROM (rf2-2rtt6.140). Printed beside the
-  // figures rather than left in a source comment, because the one question a
-  // reader of this table has to be able to answer is which page it was taken
-  // on — the published 1,200-boundary witness is outside this instrument's
-  // range and its refusal is what put this arm here.
+  // THE ARM'S SIZE, AND WHERE IT COMES FROM. Printed beside the figures rather
+  // than left in a source comment, because the one question a reader of this
+  // table has to be able to answer is which page it was taken on — the
+  // published 1,200-boundary witness is outside this instrument's range.
   const a = row.arm;
   const publishedB = row.roots * row.publishedPerRoot.grid;
   console.log(';;');
-  console.log(';; ==== THE PAGE, AND THE WRITE (rf2-2rtt6.140) ====');
+  console.log(';; ==== THE PAGE, AND THE WRITE ====');
   console.log(
     `;;   ${a.cells} cells x ${a.roots} roots = ${a.boundaries} boundaries, ${a.writes} writes a ` +
-      `window. STATED, never derived: rf2-2rtt6.139`
+      `window. STATED, never derived: no`
   );
   console.log(
-    ';;   retired the sizing constant as read off a run that itself refused, and no replacement'
+    ';;   per-boundary sizing constant read off a refused window is honest, and none may be'
   );
   console.log(
-    `;;   may be substituted, so P0_ALLOC_CELLS is mandatory. The published ${publishedB}-boundary`
+    `;;   substituted, so P0_ALLOC_CELLS is mandatory. The published ${publishedB}-boundary`
   );
   console.log(';;   witness is what this row is NOT.');
-  // THE WRITE AND THE PLAN THIS RUN WAS CONFIGURED INTO (rf2-gxrr), printed
+  // THE WRITE AND THE PLAN THIS RUN WAS CONFIGURED INTO, printed
   // from the record rather than asserted from a literal. `page` and `full`
   // are the defaults every published row is taken under; anything else is a
   // validity witness saying so on its own face.
@@ -3937,14 +3865,13 @@ function summariseAlloc(row, refused) {
   // WRITE IS `:p0/write-page`" over that run would attribute an event that did
   // not execute, which is the one failure a provenance line may not have.
   //
-  // AND UNDER `paired` THE SENTENCE IS A DIFFERENT ONE (rf2-irxrw). Neither
-  // branch below is true of a run that drove both writes: the first says the
-  // grid was rebuilt at B, the second calls the row V1's F_old control and
-  // names the switch that selected it. So the paired shape is lifted out
-  // WHOLE on `summariseAllocFits`'s rule — an unpaired run does not reach a
-  // line of it and its output is unchanged to the byte.
+  // AND UNDER `paired` THE SENTENCE IS A DIFFERENT ONE. Neither branch below
+  // is true of a run that drove both writes: the first says the grid was
+  // rebuilt at B, the second calls the row V1's F_old control and names the
+  // switch that selected it. So the paired shape is lifted out WHOLE on
+  // `summariseAllocFits`'s rule — an unpaired run does not reach a line of it.
   if (writeDriven && row.writePaired) {
-    console.log(';;   THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR (rf2-irxrw):');
+    console.log(';;   THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR:');
     for (const leg of row.writeLegs) {
       const spec = ALLOC_WRITE_SPECS[leg];
       console.log(`;;     \`${spec.event}\` — ${spec.note}`);
@@ -3959,15 +3886,15 @@ function summariseAlloc(row, refused) {
     console.log(';;   page, in the same process, and the leg ORDER alternates on round parity so');
     console.log(';;   that neither write leads every round.');
     console.log(
-      ';;   WHAT THAT REPLACES: until this switch one process drove one write, so every write-all'
+      ';;   WHY ONE PROCESS: a write-all versus write-page comparison that differenced two'
     );
     console.log(
-      ';;   versus write-page comparison differenced two sequential PROCESS runs in a fixed order'
+      ';;   sequential PROCESS runs in a fixed order would share run order, session and floor'
     );
     console.log(
-      ';;   and its two arms shared run order, session and floor. A residual read off such a'
+      ';;   between its two arms, and a residual read off such a difference cannot be separated'
     );
-    console.log(';;   difference could not be separated from those terms (rf2-0gjqi).');
+    console.log(';;   from those terms.');
     console.log(
       ';;   THIS IS A VALIDITY-WITNESS CONFIGURATION, NOT A PUBLISHED ROW. `page` is the default,'
     );
@@ -3979,9 +3906,9 @@ function summariseAlloc(row, refused) {
         `;;   It rebuilds the grid at ${B} cells — one per mounted boundary. \`:p0/write-all\``
       );
       console.log(
-        ';;   rebuilt 300 whatever was mounted, and that fixed cost was 57% of the retired budget'
+        ';;   rebuilds 300 whatever is mounted — a fixed cost paid before a single boundary is'
       );
-      console.log(';;   before a single boundary had been measured.');
+      console.log(';;   measured.');
     } else {
       console.log(
         ';;   THIS IS V1\'s F_old CONTROL, NOT A PUBLISHED ROW — the fixed 300-cell rebuild, which'
@@ -4003,12 +3930,12 @@ function summariseAlloc(row, refused) {
       ';;   and nothing fired. The control windows below allocate doubles and nothing else.'
     );
   }
-  // THE PROVENANCE OF EVERY WINDOW, ADJUDICATED AND RECORDED (rf2-irxrw). It
-  // is on the row under every selection, because it is one claim rather than
-  // a mode-dependent one; it is PRINTED under `paired`, where a reader has to
+  // THE PROVENANCE OF EVERY WINDOW, ADJUDICATED AND RECORDED. It is on the
+  // row under every selection, because it is one claim rather than a
+  // mode-dependent one; it is PRINTED under `paired`, where a reader has to
   // be able to see that the pairs are whole before differencing them, and
   // under any selection where it FAILED. A healthy unpaired run therefore
-  // prints not one line of this and its summary is unchanged to the byte.
+  // prints not one line of this.
   const provenance = allocWriteProvenance(row);
   row.writeProvenance = provenance;
   if (row.writePaired) {
@@ -4080,9 +4007,9 @@ function summariseAlloc(row, refused) {
   );
   const wins = row.perRound.reduce((a, r) => a + Object.keys(r.arms).length, 0);
   console.log(';;');
-  // A RECORDED FACT, GATING NOTHING (rf2-2rtt6.140). It is an UPPER bound on
-  // where the first collection runs and the retired masking budget needed a
-  // LOWER one; it stays at its measured value and is printed because a
+  // A RECORDED FACT, GATING NOTHING. It is an UPPER bound on where the first
+  // collection runs and certifying a window needs a LOWER one; it stays at
+  // its measured value and is printed because a
   // window's rise as a fraction of it is a useful thing for a reader to see.
   const risesSeen = row.perRound.flatMap((r) => Object.values(r.arms).map((x) => x.rise));
   console.log(
@@ -4111,7 +4038,7 @@ function summariseAlloc(row, refused) {
   // predicted answer is zero.
   row.fallsInMeasuredWindows = falls;
 
-  // THE FALLS GATE'S OTHER BLIND SIDE, NOW READ (rf2-4ctls). A collection inside
+  // THE FALLS GATE'S OTHER BLIND SIDE, READ. A collection inside
   // ONE LEG, bracketed by a larger allocation in the same leg, turns no step
   // negative on the collapsed stream — so the line above reports 0 — and leaves
   // the leg's NET inside τ, so the certificate below reports clean. The by-site
@@ -4120,8 +4047,8 @@ function summariseAlloc(row, refused) {
   // RECORDED AND PRINTED ONLY UNDER THE MODE, on `allocSiteReport`'s rule and
   // `siteWitness`'s: off it there are no site legs, so a 0 here — in the line
   // or in the record — would claim the instrument looked when it could not.
-  // Every published row is a stride-2 row, so neither the summary nor the raw
-  // record's shape moves on one.
+  // Every published row is a stride-2 row, so neither its summary nor its raw
+  // record carries this.
   if (row.bySite) {
     const intraLegReasons = allocRefusedWindows(row, 'intraLegRefusals');
     row.intraLegRefusalReasons = intraLegReasons.length;
@@ -4137,7 +4064,7 @@ function summariseAlloc(row, refused) {
     );
   }
 
-  // THE OBSERVED-COLLECTION WITNESS (rf2-2rtt6.140), which is the fall gate's
+  // THE OBSERVED-COLLECTION WITNESS, which is the fall gate's
   // blind side and a SECOND exit, not a softening of the first. A collection
   // that runs inside a leg allocating at least as much as it reclaims never
   // turns a step negative, so the line above reports 0 and the window
@@ -4148,7 +4075,7 @@ function summariseAlloc(row, refused) {
       .map((x) => x.legWorstDeviation)
       .filter((x) => typeof x === 'number')
   );
-  // TWO QUANTITIES, NAMED APART (rf2-xxeq). `refusedWindows` is windows and is
+  // TWO QUANTITIES, NAMED APART. `refusedWindows` is windows and is
   // what the denominator below is comparable to; `refusalReasons` is the length
   // of the list printed underneath, which is what the exit code keys off.
   const refusedCount = allocRefusedWindowCount(row);
@@ -4166,23 +4093,23 @@ function summariseAlloc(row, refused) {
   );
   console.log(`;;   its true allocation by AT MOST 2τ = ${(row.legTolerance * 200).toFixed(0)}%.`);
 
-  // THE PRIME LEG, PUBLISHED AS A DIAGNOSTIC (rf2-oiy1). It is in no figure
-  // above or below and in no certificate, and printing it is the whole reason
-  // this repair is not "discard leg 1": the term that made every floor window
-  // uncertifiable is still measured, on every window, and is now readable
-  // beside the cohort it used to contaminate. rf2-e9wr's τ calibration wants
-  // exactly this number.
+  // THE PRIME LEG, PUBLISHED AS A DIAGNOSTIC. It is in no figure above or
+  // below and in no certificate, and printing it is the whole reason the
+  // prime is not "discard leg 1": the term that would make every floor window
+  // uncertifiable is still measured, on every window, and readable beside the
+  // cohort it would otherwise contaminate. V3's τ calibration wants exactly
+  // this number.
   const primes = row.perRound.flatMap((r) => {
     const arms = Object.values(r.arms || {});
     const from = arms.length ? arms : Object.values(r.controls || {});
     return from.map((x) => x.primeExcess).filter((x) => typeof x === 'number');
   });
-  // THE WORK CENSUS (rf2-n1b9h) — three monotone counters read at every
-  // window's open and close, printed BESIDE that window's `legMedian` so the
-  // two quantities the bead compares are on one line.
+  // THE WORK CENSUS — three monotone counters read at every window's open and
+  // close, printed BESIDE that window's `legMedian` so the two quantities
+  // being compared are on one line.
   //
-  // `rf2-77gz8` left two candidates for its 3,792 B second mode: more work per
-  // write, against the same work allocating more per invocation. `legMedian`
+  // The floor's 3,792 B second mode has two candidates: more work per write,
+  // against the same work allocating more per invocation. `legMedian`
   // says which MODE a window sits in; these three say what RAN inside it. The
   // table is the whole reading, and it is printed for every window rather than
   // for a chosen pair, because which windows are high is not known until the
@@ -4191,7 +4118,7 @@ function summariseAlloc(row, refused) {
   if (wv && wv.counted) {
     console.log(';;');
     console.log(
-      ';;   THE WORK CENSUS (rf2-n1b9h): event-handler invocations, subscription recomputations'
+      ';;   THE WORK CENSUS: event-handler invocations, subscription recomputations'
     );
     console.log(
       `;;   and boundary renders, per window. The window drives ${wv.windowWrites} writes, so`
@@ -4226,7 +4153,7 @@ function summariseAlloc(row, refused) {
     if (wv.offExpectation.length) {
       console.log(
         `;;   OFF EXPECTATION (events != ${wv.windowWrites}): ${wv.offExpectation.join('; ')} — this` +
-          ' is a FINDING, not a fault: more handler invocations per dispatch IS candidate (a).'
+          ' is a FINDING, not a fault: more handler invocations per dispatch IS more work per write.'
       );
     }
   }
@@ -4236,13 +4163,13 @@ function summariseAlloc(row, refused) {
     `;;   THE PRIME LEG (excluded from every figure): the window's first work unit runs AFTER the`
   );
   console.log(
-    `;;   forced collection and before the ${row.writes} measured ones. 336 of 336 windows in the`
+    `;;   forced collection and before the ${row.writes} measured ones. Without it, every window`
   );
   console.log(
-    ';;   rf2-2rtt6.140 measurement carried a ~7 KB first-leg excess that three full-size warm-ups'
+    ';;   carries a ~7 KB first-leg excess (336 of 336 measured) that three full-size warm-ups'
   );
   console.log(
-    ';;   could not reach, because every warm-up lands on the far side of that collection and the'
+    ';;   cannot reach, because every warm-up lands on the far side of that collection and the'
   );
   console.log(
     ';;   window\'s own tail legs are byte-identical — so ONE work unit after it is what clears it.'
@@ -4257,8 +4184,8 @@ function summariseAlloc(row, refused) {
     console.log(';;   no window carried a prime leg to report.');
   }
 
-  // THE BY-SITE REPORT (rf2-rs8q6). Empty off the mode, so nothing above or
-  // below moves on a published run.
+  // THE BY-SITE REPORT. Empty off the mode, so a published run prints none of
+  // it.
   for (const line of allocSiteReport(row)) console.log(line);
 
   console.log(
@@ -4278,7 +4205,7 @@ function summariseAlloc(row, refused) {
 
   // --- the rows ----------------------------------------------------------
   //
-  // ONLY WHAT WAS MOUNTED (rf2-gxrr). A controls-only plan prints no arm
+  // ONLY WHAT WAS MOUNTED. A controls-only plan prints no arm
   // table and a floor-only plan prints no rung, because a table of absent
   // arms invites a reader to take absence for zero — which on this row is
   // the very answer HD-002 predicts.
@@ -4289,11 +4216,11 @@ function summariseAlloc(row, refused) {
     console.log(';;   line is a statement about any substrate.');
   }
   //
-  // ONE TABLE PER WRITE (rf2-irxrw). A `paired` run measured every arm twice
-  // and a single table would have to pick one or average them; both would be
-  // a table that cannot be read back to a window. `allocWindowKey` is the
+  // ONE TABLE PER WRITE. A `paired` run measures every arm twice and a
+  // single table would have to pick one or average them; both would be a
+  // table that cannot be read back to a window. `allocWindowKey` is the
   // identity off `paired` and the sub-header is printed only on it, so an
-  // unpaired run's table is the table it always was, to the byte.
+  // unpaired run prints one un-headed table per segment.
   const paired = Boolean(row.writePaired);
   const tableLegs = row.writeLegs || [row.writeSelector];
   for (const segment of row.plan.arms ? Object.keys(LADDER_SUBSTRATES) : []) {
@@ -4332,10 +4259,9 @@ function summariseAlloc(row, refused) {
 
   // --- the fitted lines ---------------------------------------------------
   //
-  // A fit is over the RUNGS (rf2-gxrr). A plan that carries none has nothing
-  // to regress and prints nothing to regress it from — lifted out whole
-  // rather than guarded in place, so the published `full` run's output is
-  // unchanged to the byte and the narrow plans simply do not reach it.
+  // A fit is over the RUNGS. A plan that carries none has nothing to regress
+  // and prints nothing to regress it from — lifted out whole rather than
+  // guarded in place, so the narrow plans simply do not reach it.
   if (row.plan.fits) {
     summariseAllocFits(row);
   } else {
@@ -4359,7 +4285,7 @@ function summariseAlloc(row, refused) {
 }
 
 // The fitted lines and HD-002's own question — the tail of `summariseAlloc`,
-// which runs only under a plan that carried rungs (rf2-gxrr).
+// which runs only under a plan that carried rungs.
 function summariseAllocFits(row) {
   console.log(';;');
   console.log(';; ==== THE FITTED LINES —  y = intercept + slope·R,  over 1/3/7/20 ONLY ====');
@@ -4401,11 +4327,11 @@ function summariseAllocFits(row) {
   console.log(';;   recomputations and a React element tree. So the quantity that answers it is');
   console.log(';;   the candidate slope LESS the same-run donor slope, in the SAME segment.');
   const slopeOf = (id) => fits.mean[id] && fits.mean[id].slope;
-  // AND ONCE PER WRITE UNDER `paired` (rf2-irxrw). The difference is stated
-  // "in the SAME segment" because a cross-segment one would compare two
-  // pages; a cross-WRITE one would compare two writes, which is the same
-  // error one axis over. `allocWindowKey` is the identity off `paired`, so
-  // the published run prints the two lines it always did.
+  // AND ONCE PER WRITE UNDER `paired`. The difference is stated "in the SAME
+  // segment" because a cross-segment one would compare two pages; a
+  // cross-WRITE one would compare two writes, which is the same error one
+  // axis over. `allocWindowKey` is the identity off `paired`, so an unpaired
+  // run prints one line per segment.
   const paired = Boolean(row.writePaired);
   for (const seg of Object.keys(LADDER_SUBSTRATES)) {
     for (const selector of row.writeLegs || [row.writeSelector]) {
@@ -4437,13 +4363,13 @@ function summariseAllocFits(row) {
 //                        the row says so rather than claiming it does
 //
 // `boundaries` IS 0 AT R=0, AND THE ROW ASSERTS IT RATHER THAN EXCUSING
-// IT. Since rf2-dabt3 fused the sub-index into the cell table there is no
+// IT. With the sub-index fused into the cell table there is no
 // per-boundary registry to count: the runtime knows a boundary only
 // through the reader lists of the cells it reads, so an edgeless boundary
 // retains no membership anywhere and is correctly absent. That is the
-// property the fusion was taken FOR — one reader list on the cell that
-// already existed, in place of a map entry per mounted boundary whether
-// or not it read — so the ladder pins it as a positive claim: at R=0 the
+// property the fusion exists FOR — one reader list on the cell, in place
+// of a map entry per mounted boundary whether or not it read — so the
+// ladder pins it as a positive claim: at R=0 the
 // count must be 0, and any non-zero reading means a mounted boundary is
 // being retained by something. (`entries` says the same thing from the
 // other side: 1 at R=0, the empty read-set, not B.)
@@ -4487,22 +4413,21 @@ function ladderStructuralFailures(row) {
   return out;
 }
 
-// THE HEAP ROW'S POSITIVE CONTROL, PRINTED ONCE (rf2-egdaq). All three heap
-// summaries below publish the same control taken the same way, and they used
-// to say so in three copies that had to be edited together — which is how two
-// of them could have kept naming the overlap rule after the row had stopped
-// using it. A published record that names the wrong adjudicator is worse than
-// one that names none: it invites a reader to apply the other rule's reading
-// to a number it never adjudicated.
+// THE HEAP ROW'S POSITIVE CONTROL, PRINTED ONCE. All three heap summaries
+// below publish the same control taken the same way, so it is said once
+// rather than in three copies that would have to be edited together — three
+// copies can drift into naming a rule the row does not use. A published
+// record that names the wrong adjudicator is worse than one that names none:
+// it invites a reader to apply the other rule's reading to a number it never
+// adjudicated.
 //
 // The verdict NAMES ITS OWN RULE (`verdict.rule`) rather than this printer
 // asserting one, for that same reason — the string comes from the answer.
 //
-// So the VERDICT line below names no adjudicator of its own. It used to
-// carry the literal `lane/control-verdict-strict` beside the dynamic
-// `rule`, which the merged-PR audit of #8574 caught: a caller moved back
-// to the overlap rule would have printed both names in one sentence, and
-// the hardcoded half is the one a reader believes. `:rule` is the lane's
+// So the VERDICT line below names no adjudicator of its own. A literal
+// `lane/control-verdict-strict` beside the dynamic `rule` would, for a
+// caller moved back to the overlap rule, print both names in one sentence,
+// and the hardcoded half is the one a reader believes. `:rule` is the lane's
 // own identifier for which of its two rules answered — `every-round` here,
 // `overlap` there — so it is the whole label this record needs.
 function printHeapControl(row) {
@@ -4536,7 +4461,7 @@ function printHeapControl(row) {
 
 function summariseLadder(row, structuralFailures) {
   const B = row.plan[0].arms[0].boundaries;
-  console.log('\n;; ==== P0 RETAINED HEAP — THE READS LADDER (rf2-2rtt6.34) ====');
+  console.log('\n;; ==== P0 RETAINED HEAP — THE READS LADDER ====');
   console.log(
     `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
       `held FIXED across every rung`
@@ -4572,8 +4497,8 @@ function summariseLadder(row, structuralFailures) {
           )
         );
         // Residue PER BOUNDARY, so it is on the same axis as the
-        // exclusive column beside it and comparable with the published
-        // ±11 B/boundary the predecessor ladder reported. As a total it
+        // exclusive column beside it and comparable with a published
+        // ±11 B/boundary instrument zero. As a total it
         // reads in the tens of thousands on a 71 MB arm and looks like a
         // leak; divided by B it is the width of this instrument's zero.
         const res = stat(row.perRound.map((r) => r.arms[key].residueCdp / B));
@@ -4660,7 +4585,7 @@ function summariseLadder(row, structuralFailures) {
   console.log(';;   boundaries = B (0 at R=0) · edges = B·R · cells = Q · entries = B (1 at R=0)');
   console.log(';;   on the candidate; all four ZERO on every donor arm; and every field zero');
   console.log(';;   again after teardown — HD-002 clause (d) in objects rather than in bytes.');
-  console.log(';;   The R=0 zero is the fused design\'s own claim (rf2-dabt3): with the');
+  console.log(';;   The R=0 zero is the fused design\'s own claim: with the');
   console.log(';;   sub-index living on the cell table, an edgeless boundary retains no');
   console.log(';;   membership, so a NON-zero reading there is a retention bug.');
   if (structuralFailures.length === 0) {
@@ -4691,9 +4616,8 @@ const stat = (xs) => {
 };
 
 // The clock row's two gates, stated where a reader will look for them
-// rather than buried inside the record's EDN. Both were printed and
-// neither was adjudicated until rf2-95s5b; the exit logic below reads
-// exactly these figures.
+// rather than buried inside the record's EDN. Both are adjudicated: the
+// exit logic below reads exactly these figures.
 function summariseClock(c) {
   console.log(';;');
   console.log(';; ==== P0 CLOCK — VERIFICATION AND POSITIVE CONTROL ====');
@@ -4768,7 +4692,7 @@ const n0 = (x) => (typeof x === 'number' && isFinite(x) ? String(Math.round(x)) 
 
 function summariseFanout(row) {
   const B = row.plan[0].arms[0].boundaries;
-  console.log('\n;; ==== P0 RETAINED HEAP — THE FAN-OUT SWEEP (rf2-5prok) ====');
+  console.log('\n;; ==== P0 RETAINED HEAP — THE FAN-OUT SWEEP ====');
   console.log(
     `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
       `held FIXED across every rung`
@@ -4810,7 +4734,7 @@ function summariseFanout(row) {
     for (const g of fanRungs(B)) line(g.rung, `${segment}|fan/${sub}#${g.rung}`, g.reads, g.keys);
     line('anchor', `${segment}|grid/${sub}`, 1, row.perRoot.grid);
     console.log(
-      `;;   'anchor' is the PUBLISHED rf2-2rtt6.4 ${sub} grid arm, unchanged — same B/E/Q as ` +
+      `;;   'anchor' is the PUBLISHED heap row's ${sub} grid arm, unchanged — same B/E/Q as ` +
         `R1Q${Math.round(B / row.perRoot.grid)} at these roots, through :p0/cell instead of :p0/fan.`
     );
   }
@@ -4818,7 +4742,7 @@ function summariseFanout(row) {
   // --- the additive model -------------------------------------------------
   console.log(';;');
   console.log(';; ==== THE ADDITIVE MODEL ====');
-  console.log(';;   M3   y = shell + (E/B)·edge + (Q/B)·key            (the ruling\'s shape)');
+  console.log(';;   M3   y = shell + (E/B)·edge + (Q/B)·key            (the stated model)');
   console.log(';;   M4   y = shell + [E>0]·step + (E/B)·edge + (Q/B)·key');
   console.log(';;   Each term from one contrast: shell is the R=0 rung; key is the R=1 slope in');
   console.log(';;   Q/B; edge is R2QB2 − R1Q2 (same Q, one more read); step is what is left of');
@@ -4877,15 +4801,14 @@ function summariseFanout(row) {
 // The structural witness is the one gate here that needs neither a release
 // build nor a Chromium to adjudicate — it is a pure function of the row —
 // so it is exported and pinned directly by `p0_ladder_structural.test.cjs`
-// (`test:script-helpers`). `--only ladder` is opt-in and in no gate, which
-// is how the R=0 expectation sat stale from rf2-dabt3 until rf2-zei9w ran
-// the driver; the unit pin is what stops the next such drift being found
-// by the next measurement instead of by CI.
+// (run by `npm run check` in bench/fresco/). `--only ladder` is opt-in and
+// in no gate, so without the unit pin an expectation that drifted from the
+// runtime would sit stale until the next measurement found it.
 module.exports = {
   ladderStructuralFailures,
   allocSteps,
   allocRefusedWindows,
-  // The window count behind the summary's numerator (rf2-xxeq), pure and
+  // The window count behind the summary's numerator, pure and
   // exported for `allocRefusedWindows`'s reason: the pin can DRIVE the ratio
   // rather than assert that it is possible.
   allocRefusedWindowCount,
@@ -4895,7 +4818,7 @@ module.exports = {
   allocArmSizing,
   ALLOC_MIN_WRITES,
   ALLOC_ARM,
-  // The prime work unit (rf2-oiy1) — the split as a pure function, and both
+  // The prime work unit — the split as a pure function, and both
   // counts, so the pin can DRIVE the exclusion rather than read the source and
   // hope. `ALLOC_WINDOW_WRITES` is what the window drives; `ALLOC_WRITES` is
   // what every published figure is divided by, and the pin checks they differ
@@ -4904,7 +4827,7 @@ module.exports = {
   ALLOC_PRIME_WRITES,
   ALLOC_WRITES,
   ALLOC_WINDOW_WRITES,
-  // The by-site instrument (rf2-rs8q6), exported on the same rule as the prime
+  // The by-site instrument, exported on the same rule as the prime
   // split above: the decomposition, the attribution and the reporter are all
   // pure, so the pins DRIVE them rather than read the source and hope. The two
   // constants come too, because the mode's most important property — that it
@@ -4916,30 +4839,31 @@ module.exports = {
   ALLOC_BY_SITE,
   ALLOC_SITES,
   ALLOC_SITE_NAMES,
-  // The intra-leg reclamation gate (rf2-4ctls), exported on the same rule: both
-  // halves are pure, so the pin can REPLAY the three windows rf2-ojehu measured
-  // through the real gate rather than assert that it would refuse them. The
-  // property that matters most — that `allocSteps` is untouched and every
-  // published figure is byte-identical — is likewise something a pin can drive
-  // by running both functions over one window and comparing.
+  // The intra-leg reclamation gate, exported on the same rule: both halves are
+  // pure, so the pin can REPLAY the three measured windows through the real
+  // gate rather than assert that it would refuse them. The property that
+  // matters most — that `allocSteps` never sees the site stream and every
+  // published figure is byte-identical at every stride — is likewise
+  // something a pin can drive by running both functions over one window and
+  // comparing.
   allocIntraLegRefusals,
   allocWindowVerdict,
-  // And the row's own statement of WHICH of the three screened it (rf2-fir5n),
-  // exported on the same rule again: it is a pure function of the stride, so the
+  // And the row's own statement of WHICH of the three screened it, exported
+  // on the same rule again: it is a pure function of the stride, so the
   // pin drives both branches instead of matching the source for a phrase. The
   // property that matters is a claim about what the string says at stride 2,
   // which a source match cannot make without restating the string.
   allocInstrumentNote,
-  // The measurement surface (rf2-gxrr), exported so the structural pin can
+  // The measurement surface, exported so the structural pin can
   // DRIVE it rather than read its source: the tables as values, the plan
   // filter as a pure function, and the two resolved selections so the env
   // route can be pinned from outside the process exactly as `ALLOC_ARM` is.
   ALLOC_WRITE_SPECS,
   ALLOC_WRITE,
   ALLOC_WRITE_SPEC,
-  // The paired selection (rf2-irxrw), exported on exactly the rule above: the
-  // selection table as a value and the RESOLVED legs, so the env route to
-  // `paired` is pinned from outside the process the way `all` already is —
+  // The paired selection, exported on exactly the rule above: the selection
+  // table as a value and the RESOLVED legs, so the env route to `paired` is
+  // pinned from outside the process the way `all` is —
   // configuration is read once, at require, and no in-process assignment can
   // reach it. `allocWindowKey` and `allocWriteProvenance` come too because
   // they are pure: the pin can DRIVE a paired-shaped record and an
@@ -4954,19 +4878,19 @@ module.exports = {
   ALLOC_PLAN,
   ALLOC_PLAN_SHAPE,
   allocPlanArms,
-  // The confound-breaking segment order (rf2-rs8q6), exported on exactly the
-  // rule above: the order is a pure function of the plan, the round and the
-  // mode, so the pin can DRIVE both modes over a plan and read the round
-  // sequence out — including the property that matters most, that `parity` is
-  // the pre-bead expression and reverses on odd rounds still. The resolved
-  // constant comes too, so the env route is pinned from outside the process.
+  // The confound-breaking segment order, exported on exactly the rule above:
+  // the order is a pure function of the plan, the round and the mode, so the
+  // pin can DRIVE both modes over a plan and read the round sequence out —
+  // including the property that matters most, that `parity` reverses on odd
+  // rounds. The resolved constant comes too, so the env route is pinned from
+  // outside the process.
   allocSegmentOrder,
   ALLOC_SEG_ORDERS,
   ALLOC_SEG_ORDER,
-  // The write-leg order's three pure functions (rf2-fk6pj), exported on the
-  // rule above and with one more reason than the segment order has: the
-  // properties that matter — that `parity` is the pre-bead expression to the
-  // character, that a `seeded` schedule is BALANCED, and that it is not a
+  // The write-leg order's three pure functions, exported on the rule above
+  // and with one more reason than the segment order has: the properties that
+  // matter — that `parity` reverses exactly the odd rounds, that a `seeded`
+  // schedule is BALANCED, and that it is not a
   // function of round parity — are claims about a whole run's schedule, and
   // none of the three is readable off a ternary in the source.
   allocSeedHash,
@@ -4977,7 +4901,7 @@ module.exports = {
   ALLOC_PASS_ORDER,
   ALLOC_PASS_SEED,
   ALLOC_PASS_SCHEDULE,
-  // The box riders (rf2-24o2z), pure of the run for the same reason: the pin
+  // The box riders, pure of the run for the same reason: the pin
   // can DRIVE a session over a marker it wrote itself and read the gap and the
   // session arithmetic out, with no build, no server and no Chromium.
   boxSnapshot,
@@ -4988,7 +4912,7 @@ module.exports = {
   boxRecord,
   // The control slot's two pure functions, so the pin can DRIVE the multi-round
   // window sequence and read the two properties this mode separates off it,
-  // rather than match the source for a ternary (rf2-rs8q6).
+  // rather than match the source for a ternary.
   allocControlIndex,
   allocRoundWindowKinds,
   ALLOC_CONTROL_SLOTS,
@@ -5005,7 +4929,7 @@ if (require.main === module) (async () => {
   const server = serve();
   const { chromium } = require(path.join(__dirname, '../../../../..', 'implementation', 'node_modules', 'playwright'));
   const out = { generatedAt: new Date().toISOString(), build: BUILD, initFn: INIT_FN };
-  // EVERY failed gate, not the last one. A single `failed` slot let a
+  // EVERY failed gate, not the last one. A single `failed` slot would let a
   // later gate's silence overwrite an earlier gate's refusal, and a run
   // that failed two things would name one of them.
   const failures = [];
@@ -5044,8 +4968,8 @@ if (require.main === module) (async () => {
         console.log(c.results);
         summariseClock(c);
         // A row whose writes never reached the page is the cheapest row in
-        // any table. The count was printed inside the record from the
-        // first run; nothing exited on it until rf2-95s5b.
+        // any table. The count is printed inside the record, and the run
+        // exits on it.
         if (c.verification.unverified > 0) {
           failures.push(
             `clock: ${c.verification.unverified} unverified of ${c.verification.of} windows ` +
@@ -5140,7 +5064,7 @@ if (require.main === module) (async () => {
       // one claim — that transient garbage is visible to the counter at
       // all — and a run whose control read zero would be a retention
       // instrument publishing an allocation table, which is the exact
-      // fault that produced a wrong table on this surface before.
+      // fault that produces a wrong table on this surface.
       if (!out.alloc.controlVerdict.ok) {
         failures.push(
           `alloc: positive control — ${out.alloc.controlVerdict.perDouble.toFixed(2)} B/double ` +
@@ -5157,7 +5081,7 @@ if (require.main === module) (async () => {
             'refuses is the arms\' scale, not the method'
         );
       }
-      // AND ITS BLIND SIDE (rf2-2rtt6.140, superseding rf2-n6w7o). The gate
+      // AND ITS BLIND SIDE. The gate
       // above sees a collection only when it turns a step negative. One that
       // runs inside a leg allocating at least as much as it reclaimed turns
       // nothing negative, so that gate reports a clean window while the
@@ -5166,7 +5090,7 @@ if (require.main === module) (async () => {
       // where one of them does not look like the others. It is additional to
       // the falling-step gate and replaces none of it.
       //
-      // THE TWO GATES ARE NAMED APART IN THE EXIT (rf2-4ctls), because a
+      // THE TWO GATES ARE NAMED APART IN THE EXIT, because a
       // failure line is what an operator repairs against and the two send them
       // to different places: one to the arm, one to the collector's schedule.
       // The summary above still prints every reason together.
@@ -5181,9 +5105,9 @@ if (require.main === module) (async () => {
             `flat-at-zero. DO NOT WIDEN THE TOLERANCE. First: ${legRefused[0]}`
         );
       }
-      // AND THE SEAM BETWEEN THEM (rf2-4ctls). rf2-ojehu measured 72 arm
-      // windows and found 24 carrying a reclamation INSIDE one leg; three were
-      // invisible to the falls gate and two of those certified at τ. The falls
+      // AND THE SEAM BETWEEN THEM. Of 72 by-site arm windows, 24 carry a
+      // reclamation INSIDE one leg; three are invisible to the falls gate and
+      // two of those certify at τ. The falls
       // gate is defined on the collapsed stream, where such a leg is one
       // non-negative step; the leg tolerance reads that leg's NET, which sits
       // inside τ. Neither is defective — the fault lives in the gap, and this
@@ -5205,12 +5129,11 @@ if (require.main === module) (async () => {
   } finally {
     server.close();
   }
-  // THE RAW RECORD, AND WHAT AN ALLOCATION WINDOW IS EXPECTED TO DO WITH IT
-  // (rf2-erre5). **An allocation window KEEPS this file, and its studio page
-  // cites it by SHA.** Its home is `data/alloc-<bead>/` beside the readers
-  // (`bench/fresco/src/re_frame/bench/fresco/data/`), where rf2-2rtt6.138
-  // committed its record and where every reader still looks — but since
-  // rf2-6c12m.6 that directory is git-ignored and the corpus of past windows
+  // THE RAW RECORD, AND WHAT AN ALLOCATION WINDOW IS EXPECTED TO DO WITH IT.
+  // **An allocation window KEEPS this file, and its studio page cites it by
+  // SHA.** Its home is `data/alloc-<bead>/` beside the readers
+  // (`bench/fresco/src/re_frame/bench/fresco/data/`), where every reader
+  // looks — but that directory is git-ignored and the corpus of past windows
   // is archived in git history (`data_archive.cjs` carries the SHA and the
   // restore command), so a record written there lands in no commit by
   // accident. Retaining one is a deliberate act: `git add -f` the window's
@@ -5220,15 +5143,12 @@ if (require.main === module) (async () => {
   // can tell whether an operator kept a file, and a gate that guessed would
   // go red on every run that was not a published window.
   //
-  // WHY IT IS WORTH THE HABIT. The 2026-08-08 window is the only allocation
-  // window that ever did it, and it is the only one that has since been
-  // re-analysed: rf2-nkeba re-derived its figures under an estimator that did
-  // not exist when it was taken, and settled that the published values were the
-  // MEDIAN of rise/W rather than the mean the summary printed. The 2026-08-13,
-  // 2026-08-16 and 2026-08-17 windows published records and no dataset, so the
-  // same question is not askable of them at all. The convention has paid for
-  // itself once; the three windows that skipped it cannot be made to pay later.
-  // AND WHAT THE BOX WAS DOING WHILE IT RAN (rf2-24o2z), closed here rather
+  // WHY IT IS WORTH THE HABIT. A kept record can be re-analysed under an
+  // estimator written after the run — whether a published value is the
+  // MEDIAN of rise/W or the mean the summary printed is answerable only of a
+  // window that kept its dataset. A window that publishes a record and no
+  // dataset leaves every such question unaskable for good.
+  // AND WHAT THE BOX WAS DOING WHILE IT RAN, closed here rather
   // than in the try above so a REFUSED run carries it too — the evidence
   // surviving the refusal is this file's own rule, and a window that refused
   // is exactly the kind whose machine conditions a later reader will want.
@@ -5250,8 +5170,8 @@ if (require.main === module) (async () => {
         '(data/ is git-ignored — retaining the record is a deliberate act; see data_archive.cjs)'
     );
   }
-  // THE PAGES' OWN FAILURES, JOINING THE LIST THE EXIT ALREADY READS
-  // (rf2-sib23). It joins `failures` rather than taking a code of its own
+  // THE PAGES' OWN FAILURES, JOINING THE LIST THE EXIT ALREADY READS.
+  // It joins `failures` rather than taking a code of its own
   // because it is the same class as every other entry there — the run did not
   // measure what it says it measured — and because that list is already the
   // one place this driver decides on. Every raw artefact is written above, so

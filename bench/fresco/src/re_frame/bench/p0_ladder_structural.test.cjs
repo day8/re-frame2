@@ -1352,7 +1352,7 @@ test('AND THE ROW SAYS SO — a stride-2 record does not claim three gates scree
 
   // And the stride-2 text does not make it.
   assert.doesNotMatch(off, /All three refuse/, 'two of the three ran on a published row');
-  assert.match(off, /TWO OF THE THREE RAN ON THIS ROW \(rf2-fir5n\)/);
+  assert.match(off, /TWO OF THE THREE RAN ON THIS ROW: it was taken at a stride of 2/);
   assert.match(off, /returned an empty list BY CONSTRUCTION rather than by a switch/);
   assert.match(off, /certified by the falling-step gate and by the leg tolerance and NO MORE/);
   // It states the CONSTRAINT, not a TODO: the two strides are not comparable, so
@@ -3137,7 +3137,11 @@ const FULL_FITS = (selectors = ['page'], paired = selectors.length > 1) => {
 // the full plan.
 test('the FULL plan still makes every claim the narrowed plans may not', () => {
   const { row, out } = allocSummaryFor('full', FULL_ARMS(), { allocFits: FULL_FITS() });
-  assert.match(out, /WARM 1\/3\/7\/20 READS \(rf2-2rtt6\.76\)/, 'the published banner');
+  assert.match(
+    out,
+    /==== P0 STEADY-STATE ALLOCATION — WARM 1\/3\/7\/20 READS ====/,
+    'the published banner'
+  );
   assert.match(out, /held FIXED across every rung/);
   assert.match(out, /Q = E on every rung\./);
   assert.match(out, /The arm stays MOUNTED across the window/);
@@ -3525,7 +3529,7 @@ test('THE PAIRED SUMMARY runs, prints a table per write, and claims no single on
     ...PAIRED_ROW,
     allocFits: FULL_FITS(['page', 'all']),
   });
-  assert.match(out, /THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR \(rf2-irxrw\)/);
+  assert.match(out, /THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR:/);
   assert.match(out, /EVERY ARM IS MEASURED UNDER BOTH — the FLOOR included/);
   assert.match(out, /the leg ORDER alternates on round parity/);
   assert.match(out, /under `:p0\/write-page` \(P0_ALLOC_WRITE=paired\)/, 'a table per write');
@@ -3685,7 +3689,11 @@ test('THE MANDATORY PAGE — an unstated P0_ALLOC_CELLS is refused BY NAME', () 
   assert.strictEqual(arm.admissible, false, 'an unstated page cannot be derived');
   const page = arm.refusals.find((r) => r.includes('P0_ALLOC_CELLS'));
   assert.ok(page, JSON.stringify(arm.refusals));
-  assert.match(page, /rf2-2rtt6\.139/, 'and it names what would make a default honest');
+  assert.match(
+    page,
+    /derived per rung from the instrument's own floor data/,
+    'and it names what would make a default honest'
+  );
   // A stated page derives an admissible arm, so the refusal is the missing
   // page and not a preflight that refuses everything.
   const stated = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '' });
