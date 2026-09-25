@@ -17,8 +17,9 @@
 
   This test pins the invariant: for any `(before,
   after)` pair, the App-DB sub's diff output, the HANDLER `:db`
-  projection's `:db-diff`, and the Machine Inspector's
-  `snapshot-flat-diff-rows` all derive from the same engine + same
+  projection's `:db-diff`, and the Machine Inspector's snapshot
+  drill-in (a FULL+DIFF edn-inspector mount, whose diff is
+  `engine/project`'s) all derive from the same engine + same
   shape → byte-equal vectors (up to row-shape canonicalisation).
 
   Pure data → data; .cljc so the JVM target picks it up too. No
