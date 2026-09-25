@@ -218,8 +218,10 @@
                        (str " The source's :compose " (pr-str (vec left-out))
                             " is not carried: the source and those fragments both carry"
                             " setup or a script, which would run in a different order"
-                            " under :extends. Add them to the saved variant by hand if"
-                            " that order suits.")
+                            " under :extends. So nothing those fragments supply is carried"
+                            " either — their setup, script, and any :db-seed, :network"
+                            " stubs or overrides — and no row here shows it. Add them to"
+                            " the saved variant by hand if that order suits.")
                        "")
         fx-hidden-note " :fx-overrides the source inherits or composes are not shown."
         body-vp   (declared-slot variant-body :viewport)
@@ -250,6 +252,9 @@
      ;; this row's status or value; the note says separately that its
      ;; events re-run through `:extends`, and names any `:compose` ids the
      ;; saved body leaves out because their setup or script would reorder.
+     ;; The rows are compiled from that reduced body, so a seed, stub or
+     ;; override only those fragments supply reads as absent everywhere;
+     ;; the note says so, rather than letting "none on the source" stand.
      (if (some? db-seed)
        (declared :db-seed (slice-labels :db-seed) db-seed
                  (str "No live app-db capture — the :db-seed the source declares, inherits or composes carries forward, captured-as-declared."
