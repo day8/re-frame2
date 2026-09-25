@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE LADDER, RECOMPUTED FROM ITS OWN DATASETS — both clocks (rf2-ymi6j).
+// THE LADDER, RECOMPUTED FROM ITS OWN DATASETS — both clocks.
 //
 //   node .../ladder_band.cjs out/ladder-ymi6j/*.json        recompute and print
 //   node .../ladder_band.cjs --emit data.json out/.../*.json   ... and write the
@@ -10,13 +10,10 @@
 //
 // ## Why this file exists
 //
-// `rf2-cvvb7`'s nineteen-run load ladder calibrated the band, the 25% ceiling
-// and the multiplicativity finding, and none of it could be restated: the
-// driver of the day wrote only the `taskNet` per-sample readings, the term
-// `roundsTask` did not appear in it, and the datasets went to a gitignored
-// `out/` and were not kept. The merged-PR audit on `rf2-ymi6j` asked for the
-// raw fields **and a durable recomputation path**. The driver now writes all
-// three windows; this is the path.
+// A calibration that cannot be restated from its data cannot be checked. The
+// band, the ceiling and the multiplicativity figures rest on a nineteen-run
+// load ladder; the driver writes the raw fields of all three windows, and this
+// is the **durable recomputation path** from them.
 //
 // It computes nothing of its own. Every figure below comes out of `seam.cjs`'s
 // exported adjudicators — the same functions the driver runs in-line — so a
@@ -41,16 +38,15 @@
 // question about within-block shape needs the raw datasets, which are kept
 // beside the run and named in the page's provenance.
 //
-// ## What durability caught (rf2-nk1hq)
+// ## What durability checks
 //
-// Because the dataset survived, the ceiling's derivation could be checked
-// after the fact — and it did not hold. This file's bootstrap pooled all 342
-// blocks and built each synthetic run by drawing eighteen of them across
-// unrelated runs and load rungs, which is not a future run, and a comment here
-// argued that pooling was the CONSERVATIVE choice. It is the narrower one. The
-// bootstrap below is now run-preserving, both models are printed side by side
-// so the retraction can be checked, and `--self-test` fails if the pooled model
-// is ever reinstated. No new measurement was taken to find any of it.
+// Because the dataset is kept, a derivation read off it can be checked after
+// the fact without a new measurement. A bootstrap that pools all 342 blocks
+// and builds each synthetic run by drawing eighteen of them across unrelated
+// runs and load rungs is not a model of a future run, and it is the NARROWER
+// of the two models rather than the conservative one. The bootstrap below is
+// run-preserving, both models are printed side by side so the difference can
+// be checked, and `--self-test` fails if the pooled model is made operative.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -164,7 +160,7 @@ function statsOf(red) {
     barMax: Math.max(...bar),
     floorSampleCv: red.floorSampleCv ? mean(red.floorSampleCv) : null,
     // THE ADDITIVE CONSTANT THE TARE DOES NOT REMOVE, per block, inverted from
-    // the doubling control exactly as `rf2-emvod` inverted it:
+    // the doubling control:
     // `ctl-2x/floor = (2W + c)/(W + c)` gives `c = W·(2 − ratio)`. Reported
     // because the multiplicativity argument turns on whether what fails to
     // cancel is a constant of the harness or a perturbation of the box.
@@ -248,21 +244,19 @@ function inflate(cr) {
 //   RUN-PRESERVING   draw one of the nineteen runs, then resample THAT run's
 //                    own eighteen blocks. The regime survives the draw.
 //
-// POOLING IS NARROWER, WHICH IS THE OPPOSITE OF WHAT THIS FILE FIRST ARGUED.
-// It said the pooled model "carries between-run variation and is the wider, so
-// it is what a ceiling should be set against". That is refuted by its own
-// arithmetic: mixing regimes averages the between-run spread INTO each
+// POOLING IS NARROWER, NOT WIDER. It is tempting to read the pooled model as
+// one that "carries between-run variation and is the wider, so it is what a
+// ceiling should be set against". Its own arithmetic refutes that: mixing
+// regimes averages the between-run spread INTO each
 // synthetic run instead of leaving it BETWEEN them, and averaging is what
 // narrows a tail. On this ladder's raw `TaskDuration`, pooled against
 // run-preserving — q50 13.0/11.5%, q90 19.9/23.4%, q95 22.7/31.0%, q99
 // 29.4/**41.4**% — pooling is narrower at every quantile above the median.
-// The correct figure was printed all along, in the column this file's own
-// comment then told the reader to disregard.
 //
 // Both are computed and both are printed. The run-preserving one is
-// OPERATIVE; the pooled one is kept because `BAND_CEILING`'s withdrawn "q99"
-// derivation was read off it, and a reader checking that retraction needs the
-// number being retracted. See `rf2-nk1hq` and section 5 of
+// OPERATIVE; the pooled one is kept because a "q99" reading of `BAND_CEILING`
+// comes off it, and a reader checking why the ceiling is not that q99 needs
+// the number. See section 5 of
 // `docs/design/fresco/studio/the-band-re-calibrated.md`.
 
 /**
@@ -285,7 +279,7 @@ function bandOfBlocks(pick) {
  * when it is recomputed on the same data cannot be checked by the reader.
  *
  * `source` is the ONLY difference between the two models, which is the whole
- * lesson: the defect this function was fixed for was one line.
+ * lesson: a model of a run and a mixture of runs are one line apart.
  */
 function bootstrap(draws, seed, source) {
   let s = seed >>> 0 || 0x9e3779b9;
@@ -313,10 +307,10 @@ const bootstrapBand = (perRun, draws, seed) =>
   bootstrap(draws, seed, (next) => perRun[Math.floor(next() * perRun.length)]);
 
 /**
- * POOLED-BLOCK — the withdrawn model, printed beside the operative one so the
- * retraction can be checked rather than taken on trust. Its `source` ignores
- * `next`, so it consumes the same PRNG stream this file always did and still
- * reproduces the pooled figures as first published.
+ * POOLED-BLOCK — the non-operative model, printed beside the operative one so
+ * the difference can be checked rather than taken on trust. Its `source`
+ * ignores `next`, so it consumes the PRNG stream in the order that reproduces
+ * the pooled figures the page quotes.
  */
 const bootstrapBandPooled = (perRun, draws, seed) => {
   const pooled = perRun.flat();
@@ -332,9 +326,9 @@ const rateAbove = (sorted, c) => sorted.filter((b) => b > c).length / sorted.len
 //
 // `node ladder_band.cjs --self-test`, the flag spelling the rest of this bench fleet takes.
 //
-// The pooled-block bootstrap shipped for two days and nobody caught it,
-// because the two models agree on the median and every check anyone would
-// think to write is a check on the median. So both fixtures below are built to
+// The two models agree on the median, and every check anyone would think to
+// write is a check on the median — which is how a pooled-block bootstrap goes
+// unnoticed. So both fixtures below are built to
 // FAIL under pooled-block resampling and PASS under run-preserving, with
 // margins wide enough that no seed rescues the wrong model, and they cover the
 // two directions the error can take:
@@ -342,7 +336,7 @@ const rateAbove = (sorted, c) => sorted.filter((b) => b > c).length / sorted.len
 //   1. Runs that differ in CENTRE. Pooling reports a band no run has.
 //   2. Runs that differ in DISPERSION — the ladder's own shape, one jumpy run
 //      among steady ones. Pooling reports a tail no run has, and it is the
-//      NARROWER of the two, which is the specific claim §5 retracted.
+//      NARROWER of the two, which is the specific claim §5 refutes.
 //
 // Fixture 1 alone would leave "pooled is at least conservative" standing;
 // fixture 2 is what refutes it.
@@ -378,8 +372,8 @@ function selfTest() {
     //    under pooling a draw of eighteen gets about one of them and a p10–p90
     //    half-width trims it away. Pooling therefore reports a tail LOWER than
     //    any real run's, which is exactly what it does on the real ladder
-    //    (29.4% against 41.4%) and exactly what the withdrawn comment claimed
-    //    could not happen.
+    //    (29.4% against 41.4%) and exactly what a "pooling is conservative"
+    //    reading says cannot happen.
     const jumpy = Array.from({ length: 18 }, (_, i) => 0.55 + i * 0.05);
     const f = [...Array.from({ length: 18 }, () => block18(1)), jumpy];
     const r = q99(f, bootstrapBand);
@@ -413,22 +407,21 @@ function selfTest() {
 
 // ---------------------------------------------------------------------------
 //
-// THE ARGUMENT VECTOR, READ WHOLE BEFORE ANY MODE RUNS (rf2-xk4is).
+// THE ARGUMENT VECTOR, READ WHOLE BEFORE ANY MODE RUNS.
 //
-// This driver already refused an unknown flag, and it refused the retired
-// `--selftest` spelling among them — but only when the token happened to come
-// FIRST. The old parser ran the self-test and returned from inside the loop
-// the moment it saw `--self-test`, so every token after that one was never
-// looked at: `--self-test --selftest` exited 0 and so did `--self-test
-// --definitely-unknown`, while the same pair typed the other way round exited
-// 2. A vocabulary enforced on a prefix of the vector is not a closed
-// vocabulary, and a spelling refused in one order and swallowed in the other
-// is not retired (#8621's merged-PR audit, which reproduced all three).
+// This driver refuses an unknown flag, the `--selftest` spelling among them,
+// wherever the token sits. A parser that ran the self-test and returned from
+// inside the loop the moment it saw `--self-test` would never look at a token
+// after that one: `--self-test --selftest` would exit 0 and so would
+// `--self-test --definitely-unknown`, while the same pair typed the other way
+// round exits 2. A vocabulary enforced on a prefix of the vector is not a
+// closed vocabulary, and a spelling refused in one order and swallowed in the
+// other is not refused.
 //
-// The repair is not a second validation pass — that is where the care would
+// The answer is not a second validation pass — that is where the care would
 // be needed, because `--emit` and `--from` each consume the token AFTER them
 // and a pass that does not know it would read `--emit --from.json` as a flag.
-// It is simply that PARSING and ACTING are now different things. The parser
+// It is simply that PARSING and ACTING are different things. The parser
 // below is pure: it reads left to right exactly once, consuming each valued
 // flag's value as a value, and it returns either the whole plan or the first
 // reason there cannot be one. Nothing runs until it has reached the end of
@@ -437,7 +430,7 @@ function selfTest() {
 // Unlike its two neighbours this driver DOES take positionals, so the closed
 // vocabulary is scoped to the flag namespace: anything shaped like a flag
 // must be one of ours, anything else is a dataset. And there is deliberately
-// no alias for the retired spelling — this is pre-alpha, and an alias for a
+// no alias for `--selftest` — this is pre-alpha, and an alias for a
 // spelling nothing depends on is a compatibility shim.
 
 const USAGE =
@@ -466,7 +459,7 @@ function parseArgv(argv) {
     if (!tok.startsWith('--')) {
       plan.files.push(tok);
     } else if (tok === '--self-test') {
-      // Recorded, not run. Running it here is what let the tokens after it go
+      // Recorded, not run. Running it here would leave the tokens after it
       // unread.
       plan.selfTest = true;
     } else if (tok in VALUED) {
@@ -518,7 +511,7 @@ function main() {
 
   const rows = runs.map((r) => ({ run: r, net: statsOf(r.net), task: statsOf(r.task) }));
 
-  console.log(`# THE LADDER RE-TAKEN, BOTH CLOCKS — ${rows.length} runs of bulk300`);
+  console.log(`# THE LADDER, BOTH CLOCKS — ${rows.length} runs of bulk300`);
   console.log(`# chromium ${runs[0].chromium}, ${runs[0].when} .. ${runs[runs.length - 1].when}`);
   console.log('');
   console.log('## Per run. ABSOLUTES BESIDE EVERY RATIO.');
@@ -579,12 +572,11 @@ function main() {
     console.log('');
     console.log('**Correlations across the ladder** — the multiplicativity evidence:');
     console.log('');
-    // NOT diagnostic, and the line that said it was has been removed. The old
-    // reading — "`(2W+c)/(W+c)` FALLS as `c` grows, so a NEGATIVE sign is the
-    // additive signature" — holds `W` fixed and varies `c`, which is not what
-    // this ladder does. Here `c` is roughly fixed and load varies `W`, and
-    // `(2W+c)/(W+c)` RISES with `W`. Section 6 of `the-band-re-calibrated.md`
-    // and `seam.cjs` withdrew the argument; this printer kept emitting it.
+    // NOT diagnostic. The reading "`(2W+c)/(W+c)` FALLS as `c` grows, so a
+    // NEGATIVE sign is the additive signature" holds `W` fixed and varies
+    // `c`, which is not what this ladder does. Here `c` is roughly fixed and
+    // load varies `W`, and `(2W+c)/(W+c)` RISES with `W` — section 6 of
+    // `the-band-re-calibrated.md` and `seam.cjs`'s header carry the argument.
     console.log(`- corr(ctl-2x/floor, floor) = **${corr(rs.map((r) => r.ctl2xMean), floors).toFixed(2)}** — NOT DIAGNOSTIC, and not evidence either way. Across this ladder \`c\` is roughly fixed and load varies \`W\`, so \`(2W+c)/(W+c)\` RISES with \`W\`; and the statistic is unstable enough to read +0.88 on one nineteen-run ensemble and -0.04 on another taken 25 minutes later on the same box. The rung table below is what carries the argument`);
     console.log(`- corr(bar, floor)          = ${corr(rs.map((r) => r.bar), floors).toFixed(2)}`);
     console.log(`- corr(bar, seam)           = ${corr(rs.map((r) => r.bar), rs.map((r) => r.seam)).toFixed(2)}`);
@@ -619,13 +611,13 @@ function main() {
       `**The band's own run-level sampling distribution**, ${BOOT_DRAWS.toLocaleString('en-US')} draws of 18 ` +
         `blocks from this ladder's ${rs.length} runs. RUN-PRESERVING (operative — draw a run, resample ITS ` +
         `blocks): median ${pc(quant(bsRun, 0.5))}, q90 ${pc(quant(bsRun, 0.9))}, q95 ${pc(quant(bsRun, 0.95))}, ` +
-        `q99 **${pc(quant(bsRun, 0.99))}**. POOLED-BLOCK (withdrawn — draw 18 of the ${perRun.flat().length} ` +
+        `q99 **${pc(quant(bsRun, 0.99))}**. POOLED-BLOCK (not operative — draw 18 of the ${perRun.flat().length} ` +
         `blocks regardless of run): ${pc(quant(bsPooled, 0.5))} / ${pc(quant(bsPooled, 0.9))} / ` +
         `${pc(quant(bsPooled, 0.95))} / ${pc(quant(bsPooled, 0.99))} — NARROWER through the whole upper tail, ` +
-        `which is why the ceiling's "q99" derivation was withdrawn.`
+        `which is why the ceiling is not a "q99" read off it.`
     );
     console.log('');
-    console.log(`| candidate ceiling | P(fire) pooled-block (withdrawn) | **P(fire) run-preserving** | runs of these 19 that breach |`);
+    console.log(`| candidate ceiling | P(fire) pooled-block (not operative) | **P(fire) run-preserving** | runs of these 19 that breach |`);
     console.log('|---:|---:|---:|---:|');
     for (const c of [0.2, 0.25, 0.3, 0.35, 0.4]) {
       console.log(
@@ -637,10 +629,10 @@ function main() {
     console.log(
       `At the ceiling in force (${pc(seamlib.BAND_CEILING)}) a run false-fires at ` +
         `**${(rateAbove(bsRun, seamlib.BAND_CEILING) * 100).toFixed(1)}%** run-preserving ` +
-        `(${(rateAbove(bsPooled, seamlib.BAND_CEILING) * 100).toFixed(2)}% under the withdrawn pooled model), and ` +
+        `(${(rateAbove(bsPooled, seamlib.BAND_CEILING) * 100).toFixed(2)}% under the pooled model), and ` +
         `${rs.filter((r) => r.band > seamlib.BAND_CEILING).length} of ${rs.length} of this ladder's runs breach. ` +
-        `${pc(seamlib.BAND_CEILING)} is the q99 of NEITHER model; it is a judgement, and the comparison it was ` +
-        `made for survives — 25% false-fires at ${(rateAbove(bsRun, 0.25) * 100).toFixed(1)}%.`
+        `${pc(seamlib.BAND_CEILING)} is the q99 of NEITHER model; it is a judgement, set against 25%, which ` +
+        `false-fires at ${(rateAbove(bsRun, 0.25) * 100).toFixed(1)}%.`
     );
     console.log('');
   }
@@ -673,7 +665,7 @@ function main() {
       path.resolve(emit),
       JSON.stringify(
         {
-          what: 'rf2-ymi6j — the band ladder re-taken on the corrected clock, reduced',
+          what: 'the band ladder on the corrected clock, reduced',
           bandCeiling: seamlib.BAND_CEILING,
           segments: SEGMENTS, fixed: FIXED, bar: BAR,
           note:
@@ -693,8 +685,8 @@ function main() {
 // `parseArgv` is the CLI surface, exported so its pin can drive the rule
 // rather than quote it; the entry point is guarded so that requiring this
 // file to reach it does not also RUN it. That pairing is the point — a
-// module that read `process.argv` at module scope is exactly why the
-// preceding rule in this fleet went untested until it broke.
+// module that reads `process.argv` at module scope has a rule no test can
+// drive, only quote.
 module.exports = { FLAGS, USAGE, parseArgv };
 
 if (require.main === module) main();
