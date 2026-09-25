@@ -1,10 +1,9 @@
 (ns day8.re-frame2-xray.views.edn-inspector-protocol-cljs-test
-  "Unit tests for the IXrayEdnInspector custom-formatters protocol
-  (rf2-oqa60 phase 7 · rf2-0qrcr).
+  "Unit tests for the IXrayEdnInspector custom-formatters protocol.
 
   ## What's under test
 
-  1. **Built-in types still render via the built-in dispatch.** A
+  1. **Built-in types render via the built-in dispatch.** A
      plain CLJS map / vector / scalar must NOT pick up the protocol
      path — `:data-rf-protocol` is absent.
 
@@ -20,9 +19,9 @@
   4. **Body-nil suppresses body.** A consumer with header but nil
      body renders header-only (no expanded body container).
 
-  5. **Toggle wiring still composes.** The protocol node carries the
+  5. **Toggle wiring composes.** The protocol node carries the
      same `data-testid` shape `[panel-id mount-id path]` as built-in
-     nodes, so a panel's reset / toggle affordances still address
+     nodes, so a panel's reset / toggle affordances address
      it uniformly.
 
   Pure-data unit tests; no DOM mount."
@@ -274,19 +273,19 @@
   (is (false? (ddp/satisfies-xray-edn-inspector? 42)))
   (is (false? (ddp/satisfies-xray-edn-inspector? nil))))
 
-;; ---- 8. rf2-y8doi.24 — the seam YIELDS to diff mode ----------------------
+;; ---- 8. the seam YIELDS to diff mode -------------------------------------
 ;;
-;; The protocol seam used to sit ahead of the diff `cond` as a bare
-;; `or`, so ANY value carrying a formatter short-circuited the diff
-;; render outright. That is not an exotic case: `views.edn-inspector`
+;; A protocol seam sitting ahead of the diff `cond` as a bare `or` would
+;; let ANY value carrying a formatter short-circuit the diff render
+;; outright. That is not an exotic case: `views.edn-inspector`
 ;; requires `views.edn-inspector-default-formatters`, which extends
 ;; the protocol over `cljs.core/UUID` and `js/Date` — so in a typical
-;; app-db EVERY `:session-id` and EVERY `:updated-at` took the
-;; protocol path, and a CHANGED one rendered its pretty custom header
-;; with no `~` glyph, no wash, no stripe and no `← was` chip. It was
+;; app-db EVERY `:session-id` and EVERY `:updated-at` takes the
+;; protocol path, and a CHANGED one would render its pretty custom
+;; header with no `~` glyph, no wash, no stripe and no `← was` chip —
 ;; invisible in the one mode whose entire job is showing what changed.
 ;;
-;; The contract now: a leaf that is part of a change wears the diff
+;; The contract: a leaf that is part of a change wears the diff
 ;; chrome AND keeps the consumer's rendering (threaded in as
 ;; `render-leaf-with-diff`'s `:scalar-fn`). An UNCHANGED leaf keeps
 ;; the plain protocol node — cheaper, and nothing to signal.
@@ -345,7 +344,7 @@
 
 (deftest unchanged-uuid-leaf-keeps-the-plain-protocol-node
   ;; The other half of the contract, and the control for the two above:
-  ;; the seam is NARROWED, not removed.
+  ;; the seam yields only for a CHANGED leaf.
   (let [u (uuid "00000000-0000-0000-0000-00000000aaaa")
         h (diff-leaf u u)]
     (is (some? (find-attr h :data-rf-protocol "1"))
@@ -354,8 +353,8 @@
         "and wears no modified chrome")))
 
 (deftest uuid-leaf-outside-diff-mode-keeps-the-plain-protocol-node
-  ;; The narrowing is scoped to diff mode alone — the ordinary render
-  ;; path is untouched.
+  ;; The yield is scoped to diff mode alone — the ordinary render
+  ;; path takes the protocol seam.
   (let [h (ei/render-node {:value (uuid "00000000-0000-0000-0000-00000000aaaa")
                            :panel-id :test
                            :mount-id "m1"
@@ -364,7 +363,7 @@
                            :expansion-map {}
                            :opts {}})]
     (is (some? (find-attr h :data-rf-protocol "1"))
-        "no `:diff?` — the protocol seam wins exactly as before")))
+        "no `:diff?` — the protocol seam wins")))
 
 (deftest added-and-removed-protocol-leaves-carry-their-chrome
   ;; `:added` / `:removed` are resolved by the STRUCTURAL sentinel
@@ -390,25 +389,25 @@
     (is (not (re-find #"edn-inspector/missing" (collect-text removed)))
         "and never leaks the internal `::missing` sentinel into the output")))
 
-;; ---- 9. rf2-et4l0 — the instance dispatcher survives protocol recursion --
+;; ---- 9. the instance dispatcher survives protocol recursion -------------
 ;;
-;; `render-node` rebuilt the protocol context WITHOUT `:dispatch-fn`, and
-;; `render-protocol-node` hands that context to the consumer wholesale
-;; (as `opts`, and again under `:node-opts`). A consumer body following
-;; the documented worked example (021 §10.0.6) recurses `render-node`
-;; with it, so a nested collection's toggle reached `render-container`'s
-;; `(or dispatch-fn rf/dispatch)` fallback with nothing to fall back FROM
-;; and captured the GLOBAL dispatcher. Nothing errored — `or` did exactly
-;; what it says — but the toggle event was then written through
+;; `render-protocol-node` hands the protocol context to the consumer
+;; wholesale (as `opts`, and again under `:node-opts`). A consumer body
+;; following the documented worked example (021 §10.0.6) recurses
+;; `render-node` with it, so a context built WITHOUT `:dispatch-fn` would
+;; send a nested collection's toggle to `render-container`'s
+;; `(or dispatch-fn rf/dispatch)` fallback with nothing to fall back FROM,
+;; capturing the GLOBAL dispatcher. Nothing would error — `or` does
+;; exactly what it says — but the toggle event would be written through
 ;; `rf/dispatch` while the widget reads its expansion state on the frame
 ;; it is mounted under, so the click could not update the mounted
-;; inspector and landed on the host/default frame instead. Built-in
-;; recursive children were unaffected: the two sibling child-row context
-;; maps in `render-container` both pass `:dispatch-fn` through.
+;; inspector and would land on the host/default frame instead. Built-in
+;; recursive children thread it the same way: the two sibling child-row
+;; context maps in `render-container` both pass `:dispatch-fn` through.
 ;;
 ;; The two tests below are the pair that separates the two worlds: one
 ;; pins the MECHANISM (the captured dispatcher is what the nested toggle
-;; calls), one pins the ITEM'S CONTRACT (a non-default inspector frame's
+;; calls), one pins the CONTRACT (a non-default inspector frame's
 ;; toggle updates THAT instance and leaves the host and a second instance
 ;; alone). A regression built on the DEFAULT frame cannot tell them
 ;; apart — there the global dispatcher and the instance's captured one
@@ -435,7 +434,7 @@
 (def ^:private ledger-fixture
   ;; Wide enough that the container cannot inline-fit (`:max-inline-width`
   ;; defaults to 60), so it renders its own toggle glyph — the affordance
-  ;; the defect broke.
+  ;; a dropped `:dispatch-fn` breaks.
   [{:entry-id 1 :memo "opening balance" :cents 1000}
    {:entry-id 2 :memo "flat white" :cents -450}])
 
@@ -479,7 +478,7 @@
         "and it addressed the nested node's own expansion key")))
 
 (deftest protocol-recursion-toggle-updates-only-the-mounted-instance
-  ;; The item's contract, on REAL non-default frames.
+  ;; The contract, on REAL non-default frames.
   (ei/install!)
   (rf/make-frame {:id ::instance-a})
   (rf/make-frame {:id ::instance-b})
