@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.managed-fx-subs
-  "Composite subs for the managed-fx wire-boundary diff template
-  (rf2-uyp86, parent rf2-5aw5v).
+  "Composite subs for the managed-fx wire-boundary diff template.
 
   The panel template (`panels/managed_fx_template`) is the renderer;
   this ns produces the data the renderer consumes. One read produces
@@ -30,15 +29,14 @@
   The panel's REPLY TARGET row shows the event vector the CALLER
   CONFIGURED for the reply. It is configuration, not an observation.
 
-  An HTTP record whose completion joined (rf2-6ooch) also carries a
+  An HTTP record whose completion joined also carries a
   `:reply-link` — the `:source :http` bundle that delivered the reply,
   found by the reply map's `:rf.reply/work-id` — and the template's
   `→ reply ↗` dispatches the spine's `:rf.xray/focus-event` with THAT
-  bundle's dispatch-id and frame. The button removed with rf2-y8doi.18
-  targeted the same event but passed the ISSUING record's own
-  dispatch-id, so it re-focused the bundle already in focus; the reply
-  link names a different bundle by construction. No panel-local focus
-  event is registered here."
+  bundle's dispatch-id and frame. Passing the ISSUING record's own
+  dispatch-id instead would re-focus the bundle already in focus; the
+  reply link names a different bundle by construction. No panel-local
+  focus event is registered here."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.spine :as spine]))
@@ -56,7 +54,7 @@
   ;; event-bundle. Re-derives on every spine flip / event-bundle-list change /
   ;; focus move.
   ;;
-  ;; rf2-6ooch — the TRACE BUFFER is an input too, exactly as the Resources
+  ;; The TRACE BUFFER is an input too, exactly as the Resources
   ;; composite takes it: an HTTP record's outcome is emitted outside the
   ;; issuing bundle (a transport callback, or another run's drain), so the
   ;; completion join reads the whole buffer. The join context is built ONCE
@@ -66,9 +64,9 @@
   (rf/reg-sub :rf.xray/managed-fx-for-focused-event
     {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus] [:rf.xray/trace-buffer]]}
     (fn [[event-bundles focus trace-buffer] _query]
-      ;; rf2-bz7flo — resolve the focused event-bundle frame-strictly. Dispatch
+      ;; Resolve the focused event-bundle frame-strictly. Dispatch
       ;; ids are unique only within a frame, so keying by dispatch-id alone
-      ;; could surface managed-fx rows from a foreign frame's same-id event-bundle
+      ;; would surface managed-fx rows from a foreign frame's same-id event-bundle
       ;; while the returned `:frame` is the focused frame. `event-bundle-by-focus`
       ;; keys by both `:frame` + `:dispatch-id` when focus carries a frame.
       (let [dispatch-id (:dispatch-id focus)
@@ -116,18 +114,15 @@
 
   nil)
 
-;; The REPLY TARGET row carries no `:on-click` at all since rf2-y8doi.18
+;; The REPLY TARGET row carries no `:on-click` at all
 ;; (managed_fx_template.cljs); the `→ reply ↗` link beside a joined HTTP
-;; status (rf2-6ooch) is the panel's one cross-link. When the row had one, it dispatched the spine's
+;; status is the panel's one cross-link. It dispatches the spine's
 ;; canonical `:rf.xray/focus-event` directly — 'focus this event' reads
 ;; as the panel-side concept and IS the spine focus write, so no
-;; panel-local duplicate was registered: one id, one write path
-;; (rf2-fsqlgz collapsed the former thin wrapper onto the spine event
-;; when the pipeline-vocab rename made both ids `:rf.xray/focus-event`).
+;; panel-local duplicate is registered: one id, one write path.
 ;;
-;; That reasoning still stands and is why nothing is registered here; it
-;; is recorded because the NEXT panel-side cross-link should reuse the
-;; spine event the same way rather than mint an id. What the removed
-;; button got wrong was its ARGUMENT, not its target: it passed the
-;; issuing record's own dispatch-id, so it re-focused the bundle already
-;; in focus.
+;; That is why nothing is registered here, and the NEXT panel-side
+;; cross-link should reuse the spine event the same way rather than mint
+;; an id. What matters is its ARGUMENT, not its target: passing the
+;; issuing record's own dispatch-id would re-focus the bundle already in
+;; focus.
