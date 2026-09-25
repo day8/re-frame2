@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.routes.simulate-url-cljs-test
-  "View tests for the Static Routes Simulate-URL header surface
-  (rf2-o5f5f.3).
+  "View tests for the Static Routes Simulate-URL header surface.
 
   ## Scope
 
@@ -14,8 +13,8 @@
       winner highlighted.
 
   Drives the view through [[panel-tree]] below — the node lane's
-  reproduction of `panel/Panel`'s reads (rf2-k97c.3 made that root an
-  `rf.fresco/defview` boundary) — so the dispatch round-trip still lands
+  reproduction of `panel/Panel`'s reads (that root is an
+  `rf.fresco/defview` boundary) — so the dispatch round-trip lands
   through the registered subs/events."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -27,10 +26,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
+  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers -----------------------------------------------------
@@ -77,18 +74,18 @@
 (defn- panel-tree
   "The hiccup the rows below walk.
 
-  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a
-  real React function component whose body may only run inside a React
-  render window, so calling `panel/Panel` no longer answers hiccup.
+  `panel/Panel` is an `rf.fresco/defview` boundary, a real React
+  function component whose body may only run inside a React render
+  window, so calling `panel/Panel` does not answer hiccup.
   This helper REPRODUCES THE BOUNDARY'S READS EXACTLY — the same
   four queries in the same ORDER — and hands their values to
-  `panel/panel-tree`, so every row below asserts on the same hiccup it
-  asserted on before, and the dispatch round-trip still lands through the
+  `panel/panel-tree`, so every row below asserts on the hiccup the
+  boundary renders, and the dispatch round-trip lands through the
   registered subs / events as this file's ns docstring promises.
 
   KEPT IN STEP WITH `static/routes/panel_cljs_test`'s private twin, which
-  is the same reproduction. Two copies is the established repair at two
-  files (#9578); the shared-composer form
+  is the same reproduction. Two copies suit two files; the
+  shared-composer form
   (`test_helpers/static_machines_tree`) is what a THIRD consumer would
   earn.
 
@@ -156,8 +153,8 @@
 
 (deftest simulate-url-redirect-url-crowns-the-route-it-names-rf2-y8doi-22
   (testing "a redirect-style URL (`?next=https://…`) resolves to its own path
-            in the result block — it used to crown the route named INSIDE its
-            query, which read as a clean win"
+            in the result block — crowning the route named INSIDE its query
+            would read as a clean win"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
