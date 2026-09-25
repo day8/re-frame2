@@ -248,7 +248,7 @@
               while an unstamped app handler returning the same effect fires it"
       (let [fid     (fresh-frame!)
             warning? #(= :rf.warning/app-handler-runtime-effect (:operation %))]
-        (rf/reg-event :install-test/app-writes-runtime
+        (rf.events/reg-event :install-test/app-writes-runtime
           (fn [{rt :rf.db/runtime} _]
             {:rf.db/runtime (assoc rt :rf.runtime/ssr saved-ssr)}))
         (with-trace-recorder! [traces {:pred warning?}]
