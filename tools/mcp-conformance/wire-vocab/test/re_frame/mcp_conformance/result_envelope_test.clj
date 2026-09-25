@@ -151,8 +151,7 @@
   ;; The teeth: each tag's CLOSED arm rejects malformed shapes — a tag
   ;; missing a required slot, a cross-tag slot leak, or an unknown tag.
   ;; Without these the schema could stay green while the envelope grammar
-  ;; drifted (the exact false-green class y3qpv's finding-2 follow-up
-  ;; closes for this marker).
+  ;; drifted — a false green.
   (testing ":value WITHOUT the :value slot fails"
     (is (not (m/validate ResultEnvelope {:rf.mcp/result :value}))
         "a :value result MUST carry the :value slot"))
