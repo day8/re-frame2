@@ -303,7 +303,7 @@ function decompose(bs, isA) {
 // the parity indicator (+1 even) and the pass indicator (+1 `page`-first) over
 // the blocks: ±n is a schedule in which the two are the same column up to
 // sign, and 0 is one in which they are orthogonal. A `parity` corpus reads
-// exactly −n, which is the tie `seeded` exists to break.
+// exactly +n, which is the tie `seeded` exists to break.
 function separation(bs) {
   let dot = 0;
   for (const b of bs) dot += (b.evenRound ? 1 : -1) * (b.first === 'page' ? 1 : -1);

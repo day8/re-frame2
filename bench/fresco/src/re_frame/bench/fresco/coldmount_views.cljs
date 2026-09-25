@@ -110,7 +110,8 @@
   MECHANISM completes — the shipped hook converging onto what the
   transcription measured, on the flushSync schedule `witness!` forces. It
   is SCHEDULE-CONDITIONAL and not an acceptance witness for shipped mount
-  performance: on the public `createRoot().render()` path the same hook
+  performance: on the public `createRoot().render()` path, at a
+  `setTimeout 0` horizon, the same hook
   reads the `xcript` row instead. A failure here is therefore a broken
   mechanism, not a lost race. The witness components never appear in a
   timed window and the timed arms never touch a counter.
