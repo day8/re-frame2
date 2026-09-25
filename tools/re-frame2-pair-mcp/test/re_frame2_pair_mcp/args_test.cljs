@@ -169,11 +169,10 @@
   (is (= [:ok 'nope] (args/read-edn-arg "nope(" :missing :invalid))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-event-arg — the shared event-vector parse seam (rf2-tcp7za).
+;; parse-event-arg — the shared event-vector parse seam.
 ;;
-;; `dispatch` and `dispatch-dry-run` used to each carry a byte-for-byte copy
-;; of this parser; they now both route through `args/parse-event-arg`,
-;; passing only their distinct missing-value hint. This is where the
+;; `dispatch` and `dispatch-dry-run` both route through
+;; `args/parse-event-arg`, passing only their distinct missing-value hint. This is where the
 ;; EXHAUSTIVE parse matrix lives — nil / blank / unreadable / map / keyword
 ;; / list / symbol / scalar / vector inputs and the parsed-type
 ;; classification. The tool suites keep only the narrow integration
@@ -342,7 +341,7 @@
   (is (= :err (first (args/parse-fx-overrides #js {":http" true}))) "boolean target rejected"))
 
 ;; ---------------------------------------------------------------------------
-;; `:rf/fn-override` sentinel (rf2-m7x0qb / Tool-Pair §Replay) — a recorded
+;; `:rf/fn-override` sentinel (Tool-Pair §Replay) — a recorded
 ;; `:fx-overrides` entry carrying the opaque marker
 ;; (`re-frame.router/serializable-fx-overrides`'s stand-in for a fn-valued
 ;; override the router could not serialize) makes the run UNREPLAYABLE under
@@ -365,7 +364,7 @@
     (is (= :err tag))))
 
 ;; ---------------------------------------------------------------------------
-;; `parse-interceptor-overrides` (rf2-m7x0qb) — the ref-shaped sibling of
+;; `parse-interceptor-overrides` — the ref-shaped sibling of
 ;; `parse-fx-overrides`. Keys/values are EITHER a bare colon-tolerant
 ;; keyword id OR a bracket-shaped EDN `"[id arg]"` string (a parameterized
 ;; ref); a `null` value is the documented remove sentinel.
