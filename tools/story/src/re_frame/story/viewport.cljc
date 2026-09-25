@@ -1,6 +1,6 @@
 (ns re-frame.story.viewport
   "Viewport switcher — preset table + pure state model + localStorage
-  helpers (rf2-zll4h).
+  helpers.
 
   Mirrors Storybook's `addon-viewport`: a toolbar dropdown that frames
   the canvas at a chosen width / height so authors can preview a story
