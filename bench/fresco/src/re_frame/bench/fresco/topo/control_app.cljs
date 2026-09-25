@@ -1,15 +1,13 @@
 (ns re-frame.bench.fresco.topo.control-app
   "**THE TOURNAMENT'S CLOCK CONTROL** — one positive control per arm, each
-  doubling the quantity THAT arm's commit cost is proportional to
-  (rf2-m6i0, replacing the changed-set control rf2-hic-036 built and
-  refused).
+  doubling the quantity THAT arm's commit cost is proportional to.
 
   Driven by the lane's generic driver, so it adds no driver of its own:
 
       FRESCO_INIT_FN=re-frame.bench.fresco.topo.control-app/-main \\
       FRESCO_OUT_DIR=out/topo-control \\
       FRESCO_PORT=8147 \\
-      node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+      node bench/fresco/src/re_frame/bench/fresco/run.cjs
 
   ## What this file decides, and why it runs BEFORE any cell
 
@@ -18,8 +16,8 @@
   construction:
 
   > bulk-class rows cannot hold a difference-statistic control at the
-  > ~3.5% floor a magnitude needs (rf2-7iqb5, 28–48% within-block IQR),
-  > and the narrow class sits on the clock clamp (rf2-d2tzk)
+  > ~3.5% floor a magnitude needs (28–48% within-block IQR), and the
+  > narrow class sits on the clock clamp (the M1 instrument fences it).
   > — `shapes/census_clock_run.cjs`
 
   So the question this window exists to answer is not *what are the
@@ -28,55 +26,54 @@
   refuses, the tournament's clock half refuses with it and the cells are
   never taken — which is a result, not a failure.
 
-  ## THE TWO CONTROLS THIS ONE REPLACES, AND THE ONE FAULT THEY SHARE
+  ## THE TWO SIMPLER CONTROLS, AND THE ONE FAULT THEY SHARE
 
-  Both predecessors were correct about their own arm and degenerate
+  Both simpler controls are correct about their own arm and degenerate
   elsewhere, and the reason is the same in both directions: **a
   manipulation certifies an instrument only when EVERY cost in the
   measured window moves with it.** Whatever does not move is a shared
   constant, and a shared constant compresses the measured ratio toward 1
   — which reads exactly like an instrument that cannot see.
 
-  1. **Page-scaling** (every control this lane had before `rf2-7iqb5`).
-     Refused for update rows in general, and rightly: on an update row
-     the work does not scale with the page, so even a perfect instrument
-     reads below the prediction. `rf2-7iqb5`'s own run failed high at
-     13.696 / 13.583 / 13.112x against a registered 8–13x band.
+  1. **Page-scaling.** Refused for update rows in general, and rightly:
+     on an update row the work does not scale with the page, so even a
+     perfect instrument reads below the prediction. A page-scaling run on
+     this lane failed high at 13.696 / 13.583 / 13.112x against a
+     registered 8–13x band.
 
-  2. **Changed-set doubling** (`rf2-7iqb5`'s prescribed repair, built by
-     `rf2-hic-036` over `:topo/bump-stride`). Hold the page fixed, double
-     the changed set, predict 2.00x. It was **degenerate on `coarse` and
-     `chunked`**, which rebuild every row whichever stride runs — and it
-     **REFUSED on `fine`**, the arm where its markup arithmetic is not
-     degenerate, measuring 1.331 / 1.387 / 1.424 / 1.471 / 1.325 against
-     a [1.60, 2.50] band on a quiet box with the order guard clean.
+  2. **Changed-set doubling** (over `:topo/bump-stride`). Hold the page
+     fixed, double the changed set, predict 2.00x. It is **degenerate on
+     `coarse` and `chunked`**, which rebuild every row whichever stride
+     runs — and it **REFUSES on `fine`**, the arm where its markup
+     arithmetic is not degenerate: the recorded run measured 1.331 /
+     1.387 / 1.424 / 1.471 / 1.325 against a [1.60, 2.50] band on a quiet
+     box with the order guard clean.
 
-     `rf2-m6i0`'s diagnosis of that refusal is the design input for this
-     file. Three costs sat in the measured window and only ONE doubled:
+     The diagnosis of that refusal is the design input for this file.
+     Three costs sit in the measured window and only ONE doubles:
      `:topo/bump-stride` `reduce-kv`s the whole thousand-row table at
      both strides, the subscription layer answers for every row at both
-     strides, and only the 100→200 rows of markup actually doubled. The
-     page-scaling failure had reappeared *inside the control built to
-     replace it*.
+     strides, and only the 100→200 rows of markup actually double. It is
+     the page-scaling failure again, *inside a control meant to avoid
+     it*.
 
-  ## THE REPAIR: double the arm's RENDERED PAGE, with an INDEXED write
+  ## THIS CONTROL: double the arm's RENDERED PAGE, with an INDEXED write
 
-  Two changes, and each one closes one of the two leaks above.
+  Two choices, and each one closes one of the two leaks above.
 
   **The write is indexed.** `:topo/bump-indexed` `update-in`s the rows it
   moves instead of rebuilding the table, so the handler costs
   `limit/stride` rather than `B`. That is the diagnosis's first
-  condition: the event handler now costs in proportion to the changed
-  set.
+  condition: the event handler costs in proportion to the changed set.
 
   **The manipulation scales the arm's own rendered page.** With the page
   doubled, the subscription layer and the render both double as well —
   the diagnosis's second condition — because there are twice as many rows
   to answer for and twice as many to build. Page-scaling is invalid for
-  an update row *in general*, exactly as `rf2-7iqb5` says; it is valid
-  HERE because the manipulation doubles the changed set too. Nothing in
-  the window is held constant, which is precisely what the two refused
-  controls each got wrong from opposite ends.
+  an update row *in general*, as above; it is valid HERE because the
+  manipulation doubles the changed set too. Nothing in the window is held
+  constant, which is precisely what the two simpler controls each get
+  wrong from opposite ends.
 
   ## WHY THE SCALED QUANTITY IS `rendered-rows` AND NOT `B`
 
@@ -113,22 +110,22 @@
   (`shapes/census_clock_run.cjs`) under its strict rule — EVERY round
   inside, so one bad round refuses rather than being averaged away.
   **This is not a widening**: ±25% of 1.9996 floors at 1.4997, and the
-  refused changed-set run measured 1.331–1.471. The band that admits this
-  control still refuses that one.
+  recorded changed-set run measured 1.331–1.471. The band that admits
+  this control refuses that one.
 
-  ## The sign rule, which is the fix that landed in PR #7634
+  ## The sign rule
 
   A band alone admits a control certifying that MORE WORK READS FASTER:
-  `rf2-7iqb5` proved it live, capturing `num=-1.194 den=-0.594
+  a live run captured it, `num=-1.194 den=-0.594
   measured=2.0101x band=[1.5076,2.5126] ok=TRUE` against a decreasing
   fixture. [[verdict]] therefore requires the measured ratio to exceed
   1.0 in every round as well as sit in band, and refuses on the sign.
 
-  ## The read-back, which the predecessor claimed and did not perform
+  ## The read-back, performed rather than claimed
 
-  Its `window!` said the clock stops after the last drain and *\"the
-  read-back happens afterwards\"*, and then returned elapsed time without
-  reading anything (rf2-m6i0's audit of PR #8160). A control that never
+  A `window!` that says the clock stops after the last drain and *\"the
+  read-back happens afterwards\"*, and then returns elapsed time without
+  reading anything, never looks at the page — and a control that never
   looks at the page can adjudicate a no-op from event and subscription
   work alone.
 
@@ -167,7 +164,7 @@
 (def stride
   "Every `stride`-th rendered row moves. A STATED CONSTANT, held at both
   halves of the manipulation — this control does not vary it, which is
-  the entire difference from the changed-set control it replaces.
+  the entire difference from a changed-set control.
 
   Five, and not one: rows that do NOT move are what the unchanged probe
   reads, and a write touching every row would leave nothing to read. It
@@ -199,11 +196,11 @@
 (def batch-k
   "Operations under ONE clock.
 
-  Chrome clamps `performance.now()` to 100 µs, and `rf2-d2tzk` records
-  what that does to a narrow row: HD-008's bulk floor read a p50 of about
-  0.1 ms — ONE quantum — and a yield correction over it consumed the
-  whole window. `rf2-9zysg`'s repair for the narrow row was to batch, and
-  this is that repair, not a new idea: `k` commits share one clock, which
+  Chrome clamps `performance.now()` to 100 µs, and a narrow row does not
+  survive that: HD-008's bulk floor reads a p50 of about 0.1 ms — ONE
+  quantum — and a yield correction over it consumes the whole window.
+  Batching is the lane's answer for the narrow row, and this is that
+  answer, not a new idea: `k` commits share one clock, which
   lifts the window clear of the clamp and is NOT the same as summing `k`
   separately-clamped readings."
   20)
@@ -285,13 +282,13 @@
 
   - **in band**, round-wise rather than pooled, so one bad round refuses
     instead of being averaged away (`census_clock_run/controlVerdict`'s
-    rule, and the strict side of the rf2-egdaq split, which kept
-    `rf.bench.fresco.lane/control-verdict`'s overlap rule only for clamp-limited clock
-    legs);
-  - **positive in sign**, which is PR #7634's fix — a band alone admits a
-    control certifying that more work reads faster;
-  - **verified**, which is the audit obligation on this file: `0
-    unverified of M` probes, or the numbers describe a page nobody read.
+    rule — the strict side, since
+    `rf.bench.fresco.lane/control-verdict`'s overlap rule is only for
+    clamp-limited clock legs);
+  - **positive in sign** — a band alone admits a control certifying that
+    more work reads faster;
+  - **verified**: `0 unverified of M` probes, or the numbers describe a
+    page nobody read.
 
   Pure, and exported so the gate arithmetic is checkable without a
   headless Chromium."
