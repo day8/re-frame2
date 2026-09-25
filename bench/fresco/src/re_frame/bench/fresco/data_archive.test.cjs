@@ -1,25 +1,25 @@
 'use strict';
-// THE ARCHIVE BOUNDARY, HELD TO ITS TWO PROMISES (rf2-d1nr.2).
+// THE ARCHIVE BOUNDARY, HELD TO ITS TWO PROMISES.
 //
 // Run it:
 //     node src/re_frame/bench/fresco/data_archive.test.cjs
 //
 // The corpus lives outside the working tree, at a commit older than the rename
-// that gave this tree its name (rf2-d1nr.2), and BOTH things it fixes about
-// itself — the path it sits at, and the vocabulary its records are written in —
-// are beyond the reach of any commit on main. PR #9568 renamed the pointer at
-// both and left the target where it was, which is how two failures shipped green:
+// that gave this tree its name, and BOTH things it fixes about itself — the
+// path it sits at, and the vocabulary its records are written in — are beyond
+// the reach of any commit on main. Renaming the pointer at both while the
+// target stays where it is ships two failures green:
 //
-//   1. The advertised restore command named a path that does not exist in the
-//      archived commit and exited 1. Nothing ran it, so nothing said so.
-//   2. Readers addressing the native arm by its current spelling matched
+//   1. The advertised restore command names a path that does not exist in the
+//      archived commit and exits 1. Nothing runs it, so nothing says so.
+//   2. Readers addressing the native arm by its current spelling match
 //      nothing in an archived record — not a crash, a smaller population and a
 //      different median.
 //
 // So there are two checks here and they are deliberately of different kinds.
 // The FIRST validates the COMMAND and must run even with the corpus absent,
-// because that is the state every clone is in — it is the check that would
-// have caught (1) in a lane with no CI. The SECOND validates the READ and is
+// because that is the state every clone is in — it is the check that catches
+// (1) in a lane with no CI. The SECOND validates the READ and is
 // corpus-backed, so it skips with the lane's one printed line when `data/` is
 // not there. Its expectations are the population the reader saw BEFORE the
 // rename, so a repair that quietly recalculates over half the cells fails here
@@ -55,9 +55,9 @@ test('the archived corpus RESOLVES at the pinned commit, at the path it was arch
 });
 
 test('the restore is advertised in ONE spelling, and every place that quotes it agrees', () => {
-  // Three surfaces used to carry three copies of a `git restore` line; they
-  // drifted the moment the directory moved. They now quote `RESTORE`, and this
-  // is what holds them to it.
+  // Three surfaces carrying three copies of a restore line drift the moment
+  // the directory moves. They quote `RESTORE`, and this is what holds them to
+  // it.
   const self = fs.readFileSync(path.join(__dirname, 'data_archive.cjs'), 'utf8');
   const readme = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'README.md'), 'utf8');
   for (const [what, text] of [['data_archive.cjs', self], ['bench/fresco/README.md', readme]]) {
@@ -76,8 +76,8 @@ test('the restore is advertised in ONE spelling, and every place that quotes it 
 });
 
 test('a `git restore` of the CURRENT path cannot be the advertised operation', () => {
-  // The regression in one line: the archived tree has no such path, so the
-  // command PR #9568 left behind exits 1. Asserted rather than remembered,
+  // The regression in one line: the archived tree has no such path, so a
+  // `git restore` of the current path exits 1. Asserted rather than remembered,
   // because if it ever starts resolving, the restore can go back to being one
   // git command and this whole file can shrink.
   const cp = require('node:child_process');
@@ -98,8 +98,8 @@ test('a record written TODAY passes through the boundary unchanged', () => {
 });
 
 corpusTest('the archived alloc-0gjqi record reads its FULL published population', () => {
-  // The audit's own numbers over `alloc-0gjqi/paired-run1.json` at rungs
-  // R0/R3/R7. The landed reader returned 27 of these 55 cells and dropped the
+  // The published numbers over `alloc-0gjqi/paired-run1.json` at rungs
+  // R0/R3/R7. A raw reader returns 27 of these 55 cells and drops the
   // native arm entirely, leaving Reagent and UIx — the two positive controls
   // below — untouched. That is the shape of the defect: an answer, quieter.
   const pass = require('./alloc_pass_position.cjs');
@@ -118,16 +118,16 @@ corpusTest('the archived alloc-0gjqi record reads its FULL published population'
   assert.deepStrictEqual(
     pass.blocks(row, 'archive').map((b) => b.n),
     [3, 8, 7, 8, 4, 7],
-    'per-round n, which halved when the arm went missing'
+    'per-round n, which halves when the arm goes missing'
   );
 });
 
 corpusTest('and the REPORT ITSELF reads it — the boundary is on the path the CLI takes', () => {
-  // THE CHECK ABOVE WAS HOLLOW AND THIS IS WHY THIS ONE EXISTS (the merged-PR
-  // audit of #9571). It proves `readRecord` by CALLING `readRecord`, so it went
-  // green over a `main` that never touched the boundary: the published report
-  // parsed its dataset arguments raw and printed n=[1,4,4,4,2,4], PASS TERM
-  // +0.89% and null arm n=8 over 27 of the 55 cells, exit 0, no remark. A test
+  // THE CHECK ABOVE IS HOLLOW ON ITS OWN AND THIS IS WHY THIS ONE EXISTS. It
+  // proves `readRecord` by CALLING `readRecord`, so it stays green over a
+  // report that never touches the boundary: one parsing its dataset arguments
+  // raw prints n=[1,4,4,4,2,4], PASS TERM +0.89% and null arm n=8 over 27 of
+  // the 55 cells, exit 0, no remark. A test
   // that exercises a path the CLI does not take says nothing about the CLI. So
   // this one SPAWNS the CLI exactly as `bench/fresco/README.md` documents it and
   // reads the population out of what it printed — a future raw read anywhere on
