@@ -446,7 +446,9 @@
   When the row carries an EXACT spec-path (`:spec-path`, an
   explicit tuple) or the substrate's spec-path discriminator
   (`:transition-slot`, for an inline transition `:action`), those WIN over
-  the reconstruct-from-`source-state`/`event`/`phase` path below. The
+  the reconstruct-from-`source-state`/`event`/`phase` path below; a
+  discriminator on a row inside a parallel region addresses
+  `[:regions <region> …]`. The
   reconstruction is the fallback for rows lacking the carried slot
   (named-handler keys, `:exit` / `:entry` boundary actions, timers, and
   traces without the discriminator).
@@ -506,7 +508,7 @@
     (the parent state's source-coord chip; there is no per-`:after`
     coord)."
   [{:keys [kind action-id guard-id phase source-state target-state event-id
-           spec-path transition-slot]
+           spec-path transition-slot region]
     timer-state :state
     :as row}]
   (let [source-prefix (proj/state-spec-path-prefix source-state)
@@ -515,9 +517,12 @@
         ;; The EXACT slot prefix the substrate's discriminator
         ;; resolves to (candidate index / `:after` delay-key / root), or nil
         ;; when the row carries no discriminator (boundary actions, named
-        ;; handlers, traces without it).
+        ;; handlers, traces without it). Inside a parallel region the
+        ;; discriminator's `:decl-path` is region-relative, so the prefix
+        ;; opens with the row's `[:regions <region>]`.
         slot-prefix   (when (map? transition-slot)
-                        (transition-slot->spec-prefix transition-slot))]
+                        (some->> (transition-slot->spec-prefix transition-slot)
+                                 (into (if (some? region) [:regions region] []))))]
     (case kind
       :action
       (cond

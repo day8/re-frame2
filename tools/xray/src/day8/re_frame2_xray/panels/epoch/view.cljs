@@ -2969,9 +2969,10 @@
     builds, fixture fn-form machines).
   - Inline-fn `:entry` / `:exit` / `:guard` / `:action` rows: prefer the
     co-located `:source-code` STRING the macro stamped on the enclosing
-    `:states`-tree map node — a `{<slot> <source-string>}`
+    map node — a `{<slot> <source-string>}`
     map under `:source-code` on the node, read at `(pop k)` + the slot
-    `(last k)`. This is what lets an inline action's CODE render (the slot
+    `(last k)`; the root's own `[:entry]` / `[:exit]` reads the spec root
+    at `[]`. This is what lets an inline action's CODE render (the slot
     value itself is a bare compiled fn → an opaque `#object[Function]`
     token). Falls back to the runtime value at the
     slot (a compiled fn object in production / fn-form fixture machines, or,
@@ -2998,17 +2999,17 @@
               ;; the slot; tolerate it for unit-test ergonomics.
               entry))
         ;; Inline-fn slot key (`[… :action]` / `:guard` / `:entry` /
-        ;; `:exit`) under `:states`. Prefer the co-located `:source-code`
+        ;; `:exit`). Prefer the co-located `:source-code`
         ;; STRING the macro stamped on the ENCLOSING map node —
         ;; the inline fn's body cannot live on the bare slot (the runtime
         ;; engine needs a fn there), so it rides a `{<slot> <source>}` map
-        ;; under the enclosing node's `:source-code`. Fall back to the
-        ;; runtime slot value (the bare fn / keyword reference) when no
-        ;; source was captured (production builds, fn-form fixtures).
+        ;; under the enclosing node's `:source-code`. The root's own
+        ;; `[:entry]` / `[:exit]` encloses at `[]`, the spec root. Fall back
+        ;; to the runtime slot value (the bare fn / keyword reference) when
+        ;; no source was captured (production builds, fn-form fixtures).
         (let [slot          (last k)
               enclosing-path (vec (butlast k))
-              inline-src    (when (seq enclosing-path)
-                              (get-in spec (conj enclosing-path :source-code slot)))
+              inline-src    (get-in spec (conj enclosing-path :source-code slot))
               ;; The `:always` source-key is the index-free
               ;; single-map shape (`[:states … :always :action]`). When the
               ;; spec wrote the VECTOR-candidate form (`:always [{…}]`), the
