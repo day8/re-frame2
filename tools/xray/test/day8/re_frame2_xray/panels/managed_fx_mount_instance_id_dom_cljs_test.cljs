@@ -1,27 +1,26 @@
 (ns day8.re-frame2-xray.panels.managed-fx-mount-instance-id-dom-cljs-test
   "TWO STANDALONE `mount-managed-fx!` MOUNTS IN ONE FRAME, read off a real
-  React commit (rf2-5ykm).
+  React commit.
 
   ## The claim, and why it needs a DOM
 
-  rf2-fcy5 migrated this panel's mount to a Fresco boundary and gave each
-  record's inspector a per-record node-key, which fixed the collisions
-  WITHIN one list. It introduced one ACROSS lists: `mount-managed-fx!`
-  delegated with no props, `ManagedFxList-bridge` always passed `{}`, the
-  boundary ignored props, and `managed_fx_template`'s four
-  `edn/inspect-view` sites derived every node-key from `record-key` and the
-  section role alone. So the same focused event mounted into two containers
-  under one frame emitted IDENTICAL mount-ids — the per-mount identity the
-  Reagent head used to mint was what the migration dropped.
+  Each record's inspector carries a per-record node-key, which separates
+  the widgets WITHIN one list. ACROSS lists, `managed_fx_template`'s four
+  `edn/inspect-view` sites derive every node-key from `record-key` and the
+  section role, so without a per-mount qualifier the same focused event
+  mounted into two containers under one frame would emit IDENTICAL
+  mount-ids. `mount-managed-fx!`'s `:instance-id` opt is that qualifier,
+  reaching the template through `ManagedFxList-bridge` and the boundary's
+  props.
 
-  A row asserting the opts key was THREADED would pass while both mounts
-  still collided, which is the failure one level up. So nothing here reads
+  A row asserting the opts key was THREADED could pass while both mounts
+  collided, which is the failure one level up. So nothing here reads
   the opts map, the captured tree, or the props. Two mounts are made
   through the public facade into two real containers, and every assertion
   below reads `container.querySelector` — the DOM React committed on its
   own — or the widget's own per-mount store.
 
-  ## The two observables, and the SECOND is the one the defect breaks
+  ## The two observables, and the SECOND is the one a shared identity breaks
 
   `data-rf-mount-id` is stamped by the edn-inspector widget on every
   committed container. It is not decoration: `edn-widget/inspect-view`
@@ -36,22 +35,21 @@
   where `app-db-diff` needs two.)
 
   [[two-named-mounts-each-hold-their-own-observer]] is the half a
-  distinctness row would miss. Under the shared identity the SECOND mount
-  never installs a ResizeObserver at all (`container-ref-for` hands back
-  the memoised callback, whose mount arm is guarded on
-  `(nil? (:observer entry))`), and `release-mount!` then tears the SHARED
+  distinctness row would miss. Under a shared identity the SECOND mount
+  would never install a ResizeObserver at all (`container-ref-for` hands
+  back the memoised callback, whose mount arm is guarded on
+  `(nil? (:observer entry))`), and `release-mount!` would tear the SHARED
   entry down when EITHER mount detaches — leaving the survivor on screen
   with no observer and no width updates. So that row asserts the observer
-  is held by each mount and STILL held by the survivor afterwards.
+  is held by each mount, and by the survivor once the other detaches.
 
-  ## The negative control IS the defect, and it is a row rather than a note
+  ## The negative control IS the collision, and it is a row rather than a note
 
   [[two-unnamed-mounts-still-collide]] mounts the same two lists with NO
   `:instance-id` and asserts the id sets are IDENTICAL. It carries two
   claims at once: the instrument can see a collision (so the disjointness
   above is separation and not silence), and omitting the opt leaves every
-  id byte-for-byte what it always was — which is every call site in this
-  tree today.
+  id with no instance segment at all.
 
   ## Substrate: the Reagent adapter, and the mount is the PUBLIC one
 
@@ -146,10 +144,10 @@
   first commit of each container.
 
   The disclosure slot is keyed by `record-key` and lives in the frame's
-  app-db, which both mounts share DELIBERATELY: this bead qualifies the
-  inspector's own identities and leaves record identity and disclosure
-  semantics exactly where they were. Two lists of the same records open and
-  close together; what they no longer share is a ResizeObserver."
+  app-db, which both mounts share DELIBERATELY: the instance qualifier
+  applies to the inspector's own identities, not to record identity or
+  disclosure semantics. Two lists of the same records open and close
+  together; what they do not share is a ResizeObserver."
   []
   (registry/register-xray-handlers!)
   (mount/ensure-xray-frame! :rf/xray)
@@ -208,7 +206,7 @@
 ;; ===========================================================================
 
 (deftest two-named-mounts-compose-disjoint-inspector-ids
-  (testing "rf2-5ykm — `mount-managed-fx!` given two different
+  (testing "`mount-managed-fx!` given two different
             `:instance-id`s mounts two lists whose committed DOM carries two
             disjoint sets of `data-rf-mount-id`, in the ONE `:rf/xray` frame
             they both default to. Each id composes the widget's lifecycle
@@ -251,12 +249,12 @@
 ;; ===========================================================================
 
 (deftest two-named-mounts-each-hold-their-own-observer
-  (testing "rf2-5ykm — two named standalone mounts hold two entries in the
+  (testing "two named standalone mounts hold two entries in the
             widget's per-mount store, each with its OWN ResizeObserver, and
-            unmounting one releases ONLY its own. Under the shared identity
-            the second mount never installs an observer at all and
-            `release-mount!` tears the shared entry down when either
-            detaches, so the survivor is left on screen unobserved — which a
+            unmounting one releases ONLY its own. Under a shared identity
+            the second mount would install no observer at all and
+            `release-mount!` would tear the shared entry down when either
+            detaches, leaving the survivor on screen unobserved — which a
             distinctness row alone cannot see."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -277,8 +275,8 @@
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r))
                          :observer)
               "and so did the right — two live mounts, two observers. Under
-               the shared identity the second element's ref callback finds an
-               observer already on the entry and installs none")
+               a shared identity the second element's ref callback would find
+               an observer already on the entry and install none")
 
           (unmount! right)
 
@@ -286,23 +284,23 @@
               "the detached mount is gone")
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
-              "and the mount STILL ON SCREEN is still observed — releasing
-               the survivor's entry is what the shared key did, and it left a
-               live node with no observer and no width updates")
+              "and the mount left ON SCREEN is observed — a shared key would
+               release the survivor's entry too, leaving a live node with no
+               observer and no width updates")
           (finally
             (unmount! left)))))))
 
 ;; ===========================================================================
-;; W3 — the negative control: unnamed mounts collide, and are unchanged
+;; W3 — the negative control: unnamed mounts collide, with no instance segment
 ;; ===========================================================================
 
 (deftest two-unnamed-mounts-still-collide
-  (testing "rf2-5ykm — the defect verbatim, kept as a row. Two standalone
+  (testing "the collision, as a row. Two standalone
             mounts with NO `:instance-id` present the SAME ids, which is what
             makes W1's disjointness a measurement rather than a coincidence;
-            and the ids they present carry no instance segment at all, so
-            every existing single-mount call site composes exactly what it
-            always did."
+            and the ids they present carry no instance segment at all, so a
+            single-mount call site that names no instance composes the plain
+            record-keyed ids."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup!)
@@ -327,8 +325,8 @@
                      "caller's name spliced in after the panel's own prefix "
                      "— which says both halves at once: naming qualifies the "
                      "id without disturbing the record key inside it, and an "
-                     "unnamed mount composes byte-for-byte what it always "
-                     "did. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
+                     "unnamed mount composes the plain prefixed id with no "
+                     "instance segment. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
             (is (= ids-a (mount-ids (:container a)))
                 "re-reading the same container is stable — these are
                  identities, not per-render nonces"))
