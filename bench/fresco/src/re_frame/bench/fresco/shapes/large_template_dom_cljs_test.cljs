@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.shapes.large-template-dom-cljs-test
   "**SHAPE 2'S WITNESS** — the ~1,200-element template is one boundary,
-  and it renders the census's page (rf2-2rtt6.51).
+  and it renders the census's page.
 
   Four claims:
 
@@ -19,8 +19,8 @@
      body re-runs exactly once for it — which is also the honest cost of
      this decomposition and the reason shape 3 exists.
 
-  Runtime: `-dom-cljs-test`. Under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
