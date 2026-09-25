@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Tests for `examples/scripts/walk-tree.cjs` — the FAIL-CLOSED directory-walk
- * primitive shared by the examples-script scanners (rf2-3fc89f.31).
+ * primitive shared by the examples-script scanners.
  *
  * What these pin
  * --------------
@@ -12,8 +12,8 @@
  *   - an unreadable/missing ROOT is recorded by name (each root is enumerated
  *     independently);
  *   - an INTENTIONAL skip (skipDir policy) is never visited and never an error —
- *     the deliberate-prune vs unexpected-failure distinction the whole fix rests
- *     on;
+ *     the deliberate-prune vs unexpected-failure distinction the whole walk
+ *     rests on;
  *   - assertWalkComplete is a no-op on a clean walk and throws (carrying
  *     .walkErrors + .actionable, naming each path) on a partial walk.
  *
@@ -44,7 +44,7 @@ function it(label, fn) {
   }
 }
 
-console.log('walk-tree tests (rf2-3fc89f.31)');
+console.log('walk-tree tests');
 
 // A synthetic filesystem. `dirs` maps an absolute dir path -> [{ name, type }]
 // ('dir' | 'file'); `unreadable` is a Set of absolute dir paths whose
