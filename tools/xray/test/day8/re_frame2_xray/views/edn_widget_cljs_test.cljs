@@ -1,16 +1,12 @@
 (ns day8.re-frame2-xray.views.edn-widget-cljs-test
-  "Tests for the Xray EDN widget facade — post-rf2-oqa60 phase 1.
+  "Tests for the Xray EDN widget facade.
 
-  After the edn-inspector rebuild the facade is a thin delegate over
-  `views.edn-inspector`; tests for the prior cljs-devtools routing /
-  copy-affordance behaviour are deleted with the cljs-devtools cut-over.
-
-  This file now exercises ONLY the surfaces the facade still owns
-  end-to-end:
+  The facade is a thin delegate over `views.edn-inspector`, so this
+  file exercises ONLY the surfaces the facade owns end-to-end:
 
   1. **Code-block tokenizer** — `tokenize-clojure` + `classify-token`
      handle source-text highlighting (CLJS-source rendering, NOT
-     CLJS-value rendering — values flow through the new widget).
+     CLJS-value rendering — values flow through `views.edn-inspector`).
   2. **Code-block rendering** — `code-block` returns the expected
      `[:pre [:code ...]]` shape with per-token colour spans.
   3. **zprint pre-format** — `format-source` survives nil / empty /
@@ -18,7 +14,7 @@
   4. **highlight-clojure-token mapping** — every token-type resolves
      to its Figma-aligned syntax token; keyword + builtin distinct.
   5. **Facade delegation** — `inspect` returns a Reagent component
-     invocation of the new widget."
+     invocation of `views.edn-inspector`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [day8.re-frame2-xray.views.edn-widget :as w]
@@ -50,8 +46,8 @@
 
 ;; ---- facade delegation --------------------------------------------------
 ;;
-;; Post-rf2-oqa60 `inspect` returns a Reagent component form 2:
-;; `[ei/edn-inspector value opts]`. The test surface that mattered
+;; `inspect` returns a Reagent component form 2:
+;; `[ei/edn-inspector value opts]`. The widget's own test surface
 ;; (sentinel chrome, type colours, click-to-toggle) lives in
 ;; `views/edn_inspector_cljs_test.cljs`.
 
@@ -87,12 +83,12 @@
   (is (= :builtin  (w/classify-token "let"))))
 
 (deftest classify-token-retired-registrar-spellings
-  (testing "EP-0018 retired `reg-event-db` / `-fx` / `-ctx`; they stay in the
-            highlighter set ONLY so a v1 / pre-migration source-text snippet
-            under inspection still highlights — they are NOT current API. The
-            highlighter is content-agnostic, so it still paints them as
-            builtins; this test pins that as the intentional migration-rendering
-            behaviour, not an endorsement of the spellings as current registrars."
+  (testing "`reg-event-db` / `-fx` / `-ctx` are not re-frame2 API (EP-0018);
+            they sit in the highlighter set ONLY so a re-frame v1
+            source-text snippet under inspection highlights. The
+            highlighter is content-agnostic, so it paints them as
+            builtins; this test pins that as intentional v1-source
+            rendering, not an endorsement of the spellings as registrars."
     (is (= :builtin  (w/classify-token "reg-event-db")))
     (is (= :builtin  (w/classify-token "reg-event-fx")))
     (is (= :builtin  (w/classify-token "reg-event-ctx")))))
@@ -153,8 +149,8 @@
       (is (= "auto" (:overflow-x style))))))
 
 (deftest code-block-keyword-token-uses-syntax-keyword
-  (testing "rf2-93jp0 — keyword tokens render with the Figma
-            `.syntax-keyword` red family"
+  (testing "keyword tokens render on the dedicated
+            `:syntax-keyword` token"
     (let [out      (w/code-block {:source ":foo"})
           spans    (walk-hiccup out)
           kw?      (fn [n]
@@ -167,7 +163,7 @@
       (is (some? kw-span)))))
 
 (deftest code-block-string-token-uses-syntax-string
-  (testing "rf2-93jp0 — string tokens render on the dedicated
+  (testing "string tokens render on the dedicated
             `:syntax-string` token"
     (let [out      (w/code-block {:source "\"hi\""})
           spans    (walk-hiccup out)
@@ -181,7 +177,7 @@
       (is (some? str-span)))))
 
 (deftest code-block-builtin-and-keyword-render-distinct-colours
-  (testing "rf2-93jp0 — `(let [x :foo] x)` paints `let` (builtin) and
+  (testing "`(let [x :foo] x)` paints `let` (builtin) and
             `:foo` (keyword) on DIFFERENT colours"
     (let [out          (w/code-block {:source "(let [x :foo] x)"})
           spans        (walk-hiccup out)
@@ -222,7 +218,7 @@
   (let [bad "(reg-event :foo "]
     (is (= bad (w/format-source bad)))))
 
-;; ---- rf2-iosnp — multi-line :doc renders as real line breaks ------------
+;; ---- multi-line :doc renders as real line breaks ------------------------
 
 ;; Single-char building blocks so the escape-edge tests carry ZERO
 ;; hand-escaping ambiguity. `BS` is one backslash; `NL` is one newline.
@@ -230,7 +226,7 @@
 (def ^:private NL (str \newline))
 
 (deftest unescape-source-newlines-converts-escaped-newline
-  (testing "rf2-iosnp — a captured source string carrying the escaped
+  (testing "a captured source string carrying the escaped
             two-char `\\n` (as `pr-str` emits for a multi-line docstring)
             is rewritten to a REAL newline so the code-block renders
             multi-line."
@@ -246,7 +242,7 @@
     (is (nil? (w/unescape-source-newlines nil)))))
 
 (deftest unescape-source-newlines-keeps-escaped-backslash
-  (testing "rf2-iosnp — the result is still SOURCE TEXT (a string token
+  (testing "the result is SOURCE TEXT (a string token
             painted under `white-space: pre`), so a
             printed escaped backslash `\\\\` (the valid source-text form
             of one literal backslash) is KEPT verbatim — only the `\\n`
@@ -265,7 +261,7 @@
         "no spurious newline when the backslash is escaped")))
 
 (deftest code-block-renders-multiline-doc-as-line-breaks
-  (testing "rf2-iosnp — a source string whose `:doc` literal carries the
+  (testing "a source string whose `:doc` literal carries the
             escaped `\\n` (the `pr-str` capture shape) renders across
             real lines: the `:pre` block's text contains an actual
             newline and no literal backslash-n."
@@ -280,7 +276,7 @@
       (is (not (str/includes? text "\\n"))
           "no literal backslash-n survives in the rendered text"))))
 
-;; ---- rf2-3x7nj.25.6 — backslash-n OUTSIDE a string literal is code -------
+;; ---- backslash-n OUTSIDE a string literal is code -----------------------
 ;;
 ;; `pr-str` prints the same two characters outside string literals: a
 ;; regex literal's pattern source verbatim, and the character literals
