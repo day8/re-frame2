@@ -1,38 +1,38 @@
 (ns re-frame.story-mcp-surface-test
-  "JVM tests closing the MCP-perspective scenarios called out by
-  spec/015 §MCP surface (rf2-1svim).
+  "JVM tests for the MCP-perspective scenarios in spec/015 §MCP surface.
 
   Pairs with `re-frame.story-mcp-boundary-test` (Var-resolution +
   late-bind contract) and `re-frame.story-runtime-test` (run-variant
-  return shape). This namespace covers the four scenarios spec/015
-  flagged as Deferred / Partial under §MCP surface:
+  return shape). This namespace covers four scenarios from spec/015
+  §MCP surface:
 
-  - **list-stories / list-variants / list-modes shape** — pinning the
-    return shape MCP read tools surface to agents (`(ids :story)`,
-    `(ids :variant)`, `(list-modes)`); each returns a vector or set of
-    keyword ids matching the spec/006 §read primitive table.
-  - **render-story / run-variant from MCP perspective** — invoke
-    `run-variant` against a seeded variant; assert the return shape
-    matches spec/002 + spec/006 (`{:frame :app-db :assertions
-    :elapsed-ms ...}`). Rendering is `render-variant`'s job and the run
-    result carries no rendering slot (rf2-6r9j.13).
+  - **`(ids :story)` / `(ids :variant)` / `(list-modes)` shape** —
+    pinning the return shape of the read primitives the MCP read tools
+    (`list-stories`, `list-modes`) call through to; each returns a set
+    of keyword ids matching the spec/006 §read primitive table.
+  - **run-variant from the MCP perspective** — invoke `run-variant`
+    against a seeded variant; assert the return shape matches spec/002
+    + spec/006 (`{:frame :app-db :assertions :elapsed-ms ...}`).
+    Rendering is `render-variant`'s job and the run result carries no
+    rendering slot.
   - **dispatch-via-mcp same-process round trip** — register a variant
     via `reg-variant*` (the MCP write path), then dispatch into the
-    variant's frame with the `{:frame variant-id}` opts map (the
-    `re-frame.core/dispatch-sync` shape the MCP jar's tools invoke
-    directly in the shared JVM); assert the frame's `app-db` reflects
-    the dispatched event's effect. These are same-process public-API
-    shape pins, NOT cross-process bridge coverage — no such bridge
-    exists; live-browser Story access is pair-owned (spec/006 §Two
-    surfaces, one live door; rf2-3fc89f.22).
-  - **story-state-snapshot identity stability** — invoke
-    `snapshot-identity` for a variant; mutating cell-overrides
-    (render-relevant input) changes the identity hash; mutating the
-    `:source` slot (cosmetic-only edit) leaves the identity unchanged.
+    variant's frame with the `{:frame variant-id}` opts map (the public
+    `re-frame.core/dispatch-sync` shape an in-process caller uses; the
+    MCP jar ships no dispatch tool); assert the frame's `app-db`
+    reflects the dispatched event's effect. These are same-process
+    public-API shape pins, NOT cross-process bridge coverage — no such
+    bridge exists; live-browser Story access is pair-owned (spec/006
+    §Two surfaces, one live door).
+  - **snapshot-identity stability** — invoke `snapshot-identity` for a
+    variant; mutating cell-overrides (render-relevant input) changes
+    the identity hash; mutating the `:source` slot (cosmetic-only edit)
+    leaves the identity unchanged.
 
   Test isolation: each test runs against a clean side-table seeded
-  with `install-canonical-vocabulary!` (the canonical seven tags +
-  the lifecycle machine). The framework registrar is cleared between
+  with `install-canonical-vocabulary!` (the canonical tags, the
+  lifecycle machine, the assertion handlers and the built-in
+  decorators). The framework registrar is cleared between
   tests so the variant-frame run-variant allocates against a clean
   app-db."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -63,11 +63,11 @@
 (use-fixtures :each reset-all)
 
 ;; ===========================================================================
-;; rf2-1svim — list-stories / list-variants / list-modes shape
+;; (ids :story) / (ids :variant) / (list-modes) shape
 ;;
 ;; Per spec/006 §Story's public read primitives the MCP introspection
-;; tools (list-stories / list-variants / list-modes) call through to
-;; the Story-side queries. Story does not register list-* fns; instead
+;; tools (list-stories / list-modes) call through to the Story-side
+;; queries. Story does not register list-* fns; instead
 ;; the registrar's `(ids kind)` / `(list-modes)` surface is what agents
 ;; consume. Pinning the return shape protects against a refactor that
 ;; changes the collection type (set → vector, or vice versa) and
@@ -90,7 +90,7 @@
 
 (deftest list-variants-returns-id-set
   (testing "(ids :variant) returns the set of registered variant ids;
-            the MCP list-variants tool surfaces this directly. Empty
+            the MCP jar's argument checks read this directly. Empty
             registry returns the empty set, not nil — protects the
             agent's `(for [...])` walk from a nil punning bug"
     (is (= #{} (rf.story/ids :variant))
@@ -119,11 +119,11 @@
           "(list-modes) is a thin alias of (ids :mode)"))))
 
 ;; ===========================================================================
-;; rf2-1svim — render-story / run-variant from MCP perspective
+;; run-variant from the MCP perspective
 ;;
-;; Spec/006 names `run-variant` as the MCP `render-story` tool's
-;; underlying call. The shape an agent expects in the return slot is
-;; specified by spec/002 §run-variant result map. This test pins the
+;; Spec/006 names `run-variant` as a public read primitive, and the MCP
+;; `run-variant` tool calls it. The shape an agent expects in the return
+;; slot is specified by spec/002 §Programmatic API. This test pins the
 ;; shape from the MCP boundary's vantage: invoke run-variant the same
 ;; way the MCP jar does (a direct, in-process call — spec/006
 ;; §Architecture) and assert every keyed slot of the documented
@@ -131,9 +131,9 @@
 ;; ===========================================================================
 
 (deftest run-variant-return-shape-matches-spec
-  (testing "spec/002 §run-variant + spec/006 §render-story: the result
-            map carries :frame :app-db :assertions :elapsed-ms
-            :snapshot :decorators :errors"
+  (testing "spec/002 §Programmatic API + spec/006 §read primitives: the
+            result map carries :frame :app-db :assertions :elapsed-ms
+            :snapshot :decorators"
     (rf/reg-event :mcp/seed
       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (rf.story/reg-variant :story.mcp.run/probe
@@ -142,7 +142,7 @@
     (let [result (rf.story.async/deref-blocking
                    (rf.story/run-variant :story.mcp.run/probe) 5000)]
       (is (map? result)
-          "run-variant returns a map (the MCP render-story tool's payload)")
+          "run-variant returns a map (the MCP run-variant tool's payload)")
       (is (contains? result :frame)
           ":frame slot present — the agent reads which frame received the dispatch")
       (is (= :story.mcp.run/probe (:frame result)))
@@ -175,13 +175,13 @@
       (is (map? (:app-db result))))))
 
 ;; ===========================================================================
-;; rf2-1svim — dispatch-via-mcp end-to-end
+;; dispatch-via-mcp end-to-end
 ;;
 ;; The MCP write path: an agent calls `reg-variant*` (programmatic write
-;; — no source coord), then drives a dispatch against the allocated
-;; frame via `(rf/dispatch-sync event {:frame variant-id})`. The MCP
-;; jar's tools invoke this exact shape in the shared JVM; the test pins
-;; the round-trip from registration through dispatch through observable
+;; — no source coord); an in-process caller then drives a dispatch
+;; against the allocated frame via `(rf/dispatch-sync event {:frame
+;; variant-id})`. The MCP jar ships no dispatch tool; the test pins the
+;; round-trip from registration through dispatch through observable
 ;; app-db change — a same-process shape pin, not bridge coverage.
 ;; ===========================================================================
 
@@ -201,7 +201,7 @@
       (rf.story/run-variant :story.mcp.dispatch/probe) 5000)
     (is (some? (rf/app-db-value :story.mcp.dispatch/probe))
         "frame was allocated by run-variant")
-    ;; The MCP dispatch tool's underlying call.
+    ;; The frame-scoped dispatch an in-process caller makes.
     (rf/dispatch-sync [:mcp.dispatch/set "hello"]
                       {:frame :story.mcp.dispatch/probe})
     (let [db (rf/app-db-value :story.mcp.dispatch/probe)]
@@ -214,7 +214,7 @@
           "default frame is uncontaminated — :frame routing isolates"))))
 
 (deftest dispatch-via-mcp-multiple-events-accumulate
-  (testing "the MCP dispatch tool can fire a sequence of events into
+  (testing "an in-process caller can fire a sequence of events into
             a single variant frame; each dispatch updates the frame's
             app-db in order"
     (rf/reg-event :mcp.dispatch/push
@@ -230,17 +230,17 @@
           "three dispatches in order — frame's app-db carries all three"))))
 
 ;; ===========================================================================
-;; rf2-1svim — story-state-snapshot identity stability
+;; snapshot-identity stability
 ;;
-;; The MCP `story-state-snapshot` tool surfaces `snapshot-identity` for
-;; an agent to detect drift between runs. Per spec/002 §snapshot
-;; identity: render-relevant inputs (args, mode-merged args, decorator
+;; The MCP `snapshot-identity` tool surfaces `snapshot-identity` for
+;; an agent to detect drift between runs. Per spec/002 §Snapshot-identity
+;; computation: render-relevant inputs (args, mode-merged args, decorator
 ;; chain) flip the hash; cosmetic edits (`:source` coords) do not.
 ;; This test pins the identity-stability contract from the MCP boundary.
 ;; ===========================================================================
 
 (deftest snapshot-identity-stable-across-cosmetic-edits
-  (testing "spec/002 §snapshot identity: mutating the variant's :source
+  (testing "spec/002 §Snapshot-identity computation: mutating the variant's :source
             slot (a cosmetic-only edit, used by reg-variant* for
             'register-from-position' tooling) does NOT change the
             snapshot-identity hash — the agent's drift detector
@@ -262,7 +262,7 @@
             ":source edit is cosmetic — content-hash MUST be stable")))))
 
 (deftest snapshot-identity-changes-on-args-edit
-  (testing "spec/002 §snapshot identity: mutating the variant's :args
+  (testing "spec/002 §Snapshot-identity computation: mutating the variant's :args
             slot (a render-relevant input) DOES change the snapshot-
             identity hash. The agent's drift detector re-renders.
 
