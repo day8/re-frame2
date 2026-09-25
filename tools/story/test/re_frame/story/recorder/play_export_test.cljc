@@ -1,6 +1,5 @@
 (ns re-frame.story.recorder.play-export-test
-  "Pure unit tests for the recorder → :script translator
-  (rf2-x9zsr).
+  "Pure unit tests for the recorder → :script translator.
 
   Covers:
 
@@ -48,7 +47,7 @@
     (is (nil? (rf.story.recorder.play-export/event->step ["not-keyword"])))
     (is (nil? (rf.story.recorder.play-export/event->step "not-a-vector")))))
 
-;; ---- rf2-l2cn5d (EP-0017): captured cofx rides the dispatch step ----------
+;; ---- captured cofx rides the dispatch step (EP-0017) ----------
 
 (deftest event-step-carries-captured-cofx
   (testing "a captured flat :rf.cofx map rides onto the step as a 3rd opts map"
@@ -83,7 +82,7 @@
           "each non-nil cofx member rides its step; nil members emit bare steps"))))
 
 (deftest recording-without-cofx-is-byte-identical
-  (testing "no :cofx opt → the pre-EP-0017 2-element steps (zero ceremony)"
+  (testing "no :cofx opt → bare 2-element steps (zero ceremony)"
     (let [events [[:counter/inc] [:counter/dec]]]
       (is (= (rf.story.recorder.play-export/recording->script-body events {})
              (rf.story.recorder.play-export/recording->script-body events {:cofx []}))
@@ -174,7 +173,7 @@
           ":who is unchanged → no assertion; :n changed + :extra new → two assertions"))))
 
 (deftest auto-assert-never-asserts-story-bookkeeping
-  (testing "rf2-3x7nj.29.2: Story's own run bookkeeping (:rf.story/* keys) is
+  (testing "Story's own run bookkeeping (:rf.story/* keys) is
             never app behaviour, so neither branch asserts on it"
     (let [record {:assertion :rf.assert/path-equals :passed? true :dispatch-id 5}
           seed   {:rf.story/lifecycle :loading :rf.story/assertions [] :n 0}
@@ -263,11 +262,11 @@
       (is (= :story.x/recorded (second parsed)))
       (let [body (nth parsed 2)]
         (is (= :story.x/source (:extends body)))
-        ;; rf2-7mj4z — the rendered form uses the :script slot (a
-        ;; `{:script … :auto-run?}` body), never the retired :play-script.
+        ;; The rendered form uses the :script slot (a
+        ;; `{:script … :auto-run?}` body); there is no :play-script slot.
         (is (map? (:script body)))
         (is (nil? (:play-script body))
-            "the rendered form never emits the retired :play-script slot")
+            "the rendered form emits no :play-script slot")
         (is (false? (:auto-run? (:script body))))
         (is (= [[:dispatch [:counter/inc]]] (:script (:script body))))))))
 
@@ -307,7 +306,7 @@
           "no malformed steps"))))
 
 ;; ===========================================================================
-;; rf2-d5u89 — :entries shape + DOM-events + wait-step insertion
+;; :entries shape + DOM-events + wait-step insertion
 ;; ===========================================================================
 
 ;; ---- entry->step ---------------------------------------------------------
@@ -439,18 +438,18 @@
 ;; ---- :event/timer-child — the forced wait for a re-armed timer ------------
 ;;
 ;; A fired `:dispatch-later` child records as a payload-free marker, never a
-;; step, because replaying its root re-arms the timer (rf2-tbik1). Its wait
+;; step, because replaying its root re-arms the timer. Its wait
 ;; must bring the replay up to the time the child fired, measured from the
 ;; replay's own clock — which runs BEHIND the recorded one by every
 ;; sub-threshold gap the export folded out, since a replayed step between
 ;; them takes no time.
 
 (deftest timer-child-wait-covers-a-folded-out-gap
-  (testing "rf2-mcjdg — the root arms an 80ms timer at 0, an unrelated
+  (testing "the root arms an 80ms timer at 0, an unrelated
             dispatch lands at 40 (under the 50ms threshold, so no wait), and
             the child fires at 80. Replayed, the root re-arms the timer and
             `:t/other` runs straight after it, so the child needs the whole
-            80ms from there: a [:wait 40] reaches the auto-assert 40ms in"
+            80ms from there: a [:wait 40] would reach the auto-assert 40ms in"
     (is (= [[:dispatch [:t/root]]
             [:dispatch [:t/other]]
             [:wait 80]]
@@ -471,7 +470,7 @@
                       {:auto-assert? true
                        :seed-db      {}
                        :final-db     {:children 1}})))))
-  (testing "control: with no intervening event the wait was already 80"
+  (testing "control: with no intervening event the wait is the same 80"
     (is (= [[:dispatch [:t/root]]
             [:wait 80]]
            (rf.story.recorder.play-export/entries->steps
@@ -566,8 +565,8 @@
           "75ms gap < 100ms threshold — no :wait inserted"))))
 
 (deftest legacy-bare-events-still-translate-without-waits
-  (testing "callers that still pass bare event-vectors get the old behaviour
-            (no :wait steps emitted — all entries stamped :t 0)"
+  (testing "bare event-vectors translate with no :wait steps — each is
+            coerced to an entry stamped :t 0"
     (let [spec (rf.story.recorder.play-export/recording->script-body
                  [[:counter/inc] [:counter/inc] [:counter/dec]])]
       (is (= [[:dispatch [:counter/inc]]
@@ -577,7 +576,7 @@
 
 (deftest mixed-bare-and-entry-input
   (testing "an input vector mixing bare event vectors and rich entries
-            still coerces cleanly"
+            coerces cleanly"
     (let [spec (rf.story.recorder.play-export/recording->script-body
                  [[:counter/inc]
                   {:kind :dom/click :selector "[data-test=\"b\"]" :t 100}])]
@@ -636,10 +635,10 @@
       (is (= [] (rf.story.play.runner/validate-script (:script spec))))
       (is (= "round trip" (:name parsed))))))
 
-;; ---- rf2-3x7nj.30.5 — a positional selector carries the harden hint ------
+;; ---- a positional selector carries the harden hint ------
 
 (deftest positional-selector-steps-carry-the-harden-hint
-  (testing "rf2-3x7nj.30.5: a canvas element with no data-test / id /
+  (testing "a canvas element with no data-test / id /
             aria-label records the positional `tag:nth-of-type(N)` fallback,
             and the pasted form says so above the step, as the selector's
             documented contract promises. The selectors come from the
