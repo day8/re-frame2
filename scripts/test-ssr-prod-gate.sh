@@ -97,8 +97,8 @@ printf '    jvm property : -Dre-frame.debug=false (implementation/ssr/deps.edn, 
 printf '    posture pin  : re-frame.ssr-prod-gate-lane-pin-test (red if the property did not arrive)\n'
 printf '    namespaces   : the WHOLE suite — every `.*-test$` namespace under\n'
 printf '                   implementation/ssr/test, discovered by the runner.\n'
-printf '                   rf2-lwtlk: the known-red roster reached zero and the\n'
-printf '                   `-n` selector went with it.\n'
+printf '                   No known-red roster excludes any of them, and no\n'
+printf '                   `-n` selector narrows the set.\n'
 
 if [ "${1:-}" = "--plan" ]; then
   printf '    runnable     : all of them — there is no selector and no exclusion list\n'
@@ -128,12 +128,12 @@ if ! clojure -M:test:prod-gate; then
   printf '\nFAIL implementation/ssr under -Dre-frame.debug=false\n' >&2
   printf 'repro: bash scripts/test-ssr-prod-gate.sh\n' >&2
   printf 'A namespace that is green in `clojure -M:test` and red here is asserting\n' >&2
-  printf 'DEV INSTRUMENTATION, or it is a genuine production defect (rf2-9c2jf was\n' >&2
-  printf 'the latter). Decide which BEFORE reaching for a posture guard.\n' >&2
+  printf 'DEV INSTRUMENTATION, or it is a genuine production defect. Decide which\n' >&2
+  printf 'BEFORE reaching for a posture guard.\n' >&2
   printf '\n' >&2
-  printf 'And check for a production-visible witness first. Emptying the roster\n' >&2
-  printf '(rf2-lwtlk) turned up an always-on axis behind four of the five clusters\n' >&2
-  printf 'that looked dev-only: `emit-fx-error!` and `emit-safe-redirect-error!`\n' >&2
+  printf 'And check for a production-visible witness first: most clusters here\n' >&2
+  printf 'that look dev-only have an always-on axis behind them.\n' >&2
+  printf '`emit-fx-error!` and `emit-safe-redirect-error!`\n' >&2
   printf 'fan BOTH axes, and `error-emit-projection-listener` — not the trace-cb\n' >&2
   printf 'one — is what stamps :status on a production JVM. A `when\n' >&2
   printf 'interop/debug-enabled?` arm around an assertion that had an always-on\n' >&2
