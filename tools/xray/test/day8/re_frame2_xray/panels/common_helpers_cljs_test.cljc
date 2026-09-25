@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.common-helpers-cljs-test
   "Tests for the shared panel-helper surfaces — the 200-row cap and
-  the trace-event tag reader (rf2-1k5r1).
+  the trace-event tag reader.
 
   Dual-target naming (`.cljc` + `_cljs_test`) — same pattern as every
   other panel-helper test:
@@ -20,13 +20,13 @@
   (is (nil?    (common/tag-of {} :missing))))
 
 (deftest tag-of-keeps-a-false-tag-value
-  (testing "rf2-3x7nj.22.2 — `false` under `:tags` is a value, not 'absent'"
+  (testing "`false` under `:tags` is a value, not 'absent'"
     (is (false? (common/tag-of {:tags {:k false}} :k)))
     (is (false? (common/tag-of {:tags {:k false} :k :flat} :k))
         "the flat fallback does not shadow a present false tag")
     (is (false? (common/tag-of {:k false} :k))
         "a flat false survives too"))
-  (testing "the fallback still covers a nil or absent tag, as before"
+  (testing "the fallback covers a nil or absent tag"
     (is (= :flat (common/tag-of {:tags {:k nil} :k :flat} :k)))
     (is (= :flat (common/tag-of {:tags {} :k :flat} :k)))
     (is (true? (common/tag-of {:tags {:k true}} :k)))
