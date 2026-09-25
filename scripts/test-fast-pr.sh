@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Fast pre-checkin spine for the canonical agent quality gate.
 #
-# WHAT IT ACTUALLY RUNS — read this before trusting a green (rf2-dgzaf).  This
+# WHAT IT ACTUALLY RUNS — read this before trusting a green.  This
 # is a SPINE, not a local mirror of CI's PR-gate matrix.  It runs, when the
 # changed surface owns the tier:
 #
@@ -11,9 +11,9 @@ set -euo pipefail
 #              own self-test where it has one);
 #   docs tier  the documentation-content gates, plus `mkdocs build --strict`
 #              — a HARD gate wherever mkdocs can be resolved at all, whether as
-#              a console script or as `python -m mkdocs` (rf2-g7p7l);
+#              a console script or as `python -m mkdocs`;
 #   JVM tier   `implementation/core` PLUS the suite of every implementation
-#              artefact whose own tree the diff touched (rf2-uwszd).  Core runs
+#              artefact whose own tree the diff touched.  Core runs
 #              whenever the tier runs — it is the substrate every artefact sits
 #              on, and its suite exercises the schema, machine, route and flow
 #              surfaces directly (see implementation/core/deps.edn).  The
@@ -27,7 +27,7 @@ set -euo pipefail
 #   node tier  the npm/CLJS `:node-test` build, the JS harness self-tests, and
 #              the per-namespace isolation gate;
 #   spine self this script's own tiering self-test, armed ONLY when this script
-#              or its self-test fixture tree is itself in the diff (rf2-fhdd3).
+#              or its self-test fixture tree is itself in the diff.
 #
 # Everything else CI runs is in NO tier of this spine: the browser lanes, the
 # production-elision / bundle-isolation / perf-bundle gates, the adapter
@@ -42,22 +42,17 @@ set -euo pipefail
 # PR/nightly/release matrix.
 #
 # The paragraph above DESCRIBES the gap in families; the PASS line also NAMES it,
-# check by check, from `scripts/check_fast_pr_gap.py --brief` (rf2-13zre).  Prose
-# could not carry the whole truth here, and did not: a required check can be a
-# STEP INSIDE A JOB THIS SPINE RUNS, so a red can name a test suite for
-# something that is not a test at all; and thirty-eight of CI's
-# required `python scripts/check_*.py` invocations had no local lane at all until
-# rf2-ejm7m measured them and gave them one — twenty-nine in the always-on block
-# below, nine in the documentation tier.  None of those is a skipped TIER, so
-# nothing above can see them.  Run `python scripts/check_fast_pr_gap.py --list`
-# for the local command for each of the ones that remain.
+# check by check, from `scripts/check_fast_pr_gap.py --brief`.  Prose cannot
+# carry the whole truth here: a required check can be a STEP INSIDE A JOB THIS
+# SPINE RUNS, so a red can name a test suite for something that is not a test
+# at all; and a required `python scripts/check_*.py` invocation with no local
+# lane is not a skipped TIER, so nothing above can see it.  Run
+# `python scripts/check_fast_pr_gap.py --list` for the local command for each
+# required check this spine does not run.
 #
-# EVERY required python checker now has a local lane.  rf2-ejm7m left exactly one
-# out on measurement — `check_retired_image_keys.py --verbose` cost 37.7s, more
-# than double this spine's entire documentation tier — and rf2-e1xx0 made it
-# ~0.9s instead of accepting the hole, so it joined the tier rather than staying
-# named in the report.  Nothing here had to be edited to reflect that: the report
-# derives the gap by parsing this file's invocations.
+# The report derives the gap by parsing this file's invocations, so a lane
+# added or removed here needs no second edit, and a required checker with no
+# lane here is named by `--list` rather than by this comment.
 #
 # What it DOES mirror is CI's *tiering* — which tiers run for a given diff —
 # because that decision is delegated wholesale to the classifier CI uses.  Tier
@@ -72,8 +67,8 @@ set -euo pipefail
 # list as explicit paths (it prints `key=value` to stdout when GITHUB_OUTPUT
 # is unset).  `implementation_jvm` gates the JVM artefact suites exactly as it
 # gates test.yml's per-artefact JVM jobs; `test_react_jvm` gates that same tier
-# for the one artefact carrying its OWN narrow signal (rf2-6r9j.87 — Test-React
-# is a local-only CLJC fixture, so the classifier no longer opens the broad
+# for the one artefact carrying its OWN narrow signal (Test-React is a
+# local-only CLJC fixture, so the classifier does not open the broad
 # `implementation_jvm` fan-out for it, and the spine has to read the narrow
 # signal or its JVM tier goes quiet); `cljs_node_test` gates the npm/CLJS/JS-harness/
 # isolation suites exactly as it gates test.yml's cljs job.  Reusing that one
@@ -108,15 +103,18 @@ set -euo pipefail
 # Documentation-gate components (run when a documentation surface changes):
 #   1. python scripts/check_readme_links.py            — README anchor + target
 #   2. python scripts/check_doc_slugs.py               — docs corpus anchors
-#   3. python scripts/check_ep_status_sync.py          — docs/EP index status-sync
-#   4. python scripts/check_runtime_subsystem_grading.py — EP-0006 grading table
-#   5. python scripts/check_inject_cofx_residue.py       — retired inject-cofx
-#   6. python scripts/check_failure_corpus_residue.py    — retired failure spellings
-#   7. python scripts/check_retired_composition_vocab.py — retired composition vocab
-#   8. python scripts/check_retired_image_keys.py  — retired EP-0026 image keys,
-#      BOTH arms: --self-test (the guard has teeth) then the live corpus sweep,
-#      which rf2-e1xx0 took from 37.7s to ~0.9s
-#   9. mkdocs build --strict (console script, else `python -m mkdocs`)
+#   3. python scripts/check_flattened_lists.py         — flattened nested lists
+#   4. python scripts/check_escaped_continuations.py   — escaped continuations
+#   5. python scripts/check_provenance_pins.py         — Fresco provenance pins
+#   6. python scripts/check_ep_status_sync.py          — docs/EP index status-sync
+#   7. python scripts/check_runtime_subsystem_grading.py — EP-0006 grading table
+#   8. python scripts/check_inject_cofx_residue.py       — retired inject-cofx
+#   9. python scripts/check_failure_corpus_residue.py    — retired failure spellings
+#  10. python scripts/check_retired_composition_vocab.py — retired composition vocab
+#  11. python scripts/check_retired_image_keys.py  — retired EP-0026 image keys,
+#      BOTH arms: --self-test (the guard has teeth) then the live corpus sweep
+#      (~0.9s)
+#  12. mkdocs build --strict (console script, else `python -m mkdocs`)
 
 # The spine's own tree (scripts, gate commands, the shared classifier) is
 # always derived from this script's location.  `--repo-root` overrides ONLY
@@ -127,18 +125,18 @@ spine_root="$(cd "$script_dir/.." && pwd)"
 diff_root="$spine_root"
 classifier="$spine_root/.github/scripts/report-changed-surfaces.sh"
 
-# NAME THE TREE, FIRST LINE, ALWAYS (rf2-g2mxd).  That derivation is why an
-# INVOCATION PATH can silently retarget the whole gate: `${BASH_SOURCE[0]}` is
-# relative when the invocation is, so `dirname` resolves it against whatever
-# cwd the shell actually has — and a `cd <worktree> && sh scripts/…` does not
-# always survive backgrounding.  On 2026-08-03 a worker's spine ran end to end
-# inside a DIFFERENT live worker's checkout: it took that tree as its spine
-# root, its diff root and its classifier input, graded that worker's diff, and
-# reported the verdict in this one's PR body.  A complete, internally
-# consistent run about the wrong work — the only visible trace was a foreign
-# path in an mkdocs INFO line ninety lines down.  One line at the top turns
-# that into something a human or an agent sees immediately, and greps for.
-# The fix at the call site is to invoke a backgrounded gate by ABSOLUTE path.
+# NAME THE TREE, FIRST LINE, ALWAYS.  That derivation is why an INVOCATION PATH
+# can silently retarget the whole gate: `${BASH_SOURCE[0]}` is relative when the
+# invocation is, so `dirname` resolves it against whatever cwd the shell
+# actually has — and a `cd <worktree> && sh scripts/…` does not always survive
+# backgrounding.  A spine launched that way can run end to end inside a
+# DIFFERENT live worker's checkout: it takes that tree as its spine root, its
+# diff root and its classifier input, and grades that worker's diff.  That is a
+# complete, internally consistent run about the wrong work, whose only visible
+# trace would be a foreign path deep in an mkdocs INFO line.  One line at the
+# top turns that into something a human or an agent sees immediately, and
+# greps for.  The fix at the call site is to invoke a backgrounded gate by
+# ABSOLUTE path.
 printf 'gate root: %s\n' "$spine_root"
 
 with_docs="auto"     # auto | force | skip
@@ -204,11 +202,11 @@ if [ ! -x "$classifier" ] && [ ! -f "$classifier" ]; then
   exit 2
 fi
 
-# Every tier or step this run did NOT execute, named in the final PASS line
-# (rf2-dgzaf).  `PASS fast PR spine` on its own was compatible with the docs
-# build never having been attempted and with seventeen JVM artefact suites
-# never running; a gate that honestly says what it covered is worth more than
-# one that overstates and is believed.  Bash 3.2-compatible array (macOS).
+# Every tier or step this run did NOT execute, named in the final PASS line.
+# `PASS fast PR spine` on its own would be compatible with the docs build never
+# having been attempted and with most JVM artefact suites never running; a gate
+# that honestly says what it covered is worth more than one that overstates and
+# is believed.  Bash 3.2-compatible array (macOS).
 skipped=()
 note_skipped() {
   skipped+=("$1")
@@ -226,15 +224,14 @@ run() {
 }
 
 # ---------------------------------------------------------------------------
-# MKDOCS RESOLUTION (rf2-g7p7l).  `command -v mkdocs` is not how mkdocs is
-# necessarily installed.  A `pip install --user` puts the package on sys.path
-# while the console script lands in a per-user Scripts/ directory that is
-# routinely absent from PATH — the state of this project's own Windows
-# checkout, where `command -v mkdocs` fails and `python -m mkdocs --version`
-# prints 1.6.1.  The previous probe asked only for the console script, so the
-# strict docs build soft-skipped on EVERY local run while the spine still
-# printed `PASS ... SKIP ... (local soft-skip OK)`: a gate reporting success
-# without having examined anything.
+# MKDOCS RESOLUTION.  `command -v mkdocs` is not how mkdocs is necessarily
+# installed.  A `pip install --user` puts the package on sys.path while the
+# console script lands in a per-user Scripts/ directory that is routinely
+# absent from PATH — the state of this project's own Windows checkout, where
+# `command -v mkdocs` fails and `python -m mkdocs --version` prints 1.6.1.  A
+# probe that asked only for the console script would soft-skip the strict docs
+# build on EVERY such run while the spine still printed PASS: a gate reporting
+# success without having examined anything.
 #
 # So resolve mkdocs the way it is actually installed — console script first,
 # then the module under each Python launcher.  `-m mkdocs --version` is the
