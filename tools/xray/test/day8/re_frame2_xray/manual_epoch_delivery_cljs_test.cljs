@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.manual-epoch-delivery-cljs-test
-  "rf2-kuky.82 AMEND 2(c) — the MANUAL-ONLY Xray epoch-delivery witness.
+  "The MANUAL-ONLY Xray epoch-delivery witness.
 
   ## What this pins
 
@@ -18,13 +18,13 @@
 
   ## Why it needs its OWN build
 
-  `preload_decoupling_cljs_test` already covers the manual facade's
+  `preload_decoupling_cljs_test` covers the manual facade's
   inertness, but it `:require`s `day8.re-frame2-xray.preload`, and
   `preload.cljs` carries the SAME bare `[re-frame.epoch]` anchor. So does
   most of the always-on `:node-test` bundle. In any graph that loads the
   preload, the producer is present however `install.cljs` is spelled, and
-  a delivery assertion there passes in both worlds — which is exactly the
-  gap this file closes.
+  a delivery assertion there passes with or without the `install.cljs`
+  anchor — which is exactly why this file needs a graph of its own.
 
   The discriminating surface is therefore the DEPENDENCY GRAPH, not the
   assertions. `:node-test-xray-manual-epoch` (implementation/shadow-cljs.edn)
@@ -32,8 +32,8 @@
   only what the manual host's own graph contains: `re-frame.core`, a
   substrate adapter, the test-support fixture, and `day8.re-frame2-xray.core`.
   Nothing in that set reaches `re-frame.epoch` except `install.cljs`'s
-  anchor — verified by removing the anchor and watching this namespace go
-  red under `npm run test:xray-manual-epoch`.
+  anchor, so removing the anchor turns this namespace red under
+  `npm run test:xray-manual-epoch`.
 
   This namespace also ends in `-cljs-test`, so it rides the always-on
   `:node-test` build's `cljs-test$` regexp and its ASSERTIONS are graded on
