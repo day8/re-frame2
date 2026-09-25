@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# rf2-f8x2i — run `implementation/core` under the REAL production gate.
+# Run `implementation/core` under the REAL production gate.
 #
-# WHY THIS EXISTS.  `SECURITY.md` documents `-Dre-frame.debug=false` (and
+# WHY THIS EXISTS.  `spec/Security.md` documents `-Dre-frame.debug=false` (and
 # `RE_FRAME_DEBUG=false`) as the JVM/SSR production setting, and
 # `re-frame.interop/debug-enabled?` reads it ONCE at namespace-load time.
-# Nothing in `.github/workflows` or `scripts/` had ever set it, so the
-# documented production configuration was executed by no suite anywhere.  The
+# Without a lane that genuinely sets it, the documented production
+# configuration is executed by no suite anywhere.  The
 # suites that CALL THEMSELVES production-gate tests
 # (`jvm_prod_gate_integration_test`, `ep0008_producers_jvm_gate_test`, and
 # friends) rebind `interop/debug-enabled?` with `with-redefs` AFTER the
-# framework has loaded, and a load-time gate is invisible to that.  That is not
-# a theoretical gap: rf2-9c2jf was `dispatch-sync` running its handler ZERO
-# times under the documented gate — `:rf.error/no-such-handler`, app-db
-# untouched, while `registrar/lookup` returned the handler at that same moment
-# — and it stayed green for as long as it existed.
+# framework has loaded, and a load-time gate is invisible to that.  The gap is
+# concrete: a `dispatch-sync` that runs its handler ZERO times under the
+# documented gate — `:rf.error/no-such-handler`, app-db untouched, while
+# `registrar/lookup` returns the handler at that same moment — stays green in
+# every rebinding suite.
 #
 #     bash scripts/test-core-prod-gate.sh          run the lane
 #     bash scripts/test-core-prod-gate.sh --plan   print the roster, run nothing
@@ -33,51 +33,30 @@
 # posture, so the lane would go GREEN on the wrong posture — the exact class of
 # false green this whole file exists to close.
 #
-# WHY A ROSTER AND NOT THE WHOLE SUITE.  Nobody had ever run the core suite
-# under the real gate.  Run on 2026-07-27 it is emphatically RED: 91 of its 174
-# test namespaces fail, and essentially every failure is a test asserting DEV
-# INSTRUMENTATION — a trace fired, an `:errors` sink received, `:doc` metadata
-# retained, source coords recorded — inline with the semantics it is really
-# about.  Under `-Dre-frame.debug=false` the framework does not emit any of
-# that, by design, so those are legitimate dev-posture tests rather than
-# defects, and "make the whole suite green under the gate" is not a fix, it is
-# a rewrite of how those assertions are spelled.  Triage beads are named per
-# cluster below.
+# WHY A ROSTER AND NOT THE WHOLE SUITE.  Run whole under the real gate, the
+# core suite is RED.  A test asserting DEV INSTRUMENTATION — a trace fired, an
+# `:errors` sink received, `:doc` metadata retained, source coords recorded —
+# inline with the semantics it is really about fails there, because under
+# `-Dre-frame.debug=false` the framework does not emit any of that, by design.
+# Those are legitimate dev-posture tests rather than defects, and "make the
+# whole suite green under the gate" is not a fix, it is a rewrite of how those
+# assertions are spelled.  Such a namespace is SPLIT or TAGGED (below) so that
+# it joins the lane carrying its real claims; what still fails is on the
+# known-red roster, grouped by why.
 #
-# What is left IS green, and it is not a rump: 175 namespaces, 1953 tests, 8532
-# assertions, exit 0 — versus the zero suites that had ever executed under this
-# posture before.  (It was
-# 88 / 934 / 4340 tests/assertions before rf2-d2841 split the spine's
-# dev-instrumentation assertions away from the semantics beside them,
-# 94 / 1106 / 5135 before that bead's second pass took `fx-test` — the largest
-# single entry, 107 failures and 25 errors across ~20 deftests — plus
-# `sub-topology`, `init-platform`, `pattern-smoke` and `db-noop-commit`,
-# 103 / 1213 / 5590 before its third pass took twenty more, 123 / 1401 / 6054
-# before its FOURTH pass took seventeen more, 141 / 1560 / 6707 before its
-# FIFTH pass took thirteen more, 154 / 1740 / 7342 before its SIXTH pass
-# took the last four ACTIONABLE lines under that bead's heading, and
-# 158 / 1931 / 8324 before its SEVENTH emptied that heading with the
-# `^:requires-debug` tag below.  Each pass's namespaces are named in its
-# commits — `git log --grep=rf2-d2841`.)
+# What the lane runs IS green, and it is not a rump: every namespace outside
+# that roster.  A fully tagged namespace contributes no test here BY DESIGN —
+# the lane's claim about it is that it LOADS under the production gate, not
+# that its dev-only deftests ran.
 #
-# THE SEVENTH PASS IS THE ONE WHOSE NUMBERS LOOK WRONG, and they are worth
-# reading correctly: +15 namespaces but only +2 tests.  That is not a small
-# change, it is a change of a different KIND.  Fourteen of the fifteen
-# contribute no test here BY DESIGN — they are tagged, and the lane's claim
-# about them is that they LOAD under the production gate, not that they ran.
-# The +2 are the two deftests that turned out to be carrying production
-# semantics after all (see the rf2-d2841 heading below).
-#
-# WHERE THE TRACE SUITES WENT (rf2-d2841, seventh pass).  Fifteen namespaces
-# used to sit on this roster under that bead — the ten `trace-listener-*`
+# THE TRACE SUITES ARE TAGGED, NOT ROSTERED.  The ten `trace-listener-*`
 # suites plus `trace`, `db-pending-trace`, `sub-dispose-trace`, `trace-buffer`
-# and `trace.structural-retention-cljs`.  They had no semantic residue to
-# separate: they are about the trace machinery ITSELF, end to end, so the
-# `(when interop/debug-enabled? …)` split every other pass used would have left
-# EMPTY deftests reporting success — the class-2 false green this lane exists
-# to close.  They are no longer excluded HERE.  Each of their deftests now
-# carries `^:requires-debug`, and the `:prod-gate` alias skips that tag
-# (`implementation/core/deps.edn`, `-e :requires-debug`).
+# and `trace.structural-retention-cljs` are about the trace machinery ITSELF,
+# end to end, so they have no semantic residue to separate: the
+# `(when interop/debug-enabled? …)` split would leave EMPTY deftests reporting
+# success — the class-2 false green this lane exists to close.  Each of their
+# dev-trace deftests carries `^:requires-debug` instead, and the `:prod-gate`
+# alias skips that tag (`implementation/core/deps.edn`, `-e :requires-debug`).
 #
 # THE TAG IS HONEST WHERE A GUARD WOULD LIE.  A guard says "this ran and
 # passed"; the tag says "this namespace requires the debug build", and the
@@ -86,12 +65,12 @@
 # and no assertion here.  Nothing green is claimed for work that did not
 # happen.
 #
-# IT IS ALSO STRICTLY MORE COVERAGE THAN THE ROSTER LINE WAS.  cognitect
-# `require`s every `-n` namespace BEFORE filtering vars, so all fifteen are now
-# LOADED under `-Dre-frame.debug=false`.  A top-level form that blows up under
-# the production gate reddens this job; while they were rostered they were not
-# on the lane's classpath at all.  (This is also why the hazard those files
-# carried is gone: several HANG rather than fail under the gate — a
+# IT IS ALSO STRICTLY MORE COVERAGE THAN A ROSTER LINE.  cognitect
+# `require`s every `-n` namespace BEFORE filtering vars, so every tagged
+# namespace is LOADED under `-Dre-frame.debug=false`.  A top-level form that
+# blows up under the production gate reddens this job; a rostered namespace
+# would not be on the lane's classpath at all.  (The tag also defuses a hazard
+# those files carry: several HANG rather than fail under the gate — a
 # `CountDownLatch` waiting on trace events that never arrive — and the tag
 # means their bodies never run here.  Anyone probing them by hand with a bare
 # `-n` still needs a timeout.)
@@ -103,24 +82,24 @@
 # deftest added to a tagged namespace is UNTAGGED, so it joins the lane by
 # default and has to be excluded deliberately, exactly as a new FILE does.
 #
-# WHAT REMAINS EXCLUDED, and why it is not more of the same work.  All twelve
-# sit under other headings: eleven under rf2-r9bra, plus `features-cljs-test`.
-# rf2-d2841's heading is empty.
+# WHAT REMAINS EXCLUDED, and why it is not more of the same work: the subset
+# artefact `features-cljs-test`, and namespaces that fail on assertions about
+# STATE, RESOLUTION or LIFECYCLE rather than instrumentation (see the roster).
 #
 # The roster is therefore an EXCLUSION list, not an allowlist.  The polarity is
 # the point: a namespace added to `implementation/core/test/` joins this lane
 # BY DEFAULT and has to be excluded deliberately, so a new suite that breaks
 # under the production gate reddens this job the day it lands.  An allowlist
 # would have the opposite failure mode — silently not covering the new thing.
-# The list shrinks as the beads land; when it reaches zero, this script is one
-# line and the `-n` machinery goes away.
+# The list shrinks as its entries are resolved; when it reaches zero, this
+# script is one line and the `-n` machinery goes away.
 
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# First line names the tree this run resolved — see scripts/test-fast-pr.sh
-# (rf2-g2mxd): a relative invocation resolves `${BASH_SOURCE[0]}` against the
+# First line names the tree this run resolved — see scripts/test-fast-pr.sh:
+# a relative invocation resolves `${BASH_SOURCE[0]}` against the
 # shell's actual cwd, so a backgrounded gate can silently run in, and grade,
 # another worktree.  Invoke backgrounded gates by ABSOLUTE path.
 printf 'gate root: %s\n' "$repo_root"
@@ -131,8 +110,8 @@ test_root="$core/test"
 # ---------------------------------------------------------------------------
 # The known-red roster.
 #
-# Every entry is a namespace that FAILS under `-Dre-frame.debug=false` today,
-# grouped by why.  Each group names the bead that clears it.  An entry that no
+# Every entry is a namespace that FAILS under `-Dre-frame.debug=false`,
+# grouped by why.  An entry that no
 # longer names a real namespace is a hard error (see `verify_roster` below), so
 # a rename cannot leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
@@ -145,12 +124,13 @@ known_red=(
   #    so excluding `conformance-test` / `examples-test` for gate reasons takes
   #    the loads with them.  Green under the gate when the WHOLE suite runs;
   #    red only because this lane runs a slice.  It comes back on its own when
-  #    the two rosters below empty.
+  #    the roster below empties.
   re-frame.features-cljs-test
 
-  # ── rf2-r9bra — NOT obviously instrumentation. Each of these fails on an
+  # ── NOT obviously instrumentation. Each of these fails on an
   #    assertion about STATE, RESOLUTION or LIFECYCLE rather than about a
-  #    trace or a sink, which is the shape rf2-9c2jf had. They need a human
+  #    trace or a sink — the shape a zero-dispatch production defect has.
+  #    They need a human
   #    verdict — dev-posture test, or genuine production defect — before
   #    anyone writes them off. The redaction/sensitivity pair is first in
   #    the queue: if either protection is applied anywhere other than a
@@ -167,23 +147,18 @@ known_red=(
   re-frame.sensitive-stamping-test
   re-frame.subs-image-local-classification-cljs-test
 
-  # ── rf2-d2841 — dev-instrumentation assertions written inline with the
-  #    semantics they sit next to: "exactly one <...> trace fired", "the
-  #    :errors sink received", ":doc retained for tooling", "handler-meta
-  #    carries :ns". Under -Dre-frame.debug=false the framework emits none
-  #    of it, by design, so these are legitimate dev-posture tests — but
-  #    they drag their semantic neighbours out of this lane with them.
-  #    Every line removed from here is a namespace whose semantics are now
-  #    proven under the production posture.
-  #
-  #    The SPINE is done: smoke / drain / events / sub-cache / interceptor /
-  #    frame-lifecycle came off in the first rf2-d2841 pass. The split shape
-  #    they use — instrumentation assertions kept VERBATIM inside a
-  #    `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, everything
-  #    outside such an arm posture-independent — is documented in each of
-  #    those namespaces' docstrings under "## Posture split (rf2-d2841)".
-  #    `fx-test` — 107 failures / 25 errors across ~20 deftests, the big one
-  #    — came off in the second pass.
+  # ── HOW A DEV-INSTRUMENTATION NAMESPACE STAYS OFF THIS ROSTER. A test
+  #    that asserts dev instrumentation inline with the semantics it sits
+  #    next to — "exactly one <...> trace fired", "the :errors sink
+  #    received", ":doc retained for tooling", "handler-meta carries :ns" —
+  #    fails under -Dre-frame.debug=false, by design, and would drag its
+  #    semantic neighbours out of this lane with it. So such a namespace is
+  #    SPLIT: instrumentation assertions kept VERBATIM inside a
+  #    `(when interop/debug-enabled? …)` dev-instrumentation arm, everything
+  #    outside such an arm posture-independent — documented in each split
+  #    namespace's docstring under "## Posture split". A namespace about the
+  #    trace machinery itself is TAGGED instead — see "THE TRACE SUITES ARE
+  #    TAGGED, NOT ROSTERED" in the header.
   #
   #    THE SPLIT IS NOT ALWAYS A GUARD, AND REACHING FOR ONE FIRST COSTS
   #    COVERAGE. Four `:rf.error/*` categories in the fx subsystem
@@ -201,9 +176,9 @@ known_red=(
   #    production witness to be had.
   #
   #    AND THE DEV-ONLY HALF IS NOT ALWAYS A TRACE. `sub-topology-test`'s
-  #    was REFLECTION METADATA — `:doc` and the auto-captured `:ns` / `:line`
+  #    is REFLECTION METADATA — `:doc` and the auto-captured `:ns` / `:line`
   #    / `:file` source-coords, elided in production — while the topology
-  #    SHAPE around them was entirely posture-independent. The false-green
+  #    SHAPE around them is entirely posture-independent. The false-green
   #    that shape produces is worth recognising on sight: a negative about a
   #    key that is elided WHOLESALE (`no-doc-key-when-not-supplied`) passes
   #    under the gate because the key never exists, not because the
@@ -212,61 +187,44 @@ known_red=(
   #    copying: its adversarial discriminators read frame-state OBJECT
   #    IDENTITY off `frame/frame-state-value`, which needs no channel at all.
   #
-  #    THE NOTE THAT USED TO STAND HERE — that a namespace whose EVERY
-  #    deftest is about the dev trace (the `trace-listener-*` cohort,
-  #    `trace-test`, `db-pending-trace-test`, `sub-dispose-trace-test`, …)
-  #    has no semantic residue, so guarding it wholesale and deleting its
-  #    roster line would report GREEN for a namespace that executed nothing
-  #    — is now DISCHARGED rather than pending. Those fifteen declare
-  #    `^:requires-debug` per deftest and this lane excludes the tag. See
-  #    "WHERE THE TRACE SUITES WENT" in the header.
+  #    A NAMESPACE CAN LOOK LIKE 100% DEV INSTRUMENTATION AND NOT BE.
+  #    `sub-dispose-trace-test` carries PRODUCTION sub-cache claims — that a
+  #    synchronous dispose leaves a resubscribe rebuilding a FRESH reaction,
+  #    and that one input's throwing release does not abort the walk over the
+  #    others — inline with dispose-emit assertions that are red under the
+  #    gate. Both are about `interop/dispose!` and the cache map, neither
+  #    needs the trace, and both are left UNTAGGED, so they are in the lane.
+  #    Read the whole namespace before accepting "it is all instrumentation".
   #
-  #    AND THE PREMISE WAS NOT UNIFORMLY TRUE, which is the seventh pass's
-  #    finding. "100% dev instrumentation" was right for fourteen of the
-  #    fifteen; `sub-dispose-trace-test` was carrying PRODUCTION sub-cache
-  #    claims — that a synchronous dispose leaves a resubscribe rebuilding a
-  #    FRESH reaction (rf2-cmfln), and that one input's throwing release does
-  #    not abort the walk over the others (rf2-is8ov5) — inline with the
-  #    dispose-emit assertions that were reddening the namespace. Both are
-  #    about `interop/dispose!` and the cache map, neither needs the trace,
-  #    and neither had ever run under this posture. They were split out and
-  #    left UNTAGGED, so they are in the lane. Read the whole namespace before
-  #    accepting "it is all instrumentation" — that is the same rule the third
-  #    pass wrote down for the opposite direction.
+  #    THE FILES THAT ALREADY LOOK GREEN ARE WHERE THE ROT IS. A namespace
+  #    rostered for a handful of red assertions can ALSO carry assertions that
+  #    pass under the gate for no reason whatsoever: an `(<= (count
+  #    (rf/trace-buffer …)) N)` retention cap is true over the `[]` that
+  #    `trace-buffer` returns in production, and an
+  #    `(empty? (unknown-opt-warnings …))` negative certifies keys as
+  #    recognised over a stream that is empty for every key. Fixing only the
+  #    red assertions and deleting the roster line would promote those into
+  #    the lane as permanent false green. Read the WHOLE namespace, not the
+  #    failure list.
   #
-  #    THE THIRD PASS'S LESSON: THE FILES THAT ALREADY LOOK GREEN ARE WHERE
-  #    THE ROT IS. Of the eleven namespaces taken off in that pass, seven were
-  #    on this list for a handful of red assertions each — but every one of
-  #    them ALSO carried assertions that were passing under the gate for no
-  #    reason whatsoever. `configure-test` had four `(<= (count
-  #    (rf/trace-buffer …)) N)` retention caps, all true over the `[]` that
-  #    `trace-buffer` returns in production; `unknown-dispatch-opts-warn-test`
-  #    had four `(empty? (unknown-opt-warnings …))` negatives certifying keys
-  #    as recognised over a stream that is empty for every key. Fixing only
-  #    the red assertions and deleting the roster line would have promoted
-  #    those into the lane as permanent false green. Read the WHOLE namespace,
-  #    not the failure list.
-  #
-  #    AND `configure-test` IS THE CAUTIONARY TALE FOR THE OTHER DIRECTION.
-  #    The pass-2 note guessed that "the retention it configures IS production
-  #    state even though the warning is not". It is not:
-  #    `trace.tooling/configure-trace-buffer!` opens BOTH arms with
+  #    AND CHECK THE IMPLEMENTATION, NOT THE PLAUSIBLE STORY ABOUT IT. "The
+  #    retention a knob configures IS production state even though its
+  #    warning is not" sounds right and is wrong for
+  #    `trace.tooling/configure-trace-buffer!`, which opens BOTH arms with
   #    `(when (and interop/debug-enabled? …))`, so the knob and its warning
-  #    are equally dev-only. Check the implementation, not the plausible
-  #    story about it.
+  #    are equally dev-only.
   #
-  #    THE FOURTH PASS'S LESSON: ASK WHERE THE SUBJECT LIVES, NOT WHERE THE
-  #    TEST HAPPENS TO READ IT.  Over half of that pass's seventeen namespaces
-  #    needed no guard at all for their main claim, because the thing under
-  #    test was production state that the test had merely been OBSERVING
-  #    through the trace.  `:source :fx-dispatch`, `:rf.cofx`, `:fx-overrides`
+  #    ASK WHERE THE SUBJECT LIVES, NOT WHERE THE TEST HAPPENS TO READ IT.
+  #    A test's main claim is often production state that the test merely
+  #    OBSERVES through the trace, and then it needs no guard at all.
+  #    `:source :fx-dispatch`, `:rf.cofx`, `:fx-overrides`
   #    and `:interceptor-overrides` are slots on the DISPATCH ENVELOPE, and a
   #    user fx-handler is handed that envelope verbatim as `(:envelope m)` —
   #    the surface `cascade-envelope-propagation-test/fx-handler-ctx-carries-
   #    envelope-slot` pins.  An `:ovc/probe`-style fx inside each level of a
   #    cascade reads every one of them with no trace involvement, in BOTH
-  #    postures.  `substrate-source-test` went from contributing nothing under
-  #    this lane to contributing sixteen assertions that way.
+  #    postures — which is how `substrate-source-test` contributes assertions
+  #    to this lane.
   #
   #    THE SAME QUESTION, ASKED OF THE ERROR AXIS, IS "IS THE CATEGORY
   #    PROMOTED?"  `:rf.error/classification-effect-shape`,
@@ -279,32 +237,25 @@ known_red=(
   #    no `:failing-id` — classification-effect-shape — reaches production
   #    saying THAT an effect was malformed but not WHICH KEY.
   #
-  #    AND A CORRECTION.  `fx-args-trace-egress-cljs-test`'s docstring claimed
-  #    the `:rf.fx/args` slot on the fx error traces "is production-survivable
-  #    — it fans out through the always-on error-emit listener".  The CATEGORY
-  #    is promoted; the SLOT is not.  `fx.cljc`'s `:rf.error/no-such-fx` site
-  #    says so outright: "the tight-record discipline is intact: `:rf.fx/args`
-  #    stays on the dev trace and does NOT reach the production record".  That
-  #    is the third triage reason across four passes that turned out to be
-  #    wrong when checked against the source.  Check the source.
+  #    AND A PROMOTED CATEGORY DOES NOT PROMOTE EVERY SLOT.  The
+  #    `:rf.fx/args` slot on the fx error traces is NOT production-survivable
+  #    even though its category fans out through the always-on error-emit
+  #    listener: `fx.cljc`'s `:rf.error/no-such-fx` site says "the
+  #    tight-record discipline is intact: `:rf.fx/args` stays on the dev trace
+  #    and does NOT reach the production record".  A triage reason that reads
+  #    right can still be wrong against the source.  Check the source.
   #
   #    ONE MORE FALSE-GREEN SHAPE, worth recognising because it is not a trace
-  #    ring: `core-epoch-egress-profile-test` read its claims off the EPOCH
-  #    RING, which `epoch.capture/observe-trace-event!` feeds from the dev
-  #    trace.  Empty ring → nil record → nil marker, and SIX assertions on an
-  #    egress-PRIVACY surface passed on the nil: two `(= x y)` where both were
-  #    nil, `(not (contains? nil :digest))`, a `count` over an empty string, a
-  #    `not-any?` over an empty history, and a human-sentence check on a nil
-  #    message.  The fix was not a guard — the epoch egress projection is a
-  #    pure function of a record plus the frame's durable elision registry, so
-  #    the profile rows now drive a SYNTHETIC record and run in both postures.
-  #    (That projection was spelled `projected-record` when this was written;
-  #    rf2-bv1p retired the standalone door and it is now the
-  #    `:kind :rf/epoch-record` arm of `rf/project-egress`.  Purity is
-  #    unchanged, so the fix stands as described.)
-  #
-  #    THIS HEADING IS NOW EMPTY, and the last fifteen came off WITHOUT a
-  #    posture split — see "WHERE THE TRACE SUITES WENT" below.
+  #    ring: the EPOCH RING, which `epoch.capture/observe-trace-event!` feeds
+  #    from the dev trace.  Empty ring → nil record → nil marker, so a claim
+  #    read off it passes on the nil: an `(= x y)` where both are nil,
+  #    `(not (contains? nil :digest))`, a `count` over an empty string, a
+  #    `not-any?` over an empty history, a human-sentence check on a nil
+  #    message.  The remedy is not a guard — the epoch egress projection (the
+  #    `:kind :rf/epoch-record` arm of `rf/project-egress`) is a pure function
+  #    of a record plus the frame's durable elision registry, so
+  #    `core-epoch-egress-profile-test`'s rows drive a SYNTHETIC record and run
+  #    in both postures.
 )
 
 # ---------------------------------------------------------------------------
@@ -337,8 +288,8 @@ verify_roster() {
   #
   #    THE COUNT IS ABOUT THIS SCRIPT'S SCRAPE, NOT ABOUT DISCOVERY.  It reads
   #    the `(ns ` line as TEXT, so it goes on counting a file whose FORM the
-  #    Clojure reader cannot read — measured green over exactly such a file
-  #    while the lane ran eight tests fewer (rf2-vruo9).  Whether a file is
+  #    Clojure reader cannot read — green over exactly such a file while the
+  #    lane runs that file's tests fewer.  Whether a file is
   #    really discoverable is decided by a reader, in
   #    `re-frame.test-quiet.runner/discovery-defects`, which the run below
   #    passes through before any test executes.  Do not reach for a cleverer
@@ -398,112 +349,58 @@ fi
 # The coverage floor.  `re-frame.test-quiet.runner` reds any SUITE lane that
 # executed fewer than RF2_MIN_TESTS tests, so a roster that collapsed — a
 # renamed directory, an `-n` list that matched nothing — cannot report itself
-# green with `Ran 0 tests`.  Calibrated below the observed count with room for
-# ordinary churn; raise it when the roster grows materially.
+# green with `Ran 0 tests`.
 #
-# RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass),
-# 1510 -> 1690 (fifth pass), 1690 -> 1880 (sixth pass), 1880 -> 1900
-# (seventh), then 1900 -> 1920 (see "THE EIGHTH MOVE" below — a budget
-# repair, not a pass), then 1920 -> 1950 ("THE NINTH MOVE", the same repair
-# again).  800 was calibrated against the 915-test lane of rf2-f8x2i's
-# original run and had stopped doing its job.  1360 was calibrated against 1401
-# and stopped doing its job the same way; 1510 did the same in its turn; and so
-# did 1690, against the 1931 tests the sixth pass left.
+# The floor is a COLLAPSE DETECTOR, not a target: it must sit close enough
+# under the observed count that THE SMALLEST BATCH ANYONE LANDS IS STILL
+# VISIBLE.  A floor left behind by a growing lane is not conservative, it is
+# inert.  It tracks TESTS, not roster lines, because a small batch of
+# namespaces can carry a large share of the lane.
 #
-# Note how much a small batch can be worth: the sixth pass added only four
-# namespaces but 191 tests, because the two largest — `observation-port-cljs`
-# (94 tests; since deleted with the port, rf2-63t1i — see "THE FIRST MOVE
-# DOWNWARD" below) and `frame-destroy-incarnation-jvm` (29) — were rostered for
-# a minority of their deftests.  The floor tracks TESTS, not roster lines, which
-# is the right variable for exactly this reason.
+# It is also the budget for tagging.  `^:requires-debug` is a VAR-level tag,
+# and it is a way to lose coverage QUIETLY: a roster line sits in this
+# reviewed file, whereas an over-broad tag is one word in a test file, and
+# nothing else counts what it excluded.  So the floor keeps ~35 tests of
+# slack under the observed count: tagging more than that reddens this lane
+# and the author has to come here and move the number — which is exactly the
+# review prompt a coverage-reducing change should trigger.  That is
+# deliberate.  Do not raise the floor to make room for a tag without saying,
+# in the same diff, what was tagged and why it has no production residue.
 #
-# The floor is a COLLAPSE DETECTOR, not a target, and the rule that follows
-# from that is why it moved every pass: it must sit close enough under the
-# observed count that THE SMALLEST BATCH ANYONE LANDS IS STILL VISIBLE.  A
-# floor left behind by a growing lane is not conservative, it is inert.
+# THE SLACK DRIFTS WHILE NOBODY TOUCHES THE FLOOR.  The lane grows on other
+# work's test files, which silently widens the tagging budget — the same "a
+# floor left behind by a growing lane is inert" failure, arriving through the
+# back door.  So the rule is not "raise it when you add namespaces" but "keep
+# the SLACK at ~35", and it wants checking whenever this lane's observed count
+# is read.
 #
-# THE SEVENTH PASS RAISED IT FOR A DIFFERENT REASON, and the difference
-# matters.  That pass added only two tests, so no floor could have made its
-# batch visible — the rule above ran out of road, because `^:requires-debug` is
-# a VAR-level tag and the smallest thing it can remove is one deftest.  What
-# the tag introduces instead is a new way to lose coverage QUIETLY: a roster
-# line sits in this reviewed file, whereas an over-broad tag is one word in a
-# test file, and nothing else counts what it excluded.
-#
-# So the floor is now doing a second job: it is the budget for tagging.  At
-# 1950 against 1986 there are 36 tests of slack, so tagging more than about
-# thirty-five tests' worth of deftests reddens this lane and the author has
-# to come here and move the number — which is exactly the review prompt a
-# coverage-reducing change should trigger.  That is deliberate.  Do not raise
-# the floor to make room for a tag without saying, in the same diff, what was
-# tagged and why it has no production residue.
-#
-# THE FIRST MOVE DOWNWARD: 1950 -> 1860 (rf2-63t1i), and the removal is in this
-# same diff.  Every prior move raised the number as the lane grew.  This one
-# LOWERS it, because the lane genuinely shrank: `re-frame.substrate.observation`
-# — the internal observation port — was retired, and its own suite
-# `observation_port_cljs_test.cljc` went with it.  That is the same namespace
-# the sixth-pass note above names as one of the two largest additions the lane
-# ever took, at 94 tests; measured here, the lane fell from 1986 to 1895.
-#
-# A lowering is the dangerous direction, so it is worth saying what makes this
-# one safe rather than a floor rotting downward to meet a collapse.  The lane
-# did not collapse: it ran 177 of 189 namespaces and reported `0 failures, 0
-# errors` in the same run that tripped this floor.  The drop is accounted for
-# to one namespace, that namespace is DELETED in this diff rather than
-# unrostered or tagged, and 1860 keeps the same ~35 tests of slack under the
-# observed count that the seventh pass established as the tagging budget.
-# Lowering it further, or lowering it without a deletion beside it, would be
-# the rot the paragraph above warns about.
-#
-# THE EIGHTH MOVE, 1900 -> 1920, WAS NOT A PASS.  It tags nothing and adds no
-# namespace; it repairs the budget the seventh pass set.  1900 was calibrated
-# against 1933, and the lane has since grown to 1953 on other beads' test
-# files — which silently widened the tagging budget from the intended ~33
-# tests to 53.  That is the same "a floor left behind by a growing lane is
-# inert" failure as every earlier move, arriving through the back door: nobody
-# raised the budget, the lane just drifted out from under it.  So the rule to
-# apply is not "raise it when you add namespaces" but "keep the SLACK at ~33",
-# and it wants checking whenever this lane's observed count is read, not only
-# when a d2841 pass lands.
-#
-# THE NINTH MOVE, 1920 -> 1950 (rf2-oucxu), IS THAT SAME REPAIR AGAIN, and that
-# it was needed twice running is the part worth recording.  It tags nothing and
-# adds no namespace.  1920 was calibrated against 1953; the lane has since
-# grown to 1986 on other beads' test files, so the tagging budget had widened
-# from the intended ~33 to 66 — twice the rule above, which is to say twice as
-# many tests could have been tagged out of this lane before the floor reddened
-# and made someone come here and justify it.  Nobody raised the budget; the
-# lane drifted out from under it, exactly as before.
-#
-# So this drift is not a one-off to patch but a standing condition of a growing
-# lane: the eighth move caught it at 53, this one at 66, a few weeks of
-# ordinary test-writing apart.  That is why the check above is worded as
-# "whenever this lane's observed count is read" — measured for this move at
-# 178 of 190 namespaces, 1986 tests, 8699 assertions, exit 0.
+# LOWERING the floor is the dangerous direction.  It is safe only when the drop
+# is accounted for to a namespace DELETED in the same diff rather than
+# unrostered or tagged, the lane still reports `0 failures, 0 errors`, and the
+# same ~35 tests of slack survive.  Lowering it further, or lowering it without
+# a deletion beside it, is a floor rotting downward to meet a collapse.
 #
 # Note which direction the OTHER failure mode falls.  If `-e :requires-debug`
-# is ever dropped from the `:prod-gate` alias or misspelled, the fifteen tagged
+# is ever dropped from the `:prod-gate` alias or misspelled, the tagged
 # namespaces run under `-Dre-frame.debug=false` and this lane goes RED, loudly.
 # A lost exclusion cannot go quietly green here; only an over-applied tag can,
-# and that is what the 33-test budget above is for.
+# and that is what the tagging budget above is for.
 #
-# WHAT THE FLOOR DOES NOT CATCH, and what caught it out during the fifth pass:
-# a test file whose `(ns ...)` FORM is malformed is invisible to
-# `cognitect.test-runner`'s namespace DISCOVERY, so a `-n` selector naming it
-# matches nothing and the lane simply runs one namespace fewer, exit 0.  The
-# floor catches that collapse only once enough tests have gone missing —
-# measured at eight, out of 2190, which is well inside the ~3% of headroom a
-# growing lane has to leave itself.
+# WHAT THE FLOOR DOES NOT CATCH: a test file whose `(ns ...)` FORM is
+# malformed is invisible to `cognitect.test-runner`'s namespace DISCOVERY, so
+# a `-n` selector naming it matches nothing and the lane simply runs one
+# namespace fewer, exit 0.  The floor catches that collapse only once enough
+# tests have gone missing, and a handful of tests is well inside the headroom
+# a growing lane has to leave itself.
 #
-# CLOSED (rf2-vruo9), and NOT here.  The check that catches it reads the form
-# instead of scraping the line, so it belongs in a process that already has a
-# reader and the lane's classpath: `re-frame.test-quiet.runner` now refuses to
-# start when any file in a discovery directory will not reach the runner as
-# its own namespace.  That is the wrapper EVERY JVM artefact's `:test` alias
-# invokes, so the rule covers every lane in the repo rather than this one, and
-# it fires before a single test runs.  `verify_roster` below is unchanged and
-# still cannot see this class on its own — see its guard #1.
+# The check that catches it reads the form instead of scraping the line, so it
+# belongs in a process that already has a reader and the lane's classpath:
+# `re-frame.test-quiet.runner` refuses to start when any file in a discovery
+# directory will not reach the runner as its own namespace.  That is the
+# wrapper EVERY JVM artefact's `:test` alias invokes, so the rule covers every
+# lane in the repo rather than this one, and it fires before a single test
+# runs.  `verify_roster` above cannot see this class on its own — see its
+# guard #1.
 export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1860}"
 
 args=()
