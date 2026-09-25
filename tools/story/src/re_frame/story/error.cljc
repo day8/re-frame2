@@ -66,8 +66,8 @@
   fidelity as a handler throw, never a silent false-green.
 
   A fourth captured operation is not a chain throw at all:
-  `:rf.error/no-such-handler`, the dispatch that resolved no handler
-  (rf2-0ae7o.13). It is emitted before any pipeline runs, throws nothing,
+  `:rf.error/no-such-handler`, the dispatch that resolved no handler.
+  It is emitted before any pipeline runs, throws nothing,
   and carries a different tag shape (the event as the raw `:rf.event/v`,
   no message, no `:failing-id`) — which is why `captured-failure-record`
   reads a captured trace into its record in ONE place for every drain
@@ -76,11 +76,10 @@
   capture site consults — any of the four operations targeting the
   frame is a captured failure (spec/009 §Error contract)."
   (:require [re-frame.privacy    :as rf.privacy]
-            ;; The egress DOOR's home namespace (rf2-kuky.88). Reached
+            ;; The egress DOOR's home namespace. Reached
             ;; here rather than through the `re-frame.core` facade
             ;; because `re-frame.projection` requires only framework
-            ;; leaves, which keeps this ns at the leaf of the cycle graph
-            ;; — the same reason the walker was reached this way before.
+            ;; leaves, which keeps this ns at the leaf of the cycle graph.
             [re-frame.projection :as rf.projection]
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`) — read the raw event's
@@ -106,14 +105,14 @@
   interceptor, or the event handler itself — so Story must capture all
   three rather than only `:rf.error/handler-exception`.
 
-  `:rf.error/no-such-handler` (rf2-0ae7o.13) is the dispatch that resolved
+  `:rf.error/no-such-handler` is the dispatch that resolved
   NO handler on the frame. It throws nothing, and the framework settles no
-  epoch for it (rf2-erczwd: a refused dispatch commits no misleading
+  epoch for it (a refused dispatch commits no misleading
   record), so the epoch tape — the spec/017 agreement floor's evidence —
   is silent about it; this per-frame trace capture is the one place Story
   can see it. Without it a misspelt `:setup` / `:script` event, or the
   `:your/setup-event` placeholder of an unfilled real-setup upgrade
-  scaffold, read a vacuous `:pass`."
+  scaffold, would read a vacuous `:pass`."
   #{:rf.error/handler-exception
     :rf.error/coeffect-exception
     :rf.error/interceptor-exception
@@ -140,7 +139,7 @@
 
 (defn with-trace-listener
   "The ONE register/try/finally bracket every Story capture site runs its
-  walk inside (rf2-5zgx): register `listener` on the `:trace` stream under
+  walk inside: register `listener` on the `:trace` stream under
   a fresh id minted from `id-prefix`, run `body-fn` (a 0-arg thunk), and
   remove the listener in a `finally`. Returns `body-fn`'s return value.
 
@@ -149,9 +148,9 @@
   passes `::capture`, and `frames`' setup and teardown walks pass
   `::setup-capture` / `::teardown-capture`.
 
-  It lives here because both of those namespaces already require this
+  It lives here because both of those namespaces require this
   leaf, and `frames` must not require `runtime`: the arrow runs one way,
-  which is why `frames` used to carry its own copies of the bracket."
+  so the bracket cannot live in `runtime`."
   [id-prefix listener body-fn]
   (let [n     (get (swap! trace-listener-counters update id-prefix (fnil inc 0))
                    id-prefix)
@@ -166,22 +165,20 @@
   app-db paths record `:rf/redacted` rather than the raw value
   (spec/002 §Error projection §Privacy).
 
-  Named boundary (rf2-kuky.88): `:rf.egress/local-redacted` — Story is
-  on-box, and that profile's `:rf.egress/*` floor is exactly the all-false
-  floor the bare no-profile walk resolved to before, so the projection is
-  byte-identical. The door is reached through its HOME namespace
-  (`re-frame.projection`) rather than the `re-frame.core` facade, for the
-  same reason the walker was: `re-frame.projection` requires only
+  Named boundary: `:rf.egress/local-redacted` — Story is
+  on-box, and that profile's `:rf.egress/*` floor is the all-false
+  floor. The door is reached through its HOME namespace
+  (`re-frame.projection`) rather than the `re-frame.core` facade, because
+  `re-frame.projection` requires only
   framework leaves, so this ns stays at the leaf of the cycle graph.
 
   Record-don't-throw, but
-  FAIL CLOSED (rf2-kuky.6): an elision error yields the
-  `:rf/redacted` sentinel, never the raw `data`. This catch used to
-  return `data` — harmless while the door could not reject an opts
-  map, and a LEAK the moment it could: once the egress opts map is
-  closed, a stale or misspelled key here becomes a throw, and a throw
-  that returns `data` ships the unprojected `ex-data`. Redaction
-  failure still never breaks error recording.
+  FAIL CLOSED: an elision error yields the
+  `:rf/redacted` sentinel, never the raw `data`. Returning `data` from
+  this catch would LEAK: the egress opts map is
+  closed, so a stale or misspelled key here throws, and a throw
+  that returned `data` would ship the unprojected `ex-data`. Redaction
+  failure never breaks error recording.
 
   Elision is FRAME-SCOPED. It applies only when a `frame-id` is in
   hand — that is the variant-frame assertion-record path, the only one
@@ -290,7 +287,7 @@
     `:exception-message` (threaded as the `:message` override so the
     message survives without the throwable), and the router-attributed
     `:failing-id`;
-  - the NO-HANDLER REFUSAL (`:rf.error/no-such-handler`, rf2-0ae7o.13) is
+  - the NO-HANDLER REFUSAL (`:rf.error/no-such-handler`) is
     emitted by the router BEFORE any pipeline runs and throws nothing: the
     event rides only as the raw `:rf.event/v`, and there is no message and
     no `:failing-id`. The failing component IS the unregistered event id,
