@@ -1,16 +1,16 @@
 ;; Conformance fixture: machine/reg-error-grammar-not-in-v1
 ;;
-;; History is now FIRST-CLASS grammar (rf2-mle6e — the post-v1 deferral is
-;; withdrawn; the engine implements record/restore per
-;; [005 §History states](../../005-StateMachines.md#history-states-type-history--shallow--deep--default-target)).
-;; This fixture is RETAINED under its historical id but re-pinned to the
-;; registration-error taxonomy the first-class grammar enforces: a
+;; History is FIRST-CLASS grammar: the engine implements record/restore per
+;; [005 §History states](../../005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
+;; Despite its id, this fixture pins the registration-error taxonomy the
+;; history grammar enforces: a
 ;; `:type :history` pseudo-state MUST have an OWNING COMPOUND — a node at the
 ;; machine root (or a flat top-level state) is `:rf.error/machine-history-misplaced`.
-;; The COMPREHENSIVE history record/restore conformance corpus (the
-;; W3C-adapted 387/388/579/580 behaviour) lands under rf2-mle6e.4; this
-;; fixture keeps only the placement-rejection taxonomy + a control that a
-;; WELL-PLACED history node (and a history-free machine) validate silently.
+;; The history record/restore conformance corpus (the W3C-adapted
+;; 387/388/579/580 behaviour) is the `history-*` and `scxml-history-*`
+;; fixtures; this fixture holds only the placement-rejection taxonomy + a
+;; control that a WELL-PLACED history node (and a history-free machine)
+;; validate silently.
 ;;
 ;; Mode-B `:reg-machine` fixture pinning the registration-error taxonomy
 ;; (Spec 009 §The thrown-error shape).
