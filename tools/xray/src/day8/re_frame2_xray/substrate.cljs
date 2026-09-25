@@ -5,7 +5,7 @@
   ## Why this exists
 
   Xray's shell is hiccup, and several of its views are FRESCO
-  BOUNDARIES. A boundary body may hand a surviving `rf/reg-view` island
+  BOUNDARIES. A boundary body may hand an `rf/reg-view` island
   down to React as a child, and Fresco's component ABI wants a React
   ELEMENT there rather than a fn-headed hiccup vector. Producing that
   element is a per-substrate act, and the boundaries take the spelling as
@@ -61,7 +61,7 @@
   public `open!` accepts the element-shaped substrates, so a host on UIx
   or Fresco gets a mounted Xray — the installed adapter publishes no
   `:adapter/as-element`, the routed hook answers nil, and the SECOND arm
-  carries every surviving Reagent island. That is the case the section
+  carries every Reagent island. That is the case the section
   above describes, and the acceptance harness measures it too."
   (:require [reagent.core       :as stock]
             [re-frame.late-bind :as rf.late-bind]))
@@ -71,7 +71,7 @@
   adapter's own walk (`:adapter/as-element`).
 
   This is the `as-child` spelling every Xray Fresco boundary passes for
-  its surviving Reagent islands. Pass `identity` instead from a plain
+  its Reagent islands. Pass `identity` instead from a plain
   hiccup caller or the node lane, where the island stays a vector.
 
   Falls back to stock Reagent's walk when no ratom-family adapter is
