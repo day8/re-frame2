@@ -67,7 +67,7 @@
   through the caller-supplied frame-aware dispatcher so the
   open-in-editor event lands on the surrounding instance frame; the
   trace bus records the click, the `:rf.xray.fx/open-in-editor` fx resolves the
-  URI through the editor-URI allowlist, and `Location.assign` fires.
+  URI through the editor-URI scheme denylist, and `Location.assign` fires.
 
   Accessibility: the chip is a `<button>` (so Enter / Space activate
   natively), `aria-label` reads 'open in editor', and the inline SVG
