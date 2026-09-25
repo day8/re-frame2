@@ -66,30 +66,30 @@
 ;; (never blank a loaded page on a refresh), but a slug CHANGE resets the
 ;; slice, so alpha's article is never renderable under `/article/beta`.
 ;;
-;; The rule is now universal in this file: EVERY settle that touches
+;; The rule is universal in this file: EVERY settle that touches
 ;; route-owned state carries the slug it was requested for and asks, before
 ;; acting, whether that slug still owns the thing it is about to change. Ten
 ;; do — nine of them asking about the slice, one asking about the route (TWO
 ;; QUESTIONS, below, is why) —
 ;;
 ;;   - the three route-driven READS: `:article/load`'s reply hat,
-;;     `:comments/loaded`, `:comments/load-failed` (rf2-iy3d6);
+;;     `:comments/loaded`, `:comments/load-failed`;
 ;;   - the three comment MUTATION settles: `:comment-form/submit-success`,
 ;;     `:comment-form/submit-error`, `:comment/delete-rollback`. They land on
 ;;     the one shared `[:comments :data]` / `[:comment-form]`, so alpha's late
 ;;     POST failure would otherwise banner beta's form and alpha's failed
-;;     DELETE would re-insert alpha's comment into beta's list (rf2-84iek);
+;;     DELETE would re-insert alpha's comment into beta's list;
 ;;   - the four article SOCIAL settles further down:
 ;;     `:article/author-follow-synced`, `:article/author-follow-rollback`,
 ;;     `:article/delete-failed`, `:article/delete-success`. These fire from a
 ;;     button press rather than from the route's own load, but what they touch
 ;;     — `[:article ...]` and the route itself — the active article owns just
-;;     the same. Measured, not merely suspected: a late follow FAILURE restored
-;;     ALPHA's prior flag onto beta's author, so beta's Follow button read the
-;;     opposite of the truth, and a late follow SUCCESS was worse still — it
-;;     replaced beta's author map wholesale, so the byline name, the avatar and
-;;     the profile link all became alpha's author. A late failed DELETE
-;;     bannered alpha's error across beta's page (rf2-amhpk).
+;;     the same. Ungated, a late follow FAILURE would restore ALPHA's prior
+;;     flag onto beta's author, so beta's Follow button would read the
+;;     opposite of the truth, and a late follow SUCCESS would be worse still —
+;;     it would replace beta's author map wholesale, so the byline name, the
+;;     avatar and the profile link would all become alpha's author. A late
+;;     failed DELETE would banner alpha's error across beta's page.
 ;;
 ;; `:article/delete-success` is the one member that writes NO db, and it is
 ;; here anyway. It navigates home, and NAVIGATION IS STATE — the most visible
@@ -118,16 +118,16 @@
 ;;     never touches `[:article]`, so the slice goes on naming alpha long
 ;;     after alpha left the screen. Alpha → beta HIDES that (beta's
 ;;     `:article/load` happens to overwrite the cached slug on the way in);
-;;     alpha → `/profile/eve` exposes it, and a slug-only gate took that
-;;     reader home just as an ungated one did.
+;;     alpha → `/profile/eve` exposes it, and a slug-only gate would take
+;;     that reader home just as an ungated one would.
 ;;
-;; Why a gate ALONE is enough for all ten, where the comment form also needed
+;; Why a gate ALONE is enough for all ten, where the comment form also needs
 ;; a reset: everything gated here lives in a slice that `:article/load` or
 ;; `:comments/load` REBUILDS on a slug change, so the navigation has already
 ;; released it and refusing a stale settle strands nothing. `[:comment-form]`
-;; was the one exception — a boot-time singleton nothing revisited, which rode
-;; across the navigation still `:submitting` — which is why rf2-84iek had to
-;; pair its gate with a reset in `:comments/load`. The article's author and
+;; is the one exception — a boot-time singleton outside those slices, which
+;; would otherwise ride across the navigation still `:submitting` — which is
+;; why its gate is paired with a reset in `:comments/load`. The article's author and
 ;; error are not in that position: `[:article]` is reset wholesale on a new
 ;; identity, and the Follow button carries no pending or disabled state to get
 ;; stuck in.
@@ -141,8 +141,8 @@
 ;;
 ;; Both gates correlate ROUTE IDENTITY, not request identity: they ask which
 ;; article the screen is on, so alpha → beta → alpha readmits an alpha reply
-;; issued before the round trip. That is the same strength the reads have
-;; had since rf2-iy3d6, and it is deliberate — a per-request epoch or a
+;; issued before the round trip. That is the same strength the reads have,
+;; and it is deliberate — a per-request epoch or a
 ;; cancellation scheme would buy a much narrower race at the cost of the
 ;; machinery this example exists to stay clear of.
 ;;
@@ -311,7 +311,7 @@
          settles are correlation-gated, a submit issued on alpha and answered
          after the reader reached beta is refused, and refusing it is only
          safe because the navigation has ALREADY released the form. Reset and
-         gate are two halves of one fix (rf2-84iek)."}
+         gate are two halves of one guarantee."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
           refresh? (reply-for-current-slug? db :comments slug)
@@ -481,7 +481,7 @@
          The rollback target carries THE SLUG WE ARE DELETING FROM alongside
          the captured `prior`, so a failure answered after the reader moved on
          cannot slot the previous article's comment into the current one's
-         list (rf2-84iek). `:on-success` needs neither: it is a no-op."}
+         list. `:on-success` needs neither: it is a no-op."}
   (fn [{:keys [db] rt :rf.db/runtime} [_ id]]
     (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
           comments (vec (get-in db [:comments :data]))
@@ -561,7 +561,7 @@
 ;; These are button-driven rather than route-driven, but they write the
 ;; ROUTE-OWNED `[:article ...]` slice, so their settles carry the slug they
 ;; were issued on and gate on it exactly as the loads do — see THE CORRELATION
-;; GATE above for what went wrong before they did (rf2-amhpk).
+;; GATE above for what goes wrong without the gate.
 
 (rf/reg-event :article/toggle-follow-author
   {:doc "Flip following-the-author on or off optimistically, then send the
