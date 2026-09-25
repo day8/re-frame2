@@ -1,14 +1,12 @@
 (ns re-frame.bench.fresco.arm1.lifecycle-dom-cljs-test
-  "STRICTMODE, THE HMR BODY SWAP, AND A REAL ERROR BOUNDARY
-  (rf2-2rtt6.41).
+  "STRICTMODE, THE HMR BODY SWAP, AND A REAL ERROR BOUNDARY.
 
   validation.md's `:lifecycle/strict-abandoned-teardown-hmr` row names
-  four things; rf2-2rtt6.9 witnessed the abandoned render (the generation
-  fence suite) and the teardown (the standing zero-residue assertion).
+  four things; the generation fence suite witnesses the abandoned render
+  and the standing zero-residue assertion the teardown.
   The other two are here, together with the `:foreign/…-error-boundary`
   half that HD-020(c) owes — the runtime's internal class-based
-  [[re-frame.bench.fresco.arm1.boundary/boundary]], which did not exist
-  until this bead.
+  [[re-frame.bench.fresco.arm1.boundary/boundary]].
 
   ## StrictMode is CLAIMED correct by construction, so it is PROVED
 
@@ -22,8 +20,7 @@
 
   So the row below asserts the double-invoke actually happened before it
   asserts anything about the result. A StrictMode witness on a build where
-  React did not double-invoke is a green gate over nothing, and that is
-  the failure mode this bead exists to close elsewhere too.
+  React did not double-invoke is a green gate over nothing.
 
   ## What an HMR body swap is, concretely
 
@@ -35,8 +32,8 @@
   four survive, that the changed body is used, and that no subscription
   leaks; all five are read here.
 
-  Runtime: `-dom-cljs-test`; under `:node-test` every claim degrades to a
-  stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.boundary :refer [boundary]]
@@ -336,9 +333,9 @@
            `report!` is wired to that one lifecycle rather than because
            anything counts.
 
-           An instance flag gating the report used to sit in
-           `arm1/boundary`; removing it left every row green, so it was a
-           line nothing observed and it is gone. What reds this row is
+           An instance flag gating the report in `arm1/boundary` would be
+           a line nothing observes: removing one leaves every row green.
+           What reds this row is
            reporting from a lifecycle React runs more than once — moving
            `report!` into `render` is the mutation, and StrictMode is why
            it is visible"
