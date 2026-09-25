@@ -4,8 +4,7 @@
 ;; snapshot's `:state` is a MAP of region-name → that region's :initial.
 ;; A broadcast event reaches both regions; both transition independently.
 ;;
-;; Per [005 §Parallel regions](../../005-StateMachines.md#parallel-regions)
-;; and rf2-l67o (Nine States Stage 2).
+;; Per [005 §Parallel regions](../../005-StateMachines.md#parallel-regions).
 
 {:fixture/id           :machine/parallel-flat-two-regions
  :fixture/spec-version "1.0"
