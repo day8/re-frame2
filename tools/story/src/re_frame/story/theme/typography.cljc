@@ -7,7 +7,7 @@
   **editorial-dark**: high-contrast, characterful type, generous
   letter-spacing on labels, a recognisable display voice that asserts
   Story's identity while sitting cleanly next to Xray (the dev-time
-  diagnostic surface that already ships its own tokens at
+  diagnostic surface that ships its own tokens at
   `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`).
 
   ## Why this font family
@@ -105,8 +105,8 @@
   emphasised body / sidebar entries, semibold for chrome headers /
   active tabs, bold for hero / display.
 
-  Stored as integer-cast strings so they drop into inline `:style`
-  maps and emit as CSS values without quotation acrobatics."
+  Stored as integers so they drop into inline `:style` maps and emit as
+  CSS values without quotation acrobatics."
   {:regular  400
    :medium   500
    :semibold 600
@@ -149,7 +149,7 @@
    })
 
 (def letter-spacing
-  "Letter-spacing tokens. Three slots:
+  "Letter-spacing tokens. Four slots:
 
   - `:label` — uppercase chrome labels (axis labels, section headers)
     take a wide tracking to read as 'system signal' at small sizes.
@@ -184,10 +184,8 @@
   woff2s; CSS allows a later `@font-face` with the same family name +
   weight to layer additional `src:` candidates.
 
-  Three weights ship: 400 / 500 / 700; the 500-weight covers the
-  `:semibold` token via `font-stretch`-free width matching since
-  Plex 500 reads as the rubric calls 'semibold' in most pairings
-  (Plex's 600 is closer to bold-light)."
+  Plex Sans declares 400 / 500 / 600 / 700 — one face per `weights`
+  token — and Plex Mono declares 400 / 500."
   "@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:local('IBM Plex Sans');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:local('IBM Plex Sans Medium');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:local('IBM Plex Sans SemiBold');}\n@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:local('IBM Plex Sans Bold');}\n@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:local('IBM Plex Mono');}\n@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:500;font-display:swap;src:local('IBM Plex Mono Medium');}\n")
 
 #?(:cljs
