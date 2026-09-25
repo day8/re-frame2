@@ -1,14 +1,14 @@
 (ns re-frame.story.ui.multi-substrate-boundary-dom-cljs-test
-  "rf2-3x7nj.29.3 — the side-by-side grid's per-cell error boundary CONTAINS
-  a view that throws under one substrate.
+  "The side-by-side grid's per-cell error boundary CONTAINS a view that
+  throws under one substrate.
 
   The grid is the surface that shows substrate-portability gaps, so a view
   that throws under one substrate is its whole reason to exist: the healthy
   cell keeps rendering and the failing cell turns red beside it
   (`tools/story/spec/003-Render-Shell.md` §Multi-substrate side-by-side
-  rendering). The boundary it used to have captured the error and then
-  rendered the same throwing child again, so React handed the error to the
-  next boundary up. Story has none, so the whole shell unmounted.
+  rendering). A boundary that captured the error and then rendered the
+  same throwing child again would have React hand the error to the next
+  boundary up. Story has none, so the whole shell would unmount.
 
   Every row mounts the REAL grid through `reagent.dom.client` inside an
   outer boundary this file owns, which records anything that escapes the
@@ -93,7 +93,7 @@
   (rf/reg-view* :views/healthy healthy-view)
   (rf/reg-view* :views/boom healthy-view)
   (rf.story/register-substrate! :uix uix-render)
-  (rf.story/reg-story* :story.grid-boundary {:doc "rf2-3x7nj.29.3 witness story"})
+  (rf.story/reg-story* :story.grid-boundary {:doc "grid-boundary witness story"})
   (rf.story/reg-variant* :story.grid-boundary/boom
     {:doc        "Renders under :reagent, throws under :uix."
      :component  :views/boom
@@ -153,7 +153,7 @@
 ;; ===========================================================================
 
 (deftest a-throwing-substrate-renders-a-red-cell-beside-the-healthy-one
-  (testing "rf2-3x7nj.29.3: the view throws under :uix only. The :reagent
+  (testing "the view throws under :uix only. The :reagent
             cell renders, the :uix cell shows the render error with its
             message, and nothing reaches the boundary above the grid"
     (if-not (browser?)
@@ -162,7 +162,7 @@
         (fn [node root]
           (mount-grid! root :story.grid-boundary/boom)
           (is (nil? @!escaped)
-              "the throw stayed inside its cell — before the fix it escaped the grid")
+              "the throw stayed inside its cell and did not escape the grid")
           (is (found? node "[data-test=\"healthy-view\"]")
               "the :reagent cell rendered the view")
           (is (re-find #"uix — render error" (text node))
@@ -171,11 +171,11 @@
               "and it carries the thrown message"))))))
 
 (deftest a-shell-state-change-re-renders-the-cells-without-remounting
-  (testing "rf2-3x7nj.29.3 (secondary): the grid derefs the shell state, so
-            any shell-state change re-renders it. The cell boundary is ONE
-            component type, so the subject re-renders in place and keeps its
-            local state — a boundary class minted per render remounted every
-            cell instead"
+  (testing "the grid derefs the shell state, so any shell-state change
+            re-renders it. The cell boundary is ONE component type, so the
+            subject re-renders in place and keeps its local state — a
+            boundary class minted per render would remount every cell
+            instead"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (with-root
