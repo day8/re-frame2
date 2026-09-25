@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.explain-panel-test
   "JVM-portable regression net for the Explain panel's pure projection
-  (rf2-ba86n.9, spec/020 §4 / spec/017 §Explain API).
+  (spec/020 §4 / spec/017 §Explain API).
 
   Covers the host-free surface:
 
@@ -159,7 +159,7 @@
       (is (= [:inline/x] (get-in result [:explain :source-chain]))))))
 
 ;; ---------------------------------------------------------------------------
-;; explain-for — the ambient arg layers (rf2-noxox)
+;; explain-for — the ambient arg layers
 ;;
 ;; The pure compiler folds global-args and the parent story's `:args` only
 ;; when handed `:run-args`; a bare `plan/explain` carries the variant-chain
