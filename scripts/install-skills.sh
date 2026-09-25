@@ -4,9 +4,8 @@
 # Deploys every `skills/<name>/` directory into `~/.claude/skills/<name>` BY
 # LINK, not by copy, so the active skill Claude Code loads is the SAME FILE as
 # the repo source — edits in either are immediately reflected in the other.
-# This eliminates the stale-copy drift (rf2-901lr) that comes from a one-shot
-# `cp -r`: a copy froze ~10 days behind the maintained repo and Claude Code
-# loaded the stale skill.
+# A one-shot `cp -r` would drift instead: the copy freezes while the maintained
+# repo moves on, and Claude Code loads the stale skill.
 #
 # Link primitive per OS:
 #   - macOS / Linux:        `ln -s` (POSIX symlink to the repo skill dir).
@@ -17,9 +16,10 @@
 #
 # Idempotent: re-running re-links. If a target already points at this repo's
 # skill dir, it is left alone. If a target is a link to a DIFFERENT source, it
-# is re-pointed. If a target is a real directory (a stale COPY — the very bug
-# this fixes), the installer WARNS and refuses to clobber it unless --force is
-# given, so a user's local edits to a copied skill are never silently lost.
+# is re-pointed. If a target is a real directory (a stale COPY — the drift
+# linking prevents), the installer WARNS and refuses to clobber it unless
+# --force is given, so a user's local edits to a copied skill are never
+# silently lost.
 #
 # Usage:
 #   scripts/install-skills.sh                 # link all skills (skip+warn on copies)
@@ -101,7 +101,7 @@ fi
 # Resolve POSIX symlinks without depending on readlink -f (absent on macOS).
 # `pwd -P` yields the PHYSICAL path, so a symlink in an ANCESTOR resolves too
 # and the overlap guard below cannot be bypassed by aliasing the checkout above
-# skills/ (rf2-7bwh1). Windows never reaches here - it execs install-skills.ps1
+# skills/. Windows never reaches here - it execs install-skills.ps1
 # above, whose Resolve-RealDir walks ancestors to get the same property.
 resolve_dir() {
   if [ -d "$1" ]; then
@@ -128,7 +128,7 @@ linked=0
 skipped=0
 
 # Iterate every skills/<name> directory. Each skill is self-contained; we
-# link whatever dirs exist (audit ALL of skills/, per the bead).
+# link whatever dirs exist (ALL of skills/).
 for entry in "$SKILLS_SRC"/*/; do
   [ -d "$entry" ] || continue
   name=$(basename "$entry")
