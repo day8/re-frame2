@@ -288,7 +288,7 @@
   ;; SIBLINGS of one two-arg `.then` — exactly one of them runs — and the single
   ;; `done` sits in a trailing step with nothing after it. A `.catch` downstream
   ;; of a `done` would claim whatever a LATER namespace throws as this rung's
-  ;; failure and fire `done` a second time (rf2-53uz).
+  ;; failure and fire `done` a second time.
   (-> (probe/ensure-runtime! conn :app)
       (.then (fn [_] (is false "must reject"))
              (fn [err]
@@ -346,26 +346,24 @@
             (fresh-conn) :runtime-loaded-but-preload-missing #"preload" done nil))))))
 
 ;; ---------------------------------------------------------------------------
-;; The preload hint must BRANCH on who owns the classpath (rf2-2ezk3).
+;; The preload hint must BRANCH on who owns the classpath.
 ;;
 ;; This is a PROPERTY pin, deliberately not a literal-text pin, and the
 ;; distinction is the whole point of it.
 ;;
-;; The defect it guards against: the hint used to tell every app to put the
-;; preload directory on `:source-paths`. rf2-dpt9d removed that advice from
-;; five documentation sites because shadow IGNORES a `shadow-cljs.edn`
+;; The defect it guards against: a hint telling every app to put the
+;; preload directory on `:source-paths`. Shadow IGNORES a `shadow-cljs.edn`
 ;; `:source-paths` key under `:deps` / `:lein` — it warns "The configured
 ;; :source-paths in shadow-cljs.edn were ignored!" and the namespace then
-;; never compiles, so the caller lands straight back on THIS rung. The hint
-;; string was the one site the sweep missed, and `SKILL.md` §Setup tells the
-;; agent to report it verbatim — so the wrong advice was read out to the user
-;; at the exact moment they were trying to fix the thing it was wrong about.
+;; never compiles, so the caller lands straight back on THIS rung. And
+;; `SKILL.md` §Setup tells the agent to report the hint verbatim — so wrong
+;; advice here is read out to the user at the exact moment they are trying
+;; to fix the thing it is wrong about.
 ;;
-;; Why not pin the literal text: a text-equality assertion could not have
-;; caught that defect at all. The string never changed, so the pin would have
-;; stayed green for precisely as long as the advice was wrong — and it would
-;; then go stale on the next rewording, which is the same failure one layer
-;; up. What has to hold is that the hint names the CLASSPATH and BRANCHES to
+;; Why not pin the literal text: a text-equality assertion cannot catch that
+;; defect at all. Wrong advice pinned verbatim stays green for precisely as
+;; long as the advice is wrong — and the pin goes stale on the next
+;; rewording, which is the same failure one layer up. What has to hold is that the hint names the CLASSPATH and BRANCHES to
 ;; all three owning files rather than naming one; the prose stays free to
 ;; move. A revert to single-file advice fails this; a rewording does not.
 ;;
@@ -396,7 +394,7 @@
                     "the :preloads half — always a shadow-cljs.edn line — survives")))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Liveness re-validation (rf2-dk6bv5).
+;; Liveness re-validation.
 ;;
 ;; A positively-cached marker probe (`:probed-builds`) is scoped to the
 ;; nREPL socket, which stays open independently of the browser tab's own
@@ -478,8 +476,8 @@
 
 (deftest ensure-runtime-cache-hit-stays-live-when-jvm-confirms-runtime
   ;; Control: a cache hit whose liveness re-check confirms the runtime is
-  ;; STILL connected (:runtime-count > 0) must keep resolving — the fix
-  ;; must not turn every cache hit into a spurious rejection.
+  ;; STILL connected (:runtime-count > 0) must keep resolving — the
+  ;; re-check must not turn every cache hit into a spurious rejection.
   (async done
     (let [conn  (fresh-conn)
           calls (atom 0)]
