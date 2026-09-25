@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.palette.dispatch-routing-cljs-test
-  "Click-time frame-routing tests for the Xray command palette
-  (rf2-w8lxg). Sibling of rf2-smvvz's settings popup fix (PR #1465).
+  "Click-time frame-routing tests for the Xray command palette.
 
   ## The bug these tests defend against
 
@@ -18,22 +17,18 @@
   resolution chain has TWO tiers (dynamic var → React-context tier)
   and nothing beneath them: the sentinel coerces to nil, so a bare
   unscoped dispatch RAISES `:rf.error/no-frame-context` (EP-0002)
-  rather than routing anywhere. Either way the `:rf.xray/palette-*`
-  handler never reduces `:rf/xray`'s db — before EP-0002 it silently
-  reduced `:rf/default`'s db instead, which is how this defect
-  originally presented. Symptom: backdrop click does not
-  close, arrow keys do not move the cursor, Esc does not close, input
-  text does not update the query — the palette appears frozen.
+  rather than routing anywhere, so the `:rf.xray/palette-*` handler
+  never reduces `:rf/xray`'s db. The symptom would be a frozen palette:
+  backdrop click does not close, arrow keys do not move the cursor, Esc
+  does not close, input text does not update the query.
 
-  The fix is mechanical and has had two spellings. Originally every
-  `rf/dispatch` from a deferred handler carried a `{:frame :rf/xray}`
-  literal. Since rf2-nesy9 the palette threads a FRAME-BOUND DISPATCHER
-  captured at render time instead, so N isolated Xray instances each
-  route to their own frame rather than all to the singleton; under
-  rf2-k97c.3 the `palette/ModalView` boundary captures it with
-  `(:dispatch (rf/capture-frame))`. Either way the envelope's `:frame`
-  is set at call time and never depends on the click-time context read,
-  which is the property these rows defend.
+  The palette therefore threads a FRAME-BOUND DISPATCHER captured at
+  render time: the `palette/ModalView` boundary captures it with
+  `(:dispatch (rf/capture-frame))`, so N isolated Xray instances each
+  route to their own frame rather than all to a singleton
+  `{:frame :rf/xray}` literal. The envelope's `:frame` is set at call
+  time and never depends on the click-time context read, which is the
+  property these rows defend.
 
   ## How these tests reproduce the click-time path
 
@@ -56,9 +51,9 @@
   either way: the envelope's `:frame` is set at call time and never
   depends on the click-time context read.
 
-  ## Where the tree comes from (rf2-k97c.3)
+  ## Where the tree comes from
 
-  `palette/Modal` is the `as-component` migration BRIDGE now — it
+  `palette/Modal` is the `as-component` BRIDGE — it
   answers a `[:>]` interop vector, not a tree to walk — so these rows
   build the hiccup through `test-helpers.palette-tree`, which mirrors
   the `palette/ModalView` boundary's four reads in the same order behind
@@ -75,7 +70,7 @@
             [day8.re-frame2-xray.test-helpers.palette-tree :as palette-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
+;; `make-xray-runtime-fixture` composes core
 ;; `make-reset-runtime-fixture` (snapshot/restore + frames-reset + adapter
 ;; dispose/install) with Xray's own reset tier. `:tier :runtime` folds the
 ;; sentinel + trace-collector + persisted-settings reset; `:async? true` is the
@@ -91,27 +86,25 @@
                    (rf/make-frame {:id :rf/xray}))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq copies were semantically identical to
-;; `re-frame.test-helpers`; the walk delegates to `rf.test-helpers/find-by-testid`
-;; (rf2-vj80u8 — no Xray walker facade). The `with-frame` wrapper is retained
-;; deliberately (NOT a walker difference):
+;; The walk delegates to `rf.test-helpers/find-by-testid`; there is no Xray
+;; walker facade. The `with-frame` wrapper is deliberate (NOT a walker
+;; difference):
 (defn- find-by-testid [tree testid]
-  ;; EP-0002 (rf2-bd4div): walking the rendered tree RE-INVOKES nested
-  ;; component fns (`rf.test-helpers/expand-tree`), and those render-time `rf/subscribe`s
+  ;; EP-0002: walking a rendered tree RE-INVOKES nested component fns
+  ;; (`rf.test-helpers/expand-tree`), and those render-time `rf/subscribe`s
   ;; resolve through the surrounding frame. The palette mounts in the
-  ;; `:rf/xray` own-frame, so the expansion must run under that scope —
-  ;; ambient (no-scope) re-expansion would raise `:rf.error/no-frame-context`
-  ;; rather than falling through to a synthesised `:rf/default`. (The
-  ;; click-time HANDLER is still invoked OUTSIDE any scope — that is the
-  ;; real click-fires-after-render path under test.)
+  ;; `:rf/xray` own-frame, so an ambient (no-scope) re-expansion would
+  ;; raise `:rf.error/no-frame-context` rather than falling through to a
+  ;; synthesised `:rf/default`. (The click-time HANDLER is invoked OUTSIDE
+  ;; any scope — that is the real click-fires-after-render path under
+  ;; test.)
   ;;
-  ;; rf2-k97c.3 — the scope is BELT-AND-BRACES now rather than
-  ;; load-bearing, and is kept deliberately. `view/palette-view` is pure
-  ;; and every helper below it is CALLED rather than headed, so the tree
-  ;; `palette-tree` answers is keyword-headed all the way down and the
-  ;; walk has no fn head left to re-invoke. Keeping the scope costs
-  ;; nothing and means a future helper that is headed again cannot turn
-  ;; this walk red for the wrong reason.
+  ;; For this tree the scope is BELT-AND-BRACES rather than load-bearing,
+  ;; and is kept deliberately. `view/palette-view` is pure and every helper
+  ;; below it is CALLED rather than headed, so the tree `palette-tree`
+  ;; answers is keyword-headed all the way down and the walk has no fn
+  ;; head to re-invoke. Keeping the scope costs nothing and means a helper
+  ;; that becomes headed cannot turn this walk red for the wrong reason.
   (rf/with-frame :rf/xray
     (rf.test-helpers/find-by-testid tree testid)))
 
@@ -152,9 +145,9 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest backdrop-click-closes-palette-from-default-frame-context
-  (testing "rf2-w8lxg — clicking the backdrop from OUTSIDE the
+  (testing "clicking the backdrop from OUTSIDE the
             :rf/xray frame-provider's render context still closes the
-            palette. Without the explicit `{:frame :rf/xray}` opt the
+            palette. Without the frame-bound dispatcher the
             click would reduce the fixture's ambient :rf/default db
             instead (and raise in the browser, which has no ambient
             scope), and the palette would stay open."
@@ -177,7 +170,7 @@
             (.then (fn [_] (done))))))))
 
 (deftest esc-keydown-closes-palette-from-default-frame-context
-  (testing "rf2-w8lxg — Esc keydown on the palette input from OUTSIDE
+  (testing "Esc keydown on the palette input from OUTSIDE
             the :rf/xray frame-provider's render context still closes
             the palette."
     (let [rendered (render-open-palette)
@@ -197,10 +190,10 @@
             (.then (fn [_] (done))))))))
 
 (deftest arrow-down-keydown-moves-cursor-from-default-frame-context
-  (testing "rf2-w8lxg — ArrowDown keydown on the palette input from
+  (testing "ArrowDown keydown on the palette input from
             OUTSIDE the :rf/xray frame-provider's render context still
-            updates :rf/xray's :palette-cursor. Without the explicit
-            frame opt the dispatch would reduce the fixture's ambient
+            updates :rf/xray's :palette-cursor. Without the frame-bound
+            dispatcher the dispatch would reduce the fixture's ambient
             :rf/default db instead (and raise in the browser), so the
             cursor would never move."
     (let [rendered (render-open-palette)
@@ -222,8 +215,8 @@
             (.then (fn [_] (done))))))))
 
 (deftest arrow-up-keydown-routes-to-xray-frame
-  (testing "rf2-w8lxg — ArrowUp keydown also routes through the
-            explicit frame opt. Move cursor to 2 first, then ArrowUp
+  (testing "ArrowUp keydown also routes through the
+            frame-bound dispatcher. Move cursor to 2 first, then ArrowUp
             should bring it back toward 0 against :rf/xray's db."
     (let [_ (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/palette-open])
@@ -245,9 +238,9 @@
             (.then (fn [_] (done))))))))
 
 (deftest input-on-change-updates-query-from-default-frame-context
-  (testing "rf2-w8lxg — typing into the palette input from OUTSIDE the
+  (testing "typing into the palette input from OUTSIDE the
             :rf/xray frame-provider's render context still updates
-            :rf/xray's :palette-query. Without the explicit frame opt
+            :rf/xray's :palette-query. Without the frame-bound dispatcher
             every keystroke would reduce the fixture's ambient
             :rf/default db instead (and raise in the browser), so the
             displayed query would freeze."
