@@ -1,7 +1,5 @@
 (ns day8.re-frame2-xray.static.machines.sim-helpers-cljs-test
-  "Pure-data tests for the Static Machines Sim sub-mode helpers
-  (rf2-r4nao rehost; engine originally rf2-v869p Phase 2, parent
-  rf2-2tkza). Algebra is unchanged — only the ns moved.
+  "Pure-data tests for the Static Machines Sim sub-mode helpers.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -37,13 +35,13 @@
 
 ;; ---- the engine, not a hand-written stand-in ----------------------------
 ;;
-;; rf2-y8doi.21: the machines artefact is a top-level dependency of
+;; The machines artefact is a top-level dependency of
 ;; tools/xray (`deps.edn` → `day8/re-frame2-machines`) and `machines/src`
 ;; is on the consolidated `:node-test` source-paths, so BOTH hosts can
 ;; call the real engine. Every fixture below that describes an engine
 ;; result is OBTAINED from `rf.machines/machine-transition` rather than
-;; written by hand — the shapes this file used to fabricate were shapes
-;; the engine never returns.
+;; written by hand, because a hand-written shape can be one the engine
+;; never returns.
 
 (defn- engine-seed
   "The seeder `sim.cljs` hands `make-sim-state` in production."
@@ -102,10 +100,9 @@
   "One `step-sim` fold through the REAL engine against `sim-state`'s own
   current snapshot — the production call shape.
 
-  Lives here with the other two harness fns rather than down in the timer
-  section where it was introduced: the `:on` exercises use it too, and a
-  helper defined below its first caller is an ordering trap for whoever
-  adds the next test."
+  Lives here with the other two harness fns: the `:on` and timer
+  exercises both use it, and a helper defined below its first caller is
+  an ordering trap for whoever adds the next test."
   [sim-state event definition]
   (sim-h/step-sim sim-state event
                   (engine-step definition (:snapshot sim-state))))
@@ -129,13 +126,13 @@
       "no :initial slot → nil")
   (is (nil? (sim-h/initial-snapshot "not a map"))))
 
-;; ---- (1b) seeding THROUGH THE ENGINE (rf2-y8doi.21) ---------------------
+;; ---- (1b) seeding THROUGH THE ENGINE ------------------------------------
 ;;
 ;; The shallow read is right only for a FLAT machine. A compound root is
 ;; not a state the machine can rest in, and a parallel root has no
-;; `:initial` at all — so the sim used to open stuck at a compound node
-;; (every later step recording a phantom `:auth → :auth`) or with a nil
-;; snapshot. The engine already computes the right answer; the sim asks
+;; `:initial` at all — so a shallow seed would open the sim stuck at a
+;; compound node (every later step recording a phantom `:auth → :auth`) or
+;; with a nil snapshot. The engine computes the right answer; the sim asks
 ;; it rather than re-deriving it.
 
 (deftest initial-snapshot-seeds-a-compound-root-at-the-engine-leaf
@@ -244,13 +241,14 @@
                                               {:state [:auth :form]}))))
         "a compound leaf's own path, not the root's")))
 
-;; ---- (3c) parallel region-maps (rf2-ky034) ------------------------------
+;; ---- (3c) parallel region-maps ------------------------------------------
 ;;
-;; A `:type :parallel` snapshot's `:state` is a MAP of region → state. That
-;; shape matched no arm of `normalise-path`, so it fell through to `[]`, the
-;; lookup ran against an empty path, and the picker rendered "No outgoing
-;; transitions declared on this state." for EVERY parallel machine — a
-;; positive claim about the user's definition, and a false one.
+;; A `:type :parallel` snapshot's `:state` is a MAP of region → state.
+;; Handed to `normalise-path` as one state value, that shape would fall
+;; through to `[]`, the lookup would run against an empty path, and the
+;; picker would render "No outgoing transitions declared on this state."
+;; for EVERY parallel machine — a positive claim about the user's
+;; definition, and a false one.
 ;;
 ;; Every fixture below is seeded and driven through the REAL engine, so no
 ;; test here can pin a configuration the engine never produces.
@@ -272,14 +270,14 @@
                               :timeout {}}}}})
 
 (deftest available-transitions-lists-every-parallel-region-leaf
-  (testing "P1 — the regression. Each region's OWN leaf contributes its `:on`
-            rows, region-prefixed, where the whole picker used to be empty"
+  (testing "P1 — each region's OWN leaf contributes its `:on` rows,
+            region-prefixed, rather than the whole picker coming back empty"
     (let [snap (engine-seed parallel-on-definition)
           rows (sim-h/available-transitions parallel-on-definition snap)]
       (is (map? (:state snap))
           "THE PRECONDITION — this snapshot's :state really is a region map")
       (is (= #{:submit :go} (set (map :event rows)))
-          "both regions answer; before rf2-ky034 this was #{}")
+          "both regions answer, not #{}")
       (is (= {:submit [:form :editing]
               :go     [:net :idle]}
              (into {} (map (juxt :event :decl-path)) rows))
@@ -363,13 +361,12 @@
           "region prefix + the whole in-region path")
       (is (= #{:submit :go} (set (map :event rows)))))))
 
-;; ---- (3a-ii) targetless / action-only `:on` candidates (rf2-4cm3k) -------
+;; ---- (3a-ii) targetless / action-only `:on` candidates ------------------
 ;;
-;; `on-rows-at` used to carry `:when (some? t)`, inherited verbatim from the
-;; original `available-transitions` body, so a legal targetless candidate
-;; never became a row: the rail listed nothing and the user could not fire
-;; it, while the engine handled the very same event correctly when it was
-;; typed into the input by hand.
+;; A row filter requiring a target (`:when (some? t)` in `on-rows-at`) would
+;; drop every legal targetless candidate: the rail would list nothing and
+;; the user could not fire it, while the engine handles the very same event
+;; correctly when it is typed into the input by hand.
 ;;
 ;; Spec 005 §Self-transitions makes targetless the ONLY geometry the runtime
 ;; flags `internal?` — the `:action` runs, `:exit` / `:entry` do not, active
@@ -387,8 +384,8 @@
   {:bump (fn [{:keys [data]}] {:data (update data :n inc)})})
 
 (def ^:private parallel-on-action-only-definition
-  "rf2-4cm3k's own fixture — a parallel region leaf whose only handler is
-  action-only, beside an untouched second region."
+  "A parallel region leaf whose only handler is action-only, beside an
+  untouched second region."
   {:type    :parallel
    :data    {:n 0}
    :actions bump-action
@@ -436,9 +433,9 @@
               "still listed afterwards"))))))
 
 (deftest available-transitions-targeted-control-for-the-action-only-on
-  (testing "A1 CONTROL — the same fixture WITH a `:target` listed before this
-            change and still does, so A1's reading is about the absent target
-            and nothing else about the fixture"
+  (testing "A1 CONTROL — the same fixture WITH a `:target` lists too, so
+            A1's reading is about the absent target and nothing else about
+            the fixture"
     (let [s0   (sim-h/make-sim-state :t parallel-on-targeted-definition
                                      engine-seed)
           rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
@@ -450,8 +447,8 @@
       (is (= 1 (:n (get-in s1 [:snapshot :data])))))))
 
 (deftest available-transitions-lists-a-flat-targetless-on
-  (testing "A2 — the same omission on a FLAT machine, so this was never a
-            parallel-only defect"
+  (testing "A2 — a targetless `:on` lists on a FLAT machine too, so the
+            listing does not depend on parallel regions"
     (let [d    {:initial :idle
                 :data    {:n 0}
                 :actions bump-action
@@ -470,8 +467,8 @@
   (testing "A3 — `{:help {}}` is targetless AND actionless: Spec 005's
             forbidden-transition idiom, a deliberate event CONSUMER. It
             LISTS, because it is a declared handler the user may want to
-            fire, and firing it comes back as the EXISTING amber no-change —
-            the same answer a guard-declined timer already gets (T5), and
+            fire, and firing it comes back as the amber no-change — the
+            same answer a guard-declined timer gets (T5), and
             the honest one, since consuming an event no ancestor was going
             to handle really does change nothing"
     (let [d    {:initial :idle :data {:n 0} :states {:idle {:on {:help {}}}}}
@@ -507,7 +504,7 @@
       (is (= 1 (count (distinct (map :decl-path rows))))
           "and neither does the decl-path"))))
 
-;; ---- (3b) `:after` timer rows (rf2-pzuqw) -------------------------------
+;; ---- (3b) `:after` timer rows -------------------------------------------
 ;;
 ;; The rail lists each `:after` timer declared on the ACTIVE PATH as a
 ;; MANUAL TIMEOUT TRIGGER, and firing one sends the engine's own synthetic
@@ -606,8 +603,8 @@
 
 (deftest after-elapsed-event-with-a-stale-epoch-is-the-no-change-diagnostic
   (testing "T1 control — the engine is the arbiter: a stale epoch moves
-            nothing and reads as the EXISTING amber 'No change', not as a
-            new diagnostic"
+            nothing and reads as the amber 'No change', not as a diagnostic
+            of its own"
     (let [s0 (sim-h/make-sim-state :t timer-definition engine-seed)
           s1 (step! s0 [:start] timer-definition)
           s2 (step! s1 [:rf.machine.timer/after-elapsed 5000 99 [:loading]]
@@ -683,7 +680,7 @@
 
 (deftest available-after-transitions-keeps-listing-a-guard-declined-timer
   (testing "T5 — a declined guard is ordinary machine behaviour: no row, the
-            existing no-change diagnostic, and the timer STAYS listed (the
+            no-change diagnostic, and the timer STAYS listed (the
             sim keeps no clock and reaps nothing)"
     (let [s0 (sim-h/make-sim-state :t declined-timer-definition engine-seed)
           r0 (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
@@ -736,17 +733,17 @@
     (is (= 1 (count (sim-h/available-after-transitions
                       timer-definition {:state :loading :data {}}))))))
 
-;; ---- (3c) targetless / action-only `:after` timers (rf2-kmr2i) -----------
+;; ---- (3c) targetless / action-only `:after` timers ----------------------
 ;;
-;; The identical one-clause omission on the timer half: `after-rows-at`
-;; filtered `:when (some? t)`, so `{5000 {:action :bump}}` — a legal
-;; action-only timer — never became a row. A machine declaring only such
-;; timers presented an EMPTY timer list and could not fire them from the
-;; rail, even though the engine fires them correctly when the event is sent.
-;; The `:on` sibling is at (3a-ii) above; the two were relaxed together.
+;; The same target-requiring row filter on the timer half (`:when (some? t)`
+;; in `after-rows-at`) would drop `{5000 {:action :bump}}` — a legal
+;; action-only timer — so a machine declaring only such timers would
+;; present an EMPTY timer list and could not fire them from the rail, even
+;; though the engine fires them correctly when the event is sent. The `:on`
+;; sibling is at (3a-ii) above.
 
 (def ^:private action-only-timer-definition
-  "The rf2-kmr2i audit's own fixture."
+  "An action-only timer on the initial state."
   {:initial :loading
    :data    {:n 0}
    :actions bump-action
@@ -763,8 +760,8 @@
 
 (def ^:private parallel-root-action-only-timer-definition
   "A targetless `:after` on the parallel ROOT, whose decl-path is `[]` — the
-  shape the acceptance criteria name specifically, and the one Spec 005
-  §Parallel root `:after` lists first among its three target grammars."
+  shape Spec 005 §Parallel root `:after` lists first among its three target
+  grammars."
   {:type    :parallel
    :data    {:n 0}
    :actions bump-action
@@ -794,15 +791,15 @@
           (is (nil? (:last-error s1)) "not the no-change diagnostic")
           (is (= 1 (:n (get-in s1 [:snapshot :data]))) "the action ran")
           (is (= :loading (sim-h/current-sim-state s1))
-              "and the state is RETAINED, which the acceptance criteria require")
+              "and the state is RETAINED, as a targetless transition requires")
           (is (= 1 (count (sim-h/available-after-transitions
                             (:definition s1) (:snapshot s1))))
               "still listed afterwards"))))))
 
 (deftest available-after-transitions-targeted-control-for-the-action-only-timer
-  (testing "T6 CONTROL — the same fixture WITH a `:target` listed before this
-            change and still does, so T6's reading is about the absent target
-            and nothing else about the fixture"
+  (testing "T6 CONTROL — the same fixture WITH a `:target` lists too, so
+            T6's reading is about the absent target and nothing else about
+            the fixture"
     (let [s0   (sim-h/make-sim-state :t targeted-timer-control-definition
                                      engine-seed)
           rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
@@ -909,8 +906,9 @@
 ;; ---- (6) step-sim ----------------------------------------------------------
 ;;
 ;; Stub results in the Spec 005 §Level 1 public shape
-;; `re-frame.machines/machine-transition` returns — plain keys, no
-;; machines artefact on the test classpath.
+;; `re-frame.machines/machine-transition` returns — plain keys — so these
+;; tests pin the `step-sim` fold alone. `fail-result` below is the engine's
+;; own.
 
 (def ^:private ok-result
   {:status :ok
@@ -918,9 +916,9 @@
    :fx []
    :handled? true})
 
-;; rf2-y8doi.21: this used to be a HAND-WRITTEN
-;; `{:status :error :error {:kind … :reason :no-matching-transition}}`.
-;; The engine never returns that shape twice over: `:no-matching-transition`
+;; A HAND-WRITTEN
+;; `{:status :error :error {:kind … :reason :no-matching-transition}}`
+;; is a shape the engine never returns, twice over: `:no-matching-transition`
 ;; appears nowhere in the machines artefact, and an event no transition
 ;; matched is `:status :ok` with the snapshot unchanged
 ;; (`machines.cljc` — "An event no transition matched is `:status :ok`
@@ -946,7 +944,7 @@
     (is (= :error (:status fail-result)))
     (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
     (is (nil? (get-in fail-result [:error :reason]))
-        "the engine's :error map carries no :reason — the old fixture invented one")))
+        "the engine's :error map carries no :reason")))
 
 (deftest step-sim-ok-advances-snapshot-and-trail
   (let [s0       (sim-h/make-sim-state :auth/login flat-definition)
@@ -990,11 +988,11 @@
 
 ;; ---- (6b) a step the engine DECLINED is not a transition ----------------
 ;;
-;; rf2-y8doi.21. A guard-blocked or unhandled event comes back
+;; A guard-blocked or unhandled event comes back
 ;; `:status :ok` with the snapshot UNCHANGED and `:fx []` — the engine
 ;; returns the same three shapes for "stale", "guard-suppressed" and "no
 ;; match" (`transition.cljc`'s `apply-preselected-transition`). Folding
-;; every `:ok` as a transition invented a self-transition the framework
+;; every `:ok` as a transition would invent a self-transition the framework
 ;; never made: a `#N :open → :open` audit row with an animated from=to
 ;; edge and no diagnostic at all.
 ;;
@@ -1080,10 +1078,10 @@
           "a successful step clears the prior rejection"))))
 
 (deftest step-sim-compound-seed-no-longer-phantom-steps
-  (testing "the two halves of this item together: seeded at the engine's
-            leaf, a declared event is a REAL transition — where the shallow
-            seed left the sim stuck at the compound node recording
-            `:auth → :auth` for ever"
+  (testing "engine seeding and the engine fold together: seeded at the
+            engine's leaf, a declared event is a REAL transition — where a
+            shallow seed would leave the sim stuck at the compound node
+            recording `:auth → :auth` for ever"
     (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)
           s1 (sim-h/step-sim s0 [:submit]
                              (engine-step hierarchical-definition (:snapshot s0)))]
@@ -1110,7 +1108,7 @@
     (is (= [:start] (-> trail first :event)))
     (is (= [:ok]    (-> trail last :event)))))
 
-;; ---- (7) on-chart binding helpers (rf2-u422r) ---------------------------
+;; ---- (7) on-chart binding helpers ---------------------------------------
 ;;
 ;; The on-chart simulator binds the topology chart to this same engine:
 ;; `current-sim-state` drives the active-state highlight, `last-transition`
@@ -1131,14 +1129,12 @@
 
 (deftest current-sim-state-tracks-vector-paths
   (testing "a hierarchical :state path surfaces unchanged for the chart"
-    ;; rf2-y8doi.21: this used to pin `:auth` — the COMPOUND node — and
-    ;; its comment recorded the defect as if it were the contract. A
-    ;; compound root is not a state the machine can rest in, so seeded
+    ;; A compound root is not a state the machine can rest in, so seeded
     ;; through the engine the sim opens at the leaf PATH, which is what
     ;; the chart's active-state highlight wants.
     (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)]
       (is (= [:auth :form] (sim-h/current-sim-state s0))))
-    (testing "and the shallow read (no seeder) still surfaces whatever
+    (testing "and the shallow read (no seeder) surfaces whatever
               `:initial` declared, unchanged"
       (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition)]
         (is (= :auth (sim-h/current-sim-state s0)))))))
@@ -1201,14 +1197,14 @@
   (is (= "[:auth :form]" (sim-h/format-state-display [:auth :form]))))
 
 (deftest format-destination-renders-a-target
-  (testing "unchanged for every row that has one — the arrow and the target"
+  (testing "every row that has a target renders the arrow and the target"
     (is (= "→ :done" (sim-h/format-destination {:target :done})))
     (is (= "→ [:auth :form]"
            (sim-h/format-destination {:target [:auth :form]})))
     (is (= "→ :same-state" (sim-h/format-destination {:target :same-state})))))
 
 (deftest format-destination-renders-an-action-only-row
-  (testing "rf2-kmr2i / rf2-4cm3k — a targetless row has no target to show
+  (testing "a targetless row has no target to show
             and is not handed a fabricated one. It reads as Spec 005's own
             word for the geometry, with the action NAMED where the
             definition names it, because the action is the whole of what
@@ -1225,9 +1221,9 @@
     (is (= "↻ internal" (sim-h/format-destination {}))
         "neither target nor action — the forbidden-transition idiom, a
          deliberate event consumer")
-    (testing "THE CONTROL — no row ever renders a bare arrow with nothing
-              after it, which is what the pre-fix renderer would have
-              produced had such a row reached it"
+    (testing "THE CONTROL — no row renders a bare arrow with nothing after
+              it, which a renderer that always led with the arrow would
+              produce for a targetless row"
       (doseq [row [{:target nil :action :bump} {} {:action (fn [_] nil)}]]
         (let [s (sim-h/format-destination row)]
           (is (not= "→ " s))
