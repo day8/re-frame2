@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 // Where does the 2026-08-08 F_old row sit on the floor arm's LEVEL LADDER?
 //
-// Bead rf2-nkeba.  Record:
+// Record:
 //   docs/design/fresco/studio/the-2026-08-08-row-is-the-arms-top-level.md
 //
 // THE QUESTION.  V1's allocation control has an across-time clause: F_old "must
-// land on the 2026-08-08 figures at B = 24 (24,108 / 24,730 B per write)".  On
-// 2026-08-17 that clause was read for the first time and FAILED by 16 - 20%.
-// The clause was written when the floor arm was believed to have one level.
+// land on the 2026-08-08 figures at B = 24 (24,108 / 24,730 B per write)".  Read
+// against the current instrument that clause FAILS by 16 - 20%.  The clause
+// assumes the floor arm has one level.
 //
-// WHAT MAKES IT ANSWERABLE NOW.  rf2-c4hhk's seventy-run window pinned
+// WHAT MAKES IT ANSWERABLE.  The seventy-run `alloc-c4hhk` window pins
 // implementation/core/src at 4a1537cb717dc6660aa449642f198a2cc970c93b -- the
-// commit at which the 2026-08-08 row itself was measured -- and read the arm 70
-// times with today's instrument.  So for the first time there is a DISTRIBUTION
-// of F_old on the 2026-08-08 substrate to place the 2026-08-08 row inside.
+// commit at which the 2026-08-08 row itself was measured -- and reads the arm 70
+// times with the current instrument.  So there is a DISTRIBUTION of F_old on
+// the 2026-08-08 substrate to place the 2026-08-08 row inside.
 //
 // WHAT THIS SCRIPT DOES.  It re-derives, from committed datasets only, every
 // figure the record page publishes.  It launches no browser, reads no rig, and
 // writes nothing.  Run it and diff the output against the page.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/alloc_ladder_placement.cjs
+//   node src/re_frame/bench/fresco/alloc_ladder_placement.cjs
 //
 // THE ONE MODELLED STEP, and it is the page's chief limit.  The 2026-08-08
 // dataset preserves per-round `rise`, `maxStep`, `falls` and `endpoints` but NOT
@@ -27,8 +27,8 @@
 // writes with no prime split; today's runs seven (one prime, six measured) and
 // reports `legMedian` over the six.  The conversion below removes the prime as
 // the window's largest step and averages the remaining five legs.  It is a MODEL
-// of that window's leg structure, not a measurement of it -- which is exactly
-// the lesson rf2-erre5 was filed for.  Its one independent check is printed: the
+// of that window's leg structure, not a measurement of it.  Its one
+// independent check is printed: the
 // prime excess the model implies must sit in the band the same substrate's
 // preserved `primeExcess` actually occupies.
 
@@ -60,7 +60,7 @@ const oldPerWrite = (seg) =>
 
 // The legMedian basis: drop the prime (the window's largest step) and average
 // the five legs left.  `gapsOut` additionally removes the six inter-leg gaps of
-// 32 B the reconstruction in PR #8442 established for this dataset.
+// 32 B reconstructed for this dataset.
 const oldLegBasis = (seg, gapsOut) =>
   OLD.perRound.map((r) => {
     const a = r.arms[KEY(seg)];
@@ -89,13 +89,13 @@ const C4_ALL = fs
   .sort()
   .map((f) => ({ f, name: f.split('-a4')[0], d: load(`alloc-c4hhk/${f}`) }));
 // armed-25 produced NO reading (Chromium failed to launch) yet exited 1 exactly
-// like the 69 good runs.  rf2-c4hhk committed it as evidence of its own
-// exclusion rather than replacing it, so it must be counted OUT loudly here and
-// not silently dropped by the filter below.
+// like the 69 good runs.  The dataset is committed as evidence of its own
+// exclusion, so it must be counted OUT loudly here and not silently dropped by
+// the filter below.
 const C4_NOREAD = C4_ALL.filter((r) => !r.d || !r.d.perRound);
 const C4 = C4_ALL.filter((r) => r.d && r.d.perRound);
 
-// rf2-c4hhk's pre-registered admissibility, unchanged: the positive controls
+// The window's pre-registered admissibility: the positive controls
 // pass and no read-back went unverified.  The runner's exit code is NOT a
 // criterion -- armed-25 exited 1 exactly like the 69 good runs.
 const ADM = C4.filter(
@@ -106,8 +106,8 @@ const ADM = C4.filter(
     r.d.verification.unverified === 0,
 );
 
-// rf2-77gz8's estimator, carried unchanged through rf2-c4hhk: the median, over
-// CERTIFIED windows at round index >= 6, of that window's legMedian.
+// The level estimator the `alloc-77gz8` and `alloc-c4hhk` windows share: the
+// median, over CERTIFIED windows at round index >= 6, of that window's legMedian.
 const estimator = (d, seg) => {
   const v = d.perRound
     .filter((r) => r.round >= 6 && r.arms[KEY(seg)] && r.arms[KEY(seg)].certified)
@@ -117,7 +117,7 @@ const estimator = (d, seg) => {
 const certRounds = (d, seg) =>
   d.perRound.filter((r) => r.arms[KEY(seg)] && r.arms[KEY(seg)].certified).map((r) => r.arms[KEY(seg)]);
 
-const HIGH_CRITERION = 21000; // rf2-77gz8's, unchanged
+const HIGH_CRITERION = 21000; // the same windows' high-mode criterion
 
 // ------------------------------------------------------------------- report
 const out = [];
