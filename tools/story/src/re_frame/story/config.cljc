@@ -37,7 +37,7 @@
             ;; EP-0015: the on-box dev visibility choice is a named
             ;; `:rf.egress/*` profile resolved through the framework's
             ;; centralized projection table. `re-frame.projection` is the
-            ;; pure-CLJC home of the six ruled profiles + their
+            ;; pure-CLJC home of the six profiles + their
             ;; `:rf.egress/*` resolution; requiring it directly (rather than
             ;; the whole `re-frame.core` facade) keeps this config ns
             ;; JVM-runnable for the test corpus and pins the egress
@@ -147,15 +147,15 @@
 ;; Story ships story-level + variant-level decorators directly; Storybook's
 ;; canonical
 ;; "wrap every story in the design system's theme provider" recipe lives in
-;; `preview.ts` `decorators: [...]` and Story has no equivalent. Without
-;; one, the tutorial chapter on decorators cannot offer the canonical
-;; theme-wrapping recipe, and a large project ends up listing the decorator
-;; id on every `reg-story` manually.
+;; `preview.ts` `decorators: [...]`, and global decorators are Story's
+;; equivalent. Without them, the tutorial chapter on decorators could not
+;; offer the canonical theme-wrapping recipe, and a large project would
+;; list the decorator id on every `reg-story` manually.
 ;;
-;; The global-decorators primitive plugs that gap. It is symmetric to
+;; The global-decorators primitive is symmetric to
 ;; `global-args` (Layer 1 of args-resolution): a project sets it once at
 ;; boot, and every variant's resolved decorator stack is prefixed with
-;; this ordered list. Story-level and variant-level slots still compose
+;; this ordered list. Story-level and variant-level slots compose
 ;; on top — the full stack is `(concat globals story-decorators
 ;; variant-decorators)`, with globals as the outermost wrap layer.
 ;;
@@ -374,7 +374,7 @@
 ;; EP-0015 (frame-owned egress policy) bases on-box dev visibility on
 ;; (a) frame-owned `:sensitive` / `:large` classification declared at
 ;; frame creation, and (b) the centralized `re-frame.core/project-egress`
-;; boundary primitive resolved against one of the six ruled
+;; boundary primitive resolved against one of the six
 ;; `:rf.egress/*` profiles.
 ;;
 ;; Issue 7 rules the on-box-visibility GRAIN explicitly (spec/015
@@ -437,7 +437,7 @@
 (def error-sink-id
   "The `:observability :errors` sink id every Story-allocated frame names on
   its frame config, and the id the mounted shell registers a concrete sink
-  fn against (rf2-kuky.18).
+  fn against.
 
   This is how Story OWNS the refusals its own deliberately-failing variants
   produce. `re-frame.error-emit`'s dev console fallback prints a promoted
@@ -655,7 +655,7 @@
 ;; ---- single-knob session-pin shim (configure! + tests) -----------------
 ;;
 ;; `set-egress-profile!` is a thin single-knob shim over the session-pin,
-;; serving the `configure!` session-default path + existing fixtures. It
+;; serving the `configure!` session-default path + test fixtures. It
 ;; operates on the SESSION-
 ;; PIN, never on a per-frame override — the per-frame act is
 ;; `set-frame-egress-profile!`. To READ the session-pin, deref
@@ -665,7 +665,7 @@
 (defn set-egress-profile!
   "Single-knob shim: sets the SESSION-PIN profile.
   Prefer `set-frame-egress-profile!` for the per-(tool,frame) operator act.
-  Serves existing fixtures + the `configure!` session-default path.
+  Serves test fixtures + the `configure!` session-default path.
   Delegates to `set-session-egress-profile!`."
   [profile]
   (set-session-egress-profile! profile))
@@ -772,12 +772,12 @@
 ;;
 ;; The counter above answers "how many sensitive events did you not show
 ;; me?" — a DISPLAY hint, and deliberately blind to what those events were.
-;; That blindness is what made a caller reading the display path unable to
-;; tell a clean preparation from a redacted catastrophe: a `:setup` handler
-;; whose failure is classified sensitive emits a pipeline exception that the
-;; egress gate drops BEFORE `record-error!`, so `[:rf.story/assertions]`
-;; stays empty and `prepare-variant` resolved over a frame whose `:setup`
-;; never ran (rf2-k6y2, post-merge audit of PR #9252).
+;; On its own that blindness would leave a caller reading the display path
+;; unable to tell a clean preparation from a redacted catastrophe: a `:setup`
+;; handler whose failure is classified sensitive emits a pipeline exception
+;; that the egress gate drops BEFORE `record-error!`, so `[:rf.story/assertions]`
+;; stays empty and `prepare-variant` would resolve over a frame whose `:setup`
+;; never ran.
 ;;
 ;; So the capture boundaries record one additional PRIVACY-SAFE fact when
 ;; the event they are dropping is a pipeline exception: its `:operation`.
@@ -810,7 +810,7 @@
   "Record that a pipeline exception carrying `operation` was SUPPRESSED for
   `variant-id` by the privacy egress gate. Called from a capture-boundary
   listener's suppress branch, alongside `note-suppressed!` — the counter
-  keeps answering the display question, this answers the readiness one.
+  answers the display question, this answers the readiness one.
 
   Only the operation keyword is stored. A `nil` `variant-id` is a no-op:
   readiness is asked per-variant, and a frameless event belongs to no
