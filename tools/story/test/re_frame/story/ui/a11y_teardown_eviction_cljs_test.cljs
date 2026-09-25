@@ -1,15 +1,16 @@
 (ns re-frame.story.ui.a11y-teardown-eviction-cljs-test
-  "rf2-cpbut — the a11y panel's per-frame state is RECLAIMED when the
-  variant frame is torn down.
+  "The a11y panel's per-frame state is RECLAIMED when the variant frame is
+  torn down.
 
-  `drop-frame-state!` existed, was correct, and had no production caller:
-  its docstring named 'the canvas / shell teardown', which does not
-  destroy variant frames (`ui/canvas`'s `component-will-unmount` clears
-  its own render sentinels and nothing else, and no `ui/` namespace calls
-  `rf.story.frames/destroy!` at all). So every frame ever scanned kept its slot for
-  the life of the page.
+  `drop-frame-state!` is reached through frame teardown —
+  `rf.story.frames/destroy!` runs the `:drop-a11y-state` late-bind hook —
+  and not through the canvas or shell unmount, which does not destroy
+  variant frames (`ui/canvas`'s `component-will-unmount` clears its own
+  render sentinels and nothing else, and no `ui/` namespace calls
+  `rf.story.frames/destroy!` at all). Without that hook every frame ever
+  scanned would keep its slot for the life of the page.
 
-  WHAT THAT COSTS. Not a stale verdict — RETAINED DOM. A stored violation
+  WHAT A MISSED EVICTION WOULD COST. Not a stale verdict — RETAINED DOM. A stored violation
   is a raw axe-core object that references the offending elements through
   `:nodes` / `:target`. An entry that outlives its frame therefore pins
   that variant's DETACHED subtree, one leaked subtree per
@@ -22,10 +23,9 @@
 
   THE LEVER. Every reclamation test here runs twice against the SAME
   teardown call: once with the `:drop-a11y-state` late-bind hook
-  unregistered (reproducing pre-fix behaviour exactly — before rf2-cpbut
-  no producer ever registered it) and once with it registered. The
-  un-registered arm is the red-before, executed permanently in the suite
-  rather than trusted to a one-off revert.
+  unregistered (the state in which no producer registers it) and once
+  with it registered. The unregistered arm is the red control, executed
+  permanently in the suite rather than trusted to a one-off revert.
 
   Pure `.cljs`: the panel is CLJS-only, and the `async` tests need
   cljs.test MAP fixtures, which a `.cljc` may not use
@@ -135,11 +135,11 @@
 ;; The lever
 ;; ---------------------------------------------------------------------------
 ;;
-;; Before rf2-cpbut NO producer registered `:drop-a11y-state`, so the
-;; consumer's `when-let` in `rf.story.frames/run-teardown-walks!` simply skipped.
+;; With NO producer registering `:drop-a11y-state`, the consumer's
+;; `when-let` in `rf.story.frames/run-teardown-walks!` simply skips.
 ;; Unregistering the hook reproduces that state exactly — this is the
-;; red-before lever, and it isolates precisely the wiring this bead added
-;; without touching the teardown call itself.
+;; red lever, and it isolates precisely the hook's wiring without
+;; touching the teardown call itself.
 
 (defn- with-eviction-hook-removed
   "Run `f` with the `:drop-a11y-state` hook unregistered, then restore it.
@@ -193,7 +193,7 @@
                 (is (node-reachable-from-panel? variant-id detached-node)
                     "precondition: the stored violation references the node")
 
-                ;; --- RED-BEFORE arm: no eviction hook ---
+                ;; --- RED arm: no eviction hook ---
                 (with-eviction-hook-removed
                   (fn []
                     (rf.story.frames/destroy! variant-id)
@@ -279,13 +279,13 @@
                         (done)))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Interaction with the rf2-2amkm supersession fence (#6410)
+;; Interaction with the supersession fence
 ;; ---------------------------------------------------------------------------
 ;;
-;; #6410 stamped the run token INTO the slot so that "does the slot still
-;; exist" and "is it still mine" are ONE question. This teardown is a NEW
-;; clearing path, so the claim it revokes must be revoked for free. Verify
-;; that rather than assume it.
+;; The run token lives IN the slot, so "does the slot still exist" and
+;; "is it still mine" are ONE question. This teardown is a second clearing
+;; path, so the claim it revokes must be revoked for free. Verify that
+;; rather than assume it.
 ;;
 ;; NOTE the failure shape being excluded: on CLJS this class does NOT
 ;; throw. `(swap! run-state assoc frame-id …)` over a map the frame was
