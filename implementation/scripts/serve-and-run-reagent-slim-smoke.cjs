@@ -2,7 +2,7 @@
 'use strict';
 
 /*
- * reagent-slim adapter CLIENT-RUNTIME browser smoke runner (rf2-xsgu8a).
+ * reagent-slim adapter CLIENT-RUNTIME browser smoke runner.
  *
  * Compiles the `:adapters/reagent-slim-testbed` shadow-cljs build, stages
  * the testbed's hand-written index.html next to the compiled main.js,
@@ -129,7 +129,7 @@ async function runSmoke(baseUrl) {
       ),
     ]);
     // An uncaught browser/runtime exception is fatal even when the visible
-    // assertions all passed (rf2-mwx08 pattern): a slim client-runtime
+    // assertions all passed: a slim client-runtime
     // regression the smoke happened not to assert on must still flip the
     // verdict.
     if (pageErrors.length > 0) {
