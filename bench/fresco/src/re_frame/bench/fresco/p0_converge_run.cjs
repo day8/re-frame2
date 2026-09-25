@@ -275,7 +275,7 @@ async function runRow(browser, row) {
   console.log(
     `;; reproduce  ${ONLY ? `FRESCO_ONLY=${ONLY} ` : ''}${START !== 'reagent' ? `FRESCO_START=${START} ` : ''}` +
       `${RATOM !== 'off' ? `FRESCO_RATOM=${RATOM} ` : ''}node ` +
-      `implementation/fresco/test/re_frame/bench/fresco/p0_converge_run.cjs`
+      `bench/fresco/src/re_frame/bench/fresco/p0_converge_run.cjs`
   );
   console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (FRESCO_ONLY=${ONLY})` : ''}`);
   console.log(`;; start      round 0 led by ${START} (FRESCO_START), alternating`);

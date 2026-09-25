@@ -681,7 +681,7 @@ async function runImpl(browser, impl) {
 
   console.log(';; ==== IME RUNTIME ====');
   console.log(`;; chromium (playwright), DEV bundle (:none — see header), pages: ${IMPLS.join(', ')}`);
-  console.log(`;; reproduce  ${ONLY ? `IME_ONLY=${ONLY} ` : ''}node implementation/fresco/test/re_frame/bench/fresco/ime_run.cjs`);
+  console.log(`;; reproduce  ${ONLY ? `IME_ONLY=${ONLY} ` : ''}node bench/fresco/src/re_frame/bench/fresco/ime_run.cjs`);
 
   const errored = outcomes.filter((o) => o.pageErrors.length > 0);
   if (errored.length > 0) {

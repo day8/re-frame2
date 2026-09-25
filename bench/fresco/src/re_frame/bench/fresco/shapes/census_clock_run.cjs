@@ -641,18 +641,18 @@ function revision() {
 // the shapes tree changes under the instrument, and a row nobody can tie
 // to the exact page it mounted is not evidence about that page.
 const BLOB_FILES = [
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_arms.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_app.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/model.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/card.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/large_template.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/feed.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/shapes/ordinary.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/arm1/runtime.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/arm1/lang.clj',
-  'implementation/fresco/test/re_frame/bench/fresco/front/codec.cljs',
-  'implementation/fresco/test/re_frame/bench/fresco/lane.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/census_clock_arms.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/census_clock_app.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/census_clock_run.cjs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/model.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/card.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/large_template.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/feed.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/shapes/ordinary.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/arm1/runtime.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/arm1/lang.clj',
+  'bench/fresco/src/re_frame/bench/fresco/front/codec.cljs',
+  'bench/fresco/src/re_frame/bench/fresco/lane.cljs',
   'implementation/core/src/re_frame/substrate/spine.cljs',
 ];
 
@@ -1667,7 +1667,7 @@ async function drive() {
   console.log(';;   what        census-page clock rows (EP-0038)');
   console.log(`;;   commit      ${sha}`);
   for (const [f, h] of Object.entries(bl)) console.log(`;;   blob        ${h}  ${f}`);
-  console.log(`;;   reproduce   node implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs`);
+  console.log(`;;   reproduce   node bench/fresco/src/re_frame/bench/fresco/shapes/census_clock_run.cjs`);
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(

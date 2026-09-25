@@ -226,7 +226,7 @@ function bake(api) {
 
   const manifest = {
     bead: 'rf2-2rtt6.86',
-    generatedBy: 'fresco/test/re_frame/bench/fresco/ssr/driver.cjs bake',
+    generatedBy: 'bench/fresco/src/re_frame/bench/fresco/ssr/driver.cjs bake',
     // No timestamp: a manifest that changes on every run cannot be
     // compared to the previous one, which is the only thing it is for.
     rows,
