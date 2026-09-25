@@ -1,14 +1,13 @@
 (ns day8.re-frame2-xray.static.machines.persistence-cljs-test
-  "Direct slot tests for the Static Machines persistence round-trip
-  (rf2-3t7rs8, finding 1).
+  "Direct slot tests for the Static Machines persistence round-trip.
 
   ## What's under test
 
   `panel_cljs_test.cljs` only smoke-tests the persisted slots through
   the registered subs (the default sub-mode resolves to `:topology`) —
   it never hits `load-sub-mode-by-id`, `save-sub-mode-by-id!`,
-  `load-selected-id`, or `save-selected-id!` directly. The edge cases
-  those four functions guard were unpinned:
+  `load-selected-id`, or `save-selected-id!` directly. This ns pins the
+  edge cases those four functions guard:
 
     - empty / unavailable sub-mode slot
     - malformed (unparseable) EDN
@@ -20,23 +19,23 @@
 
   ## Test seam
 
-  Per the bead these are CLJS unit tests that `with-redefs` the shared
+  These are CLJS unit tests that `with-redefs` the shared
   `local-storage` seam (`get-item` / `set-item!` / `remove-item!`) over
   an in-process atom. No `js/window` / jsdom is touched — the slot
   parse + normalise logic is exercised hermetically.
 
-  ## Adversarial posture (rf2-3t7rs8)
+  ## The empty-slot read
 
-  The bead's finding 1 evidence flags a doc-vs-implementation tension on
-  the EMPTY-slot read: the `load-sub-mode-by-id` docstring says it
-  'returns `{}` when the slot is empty / unparseable', but the body
-  wraps the whole read in `when-let`, so an empty slot actually returns
-  `nil`. `load-empty-slot-returns-nil-not-empty-map` PINS the AS-BUILT
+  There is a doc-vs-implementation tension on the EMPTY-slot read: the
+  `load-sub-mode-by-id` docstring says it 'returns `{}` when the slot is
+  empty / unparseable', but the body wraps the whole read in `when-let`,
+  so an empty slot actually returns `nil`.
+  `load-empty-slot-returns-nil-not-empty-map` PINS the AS-BUILT
   behaviour (nil) and documents the asymmetry: `nil` and `{}` are
   observationally identical to every consumer (`get`/`merge`/`into`
   treat them the same, and the hydrate event seeds the slot either
   way), so the implementation is correct as written — only the
-  docstring overstates. Pinning the real value keeps a future refactor
+  docstring overstates. Pinning the real value keeps a refactor
   honest about which branch fires."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.local-storage :as ls]
@@ -69,7 +68,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest load-empty-slot-returns-nil-not-empty-map
-  (testing "rf2-3t7rs8 — AS-BUILT: an empty / unavailable sub-mode slot
+  (testing "AS-BUILT: an empty / unavailable sub-mode slot
             reads back nil (the outer `when-let` short-circuits before
             the `{}` fallback). nil and {} are observationally identical
             to every consumer, so this pins the real branch rather than
@@ -81,7 +80,7 @@
             "empty slot reads nil, not {}")))))
 
 (deftest load-empty-string-slot-returns-nil
-  (testing "rf2-3t7rs8 — a present-but-empty-string slot DOES reach the
+  (testing "a present-but-empty-string slot DOES reach the
             parse branch (the `when-let` raw is the non-nil empty
             string). `cljs.reader/read-string \"\"` returns nil (it does
             NOT throw), so the `(when (map? parsed) …)` guard fails and
@@ -99,7 +98,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest load-malformed-edn-returns-empty-map
-  (testing "rf2-3t7rs8 — unparseable EDN falls into the catch and
+  (testing "unparseable EDN falls into the catch and
             returns {} rather than crashing the render"
     (with-stub-storage*
       (fn []
@@ -108,7 +107,7 @@
             "unbalanced map literal → catch → {}")))))
 
 (deftest load-non-map-edn-returns-nil
-  (testing "rf2-3t7rs8 — parseable BUT non-map EDN (a vector / scalar)
+  (testing "parseable BUT non-map EDN (a vector / scalar)
             fails the `(when (map? parsed) …)` guard, so the read yields
             nil — the value is neither a usable map nor a crash."
     (with-stub-storage*
@@ -125,7 +124,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest load-normalises-invalid-sub-mode-values
-  (testing "rf2-3t7rs8 — every value normalises through
+  (testing "every value normalises through
             helpers/normalise-sub-mode; an out-of-enum value falls back
             to :topology rather than riding through corrupted"
     (with-stub-storage*
@@ -141,7 +140,7 @@
             "invalid → :topology; valid kw preserved; valid string coerced")))))
 
 (deftest load-drops-non-keyword-keys
-  (testing "rf2-3t7rs8 — the `(when (keyword? k) …)` keep-guard drops
+  (testing "the `(when (keyword? k) …)` keep-guard drops
             entries whose key is not a keyword (a corrupted slot could
             carry string / numeric keys)"
     (with-stub-storage*
@@ -154,7 +153,7 @@
             "string + numeric keys dropped; only the keyword key survives")))))
 
 (deftest load-namespaced-keyword-keys-round-trip
-  (testing "rf2-3t7rs8 — namespaced machine-id keys survive the
+  (testing "namespaced machine-id keys survive the
             pr-str → read-string round-trip intact"
     (with-stub-storage*
       (fn []
@@ -168,7 +167,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest save-empty-or-nil-clears-the-slot
-  (testing "rf2-3t7rs8 — save-sub-mode-by-id! with nil OR an empty map
+  (testing "save-sub-mode-by-id! with nil OR an empty map
             removes the slot (so a cleared selection doesn't leave a
             `{}` husk in storage)"
     (with-stub-storage*
@@ -185,7 +184,7 @@
             "nil also removes the slot")))))
 
 (deftest sub-mode-round-trip-survives-storage
-  (testing "rf2-3t7rs8 — a valid {machine-id sub-mode} map written via
+  (testing "a valid {machine-id sub-mode} map written via
             save! reads back identical via load"
     (with-stub-storage*
       (fn []
@@ -199,7 +198,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest selected-id-round-trips-bare-keyword
-  (testing "rf2-3t7rs8 — a bare (un-namespaced) machine-id keyword
+  (testing "a bare (un-namespaced) machine-id keyword
             round-trips: save! stores the `name`-only string, load
             re-keywords it"
     (with-stub-storage*
@@ -211,7 +210,7 @@
             "load re-keywords the stored name")))))
 
 (deftest selected-id-round-trips-namespaced-keyword
-  (testing "rf2-3t7rs8 — a namespaced machine-id keyword round-trips via
+  (testing "a namespaced machine-id keyword round-trips via
             the `ns/name` string form (the slot drops the leading colon
             but keeps the namespace)"
     (with-stub-storage*
@@ -223,7 +222,7 @@
             "load reconstructs the namespaced keyword")))))
 
 (deftest selected-id-nil-clears-the-slot
-  (testing "rf2-3t7rs8 — save-selected-id! nil removes the slot; a
+  (testing "save-selected-id! nil removes the slot; a
             subsequent load reads nil"
     (with-stub-storage*
       (fn []
@@ -236,7 +235,7 @@
             "load reads nil from the cleared slot")))))
 
 (deftest selected-id-non-keyword-is-a-no-op
-  (testing "rf2-3t7rs8 — save-selected-id! with a non-nil, non-keyword
+  (testing "save-selected-id! with a non-nil, non-keyword
             value neither writes nor crashes (the inner `when keyword?`
             guard). Pins that a corrupted caller can't poison the slot."
     (with-stub-storage*
@@ -249,7 +248,7 @@
             "numeric value is not persisted")))))
 
 (deftest load-selected-id-empty-slot-reads-nil
-  (testing "rf2-3t7rs8 — an absent selection slot reads back nil (the
+  (testing "an absent selection slot reads back nil (the
             `when-let` short-circuits)"
     (with-stub-storage*
       (fn []
@@ -261,7 +260,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest clear-drops-both-slots
-  (testing "rf2-3t7rs8 — clear! removes the selection AND sub-mode slots
+  (testing "clear! removes the selection AND sub-mode slots
             in one call (the per-test reset hook used by the panel tests)"
     (with-stub-storage*
       (fn []
