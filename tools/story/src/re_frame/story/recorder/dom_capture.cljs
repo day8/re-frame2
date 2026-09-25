@@ -151,8 +151,9 @@
 
 (defn record-dom-submit!
   "Append a `[:dom/submit form-selector t]` entry. The translator
-  best-effort maps this to a `[:click form-selector]` step at export
-  time (`play-export/entry->step`)."
+  exports it as a `[:click form-selector]` step
+  (`play-export/entry->step`), which replays as a submission of the form
+  (`rf.story.play.dom/click!`)."
   [form-selector]
   (when-let [t (recording-now-ms)]
     (rf.story.recorder/record-dom-event! [:dom/submit form-selector t])))
@@ -401,11 +402,11 @@
             (flush-type-buffer! sel)))))))
 
 (defn- handle-submit!
-  "submit handler — best-effort capture of a form submission that no
-  recorded click represents. The translator maps the recorded
+  "submit handler — captures a form submission that no recorded click
+  represents. The translator maps the recorded
   `[:dom/submit form-selector t]` to a `[:click form-selector]` step at
-  export time — the runner has no form-submission step, and a click on
-  the form is the closest it has.
+  export time, and a `:click` on a `<form>` replays as a submission:
+  `rf.story.play.dom/click!` calls the form's `requestSubmit()`.
 
   A submission carrying a `submitter` was fired by activating that submit
   button — a click, or Enter's implicit submission, which the browser also

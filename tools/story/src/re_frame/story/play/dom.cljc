@@ -114,19 +114,37 @@
 
 ;; ---- visibility ---------------------------------------------------------
 
+#?(:cljs
+   (defn- computed-visibility
+     "`node`'s computed `visibility` (`\"visible\"`, `\"hidden\"`,
+     `\"collapse\"`), read through its own document's window, or nil when
+     `node` has no document to ask."
+     [node]
+     (some-> (.-ownerDocument node)
+             (.-defaultView)
+             (.getComputedStyle node)
+             (.-visibility))))
+
 (defn visible?
-  "True iff `node` exists AND is currently visible (non-zero layout
-  box + not display:none / visibility:hidden). The visible/hidden
-  distinction uses the classical `offsetWidth + offsetHeight > 0`
-  heuristic, which works for most stories without bringing in a full
-  styling pass."
+  "True iff `node` exists and passes both rules of visibility:
+
+  - it has a layout box: a positive `offsetWidth` or `offsetHeight`,
+    which `display: none` on the node or on any ancestor zeroes;
+  - its computed `visibility` is neither `hidden` nor `collapse`. Such an
+    element keeps its layout box, so the first rule alone reads it as
+    visible, and the value inherits, so a child of a hidden parent is
+    hidden too.
+
+  JVM → false."
   [node]
   #?(:clj  false
      :cljs (boolean
              (when node
                (let [w (or (.-offsetWidth node)  0)
                      h (or (.-offsetHeight node) 0)]
-                 (or (pos? w) (pos? h)))))))
+                 (and (or (pos? w) (pos? h))
+                      (not (contains? #{"hidden" "collapse"}
+                                      (computed-visibility node)))))))))
 
 (defn text-content
   "Return the `textContent` of `node` (trimmed), or nil. JVM → nil."
@@ -155,10 +173,24 @@
                             false false false false 0 nil)
            e)))))
 
+#?(:cljs
+   (defn- form?
+     "True iff `node` is a `<form>` element."
+     [node]
+     (and (exists? js/HTMLFormElement)
+          (instance? js/HTMLFormElement node))))
+
 (defn click!
   "Dispatch a synthetic click event at `node` (or the node matched by
   `selector`). Returns true on success, false on no-such-node or
-  no-DOM. JVM → false."
+  no-DOM. JVM → false.
+
+  A `<form>` is SUBMITTED instead, with `requestSubmit()`: a click event
+  at a form element submits nothing, and a `[:click form-selector]` step
+  is how the recorder replays a submission no click represents
+  (`rf.story.recorder.play-export/entry->step`). `requestSubmit()` runs
+  constraint validation and fires the form's `submit` event, as a user's
+  submission does, so an invalid form fires no `submit`."
   ([selector-or-node]
    (click! selector-or-node nil))
   ([selector-or-node _opts]
@@ -167,10 +199,11 @@
                          (string? selector-or-node) (query selector-or-node)
                          (some?  selector-or-node)  selector-or-node
                          :else                      nil)]
-              (if (some? node)
-                (do (.dispatchEvent node (make-mouse-event "click"))
-                    true)
-                false)))))
+              (cond
+                (nil? node)  false
+                (form? node) (do (.requestSubmit node) true)
+                :else        (do (.dispatchEvent node (make-mouse-event "click"))
+                                 true))))))
 
 #?(:cljs
    (defn- make-input-event

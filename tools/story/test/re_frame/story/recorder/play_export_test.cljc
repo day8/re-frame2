@@ -343,7 +343,7 @@
         "missing :text defaults to empty string")))
 
 (deftest entry-step-dom-submit-maps-to-click
-  (testing ":dom/submit entry → best-effort [:click form-selector]"
+  (testing ":dom/submit entry → [:click form-selector], which submits the form on replay"
     (is (= [:click "[id=\"login-form\"]"]
            (rf.story.recorder.play-export/entry->step
              {:kind :dom/submit :selector "[id=\"login-form\"]" :t 0})))))
@@ -603,7 +603,7 @@
           "no malformed steps"))))
 
 (deftest dom-submit-survives-runner-validation
-  (testing "the :dom/submit best-effort translation produces a valid :click step"
+  (testing "the :dom/submit translation produces a valid :click step"
     (let [entries [{:kind :dom/submit :selector "[id=\"login-form\"]" :t 0}]
           spec    (rf.story.recorder.play-export/recording->script-body entries)]
       (is (= [[:click "[id=\"login-form\"]"]] (:script spec)))

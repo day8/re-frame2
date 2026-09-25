@@ -38,7 +38,7 @@
   | `{:kind :event/dispatch :event [:rf/redacted] :t ms}` | dropped |
   | `{:kind :dom/click  :selector s :t ms}`     | `[:click s]`                 |
   | `{:kind :dom/type   :selector s :text t :t ms}` | `[:type s t]`            |
-  | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (best-effort)   |
+  | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (replays as a submission) |
   | `{:kind :event/timer-child :t ms :ms d}`    | `[:wait Δt]` only, whatever the threshold, up to `ms` from where the replay has reached and never shorter than `d` |
   | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
@@ -188,10 +188,11 @@
     {:kind :dom/type       :selector <str> :text <str> :t ms}
     {:kind :dom/submit     :selector <str> :t ms}
 
-  The `:dom/submit` entry is best-effort mapped to a `:click`
-  step against the form selector — the runner doesn't model form
-  submission directly, and a `:click` on the form is the closest
-  available step. See module doc."
+  The `:dom/submit` entry maps to a `:click` step against the form
+  selector. The step grammar has no submit verb, and none is needed:
+  `rf.story.play.dom/click!` submits a `<form>` with `requestSubmit()`
+  rather than dispatching a click at it, so the step replays as a
+  submission — validation, then the form's `submit` event."
   [entry]
   (case (and (map? entry) (:kind entry))
     :event/dispatch
@@ -211,7 +212,7 @@
 
     :dom/submit
     (when-let [sel (:selector entry)]
-      ;; Best-effort — see docstring.
+      ;; A `:click` on a form submits it — see docstring.
       [:click sel])
 
     nil))

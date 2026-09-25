@@ -84,7 +84,7 @@
   | `[:assert-dom selector :visible]`  | Assert selector resolves to a visible DOM node                |
   | `[:assert-dom selector :hidden]`   | Assert selector resolves to nothing (or hidden node)          |
   | `[:assert-dom selector :text txt]` | Assert selector's text-content matches `txt`                  |
-  | `[:click selector]`                | Synthetic click event at selector                             |
+  | `[:click selector]`                | Synthetic click event at selector; a `<form>` is submitted (`requestSubmit`) |
   | `[:type selector text]`            | Synthetic `input` event at selector with `text`               |
   | `[:focus selector]`                | Synthetic focus event at selector                             |
 
