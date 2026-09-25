@@ -1,7 +1,6 @@
 (ns day8.re-frame2-xray.panels.fresco-reads
   "Xray's consumer of the Fresco TOOL-TIER reader door
-  (`re-frame.fresco.tool`) — the live read seam behind the Fresco tab
-  (rf2-hic-023).
+  (`re-frame.fresco.tool`) — the live read seam behind the Fresco tab.
 
   ## A reader, and nothing else
 
@@ -91,14 +90,14 @@
 (defn trace-windows
   "Spec 009's retained ring for every frame this Fresco runtime touches,
   as `{frame-id [event-bundle …]}` — the advisor's clock and the causal
-  slice's event seam (rf2-hic-037).
+  slice's event seam.
 
   ## Why this read exists beside the four, rather than inside them
 
   The Fresco door deliberately carries no duration. Its four reads
   project the substrate's own tables, and a clock is not one of them: per
   `lanes/left-field-ideas.md` §Capability receipts, per-boundary self time
-  was KILLED as a decision rather than deferred, because the 0.1 ms timer
+  is RULED OUT by design rather than deferred, because the 0.1 ms timer
   grain is coarser than the quantity being measured. What Spec 009 does
   publish is `:rf.sub/elapsed-ms` on the reactive recompute path — the
   cost of the SUBSCRIPTIONS a boundary reads, which is a different
@@ -123,15 +122,15 @@
   runtime gives — and the advisor renders that as a capped window rather
   than as a quiet application.
 
-  ## The ring is read through Xray's OWN gate, not bare (rf2-y8doi.13)
+  ## The ring is read through Xray's OWN gate, not bare
 
   The window comes from `trace-collector/bundles-for-frame`, not from
-  `re-frame.trace.tooling/trace-buffer`. The bare call was Xray's second,
-  seam-side reader of the framework rings — and the rings retain every
-  emitted event with no `:sensitive?` check, by design — so under the
-  fail-closed `:rf.egress/local-redacted` default a sensitive cascade
-  that every trace-side surface hid still reached the advisor's ranking
-  and the causal slice through here. The gate is the collector's, one
+  `re-frame.trace.tooling/trace-buffer`. The bare call would be Xray's
+  second, seam-side reader of the framework rings — and the rings retain
+  every emitted event with no `:sensitive?` check, by design — so under
+  the fail-closed `:rf.egress/local-redacted` default a sensitive cascade
+  that every trace-side surface hides would still reach the advisor's
+  ranking and the causal slice through here. The gate is the collector's, one
   policy for all three ingress paths, and it is a no-op under the
   trusted-local `:rf.egress/local-raw` opt-in.
 
