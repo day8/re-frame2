@@ -13,7 +13,7 @@
 ;;
 ;; ## Why test-only deps, not :local/root in :deps
 ;;
-;; Production dependencies remain empty because this artefact ships no code.
+;; Production dependencies are empty because this artefact ships no code.
 ;; The `:test` alias supplies the family implementations and exposes only this
 ;; tier's `test` directory to the test runner; local-root dependencies
 ;; contribute their source paths, not their test paths.
