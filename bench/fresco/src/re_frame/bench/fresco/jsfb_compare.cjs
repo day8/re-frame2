@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 //
-// THE CROSS-CHECK ITSELF — two instruments, one app, one table (rf2-rguy1).
+// THE CROSS-CHECK ITSELF — two instruments, one app, one table.
 //
-//   node fresco/test/re_frame/bench/fresco/jsfb_compare.cjs \
+//   node src/re_frame/bench/fresco/jsfb_compare.cjs \
 //     --theirs <clone>/webdriver-ts/results --ours <jsfb_ours_run.cjs JSON>
 //
 // Reads the benchmark driver's own result files and our instrument's JSON
@@ -32,16 +32,16 @@
 // more are not. It is stated here, in the code, so it cannot be chosen
 // after the numbers are seen.
 //
-// ## IT FAILS CLOSED, and it used to fail open (rf2-rguy1, #7359's audit)
+// ## IT FAILS CLOSED
 //
-// This program's exit code is quoted as a quality gate. It could not carry
-// that weight, because ABSENT EVIDENCE looked exactly like agreement: with
-// no results directory and no `--ours` JSON it printed a table of `n/a`,
-// announced `VERDICT: 0 of 0 comparable rows agree within 15%`, and exited
-// 0. A gate that is green when it was handed nothing is not a gate, and the
+// This program's exit code is quoted as a quality gate, so ABSENT EVIDENCE
+// must not look like agreement: with no results directory and no `--ours`
+// JSON, a program that merely read its inputs would print a table of `n/a`,
+// announce `VERDICT: 0 of 0 comparable rows agree within 15%`, and exit 0.
+// A gate that is green when it was handed nothing is not a gate, and the
 // commonest way to hand it nothing is a run that never happened.
 //
-// So the evidence is now REQUIRED rather than merely read. `EXPECTED_CELLS`
+// So the evidence is REQUIRED rather than merely read. `EXPECTED_CELLS`
 // is derived from `PAIRS` — every benchmark the driver actually runs,
 // crossed with every arm that is not the denominator, which is 5 x 2 = 10 —
 // and a cell that either instrument did not measure is named rather than
@@ -57,24 +57,24 @@
 // And a cell counts as measured only when the DURATIONS UNDER IT are
 // measurements: finite and STRICTLY POSITIVE on both sides — base, arm and
 // ratio. A table of all-negative medians divides out to exactly the positive
-// ratios a sound run produces, so finiteness alone let counter-inverted
-// timing evidence through the gate above (rf2-110be, from #7643's audit).
+// ratios a sound run produces, so finiteness alone would let counter-inverted
+// timing evidence through the gate above.
 //
 // NOR MAY ANYTHING DOWNSTREAM CONCLUDE FROM A CELL THAT PREDICATE REFUSED.
 // The WORKLOAD section states a second finding out of the same numbers, and
-// its only condition used to be that `summary.run1k` existed — so a ratio the
-// table had already thrown out still moved the published mount by a perfectly
-// finite percentage (rf2-110be, from #7675's audit). Every conclusion in
-// `report` now sits behind the decision its evidence was already given.
+// a condition of merely `summary.run1k` existing would let a ratio the table
+// had already thrown out move the published mount by a perfectly finite
+// percentage. Every conclusion in `report` sits behind the decision its
+// evidence was already given.
 //
 // WHAT IT DOES NOT ADJUDICATE, deliberately. The run's own gates — DOM
 // parity, the positive control, page errors, unverified writes — are
 // REPORTED here and decided by `jsfb_ours_run.cjs`, which owns them and
 // exits on them. Two programs deciding one verdict is the defect
-// `clock_exit_path.test.cjs` exists to pin, and this file is not going to
-// grow a second seat for it. But reporting a gate is not licence to invent
-// one: an unverified-writes count the JSON does not carry is now printed as
-// UNSTATED rather than defaulted into a clean total (rf2-0fixc).
+// `clock_exit_path.test.cjs` exists to pin, and this file does not grow a
+// second seat for it. But reporting a gate is not licence to invent one: an
+// unverified-writes count the JSON does not carry is printed as UNSTATED
+// rather than defaulted into a clean total.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -92,7 +92,7 @@ const OTHERS = ['rf2-fresco', 'rf2-uix'];
 // published `--benchmark 01_ 02_ 03_ 05_ 09_` selection, so it is measured
 // on one instrument by design. That flag is what keeps the expected count
 // honest: it is the difference between "the driver does not run this" and
-// "the driver's run is missing", and before it existed the second was
+// "the driver's run is missing", and without it the second would be
 // indistinguishable from the first.
 const PAIRS = [
   { bench: '01_run1k', ours: 'run1k', label: 'create 1,000 rows', maps: 'mount — build N elements from nothing', theirs: true },
@@ -106,7 +106,7 @@ const PAIRS = [
 const cellId = (bench, arm) => `${bench} / ${arm}`;
 
 // EVERY cell both instruments must have measured, DERIVED rather than typed.
-// The audit counted ten by hand; this counts them from the roster, so a row
+// Counted from the roster rather than by hand, so a row
 // added to `PAIRS` raises the bar automatically instead of leaving a gate
 // that quietly stopped covering the newest row.
 const EXPECTED_CELLS = PAIRS.filter((p) => p.theirs).flatMap((p) => OTHERS.map((arm) => cellId(p.bench, arm)));
@@ -203,10 +203,10 @@ function readOurs(file) {
 
 const ratioOf = (o, arm) => (o && o.arms && o.arms[arm] ? o.arms[arm].ratio : NaN);
 
-// A MEASUREMENT IS FINITE AND STRICTLY POSITIVE (rf2-110be).
+// A MEASUREMENT IS FINITE AND STRICTLY POSITIVE.
 //
-// The predicate below used to be "the derived difference is finite", and a
-// difference is finite long before the durations under it are real. An
+// "The derived difference is finite" is not enough: a difference is finite
+// long before the durations under it are real. An
 // elapsed time of zero is the absence of a measurement and a negative one is
 // a broken measurement, so neither may enter the measured set — and neither
 // may a ratio built out of them.
@@ -266,7 +266,7 @@ function verdict({ absent = [], rows = [] } = {}) {
     for (const a of absent) lines.push(`[compare] REFUSED — ${a}`);
     lines.push(
       '[compare] No comparison was made, so this run\'s exit code certifies nothing. ' +
-        'It used to exit 0 here, printing `0 of 0 comparable rows` (rf2-rguy1).'
+        'This is a refusal, not `0 of 0 comparable rows` and exit 0.'
     );
     return { code: 2, lines };
   }
@@ -351,7 +351,7 @@ function report(theirs, ours, rows) {
   const w = rows.find((r) => r.cell === WORKLOAD_CELL);
   const bad = w ? w.oBad : `no \`${WORKLOAD_CELL}\` row was built at all`;
   console.log(`;;   ours, benchmark create-1,000 rows   ${fmt(w ? w.oRatio : NaN)}`);
-  console.log(`;;   ours, M1 mount (published, rf2-0qj9w) ${fmt(PUBLISHED_M1_MOUNT)}`);
+  console.log(`;;   ours, M1 mount (published)          ${fmt(PUBLISHED_M1_MOUNT)}`);
   // The refused value stays visible; it is the CONCLUSION that is withheld.
   // Saying so beats printing nothing — a section that simply vanishes reads as
   // "not applicable" rather than "the evidence was rejected".
@@ -368,12 +368,12 @@ function report(theirs, ours, rows) {
     console.log(`;;   DOM parity        ${ours.parity && ours.parity.identical ? 'IDENTICAL' : 'DIFFERENT'}`);
     console.log(`;;   positive control  ${ours.control && ours.control.pass ? 'PASS' : 'FAIL'}`);
     console.log(`;;   page errors       ${ours.pageErrors}`);
-    // A COUNT THAT IS NOT THERE IS NOT A ZERO (rf2-0fixc). This fold defaulted
-    // a missing `unverified` to 0, so an entry that never recorded the field
-    // read exactly like one that recorded it as 0 having verified every write.
+    // A COUNT THAT IS NOT THERE IS NOT A ZERO. A fold that defaulted a missing
+    // `unverified` to 0 would make an entry that never recorded the field read
+    // exactly like one that recorded it as 0 having verified every write.
     // The field is REQUIRED, and the benchmarks lacking it are named instead of
     // summed away. UNSTATED rather than UNMEASURED because nobody measures this
-    // one: the rig counts it, and the fault is that it did not say so.
+    // one: the rig counts it, and the fault is an entry that does not say so.
     const unstated = Object.entries(ours.summary).filter(([, s]) => !s || !Number.isFinite(s.unverified));
     if (unstated.length > 0) {
       console.log(
@@ -410,8 +410,7 @@ function main() {
 
 module.exports = { verdict, buildRows, readTheirs, readOurs, EXPECTED_CELLS, PAIRS, OTHERS, BASE, AGREEMENT_BAND };
 
-// `process.exitCode`, never `process.exit()` — the same lost-tail race the
-// clock readjudicator hit on CI (2026-08-16, 2026-08-18): piped stdio is
+// `process.exitCode`, never `process.exit()` — the lost-tail race: piped stdio is
 // asynchronous and `process.exit()` drops what has not drained, so the verdict
 // lines this program exists to print can vanish while the code survives.
 // `main` is synchronous and holds no handles; natural exit keeps both.
