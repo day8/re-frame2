@@ -41,7 +41,7 @@
             ;; namespace's top-level forms run outside the preload's
             ;; `(when rf.interop/debug-enabled? …)` block, so a registrar
             ;; write left up there survives Closure DCE and lands in a
-            ;; release bundle (rf2-y8doi.16).
+            ;; release bundle.
             [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]
             ;; Popup overlay infra. `install!` registers
             ;; the stack/entries subs + open/close/close-top/close-all
@@ -119,8 +119,7 @@
 ;; on `:after-load` the umbrella gate no-ops the whole leaf install, so a
 ;; handler introduced by newer code (kept inside a per-panel `install!`)
 ;; never reaches the already-registered process — it stays behind until a
-;; full page reload (rf2-ykaq4u: the ViewCell reactivity bridge stranded
-;; exactly this way). The schema version is the SECOND axis: it records the
+;; full page reload. The schema version is the SECOND axis: it records the
 ;; registration schema the process last installed, so a live-upgraded
 ;; process runs the bounded migration for each version it is behind.
 
@@ -133,24 +132,24 @@
   and a changed body stay behind until a full page reload. Pair each bump
   with a `migrate-schema!` clause below. Public (a read-only contract number):
   the governance pin in `registry_cljs_test.cljs` reads it so any gated
-  registration edit — add OR replace — must name a schema bump (rf2-sa8j3).
+  registration edit — add OR replace — must name a schema bump.
 
   Version history:
-    1 — ViewCell evidence REACTIVITY BRIDGE (rf2-vxgfnd.286 / rf2-ykaq4u):
+    1 — ViewCell evidence REACTIVITY BRIDGE:
         the ownership event/sub/listener + the two-input
-        `:rf.xray/viewcell-evidence` sub. A pre-#5915 process has the
-        umbrella set but this bridge absent (its cached
+        `:rf.xray/viewcell-evidence` sub. A process that registered before
+        schema-versioning has the umbrella set but this bridge absent (its cached
         `:rf.xray/viewcell-evidence` sub is the old epoch-only one input);
         the migration installs the current bridge so an evidence
         acquire/release invalidates a held Views subscription immediately,
         without a page reload.
-    2 — S3 view-evidence consumption (rf2-vxgfnd.95.7): the bridge gained
+    2 — S3 view-evidence consumption: the bridge gained
         two subs — `:rf.xray/viewcell-evidence-version` (evidence-schema
         version honesty) and `:rf.xray/view-evidence-sites` (static per-view
         manifest sites). A schema-1 process has the bridge but not these two,
         so the migration re-runs the bridge install (idempotent — reg-sub
         replaces in place) to add exactly the missing delta.
-    3 — Reactive-data topology REPLACEMENT (rf2-sa8j3): a CHANGED handler
+    3 — Reactive-data topology REPLACEMENT: a CHANGED handler
         body, not a new id. `:rf.xray/reactive-data` went from two inputs to
         four (adding the panel-local `:rf.xray/reactive-show-unchanged?`
         quick-toggle + the `[:rf.xray/setting :general :show-unchanged-subs?]`
@@ -164,7 +163,7 @@
         four-input topology (held Views subscriptions invalidated) with no
         reload. Generalises the seam — a gated registration REPLACEMENT is a
         schema delta exactly as an ADDITION is.
-    4 — Freehand tool-door reads (rf2-7gth0): the Views panel's mounted-view
+    4 — Freehand tool-door reads: the Views panel's mounted-view
         surface crossed off the donor `re-frame.ui.tool` evidence tier onto
         `re-frame.freehand.tool`. Three sub ids are NEW
         (`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
@@ -175,12 +174,12 @@
         `:rf.xray/viewcell-evidence-ownership-changed` event pair whose
         ownership plane has no Freehand counterpart and was deleted rather
         than ported). A schema-3 process has the old ids registered and none
-        of the new ones, so the migration cleared the five and installed the
-        three. The INSTALL half is gone at schema 6 — the three ids the
-        clause used to add are exactly the three schema 6 removes — so the
-        clause now clears the five and nothing else. Its entry stays as a
-        record of what schema 4 WAS; a version history that rewrote itself
-        when a later version undid it would stop being a history.
+        of the new ones, so the schema-4 delta is: clear the five, install
+        the three. The INSTALL half is undone by schema 6 — the three ids
+        schema 4 adds are exactly the three schema 6 removes — so the
+        clause clears the five and nothing else. Its entry keeps the record
+        of what schema 4 IS; a version history that rewrote itself when a
+        later version undid it would stop being a history.
 
         Schema 4 is the ONE version that is RELOAD-REQUIRED for part of its
         delta, and the migration says so rather than pretending otherwise
@@ -192,7 +191,7 @@
         that coordinate is the whole point of the cutover. So a process
         carrying that residue is NOT stamped current; it is told, once and
         loudly, to reload.
-    5 — Fresco evidence tab (rf2-hic-023): the Dynamic `:fresco` L4 tab and
+    5 — Fresco evidence tab: the Dynamic `:fresco` L4 tab and
         its three NEW registrations (`:rf.xray.fresco/set-view`,
         `:rf.xray.fresco/view`, `:rf.xray.fresco/data`). A schema-4 process
         has none of them and would show no Fresco tab at all until a page
@@ -200,14 +199,14 @@
         umbrella no-ops. The migration re-runs that `install!` — idempotent
         in both halves: the registrar replaces each handler in place, and
         `reg-l4-tab!` writes one entry keyed `[mode id]`.
-    6 — Freehand tool-door reads REMOVED (rf2-l86mm): the Views panel's
+    6 — Freehand tool-door reads REMOVED: the Views panel's
         Mounted Views and Declared View Sites sections retire WITH the
         Freehand substrate rather than migrating to Fresco, so the three
-        ids schema 4 added are GONE (`:rf.xray/mounted-views`,
+        ids schema 4 adds are GONE (`:rf.xray/mounted-views`,
         `:rf.xray/mounted-views-schema`, `:rf.xray/mounted-view-sites`) and
         nothing replaces them. A REMOVAL-ONLY delta, which the seam already
         knows how to carry: a schema-4 or schema-5 process holds all three,
-        installed by a fn that no longer exists, so neither the umbrella nor
+        installed by a fn absent from this build, so neither the umbrella nor
         a replacement can notice their absence — three phantom ids resolving
         to a deleted namespace's resident closures, read by no view.
 
@@ -216,9 +215,9 @@
         installed nothing and held nothing through it, so clearing the ids
         is the whole delta and there is no ownership to release, no reload
         to demand and no residue a live process can be left carrying.
-    7 — `focus!`'s async continuation (rf2-2qtgt): ONE new event,
+    7 — `focus!`'s async continuation: ONE new event,
         `:rf.xray/focus-after-frame`, inside `focus/install!`. A schema-6
-        process has `focus!`'s new async path the moment the code reloads but
+        process has `focus!`'s async path the moment the code reloads but
         not the event it queues, so a host focus naming a frame would dispatch
         an unregistered event. The migration re-runs `focus/install!` —
         idempotent, and a pure addition with nothing to release."
@@ -226,15 +225,15 @@
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
-  ;; when it registered BEFORE schema-versioning existed — i.e. a pre-#5915
-  ;; process: the umbrella `registered?` is set, but this sentinel was
+  ;; when it registered BEFORE schema-versioning existed: the umbrella
+  ;; `registered?` is set, but this sentinel was
   ;; never created/stamped, so it reads nil after the new code loads and
   ;; the migration seam treats it as schema 0 (pre-bridge). `defonce`
   ;; (module-lived) so a shadow `:after-load` PRESERVES the stamp across
   ;; reloads — a current process re-loading itself no-ops the migration.
   (atom nil))
 
-;; ---- schema 4: what a live upgrade can and cannot reach (rf2-7gth0) ------
+;; ---- schema 4: what a live upgrade can and cannot reach -----------------
 ;;
 ;; The migration seam moves REGISTRATIONS, and registrations are the only
 ;; thing a live upgrade can move. Schema 3 also left non-registration state
@@ -245,7 +244,7 @@
   "The `:rf.xray/*` SUBS schema 3 registered and schema 4 removed. A
   live-upgraded process still has all four in the registrar: they were
   installed by `reactive-panel-subs/install-viewcell-evidence-bridge!`, a fn
-  that no longer exists, so nothing re-registers or replaces them and the
+  absent from this build, so nothing re-registers or replaces them and the
   umbrella cannot notice their absence from the current install. Left alone
   they are FOUR PHANTOM IDS — resolvable, backed by a deleted namespace's
   resident closures, read by no view, and enumerated by every tool that walks
@@ -258,14 +257,15 @@
 (def ^:private schema-3-events-removed
   "The `:rf.xray/*` EVENTS schema 3 registered and schema 4 removed — the
   other half of the deleted ownership pair. Its handler wrote the donor
-  ownership revision into `:rf/xray` app-db at a key nothing reads any more."
+  ownership revision into `:rf/xray` app-db at a key nothing reads."
   [:rf.xray/viewcell-evidence-ownership-changed])
 
 (def ^:private schema-5-subs-removed
-  "The `:rf.xray/*` SUBS schema 4 registered and schema 6 removed (rf2-l86mm).
+  "The `:rf.xray/*` SUBS schema 4 registered and schema 6 removed.
 
   Exactly the same hazard as `schema-3-subs-removed`, one substrate later:
-  `reactive-panel-subs/install-mounted-views-subs!` no longer exists, so a
+  `reactive-panel-subs/install-mounted-views-subs!` is absent from this
+  build, so a
   process that ran it under schema 4 or 5 keeps all three ids resolvable, no
   current install replaces them, and the umbrella cannot notice they are
   missing from it. Left alone they are THREE PHANTOM IDS backed by a deleted
@@ -306,17 +306,14 @@
 (defn- warn-donor-ownership-resident!
   "Say the one true thing, once, at the moment the seam discovers it: the
   registrar is current, the donor projection is not, and only a reload
-  finishes the job. Loud beats silent — the alternative the audit of this
-  cutover caught was stamping the process current and letting the developer
-  find out later that a second tool could not claim the slot.
+  finishes the job. Loud beats silent — the alternative, stamping the
+  process current, would let the developer find out later that a second
+  tool could not claim the slot.
 
-  The message names NO view-substrate namespace, and that is deliberate
-  (rf2-0ucyg). It used to say schema 4 \"reads views through
-  re-frame.freehand.tool\", which stopped being true at schema 6 — rf2-l86mm
-  removed those three reads outright, a day before the substrate itself was
-  deleted. The load-bearing fact was never which substrate replaced the
-  donor; it is that this build has no `re-frame.ui` dependency and so cannot
-  call the donor tier's `uninstall!`. That is what it says now."
+  The message names NO replacement view-substrate namespace, and that is
+  deliberate: the load-bearing fact is not which substrate replaced the
+  donor but that this build has no `re-frame.ui` dependency and so cannot
+  call the donor tier's `uninstall!`. That is what it says."
   []
   (when (exists? js/console)
     (.warn js/console
@@ -330,25 +327,25 @@
                 "release the claim: the donor tier keeps Xray as owner, keeps "
                 "its sink armed, and refuses another tool the slot until this "
                 "page is RELOADED. The Xray registrations themselves have "
-                "already migrated. rf2-7gth0."))))
+                "already migrated."))))
 
 (defn- migrated-through-7
   "The tail clauses — schema 5's ADDITION, schema 6's REMOVAL and schema 7's
   ADDITION. All three migrate live in full, so they sit past schema 4's fork
   rather than inside it, and the fn returns TRUE unconditionally.
 
-  Schema 7 — `focus!`'s async continuation (rf2-2qtgt). One NEW event,
+  Schema 7 — `focus!`'s async continuation. One NEW event,
   `:rf.xray/focus-after-frame`, inside the gated `focus/install!`. Re-running
   it is the whole delta; the registrar replaces in place.
 
-  Schema 5 — the Fresco evidence tab (rf2-hic-023). Three NEW registrations
+  Schema 5 — the Fresco evidence tab. Three NEW registrations
   and one NEW L4 tab entry, all inside the gated `fresco/install!` the
   umbrella no-ops for an already-registered process. Re-running the owning
   facade is the whole delta: the registrar replaces each handler in place and
   `reg-l4-tab!` writes one entry keyed `[mode id]`, so this is idempotent and
   adds no second tab.
 
-  Schema 6 — the Freehand tool-door reads REMOVED (rf2-l86mm). Clearing the
+  Schema 6 — the Freehand tool-door reads REMOVED. Clearing the
   three ids is the whole delta, and it is the mirror image of schema 4's
   clear: the fn that installed them is deleted, so nothing else would ever
   take them out of the registrar. Clearing an id a process never registered
@@ -372,8 +369,8 @@
   by installing EXACTLY the bounded delta newer schema versions introduce —
   a handler newer versions ADD, a gated registration whose BODY/topology
   newer versions CHANGE (replace), or a registration newer versions REMOVE —
-  the live-upgrade seam (rf2-ykaq4u / rf2-sa8j3). `from` is the process's
-  installed schema (0 ⇒ pre-schema-versioning, i.e. a pre-#5915 process).
+  the live-upgrade seam. `from` is the process's installed schema
+  (0 ⇒ registered before schema-versioning).
   Each clause is idempotent (re-frame's registrar replaces in place;
   replacing a sub also evicts its stale cache via the registrar
   replacement-hook; clearing an absent id is a no-op), and gated on `from`
@@ -387,15 +384,15 @@
   the exception and its docstring entry says why.
 
   Schemas 1 and 2 have NO clause. Both installed the donor ViewCell evidence
-  reactivity bridge, and rf2-7gth0 deleted that bridge along with the donor
-  ownership plane it existed to publish — there is no longer a delta for them
-  to install, and a process behind either of them is also behind 4, whose
-  clause installs the current reads. A missing clause here is a fact about the
+  reactivity bridge, and schema 4 removes that bridge along with the donor
+  ownership plane it existed to publish — there is no delta for them to
+  install, and a process behind either of them is also behind 4, whose
+  clause clears what they installed. A missing clause here is a fact about the
   code, not an omission: the version history above keeps their entries so the
   numbering stays a record rather than a sequence that renumbers itself."
   [from]
   (when (< from 3)
-    ;; schema 3 — the Reactive-data topology REPLACEMENT (rf2-sa8j3). The
+    ;; schema 3 — the Reactive-data topology REPLACEMENT. The
     ;; `:rf.xray/reactive-data` sub changed from two inputs to four inside
     ;; `reactive-panel/install!` (adding the `:rf.xray/reactive-show-
     ;; unchanged?` quick-toggle + the Settings show-unchanged pin). That is a
@@ -411,15 +408,15 @@
     ;; there and this clause never double-registers on a fresh boot.
     (reactive-panel/install!))
   (if (< from 4)
-    ;; schema 4 — the Freehand tool-door cutover (rf2-7gth0). Two halves,
+    ;; schema 4 — the Freehand tool-door cutover. Two halves,
     ;; and they do NOT have the same reach.
     ;;
     ;; The REGISTRAR half migrates live, like every clause before it. Five
     ;; donor-era ids go (nothing else would ever remove them — the fn that
-    ;; installed them is deleted, so neither the umbrella nor a replacement
-    ;; can notice). It USED to also install the three Freehand tool-door
-    ;; reads; schema 6 removed those ids outright (rf2-l86mm), so the install
-    ;; is gone and the clear is the whole registrar half. A behind process
+    ;; installed them is absent from this build, so neither the umbrella nor
+    ;; a replacement can notice). It installs nothing: the three Freehand
+    ;; tool-door reads schema 4 adds are the ids schema 6 removes, so the
+    ;; clear is the whole registrar half. A behind process
     ;; reaches schema 6's own clear below, where clearing an id it never
     ;; registered is a no-op.
     (do
@@ -431,8 +428,8 @@
       ;; calling that tier's `uninstall!`. This build cannot: `re-frame.ui`
       ;; is not on the artefact's classpath, and putting it back to run a
       ;; teardown would reinstate exactly the donor coupling the cutover
-      ;; exists to remove — for a tier that F6e deletes outright, which
-      ;; would make the teardown dead code the day it shipped. Xray's own
+      ;; exists to remove — for a retired tier, which would make the
+      ;; teardown dead code. Xray's own
       ;; ownership listener is in the same deleted namespace and is
       ;; unreachable too, but it is also provably INERT: it fires only from
       ;; `acquire!`/`release-span!`, and no call site for either survives.
@@ -451,7 +448,7 @@
   Called from `day8.re-frame2-xray.preload` at load time. Safe to
   call multiple times — second + subsequent calls are no-ops.
 
-  Two gates cooperate (rf2-ykaq4u):
+  Two gates cooperate:
 
     1. the `registered?` umbrella — the ONE-TIME bulk install; a fresh
        boot runs the whole leaf install (the current bridge included) and
@@ -463,7 +460,7 @@
        no-ops too — no handler-replaced flood on repeat reloads."
   []
   (when (compare-and-set! registered? false true)
-    ;; rf2-g2jf3 — fresh-install ATOMICITY. `compare-and-set!` flips the
+    ;; Fresh-install ATOMICITY. `compare-and-set!` flips the
     ;; umbrella to true BEFORE the ~900-line bulk install below, but the
     ;; schema is stamped only AFTER the last installer. If any registrar /
     ;; leaf installer throws mid-block, an unguarded exit would leave
@@ -512,8 +509,8 @@
     ;; The counter lives in Xray's app-db at
     ;; `:suppressed-counters` ({frame-id → count}); `config/note-
     ;; suppressed!` schedules ONE `:rf.xray/note-sensitive-suppressed`
-    ;; per task in CLJS, carrying that task's per-frame counts
-    ;; (rf2-p03xh), so the sub fires on the standard app-db-write
+    ;; per task in CLJS, carrying that task's per-frame counts,
+    ;; so the sub fires on the standard app-db-write
     ;; reactive path and the bottom-rail re-renders within one task —
     ;; no dependency on sibling subs recomputing. The plain
     ;; `config/suppressed-counters` atom remains as the JVM-runnable
@@ -707,7 +704,7 @@
       {:rf.trace/no-emit? true}
       (fn [{:keys [db]} [_ col-id px]]
         ;; Dual-write: the config atom (canonical; its writer persists
-        ;; ONLY the moved column as an override, rf2-3x7nj.27.1) and
+        ;; ONLY the moved column as an override) and
         ;; app-db (drives immediate reactive re-render of every header +
         ;; row). Both take the full next map.
         {:db (if-let [next-map (config/update-event-list-col-width! col-id px)]
@@ -844,7 +841,7 @@
     ;; state. The cross-frame ring is resolved via `rf/epoch-history` at
     ;; dispatch time; the re-seed is a no-op when the frame is unchanged.
     ;;
-    ;; rf2-pqt7cb — the head-id computation threads `show-ungrouped?`
+    ;; The head-id computation threads `show-ungrouped?`
     ;; (the same live setting `:rf.xray/focus-event` reads via
     ;; `db->show-ungrouped?`). Without it, `focusable-head-id`'s 1-arg
     ;; form hard-codes `show-ungrouped? false`, so with the opt-in ON
@@ -864,7 +861,7 @@
           (spine/focus-event-bundle-reducer db dispatch-id frame-id epoch-id head-id))}))
 
     ;; Programmatic clear of the focused event-bundle. Resets the spine
-    ;; focus back to LIVE (head-tracking) per the Phase A semantics.
+    ;; focus back to LIVE (head-tracking).
     ;; A multi-panel consumer alongside the select event above.
     (rf/reg-event :rf.xray/clear-selected-dispatch-id
       (fn [{:keys [db]} _event]
@@ -950,17 +947,17 @@
     ;; status (no-focus / no-epoch / focused / evicted; head-fallback),
     ;; looks up the epoch record, and threads it through `project-feed`.
     ;;
-    ;; rf2-hiri8 — THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
-    ;; second data axis. This sub took the whole focus map as an input and
-    ;; then read `:epoch-id` alone, throwing the pin away. A focus the
+    ;; THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
+    ;; second data axis. A focus the
     ;; operator SET to an event bundle that settled no epoch carries a nil
     ;; `:epoch-id` (`spine/epoch-id-for-event-bundle` answers nil for a
     ;; dispatch refused before any handler ran, a bundle still mid-build, a
     ;; bundle whose epoch aged out, and an `:ungrouped` pin alike), which is
-    ;; SHAPE-IDENTICAL to the cold-start UNSET focus that rf2-h0120's
-    ;; head-fallback exists to serve. So the 2-arities could not tell the
-    ;; two apart and answered the HEAD for both, and this ribbon projected
-    ;; a DIFFERENT event's issues underneath the operator's selection.
+    ;; SHAPE-IDENTICAL to the cold-start UNSET focus that the
+    ;; head-fallback exists to serve. Reading `:epoch-id` alone, the
+    ;; 2-arities cannot tell the two apart and answer the HEAD for both, so
+    ;; this ribbon would project a DIFFERENT event's issues underneath the
+    ;; operator's selection.
     ;;
     ;; That is not merely cosmetic here, because this composite has no
     ;; rendered consumer: it is the auto-open-on-error SIGNAL, and
@@ -968,12 +965,11 @@
     ;; non-zero — so the head epoch's issues could pop Xray open while the
     ;; operator's own selection had settled nothing at all.
     ;;
-    ;; Passing the pin into the 3-arities (what rf2-y8doi.19 landed for the
-    ;; Epoch panel and rf2-c4abp threaded through Trace + the Machine
-    ;; Inspector) is what separates them.
+    ;; Passing the pin into the 3-arities (as the Epoch panel, Trace and
+    ;; the Machine Inspector also do) is what separates them.
     ;;
     ;; The `:no-epoch` `:empty-kind` comes from `project-feed` itself, like
-    ;; every other status (rf2-p766c). It must never read `:no-issues`,
+    ;; every other status. It must never read `:no-issues`,
     ;; which would assert that a focused epoch ran and carried no issues
     ;; when in truth no epoch was resolved at all.
     (rf/reg-sub :rf.xray/issues-ribbon
@@ -1062,10 +1058,8 @@
     ;; edit popup in `filters/save-edit-popup` composes against the
     ;; same slot but threads through the popup's draft.
     ;;
-    ;; Neither surface persists any more: rf2-y8doi.27 deleted the
-    ;; `:rf.xray.filters/persist` fx and `filters/persistence.cljs`
-    ;; with it. The pills are transient by policy (rf2-swclw), so the
-    ;; write had no reader and the next load cleared it regardless.
+    ;; Neither surface persists: the pills are transient by policy and
+    ;; reset on every load.
     (rf/reg-event :rf.xray/add-filter
       (fn [{:keys [db]} [_ mode pill]]
         (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
@@ -1160,7 +1154,7 @@
 
     ;; Add one task's suppressed-event counts to the per-frame counter.
     ;; Dispatched at most once per task, under `:rf/xray`, by
-    ;; `config/note-suppressed!`'s coalesced drain (CLJS, rf2-p03xh) —
+    ;; `config/note-suppressed!`'s coalesced drain (CLJS) —
     ;; the collector calls that whenever the privacy gate drops a
     ;; `:sensitive? true` trace event. `counts` maps each event's
     ;; `:tags :frame` (the host frame the trace targeted, `nil` already
@@ -1205,9 +1199,7 @@
     ;;
     ;; Each panel owns its own subs / events / fxs in
     ;; `panels/<panel>.cljs` under `(defn install! [] ...)`. The order
-    ;; below is NOT alphabetised and never has been — do not re-derive
-    ;; a rule from it (PR #9932 removed that claim from
-    ;; `tools/xray/spec/Conventions.md` for the same reason).
+    ;; below is NOT alphabetised — do not derive a rule from it.
     ;; Registration order is purely cosmetic: re-frame resolves
     ;; declared `:inputs` lazily at subscribe time.
     ;;
@@ -1267,7 +1259,7 @@
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.xray/filtered-event-bundles` + the edit-
-    ;; popup events + the persistence fx). Install does NOT hydrate
+    ;; popup events). Install does NOT hydrate
     ;; `:active-filters` from localStorage — the transient user pills
     ;; reset on load, and the host seed lands via `mount.cljs`'s
     ;; `::seed-configured-filters` first-mount hook (after
@@ -1299,13 +1291,14 @@
     ;; to unpinned on every page load by mount.cljs's
     ;; `::reset-transient-filters` hook.
     (frame-switcher/install!)
-    ;; `focus!`'s async continuation (rf2-2qtgt). Composes the spine and
+    ;; `focus!`'s async continuation. Composes the spine and
     ;; frame-switcher events above, so it installs after both.
     (focus/install!)
     (app-db-diff/install!)
     ;; Cancellation-cascade visualiser — installs the
     ;; subs + events for the Machines tab side-panel + the trace-row
-    ;; popover. The view-side `reg-view`s are picked up at ns-load.
+    ;; popover. The views are `rf.fresco/defview` boundaries and need no
+    ;; registration here.
     ;; Order: registers AFTER spine + event-bundles (composes against
     ;; `:rf.xray/focus` + `:rf.xray/trace-buffer`); registry order is
     ;; cosmetic since re-frame resolves declared `:inputs` lazily.
@@ -1380,9 +1373,9 @@
     ;; Fresco tab — Dynamic L4 tab: six views over the adapter-neutral
     ;; Fresco evidence surface (`re-frame.fresco.tool`) — mounted
     ;; boundaries, read attribution, the intent stream, and explain-render,
-    ;; plus the advisor and the causal slice (rf2-hic-037), which are
+    ;; plus the advisor and the causal slice, which are
     ;; derivations over those same four envelopes taken in one turn.
-    ;; A pure reader like the Freehand door above it: the Fresco tier has
+    ;; A pure reader: the Fresco tier has
     ;; no registry and no ownership plane, so there is nothing to acquire,
     ;; nothing to release and nothing another tool can lock us out of.
     ;; Read-only: every projection is taken from state the runtime already
@@ -1431,11 +1424,11 @@
     ;; Fresh boot ran the whole leaf install (the current bridge included),
     ;; so stamp the schema CURRENT — the migration seam below then no-ops
     ;; on this process and on its own `:after-load` reloads. Reached ONLY when
-    ;; every installer above succeeded (rf2-g2jf3): the stamp is the last act
+    ;; every installer above succeeded: the stamp is the last act
     ;; inside the guarded block, so a partial install never advances the schema.
     (reset! installed-schema schema-version)
     (catch :default e
-      ;; A registrar / leaf installer threw mid bulk-install (rf2-g2jf3). Roll
+      ;; A registrar / leaf installer threw mid bulk-install. Roll
       ;; the umbrella back so the NEXT `register-xray-handlers!` replays the
       ;; whole leaf install (re-frame's registrar replaces partial writes in
       ;; place) instead of permanently skipping it, and leave `installed-schema`
@@ -1445,13 +1438,13 @@
       ;; than silently degrading into a partial registry.
       (reset! registered? false)
       (throw e))))
-  ;; ---- live-upgrade migration seam (rf2-ykaq4u) ----------------------
+  ;; ---- live-upgrade migration seam -----------------------------------
   ;;
   ;; INDEPENDENT of the umbrella gate above. An already-registered process
   ;; running OLDER-schema code left `registered?` set, so the fresh-install
   ;; block no-ops — but it may lack handlers newer schema versions add.
   ;; Bring it up to `schema-version`, then stamp current — but ONLY when the
-  ;; migration reports the process genuinely reached it (rf2-7gth0). A
+  ;; migration reports the process genuinely reached it. A
   ;; schema-3 process holding donor evidence ownership this build cannot
   ;; release stays stamped 3 and is told to reload; stamping it current
   ;; would be the registry asserting an upgrade that did not finish.
@@ -1477,7 +1470,7 @@
   fixtures can drive multiple registration cycles from a clean slate.
   Test-only — never call from production code.
 
-  Also drops the donor-era ownership marker (rf2-7gth0). It is a
+  Also drops the donor-era ownership marker. It is a
   `js/globalThis` key, so no registrar rollback or `defonce` reset reaches
   it: a fixture that poses a donor-resident schema-3 process would otherwise
   leave every later live-upgrade fixture in the process reading `reload
@@ -1492,8 +1485,8 @@
   nil)
 
 (defn simulate-legacy-registration!
-  "TEST-ONLY: pose the sentinels to model a pre-#5915 already-registered
-  process — the umbrella idempotency gate SET (as the old full install
+  "TEST-ONLY: pose the sentinels to model an already-registered process
+  from before schema-versioning — the umbrella idempotency gate SET (as the old full install
   left it) with NO schema stamp (schema-versioning did not exist in the
   old code, so `installed-schema` reads nil). A subsequent
   `register-xray-handlers!` then no-ops the umbrella and reaches ONLY the
@@ -1506,7 +1499,7 @@
   nil)
 
 (defn simulate-registration-at-schema!
-  "TEST-ONLY (rf2-sa8j3): pose the sentinels to model an ALREADY-registered
+  "TEST-ONLY: pose the sentinels to model an ALREADY-registered
   process that installed schema `n` under OLDER code and is now running NEWER
   code whose `schema-version` is ahead of `n`. The umbrella gate is SET (its
   full install ran) and `installed-schema` is stamped `n`, so a subsequent
