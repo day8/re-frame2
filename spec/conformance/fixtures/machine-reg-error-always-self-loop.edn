@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/reg-error-always-self-loop
 ;;
 ;; Per [005 §Self-loop forbidden at registration](../../005-StateMachines.md#self-loop-forbidden-at-registration)
-;; and rf2-hh1pi: a state whose `:always` targets ITSELF is rejected at
+;; a state whose `:always` targets ITSELF is rejected at
 ;; construction time. An eventless self-loop either fires repeatedly to
 ;; depth-exceeded (guard stays true) or is a no-op (guard flips on first
 ;; hit) — in both cases the author intended something else, so the bug is
@@ -36,7 +36,7 @@
  ;; fixtures use guard-/action-FREE `:always` entries. The self-loop
  ;; check (and the action-microstep distinction) is orthogonal to guard
  ;; resolution; omitting the refs keeps the fixture's intent intact and
- ;; avoids embedding a dangling keyword-indirection chain (rf2-ylpnn).
+ ;; avoids embedding a dangling keyword-indirection chain.
  [;; (1) Keyword :target naming the declaring state — self-loop, rejected.
   {:call         :reg-machine
    :definition   {:initial :checking
