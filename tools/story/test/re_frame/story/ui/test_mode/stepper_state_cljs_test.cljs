@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.test-mode.stepper-state-cljs-test
-  "CLJS tests for the play step-debugger local state (rf2-ulw5m + spec/009
+  "CLJS tests for the play step-debugger local state (spec/009
   §Play step-debugger).
 
   The substantive runtime calls (`rf.story.runtime/reset-variant`,
@@ -94,9 +94,8 @@
 (deftest step-back-pops-and-restores
   (testing "step-back! restores against the CURRENT top of the epoch
             stack (the pre-image of the step being undone), then pops
-            it — rf2-4e545l finding 7. The prior implementation popped
-            BEFORE peeking, which restored one epoch too far (the entry
-            one further down the stack) for cursor >= 2."
+            it. Popping BEFORE peeking would restore one epoch too far
+            (the entry one further down the stack) for cursor >= 2."
     (let [vid      :story.unit/back
           restored (atom [])]
       (seed-slot! vid [[:e/a] [:e/b]])
@@ -117,22 +116,21 @@
           (is (= [[vid :epoch/before-b]] @restored)
               "restored against the TOP of the stack (before-b) — the
                pre-image of the step cursor=2 just ran, NOT the entry
-               one further down (before-a, the pre-fix bug)")
+               one further down (before-a)")
           (is (= 1 (:cursor s)) "cursor decrements to 1")
           (is (= [:epoch/seed :epoch/before-a] (:epoch-stack s))
-              "stack popped (the top is removed regardless of the
-               peek/pop ordering fix — only the RESTORE target
-               changed)"))))))
+              "stack popped (the top is removed whatever the
+               peek/pop order — only the RESTORE target depends on
+               it)"))))))
 
 (deftest step-back-cursor-2-plus-does-not-undershoot
-  (testing "rf2-4e545l finding 7 — reproduces the reported scenario
-            directly: `begin!` seeds :epoch-stack with the pre-play
+  (testing "`begin!` seeds :epoch-stack with the pre-play
             epoch, and step 0 (no domino between begin! and the first
             step!) pushes that SAME epoch again, so the stack carries a
             duplicate bottom entry [S0 S0 S1 S2 …]. Stepping back from
             cursor=3 must restore S2 (the state right before the THIRD
-            step ran) — not S1, which the pre-fix `(peek (butlast
-            stack))` under-shoot returned."
+            step ran) — not S1, which a `(peek (butlast stack))`
+            under-shoot would return."
     (let [vid      :story.unit/back-cursor3
           restored (atom [])]
       (seed-slot! vid [[:e/a] [:e/b] [:e/c]])
@@ -151,7 +149,7 @@
         (rf.story.ui.test-mode.stepper-state/step-back! vid)
         (is (= [[vid :epoch/s2]] @restored)
             "restores S2 — the pre-image of the step just taken —
-             rather than S1 (the pre-fix off-by-one under-shoot)")
+             rather than S1 (an off-by-one under-shoot)")
         (is (= 2 (:cursor (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))
         ;; Stepping back again from cursor=2 must land on S1, exercising
         ;; the SAME correct behaviour continues past the duplicate-seed
@@ -196,9 +194,9 @@
                     rf.story.assertions/read-assertions (fn [_] [])]
         (rf.story.ui.test-mode.stepper-state/rewind! vid)
         (is (= [[vid :epoch/seed]] @restored)
-            "restored against the SEED epoch-id (bottom of stack) — rf2-luzky:
-             that epoch-restore alone rewinds [:rf.story/assertions]; there is
-             no longer a side-table accumulator to clear separately")
+            "restored against the SEED epoch-id (bottom of stack) — that
+             epoch-restore alone rewinds [:rf.story/assertions]; there is
+             no side-table accumulator to clear separately")
         (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom vid)]
           (is (= 0 (:cursor s)))
           (is (= [:epoch/seed] (:epoch-stack s))))))))
@@ -306,7 +304,7 @@
             `rf.story.runtime/prepare-variant` — phases 0-2, script left
             pending — and NEVER through `reset-variant`, whose promise
             settles only once phase 4 has run the whole script, so the
-            section would show cursor 0 over a post-script app-db (rf2-k6y2).
+            section would show cursor 0 over a post-script app-db.
 
             Synchronous by construction: `begin!` calls the seam before it
             returns its promise, and the redefined seam never settles, so
