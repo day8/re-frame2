@@ -70,69 +70,64 @@
 // better explanation and the repair is a control that DIFFERENCES the
 // constant away rather than one that changes what is doubled.
 
-// ## WHAT ADJUDICATES A ROW, AND WHAT PUBLISHES ONE (rf2-8a746)
+// ## WHAT ADJUDICATES A ROW, AND WHAT PUBLISHES ONE
 //
 // This program's verdict has two halves, and they are separate things.
 //
 //   THE GATE is a level-denominated, empirically calibrated, versioned CHECK
 //   STANDARD — `clock_check_standard.json`, applied by `clock_check_
 //   standard.cjs`, which this file and `clock_run.cjs` both require so there
-//   is one seat and not two. It replaced the three-point difference-of-
-//   differences control, which refused 42 of 42 bulk row-runs across two
+//   is one seat and not two. It is not the three-point difference-of-
+//   differences control, which refuses 42 of 42 bulk row-runs across two
 //   independent quiet-box ensembles because its prediction is mis-derived on
 //   a clock that is not affine in the dirty set AND its denominator sits ~2
-//   sigma from zero. It also replaced the all-blocks strict rule, which was a
+//   sigma from zero. Nor is it an all-blocks strict rule, which is a
 //   SEPARATE defect: `0.835^18 = 3.9%`, so a control fully meeting its premise
-//   passed 4 of 42 runs.
+//   would pass 4 of 42 runs.
 //
 //   THE PUBLICATION RULE is an EFFECT-SIZE CONFIDENCE INTERVAL on the quantity
 //   the product claim actually asserts — the paired same-round Fresco/donor
-//   LEVEL ratio at fixed witness and fixed K — computed by a run-preserving
+//   ratio at fixed witness and fixed K — computed by a run-preserving
 //   hierarchical bootstrap (Kalibera & Jones 2013: resample outer RUNS before
 //   inner ROUNDS). A magnitude publishes only when the WHOLE interval lies on
-//   the required side of 1.0, and the effect clears the same-run noise band.
+//   the required side of the row class's own threshold (`PUBLICATION` below).
 //   Otherwise the row publishes INSTRUMENT-LIMITED and never a magnitude.
 //
 // Every pooled mean this program prints is therefore a DIAGNOSTIC beneath that
-// verdict, and the 42 committed row-runs remain calibration evidence: they are
-// not retroactively promoted to published magnitudes by anything here.
+// verdict, and the 42 committed bulk row-runs are calibration evidence: nothing
+// here promotes them to published magnitudes.
 //
-// ## AND THE MOUNT ROW IS ADJUDICATED TOO, FROM v2 (rf2-x7x10)
+// ## AND THE MOUNT ROW IS ADJUDICATED TOO
 //
-// The check standard shipped with its `mount` class UNCALIBRATED and failing
-// closed, which was right at the hour — `rf2-8a746` seeded `bulk` and handed
-// the mount to `rf2-t2flm` — and wrong by the next one. `rf2-t2flm`'s published
-// `M1` row is conditioned on the every-block `ctl-2x` rule that `rf2-8a746`
-// retired, and its ruling records THIS PROGRAM as reproducing every figure of
-// that row exactly. With the class uncalibrated it would print `reportable
-// subset: NONE` on all three `M1` pairs instead. No figure would be wrong and
-// nothing invalidated — the posture is stricter, not looser — but a published
-// claim would stop being recomputable from a fresh clone, which is the one
+// The check standard calibrates a `mount` class from the mount's own 14
+// committed row-runs, so the `M1` row adjudicates. Left uncalibrated, the
+// class would fail closed and this program would print `reportable subset:
+// NONE` on all three `M1` pairs. No figure would be wrong and nothing
+// invalidated — the posture would be stricter, not looser — but the published
+// `M1` row would stop being recomputable from a fresh clone, which is the one
 // property this file exists to hold.
 //
-// v2 calibrates the mount from the mount's own 14 committed row-runs, so the
-// row adjudicates. WHAT IT THEN SAYS IS NOT THIS FILE'S TO ARRANGE: all 14 come
-// back in control, so the reportable subset is the whole ensemble, and the
-// publication rule above reaches `M1`, because an interval needs a reportable
-// run to be formed from. Against bulk's thresholds that rule returns
-// INSTRUMENT-LIMITED on every pair, and which threshold governs the mount is a
-// RULING, recorded on the studio page and not decided by any code here.
+// WHAT THE ROW THEN SAYS IS NOT THIS FILE'S TO ARRANGE: all 14 come back in
+// control, so the reportable subset is the whole ensemble, and the publication
+// rule above reaches `M1`, because an interval needs a reportable run to be
+// formed from. Against bulk's thresholds that rule would return
+// INSTRUMENT-LIMITED on every pair, which is why the mount carries its own
+// threshold (next section).
 //
-// ## THE ESTIMAND AND THE THRESHOLD ARE BOTH ROW-CLASS-SPECIFIC (rf2-diaud)
+// ## THE ESTIMAND AND THE THRESHOLD ARE BOTH ROW-CLASS-SPECIFIC
 //
-// That ruling finds the collision narrower than it looks AND a deeper fault
-// underneath it. Both halves are implemented here.
+// Two things differ between row classes, and both are implemented here.
 //
-//   THE THRESHOLD. `rf2-8a746`'s whole-interval discipline is RETAINED, with no
-//   exceptions and no named exemptions, but its thresholds are the BULK ROW'S:
-//   `1.0` is `validation.md`'s bulk ship bar and `1.5` its architecture-kill.
-//   Asking `M1` to clear them asks a question its governing record does not
-//   define — the mount's decision threshold is `K1`'s `1.10x` against direct
-//   UIx-on-subs — and importing one row's limit onto another is the exact class
-//   of error `rf2-8a746` exists to retire. So each row class is adjudicated
-//   against the threshold of the question it answers.
+//   THE THRESHOLD. The whole-interval discipline holds on every class, with no
+//   exceptions and no named exemptions, but `1.0` and `1.5` are the BULK ROW'S
+//   thresholds: `1.0` is `validation.md`'s bulk ship bar and `1.5` its
+//   architecture-kill. Asking `M1` to clear them asks a question its governing
+//   record does not define — the mount's decision threshold is `K1`'s `1.10x`
+//   against direct UIx-on-subs — and importing one row's limit onto another is
+//   the class of error `PUBLICATION` below exists to prevent. So each row
+//   class is adjudicated against the threshold of the question it answers.
 //
-//   THE ESTIMAND, WHICH IS THE DEEPER FAULT. A point and an interval must
+//   THE ESTIMAND. A point and an interval must
 //   describe the SAME quantity. `validation.md:14`/`:286` define canonical `M1`
 //   as FLOOR-NORMALISED on the clock of record, while the level ratio touches
 //   neither floor, so floor-normalised POINTS (1.1798x / 1.2057x) set beside
@@ -146,10 +141,10 @@
 // are not three independent choices — the record names the quantity and the
 // quantity is what the threshold is a value of.
 //
-// ## AND THE CROSS-RUN MAX-BAND SECOND VETO IS RETIRED (rf2-diaud (c))
+// ## AND THE CROSS-RUN MAX-BAND IS NOT A PUBLICATION VETO
 //
-// `rf2-8a746`'s rule carried a second condition: the effect had to exceed the
-// WIDEST same-run reproducibility band among the pooled runs. Three things are
+// A second condition suggests itself: that the effect exceed the WIDEST
+// same-run reproducibility band among the pooled runs. Three things are
 // wrong with it as a publication gate, and none of them is wrong with the band
 // itself.
 //
@@ -162,44 +157,40 @@
 //     noisiest member's resolution.
 //   * It grows HARDER to clear by adding runs, which no evidence rule may do.
 //
-// What stays is everything that does real work: the 35% band CEILING is a
-// run-eligibility guard in `GATES` above, refusing a whole run before
+// The band does real work elsewhere: the 35% band CEILING is a
+// run-eligibility guard in `GATES` below, refusing a whole run before
 // any interval is formed, and the same-run bands are printed as SENSITIVITY
 // DIAGNOSTICS beside every verdict. Only the cross-run maximum does not veto.
-// This is operator-overturnable and the consequence is stated on the ruling:
-// retaining the veto flips `M1` to INSTRUMENT-LIMITED (the widest same-run bands
-// are 22.34% and 18.29%) even though the row-specific interval clears `1.10x`.
+// On `M1` a veto would split the two committed ensembles: it would refuse
+// `clock-emvod` (an effect of 17.2% against a widest same-run band of 22.34%)
+// and admit `clock-w3yxd` (19.8% against 18.29%), although the row-specific
+// interval lies wholly above `1.10x` on both.
 //
-// ## AND THE RETIREMENT IS GENERAL, ONCE BULK GATES THE PAIR ITS BAR NAMES
+// ## AND NO CLASS CARRIES THE VETO, BECAUSE BULK GATES THE PAIR ITS BAR NAMES
 //
-// Criterion (c) retires the veto and criterion (b) of
-// the same ruling says BULK'S PATH IS UNCHANGED, and on the committed corpus
-// those two could not both hold: retiring the veto on `bulk` promoted pairs of
-// the 42-run corpus `rf2-8a746` fenced.
-//
-// THE COLLISION DISSOLVES RATHER THAN BEING DECIDED, and the mechanism is the
-// `gatedPairs` field in `PUBLICATION` below. EVERY pair the veto would hold is
+// Dropping the veto on `bulk` would, left alone, promote pairs out of the
+// fenced 42-run bulk calibration corpus. The `gatedPairs` field in
+// `PUBLICATION` below is what prevents it. EVERY pair the veto would hold is
 // `uix-subs / reagent-subs` — UIx-on-subs against Reagent-on-subs, DONOR
 // AGAINST DONOR, which answers no question `validation.md`'s bulk bar asks.
 // That bar reads "<= 1.0x Reagent-on-subs, like-for-like", naming ONE
 // comparison exactly as the mount's names one, so `bulk` gates
 // `fresco / reagent-subs` and reports the other two beside it. A pair nobody
-// adjudicates has no verdict for a retirement to promote it into, so
-// `rf2-8a746`'s "remain calibration/diagnostic evidence and are NOT
-// retroactively promoted to published magnitudes" is honoured in full — and
-// honoured by scoping the rule rather than by leaving a control statistic
-// standing in for a scope guard it was never designed to be.
+// adjudicates has no verdict to be promoted into, so the fence holds in full —
+// the 42 bulk row-runs stay calibration and diagnostic evidence and are never
+// promoted to published magnitudes — and it holds by scoping the rule rather
+// than by leaving a control statistic standing in for a scope guard it was
+// never designed to be.
 //
-// THE ONE BULK PAIR THAT IS ADJUDICATED DOES NOT MOVE, which is what makes the
-// retirement safe to make rather than merely arguable: on all six row-ensemble
+// THE ONE BULK PAIR THAT IS ADJUDICATED DOES NOT MOVE, which is what makes
+// dropping the veto safe rather than merely arguable: on all six row-ensemble
 // combinations `fresco / reagent-subs` STRADDLES 1.0 and is refused by the
 // whole-interval rule, which sits ahead of the veto and is untouched by it. The
 // veto is not what holds it. That is a fact about this corpus and not
 // a property of the rule, so `clock_exit_path.test.cjs` drives it in both
 // directions — and if it ever stops being true, the failure is the finding.
 //
-// ## AND THE EVIDENCE ITSELF IS COMPLETE, OR THE CONSUMER REFUSES (rf2-8a746,
-// merged-PR audits #7698 and #7700, 2026-08-10)
+// ## AND THE EVIDENCE ITSELF IS COMPLETE, OR THE CONSUMER REFUSES
 //
 // The same boundary has two places to hold: eligibility is decided on the
 // serialised verdicts, the RAW EVIDENCE behind them can still be missing, and
@@ -235,7 +226,7 @@
 'use strict';
 
 
-// ONE SEAT FOR THE GATE'S ARITHMETIC (rf2-8a746) — see `clock_run.cjs`, which
+// ONE SEAT FOR THE GATE'S ARITHMETIC — see `clock_run.cjs`, which
 // requires the same module. Two copies would be two adjudicators.
 const checkstd = require('./clock_check_standard.cjs');
 const archive = require('./data_archive.cjs');
@@ -314,13 +305,13 @@ function rawCrossSegment(rounds, pair) {
 }
 
 /**
- * THE CHECK STANDARD, RE-APPLIED TO THE RUN'S OWN READINGS (rf2-8a746).
+ * THE CHECK STANDARD, RE-APPLIED TO THE RUN'S OWN READINGS.
  *
  * RECOMPUTED, NOT READ BACK, and this is the one gate in the roster below that
  * is — so the reason has to be here rather than inferred. Every other gate
  * mirrors a verdict `clock_run.cjs` TOOK, and a taken verdict can be lost in a
  * file, which is why absent is not clean. A check standard is not that kind of
- * thing. It is versioned DATA that a READER applies, and applying today's
+ * thing. It is versioned DATA that a READER applies, and applying the current
  * standard to a dataset taken before it existed is the entire point of
  * freezing limits as data instead of as a stored boolean: recalibrate, bump
  * the version, and every retained run can be re-adjudicated without re-running
@@ -339,10 +330,10 @@ function checkStandardFor(row, dataset) {
   // THE CLASS DECIDES BEFORE THE READINGS DO. A row whose class is
   // uncalibrated cannot be certified in control however clean its blocks are,
   // and asking for readings first would report the wrong refusal. Every class
-  // the standard declares is calibrated as of v2 (rf2-x7x10), so this seat has
-  // no live instance today; it stays because the next class added to `classes`
-  // will arrive before its limits do, and that class must refuse rather than
-  // be waved through by a branch nobody kept.
+  // the standard declares is calibrated, so this seat has no live instance;
+  // it exists because the next class added to `classes` will arrive before
+  // its limits do, and that class must refuse rather than be waved through by
+  // a branch nobody kept.
   const klass = checkstd.classOf(r.rowId);
   if (!klass || !checkstd.STANDARD.classes[klass].calibrated) return checkstd.checkStandard([], r.rowId);
   if (!d.design || typeof d.design.tare !== 'boolean') {
@@ -357,8 +348,8 @@ function checkStandardFor(row, dataset) {
       why: 'no raw per-sample TaskDuration readings — the check standard is applied to the readings themselves, so a record that did not store them cannot be shown to have been in control',
     };
   }
-  // THE ROUND CARDINALITY, AGAINST THE FILE'S OWN DECLARED DESIGN (rf2-8a746,
-  // merged-PR audit #7698). Non-empty is not the contract: a committed
+  // THE ROUND CARDINALITY, AGAINST THE FILE'S OWN DECLARED DESIGN. Non-empty
+  // is not the contract: a committed
   // six-round row truncated to ONE round would hand its three surviving
   // segment blocks to the standard, which would certify them.
   // A record whose raw rounds disagree with its own `design.rounds` is a
@@ -372,7 +363,7 @@ function checkStandardFor(row, dataset) {
       ok: false,
       why:
         'the design record declares no round count — the check standard compares the raw readings against the ' +
-        'declared design, and a record that does not say how many rounds it took cannot be shown complete (rf2-8a746, audit #7698)',
+        'declared design, and a record that does not say how many rounds it took cannot be shown complete',
     };
   }
   if (r.roundsTask.length !== d.design.rounds) {
@@ -381,7 +372,7 @@ function checkStandardFor(row, dataset) {
       why:
         `the raw readings are TRUNCATED or PADDED — ${r.roundsTask.length} round(s) of TaskDuration readings against ` +
         `the file's own declared design of ${d.design.rounds}, so this is a subset (or superset) of the run, not the run, ` +
-        'and a run judged on part of its declared evidence has not been judged (rf2-8a746, audit #7698)',
+        'and a run judged on part of its declared evidence has not been judged',
     };
   }
   const xs = [];
@@ -404,7 +395,7 @@ function checkStandardFor(row, dataset) {
 }
 
 /**
- * THE BOOTSTRAP, which is common to every row class (rf2-8a746).
+ * THE BOOTSTRAP, which is common to every row class.
  *
  * `draws` and `seed` are here rather than inline because a published interval
  * a reader cannot reproduce is the fault this whole program exists to fix: the
@@ -417,14 +408,12 @@ function checkStandardFor(row, dataset) {
  * themselves, so the interval understates by construction. Below the floor the
  * row publishes INSTRUMENT-LIMITED rather than a narrow interval.
  *
- * THE THRESHOLDS ARE NOT HERE ANY MORE (rf2-diaud). They live in
+ * THE THRESHOLDS ARE NOT HERE. They live in
  * `PUBLICATION` below, one entry per row class, because `1.0` and `1.5` are the
  * BULK row's lines and a threshold only means anything beside the estimand it
  * was derived for.
  */
 const EFFECT = {
-  bead: 'rf2-8a746',
-  thresholdsRuling: 'rf2-diaud',
   draws: 4000,
   seed: 20260807,
   alpha: 0.05,
@@ -433,7 +422,7 @@ const EFFECT = {
 };
 
 /**
- * ONE RULE PER ROW CLASS: ITS RECORD, ITS ESTIMAND, ITS THRESHOLD (rf2-diaud).
+ * ONE RULE PER ROW CLASS: ITS RECORD, ITS ESTIMAND, ITS THRESHOLD.
  *
  * Keyed by the CHECK STANDARD'S class (`clock_check_standard.cjs`'s `classOf`),
  * so a row is adjudicated by the same classification that decides whether its
@@ -454,7 +443,6 @@ const EFFECT = {
  */
 const PUBLICATION = {
   bulk: {
-    ruling: 'rf2-8a746',
     governingRecord:
       "validation.md's bulk ship bar — <= 1.0x Reagent-on-subs, like-for-like, both sides reading re-frame2 " +
       'subscriptions, on the witness shapes; K2 architecture-kill at 1.5x',
@@ -467,16 +455,15 @@ const PUBLICATION = {
     // subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
     // against direct UIx-on-subs. Adjudicating `fresco / uix-subs` or
     // `uix-subs / reagent-subs` against it holds a pair to a threshold written
-    // for a different question, which is the error rf2-diaud fixed one class
-    // up. They keep their intervals and lose only the verdict.
+    // for a different question, which is the error the mount's `gatedPairs`
+    // prevents too. They keep their intervals and lose only the verdict.
     gatedPairs: ['fresco / reagent-subs'],
-    // AND THE CROSS-RUN MAX-BAND SECOND VETO IS RETIRED HERE TOO — which the
-    // line above is what makes possible. Every pair the veto was
-    // holding is donor against donor, so once they are no longer adjudicated
-    // there is no verdict left for its retirement to promote them into, and
-    // `rf2-8a746`'s 42-run fence stands without a control statistic doing a
-    // scope guard's work. One field, so overturning it is still one line, and
-    // `adjudicate` below still carries the refusal it would fire.
+    // AND THE CROSS-RUN MAX-BAND IS NOT A VETO HERE, which the line above is
+    // what makes safe. Every pair the veto would hold is donor against donor,
+    // so while they are not adjudicated there is no verdict for them to be
+    // promoted into, and the 42-run fence stands without a control statistic
+    // doing a scope guard's work. One field, so switching it back on is one
+    // line, and `adjudicate` below carries the refusal it would fire.
     crossRunBandVeto: false,
     adjudicate(iv, diagnostics) {
       const below = iv.hi < this.bar;
@@ -498,9 +485,8 @@ const PUBLICATION = {
           verdict: 'INSTRUMENT-LIMITED',
           why:
             `the effect is ${fmt(effectPct, 1)}% and the widest same-run noise band among the pooled runs is ` +
-            `${Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'not recorded'} — rf2-8a746's second veto, ` +
-            'RETIRED from publication authority by rf2-diaud (c) and rf2-vh0e3, and reachable now only by setting ' +
-            'this class\'s crossRunBandVeto back to true',
+            `${Number.isFinite(bandPct) ? fmt(bandPct, 1) + '%' : 'not recorded'} — a veto that fires only ` +
+            'while this class\'s crossRunBandVeto is true',
         };
       }
       return {
@@ -513,7 +499,6 @@ const PUBLICATION = {
     },
   },
   mount: {
-    ruling: 'rf2-diaud',
     governingRecord:
       "validation.md:14/:286 — canonical M1, FLOOR-NORMALISED, on the clock of record's raw TaskDuration; " +
       "K1's mount gate is <= 1.10x direct UIx-on-subs, with Reagent-on-subs co-instrumented and reported " +
@@ -528,10 +513,10 @@ const PUBLICATION = {
     // get the same estimand and the same interval — and no gate verdict, because
     // a threshold defined for one comparison says nothing about another.
     gatedPairs: ['fresco / uix-subs'],
-    // RETIRED HERE, which is where rf2-diaud (c) states its consequence. The
-    // widest same-run bands on this row are 22.34% and 18.29%, so retaining it
-    // would refuse a 17.2% effect whose whole interval clears K1's line — an
-    // effect measured against a control statistic for a different estimand.
+    // NOT A VETO HERE EITHER. The widest same-run bands on this row are 22.34%
+    // and 18.29%, so a veto would refuse a 17.2% effect whose whole interval
+    // clears K1's line — an effect measured against a control statistic for a
+    // different estimand.
     crossRunBandVeto: false,
     adjudicate(iv) {
       if (iv.hi <= this.gate) {
@@ -607,7 +592,7 @@ function levelLogRatios(row, pair) {
 }
 
 /**
- * THE MOUNT'S ESTIMAND — K1's OWN QUANTITY, COMPUTED HERE (rf2-diaud (a)).
+ * THE MOUNT'S ESTIMAND — K1's OWN QUANTITY, COMPUTED HERE.
  *
  * `validation.md:14`/`:286` define canonical `M1` as FLOOR-NORMALISED on the
  * clock of record, so K1's `1.10x` gate is a value of THIS quantity and of no
@@ -675,8 +660,8 @@ function pairedLogRatios(row, pair, dataset) {
 }
 
 /**
- * THE OTHER ESTIMAND, PRINTED AS A LABELLED DIAGNOSTIC AND NEVER AS A HEADLINE
- * (rf2-diaud). Whichever quantity a row publishes on, the other one is stated
+ * THE OTHER ESTIMAND, PRINTED AS A LABELLED DIAGNOSTIC AND NEVER AS A HEADLINE.
+ * Whichever quantity a row publishes on, the other one is stated
  * beside it with its OWN point and its OWN interval — never a bound from one
  * next to a point from the other. Two complete figures cannot be spliced; a
  * bound and a point can.
@@ -690,7 +675,7 @@ function counterpartLogRatios(row, pair, dataset) {
 
 /**
  * THE EFFECT-SIZE INTERVAL — a hierarchical percentile bootstrap that
- * PRESERVES THE RUN (rf2-8a746, Kalibera & Jones 2013).
+ * PRESERVES THE RUN (Kalibera & Jones 2013).
  *
  * Runs are the outer unit and rounds the inner one, and the order matters: a
  * bootstrap that pooled every round of every run and resampled that pool would
@@ -703,8 +688,8 @@ function counterpartLogRatios(row, pair, dataset) {
  * of each run's mean, which is the balanced-design estimator the bootstrap is
  * the distribution of.
  *
- * AND IT REJECTS AN INVALID MEMBER RATHER THAN FILTERING IT (rf2-8a746,
- * merged-PR audit #7700). A function that filtered out any member that was
+ * AND IT REJECTS AN INVALID MEMBER RATHER THAN FILTERING IT. A function that
+ * filtered out any member that was
  * not a non-empty array would be the second half of a silent-subset defect: a
  * caller's `.filter(Boolean)` would drop a reportable run whose raw pair
  * readings were unusable, this filter would drop it again, and the output
@@ -755,15 +740,15 @@ function effectInterval(runs) {
 }
 
 /**
- * MAY THIS ROW PUBLISH A MAGNITUDE ON THIS PAIR? (rf2-8a746, amended rf2-diaud)
+ * MAY THIS ROW PUBLISH A MAGNITUDE ON THIS PAIR?
  *
  * THE WHOLE INTERVAL must lie on one side of the threshold — an interval
  * straddling it is a row that has not measured which side of the line it is on,
  * and quoting its point estimate is quoting the middle of a range that contains
- * the answer and its opposite. That discipline is `rf2-8a746`'s and is retained
- * here unchanged, with no exceptions and no named exemptions.
+ * the answer and its opposite. That discipline holds on every class, with no
+ * exceptions and no named exemptions.
  *
- * WHICH THRESHOLD, AND OF WHAT QUANTITY, IS THE ROW'S CLASS TO SAY (rf2-diaud).
+ * WHICH THRESHOLD, AND OF WHAT QUANTITY, IS THE ROW'S CLASS TO SAY.
  * `rowId` rather than a bare number, because the caller must not be able to
  * hand this function a limit: the limit belongs to `PUBLICATION[class]` beside
  * the estimand it was derived for, and the interval must have been formed on
@@ -772,19 +757,19 @@ function effectInterval(runs) {
  * ABOVE 1.5, while the mount ships at or under K1's 1.10x and trips K1 wholly
  * above it.
  *
- * AND WHICH PAIR, WHICH IS NOT THE SAME QUESTION (rf2-diaud, rf2-vp0j7). A
+ * AND WHICH PAIR, WHICH IS NOT THE SAME QUESTION. A
  * class's bar is stated against ONE comparison — the mount's against direct
  * UIx-on-subs, bulk's against Reagent-on-subs like-for-like — so `gatedPairs`
  * names it and the others are reported beside it with no verdict at all. They
  * lose the adjudication, never the interval.
  *
- * THE SECOND VETO IS RETIRED ON EVERY CLASS (rf2-diaud (c), rf2-vh0e3) and the
- * band arrives as a `diagnostics` bag rather than as a bare limit, because that
- * is now all it is. The widest same-run band is a control statistic for a
+ * THE CROSS-RUN BAND IS NOT A VETO ON ANY CLASS, and the band arrives as a
+ * `diagnostics` bag rather than as a bare limit, because that is all it is.
+ * The widest same-run band is a control statistic for a
  * different estimand, it belongs to one run while the effect is pooled over all
  * of them, and it gets HARDER to clear as runs are added. The 35% band ceiling
  * refuses a run outright in `GATES`, and the same-run bands print beside every
- * verdict. `bulk` does not consult it either: retiring it there promotes
+ * verdict. `bulk` does not consult it either: dropping it there promotes
  * nothing, because `gatedPairs` keeps the donor-against-donor pairs from being
  * adjudicated at all. Each entry says
  * which it is, by name, in its own `crossRunBandVeto` field, because that is
@@ -798,7 +783,7 @@ function effectVerdict(iv, rowId, pair, diagnostics) {
       verdict: 'NO PUBLICATION RULE — this row has no class, so no governing record, no estimand of record and no threshold',
       why:
         `\`${rowId}\` is in none of PUBLICATION's classes, and adjudicating it against another class's threshold ` +
-        'would assert a limit derived for a different question (rf2-diaud)',
+        'would assert a limit derived for a different question',
     };
   }
   if (rule.gatedPairs && !rule.gatedPairs.includes(pair)) {
@@ -807,8 +792,8 @@ function effectVerdict(iv, rowId, pair, diagnostics) {
       verdict: 'CO-INSTRUMENTED — reported beside the gated pair, not gating it',
       why:
         `this row's gate is stated on ${rule.gatedPairs.join(', ')}; \`${pair}\` is measured on the same estimand ` +
-        'and printed beside it, and holding it to a threshold defined for another comparison is the error these ' +
-        'rulings retire (rf2-diaud on the mount, rf2-vp0j7 on bulk)',
+        'and printed beside it, and holding it to a threshold defined for another comparison would ask it a ' +
+        'question that threshold does not answer',
     };
   }
   if (!iv) return { publishes: false, verdict: 'INSTRUMENT-LIMITED', why: 'no usable paired readings in any pooled run — no interval was formed' };
@@ -876,7 +861,7 @@ function adjudicated(row) {
  * otherwise. `scope` says what it is PRIMARILY handed — the dataset envelope,
  * or one row — and a row gate receives the envelope as a second argument,
  * because the envelope carries the design a reading has to be interpreted
- * under (`rf2-8a746`: whether the readings are tared decides what a level
+ * under (whether the readings are tared decides what a level
  * ratio taken from them means). Most row gates ignore it.
  */
 const GATES = [
@@ -988,13 +973,13 @@ const GATES = [
           ? "the run's own reproducibility band exceeds the ceiling on the published clock"
           : null,
   },
-  // THE CHECK STANDARD (rf2-8a746). Two other rules are worth naming, because
+  // THE CHECK STANDARD. Two other rules are worth naming, because
   // a reader of a retained dataset will meet their fields: `ctl3.ok` on a bulk
   // row, and `ctlOk` / `ctlTask.ok` — the +/-25% band about a THEORETICAL
   // 2.00x, every block — everywhere else. This seat reads neither.
-  // The three-point control read 0 of 42 bulk row-runs in
+  // The three-point control reads 0 of 42 bulk row-runs in
   // band, on a mis-derived prediction and a denominator ~2 sigma from zero;
-  // and the all-blocks rule was a separate defect that would have refused just
+  // and the all-blocks rule is a separate defect that would refuse just
   // as hard behind any control, `0.835^18 = 3.9%`.
   //
   // The check standard is level over level, against an EMPIRICAL centre frozen
@@ -1179,8 +1164,7 @@ function main(argv) {
     for (const { file, data } of ineligible) console.log(`;; !!   ${file}: ${CANONICAL_GATE.why(data)}`);
   }
 
-  // RAW EVIDENCE LOST AFTER ELIGIBILITY (rf2-8a746, merged-PR audit #7700):
-  // every (file, row, pair) whose reportable run yielded no usable raw pair
+  // RAW EVIDENCE LOST AFTER ELIGIBILITY: every (file, row, pair) whose reportable run yielded no usable raw pair
   // readings. Filled per pair below; drives EXIT 4 at the foot, because a
   // record that grants eligibility while lacking the raw evidence behind it is
   // an integrity fault a script must not exit 0 over.
@@ -1196,7 +1180,7 @@ function main(argv) {
     console.log(`;; ======== ROW ${rowId} — ${runs.length} runs ========`);
 
     // --- gates, per run -------------------------------------------------------
-    // THE COLUMN THAT DECIDES IS THE CHECK STANDARD'S (rf2-8a746), and the
+    // THE COLUMN THAT DECIDES IS THE CHECK STANDARD'S, and the
     // `ctl-2x` mean beside it is the raw reading it is taken from rather than
     // a second verdict. There is no `ctlPASS` column: `ctlTask.ok` — the
     // all-blocks band about a theoretical 2.00x — is not a rule this program
@@ -1254,12 +1238,11 @@ function main(argv) {
       const ei = ens(inPage);
       console.log('');
       console.log(`;;   PAIR ${pair}`);
-      // EVERY POOLED MEAN BELOW IS A DIAGNOSTIC (rf2-8a746). "reportable
+      // EVERY POOLED MEAN BELOW IS A DIAGNOSTIC. "reportable
       // subset" means the runs that cleared every gate, which is a statement
       // about eligibility and never about publication: what publishes a
       // magnitude is the EFFECT-SIZE INTERVAL at the foot of this block, and a
-      // subset mean quoted above it would be exactly the un-adjudicated
-      // magnitude the ruling forbids.
+      // subset mean quoted above it would be an un-adjudicated magnitude.
       console.log(
         `;;     [pooled means below are DIAGNOSTICS — the interval at the foot of this block is what publishes]`
       );
@@ -1286,8 +1269,8 @@ function main(argv) {
       const erN = ens(rawNet);
       const erI = ens(rawInPage);
       if (erT.n > 0) {
-        // A REPORTABLE RUN THAT YIELDS NO QUOTIENT IS SAID, NOT SHRUNK AWAY
-        // (rf2-8a746, audit #7700). Filtering a NaN out and still printing
+        // A REPORTABLE RUN THAT YIELDS NO QUOTIENT IS SAID, NOT SHRUNK AWAY.
+        // Filtering a NaN out and still printing
         // "reportable subset" over the survivors would be the same
         // unstated-subset shape as the interval defect, one table up, so the
         // count is stated against the reportable count whenever they part.
@@ -1351,19 +1334,19 @@ function main(argv) {
 
       // --- THE EFFECT-SIZE INTERVAL, and the only thing here that publishes --
       //
-      // rf2-8a746's fourth part. The rows above describe; this decides. It is
+      // The rows above describe; this decides. It is
       // computed over the REPORTABLE runs only — a run refused by any gate is
       // not evidence about the page — and it is stated whichever way it falls,
       // because a rule that only prints when it likes the answer is not one.
       //
-      // AND IT IS ONE ESTIMATOR END TO END (rf2-diaud). The point and both
+      // AND IT IS ONE ESTIMATOR END TO END. The point and both
       // bounds below come from the SAME `pairedLogRatios`, which is the row
       // class's own estimand; the other estimand is printed under its own
       // heading with its own complete figure. Nothing here may be read across
       // the two lines.
       const rule = publicationRule(rowId);
       // EVERY REPORTABLE RUN MUST YIELD ITS READINGS, OR THE INTERVAL IS
-      // SUPPRESSED (rf2-8a746, merged-PR audit #7700). Built as
+      // SUPPRESSED. Built as
       // `passIdx.map(pairedLogRatios).filter(Boolean)`, this pool would
       // silently drop a reportable run whose raw pair readings were absent or
       // unusable, and the output would call the survivors "reportable run(s)"
@@ -1401,8 +1384,7 @@ function main(argv) {
             verdict: 'RAW EVIDENCE LOST AFTER ELIGIBILITY — the interval is SUPPRESSED, not formed over an unstated subset',
             why:
               `${ivLost.length} of ${passIdx.length} reportable run(s) carry no usable raw pair readings for \`${pair}\` ` +
-              `(${ivLost.map((m) => shortName(m.file)).join(', ')}) — refused by name rather than filtered ` +
-              '(rf2-8a746, merged-PR audit #7700)',
+              `(${ivLost.map((m) => shortName(m.file)).join(', ')}) — refused by name rather than filtered`,
           }
         : effectVerdict(iv, rowId, pair, { widestSameRunBandPct: noise });
       if (ivLost.length) {
@@ -1416,12 +1398,12 @@ function main(argv) {
         console.log(`;;       GOVERNING RECORD  ${rule.governingRecord}`);
       }
       if (ivLost.length) {
-        // THE LOSS, NAMED PER FILE AND PER PAIR (rf2-8a746, audit #7700) — a
+        // THE LOSS, NAMED PER FILE AND PER PAIR — a
         // run that leaves the pool leaves it for a stated cause, or it is
         // indistinguishable from one that was selected away.
         console.log(
           `;;       RAW EVIDENCE LOST AFTER ELIGIBILITY — no interval is formed on this pair, and the whole pool is ` +
-            `withheld rather than a subset pooled (rf2-8a746, merged-PR audit #7700):`
+            `withheld rather than a subset pooled:`
         );
         for (const m of ivLost) {
           console.log(
@@ -1437,7 +1419,7 @@ function main(argv) {
         console.log(
           `;;       point ${fmt(iv.point)}x   ${fmt((1 - EFFECT.alpha) * 100, 0)}% CI [${fmt(iv.lo)} – ${fmt(iv.hi)}]   ` +
             `over ${iv.runs} reportable run(s) x ${iv.rounds[0]} rounds, ${iv.draws} draws, seed ${iv.seed}` +
-            `  — POINT AND INTERVAL FROM THE ONE ESTIMATOR, never spliced (${EFFECT.thresholdsRuling})`
+            `  — POINT AND INTERVAL FROM THE ONE ESTIMATOR, never spliced`
         );
         console.log(
           `;;       effect |1 - point| ${fmt(Math.abs(iv.point - 1) * 100, 1)}%   ` +
@@ -1447,28 +1429,26 @@ function main(argv) {
                 ? `thresholds: bar ${rule.bar} (whole interval below), architecture-kill ${rule.architectureKill} (whole interval above)`
                 : 'no threshold — this row class has no governing record')
         );
-        // SENSITIVITY DIAGNOSTIC, AND ON EVERY CLASS THAT IS NOW ALL IT IS
-        // (rf2-diaud (c), rf2-vh0e3). The 35% ceiling above already refused any
-        // run whose band breached it; what the rulings retire is the cross-run
-        // MAXIMUM as a second gate on publication. Whether it still gates is
-        // printed rather than inferred, because the retirement is operator-
-        // overturnable in one field and a reader must not have to read the
-        // table to see which way that field is set.
+        // SENSITIVITY DIAGNOSTIC, AND ON EVERY CLASS THAT IS ALL IT IS. The
+        // 35% ceiling above already refused any run whose band breached it;
+        // the cross-run MAXIMUM is not a second gate on publication. Whether
+        // it gates is printed rather than inferred, because it is one field in
+        // the table and a reader must not have to read the table to see which
+        // way that field is set.
         console.log(
           `;;       SENSITIVITY DIAGNOSTIC — same-run reproducibility bands among the pooled runs, widest ` +
             `${Number.isFinite(noise) ? fmt(noise, 1) + '%' : 'n/a'}. ` +
             (rule && rule.crossRunBandVeto
-              ? `On this row class it ALSO vetoes publication — rf2-8a746's second condition, REINSTATED against ` +
-                `${EFFECT.thresholdsRuling} (c) and rf2-vh0e3 by this class's own crossRunBandVeto field.`
+              ? `On this row class it ALSO vetoes publication — this class's own crossRunBandVeto field is set.`
               : `It DECIDES NOTHING here: the 35% ceiling refuses a run in the gates above, and the cross-run ` +
-                `maximum is retired from publication authority (${EFFECT.thresholdsRuling} (c)) — it ` +
+                `maximum is not a publication veto — it ` +
                 `is not an interval for this effect, it belongs to one run, and it grows harder to clear as runs ` +
                 `are added.`)
         );
         // THE OTHER ESTIMAND, COMPLETE AND LABELLED — never a headline, and
         // never a bound to be read beside the point above. COMPLETE is checked
-        // the same way as the headline's (rf2-8a746, audit #7700): the old
-        // `.filter(Boolean)` here would have printed "over the same runs" over
+        // the same way as the headline's: a
+        // `.filter(Boolean)` here would print "over the same runs" over
         // a silently smaller set, so a member that yields no ratios suppresses
         // the diagnostic with the loss stated instead.
         const cMembers = passIdx.map((i) => counterpartLogRatios(runs[i].row, pair, runs[i].data));
@@ -1483,8 +1463,7 @@ function main(argv) {
         } else if (cLost) {
           console.log(
             `;;       [the counterpart estimand is SUPPRESSED — ${cLost} of ${passIdx.length} reportable run(s) yield no ` +
-              `usable readings for it, and a diagnostic pooled over an unstated subset would be the defect one line up ` +
-              `(rf2-8a746, audit #7700)]`
+              `usable readings for it, and a diagnostic pooled over an unstated subset would be the defect one line up]`
           );
         }
       } else if (!ivLost.length) {
@@ -1494,7 +1473,7 @@ function main(argv) {
       if (!ev.publishes) {
         console.log(
           `;;       so this row publishes NO MAGNITUDE on this pair, and no mean printed above may be quoted as ` +
-            `one (${EFFECT.bead}, ${EFFECT.thresholdsRuling}).`
+            `one.`
         );
       }
     }
@@ -1697,8 +1676,8 @@ function main(argv) {
   if (rawEvidenceLoss.length) {
     console.log('');
     console.log(
-      `;; EXIT 4 — ${rawEvidenceLoss.length} reportable run/pair(s) LOST RAW EVIDENCE after eligibility was decided ` +
-        '(rf2-8a746, merged-PR audit #7700). Every affected interval above is SUPPRESSED rather than formed over an ' +
+      `;; EXIT 4 — ${rawEvidenceLoss.length} reportable run/pair(s) LOST RAW EVIDENCE after eligibility was decided. ` +
+        'Every affected interval above is SUPPRESSED rather than formed over an ' +
         'unstated subset, and no figure on those pairs may be quoted:'
     );
     for (const l of rawEvidenceLoss) console.log(`;;   ${l.file}: row ${l.rowId}, pair \`${l.pair}\``);
@@ -1726,16 +1705,16 @@ function shortName(f) {
 // it is a second description of a row printed beside the first — so exporting
 // it would widen a guard to accommodate a reporting helper.
 //
-// rf2-8a746 adds four names and every one of them is a decision: the gate a
-// row now turns on, the quantity the product claim asserts, the interval over
+// Four of the names are decisions of the publication path: the gate a row
+// turns on, the quantity the product claim asserts, the interval over
 // it, and the rule that says whether that interval may publish. `EFFECT` is
 // exported with them because a test that could not read the seed could not
 // pin the procedure.
 //
-// rf2-diaud adds `PUBLICATION` and `counterpartLogRatios`, and both are
-// decisions rather than helpers. `PUBLICATION` is where a row class's governing
+// `PUBLICATION` and `counterpartLogRatios` are decisions rather than helpers
+// too. `PUBLICATION` is where a row class's governing
 // record, estimand and threshold are bound together — the binding IS the
-// ruling, so a test has to be able to read it. `counterpartLogRatios` is the
+// rule, so a test has to be able to read it. `counterpartLogRatios` is the
 // rule that the estimand NOT being published is stated complete beside the one
 // that is; a test drives it to prove no bound of one can reach a point of the
 // other. The two per-class estimators stay unexported: which one applies is
