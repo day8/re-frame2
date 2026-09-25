@@ -73,7 +73,7 @@ The [charter](../charter.md#constraints) permits `defn`-class macro sugar with f
 rg -n --sort path "^\s*\(defmacro\b" implementation/fresco/src
 ```
 
-**Anchored: 6. Unanchored (`rg -n "defmacro"`): 6** — this is the one arm where the two agree, because no docstring in the package quotes the word.
+**Anchored: 3. Unanchored (`rg -n "defmacro"`): 3** — this is the one arm where the two agree, because no docstring in the package quotes the word.
 
 <!-- census:mechanism-macros -->
 
@@ -82,11 +82,8 @@ rg -n --sort path "^\s*\(defmacro\b" implementation/fresco/src
 | `defview` | `re-frame.fresco` | a `defn` plus one `mint-view!` call | the body is an ordinary function; nothing reads its forms |
 | `event` | `re-frame.fresco` | an anonymous view, same shape | as above |
 | `defhost` | `re-frame.fresco` | a `def` of a `mint-host!` declaration | takes a data map, not body forms |
-| `props` | `re-frame.fresco.native` | a `#js` object literal | a literal, at one visible escape |
-| `$` | `re-frame.fresco.native` | one `react/createElement` | the visibly distinct second language the kill rule names, never a second mode of `[…]` |
-| `defcomponent` | `re-frame.fresco.native` | a `def` of a React function component | as `defhost` |
 
-Six macros, six rows, and each captures a source coordinate for refusal messages. **Not one takes a body form as data.** The mode-flag half of the same rule is empty by inspection: `rg -n ":fast\b|:compiled\b|compile-mode|promotion|:optimize\b|analyzer"` returns three hits and all three are docstring prose saying there is no compiler and no analyzer.
+Three macros, three rows, and each captures a source coordinate for refusal messages. **Not one takes a body form as data.** The mode-flag half of the same rule is empty by inspection: `rg -n ":fast\b|:compiled\b|compile-mode|promotion|:optimize\b|analyzer"` returns three hits and all three are docstring prose saying there is no compiler and no analyzer.
 
 ### 1.3 No ViewCell-class graph, and no per-boundary callback-cell table
 
