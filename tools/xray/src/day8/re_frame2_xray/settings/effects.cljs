@@ -217,7 +217,7 @@
   JVM-portable pure data so the JVM test surface can assert the
   mapping without touching the browser."
   {:compact 12
-   :cosy    13})
+   :cosy    13 :comfy 14})
 
 (defn density->px
   "Resolve a density keyword to its px value via `density->font-size-px`.

@@ -115,7 +115,7 @@
   [:div {:style       card-style
          :data-testid "panel-gallery-epoch-card"}
    ;; `Panel-bridge`; see the Reactive cell below for why.
-   [epoch-panel/Panel-bridge]])
+   [epoch-panel/Panel]])
 
 (defn- reactive-tab-panel
   "Embedded mount of the Reactive tab body — the reactive panel
@@ -151,7 +151,7 @@
   [:div {:style       card-style
          :data-testid "panel-gallery-machines-card"}
    ;; `Panel-bridge`; see the Reactive cell below for why.
-   [machine-inspector/Panel-bridge]])
+   [machine-inspector/Panel]])
 
 (defn- routing-tab-panel
   "Embedded mount of the Routing tab body — the routing panel

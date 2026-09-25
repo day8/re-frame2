@@ -1526,7 +1526,7 @@
             ;; declaration is lowered under it, so the frame classification
             ;; above cannot match its values, and the §3 row renders a
             ;; failed record's outcome, which carries the error envelope.
-            work-rows     (h/project-work-ledger ledger sensitive-rids)
+            work-rows     (h/project-work-ledger ledger)
             resolver-rows (h/project-scope-resolvers scope-resolvers)]
         {:silent?       (and (empty? registry-rows) (empty? instance-rows)
                              (empty? resolver-rows))

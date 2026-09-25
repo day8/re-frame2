@@ -238,7 +238,7 @@
   This testbed is dev-only and never ships. Idempotent."
   []
   (xray-registry/register-xray-handlers!)
-  (xray-test-support/install-test-overrides!))
+  nil)
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
