@@ -1,18 +1,18 @@
 (ns day8.re-frame2-xray.panels.machines.trace-state-cljs-test
-  "Pure-data tests for the trace→state derivation module (rf2-8jzm1 ·
-  spec/021 §6 + machines-viz `001-Topology-Parity.md` §4.4 / G3). The
+  "Pure-data tests for the trace→state derivation module (spec/021 §6 +
+  machines-viz `001-Topology-Parity.md` §4.4 / G3). The
   module is JS/React-free; tests run under :node-test with zero DOM
   harness.
 
   ## Fired-edge id AGREEMENT (the G3 prerequisite)
 
   The headline contract: `extract-fired-edge-ids` mints the SAME edge
-  ids the live MachineChart mints, so a future fired-this-epoch
-  highlight (rf2-qeemm / B8) lands on real chart edges. The agreement
+  ids the live MachineChart mints, so the fired-this-epoch
+  highlight lands on real chart edges. The agreement
   tests project the SAME definition through the canonical
   `chart.layout/project-definition` (the live chart's edge source) and
   assert the fired ids are exactly the projected edges' `:id`s — mirrors
-  the rf2-m8kod node-id parity approach."
+  the node-id parity approach."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]))
@@ -94,7 +94,7 @@
     ;;   {:tags {:after  {:state <to-kw> ...}
     ;;           :before {:state <from-kw> ...}
     ;;           :machine-id <id>}}
-    ;; The legacy top-level :to slot still works (existing tests pin it).
+    ;; The legacy top-level :to slot works too (the tests above pin it).
     (let [events [{:operation :rf.machine/transition
                    :tags      {:machine-id :cart
                                :after      {:state :populated}}}]]
@@ -112,7 +112,7 @@
       (is (= [:populated]
              (trace-state/current-state-from-traces events :cart))))))
 
-;; ---- from-state-from-traces (rf2-ad7zx.10 · Figma §6.2 Case C) ----------
+;; ---- from-state-from-traces (Figma §6.2 Case C) -------------------------
 ;; Resolves the SOURCE state of the focused fired transition for the
 ;; :from circle.
 
@@ -145,7 +145,7 @@
     (is (nil? (trace-state/from-state-from-traces [] :foo)))
     (is (nil? (trace-state/from-state-from-traces nil :foo)))))
 
-;; ---- current-state-from-epoch-history (rf2-dbi87 · Case B) --------------
+;; ---- current-state-from-epoch-history (Case B) --------------------------
 
 (deftest current-state-from-epoch-history-walks-back
   (testing "walks epoch-history newest→oldest, returns most-recent :to"
@@ -269,16 +269,17 @@
           fired       (trace-state/extract-fired-edge-ids def events :cart)]
       (is (= #{populate-id submit-id} fired)))))
 
-;; ---- :always-microstep fired-edge (rf2-8i1tg3) ---------------------------
+;; ---- :always-microstep fired-edge ---------------------------------------
 ;;
 ;; `commit-or-finalize` emits ONE `:rf.machine/transition` per macrostep
 ;; whose `:after` is the FINAL settled state once every `:always`
 ;; iteration has ALSO run — not the state the dispatched event's OWN
-;; transition landed in. Matching `(from, :after, event)` looked for an
-;; edge that does not exist, so a `:microsteps > 0` transition lit NO
-;; fired edge at all (`#{}`). The fix derives the direct event-driven
-;; target from the FIRST `:kind :microstep` cascade step and additionally
-;; lights each `:always` hop's own edge (matched on `event* :always`).
+;; transition landed in. Matching `(from, :after, event)` would look for an
+;; edge that does not exist, so a `:microsteps > 0` transition would light
+;; NO fired edge at all (`#{}`). The derivation takes the direct
+;; event-driven target from the FIRST `:kind :microstep` cascade step and
+;; additionally lights each `:always` hop's own edge (matched on
+;; `event* :always`).
 
 (defn- always-microstep-definition
   "`:populate` is event-driven (:empty -> :populated); `:populated`
@@ -294,7 +295,7 @@
              :auto-processing {:final? true}}})
 
 (deftest extract-fired-edge-ids-always-microstep-lights-direct-and-chain-edges
-  (testing "rf2-8i1tg3 — a :microsteps > 0 macrostep lights BOTH the
+  (testing "a :microsteps > 0 macrostep lights BOTH the
             dispatched event's own edge (:empty -> :populated) AND
             the :always microstep's own edge (:populated ->
             :auto-processing) — NOT the (from, FINAL-settled, event)
@@ -320,9 +321,9 @@
           "both the event-driven edge AND the always-microstep edge light"))))
 
 (deftest extract-fired-edge-ids-no-microsteps-unaffected
-  (testing "rf2-8i1tg3 regression guard — a plain (:microsteps 0)
+  (testing "regression guard — a plain (:microsteps 0)
             transition is unaffected by the microstep-target derivation
-            (falls through to the pre-existing to-path-from-trace read)"
+            (falls through to the to-path-from-trace read)"
     (let [def         (toy-definition)
           populate-id (canonical-edge-id def [:empty] [:populated] :populate)
           events      [{:operation  :rf.machine/transition
@@ -348,7 +349,7 @@
       (is (= #{populate-id} fired)))))
 
 (deftest extract-fired-edge-ids-reads-runtime-tags-event-shape
-  (testing "rf2-qeemm — the LIVE runtime shape: `commit-or-finalize`
+  (testing "the LIVE runtime shape: `commit-or-finalize`
             (lifecycle_fx/registration) emits the inner event under
             `:tags :event` (a `[event-id & args]` vector), NOT top-level.
             extract-fired-edge-ids must read it there or the live-chart
@@ -369,11 +370,11 @@
 ;; ---- extract-fired-edge-ids: AGREEMENT with the live chart (G3) ---------
 ;;
 ;; The Xray fired-edge ids MUST equal the ids the live MachineChart
-;; mints, or any fired-this-epoch highlight wiring (rf2-qeemm / B8)
+;; mints, or the fired-this-epoch highlight wiring
 ;; silently mis-targets. The live chart edges come straight off
 ;; `chart.layout/project-definition`; these tests pin that the fired ids
 ;; are a SUBSET of — and individually present among — those projected
-;; ids, including the injective-node-id collision triple (rf2-m8kod) and
+;; ids, including the injective-node-id collision triple and
 ;; namespaced events.
 
 (deftest fired-ids-agree-with-projected-chart-edge-ids
@@ -393,7 +394,7 @@
 
 (deftest fired-ids-agree-across-injective-node-id-collision-triple
   (testing ":a/b vs :a-b vs :a_b transitions resolve to DISTINCT chart ids"
-    ;; The non-injective node-id collapse (pre-rf2-m8kod) merged these
+    ;; A non-injective node-id collapse would merge these
     ;; three onto one id; the canonical hex-escape scheme keeps them
     ;; distinct — and the fired-edge ids ride that same scheme via
     ;; project-definition, so they agree with the live chart per-arm.
@@ -428,9 +429,9 @@
       (is (every? projected-ids fired)
           "the namespaced-event fired id is a real live-chart edge id"))))
 
-;; ---- machine-level (top-level :on) fallback fired-edge match (rf2-vcnvj) -
+;; ---- machine-level (top-level :on) fallback fired-edge match ------------
 ;;
-;; rf2-vcnvj projects a machine-level fallback ONCE from the synthetic
+;; The chart projects a machine-level fallback ONCE from the synthetic
 ;; MACHINE-ROOT node, so its `:from-path` is `[]` (the root context), not
 ;; the concrete leaf the runtime fired it from. `extract-fired-edge-ids`
 ;; therefore falls back to matching a machine-level edge on (to, event)
@@ -438,7 +439,7 @@
 ;; the single root-sourced chip lights regardless of source leaf.
 
 (deftest fired-ids-match-machine-level-fallback-from-any-leaf
-  (testing "rf2-vcnvj — a top-level `:on` fallback firing from a leaf
+  (testing "a top-level `:on` fallback firing from a leaf
             that does NOT declare it (the door `:door/audit` from
             `:alarming`) lights the single machine-level chip, matched on
             (to, event) since the chip's from-path is the root `[]`."
@@ -465,7 +466,7 @@
           "the fired id is a real live-chart edge id"))))
 
 (deftest fired-ids-prefer-state-local-over-machine-level
-  (testing "rf2-vcnvj — when a leaf declares its OWN transition for the
+  (testing "when a leaf declares its OWN transition for the
             same event, the STATE-LOCAL edge matches (full from/to/event)
             and the machine-level fallback does NOT also light."
     (let [def           {:initial :a
@@ -485,7 +486,7 @@
       (is (= #{(:id local-edge)} fired)
           "the state-local edge lights; the machine-level fallback is not pulled in"))))
 
-;; ---- inherited-transition fired-edge match (rf2-6e8rh8) -----------------
+;; ---- inherited-transition fired-edge match ------------------------------
 ;;
 ;; Per Spec 005 deepest-wins, a transition declared on a compound ANCESTOR
 ;; applies to a descendant leaf that doesn't override it. The runtime's
@@ -493,12 +494,12 @@
 ;; definition` projects the edge's `:from-path`/`:to-path` at the DECLARING
 ;; path (the ancestor for an inherited source; the flat declared target —
 ;; NOT initial-descended — for a compound target). Exact `=` never matches
-;; either; `single-transition-fired-ids` now matches via `on-active-path?`
-;; (a possibly-equal prefix test), mirroring the rf2-tjm3u2 guard-blocked
-;; fix's `on-active-path?` treatment.
+;; either; `single-transition-fired-ids` matches via `on-active-path?`
+;; (a possibly-equal prefix test), mirroring the guard-blocked
+;; derivation's `on-active-path?` treatment.
 
 (deftest fired-ids-inherited-transition-on-active-path
-  (testing "rf2-6e8rh8 — an INHERITED transition (declared on an ANCESTOR
+  (testing "an INHERITED transition (declared on an ANCESTOR
             still on the active path) is matched: the ancestor's
             :from-path is a strict PREFIX of the runtime's actual leaf
             :before :state, not an exact match"
@@ -524,7 +525,7 @@
            on-active-path? rather than exact equality"))))
 
 (deftest fired-ids-compound-target-initial-descent
-  (testing "rf2-6e8rh8 — a transition TARGETING a compound state
+  (testing "a transition TARGETING a compound state
             initial-descends to a deeper leaf at runtime; the edge's
             declared :to-path ([:open], the flat compound target — Not
             initial-descended by chart.layout/resolve-target-path) is a
@@ -547,7 +548,7 @@
            landed leaf [:open :wide] — matched via on-active-path?"))))
 
 (deftest fired-ids-sibling-not-matched-by-inherited-prefix
-  (testing "rf2-6e8rh8 — the prefix match does NOT over-match a sibling
+  (testing "the prefix match does NOT over-match a sibling
             state's edge: only an ancestor ON the active path qualifies"
     (let [;; `:open` and `:closed` are siblings; both declare `:door/audit`.
           ;; The active leaf is under `:open`, so only :open's edge (an
@@ -573,7 +574,7 @@
           "only :open's edge lights — :closed's identical-event edge is
            NOT a prefix of the active [:open :wide] leaf"))))
 
-;; ---- extract-guard-blocked-edge-ids (rf2-fzrzlw) ------------------------
+;; ---- extract-guard-blocked-edge-ids -------------------------------------
 ;;
 ;; A guard-blocked transition is a NO-OP: the guard evaluated fail/threw, so
 ;; the runtime emits `:rf.machine/guard-evaluated {:guard-id … :outcome
@@ -584,7 +585,7 @@
 ;; can paint it PINK instead of leaving it invisible among the blue exits.
 
 (defn- door-definition
-  "The bead's repro shape: a door in `:open` with a `:door/close` guarded
+  "The repro shape: a door in `:open` with a `:door/close` guarded
   by `:may-close?`. When `held-open? = true` the guard fails → no-op."
   []
   {:initial :closed
@@ -605,12 +606,12 @@
                  (:id e))))))
 
 (deftest guard-blocked-ids-match-on-fail-outcome
-  (testing "rf2-fzrzlw — a guard-evaluated :fail lights the canonical
+  (testing "a guard-evaluated :fail lights the canonical
             (from, event, guard) edge id the live chart mints"
     (let [def        (door-definition)
           close-id   (canonical-guard-edge-id def [:open] :door/close :may-close?)
           ;; the LIVE runtime shape: :guard-id + :outcome + :state +
-          ;; :input {:data :event} (rf2-tjm3u2 added :state).
+          ;; :input {:data :event}.
           events     [{:operation :rf.machine/guard-evaluated
                        :tags {:machine-id :door
                               :guard-id   :may-close?
@@ -683,9 +684,9 @@
 (deftest guard-blocked-ids-match-actor-id-only-modern-trace
   (testing "modern live shape: the guard trace carries ONLY :actor-id (the
             running instance address) — NO :machine-id — and the blocked
-            edge id is still recovered (the bug: the reader filtered on
-            :machine-id alone, so actor-id-only guard traces were dropped
-            and the chart showed no rejected edge)"
+            edge id is recovered (a reader filtering on :machine-id alone
+            would drop actor-id-only guard traces and the chart would show
+            no rejected edge)"
     (let [def      (door-definition)
           close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
           ;; transition.cljc `evaluate-guard` stamps `:actor-id` (the live
@@ -742,7 +743,7 @@
       (is (= #{close-id} blocked)))))
 
 (deftest guard-blocked-ids-disambiguate-guarded-fork-arm
-  (testing "rf2-fzrzlw precision win — a guarded FORK (two same-source/
+  (testing "precision — a guarded FORK (two same-source/
             same-event candidates differing by guard) lights ONLY the arm
             whose NAMED guard the trace reports failing, not its sibling"
     (let [def       {:initial :idle
@@ -755,7 +756,7 @@
           lo-id     (->> projected (some (fn [e] (when (= :lo? (:guard e)) (:id e)))))
           ;; :hi? failed; the engine walked on to :lo? (which passed and
           ;; fired) — only the :hi? ARM is guard-blocked.
-          ;; rf2-tjm3u2 — both fork arms declare on the SAME state (:idle),
+          ;; Both fork arms declare on the SAME state (:idle),
           ;; so source-path can't discriminate them; the NAMED guard does.
           events    [{:operation :rf.machine/guard-evaluated
                       :tags {:machine-id :m :guard-id :hi? :outcome :fail
@@ -770,11 +771,12 @@
            discriminates the fork (source-path agrees for both arms)"))))
 
 (deftest guard-blocked-ids-disambiguate-by-source-state-path
-  (testing "rf2-tjm3u2 — two states both declaring the SAME event + SAME
+  (testing "two states both declaring the SAME event + SAME
             guard id: a guard failure in ONE active state lights ONLY that
             state's edge, NOT the sibling's reused-id edge"
     (let [;; Two siblings BOTH declare `:door/close` guarded by `:may-close?`.
-          ;; Before the fix, a guard-block in :open painted BOTH edges pink.
+          ;; Matching on (event, guard) alone, a guard-block in :open would
+          ;; paint BOTH edges pink.
           def       {:initial :open
                      :states  {:open {:on {:door/close {:target :closed
                                                         :guard  :may-close?}}}
@@ -784,7 +786,7 @@
           open-id   (canonical-guard-edge-id def [:open] :door/close :may-close?)
           ajar-id   (canonical-guard-edge-id def [:ajar] :door/close :may-close?)
           ;; The guard FAILED while :open was the active state — the runtime
-          ;; stamps the active `:state` on the trace (rf2-tjm3u2).
+          ;; stamps the active `:state` on the trace.
           events    [{:operation :rf.machine/guard-evaluated
                       :tags {:machine-id :door
                              :guard-id   :may-close?
@@ -801,9 +803,9 @@
            trace's :state disambiguates it from :ajar's identical (event, guard)"))))
 
 (deftest guard-blocked-ids-no-state-falls-back-to-event-guard-match
-  (testing "rf2-tjm3u2 — a trace with NO :state (region-map / older trace)
-            falls back to the (event, guard) match (pre-tjm3u2 behaviour):
-            both same-id edges light, since the source cannot be resolved"
+  (testing "a trace with NO :state (region-map / older trace)
+            falls back to the (event, guard) match: both same-id edges
+            light, since the source cannot be resolved"
     (let [def      {:initial :open
                     :states  {:open {:on {:door/close {:target :closed
                                                        :guard  :may-close?}}}
@@ -824,7 +826,7 @@
            the conservative (event, guard) fallback"))))
 
 (deftest guard-blocked-ids-inherited-transition-on-active-path
-  (testing "rf2-tjm3u2 — an INHERITED transition (declared on an ANCESTOR
+  (testing "an INHERITED transition (declared on an ANCESTOR
             still on the active path) is matched: the ancestor's :from-path
             is a strict PREFIX of the active leaf state"
     (let [;; `:open` is a COMPOUND with `:door/close` declared at the PARENT
@@ -862,19 +864,19 @@
       (is (every? projected-ids blocked)
           "each guard-blocked id is one the live chart actually rendered"))))
 
-;; ---- extract-fired-edge-ids: PARALLEL multi-region (rf2-8ncxrf) ----------
+;; ---- extract-fired-edge-ids: PARALLEL multi-region ----------------------
 ;;
 ;; A `:type :parallel` machine's snapshot `:state` is a region-MAP (one
 ;; active leaf per orthogonal region — Spec 005 §Parallel regions). A single
 ;; external event fires transitions in N regions AT ONCE, but the runtime
 ;; emits ONE `:rf.machine/transition` whose `:before` / `:after` carry the
 ;; WHOLE composite region-map. The single-active (from, to) match returns
-;; nil for a map, so before this fix the event-focused Machine view lit NO
-;; edge for `[:hvac/power-cycle]` (the bug). `extract-fired-edge-ids` now
+;; nil for a map, so on its own it would light NO edge in the event-focused
+;; Machine view for `[:hvac/power-cycle]`. `extract-fired-edge-ids`
 ;; detects the region-map shape and lights EVERY changed region's edge.
 
 (defn- hvac-definition
-  "The bead's repro: a 2-region parallel HVAC controller. `[:hvac/power-cycle]`
+  "The repro: a 2-region parallel HVAC controller. `[:hvac/power-cycle]`
   toggles BOTH regions at once (climate idle⇄running, fan off⇄on)."
   []
   {:type :parallel
@@ -886,7 +888,7 @@
                                  :on  {:on {:hvac/power-cycle :off}}}}}})
 
 (deftest fired-ids-parallel-light-every-changed-region
-  (testing "rf2-8ncxrf — one [:hvac/power-cycle] event firing in BOTH regions
+  (testing "one [:hvac/power-cycle] event firing in BOTH regions
             lights BOTH region edges (climate idle→running + fan off→on),
             not a blank chart"
     (let [def           (hvac-definition)
@@ -921,7 +923,7 @@
           "each fired id is a real live-chart edge id"))))
 
 (deftest fired-ids-parallel-only-changed-regions
-  (testing "rf2-8ncxrf — an event that moves ONE region and leaves the other
+  (testing "an event that moves ONE region and leaves the other
             resting lights ONLY the moved region's edge"
     (let [def        (hvac-definition)
           projected  (:edges (chart-layout/project-definition def))
@@ -943,7 +945,7 @@
           "only the climate edge lights — the resting fan region is skipped"))))
 
 (deftest fired-ids-parallel-disambiguate-shared-state-names-across-regions
-  (testing "rf2-8ncxrf / rf2-wnzha — two regions sharing a state NAME mint
+  (testing "two regions sharing a state NAME mint
             DISTINCT region-scoped edge ids; the region-scoped :source match
             attributes each fired edge to the region that actually moved"
     ;; Both regions declare an `:a`/`:b` pair on the same `:go` event — the
@@ -977,7 +979,7 @@
           "ONLY the :left edge lights — the region-scoped source discriminates"))))
 
 (deftest fired-ids-parallel-agree-with-projected-chart-edge-ids
-  (testing "rf2-8ncxrf — every parallel fired id is a real projected chart edge :id"
+  (testing "every parallel fired id is a real projected chart edge :id"
     (let [def           (hvac-definition)
           projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           events        [{:operation :rf.machine/transition
@@ -992,7 +994,6 @@
           "each parallel fired id is one the live chart actually rendered"))))
 
 ;; ---- extract-fired-edge-ids: parent-owned parallel `:always` ROUNDS ------
-;; (rf2-bvwv4q)
 ;;
 ;; A parallel macrostep can move a region on the EVENT and then again on one
 ;; or more cross-region `:always` ROUNDS. The runtime commits ONE aggregate
@@ -1032,7 +1033,7 @@
                  (:id e))))))
 
 (deftest extract-fired-edge-ids-parallel-round-lights-four-real-edges
-  (testing "rf2-bvwv4q — :go moves both regions :idle→:staged, then a parent
+  (testing ":go moves both regions :idle→:staged, then a parent
             round co-selects both :staged→:done; EXACTLY four real edges light
             (two :go event edges + two :always round edges), NOT the phantom
             aggregate :idle→:done"
@@ -1060,14 +1061,15 @@
           fired     (trace-state/extract-fired-edge-ids def events :par/round)]
       (is (every? string? [a-go b-go a-always b-always])
           "all four real edges exist in the projection")
-      ;; the phantom aggregate the buggy derivation searched for does not exist
+      ;; the phantom aggregate an aggregate-diff derivation would search for
+      ;; does not exist
       (is (nil? (region-edge-id projected :a [:idle] [:done] :go))
-          "no :idle→:done :go edge is declared — the aggregate diff was a phantom")
+          "no :idle→:done :go edge is declared — an aggregate diff would match a phantom")
       (is (= #{a-go b-go a-always b-always} fired)
           "exactly the four real edges light; the parent round is first-class"))))
 
 (deftest extract-fired-edge-ids-parallel-round-declined-region-no-phantom
-  (testing "rf2-bvwv4q — a region that DECLINED the external event but later
+  (testing "a region that DECLINED the external event but later
             took an :always round gains NO phantom event-labelled edge — only
             its round edge lights"
     ;; :a handles :go (:idle→:staged) then rounds :staged→:done.
@@ -1107,7 +1109,7 @@
            region that declined the event"))))
 
 ;; ---- extract-fired-edge-ids: HANDLED self/internal EVENT then an :always ----
-;; ROUND (rf2-v528f)
+;; ROUND
 ;;
 ;; A parallel region can HANDLE the external event with a real SELF/INTERNAL
 ;; transition (before == the EVENT target — the region rests) and THEN take a
@@ -1115,17 +1117,17 @@
 ;; aggregate `:rf.machine/transition` whose SETTLED `:after` is the round's
 ;; target, PLUS a standalone `:rf.machine.microstep/transition` per round, AND
 ;; stamps the event-handling action step + a `:kind :microstep` round step into
-;; the aggregate `:cascade`. Before rf2-v528f the handled-unchanged branch
-;; required `(empty? rounds)` and diffed the SETTLED before/after, so the
-;; region's self/internal EVENT edge was DROPPED and only the round edge lit.
-;; The fix keys handled-unchanged off `(region-before == event-target)` and
-;; derives the event-handled-region set from the NON-microstep cascade steps.
+;; the aggregate `:cascade`. A handled-unchanged branch that required
+;; `(empty? rounds)` and diffed the SETTLED before/after would DROP the
+;; region's self/internal EVENT edge and light only the round edge. So
+;; handled-unchanged keys off `(region-before == event-target)`, and the
+;; event-handled-region set comes from the NON-microstep cascade steps.
 
 (deftest extract-fired-edge-ids-parallel-internal-then-round-keeps-event-edge
-  (testing "rf2-v528f — region :a HANDLES :go with a targetless/INTERNAL
+  (testing "region :a HANDLES :go with a targetless/INTERNAL
             transition (:arm action, stays :idle) and THEN a round moves
             :idle→:done; BOTH the :go internal event edge AND the :always round
-            edge light — the settled :idle→:done no longer swallows the event
+            edge light — the settled :idle→:done does not swallow the event
             edge. region :b co-selects :idle→:staged (event) then :staged→:done."
     (let [def       {:type    :parallel
                      :regions {:a {:initial :idle
@@ -1167,13 +1169,13 @@
       (is (every? string? [a-go a-always b-go b-always])
           "all four real edges exist in the projection (:a's :go is an internal self edge)")
       (is (contains? fired a-go)
-          "the HANDLED self/internal :go EVENT edge for :a lights (rf2-v528f — was dropped
-           because a later :always round set the handled-unchanged (empty? rounds) guard false)")
+          "the HANDLED self/internal :go EVENT edge for :a lights (an (empty? rounds)
+           handled-unchanged guard would drop it once a later :always round ran)")
       (is (= #{a-go a-always b-go b-always} fired)
           "exactly the four real edges light — the event edge survives the later round"))))
 
 (deftest extract-fired-edge-ids-parallel-microstep-only-region-not-event-handled
-  (testing "rf2-v528f — a region present in the aggregate :cascade ONLY via a
+  (testing "a region present in the aggregate :cascade ONLY via a
             `:kind :microstep` round step is NOT treated as event-handled: no
             phantom event edge is minted even though the projection has a
             matchable :go internal self edge for it. Kills the 'count microsteps
@@ -1183,7 +1185,7 @@
     ;; round step (:idle→:ready) — the trace omits any :b event step, modelling a
     ;; region that did NOT handle :go yet took an :always round. :b's def carries
     ;; a :go internal self edge PRECISELY so a microstep-counting derivation would
-    ;; have a phantom to (wrongly) light; the fix leaves it dark.
+    ;; have a phantom to (wrongly) light; the derivation leaves it dark.
     (let [def       {:type    :parallel
                      :regions {:a {:initial :idle
                                    :states  {:idle   {:on {:go :staged}}
@@ -1244,7 +1246,7 @@
                  (:id e))))))
 
 (deftest fired-ids-parallel-root-on-single-region-target
-  (testing "rf2-3v3gv1 — a root :on moving ONE region (no region-local edge)
+  (testing "a root :on moving ONE region (no region-local edge)
             lights the MACHINE-ROOT-sourced chip for that region; the
             untargeted region lights nothing"
     ;; Mirrors spec/conformance/fixtures/parallel-root-on-single-region-target:
@@ -1272,7 +1274,7 @@
           "the fired id is a real live-chart edge id"))))
 
 (deftest fired-ids-parallel-root-on-multi-region-target
-  (testing "rf2-3v3gv1 — a root :on with multiple region-qualified targets
+  (testing "a root :on with multiple region-qualified targets
             lights BOTH region chips; an untargeted region lights nothing"
     ;; Mirrors parallel-root-on-multi-region-target: advance -> {a:x, b:y, c:one}.
     (let [def           {:type    :parallel
@@ -1298,7 +1300,7 @@
       (is (every? projected-ids fired)))))
 
 (deftest fired-ids-parallel-root-on-suppressed-by-region-local
-  (testing "rf2-3v3gv1 — when a region handles the event LOCALLY the root :on
+  (testing "when a region handles the event LOCALLY the root :on
             is suppressed entirely; only the region-local edge lights"
     ;; Mirrors parallel-root-on-region-wins: GO -> {a:two, b:one}. :a handles
     ;; :go locally; the root :go (which would move BOTH) is suppressed, so :b
@@ -1330,7 +1332,7 @@
           "the region-local edge lights; the suppressed root :on chip does NOT"))))
 
 (deftest fired-ids-parallel-root-on-agree-with-projected-chart-edge-ids
-  (testing "rf2-3v3gv1 — every root-:on fired id is a real projected chart edge :id"
+  (testing "every root-:on fired id is a real projected chart edge :id"
     (let [def           {:type    :parallel
                          :on      {:go-all {:target [[:a :two] [:b :two]]}}
                          :regions {:a {:initial :one :states {:one {} :two {}}}
@@ -1348,20 +1350,21 @@
       (is (every? projected-ids fired)
           "each root-:on fired id is one the live chart actually rendered"))))
 
-;; ---- extract-fired-edge-ids: region-level top-level `:on` (rf2-85a9do) ---
+;; ---- extract-fired-edge-ids: region-level top-level `:on` ---------------
 ;;
 ;; A parallel REGION def is a compound state and MAY carry its OWN top-level
 ;; `:on` (a legal Spec 005 region-level fallback — XState v5: a region is an
-;; orthogonal compound state). `project-parallel` (layout.cljc §rf2-7i7t3)
+;; orthogonal compound state). `project-parallel` (layout.cljc)
 ;; drops the synthetic machine-root and re-points the region's machine-level
 ;; fallback edge's source to the REGION CONTAINER (`region-node-id`). So the
 ;; projected edge carries `:machine-level? true`, `:from-path []`, a region-
 ;; container `:source`, an in-region `:to-path`, and NO `:parallel-root-on?`.
 ;; Neither the region-local match (region-scoped in-region source) nor the
 ;; root-:on match (`:parallel-root-on?` + region-qualified `:to-path`) reach
-;; it, so this traversed arm was previously missed — a parallel region state
-;; change with no fired-edge highlight. `region-machine-on-fired-ids` lights
-;; it, reserved between the region-local and root-:on fallbacks.
+;; it, so without its own arm this traversed edge would be missed — a
+;; parallel region state change with no fired-edge highlight.
+;; `region-machine-on-fired-ids` lights it, reserved between the
+;; region-local and root-:on fallbacks.
 
 (defn- region-machine-on-edge-id
   "Look up the canonical machines-viz edge id for a REGION's top-level `:on`
@@ -1379,7 +1382,7 @@
                  (:id e))))))
 
 (deftest fired-ids-parallel-region-level-on-lights-canonical-edge
-  (testing "rf2-85a9do — a region moved by its OWN top-level :on fallback
+  (testing "a region moved by its OWN top-level :on fallback
             (no child state handled the event) lights the region's machine-
             level fallback edge — the canonical projected id — not a blank"
     ;; :fetch carries a region-level :on {:abort :loading}. From :done, :abort
@@ -1412,7 +1415,7 @@
           "the fired id is a real live-chart edge id (G3 agreement)"))))
 
 (deftest fired-ids-parallel-region-local-wins-over-region-level-on
-  (testing "rf2-85a9do — PRECEDENCE: a region-LOCAL transition wins over the
+  (testing "PRECEDENCE: a region-LOCAL transition wins over the
             region's own top-level :on fallback when both could match the move"
     ;; :a has BOTH a region-level :on {:go :two} AND a child :one {:on {:go :two}}.
     ;; From :one, :go is handled LOCALLY by the :one leaf, so the region-local
@@ -1450,7 +1453,7 @@
           "the region-level :on fallback edge is suppressed by the local match"))))
 
 (deftest fired-ids-parallel-region-level-on-distinct-from-root-on
-  (testing "rf2-85a9do — a region-level :on fallback and a parallel ROOT :on
+  (testing "a region-level :on fallback and a parallel ROOT :on
             are distinct arms: a machine with BOTH lights the right one per
             region (region-level :on for the region that declared it; root :on
             for the region the root moved) and they never cross-match"
@@ -1483,18 +1486,18 @@
           "only :a's region-level :on edge lights; the suppressed root :on + resting :b are dark")
       (is (every? projected-ids fired)))))
 
-;; ---- extract-fired-edge-ids: HANDLED-but-UNCHANGED parallel (rf2-l8ls6w) --
+;; ---- extract-fired-edge-ids: HANDLED-but-UNCHANGED parallel -------------
 ;;
 ;; A parallel region can fire a real targetless/INTERNAL or external SELF
 ;; transition with before == after (the region's leaf is unchanged) AND a
 ;; non-empty cascade. The runtime emits :rf.machine/transition and machines-viz
 ;; projects the self edge, but the before/after region-map shows no change, so
-;; the pure region-map diff skipped it and Xray highlighted nothing. The fix
-;; reads the trace's structured :cascade to distinguish a HANDLED-unchanged
+;; a pure region-map diff would skip it and Xray would highlight nothing. The
+;; derivation reads the trace's structured :cascade to distinguish a HANDLED-unchanged
 ;; region (light its self/internal edge) from a RESTING region (light nothing).
 
 (deftest fired-ids-parallel-self-transition-before-equals-after
-  (testing "rf2-l8ls6w — a region firing an external SELF transition
+  (testing "a region firing an external SELF transition
             (:target :same-state, before == after) lights its self-loop edge,
             distinguished from a resting region by the cascade"
     (let [def        {:type    :parallel
@@ -1529,7 +1532,7 @@
           "the HANDLED-unchanged :a self edge lights; the RESTING :b lights nothing"))))
 
 (deftest fired-ids-parallel-internal-transition-before-equals-after
-  (testing "rf2-l8ls6w — a region firing an INTERNAL transition (no :target,
+  (testing "a region firing an INTERNAL transition (no :target,
             action-only — before == after) lights its internal self-anchored
             edge off the non-empty cascade"
     (let [def       {:type    :parallel
@@ -1559,12 +1562,12 @@
           "the internal HANDLED-unchanged :a edge lights off the cascade"))))
 
 (deftest fired-ids-parallel-region-root-internal-on-before-equals-after
-  (testing "rf2-pdvtxt — a region firing a TARGETLESS/action-only transition on
+  (testing "a region firing a TARGETLESS/action-only transition on
             its REGION ROOT `:on` (no :target, before == after) lights the
             region-CONTAINER-anchored internal fallback edge off the non-empty
             cascade. region-self-internal-fired-ids keys on a region-SCOPED
             in-region source so it cannot reach this region-root fallback; the
-            new region-machine-internal-fired-ids arm lights it."
+            region-machine-internal-fired-ids arm lights it."
     ;; :a carries a region-ROOT :on {:abort {:action :log}} (targetless). From
     ;; :loading, :abort is handled by the region root, runs :log, and moves NO
     ;; state (before == after). :b rests.
@@ -1577,7 +1580,7 @@
                                    :states  {:idle {}}}}}
           projected (:edges (chart-layout/project-definition def))
           ;; the canonical projected internal fallback edge: machine-level +
-          ;; internal, sourced AND targeted at the region container (rf2-pdvtxt).
+          ;; internal, sourced AND targeted at the region container.
           internal-id (->> projected
                            (some (fn [e]
                                    (when (and (:machine-level? e)
@@ -1601,7 +1604,7 @@
           "the region-root internal HANDLED-unchanged :a fallback lights off the cascade"))))
 
 (deftest fired-ids-parallel-resting-region-lights-nothing
-  (testing "rf2-l8ls6w — a region whose before == after AND is ABSENT from the
+  (testing "a region whose before == after AND is ABSENT from the
             cascade (a RESTING region that declined the event) lights nothing,
             even if a self/internal edge for the event exists in the projection"
     (let [def       {:type    :parallel
@@ -1634,7 +1637,7 @@
            cascade) lights nothing even though it has a :ping self edge"))))
 
 (deftest fired-ids-parallel-mixed-moved-and-handled-unchanged
-  (testing "rf2-l8ls6w — one event moves region :a (changed) AND fires a self
+  (testing "one event moves region :a (changed) AND fires a self
             transition in region :b (handled-unchanged): BOTH light"
     (let [def       {:type    :parallel
                      :regions {:a {:initial :one
@@ -1674,9 +1677,9 @@
           "the moved :a edge AND the handled-unchanged :b self edge BOTH light"))))
 
 (deftest fired-ids-parallel-no-cascade-keeps-changed-region-behaviour
-  (testing "rf2-l8ls6w — a trace with NO :cascade (legacy / hand-built) still
-            lights every CHANGED region (the pre-fix behaviour is preserved);
-            only handled-UNCHANGED detection needs the cascade"
+  (testing "a trace with NO :cascade (legacy / hand-built)
+            lights every CHANGED region too; only handled-UNCHANGED
+            detection needs the cascade"
     (let [def        (hvac-definition)
           projected  (:edges (chart-layout/project-definition def))
           climate-id (->> projected
@@ -1694,15 +1697,15 @@
           fired      (trace-state/extract-fired-edge-ids
                        def events :hvac/controller)]
       (is (= #{climate-id} fired)
-          "the changed climate region still lights without a cascade"))))
+          "the changed climate region lights without a cascade"))))
 
-;; ---- rf2-nb8nj — RAISED (internal) events are their own causal step ------
+;; ---- RAISED (internal) events are their own causal step -----------------
 ;;
-;; The runtime now records one `:kind :raised-transition` wrapper per HANDLED
+;; The runtime records one `:kind :raised-transition` wrapper per HANDLED
 ;; internal-event dequeue, carrying that event and its own from/to/steps.
 ;; Two consumer obligations follow: the dispatched event and the internal
 ;; event must light as DISTINCT edges, and a parallel region that moved ONLY
-;; on the raise must no longer read as having handled the dispatched event.
+;; on the raise must not read as having handled the dispatched event.
 
 (defn- raise-chain-definition
   "`:go` is event-driven (:idle -> :working) and its action raises [:settle];
@@ -1717,13 +1720,13 @@
              :done    {:final? true}}})
 
 (deftest extract-fired-edge-ids-raised-transition-lights-direct-and-raised-edges
-  (testing "rf2-nb8nj — a macrostep whose event RAISED an internal event
+  (testing "a macrostep whose event RAISED an internal event
             lights BOTH the dispatched event's own edge (:idle -> :working)
             AND the raised event's own edge (:working -> :done), each under
             its OWN event id — NOT the (from, FINAL-settled, event) triple
-            that matches no declared edge. Before rf2-nb8nj this macrostep
-            carried no cascade boundary at all, so the derivation searched
-            for a phantom :idle -> :done :go edge and lit NOTHING."
+            that matches no declared edge. Without a cascade boundary for
+            the raise, the derivation would search for a phantom
+            :idle -> :done :go edge and light NOTHING."
     (let [def       (raise-chain-definition)
           go-id     (canonical-edge-id def [:idle]    [:working] :go)
           settle-id (canonical-edge-id def [:working] [:done]    :settle)
@@ -1748,14 +1751,14 @@
       (is (string? settle-id))
       (is (not= go-id settle-id))
       (is (nil? (canonical-edge-id def [:idle] [:done] :go))
-          "no :idle->:done :go edge is declared — the aggregate match was a phantom")
+          "no :idle->:done :go edge is declared — an aggregate match would be a phantom")
       (is (= #{go-id settle-id} fired)
           "the dispatched event and the internal event light as DISTINCT edges"))))
 
 (deftest extract-fired-edge-ids-always-nested-inside-a-raise-still-lights
-  (testing "rf2-nb8nj — an :always transition ENABLED by a raised transition
+  (testing "an :always transition ENABLED by a raised transition
             settles INSIDE that raise's nested :steps, not at top level. Its
-            edge must still light, attributed to the internal event's hop."
+            edge lights all the same, attributed to the internal event's hop."
     (let [def       {:initial :idle
                      :states  {:idle     {:on {:go :working}}
                                :working  {:on {:settle :checking}}
@@ -1787,9 +1790,9 @@
           "the nested :always microstep's edge lights alongside its enclosing raise"))))
 
 (deftest extract-fired-edge-ids-no-raised-transitions-unaffected
-  (testing "rf2-nb8nj regression guard — a macrostep with no raised events is
+  (testing "regression guard — a macrostep with no raised events is
             unaffected by the raised-boundary derivation (falls through to the
-            pre-existing to-path-from-trace read)"
+            to-path-from-trace read)"
     (let [def         (toy-definition)
           populate-id (canonical-edge-id def [:empty] [:populated] :populate)
           events      [{:operation :rf.machine/transition
@@ -1802,13 +1805,12 @@
       (is (= #{populate-id} fired)))))
 
 (deftest fired-ids-parallel-raise-only-region-is-not-event-handled
-  (testing "rf2-nb8nj — :left handles :go and raises [:settle]; :right
+  (testing ":left handles :go and raises [:settle]; :right
             DECLINES :go and moves only on the rebroadcast raise. The raised
-            rows now ride a :raised-transition wrapper, so :right is NOT in
+            rows ride a :raised-transition wrapper, so :right is NOT in
             handled-regions and mints NO phantom :go edge — it lights its own
-            :settle edge instead. Before rf2-nb8nj the parallel parent queue
-            flattened those rows in with no boundary, so :right read as having
-            handled :go."
+            :settle edge instead. Flattened in with no boundary, those rows
+            would make :right read as having handled :go."
     (let [def       {:type :parallel
                      :regions {:left  {:initial :l0
                                        :states  {:l0 {:on {:go :l1}}
@@ -1843,8 +1845,8 @@
           ":left lights its :go edge and :right lights its RAISED :settle edge"))))
 
 (deftest fired-ids-parallel-raise-handled-unchanged-region-lights-self-edge
-  (testing "rf2-nb8nj — a region that handles the RAISED event with a
-            targetless/self transition (before == after) still lights its
+  (testing "a region that handles the RAISED event with a
+            targetless/self transition (before == after) lights its
             self/internal edge off the wrapper's nested :steps, rather than
             being read as resting"
     (let [def        {:type :parallel
@@ -1881,24 +1883,24 @@
       (is (= #{left-go right-self} fired)
           "the raised self/internal transition lights, attributed to :settle"))))
 
-;; ---- rf2-nb8nj (audit of PR #8933) — the ORDERED continuation stream ------
+;; ---- the ORDERED continuation stream -------------------------------------
 ;;
 ;; A parallel region can take BOTH continuation kinds in one macrostep, and
 ;; the order they ran in is the whole of the question. The parent loop prefers
 ;; `:always` at each iteration, but a RAISE that ENABLES an `:always` puts
-;; that round AFTER itself — so "a round if one ran, else a raise" reads the
-;; dispatched event's target off the LATER boundary. The two kinds are now
-;; read off ONE ordered walk of the structured `:cascade` instead of two
+;; that round AFTER itself — so "a round if one ran, else a raise" would read
+;; the dispatched event's target off the LATER boundary. The two kinds are
+;; read off ONE ordered walk of the structured `:cascade` rather than two
 ;; independently grouped buckets consulted with a fixed preference.
 
 (deftest fired-ids-parallel-raise-then-enabled-round-lights-all-three-edges
-  (testing "rf2-nb8nj audit — :go takes :main :r0→:r1 and raises [:settle];
+  (testing ":go takes :main :r0→:r1 and raises [:settle];
             :settle takes :r1→:r2; the round :r2--:always-->:r3 that the RAISE
             enabled runs next. The event's direct target is :r1 (the RAISED
             hop's :from — the FIRST continuation), not :r2 (the round's). All
-            THREE edges light. RED before the fix: preferring any round over
-            any raise read the event as :r0→:r2, a phantom aggregate, so the
-            real :go edge went dark while :settle and :always both lit."
+            THREE edges light. Preferring any round over any raise would
+            read the event as :r0→:r2, a phantom aggregate, so the real :go
+            edge would go dark while :settle and :always both lit."
     (let [def       {:type    :parallel
                      :regions {:main {:initial :r0
                                       :states  {:r0 {:on {:go :r1}}
@@ -1958,11 +1960,10 @@
           "all three continuation kinds light, each under its own event"))))
 
 (deftest fired-ids-parallel-round-before-a-raise-keeps-the-round-as-first-boundary
-  (testing "rf2-nb8nj audit, the other order — the round runs FIRST (:r0 has an
+  (testing "the other order — the round runs FIRST (:r0 has an
             enabled :always the event landed on) and the raise is dequeued
-            after it. The event target is then the ROUND's :from, and the
-            ordered stream must not have simply swapped one fixed preference
-            for another."
+            after it. The event target is then the ROUND's :from: the
+            ordered stream is not simply the opposite fixed preference."
     (let [def       {:type    :parallel
                      :regions {:main {:initial :r0
                                       :states  {:r0 {:on {:go :r1}}
