@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.save-variant-cljs-test
-  "Tests for the save-current-canvas-state-as-variant UI surface
-  (rf2-one3t).
+  "Tests for the save-current-canvas-state-as-variant UI surface.
 
   Splits into two tiers:
 
@@ -121,10 +120,10 @@
          (is (str/includes? flat ":extends"))
          (is (str/includes? flat ":story.x/source"))))))
 
-;; ---- rf2-lancu: snapshot-violations + save-dialog pre-paste hint --------
+;; ---- snapshot-violations + save-dialog pre-paste hint -------------------
 
 (deftest snapshot-violations-soft-passes-when-no-validator
-  (testing "rf2-lancu — snapshot-violations is a thin pass-through to
+  (testing "snapshot-violations is a thin pass-through to
             schema-validation/args-violations; soft-passes per Spec 010
             when no validator / no schema (returns empty vec)"
     (is (= [] (rf.story.save-variant/snapshot-violations {:a 1} nil nil)))
@@ -140,7 +139,7 @@
         "validator that always passes → no violations")))
 
 (deftest snapshot-violations-reports-non-conforming-keys
-  (testing "rf2-lancu — when args break the schema the violation list
+  (testing "when args break the schema the violation list
             names the offending keys + their values so the save dialog
             can render the 'paste at your own risk' hint pre-paste"
     (let [violations (rf.story.save-variant/snapshot-violations
@@ -154,7 +153,7 @@
       (is (= "oops" (-> violations first :value))))))
 
 (deftest open-stamps-violations-on-dialog-state
-  (testing "rf2-lancu — rf.story.save-variant/open's 5-arity stamps the violations
+  (testing "rf.story.save-variant/open's 5-arity stamps the violations
             vector on the dialog state so the save dialog can render the
             non-blocking hint above the snippet"
     (let [vs [{:key :b :value "oops" :schema :int :explain nil}]
@@ -165,7 +164,7 @@
           "violations ride the dialog state under :violations"))))
 
 (deftest open-3-arity-defaults-violations-to-empty-vec
-  (testing "rf2-lancu — back-compat: the legacy 3-arity (without
+  (testing "the 3-arity (without
             violations) stamps an empty vec so the dialog hint path
             renders nothing"
     (let [s (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
@@ -174,7 +173,7 @@
 
 #?(:cljs
    (deftest save-dialog-renders-no-violations-hint-when-empty
-     (testing "rf2-lancu — when the snapshot conforms (no violations) the
+     (testing "when the snapshot conforms (no violations) the
                dialog renders the snippet without the violations hint"
        (reset! rf.story.ui.save-variant/ui-dialog
                (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
@@ -190,7 +189,7 @@
 
 #?(:cljs
    (deftest save-dialog-renders-violations-hint-when-non-empty
-     (testing "rf2-lancu — when the snapshot violates the schema the
+     (testing "when the snapshot violates the schema the
                dialog renders a non-blocking hint above the snippet
                listing the offending keys. Non-blocking — the user can
                still copy / paste; the snippet carries the violating
@@ -214,7 +213,7 @@
          (is (str/includes? flat "story-save-variant-snippet")
              "the snippet still renders — the hint is non-blocking")))))
 
-;; ---- rf2-ba86n.6: eight-slice capture model -----------------------------
+;; ---- eight-slice capture model -----------------------------------------
 
 (deftest capture-slices-covers-all-eight-slices
   (testing "every slice in spec/019 §3 is classified — none silently dropped"
@@ -278,7 +277,7 @@
       (is (not-any? #(str/includes? (:note %) "rf2-") report)
           "no note cites a bead id")
       (is (= :not-wired (-> by-slice :route :status))
-          "route has no declared source slot — still not-wired"))))
+          "route has no declared source slot — not-wired"))))
 
 (deftest slice-warnings-filters-projectable
   (testing "slice-warnings keeps only the rows the user must see — every slice
@@ -293,7 +292,7 @@
           "route (not-wired) is surfaced"))))
 
 (deftest open-6-arity-stamps-slices
-  (testing "rf2-ba86n.6 — open's 6-arity stamps the slice report on the dialog"
+  (testing "open's 6-arity stamps the slice report on the dialog"
     (let [report (rf.story.save-variant/capture-slices {:n 1} nil {})
           s      (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                     :story.x/y {:n 1} 0 [] report)]
@@ -301,7 +300,7 @@
       (is (= report (:slices s)) "the slice report rides the dialog state"))))
 
 (deftest open-4-arity-defaults-slices-to-empty-vec
-  (testing "rf2-ba86n.6 — back-compat: pre-slices arities default :slices to []"
+  (testing "the arities without a slice report default :slices to []"
     (is (= [] (:slices (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                           :story.x/y {:n 1} 0))))
     (is (= [] (:slices (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
@@ -309,7 +308,7 @@
 
 #?(:cljs
    (deftest slice-report-renders-warnings-when-present
-     (testing "rf2-ba86n.6 — the slice-report component renders a row per
+     (testing "the slice-report component renders a row per
                non-projectable slice with its status + honest note"
        (let [report (rf.story.save-variant/capture-slices {:n 1} nil {:viewport :tablet})
              flat   (str (rf.story.ui.save-variant/slice-report report))]
@@ -324,7 +323,7 @@
 
 #?(:cljs
    (deftest slice-report-nil-when-all-projectable
-     (testing "rf2-ba86n.6 — when every slice projects cleanly there is
+     (testing "when every slice projects cleanly there is
                nothing to warn about and the report renders nil"
        (let [all-clean [{:slice :args :status :projectable}
                         {:slice :transient-controls :status :projectable}]]
@@ -332,7 +331,7 @@
 
 #?(:cljs
    (deftest save-dialog-renders-slice-report-when-open
-     (testing "rf2-ba86n.6 — the open dialog renders the slice report below
+     (testing "the open dialog renders the slice report below
                the snippet so the save is honest about what it captures"
        (reset! rf.story.ui.save-variant/ui-dialog
                (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
