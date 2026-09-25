@@ -2498,7 +2498,11 @@
     (when (rf.machines.parallel/parallel? machine)
       (doseq [[rn body] (:regions machine)]
         (check-action! (:entry body) rn :entry)
-        (check-action! (:exit  body) rn :exit)))
+        (check-action! (:exit  body) rn :exit)
+        ;; A region body's own `:on-done` takes the region's done — the
+        ;; compound case scoped to one region — so its guard / action refs
+        ;; resolve here like a compound's, attributed to the region.
+        (check-transition! (:on-done body) rn)))
     ;; The PARALLEL ROOT's own `:on-done` (fired when all
     ;; regions reach final) carries `:guard` / `:action` refs that must
     ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,
