@@ -76,7 +76,7 @@
   ## Xray focus-pinning (the 'you see the result' contract)
 
   A Step press should leave the embedded Xray surface SHOWING the
-  result of the step's real event. The runner restores that with a
+  result of the step's real event. The runner does that with a
   per-host-frame **epoch listener** (`(rf/register-listener! :epoch …)`,
   registered once at `reg-runner!` load time — NOT a Reagent atom and
   NOT a timer): each time `host-frame` settles a CHILD epoch (the
@@ -98,7 +98,7 @@
 
   Lives under `tools/xray/testbeds/`; `:require`s only `re-frame.core`
   (the public API) and `day8.re-frame2-xray.focus` (the host-facing
-  focus channel — already the Story→Xray focus surface). Nothing under
+  focus channel — also the Story→Xray focus surface). Nothing under
   `implementation/` requires this; it is a dev testbed surface."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.focus :as xray-focus])
@@ -156,18 +156,17 @@
   The `:epoch` listener is called once per DEQUEUED EVENT, not once per
   epoch, so it re-delivers the same in-flight record many times and — for
   a step whose event cascades — delivers a PARENT record again after the
-  child's record has already arrived. Measured on the routes-epochs
-  ladder's rung #3, one press produced twelve firings: epoch 6
+  child's record has already arrived. On the routes-epochs ladder's
+  rung #3, one press fires it twelve times: epoch 6
   (`:routes-epochs/go`) seven times, then epoch 7 (`:rf.route/navigate`)
   once, then epoch 6 TWICE MORE with the ring's last already 7. Pinning
-  on that trailing stale record put the spine into RETRO on the parent
-  epoch, whose bundle carries no routing traces — so the Routing panel's
-  NAVIGATION THIS EPOCH section read 'No route activity in this epoch'
-  while CURRENT ROUTE still showed the arrived route.
+  on that trailing stale record would put the spine into RETRO on the
+  parent epoch, whose bundle carries no routing traces — so the Routing
+  panel's NAVIGATION THIS EPOCH section would read 'No route activity in
+  this epoch' while CURRENT ROUTE showed the arrived route.
 
   This guard is what makes the ns docstring's 'each step re-focuses head
-  and the spine never pins into RETRO' true of the code rather than only
-  of the intent (rf2-6nxq8).
+  and the spine never pins into RETRO' true of the code.
 
   A nil ring means the epoch artefact is absent, in which case the
   listener would not have registered at all; the `some?` arm keeps the
@@ -192,8 +191,8 @@
   via the run-step handler's async `:dispatch` fx. It ALSO skips a record
   that is no longer the newest epoch in the frame's ring
   (`latest-epoch?`) — the listener re-delivers a parent record after its
-  child's has landed, and pinning that trailing stale record is what put
-  the spine into RETRO on the parent (rf2-6nxq8). `(rf/register-listener!
+  child's has landed, and pinning that trailing stale record would put
+  the spine into RETRO on the parent. `(rf/register-listener!
   :epoch …)` returns nil when the epoch artefact is absent, in which
   case focus-pinning silently degrades to a no-op (no epoch ring to
   focus against) — the testbed still steps."
