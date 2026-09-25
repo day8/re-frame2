@@ -2,12 +2,11 @@
 ;;
 ;; Per Spec 015 §Tests (the route-* row) + Spec 012 §Route data classification
 ;; and EP-0025 §Subsystem matrix (reg-route row) — the route subsystem is the
-;; SINGLETON current-route arm of the EP-0025 subsystem matrix, the only
-;; subsystem that previously had NO cross-implementation conformance pin
-;; (the machine arm has data-classification-machine-data-declared-redacts.edn;
-;; the route arm had only the single-impl JVM unit suite
+;; SINGLETON current-route arm of the EP-0025 subsystem matrix, and this is
+;; its cross-implementation conformance pin (the machine arm's is
+;; data-classification-machine-data-declared-redacts.edn; the route arm's
+;; single-impl JVM unit suite is
 ;; implementation/routing/test/re_frame/routing_classification_test.clj).
-;; rf2-v9l8eg (EP-0025 deep-review #2, completeness lens) closes that gap.
 ;;
 ;; A reg-route declares projection-relative :sensitive [[:query :token]] paths
 ;; (rooted at the route's {:query … :params …} projection). On route activation
